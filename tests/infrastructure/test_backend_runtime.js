@@ -691,6 +691,66 @@ with tempfile.TemporaryDirectory() as temp_dir:
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });
 
+test('zerochat.py: list_directory, search_files y get_diagnostics manejan enlaces simbólicos externos de forma segura', () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const script = `
+import importlib.util
+import json
+import os
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    spec = importlib.util.spec_from_file_location("zerochat_tools_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    zerochat = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(zerochat)
+
+    base = Path(temp_dir)
+    outside = base / "outside.txt"
+    outside.write_text("SECRET_EXTERNAL_DATA", encoding="utf-8")
+
+    project = base / "proj"
+    project.mkdir()
+    (project / "regular.txt").write_text("hello world\\nregular line", encoding="utf-8")
+    (project / "symlink_ext.txt").symlink_to(outside)
+
+    sub = project / "sub"
+    sub.mkdir()
+    (sub / "inside.py").write_text("print('inside')\\n", encoding="utf-8")
+    (sub / "ext_link.py").symlink_to(outside)
+
+    # 1. list_directory con recursive=True no falla ante symlink externo y calcula relative_path
+    list_res = json.loads(zerochat.list_directory(str(project), recursive=True))
+    assert list_res["success"] is True
+    paths = [e["name"] for e in list_res["entries"]]
+    assert "symlink_ext.txt" in paths
+
+    # 2. search_files no indexa ni busca en symlinks que apuntan fuera del proyecto
+    search_res = json.loads(zerochat.search_files("SECRET_EXTERNAL", path=str(project)))
+    assert search_res["success"] is True
+    assert search_res["total_matches"] == 0
+
+    search_ok = json.loads(zerochat.search_files("hello", path=str(project)))
+    assert search_ok["success"] is True
+    assert search_ok["total_matches"] == 1
+
+    # 3. get_diagnostics no escanea symlinks que apuntan fuera del proyecto
+    diag_res = json.loads(zerochat.get_diagnostics(path=str(project)))
+    assert diag_res["success"] is True
+    assert diag_res["error_count"] == 0
+
+    # 4. read_file acota end_line a máximo 2000 líneas
+    big_file = project / "big.txt"
+    big_file.write_text("\\n".join(f"line_{i}" for i in range(1, 3000)), encoding="utf-8")
+    read_res = json.loads(zerochat.read_file(str(big_file), start_line=1, end_line=2500))
+    assert read_res["success"] is True
+    assert read_res["lines_returned"] == 2000
+    assert read_res["truncated"] is True
+`;
+  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+});
+
 test('zerochat.py: en Windows cada comando queda en un Job Object que lo mata si ZeroChat termina', { skip: process.platform !== 'win32' }, () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const script = `

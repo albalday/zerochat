@@ -1133,6 +1133,12 @@ def _atomic_write_text(target: Path, text: str):
     temp_path.replace(target)
 
 
+IGNORED_WORKSPACE_DIRS = {
+    ".git", ".venv", "venv", "node_modules", "__pycache__",
+    ".pytest_cache", ".cache", ".gemini", "dist", "build"
+}
+
+
 def list_directory(path: str = ".", recursive: bool = False) -> str:
     """List files and directories in a local directory with safe bounded recursive traversal."""
     try:
@@ -1158,21 +1164,28 @@ def list_directory(path: str = ".", recursive: bool = False) -> str:
                         try:
                             stat = entry.stat(follow_symlinks=False)
                             is_dir = entry.is_dir(follow_symlinks=False)
+                            try:
+                                resolved_path = str(Path(entry.path).resolve())
+                            except (OSError, RuntimeError):
+                                resolved_path = str(Path(entry.path).absolute())
                             entry_data = {
                                 "name": entry.name,
-                                "path": str(Path(entry.path).resolve()),
+                                "path": resolved_path,
                                 "type": "directory" if is_dir else "file",
                                 "size_bytes": None if is_dir else stat.st_size,
                                 "is_symlink": entry.is_symlink()
                             }
                             if recursive:
-                                entry_data["relative_path"] = str(Path(entry.path).resolve().relative_to(target))
+                                try:
+                                    entry_data["relative_path"] = str(Path(entry.path).relative_to(target))
+                                except ValueError:
+                                    entry_data["relative_path"] = entry.name
                             entries.append(entry_data)
                             if recursive and is_dir and not entry.is_symlink():
                                 _scan(Path(entry.path), current_depth + 1)
-                        except (PermissionError, FileNotFoundError):
+                        except (PermissionError, FileNotFoundError, OSError):
                             continue
-            except (PermissionError, FileNotFoundError):
+            except (PermissionError, FileNotFoundError, OSError):
                 pass
 
         _scan(target, 1)
@@ -1203,7 +1216,8 @@ def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: i
 
         if end_line is not None:
             safe_end_line = max(safe_start_line, int(end_line))
-            target_line_count = safe_end_line - safe_start_line + 1
+            target_line_count = min(safe_end_line - safe_start_line + 1, 2000)
+            safe_end_line = safe_start_line + target_line_count - 1
         else:
             safe_end_line = None
             target_line_count = max(1, min(int(max_lines), 2000))
@@ -1239,6 +1253,7 @@ def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: i
                             selected_lines.append(encoded.decode("utf-8", errors="ignore"))
                         truncated_bytes = True
                         reached_end_bound = True
+                        break
                     else:
                         selected_lines.append(line)
                         current_bytes += line_bytes
@@ -1340,14 +1355,18 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
         except re.error:
             regex = re.compile(re.escape(query), re.MULTILINE)
 
-        ignored_dirs = {".git", ".venv", "node_modules", "__pycache__", ".pytest_cache", ".cache"}
+        try:
+            safe_max_results = max(1, min(int(max_results), 500))
+        except (TypeError, ValueError):
+            safe_max_results = 100
+
         matches = []
         files_searched = 0
         max_file_size = 2 * 1024 * 1024
         truncated = False
 
         for root, dirs, files in os.walk(target):
-            dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith(".")]
+            dirs[:] = [d for d in dirs if d not in IGNORED_WORKSPACE_DIRS and not d.startswith(".")]
 
             for fname in sorted(files):
                 if file_pattern and not fnmatch.fnmatch(fname, file_pattern):
@@ -1355,6 +1374,12 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
 
                 fpath = Path(root) / fname
                 try:
+                    if fpath.is_symlink():
+                        try:
+                            if not fpath.resolve().is_relative_to(target):
+                                continue
+                        except (OSError, ValueError):
+                            continue
                     stat = fpath.stat()
                     if stat.st_size > max_file_size:
                         continue
@@ -1376,7 +1401,7 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
                                     "line_number": line_idx,
                                     "content": line.rstrip("\r\n")[:300]
                                 })
-                                if len(matches) >= max_results:
+                                if len(matches) >= safe_max_results:
                                     truncated = True
                                     break
                 except (PermissionError, OSError):
@@ -1474,12 +1499,20 @@ def get_diagnostics(path: str | None = None) -> str:
             files_checked = 1
             diagnostics.extend(check_single_file(target))
         else:
-            ignore_dirs = {".git", "node_modules", ".venv", "venv", "dist", "build", "__pycache__", ".gemini", ".cache"}
             max_scan = 200
             for root, dirs, files in os.walk(target):
-                dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith(".")]
+                dirs[:] = [d for d in dirs if d not in IGNORED_WORKSPACE_DIRS and not d.startswith(".")]
                 for fname in sorted(files):
                     fp = Path(root) / fname
+                    try:
+                        if fp.is_symlink():
+                            try:
+                                if not fp.resolve().is_relative_to(target):
+                                    continue
+                            except (OSError, ValueError):
+                                continue
+                    except OSError:
+                        continue
                     if fp.suffix.lower() in (".py", ".js", ".mjs", ".cjs", ".json"):
                         files_checked += 1
                         diagnostics.extend(check_single_file(fp))
@@ -1813,7 +1846,8 @@ LOCAL_TOOLS_DEFINITIONS = [
             "properties": {
                 "query": {"type": "string", "maxLength": 4096, "description": "Plain text string or regular expression to search for"},
                 "path": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Base search directory (defaults to '.')", "default": "."},
-                "file_pattern": {"type": "string", "maxLength": 256, "description": "Optional glob filter (e.g. *.js, *.py)"}
+                "file_pattern": {"type": "string", "maxLength": 256, "description": "Optional glob filter (e.g. *.js, *.py)"},
+                "max_results": {"type": "integer", "description": "Maximum number of matching lines to return (default 100, max 500)", "default": 100}
             },
             "required": ["query"]
         }

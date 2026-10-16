@@ -537,6 +537,27 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.ok(parsedSearch.total_matches > 0);
     assert.ok(parsedSearch.matches.some(m => m.relative_path.includes('dd-tools.py') || m.relative_path.includes('zerochat.py')));
 
+    // 6.6b. Comprobar search_files con max_results
+    const searchLimitedRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 601,
+        method: 'tools/call',
+        params: {
+          name: 'search_files',
+          arguments: { query: 'def ', path: '.', file_pattern: '*.py', max_results: 1 }
+        }
+      })
+    });
+    assert.equal(searchLimitedRes.status, 200);
+    const searchLimitedJson = await searchLimitedRes.json();
+    const parsedLimited = JSON.parse(searchLimitedJson.result?.content?.[0]?.text);
+    assert.equal(parsedLimited.success, true);
+    assert.equal(parsedLimited.matches.length, 1);
+    assert.equal(parsedLimited.truncated, true);
+
     // 6.7. Comprobar get_diagnostics en archivo específico
     const diagRes = await fetch(baseUrl, {
       method: 'POST',

@@ -372,6 +372,16 @@ test('ChatToolSecurity - list_directory sin path normaliza a "." y aplica reglas
   const evalWithRule = manager.evaluateAuthorization(listTool, {});
   assert.equal(evalWithRule.requiresApproval, false);
   assert.equal(evalWithRule.status, 'allow');
+
+  const searchTool = { id: 'search_files', name: 'search_files', category: 'mcp' };
+  const evalSearch = manager.evaluateAuthorization(searchTool, { query: 'test' });
+  assert.equal(evalSearch.requiresApproval, false);
+  assert.equal(evalSearch.status, 'allow');
+
+  const diagTool = { id: 'get_diagnostics', name: 'get_diagnostics', category: 'mcp' };
+  const evalDiag = manager.evaluateAuthorization(diagTool, {});
+  assert.equal(evalDiag.requiresApproval, false);
+  assert.equal(evalDiag.status, 'allow');
 });
 
 test('ChatToolSecurity - Sesión acotada por token y preservación de autorizaciones permanentes', () => {

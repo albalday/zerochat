@@ -752,7 +752,8 @@
       }
 
       const args = { ...rawArgs };
-      if ((toolName === 'list_directory' || originalName === 'list_directory') && !args.path && !args.directory && !args.dir) {
+      const defaultPathTools = new Set(['list_directory', 'search_files', 'get_diagnostics']);
+      if ((defaultPathTools.has(toolName) || defaultPathTools.has(originalName)) && !args.path && !args.directory && !args.dir) {
         args.path = '.';
       }
 
