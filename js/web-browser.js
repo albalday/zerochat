@@ -48,7 +48,7 @@
     return resolveDep('ChatOfficeParser', './office-parser.js');
   }
 
-  const { fetchWithTimeout, resolveDep, bytesToBase64, formatBytes } = Utils;
+  const { fetchWithTimeout, resolveDep, bytesToBase64, formatBytes, IMAGE_MIME_TYPES, SAFE_IMAGE_MIME_TYPES } = Utils;
 
   /**
    * Analiza y normaliza posibles evasiones numéricas (decimal, octal, hex) y rangos privados/locales de direcciones IP.
@@ -555,12 +555,7 @@
 
   const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
-  const VISION_IMAGE_MIME_TYPES = new Set([
-    'image/png',
-    'image/jpeg',
-    'image/webp',
-    'image/gif'
-  ]);
+  const VISION_IMAGE_MIME_TYPES = SAFE_IMAGE_MIME_TYPES;
 
   /**
    * Determina el tipo MIME de imagen válido para modelos de visión a partir del nombre o Content-Type.
@@ -572,10 +567,8 @@
     if (VISION_IMAGE_MIME_TYPES.has(cleanType)) return cleanType;
     const match = String(fileName || '').toLowerCase().match(/\.([a-z0-9]+)(?:[?#]|$)/i);
     const ext = match ? match[1] : '';
-    if (ext === 'png') return 'image/png';
-    if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
-    if (ext === 'webp') return 'image/webp';
-    if (ext === 'gif') return 'image/gif';
+    const resolvedMime = IMAGE_MIME_TYPES[ext];
+    if (resolvedMime && VISION_IMAGE_MIME_TYPES.has(resolvedMime)) return resolvedMime;
     return '';
   }
 
@@ -731,7 +724,6 @@
     validateUrlForFetch,
     detectVisionImageMimeType,
     documentFileName,
-    imageFileName: documentFileName,
     extractReadableTextFromHtml,
     BaseFetchStrategy,
     ReaderGatewayStrategy,

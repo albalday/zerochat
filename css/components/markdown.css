@@ -260,7 +260,8 @@
   color: var(--console-text);
 }
 
-.btn-copy-code.copied {
+.btn-copy-code.copied,
+.btn-copy-table-csv.copied {
   color: var(--success);
   border-color: var(--success);
 }

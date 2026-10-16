@@ -59,6 +59,14 @@
     svg: 'image/svg+xml'
   };
 
+  /** Tipos MIME de imagen ráster seguros admitidos para visión y capturas. */
+  const SAFE_IMAGE_MIME_TYPES = Object.freeze(new Set([
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+    'image/gif'
+  ]));
+
   function sanitizeImageUrl(rawUrl) {
     if (!rawUrl || typeof rawUrl !== 'string') return '';
     const trimmed = rawUrl.trim();
@@ -360,6 +368,7 @@
     sanitizeUrl,
     sanitizeImageUrl,
     IMAGE_MIME_TYPES,
+    SAFE_IMAGE_MIME_TYPES,
     openImageInNewTab,
     openDocumentInNewTab,
     makeImageOpenable,

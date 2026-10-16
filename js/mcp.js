@@ -19,7 +19,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, Defaults) {
   'use strict';
 
-  const { fetchWithTimeout, resolveDep, escapeHtml } = Utils;
+  const { fetchWithTimeout, resolveDep, escapeHtml, SAFE_IMAGE_MIME_TYPES } = Utils;
 
   // Shared wire contract with public_tool_name in zerochat.py: keep a-y, A-Z
   // and 0-9, and escape anything else as z<hex code point>z. The lowercase z is
@@ -53,7 +53,6 @@
   const HEARTBEAT_INTERVAL_MS = 10000;
   const MAX_OUTPUT_LENGTH = 60000;
   const MAX_IMAGE_BASE64_LENGTH = 8 * 1024 * 1024;
-  const SAFE_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
   const TOOL_AUTH_VERSION = 'zerochat-tool-auth-v1';
   const UNREACHABLE_SERVER_ERROR = 'Cannot reach the local server at that address and port. Make sure zerochat is running in your terminal.';
 
