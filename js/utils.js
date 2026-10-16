@@ -126,6 +126,23 @@
   }
 
   /**
+   * Abre un documento o marcado (HTML, SVG, etc.) en una nueva pestaña como un Blob URL seguro.
+   */
+  function openDocumentInNewTab(content, mimeType = 'text/html;charset=utf-8') {
+    if (typeof window === 'undefined' || !content) return false;
+    try {
+      const blob = new Blob([content], { type: mimeType });
+      const blobUrl = URL.createObjectURL(blob);
+      const timer = setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+      timer?.unref?.();
+      window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
    * Configura una imagen para que sea accesible como botón y se abra en nueva pestaña
    * mediante clic o pulsando Enter/Espacio.
    */
@@ -344,6 +361,7 @@
     sanitizeImageUrl,
     IMAGE_MIME_TYPES,
     openImageInNewTab,
+    openDocumentInNewTab,
     makeImageOpenable,
     parseRagImageRef,
     setText,

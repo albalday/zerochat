@@ -144,3 +144,37 @@ test('ChatUtils - openImageInNewTab abre una sola pestaña con noopener y revoca
     dom.restore();
   }
 });
+
+test('ChatUtils - openDocumentInNewTab abre documentos en Blob con noopener y revoca', () => {
+  const dom = installDom();
+  try {
+    const opened = [];
+    const createdBlobs = [];
+    window.open = (url, target, features) => {
+      opened.push({ url, target, features });
+      return null;
+    };
+    const origBlob = global.Blob;
+    global.Blob = class MockBlob extends origBlob {
+      constructor(parts, options) {
+        super(parts, options);
+        createdBlobs.push({ parts, options });
+      }
+    };
+
+    assert.equal(ChatUtils.openDocumentInNewTab(''), false, 'Contenido vacío no abre nada');
+    assert.equal(opened.length, 0);
+
+    const ok = ChatUtils.openDocumentInNewTab('<h1>Folleto</h1>', 'text/html;charset=utf-8');
+    assert.equal(ok, true);
+    assert.equal(opened.length, 1);
+    assert.ok(opened[0].url.startsWith('blob:'));
+    assert.equal(opened[0].target, '_blank');
+    assert.equal(opened[0].features, 'noopener,noreferrer');
+    assert.equal(createdBlobs[0].options.type, 'text/html;charset=utf-8');
+    assert.deepEqual(createdBlobs[0].parts, ['<h1>Folleto</h1>']);
+  } finally {
+    dom.restore();
+  }
+});
+

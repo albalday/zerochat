@@ -19,7 +19,7 @@ test('Markdown - escapa HTML y renderiza tablas, código, pensamiento y reglas h
 
     // Un texto alrededor de la tabla queda en sus propios párrafos
     const htmlAlias = Markdown.parseMarkdown('Aquí tienes la tabla:\n| Cab 1 | Cab 2 |\n|---|---|\n| Dato 1 | Dato 2 |\n\nTexto final');
-    assert.ok(htmlAlias.includes('<div class="table-container"><table class="markdown-table">'));
+    assert.ok(htmlAlias.includes('<div class="table-container">') && htmlAlias.includes('<table class="markdown-table">'));
     assert.ok(htmlAlias.includes('<p>Aquí tienes la tabla:</p>'), 'El texto antes de la tabla debe estar en su propio párrafo sin romper la tabla');
     assert.ok(htmlAlias.includes('<p>Texto final</p>'));
   }
@@ -169,4 +169,116 @@ test('Markdown - attachContentListeners activa el click accesible en imágenes p
     dom.restore();
   }
 });
+
+test('Markdown - tableToCsv convierte tablas HTML a formato CSV estándar con escape RFC 4180', () => {
+  const dom = installDom();
+  try {
+    const div = document.createElement('div');
+    div.innerHTML = `
+      <table>
+        <thead>
+          <tr><th>Producto</th><th>Precio</th><th>Notas</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Manzana</td><td>1.50</td><td>Fruta fresca</td></tr>
+          <tr><td>Pera, conferencia</td><td>2.00</td><td>Con "piel" fina</td></tr>
+          <tr><td>Naranja</td><td>1.80</td><td>Línea 1\nLínea 2</td></tr>
+        </tbody>
+      </table>
+    `;
+    const table = div.querySelector('table');
+    const csv = Markdown.tableToCsv(table);
+    const expected = [
+      'Producto,Precio,Notas',
+      'Manzana,1.50,Fruta fresca',
+      '"Pera, conferencia",2.00,"Con ""piel"" fina"',
+      'Naranja,1.80,"Línea 1\nLínea 2"'
+    ].join('\r\n');
+    assert.equal(csv, expected);
+    assert.equal(Markdown.tableToCsv(null), '');
+  } finally {
+    dom.restore();
+  }
+});
+
+test('Markdown - attachContentListeners conecta copia y descarga CSV en las tablas', () => {
+  const dom = installDom();
+  try {
+    const container = document.createElement('div');
+    container.innerHTML = Markdown.parseMarkdown('| Nombre | Edad |\n|---|---|\n| Ana | 30 |\n| Bob | 25 |');
+
+    const copyBtn = container.querySelector('.btn-copy-table-csv');
+    const exportBtn = container.querySelector('.btn-export-table-csv');
+    assert.ok(copyBtn, 'Debe renderizar botón de copiar CSV');
+    assert.ok(exportBtn, 'Debe renderizar botón de exportar CSV');
+
+    let copiedText = null;
+    ChatUtils.copyToClipboard = (text) => {
+      copiedText = text;
+    };
+
+    const downloaded = [];
+    const fakeExport = {
+      downloadFile: (content, filename, mimeType) => {
+        downloaded.push({ content, filename, mimeType });
+        return true;
+      }
+    };
+    global.ChatExport = fakeExport;
+
+    Markdown.attachContentListeners(container);
+
+    copyBtn.dispatchEvent(new Event('click'));
+    assert.equal(copiedText, 'Nombre,Edad\r\nAna,30\r\nBob,25');
+
+    exportBtn.dispatchEvent(new Event('click'));
+    assert.equal(downloaded.length, 1);
+    assert.equal(downloaded[0].filename, 'tabla.csv');
+    assert.equal(downloaded[0].mimeType, 'text/csv;charset=utf-8');
+    assert.equal(downloaded[0].content, 'Nombre,Edad\r\nAna,30\r\nBob,25');
+  } finally {
+    delete global.ChatExport;
+    dom.restore();
+  }
+});
+
+test('Markdown - bloques de código HTML y SVG incluyen botón de vista previa que abre en pestaña', () => {
+  const dom = installDom();
+  try {
+    const mdHtml = '```html\n<div class="folleto"><h1>Hola</h1></div>\n```';
+    const parsedHtml = Markdown.parseMarkdown(mdHtml);
+    assert.ok(parsedHtml.includes('btn-preview-code'), 'Bloque HTML debe tener botón de vista previa');
+
+    const mdSvg = '```svg\n<svg><circle r="10"/></svg>\n```';
+    const parsedSvg = Markdown.parseMarkdown(mdSvg);
+    assert.ok(parsedSvg.includes('btn-preview-code'), 'Bloque SVG debe tener botón de vista previa');
+
+    const mdJs = '```javascript\nconst a = 1;\n```';
+    const parsedJs = Markdown.parseMarkdown(mdJs);
+    assert.ok(!parsedJs.includes('btn-preview-code'), 'Bloque JS no debe tener botón de vista previa');
+
+    const container = document.createElement('div');
+    container.innerHTML = parsedHtml;
+
+    const openedDocs = [];
+    ChatUtils.openDocumentInNewTab = (content, mimeType) => {
+      openedDocs.push({ content, mimeType });
+      return true;
+    };
+
+    Markdown.attachContentListeners(container);
+
+    const previewBtn = container.querySelector('.btn-preview-code');
+    assert.ok(previewBtn);
+    previewBtn.dispatchEvent(new Event('click'));
+
+    assert.equal(openedDocs.length, 1);
+    assert.equal(openedDocs[0].content, '<div class="folleto"><h1>Hola</h1></div>');
+    assert.equal(openedDocs[0].mimeType, 'text/html;charset=utf-8');
+  } finally {
+    dom.restore();
+  }
+});
+
+
 

@@ -529,3 +529,57 @@ test('ChatMCP - start: propaga el objeto servidor con oauthUrl durante el arranq
   assert.equal(receivedServers.length, 1);
   assert.equal(receivedServers[0].oauthUrl, 'https://example.com/oauth');
 });
+
+test('ChatMCP - tarjeta de herramienta añade botón de vista previa al escribir un archivo HTML', async () => {
+  const dom = installDom();
+  try {
+    const mockClient = {
+      id: 'local',
+      name: 'local',
+      url: 'http://127.0.0.1:6388',
+      initialize: async () => ({ success: true }),
+      listTools: async () => [{
+        name: 'write_file',
+        description: 'Escribe archivo',
+        inputSchema: { type: 'object' }
+      }]
+    };
+    const provider = new ChatMCP.McpToolProvider(mockClient);
+    const tools = await provider.discoverTools();
+    assert.equal(tools.length, 1);
+    const tool = tools[0];
+
+    const args = { path: 'catedral.html', content: '<h1>Catedral</h1>' };
+    const ui = {
+      createCardWrapper: cls => {
+        const div = document.createElement('div');
+        if (cls) div.className = cls;
+        return div;
+      },
+      t: ChatI18n.t,
+      CHECK_SVG: '',
+      ERROR_SVG: '',
+      SPINNER_SVG: ''
+    };
+
+    const card = tool.view.createLiveCard(args, ui);
+    tool.view.updateLiveCard(card, args, { success: true }, 10, ui);
+
+    const previewBtn = card.querySelector('.btn-file-preview');
+    assert.ok(previewBtn, 'Debe renderizar botón de vista previa');
+
+    let opened = null;
+    const ChatUtils = require('../../js/utils.js');
+    ChatUtils.openDocumentInNewTab = (content, mime) => {
+      opened = { content, mime };
+      return true;
+    };
+
+    previewBtn.dispatchEvent(new Event('click'));
+    assert.equal(opened?.content, '<h1>Catedral</h1>');
+    assert.equal(opened?.mime, 'text/html;charset=utf-8');
+  } finally {
+    dom.restore();
+  }
+});
+

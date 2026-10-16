@@ -60,3 +60,10 @@
 - 2026-10-16 M5-D2 Consolidados tests no-navegador por dominios (Storage, Profiles, Telemetry, Shell) reduciendo de 95 a 86 archivos y eliminando tests redundantes (M5-T2)
 - 2026-10-16 M5-D3 Consolidadas suites de navegador por dominios (documents, startup) de 15 a 13 archivos, optimizados timers/delays y creado helper withTestApp (M5-T3)
 - 2026-10-16 M5-D4 Actualizados grupos del runner en scripts/test-runner.mjs y contrato de existencia en tests/infrastructure/test_runner.js y README.md (M5-T4)
+- 2026-10-16 M15-D1 Milestone M15 dropped by the user: legacy binary Office files (.doc and .xls) will be converted externally by the user (e.g. via LibreOffice) to modern formats (.docx and .xlsx), keeping the explicit guidance rejection in ChatOfficeParser (M15-T1)
+
+- 2026-10-16 M13-D2 Writing rules in DEFAULT_SYSTEM_DATA_PROMPT mandate Markdown headings, lists, tables, and images, and prohibit raw HTML tags or HTML blocks unless explicitly requested for web development (M13-T6)
+- 2026-10-16 M13-D3 Markdown tables include a header actions bar with RFC 4180 CSV copy and download buttons and a scroll wrapper for wide tables (M13-T8)
+- 2026-10-16 M13-D4 Ad-hoc CSS card syntax in chat rejected as fragile, non-standard and lacking clear document boundaries; full document rendering and preview in separate tab adopted (M13-T7)
+- 2026-10-16 M13-D5 HTML and SVG documents from code blocks or file writing tools can be previewed directly in a separate tab via secure Blob URLs with dedicated action buttons (M13-T9)
+- 2026-10-16 M13-D6 Unit and architecture tests and bilingual help updated for document generation, table CSV export and document previews (M13-T10)

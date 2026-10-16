@@ -125,12 +125,38 @@
     });
   }
 
+  function tableToCsv(tableElement) {
+    if (!tableElement) return '';
+    const rows = [];
+    tableElement.querySelectorAll('tr').forEach(tr => {
+      const row = [];
+      tr.querySelectorAll('th, td').forEach(cell => {
+        const text = (cell.innerText || cell.textContent || '').trim();
+        if (text.includes('"') || text.includes(',') || text.includes('\n') || text.includes('\r')) {
+          row.push(`"${text.replace(/"/g, '""')}"`);
+        } else {
+          row.push(text);
+        }
+      });
+      if (row.length > 0) {
+        rows.push(row.join(','));
+      }
+    });
+    return rows.join('\r\n');
+  }
+
   function renderTableHtml(headerRow, delimiterRow, bodyRows) {
     const headerCells = splitTableRow(headerRow);
     const aligns = parseAlignments(delimiterRow);
     const numCols = Math.max(headerCells.length, aligns.length);
 
-    let html = '<div class="table-container"><table class="markdown-table"><thead><tr>';
+    const tableTitle = I18n.t('md_table_title');
+    const copyTitle = I18n.t('md_copy_table_csv_title');
+    const copyBtn = I18n.t('md_copy_table_csv_btn');
+    const exportTitle = I18n.t('md_export_table_csv_title');
+    const exportBtn = I18n.t('md_export_table_csv_btn');
+
+    let html = `<div class="table-container"><div class="table-header"><span class="table-title">${Icons.get('file-text', { size: 13, className: 'icon-table' })}<span>${tableTitle}</span></span><div class="table-actions"><button class="btn-copy-table-csv" title="${copyTitle}">${Icons.get('copy', { size: 13, className: 'icon-copy' })}<span>${copyBtn}</span></button><button class="btn-export-table-csv" title="${exportTitle}">${Icons.get('download', { size: 13, className: 'icon-download' })}<span>${exportBtn}</span></button></div></div><div class="table-scroll-wrapper"><table class="markdown-table"><thead><tr>`;
 
     for (let i = 0; i < numCols; i++) {
       const cellText = headerCells[i] !== undefined ? headerCells[i] : '';
@@ -155,7 +181,7 @@
       html += '</tbody>';
     }
 
-    html += '</table></div>';
+    html += '</table></div></div>';
     return html;
   }
 
@@ -556,11 +582,24 @@
       const safeCode = escapeHtml(rawCode);
       const rawCodeAttr = encodeURIComponent(rawCode);
 
+      const trimmedLang = (codeLang || '').trim().toLowerCase();
+      const isPreviewable = /^(html|htm|svg)$/i.test(trimmedLang);
+      const previewTitle = I18n.t('md_preview_code_title');
+      const previewBtn = I18n.t('md_preview_code_btn');
+
+      const previewActionHtml = isPreviewable
+        ? `<button class="btn-preview-code" data-code="${rawCodeAttr}" data-lang="${escapeHtml(trimmedLang)}" title="${previewTitle}">
+            ${Icons.get('external-link', { size: 13, className: 'icon-preview' })}
+            <span>${previewBtn}</span>
+          </button>`
+        : '';
+
       htmlResult += `
         <div class="code-block-container">
           <div class="code-block-header">
             <span class="code-lang">${safeLang}</span>
             <div class="code-block-actions">
+              ${previewActionHtml}
               <button class="btn-copy-code" data-code="${rawCodeAttr}" title="${copyTitle}">
                 ${Icons.get('copy', { size: 13, className: 'icon-copy' })}
                 <span>${copyBtn}</span>
@@ -610,6 +649,18 @@
       button.addEventListener('click', () => {
         const feedback = `${Icons.get('check', { size: 13, className: 'icon-copy' })}<span>${escapeHtml(I18n.t('copied_text'))}</span>`;
         Utils.copyToClipboard(decodeURIComponent(button.dataset.code || ''), button, feedback);
+      });
+    });
+  }
+
+  function bindPreviewButtons(container) {
+    container.querySelectorAll('.btn-preview-code:not([data-listener-attached])').forEach(button => {
+      button.dataset.listenerAttached = 'true';
+      button.addEventListener('click', () => {
+        const rawCode = decodeURIComponent(button.dataset.code || '');
+        const lang = (button.dataset.lang || 'html').toLowerCase();
+        const mimeType = lang === 'svg' ? 'image/svg+xml;charset=utf-8' : 'text/html;charset=utf-8';
+        Utils.openDocumentInNewTab(rawCode, mimeType);
       });
     });
   }
@@ -683,6 +734,31 @@
     });
   }
 
+  function bindTableActions(container) {
+    container.querySelectorAll('.btn-copy-table-csv:not([data-listener-attached])').forEach(button => {
+      button.dataset.listenerAttached = 'true';
+      button.addEventListener('click', () => {
+        const tableContainer = button.closest('.table-container');
+        const table = tableContainer?.querySelector('.markdown-table');
+        if (!table) return;
+        const csv = tableToCsv(table);
+        const feedback = `${Icons.get('check', { size: 13, className: 'icon-copy' })}<span>${escapeHtml(I18n.t('md_table_copied'))}</span>`;
+        Utils.copyToClipboard(csv, button, feedback);
+      });
+    });
+
+    container.querySelectorAll('.btn-export-table-csv:not([data-listener-attached])').forEach(button => {
+      button.dataset.listenerAttached = 'true';
+      button.addEventListener('click', () => {
+        const tableContainer = button.closest('.table-container');
+        const table = tableContainer?.querySelector('.markdown-table');
+        if (!table) return;
+        const csv = tableToCsv(table);
+        resolveDep('ChatExport', './export.js').downloadFile(csv, 'tabla.csv', 'text/csv;charset=utf-8');
+      });
+    });
+  }
+
   /**
    * Activa el contenido generado por parseMarkdown y las tarjetas de herramientas: copiar y
    * ejecutar código, plegar tarjetas y cargar las imágenes de la base de conocimiento. Es seguro
@@ -690,6 +766,8 @@
    */
   function attachContentListeners(container) {
     bindCopyButtons(container);
+    bindPreviewButtons(container);
+    bindTableActions(container);
     bindCollapsibleCards(container);
     resolveRagImages(container);
     bindImagePreview(container);
@@ -700,6 +778,7 @@
     sanitizeUrl,
     sanitizeImageUrl,
     parseMarkdown,
-    attachContentListeners
+    attachContentListeners,
+    tableToCsv
   };
 });

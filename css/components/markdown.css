@@ -5,12 +5,74 @@
   width: 100%;
   max-width: 100%;
   margin: 0.85rem 0;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   background-color: var(--bg-surface);
   box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.table-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: var(--console-bg);
+  padding: 0.4rem 0.85rem;
+  font-size: 0.8rem;
+  color: var(--console-text-muted);
+  border-bottom: 1px solid var(--border-color);
+  font-family: var(--font-sans);
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.table-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 0.775rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.icon-table {
+  color: var(--console-info);
+}
+
+.table-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.btn-copy-table-csv,
+.btn-export-table-csv {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background-color: var(--console-overlay);
+  color: var(--console-text);
+  border: 1px solid var(--console-border);
+  font-size: 0.75rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-copy-table-csv:hover,
+.btn-export-table-csv:hover {
+  background-color: var(--console-overlay-hover);
+  color: var(--console-text);
+}
+
+.table-scroll-wrapper {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .markdown-table {
@@ -166,7 +228,8 @@
   gap: 0.4rem;
 }
 
-.btn-copy-code {
+.btn-copy-code,
+.btn-preview-code {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -181,14 +244,18 @@
 }
 
 @media (max-width: 640px) {
-  .btn-copy-code {
-    min-height: 30px;
-    padding: 0.35rem 0.65rem;
-    font-size: 0.8rem;
+  .btn-copy-code,
+  .btn-preview-code,
+  .btn-copy-table-csv,
+  .btn-export-table-csv {
+    min-height: 28px;
+    padding: 0.25rem 0.55rem;
+    font-size: 0.75rem;
   }
 }
 
-.btn-copy-code:hover {
+.btn-copy-code:hover,
+.btn-preview-code:hover {
   background-color: var(--console-overlay-hover);
   color: var(--console-text);
 }
@@ -196,6 +263,26 @@
 .btn-copy-code.copied {
   color: var(--success);
   border-color: var(--success);
+}
+
+.btn-file-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background-color: var(--bg-surface);
+  color: var(--accent);
+  border: 1px solid var(--border-color);
+  font-size: 0.72rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-weight: 500;
+}
+
+.btn-file-preview:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--accent);
 }
 
 .code-block-container pre {

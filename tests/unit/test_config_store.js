@@ -199,3 +199,14 @@ test('ChatDefaults - el contexto WebLLM predeterminado es 4K en móviles y 16K e
   assert.equal(Defaults.getWebllmDefaultContextWindowSize(null), 16384);
   assert.ok(Defaults.WEBLLM_CONTEXT_WINDOW_SIZES.includes(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE));
 });
+
+test('ChatDefaults - DEFAULT_SYSTEM_DATA_PROMPT incluye reglas de redacción de documentos, tablas e imágenes', () => {
+  const Defaults = require('../../js/defaults.js');
+  const prompt = Defaults.DEFAULT_SYSTEM_DATA_PROMPT;
+  assert.ok(prompt.includes('standard Markdown and plain text'));
+  assert.ok(prompt.includes('documents, reports and structured content'));
+  assert.ok(prompt.includes('Never output raw HTML tags'));
+  assert.ok(prompt.includes('tabular data, always format it as a valid Markdown table'));
+  assert.ok(prompt.includes('Embed images using standard Markdown'));
+});
+

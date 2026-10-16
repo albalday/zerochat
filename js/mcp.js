@@ -570,6 +570,31 @@
     card.querySelector('.tool-card-result').appendChild(figure);
   }
 
+  function appendFilePreviewAction(card, args, t) {
+    const path = String(args?.path || args?.filepath || args?.file || '').trim();
+    const content = typeof args?.content === 'string' ? args.content : '';
+    if (!path || !content) return;
+    const isHtml = /\.(html|htm)$/i.test(path);
+    const isSvg = /\.svg$/i.test(path);
+    if (!isHtml && !isSvg) return;
+
+    if (card.querySelector('.btn-file-preview')) return;
+    const actions = card.querySelector('.tool-card-header-actions');
+    if (!actions) return;
+
+    const btn = card.ownerDocument.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-file-preview';
+    btn.title = t('tool_preview_file_title');
+    Utils.setTrustedHtml(btn, `${Icons.get('external-link', { size: 12 })} <span>${escapeHtml(t('tool_preview_file_btn'))}</span>`);
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const mime = isSvg ? 'image/svg+xml;charset=utf-8' : 'text/html;charset=utf-8';
+      Utils.openDocumentInNewTab(content, mime);
+    });
+    actions.prepend(btn);
+  }
+
   function createMcpToolView(toolName, serverName) {
     const iconSvg = Icons.get('plug', { size: 14 });
     const codeBlock = text => `<pre class="tool-card-code"><code>${escapeHtml(text)}</code></pre>`;
@@ -600,6 +625,7 @@
           ? `${ui.CHECK_SVG} <span>${ui.t('tool_status_success')} (${elapsedMs}ms)</span>`
           : `${ui.ERROR_SVG} <span>${ui.t('tool_status_error', { ms: elapsedMs })}</span>`;
         card.querySelector('.tool-card-result').innerHTML = codeBlock(getResultText(result));
+        if (isSuccess) appendFilePreviewAction(card, args, ui.t);
         const screenshot = getSafeMcpImageDataUrl(result);
         if (!screenshot) return false;
         appendMcpScreenshot(card, screenshot, ui.t);
@@ -609,6 +635,7 @@
         const out = typeof message?.content === 'string' ? message.content : (message?.content ? JSON.stringify(message.content, null, 2) : '');
         const badge = `<span class="tool-card-badge status-success">${ui.CHECK_SVG} <span>${ui.t('tool_status_success')}</span></span>`;
         const card = renderCard(args, codeBlock(out), badge, ui, true);
+        appendFilePreviewAction(card, args, ui.t);
         const screenshot = getSafeMcpImageFromMessage(message);
         if (screenshot) appendMcpScreenshot(card, screenshot, ui.t);
         return card;

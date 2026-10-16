@@ -26,29 +26,11 @@ Done when: to be agreed with the user before the milestone starts.
 
 ## M12 PDF reading with pdf.js: closed 2026-10-16
 
-## M13 Document generation in the chat
-Goal: The model generates documents only as Markdown shown in the chat, whose capabilities grow with external code, ad hoc CSS and writing rules; what the chat shows can later be exported or opened in a separate tab on request.
-Done when: the model writes documents, and CSV data as Markdown tables, rendered in the chat with the agreed rules and styles, and a document shown in the chat can be exported or opened in a separate tab when asked, with tests and /help updated.
-- [x] M13-T1 Choose and vendor the write libraries (docx, the xlsx library chosen in M4-T6, a docx template library) with build:vendor and the on-demand loader (dropped: documents are Markdown in the chat, M13-D1)
-- [x] M13-T2 create_docx tool from a JSON block spec (headings, paragraphs, lists, tables, images) that returns a downloadable file in a tool card (dropped: documents are Markdown in the chat, M13-D1)
-- [x] M13-T3 create_xlsx tool from a JSON spec (sheets, rows, header style, column widths, formulas) (dropped: tabular data and CSV are Markdown tables, M13-D1)
-- [x] M13-T4 Fill a docx template from an attachment or the knowledge base with JSON data, keeping its format (dropped: documents are Markdown in the chat, M13-D1)
-- [x] M13-T5 Tests and /help (ES/EN) for document creation; leave pptx, pdf-lib and free editing of existing documents out of scope (dropped: replaced by M13-T10)
-- [ ] M13-T6 Agree with the user the writing rules for documents in the chat (allowed Markdown constructs, structure, length, when to use tables) and add them to the model instructions
-- [ ] M13-T7 Extend chat rendering where plain Markdown falls short, with vendored external code or ad hoc CSS that follows the design tokens
-- [ ] M13-T8 Generate CSV and tabular data as Markdown tables in the chat, with rules for wide or long tables
-- [ ] M13-T9 Agree with the user and implement the export of a document already shown in the chat, to a file or to a separate tab, only on request
-- [ ] M13-T10 Tests and /help (ES/EN) for document generation in the chat and its export
-- [x] M13-T11 Remove the Run JS button and output panel from Markdown code blocks (duplicates the execute_javascript tool and rarely works) (2026-10-16)
+## M13 Document generation in the chat: closed 2026-10-16
 
 ## M14 Project mode detection via task.py and legacy migration: closed 2026-10-16
 
-## M15 Legacy binary Office (.doc and .xls) reading
-Goal: Read legacy binary Word 97-2003 (.doc) and Excel 97-2003 (.xls) files in attachments, RAG and web tools, replacing the current rejection with a vendored reader.
-Done when: .doc and .xls files are parsed as attachments, in RAG ingestion and via web document tools using a vendored on-demand reader, with tests and /help (ES/EN) updated.
-- [ ] M15-T1 Choose and vendor on-demand readers for legacy Word 97-2003 (.doc) and Excel 97-2003 (.xls) through build:vendor, recording versions, sizes and licenses
-- [ ] M15-T2 Integrate .doc and .xls parsing into ChatOfficeParser, attachments, RAG and download_doc/fetch_web_page, replacing the legacy format rejection
-- [ ] M15-T3 Add .doc and .xls fixtures and unit/integration/browser tests, and update /help (ES/EN)
+## M15 Legacy binary Office (.doc and .xls) reading: closed 2026-10-16
 
 ## M16 RAG and web image rendering with local models and reasoning levels
 Goal: Ensure images from RAG and web tools are shown consistently across local models as with Gemini, accounting for the dependence on the configured reasoning level (reasoningEffort), with a generic fix and no per-model rules.
@@ -68,3 +50,12 @@ Done when: on Linux, zerochat.py --prompt runs the prompt with the production Ze
 - [ ] M18-T5 Backend run mode: --prompt/--prompt-file/--headless/--timeout, JSON-RPC zerochat/run/prompt, progress and result, own Firefox launch and watch, idle and total timeouts, stdout/stderr split, exit codes and guaranteed cleanup, with tests
 - [ ] M18-T6 UI run mode module: read run from the launch fragment, wait for the backend, send the prompt in a new conversation, report progress per step/tool/status, unattended dialogs and approvals, return {error} from handleSendMessage, send the result and close, with real-DOM tests
 - [ ] M18-T7 /help (ES/EN) and py/README.md for run mode, and manual end-to-end check headless and visible (including whether the visible window closes)
+
+## M19 Web image ingestion and multimodal analysis
+Goal: Allow vision-capable models to fetch, ingest and visually inspect images from the web (from search results, web pages or direct URLs) as multimodal input, in the same way documents (PDF/Office) and RAG images are ingested.
+Done when: the model can download an image via its URL (evaluating similarities/unification with download_doc vs. a dedicated download_image tool), validate and sanitize its MIME type and size limits, feed it as a safe base64 dataUrl into the multimodal turns for vision providers (Gemini, Anthropic, OpenAI, local vision models), show the corresponding preview card in the chat, with unit/integration/browser tests and /help (ES/EN) updated.
+- [ ] M19-T1 Evaluate similarities with download_doc: decide whether to extend download_doc or create a dedicated download_image tool, reusing web-browser fetch, card infrastructure and vision checks
+- [ ] M19-T2 Implement safe web image fetching and ingestion (URL resolution, MIME validation for PNG/JPEG/WebP/GIF, size limits, base64 dataUrl conversion)
+- [ ] M19-T3 Implement tool card and UI integration (live spinner, thumbnail preview, open in tab) and inject extracted images into turn multimodal message inputs
+- [ ] M19-T4 Verify provider adapters (Gemini, Anthropic, OpenAI, local vision) handle web image payloads as multimodal input
+- [ ] M19-T5 Tests (unit, integration, browser) covering edge cases (404, invalid type, oversize, valid images) and update /help (ES/EN)

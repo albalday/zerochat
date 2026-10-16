@@ -34,7 +34,7 @@
   const APP_VERSION = (typeof document !== 'undefined' && document.title.match(/v?(\d+\.\d+(?:\.\d+)?)/)?.[1]) || 'dev';
 
   const DEFAULT_THEME = 'dark';
-  const DEFAULT_SYSTEM_DATA_PROMPT = '[Format: Always use standard Markdown and plain text. Use direct Unicode symbols (→, ≤, ≥, ≈, ≠, ×, ÷, ±, ²) for mathematics and logic; never output LaTeX commands (\\rightarrow, \\le, \\frac) or delimiters ($ or $$).]';
+  const DEFAULT_SYSTEM_DATA_PROMPT = '[Format: Always use standard Markdown and plain text. For documents, reports and structured content, use standard Markdown elements (headings #/##/###, lists, quotes, and Markdown tables). Embed images using standard Markdown ![caption](url). Never output raw HTML tags (e.g. <div>, <table>, <p>, <img>) or HTML code blocks unless the user explicitly requests HTML web development code. For tabular data, always format it as a valid Markdown table with headers. Use direct Unicode symbols (→, ≤, ≥, ≈, ≠, ×, ÷, ±, ²) for mathematics and logic; never output LaTeX commands (\\rightarrow, \\le, \\frac) or delimiters ($ or $$).]';
 
   /** Configuración de ejecución por defecto: estado inicial de ChatState y base de ChatConfig.normalize. */
   const CONFIG_DEFAULTS = Object.freeze({
