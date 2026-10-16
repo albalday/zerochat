@@ -114,7 +114,8 @@
 
       const blob = new Blob([viewerHtml], { type: 'text/html;charset=utf-8' });
       const blobUrl = URL.createObjectURL(blob);
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+      const timer = setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+      timer?.unref?.();
       window.open(blobUrl, '_blank', 'noopener,noreferrer');
       return;
     } catch (_) { /* Fallback a apertura directa si Blob o createObjectURL fallan */ }
@@ -291,6 +292,7 @@
         button._copyOriginalHtml = undefined;
         button.classList.remove('copied');
       }, 2000);
+      button._copyFeedbackTimer?.unref?.();
     }
     return true;
   }

@@ -10,12 +10,13 @@ Done when: to be agreed with the user before the milestone starts.
 
 ## M4 Images and office files in the chat: closed 2026-10-16
 
-## M5 Browser test architecture and optimization
-Goal: Refactor and optimize browser test files (tests/browser/) to modularize large suites, extract shared fixtures and helpers, and improve maintainability.
-Done when: Large browser test suites are split by subdomains, common test setup and fixtures are shared in helpers, and npm run test:browser passes cleanly.
-- [ ] M5-T1 Audit and split large browser test suites into focused files
-- [ ] M5-T2 Extract shared fixtures and interaction helpers in tests/helpers/
-- [ ] M5-T3 Verify suite execution and maintainability with npm run test:browser
+## M5 Test suite architecture and optimization
+Goal: Optimize and restructure the ZeroChat test suite across non-browser and browser levels to eliminate execution bottlenecks and group tests by functional domains.
+Done when: Non-browser bottlenecks are resolved (execution drop of >75%), non-browser suites are consolidated by functional domain with redundant tests removed, browser suites are modularized with shared fixtures, and all suites pass.
+- [x] M5-T1 Eliminate non-browser execution bottlenecks (timers, sleep intervals, polling) (2026-10-16)
+- [ ] M5-T2 Consolidate non-browser test suites by domain and discard redundant tests
+- [ ] M5-T3 Audit and modularize browser test suites extracting shared fixtures
+- [ ] M5-T4 Update test runner groups, architecture contracts and documentation
 
 ## M6 Investigation and rendering of LaTeX/math notation in chat responses: closed 2026-10-15
 

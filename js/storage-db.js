@@ -121,6 +121,7 @@
     await new Promise((resolve, reject) => {
       const request = indexedDB.deleteDatabase(DB_NAME);
       const timer = setTimeout(() => reject(new Error('ZeroChat IndexedDB deletion timed out.')), 10000);
+      timer?.unref?.();
       request.onsuccess = () => { clearTimeout(timer); resolve(); };
       request.onerror = () => { clearTimeout(timer); reject(request.error || new Error('ZeroChat IndexedDB deletion failed.')); };
       // Una conexión puede recibir su versionchange justo después: se sigue esperando al éxito.

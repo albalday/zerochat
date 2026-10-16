@@ -378,7 +378,8 @@
     feedback.hidden = false;
     feedback.className = `server-query-status status-${type}`;
     feedback.textContent = message;
-    setTimeout(() => { feedback.hidden = true; }, 4000);
+    const timer = setTimeout(() => { feedback.hidden = true; }, 4000);
+    timer?.unref?.();
   }
 
   async function saveOrUpdateBranch() {
@@ -455,7 +456,8 @@
       anchor.href = url;
       anchor.download = filename;
       anchor.click();
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      const timer = setTimeout(() => URL.revokeObjectURL(url), 10000);
+      timer?.unref?.();
       setText(t('rag_export_done'));
       await new Promise(resolve => setTimeout(resolve, 1500));
     });

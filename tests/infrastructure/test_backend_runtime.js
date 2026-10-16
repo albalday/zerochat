@@ -566,14 +566,14 @@ with tempfile.TemporaryDirectory() as temp_dir:
     spec = importlib.util.spec_from_file_location("zerochat_background_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
     zerochat = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(zerochat)
-    zerochat.BACKGROUND_STARTUP_WAIT = 0.5
+    zerochat.BACKGROUND_STARTUP_WAIT = 0.1
 
     # Un fallo inmediato se ve en la propia respuesta.
     failed = json.loads(zerochat.run_command("echo ocupado; exit 4", background=True))
     assert failed["status"] == "exited" and failed["exit_code"] == 4 and failed["output"] == "ocupado\\n", failed
 
     started = time.monotonic()
-    first = json.loads(zerochat.run_command("echo uno; sleep 1.5; echo dos; sleep 1.5; echo tres", background=True, job_key="clave-de-prueba"))
+    first = json.loads(zerochat.run_command("echo uno; sleep 0.2; echo dos; sleep 0.2; echo tres", background=True, job_key="clave-de-prueba"))
     assert time.monotonic() - started < 2
     assert first["status"] == "running" and first["output"] == "uno\\n" and "check_command" in first["note"], first
     job_id = first["job_id"]
@@ -591,7 +591,7 @@ with tempfile.TemporaryDirectory() as temp_dir:
     assert stopped["success"] is True and stopped["status"] == "stopped" and stopped["stopped_by"] == "model", stopped
 
     # Un final que el modelo no ha visto se entrega una sola vez; los vistos y los vivos, nunca.
-    unseen = json.loads(zerochat.run_command("echo a; sleep 0.8; echo fin; exit 3", background=True))
+    unseen = json.loads(zerochat.run_command("echo a; sleep 0.15; echo fin; exit 3", background=True))
     zerochat.JOBS.get(job_id=unseen["job_id"]).done.wait(5)
     alive = json.loads(zerochat.run_command("exec sleep 100", background=True))
     reports = zerochat.JOBS.report_finished([unseen["job_id"], job_id, alive["job_id"], 9999, unseen["job_id"]])
