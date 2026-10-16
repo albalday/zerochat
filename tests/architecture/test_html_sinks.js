@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { listSourceFiles } = require('../helpers/source-files');
 
-// Límite de contenido externo (docs/audits/AuditFull.md): el HTML solo se asigna en los usos
+// Fronteras de arquitectura y seguridad (docs/audits/AuditFull.md): el HTML solo se asigna en los usos
 // revisados de esta lista cerrada. Cada uno pinta marcado propio con los datos escapados
 // (escapeHtml), Markdown saneado, SVG de ChatIcons o el marcado de un diálogo; vaciar con '' no
 // cuenta. Un uso nuevo se revisa y se añade aquí, o se escribe con setText/textContent.

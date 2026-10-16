@@ -31,67 +31,56 @@ en el árbol de trabajo.
 
 ## Áreas de revisión
 
-### Código muerto
+### Código muerto y especulativo
 
 Buscar y confirmar con referencias estáticas y dinámicas:
 
-- módulos, funciones, ramas, flags y compatibilidades sin uso;
-- claves de `ChatI18n`, iconos, selectores HTML y reglas CSS sin consumidores;
+- módulos, funciones, ramas, opciones o parámetros sin consumidor actual;
+- código de compatibilidad previa (alias, migraciones, formatos antiguos);
+- claves de `ChatI18n`, iconos, selectores HTML, reglas CSS y pruebas huérfanos;
 - adaptadores o herramientas no registrados;
 - listeners, temporizadores, workers o recursos que no se limpien.
 
 Una referencia dinámica, una API pública o una carga desde `zerochat.html` impide
 considerar un elemento como muerto hasta demostrar lo contrario. Cada eliminación
-debe incluir búsqueda global y prueba pertinente, y regenerar `zerochat.py`
-(`npm run build:backend`) si afecta a `py/`.
+debe incluir búsqueda global y prueba pertinente.
 
 ### Duplicación
 
-Identificar duplicación por comportamiento y contrato, no solo por texto. Dar
-prioridad a cancelación, limpieza de recursos, manejo de errores, progreso,
-validación, persistencia y ciclo de vida de listeners.
+Distinguir dos casos:
 
-Extraer una utilidad compartida únicamente cuando existan al menos dos o tres
-casos con el mismo contrato estable. Mantener la lógica local cuando la semejanza
-sea accidental o todavía esté evolucionando.
+- **Decisiones:** tablas de tipos o formatos, predicados de dominio, constantes y
+  convenciones de nombres deben tener una única fuente (`AGENTS.md` §2). Repetirlas
+  en 2 o más sitios, incluidas pruebas que las reimplementan, es un hallazgo.
+- **Comportamiento:** cancelación, limpieza de recursos, errores, progreso,
+  validación, persistencia y listeners. Extraer una utilidad compartida solo con
+  3 o más consumidores con el mismo contrato estable (o 2 si ya han divergido);
+  mantener la lógica local cuando la semejanza sea accidental o esté evolucionando.
 
-### Infraestructura obligatoria
+Revisar también que las variantes hermanas de un mismo módulo apliquen las mismas
+comprobaciones y límites.
 
-Comprobar que el código respeta estas fronteras:
+### Fronteras de arquitectura y seguridad
 
-| Área | Regla |
-| --- | --- |
-| Estado compartido | Solo `ChatState` y sus mutadores de dominio |
-| Diálogos | Solo `ChatDialogs`; nunca APIs nativas |
-| Texto de interfaz | Claves simultáneas en español e inglés mediante `ChatI18n` |
-| Proveedores | Extensión de `BaseProviderAdapter` |
-| Persistencia y adjuntos | `ZeroChatDB` y sus APIs correspondientes |
-| Herramientas | Contrato declarativo actual, sin propiedades obsoletas |
-| Iconos | `ChatIcons` o SVG; sin emojis en controles |
-| Operaciones cancelables | `AbortSignal`, limpieza explícita y pruebas |
-
-Cuando sea posible, convertir los hallazgos recurrentes en pruebas de arquitectura
-que impidan reintroducir la infracción.
-
-### Límite de contenido externo y HTML
+Comprobar las fronteras de `AGENTS.md` §3 y §4, y además que las operaciones
+cancelables usen `AbortSignal`, limpieza explícita y pruebas. Cuando sea posible,
+convertir los hallazgos recurrentes en pruebas de `tests/architecture/`.
 
 Todo dato de red, proveedores, MCP, herramientas, documentos, configuración o
-usuario es texto no confiable. Para presentarlo en la interfaz, usar las
-primitivas de `ChatUtils` (`setText`, `clearElement` y `appendTextElement`) o
-`textContent`; no interpolarlo en `innerHTML`.
-
-`ChatUtils.setTrustedHtml` queda reservado a fragmentos producidos por el propio
-código y revisados como SVG de `ChatIcons`. Markdown mantiene su sanitización
-como frontera independiente. Cada superficie nueva que muestre datos externos
-debe tener una prueba de inyección que compruebe que el payload se conserva como
-texto y no crea nodos ni ejecuta atributos.
+usuario es texto no confiable: se presenta con `textContent` o las primitivas de
+`ChatUtils` (`setText`, `clearElement`, `appendTextElement`), nunca interpolado en
+`innerHTML`. `ChatUtils.setTrustedHtml` queda reservado a fragmentos propios
+revisados (SVG de `ChatIcons`) dentro de la lista de `test_html_sinks.js`, y
+Markdown mantiene su sanitización como frontera independiente. Cada superficie
+nueva que muestre datos externos debe tener una prueba de inyección que compruebe
+que el payload se conserva como texto y no crea nodos ni ejecuta atributos.
 
 ### Estabilidad y mantenibilidad
 
 Revisar límites de tamaño y tiempo, errores explícitos, validación de entradas,
-aislamiento de secretos, seguridad HTML, concurrencia, almacenamiento y recuperación
-tras cancelación. Localizar dependencias implícitas entre módulos y documentar las
-interfaces públicas que no puedan cambiarse sin migración.
+aislamiento de secretos, concurrencia, almacenamiento y recuperación tras
+cancelación. Todo tope debe tener prueba en el borde exacto (`N` y `N+1`) y en su
+aviso de truncado (`AGENTS.md` §5). Localizar dependencias implícitas entre módulos.
 
 ### Normas y pruebas
 
@@ -112,13 +101,16 @@ No se crean informes en Markdown.
 Cada hallazgo incluye, como mínimo:
 
 - evidencia: archivos y referencias afectadas;
+- norma de `AGENTS.md` o README de subsistema incumplida, o la norma o prueba de
+  arquitectura que falta para evitar su recurrencia;
 - riesgo: seguridad, estabilidad, deuda técnica o presentación;
 - alcance y alternativa propuesta;
 - prueba que demuestra la corrección;
 - prioridad: crítica, alta, media o baja.
 
-Separar los arreglos en cambios pequeños e independientes. No mezclar limpieza,
-nuevas funciones y refactorización general en un único cambio.
+Los arreglos se planifican como tareas acotadas de `.zerochat/plan.md` (~300 líneas
+como máximo; una tarea previa para la base compartida si afecta a varias variantes).
+No mezclar limpieza, nuevas funciones y refactorización general en una misma tarea.
 
 ## Cierre de una auditoría mayor
 
@@ -135,3 +127,22 @@ Confirmar que los archivos generados (`zerochat.py`, `py/dd-managed-services.py`
 `js/vendor/orama.browser.js`) están sincronizados, que no hay cambios inesperados y
 que el informe refleja el estado final. La promoción a `master` sigue las reglas
 de `AGENTS.md` y requiere el incremento de versión validado previamente en `dev`.
+
+## Auditoría acotada de cambios (entre versiones menores o hitos)
+
+Cuando se audite un rango de commits o un hito en lugar del proyecto completo, se
+revisa su `git diff` con las áreas anteriores y la lista de `AGENTS.md` §8. Los
+hallazgos se registran como tareas en `.zerochat/plan.md`, no en la ayuda.
+
+1. **Umbral (máx. ~10 hallazgos accionables):** un hallazgo solo se numera (`F-XX`)
+   y genera tarea si cumple al menos una condición:
+   - es un fallo reproducible o una pérdida silenciosa de datos (con caso de reproducción);
+   - supone un riesgo de seguridad o estabilidad, o un impacto medible en rendimiento o memoria;
+   - incumple una norma de `AGENTS.md` (decisión duplicada, código especulativo,
+     tope sin prueba de borde, variantes hermanas asimétricas…);
+   - ahorra más de ~10 líneas netas sin acoplar módulos independientes, o desbloquea
+     una tarea ya planificada.
+2. **Observaciones menores (sin tarea):** lo que quede por debajo del umbral
+   (micro-optimizaciones, extracciones de comportamiento con menos de 3 consumidores
+   estables, retoques de estilo) se anota en un apartado «Observaciones menores» o se
+   descarta si se concluye que el código no está inflado.
