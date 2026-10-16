@@ -63,5 +63,9 @@ Done when: the cause of missing RAG/web images in local models across reasoning 
 
 ## M17 Native XLSX reading without external libraries: closed 2026-10-16
 
-
-
+## M18 Unattended prompt execution and browser profiles
+Goal: Run a ZeroChat prompt from the zerochat.py command line, letting the UI process it and return the result, and find out how to reuse copies of the user's browser profiles (sessions, cookies, ZeroChat settings) for the UI and for Playwright automation, as groundwork for the Playwright scripts milestone (M3).
+Done when: exploratory tests on Firefox and Chromium settle self-closing, headless mode and profile copying, and the prompt/result round trip is decided; implementation tasks and their acceptance criteria are added after M18-T3.
+- [x] M18-T1 Exploratory tests P1-P2: tab self-closing and headless UI behaviour (JS, IndexedDB, fetch to 127.0.0.1) in Firefox and Chromium across launch methods (2026-10-16)
+- [ ] M18-T2 Exploratory tests P3-P5: copying Firefox and Chromium profiles and inheriting sessions in Playwright (persistent context vs. storageState)
+- [ ] M18-T3 Decide the prompt/result transport (GET + POST to the backend with the session token) and the UI browser for run mode from the test results
