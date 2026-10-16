@@ -67,3 +67,8 @@
 - 2026-10-16 M13-D4 Ad-hoc CSS card syntax in chat rejected as fragile, non-standard and lacking clear document boundaries; full document rendering and preview in separate tab adopted (M13-T7)
 - 2026-10-16 M13-D5 HTML and SVG documents from code blocks or file writing tools can be previewed directly in a separate tab via secure Blob URLs with dedicated action buttons (M13-T9)
 - 2026-10-16 M13-D6 Unit and architecture tests and bilingual help updated for document generation, table CSV export and document previews (M13-T10)
+- 2026-10-16 M19-D1 Implement dedicated download_image tool for vision models reusing ChatWebBrowser fetch and card preview, without image fallback in download_doc (M19-T1)
+- 2026-10-16 M19-D2 Implement ChatWebBrowser.fetchImage with anti-SSRF, raster MIME validation (PNG/JPEG/WebP/GIF), 10MB size limits (N/N+1), empty checks, and base64 conversion (M19-T2)
+- 2026-10-16 M19-D3 Implement download_image live/historical thumbnail card with open-in-tab and multimodal turn image_url injection (M19-T3)
+- 2026-10-16 M19-D4 Verify Gemini, Claude, OpenAI and local vision adapters correctly format web image payloads into their native multimodal structures (M19-T4)
+- 2026-10-16 M19-D5 Complete test coverage for image fetching edge cases and update Spanish/English help documentation for download_image (M19-T5)

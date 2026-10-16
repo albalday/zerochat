@@ -219,6 +219,45 @@ test('Builtin Tools - read_knowledge_image muestra miniatura clickeable en vivo 
   }
 });
 
+test('Builtin Tools - download_image muestra miniatura clickeable en vivo y en historial', async t => {
+  setupDom(t);
+  const args = { url: 'https://example.com/photo.jpg' };
+  const card = ToolCards.createLiveToolCard('download_image', args);
+
+  const opened = [];
+  const origOpen = ChatUtils.openImageInNewTab;
+  ChatUtils.openImageInNewTab = url => opened.push(url);
+
+  try {
+    ToolCards.updateLiveToolCard(card, 'download_image', args, {
+      success: true,
+      url: args.url,
+      mimeType: 'image/jpeg',
+      byteSize: 1024,
+      dataUrl: 'data:image/jpeg;base64,/9j/4AAQSkZJRg=='
+    }, 15);
+
+    const thumb = card.querySelector('.rag-image-thumb');
+    assert.ok(thumb, 'Debe renderizar la miniatura de la imagen web');
+    assert.equal(thumb.getAttribute('role'), 'button');
+    assert.equal(thumb.tabIndex, 0);
+
+    thumb.dispatchEvent(new Event('click'));
+    assert.equal(opened.length, 1);
+    assert.equal(opened[0], 'data:image/jpeg;base64,/9j/4AAQSkZJRg==');
+
+    // Comprobar restauración en tarjeta histórica
+    const historical = ToolCards.renderHistoricalToolCard(
+      { function: { name: 'download_image', arguments: JSON.stringify(args) } },
+      { content: 'Image retrieved: https://example.com/photo.jpg', images: [{ dataUrl: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==', url: args.url, mimeType: 'image/jpeg', byteSize: 1024 }] }
+    );
+    const histThumb = historical.querySelector('.rag-image-thumb');
+    assert.ok(histThumb, 'La tarjeta histórica debe restaurar la miniatura de la imagen web');
+  } finally {
+    ChatUtils.openImageInNewTab = origOpen;
+  }
+});
+
 test('Builtin Tools - ask_user valida opciones, cede el turno y escapa su tarjeta', async t => {
   setupDom(t);
   const tool = getTool('ask_user');

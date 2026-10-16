@@ -25,6 +25,7 @@
     ['ChatBuiltinSearchWebTool', './tools/builtin/search-web.tool.js'],
     ['ChatBuiltinFetchWebPageTool', './tools/builtin/fetch-web-page.tool.js'],
     ['ChatBuiltinDownloadDocTool', './tools/builtin/download-doc.tool.js'],
+    ['ChatBuiltinDownloadImageTool', './tools/builtin/download-image.tool.js'],
     ['ChatBuiltinRenderChartTool', './tools/builtin/render-chart.tool.js'],
     ['ChatBuiltinListDocumentsTool', './tools/builtin/list-documents.tool.js'],
     ['ChatBuiltinSearchKnowledgeBaseTool', './tools/builtin/search-knowledge-base.tool.js'],
@@ -490,7 +491,7 @@
     }
     const content = resultText ?? tool.toModel(args, result);
     if (result?.dataUrl && result.mimeType) {
-      return { content, images: [{ dataUrl: result.dataUrl, imageRef: result.imageRef, documentTitle: result.documentTitle, page: result.page }] };
+      return { content, images: [{ dataUrl: result.dataUrl, imageRef: result.imageRef, documentTitle: result.documentTitle, page: result.page, url: result.url, mimeType: result.mimeType, byteSize: result.byteSize }] };
     }
     if (!result?.image_base64) return { content, images: null };
     const mimeType = result.mime_type || 'image/png';

@@ -112,6 +112,21 @@ test('ChatEngine - adjunta una imagen RAG como evidencia multimodal tras su resu
   assert.match(visual.content[0].text, /rag-image:\/\/doc_1:img_1/);
 });
 
+test('ChatEngine - adjunta una imagen web descargada como evidencia multimodal tras su resultado', () => {
+  const messages = buildMessages([
+    { role: 'assistant', content: null, tool_calls: [{ id: 'call_dl_img', type: 'function', function: { name: 'download_image', arguments: '{"url":"https://example.com/cat.png"}' } }] },
+    { role: 'tool', tool_call_id: 'call_dl_img', name: 'download_image', content: 'Image retrieved: https://example.com/cat.png', images: [{ dataUrl: 'data:image/png;base64,AA==', url: 'https://example.com/cat.png' }] }
+  ], {}, { enableTools: false });
+
+  const toolIndex = messages.findIndex(message => message.role === 'tool' && message.name === 'download_image');
+  assert.ok(toolIndex >= 0);
+  const visual = messages[toolIndex + 1];
+  assert.equal(visual.role, 'user');
+  assert.equal(visual.content[1].type, 'image_url');
+  assert.equal(visual.content[1].image_url.url, 'data:image/png;base64,AA==');
+  assert.match(visual.content[0].text, /https:\/\/example.com\/cat.png/);
+});
+
 test('ChatEngine - no crea evidencia visual para resultados de herramienta sin imagen', () => {
   const messages = buildMessages([
     { role: 'assistant', content: null, tool_calls: [{ id: 'call_image', type: 'function', function: { name: 'read_knowledge_image', arguments: '{}' } }] },

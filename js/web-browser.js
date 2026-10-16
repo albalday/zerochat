@@ -48,7 +48,7 @@
     return resolveDep('ChatOfficeParser', './office-parser.js');
   }
 
-  const { fetchWithTimeout, resolveDep } = Utils;
+  const { fetchWithTimeout, resolveDep, bytesToBase64, formatBytes } = Utils;
 
   /**
    * Analiza y normaliza posibles evasiones numéricas (decimal, octal, hex) y rangos privados/locales de direcciones IP.
@@ -553,9 +553,185 @@
     return pipeline.fetch(rawUrl, options);
   }
 
+  const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
+  const VISION_IMAGE_MIME_TYPES = new Set([
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+    'image/gif'
+  ]);
+
+  /**
+   * Determina el tipo MIME de imagen válido para modelos de visión a partir del nombre o Content-Type.
+   * Admite únicamente formatos raster estándar: PNG, JPEG, WebP y GIF. Excluye SVG y otros formatos.
+   */
+  function detectVisionImageMimeType(fileName, contentType = '') {
+    const cleanType = String(contentType || '').split(';')[0].trim().toLowerCase();
+    if (cleanType === 'image/jpg') return 'image/jpeg';
+    if (VISION_IMAGE_MIME_TYPES.has(cleanType)) return cleanType;
+    const match = String(fileName || '').toLowerCase().match(/\.([a-z0-9]+)(?:[?#]|$)/i);
+    const ext = match ? match[1] : '';
+    if (ext === 'png') return 'image/png';
+    if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+    if (ext === 'webp') return 'image/webp';
+    if (ext === 'gif') return 'image/gif';
+    return '';
+  }
+
+  /**
+   * Descarga de forma segura una imagen web, valida su tipo MIME (PNG/JPEG/WebP/GIF)
+   * y tamaño máximo, y la devuelve convertida en dataUrl base64 para modelos de visión.
+   */
+  async function fetchImage(rawUrl, options = {}) {
+    const validation = validateUrlForFetch(rawUrl, options);
+    if (!validation.valid) {
+      return {
+        success: false,
+        url: rawUrl || '',
+        error: validation.error,
+        elapsedMs: 0
+      };
+    }
+
+    const url = validation.url;
+    const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const maxBytes = options.maxBytes || MAX_IMAGE_BYTES;
+    const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
+    const fileName = documentFileName(url);
+    const isLocalUrl = /^(localhost|127\.0\.0\.1|192\.168\.|10\.|0\.0\.0\.0)/i.test(validation.hostname);
+
+    const headers = {
+      'Accept': 'image/png,image/jpeg,image/webp,image/gif;q=0.9,*/*;q=0.8'
+    };
+
+    let res = null;
+    let lastError = null;
+
+    try {
+      res = await fetchWithTimeout(url, { headers }, timeoutMs);
+      if (!res.ok && res.status >= 500 && !isLocalUrl) {
+        try {
+          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+          const proxyRes = await fetchWithTimeout(proxyUrl, { headers }, timeoutMs);
+          if (proxyRes.ok) res = proxyRes;
+        } catch (_) {
+          // Si el proxy CORS de contingencia falla, se mantiene la respuesta de la petición directa.
+        }
+      }
+    } catch (err) {
+      lastError = err;
+      if (!isLocalUrl) {
+        try {
+          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+          res = await fetchWithTimeout(proxyUrl, { headers }, timeoutMs);
+        } catch (proxyErr) {
+          lastError = proxyErr;
+        }
+      }
+    }
+
+    const calcElapsed = () => parseFloat(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startTime).toFixed(2));
+
+    if (!res) {
+      return {
+        success: false,
+        url,
+        error: `The image could not be downloaded (${lastError ? lastError.message : 'connection error or network block'}).`,
+        elapsedMs: calcElapsed()
+      };
+    }
+
+    if (!res.ok) {
+      return {
+        success: false,
+        url,
+        status: res.status,
+        error: `HTTP ${res.status}: ${res.statusText || 'Error fetching image'}`,
+        elapsedMs: calcElapsed()
+      };
+    }
+
+    const contentLength = res.headers.get('content-length');
+    if (contentLength && parseInt(contentLength, 10) > maxBytes) {
+      return {
+        success: false,
+        url,
+        status: res.status,
+        error: `Image exceeds the size limit of ${formatBytes(maxBytes)} (reported ${formatBytes(parseInt(contentLength, 10))}).`,
+        elapsedMs: calcElapsed()
+      };
+    }
+
+    let arrayBuffer;
+    try {
+      arrayBuffer = await res.arrayBuffer();
+    } catch (bufErr) {
+      return {
+        success: false,
+        url,
+        status: res.status,
+        error: `Failed to read image content: ${bufErr.message}`,
+        elapsedMs: calcElapsed()
+      };
+    }
+
+    const byteLength = arrayBuffer.byteLength;
+    if (byteLength === 0) {
+      return {
+        success: false,
+        url,
+        status: res.status,
+        error: 'The fetched image is empty (0 bytes).',
+        elapsedMs: calcElapsed()
+      };
+    }
+
+    if (byteLength > maxBytes) {
+      return {
+        success: false,
+        url,
+        status: res.status,
+        error: `Image exceeds the size limit of ${formatBytes(maxBytes)} (got ${formatBytes(byteLength)}).`,
+        elapsedMs: calcElapsed()
+      };
+    }
+
+    const rawContentType = res.headers.get('content-type') || '';
+    const mimeType = detectVisionImageMimeType(fileName, rawContentType);
+    if (!mimeType) {
+      return {
+        success: false,
+        url,
+        status: res.status,
+        error: `Unsupported image format: ${rawContentType || 'unknown'}. Only PNG, JPEG, WebP, and GIF are supported.`,
+        elapsedMs: calcElapsed()
+      };
+    }
+
+    const bytes = new Uint8Array(arrayBuffer);
+    const base64 = bytesToBase64(bytes);
+    const dataUrl = `data:${mimeType};base64,${base64}`;
+
+    return {
+      success: true,
+      url,
+      status: res.status,
+      mimeType,
+      byteSize: byteLength,
+      fileName: fileName || 'image',
+      dataUrl,
+      elapsedMs: calcElapsed()
+    };
+  }
+
   return {
     fetchPage,
+    fetchImage,
     validateUrlForFetch,
+    detectVisionImageMimeType,
+    documentFileName,
+    imageFileName: documentFileName,
     extractReadableTextFromHtml,
     BaseFetchStrategy,
     ReaderGatewayStrategy,
@@ -563,6 +739,8 @@
     DirectFetchStrategy,
     CorsProxyStrategy,
     PageFetcherPipeline,
-    pipeline
+    pipeline,
+    MAX_IMAGE_BYTES,
+    VISION_IMAGE_MIME_TYPES
   };
 });

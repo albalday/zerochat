@@ -80,7 +80,7 @@ test('delegate_task - solo ofrece al subagente herramientas de lectura', async t
 
   assert.equal(result.success, true);
   assert.deepEqual(offered.sort(), [
-    'download_doc', 'execute_javascript', 'fetch_web_page', 'get_diagnostics', 'list_directory', 'list_documents',
+    'download_doc', 'download_image', 'execute_javascript', 'fetch_web_page', 'get_diagnostics', 'list_directory', 'list_documents',
     'read_file', 'read_knowledge_chunk', 'read_knowledge_image', 'search_files', 'search_knowledge_base', 'search_web'
   ], 'Fuera quedan las que escriben, ask_user, render_chart, delegate_task y los MCP externos');
 });

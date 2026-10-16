@@ -56,6 +56,7 @@ const PRECACHE_ASSETS = [
   './js/tools/builtin/search-web.tool.js',
   './js/tools/builtin/fetch-web-page.tool.js',
   './js/tools/builtin/download-doc.tool.js',
+  './js/tools/builtin/download-image.tool.js',
   './js/tools/builtin/render-chart.tool.js',
   './js/tools/builtin/list-documents.tool.js',
   './js/tools/builtin/search-knowledge-base.tool.js',

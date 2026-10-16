@@ -22,6 +22,7 @@ const REVIEWED_USES = {
   'js/tool-cards.js': 12,
   'js/tools/builtin/ask-user.tool.js': 2,
   'js/tools/builtin/delegate-task.tool.js': 3,
+  'js/tools/builtin/download-image.tool.js': 1,
   'js/tools/builtin/execute-javascript.tool.js': 2,
   'js/tools/builtin/read-knowledge-image.tool.js': 1,
   'js/tools/builtin/render-chart.tool.js': 2,

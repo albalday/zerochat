@@ -562,3 +562,77 @@ test('GeminiAdapter - formatMessages conserva resultados de llamadas paralelas y
     assert.deepEqual(afterSystem.map(message => message.role), ['system', 'user', 'assistant']);
   }
 });
+
+test('Multimodal Adapters - verificación de payloads de imágenes web descargadas en Gemini, Claude, OpenAI y Ollama', () => {
+  const webImageTurn = {
+    role: 'user',
+    content: [
+      { type: 'text', text: 'Visual evidence downloaded by download_image: https://example.com/photo.png' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } }
+    ]
+  };
+
+  const toolTurn = {
+    role: 'tool',
+    tool_call_id: 'call_dl_1',
+    name: 'download_image',
+    content: 'Image retrieved: https://example.com/photo.png. Inspect it visually to answer.'
+  };
+
+  const baseHistory = [
+    { role: 'system', content: 'System instruction' },
+    { role: 'user', content: 'Describe this image' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'call_dl_1', type: 'function', function: { name: 'download_image', arguments: '{"url":"https://example.com/photo.png"}' } }] },
+    toolTurn,
+    webImageTurn
+  ];
+
+  // 1. Google Gemini: inserta puente assistant para no violar la regla de user inmediatamente tras tool, y preserva image_url
+  {
+    const gemini = new GeminiProviderAdapter();
+    const formatted = gemini.formatMessages(baseHistory);
+    const roles = formatted.map(m => m.role);
+    assert.deepEqual(roles, ['system', 'user', 'assistant', 'tool', 'assistant', 'user']);
+    assert.equal(formatted[4].content, 'Tool information received.');
+    assert.deepEqual(formatted[5].content, webImageTurn.content);
+  }
+
+  // 2. Claude (Anthropic): convierte image_url a bloque nativo Anthropic { type: 'image', source: { type: 'base64', ... } }
+  {
+    const claude = new ClaudeProviderAdapter();
+    const payload = claude.buildPayload({
+      model: 'claude-3-7-sonnet',
+      messages: baseHistory
+    });
+    const lastUserMsg = payload.messages[payload.messages.length - 1];
+    assert.equal(lastUserMsg.role, 'user');
+    const imagePart = lastUserMsg.content.find(p => p.type === 'image');
+    assert.ok(imagePart, 'Claude debe transformar image_url a type: image');
+    assert.equal(imagePart.source.type, 'base64');
+    assert.equal(imagePart.source.media_type, 'image/png');
+    assert.equal(imagePart.source.data, 'iVBORw0KGgo=');
+  }
+
+  // 3. OpenAI / BaseProvider (OpenAI, OpenRouter, etc.):
+  // Con visión activa: preserva image_url tal cual
+  {
+    const openai = new BaseProviderAdapter({ id: 'openai', label: 'OpenAI', capabilities: { vision: true } });
+    const formatted = openai.formatMessages(baseHistory);
+    assert.deepEqual(formatted[4].content, webImageTurn.content);
+  }
+  // Con visión inactiva: degrada a texto plano sin lanzar excepción
+  {
+    const openaiNoVision = new BaseProviderAdapter({ id: 'openai-text', label: 'OpenAI Text', capabilities: { vision: false } });
+    const formatted = openaiNoVision.formatMessages(baseHistory);
+    assert.equal(typeof formatted[4].content, 'string');
+    assert.ok(formatted[4].content.includes('Visual evidence downloaded'));
+    assert.ok(!formatted[4].content.includes('data:image'));
+  }
+
+  // 4. Ollama / Local vision:
+  {
+    const ollama = new OllamaProviderAdapter();
+    const formatted = ollama.formatMessages(baseHistory);
+    assert.deepEqual(formatted[4].content, webImageTurn.content);
+  }
+});

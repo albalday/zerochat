@@ -14,7 +14,7 @@
 
   // El subagente solo recibe herramientas que leen; nunca delegate_task, ask_user ni render_chart.
   const READ_ONLY_BUILTIN_TOOLS = new Set([
-    'search_web', 'fetch_web_page', 'download_doc', 'execute_javascript',
+    'search_web', 'fetch_web_page', 'download_doc', 'download_image', 'execute_javascript',
     'list_documents', 'search_knowledge_base', 'read_knowledge_chunk', 'read_knowledge_image'
   ]);
   // Del servidor local, solo las de lectura. Los MCP externos quedan fuera: no declaran si escriben.

@@ -192,4 +192,155 @@ test('PageFetcher - extracción por expresiones regulares respeta tamaños y ord
   }
 });
 
+test('ImageFetcher - detectVisionImageMimeType reconoce formatos de visión raster y rechaza SVG y otros', () => {
+  // Por Content-Type
+  assert.equal(WebBrowser.detectVisionImageMimeType('', 'image/png'), 'image/png');
+  assert.equal(WebBrowser.detectVisionImageMimeType('', 'image/jpeg'), 'image/jpeg');
+  assert.equal(WebBrowser.detectVisionImageMimeType('', 'image/jpg'), 'image/jpeg');
+  assert.equal(WebBrowser.detectVisionImageMimeType('', 'image/webp'), 'image/webp');
+  assert.equal(WebBrowser.detectVisionImageMimeType('', 'image/gif'), 'image/gif');
+  assert.equal(WebBrowser.detectVisionImageMimeType('', 'image/png; charset=utf-8'), 'image/png');
+
+  // Por extensión en nombre o URL
+  assert.equal(WebBrowser.detectVisionImageMimeType('chart.png', 'application/octet-stream'), 'image/png');
+  assert.equal(WebBrowser.detectVisionImageMimeType('photo.jpg', ''), 'image/jpeg');
+  assert.equal(WebBrowser.detectVisionImageMimeType('photo.jpeg', ''), 'image/jpeg');
+  assert.equal(WebBrowser.detectVisionImageMimeType('image.webp?w=400&h=300', ''), 'image/webp');
+  assert.equal(WebBrowser.detectVisionImageMimeType('animation.gif', ''), 'image/gif');
+
+  // Rechazo de SVG, PDF, HTML y tipos no soportados
+  assert.equal(WebBrowser.detectVisionImageMimeType('vector.svg', 'image/svg+xml'), '');
+  assert.equal(WebBrowser.detectVisionImageMimeType('vector.svg', ''), '');
+  assert.equal(WebBrowser.detectVisionImageMimeType('doc.pdf', 'application/pdf'), '');
+  assert.equal(WebBrowser.detectVisionImageMimeType('page.html', 'text/html'), '');
+  assert.equal(WebBrowser.detectVisionImageMimeType('bitmap.bmp', 'image/bmp'), '');
+  assert.equal(WebBrowser.detectVisionImageMimeType('', ''), '');
+});
+
+test('ImageFetcher - validación de URLs y protección anti-SSRF en fetchImage', async () => {
+  // URLs inválidas o protocolos no permitidos
+  const r1 = await WebBrowser.fetchImage('file:///etc/shadow');
+  assert.equal(r1.success, false);
+  assert.ok(r1.error.includes('Protocolo no permitido'));
+
+  const r2 = await WebBrowser.fetchImage('javascript:alert(1)');
+  assert.equal(r2.success, false);
+
+  // SSRF a metadatos cloud y loopback
+  const r3 = await WebBrowser.fetchImage('http://169.254.169.254/latest/meta-data/');
+  assert.equal(r3.success, false);
+  assert.ok(r3.error.includes('Acceso bloqueado') || r3.error.includes('SSRF'));
+
+  const r4 = await WebBrowser.fetchImage('http://127.0.0.1/private.png');
+  assert.equal(r4.success, false);
+  assert.ok(r4.error.includes('Acceso bloqueado') || r4.error.includes('SSRF'));
+});
+
+test('ImageFetcher - límites de tamaño exactos en el borde (N y N+1) y rechazo de vacíos', async () => {
+  const originalFetch = global.fetch;
+  const boundaryLimit = 100; // N = 100 bytes
+
+  try {
+    // Caso 1: Borde exacto N (100 bytes) -> ACEPTADO
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'image/png' }),
+      arrayBuffer: async () => new Uint8Array(boundaryLimit).buffer
+    });
+
+    const resN = await WebBrowser.fetchImage('https://example.com/border.png', { maxBytes: boundaryLimit });
+    assert.equal(resN.success, true);
+    assert.equal(resN.byteSize, boundaryLimit);
+    assert.equal(resN.mimeType, 'image/png');
+    assert.ok(resN.dataUrl.startsWith('data:image/png;base64,'));
+
+    // Caso 2: Borde exacto N + 1 (101 bytes) -> RECHAZADO por sobrepasar límite
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'image/png' }),
+      arrayBuffer: async () => new Uint8Array(boundaryLimit + 1).buffer
+    });
+
+    const resNPlus1 = await WebBrowser.fetchImage('https://example.com/oversize.png', { maxBytes: boundaryLimit });
+    assert.equal(resNPlus1.success, false);
+    assert.ok(resNPlus1.error.includes('Image exceeds the size limit'));
+
+    // Caso 3: Imagen vacía (0 bytes) -> RECHAZADO
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'image/png' }),
+      arrayBuffer: async () => new Uint8Array(0).buffer
+    });
+
+    const resEmpty = await WebBrowser.fetchImage('https://example.com/empty.png', { maxBytes: boundaryLimit });
+    assert.equal(resEmpty.success, false);
+    assert.ok(resEmpty.error.includes('empty (0 bytes)'));
+
+    // Caso 4: Cabecera Content-Length sobrepasa el límite N antes de descargar el buffer -> RECHAZADO
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'image/png', 'content-length': String(boundaryLimit + 50) }),
+      arrayBuffer: async () => { throw new Error('No debe descargar el buffer si la cabecera ya excede'); }
+    });
+
+    const resHeaderOversize = await WebBrowser.fetchImage('https://example.com/header-huge.png', { maxBytes: boundaryLimit });
+    assert.equal(resHeaderOversize.success, false);
+    assert.ok(resHeaderOversize.error.includes('Image exceeds the size limit'));
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('ImageFetcher - validación de tipos MIME y conversión base64 dataUrl', async () => {
+  const originalFetch = global.fetch;
+
+  try {
+    const sampleBytes = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]); // PNG header bytes
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'image/png' }),
+      arrayBuffer: async () => sampleBytes.buffer
+    });
+
+    const res = await WebBrowser.fetchImage('https://example.com/sample.png');
+    assert.equal(res.success, true);
+    assert.equal(res.mimeType, 'image/png');
+    assert.equal(res.byteSize, sampleBytes.byteLength);
+    assert.ok(res.dataUrl.startsWith('data:image/png;base64,'));
+    assert.ok(res.dataUrl.includes('iVBORw0KGgo=')); // Base64 del magic PNG
+
+    // Rechazo de formato no admitido (SVG)
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'image/svg+xml' }),
+      arrayBuffer: async () => new TextEncoder().encode('<svg></svg>').buffer
+    });
+
+    const resSvg = await WebBrowser.fetchImage('https://example.com/vector.svg');
+    assert.equal(resSvg.success, false);
+    assert.ok(resSvg.error.includes('Unsupported image format'));
+
+    // Error HTTP 404
+    global.fetch = async () => ({
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+      headers: new Headers()
+    });
+
+    const res404 = await WebBrowser.fetchImage('https://example.com/not-found.png');
+    assert.equal(res404.success, false);
+    assert.equal(res404.status, 404);
+    assert.ok(res404.error.includes('HTTP 404'));
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 

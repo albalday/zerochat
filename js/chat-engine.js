@@ -160,6 +160,14 @@
               { type: 'image_url', image_url: { url: image.dataUrl } }
             ]
           });
+        } else if (toolName === 'download_image' && image) {
+          messages.push({
+            role: 'user',
+            content: [
+              { type: 'text', text: `Visual evidence downloaded by download_image${image.url ? `: ${image.url}` : '.'}` },
+              { type: 'image_url', image_url: { url: image.dataUrl } }
+            ]
+          });
         } else if ((toolName === 'browser_action' || toolName.endsWith('browser_action')) && image) {
           messages.push({
             role: 'user',

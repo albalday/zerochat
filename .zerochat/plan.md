@@ -51,11 +51,4 @@ Done when: on Linux, zerochat.py --prompt runs the prompt with the production Ze
 - [ ] M18-T6 UI run mode module: read run from the launch fragment, wait for the backend, send the prompt in a new conversation, report progress per step/tool/status, unattended dialogs and approvals, return {error} from handleSendMessage, send the result and close, with real-DOM tests
 - [ ] M18-T7 /help (ES/EN) and py/README.md for run mode, and manual end-to-end check headless and visible (including whether the visible window closes)
 
-## M19 Web image ingestion and multimodal analysis
-Goal: Allow vision-capable models to fetch, ingest and visually inspect images from the web (from search results, web pages or direct URLs) as multimodal input, in the same way documents (PDF/Office) and RAG images are ingested.
-Done when: the model can download an image via its URL (evaluating similarities/unification with download_doc vs. a dedicated download_image tool), validate and sanitize its MIME type and size limits, feed it as a safe base64 dataUrl into the multimodal turns for vision providers (Gemini, Anthropic, OpenAI, local vision models), show the corresponding preview card in the chat, with unit/integration/browser tests and /help (ES/EN) updated.
-- [ ] M19-T1 Evaluate similarities with download_doc: decide whether to extend download_doc or create a dedicated download_image tool, reusing web-browser fetch, card infrastructure and vision checks
-- [ ] M19-T2 Implement safe web image fetching and ingestion (URL resolution, MIME validation for PNG/JPEG/WebP/GIF, size limits, base64 dataUrl conversion)
-- [ ] M19-T3 Implement tool card and UI integration (live spinner, thumbnail preview, open in tab) and inject extracted images into turn multimodal message inputs
-- [ ] M19-T4 Verify provider adapters (Gemini, Anthropic, OpenAI, local vision) handle web image payloads as multimodal input
-- [ ] M19-T5 Tests (unit, integration, browser) covering edge cases (404, invalid type, oversize, valid images) and update /help (ES/EN)
+## M19 Web image ingestion and multimodal analysis: closed 2026-10-16
