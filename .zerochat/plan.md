@@ -52,3 +52,11 @@ Done when: on Linux, zerochat.py --prompt runs the prompt with the production Ze
 - [ ] M18-T7 /help (ES/EN) and py/README.md for run mode, and manual end-to-end check headless and visible (including whether the visible window closes)
 
 ## M19 Web image ingestion and multimodal analysis: closed 2026-10-16
+
+## M20 Diff visualization for file edits
+Goal: Allow users to view unified diffs of file modifications performed by local tools (edit_file and write_file) on demand in the chat UI, without cluttering the conversation or context window.
+Done when: the backend computes unified diffs for file edits using Python's standard difflib, the tool card in the UI displays an on-demand expandable diff view with accessible semantic line highlighting (+ additions, - deletions), model context is protected from diff verbosity, with unit/browser tests and /help (ES/EN) updated.
+- [ ] M20-T1 Study and decide diff payload design: backend difflib integration in edit_file/write_file, context token preservation and UI toggle behavior
+- [ ] M20-T2 Backend implementation: generate unified diff in edit_file and write_file (when overwriting existing files), with tests
+- [ ] M20-T3 UI tool card integration: interactive [View diff] toggle, syntax highlighting for additions/deletions via tokens.css, and historical reconstruction
+- [ ] M20-T4 Tests (unit, architecture, browser) and /help (ES/EN) documentation update
