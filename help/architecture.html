@@ -63,7 +63,7 @@
     <div class="card">
       <h2>Conexiones y privacidad</h2>
       <p>La interfaz publicada está en <a href="https://albalday.github.io/zerochat/zerochat.html">GitHub Pages</a>. El servidor local escucha por defecto en <code>127.0.0.1:6388</code> y abre un enlace autenticado. No compartas la URL de arranque mientras contenga el token; la interfaz lo retira y lo guarda en una cookie.</p>
-      <p>Los proveedores remotos reciben los mensajes, adjuntos y resultados de herramientas incluidos en sus peticiones. Las herramientas web pueden usar intermediarios como Jina Reader o AllOrigins. Los modelos y dependencias también necesitan descargas.</p>
+      <p>Los proveedores remotos reciben los mensajes, adjuntos y resultados de herramientas incluidos en sus peticiones. Las herramientas web pueden usar intermediarios como Jina Reader. Los modelos y dependencias también necesitan descargas.</p>
       <p>Las librerías de terceros (Orama para la búsqueda; mammoth y fflate para documentos ofimáticos) van incluidas en la propia web con versiones fijas, sin CDN. Las de documentos se descargan del mismo sitio la primera vez que se usan y quedan en caché para trabajar sin conexión. Sus licencias figuran en <a href="https://github.com/albalday/zerochat/blob/master/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a>.</p>
       <p>WebLLM ejecuta la inferencia localmente; las herramientas de red siguen enviando datos. Guardar el historial localmente no hace privadas todas las operaciones. El <a href="debug.html">panel de depuración</a> permite revisar las peticiones; su contexto puede diferir del historial visible por límites de tokens o selección RAG.</p>
     </div>

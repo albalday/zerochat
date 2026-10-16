@@ -112,7 +112,8 @@ test('PageFetcher - Validación de URLs y protección anti-SSRF', () => {
 
 test('PageFetcher - Pipeline de estrategias y límite de longitud de contenido', async () => {
   const pipeline = new WebBrowser.PageFetcherPipeline();
-  assert.ok(pipeline.strategies.length >= 4);
+  assert.equal(pipeline.strategies.length, 3);
+  assert.deepEqual(pipeline.strategies.map(s => s.name), ['ReaderGateway', 'LocalDocumentExtractor', 'DirectFetch']);
 
   // Test de estrategia simulada con contenido superior al límite
   const originalFetch = global.fetch;
@@ -335,6 +336,129 @@ test('ImageFetcher - validación de tipos MIME y conversión base64 dataUrl', as
     });
 
     const res404 = await WebBrowser.fetchImage('https://example.com/not-found.png');
+    assert.equal(res404.success, false);
+    assert.equal(res404.status, 404);
+    assert.ok(res404.error.includes('HTTP 404'));
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('BinaryFetcher - validación de URLs y protección anti-SSRF en fetchBinaryResource', async () => {
+  const r1 = await WebBrowser.fetchBinaryResource('file:///etc/shadow');
+  assert.equal(r1.success, false);
+  assert.ok(r1.error.includes('Protocolo no permitido'));
+
+  const r2 = await WebBrowser.fetchBinaryResource('javascript:alert(1)');
+  assert.equal(r2.success, false);
+
+  const r3 = await WebBrowser.fetchBinaryResource('http://169.254.169.254/latest/meta-data/');
+  assert.equal(r3.success, false);
+  assert.ok(r3.error.includes('Acceso bloqueado') || r3.error.includes('SSRF'));
+
+  const r4 = await WebBrowser.fetchBinaryResource('http://127.0.0.1/private.bin');
+  assert.equal(r4.success, false);
+  assert.ok(r4.error.includes('Acceso bloqueado') || r4.error.includes('SSRF'));
+});
+
+test('BinaryFetcher - límites de tamaño exactos en el borde (N y N+1), Content-Length y vacíos', async () => {
+  const originalFetch = global.fetch;
+  const boundaryLimit = 128; // N = 128 bytes
+
+  try {
+    // Caso 1: Borde exacto N (128 bytes) -> ACEPTADO
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/pdf' }),
+      arrayBuffer: async () => new Uint8Array(boundaryLimit).buffer
+    });
+
+    const resN = await WebBrowser.fetchBinaryResource('https://example.com/doc.pdf', { maxBytes: boundaryLimit });
+    assert.equal(resN.success, true);
+    assert.equal(resN.byteSize, boundaryLimit);
+    assert.equal(resN.status, 200);
+    assert.equal(resN.contentType, 'application/pdf');
+    assert.equal(resN.fileName, 'doc.pdf');
+    assert.ok(resN.arrayBuffer instanceof ArrayBuffer);
+
+    // Caso 2: Borde exacto N + 1 (129 bytes) -> RECHAZADO
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/pdf' }),
+      arrayBuffer: async () => new Uint8Array(boundaryLimit + 1).buffer
+    });
+
+    const resNPlus1 = await WebBrowser.fetchBinaryResource('https://example.com/huge.pdf', { maxBytes: boundaryLimit });
+    assert.equal(resNPlus1.success, false);
+    assert.ok(resNPlus1.error.includes('exceeds the size limit'));
+
+    // Caso 3: Recurso vacío (0 bytes) -> RECHAZADO
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/pdf' }),
+      arrayBuffer: async () => new Uint8Array(0).buffer
+    });
+
+    const resEmpty = await WebBrowser.fetchBinaryResource('https://example.com/empty.pdf', { maxBytes: boundaryLimit });
+    assert.equal(resEmpty.success, false);
+    assert.ok(resEmpty.error.includes('empty (0 bytes)'));
+
+    // Caso 4: Content-Length sobrepasa el límite N antes de descargar el buffer -> RECHAZADO
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/pdf', 'content-length': String(boundaryLimit + 200) }),
+      arrayBuffer: async () => { throw new Error('No debe descargar buffer si Content-Length excede'); }
+    });
+
+    const resHeaderOversize = await WebBrowser.fetchBinaryResource('https://example.com/oversized-header.pdf', { maxBytes: boundaryLimit });
+    assert.equal(resHeaderOversize.success, false);
+    assert.ok(resHeaderOversize.error.includes('exceeds the size limit'));
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('BinaryFetcher - terminación inmediata ante error de red o bloqueo CORS y ante timeout', async () => {
+  const originalFetch = global.fetch;
+
+  try {
+    // Caso 1: Error de red / CORS directo -> termina de inmediato (<100ms) sin proxies externos
+    global.fetch = async () => {
+      throw new TypeError('NetworkError when attempting to fetch resource');
+    };
+
+    const t0 = Date.now();
+    const resCors = await WebBrowser.fetchBinaryResource('https://blocked.example.com/image.jpg');
+    const elapsed = Date.now() - t0;
+
+    assert.equal(resCors.success, false);
+    assert.ok(resCors.error.includes('could not be downloaded') || resCors.error.includes('CORS'));
+    assert.ok(elapsed < 1000, `Debe terminar de inmediato ante error de red o CORS, tardó ${elapsed}ms`);
+
+    // Caso 2: Timeout por AbortError
+    global.fetch = async () => {
+      const err = new Error('The operation was aborted.');
+      err.name = 'AbortError';
+      throw err;
+    };
+
+    const resTimeout = await WebBrowser.fetchBinaryResource('https://slow.example.com/file.bin', { timeoutMs: 3000 });
+    assert.equal(resTimeout.success, false);
+    assert.ok(resTimeout.error.includes('timed out after 3000ms'));
+
+    // Caso 3: Error HTTP 404 y 500 terminan de inmediato
+    global.fetch = async () => ({
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+      headers: new Headers()
+    });
+
+    const res404 = await WebBrowser.fetchBinaryResource('https://example.com/missing.bin');
     assert.equal(res404.success, false);
     assert.equal(res404.status, 404);
     assert.ok(res404.error.includes('HTTP 404'));

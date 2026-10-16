@@ -72,3 +72,8 @@
 - 2026-10-16 M19-D3 Implement download_image live/historical thumbnail card with open-in-tab and multimodal turn image_url injection (M19-T3)
 - 2026-10-16 M19-D4 Verify Gemini, Claude, OpenAI and local vision adapters correctly format web image payloads into their native multimodal structures (M19-T4)
 - 2026-10-16 M19-D5 Complete test coverage for image fetching edge cases and update Spanish/English help documentation for download_image (M19-T5)
+- 2026-10-16 M21-D1 Implement unified fetchBinaryResource in ChatWebBrowser with strict URL validation, zero external proxy fallbacks, and immediate failure on CORS/network errors (M21-T1)
+- 2026-10-16 M21-D2 Migrate fetchImage and LocalDocumentStrategy to fetchBinaryResource, removing allorigins proxy from fetchImage and ensuring documents bypass Jina and CORS proxies (M21-T2)
+- 2026-10-16 M21-D3 Remove CorsProxyStrategy and allorigins.win from PageFetcherPipeline, leaving a clean 3-strategy pipeline (ReaderGateway, LocalDocumentExtractor, DirectFetch) (M21-T3)
+- 2026-10-16 M21-D4 Complete audit and removal of allorigins and third-party proxy fallbacks across code comments and bilingual documentation (M21-T4)
+- 2026-10-16 M21-D5 Validate full test suite across unit, infrastructure, architecture, integration and browser levels, confirming clean pass of all tests with zero proxy dependencies (M21-T5)

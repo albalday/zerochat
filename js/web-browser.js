@@ -12,7 +12,6 @@
  *      el modelo agéntico, ZeroChat utiliza estrategias desacopladas:
  *        a) Gateway Reader para LLMs (ej: Jina Reader / r.jina.ai): Procesa y devuelve Markdown limpio.
  *        b) Petición Directa (DirectFetch): Utilizada para servidores con CORS habilitado o endpoints locales.
- *        c) Proxy CORS (AllOrigins): Fallback de contingencia para obtener el HTML crudo.
  *
  * 2. Mitigación de SSRF (Server-Side Request Forgery) en el Cliente Web:
  *    - Los agentes LLM pueden recibir o generar URLs arbitrarias. ZeroChat aplica validación estricta
@@ -298,8 +297,8 @@
     }
 
     async canHandle(url, context = {}) {
-      // No aplicar gateway a hosts locales ni a documentos ofimáticos, que se leen en el navegador.
-      return !context.isLocalUrl && !context.isOfficeUrl;
+      // No aplicar gateway a hosts locales ni a documentos PDF u ofimáticos, que se leen en el navegador.
+      return !context.isLocalUrl && !context.isOfficeUrl && !context.isPdfUrl;
     }
 
     async fetch(url, context = {}) {
@@ -341,61 +340,25 @@
     }
 
     async fetch(url, context = {}) {
-      const res = await fetchWithTimeout(url, {
-        headers: { 'Accept': context.isPdfUrl ? 'application/pdf,*/*' : '*/*' }
-      }, this.timeoutMs);
+      const accept = context.isPdfUrl ? 'application/pdf,*/*' : '*/*';
+      const binaryResult = await fetchBinaryResource(url, {
+        timeoutMs: this.timeoutMs,
+        accept,
+        resourceKind: 'document'
+      });
 
-      if (!res.ok) {
-        throw new Error(`Error downloading the document (HTTP ${res.status})`);
+      if (!binaryResult.success) {
+        throw new Error(binaryResult.error || 'Error downloading the document');
       }
 
-      const arrayBuffer = await res.arrayBuffer();
-      const contentType = (res.headers.get('content-type') || '').toLowerCase();
+      const contentType = (binaryResult.contentType || '').toLowerCase();
       const docType = detectDocumentType(documentFileName(url), contentType);
       return {
         success: true,
-        content: await describeDownloadedDocument(arrayBuffer, url, contentType, docType),
-        byteSize: arrayBuffer.byteLength,
-        status: 200,
+        content: await describeDownloadedDocument(binaryResult.arrayBuffer, url, contentType, docType),
+        byteSize: binaryResult.byteSize,
+        status: binaryResult.status || 200,
         isPdf: docType === 'pdf',
-        strategy: this.name
-      };
-    }
-  }
-
-  /**
-   * Estrategia de acceso mediante Proxy CORS (AllOrigins).
-   */
-  class CorsProxyStrategy extends BaseFetchStrategy {
-    constructor(options = {}) {
-      super({ name: 'CorsProxy', timeoutMs: 8000, ...options });
-    }
-
-    async canHandle(url, context = {}) {
-      // El proxy devuelve texto: no sirve para documentos binarios ofimáticos.
-      return !context.isLocalUrl && !context.isOfficeUrl;
-    }
-
-    async fetch(url, context = {}) {
-      const allOriginsUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-      const res = await fetchWithTimeout(allOriginsUrl, {}, this.timeoutMs);
-
-      if (!res.ok) {
-        throw new Error(`CORS proxy answered HTTP ${res.status}`);
-      }
-
-      const data = await res.json();
-      const rawHtml = data.contents || '';
-      if (!rawHtml) {
-        throw new Error('The CORS proxy returned no content.');
-      }
-
-      const content = extractReadableTextFromHtml(rawHtml, url);
-      return {
-        success: true,
-        content: content,
-        byteSize: rawHtml.length,
-        status: data.status?.http_code || 200,
         strategy: this.name
       };
     }
@@ -460,8 +423,7 @@
       this.strategies = [
         new ReaderGatewayStrategy(),
         new LocalDocumentStrategy(),
-        new DirectFetchStrategy(),
-        new CorsProxyStrategy()
+        new DirectFetchStrategy()
       ];
     }
 
@@ -553,9 +515,122 @@
     return pipeline.fetch(rawUrl, options);
   }
 
-  const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+  const MAX_BINARY_BYTES = 10 * 1024 * 1024;
+  const MAX_IMAGE_BYTES = MAX_BINARY_BYTES;
 
   const VISION_IMAGE_MIME_TYPES = SAFE_IMAGE_MIME_TYPES;
+
+  /**
+   * Descarga un recurso web binario (ArrayBuffer) directamente en el navegador de forma segura.
+   * Valida la URL (anti-SSRF), aplica límites de tamaño y timeout estricto, sin proxies de terceros ni backend.
+   * En caso de error de red o bloqueo de CORS, falla de inmediato sin reintentos externos ni cuelgues.
+   */
+  async function fetchBinaryResource(rawUrl, options = {}) {
+    const validation = validateUrlForFetch(rawUrl, options);
+    if (!validation.valid) {
+      return {
+        success: false,
+        url: rawUrl || '',
+        error: validation.error,
+        elapsedMs: 0
+      };
+    }
+
+    const url = validation.url;
+    const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const maxBytes = options.maxBytes || MAX_BINARY_BYTES;
+    const timeoutMs = options.timeoutMs || 8000;
+    const resourceKind = options.resourceKind || 'resource';
+    const headers = {
+      'Accept': options.accept || '*/*',
+      ...(options.headers || {})
+    };
+
+    const calcElapsed = () => parseFloat(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startTime).toFixed(2));
+
+    let res = null;
+    try {
+      res = await fetchWithTimeout(url, { headers }, timeoutMs);
+    } catch (err) {
+      const isTimeout = err?.name === 'AbortError' || /abort/i.test(err?.message || '');
+      return {
+        success: false,
+        url,
+        error: isTimeout
+          ? `The download timed out after ${timeoutMs}ms.`
+          : `The ${resourceKind} could not be downloaded (${err?.message || 'connection error or CORS restriction'}).`,
+        elapsedMs: calcElapsed()
+      };
+    }
+
+    if (!res.ok) {
+      return {
+        success: false,
+        url,
+        status: res.status,
+        error: `HTTP ${res.status}: ${res.statusText || 'Error fetching resource'}`,
+        elapsedMs: calcElapsed()
+      };
+    }
+
+    const label = resourceKind.charAt(0).toUpperCase() + resourceKind.slice(1);
+
+    const contentLength = res.headers.get('content-length');
+    if (contentLength && parseInt(contentLength, 10) > maxBytes) {
+      return {
+        success: false,
+        url,
+        status: res.status,
+        error: `${label} exceeds the size limit of ${formatBytes(maxBytes)} (reported ${formatBytes(parseInt(contentLength, 10))}).`,
+        elapsedMs: calcElapsed()
+      };
+    }
+
+    let arrayBuffer;
+    try {
+      arrayBuffer = await res.arrayBuffer();
+    } catch (bufErr) {
+      return {
+        success: false,
+        url,
+        status: res.status,
+        error: `Failed to read ${resourceKind} content: ${bufErr.message}`,
+        elapsedMs: calcElapsed()
+      };
+    }
+
+    const byteLength = arrayBuffer.byteLength;
+    if (byteLength === 0) {
+      return {
+        success: false,
+        url,
+        status: res.status,
+        error: `The fetched ${resourceKind} is empty (0 bytes).`,
+        elapsedMs: calcElapsed()
+      };
+    }
+
+    if (byteLength > maxBytes) {
+      return {
+        success: false,
+        url,
+        status: res.status,
+        error: `${label} exceeds the size limit of ${formatBytes(maxBytes)} (got ${formatBytes(byteLength)}).`,
+        elapsedMs: calcElapsed()
+      };
+    }
+
+    return {
+      success: true,
+      url,
+      status: res.status,
+      contentType: res.headers.get('content-type') || '',
+      arrayBuffer,
+      byteSize: byteLength,
+      fileName: documentFileName(url) || resourceKind,
+      elapsedMs: calcElapsed()
+    };
+  }
 
   /**
    * Determina el tipo MIME de imagen válido para modelos de visión a partir del nombre o Content-Type.
@@ -577,150 +652,54 @@
    * y tamaño máximo, y la devuelve convertida en dataUrl base64 para modelos de visión.
    */
   async function fetchImage(rawUrl, options = {}) {
-    const validation = validateUrlForFetch(rawUrl, options);
-    if (!validation.valid) {
-      return {
-        success: false,
-        url: rawUrl || '',
-        error: validation.error,
-        elapsedMs: 0
-      };
-    }
-
-    const url = validation.url;
-    const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const maxBytes = options.maxBytes || MAX_IMAGE_BYTES;
-    const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
-    const fileName = documentFileName(url);
-    const isLocalUrl = /^(localhost|127\.0\.0\.1|192\.168\.|10\.|0\.0\.0\.0)/i.test(validation.hostname);
+    const timeoutMs = options.timeoutMs || 8000;
+    const accept = 'image/png,image/jpeg,image/webp,image/gif;q=0.9,*/*;q=0.8';
 
-    const headers = {
-      'Accept': 'image/png,image/jpeg,image/webp,image/gif;q=0.9,*/*;q=0.8'
-    };
+    const binaryResult = await fetchBinaryResource(rawUrl, {
+      ...options,
+      maxBytes,
+      timeoutMs,
+      accept,
+      resourceKind: 'image'
+    });
 
-    let res = null;
-    let lastError = null;
-
-    try {
-      res = await fetchWithTimeout(url, { headers }, timeoutMs);
-      if (!res.ok && res.status >= 500 && !isLocalUrl) {
-        try {
-          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-          const proxyRes = await fetchWithTimeout(proxyUrl, { headers }, timeoutMs);
-          if (proxyRes.ok) res = proxyRes;
-        } catch (_) {
-          // Si el proxy CORS de contingencia falla, se mantiene la respuesta de la petición directa.
-        }
-      }
-    } catch (err) {
-      lastError = err;
-      if (!isLocalUrl) {
-        try {
-          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-          res = await fetchWithTimeout(proxyUrl, { headers }, timeoutMs);
-        } catch (proxyErr) {
-          lastError = proxyErr;
-        }
-      }
+    if (!binaryResult.success) {
+      return binaryResult;
     }
 
-    const calcElapsed = () => parseFloat(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startTime).toFixed(2));
-
-    if (!res) {
-      return {
-        success: false,
-        url,
-        error: `The image could not be downloaded (${lastError ? lastError.message : 'connection error or network block'}).`,
-        elapsedMs: calcElapsed()
-      };
-    }
-
-    if (!res.ok) {
-      return {
-        success: false,
-        url,
-        status: res.status,
-        error: `HTTP ${res.status}: ${res.statusText || 'Error fetching image'}`,
-        elapsedMs: calcElapsed()
-      };
-    }
-
-    const contentLength = res.headers.get('content-length');
-    if (contentLength && parseInt(contentLength, 10) > maxBytes) {
-      return {
-        success: false,
-        url,
-        status: res.status,
-        error: `Image exceeds the size limit of ${formatBytes(maxBytes)} (reported ${formatBytes(parseInt(contentLength, 10))}).`,
-        elapsedMs: calcElapsed()
-      };
-    }
-
-    let arrayBuffer;
-    try {
-      arrayBuffer = await res.arrayBuffer();
-    } catch (bufErr) {
-      return {
-        success: false,
-        url,
-        status: res.status,
-        error: `Failed to read image content: ${bufErr.message}`,
-        elapsedMs: calcElapsed()
-      };
-    }
-
-    const byteLength = arrayBuffer.byteLength;
-    if (byteLength === 0) {
-      return {
-        success: false,
-        url,
-        status: res.status,
-        error: 'The fetched image is empty (0 bytes).',
-        elapsedMs: calcElapsed()
-      };
-    }
-
-    if (byteLength > maxBytes) {
-      return {
-        success: false,
-        url,
-        status: res.status,
-        error: `Image exceeds the size limit of ${formatBytes(maxBytes)} (got ${formatBytes(byteLength)}).`,
-        elapsedMs: calcElapsed()
-      };
-    }
-
-    const rawContentType = res.headers.get('content-type') || '';
-    const mimeType = detectVisionImageMimeType(fileName, rawContentType);
+    const fileName = binaryResult.fileName || documentFileName(binaryResult.url);
+    const mimeType = detectVisionImageMimeType(fileName, binaryResult.contentType);
     if (!mimeType) {
       return {
         success: false,
-        url,
-        status: res.status,
-        error: `Unsupported image format: ${rawContentType || 'unknown'}. Only PNG, JPEG, WebP, and GIF are supported.`,
-        elapsedMs: calcElapsed()
+        url: binaryResult.url,
+        status: binaryResult.status,
+        error: `Unsupported image format: ${binaryResult.contentType || 'unknown'}. Only PNG, JPEG, WebP, and GIF are supported.`,
+        elapsedMs: binaryResult.elapsedMs
       };
     }
 
-    const bytes = new Uint8Array(arrayBuffer);
+    const bytes = new Uint8Array(binaryResult.arrayBuffer);
     const base64 = bytesToBase64(bytes);
     const dataUrl = `data:${mimeType};base64,${base64}`;
 
     return {
       success: true,
-      url,
-      status: res.status,
+      url: binaryResult.url,
+      status: binaryResult.status,
       mimeType,
-      byteSize: byteLength,
+      byteSize: binaryResult.byteSize,
       fileName: fileName || 'image',
       dataUrl,
-      elapsedMs: calcElapsed()
+      elapsedMs: binaryResult.elapsedMs
     };
   }
 
   return {
     fetchPage,
     fetchImage,
+    fetchBinaryResource,
     validateUrlForFetch,
     detectVisionImageMimeType,
     documentFileName,
@@ -729,9 +708,9 @@
     ReaderGatewayStrategy,
     LocalDocumentStrategy,
     DirectFetchStrategy,
-    CorsProxyStrategy,
     PageFetcherPipeline,
     pipeline,
+    MAX_BINARY_BYTES,
     MAX_IMAGE_BYTES,
     VISION_IMAGE_MIME_TYPES
   };

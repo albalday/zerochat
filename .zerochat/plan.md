@@ -60,3 +60,5 @@ Done when: the backend computes unified diffs for file edits using Python's stan
 - [ ] M20-T2 Backend implementation: generate unified diff in edit_file and write_file (when overwriting existing files), with tests
 - [ ] M20-T3 UI tool card integration: interactive [View diff] toggle, syntax highlighting for additions/deletions via tokens.css, and historical reconstruction
 - [ ] M20-T4 Tests (unit, architecture, browser) and /help (ES/EN) documentation update
+
+## M21 Unified browser resource download and public proxy removal: closed 2026-10-16
