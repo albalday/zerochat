@@ -58,6 +58,9 @@ test('Test Runner - soporte de flags --changed y --all para aceleración', async
   const parsedAll = runner.parseArgs(['--all']);
   assert.equal(parsedAll.level, 'all');
 
+  const parsedConcurrency = runner.parseArgs(['--concurrency=2']);
+  assert.equal(parsedConcurrency.concurrency, 2);
+
   assert.ok(typeof runner.getChangedFiles === 'function');
   assert.ok(typeof runner.resolveChangedFiles === 'function');
 });

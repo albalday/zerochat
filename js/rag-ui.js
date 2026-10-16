@@ -389,21 +389,26 @@
       $('rag-branch-name-input').focus();
       return;
     }
-    const selectedId = $('rag-manage-branch-select').value;
-    const creating = editor.creating || !selectedId || selectedId === NEW_BRANCH;
-    let branchId = selectedId;
-    if (creating) {
-      branchId = (await storage().createBranch(fields)).id;
-    } else {
-      await storage().updateBranch(branchId, fields);
-      indexer().invalidateBranch(branchId);
+    const saveBtn = $('btn-rag-save-branch');
+    saveBtn.disabled = true;
+    try {
+      const selectedId = $('rag-manage-branch-select').value;
+      const creating = editor.creating || !selectedId || selectedId === NEW_BRANCH;
+      let branchId = selectedId;
+      if (creating) {
+        branchId = (await storage().createBranch(fields)).id;
+      } else {
+        await storage().updateBranch(branchId, fields);
+        indexer().invalidateBranch(branchId);
+      }
+      editor = { creating: false, id: branchId, ...fields };
+      await renderManageDialog(branchId);
+      await syncActivationIfOpen();
+      updateToolbarStatus();
+      showBranchFeedback(t(creating ? 'rag_branch_created' : 'rag_branch_updated', { name: fields.name }), 'success');
+    } finally {
+      updateSaveButtonState();
     }
-    editor = { creating: false, id: branchId, ...fields };
-    await renderManageDialog(branchId);
-    await syncActivationIfOpen();
-    updateToolbarStatus();
-    updateSaveButtonState();
-    showBranchFeedback(t(creating ? 'rag_branch_created' : 'rag_branch_updated', { name: fields.name }), 'success');
   }
 
   async function deleteBranch() {

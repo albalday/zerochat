@@ -14,13 +14,18 @@ const CONTENT_TYPES = {
 
 let browserPromise = null;
 
+const CHROMIUM_LAUNCH_OPTIONS = {
+  headless: true,
+  args: ['--no-sandbox', '--disable-dev-shm-usage']
+};
+
 async function getBrowser() {
   if (!browserPromise) {
-    browserPromise = chromium.launch({ headless: true });
+    browserPromise = chromium.launch(CHROMIUM_LAUNCH_OPTIONS);
   }
   const browser = await browserPromise;
   if (!browser.isConnected()) {
-    browserPromise = chromium.launch({ headless: true });
+    browserPromise = chromium.launch(CHROMIUM_LAUNCH_OPTIONS);
     return browserPromise;
   }
   return browser;

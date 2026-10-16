@@ -240,6 +240,7 @@ export function parseArgs(rawArgs) {
   let group = null;
   let listOnly = false;
   let changedOnly = false;
+  let concurrency = null;
   const positionalFiles = [];
 
   for (let i = 0; i < rawArgs.length; i++) {
@@ -258,6 +259,10 @@ export function parseArgs(rawArgs) {
       group = arg.slice(8).trim();
     } else if (arg === '--group' && i + 1 < rawArgs.length) {
       group = rawArgs[++i].trim();
+    } else if (arg.startsWith('--concurrency=')) {
+      concurrency = parseInt(arg.slice(14).trim(), 10);
+    } else if (arg === '--concurrency' && i + 1 < rawArgs.length) {
+      concurrency = parseInt(rawArgs[++i].trim(), 10);
     } else if (arg === '--help' || arg === '-h') {
       return { showHelp: true };
     } else if (!arg.startsWith('-')) {
@@ -265,7 +270,7 @@ export function parseArgs(rawArgs) {
     }
   }
 
-  return { level, group, listOnly, changedOnly, positionalFiles, showHelp: false };
+  return { level, group, listOnly, changedOnly, concurrency, positionalFiles, showHelp: false };
 }
 
 /**
@@ -348,7 +353,13 @@ export async function run() {
   }
 
   // Ejecutar node --test pasando los archivos directamente (sin shell interpolation)
-  const child = spawn(process.execPath, ['--require', './tests/helpers/storage-env.js', '--test', ...filesToRun], {
+  const testArgs = [...process.execArgv, '--require', './tests/helpers/storage-env.js', '--test'];
+  if (args.concurrency) {
+    testArgs.push(`--test-concurrency=${args.concurrency}`);
+  }
+  testArgs.push(...filesToRun);
+
+  const child = spawn(process.execPath, testArgs, {
     cwd: ROOT_DIR,
     stdio: 'inherit'
   });

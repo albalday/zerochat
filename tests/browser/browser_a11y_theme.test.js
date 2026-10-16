@@ -207,6 +207,7 @@ test('Browser UI - RAG crea y edita ramas en pantalla sin diálogos nativos', as
       const select = document.getElementById('rag-manage-branch-select');
       return select && Array.from(select.options).some(opt => opt.text.includes('Rama de navegador'));
     });
+    await page.waitForSelector('#btn-rag-save-branch:disabled');
 
     // Verificar que tras guardar el botón queda desactivado pero sigue siendo "Guardar"
     assert.equal(await page.$eval('#btn-rag-save-branch', el => el.disabled), true, 'Tras guardar el botón queda desactivado');
@@ -240,6 +241,8 @@ test('Browser UI - RAG crea y edita ramas en pantalla sin diálogos nativos', as
     assert.equal(updatedBranch.description, 'Descripción editada sin prompts', 'La modificación debe haberse guardado');
     assert.equal(dialogTriggered, false, 'No debe haberse mostrado ningún diálogo emergente bloqueante');
 
+    await page.waitForSelector('#btn-rag-save-branch:disabled');
+    await page.waitForSelector('#rag-branch-feedback:not([hidden])');
     assert.equal(await page.$eval('#btn-rag-save-branch', el => el.disabled), true, 'Tras guardar la modificación el botón Guardar vuelve a desactivarse');
     assert.equal(await page.$eval('#btn-rag-save-branch', el => el.textContent.trim()), 'Guardar');
     // Verificar que el diálogo de activación también muestra el resumen de cada rama
