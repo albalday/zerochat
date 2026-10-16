@@ -80,15 +80,15 @@ test('Builtin Tools - search_web pasa la consulta y el idioma y serializa el Mar
   assert.match(tool.toMarkdown({ query: 'ZeroChat refactor' }, result), /1 sources[\s\S]*ZeroChat refactor/);
 });
 
-test('Builtin Tools - fetch_web_page y download_pdf aceptan los nombres de URL que usan los modelos', async () => {
+test('Builtin Tools - fetch_web_page y download_doc aceptan los nombres de URL que usan los modelos', async () => {
   const urls = [];
   const webBrowser = { fetchPage: async url => { urls.push(url); return { success: true, content: 'Página' }; } };
   const page = await getTool('fetch_web_page').execute({ href: 'https://example.com/article' }, { services: { webBrowser } });
-  await getTool('download_pdf').execute({ URL: 'https://example.com/document.pdf' }, { services: { webBrowser } });
+  await getTool('download_doc').execute({ URL: 'https://example.com/document.pdf' }, { services: { webBrowser } });
 
   assert.deepEqual(urls, ['https://example.com/article', 'https://example.com/document.pdf']);
   assert.equal(getTool('fetch_web_page').toModel({}, page), JSON.stringify(page));
-  assert.match(getTool('download_pdf').toMarkdown({ url: 'https://example.com/document.pdf' }, page), /download_pdf[\s\S]*document\.pdf/);
+  assert.match(getTool('download_doc').toMarkdown({ url: 'https://example.com/document.pdf' }, page), /download_doc[\s\S]*document\.pdf/);
 });
 
 test('Builtin Tools - render_chart dibuja el gráfico en la tarjeta y solo informa al modelo', async t => {

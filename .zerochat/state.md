@@ -1,4 +1,4 @@
 # Current state
-- Milestone: M4 Images and office files in the chat
-- Next task: M4-T14
-- Last updated: 2026-10-15
+- Milestone: M12 PDF reading with pdf.js
+- Next task: M12-T1
+- Last updated: 2026-10-16

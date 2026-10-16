@@ -309,7 +309,7 @@ test('Browser UI - native, MCP and historical cards share mobile layout; charts 
       const cases = [
         ['search_web', { query: '<img src=x onerror=alert(1)>' }, { success: true, count: 1, results: [{ title: '<script>bad</script>', url: 'javascript:alert(1)', snippet: '<img src=x>' }] }],
         ['fetch_web_page', { url: 'https://example.com' }, { success: false, error: 'Failed' }],
-        ['download_pdf', { url: 'https://example.com/a.pdf' }, { success: true, text: 'PDF' }],
+        ['download_doc', { url: 'https://example.com/a.pdf' }, { success: true, text: 'PDF' }],
         ['execute_javascript', { code: 'return 1' }, { success: true, result: '1' }],
         ['read_knowledge_image', { imageRef: 'rag-image://doc:image' }, { success: true, documentTitle: '<script>bad</script>' }],
         [mcp.name, { input: 'value' }, { success: true, content: '<script>bad</script>' }]
@@ -1004,7 +1004,7 @@ test('Browser UI - el subagente de delegate_task muestra sus herramientas en su 
       try {
         const loop = await window.ChatEngine.executeAgentTurnLoop({
           chatHistory: [{ role: 'user', content: 'Mensaje privado del agente principal' }],
-          appConfig: window.ChatConfig.normalize({ apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', model: 'test-model', systemPrompt: 'Main system prompt', enabledTools: { execute_javascript: true, search_web: false, fetch_web_page: false, download_pdf: false, render_chart: true, delegate_task: true } }),
+          appConfig: window.ChatConfig.normalize({ apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', model: 'test-model', systemPrompt: 'Main system prompt', enabledTools: { execute_javascript: true, search_web: false, fetch_web_page: false, download_doc: false, render_chart: true, delegate_task: true } }),
           assistantMsgId: 'asst_subagent',
           container,
           onReasoningChunk() {},
@@ -1100,7 +1100,7 @@ test('Browser UI - el subagente usa el perfil de conexión «Subagente» si exis
       try {
         await window.ChatEngine.executeAgentTurnLoop({
           chatHistory: [{ role: 'user', content: 'Hola' }],
-          appConfig: window.ChatConfig.normalize({ apiUrl: 'http://127.0.0.1:9/main', apiType: 'openai', model: 'main-model', enabledTools: { execute_javascript: true, search_web: false, fetch_web_page: false, download_pdf: false, render_chart: false, delegate_task: true } }),
+          appConfig: window.ChatConfig.normalize({ apiUrl: 'http://127.0.0.1:9/main', apiType: 'openai', model: 'main-model', enabledTools: { execute_javascript: true, search_web: false, fetch_web_page: false, download_doc: false, render_chart: false, delegate_task: true } }),
           assistantMsgId: 'asst_subagent',
           container,
           onReasoningChunk() {},

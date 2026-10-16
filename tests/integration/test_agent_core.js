@@ -12,7 +12,7 @@ const call = (name, args = {}) => ({ id: `call_${name}`, type: 'function', funct
 test('AgentCore - el registro resuelve las nativas por nombre y por alias', () => {
   const registry = new ToolRegistry();
 
-  for (const name of ['execute_javascript', 'search_web', 'fetch_web_page', 'download_pdf', 'render_chart']) {
+  for (const name of ['execute_javascript', 'search_web', 'fetch_web_page', 'download_doc', 'render_chart']) {
     assert.equal(registry.getTool(name).name, name);
   }
   // Alias declarados, con o sin guiones bajos, en mayúsculas o con guiones.
@@ -23,7 +23,9 @@ test('AgentCore - el registro resuelve las nativas por nombre y por alias', () =
   assert.equal(registry.getTool('duckduckgo').name, 'search_web');
   assert.equal(registry.getTool('Search-Web').name, 'search_web');
   assert.equal(registry.getTool('fetchwebpage').name, 'fetch_web_page');
-  assert.equal(registry.getTool('downloadpdf').name, 'download_pdf');
+  assert.equal(registry.getTool('downloaddoc').name, 'download_doc');
+  assert.equal(registry.getTool('download_pdf').name, 'download_doc');
+  assert.equal(registry.getTool('downloadpdf').name, 'download_doc');
   assert.equal(registry.getTool('renderchart').name, 'render_chart');
   assert.equal(registry.getTool('buscar_en_documentos').name, 'search_knowledge_base');
   assert.equal(registry.getTool('unknown_tool'), null);
@@ -201,11 +203,11 @@ test('AgentCore - las definiciones y la guía del prompt siguen los interruptore
   const registry = new ToolRegistry();
   const config = enabledTools => ConfigStore.normalize({ enabledTools });
 
-  const names = registry.getActiveDefinitions(config({ search_web: false, download_pdf: false })).map(d => d.function.name);
+  const names = registry.getActiveDefinitions(config({ search_web: false, download_doc: false })).map(d => d.function.name);
   assert.ok(names.includes('execute_javascript'));
   assert.ok(names.includes('fetch_web_page'));
   assert.ok(!names.includes('search_web'));
-  assert.ok(!names.includes('download_pdf'));
+  assert.ok(!names.includes('download_doc'));
   // Las de conocimiento local no tienen interruptor: dependen de que haya ramas RAG activas.
   assert.ok(!names.includes('list_documents'));
   const ragNames = registry.getActiveDefinitions(ConfigStore.normalize({ activeRagBranchIds: ['branch_1'] })).map(d => d.function.name);
@@ -213,7 +215,7 @@ test('AgentCore - las definiciones y la guía del prompt siguen los interruptore
     assert.ok(ragNames.includes(name), name);
   }
 
-  const guide = registry.getActivePromptGuide(config({ search_web: false, download_pdf: false }));
+  const guide = registry.getActivePromptGuide(config({ search_web: false, download_doc: false }));
   assert.match(guide, /AVAILABLE TOOLS AND FUNCTIONS/);
   assert.match(guide, /execute_javascript/);
   assert.doesNotMatch(guide, /search_web/);

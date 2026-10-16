@@ -45,3 +45,6 @@
 - 2026-10-15 M4-D12 Resolver hallazgos difíciles F-01 y F-03 de la auditoría 9.1.1-9.1.4 (M4-T19)
 - 2026-10-15 M13-D1 Document generation produces only Markdown shown in the chat, extended with external code, ad hoc CSS and writing rules, and CSV becomes Markdown tables; exporting what the chat shows, to a file or a separate tab, comes later and only on request; this drops the docx/xlsx write libraries, the JSON spec tools and docx templates (M13-T1)
 - 2026-10-15 M4-D13 Centralizar convenciones de vendor bundle en VendorLoader.bundleInfo y optimizar lectura de licencias en build-vendor (F-16 a F-18) (M4-T24)
+- 2026-10-16 M4-D14 AGENTS.md, tests/README.md y AuditFull.md actualizados tras el análisis de auditorías: se exige buscar antes de escribir, fuente única de verdad, pruebas en bordes (N y N+1), revisión del diff previa a task.py done y umbral estricto de importancia en auditorías acotadas de cambios (M4-T25)
+- 2026-10-16 M4-D15 Rename download_pdf tool to download_doc (keeping download_pdf in aliases for model calls) across tool definition, cards, settings, i18n, tests and /help; move legacy .doc/.xls reading to M15 and local model RAG/web image rendering (which also depends on reasoningEffort) to M16, closing M4 (M4-T15)
+

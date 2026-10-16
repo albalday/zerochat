@@ -116,7 +116,7 @@
   }
 
   /**
-   * Vista de las herramientas que descargan una URL (fetch_web_page, download_pdf): la misma
+   * Vista de las herramientas que descargan una URL (fetch_web_page, download_doc): la misma
    * tarjeta con el icono, los textos y la etiqueta de estado de cada una.
    */
   function createWebRequestView({ icon, className, titleKey, badgeKey, loadingKey, statusLabel }) {

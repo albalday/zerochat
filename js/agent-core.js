@@ -24,7 +24,7 @@
     ['ChatBuiltinExecuteJavascriptTool', './tools/builtin/execute-javascript.tool.js'],
     ['ChatBuiltinSearchWebTool', './tools/builtin/search-web.tool.js'],
     ['ChatBuiltinFetchWebPageTool', './tools/builtin/fetch-web-page.tool.js'],
-    ['ChatBuiltinDownloadPdfTool', './tools/builtin/download-pdf.tool.js'],
+    ['ChatBuiltinDownloadDocTool', './tools/builtin/download-doc.tool.js'],
     ['ChatBuiltinRenderChartTool', './tools/builtin/render-chart.tool.js'],
     ['ChatBuiltinListDocumentsTool', './tools/builtin/list-documents.tool.js'],
     ['ChatBuiltinSearchKnowledgeBaseTool', './tools/builtin/search-knowledge-base.tool.js'],

@@ -8,33 +8,7 @@ Goal: Use ZeroChat to write and maintain Playwright automation scripts.
 Done when: to be agreed with the user before the milestone starts.
 - [ ] M3-T1 Study with the user how to approach Playwright scripts and agree the milestone's Done when
 
-## M4 Images and office files in the chat
-Goal: The chat shows images, such as a web page's, and reads office documents.
-Done when: an image from a web page or tool result is displayed in the conversation, and docx/xlsx files can be attached and read, with tests and /help updated.
-- [x] M4-T1 Show images in the chat (e.g. a web page image), beyond the existing MCP screenshot preview (2026-10-15)
-- [x] M4-T2 Read office files (docx, xlsx) as attachments and from tools (dropped: split into M4-T4 to M4-T11)
-- [x] M4-T3 Abrir imágenes en visor de pestaña sin forzar descarga y eliminar temblores en streaming (2026-10-15)
-- [x] M4-T4 Generalize build:vendor (now Orama only) to bundle exact-pinned npm libraries into committed IIFE files in js/vendor/ with esbuild, adding each license to licenses/ and THIRD_PARTY_NOTICES.md (2026-10-15)
-- [x] M4-T5 On-demand vendor loader: classic script injection loaded once, outside PRECACHE_ASSETS (the SW caches it on first use), working on file:// and in Node tests, with a clear error when offline and not yet cached (2026-10-15)
-- [x] M4-T6 Choose and vendor the office libraries: mammoth (docx), SheetJS CE or ExcelJS (xlsx/ods, weighing the future write phase) and fflate (pptx/ODF ZIP); record versions, sizes and reasons (2026-10-15)
-- [x] M4-T7 Office parser module (js/office-parser.js) returning {text, images} as Markdown with rag-image references: docx via mammoth, sheets as tables with a row cap, pptx/odt/odp via fflate with slide/page markers; EMF/WMF and external images become placeholders (2026-10-15)
-- [x] M4-T8 Wire office files into attachments (accept list, type, header, icon, capped images for vision models), RAG ingestion (detected before the ZIP rejection) and web document tools; clear error for legacy .doc/.xls/.ppt, macros ignored (2026-10-15)
-- [x] M4-T9 Office fixtures from several producers (Word, LibreOffice, Google Docs) with unit, integration and browser tests for parsing, attachments and RAG (2026-10-15)
-- [x] M4-T10 Replace the own PDF parser with vendored pdf.js (dropped: moved to milestone M12)
-- [x] M4-T11 Update /help (ES/EN): supported formats, first-use download and offline behaviour, third-party libraries (2026-10-15)
-- [x] M4-T12 Add office fixtures exported by Microsoft Word, Excel, PowerPoint and Google Docs/Sheets/Slides (needs files from the user) to the parser, attachment and RAG tests (dropped: the user validates real Word and Google documents manually)
-- [x] M4-T13 Complete third-party notices with the transitive packages bundled in each js/vendor/ file and their license texts (2026-10-15)
-- [ ] M4-T14 Read legacy binary Word 97-2003 (.doc) and Excel 97-2003 (.xls) files in attachments, RAG and web tools, replacing the current rejection with a vendored reader
-- [ ] M4-T15 Evaluate renaming the download_pdf tool to download_doc now that it also reads office documents (tool name, aliases, i18n, cards, prompts, tests and /help)
-- [x] M4-T16 Auditoría 9.1.1-9.1.4: Grupo 1 (triviales F-07, F-13 a F-19) (2026-10-15)
-- [x] M4-T17 Auditoría 9.1.1-9.1.4: Grupo 2 (fáciles F-02, F-04, F-08, F-20 a F-23) (2026-10-15)
-- [x] M4-T18 Auditoría 9.1.1-9.1.4: Grupo 3 (moderadas F-05, F-06, F-09, F-11, F-12) (2026-10-15)
-- [x] M4-T19 Auditoría 9.1.1-9.1.4: Grupo 4 (difíciles F-01, F-03) (2026-10-15)
-- [ ] M4-T20 Compare how images from RAG and web search are shown with Gemini (correct) and with local models (not shown), find the cause and fix it generically, without per-model changes
-- [x] M4-T21 Auditoría 9.1.4-9.1.5: F-01 y F-02 (fallos en ODS y PPTX) (2026-10-15)
-- [x] M4-T22 Auditoría 9.1.4-9.1.5: F-03 a F-08, F-10, F-11 (duplicación y rendimiento en office-parser) (2026-10-15)
-- [x] M4-T23 Auditoría 9.1.4-9.1.5: F-12 a F-15 (duplicación en consumidores: parser, browser, adjuntos y RAG) (2026-10-15)
-- [x] M4-T24 Auditoría 9.1.4-9.1.5: F-16 a F-18 (bundles de vendor y scripts de build) (2026-10-15)
+## M4 Images and office files in the chat: closed 2026-10-16
 
 ## M5 Browser test architecture and optimization
 Goal: Refactor and optimize browser test files (tests/browser/) to modularize large suites, extract shared fixtures and helpers, and improve maintainability.
@@ -62,9 +36,9 @@ Done when: The approach for temporary tests (governance in AGENTS.md vs. code/se
 
 ## M12 PDF reading with pdf.js
 Goal: Replace the own PDF parser with the standard pdf.js library, vendored and loaded on demand.
-Done when: PDFs in attachments, RAG and download_pdf are read with vendored pdf.js keeping text, images and page markers, the own PDF code is removed from file-parser.js, and tests and /help are updated.
+Done when: PDFs in attachments, RAG and download_doc are read with vendored pdf.js keeping text, images and page markers, the own PDF code is removed from file-parser.js, and tests and /help are updated.
 - [ ] M12-T1 Vendor pdf.js converted to IIFE with esbuild through build:vendor (ESM only since v4), with worker handling on file:// and isEvalSupported false
-- [ ] M12-T2 Replace the own PDF parser with pdf.js in attachments, RAG and download_pdf, keeping {text, images} and page markers, and remove the orphan PDF code from file-parser.js
+- [ ] M12-T2 Replace the own PDF parser with pdf.js in attachments, RAG and download_doc, keeping {text, images} and page markers, and remove the orphan PDF code from file-parser.js
 - [ ] M12-T3 Compare text, image and page extraction with the current PDF tests and fixtures, and update tests and /help (ES/EN)
 
 ## M13 Document generation in the chat
@@ -86,3 +60,17 @@ Goal: Detect project mode via .zerochat/task.py instead of .zerochat/state.md al
 Done when: js/project-context.js detects project mode readiness via .zerochat/task.py, bootstrap prompt marks initialization on task.py creation, i18n and tests are updated, and all unit/integration/architecture tests pass.
 - [x] M14-T1 Detect project initialization using .zerochat/task.py sentinel, update bootstrap prompt and i18n (2026-10-15)
 - [x] M14-T2 Update unit, integration and architecture tests for task.py sentinel detection and verify suite (2026-10-15)
+
+## M15 Legacy binary Office (.doc and .xls) reading
+Goal: Read legacy binary Word 97-2003 (.doc) and Excel 97-2003 (.xls) files in attachments, RAG and web tools, replacing the current rejection with a vendored reader.
+Done when: .doc and .xls files are parsed as attachments, in RAG ingestion and via web document tools using a vendored on-demand reader, with tests and /help (ES/EN) updated.
+- [ ] M15-T1 Choose and vendor on-demand readers for legacy Word 97-2003 (.doc) and Excel 97-2003 (.xls) through build:vendor, recording versions, sizes and licenses
+- [ ] M15-T2 Integrate .doc and .xls parsing into ChatOfficeParser, attachments, RAG and download_doc/fetch_web_page, replacing the legacy format rejection
+- [ ] M15-T3 Add .doc and .xls fixtures and unit/integration/browser tests, and update /help (ES/EN)
+
+## M16 RAG and web image rendering with local models and reasoning levels
+Goal: Ensure images from RAG and web tools are shown consistently across local models as with Gemini, accounting for the dependence on the configured reasoning level (reasoningEffort), with a generic fix and no per-model rules.
+Done when: the cause of missing RAG/web images in local models across reasoning levels (none, low, medium, high) is identified and fixed generically, with unit/integration tests covering different reasoningEffort values.
+- [ ] M16-T1 Reproduce and compare how RAG and web tool images are handled with Gemini vs. local models across reasoningEffort levels (none, low, medium, high)
+- [ ] M16-T2 Implement a generic fix for image reference preservation and rendering independent of model name and reasoning level, with tests
+

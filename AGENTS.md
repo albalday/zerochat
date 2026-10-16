@@ -16,6 +16,7 @@ Every agent working in this repository keeps the project memory up to date:
 - `.zerochat/archive/M<n>.md`: plan sections of closed milestones. Search them; do not read them in full.
 
 Tasks take one line each, with an ID numbered within their milestone: `- [ ] M2-T3 Short description`.
+- Keep tasks scoped (~300 lines of code max); when a module spans several variants or formats, add a prior task for the shared base.
 - Mark a task done by editing only its line: `- [x] M2-T3 Short description (YYYY-MM-DD)`. A dropped task is marked done with `(dropped: reason)`.
 - Never renumber or reuse an ID. A new task or decision takes the next number in its milestone (M2-T4, M2-D2).
 - Never rewrite .zerochat/plan.md or .zerochat/log.md as a whole: edit or append single lines.
@@ -48,19 +49,21 @@ El código fuente del proyecto se organiza en:
 - `tests/`: suite de pruebas descrita en [`tests/README.md`](./tests/README.md).
 - `scripts/`: herramientas de automatización, validación y control de versiones.
 
-Los cambios deben ser pequeños, coherentes con la arquitectura y limitarse a lo solicitado. No se introducen refactorizaciones ni dependencias sin justificación concreta.
+Los cambios deben ser pequeños, coherentes con la arquitectura y limitarse a lo solicitado. Se permite y exige el refactor local mínimo para reutilizar una fuente de verdad existente (constantes, tipos, predicados o convenciones) en lugar de duplicarla. Las dependencias y opciones se justifican únicamente por su consumo en la tarea actual, nunca por hitos futuros no confirmados.
 
 
 ## 2. Calidad del código
 
 El código nuevo debe:
+- buscar antes de escribir: antes de crear una constante, tabla de tipos/formatos, predicado o utilidad, comprobar si ya existe en el código e importarla;
+- mantener una única fuente por decisión: tablas de formatos, predicados de dominio y convenciones de nombres residen en un solo sitio, y las pruebas importan esa fuente real en lugar de reimplementarla;
 - respetar los patrones ya utilizados en el módulo y mantener las interfaces públicas;
 - separar lógica de dominio, persistencia, adaptadores y presentación;
 - gestionar errores de forma explícita y validar entradas externas y de configuración;
-- no añadir código de compatibilidad hacia atrás (alias, migraciones de datos, formatos antiguos) salvo petición expresa;
+- no añadir código especulativo (ramas, opciones o parámetros sin consumidor actual) ni de compatibilidad hacia atrás (alias, migraciones de datos, formatos antiguos) salvo petición expresa;
 - eliminar todo lo que quede huérfano tras una retirada (funciones, estilos CSS, claves i18n, pruebas);
 - en pruebas sin navegador, emplear siempre un DOM y APIs reales (`tests/helpers/dom-env.js`, `storage-env.js`), sin simular elementos con objetos parciales;
-- no exportar funciones exclusivamente para ser probadas.
+- no exportar helpers internos exclusivamente para ser probados (exponer constantes o contratos del dominio sí forma parte de la interfaz pública).
 
 
 ## 3. Arquitectura y límites del sistema
@@ -94,7 +97,8 @@ Validaciones según el nivel afectado:
 
 Antes de considerar terminado un cambio:
 1. deben pasar todas las pruebas aplicables;
-2. todo cambio de comportamiento debe incluir pruebas nuevas o modificadas.
+2. todo cambio de comportamiento debe incluir pruebas nuevas o modificadas;
+3. todo límite o tope (filas, bytes, elementos, tiempo) debe incluir prueba en el valor exacto del borde (`N` y `N+1`) y comprobar el aviso o marcador de truncado.
 
 
 ## 6. Control de versiones y Git
@@ -120,13 +124,14 @@ Todo cambio destinado a `master` debe prepararse primero en `dev`. La promoción
 
 ## 8. Finalización
 
-Un cambio está terminado cuando:
-- implementa únicamente lo solicitado y conserva el comportamiento existente;
-- pasa las pruebas correspondientes y añade pruebas para el nuevo comportamiento;
-- mantiene español e inglés cuando afecta a la interfaz o a la ayuda en `/help/`;
-- recompila el backend (`npm run build:backend`) si se modificó `py/`;
-- no deja código sin uso, duplicado ni de compatibilidad previa;
-- deja la documentación y la memoria de proyecto (`.zerochat/`) sincronizadas.
+Antes de cerrar una tarea (`task.py done`), revisar el `git diff` frente a esta lista:
+- sin ramas muertas, opciones especulativas ni código de compatibilidad previa;
+- ninguna decisión, lista de formatos o convención duplicada en 2 o más sitios;
+- comprobaciones y límites simétricos entre variantes hermanas de un mismo módulo;
+- topes cubiertos con prueba en el borde exacto y su aviso de truncado;
+- español e inglés sincronizados si afecta a la interfaz o a `/help/`;
+- backend recompilado (`npm run build:backend`) si se modificó `py/`;
+- documentación y memoria de proyecto (`.zerochat/`) actualizadas.
 
 
 ## 9. Política de documentación y colocación (colocation)

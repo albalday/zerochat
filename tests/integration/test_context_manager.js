@@ -106,9 +106,9 @@ test('ContextManager - Truncamiento y Poda de resultados gigantescos de herramie
     {
       role: 'assistant',
       content: null,
-      tool_calls: [{ id: 'call_pdf', function: { name: 'download_pdf', arguments: '{"url":"..."}' } }]
+      tool_calls: [{ id: 'call_pdf', function: { name: 'download_doc', arguments: '{"url":"..."}' } }]
     },
-    { role: 'tool', tool_call_id: 'call_pdf', name: 'download_pdf', content: hugeContent },
+    { role: 'tool', tool_call_id: 'call_pdf', name: 'download_doc', content: hugeContent },
     { role: 'assistant', content: 'El PDF trata de X temas.' },
     { role: 'user', content: '¿Qué más dice?' }
   ];

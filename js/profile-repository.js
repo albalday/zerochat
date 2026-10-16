@@ -30,7 +30,7 @@
   const NEW_PROFILE_SETTINGS = Object.freeze({
     apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: '', systemPrompt: '',
     temperature: '0.7', reasoningEffort: 'medium', modelReasoningConfig: null,
-    enabledTools: { execute_javascript: true, search_web: true, fetch_web_page: true, download_pdf: true, render_chart: true },
+    enabledTools: { ...Defaults.CONFIG_DEFAULTS.enabledTools },
     enableRawLogs: false, enableContextCache: true, contextLimitOverride: null, apiKeyLocked: false,
     webllmConfig: {
       context_window_size: String(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE),
