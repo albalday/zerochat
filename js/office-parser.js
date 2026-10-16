@@ -4,8 +4,7 @@
  * Devuelve `{ text, images }` con el mismo contrato que el lector de PDF: el texto es Markdown
  * y cada imagen incrustada se referencia como `rag-image://__DOC_ID__:<id>`.
  * - docx: mammoth (HTML a Markdown, con tablas y listas).
- * - xlsx: ExcelJS, cada hoja como tabla Markdown con un tope de filas.
- * - pptx, odt, ods, odp: XML del paquete ZIP leído con fflate, con marcadores de diapositiva o página.
+ * - xlsx, pptx, odt, ods, odp: XML del paquete ZIP leído con fflate (las hojas de cálculo como tabla Markdown con un tope de filas, las presentaciones con marcadores de diapositiva y los textos con marcadores de página).
  * Las librerías se cargan bajo demanda con ChatVendorLoader. Las macros nunca se ejecutan ni se leen.
  */
 
@@ -362,44 +361,211 @@
 
   // --- xlsx -----------------------------------------------------------------
 
-  function formatCellValue(value) {
-    if (value === null || value === undefined) return '';
-    if (value instanceof Date) {
-      const iso = value.toISOString();
-      return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : iso.replace('.000Z', 'Z');
+  function colRefToIndex(ref) {
+    const match = String(ref || '').match(/^[A-Z]+/i);
+    if (!match) return -1;
+    const letters = match[0].toUpperCase();
+    let index = 0;
+    for (let i = 0; i < letters.length; i++) {
+      index = index * 26 + (letters.charCodeAt(i) - 64);
     }
-    if (typeof value !== 'object') return String(value);
-    if (Array.isArray(value.richText)) return value.richText.map(part => part.text).join('');
-    if ('result' in value) return formatCellValue(value.result);
-    if ('text' in value) return formatCellValue(value.text);
-    if ('error' in value) return String(value.error);
-    if ('formula' in value || 'sharedFormula' in value) return '';
-    return String(value);
+    return index - 1;
+  }
+
+  function excelSerialToDate(serial) {
+    const ms = Math.round((serial - 25569) * 86400 * 1000);
+    const date = new Date(ms);
+    const iso = date.toISOString();
+    return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : iso.replace('.000Z', 'Z');
+  }
+
+  function readSharedStrings(pkg) {
+    const xml = pkg.text('xl/sharedStrings.xml');
+    if (!xml) return [];
+    const strings = [];
+    let inSi = false;
+    let inT = false;
+    let current = '';
+    walkXml(xml, {
+      open(name) {
+        if (name === 'si') { inSi = true; current = ''; }
+        else if (name === 't' && inSi) inT = true;
+      },
+      close(name) {
+        if (name === 'si') { strings.push(current); inSi = false; }
+        else if (name === 't') inT = false;
+      },
+      text(val) {
+        if (inT) current += val;
+      }
+    });
+    return strings;
+  }
+
+  function readDateStyles(pkg) {
+    const xml = pkg.text('xl/styles.xml');
+    if (!xml) return [];
+    const customNumFmts = new Map();
+    const cellXfDates = [];
+    let inCellXfs = false;
+    walkXml(xml, {
+      open(name, attrs) {
+        if (name === 'cellXfs') inCellXfs = true;
+        else if (name === 'numFmt') {
+          if (attrs.numFmtId && attrs.formatCode) customNumFmts.set(attrs.numFmtId, attrs.formatCode);
+        } else if (name === 'xf' && inCellXfs) {
+          const numFmtId = parseInt(attrs.numFmtId || '0', 10);
+          let isDate = (numFmtId >= 14 && numFmtId <= 22) || (numFmtId >= 45 && numFmtId <= 47);
+          if (!isDate && customNumFmts.has(attrs.numFmtId)) {
+            const cleaned = customNumFmts.get(attrs.numFmtId).replace(/"[^"]*"/g, '').replace(/\[[^\]]*\]/g, '');
+            isDate = /(?:[ydhms]|am\/pm)/i.test(cleaned);
+          }
+          cellXfDates.push(isDate);
+        }
+      },
+      close(name) {
+        if (name === 'cellXfs') inCellXfs = false;
+      }
+    });
+    return cellXfDates;
   }
 
   async function parseXlsx(arrayBuffer) {
-    const ExcelJS = await VendorLoader.load('exceljs');
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(arrayBuffer);
+    const pkg = await openPackage(arrayBuffer);
+    const workbookXml = pkg.text('xl/workbook.xml');
+    if (!workbookXml) throw new Error('xl/workbook.xml is missing');
+
+    const wbRels = readRelationships(pkg, 'xl/workbook.xml');
+    const sheets = [];
+    walkXml(workbookXml, {
+      open(name, attrs) {
+        if (name === 'sheet' && attrs.name) {
+          const rId = attrs['r:id'];
+          const path = wbRels[rId]?.path;
+          if (path) {
+            sheets.push({
+              name: attrs.state && attrs.state !== 'visible' ? `${attrs.name} (hidden)` : attrs.name,
+              rawName: attrs.name,
+              path
+            });
+          }
+        }
+      }
+    });
+
+    const sharedStrings = readSharedStrings(pkg);
+    const dateStyles = readDateStyles(pkg);
     const collector = createImageCollector();
-    const sections = workbook.worksheets.map((sheet, sheetIndex) => {
+
+    const sections = sheets.map((sheet, sheetIndex) => {
+      const sheetXml = pkg.text(sheet.path);
       const rows = [];
       let totalRows = 0;
-      const columns = Math.min(sheet.columnCount, MAX_SHEET_COLUMNS);
-      sheet.eachRow({ includeEmpty: false }, row => {
-        totalRows++;
-        if (rows.length >= MAX_SHEET_ROWS) return;
-        rows.push(Array.from({ length: columns }, (_, i) => formatCellValue(row.getCell(i + 1).value)));
+      let currentRow = null;
+      let currentCol = -1;
+      let currentCell = null;
+      let inV = false;
+      let inT = false;
+      let vText = '';
+      let tText = '';
+      let drawingRId = null;
+
+      walkXml(sheetXml, {
+        open(name, attrs) {
+          if (name === 'drawing' && attrs['r:id']) {
+            drawingRId = attrs['r:id'];
+          } else if (name === 'row') {
+            currentRow = [];
+            currentCol = -1;
+          } else if (name === 'c' && currentRow) {
+            const colIndex = attrs.r ? colRefToIndex(attrs.r) : currentCol + 1;
+            currentCol = colIndex;
+            currentCell = {
+              col: colIndex,
+              type: attrs.t || 'n',
+              style: attrs.s ? parseInt(attrs.s, 10) : 0
+            };
+            vText = '';
+            tText = '';
+          } else if (name === 'v') {
+            inV = true;
+          } else if (name === 't') {
+            inT = true;
+          }
+        },
+        close(name) {
+          if (name === 'v') {
+            inV = false;
+          } else if (name === 't') {
+            inT = false;
+          } else if (name === 'c' && currentRow && currentCell) {
+            if (currentCell.col >= 0 && currentCell.col < MAX_SHEET_COLUMNS) {
+              let val = '';
+              const t = currentCell.type;
+              if (t === 's') {
+                const idx = parseInt(vText.trim(), 10);
+                val = sharedStrings[idx] ?? '';
+              } else if (t === 'inlineStr') {
+                val = tText;
+              } else if (t === 'b') {
+                val = vText.trim() === '1' ? 'TRUE' : 'FALSE';
+              } else if (t === 'str' || t === 'e') {
+                val = vText.trim();
+              } else {
+                const trimmed = vText.trim();
+                if (trimmed === '') val = '';
+                else if (dateStyles[currentCell.style]) {
+                  const num = Number(trimmed);
+                  val = Number.isFinite(num) ? excelSerialToDate(num) : trimmed;
+                } else {
+                  val = trimmed;
+                }
+              }
+              while (currentRow.length < currentCell.col) currentRow.push('');
+              currentRow[currentCell.col] = val;
+            }
+            currentCell = null;
+          } else if (name === 'row' && currentRow) {
+            const hasContent = currentRow.some(c => String(c ?? '').trim() !== '');
+            if (hasContent) {
+              totalRows++;
+              if (rows.length < MAX_SHEET_ROWS) rows.push(currentRow);
+            }
+            currentRow = null;
+          }
+        },
+        text(val) {
+          if (inV) vText += val;
+          else if (inT) tText += val;
+        }
       });
-      const imageRefs = sheet.getImages().map((placement, i) => {
-        const image = workbook.getImage(Number(placement.imageId));
-        const label = `Image ${i + 1} (sheet "${sheet.name}")`;
-        if (!image?.buffer) return omittedImage(label);
-        return collector.add({ bytes: new Uint8Array(image.buffer), extension: image.extension, page: sheetIndex + 1, label }).markdown;
-      });
-      const name = sheet.state && sheet.state !== 'visible' ? `${sheet.name} (hidden)` : sheet.name;
-      return sheetSection(name, rows, totalRows, imageRefs);
+
+      const imageRefs = [];
+      if (drawingRId) {
+        const sheetRels = readRelationships(pkg, sheet.path);
+        const drawingPath = sheetRels[drawingRId]?.path;
+        if (drawingPath) {
+          const drawingRels = readRelationships(pkg, drawingPath);
+          const drawingXml = pkg.text(drawingPath);
+          let imgCount = 0;
+          walkXml(drawingXml, {
+            open(name, attrs) {
+              if ((name === 'a:blip' || name === 'xdr:blip') && (attrs['r:embed'] || attrs['r:link'])) {
+                imgCount++;
+                const label = `Image ${imgCount} (sheet "${sheet.rawName}")`;
+                const rel = drawingRels[attrs['r:embed'] || attrs['r:link']];
+                if (!rel) imageRefs.push(omittedImage(label));
+                else if (rel.external) imageRefs.push(externalImage(label));
+                else imageRefs.push(packageImage(pkg, collector, rel.path, sheetIndex + 1, label));
+              }
+            }
+          });
+        }
+      }
+
+      return sheetSection(sheet.name, rows, totalRows, imageRefs);
     });
+
     return { text: joinBlocks(sections), images: collector.images };
   }
 

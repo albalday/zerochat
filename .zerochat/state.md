@@ -1,4 +1,4 @@
 # Current state
-- Milestone: M12 PDF reading with pdf.js
-- Next task: M12-T1
+- Milestone: M13 Document generation in the chat
+- Next task: M13-T6
 - Last updated: 2026-10-16

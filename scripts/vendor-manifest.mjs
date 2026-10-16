@@ -21,12 +21,6 @@ export const VENDORS = [
     onDemand: true
   },
   {
-    id: 'exceljs',
-    package: 'exceljs',
-    exports: ['Workbook'],
-    onDemand: true
-  },
-  {
     id: 'fflate',
     package: 'fflate',
     exports: ['unzipSync', 'strFromU8'],

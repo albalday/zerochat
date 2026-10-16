@@ -182,4 +182,47 @@ test('odt con saltos de página genera marcadores de página limpios sin saltos 
   assert.equal(text, '--- Page 1 ---\nPágina uno\n\n--- Page 2 ---\nPágina dos');
 });
 
+test('xlsx nativo con celdas booleanas, errores, texto inline, columnas dispersas y hojas ocultas', async () => {
+  const fflate = require('fflate');
+  const workbookXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Resumen" sheetId="1" state="visible" r:id="rId1"/>
+    <sheet name="Oculta" sheetId="2" state="hidden" r:id="rId2"/>
+  </sheets>
+</workbook>`;
+  const workbookRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
+</Relationships>`;
+  const sheet1Xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1">
+      <c r="A1" t="b"><v>1</v></c>
+      <c r="C1" t="inlineStr"><is><t>Texto directo</t></is></c>
+      <c r="D1" t="e"><v>#N/A</v></c>
+    </row>
+  </sheetData>
+</worksheet>`;
+  const sheet2Xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1">
+      <c r="A1" t="str"><v>Dato oculto</v></c>
+    </row>
+  </sheetData>
+</worksheet>`;
+  const zip = fflate.zipSync({
+    'xl/workbook.xml': Buffer.from(workbookXml),
+    'xl/_rels/workbook.xml.rels': Buffer.from(workbookRels),
+    'xl/worksheets/sheet1.xml': Buffer.from(sheet1Xml),
+    'xl/worksheets/sheet2.xml': Buffer.from(sheet2Xml)
+  });
+  const { text } = await OfficeParser.parseOfficeDocument(zip.buffer, 'tipos.xlsx');
+  assert.match(text, /## Sheet: Resumen\n\n\| TRUE \|  \| Texto directo \| #N\/A \|/);
+  assert.match(text, /## Sheet: Oculta \(hidden\)\n\n\| Dato oculto \|/);
+});
+
 

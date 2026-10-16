@@ -47,4 +47,5 @@
 - 2026-10-15 M4-D13 Centralizar convenciones de vendor bundle en VendorLoader.bundleInfo y optimizar lectura de licencias en build-vendor (F-16 a F-18) (M4-T24)
 - 2026-10-16 M4-D14 AGENTS.md, tests/README.md y AuditFull.md actualizados tras el análisis de auditorías: se exige buscar antes de escribir, fuente única de verdad, pruebas en bordes (N y N+1), revisión del diff previa a task.py done y umbral estricto de importancia en auditorías acotadas de cambios (M4-T25)
 - 2026-10-16 M4-D15 Rename download_pdf tool to download_doc (keeping download_pdf in aliases for model calls) across tool definition, cards, settings, i18n, tests and /help; move legacy .doc/.xls reading to M15 and local model RAG/web image rendering (which also depends on reasoningEffort) to M16, closing M4 (M4-T15)
-
+- 2026-10-16 M12-D1 Milestone M12 (pdf.js) dropped by the user: the own PDF parser in file-parser.js stays and pdf.js is not vendored (M12-T1)
+- 2026-10-16 M17-D1 ChatOfficeParser parses xlsx OOXML natively via ZIP package (fflate) and walkXml, handling shared strings, inline text, booleans, error codes, dates and sheet drawings/images, removing exceljs and its 924 KiB vendor bundle (M17-T1)

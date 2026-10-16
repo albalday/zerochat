@@ -37,7 +37,7 @@ test('build:vendor incluye el texto de licencia de cada paquete empaquetado, tam
     assert.doesNotMatch(text, /ships no separate license file/, `${file} no contiene el texto de la licencia`);
   }
   assert.deepEqual([...new Set(linked)].sort(), fs.readdirSync(path.join(root, 'licenses')).map(name => `licenses/${name}`).sort());
-  for (const bundled of ['jszip', 'saxes', 'crypto-browserify', 'core-js', 'regenerator-runtime']) {
+  for (const bundled of ['jszip', 'dingbat-to-unicode', 'lop', 'underscore', 'xmlbuilder']) {
     assert.match(notices, new RegExp(`^- \`${bundled}\``, 'm'), `${bundled} va dentro de un bundle y debe figurar en los avisos`);
   }
 });

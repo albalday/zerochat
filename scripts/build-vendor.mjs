@@ -4,7 +4,7 @@
  * escribe en licenses/ la licencia de cada paquete incluido en ellos y regenera THIRD_PARTY_NOTICES.md.
  *
  * Los paquetes incluidos salen del metafile de esbuild y, si un archivo de entrada es una
- * distribución precompilada con source map (ExcelJS), de las rutas `node_modules/` de ese mapa.
+ * distribución precompilada con source map, de las rutas `node_modules/` de ese mapa.
  * La licencia se copia del paquete instalado; la de los paquetes que solo existen dentro de una
  * distribución precompilada se lee de scripts/vendor-licenses/, que actualiza `--fetch-licenses`.
  *

@@ -26,13 +26,10 @@ describe('Browser - vendor loader', () => {
       assert.deepEqual(loaded, { same: true, hasSearch: true, injected: 2 });
 
       const office = await page.evaluate(async () => {
-        const [mammoth, ExcelJS, fflate] = await Promise.all(['mammoth', 'exceljs', 'fflate'].map(id => ChatVendorLoader.load(id)));
-        const workbook = new ExcelJS.Workbook();
-        workbook.addWorksheet('Datos').addRow(['a', 1]);
-        const entries = Object.keys(fflate.unzipSync(new Uint8Array(await workbook.xlsx.writeBuffer())));
-        return { mammoth: typeof mammoth.convertToHtml, sheet: entries.includes('xl/worksheets/sheet1.xml') };
+        const [mammoth, fflate] = await Promise.all(['mammoth', 'fflate'].map(id => ChatVendorLoader.load(id)));
+        return { mammoth: typeof mammoth.convertToHtml, fflate: typeof fflate.unzipSync };
       });
-      assert.deepEqual(office, { mammoth: 'function', sheet: true });
+      assert.deepEqual(office, { mammoth: 'function', fflate: 'function' });
 
       const failure = await page.evaluate(async () => {
         try {

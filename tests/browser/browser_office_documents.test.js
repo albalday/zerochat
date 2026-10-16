@@ -59,7 +59,7 @@ describe('Browser - office documents', () => {
         ['charla.odp: Image 1 (slide 2)', 'image/png', true]
       ]);
       assert.match(payload.displayText, /\[📄 informe\.docx, 📄 ventas\.xlsx, 📄 charla\.odp\]$/);
-      assert.deepEqual(payload.vendors, ['js/vendor/exceljs.browser.js', 'js/vendor/fflate.browser.js', 'js/vendor/mammoth.browser.js', 'js/vendor/orama.browser.js']);
+      assert.deepEqual(payload.vendors, ['js/vendor/fflate.browser.js', 'js/vendor/mammoth.browser.js', 'js/vendor/orama.browser.js']);
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();

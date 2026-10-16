@@ -34,12 +34,7 @@ Done when: The approach for temporary tests (governance in AGENTS.md vs. code/se
 
 ## M11 Fixes and refactoring from post-9.1.0 findings: closed 2026-10-15
 
-## M12 PDF reading with pdf.js
-Goal: Replace the own PDF parser with the standard pdf.js library, vendored and loaded on demand.
-Done when: PDFs in attachments, RAG and download_doc are read with vendored pdf.js keeping text, images and page markers, the own PDF code is removed from file-parser.js, and tests and /help are updated.
-- [ ] M12-T1 Vendor pdf.js converted to IIFE with esbuild through build:vendor (ESM only since v4), with worker handling on file:// and isEvalSupported false
-- [ ] M12-T2 Replace the own PDF parser with pdf.js in attachments, RAG and download_doc, keeping {text, images} and page markers, and remove the orphan PDF code from file-parser.js
-- [ ] M12-T3 Compare text, image and page extraction with the current PDF tests and fixtures, and update tests and /help (ES/EN)
+## M12 PDF reading with pdf.js: closed 2026-10-16
 
 ## M13 Document generation in the chat
 Goal: The model generates documents only as Markdown shown in the chat, whose capabilities grow with external code, ad hoc CSS and writing rules; what the chat shows can later be exported or opened in a separate tab on request.
@@ -55,11 +50,7 @@ Done when: the model writes documents, and CSV data as Markdown tables, rendered
 - [ ] M13-T9 Agree with the user and implement the export of a document already shown in the chat, to a file or to a separate tab, only on request
 - [ ] M13-T10 Tests and /help (ES/EN) for document generation in the chat and its export
 
-## M14 Project mode detection via task.py and legacy migration
-Goal: Detect project mode via .zerochat/task.py instead of .zerochat/state.md alone to cleanly trigger migration/initialization for legacy projects.
-Done when: js/project-context.js detects project mode readiness via .zerochat/task.py, bootstrap prompt marks initialization on task.py creation, i18n and tests are updated, and all unit/integration/architecture tests pass.
-- [x] M14-T1 Detect project initialization using .zerochat/task.py sentinel, update bootstrap prompt and i18n (2026-10-15)
-- [x] M14-T2 Update unit, integration and architecture tests for task.py sentinel detection and verify suite (2026-10-15)
+## M14 Project mode detection via task.py and legacy migration: closed 2026-10-16
 
 ## M15 Legacy binary Office (.doc and .xls) reading
 Goal: Read legacy binary Word 97-2003 (.doc) and Excel 97-2003 (.xls) files in attachments, RAG and web tools, replacing the current rejection with a vendored reader.
@@ -73,4 +64,8 @@ Goal: Ensure images from RAG and web tools are shown consistently across local m
 Done when: the cause of missing RAG/web images in local models across reasoning levels (none, low, medium, high) is identified and fixed generically, with unit/integration tests covering different reasoningEffort values.
 - [ ] M16-T1 Reproduce and compare how RAG and web tool images are handled with Gemini vs. local models across reasoningEffort levels (none, low, medium, high)
 - [ ] M16-T2 Implement a generic fix for image reference preservation and rendering independent of model name and reasoning level, with tests
+
+## M17 Native XLSX reading without external libraries: closed 2026-10-16
+
+
 
