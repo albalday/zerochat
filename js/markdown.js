@@ -541,8 +541,6 @@
     let codeLines = [];
     let textBuffer = [];
 
-    const runTitle = I18n.t('md_run_js_title');
-    const runBtn = I18n.t('md_run_js_btn');
     const copyTitle = I18n.t('md_copy_code_title');
     const copyBtn = I18n.t('md_copy_code_btn');
 
@@ -557,23 +555,12 @@
       const safeLang = escapeHtml(codeLang || 'javascript');
       const safeCode = escapeHtml(rawCode);
       const rawCodeAttr = encodeURIComponent(rawCode);
-      const isJs = safeLang.toLowerCase() === 'javascript' || safeLang.toLowerCase() === 'js';
-
-      const runButtonHtml = isJs ? `
-        <button class="btn-run-code" data-code="${rawCodeAttr}" title="${runTitle}">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-            <polygon points="5 3 19 12 5 21 5 3"></polygon>
-          </svg>
-          <span>${runBtn}</span>
-        </button>
-      ` : '';
 
       htmlResult += `
         <div class="code-block-container">
           <div class="code-block-header">
             <span class="code-lang">${safeLang}</span>
             <div class="code-block-actions">
-              ${runButtonHtml}
               <button class="btn-copy-code" data-code="${rawCodeAttr}" title="${copyTitle}">
                 ${Icons.get('copy', { size: 13, className: 'icon-copy' })}
                 <span>${copyBtn}</span>
@@ -581,7 +568,6 @@
             </div>
           </div>
           <pre><code class="language-${safeLang}">${safeCode}</code></pre>
-          <div class="code-output-container" hidden></div>
         </div>
       `;
       codeLines = [];
@@ -625,34 +611,6 @@
         const feedback = `${Icons.get('check', { size: 13, className: 'icon-copy' })}<span>${escapeHtml(I18n.t('copied_text'))}</span>`;
         Utils.copyToClipboard(decodeURIComponent(button.dataset.code || ''), button, feedback);
       });
-    });
-  }
-
-  /** Ejecuta el bloque de JavaScript en ChatSandbox y muestra la salida bajo el código. */
-  async function runCodeBlock(button) {
-    const output = button.closest('.code-block-container').querySelector('.code-output-container');
-    output.hidden = false;
-    output.innerHTML = `<div class="output-header"><span>${escapeHtml(I18n.t('agent_js_title'))}</span></div>`;
-    const res = await resolveDep('ChatSandbox', './sandbox.js').execute(decodeURIComponent(button.dataset.code || ''));
-    const parts = [];
-    if (res.logs.length > 0) parts.push(`<div class="output-logs"><strong>${escapeHtml(I18n.t('md_output_console'))}</strong>\n${escapeHtml(res.logs.join('\n'))}</div>`);
-    if (res.result && res.result !== 'undefined') parts.push(`<div class="output-return"><strong>${escapeHtml(I18n.t('md_output_return'))}</strong> ${escapeHtml(res.result)}</div>`);
-    if (res.error) parts.push(`<div class="output-error">${escapeHtml(res.error)}</div>`);
-    if (!parts.length) parts.push(`<div class="output-empty">(${escapeHtml(I18n.t('empty_response'))})</div>`);
-    const headerTitle = res.success ? `${I18n.t('md_output_title')} (${res.executionTimeMs}ms)` : I18n.t('md_output_error', { ms: res.executionTimeMs });
-    output.innerHTML = `
-      <div class="output-header ${res.success ? 'success' : 'error'}">
-        <span>${escapeHtml(headerTitle)}</span>
-        <button type="button" class="btn-close-output" title="${escapeHtml(I18n.t('md_clear_output'))}">×</button>
-      </div>
-      <pre class="output-body">${parts.join('')}</pre>`;
-    output.querySelector('.btn-close-output').addEventListener('click', () => { output.hidden = true; });
-  }
-
-  function bindRunButtons(container) {
-    container.querySelectorAll('.btn-run-code:not([data-listener-attached])').forEach(button => {
-      button.dataset.listenerAttached = 'true';
-      button.addEventListener('click', () => runCodeBlock(button));
     });
   }
 
@@ -732,7 +690,6 @@
    */
   function attachContentListeners(container) {
     bindCopyButtons(container);
-    bindRunButtons(container);
     bindCollapsibleCards(container);
     resolveRagImages(container);
     bindImagePreview(container);

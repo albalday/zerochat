@@ -166,8 +166,7 @@
   gap: 0.4rem;
 }
 
-.btn-copy-code,
-.btn-run-code {
+.btn-copy-code {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -182,24 +181,11 @@
 }
 
 @media (max-width: 640px) {
-  .btn-copy-code,
-  .btn-run-code {
+  .btn-copy-code {
     min-height: 30px;
     padding: 0.35rem 0.65rem;
     font-size: 0.8rem;
   }
-}
-
-.btn-run-code {
-  color: var(--console-success);
-  border-color: color-mix(in srgb, var(--console-success) 30%, transparent);
-  background-color: color-mix(in srgb, var(--console-success) 12%, transparent);
-}
-
-.btn-run-code:hover {
-  background-color: color-mix(in srgb, var(--console-success) 25%, transparent);
-  color: var(--console-success);
-  border-color: var(--console-success);
 }
 
 .btn-copy-code:hover {
@@ -229,74 +215,6 @@
   line-height: 1.55;
   display: block;
   max-width: 100%;
-}
-
-/* Salida de Ejecución en Sandbox Local */
-.code-output-container {
-  border-top: 1px solid var(--console-border);
-  background-color: var(--console-bg);
-  padding: 0.6rem 1rem;
-  font-family: var(--font-mono);
-  font-size: 0.825rem;
-  animation: fadeIn 0.15s ease-out;
-}
-
-.output-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--console-info);
-  margin-bottom: 0.4rem;
-}
-
-.output-header.success {
-  color: var(--console-success);
-}
-
-.output-header.error {
-  color: var(--console-danger);
-}
-
-.btn-close-output {
-  background: transparent;
-  border: none;
-  color: var(--console-text-muted);
-  cursor: pointer;
-  font-size: 1rem;
-  line-height: 1;
-  padding: 0.1rem 0.3rem;
-  border-radius: var(--radius-sm);
-}
-
-.btn-close-output:hover {
-  color: var(--console-text);
-  background-color: var(--console-overlay);
-}
-
-.output-body {
-  margin: 0;
-  padding: 0.4rem 0.6rem;
-  background-color: var(--console-bg-deep);
-  border-radius: var(--radius-sm);
-  color: var(--console-text);
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 1.45;
-}
-
-.output-logs {
-  color: var(--console-text);
-}
-
-.output-return {
-  color: var(--console-info);
-  margin-top: 0.25rem;
-}
-
-.output-error {
-  color: var(--console-danger);
 }
 
 /* Tarjeta Agentica de Ejecución de Herramienta */

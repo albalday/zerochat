@@ -285,7 +285,6 @@
       chat_branch_summary_title: 'Contexto previo resumido',
       chat_branch_summary_failed: 'No se pudo generar el resumen del contexto. ¿Deseas bifurcar con el historial completo?',
       copied_text: '¡Copiado!',
-      empty_response: '(Respuesta vacía)',
       msg_deleted_log: 'Mensaje [{id}] eliminado de la memoria y la interfaz ({count} turnos retirados).',
 
       // Estadísticas
@@ -695,20 +694,13 @@
       err_file_process: 'No se pudo procesar el archivo {name}: {err}',
       err_file_too_large: 'El archivo "{name}" supera el tamaño máximo permitido ({max}).',
 
-      // Markdown & JavaScript
+      // Markdown
       md_thought_title: 'Proceso de razonamiento',
       md_thought_reasoning: 'Razonando...',
-      md_run_js_title: 'Ejecutar JavaScript (en worker local)',
-      md_run_js_btn: 'Ejecutar JS',
       md_copy_code_title: 'Copiar código',
       md_copy_code_btn: 'Copiar',
       md_image_alt: 'Imagen',
       image_open_tab: 'Abrir imagen en una pestaña nueva',
-      md_output_title: 'Salida (Consola / Retorno):',
-      md_output_console: 'Consola:',
-      md_output_return: 'Retorno:',
-      md_output_error: 'Error ({ms}ms)',
-      md_clear_output: 'Limpiar salida',
 
       // Barra lateral e Historial de Conversaciones (Sidebar)
       sidebar_title: 'Chats y Configuración',
@@ -1034,7 +1026,6 @@
       chat_branch_summary_title: 'Summarized previous context',
       chat_branch_summary_failed: 'Could not generate context summary. Do you want to branch with full history?',
       copied_text: 'Copied!',
-      empty_response: '(Empty response)',
       msg_deleted_log: 'Message [{id}] removed from memory and UI ({count} turns cleared).',
 
       // Estadísticas
@@ -1444,20 +1435,13 @@
       err_file_process: 'Could not process file {name}: {err}',
       err_file_too_large: 'File "{name}" exceeds the maximum allowed size ({max}).',
 
-      // Markdown & JavaScript
+      // Markdown
       md_thought_title: 'Reasoning process',
       md_thought_reasoning: 'Reasoning...',
-      md_run_js_title: 'Run JavaScript (in local worker)',
-      md_run_js_btn: 'Run JS',
       md_copy_code_title: 'Copy code',
       md_copy_code_btn: 'Copy',
       md_image_alt: 'Image',
       image_open_tab: 'Open image in a new tab',
-      md_output_title: 'Output (Console / Return):',
-      md_output_console: 'Console:',
-      md_output_return: 'Return:',
-      md_output_error: 'Error ({ms}ms)',
-      md_clear_output: 'Clear output',
 
       // Sidebar & Conversation History
       sidebar_title: 'Chats and Settings',

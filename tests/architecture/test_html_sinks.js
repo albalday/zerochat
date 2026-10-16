@@ -17,7 +17,6 @@ const REVIEWED_USES = {
   'js/debug.js': 5,
   'js/export.js': 1,
   'js/generation-controller.js': 1,
-  'js/markdown.js': 2,
   'js/mcp.js': 3,
   'js/rag-ui.js': 10,
   'js/tool-cards.js': 12,

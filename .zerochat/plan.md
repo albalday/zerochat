@@ -49,6 +49,7 @@ Done when: the model writes documents, and CSV data as Markdown tables, rendered
 - [ ] M13-T8 Generate CSV and tabular data as Markdown tables in the chat, with rules for wide or long tables
 - [ ] M13-T9 Agree with the user and implement the export of a document already shown in the chat, to a file or to a separate tab, only on request
 - [ ] M13-T10 Tests and /help (ES/EN) for document generation in the chat and its export
+- [x] M13-T11 Remove the Run JS button and output panel from Markdown code blocks (duplicates the execute_javascript tool and rarely works) (2026-10-16)
 
 ## M14 Project mode detection via task.py and legacy migration: closed 2026-10-16
 
