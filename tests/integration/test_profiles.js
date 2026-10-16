@@ -268,3 +268,4 @@ test('ProfileExportBundle - los textos salen en el idioma activo y los estados s
   assert.doesNotMatch(html, /innerHTML/, 'Los mensajes de la otra pestaña no se insertan como HTML');
   assert.equal(html.includes('</script><script>alert(1)'), false, 'Los datos embebidos no pueden cerrar el script');
 });
+

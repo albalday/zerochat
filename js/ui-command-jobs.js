@@ -65,6 +65,7 @@
     if (history && !history.open) history.open = true;
     card.querySelector('.tool-execution-card').classList.remove('collapsed');
     card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    card.classList.add('command-card-highlight');
     const timer = setTimeout(() => card.classList.remove('command-card-highlight'), 1600);
     timer?.unref?.();
     return true;
