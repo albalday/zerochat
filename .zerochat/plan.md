@@ -65,7 +65,11 @@ Done when: the cause of missing RAG/web images in local models across reasoning 
 
 ## M18 Unattended prompt execution and browser profiles
 Goal: Run a ZeroChat prompt from the zerochat.py command line, letting the UI process it and return the result, and find out how to reuse copies of the user's browser profiles (sessions, cookies, ZeroChat settings) for the UI and for Playwright automation, as groundwork for the Playwright scripts milestone (M3).
-Done when: exploratory tests on Firefox and Chromium settle self-closing, headless mode and profile copying, and the prompt/result round trip is decided; implementation tasks and their acceptance criteria are added after M18-T3.
+Done when: on Linux, zerochat.py --prompt runs the prompt with the production ZeroChat configuration from the user's Firefox profile, with or without a visible window, prints only the final answer to stdout with the agreed exit codes, aborts on idle or total timeout, and leaves no browser process or profile copy behind, with tests and /help (ES/EN) updated.
 - [x] M18-T1 Exploratory tests P1-P2: tab self-closing and headless UI behaviour (JS, IndexedDB, fetch to 127.0.0.1) in Firefox and Chromium across launch methods (2026-10-16)
 - [x] M18-T2 Exploratory tests P3-P5: copying Firefox and Chromium profiles and inheriting sessions in Playwright (persistent context vs. storageState) (2026-10-16)
-- [ ] M18-T3 Decide the prompt/result transport (GET + POST to the backend with the session token) and the UI browser for run mode from the test results
+- [x] M18-T3 Decide the prompt/result transport (GET + POST to the backend with the session token) and the UI browser for run mode from the test results (2026-10-16)
+- [ ] M18-T4 Python module to locate the active Firefox profile and make the minimal 0700 copy of the GitHub Pages UI origin storage and its permissions (first verify the minimal file set), with tests on sample profiles
+- [ ] M18-T5 Backend run mode: --prompt/--prompt-file/--headless/--timeout, JSON-RPC zerochat/run/prompt, progress and result, own Firefox launch and watch, idle and total timeouts, stdout/stderr split, exit codes and guaranteed cleanup, with tests
+- [ ] M18-T6 UI run mode module: read run from the launch fragment, wait for the backend, send the prompt in a new conversation, report progress per step/tool/status, unattended dialogs and approvals, return {error} from handleSendMessage, send the result and close, with real-DOM tests
+- [ ] M18-T7 /help (ES/EN) and py/README.md for run mode, and manual end-to-end check headless and visible (including whether the visible window closes)
