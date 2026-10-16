@@ -17,6 +17,7 @@ import base64
 import datetime
 import fnmatch
 import functools
+import gzip
 import hashlib
 import hmac
 import importlib.metadata
@@ -36,14 +37,16 @@ import threading
 import time
 import traceback
 import urllib.error
+import urllib.parse
 import urllib.request
 from urllib.parse import urlencode
 import venv
 import webbrowser
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE_BACKEND_VERSION = "9.2.0"
+SOURCE_BACKEND_VERSION = "9.3.0"
 
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""

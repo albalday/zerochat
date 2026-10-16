@@ -304,3 +304,31 @@ test('Storage IndexedDB - conserva el orden de la conversación aunque los ids n
   assert.deepEqual(loaded.history.map(message => message.id), ['z', 'a', 'm', 'b', 'c']);
   assert.deepEqual(Object.keys(loaded.history[0]).sort(), ['content', 'id', 'role']);
 });
+
+test('Storage IndexedDB - propaga errores estructurados en lugar de silenciosos fallbacks', async () => {
+  const Database = require('../../js/storage-db.js');
+  const originalOpen = Database.openDatabase;
+  Database.openDatabase = async () => {
+    throw new Error('Simulated QuotaExceededError');
+  };
+  try {
+    await assert.rejects(
+      Storage.getConversationsList(),
+      err => err.code === 'STORAGE_ERROR' && err.message.includes('read the conversation list')
+    );
+    await assert.rejects(
+      Storage.saveConversation({ id: 'err_test' }, []),
+      err => err.code === 'STORAGE_ERROR' && err.message.includes('save the conversation')
+    );
+    await assert.rejects(
+      Storage.getConversation('err_test'),
+      err => err.code === 'STORAGE_ERROR' && err.message.includes('read the conversation')
+    );
+    await assert.rejects(
+      Storage.deleteConversation('err_test'),
+      err => err.code === 'STORAGE_ERROR' && err.message.includes('delete the conversation')
+    );
+  } finally {
+    Database.openDatabase = originalOpen;
+  }
+});

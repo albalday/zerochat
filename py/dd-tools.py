@@ -238,9 +238,11 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
         if not target.is_dir():
             return _tool_error(f"Path '{path}' is not a directory.")
 
+        warning = None
         try:
             regex = re.compile(query, re.MULTILINE)
-        except re.error:
+        except re.error as err:
+            warning = f"Query '{query}' is not a valid regular expression ({err}); treated as literal text."
             regex = re.compile(re.escape(query), re.MULTILINE)
 
         try:
@@ -300,7 +302,7 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
             if truncated:
                 break
 
-        return json.dumps({
+        payload = {
             "success": True,
             "path": str(target),
             "query": query,
@@ -309,7 +311,11 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
             "total_matches": len(matches),
             "truncated": truncated,
             "matches": matches
-        }, ensure_ascii=False, indent=2)
+        }
+        if warning:
+            payload["warning"] = warning
+
+        return json.dumps(payload, ensure_ascii=False, indent=2)
     except Exception as e:
         return _tool_error(str(e))
 

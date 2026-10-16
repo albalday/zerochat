@@ -154,13 +154,16 @@
   // Conversaciones y mensajes en IndexedDB
   // ==========================================================================
 
-  /** Ejecuta una operación de IndexedDB; si falla, avisa y devuelve `fallback`. */
-  async function attempt(action, fallback, operation) {
+  /** Ejecuta una operación de IndexedDB; si falla, avisa y propaga el error estructurado. */
+  async function attempt(action, operation) {
     try {
-      return await operation(await openDatabase());
+      return await operation(await Database.openDatabase());
     } catch (error) {
       console.warn(`[ChatStorage] Could not ${action}:`, error);
-      return fallback;
+      const wrapped = new Error(`Could not ${action}: ${error?.message || String(error)}`, { cause: error });
+      wrapped.code = 'STORAGE_ERROR';
+      wrapped.action = action;
+      throw wrapped;
     }
   }
 
@@ -185,7 +188,7 @@
    */
   function getConversationsList(filterText = '') {
     const filter = filterText.toLowerCase().trim();
-    return attempt('read the conversation list', [], async db => {
+    return attempt('read the conversation list', async db => {
       const store = db.transaction(STORES.conversations, 'readonly').objectStore(STORES.conversations);
       const records = await requestResult(store.index('by_updatedAt').getAll());
       return records.reverse()
@@ -197,7 +200,7 @@
   /** Conversación completa con sus mensajes en orden; null si no existe. */
   function getConversation(sessionId) {
     if (!sessionId) return Promise.resolve(null);
-    return attempt('read the conversation', null, async db => {
+    return attempt('read the conversation', async db => {
       const tx = db.transaction([STORES.conversations, STORES.messages], 'readonly');
       const conversation = await requestResult(tx.objectStore(STORES.conversations).get(sessionId));
       if (!conversation) return null;
@@ -211,7 +214,7 @@
     if (!sessionMeta?.id) return Promise.resolve(false);
     const sessionId = sessionMeta.id;
     const now = Date.now();
-    return attempt('save the conversation', false, async db => {
+    return attempt('save the conversation', async db => {
       const tx = db.transaction([STORES.conversations, STORES.messages], 'readwrite');
       tx.objectStore(STORES.conversations).put({
         id: sessionId,
@@ -236,7 +239,7 @@
   /** Elimina una conversación y todos sus mensajes. */
   function deleteConversation(sessionId) {
     if (!sessionId) return Promise.resolve(false);
-    return attempt('delete the conversation', false, async db => {
+    return attempt('delete the conversation', async db => {
       const tx = db.transaction([STORES.conversations, STORES.messages], 'readwrite');
       tx.objectStore(STORES.conversations).delete(sessionId);
       await deleteByIndex(tx.objectStore(STORES.messages), 'by_conversation', conversationRange(sessionId));
@@ -246,7 +249,7 @@
   }
 
   function deleteAllConversations() {
-    return attempt('delete the conversations', false, async db => {
+    return attempt('delete the conversations', async db => {
       const tx = db.transaction([STORES.conversations, STORES.messages], 'readwrite');
       tx.objectStore(STORES.conversations).clear();
       tx.objectStore(STORES.messages).clear();
@@ -257,7 +260,7 @@
 
   function renameConversation(sessionId, newTitle) {
     if (!sessionId || !newTitle) return Promise.resolve(false);
-    return attempt('rename the conversation', false, async db => {
+    return attempt('rename the conversation', async db => {
       const tx = db.transaction(STORES.conversations, 'readwrite');
       const store = tx.objectStore(STORES.conversations);
       const conversation = await requestResult(store.get(sessionId));

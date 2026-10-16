@@ -116,7 +116,7 @@
               <tr><td>Shared origin <code>albalday.github.io</code></td><td>Other pages on the same origin can read cookies, <code>localStorage</code> and IndexedDB. Accepted in <code>AGENTS.md</code> §4 as long as this origin only hosts own pages.</td></tr>
               <tr><td>Non-local <code>--host</code></td><td>Exposes command execution to the unencrypted network; startup logs a warning.</td></tr>
               <tr><td>WebLLM from CDN</td><td>The engine is dynamically imported from <code>cdn.jsdelivr.net</code> if this provider is selected.</td></tr>
-              <tr><td>Web tools</td><td>DuckDuckGo, Jina Reader, SearXNG, and external URL fetching send queries and receive third-party content.</td></tr>
+              <tr><td>Web tools</td><td>DuckDuckGo, SearXNG, and external URL fetching send queries and receive third-party content without public proxies or intermediaries.</td></tr>
               <tr><td>Remote providers</td><td>Messages are sent to the configured provider if using cloud APIs. With a local LLM, this risk does not apply to chat.</td></tr>
             </tbody>
           </table>

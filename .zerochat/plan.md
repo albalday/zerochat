@@ -69,3 +69,5 @@ Done when: CI splits fast-fail checks from browser execution without unnecessary
 - [ ] M22-T1 Split CI workflow into fast-fail validation and browser jobs to fail fast without installing Chromium on early errors
 - [ ] M22-T2 Add CI-only single retry support for browser tests in test-runner to absorb transient runner load spikes
 - [ ] M22-T3 Audit browser test suite to ensure all post-async DOM assertions wait for UI reactivity rather than raw storage promises
+
+## M23 Fallback cleanup, public proxy elimination and backend-first web transport: closed 2026-10-16

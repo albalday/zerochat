@@ -17,6 +17,7 @@ import base64
 import datetime
 import fnmatch
 import functools
+import gzip
 import hashlib
 import hmac
 import importlib.metadata
@@ -36,14 +37,16 @@ import threading
 import time
 import traceback
 import urllib.error
+import urllib.parse
 import urllib.request
 from urllib.parse import urlencode
 import venv
 import webbrowser
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE_BACKEND_VERSION = "9.2.0"
+SOURCE_BACKEND_VERSION = "9.3.0"
 
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""
@@ -1350,9 +1353,11 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
         if not target.is_dir():
             return _tool_error(f"Path '{path}' is not a directory.")
 
+        warning = None
         try:
             regex = re.compile(query, re.MULTILINE)
-        except re.error:
+        except re.error as err:
+            warning = f"Query '{query}' is not a valid regular expression ({err}); treated as literal text."
             regex = re.compile(re.escape(query), re.MULTILINE)
 
         try:
@@ -1412,7 +1417,7 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
             if truncated:
                 break
 
-        return json.dumps({
+        payload = {
             "success": True,
             "path": str(target),
             "query": query,
@@ -1421,7 +1426,11 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
             "total_matches": len(matches),
             "truncated": truncated,
             "matches": matches
-        }, ensure_ascii=False, indent=2)
+        }
+        if warning:
+            payload["warning"] = warning
+
+        return json.dumps(payload, ensure_ascii=False, indent=2)
     except Exception as e:
         return _tool_error(str(e))
 
@@ -2700,6 +2709,178 @@ DEV_CONTENT_TYPES = {
     ".map": "application/json",
 }
 
+METADATA_HOSTS = frozenset({
+    "169.254.169.254",
+    "metadata.google.internal",
+    "instance-data",
+    "100.100.100.200",
+})
+DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+
+def is_dangerous_host(hostname: str, allow_local: bool = False) -> bool:
+    """Verifica si un host representa un riesgo de SSRF (metadatos cloud, loopback o privados)."""
+    if not hostname:
+        return True
+    clean_host = hostname.strip().lower().strip("[]")
+    if clean_host in METADATA_HOSTS:
+        return True
+
+    try:
+        ip = ipaddress.ip_address(clean_host)
+        if ip.is_link_local:
+            return True
+        if not allow_local and (ip.is_loopback or ip.is_private or ip.is_reserved or ip.is_unspecified):
+            return True
+        return False
+    except ValueError:
+        pass
+
+    if clean_host.isdigit():
+        try:
+            num = int(clean_host)
+            if 0 <= num <= 4294967295:
+                ip = ipaddress.IPv4Address(num)
+                if ip.is_link_local:
+                    return True
+                if not allow_local and (ip.is_loopback or ip.is_private or ip.is_reserved or ip.is_unspecified):
+                    return True
+                return False
+        except ValueError:
+            pass
+
+    if clean_host.startswith("0x"):
+        try:
+            num = int(clean_host, 16)
+            if 0 <= num <= 4294967295:
+                ip = ipaddress.IPv4Address(num)
+                if ip.is_link_local:
+                    return True
+                if not allow_local and (ip.is_loopback or ip.is_private or ip.is_reserved or ip.is_unspecified):
+                    return True
+                return False
+        except ValueError:
+            pass
+
+    if not allow_local:
+        if clean_host in ("localhost", "0.0.0.0", "127.0.0.1", "::1"):
+            return True
+        if clean_host.endswith(".local") or clean_host.endswith(".internal"):
+            return True
+
+    return False
+
+
+def fetch_web_resource(params: dict) -> dict:
+    """Descarga de forma segura un recurso web vía HTTP/HTTPS para el cliente web."""
+    url = params.get("url")
+    if not isinstance(url, str) or not url.strip():
+        raise ValueError("URL no válida o ausente.")
+    url = url.strip()
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Protocolo no permitido: '{parsed.scheme}'. Solo se admite http y https.")
+    hostname = (parsed.hostname or "").lower().strip("[]")
+    if not hostname:
+        raise ValueError("URL sin nombre de host válido.")
+
+    allow_local = bool(params.get("allow_local", False))
+    if is_dangerous_host(hostname, allow_local):
+        raise PermissionError("Acceso bloqueado: intento de acceso a servicios internos o metadatos de infraestructura (SSRF).")
+
+    timeout_s = float(params.get("timeout_s", 10.0))
+    timeout_s = max(0.5, min(timeout_s, 30.0))
+    max_bytes = int(params.get("max_bytes", 2 * 1024 * 1024))
+    max_bytes = max(1024, min(max_bytes, 10 * 1024 * 1024))
+    as_binary = bool(params.get("binary", False))
+
+    req_headers = {
+        "User-Agent": DEFAULT_USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml,application/json,application/pdf,text/plain;q=0.9,*/*;q=0.8",
+        "Accept-Encoding": "gzip, deflate",
+    }
+    custom_headers = params.get("headers")
+    if isinstance(custom_headers, dict):
+        for k, v in custom_headers.items():
+            if isinstance(k, str) and isinstance(v, str) and k.lower() != "host":
+                req_headers[k] = v
+
+    req = urllib.request.Request(url, headers=req_headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            status = resp.status
+            content_type = resp.headers.get("Content-Type", "")
+            content_encoding = resp.headers.get("Content-Encoding", "").lower()
+            raw_data = resp.read(max_bytes + 1)
+            truncated = len(raw_data) > max_bytes
+            if truncated:
+                raw_data = raw_data[:max_bytes]
+
+            if "gzip" in content_encoding:
+                try:
+                    raw_data = gzip.decompress(raw_data)
+                except (OSError, gzip.BadGzipFile):
+                    pass
+            elif "deflate" in content_encoding:
+                try:
+                    raw_data = zlib.decompress(raw_data)
+                except (OSError, zlib.error):
+                    pass
+
+            resp_headers = {k: v for k, v in resp.getheaders()}
+
+            if as_binary:
+                return {
+                    "ok": True,
+                    "status": status,
+                    "content_type": content_type,
+                    "headers": resp_headers,
+                    "base64": base64.b64encode(raw_data).decode("ascii"),
+                    "byte_size": len(raw_data),
+                    "truncated": truncated
+                }
+
+            charset = resp.headers.get_content_charset() or "utf-8"
+            try:
+                text_content = raw_data.decode(charset, errors="replace")
+                return {
+                    "ok": True,
+                    "status": status,
+                    "content_type": content_type,
+                    "headers": resp_headers,
+                    "text": text_content,
+                    "byte_size": len(raw_data),
+                    "truncated": truncated
+                }
+            except (UnicodeDecodeError, LookupError):
+                return {
+                    "ok": True,
+                    "status": status,
+                    "content_type": content_type,
+                    "headers": resp_headers,
+                    "base64": base64.b64encode(raw_data).decode("ascii"),
+                    "byte_size": len(raw_data),
+                    "truncated": truncated
+                }
+    except urllib.error.HTTPError as he:
+        err_body = ""
+        try:
+            err_body = he.read(2048).decode("utf-8", errors="replace")
+        except (OSError, UnicodeDecodeError):
+            pass
+        return {
+            "ok": False,
+            "status": he.code,
+            "error": f"HTTP {he.code}: {he.reason}",
+            "text": err_body
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "status": 0,
+            "error": str(exc)
+        }
+
 
 class ZeroChatServerHandler(BaseHTTPRequestHandler):
     server_version = f"ZeroChatServer/{VERSION}"
@@ -3105,6 +3286,13 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 return set_project_directory(params.get("path")), None, ""
             except (ValueError, OSError) as exc:
                 return None, {"code": -32602, "message": str(exc)}, ""
+        if method == "zerochat/web/fetch":
+            try:
+                return fetch_web_resource(params), None, ""
+            except (ValueError, PermissionError) as exc:
+                return None, {"code": -32602, "message": str(exc)}, ""
+            except Exception as exc:
+                return None, {"code": -32603, "message": f"Error en transporte web: {exc}"}, str(exc)
         if method.startswith("zerochat/jobs/"):
             return self._dispatch_jobs(method, params)
         if method == "zerochat/external/status":

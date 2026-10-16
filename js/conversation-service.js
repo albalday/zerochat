@@ -69,6 +69,7 @@
       sessions = await getStorage().getConversationsList();
     } catch (error) {
       console.warn('[ConversationService] Could not load saved conversations:', error);
+      getDialogs().alert(t('chat_storage_read_error'), { type: 'error' });
     }
     getState().replaceConversation({ sessionId: createId('session'), sessions, messages: createInitialChatHistory() });
     options.renderSessionMessages(getHistory());
@@ -89,7 +90,11 @@
 
     if (!history.some(message => message.role === 'user')) {
       State.removeSession(sessionId);
-      await Storage.deleteConversation(sessionId);
+      try {
+        await Storage.deleteConversation(sessionId);
+      } catch (error) {
+        console.warn('[ConversationService] Could not delete empty conversation:', error);
+      }
       options.renderSidebarChats();
       return;
     }
@@ -102,7 +107,12 @@
     if (!session.title) session.title = deriveTitle(history) || t('chat_untitled');
 
     State.saveSessionMetadata(session);
-    await Storage.saveConversation(session, history);
+    try {
+      await Storage.saveConversation(session, history);
+    } catch (error) {
+      console.warn('[ConversationService] Could not save conversation:', error);
+      getDialogs().alert(t('chat_storage_save_error'), { type: 'error' });
+    }
     options.renderSidebarChats();
   }
 
@@ -112,7 +122,14 @@
     if (blockSessionTransitionIfBusy('chat_switch_blocked_generating')) return false;
     if (saveCurrent) await saveCurrentSession(options);
 
-    const conversation = await getStorage().getConversation(sessionId);
+    let conversation = null;
+    try {
+      conversation = await getStorage().getConversation(sessionId);
+    } catch (error) {
+      console.warn('[ConversationService] Could not read conversation:', error);
+      getDialogs().alert(t('chat_storage_read_error'), { type: 'error' });
+      return false;
+    }
     if (!conversation) return;
     const history = conversation.history.length > 0 ? [...conversation.history] : createInitialChatHistory();
     getEngine().ensureConversationDate(history, conversation.createdAt);
@@ -279,12 +296,17 @@
     };
 
     const Storage = getStorage();
-    if (!await Storage.saveConversation(branchSession, branchHistory)) {
+    try {
+      await Storage.saveConversation(branchSession, branchHistory);
+    } catch (error) {
+      console.warn('[ConversationService] Could not save branch conversation:', error);
       getDialogs().alert(t('chat_branch_error'), { type: 'error' });
       return false;
     }
     if (!activateConversation(branchSessionId, branchHistory, 'chat_new_blocked_generating', options)) {
-      await Storage.deleteConversation(branchSessionId);
+      try {
+        await Storage.deleteConversation(branchSessionId);
+      } catch (_) { /* intento de limpieza */ }
       return false;
     }
     getState().saveSessionMetadata(branchSession);
@@ -301,7 +323,13 @@
       getDialogs().alert(t('chat_delete_blocked_generating'));
       return;
     }
-    await getStorage().deleteConversation(sessionId);
+    try {
+      await getStorage().deleteConversation(sessionId);
+    } catch (error) {
+      console.warn('[ConversationService] Could not delete conversation:', error);
+      getDialogs().alert(t('chat_delete_history_err'), { type: 'error' });
+      return;
+    }
 
     const remaining = getSavedSessions();
     if (remaining.length === 0) {
@@ -319,7 +347,10 @@
     if (!await getDialogs().confirm(t('chat_delete_all_confirm'))) return;
     if (blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
 
-    if (!await getStorage().deleteAllConversations()) {
+    try {
+      await getStorage().deleteAllConversations();
+    } catch (error) {
+      console.warn('[ConversationService] Could not delete all conversations:', error);
       getDialogs().alert(t('chat_delete_history_err'), { type: 'error' });
       return;
     }
@@ -336,7 +367,12 @@
     const session = getSavedSessions().find(item => item.id === sessionId);
     if (!session) return;
     getState().saveSessionMetadata({ ...session, title: newTitle, updatedAt: Date.now() });
-    await getStorage().renameConversation(sessionId, newTitle);
+    try {
+      await getStorage().renameConversation(sessionId, newTitle);
+    } catch (error) {
+      console.warn('[ConversationService] Could not rename conversation:', error);
+      getDialogs().alert(t('chat_storage_save_error'), { type: 'error' });
+    }
     options.renderSidebarChats();
   }
 

@@ -966,6 +966,24 @@
       return client.request(method, params, options);
     }
 
+    /** Comprueba si el proxy del backend local está conectado y activo. */
+    isProxyConnected() {
+      const State = getState();
+      return this.clients.has(PROXY_ID) && State.get('mcp')?.status === 'connected';
+    }
+
+    /** Descarga un recurso web a través del backend local autorizado. */
+    async fetchWebResource(url, options = {}) {
+      return this.requestExternalControl('zerochat/web/fetch', {
+        url,
+        headers: options.headers || {},
+        timeout_s: options.timeout_s || (options.timeoutMs ? options.timeoutMs / 1000 : 10),
+        max_bytes: options.max_bytes || options.maxBytes || 2 * 1024 * 1024,
+        binary: Boolean(options.binary),
+        allow_local: Boolean(options.allowLocal || options.allow_local)
+      }, { timeoutMs: options.timeoutMs || 15000 });
+    }
+
     /**
      * Publica en ChatState los comandos en segundo plano que siguen en marcha en el servidor
      * local. Los esperados ya se ven en su tarjeta mientras el turno los espera. Solo escribe

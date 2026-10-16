@@ -4,24 +4,12 @@ const assert = require('node:assert/strict');
 // Cargar módulos
 const WebSearch = require('../../js/web-search.js');
 const WebBrowser = require('../../js/web-browser.js');
+const ChatMCP = require('../../js/mcp.js');
+const ChatUtils = require('../../js/utils.js');
 const { installDom } = require('../helpers/dom-env.js');
 
-test('SearchProvider - DuckDuckGo Markdown & HTML parsing', () => {
+test('SearchProvider - DuckDuckGo HTML parsing', () => {
   const ddg = new WebSearch.DuckDuckGoSearchProvider();
-
-  // Test de parseo de Markdown procedente de Reader Gateway
-  const sampleMarkdown = `
-## [Result 1](https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpage1)
-[Example Page 1 Description with sufficient length to qualify as a snippet](https://example.com/page1)
-
-## [Result 2](https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.org%2Fpage2)
-This is an alternate snippet line that is long enough to be captured.
-`;
-  const mdResults = ddg.parseMarkdownResults(sampleMarkdown);
-  assert.equal(mdResults.length, 2);
-  assert.equal(mdResults[0].title, 'Result 1');
-  assert.equal(mdResults[0].url, 'https://example.com/page1');
-  assert.equal(mdResults[1].url, 'https://example.org/page2');
 
   // Test de parseo de HTML directo
   const sampleHtml = `
@@ -35,6 +23,11 @@ This is an alternate snippet line that is long enough to be captured.
   assert.equal(htmlResults[0].title, 'HTML Title');
   assert.equal(htmlResults[0].url, 'https://html-example.com');
   assert.equal(htmlResults[0].snippet, 'HTML Snippet content');
+});
+
+test('SearchProvider - DuckDuckGo no tiene fallback a Wikipedia ni métodos ajenos', () => {
+  const ddg = new WebSearch.DuckDuckGoSearchProvider();
+  assert.equal(typeof ddg.queryWikipediaApi, 'undefined', 'queryWikipediaApi debe estar eliminado');
 });
 
 test('SearchProvider - SearXNG JSON parsing', () => {
@@ -112,23 +105,20 @@ test('PageFetcher - Validación de URLs y protección anti-SSRF', () => {
 
 test('PageFetcher - Pipeline de estrategias y límite de longitud de contenido', async () => {
   const pipeline = new WebBrowser.PageFetcherPipeline();
-  assert.equal(pipeline.strategies.length, 3);
-  assert.deepEqual(pipeline.strategies.map(s => s.name), ['ReaderGateway', 'LocalDocumentExtractor', 'DirectFetch']);
+  assert.equal(pipeline.strategies.length, 2);
+  assert.deepEqual(pipeline.strategies.map(s => s.name), ['LocalDocumentExtractor', 'DirectFetch']);
 
   // Test de estrategia simulada con contenido superior al límite
   const originalFetch = global.fetch;
   try {
     const hugeString = 'A'.repeat(70000);
-    global.fetch = async (url) => {
-      const urlStr = String(url);
-      if (urlStr.includes('r.jina.ai')) {
-        return {
-          ok: true,
-          status: 200,
-          text: async () => hugeString
-        };
-      }
-      return { ok: false, status: 500 };
+    global.fetch = async () => {
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'text/html' }),
+        text: async () => hugeString
+      };
     };
 
     const res = await pipeline.fetch('https://example.com/large-page');
@@ -137,6 +127,163 @@ test('PageFetcher - Pipeline de estrategias y límite de longitud de contenido',
     assert.ok(res.content.includes('[... Content truncated at the size limit ...]'));
   } finally {
     global.fetch = originalFetch;
+  }
+});
+
+test('PageFetcher - sin proxies ni intermediarios públicos (cero r.jina.ai)', () => {
+  assert.equal(typeof WebBrowser.ReaderGatewayStrategy, 'undefined', 'ReaderGatewayStrategy debe estar eliminada');
+});
+
+test('ChatUtils.webFetch - transporte unificado web (backend si está conectado, fetch en navegador si no)', async () => {
+  const origIsProxyConnected = ChatMCP.manager.isProxyConnected;
+  const origFetchWebResource = ChatMCP.manager.fetchWebResource;
+
+  try {
+    // 1. Cuando el backend está conectado, canaliza la petición por backend
+    ChatMCP.manager.isProxyConnected = () => true;
+
+    let calledUrl = null;
+    let calledOptions = null;
+    ChatMCP.manager.fetchWebResource = async (url, options) => {
+      calledUrl = url;
+      calledOptions = options;
+      return {
+        ok: true,
+        status: 200,
+        content_type: 'text/html; charset=utf-8',
+        text: '<html><body><h1>Contenido Backend</h1><p>Texto extraído correctamente.</p></body></html>',
+        byte_size: 85
+      };
+    };
+
+    const res = await ChatUtils.webFetch('https://example.com/test');
+    assert.equal(calledUrl, 'https://example.com/test');
+    assert.equal(res.ok, true);
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    assert.ok(text.includes('Contenido Backend'));
+
+    // 2. Si el backend falla, no hace fallback a fetch en navegador, devuelve el error directamente
+    ChatMCP.manager.fetchWebResource = async () => {
+      return { ok: false, status: 502, error: 'Bad Gateway' };
+    };
+    const failRes = await ChatUtils.webFetch('https://example.com/test');
+    assert.equal(failRes.ok, false);
+    assert.equal(failRes.status, 502);
+    assert.equal(failRes.error, 'Bad Gateway');
+  } finally {
+    ChatMCP.manager.isProxyConnected = origIsProxyConnected;
+    ChatMCP.manager.fetchWebResource = origFetchWebResource;
+  }
+});
+
+test('SearchProvider - DuckDuckGo prioriza transporte backend y hace fallback si no está conectado', async () => {
+  const ddg = new WebSearch.DuckDuckGoSearchProvider();
+  const origIsProxyConnected = ChatMCP.manager.isProxyConnected;
+  const origFetchWebResource = ChatMCP.manager.fetchWebResource;
+  const origFetch = global.fetch;
+
+  try {
+    // 1. Backend conectado: se usa el backend sin tocar fetch del navegador
+    ChatMCP.manager.isProxyConnected = () => true;
+    let backendCalled = false;
+    ChatMCP.manager.fetchWebResource = async () => {
+      backendCalled = true;
+      return {
+        ok: true,
+        status: 200,
+        text: `
+          <div class="results">
+            <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fbackend-result.com">Backend Result</a>
+            <a class="result__snippet">Contenido desde el servidor local</a>
+          </div>
+        `
+      };
+    };
+
+    const results = await ddg.fetchResults('test query', { timeoutMs: 3000 });
+    assert.equal(backendCalled, true);
+    assert.equal(results.length, 1);
+    assert.equal(results[0].title, 'Backend Result');
+    assert.equal(results[0].url, 'https://backend-result.com');
+
+    // 2. Backend desconectado: fallback a fetch directo
+    ChatMCP.manager.isProxyConnected = () => false;
+    let browserFetchCalled = false;
+    global.fetch = async () => {
+      browserFetchCalled = true;
+      return {
+        ok: true,
+        status: 200,
+        text: async () => `
+          <div class="results">
+            <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fbrowser-result.com">Browser Result</a>
+            <a class="result__snippet">Contenido directo</a>
+          </div>
+        `
+      };
+    };
+
+    const fallbackResults = await ddg.fetchResults('fallback query', { timeoutMs: 3000 });
+    assert.equal(browserFetchCalled, true);
+    assert.equal(fallbackResults.length, 1);
+    assert.equal(fallbackResults[0].title, 'Browser Result');
+    assert.equal(fallbackResults[0].url, 'https://browser-result.com');
+  } finally {
+    ChatMCP.manager.isProxyConnected = origIsProxyConnected;
+    ChatMCP.manager.fetchWebResource = origFetchWebResource;
+    global.fetch = origFetch;
+  }
+});
+
+test('BinaryFetcher - transporte binario vía backend con límites en el borde (N y N+1)', async () => {
+  const origIsProxyConnected = ChatMCP.manager.isProxyConnected;
+  const origFetchWebResource = ChatMCP.manager.fetchWebResource;
+
+  try {
+    ChatMCP.manager.isProxyConnected = () => true;
+
+    // Caso 1: Dentro del límite N bytes exactos
+    const maxBytes = 100;
+    const exactBytes = Buffer.alloc(maxBytes, 'A');
+    ChatMCP.manager.fetchWebResource = async () => ({
+      ok: true,
+      status: 200,
+      content_type: 'application/pdf',
+      base64: exactBytes.toString('base64')
+    });
+
+    const resExact = await WebBrowser.fetchBinaryResource('https://example.com/test.pdf', { maxBytes, resourceKind: 'document' });
+    assert.equal(resExact.success, true);
+    assert.equal(resExact.byteSize, maxBytes);
+
+    // Caso 2: Excede el límite en N+1 bytes exactos
+    const overBytes = Buffer.alloc(maxBytes + 1, 'B');
+    ChatMCP.manager.fetchWebResource = async () => ({
+      ok: true,
+      status: 200,
+      content_type: 'application/pdf',
+      base64: overBytes.toString('base64')
+    });
+
+    const resOver = await WebBrowser.fetchBinaryResource('https://example.com/test.pdf', { maxBytes, resourceKind: 'document' });
+    assert.equal(resOver.success, false);
+    assert.ok(resOver.error.includes('exceeds the size limit'));
+
+    // Caso 3: Recurso vacío (0 bytes)
+    ChatMCP.manager.fetchWebResource = async () => ({
+      ok: true,
+      status: 200,
+      content_type: 'application/pdf',
+      base64: ''
+    });
+
+    const resEmpty = await WebBrowser.fetchBinaryResource('https://example.com/test.pdf', { maxBytes, resourceKind: 'document' });
+    assert.equal(resEmpty.success, false);
+    assert.ok(resEmpty.error.includes('is empty (0 bytes)'));
+  } finally {
+    ChatMCP.manager.isProxyConnected = origIsProxyConnected;
+    ChatMCP.manager.fetchWebResource = origFetchWebResource;
   }
 });
 

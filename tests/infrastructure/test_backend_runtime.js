@@ -734,6 +734,13 @@ with tempfile.TemporaryDirectory() as temp_dir:
     search_ok = json.loads(zerochat.search_files("hello", path=str(project)))
     assert search_ok["success"] is True
     assert search_ok["total_matches"] == 1
+    assert "warning" not in search_ok
+
+    # 2b. search_files incluye warning explícito cuando una regex inválida activa el modo literal
+    invalid_regex_res = json.loads(zerochat.search_files("hello(", path=str(project)))
+    assert invalid_regex_res["success"] is True
+    assert "warning" in invalid_regex_res
+    assert "treated as literal text" in invalid_regex_res["warning"]
 
     # 3. get_diagnostics no escanea symlinks que apuntan fuera del proyecto
     diag_res = json.loads(zerochat.get_diagnostics(path=str(project)))
@@ -747,6 +754,52 @@ with tempfile.TemporaryDirectory() as temp_dir:
     assert read_res["success"] is True
     assert read_res["lines_returned"] == 2000
     assert read_res["truncated"] is True
+`;
+  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+});
+
+test('zerochat.py: fetch_web_resource y validación anti-SSRF de transporte web', () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const script = `
+import importlib.util
+import json
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("zerochat_web_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+zerochat = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(zerochat)
+
+# 1. Validación anti-SSRF (is_dangerous_host)
+assert zerochat.is_dangerous_host("169.254.169.254") is True
+assert zerochat.is_dangerous_host("metadata.google.internal") is True
+assert zerochat.is_dangerous_host("127.0.0.1", allow_local=False) is True
+assert zerochat.is_dangerous_host("localhost", allow_local=False) is True
+assert zerochat.is_dangerous_host("10.0.0.1", allow_local=False) is True
+assert zerochat.is_dangerous_host("192.168.1.1", allow_local=False) is True
+assert zerochat.is_dangerous_host("example.com", allow_local=False) is False
+# allow_local permite loopback/local
+assert zerochat.is_dangerous_host("127.0.0.1", allow_local=True) is False
+
+# 2. fetch_web_resource rechaza SSRF peligroso
+try:
+    zerochat.fetch_web_resource({"url": "http://169.254.169.254/latest/meta-data/"})
+    assert False, "Debe rechazar metadatos de cloud"
+except PermissionError:
+    pass
+
+# 3. fetch_web_resource rechaza protocolos no permitidos
+try:
+    zerochat.fetch_web_resource({"url": "ftp://example.com/file"})
+    assert False, "Debe rechazar ftp://"
+except ValueError:
+    pass
+
+# 4. fetch_web_resource valida URLs vacías o inválidas
+try:
+    zerochat.fetch_web_resource({"url": ""})
+    assert False, "Debe rechazar URL vacía"
+except ValueError:
+    pass
 `;
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });

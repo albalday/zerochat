@@ -63,7 +63,7 @@
     <div class="card">
       <h2>Connections and privacy</h2>
       <p>The published interface is <a href="https://albalday.github.io/zerochat/zerochat.html">GitHub Pages</a>. The local server listens at <code>127.0.0.1:6388</code> by default and opens an authenticated link. Do not share the startup URL while it contains the token; the interface removes it and stores it in a cookie.</p>
-      <p>Remote providers receive messages, attachments and tool results included in their requests. Web tools may use intermediaries such as Jina Reader. Models and dependencies also require downloads.</p>
+      <p>Remote providers receive messages, attachments and tool results included in their requests. Web tools do not use public proxies or intermediaries. Models and dependencies also require downloads.</p>
       <p>Third-party libraries (Orama for search; mammoth and fflate for office documents) ship with the web app itself at pinned versions, with no CDN. The document libraries are downloaded from the same site the first time they are used and cached for offline work. Their licenses are listed in <a href="https://github.com/albalday/zerochat/blob/master/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a>.</p>
       <p>WebLLM runs inference locally; network tools still send data. Local history does not make all operations private. The <a href="debug.html">debug panel</a> shows requests; their context may differ from visible history because of token limits or RAG selection.</p>
     </div>

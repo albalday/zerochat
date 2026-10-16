@@ -8,9 +8,11 @@
  *    - Los navegadores web prohíben por defecto que el código JavaScript del cliente acceda
  *      directamente al contenido de orígenes web de terceros mediante fetch() o XMLHttpRequest
  *      a menos que el servidor de destino emita cabeceras 'Access-Control-Allow-Origin'.
- *    - Para permitir la lectura universal de artículos y páginas web públicas solicitadas por
- *      el modelo agéntico, ZeroChat utiliza estrategias desacopladas:
- *        a) Gateway Reader para LLMs (ej: Jina Reader / r.jina.ai): Procesa y devuelve Markdown limpio.
+ *    - Cero proxies de terceros: ZeroChat no utiliza intermediarios externos ni proxies públicos
+ *      (como Jina Reader o servicios CORS ajenos). Las peticiones se realizan de forma directa y limpia
+ *      o a través del backend local autorizado cuando esté conectado.
+ *    - Estrategias de lectura desacopladas:
+ *        a) Documentos Locales (LocalDocumentExtractor): Extracción directa en navegador para PDF y Office.
  *        b) Petición Directa (DirectFetch): Utilizada para servidores con CORS habilitado o endpoints locales.
  *
  * 2. Mitigación de SSRF (Server-Side Request Forgery) en el Cliente Web:
@@ -47,7 +49,7 @@
     return resolveDep('ChatOfficeParser', './office-parser.js');
   }
 
-  const { fetchWithTimeout, resolveDep, bytesToBase64, formatBytes, IMAGE_MIME_TYPES, SAFE_IMAGE_MIME_TYPES } = Utils;
+  const { resolveDep, webFetch, bytesToBase64, formatBytes, IMAGE_MIME_TYPES, SAFE_IMAGE_MIME_TYPES } = Utils;
 
   /**
    * Analiza y normaliza posibles evasiones numéricas (decimal, octal, hex) y rangos privados/locales de direcciones IP.
@@ -153,16 +155,6 @@
     return '';
   }
 
-  /**
-   * Resuelve URLs relativas de imágenes dentro de un bloque Markdown respecto a la URL base.
-   */
-  function resolveMarkdownImageUrls(markdownText, baseUrl) {
-    if (!markdownText || typeof markdownText !== 'string' || !baseUrl) return markdownText;
-    return markdownText.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, url) => {
-      const resolved = resolveImageUrl(url, baseUrl);
-      return resolved ? `![${alt}](${resolved})` : match;
-    });
-  }
 
   /**
    * Extrae el texto legible y estructurado de un documento HTML local.
@@ -215,7 +207,7 @@
 
         const fullOutput = headerInfo + text;
         if (fullOutput.length > MAX_CONTENT_LENGTH) {
-          return fullOutput.slice(0, MAX_CONTENT_LENGTH) + '\n\n[... Content truncated due to length ...]';
+          return fullOutput.slice(0, MAX_CONTENT_LENGTH) + '\n\n[... Content truncated at the size limit ...]';
         }
         return fullOutput;
       }
@@ -240,7 +232,9 @@
       .replace(/\n\s*\n+/g, '\n\n')
       .trim();
 
-    return cleanText.slice(0, MAX_CONTENT_LENGTH);
+    return cleanText.length > MAX_CONTENT_LENGTH
+      ? cleanText.slice(0, MAX_CONTENT_LENGTH) + '\n\n[... Content truncated at the size limit ...]'
+      : cleanText;
   }
 
   function documentFileName(url) {
@@ -289,45 +283,6 @@
   }
 
   /**
-   * Estrategia de lectura optimizada para LLM mediante Gateway Reader (Jina Reader).
-   */
-  class ReaderGatewayStrategy extends BaseFetchStrategy {
-    constructor(options = {}) {
-      super({ name: 'ReaderGateway', timeoutMs: 12000, ...options });
-    }
-
-    async canHandle(url, context = {}) {
-      // No aplicar gateway a hosts locales ni a documentos PDF u ofimáticos, que se leen en el navegador.
-      return !context.isLocalUrl && !context.isOfficeUrl && !context.isPdfUrl;
-    }
-
-    async fetch(url, context = {}) {
-      const readerUrl = `https://r.jina.ai/${url}`;
-      const res = await fetchWithTimeout(readerUrl, {
-        headers: {
-          'Accept': 'text/plain',
-          'X-Return-Format': 'markdown',
-          'X-No-Cache': 'true'
-        }
-      }, this.timeoutMs);
-
-      if (!res.ok) {
-        throw new Error(`Reader gateway answered HTTP ${res.status}`);
-      }
-
-      let content = await res.text();
-      content = resolveMarkdownImageUrls(content, url);
-      return {
-        success: true,
-        content: content,
-        byteSize: content.length,
-        status: 200,
-        strategy: this.name
-      };
-    }
-  }
-
-  /**
    * Estrategia de descarga y extracción local de documentos PDF y ofimáticos.
    */
   class LocalDocumentStrategy extends BaseFetchStrategy {
@@ -365,11 +320,11 @@
   }
 
   /**
-   * Estrategia de petición HTTP directa estándar.
+   * Estrategia de petición web mediante webFetch (vía backend local si está conectado, o directa en navegador).
    */
   class DirectFetchStrategy extends BaseFetchStrategy {
     constructor(options = {}) {
-      super({ name: 'DirectFetch', timeoutMs: 6000, ...options });
+      super({ name: 'DirectFetch', timeoutMs: 10000, ...options });
     }
 
     async canHandle(url, context = {}) {
@@ -377,40 +332,56 @@
     }
 
     async fetch(url, context = {}) {
-      const res = await fetchWithTimeout(url, {
-        headers: { 'Accept': 'text/html,application/xhtml+xml,application/json,application/pdf,text/plain;q=0.9,*/*;q=0.8' }
-      }, this.timeoutMs);
+      const fileName = documentFileName(url);
+      const isDocument = Boolean(detectDocumentType(fileName));
+
+      const res = await webFetch(url, {
+        timeoutMs: this.timeoutMs,
+        maxBytes: MAX_CONTENT_LENGTH * 2,
+        binary: isDocument,
+        allowLocal: context.isLocalUrl,
+        accept: 'text/html,application/xhtml+xml,application/json,application/pdf,text/plain;q=0.9,*/*;q=0.8'
+      });
+
+      if (!res.ok) {
+        return {
+          success: false,
+          content: '',
+          byteSize: 0,
+          status: res.status,
+          strategy: this.name,
+          error: res.error || `HTTP ${res.status}: ${res.statusText}`
+        };
+      }
 
       const contentType = (res.headers.get('content-type') || '').toLowerCase();
-      const docType = detectDocumentType(documentFileName(url), contentType);
+      const docType = detectDocumentType(fileName, contentType);
       const isPdf = docType === 'pdf';
-      const isDocument = Boolean(docType);
 
       let content = '';
       let byteSize = 0;
 
-      if (isDocument && res.ok) {
+      if (docType) {
         const arrayBuffer = await res.arrayBuffer();
         byteSize = arrayBuffer.byteLength;
         content = await describeDownloadedDocument(arrayBuffer, url, contentType, docType);
       } else {
         const rawText = await res.text();
-        byteSize = rawText.length;
+        byteSize = res.byteSize || rawText.length;
         if (rawText.includes('<html') || rawText.includes('<!DOCTYPE')) {
           content = extractReadableTextFromHtml(rawText, url);
         } else {
-          content = rawText.slice(0, MAX_CONTENT_LENGTH);
+          content = rawText;
         }
       }
 
       return {
-        success: res.ok,
+        success: true,
         content: content,
         byteSize: byteSize,
         status: res.status,
         isPdf: isPdf,
-        strategy: this.name,
-        error: res.ok ? undefined : `HTTP ${res.status}: ${res.statusText}`
+        strategy: this.name
       };
     }
   }
@@ -421,7 +392,6 @@
   class PageFetcherPipeline {
     constructor() {
       this.strategies = [
-        new ReaderGatewayStrategy(),
         new LocalDocumentStrategy(),
         new DirectFetchStrategy()
       ];
@@ -460,10 +430,7 @@
 
       let lastError = null;
 
-      // Si es un host local, intentar DirectFetch prioritariamente
-      const executionList = isLocalUrl
-        ? [new DirectFetchStrategy({ timeoutMs: 5000 })]
-        : this.strategies;
+      const executionList = this.strategies;
 
       for (const strategy of executionList) {
         try {
@@ -541,16 +508,19 @@
     const maxBytes = options.maxBytes || MAX_BINARY_BYTES;
     const timeoutMs = options.timeoutMs || 8000;
     const resourceKind = options.resourceKind || 'resource';
-    const headers = {
-      'Accept': options.accept || '*/*',
-      ...(options.headers || {})
-    };
-
+    const label = resourceKind.charAt(0).toUpperCase() + resourceKind.slice(1);
     const calcElapsed = () => parseFloat(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startTime).toFixed(2));
 
     let res = null;
     try {
-      res = await fetchWithTimeout(url, { headers }, timeoutMs);
+      res = await webFetch(url, {
+        timeoutMs,
+        maxBytes: maxBytes + 1,
+        binary: true,
+        accept: options.accept || '*/*',
+        headers: options.headers,
+        allowLocal: options.allowLocal === true
+      });
     } catch (err) {
       const isTimeout = err?.name === 'AbortError' || /abort/i.test(err?.message || '');
       return {
@@ -558,7 +528,7 @@
         url,
         error: isTimeout
           ? `The download timed out after ${timeoutMs}ms.`
-          : `The ${resourceKind} could not be downloaded (${err?.message || 'connection error or CORS restriction'}).`,
+          : `The ${resourceKind} could not be downloaded (${err?.message || 'connection error or network block'}).`,
         elapsedMs: calcElapsed()
       };
     }
@@ -568,12 +538,10 @@
         success: false,
         url,
         status: res.status,
-        error: `HTTP ${res.status}: ${res.statusText || 'Error fetching resource'}`,
+        error: res.error || `HTTP ${res.status}: ${res.statusText || 'Error fetching resource'}`,
         elapsedMs: calcElapsed()
       };
     }
-
-    const label = resourceKind.charAt(0).toUpperCase() + resourceKind.slice(1);
 
     const contentLength = res.headers.get('content-length');
     if (contentLength && parseInt(contentLength, 10) > maxBytes) {
@@ -605,7 +573,7 @@
         success: false,
         url,
         status: res.status,
-        error: `The fetched ${resourceKind} is empty (0 bytes).`,
+        error: `The ${resourceKind} is empty (0 bytes).`,
         elapsedMs: calcElapsed()
       };
     }
@@ -615,7 +583,7 @@
         success: false,
         url,
         status: res.status,
-        error: `${label} exceeds the size limit of ${formatBytes(maxBytes)} (got ${formatBytes(byteLength)}).`,
+        error: `${label} exceeds the size limit of ${formatBytes(maxBytes)}.`,
         elapsedMs: calcElapsed()
       };
     }
@@ -705,7 +673,6 @@
     documentFileName,
     extractReadableTextFromHtml,
     BaseFetchStrategy,
-    ReaderGatewayStrategy,
     LocalDocumentStrategy,
     DirectFetchStrategy,
     PageFetcherPipeline,

@@ -17,7 +17,7 @@
 
   const DEFAULT_TIMEOUT_MS = 10000;
 
-  const { fetchWithTimeout } = Utils;
+  const { webFetch } = Utils;
 
   /**
    * Desempaqueta URLs redirigidas de DuckDuckGo (parámetro uddg).
@@ -127,46 +127,6 @@
       });
     }
 
-    /**
-     * Parsea resultados de DuckDuckGo desde Markdown de Reader Gateway.
-     */
-    parseMarkdownResults(md) {
-      const results = [];
-      const seenUrls = new Set();
-      const sections = (md || '').split(/\n(?=##\s*\[)/);
-
-      for (const sec of sections) {
-        const titleMatch = sec.match(/^##\s*\[([^\]]+)\]\(([^)]+)\)/);
-        if (!titleMatch) continue;
-        const rawTitle = titleMatch[1].trim();
-        const rawUrl = titleMatch[2].trim();
-        const realUrl = unwrapDdgUrl(rawUrl);
-
-        if (!realUrl || seenUrls.has(realUrl.toLowerCase()) || realUrl.includes('duckduckgo.com/html') || realUrl.includes('duckduckgo.com/?q=')) {
-          continue;
-        }
-        seenUrls.add(realUrl.toLowerCase());
-
-        const linkMatches = [...sec.matchAll(/\[([^\]]{25,})\]\([^)]+\)/g)];
-        let snippet = '';
-        if (linkMatches.length > 0) {
-          snippet = linkMatches[linkMatches.length - 1][1].replace(/\*\*/g, '').trim();
-        } else {
-          const lines = sec.split('\n').filter(l => !l.startsWith('##') && !l.startsWith('[!') && l.trim().length > 20);
-          if (lines.length > 0) {
-            snippet = lines.join(' ').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\*\*/g, '').trim();
-          }
-        }
-
-        results.push({
-          title: rawTitle,
-          url: realUrl,
-          snippet: snippet,
-          source: 'DuckDuckGo Web'
-        });
-      }
-      return results;
-    }
 
     /**
      * Parsea resultados de DuckDuckGo desde HTML crudo.
@@ -202,7 +162,10 @@
     async queryInstantAnswerApi(query, timeoutMs = 4000) {
       try {
         const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&pretty=1`;
-        const res = await fetchWithTimeout(url, { headers: { 'Accept': 'application/json' } }, timeoutMs);
+        const res = await webFetch(url, {
+          timeoutMs,
+          accept: 'application/json,text/plain,*/*'
+        });
         if (!res.ok) return [];
         const data = await res.json();
         const results = [];
@@ -236,92 +199,37 @@
           });
         }
         return results;
-      } catch (e) {
+      } catch (_) {
+        /* Error consultando API de respuesta rápida */
         return [];
       }
-    }
-
-    /**
-     * Fallback de búsqueda en Wikipedia API.
-     */
-    async queryWikipediaApi(query, timeoutMs = 4000) {
-      try {
-        const wikiUrl = `https://es.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=5&namespace=0&format=json&origin=*`;
-        const res = await fetchWithTimeout(wikiUrl, {}, timeoutMs);
-        if (res.ok) {
-          const data = await res.json();
-          if (data && Array.isArray(data) && data[1] && data[1].length > 0) {
-            const wikiResults = [];
-            for (let i = 0; i < data[1].length; i++) {
-              wikiResults.push({
-                title: data[1][i],
-                snippet: data[2] ? data[2][i] || '' : '',
-                url: data[3] ? data[3][i] : '',
-                source: 'Wikipedia'
-              });
-            }
-            return wikiResults;
-          }
-        }
-      } catch (error) {
-        console.warn('[ChatWebSearch] Wikipedia fallback search failed:', error);
-      }
-      return [];
     }
 
     async fetchResults(cleanQuery, { timeoutMs }) {
       let rawResults = [];
 
-      // 1. Vía Universal Reader Gateway (con bypass CORS transparente para resultados web completos)
       try {
         const targetUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(cleanQuery)}`;
-        const readerUrl = `https://r.jina.ai/${targetUrl}`;
-        const res = await fetchWithTimeout(readerUrl, { headers: { 'Accept': 'text/plain' } }, Math.min(timeoutMs, 7000));
+        const res = await webFetch(targetUrl, {
+          timeoutMs: Math.min(timeoutMs, 6000),
+          accept: 'text/html,application/xhtml+xml,*/*'
+        });
         if (res.ok) {
-          const md = await res.text();
-          const parsed = this.parseMarkdownResults(md);
+          const html = await res.text();
+          const parsed = this.parseHtmlResults(html);
           if (parsed.length > 0) {
             rawResults = parsed;
           }
         }
       } catch (e) {
-        console.warn('[WebSearch] Reader gateway unavailable for DuckDuckGo, trying the direct route:', e.message);
+        console.warn('[WebSearch] DuckDuckGo HTML search failed:', e.message);
       }
 
-      // 2. Vía Directa a DuckDuckGo HTML
-      if (rawResults.length === 0) {
-        try {
-          const targetUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(cleanQuery)}`;
-          const res = await fetchWithTimeout(targetUrl, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            }
-          }, Math.min(timeoutMs, 5000));
-          if (res.ok) {
-            const html = await res.text();
-            const parsed = this.parseHtmlResults(html);
-            if (parsed.length > 0) {
-              rawResults = parsed;
-            }
-          }
-        } catch (e) {
-          console.warn('DuckDuckGo HTML directo no disponible:', e.message);
-        }
-      }
-
-      // 3. Vía DuckDuckGo Instant Answer API
+      // Vía DuckDuckGo Instant Answer API si no hubo resultados en HTML
       if (rawResults.length === 0) {
         const instantResults = await this.queryInstantAnswerApi(cleanQuery, Math.min(timeoutMs, 4000));
         if (instantResults.length > 0) {
           rawResults = instantResults;
-        }
-      }
-
-      // 4. Vía Wikipedia Search API
-      if (rawResults.length === 0) {
-        const wikiResults = await this.queryWikipediaApi(cleanQuery, Math.min(timeoutMs, 4000));
-        if (wikiResults.length > 0) {
-          rawResults = wikiResults;
         }
       }
 
@@ -357,16 +265,19 @@
 
     async fetchResults(cleanQuery, { lang, timeoutMs }) {
       let rawResults = [];
+      const url = `${this.baseUrl}/search?q=${encodeURIComponent(cleanQuery)}&format=json&language=${lang === 'en' ? 'en' : 'es'}`;
 
       try {
-        const url = `${this.baseUrl}/search?q=${encodeURIComponent(cleanQuery)}&format=json&language=${lang === 'en' ? 'en' : 'es'}`;
-        const res = await fetchWithTimeout(url, { headers: { 'Accept': 'application/json' } }, timeoutMs);
+        const res = await webFetch(url, {
+          timeoutMs,
+          accept: 'application/json'
+        });
         if (res.ok) {
           const data = await res.json();
           rawResults = this.parseJsonResponse(data);
         }
       } catch (err) {
-        console.warn(`Error consultando SearXNG (${this.baseUrl}):`, err.message);
+        console.warn(`[WebSearch] SearXNG search failed (${this.baseUrl}):`, err.message);
       }
 
       return rawResults;
