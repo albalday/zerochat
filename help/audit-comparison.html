@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Revisión 3: Comparativa · ZeroChat 9.x Docs</title>
-  <meta name="description" content="ZeroChat 9.1.0 frente a otros frontends para un LLM local: Open WebUI, LM Studio, la interfaz de llama.cpp y Jan, con fuentes fechadas.">
+  <meta name="description" content="ZeroChat 9.2.3 frente a otros frontends para un LLM local: Open WebUI, LM Studio, la interfaz de llama.cpp y Jan, con fuentes fechadas.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -26,12 +26,12 @@
 
     <main>
       <div class="alert alert-warning">
-        <p><strong>Vigencia y método:</strong> los datos de ZeroChat se han comprobado en su código (9.1.0, commit <code>a0393c3</code>); los del resto proceden de su documentación pública, consultada el 4 y el 12 de octubre de 2026. Lo que no consta en esa documentación se indica como «no consta», no como «no». No se han medido memoria ni rendimiento.</p>
+        <p><strong>Vigencia y método:</strong> los datos de ZeroChat se han comprobado en su código (versión 9.2.3, commit <code>924aef6</code>); los del resto proceden de su documentación pública oficial consultada entre el 4 y el 16 de octubre de 2026. Lo que no consta en esa documentación se indica como «no consta», no como «no». No se han medido memoria ni rendimiento.</p>
       </div>
 
       <div class="card">
         <h2>1. Por qué cambia la comparativa</h2>
-        <p>La auditoría de la 8.12.4 comparaba ZeroChat con clientes multiproveedor. El objetivo actual es otro: <strong>un único frontend para modelos locales</strong>, servidos por su propio motor; el modelo cambia según la tarea. Por eso aquí se comparan las interfaces que se usan habitualmente delante de un servidor local, y se descartan las que solo trabajan con un proveedor remoto.</p>
+        <p>El objetivo de ZeroChat es servir de <strong>frontend único para modelos locales</strong> servidos por su propio motor especializado (vLLM, llama.cpp, LM Studio, SGLang u Ollama), cambiando de modelo según la tarea. Por ello, aquí se comparan las interfaces empleadas habitualmente delante de un servidor local, descartando aquellas orientadas exclusivamente a proveedores comerciales en la nube.</p>
       </div>
 
       <div class="card">
@@ -42,16 +42,19 @@
               <tr><th>Dimensión</th><th>ZeroChat</th><th>Open WebUI</th><th>LM Studio</th><th>Interfaz de llama.cpp</th><th>Jan</th></tr>
             </thead>
             <tbody>
-              <tr><td><strong>Despliegue</strong></td><td>Web estática + backend Python opcional de un archivo</td><td>Servidor (Docker o pip)</td><td>App de escritorio con motor propio</td><td>Incluida en <code>llama-server</code></td><td>App de escritorio con llama.cpp</td></tr>
-              <tr><td><strong>Conectar a un servidor ya en marcha</strong></td><td>Sí: OpenAI compatible u Ollama</td><td>Sí</td><td>Orientado a su propio motor</td><td>Solo a su propio servidor</td><td>Sí, como proveedor remoto</td></tr>
-              <tr><td><strong>Razonamiento separado</strong></td><td>Sí, y reenviado entre pasos del agente</td><td>Sí</td><td>Sí</td><td>Sí</td><td>No consta</td></tr>
-              <tr><td><strong>MCP</strong></td><td>stdio local gestionado y HTTP externo con OAuth</td><td>Nativo (Streamable HTTP)</td><td>Sí, local y remoto, desde 0.3.17</td><td>No consta</td><td>Sí</td></tr>
-              <tr><td><strong>Permisos de herramientas</strong></td><td>Políticas globales, reglas por directorio y por comando, firma HMAC por llamada</td><td>Por administrador</td><td>Confirmación con argumentos editables; permitir una vez o siempre</td><td>No consta</td><td>Por configuración</td></tr>
-              <tr><td><strong>Archivos y comandos del equipo</strong></td><td>Sí, con el backend local</td><td>Mediante herramientas o MCP</td><td>Mediante MCP</td><td>No consta</td><td>Mediante MCP</td></tr>
-              <tr><td><strong>Subagentes</strong></td><td>Sí, de solo lectura</td><td>No consta</td><td>No consta</td><td>No consta</td><td>No consta</td></tr>
-              <tr><td><strong>RAG</strong></td><td>Léxico en el navegador (Orama)</td><td>Vectorial</td><td>Adjuntos de documentos</td><td>No consta</td><td>Recuperación local</td></tr>
-              <tr><td><strong>Inspección de peticiones</strong></td><td>Interceptor editable antes del envío</td><td>Registros del servidor</td><td>Registros del servidor de desarrollo</td><td>Registros del servidor</td><td>Limitada</td></tr>
-              <tr><td><strong>Multiusuario</strong></td><td>No</td><td>Sí, con roles</td><td>No</td><td>No</td><td>No</td></tr>
+              <tr><td><strong>Despliegue</strong></td><td>Web estática + backend Python opcional de un archivo</td><td>Servidor (Docker o pip) con base de datos</td><td>App de escritorio con motor propio</td><td>Incluida en <code>llama-server</code></td><td>App de escritorio con llama.cpp integrado</td></tr>
+              <tr><td><strong>Conectar a un servidor ya en marcha</strong></td><td>Sí: OpenAI compatible u Ollama</td><td>Sí</td><td>Orientado a su propio motor; configurable</td><td>Solo a su propio servidor</td><td>Sí, como proveedor remoto</td></tr>
+              <tr><td><strong>Razonamiento separado y reenviado</strong></td><td>Sí, en bloque plegable y reenviado entre turnos del agente</td><td>Sí</td><td>Sí</td><td>Sí</td><td>No consta</td></tr>
+              <tr><td><strong>MCP</strong></td><td>stdio local gestionado y HTTP externo con SSE y OAuth</td><td>Nativo (Streamable HTTP)</td><td>Sí, local y remoto, desde 0.3.17</td><td>No consta</td><td>Sí</td></tr>
+              <tr><td><strong>Permisos de herramientas</strong></td><td>Políticas globales, reglas por directorio y comando, firma HMAC por llamada</td><td>Por administrador / roles</td><td>Confirmación interactiva con argumentos editables</td><td>No consta</td><td>Por configuración</td></tr>
+              <tr><td><strong>Archivos y comandos del equipo</strong></td><td>Sí, con el backend local sin contenedores</td><td>Mediante herramientas o MCP</td><td>Mediante MCP</td><td>No consta</td><td>Mediante MCP</td></tr>
+              <tr><td><strong>Documentos ofimáticos nativos</strong></td><td>Word, PowerPoint, Excel nativo y OpenDocument en chat y RAG</td><td>Mediante plugins / extensiones</td><td>Adjuntos de documentos de texto</td><td>No consta</td><td>Documentos básicos</td></tr>
+              <tr><td><strong>Visión multimodal e imágenes web</strong></td><td>Sí: visor seguro en Blob y herramienta <code>download_image</code></td><td>Sí, adjuntos de imagen</td><td>Sí, soporte de modelos de visión</td><td>Sí, con soporte multimodal activo</td><td>Sí, en modelos de visión</td></tr>
+              <tr><td><strong>Generación y visor de documentos</strong></td><td>Sí: HTML, SVG, CSV con previsualización aislada y exportación de tablas</td><td>Mediante componentes UI</td><td>Exportación de texto</td><td>No consta</td><td>No consta</td></tr>
+              <tr><td><strong>Subagentes</strong></td><td>Sí, de solo lectura (<code>delegate_task</code>)</td><td>No consta</td><td>No consta</td><td>No consta</td><td>No consta</td></tr>
+              <tr><td><strong>RAG</strong></td><td>Léxico en el navegador (Orama en IndexedDB)</td><td>Vectorial con base de datos</td><td>Adjuntos de documentos</td><td>No consta</td><td>Recuperación local</td></tr>
+              <tr><td><strong>Inspección y edición de peticiones</strong></td><td>Interceptor editable antes de cada envío</td><td>Registros del servidor</td><td>Registros de desarrollo</td><td>Registros de consola</td><td>Limitada</td></tr>
+              <tr><td><strong>Multiusuario</strong></td><td>No (privacidad monousuario)</td><td>Sí, con roles y autenticación</td><td>No</td><td>No</td><td>No</td></tr>
             </tbody>
           </table>
         </div>
@@ -61,53 +64,54 @@
         <h2>3. Análisis</h2>
         <div class="subsection">
           <h3>Frente a la interfaz de llama.cpp</h3>
-          <p>Es la opción mínima: viene con el servidor y no hay nada más que instalar. Sirve para conversar y probar el modelo, pero la documentación consultada no menciona MCP ni acceso al equipo. ZeroChat añade agente, herramientas locales, permisos, modo proyecto y depuración sobre el mismo endpoint.</p>
+          <p>Es la opción mínima y ligera: viene integrada en el servidor y no requiere instalar nada adicional. Resulta idónea para pruebas rápidas de inferencia, pero carece de agente sin fin, ejecución de comandos, políticas granulares de permisos, ingesta ofimática y gestión de MCP. ZeroChat añade todo el entorno de trabajo agéntico y de depuración manteniendo la conexión sobre el mismo endpoint.</p>
         </div>
         <div class="subsection">
           <h3>Frente a LM Studio</h3>
-          <p>LM Studio une motor e interfaz y, desde la versión 0.3.17, actúa como cliente MCP con confirmación de cada llamada y argumentos editables. Es la alternativa más cercana para un solo usuario. ZeroChat no ejecuta el modelo: se sitúa delante de cualquier servidor (vLLM, SGLang, llama.cpp) y añade reglas de permisos por directorio y comando, subagentes y el interceptor de peticiones.</p>
+          <p>LM Studio unifica motor e interfaz gráfica y admite clientes MCP con confirmación interactiva. Es una alternativa robusta de escritorio para un solo usuario. ZeroChat desacopla totalmente el motor: se coloca delante de cualquier backend (vLLM de alto rendimiento en GPU dedicada, llama.cpp en CPU/Metal o LM Studio en modo servidor), incorporando reglas estrictas de seguridad por directorio y comando, visor seguro de documentos ofimáticos, subagentes e inspección editable de payloads.</p>
         </div>
         <div class="subsection">
           <h3>Frente a Open WebUI</h3>
-          <p>Es un servidor con base de datos pensado para varios usuarios, con RAG vectorial y MCP nativo. Gana en administración, roles y búsqueda semántica. ZeroChat no necesita servidor propio para chatear, arranca sin Docker y funciona en Android con Termux, aunque allí sin automatización de navegador.</p>
+          <p>Open WebUI es una suite cliente-servidor completa con base de datos, pensada para equipos y despliegues multiusuario con RAG semántico vectorial. Sobresale en administración y control de acceso colectivo. ZeroChat adopta una filosofía radicalmente distinta: funciona como una aplicación estática sin base de datos en servidor, arranca sin Docker, garantiza la privacidad de datos en el propio navegador y opera incluso en dispositivos móviles mediante Termux.</p>
         </div>
         <div class="subsection">
           <h3>Frente a Jan</h3>
-          <p>Aplicación de escritorio que ejecuta modelos GGUF con llama.cpp y admite MCP. Interesa si se quiere que la misma aplicación cargue el modelo. Para un modelo de 27B servido con vLLM o SGLang, aporta menos que un cliente que se limita a hablar con el endpoint.</p>
+          <p>Aplicación de escritorio centrada en ejecutar modelos GGUF localmente con interfaz gráfica amigable. Para desarrolladores que ya sirven modelos optimizados de 27B o 70B mediante vLLM o servidores dedicados en red local, ZeroChat ofrece mayor flexibilidad de conexión, transparencia en las peticiones y herramientas técnicas integradas.</p>
         </div>
       </div>
 
       <div class="card">
         <h2>4. Diferenciadores de ZeroChat para este uso</h2>
         <ul>
-          <li><strong>Independencia del motor:</strong> el mismo frontend sirve para vLLM, SGLang, llama.cpp, LM Studio u Ollama.</li>
-          <li><strong>Razonamiento reenviado entre pasos</strong> del agente cuando el servidor lo separa en su campo.</li>
-          <li><strong><code>&lt;tool_call&gt;</code> en texto</strong> como respaldo cuando el servidor no analiza las llamadas.</li>
-          <li><strong>Permisos con reglas de directorio y comando</strong> y firma de un solo uso en cada llamada al backend.</li>
-          <li><strong>Interceptor editable</strong> para ver exactamente qué recibe el modelo local.</li>
+          <li><strong>Independencia total del motor:</strong> un único cliente para vLLM, llama.cpp, LM Studio, SGLang u Ollama.</li>
+          <li><strong>Razonamiento preservado entre pasos:</strong> el agente no pierde el hilo de planificación tras ejecutar llamadas intermedias a herramientas.</li>
+          <li><strong>Soporte ofimático nativo y ligero:</strong> lectura de DOCX, PPTX, XLSX nativo y ODS directamente convertidos a Markdown sin dependencias pesadas de servidor.</li>
+          <li><strong>Ingesta multimodal de red:</strong> la herramienta <code>download_image</code> permite a modelos de visión inspeccionar imágenes de cualquier página web de forma segura.</li>
+          <li><strong>Seguridad de ejecución con firma HMAC:</strong> cada comando y llamada al backend requiere autorización contextual con nonce y comprobación de traversal.</li>
+          <li><strong>Interceptor interactivo editable:</strong> permite examinar y alterar el JSON exacto que se enviará al modelo local antes de realizar la petición HTTP.</li>
         </ul>
-        <p>Y sus desventajas: sin RAG semántico, sin multiusuario y con la carga de mantener el proyecto quien lo usa.</p>
+        <p>Y sus contrapartidas asumidas: sin RAG vectorial semántico, monousuario y dependiente de la exportación manual de datos si se limpia el navegador.</p>
       </div>
 
       <div class="card">
         <h2>5. Cuándo elegir cada uno</h2>
         <ul>
-          <li><strong>ZeroChat:</strong> un solo usuario, modelo servido aparte, agente con acceso controlado al equipo y necesidad de ver cada petición.</li>
-          <li><strong>LM Studio:</strong> una sola aplicación que cargue el modelo y ofrezca MCP con confirmación.</li>
-          <li><strong>Interfaz de llama.cpp:</strong> probar el modelo sin instalar nada más.</li>
-          <li><strong>Open WebUI:</strong> varios usuarios, roles o RAG vectorial.</li>
-          <li><strong>Jan:</strong> aplicación de escritorio que ejecute GGUF localmente.</li>
+          <li><strong>ZeroChat:</strong> un usuario individual que requiere un agente potente para pair programming o tareas técnicas sobre un modelo local servido aparte, con acceso controlado al equipo y máxima transparencia en las peticiones.</li>
+          <li><strong>LM Studio:</strong> cuando se prefiere una aplicación gráfica todo-en-uno que descargue, ejecute y sirva el modelo con interfaz visual integrada.</li>
+          <li><strong>Interfaz de llama.cpp:</strong> comprobaciones instantáneas de conectividad y rendimiento sin configuración adicional.</li>
+          <li><strong>Open WebUI:</strong> despliegues para varios usuarios, gestión de permisos empresariales o necesidad estricta de RAG vectorial centralizado.</li>
+          <li><strong>Jan:</strong> aplicación de escritorio sencilla para uso personal de modelos GGUF.</li>
         </ul>
-        <p>Conclusión: MCP ya no distingue a nadie. Lo que justifica ZeroChat para el objetivo actual es la independencia del motor, las reglas de permisos y la transparencia de la petición.</p>
+        <p>Conclusión: con el protocolo MCP ampliamente extendido, lo que distingue a ZeroChat 9.2.3 es su capacidad de actuar como terminal agéntico integral sobre cualquier servidor local: seguro, multimodal, documentalmente autosuficiente y transparente.</p>
       </div>
 
       <div class="card">
         <h2>6. Fuentes</h2>
         <ul>
-          <li><a href="https://docs.openwebui.com/features/mcp" rel="noopener">Open WebUI: MCP</a> (4/10/2026)</li>
-          <li><a href="https://docs.openwebui.com/alternatives/llama-cpp/" rel="noopener">Open WebUI: llama.cpp</a> (12/10/2026)</li>
-          <li><a href="https://lmstudio.ai/blog/mcp" rel="noopener">LM Studio: MCP</a> y <a href="https://lmstudio.ai/changelog/lmstudio-v0.3.17" rel="noopener">notas de la 0.3.17</a> (12/10/2026)</li>
-          <li><a href="https://jan.ai/changelog/2025-07-31-llamacpp-tutorials" rel="noopener">Jan: migración a llama.cpp</a> (4/10/2026)</li>
+          <li><a href="https://docs.openwebui.com/features/mcp" rel="noopener">Open WebUI: MCP</a> (consultado en octubre de 2026)</li>
+          <li><a href="https://docs.openwebui.com/alternatives/llama-cpp/" rel="noopener">Open WebUI: llama.cpp integration</a> (consultado en octubre de 2026)</li>
+          <li><a href="https://lmstudio.ai/blog/mcp" rel="noopener">LM Studio: MCP documentation</a> y notas de versión (consultado en octubre de 2026)</li>
+          <li><a href="https://jan.ai/changelog" rel="noopener">Jan: changelog y motor llama.cpp</a> (consultado en octubre de 2026)</li>
         </ul>
       </div>
 
@@ -115,7 +119,7 @@
         <h2>Autoría</h2>
         <div class="alert alert-info">
           <ul>
-            <li><strong>Revisión y redacción:</strong> Claude Opus 5.5 (<code>claude-opus-5-5</code>) en Claude Code, a partir de instrucciones del responsable del proyecto, sin redacción humana del contenido.</li>
+            <li><strong>Revisión y redacción:</strong> Antigravity (Gemini 3.8 Flash), a partir de las fuentes oficiales fechadas y el código de ZeroChat en el commit <code>924aef6</code>.</li>
           </ul>
         </div>
       </div>
@@ -133,7 +137,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat 9.x · Revisión 3 (Comparativa) · 12 de octubre de 2026</p>
+      <p>ZeroChat 9.x · Revisión 3 (Comparativa) · 16 de octubre de 2026</p>
     </footer>
   </div>
 </body>
