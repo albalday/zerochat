@@ -6,12 +6,14 @@ on:
     paths-ignore:
       - 'help/**'
       - 'docs/**'
+      - '.zerochat/**'
       - '*.md'
   push:
     branches: [dev, master]
     paths-ignore:
       - 'help/**'
       - 'docs/**'
+      - '.zerochat/**'
       - '*.md'
 
 jobs:
