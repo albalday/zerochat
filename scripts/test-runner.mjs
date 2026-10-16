@@ -35,7 +35,7 @@ export const GROUPS = {
     'tests/browser/browser_composer.test.js'
   ],
   generation: [
-    'tests/unit/test_generation_controller.js',
+    'tests/integration/test_generation_controller.js',
     'tests/unit/test_ui_generation_status.js',
     'tests/integration/test_chat_engine.js',
     'tests/integration/test_agent_runtime.js',
@@ -64,9 +64,9 @@ export const GROUPS = {
     'tests/browser/browser_documents.test.js'
   ],
   providers: [
-    'tests/integration/test_completed_model_queries.js',
-    'tests/integration/test_providers.js',
+    'tests/unit/test_api_utils.js',
     'tests/unit/test_text_tool_calls.js',
+    'tests/integration/test_providers.js',
     'tests/integration/test_webllm.js',
     'tests/browser/browser_webllm.test.js'
   ],

@@ -35,10 +35,17 @@ test('Test Runner - rechaza niveles o grupos desconocidos con error descriptivo'
 test('Test Runner - define grupos funcionales requeridos por tests/README.md', async () => {
   const runner = await import('../../scripts/test-runner.mjs');
 
-  const expectedGroups = ['turns', 'composer', 'generation', 'profiles', 'mcp', 'rag', 'providers', 'bundle'];
+  const fs = require('node:fs');
+  const expectedGroups = ['turns', 'composer', 'generation', 'profiles', 'mcp', 'rag', 'providers', 'project', 'bundle'];
   for (const grp of expectedGroups) {
     assert.ok(runner.GROUPS[grp], `El grupo ${grp} debe estar definido`);
     assert.ok(Array.isArray(runner.GROUPS[grp]), `El grupo ${grp} debe ser un array de archivos`);
+  }
+
+  for (const [groupName, files] of Object.entries(runner.GROUPS)) {
+    for (const file of files) {
+      assert.ok(fs.existsSync(path.resolve(__dirname, '../..', file)), `El archivo ${file} del grupo ${groupName} debe existir en disco`);
+    }
   }
 });
 

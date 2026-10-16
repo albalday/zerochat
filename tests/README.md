@@ -102,7 +102,7 @@ Los cambios en el runner requieren actualizar esta guía solo si cambian sus com
 1. Selecciona el nivel adecuado según la sección 1.
 2. Crea el archivo con el patrón `test_<área>.js` o `<área>.test.js` dentro del nivel elegido.
 3. Aísla efectos compartidos en `beforeEach` y `afterEach`; restaura mocks, temporizadores y estado global al terminar cada caso.
-4. Para pruebas de navegador, usa los helpers de `tests/helpers/` y garantiza el cierre de páginas y contextos en `finally`. Espera a la aplicación con `waitForAppReady(page)` (no solo a `zerochat-ready`, que se marca antes de cargar la sesión) y nunca con esperas fijas.
+4. Para pruebas de navegador, usa los helpers de `tests/helpers/browser-env.js` (como `withTestApp`, que gestiona contexto, arranque y cierre automático) y garantiza el cierre de páginas y contextos en `finally`. Espera a la aplicación con `waitForAppReady(page)` (no solo a `zerochat-ready`, que se marca antes de cargar la sesión) y nunca con esperas fijas.
 5. Para pruebas que arrancan `zerochat.py`, usa `tests/helpers/backend-env.js`: `freePort()` para el puerto, `tokenDataDir()` para el token y `waitForServer()` para el arranque.
 6. Para límites o topes (filas, tamaño, elementos, tiempo), incluye una prueba justo en el borde (`N` y `N+1`) y comprueba el aviso o marcador de truncado. Importa las listas de formatos, constantes o convenciones desde el módulo o manifiesto de origen en lugar de reimplementarlas en el test.
 7. Añade la suite a un grupo funcional solo cuando forme parte de su flujo representativo.
