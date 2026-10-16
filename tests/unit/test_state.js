@@ -254,6 +254,14 @@ test('ChatState - Mutador removeTurn elimina turno y sanea tool calls huérfanos
   assert.equal(remaining.length, 2);
   assert.equal(remaining[0].id, 'u1');
   assert.equal(remaining[1].id, 'u2');
+
+  // Bloquea borrado durante inferencia activa
+  store.set('streaming', { isGenerating: true });
+  const busyResult = store.removeTurn({ baseId: 'u2' });
+  assert.equal(busyResult.ok, false);
+  assert.equal(busyResult.reason, 'generation-active');
+  assert.equal(store.get('messages').length, 2);
+  store.set('streaming', { isGenerating: false });
 });
 
 test('ChatState - Mutadores de sesiones: saveSessionMetadata y removeSession', () => {

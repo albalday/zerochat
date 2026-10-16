@@ -21,7 +21,6 @@ export const VALID_LEVELS = [
 export const GROUPS = {
   turns: [
     'tests/unit/test_message_turns.js',
-    'tests/integration/test_turn_facades.js',
     'tests/integration/test_chat_engine.js',
     'tests/unit/test_state.js',
     'tests/integration/test_conversation_service.js'
@@ -46,8 +45,7 @@ export const GROUPS = {
   ],
   profiles: [
     'tests/unit/test_ui_profiles.js',
-    'tests/integration/test_profile_repository.js',
-    'tests/integration/test_profile_backup.js',
+    'tests/integration/test_profiles.js',
     'tests/browser/browser_profiles_settings.test.js'
   ],
   mcp: [

@@ -125,3 +125,20 @@ test('UISidebar - navega entre las conversaciones y las secciones de ajustes', t
   elements.btnDeleteAllChats.click();
   assert.deepEqual(calls.slice(-3), [['new'], ['search', 'abc'], ['deleteAll']]);
 });
+
+test('UIShell - ajusta --app-height al montar y avisa de cada cambio de viewport', t => {
+  const UIShell = require('../../js/ui-shell.js');
+  const dom = installDom({ app: true });
+  t.after(() => dom.restore());
+  let changes = 0;
+  UIShell.mount({ elements: { userInput: document.getElementById('user-input') }, onViewportChange: () => { changes++; }, onDismissProfiles() {} });
+
+  assert.equal(document.documentElement.style.getPropertyValue('--app-height'), `${window.innerHeight}px`);
+  window.dispatchEvent(new Event('resize'));
+  assert.equal(changes, 1);
+
+  // Montar de nuevo sustituye los oyentes anteriores en lugar de duplicarlos.
+  UIShell.mount({ elements: { userInput: document.getElementById('user-input') }, onViewportChange: () => { changes++; }, onDismissProfiles() {} });
+  window.dispatchEvent(new Event('resize'));
+  assert.equal(changes, 2);
+});

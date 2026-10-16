@@ -14,7 +14,7 @@ Done when: to be agreed with the user before the milestone starts.
 Goal: Optimize and restructure the ZeroChat test suite across non-browser and browser levels to eliminate execution bottlenecks and group tests by functional domains.
 Done when: Non-browser bottlenecks are resolved (execution drop of >75%), non-browser suites are consolidated by functional domain with redundant tests removed, browser suites are modularized with shared fixtures, and all suites pass.
 - [x] M5-T1 Eliminate non-browser execution bottlenecks (timers, sleep intervals, polling) (2026-10-16)
-- [ ] M5-T2 Consolidate non-browser test suites by domain and discard redundant tests
+- [x] M5-T2 Consolidate non-browser test suites by domain and discard redundant tests (2026-10-16)
 - [ ] M5-T3 Audit and modularize browser test suites extracting shared fixtures
 - [ ] M5-T4 Update test runner groups, architecture contracts and documentation
 
