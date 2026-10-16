@@ -19,12 +19,7 @@ Done when: Large browser test suites are split by subdomains, common test setup 
 
 ## M6 Investigation and rendering of LaTeX/math notation in chat responses: closed 2026-10-15
 
-## M7 Temporary tests and scratchpad execution in /tmp
-Goal: Allow running temporary tests and scratch scripts without leaving orphan files in the project workspace, supporting execution in /tmp like Claude Code.
-Done when: The approach for temporary tests (governance in AGENTS.md vs. code/security support in ChatToolSecurity and workspace_trust for /tmp) is defined and implemented with tests and updated documentation.
-- [ ] M7-T1 Define the temporary test policy (/tmp vs. workspace scratchpad) and update AGENTS.md rules
-- [ ] M7-T2 Support /tmp in ChatToolSecurity workspace_trust and command/file path handling
-- [ ] M7-T3 Update agent tool instructions and prompts for temporary script execution and cleanup
+## M7 Temporary tests and scratchpad execution in /tmp: closed 2026-10-16
 
 ## M8 Project memory automation and acceleration: closed 2026-10-15
 

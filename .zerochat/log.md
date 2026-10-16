@@ -49,3 +49,4 @@
 - 2026-10-16 M4-D15 Rename download_pdf tool to download_doc (keeping download_pdf in aliases for model calls) across tool definition, cards, settings, i18n, tests and /help; move legacy .doc/.xls reading to M15 and local model RAG/web image rendering (which also depends on reasoningEffort) to M16, closing M4 (M4-T15)
 - 2026-10-16 M12-D1 Milestone M12 (pdf.js) dropped by the user: the own PDF parser in file-parser.js stays and pdf.js is not vendored (M12-T1)
 - 2026-10-16 M17-D1 ChatOfficeParser parses xlsx OOXML natively via ZIP package (fflate) and walkXml, handling shared strings, inline text, booleans, error codes, dates and sheet drawings/images, removing exceljs and its 924 KiB vendor bundle (M17-T1)
+- 2026-10-16 M7-D1 Milestone M7 closed without changes: no explicit temporary-directory work is needed now; the empty untracked scratch/ folder is removed and the Playwright scripts milestone (M3) will define its own temporary-file rules (M7-T1)
