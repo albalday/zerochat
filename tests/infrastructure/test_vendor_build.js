@@ -29,7 +29,7 @@ test('build:vendor reproduce exactamente los bundles, las licencias y los avisos
   }
 });
 
-test('build:vendor incluye el texto de licencia de cada paquete empaquetado, también los de distribuciones precompiladas', () => {
+test('build:vendor incluye el texto de licencia de cada paquete empaquetado', () => {
   const notices = fs.readFileSync(path.join(root, 'THIRD_PARTY_NOTICES.md'), 'utf8');
   const linked = [...notices.matchAll(/\]\((licenses\/[^)]+)\)/g)].map(match => match[1]);
   for (const file of linked) {

@@ -182,47 +182,128 @@ test('odt con saltos de página genera marcadores de página limpios sin saltos 
   assert.equal(text, '--- Page 1 ---\nPágina uno\n\n--- Page 2 ---\nPágina dos');
 });
 
-test('xlsx nativo con celdas booleanas, errores, texto inline, columnas dispersas y hojas ocultas', async () => {
+const SHEET_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet';
+const IMAGE_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image';
+const DRAWING_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing';
+const CHARTSHEET_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/chartsheet';
+
+const relationshipsXml = items => `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${items.map(([id, type, target, mode]) => (
+  `<Relationship Id="${id}" Type="${type}" Target="${target}"${mode ? ` TargetMode="${mode}"` : ''}/>`)).join('')}</Relationships>`;
+
+const sheetXml = rows => `<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rows}</sheetData></worksheet>`;
+
+/** Libro xlsx mínimo: `sheets` = [{ name, state, rel, xml }], `extra` = partes adicionales del paquete. */
+function buildXlsx({ sheets, workbookPr = '', extra = {} }) {
   const fflate = require('fflate');
-  const workbookXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheets>
-    <sheet name="Resumen" sheetId="1" state="visible" r:id="rId1"/>
-    <sheet name="Oculta" sheetId="2" state="hidden" r:id="rId2"/>
-  </sheets>
-</workbook>`;
-  const workbookRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
-</Relationships>`;
-  const sheet1Xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <sheetData>
-    <row r="1">
-      <c r="A1" t="b"><v>1</v></c>
-      <c r="C1" t="inlineStr"><is><t>Texto directo</t></is></c>
-      <c r="D1" t="e"><v>#N/A</v></c>
-    </row>
-  </sheetData>
-</worksheet>`;
-  const sheet2Xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <sheetData>
-    <row r="1">
-      <c r="A1" t="str"><v>Dato oculto</v></c>
-    </row>
-  </sheetData>
-</worksheet>`;
-  const zip = fflate.zipSync({
-    'xl/workbook.xml': Buffer.from(workbookXml),
-    'xl/_rels/workbook.xml.rels': Buffer.from(workbookRels),
-    'xl/worksheets/sheet1.xml': Buffer.from(sheet1Xml),
-    'xl/worksheets/sheet2.xml': Buffer.from(sheet2Xml)
+  const files = {
+    'xl/workbook.xml': `<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${workbookPr}<sheets>${sheets.map((sheet, i) => (
+  `<sheet name="${sheet.name}" sheetId="${i + 1}"${sheet.state ? ` state="${sheet.state}"` : ''} r:id="rId${i + 1}"/>`)).join('')}</sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels': relationshipsXml(sheets.map((sheet, i) => [`rId${i + 1}`, sheet.rel || SHEET_REL, `worksheets/sheet${i + 1}.xml`])),
+    ...Object.fromEntries(sheets.map((sheet, i) => [`xl/worksheets/sheet${i + 1}.xml`, sheet.xml])),
+    ...extra
+  };
+  return fflate.zipSync(Object.fromEntries(Object.entries(files).map(([name, content]) => [name, typeof content === 'string' ? Buffer.from(content) : content]))).buffer;
+}
+
+const parseXlsx = async options => (await OfficeParser.parseOfficeDocument(buildXlsx(options), 'datos.xlsx')).text;
+
+const columnLetters = index => (index >= 26 ? columnLetters(Math.floor(index / 26) - 1) : '') + String.fromCharCode(65 + (index % 26));
+
+const numberRows = (count, columns = 1) => Array.from({ length: count }, (_, r) => (
+  `<row r="${r + 1}">${Array.from({ length: columns }, (_, c) => `<c r="${columnLetters(c)}${r + 1}"><v>${r}</v></c>`).join('')}</row>`)).join('');
+
+test('xlsx nativo con celdas booleanas, errores, texto inline, columnas dispersas y hojas ocultas', async () => {
+  const text = await parseXlsx({
+    sheets: [
+      {
+        name: 'Resumen',
+        state: 'visible',
+        xml: sheetXml('<row r="1"><c r="A1" t="b"><v>1</v></c><c r="C1" t="inlineStr"><is><t>Texto directo</t></is></c><c r="D1" t="e"><v>#N/A</v></c></row>')
+      },
+      { name: 'Oculta', state: 'hidden', xml: sheetXml('<row r="1"><c r="A1" t="str"><v>Dato oculto</v></c></row>') }
+    ]
   });
-  const { text } = await OfficeParser.parseOfficeDocument(zip.buffer, 'tipos.xlsx');
   assert.match(text, /## Sheet: Resumen\n\n\| TRUE \|  \| Texto directo \| #N\/A \|/);
   assert.match(text, /## Sheet: Oculta \(hidden\)\n\n\| Dato oculto \|/);
 });
 
+test('xlsx sin xl/workbook.xml se trata como archivo dañado', async () => {
+  const fflate = require('fflate');
+  const zip = fflate.zipSync({ 'dummy.txt': Buffer.from('nada') });
+  await assert.rejects(
+    OfficeParser.parseOfficeDocument(zip.buffer, 'incompleto.xlsx'),
+    /The Excel spreadsheet could not be read\. It may be damaged or password protected\./
+  );
+});
 
+test('xlsx con etiquetas con prefijo de espacio de nombres (x:row, x:c) se lee igual', async () => {
+  const text = await parseXlsx({
+    sheets: [{
+      name: 'Prefijo',
+      xml: '<x:worksheet xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><x:sheetData><x:row r="1"><x:c r="A1" t="inlineStr"><x:is><x:t>hola</x:t></x:is></x:c></x:row></x:sheetData></x:worksheet>'
+    }]
+  });
+  assert.match(text, /## Sheet: Prefijo\n\n\| hola \|/);
+});
+
+test('xlsx convierte fechas con formatos integrados y personalizados, y respeta el calendario 1904', async () => {
+  const styles = `<styleSheet><numFmts count="2"><numFmt numFmtId="164" formatCode="dd/mm/yyyy hh:mm"/><numFmt numFmtId="165" formatCode="&quot;Total&quot; 0.00 [Red]"/></numFmts>
+<cellXfs><xf numFmtId="0"/><xf numFmtId="14"/><xf numFmtId="164"/><xf numFmtId="165"/></cellXfs></styleSheet>`;
+  const cells = '<row r="1"><c r="A1" s="1"><v>45000</v></c><c r="B1" s="2"><v>45000.5</v></c><c r="C1" s="3"><v>45000</v></c><c r="D1" s="0"><v>45000</v></c></row>';
+  const base = { extra: { 'xl/styles.xml': styles } };
+  const text1900 = await parseXlsx({ ...base, sheets: [{ name: 'D', xml: sheetXml(cells) }] });
+  assert.match(text1900, /\| 2023-03-15 \| 2023-03-15T12:00:00Z \| 45000 \| 45000 \|/);
+  const text1904 = await parseXlsx({ ...base, workbookPr: '<workbookPr date1904="1"/>', sheets: [{ name: 'D', xml: sheetXml(cells) }] });
+  assert.match(text1904, /\| 2027-03-16 \| 2027-03-16T12:00:00Z \| 45000 \| 45000 \|/);
+});
+
+test('xlsx ignora las lecturas fonéticas de las cadenas compartidas y las hojas de gráfico', async () => {
+  const sharedStrings = '<sst><si><r><t>東京</t></r><rPh sb="0" eb="2"><t>トウキョウ</t></rPh></si><si><t>Dos</t></si></sst>';
+  const text = await parseXlsx({
+    extra: { 'xl/sharedStrings.xml': sharedStrings },
+    sheets: [
+      { name: 'Datos', xml: sheetXml('<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>') },
+      { name: 'Grafico', rel: CHARTSHEET_REL, xml: '<chartsheet/>' }
+    ]
+  });
+  assert.match(text, /\| 東京 \| Dos \|/);
+  assert.doesNotMatch(text, /トウキョウ|Grafico/);
+});
+
+test('xlsx en el borde del tope de filas: 500 filas completas y 501 con aviso de truncado', async () => {
+  const at500 = await parseXlsx({ sheets: [{ name: 'H', xml: sheetXml(numberRows(500)) }] });
+  assert.equal(at500.match(/^\| \d+ \|$/gm).length, 500);
+  assert.doesNotMatch(at500, /Showing the first/);
+  const at501 = await parseXlsx({ sheets: [{ name: 'H', xml: sheetXml(numberRows(501)) }] });
+  assert.equal(at501.match(/^\| \d+ \|$/gm).length, 500);
+  assert.match(at501, /\[Showing the first 500 of 501 rows\]/);
+});
+
+test('xlsx en el borde del tope de columnas: 50 se conservan y la 51 se descarta', async () => {
+  const at50 = await parseXlsx({ sheets: [{ name: 'C', xml: sheetXml(numberRows(1, 50)) }] });
+  assert.equal(at50.split('\n')[2].split('|').length - 2, 50);
+  const at51 = await parseXlsx({ sheets: [{ name: 'C', xml: sheetXml(numberRows(1, 51)) }] });
+  assert.equal(at51.split('\n')[2].split('|').length - 2, 50);
+});
+
+test('xlsx con imágenes de la hoja: incrustada, enlazada fuera del paquete y con relación inexistente', async () => {
+  const drawing = `<xdr:wsDr xmlns:xdr="d" xmlns:a="a" xmlns:r="r">${['rId1', 'rId2', 'rId9'].map(id => (
+    `<xdr:twoCellAnchor><xdr:pic><xdr:blipFill><a:blip r:embed="${id}"/></xdr:blipFill></xdr:pic></xdr:twoCellAnchor>`)).join('')}</xdr:wsDr>`;
+  const png = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAEklEQVR4nGP8z8Dwn4EIwDiqEAAbKgILlaNmJgAAAABJRU5ErkJggg==', 'base64'));
+  const text = await parseXlsx({
+    sheets: [{ name: 'Fotos', xml: sheetXml('<row r="1"><c r="A1" t="inlineStr"><is><t>x</t></is></c></row>').replace('</worksheet>', '<drawing r:id="rId1" xmlns:r="r"/></worksheet>') }],
+    extra: {
+      'xl/worksheets/_rels/sheet1.xml.rels': relationshipsXml([['rId1', DRAWING_REL, '../drawings/drawing1.xml']]),
+      'xl/drawings/drawing1.xml': drawing,
+      'xl/drawings/_rels/drawing1.xml.rels': relationshipsXml([['rId1', IMAGE_REL, '../media/image1.png'], ['rId2', IMAGE_REL, 'https://example.com/logo.png', 'External']]),
+      'xl/media/image1.png': png
+    }
+  });
+  assert.match(text, /!\[Image 1 \(sheet "Fotos"\)\]\(rag-image:\/\/__DOC_ID__:img_1\)/);
+  assert.match(text, /\[Image not shown: Image 2 \(sheet "Fotos"\) \(linked external image\)\]/);
+  assert.match(text, /\[Image omitted: Image 3 \(sheet "Fotos"\)\]/);
+  assert.doesNotMatch(text, /example\.com/);
+});

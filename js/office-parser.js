@@ -265,6 +265,13 @@
     return collector.add({ bytes, extension: extensionOf(path), page, label }).markdown;
   }
 
+  /** Markdown de una imagen OOXML según su relación: omitida si falta, marcador si es externa, o incrustada. */
+  function relatedImage(pkg, collector, relation, page, label) {
+    if (!relation) return omittedImage(label);
+    if (relation.external) return externalImage(label);
+    return packageImage(pkg, collector, relation.path, page, label);
+  }
+
   // --- docx -----------------------------------------------------------------
 
   function wrapInline(text, marker) {
@@ -361,6 +368,12 @@
 
   // --- xlsx -----------------------------------------------------------------
 
+  /** Como walkXml, pero con los nombres de etiqueta sin prefijo de espacio de nombres (`x:row` -> `row`). */
+  function walkLocalXml(xml, { open = () => {}, close = () => {}, text = () => {} }) {
+    const local = name => name.slice(name.indexOf(':') + 1);
+    walkXml(xml, { open: (name, attrs) => open(local(name), attrs), close: name => close(local(name)), text });
+  }
+
   function colRefToIndex(ref) {
     const match = String(ref || '').match(/^[A-Z]+/i);
     if (!match) return -1;
@@ -372,43 +385,44 @@
     return index - 1;
   }
 
-  function excelSerialToDate(serial) {
-    const ms = Math.round((serial - 25569) * 86400 * 1000);
-    const date = new Date(ms);
-    const iso = date.toISOString();
+  // Días entre la época Unix y el origen de los números de serie de Excel (1899-12-30, o 1904-01-01 si `date1904`).
+  const EXCEL_EPOCH_DAYS = 25569;
+  const EXCEL_EPOCH_DAYS_1904 = 24107;
+
+  function excelSerialToDate(serial, date1904) {
+    const iso = new Date(Math.round((serial - (date1904 ? EXCEL_EPOCH_DAYS_1904 : EXCEL_EPOCH_DAYS)) * 86400 * 1000)).toISOString();
     return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : iso.replace('.000Z', 'Z');
   }
 
   function readSharedStrings(pkg) {
-    const xml = pkg.text('xl/sharedStrings.xml');
-    if (!xml) return [];
     const strings = [];
-    let inSi = false;
     let inT = false;
+    let inPhonetic = false;
     let current = '';
-    walkXml(xml, {
+    walkLocalXml(pkg.text('xl/sharedStrings.xml'), {
       open(name) {
-        if (name === 'si') { inSi = true; current = ''; }
-        else if (name === 't' && inSi) inT = true;
+        if (name === 'si') current = '';
+        else if (name === 't') inT = true;
+        else if (name === 'rPh') inPhonetic = true;
       },
       close(name) {
-        if (name === 'si') { strings.push(current); inSi = false; }
+        if (name === 'si') strings.push(current);
         else if (name === 't') inT = false;
+        else if (name === 'rPh') inPhonetic = false;
       },
-      text(val) {
-        if (inT) current += val;
+      text(value) {
+        if (inT && !inPhonetic) current += value;
       }
     });
     return strings;
   }
 
+  /** Para cada estilo de celda (`cellXfs`), si su formato numérico es de fecha u hora. */
   function readDateStyles(pkg) {
-    const xml = pkg.text('xl/styles.xml');
-    if (!xml) return [];
     const customNumFmts = new Map();
     const cellXfDates = [];
     let inCellXfs = false;
-    walkXml(xml, {
+    walkLocalXml(pkg.text('xl/styles.xml'), {
       open(name, attrs) {
         if (name === 'cellXfs') inCellXfs = true;
         else if (name === 'numFmt') {
@@ -430,142 +444,119 @@
     return cellXfDates;
   }
 
+  /** Hojas de cálculo del libro en orden (`{ name, hidden, path }`; las hojas de gráfico se ignoran) y su sistema de fechas. */
+  function readWorkbook(pkg) {
+    const xml = pkg.text('xl/workbook.xml');
+    if (!xml) throw new Error('xl/workbook.xml is missing');
+    const relationships = readRelationships(pkg, 'xl/workbook.xml');
+    const sheets = [];
+    let date1904 = false;
+    walkLocalXml(xml, {
+      open(name, attrs) {
+        if (name === 'workbookPr') {
+          date1904 = /^(?:1|true)$/i.test(attrs.date1904 || '');
+        } else if (name === 'sheet' && attrs.name) {
+          const relation = relationships[attrs['r:id']];
+          if (relation?.type === 'worksheet' && !relation.external) {
+            sheets.push({ name: attrs.name, hidden: Boolean(attrs.state) && attrs.state !== 'visible', path: relation.path });
+          }
+        }
+      }
+    });
+    return { sheets, date1904 };
+  }
+
+  function xlsxCellValue({ type, style }, valueText, inlineText, { sharedStrings, dateStyles, date1904 }) {
+    const value = valueText.trim();
+    switch (type) {
+      case 's': return sharedStrings[parseInt(value, 10)] ?? '';
+      case 'inlineStr': return inlineText;
+      case 'b': return value === '1' ? 'TRUE' : 'FALSE';
+      case 'str': case 'e': return value;
+      default: {
+        const serial = Number(value);
+        return value && dateStyles[style] && Number.isFinite(serial) ? excelSerialToDate(serial, date1904) : value;
+      }
+    }
+  }
+
+  /** Filas con contenido de una hoja (con el tope de filas y columnas) y el rId de su dibujo, si lo tiene. */
+  function readSheetRows(xml, context) {
+    const rows = [];
+    let totalRows = 0;
+    let drawingRId = null;
+    let row = null;
+    let column = -1;
+    let cell = null;
+    let inValue = false;
+    let inText = false;
+    let inPhonetic = false;
+    let valueText = '';
+    let inlineText = '';
+    walkLocalXml(xml, {
+      open(name, attrs) {
+        if (name === 'drawing') drawingRId = attrs['r:id'] || null;
+        else if (name === 'row') { row = []; column = -1; }
+        else if (name === 'c' && row) {
+          column = attrs.r ? colRefToIndex(attrs.r) : column + 1;
+          cell = { column, type: attrs.t || 'n', style: parseInt(attrs.s || '0', 10) };
+          valueText = '';
+          inlineText = '';
+        } else if (name === 'v') inValue = true;
+        else if (name === 't') inText = true;
+        else if (name === 'rPh') inPhonetic = true;
+      },
+      close(name) {
+        if (name === 'v') inValue = false;
+        else if (name === 't') inText = false;
+        else if (name === 'rPh') inPhonetic = false;
+        else if (name === 'c' && cell) {
+          if (cell.column >= 0 && cell.column < MAX_SHEET_COLUMNS) {
+            while (row.length < cell.column) row.push('');
+            row[cell.column] = xlsxCellValue(cell, valueText, inlineText, context);
+          }
+          cell = null;
+        } else if (name === 'row' && row) {
+          if (row.some(value => value.trim() !== '')) {
+            totalRows++;
+            if (rows.length < MAX_SHEET_ROWS) rows.push(row);
+          }
+          row = null;
+        }
+      },
+      text(value) {
+        if (inValue) valueText += value;
+        else if (inText && !inPhonetic) inlineText += value;
+      }
+    });
+    return { rows, totalRows, drawingRId };
+  }
+
+  function readSheetImages(pkg, collector, sheet, drawingRId, page) {
+    const drawingPath = readRelationships(pkg, sheet.path)[drawingRId]?.path;
+    if (!drawingPath) return [];
+    const relationships = readRelationships(pkg, drawingPath);
+    const images = [];
+    walkLocalXml(pkg.text(drawingPath), {
+      open(name, attrs) {
+        if (name !== 'blip') return;
+        const label = `Image ${images.length + 1} (sheet "${sheet.name}")`;
+        images.push(relatedImage(pkg, collector, relationships[attrs['r:embed'] || attrs['r:link']], page, label));
+      }
+    });
+    return images;
+  }
+
   async function parseXlsx(arrayBuffer) {
     const pkg = await openPackage(arrayBuffer);
-    const workbookXml = pkg.text('xl/workbook.xml');
-    if (!workbookXml) throw new Error('xl/workbook.xml is missing');
-
-    const wbRels = readRelationships(pkg, 'xl/workbook.xml');
-    const sheets = [];
-    walkXml(workbookXml, {
-      open(name, attrs) {
-        if (name === 'sheet' && attrs.name) {
-          const rId = attrs['r:id'];
-          const path = wbRels[rId]?.path;
-          if (path) {
-            sheets.push({
-              name: attrs.state && attrs.state !== 'visible' ? `${attrs.name} (hidden)` : attrs.name,
-              rawName: attrs.name,
-              path
-            });
-          }
-        }
-      }
-    });
-
-    const sharedStrings = readSharedStrings(pkg);
-    const dateStyles = readDateStyles(pkg);
+    const { sheets, date1904 } = readWorkbook(pkg);
+    const context = { sharedStrings: readSharedStrings(pkg), dateStyles: readDateStyles(pkg), date1904 };
     const collector = createImageCollector();
-
-    const sections = sheets.map((sheet, sheetIndex) => {
-      const sheetXml = pkg.text(sheet.path);
-      const rows = [];
-      let totalRows = 0;
-      let currentRow = null;
-      let currentCol = -1;
-      let currentCell = null;
-      let inV = false;
-      let inT = false;
-      let vText = '';
-      let tText = '';
-      let drawingRId = null;
-
-      walkXml(sheetXml, {
-        open(name, attrs) {
-          if (name === 'drawing' && attrs['r:id']) {
-            drawingRId = attrs['r:id'];
-          } else if (name === 'row') {
-            currentRow = [];
-            currentCol = -1;
-          } else if (name === 'c' && currentRow) {
-            const colIndex = attrs.r ? colRefToIndex(attrs.r) : currentCol + 1;
-            currentCol = colIndex;
-            currentCell = {
-              col: colIndex,
-              type: attrs.t || 'n',
-              style: attrs.s ? parseInt(attrs.s, 10) : 0
-            };
-            vText = '';
-            tText = '';
-          } else if (name === 'v') {
-            inV = true;
-          } else if (name === 't') {
-            inT = true;
-          }
-        },
-        close(name) {
-          if (name === 'v') {
-            inV = false;
-          } else if (name === 't') {
-            inT = false;
-          } else if (name === 'c' && currentRow && currentCell) {
-            if (currentCell.col >= 0 && currentCell.col < MAX_SHEET_COLUMNS) {
-              let val = '';
-              const t = currentCell.type;
-              if (t === 's') {
-                const idx = parseInt(vText.trim(), 10);
-                val = sharedStrings[idx] ?? '';
-              } else if (t === 'inlineStr') {
-                val = tText;
-              } else if (t === 'b') {
-                val = vText.trim() === '1' ? 'TRUE' : 'FALSE';
-              } else if (t === 'str' || t === 'e') {
-                val = vText.trim();
-              } else {
-                const trimmed = vText.trim();
-                if (trimmed === '') val = '';
-                else if (dateStyles[currentCell.style]) {
-                  const num = Number(trimmed);
-                  val = Number.isFinite(num) ? excelSerialToDate(num) : trimmed;
-                } else {
-                  val = trimmed;
-                }
-              }
-              while (currentRow.length < currentCell.col) currentRow.push('');
-              currentRow[currentCell.col] = val;
-            }
-            currentCell = null;
-          } else if (name === 'row' && currentRow) {
-            const hasContent = currentRow.some(c => String(c ?? '').trim() !== '');
-            if (hasContent) {
-              totalRows++;
-              if (rows.length < MAX_SHEET_ROWS) rows.push(currentRow);
-            }
-            currentRow = null;
-          }
-        },
-        text(val) {
-          if (inV) vText += val;
-          else if (inT) tText += val;
-        }
-      });
-
-      const imageRefs = [];
-      if (drawingRId) {
-        const sheetRels = readRelationships(pkg, sheet.path);
-        const drawingPath = sheetRels[drawingRId]?.path;
-        if (drawingPath) {
-          const drawingRels = readRelationships(pkg, drawingPath);
-          const drawingXml = pkg.text(drawingPath);
-          let imgCount = 0;
-          walkXml(drawingXml, {
-            open(name, attrs) {
-              if ((name === 'a:blip' || name === 'xdr:blip') && (attrs['r:embed'] || attrs['r:link'])) {
-                imgCount++;
-                const label = `Image ${imgCount} (sheet "${sheet.rawName}")`;
-                const rel = drawingRels[attrs['r:embed'] || attrs['r:link']];
-                if (!rel) imageRefs.push(omittedImage(label));
-                else if (rel.external) imageRefs.push(externalImage(label));
-                else imageRefs.push(packageImage(pkg, collector, rel.path, sheetIndex + 1, label));
-              }
-            }
-          });
-        }
-      }
-
-      return sheetSection(sheet.name, rows, totalRows, imageRefs);
+    const sections = sheets.map((sheet, index) => {
+      const { rows, totalRows, drawingRId } = readSheetRows(pkg.text(sheet.path), context);
+      const images = drawingRId ? readSheetImages(pkg, collector, sheet, drawingRId, index + 1) : [];
+      return sheetSection(sheet.hidden ? `${sheet.name} (hidden)` : sheet.name, rows, totalRows, images);
     });
-
     return { text: joinBlocks(sections), images: collector.images };
   }
 
@@ -607,10 +598,7 @@
         else if (name === 'a:blip' && images) {
           imageCount++;
           const label = `Image ${imageCount} (slide ${slideNumber})`;
-          const relation = relationships[attrs['r:embed'] || attrs['r:link']];
-          blocks.push(!relation ? omittedImage(label)
-            : relation.external ? externalImage(label)
-              : packageImage(pkg, collector, relation.path, slideNumber, label));
+          blocks.push(relatedImage(pkg, collector, relationships[attrs['r:embed'] || attrs['r:link']], slideNumber, label));
         }
       },
       close(name) {
