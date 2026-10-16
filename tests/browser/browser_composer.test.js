@@ -479,7 +479,7 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
 
       // No se actualiza: el tiempo queda como estaba.
       const timeBefore = shown.items[1][1];
-      await page.waitForTimeout(1500);
+      await page.waitForTimeout(400);
       assert.equal(await notice.locator('li').nth(1).locator('.command-jobs-time').textContent(), timeBefore);
 
       // Desplegado, el enlace abre el grupo, despliega la tarjeta y la resalta.

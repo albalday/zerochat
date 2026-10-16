@@ -1094,7 +1094,15 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
       window.__commandCard.querySelector('.tool-execution-card').classList.add('collapsed');
       const before = window.__jobCalls.length;
       const badgeBefore = window.__commandCard.querySelector('.tool-card-badge').textContent;
-      await new Promise(resolve => setTimeout(resolve, 2500));
+      await new Promise(resolve => {
+        const check = setInterval(() => {
+          if (window.__commandCard.querySelector('.tool-card-badge').textContent !== badgeBefore) {
+            clearInterval(check);
+            resolve();
+          }
+        }, 50);
+        setTimeout(() => { clearInterval(check); resolve(); }, 1200);
+      });
       return { calls: window.__jobCalls.slice(before).map(call => call.method), clockMoved: window.__commandCard.querySelector('.tool-card-badge').textContent !== badgeBefore };
     });
     assert.deepEqual(collapsed, { calls: [], clockMoved: true });
@@ -1114,7 +1122,7 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
     assert.deepEqual(stopped, { stopHidden: true, archived: true, status: 'success' });
     assert.ok((await page.evaluate(() => window.__jobCalls)).some(call => call.method === 'zerochat/jobs/stop' && call.params.id === 7));
     const callsAfterStop = await page.evaluate(() => window.__jobCalls.length);
-    await page.waitForTimeout(1300);
+    await page.waitForTimeout(300);
     assert.equal(await page.evaluate(() => window.__jobCalls.length), callsAfterStop, 'Un comando terminado deja de consultarse');
 
     // Un comando esperado: se sigue por la clave de la invocación hasta que llega el resultado.
@@ -1125,7 +1133,15 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
       const card = window.ChatToolCards.createLiveToolCard('run_command', args);
       card.dataset.invocationId = job.key;
       window.ChatToolCards.appendToolCard(document.getElementById('command-card-test'), card);
-      await new Promise(resolve => setTimeout(resolve, 1300));
+      await new Promise(resolve => {
+        const check = setInterval(() => {
+          if (window.__jobCalls.some(call => call.params.key === 'inv-tarjeta-2')) {
+            clearInterval(check);
+            resolve();
+          }
+        }, 50);
+        setTimeout(() => { clearInterval(check); resolve(); }, 1200);
+      });
       const during = {
         badge: card.querySelector('.tool-card-badge').textContent.trim(),
         stop: !card.querySelector('[data-command-action="stop"]').hidden,

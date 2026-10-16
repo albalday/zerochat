@@ -1,6 +1,6 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { createTestBrowser, closeGlobalBrowser, getIndexUrl, waitForAppReady, openSavedSession } = require('../helpers/browser-env.js');
+const { createTestBrowser, withTestApp, closeGlobalBrowser, getIndexUrl, waitForAppReady, openSavedSession } = require('../helpers/browser-env.js');
 
 describe('Browser UI - sidebar', { concurrency: 2 }, () => {
   after(async () => {
@@ -38,11 +38,7 @@ test('Browser UI - el sidebar es panel en escritorio y drawer cerrado en móvil'
 });
 
 test('Browser UI - el menú contextual de un chat es táctil y no activa la conversación', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage({ viewport: { width: 390, height: 800 }, isMobile: true });
-    await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await waitForAppReady(page);
+  await withTestApp({ viewport: { width: 390, height: 800 }, isMobile: true }, async page => {
     await page.click('#btn-toggle-sidebar');
     await page.waitForFunction(() => !document.getElementById('chat-sidebar').classList.contains('sidebar-hidden'));
     const activeSessionId = await page.evaluate(() => {
@@ -70,18 +66,11 @@ test('Browser UI - el menú contextual de un chat es táctil y no activa la conv
     assert.equal(actionResult.currentId, activeSessionId);
     assert.equal(actionResult.menuOpen, false);
     await page.click('#notice-cancel');
-  } finally {
-    await browser.close();
-  }
+  });
 });
 
 test('Browser UI - borrar la conversación activa carga la siguiente y limpia su historial visible', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage();
-    await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await waitForAppReady(page);
-
+  await withTestApp(async page => {
     const activeId = 'test_session_active';
     const nextId = 'test_session_next';
     await page.evaluate(async ({ activeId, nextId }) => {
@@ -111,8 +100,6 @@ test('Browser UI - borrar la conversación activa carga la siguiente y limpia su
     assert.equal(result.deletedConversation, null, 'La conversación eliminada no debe permanecer en IndexedDB');
     assert.match(result.visibleText, /Conversación que debe mostrarse/, 'La vista debe reemplazar el chat eliminado');
     assert.doesNotMatch(result.visibleText, /Conversación que se elimina/, 'La vista no debe conservar el chat eliminado');
-  } finally {
-    await browser.close();
-  }
+  });
 });
 });

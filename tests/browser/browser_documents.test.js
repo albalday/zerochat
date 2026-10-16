@@ -1,7 +1,11 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
-const { createTestBrowser, closeGlobalBrowser } = require('../helpers/browser-env.js');
+const { createTestBrowser, withTestApp, closeGlobalBrowser } = require('../helpers/browser-env.js');
+
+const FIXTURES = path.resolve(__dirname, '../fixtures/office');
+const fixture = (name, as = name, mimeType = 'application/octet-stream') => ({ name: as, mimeType, buffer: fs.readFileSync(path.join(FIXTURES, name)) });
 
 // JPEG CMYK rojo puro con la convención de un PDF (DCTDecode sin invertir), como los que se
 // extraen de los manuales: Adobe YCCK (ImageMagick), Adobe CMYK (Pillow), con marcadores de
@@ -11,7 +15,7 @@ const PDF_CMYK = '/9j/7gAOQWRvYmUAZAAAAAAA/9sAQwADAgIDAgIDAwMDBAMDBAUIBQUEBAUKBw
 const PDF_CMYK_RESTART = '/9j/7gAOQWRvYmUAZAAAAAAA/9sAQwADAgIDAgIDAwMDBAMDBAUIBQUEBAUKBwcGCAwKDAwLCgsLDQ4SEA0OEQ4LCxAWEBETFBUVFQwPFxgWFBgSFBUU/8AAFAgAIAAgBEMRAE0RAFkRAEsRAP/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgMEBQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/dAAQAAf/aAA4EQwBNAFkASwAAPwD8qq/VOv1Tr8qq/9D8qq/VOv1Tr8qq/9H8qq/VOv1Tr8qq/9L8qq/VOv1Tr8qq/9P8qq/VOv1Tr8qq/9T8qq/VOv1Tr8qq/9X8qq/VOv1Tr8qq/9b8qq/VOv1Tr8qq/9f8qq/VOv1Tr8qq/9D8qq/VOv1Tr8qq/9H8qq/VOv1Tr8qq/9L8qq/VOv1Tr8qq/9P8qq/VOv1Tr8qq/9T8qq/VOv1Tr8qq/9X8qq/VOv1Tr8qq/9b8qq/VOv1Tr8qq/9k=';
 const PDF_CMYK_NO_ADOBE = '/9j/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/wAAUCAAQABAEQxEATREAWREASxEA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oADgRDAE0AWQBLAAA/APyqr9U6/VOvyqoooooooooooor/2Q==';
 
-describe('Browser - file_parser', () => {
+describe('Browser - documents', () => {
   after(async () => {
     await closeGlobalBrowser();
   });
@@ -68,5 +72,76 @@ describe('Browser - file_parser', () => {
     } finally {
       await browser.close();
     }
+  });
+
+  test('Browser - el compositor adjunta Word, Excel y OpenDocument y explica los formatos antiguos', async () => {
+    await withTestApp(async page => {
+      const errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      await page.route(/^https?:/, route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [], models: [] }) }));
+
+      assert.equal(await page.evaluate(() => document.querySelectorAll('script[src^="js/vendor/mammoth"]').length), 0,
+        'mammoth no debe cargarse al arrancar');
+
+      await page.locator('#file-input').setInputFiles([
+        fixture('libreoffice.docx', 'informe.docx'),
+        fixture('exceljs.xlsx', 'ventas.xlsx'),
+        fixture('libreoffice.odp', 'charla.odp'),
+        { name: 'acta.doc', mimeType: 'application/msword', buffer: Buffer.from([0xD0, 0xCF, 0x11, 0xE0]) }
+      ]);
+      await page.waitForFunction(() => document.getElementById('notice-dialog').open, null, { timeout: 15000 });
+      assert.match(await page.locator('#notice-dialog').textContent(), /acta\.doc[\s\S]*Word 97-2003 files \(\.doc\) are not supported/);
+      await page.locator('#notice-accept').click();
+
+      assert.deepEqual(await page.locator('.file-chip-name').allTextContents(), ['informe.docx', 'ventas.xlsx', 'charla.odp']);
+      const payload = await page.evaluate(() => {
+        const { fullPrompt, displayText, imageAttachments } = ChatAttachments.buildAttachmentsPayload('Resume');
+        return {
+          fullPrompt,
+          displayText,
+          images: imageAttachments.map(image => [image.name, image.mimeType, image.dataUrl.startsWith('data:image/png;base64,')]),
+          vendors: [...document.querySelectorAll('script[src^="js/vendor/"]')].map(script => script.getAttribute('src')).sort()
+        };
+      });
+      assert.match(payload.fullPrompt, /--- Word document: informe\.docx \([^)]+\) ---\n```markdown\n# Informe trimestral/);
+      assert.match(payload.fullPrompt, /--- Excel spreadsheet: ventas\.xlsx [\s\S]*\| Producto \| Unidades \| Precio \| Total \| Fecha \|/);
+      assert.match(payload.fullPrompt, /--- OpenDocument presentation: charla\.odp [\s\S]*--- Slide 2 ---\n## Resultados/);
+      assert.doesNotMatch(payload.fullPrompt, /rag-image:/);
+      assert.deepEqual(payload.images, [
+        ['informe.docx: Image 1', 'image/png', true],
+        ['ventas.xlsx: Image 1 (sheet "Ventas")', 'image/png', true],
+        ['charla.odp: Image 1 (slide 2)', 'image/png', true]
+      ]);
+      assert.match(payload.displayText, /\[📄 informe\.docx, 📄 ventas\.xlsx, 📄 charla\.odp\]$/);
+      assert.deepEqual(payload.vendors, ['js/vendor/fflate.browser.js', 'js/vendor/mammoth.browser.js', 'js/vendor/orama.browser.js']);
+      assert.deepEqual(errors, []);
+    });
+  });
+
+  test('Browser - la base de conocimiento indexa documentos ofimáticos con sus imágenes', async () => {
+    await withTestApp(async page => {
+      const errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      await page.route(/^https?:/, route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [], models: [] }) }));
+
+      const files = ['pandoc.docx', 'pandoc.pptx', 'libreoffice.ods'].map(name => ({ name, base64: fs.readFileSync(path.join(FIXTURES, name)).toString('base64') }));
+      const summary = await page.evaluate(async files => {
+        const branch = await ChatRagStorage.createBranch('Ofimática');
+        const toFile = ({ name, base64 }) => new File([Uint8Array.from(atob(base64), char => char.charCodeAt(0))], name);
+        const result = await ChatIngestionEngine.processDocumentQueue(files.map(toFile), branch.id, null, {});
+        const documents = await ChatRagStorage.getDocumentsByBranch(branch.id);
+        const hits = await ChatRagIndex.searchBranch(branch.id, 'Resultados', { tolerance: 0 });
+        return {
+          processed: result.processed,
+          errors: result.errors,
+          documents: documents.map(document => [document.title, document.fileType, document.imageCount]).sort(),
+          slideHit: hits.hits.some(hit => hit.documentTitle === 'pandoc.pptx')
+        };
+      }, files);
+      assert.equal(summary.processed, 3, JSON.stringify(summary.errors));
+      assert.deepEqual(summary.documents, [['libreoffice.ods', 'ods', 1], ['pandoc.docx', 'docx', 1], ['pandoc.pptx', 'pptx', 1]]);
+      assert.equal(summary.slideHit, true);
+      assert.deepEqual(errors, []);
+    });
   });
 });

@@ -113,10 +113,39 @@ async function stopStaticServer(server) {
   await new Promise(resolve => server.close(resolve));
 }
 
+/**
+ * Ejecuta una prueba sobre una página de la aplicación ya lista, garantizando
+ * el cierre y la limpieza del contexto y browser al finalizar.
+ */
+async function withTestApp(optionsOrFn, maybeFn) {
+  const options = typeof optionsOrFn === 'function' ? {} : (optionsOrFn || {});
+  const fn = typeof optionsOrFn === 'function' ? optionsOrFn : maybeFn;
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage(options);
+    if (options.seedProfiles) {
+      await seedConnectionProfiles(page);
+    }
+    if (options.initScript) {
+      await page.addInitScript(options.initScript);
+    }
+    if (!options.skipGoto) {
+      await page.goto(options.url || getIndexUrl(), { waitUntil: 'load' });
+      if (!options.skipReady) {
+        await waitForAppReady(page);
+      }
+    }
+    return await fn(page, browser);
+  } finally {
+    await browser.close();
+  }
+}
+
 module.exports = {
   getBrowser,
   closeGlobalBrowser,
   createTestBrowser,
+  withTestApp,
   seedConnectionProfiles,
   getIndexUrl,
   waitForAppReady,

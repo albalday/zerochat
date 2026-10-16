@@ -31,8 +31,7 @@ export const GROUPS = {
     'tests/unit/test_file_parser.js',
     'tests/unit/test_office_parser.js',
     'tests/integration/test_office_documents.js',
-    'tests/browser/browser_file_parser.test.js',
-    'tests/browser/browser_office_documents.test.js',
+    'tests/browser/browser_documents.test.js',
     'tests/browser/browser_composer.test.js'
   ],
   generation: [
@@ -62,7 +61,7 @@ export const GROUPS = {
     'tests/integration/test_rag_ui.js',
     'tests/integration/test_ingestion_engine.js',
     'tests/integration/test_office_documents.js',
-    'tests/browser/browser_office_documents.test.js'
+    'tests/browser/browser_documents.test.js'
   ],
   providers: [
     'tests/integration/test_completed_model_queries.js',
@@ -78,7 +77,6 @@ export const GROUPS = {
   bundle: [
     'tests/browser/browser_startup.test.js',
     'tests/unit/test_vendor_loader.js',
-    'tests/browser/browser_vendor_loader.test.js',
     'tests/infrastructure/test_vendor_build.js'
   ]
 };

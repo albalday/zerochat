@@ -1,6 +1,6 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { createTestBrowser, closeGlobalBrowser, getIndexUrl, waitForAppReady } = require('../helpers/browser-env.js');
+const { withTestApp, closeGlobalBrowser } = require('../helpers/browser-env.js');
 
 describe('Browser UI - debug panel', { concurrency: 2 }, () => {
   after(async () => {
@@ -8,13 +8,9 @@ describe('Browser UI - debug panel', { concurrency: 2 }, () => {
   });
 
   test('el panel de depuración expone filtros accesibles y sigue el final del log salvo que el usuario suba', async () => {
-    const browser = await createTestBrowser();
-    try {
-      const page = await browser.newPage();
+    await withTestApp(async page => {
       const pageErrors = [];
       page.on('pageerror', error => pageErrors.push(error.message));
-      await page.goto(getIndexUrl(), { waitUntil: 'load' });
-      await waitForAppReady(page);
 
       await page.click('#btn-toggle-debug');
       const opened = await page.evaluate(() => ({
@@ -53,34 +49,22 @@ describe('Browser UI - debug panel', { concurrency: 2 }, () => {
       });
       assert.deepEqual(scroll, { hasToggle: false, scrollable: true, followed: true, kept: 0, resumedOnTab: true });
       assert.deepEqual(pageErrors, []);
-    } finally {
-      await browser.close();
-    }
+    });
   });
 
   test('en móvil el panel de depuración ocupa todo el ancho', async () => {
-    const browser = await createTestBrowser();
-    try {
-      const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-      await page.goto(getIndexUrl(), { waitUntil: 'load' });
-      await waitForAppReady(page);
+    await withTestApp({ viewport: { width: 390, height: 844 } }, async page => {
       await page.evaluate(() => document.getElementById('btn-toggle-debug').click());
       const rect = await page.evaluate(() => {
         const { left, width } = document.getElementById('debug-panel').getBoundingClientRect();
         return { left, width };
       });
       assert.deepEqual(rect, { left: 0, width: 390 });
-    } finally {
-      await browser.close();
-    }
+    });
   });
 
   test('el editor de mensaje saliente sitúa las acciones de envío en la cabecera', async () => {
-    const browser = await createTestBrowser();
-    try {
-      const page = await browser.newPage();
-      await page.goto(getIndexUrl(), { waitUntil: 'load' });
-      await waitForAppReady(page);
+    await withTestApp(async page => {
       await page.evaluate(() => {
         window.__debugInterceptorResult = window.ChatDebug.openInterceptorModal({
           endpoint: '/v1/chat/completions', headers: {}, payload: { model: 'test', messages: [] }
@@ -102,8 +86,6 @@ describe('Browser UI - debug panel', { concurrency: 2 }, () => {
       assert.equal(layout.hasFooter, false);
       await page.click('#btn-close-debug-modal');
       await page.evaluate(() => window.__debugInterceptorResult);
-    } finally {
-      await browser.close();
-    }
+    });
   });
 });
