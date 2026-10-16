@@ -43,7 +43,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE_BACKEND_VERSION = "9.1.0"
+SOURCE_BACKEND_VERSION = "9.2.0"
 
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""
