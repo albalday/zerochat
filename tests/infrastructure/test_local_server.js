@@ -242,6 +242,86 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
       fs.rmSync(projectDir, { recursive: true, force: true });
     }
 
+    // Apertura de visor de diffs (git difftool)
+    const diffRpc = async (id, params) => (await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'X-ZeroChat-Token': testToken },
+      body: JSON.stringify({ jsonrpc: '2.0', id, method: 'zerochat/diff/open', params })
+    })).json();
+
+    const nonGitDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-nongit-')));
+    const nonGitFile = path.join(nonGitDir, 'test.txt');
+    fs.writeFileSync(nonGitFile, 'hello');
+
+    const gitTestDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-git-')));
+    const trackedFile = path.join(gitTestDir, 'tracked.txt');
+    const untrackedFile = path.join(gitTestDir, 'untracked.txt');
+    fs.writeFileSync(trackedFile, 'initial\n');
+    fs.writeFileSync(untrackedFile, 'new\n');
+    const { execSync } = require('node:child_process');
+    execSync('git init && git config user.name test && git config user.email test@test.com && git add tracked.txt && git commit -m "init"', { cwd: gitTestDir, stdio: 'ignore' });
+    fs.appendFileSync(trackedFile, 'change\n');
+
+    const killPid = (pid) => {
+      if (!pid) return;
+      try {
+        if (process.platform === 'win32') {
+          require('node:child_process').execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore' });
+        } else {
+          process.kill(-pid, 'SIGKILL');
+        }
+      } catch (_) {
+        try { process.kill(pid, 'SIGKILL'); } catch (_) {}
+      }
+    };
+
+    try {
+      assert.equal((await diffRpc(50, {})).error?.code, -32602);
+      assert.equal((await diffRpc(51, { path: 123 })).error?.code, -32602);
+      assert.equal((await diffRpc(52, { path: '' })).error?.code, -32602);
+      assert.equal((await diffRpc(53, { path: 'nonexistent/file.txt' })).error?.code, -32602);
+      assert.equal((await diffRpc(54, { path: gitTestDir })).error?.code, -32602, 'Debe rechazar un directorio');
+      assert.equal((await diffRpc(55, { path: trackedFile, tool: 'bad;tool' })).error?.code, -32602, 'Debe rechazar tool inválido');
+
+      const nonGitRes = await diffRpc(56, { path: nonGitFile });
+      assert.equal(nonGitRes.error?.code, -32602);
+      assert.match(nonGitRes.error?.message, /repositorio Git/);
+
+      const trackedRes = await diffRpc(57, { path: trackedFile });
+      assert.equal(trackedRes.result?.success, true);
+      assert.equal(trackedRes.result?.has_diff, true);
+      assert.equal(trackedRes.result?.mode, 'working_tree');
+      assert.equal(trackedRes.result?.in_head, true);
+      assert.equal(typeof trackedRes.result?.pid, 'number');
+      killPid(trackedRes.result?.pid);
+
+      const untrackedRes = await diffRpc(58, { path: untrackedFile });
+      assert.equal(untrackedRes.result?.success, true);
+      assert.equal(untrackedRes.result?.has_diff, true);
+      assert.equal(untrackedRes.result?.in_head, false);
+      assert.equal(typeof untrackedRes.result?.pid, 'number');
+      killPid(untrackedRes.result?.pid);
+
+      // Tras hacer commit del fichero, no hay diffs en working tree
+      execSync('git commit -am "second commit"', { cwd: gitTestDir, stdio: 'ignore' });
+      const cleanRes = await diffRpc(59, { path: trackedFile });
+      assert.equal(cleanRes.result?.success, true);
+      assert.equal(cleanRes.result?.has_diff, false);
+      assert.equal(cleanRes.result?.has_commit_history, true);
+      assert.equal(cleanRes.result?.pid, undefined);
+
+      // Con commit_fallback: true, lanza el diff del último commit
+      const fallbackRes = await diffRpc(60, { path: trackedFile, commit_fallback: true });
+      assert.equal(fallbackRes.result?.success, true);
+      assert.equal(fallbackRes.result?.has_diff, true);
+      assert.equal(fallbackRes.result?.mode, 'commit');
+      assert.equal(typeof fallbackRes.result?.pid, 'number');
+      killPid(fallbackRes.result?.pid);
+    } finally {
+      fs.rmSync(nonGitDir, { recursive: true, force: true });
+      fs.rmSync(gitTestDir, { recursive: true, force: true });
+    }
+
     // El contrato estricto rechaza parámetros que ya no existen.
     const obsoleteArgumentRes = await fetch(baseUrl, {
       method: 'POST',

@@ -266,7 +266,8 @@
   border-color: var(--success);
 }
 
-.btn-file-preview {
+.btn-file-preview,
+.btn-file-diff {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -281,7 +282,8 @@
   font-weight: 500;
 }
 
-.btn-file-preview:hover {
+.btn-file-preview:hover,
+.btn-file-diff:hover {
   background-color: var(--bg-hover);
   border-color: var(--accent);
 }

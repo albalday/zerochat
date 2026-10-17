@@ -652,6 +652,14 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 return set_project_directory(params.get("path")), None, ""
             except (ValueError, OSError) as exc:
                 return None, {"code": -32602, "message": str(exc)}, ""
+        if method == "zerochat/diff/open":
+            try:
+                commit_fallback = bool(params.get("commit_fallback") or params.get("commitFallback"))
+                return open_file_diff(params.get("path"), params.get("tool"), commit_fallback), None, ""
+            except (ValueError, RuntimeError) as exc:
+                return None, {"code": -32602, "message": str(exc)}, ""
+            except Exception as exc:
+                return None, {"code": -32603, "message": f"Error al abrir el visor de diffs: {exc}"}, str(exc)
         if method == "zerochat/web/fetch":
             try:
                 return fetch_web_resource(params), None, ""
