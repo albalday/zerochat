@@ -656,4 +656,182 @@ test('Browser UI - selector de perfiles con 3 iconos de cabecera y acciones de i
     await browser.close();
   }
 });
+/** Página con los perfiles de prueba y, si se indican, perfiles editables guardados en el repositorio. */
+async function openProfilesPage(browser, profiles = []) {
+  const page = await browser.newPage();
+  page.setDefaultTimeout(5000);
+  await seedConnectionProfiles(page);
+  await page.goto(getIndexUrl(), { waitUntil: 'load' });
+  await waitForAppReady(page);
+  if (profiles.length) {
+    await page.evaluate(async profiles => {
+      for (const profile of profiles) await window.ChatProfileRepository.saveEditable(profile);
+    }, profiles);
+  }
+  return page;
+}
+
+async function openProfileEditor(page, profileId) {
+  await page.click('#active-profile-trigger');
+  await page.click(`.header-profile-item:has([data-profile-id="${profileId}"]) [data-profile-action="edit"]`);
+  await page.waitForFunction(() => document.getElementById('profiles-dialog').open && document.getElementById('setting-api-key')._loadedApiKey !== undefined);
+}
+
+async function closeProfileEditor(page, { discard = false } = {}) {
+  await page.click('#btn-close-profiles');
+  if (discard) {
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    await page.click('#notice-accept');
+  }
+  await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
+}
+
+test('Browser UI - elegir un perfil del menú lo activa, cierra el menú y marca el activo', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await openProfilesPage(browser);
+    await page.click('#active-profile-trigger');
+    const mirror = page.locator('.header-profile-item:has([data-profile-id="profile:mirror"])');
+    assert.equal(await mirror.evaluate(item => item.classList.contains('active')), true);
+    assert.equal(await mirror.locator('[role="menuitemradio"]').getAttribute('aria-checked'), 'true');
+    assert.deepEqual(await page.$$eval('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action]', buttons => buttons.map(button => button.dataset.profileAction)), ['inspect', 'edit', 'delete']);
+
+    await page.click('.header-profile-item [data-profile-id="profile:local"]');
+    assert.equal(await page.locator('#active-profile-popover').isHidden(), true);
+    assert.equal(await page.textContent('#active-profile-name'), 'Local chat');
+    assert.equal(await page.evaluate(() => window.ChatConfig.getActive().activeProfile.id), 'profile:local');
+    await page.click('#active-profile-trigger');
+    assert.equal(await page.locator('.header-profile-item:has([data-profile-id="profile:local"]) [role="menuitemradio"]').getAttribute('aria-checked'), 'true');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - reabrir el editor no conserva cambios descartados y una consulta lista permite guardar', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await openProfilesPage(browser);
+    await openProfileEditor(page, 'profile:local');
+    await page.fill('#setting-model', 'otro-modelo');
+    assert.equal(await page.locator('#btn-save-profile').isDisabled(), false);
+    await closeProfileEditor(page, { discard: true });
+
+    await openProfileEditor(page, 'profile:local');
+    assert.equal(await page.inputValue('#setting-model'), 'google/gemma-4-26b-a4b-qat');
+    assert.equal(await page.locator('#btn-save-profile').isDisabled(), true, 'Al reabrir no quedan cambios pendientes');
+    await page.evaluate(() => {
+      window.ChatAPI.fetchServerModels = async () => ({ success: true, count: 1, endpoint: 'http://localhost:1234/v1', models: [{ id: 'google/gemma-4-26b-a4b-qat' }] });
+    });
+    await page.click('#btn-query-server');
+    await page.waitForFunction(() => document.getElementById('profiles-dialog').dataset.queryReady === 'true');
+    assert.equal(await page.locator('#btn-save-profile').isDisabled(), false, 'Una consulta al servidor lista permite guardar');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - cancelar el borrado de un perfil lo conserva', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await openProfilesPage(browser);
+    await page.click('#active-profile-trigger');
+    await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="delete"]');
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    assert.match(await page.textContent('#notice-message'), /Local chat/);
+    await page.click('#notice-cancel');
+    await page.waitForFunction(() => !document.getElementById('notice-dialog').open);
+    assert.ok(await page.evaluate(() => window.ChatProfileRepository.get('profile:local')));
+    await page.click('#active-profile-trigger');
+    assert.equal(await page.locator('#active-profile-list [data-profile-id="profile:local"]').count(), 1);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - un perfil nuevo abre el editor vacío sin pedir nombre ni heredar la clave', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await openProfilesPage(browser, [{ id: 'profile:con-clave', name: 'Con clave', description: 'Descripción anterior', settings: { apiType: 'openai', model: 'test', apiKey: 'sk-old', apiKeyLocked: true } }]);
+    await openProfileEditor(page, 'profile:con-clave');
+    await closeProfileEditor(page);
+
+    await page.click('#active-profile-trigger');
+    await page.click('#btn-menu-new-profile');
+    await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
+    const editor = await page.evaluate(() => ({
+      notice: document.getElementById('notice-dialog').open,
+      name: document.getElementById('setting-profile-name').value,
+      description: document.getElementById('setting-profile-description').value,
+      apiKey: document.getElementById('setting-api-key').value,
+      locked: document.getElementById('setting-api-key-locked').checked,
+      saveDisabled: document.getElementById('btn-save-profile').disabled
+    }));
+    assert.deepEqual(editor, { notice: false, name: '', description: '', apiKey: '', locked: false, saveDisabled: true });
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - el editor exige API key a los proveedores remotos, enlaza sus guías y ajusta la temperatura', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await openProfilesPage(browser);
+    await openProfileEditor(page, 'profile:local');
+    const provider = async apiType => {
+      await page.selectOption('#setting-api-type', apiType);
+      return page.evaluate(() => ({
+        hint: document.getElementById('api-key-hint-text').dataset.i18n,
+        help: document.getElementById('api-key-free-help-link').hidden ? null : document.getElementById('api-key-free-help-link').getAttribute('href'),
+        temperatureDisabled: document.getElementById('setting-temperature').disabled,
+        temperatureHint: document.getElementById('temperature-hint').dataset.i18n
+      }));
+    };
+    assert.deepEqual(await provider('openrouter'), { hint: 'field_api_key_required_hint', help: 'help/openrouter-free.html', temperatureDisabled: false, temperatureHint: 'field_temperature_hint' });
+    assert.deepEqual(await provider('gemini'), { hint: 'field_api_key_required_hint', help: 'help/gemini-free.html', temperatureDisabled: true, temperatureHint: 'field_temperature_unsupported_hint' });
+    assert.deepEqual(await provider('ollama'), { hint: 'field_api_key_hint', help: null, temperatureDisabled: false, temperatureHint: 'field_temperature_hint' });
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - editar un perfil rellena el editor, usa el endpoint por defecto y muestra los parámetros de WebLLM', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await openProfilesPage(browser, [
+      { id: 'profile:claude', name: 'Claude', settings: { apiType: 'claude', apiUrl: 'https://api.anthropic.com/v1', apiKey: 'sk-ant-test', model: 'claude-3-7-sonnet', systemPrompt: 'Eres un asistente experto.', temperature: '0.2' } },
+      { id: 'profile:sin-url', name: 'Sin URL', settings: { apiType: 'openai', apiUrl: '', apiKey: '', model: '' } },
+      { id: 'profile:webllm', name: 'Local WebLLM', settings: { apiType: 'webllm', apiKey: '', model: '', webllmConfig: { context_window_size: '16384', prefill_chunk_size: 'default' } } }
+    ]);
+    const form = () => page.evaluate(() => ({
+      apiType: document.getElementById('setting-api-type').value,
+      apiUrl: document.getElementById('setting-api-url').value,
+      placeholder: document.getElementById('setting-api-url').placeholder,
+      model: document.getElementById('setting-model').value,
+      systemPrompt: document.getElementById('setting-system-prompt').value,
+      temperature: document.getElementById('temperature-val').textContent,
+      webllmPanel: !document.getElementById('webllm-params-panel').hidden,
+      webllmHelp: !document.getElementById('webllm-help-link').hidden,
+      contextWindow: document.getElementById('setting-webllm-context-window').value,
+      prefillChunk: document.getElementById('setting-webllm-prefill-chunk').value
+    }));
+
+    await openProfileEditor(page, 'profile:claude');
+    const claude = await form();
+    assert.deepEqual([claude.apiType, claude.apiUrl, claude.model, claude.systemPrompt, claude.temperature, claude.webllmPanel],
+      ['claude', 'https://api.anthropic.com/v1', 'claude-3-7-sonnet', 'Eres un asistente experto.', '0.2', false]);
+    await closeProfileEditor(page);
+
+    await openProfileEditor(page, 'profile:sin-url');
+    const openai = await form();
+    assert.equal(openai.apiUrl, 'http://localhost:1234/v1', 'Sin URL se usa la del proveedor');
+    assert.equal(openai.placeholder, 'http://localhost:1234/v1');
+    await closeProfileEditor(page);
+
+    await openProfileEditor(page, 'profile:webllm');
+    const webllm = await form();
+    assert.deepEqual([webllm.webllmPanel, webllm.webllmHelp, webllm.contextWindow, webllm.prefillChunk], [true, true, '16384', 'default']);
+  } finally {
+    await browser.close();
+  }
+});
 });

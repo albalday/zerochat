@@ -280,9 +280,10 @@
     };
     const dialog = elements.settingsDialog;
     const markModified = () => setSettingsFormDirty(elements, true);
-    // Los controles de la sección MCP se aplican al momento y no dejan cambios pendientes.
+    // Los controles de la sección MCP se aplican al momento y no dejan cambios pendientes. Se mira la
+    // ruta del evento porque aplicar un interruptor vuelve a pintar la lista y retira el control.
     const markFormModified = event => {
-      if (!event.target.closest('#settings-mcp')) markModified();
+      if (!event.composedPath().some(node => node.id === 'settings-mcp')) markModified();
     };
 
     listen(elements.btnCloseSettings, 'click', () => closeSettingsPanelOnly(elements));

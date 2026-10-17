@@ -42,7 +42,6 @@ export const GROUPS = {
     'tests/browser/browser_conversation.test.js'
   ],
   profiles: [
-    'tests/unit/test_ui_profiles.js',
     'tests/integration/test_profiles.js',
     'tests/browser/browser_profiles_settings.test.js'
   ],
@@ -57,7 +56,6 @@ export const GROUPS = {
     'tests/integration/test_rag_index.js',
     'tests/integration/test_rag_service.js',
     'tests/integration/test_rag_storage.js',
-    'tests/integration/test_rag_ui.js',
     'tests/integration/test_ingestion_engine.js',
     'tests/integration/test_office_documents.js',
     'tests/browser/browser_documents.test.js'

@@ -223,4 +223,116 @@ describe('Browser - documents', () => {
       assert.deepEqual(errors, []);
     });
   });
+  test('Browser - activar y gestionar ramas son diálogos distintos con las acciones en la cabecera', async () => {
+    await withTestApp(async page => {
+      await page.evaluate(() => { ChatRagUI.openActivationModal(); ChatRagUI.openManageModal(); });
+      const dialogs = await page.evaluate(() => {
+        const activation = document.getElementById('rag-modal');
+        const manage = document.getElementById('rag-manage-modal');
+        const layout = dialog => ({
+          headerActions: Boolean(dialog.querySelector('.modal-header.settings-section-header .settings-header-actions')),
+          footerOrTabs: Boolean(dialog.querySelector('.modal-footer, [data-rag-tab]'))
+        });
+        return {
+          activateAll: [Boolean(activation.querySelector('#btn-rag-activate-all')), Boolean(manage.querySelector('#btn-rag-activate-all'))],
+          activationTitle: activation.querySelector('h3').dataset.i18n,
+          branchSelect: [Boolean(activation.querySelector('#rag-manage-branch-select')), Boolean(manage.querySelector('.rag-branch-combobox #rag-branch-name-input'))],
+          save: Boolean(manage.querySelector('#btn-rag-save-branch')),
+          layouts: [layout(activation), layout(manage)]
+        };
+      });
+      assert.deepEqual(dialogs, {
+        activateAll: [true, false],
+        activationTitle: 'rag_modal_title_activate',
+        branchSelect: [false, true],
+        save: true,
+        layouts: [{ headerActions: true, footerOrTabs: false }, { headerActions: true, footerOrTabs: false }]
+      });
+    });
+  });
+
+  test('Browser - las ramas activas viven en la configuración y la barra indica cuántas hay', async () => {
+    await withTestApp(async page => {
+      const ids = await page.evaluate(async () => ({
+        first: (await ChatRagStorage.createBranch({ name: 'Manuales', language: 'spanish' })).id,
+        second: (await ChatRagStorage.createBranch({ name: 'Informes', language: 'spanish' })).id
+      }));
+      await page.click('#btn-open-rag');
+      const card = id => page.locator(`#rag-active-branch-list [data-branch-id="${id}"]`);
+      await card(ids.first).click();
+      await page.waitForFunction(id => document.querySelector(`#rag-active-branch-list [data-branch-id="${id}"]`).classList.contains('active'), ids.first);
+      assert.deepEqual(await page.evaluate(() => ChatConfig.getActive().activeRagBranchIds), [ids.first]);
+      assert.equal(await page.textContent('#rag-active-status-title'), 'Manuales');
+      assert.equal(await page.locator('#btn-open-rag').evaluate(button => button.classList.contains('active')), true);
+
+      await card(ids.second).click();
+      await page.waitForFunction(id => document.querySelector(`#rag-active-branch-list [data-branch-id="${id}"]`).classList.contains('active'), ids.second);
+      assert.deepEqual(await page.evaluate(() => ChatConfig.getActive().activeRagBranchIds), [ids.first, ids.second]);
+      assert.equal(await page.getAttribute('#btn-open-rag', 'title'), await page.evaluate(() => ChatI18n.t('rag_toolbar_active_multi', { count: 2 })));
+
+      await page.click('#btn-rag-toggle-master');
+      // Desactivarlas todas vuelve a pintar la lista: el interruptor queda deshabilitado sin ramas activas.
+      await page.waitForFunction(() => ChatConfig.getActive().activeRagBranchIds.length === 0 && document.getElementById('btn-rag-toggle-master').disabled);
+      assert.equal(await card(ids.first).evaluate(element => element.classList.contains('active')), false);
+    });
+  });
+
+  test('Browser - crear una rama la deja seleccionada y cerrar con cambios pide confirmación', async () => {
+    await withTestApp(async page => {
+      await page.evaluate(() => ChatRagUI.openManageModal());
+      await page.waitForFunction(() => document.getElementById('rag-manage-branch-select').options.length === 1);
+      await page.fill('#rag-branch-name-input', 'Contratos');
+      await page.click('#btn-rag-save-branch');
+      await page.waitForFunction(() => /Contratos/.test(document.getElementById('rag-manage-workspace').textContent));
+      const branchId = await page.evaluate(async () => (await ChatRagStorage.getBranches())[0].id);
+      assert.equal(await page.inputValue('#rag-manage-branch-select'), branchId, 'La rama nueva queda seleccionada');
+      assert.equal(await page.locator('#btn-rag-save-branch').isDisabled(), true);
+
+      await page.fill('#rag-branch-desc-input', 'Pendiente');
+      await page.click('#btn-close-rag-manage');
+      await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+      await page.click('#notice-cancel');
+      await page.waitForFunction(() => !document.getElementById('notice-dialog').open);
+      assert.equal(await page.$eval('#rag-manage-modal', dialog => dialog.open), true, 'Rechazar la confirmación mantiene el diálogo');
+      await page.click('#btn-close-rag-manage');
+      await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+      await page.click('#notice-accept');
+      await page.waitForFunction(() => !document.getElementById('rag-manage-modal').open);
+    });
+  });
+
+  test('Browser - el resumen de la ingesta se traduce y conserva los archivos no indexados', async () => {
+    await withTestApp(async page => {
+      await page.evaluate(async () => {
+        await ChatRagStorage.createBranch({ name: 'Logs', language: 'spanish' });
+        // El motor real se sustituye por uno que informa del progreso y devuelve un resultado fijo.
+        window.__ingestion = { progress: [], result: { total: 2, processed: 1, failed: 1, errors: [{ fileName: 'logs.zip', error: 'El archivo es un ZIP.' }] } };
+        ChatIngestionEngine.processDocumentQueue = async (_files, _branchId, onProgress) => {
+          onProgress({ fileIndex: 0, fileName: 'a.txt', status: 'saving', detail: {}, percent: 50, totalFiles: 2, finishedFiles: 1, processedFiles: 1, overallPercent: 50 });
+          window.__ingestion.progress.push(document.getElementById('rag-ingestion-progress').textContent);
+          return window.__ingestion.result;
+        };
+        ChatRagUI.openManageModal();
+      });
+      await page.waitForSelector('#rag-file-input', { state: 'attached' });
+      const drop = () => page.setInputFiles('#rag-file-input', { name: 'a.txt', mimeType: 'text/plain', buffer: Buffer.from('texto') });
+
+      await drop();
+      await page.waitForFunction(() => /no indexados/.test(document.getElementById('rag-ingestion-progress')?.textContent || ''));
+      assert.match((await page.evaluate(() => window.__ingestion.progress))[0], /Guardando a\.txt…/, 'El progreso se redacta con el estado del motor');
+      const summary = await page.textContent('#rag-ingestion-progress');
+      assert.match(summary, /1 indexados · 1 no indexados/);
+      assert.match(summary, /logs\.zip[\s\S]*El archivo es un ZIP/);
+
+      await page.evaluate(() => {
+        ChatConfig.updateRuntime({ language: 'en' });
+        ChatI18n.setLanguage('en');
+        window.__ingestion.result = { total: 5, processed: 1, replaced: 1, skipped: 1, cancelled: 2, failed: 0 };
+      });
+      await page.waitForFunction(() => document.getElementById('rag-dropzone').textContent.includes(ChatI18n.t('rag_dropzone_title')));
+      await drop();
+      await page.waitForFunction(() => /Ingestion stopped/.test(document.getElementById('rag-ingestion-progress')?.textContent || ''));
+      assert.match(await page.textContent('#rag-ingestion-progress'), /Ingestion stopped by user: 2 indexed · 0 not indexed \(1 replaced, 1 skipped, 2 cancelled\)/);
+    });
+  });
 });
