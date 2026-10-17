@@ -3,21 +3,28 @@
  * - Arquitectura basada en SearchProvider con registro extensible (DuckDuckGo, SearXNG, etc.).
  * - Motor de búsqueda resiliente multitrayecto con fallback automático.
  * - Formateo estandarizado de resultados en Markdown optimizado para LLMs.
- * - Compatible con entornos file://, http:// y Node.js.
+ * - Sin backend solo responden las vías con CORS: DuckDuckGo Instant Answer y la búsqueda de Wikipedia.
  */
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'));
+    module.exports = factory(require('./web-browser.js'));
   } else {
-    root.ChatWebSearch = factory(root.ChatUtils);
+    root.ChatWebSearch = factory(root.ChatWebBrowser);
   }
-})(typeof self !== 'undefined' ? self : this, function (Utils) {
+})(typeof self !== 'undefined' ? self : this, function (WebBrowser) {
   'use strict';
 
   const DEFAULT_TIMEOUT_MS = 10000;
+  const WIKIPEDIA_RESULT_LIMIT = 8;
 
-  const { webFetch } = Utils;
+  const { webFetch } = WebBrowser;
+
+  /** Texto plano de un fragmento HTML de resultados (etiquetas y entidades). */
+  function htmlFragmentToText(html) {
+    const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+    return (doc.body.textContent || '').replace(/\s+/g, ' ').trim();
+  }
 
   /**
    * Desempaqueta URLs redirigidas de DuckDuckGo (parámetro uddg).
@@ -201,7 +208,30 @@
       }
     }
 
-    async fetchResults(cleanQuery, { timeoutMs }) {
+    /**
+     * Búsqueda de Wikipedia en el idioma de la interfaz. Su API admite CORS (origin=*), así que
+     * responde también sin backend, donde DuckDuckGo HTML no es accesible.
+     */
+    async queryWikipediaApi(query, lang, timeoutMs = 4000) {
+      const wiki = lang === 'en' ? 'en' : 'es';
+      try {
+        const url = `https://${wiki}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=${WIKIPEDIA_RESULT_LIMIT}&format=json&origin=*`;
+        const res = await webFetch(url, { timeoutMs, accept: 'application/json' });
+        if (!res.ok) return [];
+        const data = await res.json();
+        return (data?.query?.search || []).map(item => ({
+          title: item.title,
+          url: `https://${wiki}.wikipedia.org/wiki/${encodeURIComponent(String(item.title).replace(/ /g, '_'))}`,
+          snippet: htmlFragmentToText(item.snippet),
+          source: 'Wikipedia'
+        }));
+      } catch (e) {
+        console.warn('[WebSearch] Wikipedia search failed:', e.message);
+        return [];
+      }
+    }
+
+    async fetchResults(cleanQuery, { lang, timeoutMs }) {
       let rawResults = [];
 
       try {
@@ -227,6 +257,10 @@
         if (instantResults.length > 0) {
           rawResults = instantResults;
         }
+      }
+
+      if (rawResults.length === 0) {
+        rawResults = await this.queryWikipediaApi(cleanQuery, lang, Math.min(timeoutMs, 4000));
       }
 
       return rawResults;

@@ -60,3 +60,14 @@ Done when: on Linux, zerochat.py --prompt runs the prompt with the production Ze
 ## M24 happy-dom removal: closed 2026-10-17
 
 ## M25 History summarization reliability, transcript sanitization and tool-call protection: closed 2026-10-17
+
+## M26 Web transport hardening and post-9.2.3 audit fixes
+Goal: Fix the medium/high findings of the post-9.2.3 audit: backend web fetch SSRF and body handling, binary detection by content type, the best usable browser-only fetch without backend or proxies, webFetch placement, the diff button and the summary check.
+Done when: backend fetch revalidates every redirect and resolved address, bounds decompression and reports truncation; PDFs without extension are read with the backend; browser-only fetch sends only CORS-safelisted headers and search has a working CORS route; webFetch lives in ChatWebBrowser with single option names and no Node branches; the diff button only launches a GUI tool for the local server; tests pass at every level.
+- [x] M26-T1 Backend fetch SSRF: validate resolved addresses and revalidate every redirect hop; remove allow_local from backend and client (2026-10-17)
+- [x] M26-T2 Backend fetch body: bounded streaming decompression, truncated flag propagated and honoured by the client at the exact limit (2026-10-17)
+- [x] M26-T3 Backend returns base64 for non-text content types so PDFs without a document extension are parsed (2026-10-17)
+- [x] M26-T4 Browser-only fetch: CORS-safelisted headers only, User-Agent only in the backend, Wikipedia search and article routes (2026-10-17)
+- [x] M26-T5 Move webFetch into ChatWebBrowser with single option names and no Node branches (2026-10-17)
+- [x] M26-T6 Diff button: stdin closed, GUI tool required with a clear error, local server only, absolute path from the result (2026-10-17)
+- [x] M26-T7 Remove the <tool_call substring check from the summary validation (2026-10-17)

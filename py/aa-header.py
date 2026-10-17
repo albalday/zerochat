@@ -17,7 +17,6 @@ import base64
 import datetime
 import fnmatch
 import functools
-import gzip
 import hashlib
 import hmac
 import importlib.metadata
@@ -30,6 +29,7 @@ import secrets
 import shutil
 import shlex
 import signal
+import socket
 import subprocess
 import sys
 import tempfile

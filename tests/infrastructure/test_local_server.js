@@ -39,7 +39,12 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
 
   const serverProc = spawn('python3', [
     serverPath, '--port', String(port), '--no-browser', '--no-venv'
-  ], { cwd: repoRoot, env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken) }, stdio: ['ignore', 'pipe', 'pipe'] });
+  ], {
+    cwd: repoRoot,
+    // Sin la configuración de Git del usuario: el visor de diffs solo ve la del repositorio de prueba.
+    env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken), GIT_CONFIG_GLOBAL: os.devnull, GIT_CONFIG_NOSYSTEM: '1' },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
 
   let serverError = '';
   let serverOutput = '';
@@ -281,7 +286,13 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
       assert.equal((await diffRpc(52, { path: '' })).error?.code, -32602);
       assert.equal((await diffRpc(53, { path: 'nonexistent/file.txt' })).error?.code, -32602);
       assert.equal((await diffRpc(54, { path: gitTestDir })).error?.code, -32602, 'Debe rechazar un directorio');
-      assert.equal((await diffRpc(55, { path: trackedFile, tool: 'bad;tool' })).error?.code, -32602, 'Debe rechazar tool inválido');
+
+      // Sin visor gráfico configurado no se lanza nada (git recurriría a uno de terminal invisible).
+      const noGuiToolRes = await diffRpc(55, { path: trackedFile });
+      assert.equal(noGuiToolRes.error?.code, -32602);
+      assert.match(noGuiToolRes.error?.message, /diff\.guitool/);
+      // Visor gráfico de prueba que termina sin abrir ventana.
+      execSync('git config diff.guitool zcfake && git config difftool.zcfake.cmd true', { cwd: gitTestDir, stdio: 'ignore' });
 
       const nonGitRes = await diffRpc(56, { path: nonGitFile });
       assert.equal(nonGitRes.error?.code, -32602);

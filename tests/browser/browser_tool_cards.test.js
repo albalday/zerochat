@@ -226,13 +226,13 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
     });
   });
 
-  test('Browser UI - write_file y edit_file muestran el botón de Diff y delegan la apertura en el backend', async () => {
+  test('Browser UI - las escrituras del servidor local muestran Diff con la ruta absoluta del resultado', async () => {
     await withTestApp(async page => {
       const result = await page.evaluate(async () => {
         const registry = window.ChatAgentCore.registry;
-        const fakeClient = {
-          id: 'mcp_proxy',
-          name: 'ZeroChat',
+        const makeClient = id => ({
+          id,
+          name: id,
           initialize: async () => ({ success: true }),
           listTools: async () => [
             { name: 'write_file', description: 'Write file' },
@@ -240,10 +240,14 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
             { name: 'read_file', description: 'Read file' }
           ],
           callTool: async () => ({ success: true, text: 'ok' })
-        };
-        const provider = new window.ChatMCP.McpToolProvider(fakeClient, { id: 'mcp_prov_diff_test' });
+        });
+        const provider = new window.ChatMCP.McpToolProvider(makeClient('mcp_proxy'), { id: 'mcp_prov_diff_test' });
         await provider.discoverTools();
         registry.registerProvider(provider);
+        // Otro servidor MCP con una herramienta del mismo nombre: su fichero no está en el backend local.
+        const otherProvider = new window.ChatMCP.McpToolProvider(makeClient('other'), { id: 'mcp_prov_diff_other' });
+        await otherProvider.discoverTools();
+        registry.registerProvider(otherProvider);
 
         const mcpManager = window.ChatMCP.manager;
         const diffCalls = [];
@@ -257,31 +261,28 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
           confirmCalls.push(msg);
           return true;
         };
-        mcpManager.openFileDiff = async (path, options) => {
-          diffCalls.push({ path, options });
-          if (options?.commitFallback) {
+        mcpManager.openFileDiff = async (path, commitFallback) => {
+          diffCalls.push({ path, commitFallback });
+          if (commitFallback) {
             return { success: true, has_diff: true, mode: 'commit' };
           }
           return { success: true, has_diff: false, has_commit_history: true };
         };
 
         const cards = window.ChatToolCards;
-        const writeArgs = { path: '/home/user/project/file.js', content: 'console.log(1);' };
-        const writeCard = cards.createLiveToolCard('write_file', writeArgs);
-        cards.updateLiveToolCard(writeCard, 'write_file', writeArgs, { success: true }, 5);
-
-        const editArgs = { path: '/home/user/project/file.js', old_str: '1', new_str: '2' };
-        const editCard = cards.createLiveToolCard('edit_file', editArgs);
-        cards.updateLiveToolCard(editCard, 'edit_file', editArgs, { success: true }, 5);
-
-        const readArgs = { path: '/home/user/project/file.js' };
-        const readCard = cards.createLiveToolCard('read_file', readArgs);
-        cards.updateLiveToolCard(readCard, 'read_file', readArgs, { success: true }, 5);
+        const written = { success: true, content: JSON.stringify({ success: true, path: '/home/user/project/file.js' }) };
+        const card = (name, args, toolResult) => {
+          const element = cards.createLiveToolCard(name, args);
+          cards.updateLiveToolCard(element, name, args, toolResult, 5);
+          return element;
+        };
+        const writeCard = card('write_file', { path: 'file.js', content: 'console.log(1);' }, written);
+        const editCard = card('edit_file', { path: 'file.js', old_str: '1', new_str: '2' }, written);
+        const readCard = card('read_file', { path: 'file.js' }, { success: true, content: 'console.log(1);' });
+        const otherWriteName = otherProvider.getTools().find(tool => tool.metadata.originalName === 'write_file').name;
+        const otherCard = card(otherWriteName, { path: 'file.js', content: 'x' }, written);
 
         const writeDiffBtn = writeCard.querySelector('.btn-file-diff');
-        const editDiffBtn = editCard.querySelector('.btn-file-diff');
-        const readDiffBtn = readCard.querySelector('.btn-file-diff');
-
         writeDiffBtn?.click();
         await new Promise(resolve => setTimeout(resolve, 10));
 
@@ -289,11 +290,13 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
         mcpManager.isProxyConnected = origIsProxy;
         window.ChatDialogs.confirm = origConfirm;
         registry.unregisterProvider('mcp_prov_diff_test');
+        registry.unregisterProvider('mcp_prov_diff_other');
 
         return {
           hasWriteDiff: Boolean(writeDiffBtn),
-          hasEditDiff: Boolean(editDiffBtn),
-          hasReadDiff: Boolean(readDiffBtn),
+          hasEditDiff: Boolean(editCard.querySelector('.btn-file-diff')),
+          hasReadDiff: Boolean(readCard.querySelector('.btn-file-diff')),
+          hasOtherServerDiff: Boolean(otherCard.querySelector('.btn-file-diff')),
           confirmCallsCount: confirmCalls.length,
           diffCalls
         };
@@ -302,10 +305,11 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
         hasWriteDiff: true,
         hasEditDiff: true,
         hasReadDiff: false,
+        hasOtherServerDiff: false,
         confirmCallsCount: 1,
         diffCalls: [
-          { path: '/home/user/project/file.js', options: undefined },
-          { path: '/home/user/project/file.js', options: { commitFallback: true } }
+          { path: '/home/user/project/file.js', commitFallback: undefined },
+          { path: '/home/user/project/file.js', commitFallback: true }
         ]
       });
     });

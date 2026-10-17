@@ -137,15 +137,6 @@ test('ConversationService - si el resumen falla ofrece bifurcar con el historial
     assert.equal(await ConversationService.createConversationBranch(anchor, options), false);
     assert.deepEqual(await savedBranches(), []);
   }
-  {
-    // Si el modelo devuelve un bloque <tool_call>, se rechaza y ofrece el historial completo
-    const { anchor, options } = await setupBranch(t);
-    const { confirms } = useDialogs(t, [{ accepted: true, checkboxChecked: true }, true]);
-    useSummarizer(t, async () => ({ accumulatedText: '<tool_call>\n<function=run_command>\n<parameter=command>git status</parameter>\n</tool_call>' }));
-    assert.equal(await ConversationService.createConversationBranch(anchor, options), true);
-    assert.equal(confirms.length, 2);
-    assert.equal(State.get('messages').length, 5);
-  }
 });
 
 test('ConversationService - una sesión sin mensajes del usuario no se guarda', async t => {

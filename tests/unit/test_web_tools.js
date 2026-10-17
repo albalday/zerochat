@@ -5,7 +5,6 @@ const assert = require('node:assert/strict');
 const WebSearch = require('../../js/web-search.js');
 const WebBrowser = require('../../js/web-browser.js');
 const ChatMCP = require('../../js/mcp.js');
-const ChatUtils = require('../../js/utils.js');
 
 test('SearchProvider - DuckDuckGo HTML parsing', () => {
   const ddg = new WebSearch.DuckDuckGoSearchProvider();
@@ -69,8 +68,14 @@ test('PageFetcher - Validación de URLs y protección anti-SSRF', () => {
 
 test('PageFetcher - Pipeline de estrategias y límite de longitud de contenido', async () => {
   const pipeline = new WebBrowser.PageFetcherPipeline();
-  assert.equal(pipeline.strategies.length, 2);
-  assert.deepEqual(pipeline.strategies.map(s => s.name), ['LocalDocumentExtractor', 'DirectFetch']);
+  assert.deepEqual(pipeline.strategies.map(s => s.name), ['LocalDocumentExtractor', 'WikipediaArticle', 'DirectFetch']);
+
+  // Los artículos de Wikipedia se leen con la API REST de contenido, que admite CORS.
+  const restUrl = pipeline.strategies[1].constructor.restUrl;
+  assert.equal(restUrl('https://es.wikipedia.org/wiki/Sol'), 'https://es.wikipedia.org/api/rest_v1/page/html/Sol');
+  assert.equal(restUrl('https://en.m.wikipedia.org/wiki/AC%2FDC'), 'https://en.wikipedia.org/api/rest_v1/page/html/AC%2FDC');
+  assert.equal(restUrl('https://es.wikipedia.org/w/index.php?title=Sol'), '');
+  assert.equal(restUrl('https://example.com/wiki/Sol'), '');
 
   // Test de estrategia simulada con contenido superior al límite
   const originalFetch = global.fetch;
@@ -94,46 +99,57 @@ test('PageFetcher - Pipeline de estrategias y límite de longitud de contenido',
   }
 });
 
-test('ChatUtils.webFetch - transporte unificado web (backend si está conectado, fetch en navegador si no)', async () => {
+test('ChatWebBrowser.webFetch - backend si está conectado y, sin backend, fetch solo con cabeceras CORS-safelisted', async () => {
   const origIsProxyConnected = ChatMCP.manager.isProxyConnected;
   const origFetchWebResource = ChatMCP.manager.fetchWebResource;
+  const origFetch = global.fetch;
 
   try {
-    // 1. Cuando el backend está conectado, canaliza la petición por backend
+    // 1. Con backend, la petición va por él con las opciones de un solo nombre
     ChatMCP.manager.isProxyConnected = () => true;
-
     let calledUrl = null;
     let calledOptions = null;
     ChatMCP.manager.fetchWebResource = async (url, options) => {
       calledUrl = url;
       calledOptions = options;
-      return {
-        ok: true,
-        status: 200,
-        content_type: 'text/html; charset=utf-8',
-        text: '<html><body><h1>Contenido Backend</h1><p>Texto extraído correctamente.</p></body></html>',
-        byte_size: 85
-      };
+      return { ok: true, status: 200, content_type: 'text/html; charset=utf-8', text: '<p>Contenido Backend</p>', byte_size: 24, truncated: true };
     };
-
-    const res = await ChatUtils.webFetch('https://example.com/test');
+    const res = await WebBrowser.webFetch('https://example.com/test', { timeoutMs: 3000, maxBytes: 4096, accept: 'text/html' });
     assert.equal(calledUrl, 'https://example.com/test');
+    assert.deepEqual(calledOptions, { accept: 'text/html', timeoutMs: 3000, maxBytes: 4096, binary: false });
     assert.equal(res.ok, true);
-    assert.equal(res.status, 200);
-    const text = await res.text();
-    assert.ok(text.includes('Contenido Backend'));
+    assert.equal(res.truncated, true);
+    assert.equal(await res.text(), '<p>Contenido Backend</p>');
+    assert.equal(new TextDecoder().decode(await res.arrayBuffer()), '<p>Contenido Backend</p>');
 
-    // 2. Si el backend falla, no hace fallback a fetch en navegador, devuelve el error directamente
-    ChatMCP.manager.fetchWebResource = async () => {
-      return { ok: false, status: 502, error: 'Bad Gateway' };
-    };
-    const failRes = await ChatUtils.webFetch('https://example.com/test');
+    // 2. El cuerpo en base64 (tipo no textual) se lee como binario y como texto
+    ChatMCP.manager.fetchWebResource = async () => ({ ok: true, status: 200, content_type: 'application/pdf', base64: Buffer.from('%PDF-1.7').toString('base64') });
+    const binary = await WebBrowser.webFetch('https://example.com/pdf/1');
+    assert.equal(Buffer.from(await binary.arrayBuffer()).toString(), '%PDF-1.7');
+    assert.equal(await binary.text(), '%PDF-1.7');
+
+    // 3. Si el backend falla, no hay fallback al navegador
+    ChatMCP.manager.fetchWebResource = async () => ({ ok: false, status: 502, error: 'Bad Gateway' });
+    const failRes = await WebBrowser.webFetch('https://example.com/test');
     assert.equal(failRes.ok, false);
     assert.equal(failRes.status, 502);
     assert.equal(failRes.error, 'Bad Gateway');
+
+    // 4. Sin backend, el navegador solo envía Accept: otra cabecera (User-Agent) forzaría un preflight CORS
+    ChatMCP.manager.isProxyConnected = () => false;
+    let sentHeaders = null;
+    global.fetch = async (_url, init) => {
+      sentHeaders = init.headers;
+      return new Response('ok', { status: 200 });
+    };
+    const direct = await WebBrowser.webFetch('https://example.com/test', { accept: 'application/json' });
+    assert.deepEqual(sentHeaders, { Accept: 'application/json' });
+    assert.equal(direct.truncated, false);
+    assert.equal(await direct.text(), 'ok');
   } finally {
     ChatMCP.manager.isProxyConnected = origIsProxyConnected;
     ChatMCP.manager.fetchWebResource = origFetchWebResource;
+    global.fetch = origFetch;
   }
 });
 
@@ -203,27 +219,27 @@ test('BinaryFetcher - transporte binario vía backend con límites en el borde (
   try {
     ChatMCP.manager.isProxyConnected = () => true;
 
-    // Caso 1: Dentro del límite N bytes exactos
+    // Caso 1: N bytes exactos sin truncar: se pide al backend exactamente el límite
     const maxBytes = 100;
     const exactBytes = Buffer.alloc(maxBytes, 'A');
-    ChatMCP.manager.fetchWebResource = async () => ({
-      ok: true,
-      status: 200,
-      content_type: 'application/pdf',
-      base64: exactBytes.toString('base64')
-    });
+    let requestedMaxBytes = null;
+    ChatMCP.manager.fetchWebResource = async (_url, options) => {
+      requestedMaxBytes = options.maxBytes;
+      return { ok: true, status: 200, content_type: 'application/pdf', base64: exactBytes.toString('base64'), truncated: false };
+    };
 
     const resExact = await WebBrowser.fetchBinaryResource('https://example.com/test.pdf', { maxBytes, resourceKind: 'document' });
+    assert.equal(requestedMaxBytes, maxBytes);
     assert.equal(resExact.success, true);
     assert.equal(resExact.byteSize, maxBytes);
 
-    // Caso 2: Excede el límite en N+1 bytes exactos
-    const overBytes = Buffer.alloc(maxBytes + 1, 'B');
+    // Caso 2: N+1 bytes en origen: el backend corta en N y marca truncated
     ChatMCP.manager.fetchWebResource = async () => ({
       ok: true,
       status: 200,
       content_type: 'application/pdf',
-      base64: overBytes.toString('base64')
+      base64: exactBytes.toString('base64'),
+      truncated: true
     });
 
     const resOver = await WebBrowser.fetchBinaryResource('https://example.com/test.pdf', { maxBytes, resourceKind: 'document' });

@@ -197,6 +197,38 @@ describe('Browser - documents', () => {
     });
   });
 
+  test('Browser - sin backend, la búsqueda recurre a Wikipedia cuando DuckDuckGo no responde por CORS', async () => {
+    await withTestApp(async page => {
+      const result = await page.evaluate(async () => {
+        const originalFetch = window.fetch;
+        const requests = [];
+        window.fetch = async (url, init) => {
+          requests.push({ url: String(url), headers: init.headers });
+          if (String(url).startsWith('https://html.duckduckgo.com/')) throw new TypeError('NetworkError when attempting to fetch resource.');
+          if (String(url).startsWith('https://api.duckduckgo.com/')) return new Response('{"Abstract":"","Results":[]}', { headers: { 'content-type': 'application/json' } });
+          return new Response(JSON.stringify({ query: { search: [
+            { title: 'Sistema solar', snippet: 'El <span class="searchmatch">Sol</span> y &quot;sus&quot; planetas' }
+          ] } }), { headers: { 'content-type': 'application/json' } });
+        };
+        try {
+          const results = await new ChatWebSearch.DuckDuckGoSearchProvider().fetchResults('sol', { lang: 'es', timeoutMs: 3000 });
+          return { results, requests };
+        } finally {
+          window.fetch = originalFetch;
+        }
+      });
+
+      assert.deepEqual(result.results, [{
+        title: 'Sistema solar',
+        url: 'https://es.wikipedia.org/wiki/Sistema_solar',
+        snippet: 'El Sol y "sus" planetas',
+        source: 'Wikipedia'
+      }]);
+      assert.match(result.requests[2].url, /^https:\/\/es\.wikipedia\.org\/w\/api\.php\?action=query&list=search&srsearch=sol&.*origin=\*/);
+      assert.ok(result.requests.every(request => Object.keys(request.headers).join() === 'Accept'), 'Solo cabeceras CORS-safelisted');
+    });
+  });
+
   test('Browser - la base de conocimiento indexa documentos ofimáticos con sus imágenes', async () => {
     await withTestApp(async page => {
       const errors = [];

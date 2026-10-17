@@ -64,6 +64,10 @@
 
   const proxyEndpoint = (host, port) => `http://${host}:${port}/sse`;
 
+  // Escrituras del servidor local cuyo resultado lleva la ruta absoluta del fichero (botón Diff).
+  const FILE_WRITE_TOOLS = new Set(['write_file', 'edit_file']);
+  const WEB_FETCH_CONTROL_MARGIN_MS = 5000;
+
   /** Imagen base64 segura (tipo permitido y tamaño acotado) como data URL; null si no lo es. */
   function toSafeImageDataUrl(base64, mimeType) {
     const type = String(mimeType || 'image/png').toLowerCase();
@@ -595,9 +599,22 @@
     actions.prepend(btn);
   }
 
-  function appendFileDiffAction(card, toolName, args, t) {
-    if (toolName !== 'write_file' && toolName !== 'edit_file') return;
-    const path = String(args?.path || args?.filepath || args?.file || '').trim();
+  /** Ruta absoluta que devuelve write_file/edit_file del servidor local; '' si el resultado no la trae. */
+  function getWrittenFilePath(resultText) {
+    try {
+      const path = JSON.parse(resultText)?.path;
+      return typeof path === 'string' ? path : '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /**
+   * Botón Diff de las escrituras del servidor local: abre el visor de git del sistema sobre la ruta
+   * absoluta del resultado, que no depende del directorio de proyecto activo al pulsarlo.
+   */
+  function appendFileDiffAction(card, resultText, t) {
+    const path = getWrittenFilePath(resultText);
     if (!path) return;
 
     if (card.querySelector('.btn-file-diff')) return;
@@ -621,7 +638,7 @@
           if (res.has_commit_history) {
             const confirmed = await getDialogs().confirm(t('tool_diff_file_no_changes_ask_commit'));
             if (confirmed) {
-              await manager.openFileDiff(path, { commitFallback: true });
+              await manager.openFileDiff(path, true);
             }
           } else {
             await getDialogs().alert(t('tool_diff_file_no_changes'));
@@ -634,7 +651,8 @@
     actions.prepend(btn);
   }
 
-  function createMcpToolView(toolName, serverName) {
+  /** Vista de tarjeta de una herramienta MCP; `offersFileDiff` añade el botón Diff a sus resultados. */
+  function createMcpToolView(toolName, serverName, offersFileDiff) {
     const iconSvg = Icons.get('plug', { size: 14 });
     const codeBlock = text => `<pre class="tool-card-code"><code>${escapeHtml(text)}</code></pre>`;
 
@@ -663,10 +681,11 @@
         badge.innerHTML = isSuccess
           ? `${ui.CHECK_SVG} <span>${ui.t('tool_status_success')} (${elapsedMs}ms)</span>`
           : `${ui.ERROR_SVG} <span>${ui.t('tool_status_error', { ms: elapsedMs })}</span>`;
-        card.querySelector('.tool-card-result').innerHTML = codeBlock(getResultText(result));
+        const resultText = getResultText(result);
+        card.querySelector('.tool-card-result').innerHTML = codeBlock(resultText);
         if (isSuccess) {
           appendFilePreviewAction(card, args, ui.t);
-          appendFileDiffAction(card, toolName, args, ui.t);
+          if (offersFileDiff) appendFileDiffAction(card, resultText, ui.t);
         }
         const screenshot = getSafeMcpImageDataUrl(result);
         if (!screenshot) return false;
@@ -678,7 +697,7 @@
         const badge = `<span class="tool-card-badge status-success">${ui.CHECK_SVG} <span>${ui.t('tool_status_success')}</span></span>`;
         const card = renderCard(args, codeBlock(out), badge, ui, true);
         appendFilePreviewAction(card, args, ui.t);
-        appendFileDiffAction(card, toolName, args, ui.t);
+        if (offersFileDiff) appendFileDiffAction(card, out, ui.t);
         const screenshot = getSafeMcpImageFromMessage(message);
         if (screenshot) appendMcpScreenshot(card, screenshot, ui.t);
         return card;
@@ -779,7 +798,9 @@
             toModel: (args, result) => getResultText(result),
             toMarkdown: (args, result) => formatMcpMarkdown(toolName, args, result, serverName)
           },
-          view: isLocalCommand ? getCommandCard().createView() : createMcpToolView(toolName, serverName)
+          view: isLocalCommand
+            ? getCommandCard().createView()
+            : createMcpToolView(toolName, serverName, isProxy && FILE_WRITE_TOOLS.has(toolName))
         }));
       }
 
@@ -1016,16 +1037,18 @@
       return this.clients.has(PROXY_ID) && State.get('mcp')?.status === 'connected';
     }
 
-    /** Descarga un recurso web a través del backend local autorizado. */
-    async fetchWebResource(url, options = {}) {
+    /**
+     * Descarga un recurso web a través del backend local autorizado. La petición de control espera
+     * un margen sobre el plazo HTTP para recibir el error de plazo del propio backend.
+     */
+    async fetchWebResource(url, { accept, timeoutMs, maxBytes, binary }) {
       return this.requestExternalControl('zerochat/web/fetch', {
         url,
-        headers: options.headers || {},
-        timeout_s: options.timeout_s || (options.timeoutMs ? options.timeoutMs / 1000 : 10),
-        max_bytes: options.max_bytes || options.maxBytes || 2 * 1024 * 1024,
-        binary: Boolean(options.binary),
-        allow_local: Boolean(options.allowLocal || options.allow_local)
-      }, { timeoutMs: options.timeoutMs || 15000 });
+        accept,
+        timeout_s: timeoutMs / 1000,
+        max_bytes: maxBytes,
+        binary
+      }, { timeoutMs: timeoutMs + WEB_FETCH_CONTROL_MARGIN_MS });
     }
 
     /**
@@ -1102,11 +1125,12 @@
       return result;
     }
 
-    /** Solicita al backend abrir el visor externo de diffs para un fichero. */
-    async openFileDiff(path, options = {}) {
-      const tool = (typeof options === 'string' ? options : options?.tool) || undefined;
-      const commitFallback = typeof options === 'object' && Boolean(options?.commitFallback);
-      return this.requestExternalControl('zerochat/diff/open', { path, tool, commit_fallback: commitFallback });
+    /**
+     * Solicita al backend abrir el visor externo de diffs para un fichero; con `commitFallback`,
+     * si no hay cambios pendientes, el del último commit que lo modificó.
+     */
+    async openFileDiff(path, commitFallback = false) {
+      return this.requestExternalControl('zerochat/diff/open', { path, commit_fallback: commitFallback });
     }
 
     async refreshExternalProvider() {
