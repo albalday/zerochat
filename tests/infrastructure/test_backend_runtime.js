@@ -5,171 +5,64 @@ const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
 
-test('zerochat.py: la consola interactiva expone estado, ayuda y cierre ordenado', () => {
-  const repoRoot = path.resolve(__dirname, '../..');
-  const script = `
-import argparse
+const repoRoot = path.resolve(__dirname, '../..');
+const backendPath = path.join(repoRoot, 'zerochat.py');
+
+function runPython(script, options) {
+  return execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8', ...options });
+}
+
+// Imports zerochat once in the shared process; grouped bodies use the global `zerochat`.
+const importZerochat = `
 import importlib.util
 import sys
-import time
 from pathlib import Path
-spec = importlib.util.spec_from_file_location('zerochat_console_test', Path(${JSON.stringify(path.resolve(__dirname, '../../zerochat.py'))}))
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-parser = argparse.ArgumentParser(prog='zerochat.py')
-assert 'usage: zerochat.py' in parser.format_help()
-
-class InteractiveOutput:
-    def __init__(self):
-        import io
-        self.output = io.StringIO()
-    def isatty(self):
-        return True
-    def write(self, value):
-        return self.output.write(value)
-    def flush(self):
-        return self.output.flush()
-
-original_stdin = sys.stdin
-original_stdout = sys.stdout
-try:
-    interactive = InteractiveOutput()
-    sys.stdout = interactive
-    module.CONSOLE_STATUS_IDLE_SECONDS = 0.02
-    console = module.ConsoleControl(None, parser, target_url="http://127.0.0.1:6388/zerochat.html#token=abc")
-    assert console.enabled is True
-    console.start()
-    console.log("primer log")
-    time.sleep(0.04)
-    assert interactive.output.getvalue().count("Comandos de consola:") == 1
-    assert "ZeroChat activo" not in interactive.output.getvalue()
-    time.sleep(0.04)
-    assert interactive.output.getvalue().count("Comandos de consola:") == 1
-    console.log("segundo log")
-    time.sleep(0.04)
-    assert interactive.output.getvalue().count("Comandos de consola:") == 2
-    console.close()
-finally:
-    sys.stdin = original_stdin
-    sys.stdout = original_stdout
+spec = importlib.util.spec_from_file_location('zerochat', Path(${JSON.stringify(backendPath)}))
+zerochat = importlib.util.module_from_spec(spec)
+sys.modules['zerochat'] = zerochat
+spec.loader.exec_module(zerochat)
 `;
-  // Python 3.14 colorea la ayuda de argparse si FORCE_COLOR está definido; el test compara texto plano.
-  const env = { ...process.env, NO_COLOR: '1' };
-  delete env.FORCE_COLOR;
-  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, env, stdio: 'pipe' }));
-});
 
-test('zerochat.py: run_command abre una shell nueva en el proyecto y une stdout y stderr en orden', { skip: process.platform === 'win32' }, () => {
-  const repoRoot = path.resolve(__dirname, '../..');
-  const script = `
-import importlib.util
-import json
-import os
-import tempfile
-from pathlib import Path
+// Runs several stripped bodies in one Python process, collecting failures.
+function groupScript(bodies) {
+  const fns = bodies.map((body, i) =>
+    `def fn${i}():
+` + body.split('\n').map((l) => (l.length ? '    ' + l : '')).join('\n'));
+  return `${importZerochat}
+${fns.join('\n')}
 
-with tempfile.TemporaryDirectory() as temp_dir:
-    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
-    spec = importlib.util.spec_from_file_location("zerochat_run_command_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
-    zerochat = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(zerochat)
-    start = Path.cwd()
-    project = (Path(temp_dir) / "project").resolve()
-    (project / "src").mkdir(parents=True)
-    os.chdir(project)
-
-    result = json.loads(zerochat.run_command("echo uno; echo dos >&2; echo tres; exit 3"))
-    assert result["success"] is False and result["status"] == "exited" and result["exit_code"] == 3, result
-    assert result["output"] == "uno\\ndos\\ntres\\n", result
-    assert isinstance(result["job_id"], int) and "cwd" not in result
-
-    # Nada pasa de una llamada a la siguiente: ni el directorio ni las variables.
-    assert json.loads(zerochat.run_command("cd src && export ZC_TEST_VAR=1 && pwd"))["output"].strip() == str(project / "src")
-    after = json.loads(zerochat.run_command('pwd; echo "var=$ZC_TEST_VAR"'))
-    assert after["output"] == f"{project}\\nvar=\\n", after
-
-    for bad in ("", "   "):
-        assert json.loads(zerochat.run_command(bad))["success"] is False
-    os.chdir(start)
+import traceback
+failures = []
+for _fn in ${bodies.map((_, i) => `fn${i}`).join(', ')}:
+    try:
+        _fn()
+    except Exception:
+        failures.append(_fn.__name__)
+        traceback.print_exc()
+if failures:
+    print("FAILURES:", ", ".join(failures), file=sys.stderr)
+    sys.exit(1)
 `;
-  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
-});
+}
 
-test('zerochat.py: set_project_directory mueve el proceso y los comandos, y cd no cambia el proyecto', { skip: process.platform === 'win32' }, () => {
-  const repoRoot = path.resolve(__dirname, '../..');
-  const script = `
-import importlib.util
-import os
-import tempfile
-from pathlib import Path
+function stripImports(body) {
+  let usesPath = /\bPath\(/.test(body);
+  return body
+    .split('\n')
+    .filter((l) =>
+      !/^import importlib\.util$/.test(l) &&
+      !/^spec = importlib\.util\.spec_from_file_location/.test(l) &&
+      !/^zerochat = importlib\.util\.module_from_spec\(spec\)$/.test(l) &&
+      !/^spec\.loader\.exec_module\(zerochat\)$/.test(l) &&
+      !/^import zerochat$/.test(l) &&
+      !(usesPath === false && /^from pathlib import Path$/.test(l))
+    )
+    .join('\n');
+}
 
-with tempfile.TemporaryDirectory() as temp_dir:
-    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
-    spec = importlib.util.spec_from_file_location("zerochat_project_dir_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
-    zerochat = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(zerochat)
-    import json
-    dev_root = zerochat.get_dev_root()
-    start = Path.cwd().resolve()
-    project = (Path(temp_dir) / "project").resolve()
-    (project / "src").mkdir(parents=True)
-    (project / "note.txt").write_text("hola", encoding="utf-8")
-
-    for bad in ("", "   ", None, 7, "x" * 5000, str(project / "missing"), str(project / "note.txt")):
-        try:
-            zerochat.set_project_directory(bad)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError(f"debe rechazar {bad!r}")
-        assert Path.cwd().resolve() == start
-
-    result = zerochat.set_project_directory(str(project))
-    assert result == {"cwd": str(project), "previous_cwd": str(start)}
-    assert Path.cwd().resolve() == project
-    assert json.loads(zerochat.read_file("note.txt"))["content"].startswith("hola")
-    assert json.loads(zerochat.run_command("pwd"))["output"].strip() == str(project)
-
-    # cd solo vale dentro del comando: el proyecto (y las rutas relativas) siguen en la raíz.
-    assert json.loads(zerochat.run_command("cd src && pwd"))["output"].strip() == str(project / "src")
-    assert Path.cwd().resolve() == project
-    assert json.loads(zerochat.read_file("note.txt"))["success"] is True
-
-    # Una ruta relativa se resuelve contra el proyecto actual y los comandos arrancan en la nueva raíz.
-    assert zerochat.set_project_directory("src")["cwd"] == str(project / "src")
-    assert json.loads(zerochat.run_command("pwd"))["output"].strip() == str(project / "src")
-    assert zerochat.get_dev_root() == dev_root
-    assert "set_project_directory" not in zerochat.LOCAL_TOOL_HANDLERS
-    os.chdir(start)
-`;
-  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
-});
-
-test('Generación y persistencia de token diario en zerochat.py', async () => {
-  const code = `
-import zerochat
-token1 = zerochat.get_daily_token()
-token2 = zerochat.get_daily_token()
-assert token1 == token2, "El token diario debe ser idempotente en el mismo día"
-assert len(token1) > 20, "El token debe ser de longitud segura"
-print("DAILY_TOKEN_OK")
-`;
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-daily-token-'));
-  try {
-    const output = execFileSync('python3', ['-c', code], {
-      cwd: path.resolve(__dirname, '../..'),
-      env: { ...process.env, ZEROCHAT_DATA_DIR: dataDir },
-      encoding: 'utf8'
-    });
-    assert.ok(output.includes('DAILY_TOKEN_OK'));
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('zerochat.py: el token diario y su directorio se crean solo legibles por el usuario', { skip: process.platform === 'win32' }, () => {
-  const repoRoot = path.resolve(__dirname, '../..');
-  const script = `
+// Bodies of the tests grouped into shared processes; stripImports removes the
+// per-script zerochat import boilerplate at runtime so each process imports it once.
+const tokenPermsBody = `
 import importlib.util
 import json
 import os
@@ -204,12 +97,7 @@ with tempfile.TemporaryDirectory() as temp_dir:
     assert zerochat.get_daily_token() == token
     assert stat.S_IMODE(token_file.stat().st_mode) == 0o600
 `;
-  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
-});
-
-test('Apertura de navegador en zerochat.py: open_browser prioriza herramientas de sistema y desacopla el proceso', () => {
-  const repoRoot = path.resolve(__dirname, '../..');
-  const testScript = `
+const openBrowserBody = `
 import sys
 import os
 import subprocess
@@ -316,18 +204,7 @@ with patch('shutil.which', return_value=None), patch('webbrowser.open', return_v
 
 print("OPEN_BROWSER_TEST_OK")
 `;
-
-  const output = execFileSync('python3', ['-c', testScript], {
-    cwd: repoRoot,
-    encoding: 'utf8'
-  });
-  assert.ok(output.includes('OPEN_BROWSER_TEST_OK'), 'La prueba de open_browser debe completarse correctamente');
-});
-
-test('Servidor local zerochat.py: omite comprobación de versión remota en desarrollo local', () => {
-  const repoRoot = path.resolve(__dirname, '../..');
-
-  const checkPyCode = `
+const checkVersionBody = `
 import zerochat
 import sys
 
@@ -427,13 +304,7 @@ with tempfile.TemporaryDirectory() as temp_dir:
          patch.object(zerochat.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="v24.18.1\\n")):
         zerochat.McpServiceManager()._prepare_service("example", {"_directory": service_dir})
 `;
-
-  execFileSync('python3', ['-c', checkPyCode], { cwd: repoRoot });
-});
-
-test('zerochat.py: avisa al escuchar en un host que no es de bucle local', () => {
-  const repoRoot = path.resolve(__dirname, '../..');
-  const checkPyCode = `
+const loopbackBody = `
 import zerochat
 
 for host in ("127.0.0.1", "127.0.0.2", "localhost", "LOCALHOST", "::1", "[::1]"):
@@ -445,13 +316,186 @@ for host in ("0.0.0.0", "::", "192.168.1.10", "mi-equipo.local", ""):
     warning = zerochat.remote_exposure_warning(host)
     assert warning and "ejecutar comandos" in warning and "sin cifrar" in warning, host
 `;
+const symlinksBody = `
+import importlib.util
+import json
+import os
+import tempfile
+from pathlib import Path
 
-  execFileSync('python3', ['-c', checkPyCode], { cwd: repoRoot });
-});
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    spec = importlib.util.spec_from_file_location("zerochat_tools_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    zerochat = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(zerochat)
 
-test('zerochat.py: run_command mata a los descendientes al agotar el plazo y acota la salida', { skip: process.platform === 'win32' }, () => {
-  const repoRoot = path.resolve(__dirname, '../..');
-  const script = `
+    base = Path(temp_dir)
+    outside = base / "outside.txt"
+    outside.write_text("SECRET_EXTERNAL_DATA", encoding="utf-8")
+
+    project = base / "proj"
+    project.mkdir()
+    (project / "regular.txt").write_text("hello world\\nregular line", encoding="utf-8")
+    (project / "symlink_ext.txt").symlink_to(outside)
+
+    sub = project / "sub"
+    sub.mkdir()
+    (sub / "inside.py").write_text("print('inside')\\n", encoding="utf-8")
+    (sub / "ext_link.py").symlink_to(outside)
+
+    # 1. list_directory con recursive=True no falla ante symlink externo y calcula relative_path
+    list_res = json.loads(zerochat.list_directory(str(project), recursive=True))
+    assert list_res["success"] is True
+    paths = [e["name"] for e in list_res["entries"]]
+    assert "symlink_ext.txt" in paths
+
+    # 2. search_files no indexa ni busca en symlinks que apuntan fuera del proyecto
+    search_res = json.loads(zerochat.search_files("SECRET_EXTERNAL", path=str(project)))
+    assert search_res["success"] is True
+    assert search_res["total_matches"] == 0
+
+    search_ok = json.loads(zerochat.search_files("hello", path=str(project)))
+    assert search_ok["success"] is True
+    assert search_ok["total_matches"] == 1
+    assert "warning" not in search_ok
+
+    # 2b. search_files incluye warning explícito cuando una regex inválida activa el modo literal
+    invalid_regex_res = json.loads(zerochat.search_files("hello(", path=str(project)))
+    assert invalid_regex_res["success"] is True
+    assert "warning" in invalid_regex_res
+    assert "treated as literal text" in invalid_regex_res["warning"]
+
+    # 3. get_diagnostics no escanea symlinks que apuntan fuera del proyecto
+    diag_res = json.loads(zerochat.get_diagnostics(path=str(project)))
+    assert diag_res["success"] is True
+    assert diag_res["error_count"] == 0
+
+    # 4. read_file acota end_line a máximo 2000 líneas
+    big_file = project / "big.txt"
+    big_file.write_text("\\n".join(f"line_{i}" for i in range(1, 3000)), encoding="utf-8")
+    read_res = json.loads(zerochat.read_file(str(big_file), start_line=1, end_line=2500))
+    assert read_res["success"] is True
+    assert read_res["lines_returned"] == 2000
+    assert read_res["truncated"] is True
+`;
+const ssrfBody = `
+import importlib.util
+import json
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("zerochat_web_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+zerochat = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(zerochat)
+
+# 1. Validación anti-SSRF (is_dangerous_host)
+assert zerochat.is_dangerous_host("169.254.169.254") is True
+assert zerochat.is_dangerous_host("metadata.google.internal") is True
+assert zerochat.is_dangerous_host("127.0.0.1", allow_local=False) is True
+assert zerochat.is_dangerous_host("localhost", allow_local=False) is True
+assert zerochat.is_dangerous_host("10.0.0.1", allow_local=False) is True
+assert zerochat.is_dangerous_host("192.168.1.1", allow_local=False) is True
+assert zerochat.is_dangerous_host("example.com", allow_local=False) is False
+# allow_local permite loopback/local
+assert zerochat.is_dangerous_host("127.0.0.1", allow_local=True) is False
+
+# 2. fetch_web_resource rechaza SSRF peligroso
+try:
+    zerochat.fetch_web_resource({"url": "http://169.254.169.254/latest/meta-data/"})
+    assert False, "Debe rechazar metadatos de cloud"
+except PermissionError:
+    pass
+
+# 3. fetch_web_resource rechaza protocolos no permitidos
+try:
+    zerochat.fetch_web_resource({"url": "ftp://example.com/file"})
+    assert False, "Debe rechazar ftp://"
+except ValueError:
+    pass
+
+# 4. fetch_web_resource valida URLs vacías o inválidas
+try:
+    zerochat.fetch_web_resource({"url": ""})
+    assert False, "Debe rechazar URL vacía"
+except ValueError:
+    pass
+`;
+const shellBody = `
+import importlib.util
+import json
+import os
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    spec = importlib.util.spec_from_file_location("zerochat_run_command_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    zerochat = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(zerochat)
+    start = Path.cwd()
+    project = (Path(temp_dir) / "project").resolve()
+    (project / "src").mkdir(parents=True)
+    os.chdir(project)
+
+    result = json.loads(zerochat.run_command("echo uno; echo dos >&2; echo tres; exit 3"))
+    assert result["success"] is False and result["status"] == "exited" and result["exit_code"] == 3, result
+    assert result["output"] == "uno\\ndos\\ntres\\n", result
+    assert isinstance(result["job_id"], int) and "cwd" not in result
+
+    # Nada pasa de una llamada a la siguiente: ni el directorio ni las variables.
+    assert json.loads(zerochat.run_command("cd src && export ZC_TEST_VAR=1 && pwd"))["output"].strip() == str(project / "src")
+    after = json.loads(zerochat.run_command('pwd; echo "var=$ZC_TEST_VAR"'))
+    assert after["output"] == f"{project}\\nvar=\\n", after
+
+    for bad in ("", "   "):
+        assert json.loads(zerochat.run_command(bad))["success"] is False
+    os.chdir(start)
+`;
+const setdirBody = `
+import importlib.util
+import os
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    spec = importlib.util.spec_from_file_location("zerochat_project_dir_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    zerochat = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(zerochat)
+    import json
+    dev_root = zerochat.get_dev_root()
+    start = Path.cwd().resolve()
+    project = (Path(temp_dir) / "project").resolve()
+    (project / "src").mkdir(parents=True)
+    (project / "note.txt").write_text("hola", encoding="utf-8")
+
+    for bad in ("", "   ", None, 7, "x" * 5000, str(project / "missing"), str(project / "note.txt")):
+        try:
+            zerochat.set_project_directory(bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"debe rechazar {bad!r}")
+        assert Path.cwd().resolve() == start
+
+    result = zerochat.set_project_directory(str(project))
+    assert result == {"cwd": str(project), "previous_cwd": str(start)}
+    assert Path.cwd().resolve() == project
+    assert json.loads(zerochat.read_file("note.txt"))["content"].startswith("hola")
+    assert json.loads(zerochat.run_command("pwd"))["output"].strip() == str(project)
+
+    # cd solo vale dentro del comando: el proyecto (y las rutas relativas) siguen en la raíz.
+    assert json.loads(zerochat.run_command("cd src && pwd"))["output"].strip() == str(project / "src")
+    assert Path.cwd().resolve() == project
+    assert json.loads(zerochat.read_file("note.txt"))["success"] is True
+
+    # Una ruta relativa se resuelve contra el proyecto actual y los comandos arrancan en la nueva raíz.
+    assert zerochat.set_project_directory("src")["cwd"] == str(project / "src")
+    assert json.loads(zerochat.run_command("pwd"))["output"].strip() == str(project / "src")
+    assert zerochat.get_dev_root() == dev_root
+    assert "set_project_directory" not in zerochat.LOCAL_TOOL_HANDLERS
+    os.chdir(start)
+`;
+const killDescBody = `
 import importlib.util
 import json
 import os
@@ -508,11 +552,100 @@ with tempfile.TemporaryDirectory() as temp_dir:
     content = log_file.with_name(f"job-{job.id}.log").read_text(encoding="utf-8")
     assert content.startswith("1\\n2\\n") and "bytes of output discarded" in content and content.endswith("20000\\n")
 `;
-  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+
+test('zerochat.py: token, open_browser, check_version, loopback, simbólicos y red en un proceso compartido', () => {
+  assert.doesNotThrow(() =>
+    runPython(groupScript([
+      stripImports(tokenPermsBody),
+      stripImports(openBrowserBody),
+      stripImports(checkVersionBody),
+      stripImports(loopbackBody),
+      stripImports(symlinksBody),
+      stripImports(ssrfBody),
+    ])));
+});
+
+test('zerochat.py: run_command shell, set_project_directory y descendientes en un proceso compartido', { skip: process.platform === 'win32' }, () => {
+  assert.doesNotThrow(() =>
+    runPython(groupScript([
+      stripImports(shellBody),
+      stripImports(setdirBody),
+      stripImports(killDescBody),
+    ])));
+});
+
+test('zerochat.py: la consola interactiva expone estado, ayuda y cierre ordenado', () => {
+  const script = `
+import argparse
+import importlib.util
+import sys
+import time
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('zerochat_console_test', Path(${JSON.stringify(path.resolve(__dirname, '../../zerochat.py'))}))
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+parser = argparse.ArgumentParser(prog='zerochat.py')
+assert 'usage: zerochat.py' in parser.format_help()
+
+class InteractiveOutput:
+    def __init__(self):
+        import io
+        self.output = io.StringIO()
+    def isatty(self):
+        return True
+    def write(self, value):
+        return self.output.write(value)
+    def flush(self):
+        return self.output.flush()
+
+original_stdin = sys.stdin
+original_stdout = sys.stdout
+try:
+    interactive = InteractiveOutput()
+    sys.stdout = interactive
+    module.CONSOLE_STATUS_IDLE_SECONDS = 0.02
+    console = module.ConsoleControl(None, parser, target_url="http://127.0.0.1:6388/zerochat.html#token=abc")
+    assert console.enabled is True
+    console.start()
+    console.log("primer log")
+    time.sleep(0.04)
+    assert interactive.output.getvalue().count("Comandos de consola:") == 1
+    assert "ZeroChat activo" not in interactive.output.getvalue()
+    time.sleep(0.04)
+    assert interactive.output.getvalue().count("Comandos de consola:") == 1
+    console.log("segundo log")
+    time.sleep(0.04)
+    assert interactive.output.getvalue().count("Comandos de consola:") == 2
+    console.close()
+finally:
+    sys.stdin = original_stdin
+    sys.stdout = original_stdout
+`;
+  // Python 3.14 colorea la ayuda de argparse si FORCE_COLOR está definido; el test compara texto plano.
+  const env = { ...process.env, NO_COLOR: '1' };
+  delete env.FORCE_COLOR;
+  assert.doesNotThrow(() => runPython(script, { env }));
+});
+
+test('Generación y persistencia de token diario en zerochat.py', () => {
+  const code = `
+import zerochat
+token1 = zerochat.get_daily_token()
+token2 = zerochat.get_daily_token()
+assert token1 == token2, "El token diario debe ser idempotente en el mismo día"
+assert len(token1) > 20, "El token debe ser de longitud segura"
+print("DAILY_TOKEN_OK")
+`;
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-daily-token-'));
+  try {
+    const output = runPython(code, { env: { ...process.env, ZEROCHAT_DATA_DIR: dataDir } });
+    assert.match(output, /DAILY_TOKEN_OK/);
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
 });
 
 test('zerochat.py: run_command en segundo plano se sigue y se detiene con check_command', { skip: process.platform === 'win32' }, () => {
-  const repoRoot = path.resolve(__dirname, '../..');
   const script = `
 import importlib.util
 import json
@@ -578,11 +711,10 @@ with tempfile.TemporaryDirectory() as temp_dir:
     assert not log_dir.exists()
     assert "bash" not in zerochat.LOCAL_TOOL_HANDLERS and "execute_command" not in zerochat.LOCAL_TOOL_HANDLERS
 `;
-  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+  assert.doesNotThrow(() => runPython(script));
 });
 
 test('zerochat.py: al arrancar mata los comandos de instancias muertas sin tocar las vivas', { skip: process.platform === 'win32' }, () => {
-  const repoRoot = path.resolve(__dirname, '../..');
   const script = `
 import importlib.util
 import json
@@ -648,124 +780,10 @@ with tempfile.TemporaryDirectory() as temp_dir:
     zerochat.JOBS.shutdown()
     assert not own.exists()
 `;
-  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
-});
-
-test('zerochat.py: list_directory, search_files y get_diagnostics manejan enlaces simbólicos externos de forma segura', () => {
-  const repoRoot = path.resolve(__dirname, '../..');
-  const script = `
-import importlib.util
-import json
-import os
-import tempfile
-from pathlib import Path
-
-with tempfile.TemporaryDirectory() as temp_dir:
-    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
-    spec = importlib.util.spec_from_file_location("zerochat_tools_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
-    zerochat = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(zerochat)
-
-    base = Path(temp_dir)
-    outside = base / "outside.txt"
-    outside.write_text("SECRET_EXTERNAL_DATA", encoding="utf-8")
-
-    project = base / "proj"
-    project.mkdir()
-    (project / "regular.txt").write_text("hello world\\nregular line", encoding="utf-8")
-    (project / "symlink_ext.txt").symlink_to(outside)
-
-    sub = project / "sub"
-    sub.mkdir()
-    (sub / "inside.py").write_text("print('inside')\\n", encoding="utf-8")
-    (sub / "ext_link.py").symlink_to(outside)
-
-    # 1. list_directory con recursive=True no falla ante symlink externo y calcula relative_path
-    list_res = json.loads(zerochat.list_directory(str(project), recursive=True))
-    assert list_res["success"] is True
-    paths = [e["name"] for e in list_res["entries"]]
-    assert "symlink_ext.txt" in paths
-
-    # 2. search_files no indexa ni busca en symlinks que apuntan fuera del proyecto
-    search_res = json.loads(zerochat.search_files("SECRET_EXTERNAL", path=str(project)))
-    assert search_res["success"] is True
-    assert search_res["total_matches"] == 0
-
-    search_ok = json.loads(zerochat.search_files("hello", path=str(project)))
-    assert search_ok["success"] is True
-    assert search_ok["total_matches"] == 1
-    assert "warning" not in search_ok
-
-    # 2b. search_files incluye warning explícito cuando una regex inválida activa el modo literal
-    invalid_regex_res = json.loads(zerochat.search_files("hello(", path=str(project)))
-    assert invalid_regex_res["success"] is True
-    assert "warning" in invalid_regex_res
-    assert "treated as literal text" in invalid_regex_res["warning"]
-
-    # 3. get_diagnostics no escanea symlinks que apuntan fuera del proyecto
-    diag_res = json.loads(zerochat.get_diagnostics(path=str(project)))
-    assert diag_res["success"] is True
-    assert diag_res["error_count"] == 0
-
-    # 4. read_file acota end_line a máximo 2000 líneas
-    big_file = project / "big.txt"
-    big_file.write_text("\\n".join(f"line_{i}" for i in range(1, 3000)), encoding="utf-8")
-    read_res = json.loads(zerochat.read_file(str(big_file), start_line=1, end_line=2500))
-    assert read_res["success"] is True
-    assert read_res["lines_returned"] == 2000
-    assert read_res["truncated"] is True
-`;
-  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
-});
-
-test('zerochat.py: fetch_web_resource y validación anti-SSRF de transporte web', () => {
-  const repoRoot = path.resolve(__dirname, '../..');
-  const script = `
-import importlib.util
-import json
-from pathlib import Path
-
-spec = importlib.util.spec_from_file_location("zerochat_web_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
-zerochat = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(zerochat)
-
-# 1. Validación anti-SSRF (is_dangerous_host)
-assert zerochat.is_dangerous_host("169.254.169.254") is True
-assert zerochat.is_dangerous_host("metadata.google.internal") is True
-assert zerochat.is_dangerous_host("127.0.0.1", allow_local=False) is True
-assert zerochat.is_dangerous_host("localhost", allow_local=False) is True
-assert zerochat.is_dangerous_host("10.0.0.1", allow_local=False) is True
-assert zerochat.is_dangerous_host("192.168.1.1", allow_local=False) is True
-assert zerochat.is_dangerous_host("example.com", allow_local=False) is False
-# allow_local permite loopback/local
-assert zerochat.is_dangerous_host("127.0.0.1", allow_local=True) is False
-
-# 2. fetch_web_resource rechaza SSRF peligroso
-try:
-    zerochat.fetch_web_resource({"url": "http://169.254.169.254/latest/meta-data/"})
-    assert False, "Debe rechazar metadatos de cloud"
-except PermissionError:
-    pass
-
-# 3. fetch_web_resource rechaza protocolos no permitidos
-try:
-    zerochat.fetch_web_resource({"url": "ftp://example.com/file"})
-    assert False, "Debe rechazar ftp://"
-except ValueError:
-    pass
-
-# 4. fetch_web_resource valida URLs vacías o inválidas
-try:
-    zerochat.fetch_web_resource({"url": ""})
-    assert False, "Debe rechazar URL vacía"
-except ValueError:
-    pass
-`;
-  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+  assert.doesNotThrow(() => runPython(script));
 });
 
 test('zerochat.py: en Windows cada comando queda en un Job Object que lo mata si ZeroChat termina', { skip: process.platform !== 'win32' }, () => {
-  const repoRoot = path.resolve(__dirname, '../..');
   const script = `
 import ctypes
 import importlib.util

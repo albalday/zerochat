@@ -104,3 +104,11 @@ Done when: no test or module depends on happy-dom and Node-only branches are gon
 - [x] M24-T27 Measure tests, lines and run time before/after, agree the targets with the user and update the Done when figures (2026-10-17)
 - [x] M24-T28 Remove completed M24 planning draft and stale plan reference (2026-10-17)
 - [x] M24-T29 Share one zerochat.py server per group in test_local_server.js (7 spawns to 4) and clarify the shared-startup rule in AGENTS.md (2026-10-17)
+- [x] M24-T30 Group the python3 -c scripts of test_backend_runtime.js that import zerochat into shared Python processes (10 to 6 on Linux) (2026-10-17)
+
+## M25 History summarization reliability, transcript sanitization and tool-call protection
+Goal: Prevent history summarization (in branches and automatic 70% compaction) from emitting or accepting tool calls, losing context or corrupting checkpoints in agent sessions.
+Done when: the history sent to the summarizer is formatted as a neutral transcript instead of executable agent turns; boundary slicing when branching or compacting sanitizes incomplete tool turns; compressHistory rejects raw tool calls or invalid summaries with proper fallbacks in branches and compaction; verified with unit/integration tests covering branches and 70% compaction with tool histories.
+- [ ] M25-T1 Format history as neutral transcript in createHistorySummarizer / ContextManager to avoid agent role inertia and tool execution prompts, with tests
+- [ ] M25-T2 Validate summarizer output in compressHistory (rejecting raw <tool_call> and empty outputs) with fallback handling in branch creation and 70% compaction, with tests
+- [ ] M25-T3 Sanitize history boundary when branching or compacting on tool-call turns to prevent orphan tool messages, with tests
