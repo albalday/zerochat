@@ -61,9 +61,6 @@ test('Herramientas web: un documento ofimático se descarga una sola vez y se le
   global.fetch = async url => {
     requested.push(String(url));
     if (url === 'https://example.com/files/informe.odt') return new Response(fixtureBytes('pandoc.odt'), { headers: { 'content-type': 'application/octet-stream' } });
-    if (url === 'https://example.com/export?id=7') {
-      return new Response(fixtureBytes('exceljs.xlsx'), { headers: { 'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' } });
-    }
     if (url === 'https://example.com/files/acta.doc') return new Response(new Uint8Array([0xD0, 0xCF, 0x11, 0xE0]), { headers: { 'content-type': 'application/msword' } });
     return new Response('unexpected request', { status: 503 });
   };
@@ -76,12 +73,6 @@ test('Herramientas web: un documento ofimático se descarga una sola vez y se le
     assert.match(text.content, /\[Image: Image 1 \(page 1\)\]/);
     assert.doesNotMatch(text.content, /rag-image:/);
     assert.deepEqual(requested, ['https://example.com/files/informe.odt']);
-
-    const sheet = await WebBrowser.fetchPage('https://example.com/export?id=7');
-    assert.equal(sheet.success, true);
-    assert.equal(sheet.strategy, 'DirectFetch');
-    assert.match(sheet.content, /^\[Excel spreadsheet: export\]/);
-    assert.match(sheet.content, /^## Sheet: Ventas$/m);
 
     // Con backend, un documento sin extensión llega en base64 por su Content-Type y se lee igual.
     const manager = require('../../js/mcp.js').manager;

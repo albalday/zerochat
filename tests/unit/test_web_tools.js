@@ -6,46 +6,32 @@ const WebSearch = require('../../js/web-search.js');
 const WebBrowser = require('../../js/web-browser.js');
 const ChatMCP = require('../../js/mcp.js');
 
-test('WebSearch - Tavily: petición autenticada, resultados para el modelo y errores de la API', async t => {
-  const requests = [];
-  let reply = () => Response.json({ results: [
-    { title: 'Precio gasolina', url: 'https://example.com/gasolina', content: 'Hoy  el precio\n medio es 1,60 €.', score: 0.9 },
-    { title: 'Sin URL', content: 'descartado' }
-  ] });
-  t.mock.method(global, 'fetch', async (url, init) => {
-    requests.push({ url, init });
-    return reply();
-  });
+test('WebSearch - DuckDuckGo HTML: resultados con la URL real, sin repetidos, y errores del proxy', async t => {
+  const html = `
+    <div class="result"><a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fgasolina&amp;rut=abc">Precio <b>gasolina</b></a>
+    <a class="result__snippet" href="#">Hoy el precio medio es <b>1,60 €</b>.</a></div>
+    <div class="result"><a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fgasolina">Repetido</a></div>
+    <div class="result"><a class="result__a" href="https://other.example/page">Otra</a><div class="result__snippet">Fragmento</div></div>`;
+  assert.deepEqual(WebSearch.parseHtmlResults(html), [
+    { title: 'Precio gasolina', url: 'https://example.com/gasolina', snippet: 'Hoy el precio medio es 1,60 €.', source: 'DuckDuckGo' },
+    { title: 'Otra', url: 'https://other.example/page', snippet: 'Fragmento', source: 'DuckDuckGo' }
+  ]);
 
-  // Sin clave no se llama a Tavily
-  const noKey = await WebSearch.search('gasolina', '');
-  assert.equal(noKey.success, false);
-  assert.match(noKey.error, /needs a Tavily API key/);
-  assert.equal(requests.length, 0);
-
-  const ok = await WebSearch.search('  gasolina hoy ', 'tvly-test');
-  assert.equal(requests[0].url, 'https://api.tavily.com/search');
-  assert.equal(requests[0].init.method, 'POST');
-  assert.deepEqual(requests[0].init.headers, { 'Content-Type': 'application/json', Authorization: 'Bearer tvly-test' });
-  assert.deepEqual(JSON.parse(requests[0].init.body), { query: 'gasolina hoy', max_results: 8, search_depth: 'basic' });
+  // Sin backend la página de resultados llega por Jina Reader
+  const requested = [];
+  let reply = () => new Response(html, { status: 200 });
+  t.mock.method(global, 'fetch', async url => { requested.push(String(url)); return reply(); });
+  const ok = await WebSearch.search('  precio gasolina ');
+  assert.deepEqual(requested, ['https://r.jina.ai/https://html.duckduckgo.com/html/?q=precio%20gasolina']);
   assert.equal(ok.success, true);
-  assert.deepEqual(ok.results, [{ title: 'Precio gasolina', url: 'https://example.com/gasolina', snippet: 'Hoy el precio medio es 1,60 €.', source: 'Tavily' }]);
+  assert.equal(ok.count, 2);
   assert.match(ok.markdown, /1\. \*\*\[Precio gasolina\]\(https:\/\/example\.com\/gasolina\)\*\*/);
 
-  // Cupo agotado u otro error: se devuelve el detalle de Tavily
-  reply = () => Response.json({ detail: { error: 'This request exceeds your plan\'s set usage limit.' } }, { status: 432 });
-  const limited = await WebSearch.search('gasolina', 'tvly-test');
-  assert.equal(limited.success, false);
-  assert.equal(limited.error, 'Tavily answered HTTP 432: This request exceeds your plan\'s set usage limit.');
-
-  // Clave rechazada: se borra para pedirla de nuevo en la siguiente búsqueda
-  WebSearch.saveApiKey(' tvly-bad ');
-  assert.equal(WebSearch.getApiKey(), 'tvly-bad');
-  reply = () => Response.json({ detail: { error: 'Unauthorized' } }, { status: 401 });
-  const rejected = await WebSearch.search('gasolina', WebSearch.getApiKey());
-  assert.equal(rejected.success, false);
-  assert.match(rejected.error, /HTTP 401/);
-  assert.equal(WebSearch.getApiKey(), '');
+  // Un bloqueo de Jina llega al modelo con su explicación
+  reply = () => Response.json({ code: 403, message: 'Anonymous access to domain blocked' }, { status: 403 });
+  const blocked = await WebSearch.search('gasolina');
+  assert.equal(blocked.success, false);
+  assert.equal(blocked.error, 'Jina Reader answered HTTP 403: Anonymous access to domain blocked');
 });
 
 test('PageFetcher - Validación de URLs y protección anti-SSRF', () => {
@@ -93,12 +79,18 @@ test('PageFetcher - Pipeline de estrategias y límite de longitud de contenido',
     assert.equal(res.success, true);
     assert.ok(res.content.length <= 60100, 'El contenido debe truncarse cerca de MAX_CONTENT_LENGTH');
     assert.ok(res.content.includes('[... Content truncated at the size limit ...]'));
+
+    // Un bloqueo de Jina Reader llega al modelo con su explicación
+    global.fetch = async () => Response.json({ message: 'Anonymous access to domain github.com blocked' }, { status: 403 });
+    const blocked = await pipeline.fetch('https://github.com/albalday/zerochat');
+    assert.equal(blocked.success, false);
+    assert.match(blocked.error, /Jina Reader answered HTTP 403: Anonymous access to domain github\.com blocked/);
   } finally {
     global.fetch = originalFetch;
   }
 });
 
-test('ChatWebBrowser.webFetch - backend si está conectado y, sin backend, fetch solo con cabeceras CORS-safelisted', async () => {
+test('ChatWebBrowser.webFetch - backend si está conectado; sin backend, Jina Reader para leer y fetch directo para descargar', async () => {
   const origIsProxyConnected = ChatMCP.manager.isProxyConnected;
   const origFetchWebResource = ChatMCP.manager.fetchWebResource;
   const origFetch = global.fetch;
@@ -134,17 +126,23 @@ test('ChatWebBrowser.webFetch - backend si está conectado y, sin backend, fetch
     assert.equal(failRes.status, 502);
     assert.equal(failRes.error, 'Bad Gateway');
 
-    // 4. Sin backend, el navegador solo envía Accept: otra cabecera (User-Agent) forzaría un preflight CORS
+    // 4. Sin backend, leer va por Jina Reader, que devuelve el HTML de la página
     ChatMCP.manager.isProxyConnected = () => false;
-    let sentHeaders = null;
-    global.fetch = async (_url, init) => {
-      sentHeaders = init.headers;
+    const sent = [];
+    global.fetch = async (url, init) => {
+      sent.push({ url: String(url), headers: init.headers });
       return new Response('ok', { status: 200 });
     };
-    const direct = await WebBrowser.webFetch('https://example.com/test', { accept: 'application/json' });
-    assert.deepEqual(sentHeaders, { Accept: 'application/json' });
-    assert.equal(direct.truncated, false);
-    assert.equal(await direct.text(), 'ok');
+    const read = await WebBrowser.webFetch('https://example.com/test?a=1', { accept: 'application/json' });
+    assert.equal(await read.text(), 'ok');
+
+    // 5. Sin backend, descargar es una petición directa con solo Accept: otra cabecera forzaría un preflight CORS
+    const download = await WebBrowser.webFetch('https://example.com/file.pdf', { binary: true, accept: 'application/pdf' });
+    assert.equal(download.truncated, false);
+    assert.deepEqual(sent, [
+      { url: 'https://r.jina.ai/https://example.com/test?a=1', headers: { Accept: 'text/html', 'X-Return-Format': 'html' } },
+      { url: 'https://example.com/file.pdf', headers: { Accept: 'application/pdf' } }
+    ]);
   } finally {
     ChatMCP.manager.isProxyConnected = origIsProxyConnected;
     ChatMCP.manager.fetchWebResource = origFetchWebResource;

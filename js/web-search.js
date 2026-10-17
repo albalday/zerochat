@@ -1,42 +1,64 @@
 /**
- * Búsqueda web (ChatWebSearch) con la API de Tavily, la única vía de search_web.
- * - Se llama directamente desde el navegador, con o sin backend: Tavily admite CORS y la
- *   petición lleva la clave del usuario, como las de los proveedores de modelos.
- * - La clave se guarda sin cifrar en el almacenamiento local (ChatStorage): es una clave
- *   gratuita de pruebas. Si Tavily la rechaza (401), se borra para pedirla de nuevo.
+ * Búsqueda web (ChatWebSearch) en DuckDuckGo HTML, la única vía de search_web.
+ * - La página de resultados se pide con ChatWebBrowser.webFetch: por el backend local si está
+ *   conectado o, si no, por Jina Reader, que devuelve el mismo HTML. Un solo analizador sirve
+ *   para las dos rutas.
  * - Formatea los resultados en Markdown compacto para el modelo.
  */
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'));
+    module.exports = factory(require('./web-browser.js'));
   } else {
-    root.ChatWebSearch = factory(root.ChatUtils);
+    root.ChatWebSearch = factory(root.ChatWebBrowser);
   }
-})(typeof self !== 'undefined' ? self : this, function (Utils) {
+})(typeof self !== 'undefined' ? self : this, function (WebBrowser) {
   'use strict';
 
-  const TAVILY_SEARCH_URL = 'https://api.tavily.com/search';
-  const DEFAULT_TIMEOUT_MS = 15000;
-  const MAX_RESULTS = 8;
-  const SOURCE_LABEL = 'Tavily';
-  const API_KEY_STORAGE_KEY = 'tavily_api_key';
-  const API_KEY_URL = 'https://app.tavily.com';
+  const SEARCH_URL = 'https://html.duckduckgo.com/html/?q=';
+  // Jina Reader tarda varios segundos en devolver la página de resultados.
+  const DEFAULT_TIMEOUT_MS = 20000;
+  const SOURCE_LABEL = 'DuckDuckGo';
 
-  const { fetchWithTimeout, resolveDep } = Utils;
-  const getStorage = () => resolveDep('ChatStorage', './storage.js');
+  const { webFetch } = WebBrowser;
 
-  /** Clave de Tavily guardada; '' si no hay. */
-  function getApiKey() {
-    return String(getStorage().getStorageItem(API_KEY_STORAGE_KEY) || '').trim();
+  /** URL real de un enlace de resultados de DuckDuckGo (parámetro uddg). */
+  function unwrapDdgUrl(rawUrl) {
+    if (!rawUrl) return '';
+    const match = rawUrl.match(/[?&]uddg=([^&]+)/);
+    if (match) {
+      try {
+        return decodeURIComponent(match[1]);
+      } catch (_) {
+        return match[1];
+      }
+    }
+    if (rawUrl.startsWith('//')) return 'https:' + rawUrl;
+    return rawUrl;
   }
 
-  function saveApiKey(apiKey) {
-    getStorage().setStorageItem(API_KEY_STORAGE_KEY, String(apiKey).trim());
-  }
+  /**
+   * Resultados de la página HTML de DuckDuckGo: título, URL real y fragmento, sin repetidos.
+   * El fragmento se busca solo hasta el enlace del resultado siguiente, para que un resultado
+   * sin fragmento no tome el de otro.
+   */
+  function parseHtmlResults(html) {
+    const text = String(html || '');
+    const anchors = [...text.matchAll(/<a\b([^>]*\bclass="[^"]*\bresult__a\b[^"]*"[^>]*)>([\s\S]*?)<\/a>/g)];
+    const stripTags = value => value.replace(/<[^>]*>/g, '').trim();
+    const results = [];
+    const seenUrls = new Set();
 
-  function clearApiKey() {
-    getStorage().deleteStorageItem(API_KEY_STORAGE_KEY);
+    anchors.forEach((anchor, index) => {
+      const href = anchor[1].match(/\bhref="([^"]*)"/)?.[1] || '';
+      const realUrl = unwrapDdgUrl(href.trim().replace(/&amp;/g, '&'));
+      if (!realUrl || seenUrls.has(realUrl.toLowerCase()) || realUrl.includes('duckduckgo.com/html')) return;
+      seenUrls.add(realUrl.toLowerCase());
+      const segment = text.slice(anchor.index + anchor[0].length, anchors[index + 1]?.index ?? text.length);
+      const snippet = segment.match(/\bclass="[^"]*\bresult__snippet\b[^"]*"[^>]*>([\s\S]*?)<\/(?:a|div)>/)?.[1] || '';
+      results.push({ title: stripTags(anchor[2]), url: realUrl, snippet: stripTags(snippet), source: SOURCE_LABEL });
+    });
+    return results;
   }
 
   /** Resultados en Markdown para el modelo. */
@@ -53,57 +75,29 @@
     return md;
   }
 
-  /** Mensaje de error de la API de Tavily (`detail.error`, `detail` o el estado HTTP). */
-  async function readTavilyError(res) {
-    try {
-      const data = await res.json();
-      const detail = data?.detail?.error || data?.detail || data?.error;
-      if (typeof detail === 'string' && detail) return `Tavily answered HTTP ${res.status}: ${detail}`;
-    } catch (_) { /* cuerpo sin JSON: basta el estado */ }
-    return `Tavily answered HTTP ${res.status}${res.statusText ? `: ${res.statusText}` : ''}`;
-  }
-
   /**
-   * Busca `query` en Tavily con `apiKey`.
+   * Busca `query` en DuckDuckGo.
    * @returns {Promise<{ success: boolean, query: string, count: number, results: Array<{ title: string, url: string, snippet: string, source: string }>, markdown: string, elapsedMs: number, error?: string }>}
    */
-  async function search(query, apiKey, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+  async function search(query, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
     const cleanQuery = String(query || '').trim();
     const startTime = performance.now();
     const elapsed = () => parseFloat((performance.now() - startTime).toFixed(2));
     const failure = error => ({ success: false, query: cleanQuery, count: 0, results: [], markdown: error, elapsedMs: elapsed(), error });
 
     if (!cleanQuery) return failure('No search query was given.');
-    if (!apiKey) return failure('Web search needs a Tavily API key and the user did not provide one.');
 
     let res;
     try {
-      res = await fetchWithTimeout(TAVILY_SEARCH_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ query: cleanQuery, max_results: MAX_RESULTS, search_depth: 'basic' })
-      }, timeoutMs);
+      res = await webFetch(`${SEARCH_URL}${encodeURIComponent(cleanQuery)}`, { timeoutMs, accept: 'text/html' });
     } catch (err) {
       return failure(err?.name === 'AbortError'
-        ? `Tavily did not answer within ${timeoutMs}ms.`
-        : `Tavily could not be reached (${err?.message || 'network error'}).`);
+        ? `The search did not finish within ${timeoutMs}ms.`
+        : `The search could not be done (${err?.message || 'network error'}).`);
     }
-    if (res.status === 401) {
-      clearApiKey();
-      return failure('Tavily rejected the API key (HTTP 401). It was removed and the user will be asked for a new one on the next search.');
-    }
-    if (!res.ok) return failure(await readTavilyError(res));
+    if (!res.ok) return failure(res.error || `HTTP ${res.status}`);
 
-    const data = await res.json();
-    const results = (Array.isArray(data?.results) ? data.results : [])
-      .filter(item => item && typeof item.url === 'string' && item.url)
-      .map(item => ({
-        title: String(item.title || item.url),
-        url: item.url,
-        snippet: String(item.content || '').replace(/\s+/g, ' ').trim(),
-        source: SOURCE_LABEL
-      }));
-
+    const results = parseHtmlResults(await res.text());
     return {
       success: true,
       query: cleanQuery,
@@ -114,5 +108,5 @@
     };
   }
 
-  return { API_KEY_URL, getApiKey, saveApiKey, search };
+  return { parseHtmlResults, search };
 });

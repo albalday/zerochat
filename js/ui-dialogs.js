@@ -8,7 +8,6 @@
     const dialog = doc.getElementById('notice-dialog');
     const title = doc.getElementById('notice-title');
     const message = doc.getElementById('notice-message');
-    const link = doc.getElementById('notice-link');
     const accept = doc.getElementById('notice-accept');
     const cancel = doc.getElementById('notice-cancel');
     const input = doc.getElementById('notice-input');
@@ -52,7 +51,6 @@
       activeId = notice?.id || null;
       if (!notice) {
         input.value = '';
-        link.hidden = true;
         if (checkbox) checkbox.checked = false;
         if (checkboxContainer) checkboxContainer.hidden = true;
         renderItems(null);
@@ -67,9 +65,6 @@
       }
       title.textContent = notice.title;
       message.textContent = notice.message;
-      link.hidden = !notice.link;
-      link.href = notice.link?.href || '';
-      link.textContent = notice.link?.text || '';
       if (notice.acceptText) {
         accept.removeAttribute('data-i18n');
         accept.textContent = notice.acceptText;
@@ -136,7 +131,6 @@
         checkbox: options.checkbox,
         checkboxDefault: options.checkboxDefault,
         inputType: options.inputType,
-        link: options.link,
         items: options.items
       });
       return new Promise(resolve => {

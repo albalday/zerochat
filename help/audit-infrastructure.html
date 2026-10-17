@@ -116,7 +116,7 @@
               <tr><td>Origen compartido <code>albalday.github.io</code></td><td>Otras páginas del mismo origen pueden leer la cookie, <code>localStorage</code> e IndexedDB. Aceptado en <code>AGENTS.md</code> §4 mientras ese origen solo publique páginas propias.</td></tr>
               <tr><td><code>--host</code> no local</td><td>Expone la ejecución de comandos a la red sin cifrar; el arranque avisa.</td></tr>
               <tr><td>WebLLM desde CDN</td><td>El motor se importa de <code>cdn.jsdelivr.net</code> si se utiliza este proveedor.</td></tr>
-              <tr><td>Herramientas web</td><td>La búsqueda con Tavily y la descarga de URLs externas envían consultas y reciben datos de terceros sin proxies ni intermediarios públicos.</td></tr>
+              <tr><td>Herramientas web</td><td>La búsqueda en DuckDuckGo y la lectura de URLs externas pasan por el servidor local o, sin él, por Jina Reader; las descargas sin servidor local son directas.</td></tr>
               <tr><td>Proveedores remotos</td><td>Los mensajes salen hacia el proveedor configurado si se utiliza una API en la nube. Con un LLM local este riesgo no aplica al chat.</td></tr>
             </tbody>
           </table>
