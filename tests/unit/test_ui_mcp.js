@@ -249,13 +249,6 @@ test('ChatUIMcp - identifica los servicios mcp-remote sin exponer la ruta comple
   assert.doesNotMatch(serversList.innerHTML, /must-not-be-rendered/);
 });
 
-function clickToggle(serversList, server) {
-  ChatUIMcp.renderExternalServers(serversList, [server]);
-  const button = serversList.querySelector('.btn-mcp-server-toggle');
-  button.click();
-  return button;
-}
-
 test('ChatUIMcp - un error al iniciar se muestra en su tarjeta con enlace a la ayuda de dependencias', async t => {
   const { serversList } = setup(t, { externalServers: [{ id: 'ejemplo', status: 'stopped' }] });
   ChatUIMcp.renderExternalServers(serversList, [{ id: 'example-mcp', status: 'error', error: 'example-mcp requiere Node.js 24+' }]);
@@ -280,25 +273,6 @@ test('ChatUIMcp - Playwright detecta e informa si browser_action está activa', 
   const { serversList } = setup(t, { tools: [{ id: 'browser_action', name: 'browser_action', available: true, metadata: {} }] });
   ChatUIMcp.renderExternalServers(serversList, [{ id: 'playwright', status: 'stopped' }]);
   assert.match(serversList.textContent, /browser_action está activa/);
-});
-
-test('ChatUIMcp - iniciar un servidor MCP muestra el estado iniciando y el intento de cada espera', async t => {
-  const { serversList } = mounted(t, { externalServers: [{ id: 'ejemplo', status: 'stopped' }] });
-  let statusDuringStart = null;
-  t.mock.method(ChatMCP.manager, 'startExternalServer', async (serverId, onWait) => {
-    statusDuringStart = ChatState.get('mcp').externalServers[0].status;
-    assert.equal(serverId, 'ejemplo');
-    onWait(2, 10, 'starting');
-  });
-  const button = clickToggle(serversList, { id: 'ejemplo', status: 'stopped' });
-  assert.equal(button.textContent, 'Iniciando');
-  assert.equal(button.disabled, true);
-  await new Promise(resolve => setImmediate(resolve));
-
-  assert.equal(statusDuringStart, 'starting');
-  assert.deepEqual(ChatState.get('mcp').externalServers[0].startWait, { attempt: 2, total: 10 });
-  assert.equal(button.disabled, false);
-  assert.equal(button.hasAttribute('aria-busy'), false);
 });
 
 test('ChatUIMcp - repintar las listas no vuelve a enlazar eventos: cada acción se dispara una vez', async t => {

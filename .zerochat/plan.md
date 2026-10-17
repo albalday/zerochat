@@ -79,7 +79,7 @@ Done when: no test or module depends on happy-dom, the dependency and tests/help
 - [x] M24-T2 ConversationService branches by message ids instead of the DOM wrapper and receives viewport and loading indicator from its caller, with Node tests (2026-10-17)
 - [x] M24-T3 ProfileExportBundle takes the base URL as a parameter and RagStorage tests drop the stray installDom (2026-10-17)
 - [x] M24-T4 Office parser and web page extraction: move DOMParser-dependent tests to the browser and remove the regex extraction fallback (2026-10-17)
-- [ ] M24-T5 Delete DOM tests already covered by browser tests
+- [x] M24-T5 Delete DOM tests already covered by browser tests (2026-10-17)
 - [ ] M24-T6 Move the remaining DOM tests to browser tests
 - [ ] M24-T7 Remove Node-only branches (typeof document/window guards, sandbox non-iframe executor if unused)
 - [ ] M24-T8 Remove happy-dom, dom-env.js and the AGENTS.md/tests README rule

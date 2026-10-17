@@ -2,7 +2,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const UIConversation = require('../../js/ui-conversation.js');
 const State = require('../../js/state.js');
-const I18n = require('../../js/i18n.js');
 const ChatDebug = require('../../js/debug.js');
 const { installDom, getAppElements } = require('../helpers/dom-env.js');
 
@@ -137,18 +136,6 @@ function seedTurn(messagesList, welcomeBanner, msgId) {
   return messagesList.querySelector(`[data-msg-id="${msgId}"]`);
 }
 
-test('UIConversation - removeMessage no borra nada mientras la conversación está ocupada', t => {
-  const { messagesList, welcomeBanner } = setup(t);
-  const wrapper = seedTurn(messagesList, welcomeBanner, 'msg_busy');
-  let saved = false;
-  State.set('streaming', { isGenerating: true });
-  t.after(() => State.set('streaming', { isGenerating: false }));
-  UIConversation.removeMessage(wrapper, { messagesList, welcomeBanner, saveSession: () => { saved = true; } });
-  assert.equal(State.get('messages').length, 1);
-  assert.ok(wrapper.isConnected);
-  assert.equal(saved, false);
-});
-
 test('UIConversation - removeMessage borra el turno, lo quita del DOM y muestra la bienvenida si queda vacío', t => {
   const { messagesList, welcomeBanner } = setup(t);
   const wrapper = seedTurn(messagesList, welcomeBanner, 'msg_to_delete');
@@ -278,65 +265,6 @@ test('UIConversation - sin turnos muestra la bienvenida y reinicia la telemetrí
   UIConversation.renderSessionMessages(elements, [{ id: 's1', role: 'system', content: 'Prompt base' }], { ...noopCallbacks, resetTelemetry: () => { reset = true; }, updateTelemetry() {} });
   assert.equal(elements.welcomeBanner.parentNode, elements.messagesList);
   assert.equal(reset, true);
-});
-
-test('UIConversation - showBranchLoadingIndicator y hideBranchLoadingIndicator actualizan el DOM y el botón', t => {
-  const { messagesList } = setup(t);
-  const { wrapper } = UIConversation.createAssistantMessagePlaceholder(messagesList, 'msg_branch', noopCallbacks);
-  const button = wrapper.querySelector('.btn-branch-conversation');
-
-  UIConversation.showBranchLoadingIndicator(wrapper, 'Resumiendo contexto previo...');
-  assert.equal(button.disabled, true);
-  assert.ok(button.classList.contains('is-loading'));
-  assert.equal(button.title, 'Resumiendo contexto previo...');
-  const indicator = wrapper.querySelector('.branch-progress-indicator');
-  assert.equal(indicator.getAttribute('role'), 'status');
-  assert.equal(indicator.getAttribute('aria-live'), 'polite');
-  assert.ok(indicator.textContent.includes('Resumiendo contexto previo...'));
-
-  UIConversation.showBranchLoadingIndicator(wrapper, 'Resumiendo contexto previo...');
-  assert.equal(wrapper.querySelectorAll('.branch-progress-indicator').length, 1, 'No debe duplicar el indicador');
-
-  UIConversation.hideBranchLoadingIndicator(wrapper);
-  assert.equal(button.disabled, false);
-  assert.equal(button.classList.contains('is-loading'), false);
-  assert.equal(button.title, I18n.t('btn_branch_title'));
-  assert.equal(button.getAttribute('aria-label'), I18n.t('btn_branch_title'));
-  assert.equal(button.querySelector('.ui-icon-spin'), null);
-  assert.equal(wrapper.querySelector('.branch-progress-indicator'), null);
-});
-
-test('UIConversation - renderAssistantBlock preserves existing image instances across streaming chunks', t => {
-  setup(t);
-  const container = document.createElement('div');
-  const block = UIConversation.createAssistantBlock(container);
-
-  // Chunk 1: Header and first image
-  UIConversation.renderAssistantBlock(
-    block,
-    '### Header\n![Logo](https://example.com/logo.svg)',
-    { streaming: true }
-  );
-  const imgFirst = block.querySelector('img.chat-embedded-image');
-  assert.ok(imgFirst, 'Must render image element');
-  assert.equal(imgFirst.getAttribute('src'), 'https://example.com/logo.svg');
-
-  // Chunk 2: Model continues generating separator and text
-  UIConversation.renderAssistantBlock(
-    block,
-    '### Header\n![Logo](https://example.com/logo.svg)\n\n---\n\nGenerating next text...',
-    { streaming: true }
-  );
-  const imgSecond = block.querySelector('img.chat-embedded-image');
-  assert.equal(imgFirst, imgSecond, 'Image element instance must be preserved without recreation');
-
-  // Chunk 3: Final rendering
-  UIConversation.renderAssistantBlock(
-    block,
-    '### Header\n![Logo](https://example.com/logo.svg)\n\n---\n\nCompleted response.'
-  );
-  const imgFinal = block.querySelector('img.chat-embedded-image');
-  assert.equal(imgFirst, imgFinal, 'Image element instance must stay intact on final render');
 });
 
 test('UIConversation - updateBlockChildren actualiza el texto junto a imágenes en listas y párrafos sin congelarlo', t => {

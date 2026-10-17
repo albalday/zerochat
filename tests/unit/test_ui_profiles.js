@@ -5,19 +5,9 @@ const UISettings = require('../../js/ui-settings.js');
 const Profiles = require('../../js/profile-repository.js');
 const Config = require('../../js/config-store.js');
 const Storage = require('../../js/storage.js');
-const I18n = require('../../js/i18n.js');
 const { installDom, getAppElements } = require('../helpers/dom-env.js');
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
-
-/** Espera a que se cumpla la condición: guardar cifra la clave y tarda más que un ciclo. */
-async function until(condition, timeoutMs = 2000) {
-  const deadline = Date.now() + timeoutMs;
-  while (!condition()) {
-    if (Date.now() > deadline) throw new Error('Timed out waiting for the condition.');
-    await settle();
-  }
-}
 
 /**
  * Monta el menú y el editor de perfiles sobre el marcado de la aplicación. Los diálogos de
@@ -118,27 +108,6 @@ test('UIProfiles - el editor solo permite guardar con cambios o una consulta lis
   assert.equal(elements.btnSaveProfile.disabled, false, 'Una consulta al servidor lista permite guardar');
 });
 
-test('UIProfiles - cerrar con cambios pide confirmación y guardar actualiza el perfil', async t => {
-  const confirms = [];
-  let discard = false;
-  const { elements } = setup(t, { confirm: async message => { confirms.push(message); return discard; } });
-  const profile = saveProfile('Guardable', { model: 'old-model' });
-  Config.activateProfile(profile.id);
-  openMenu(elements);
-  menuItem(elements, profile.id).querySelector('[data-profile-action="edit"]').click();
-  await settle();
-
-  elements.settingModel.value = 'new-model';
-  elements.settingModel.dispatchEvent(new Event('input', { bubbles: true }));
-  assert.equal(await UIProfiles.closeProfilesModal(false), false);
-  assert.deepEqual(confirms, [I18n.t('confirm_profile_unsaved_changes')]);
-  assert.ok(elements.profilesDialog.open);
-
-  elements.btnSaveProfile.click();
-  await until(() => !elements.profilesDialog.open);
-  assert.equal(Profiles.get(profile.id).settings.model, 'new-model');
-});
-
 test('UIProfiles - borrar un perfil pide confirmación, respeta la cancelación y rechaza Espejo', async t => {
   let accept = false;
   const confirms = [];
@@ -182,9 +151,3 @@ test('UIProfiles - un perfil nuevo abre el editor vacío sin pedir nombre ni her
   assert.equal(elements.btnSaveProfile.disabled, true, 'Sin nombre no se guarda');
 });
 
-test('UIProfiles - usar la clave predeterminada informa si no hay API keys', async t => {
-  const alerts = [];
-  setup(t, { alert: async message => { alerts.push(message); } });
-  await UIProfiles.handleUseDefaultEncryptionKey();
-  assert.deepEqual(alerts, [I18n.t('crypto_default_no_api_keys')]);
-});

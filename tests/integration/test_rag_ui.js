@@ -73,20 +73,6 @@ test('RagUI - las ramas activas viven en la configuración y la barra indica cu�
   assert.equal($('btn-rag-toggle-master').disabled, true);
 });
 
-test('RagUI - avisa al combinar ramas en idiomas distintos', async t => {
-  const { alerts } = await setup(t);
-  const spanish = await RagStorage.createBranch({ name: 'ES', language: 'spanish' });
-  await RagStorage.createBranch({ name: 'EN', language: 'english' });
-  RagUI.openActivationModal();
-  await waitFor(() => document.querySelectorAll('#rag-active-branch-list [data-branch-id]').length === 2);
-  $('btn-rag-activate-all').click();
-  await waitFor(() => alerts.length > 0);
-  assert.match(alerts[0], /Español/);
-  assert.match(alerts[0], /Inglés/);
-  assert.equal(Config.getActive().activeRagBranchIds.length, 2);
-  assert.ok(Config.getActive().activeRagBranchIds.includes(spanish.id));
-});
-
 test('RagUI - crear una rama la guarda y la deja abierta; cerrar con cambios pide confirmación', async t => {
   let accept = false;
   await setup(t, { confirm: async () => accept });

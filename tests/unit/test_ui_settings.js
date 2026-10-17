@@ -36,17 +36,6 @@ function setup(t, { confirm = async () => true } = {}) {
 const submit = elements => elements.settingsForm.dispatchEvent(new Event('submit', { cancelable: true }));
 const isActive = id => document.getElementById(id).classList.contains('active');
 
-test('UISettings - los permisos MCP tienen su sección y los ajustes no tienen pestañas ni botonera', t => {
-  const { elements } = setup(t);
-  assert.equal(elements.settingsDialog.querySelector('.modal-tabs-nav, #tab-general, .modal-footer, #btn-settings-back'), null);
-  assert.ok(elements.settingsPermissions.classList.contains('settings-section-pane'));
-  assert.ok(elements.mcpPolicyAsk);
-  assert.ok(elements.mcpDirectoryRules);
-  assert.equal(elements.btnMcpSaveDirectoryRules, undefined, 'Las reglas se guardan con el formulario general');
-  assert.ok(elements.btnMcpClearAuths.querySelector('svg.ui-icon'));
-  assert.ok(elements.btnSaveSettings.classList.contains('btn-save-header'));
-});
-
 test('UISettings - abrir una sección la activa, pone su título y abre el diálogo', t => {
   const { elements } = setup(t);
   UISettings.openSettingsSection(elements, Config.getActive(), 'mcp');
@@ -59,19 +48,6 @@ test('UISettings - abrir una sección la activa, pone su título y abre el diál
 
   UISettings.openSettingsSection(elements, Config.getActive(), 'unknown');
   assert.equal(isActive('settings-model'), true, 'Una sección desconocida abre la del modelo');
-});
-
-test('UISettings - cerrar con cambios sin guardar pide confirmación', async t => {
-  let accept = false;
-  const { elements } = setup(t, { confirm: async () => accept });
-  UISettings.openSettingsSection(elements, Config.getActive(), 'model');
-  elements.settingSystemDataPrompt.dispatchEvent(new Event('input', { bubbles: true }));
-
-  assert.equal(await UISettings.closeSettingsModal(elements), false);
-  assert.ok(elements.settingsDialog.open);
-  accept = true;
-  assert.equal(await UISettings.closeSettingsModal(elements), true);
-  assert.equal(elements.settingsDialog.open, false);
 });
 
 test('UISettings - la sección MCP se aplica al momento: sin Guardar ni cambios pendientes', async t => {
