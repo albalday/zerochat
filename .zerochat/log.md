@@ -101,3 +101,6 @@
 - 2026-10-17 M25-D1 Transcripción neutral en texto plano para el resumidor del historial (M25-T1) (M25-T1)
 - 2026-10-17 M25-D2 Validación estricta del resumen en compressHistory rechazando tool calls y salida vacía (M25-T2) (M25-T2)
 - 2026-10-17 M25-D3 Saneamiento de límites de turnos en ramificación y mensajes efectivos (M25-T3) (M25-T3)
+- 2026-10-17 M22-D1 CI se divide en job validate (unit, infrastructure, architecture, integration y packaging, sin Chromium) y job browser dependiente de validate (Chromium + test:browser); los fallos tempranos no instalan Chromium (M22-T1)
+- 2026-10-17 M22-D2 Auditoría de esperas crudas en tests/browser: se convierten a esperas de reactividad (doble rAF para scroll, polling rAF con deadline de 2 s para badges/logs de tarjetas, listener de diálogo registrado antes de navegar) las 5 esperas que esperaban estado DOM positivo; se documentan con comentario las 6 restantes justificadas (aserciones negativas y flushes de macrotarea de mocks) (M22-T3)
+- 2026-10-17 M22-D3 test-runner acepta --retry: al fallar reintenta la ejecución una única vez y propaga el código de salida del segundo intento; el job browser de CI lo usa para absorber picos transitorios de la VM, local no lo usa (M22-T2)

@@ -238,6 +238,7 @@ export function parseArgs(rawArgs) {
   let listOnly = false;
   let changedOnly = false;
   let concurrency = null;
+  let retryOnFailure = false;
   const positionalFiles = [];
 
   for (let i = 0; i < rawArgs.length; i++) {
@@ -260,6 +261,8 @@ export function parseArgs(rawArgs) {
       concurrency = parseInt(arg.slice(14).trim(), 10);
     } else if (arg === '--concurrency' && i + 1 < rawArgs.length) {
       concurrency = parseInt(rawArgs[++i].trim(), 10);
+    } else if (arg === '--retry') {
+      retryOnFailure = true;
     } else if (arg === '--help' || arg === '-h') {
       return { showHelp: true };
     } else if (!arg.startsWith('-')) {
@@ -267,7 +270,7 @@ export function parseArgs(rawArgs) {
     }
   }
 
-  return { level, group, listOnly, changedOnly, concurrency, positionalFiles, showHelp: false };
+  return { level, group, listOnly, changedOnly, concurrency, retryOnFailure, positionalFiles, showHelp: false };
 }
 
 /**
@@ -286,6 +289,7 @@ Opciones:
   --changed          Ejecutar únicamente los tests impactados por cambios en git
   --group=<grupo>    Ejecutar tests por área funcional (${Object.keys(GROUPS).join(', ')})
   --list             Listar archivos seleccionados sin ejecutarlos
+  --retry            Al fallar, reintenta la ejecución una única vez (solo CI)
   --help, -h         Mostrar esta ayuda
 
 Ejemplos:
@@ -356,19 +360,24 @@ export async function run() {
   }
   testArgs.push(...filesToRun);
 
-  const child = spawn(process.execPath, testArgs, {
-    cwd: ROOT_DIR,
-    stdio: 'inherit'
+  const runOnce = () => new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, testArgs, {
+      cwd: ROOT_DIR,
+      stdio: 'inherit'
+    });
+    child.on('error', (err) => {
+      console.error('Error al invocar node --test:', err);
+      reject(err);
+    });
+    child.on('close', code => resolve(code ?? 0));
   });
 
-  child.on('error', (err) => {
-    console.error('Error al invocar node --test:', err);
-    process.exit(1);
-  });
-
-  child.on('close', (code) => {
-    process.exit(code ?? 0);
-  });
+  const exitCode = await runOnce();
+  if (args.retryOnFailure && exitCode !== 0) {
+    console.log('\nLa ejecución falló; reintento único (solo CI).\n');
+    process.exit(await runOnce());
+  }
+  process.exit(exitCode);
 }
 
 // Ejecutar si se llama directamente

@@ -33,12 +33,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
       - run: npm run test:unit
       - run: npm run test:infrastructure
       - run: npm run test:architecture
       - run: npm run test:integration
-      - run: npm run test:browser
       - name: Verify PyPI packaging
         if: github.ref == 'refs/heads/master' || github.base_ref == 'master'
         run: |
@@ -47,3 +45,16 @@ jobs:
           python -m build
           python -m twine check dist/*
           python tests/packaging_smoke_test.py dist
+
+  browser:
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: node scripts/test-runner.mjs --level=browser --concurrency=2 --retry

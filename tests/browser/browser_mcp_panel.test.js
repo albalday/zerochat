@@ -251,6 +251,7 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
         window.ChatUIMcp.renderExternalServers(serversList, [{ id: 'ejemplo', status: 'stopped' }]);
         window.ChatUIMcp.renderExternalServers(serversList, [{ id: 'ejemplo', status: 'stopped' }]);
         serversList.querySelector('.btn-mcp-server-toggle').click();
+        // Flush de macrotarea: deja ejecutar el callback asíncrono del mock.
         await new Promise(resolve => setTimeout(resolve, 0));
         return counts;
       });

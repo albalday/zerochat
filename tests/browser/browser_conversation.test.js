@@ -369,7 +369,7 @@ test('Browser UI - el botón para volver al final aparece solo fuera del final y
       ui.renderAssistantBlock(ui.createAssistantBlock(content), 'Línea.\n\n'.repeat(80));
       list.scrollTo({ top: list.scrollHeight, behavior: 'instant' });
     });
-    await page.waitForTimeout(100);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     assert.equal(await button.isHidden(), true, 'Al final no se muestra');
     await page.evaluate(() => document.getElementById('messages-list').scrollTo({ top: 0, behavior: 'instant' }));
     await button.waitFor({ state: 'visible', timeout: 3000 });
@@ -500,6 +500,7 @@ test('Browser UI - Borrado de mensaje durante streaming no modifica DOM ni estad
     const result = await page.evaluate(async id => {
       window.ChatState.set('streaming', { isGenerating: true });
       document.querySelector('.message-wrapper.user .btn-delete').click();
+      // Aserción negativa: la espera fija es a propósito para confirmar que no cambió nada.
       await new Promise(resolve => setTimeout(resolve, 100));
       const persisted = await window.ChatStorage.getConversation(id);
       const stateMessages = window.ChatState.get('messages');
