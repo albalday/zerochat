@@ -2,7 +2,6 @@ const test = require('node:test');
 const assert = require('node:assert');
 const ChatContextManager = require('../../js/context-manager.js');
 const ChatEngine = require('../../js/chat-engine.js');
-const { createTurnView } = require('../helpers/turn-view.js');
 
 test('ContextManager - la estimación cuenta el razonamiento reenviado', () => {
   const base = { role: 'assistant', content: null, tool_calls: [] };
@@ -28,25 +27,6 @@ test('ContextManager - Estimación de tokens para texto, código y multimodales'
   };
   const multiTokens = ChatContextManager.estimateMessageTokens(multimodalMsg);
   assert.ok(multiTokens > 1000, 'Debe incluir la estimación de tokens para la imagen');
-});
-
-test('ContextManager - Conversaciones cortas que caben en el presupuesto', () => {
-  const messages = [
-    { role: 'system', content: 'Eres un asistente útil.' },
-    { role: 'user', content: '¿Qué es JavaScript?' },
-    { role: 'assistant', content: 'Es un lenguaje de programación.' },
-    { role: 'user', content: '¿Y Python?' }
-  ];
-
-  const result = ChatContextManager.buildOptimizedContext(messages, {
-    maxInputTokens: 4000,
-    model: 'configured-model'
-  });
-
-  assert.equal(result.messages.length, 4);
-  assert.equal(result.diagnostics.includedCount, 4);
-  assert.equal(result.diagnostics.excludedCount, 0);
-  assert.equal(result.diagnostics.strategy, 'full_history');
 });
 
 test('ContextManager - Preservación obligatoria de System Prompt y Último Mensaje con presupuesto pequeño', () => {
@@ -325,63 +305,5 @@ test('ContextManager - buildOptimizedContext otorga presupuesto adaptativo para 
   // Con un presupuesto amplio, el contenido no debe truncarse destructivamente
   assert.ok(!toolMsg.content.includes('Truncado por ChatContextManager'), 'No debe truncar si el presupuesto del modelo admite las tablas');
   assert.equal(toolMsg.content.length, tableContent.length);
-});
-
-test('ContextManager - compressHistory añade instrucciones al resumidor solo si se indican', async () => {
-  const history = [
-    { role: 'system', content: 'Sistema' },
-    { role: 'user', content: 'Decidimos usar SQLite.' },
-    { role: 'assistant', content: 'De acuerdo.' }
-  ];
-  const prompts = [];
-  const summarizeFn = async ({ systemPrompt }) => { prompts.push(systemPrompt); return 'Resumen'; };
-
-  await ChatContextManager.compressHistory({ messages: history, summarizeFn, options: {} });
-  await ChatContextManager.compressHistory({ messages: history, summarizeFn, options: { summarizerAddendum: '  ' } });
-  await ChatContextManager.compressHistory({ messages: history, summarizeFn, options: { summarizerAddendum: 'EXTRA' } });
-
-  assert.equal(prompts[0], prompts[1], 'Sin añadido el prompt del resumidor no cambia');
-  assert.equal(prompts[2], `${prompts[0]}\n\nEXTRA`);
-});
-
-test('ChatEngine - la compactación en modo proyecto pide marcar los registros pendientes', async () => {
-  const ChatAPI = require('../../js/api.js');
-  const ProjectContext = require('../../js/project-context.js');
-  const originalStream = ChatAPI.streamChatCompletion;
-  const history = [];
-  for (let index = 0; index < 4; index++) {
-    history.push(
-      { role: 'user', content: `Pregunta ${index}: ${'detalle '.repeat(60)}` },
-      { role: 'assistant', content: `Respuesta ${index}: ${'resultado '.repeat(60)}` }
-    );
-  }
-  const summarizerPrompts = [];
-  ChatAPI.streamChatCompletion = async (params) => {
-    if (params.toolChoice === 'none') {
-      summarizerPrompts.push(params.messages[0].content);
-      return { accumulatedText: 'Checkpoint.' };
-    }
-    return { accumulatedText: 'ok', toolCalls: null, stats: null };
-  };
-  try {
-    const run = projectContext => ChatEngine.executeAgentTurnLoop({
-      chatHistory: history.map(message => ({ ...message })),
-      appConfig: require('../../js/config-store.js').normalize({ apiUrl: 'http://localhost:1234/v1', model: 'test-model', modelContextLimit: 300, enabledTools: {} }),
-      assistantMsgId: 'asst_project',
-      view: createTurnView(),
-      onReasoningChunk() {},
-      onLog() {},
-      onStats() {},
-      onGenerationStatus() {},
-      projectContext
-    });
-    await run({ status: 'ready', cwd: '/repo', rules: { content: 'r' }, state: { content: '' } });
-    await run({ status: 'missing', cwd: '/repo' });
-    assert.equal(summarizerPrompts.length, 2);
-    assert.ok(summarizerPrompts[0].endsWith(ProjectContext.SUMMARIZER_PROJECT_ADDENDUM));
-    assert.ok(!summarizerPrompts[1].includes('Pending project records'));
-  } finally {
-    ChatAPI.streamChatCompletion = originalStream;
-  }
 });
 

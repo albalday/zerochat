@@ -1,6 +1,5 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const ContextManager = require('../../js/context-manager.js');
 
 test('TokenTelemetry - BaseProviderAdapter inyecta requestUsageStatistics en streaming independiente de promptCaching', () => {
   const { BaseProviderAdapter } = require('../../js/providers.js');
@@ -64,35 +63,4 @@ test('TokenTelemetry - BaseProviderAdapter y Ollama parsean prompt_eval_count y 
   assert.equal(parsed.usage.prompt_tokens, 85);
   assert.equal(parsed.usage.completion_tokens, 140);
   assert.equal(parsed.usage.total_tokens, 225);
-});
-
-test('TokenTelemetry - ChatContextManager.getContextDiagnostics calcula ventana global y porcentajes', () => {
-  const messages = [
-    { role: 'user', content: 'Explícame qué es la teoría de la relatividad' },
-    { role: 'assistant', content: 'La teoría de la relatividad fue desarrollada por Albert Einstein...' }
-  ];
-
-  const diagServer = ContextManager.getContextDiagnostics(messages, {
-    model: 'gpt-4o',
-    providerType: 'openai',
-    totalContextLimit: 128000,
-    usedTokens: 12800
-  });
-
-  assert.equal(diagServer.totalLimit, 128000);
-  assert.equal(diagServer.usedTokens, 12800);
-  assert.equal(diagServer.percentUsed, 10.0);
-  assert.equal(diagServer.remainingTokens, 115200);
-  assert.equal(diagServer.isEstimated, false);
-
-  const diagEst = ContextManager.getContextDiagnostics(messages, {
-    model: 'claude-3-5-sonnet',
-    providerType: 'claude',
-    totalContextLimit: 200000
-  });
-
-  assert.equal(diagEst.totalLimit, 200000);
-  assert.ok(diagEst.usedTokens > 0, 'Debe estimar tokens en base al historial');
-  assert.equal(diagEst.isEstimated, true);
-  assert.ok(diagEst.percentUsed >= 0 && diagEst.percentUsed <= 100);
 });

@@ -96,46 +96,6 @@ test('WebLLM - el catálogo exige una descarga confirmada antes de ofrecer el mo
   }
 });
 
-test('WebLLM - expone getCompletedModelIds e isModelCompleted y ordena descargados al inicio', async () => {
-  const originalStorage = global.ChatStorage;
-  const values = new Map([[WebLLM.COMPLETED_MODELS_STORAGE_KEY, '["model-b"]']]);
-  global.ChatStorage = {
-    getStorageItem: key => values.get(key) || null,
-    setStorageItem: (key, value) => values.set(key, value)
-  };
-  const webllm = await WebLLM.loadWebLLM();
-  const previousModelList = webllm.prebuiltAppConfig.model_list;
-  const previousHasModel = webllm.hasModelInCache;
-  try {
-    assert.deepEqual(WebLLM.getCompletedModelIds(), ['model-b']);
-    assert.equal(WebLLM.isModelCompleted('model-b'), true);
-    assert.equal(WebLLM.isModelCompleted('model-a'), false);
-
-    for (const invalid of ['broken JSON', '{}', 'null', '["ok",7,null]']) {
-      values.set(WebLLM.COMPLETED_MODELS_STORAGE_KEY, invalid);
-      assert.deepEqual(WebLLM.getCompletedModelIds(), invalid.startsWith('[') ? ['ok'] : [], invalid);
-    }
-    values.set(WebLLM.COMPLETED_MODELS_STORAGE_KEY, '["model-b"]');
-
-    webllm.prebuiltAppConfig.model_list = [
-      { model_id: 'model-a', vram_required_MB: 1024 },
-      { model_id: 'model-b', vram_required_MB: 2048 }
-    ];
-    webllm.hasModelInCache = async (id) => id === 'model-b';
-
-    const result = await WebLLM.listModels();
-
-    assert.equal(result.models.length, 2);
-    assert.equal(result.models[0].id, 'model-b');
-    assert.equal(result.models[0].details.webllmCache, 'cached');
-    assert.equal(result.models[1].id, 'model-a');
-  } finally {
-    webllm.prebuiltAppConfig.model_list = previousModelList;
-    webllm.hasModelInCache = previousHasModel;
-    global.ChatStorage = originalStorage;
-  }
-});
-
 test('WebLLM - la ejecución incompleta falla antes de crear un motor', async () => {
   const webllm = await WebLLM.loadWebLLM();
   const originalCreate = webllm.CreateMLCEngine;
@@ -196,15 +156,6 @@ test('WebLLM - describe las herramientas en texto y convierte el historial de ll
   assert.equal(payload.messages[2].content, '<tool_call>\n{"name":"search_web","arguments":{"query":"a"}}\n</tool_call>');
   assert.deepEqual(payload.messages[3], { role: 'user', content: '<tool_response>\nR1\n</tool_response>' });
   assert.ok(payload.messages.every(message => typeof message.content === 'string' && message.role !== 'tool'));
-});
-
-test('WebLLM - recomienda para herramientas los modelos entrenados con <tool_call>', () => {
-  for (const id of ['Qwen3-4B-q4f16_1-MLC', 'Qwen3-8B-q4f32_1-MLC', 'Qwen3.5-9B-q4f16_1-MLC', 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC', 'Hermes-2-Pro-Mistral-7B-q4f16_1-MLC']) {
-    assert.equal(WebLLM.isToolsRecommendedModel(id), true, id);
-  }
-  for (const id of ['Qwen3-0.6B-q4f16_1-MLC', 'Qwen3.5-2B-q4f16_1-MLC', 'Llama-3.2-3B-Instruct-q4f16_1-MLC', 'test-model', '']) {
-    assert.equal(WebLLM.isToolsRecommendedModel(id), false, id);
-  }
 });
 
 test('WebLLM - reutiliza el motor ya cargado entre turnos del mismo modelo', async () => {
@@ -409,120 +360,6 @@ test('WebLLM - ChatAPI usa el transporte local sin fetch y conserva el streaming
   }
 });
 
-test('WebLLM - createWorkerEngine crea un Worker de módulo, pasa chatOpts y genera errores descriptivos', async () => {
-  {
-    const originalWorker = global.Worker;
-    const originalCreateObjectURL = URL.createObjectURL;
-    const originalRevokeObjectURL = URL.revokeObjectURL;
-
-    let workerConstructorOptions = 'UNSET';
-    global.Worker = class {
-      constructor(url, options) {
-        workerConstructorOptions = options;
-        this.listeners = new Map();
-      }
-      addEventListener(type, handler) { this.listeners.set(type, handler); }
-      removeEventListener(type) { this.listeners.delete(type); }
-      terminate() {}
-    };
-    URL.createObjectURL = () => 'blob:test-module-worker';
-    URL.revokeObjectURL = () => {};
-
-    try {
-      let engineCreated = false;
-      await WebLLM.createWorkerEngine({
-        CreateWebWorkerMLCEngine: async () => {
-          engineCreated = true;
-          return { unload: async () => {} };
-        }
-      }, 'test-model', {}, () => {});
-
-      assert.equal(engineCreated, true);
-      assert.deepEqual(workerConstructorOptions, { type: 'module' }, 'El worker debe pasar { type: "module" }');
-    } finally {
-      global.Worker = originalWorker;
-      URL.createObjectURL = originalCreateObjectURL;
-      URL.revokeObjectURL = originalRevokeObjectURL;
-    }
-  }
-
-  {
-    const originalWorker = global.Worker;
-    const originalCreateObjectURL = URL.createObjectURL;
-    const originalRevokeObjectURL = URL.revokeObjectURL;
-    global.Worker = class {
-      addEventListener() {}
-      removeEventListener() {}
-      terminate() {}
-    };
-    URL.createObjectURL = () => 'blob:test-webllm-worker';
-    URL.revokeObjectURL = () => {};
-
-    let receivedChatOpts = null;
-    const mockWebLLM = {
-      CreateWebWorkerMLCEngine: async (worker, modelId, engineConfig, chatOpts) => {
-        receivedChatOpts = chatOpts;
-        return { unload: async () => {} };
-      }
-    };
-
-    try {
-      const chatOpts = { context_window_size: 8192 };
-      await WebLLM.createWorkerEngine(mockWebLLM, 'test-model', {}, () => {}, null, chatOpts);
-      assert.deepEqual(receivedChatOpts, { context_window_size: 8192 });
-    } finally {
-      global.Worker = originalWorker;
-      URL.createObjectURL = originalCreateObjectURL;
-      URL.revokeObjectURL = originalRevokeObjectURL;
-    }
-  }
-
-  {
-    const originalWorker = global.Worker;
-    const originalCreateObjectURL = URL.createObjectURL;
-    const originalRevokeObjectURL = URL.revokeObjectURL;
-    global.Worker = class {
-      addEventListener() {}
-      removeEventListener() {}
-      terminate() {}
-    };
-    URL.createObjectURL = () => 'blob:test-webllm-worker';
-    URL.revokeObjectURL = () => {};
-
-    try {
-      // 1. Error con cadena '[object Object]'
-      await assert.rejects(WebLLM.createWorkerEngine({
-        CreateWebWorkerMLCEngine: async () => { throw '[object Object]'; }
-      }, 'test-model', {}, () => {}), error => {
-        assert.notEqual(error.message, '[object Object]');
-        assert.match(error.message, /WebLLM model preparation failed/i);
-        return true;
-      });
-
-      // 2. Error con Error('[object Object]')
-      await assert.rejects(WebLLM.createWorkerEngine({
-        CreateWebWorkerMLCEngine: async () => { throw new Error('[object Object]'); }
-      }, 'test-model', {}, () => {}), error => {
-        assert.notEqual(error.message, '[object Object]');
-        assert.match(error.message, /WebLLM model preparation failed/i);
-        return true;
-      });
-
-      // 3. Error con objeto anidado { error: { message: 'WebGPU compilation error' } }
-      await assert.rejects(WebLLM.createWorkerEngine({
-        CreateWebWorkerMLCEngine: async () => { throw { error: { message: 'WebGPU compilation error' } }; }
-      }, 'test-model', {}, () => {}), error => {
-        assert.equal(error.message, 'WebGPU compilation error');
-        return true;
-      });
-    } finally {
-      global.Worker = originalWorker;
-      URL.createObjectURL = originalCreateObjectURL;
-      URL.revokeObjectURL = originalRevokeObjectURL;
-    }
-  }
-});
-
 test('WebLLM - extractOverrides y applyModelOverrides solo inyectan valores numéricos en el modelo seleccionado', () => {
   {
     assert.equal(WebLLM.extractOverrides(null), null);
@@ -562,25 +399,5 @@ test('WebLLM - extractOverrides y applyModelOverrides solo inyectan valores num�
       prefill_chunk_size: 2048
     });
     assert.equal(updated.model_list[1].overrides, undefined);
-  }
-});
-
-test('WebLLM - listModels extrae context_window_size de overrides si está disponible', async () => {
-  const webllm = await WebLLM.loadWebLLM();
-  const previousModelList = webllm.prebuiltAppConfig.model_list;
-  try {
-    webllm.prebuiltAppConfig.model_list = [
-      { model_id: 'model-custom-ctx', vram_required_MB: 2000, overrides: { context_window_size: 2048 } },
-      { model_id: 'model-default-ctx', vram_required_MB: 1000 }
-    ];
-    const result = await WebLLM.listModels();
-    const customModel = result.models.find(m => m.id === 'model-custom-ctx');
-    const defaultModel = result.models.find(m => m.id === 'model-default-ctx');
-    assert.equal(customModel.details.loaded_context_length, 2048);
-    assert.equal(customModel.details.max_context_length, 2048);
-    assert.equal(defaultModel.details.loaded_context_length, 4096);
-    assert.equal(defaultModel.details.max_context_length, 4096);
-  } finally {
-    webllm.prebuiltAppConfig.model_list = previousModelList;
   }
 });

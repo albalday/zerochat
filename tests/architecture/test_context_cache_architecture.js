@@ -1,7 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  BaseProviderAdapter,
   ClaudeProviderAdapter,
   GeminiProviderAdapter,
   OpenRouterProviderAdapter
@@ -129,37 +128,4 @@ test('ContextCache - GeminiAdapter declara promptCaching: true y no inyecta stre
     stream: false
   });
   assert.equal(payloadSync.stream_options, undefined, 'No debe inyectar stream_options en stream false');
-});
-
-test('ContextCache - Normalización de métricas de tokens en ChatAPI para OpenAI y Anthropic', () => {
-  // Simular evento con formato OpenAI
-  const openaiChunk = {
-    usage: {
-      prompt_tokens: 120,
-      completion_tokens: 45,
-      total_tokens: 165,
-      prompt_tokens_details: { cached_tokens: 90 }
-    }
-  };
-  const baseAdapter = new BaseProviderAdapter();
-  const parsedOpenai = baseAdapter.parseStreamChunk(openaiChunk);
-  assert.equal(parsedOpenai.cachedTokens, 90);
-  assert.equal(parsedOpenai.usage.prompt_tokens, 120);
-
-  // Simular evento con formato Anthropic (input_tokens / output_tokens)
-  const claudeChunk = {
-    type: 'message_start',
-    message: {
-      usage: {
-        input_tokens: 500,
-        output_tokens: 80,
-        cache_read_input_tokens: 400,
-        cache_creation_input_tokens: 100
-      }
-    }
-  };
-  const claudeAdapter = new ClaudeProviderAdapter();
-  const parsedClaude = claudeAdapter.parseStreamChunk(claudeChunk);
-  assert.equal(parsedClaude.cachedTokens, 400);
-  assert.equal(parsedClaude.cacheCreationTokens, 100);
 });

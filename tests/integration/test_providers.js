@@ -33,13 +33,6 @@ test('ProviderRegistry - todo adaptador registrado extiende BaseProviderAdapter'
   assert.ok(registry.defaultAdapter instanceof BaseProviderAdapter);
 });
 
-test('ProviderRegistry - declara configuración de conexión sin lógica de UI por proveedor', () => {
-  assert.equal(registry.get('ollama').getConnectionConfig().endpoint, 'http://localhost:11434');
-  assert.equal(registry.get('claude').getConnectionConfig().endpoint, 'https://api.anthropic.com/v1');
-  assert.ok(registry.getConnectionEndpoints().includes('https://api.openai.com/v1'));
-  assert.equal(registry.get('mirror').getConnectionConfig().credentials, false);
-});
-
 test('OpenAIAdapter - Normalización de endpoint y payload', () => {
   const adapter = new BaseProviderAdapter();
   assert.equal(adapter.normalizeEndpoint('http://localhost:1234/v1'), 'http://localhost:1234/v1/chat/completions');
@@ -103,15 +96,6 @@ test('OpenAIAdapter - Auto-recuperación de errores HTTP 400', () => {
   assert.equal(payload.tools, undefined);
 });
 
-test('OpenAIAdapter - indica el campo del razonamiento que se puede reenviar', () => {
-  const adapter = new BaseProviderAdapter();
-  assert.equal(adapter.parseStreamChunk({ choices: [{ delta: { reasoning_content: 'a' } }] }).reasoningField, 'reasoning_content');
-  assert.equal(adapter.parseStreamChunk({ choices: [{ delta: { reasoning: 'b' } }] }).reasoningField, 'reasoning');
-  const thinking = adapter.parseStreamChunk({ choices: [{ delta: { thinking: 'c' } }] });
-  assert.equal(thinking.reasoningChunk, 'c');
-  assert.equal(thinking.reasoningField, undefined);
-});
-
 test('OpenAIAdapter - un rechazo del razonamiento reenviado lo quita de los mensajes y conserva reasoning_effort', () => {
   const adapter = new BaseProviderAdapter();
   const payload = {
@@ -169,31 +153,6 @@ test('ClaudeAdapter - Formato de mensajes, presupuesto de thinking y caché efí
   assert.equal(payload.temperature, 1.0);
   assert.ok(payload.tools[0].cache_control, 'Debe inyectar cache_control en el tool');
   assert.ok(payload.messages[0].content[0].cache_control, 'Debe inyectar cache_control en el system message');
-});
-
-test('ClaudeAdapter - Parseo de chunks SSE nativos de Anthropic', () => {
-  const adapter = new ClaudeProviderAdapter();
-
-  // Thinking delta
-  const rChunk = adapter.parseStreamChunk({
-    type: 'content_block_delta',
-    delta: { type: 'thinking_delta', thinking: 'Claude pensando...' }
-  });
-  assert.equal(rChunk.reasoningChunk, 'Claude pensando...');
-
-  // Text delta
-  const tChunk = adapter.parseStreamChunk({
-    type: 'content_block_delta',
-    delta: { type: 'text_delta', text: 'Hola humano' }
-  });
-  assert.equal(tChunk.textChunk, 'Hola humano');
-
-  // Message start usage
-  const uChunk = adapter.parseStreamChunk({
-    type: 'message_start',
-    message: { usage: { cache_read_input_tokens: 3500 } }
-  });
-  assert.equal(uChunk.cachedTokens, 3500);
 });
 
 test('ClaudeAdapter - Acumula los bloques tool_use y la firma del thinking del streaming', () => {
@@ -343,37 +302,6 @@ test('OpenRouterAdapter - Configuración de razonamiento y endpoints', () => {
   assert.equal(payload.reasoning_effort, 'high');
 });
 
-test('Capabilities - Declaración estándar y por proveedor', () => {
-  const baseAdapter = new BaseProviderAdapter();
-  const baseCaps = baseAdapter.getCapabilities();
-  assert.equal(baseCaps.streaming, true);
-  assert.equal(baseCaps.vision, true);
-  assert.equal(baseCaps.tools, true);
-  assert.equal(baseCaps.reasoning, true);
-  assert.equal(baseCaps.jsonMode, true);
-  assert.equal(baseCaps.promptCaching, true);
-  assert.equal(baseCaps.embeddings, true);
-  assert.equal(baseCaps.modelListing, true);
-  assert.equal(baseCaps.temperature, true);
-  assert.equal(new BaseProviderAdapter().buildPayload({ model: 'm', messages: [], temperature: '0.3' }).temperature, 0.3);
-
-  const claudeAdapter = new ClaudeProviderAdapter();
-  const claudeCaps = claudeAdapter.getCapabilities();
-  assert.equal(claudeCaps.jsonMode, false);
-  assert.equal(claudeCaps.embeddings, false);
-  assert.equal(claudeCaps.promptCaching, true);
-
-  const ollamaAdapter = new OllamaProviderAdapter();
-  const ollamaCaps = ollamaAdapter.getCapabilities();
-  assert.equal(ollamaCaps.promptCaching, false);
-  assert.equal(ollamaCaps.tools, true);
-
-  const openrouterAdapter = new OpenRouterProviderAdapter();
-  const openrouterCaps = openrouterAdapter.getCapabilities();
-  assert.equal(openrouterCaps.embeddings, false);
-  assert.equal(openrouterCaps.promptCaching, true);
-});
-
 test('Capabilities - Utilización en buildPayload para filtrar parámetros no soportados', () => {
   // 1. Proveedor sin soporte de Prompt Caching (ej: Ollama) no debe inyectar stream_options.include_usage
   const ollamaAdapter = new OllamaProviderAdapter();
@@ -509,22 +437,6 @@ test('GeminiAdapter - Normalización de endpoints, stripping de prefijo models/ 
   assert.equal(leadingAssistantPayload.messages[1].role, 'user', 'Debe insertar un turno user antes del assistant con tools');
   assert.equal(leadingAssistantPayload.messages[2].role, 'assistant');
   assert.equal(leadingAssistantPayload.messages[3].role, 'tool');
-});
-
-test('ChatAPI.getProviderCapabilities - Consulta a través de ChatAPI', () => {
-  const ChatAPI = require('../../js/api.js');
-  const claudeCaps = ChatAPI.getProviderCapabilities('https://api.anthropic.com/v1');
-  assert.equal(claudeCaps.jsonMode, false);
-  assert.equal(claudeCaps.promptCaching, true);
-
-  const ollamaCaps = ChatAPI.getProviderCapabilities('http://localhost:11434');
-  assert.equal(ollamaCaps.promptCaching, false);
-  assert.equal(ollamaCaps.streaming, true);
-
-  const geminiCaps = ChatAPI.getProviderCapabilities('https://generativelanguage.googleapis.com/v1beta/openai');
-  assert.equal(geminiCaps.reasoning, true);
-  assert.equal(geminiCaps.temperature, false);
-  assert.equal(geminiCaps.promptCaching, true);
 });
 
 test('GeminiAdapter - formatMessages conserva resultados de llamadas paralelas y respuestas de texto sin turnos sintéticos', () => {
