@@ -256,14 +256,19 @@
         resetTelemetryDisplay({ syncState: false });
       },
       resetComposerInput: () => resetComposerInput(),
-      closeSidebar: () => UISidebar.closeSidebar(elements)
+      closeMobileSidebar: () => {
+        if (UISidebar.isMobile()) UISidebar.closeSidebar(elements);
+      }
     };
   }
 
   const saveCurrentSession = () => ConversationService.saveCurrentSession(getConversationServiceOptions());
   const switchToSession = sessionId => ConversationService.switchToSession(sessionId, getConversationServiceOptions());
   const createNewSession = () => ConversationService.createNewSession(getConversationServiceOptions());
-  const createConversationBranch = wrapper => ConversationService.createConversationBranch(wrapper, getConversationServiceOptions());
+  const createConversationBranch = wrapper => ConversationService.createConversationBranch(UIConversation.getMessageRef(wrapper), {
+    ...getConversationServiceOptions(),
+    onSummarizing: active => (active ? UIConversation.showBranchLoadingIndicator(wrapper) : UIConversation.hideBranchLoadingIndicator(wrapper))
+  });
 
   function renderSidebarChats() {
     UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId());

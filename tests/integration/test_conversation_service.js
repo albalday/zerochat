@@ -1,12 +1,10 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const ConversationService = require('../../js/conversation-service.js');
-const UIConversation = require('../../js/ui-conversation.js');
 const GenerationController = require('../../js/generation-controller.js');
 const ChatAPI = require('../../js/api.js');
 const State = require('../../js/state.js');
 const Storage = require('../../js/storage.js');
-const { installDom } = require('../helpers/dom-env.js');
 
 const HISTORY = [
   { id: 'm1', role: 'system', content: 'sys' },
@@ -16,16 +14,24 @@ const HISTORY = [
   { id: 'm5', role: 'assistant', content: 'asst 2' }
 ];
 
-/** Conversación activa con su mensaje del asistente pintado; devuelve el wrapper y las opciones de app.js. */
+/**
+ * Conversación activa; devuelve la referencia de la respuesta de anclaje y las opciones de app.js.
+ * `summarizing` registra cada cambio del indicador de progreso del resumen.
+ */
 async function setupBranch(t, history = HISTORY, anchorId = 'm5') {
-  const dom = installDom({ app: true });
-  t.after(() => dom.restore());
   await Storage.deleteAllConversations();
   State.replaceConversation({ sessionId: 'parent_sess_1', sessions: [{ id: 'parent_sess_1', title: 'Parent Chat' }], messages: structuredClone(history) });
-  const messagesList = document.getElementById('messages-list');
-  const { wrapper } = UIConversation.createAssistantMessagePlaceholder(messagesList, anchorId, { onBranch() {}, onDelete() {} });
-  const options = { renderSessionMessages() {}, renderSidebarChats() {}, onSessionReset() {}, resetComposerInput() {}, closeSidebar() {} };
-  return { wrapper, options };
+  const anchor = { msgId: anchorId, baseId: anchorId, explicitIds: [] };
+  const summarizing = [];
+  const options = {
+    renderSessionMessages() {},
+    renderSidebarChats() {},
+    onSessionReset() {},
+    resetComposerInput() {},
+    closeMobileSidebar() {},
+    onSummarizing: active => summarizing.push(active)
+  };
+  return { anchor, options, summarizing };
 }
 
 function useDialogs(t, confirmResults) {
@@ -53,9 +59,9 @@ async function savedBranches() {
 
 test('ConversationService - sin diálogo de resumen, la rama clona el historial hasta la respuesta elegida', async t => {
   const shortHistory = HISTORY.slice(0, 3);
-  const { wrapper, options } = await setupBranch(t, shortHistory, 'm3');
+  const { anchor, options } = await setupBranch(t, shortHistory, 'm3');
   useDialogs(t, []);
-  assert.equal(await ConversationService.createConversationBranch(wrapper, options), true);
+  assert.equal(await ConversationService.createConversationBranch(anchor, options), true);
 
   const sessionId = State.get('sessions').activeId;
   assert.notEqual(sessionId, 'parent_sess_1');
@@ -66,7 +72,7 @@ test('ConversationService - sin diálogo de resumen, la rama clona el historial 
 });
 
 test('ConversationService - con resumen, la rama compacta el contexto previo y conserva literal la respuesta de anclaje', async t => {
-  const { wrapper, options } = await setupBranch(t);
+  const { anchor, options, summarizing } = await setupBranch(t);
   useDialogs(t, [{ accepted: true, checkboxChecked: true }]);
   const summarized = [];
   let busyDuringSummary = null;
@@ -77,8 +83,9 @@ test('ConversationService - con resumen, la rama compacta el contexto previo y c
     return { accumulatedText: 'Consolidated summary of conversation' };
   });
 
-  assert.equal(await ConversationService.createConversationBranch(wrapper, options), true);
+  assert.equal(await ConversationService.createConversationBranch(anchor, options), true);
   assert.equal(busyDuringSummary, true, 'Mientras se resume la conversación está ocupada');
+  assert.deepEqual(summarizing, [true, false], 'El indicador se muestra durante el resumen y se retira al terminar');
   assert.equal(State.isConversationBusy(), false);
   assert.equal(State.get('ui').generationStatus.phase, 'idle');
   assert.deepEqual(summarized, ['user 1', 'asst 1', 'user 2'], 'La respuesta de anclaje no se resume');
@@ -87,24 +94,24 @@ test('ConversationService - con resumen, la rama compacta el contexto previo y c
 });
 
 test('ConversationService - no bifurca mientras la conversación está ocupada', async t => {
-  const { wrapper, options } = await setupBranch(t);
+  const { anchor, options } = await setupBranch(t);
   const { alerts } = useDialogs(t, []);
   State.set('streaming', { isGenerating: true });
   t.after(() => State.set('streaming', { isGenerating: false }));
-  assert.equal(await ConversationService.createConversationBranch(wrapper, options), false);
+  assert.equal(await ConversationService.createConversationBranch(anchor, options), false);
   assert.equal(alerts.length, 1);
   assert.deepEqual(await savedBranches(), []);
 });
 
 test('ConversationService - parar durante el resumen cancela la rama sin ofrecer el historial completo', async t => {
-  const { wrapper, options } = await setupBranch(t);
+  const { anchor, options } = await setupBranch(t);
   const { confirms, alerts } = useDialogs(t, [{ accepted: true, checkboxChecked: true }]);
   useSummarizer(t, ({ signal }) => new Promise((_resolve, reject) => {
     signal.addEventListener('abort', () => reject(new Error('aborted')));
     GenerationController.handleStopGeneration();
   }));
   t.mock.method(console, 'warn', () => {});
-  assert.equal(await ConversationService.createConversationBranch(wrapper, options), false);
+  assert.equal(await ConversationService.createConversationBranch(anchor, options), false);
   assert.equal(confirms.length, 1, 'Solo el diálogo inicial');
   assert.equal(alerts.length, 0);
   assert.deepEqual(await savedBranches(), []);
@@ -112,37 +119,37 @@ test('ConversationService - parar durante el resumen cancela la rama sin ofrecer
 });
 
 test('ConversationService - cancelar el diálogo de bifurcación no crea la rama', async t => {
-  const { wrapper, options } = await setupBranch(t);
+  const { anchor, options } = await setupBranch(t);
   const { confirms } = useDialogs(t, [{ accepted: false, checkboxChecked: true }]);
-  assert.equal(await ConversationService.createConversationBranch(wrapper, options), false);
+  assert.equal(await ConversationService.createConversationBranch(anchor, options), false);
   assert.equal(confirms.length, 1);
   assert.ok(confirms[0].opts.checkbox, 'Debe ofrecer la casilla de resumen');
   assert.deepEqual(await savedBranches(), []);
 });
 
 test('ConversationService - aceptar sin la casilla de resumen clona el historial completo', async t => {
-  const { wrapper, options } = await setupBranch(t);
+  const { anchor, options } = await setupBranch(t);
   useDialogs(t, [{ accepted: true, checkboxChecked: false }]);
   useSummarizer(t, async () => { throw new Error('no debe resumir'); });
-  assert.equal(await ConversationService.createConversationBranch(wrapper, options), true);
+  assert.equal(await ConversationService.createConversationBranch(anchor, options), true);
   assert.equal(State.get('messages').length, 5);
 });
 
 test('ConversationService - si el resumen falla ofrece bifurcar con el historial completo', async t => {
   t.mock.method(console, 'warn', () => {});
   {
-    const { wrapper, options } = await setupBranch(t);
+    const { anchor, options } = await setupBranch(t);
     const { confirms } = useDialogs(t, [{ accepted: true, checkboxChecked: true }, true]);
     useSummarizer(t, async () => { throw new Error('provider down'); });
-    assert.equal(await ConversationService.createConversationBranch(wrapper, options), true);
+    assert.equal(await ConversationService.createConversationBranch(anchor, options), true);
     assert.equal(confirms.length, 2);
     assert.equal(State.get('messages').length, 5);
   }
   {
-    const { wrapper, options } = await setupBranch(t);
+    const { anchor, options } = await setupBranch(t);
     useDialogs(t, [{ accepted: true, checkboxChecked: true }, false]);
     useSummarizer(t, async () => { throw new Error('provider down'); });
-    assert.equal(await ConversationService.createConversationBranch(wrapper, options), false);
+    assert.equal(await ConversationService.createConversationBranch(anchor, options), false);
     assert.deepEqual(await savedBranches(), []);
   }
 });

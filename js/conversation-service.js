@@ -4,7 +4,8 @@
  * bifurcar ramas / branching y persistir en State y Storage).
  *
  * Las opciones que recibe cada operación son los callbacks de presentación de app.js:
- * renderSessionMessages, renderSidebarChats, onSessionReset, resetComposerInput y closeSidebar.
+ * renderSessionMessages, renderSidebarChats, onSessionReset, resetComposerInput y
+ * closeMobileSidebar. El servicio no toca el DOM.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -55,12 +56,12 @@
     return true;
   }
 
-  /** Muestra la sesión activa tras cambiarla; en pantallas estrechas cierra la barra lateral. */
+  /** Muestra la sesión activa tras cambiarla; en móvil cierra la barra lateral. */
   function showActiveSession(options, { resetComposer }) {
     options.renderSessionMessages(getHistory());
     options.renderSidebarChats();
     if (resetComposer) options.resetComposerInput();
-    if (window.innerWidth < 900) options.closeSidebar();
+    options.closeMobileSidebar();
   }
 
   async function loadSessionsFromStorage(options) {
@@ -148,29 +149,14 @@
     return true;
   }
 
-  function getBranchBoundaryIndex(wrapper, history) {
-    const messageIds = new Set((wrapper.getAttribute('data-msg-ids') || '').split(',').filter(Boolean));
-    for (const attribute of ['data-msg-id', 'data-base-id']) {
-      const value = wrapper.getAttribute(attribute);
-      if (value) messageIds.add(value);
-    }
+  /** Índice del último mensaje del historial que pertenece a la respuesta de anclaje. */
+  function getBranchBoundaryIndex({ msgId, baseId, explicitIds }, history) {
+    const messageIds = new Set([...explicitIds, msgId, baseId].filter(Boolean));
     let boundary = -1;
     history.forEach((message, index) => {
       if (messageIds.has(message.id) || messageIds.has(MessageTurns.extractBaseId(message.id))) boundary = index;
     });
     return boundary;
-  }
-
-  function setAssistantGroupMessageIds(wrapper, history) {
-    let lastUserIndex = -1;
-    for (let index = history.length - 1; index >= 0; index--) {
-      if (history[index].role === 'user') {
-        lastUserIndex = index;
-        break;
-      }
-    }
-    const ids = history.slice(lastUserIndex + 1).map(message => message.id);
-    if (ids.length > 0) wrapper.setAttribute('data-msg-ids', ids.join(','));
   }
 
   /** Copia profunda de los mensajes con identificadores propios de la sesión destino. */
@@ -232,12 +218,12 @@
 
   /**
    * Historial de una rama resumida. Si el resumen falla, ofrece bifurcar con el historial
-   * completo; null si se cancela o la conversación quedó ocupada.
+   * completo; null si se cancela o la conversación quedó ocupada. `onSummarizing(active)` muestra
+   * y retira el indicador de progreso en la respuesta de anclaje.
    */
-  async function buildSummarizedBranchHistory(wrapper, history, boundary, sessionId) {
+  async function buildSummarizedBranchHistory(history, boundary, sessionId, onSummarizing) {
     const State = getState();
-    const UIConversation = resolveDep('ChatUIConversation', './ui-conversation.js');
-    UIConversation.showBranchLoadingIndicator(wrapper, t('chat_branch_summarizing'));
+    onSummarizing(true);
     let cancelled = false;
     let summarized = null;
     try {
@@ -252,7 +238,7 @@
       console.warn('[ConversationService] Could not summarize the branch history:', err);
     } finally {
       State.clearGenerationStatus();
-      UIConversation.hideBranchLoadingIndicator(wrapper);
+      onSummarizing(false);
     }
 
     if (cancelled || blockSessionTransitionIfBusy('chat_new_blocked_generating')) return null;
@@ -265,11 +251,15 @@
     return useFullHistory ? cloneBranchHistory(history, boundary, sessionId) : null;
   }
 
-  async function createConversationBranch(wrapper, options) {
+  /**
+   * Crea una rama de la conversación hasta la respuesta `anchor` ({ msgId, baseId, explicitIds },
+   * de ChatUIConversation.getMessageRef). `options.onSummarizing` pinta el progreso del resumen.
+   */
+  async function createConversationBranch(anchor, options) {
     if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
 
     const history = getHistory();
-    const boundary = getBranchBoundaryIndex(wrapper, history);
+    const boundary = getBranchBoundaryIndex(anchor, history);
     if (boundary < 0) return false;
 
     await saveCurrentSession(options);
@@ -282,7 +272,7 @@
     const parentTitle = getSavedSessions().find(session => session.id === parentSessionId)?.title || t('chat_untitled');
     const branchSessionId = createId('session');
     const branchHistory = mode.summarize
-      ? await buildSummarizedBranchHistory(wrapper, history, boundary, branchSessionId)
+      ? await buildSummarizedBranchHistory(history, boundary, branchSessionId, options.onSummarizing)
       : cloneBranchHistory(history, boundary, branchSessionId);
     if (!branchHistory) return false;
 
@@ -382,7 +372,6 @@
     saveCurrentSession,
     switchToSession,
     createNewSession,
-    setAssistantGroupMessageIds,
     createConversationBranch,
     deleteSession,
     deleteAllSessions,

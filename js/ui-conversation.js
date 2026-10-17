@@ -317,14 +317,33 @@
     typingIndicatorEl = null;
   }
 
+  /**
+   * Mensajes del historial que representa un wrapper: su id, el id base de su turno y, en un grupo
+   * del asistente, los ids de todos sus mensajes. Es la referencia que reciben State.removeTurn y
+   * ChatConversationService.createConversationBranch.
+   */
+  function getMessageRef(wrapper) {
+    const msgId = wrapper.getAttribute('data-msg-id') || '';
+    return {
+      msgId,
+      baseId: wrapper.getAttribute('data-base-id') || extractBaseId(msgId),
+      explicitIds: (wrapper.getAttribute('data-msg-ids') || '').split(',').filter(Boolean)
+    };
+  }
+
+  /** Asocia al wrapper del asistente los mensajes de la respuesta en curso: los posteriores al último del usuario. */
+  function setAssistantGroupMessageIds(wrapper, history) {
+    const lastUserIndex = history.findLastIndex(message => message.role === 'user');
+    const ids = history.slice(lastUserIndex + 1).map(message => message.id);
+    if (ids.length > 0) wrapper.setAttribute('data-msg-ids', ids.join(','));
+  }
+
   /** Borra el turno del mensaje y, si queda la conversación vacía, vuelve a mostrar la bienvenida. */
   function removeMessage(wrapper, { messagesList, welcomeBanner, saveSession }) {
     const State = getState();
     if (State.isConversationBusy()) return;
 
-    const msgId = wrapper.getAttribute('data-msg-id') || '';
-    const baseId = wrapper.getAttribute('data-base-id') || extractBaseId(msgId);
-    const explicitIds = (wrapper.getAttribute('data-msg-ids') || '').split(',').filter(Boolean);
+    const { msgId, baseId, explicitIds } = getMessageRef(wrapper);
     const result = State.removeTurn({ msgId, baseId, explicitIds });
     if (!result.ok || result.removedCount === 0) return;
 
@@ -552,6 +571,8 @@
     createAssistantBlock,
     renderAssistantBlock,
     createTurnView,
+    getMessageRef,
+    setAssistantGroupMessageIds,
     scrollToBottom,
     mountScrollToBottomButton,
     showTypingIndicator,

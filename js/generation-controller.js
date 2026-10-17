@@ -197,7 +197,7 @@
 
       if (loopResult.chatHistory) {
         State.replaceMessages(loopResult.chatHistory);
-        resolveDep('ChatConversationService', './conversation-service.js').setAssistantGroupMessageIds(wrapper, State.get('messages'));
+        UIConversation.setAssistantGroupMessageIds(wrapper, State.get('messages'));
       }
 
       if (loopResult.cancelled) {
