@@ -103,3 +103,4 @@ Done when: no test or module depends on happy-dom and Node-only branches are gon
 - [x] M24-T26 Remove exports, parameters and helpers whose only consumer is a test, and extend the hygiene test to every exported name (2026-10-17)
 - [x] M24-T27 Measure tests, lines and run time before/after, agree the targets with the user and update the Done when figures (2026-10-17)
 - [x] M24-T28 Remove completed M24 planning draft and stale plan reference (2026-10-17)
+- [x] M24-T29 Share one zerochat.py server per group in test_local_server.js (7 spawns to 4) and clarify the shared-startup rule in AGENTS.md (2026-10-17)

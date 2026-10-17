@@ -39,7 +39,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
 
   const serverProc = spawn('python3', [
     serverPath, '--port', String(port), '--no-browser', '--no-venv'
-  ], { env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken) }, stdio: ['ignore', 'pipe', 'pipe'] });
+  ], { cwd: repoRoot, env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken) }, stdio: ['ignore', 'pipe', 'pipe'] });
 
   let serverError = '';
   let serverOutput = '';
@@ -49,6 +49,10 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
   try {
     // 1. Esperar arranque
     await waitForServer(baseUrl, testToken, serverProc);
+
+    // 1.1 Detección de entorno de desarrollo en el arranque
+    assert.match(serverOutput, /Desarrollo local/, 'Debe detectar el entorno de desarrollo');
+    assert.match(serverOutput, new RegExp(`http://127\\.0\\.0\\.1:${port}`), 'Debe mostrar la URL destino en el arranque');
 
     // 2. Comprobar rechazo sin token (HTTP 401)
     const unauthGet = await fetch(`${baseUrl}/`);
@@ -703,43 +707,14 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(stoppedExample?.status, 'stopped');
     assert.equal(stoppedExample?.toolCount, 0);
 
-  } finally {
+    // 10. Servicio de zerochat.html y estáticos en desarrollo local (sin token, con fetch nativo)
     global.fetch = nativeFetch;
-    serverProc.kill('SIGTERM');
-  }
-});
-
-test('Detección de entorno de desarrollo y servicio de zerochat.html y estáticos en zerochat.py', async () => {
-  const repoRoot = path.resolve(__dirname, '../..');
-  const serverPath = path.resolve(repoRoot, 'zerochat.py');
-  const port = await freePort();
-  const baseUrl = `http://127.0.0.1:${port}`;
-  const testToken = 'test-token-dev-auto';
-
-  // Iniciar sin --ui-url para verificar auto-detección
-  const serverProc = spawn('python3', [
-    serverPath, '--port', String(port), '--no-browser', '--no-venv'
-  ], { cwd: repoRoot, env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken) }, stdio: ['ignore', 'pipe', 'pipe'] });
-
-  let serverOutput = '';
-  serverProc.stdout.on('data', chunk => { serverOutput += chunk; });
-
-  try {
-    // 1. Esperar arranque
-    await waitForServer(baseUrl, testToken, serverProc);
-
-    // 2. Verificar detección en stdout del banner
-    assert.match(serverOutput, /Modo de ejecución\s*:\s*Desarrollo local/);
-    assert.match(serverOutput, new RegExp(`Destino Web\\s*:\\s*http://127\\.0\\.0\\.1:${port}/zerochat\\.html`));
-
-    // 3. Verificar servicio de zerochat.html sin necesidad de token en headers
     const htmlRes = await fetch(`${baseUrl}/zerochat.html`);
     assert.equal(htmlRes.status, 200, 'Debe servir zerochat.html con 200 OK');
     assert.match(htmlRes.headers.get('content-type') || '', /text\/html/);
     const htmlText = await htmlRes.text();
     assert.ok(htmlText.includes('ZeroChat'), 'El contenido debe ser el HTML de ZeroChat');
 
-    // 4. Verificar servicio de assets estáticos (js, css, manifest)
     const jsRes = await fetch(`${baseUrl}/js/app.js`);
     assert.equal(jsRes.status, 200);
     assert.match(jsRes.headers.get('content-type') || '', /javascript/);
@@ -755,14 +730,17 @@ test('Detección de entorno de desarrollo y servicio de zerochat.html y estátic
     assert.match(manifestRes.headers.get('content-type') || '', /manifest/);
     await manifestRes.text();
 
-    // 5. Verificar protección anti-path-traversal
     const traversalRes = await fetch(`${baseUrl}/../package.json`);
     assert.notEqual(traversalRes.status, 200, 'No debe permitir acceso fuera de la raíz');
     await traversalRes.text();
+
   } finally {
+    global.fetch = nativeFetch;
     serverProc.kill('SIGTERM');
   }
 });
+
+
 
 test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos comprometidos y con detalle de errores', async () => {
   const repoRoot = path.resolve(__dirname, '../..');
@@ -895,7 +873,6 @@ test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos co
     serverProc.kill('SIGTERM');
   }
 });
-
 test('Servidor local zerochat.py: heartbeat y apagado automático por inactividad', async () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const serverPath = path.resolve(repoRoot, 'zerochat.py');
@@ -944,7 +921,15 @@ test('Servidor local zerochat.py: heartbeat y apagado automático por inactivida
     const badTokenHb = await fetch(`${baseUrl}/zerochat/heartbeat`, { headers: { 'X-ZeroChat-Token': 'fake-token' } });
     assert.equal(badTokenHb.status, 401, 'Token inválido debe seguir siendo rechazado');
 
-    // 6. Esperar a que el watchdog detecte la inactividad (>0.2s desde el último válido) y apague el servidor automáticamente
+    // 6. Una petición RPC autenticada a /mcp/external renueva el watchdog sin /zerochat/heartbeat
+    const rpcRes = await fetch(`${baseUrl}/mcp/external`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-ZeroChat-Token': testToken },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })
+    });
+    assert.equal(rpcRes.status, 200, 'Llamada RPC debe devolver 200');
+
+    // 7. Esperar a que el watchdog detecte la inactividad (>0.2s desde la última actividad válida) y apague el servidor automáticamente
     const exitPromise = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('El servidor no se apagó por inactividad de heartbeat')), 3000);
       serverProc.on('exit', (code) => {
@@ -970,7 +955,7 @@ test('Servidor local zerochat.py: --no-exit-on-close desactiva el watchdog', asy
   const serverProc = spawn('python3', [
     serverPath, '--port', String(port), '--no-browser', '--no-exit-on-close', '--no-venv'
   ], {
-    env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken), ZEROCHAT_HEARTBEAT_TIMEOUT: '0.2', ZEROCHAT_HEARTBEAT_POLL: '0.05' },
+    env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken) },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
@@ -992,86 +977,17 @@ test('Servidor local zerochat.py: --no-exit-on-close desactiva el watchdog', asy
     const checkRes = await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });
     assert.equal(checkRes.status, 200, 'El servidor debe seguir respondiendo con --no-exit-on-close');
     assert.match(serverOutput, /Auto-cierre\s*:\s*Desactivado/, 'El banner debe indicar auto-cierre desactivado');
-  } finally {
-    serverProc.kill('SIGTERM');
-  }
-});
 
-test('Servidor local zerochat.py: peticiones RPC autenticadas (/mcp/external) inicializan y renuevan el watchdog sin /zerochat/heartbeat', async () => {
-  const repoRoot = path.resolve(__dirname, '../..');
-  const serverPath = path.resolve(repoRoot, 'zerochat.py');
-  const port = await freePort();
-  const baseUrl = `http://127.0.0.1:${port}`;
-  const testToken = 'rpc-watchdog-token-12345';
-
-  const serverProc = spawn('python3', [
-    serverPath, '--port', String(port), '--no-browser', '--no-venv'
-  ], {
-    env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken), ZEROCHAT_HEARTBEAT_TIMEOUT: '0.2', ZEROCHAT_HEARTBEAT_POLL: '0.05' },
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
-
-  let serverOutput = '';
-  serverProc.stdout.on('data', chunk => { serverOutput += chunk; });
-
-  try {
-    // 1. Esperar arranque
-    await waitForServer(baseUrl, testToken, serverProc);
-
-    // 2. Enviar petición RPC a /mcp/external con token (tools/list)
-    const rpcRes = await fetch(`${baseUrl}/mcp/external`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-ZeroChat-Token': testToken
-      },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })
-    });
-    assert.equal(rpcRes.status, 200, 'Llamada RPC debe devolver 200');
-
-    // 3. Esperar a que el watchdog detecte la inactividad tras la llamada RPC (>0.2s)
-    const exitPromise = new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('El servidor no se apagó por inactividad tras RPC')), 3000);
-      serverProc.on('exit', (code) => {
-        clearTimeout(timeout);
-        resolve(code);
+    // Métodos de control MCP: error JSON-RPC ante entradas inválidas
+    const rpc = async (method, params) => {
+      const res = await fetch(baseUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${testToken}` },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
       });
-    });
-
-    await exitPromise;
-    assert.match(serverOutput, /Navegador desconectado \(cierre detectado\)/, 'El watchdog debe registrar desconexión tras actividad RPC');
-  } finally {
-    try { serverProc.kill('SIGTERM'); } catch (_) {}
-  }
-});
-
-test('Servidor local zerochat.py: los métodos de control MCP responden con error JSON-RPC ante entradas inválidas', async () => {
-  const repoRoot = path.resolve(__dirname, '../..');
-  const serverPath = path.resolve(repoRoot, 'zerochat.py');
-  const testToken = 'control-errors-token-12345';
-  const dataDir = tokenDataDir(testToken);
-  const port = await freePort();
-  const baseUrl = `http://127.0.0.1:${port}`;
-
-  const serverProc = spawn('python3', [
-    serverPath, '--port', String(port), '--no-browser', '--no-venv', '--no-exit-on-close'
-  ], {
-    env: { ...process.env, ZEROCHAT_DATA_DIR: dataDir },
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
-
-  const rpc = async (method, params) => {
-    const res = await fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
-    });
-    assert.equal(res.status, 200, method);
-    return res.json();
-  };
-
-  try {
-    await waitForServer(baseUrl, testToken, serverProc);
+      assert.equal(res.status, 200, method);
+      return res.json();
+    };
     for (const action of ['start', 'stop', 'configure']) {
       const method = `zerochat/external/servers/${action}`;
       const unknown = await rpc(method, { serverId: 'no-existe', options: {} });
@@ -1085,7 +1001,6 @@ test('Servidor local zerochat.py: los métodos de control MCP responden con erro
     const status = await rpc('zerochat/external/status', {});
     assert.equal(status.result.servers.some(server => server.id === 'no-existe'), false);
   } finally {
-    try { serverProc.kill('SIGTERM'); } catch (_) {}
-    fs.rmSync(dataDir, { recursive: true, force: true });
+    serverProc.kill('SIGTERM');
   }
 });

@@ -95,6 +95,8 @@ Validaciones según el nivel afectado:
 - Integración de componentes: `npm run test:integration`
 - Cambios de HTML, CSS o DOM: `npm run test:browser`
 
+Los comportamientos que comparten la misma configuración de arranque de un proceso (misma CLI, mismo entorno) se prueban en un único arranque compartido, nunca con un spawn por comprobación; cada proceso se arranca solo cuando la configuración (flags, entorno, ciclo de vida) difiere.
+
 Antes de considerar terminado un cambio:
 1. deben pasar todas las pruebas aplicables;
 2. llevan prueba los cambios de seguridad, de lógica no trivial, de integridad de datos y de contratos externos, y la corrección de fallos reales; no llevan prueba nueva los cambios de textos, maquetación, estilos o valores por defecto, ni el código que se ejecuta en cada arranque, que cubre la prueba de humo de navegador (criterios en [`tests/README.md`](./tests/README.md));
