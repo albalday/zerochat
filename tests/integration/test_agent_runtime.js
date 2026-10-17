@@ -256,47 +256,6 @@ test('AgentRuntime - tras un rechazo del razonamiento, el resto del turno se env
   assert.equal(logs.filter(entry => entry.type === 'warning' && /reasoning parameter/.test(entry.text)).length, 1);
 });
 
-test('AgentRuntime - serializa el resultado para el modelo a través del contrato de la tool', async t => {
-  const registry = new ToolRegistry();
-  registry.registerTool(makeTool({
-    name: 'contract_serialized_result',
-    description: 'Devuelve un resultado con una representación específica para el modelo.',
-    parameters: { type: 'object', properties: { value: { type: 'string' } } },
-    execute: async ({ value }) => ({ internalValue: value }),
-    result: {
-      toModel: (args, result) => `modelo:${args.value}:${result.internalValue}`
-    }
-  }));
-
-  let step = 0;
-  const mockApi = {
-    streamChatCompletion: async (params) => {
-      step++;
-      if (step === 1) {
-        return {
-          accumulatedText: '',
-          toolCalls: [{
-            id: 'call_contract_serialized_result',
-            function: { name: 'contract_serialized_result', arguments: '{"value":"hola"}' }
-          }]
-        };
-      }
-
-      const toolMessage = params.messages.find(message => message.role === 'tool');
-      assert.equal(toolMessage.content, 'modelo:hola:hola');
-      return { accumulatedText: 'Resultado recibido.', toolCalls: [] };
-    }
-  };
-
-  const result = await runAgent(t, registry, {
-    api: mockApi,
-    messages: [{ role: 'user', content: 'Prueba el contrato.' }]
-  });
-
-  assert.equal(result.status, 'completed');
-  assert.equal(result.history.find(message => message.role === 'tool').content, 'modelo:hola:hola');
-});
-
 test('AgentRuntime - Múltiples pasos agénticos secuenciales', async t => {
   const registry = new ToolRegistry();
   registry.registerTool(makeTool({

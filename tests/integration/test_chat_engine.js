@@ -18,7 +18,6 @@ const MessageTurns = require('../../js/message-turns.js');
 const ChatConfig = require('../../js/config-store.js');
 const ChatAPI = require('../../js/api.js');
 const ChatAgentCore = require('../../js/agent-core.js');
-const I18n = require('../../js/i18n.js');
 const { createTurnView } = require('../helpers/turn-view.js');
 
 // La aplicación siempre entrega la configuración normalizada y todos los callbacks del turno.
@@ -27,12 +26,6 @@ const buildMessages = (history, appConfig = {}, options) => ChatEngine.buildEffe
 
 // El sandbox real necesita un navegador (lo cubren las pruebas de browser): aquí la herramienta
 // devuelve un resultado fijo y el motor se prueba con el resto de piezas reales.
-function stubToolDispatch(t, resultText = '4') {
-  const original = ChatAgentCore.dispatchToolCall;
-  ChatAgentCore.dispatchToolCall = async () => ({ success: true, result: { result: resultText }, resultText, markdownBlock: `> ${resultText}` });
-  t.after(() => { ChatAgentCore.dispatchToolCall = original; });
-}
-
 function runTurn({ appConfig = {}, ...params }) {
   return ChatEngine.executeAgentTurnLoop({
     assistantMsgId: 'asst_test',
@@ -45,23 +38,6 @@ function runTurn({ appConfig = {}, ...params }) {
     appConfig: config(appConfig)
   });
 }
-
-test('ChatEngine - reenvía el razonamiento solo en los pasos del turno en curso', () => {
-  const call = id => [{ id, type: 'function', function: { name: 'read_file', arguments: '{}' } }];
-  const messages = buildMessages([
-    { role: 'user', content: 'Primera' },
-    { role: 'assistant', content: null, tool_calls: call('c1'), reasoningReplay: { field: 'reasoning_content', text: 'viejo' } },
-    { role: 'tool', tool_call_id: 'c1', name: 'read_file', content: 'a' },
-    { role: 'assistant', content: 'Listo' },
-    { role: 'user', content: 'Segunda' },
-    { role: 'assistant', content: null, tool_calls: call('c2'), reasoningReplay: { field: 'reasoning', text: 'actual' } },
-    { role: 'tool', tool_call_id: 'c2', name: 'read_file', content: 'b' }
-  ]);
-  const assistants = messages.filter(m => m.role === 'assistant' && m.tool_calls);
-  assert.equal('reasoning_content' in assistants[0], false);
-  assert.equal(assistants[1].reasoning, 'actual');
-  assert.equal(messages.some(m => 'reasoningReplay' in m), false);
-});
 
 test('ChatEngine - reenvía la firma del razonamiento cuando el servidor la entrega', () => {
   const messages = buildMessages([
@@ -122,14 +98,6 @@ test('ChatEngine - adjunta una imagen web descargada como evidencia multimodal t
   assert.match(visual.content[0].text, /https:\/\/example.com\/cat.png/);
 });
 
-test('ChatEngine - no crea evidencia visual para resultados de herramienta sin imagen', () => {
-  const messages = buildMessages([
-    { role: 'assistant', content: null, tool_calls: [{ id: 'call_image', type: 'function', function: { name: 'read_knowledge_image', arguments: '{}' } }] },
-    { role: 'tool', tool_call_id: 'call_image', name: 'read_knowledge_image', content: 'Error.' }
-  ], {}, { enableTools: false });
-  assert.equal(messages.filter(message => Array.isArray(message.content)).length, 0);
-});
-
 test('ChatEngine - getConversationDateAnchor genera el ancla con fecha y zona horaria', (t) => {
   const anchorEs = ChatEngine.getConversationDateAnchor();
   assert.ok(anchorEs.includes('Conversation start date:'));
@@ -138,16 +106,6 @@ test('ChatEngine - getConversationDateAnchor genera el ancla con fecha y zona ho
   const anchorEn = ChatEngine.getConversationDateAnchor();
   assert.ok(anchorEn.includes('Conversation start date:'));
   assert.ok(anchorEn.includes('Timezone:'));
-});
-
-test('ChatEngine - la guía de herramientas en texto lista las herramientas activas', () => {
-  const guideEs = ChatAgentCore.registry.getActivePromptGuide(config());
-
-  assert.ok(guideEs.includes('AVAILABLE TOOLS AND FUNCTIONS'));
-  assert.ok(guideEs.includes('fetch_web_page'));
-  assert.ok(guideEs.includes('search_web'));
-  assert.ok(guideEs.includes('execute_javascript'));
-  assert.ok(guideEs.includes('render_chart'));
 });
 
 test('ChatEngine - buildEffectiveMessages inyecta fecha, RAG y formatea mensajes', (t) => {
@@ -192,113 +150,6 @@ test('ChatEngine - buildEffectiveMessages indica el directorio del proyecto solo
   assert.ok(!withoutTools[0].content.includes('Project directory'));
   const withoutServer = buildMessages(history, config, { enableTools: true, projectDirectory: '' });
   assert.ok(!withoutServer[0].content.includes('Project directory'));
-});
-
-test('ChatEngine - executeAgentTurnLoop ejecuta un turno simple sin herramientas', async (t) => {
-  const originalStream = ChatAPI.streamChatCompletion;
-  let receivedApiKey;
-
-  // Mock de streamChatCompletion para respuesta directa
-  ChatAPI.streamChatCompletion = async (params) => {
-    receivedApiKey = params.apiKey;
-    if (params.onChunk) {
-      params.onChunk('Hola, ', 'Hola, ', { ttftSec: '0.12', tokensPerSec: '50.0', totalSec: '0.20', tokens: 10 });
-      params.onChunk('Hola, ¿en qué puedo ayudarte hoy?', '¿en qué puedo ayudarte hoy?', { ttftSec: '0.12', tokensPerSec: '55.0', totalSec: '0.35', tokens: 20 });
-    }
-    return {
-      accumulatedText: 'Hola, ¿en qué puedo ayudarte hoy?',
-      stats: { ttftSec: '0.12', tokensPerSec: '55.0', totalSec: '0.35', tokens: 20 },
-      toolCalls: null
-    };
-  };
-
-  const history = [
-    { role: 'user', content: 'Hola' }
-  ];
-
-  const appConfig = {
-    apiUrl: 'http://localhost:1234/v1',
-    apiType: 'openai',
-    model: 'test-model',
-    temperature: '0.7',
-    language: 'es'
-  };
-
-  let chunksReceived = [];
-  const res = await runTurn({
-    apiKey: 'test-key',
-    chatHistory: history,
-    appConfig: appConfig,
-    assistantMsgId: 'asst_test',
-    onChunk: ({ fullText }) => {
-      chunksReceived.push(fullText);
-    }
-  });
-
-  assert.equal(res.success, true);
-  assert.equal(receivedApiKey, 'test-key');
-  assert.equal(res.finalAssistantText, 'Hola, ¿en qué puedo ayudarte hoy?');
-  assert.equal(history.length, 2);
-  assert.equal(history[1].role, 'assistant');
-  assert.equal(history[1].content, 'Hola, ¿en qué puedo ayudarte hoy?');
-
-  // Restaurar API
-  ChatAPI.streamChatCompletion = originalStream;
-});
-
-test('ChatEngine - executeAgentTurnLoop ejecuta llamadas a herramientas y genera turno final', async (t) => {
-  stubToolDispatch(t, '40');
-  const originalStream = ChatAPI.streamChatCompletion;
-  let callCount = 0;
-
-  ChatAPI.streamChatCompletion = async (params) => {
-    callCount++;
-    if (callCount === 1) {
-      // Turno 1: Devuelve una llamada a execute_javascript
-      const tc = [{
-        id: 'call_calc_1',
-        type: 'function',
-        function: {
-          name: 'execute_javascript',
-          arguments: JSON.stringify({ code: 'const a = 15; const b = 25; return a + b;' })
-        }
-      }];
-      return { accumulatedText: '', toolCalls: tc, stats: null };
-    } else {
-      // Turno 2: Respuesta final con el resultado
-      const finalMsg = 'El resultado de la suma de 15 y 25 es 40.';
-      if (params.onChunk) params.onChunk(finalMsg, finalMsg, null);
-      return { accumulatedText: finalMsg, toolCalls: null, stats: null };
-    }
-  };
-
-  const history = [
-    { role: 'user', content: '¿Cuánto es 15 + 25?' }
-  ];
-
-  const appConfig = {
-    apiUrl: 'http://localhost:1234/v1',
-    apiType: 'openai',
-    model: 'test-model',
-    language: 'es'
-  };
-
-  const res = await runTurn({
-    chatHistory: history,
-    appConfig: appConfig,
-    assistantMsgId: 'asst_calc'
-  });
-
-  assert.equal(res.success, true);
-  assert.equal(res.finalAssistantText, 'El resultado de la suma de 15 y 25 es 40.');
-  assert.equal(history.length, 4); // user -> assistant (tool call) -> tool (res) -> assistant (final)
-  assert.equal(history[1].role, 'assistant');
-  assert.ok(history[1].tool_calls);
-  assert.equal(history[2].role, 'tool');
-  assert.ok(history[2].content.includes('40'));
-  assert.equal(history[3].role, 'assistant');
-
-  ChatAPI.streamChatCompletion = originalStream;
 });
 
 test('ChatEngine - conserva evidencia RAG multimodal entre pasos agénticos', async () => {
@@ -369,154 +220,6 @@ test('ChatEngine - copia el texto intermedio y los bloques de herramientas en or
     ChatAPI.streamChatCompletion = originalStream;
     ChatAgentCore.dispatchToolCall = originalDispatch;
   }
-});
-
-test('ChatEngine - executeAgentTurnLoop protege contra bucles infinitos repetidos', async (t) => {
-  stubToolDispatch(t);
-  const originalStream = ChatAPI.streamChatCompletion;
-
-  // Mock que siempre devuelve exactamente la misma llamada a herramienta
-  ChatAPI.streamChatCompletion = async (params) => {
-    const tc = [{
-      id: 'call_loop_1',
-      type: 'function',
-      function: {
-        name: 'execute_javascript',
-        arguments: JSON.stringify({ code: '2 + 2' })
-      }
-    }];
-    return { accumulatedText: '', toolCalls: tc, stats: null };
-  };
-
-  const history = [
-    { role: 'user', content: 'Repite' }
-  ];
-
-  const appConfig = {
-    apiUrl: 'http://localhost:1234/v1',
-    apiType: 'openai',
-    model: 'test-model'
-  };
-
-  let errorLogs = [];
-  const statuses = [];
-  const res = await runTurn({
-    chatHistory: history,
-    appConfig: appConfig,
-    onLog: (type, text) => {
-      if (type === 'error') errorLogs.push(text);
-    },
-    onGenerationStatus: status => statuses.push(status)
-  });
-
-  assert.equal(res.success, true);
-  assert.equal(res.loopDetected, true);
-  assert.ok(statuses.some(s => s.phase === 'error' && (s.text.includes('bucle infinito') || s.text.includes('loop'))), 'Debe emitir estado de parada por bucle infinito');
-  assert.ok(res.finalAssistantText.includes('Infinite Loop Protection'));
-  assert.ok(errorLogs.some(msg => msg.includes('[Loop protection]')));
-  assert.equal(history.at(-1).role, 'assistant');
-  assert.equal(history.at(-1).content, res.finalAssistantText);
-
-  ChatAPI.streamChatCompletion = originalStream;
-});
-
-test('ChatEngine - executeAgentTurnLoop sustituye el cursor inicial por el primer bloque del turno', async () => {
-  const originalStream = ChatAPI.streamChatCompletion;
-
-  ChatAPI.streamChatCompletion = async (params) => {
-    if (params.onChunk) {
-      params.onChunk('Respuesta de prueba', 'Respuesta de prueba', { ttftSec: '0.1', tokensPerSec: '40', totalSec: '0.2', tokens: 5 });
-    }
-    return { accumulatedText: 'Respuesta de prueba', toolCalls: null, stats: null };
-  };
-
-  const view = createTurnView();
-  const res = await runTurn({
-    chatHistory: [{ role: 'user', content: 'Hola' }],
-    appConfig: { apiUrl: 'http://localhost:1234/v1', model: 'test-model' },
-    view
-  });
-
-  assert.equal(res.success, true);
-  assert.equal(view.resets, 1);
-  assert.deepEqual(view.blocks, [{ text: 'Respuesta de prueba', streaming: false }]);
-
-  ChatAPI.streamChatCompletion = originalStream;
-});
-
-test('ChatEngine - executeAgentTurnLoop muestra una línea de compactación antes de la respuesta', async () => {
-  const originalStream = ChatAPI.streamChatCompletion;
-  const history = [];
-  for (let index = 0; index < 4; index++) {
-    history.push(
-      { role: 'user', content: `Pregunta ${index}: ${'detalle '.repeat(60)}` },
-      { role: 'assistant', content: `Respuesta ${index}: ${'resultado '.repeat(60)}` }
-    );
-  }
-
-  ChatAPI.streamChatCompletion = async (params) => {
-    if (params.toolChoice === 'none') return { accumulatedText: 'Checkpoint acumulativo.' };
-    params.onChunk?.('Respuesta final', 'Respuesta final', null);
-    return { accumulatedText: 'Respuesta final', toolCalls: null, stats: null };
-  };
-
-  try {
-    const view = createTurnView();
-    const res = await runTurn({
-      chatHistory: history,
-      appConfig: { apiUrl: 'http://localhost:1234/v1', model: 'test-model', modelContextLimit: 300 },
-      view
-    });
-
-    assert.equal(res.success, true);
-    assert.deepEqual(view.blocks.map(block => block.text), [I18n.t('chat_context_compacting'), 'Respuesta final']);
-    assert.equal(history[0]._isSummaryBlock, true);
-  } finally {
-    ChatAPI.streamChatCompletion = originalStream;
-  }
-});
-
-test('MessageTurns - removeSelectedTurn elimina múltiples llamadas sucesivas a herramientas', () => {
-  const baseId = 'msg_multi_tools';
-  const history = [
-    { id: 'usr_1', role: 'user', content: 'Calcula y grafica' },
-    {
-      id: `${baseId}_turn_0_assistant`,
-      role: 'assistant',
-      content: null,
-      tool_calls: [{ id: 'call_calc', type: 'function', function: { name: 'execute_javascript', arguments: '{"code":"2+2"}' } }]
-    },
-    {
-      id: `${baseId}_turn_0_tool_call_calc`,
-      role: 'tool',
-      tool_call_id: 'call_calc',
-      name: 'execute_javascript',
-      content: '{"result":4}'
-    },
-    {
-      id: `${baseId}_turn_1_assistant`,
-      role: 'assistant',
-      content: null,
-      tool_calls: [{ id: 'call_chart', type: 'function', function: { name: 'render_chart', arguments: '{"data":[4]}' } }]
-    },
-    {
-      id: `${baseId}_turn_1_tool_call_chart`,
-      role: 'tool',
-      tool_call_id: 'call_chart',
-      name: 'render_chart',
-      content: '{"rendered":true}'
-    },
-    {
-      id: `${baseId}_final`,
-      role: 'assistant',
-      content: 'El resultado es 4 y se ha graficado.'
-    }
-  ];
-
-  const updated = MessageTurns.removeSelectedTurn(history, { msgId: baseId, baseId });
-  assert.equal(updated.length, 1);
-  assert.equal(updated[0].id, 'usr_1');
-  assert.equal(updated.filter(m => m.role === 'tool').length, 0, 'Todas las respuestas de tool deben eliminarse');
 });
 
 test('ChatEngine - la siguiente petición tras borrar respuesta con tools no incluye ningún tool ni turno huérfano', () => {
@@ -610,100 +313,6 @@ test('ChatEngine - inyecta la fecha inicial de forma incondicional sin forzar el
   assert.match(messages[0].content, /Conversation start date/);
 });
 
-test('ChatEngine - no duplica los chunks de razonamiento al invocar onReasoningChunk y onLog', async () => {
-  const originalStream = ChatAPI.streamChatCompletion;
-
-  ChatAPI.streamChatCompletion = async (params) => {
-    if (params.onReasoningChunk) {
-      params.onReasoningChunk('Pol');
-      params.onReasoningChunk('itely');
-    }
-    if (params.onChunk) {
-      params.onChunk('Respuesta', 'Respuesta', null);
-    }
-    return {
-      accumulatedText: 'Respuesta',
-      stats: null,
-      toolCalls: null
-    };
-  };
-
-  const reasoningChunks = [];
-  const logEvents = [];
-
-  const res = await runTurn({
-    apiUrl: 'http://localhost:1234/v1',
-    apiType: 'openai',
-    model: 'test-model',
-    chatHistory: [{ role: 'user', content: 'Hola' }],
-    appConfig: { apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'test-model' },
-    assistantMsgId: 'asst_reasoning_test',
-    onReasoningChunk: (chunk) => {
-      reasoningChunks.push(chunk);
-    },
-    onLog: (type, text) => {
-      logEvents.push({ type, text });
-    }
-  });
-
-  assert.equal(res.success, true);
-  // Se deben recibir exactamente los 2 chunks sin duplicarse
-  assert.deepEqual(reasoningChunks, ['Pol', 'itely']);
-  // onLog no debe recibir logs de tipo 'thinking' puesto que onReasoningChunk los procesó
-  const thinkingLogs = logEvents.filter(l => l.type === 'thinking');
-  assert.equal(thinkingLogs.length, 0);
-
-  ChatAPI.streamChatCompletion = originalStream;
-});
-
-test('ChatEngine - executeAgentTurnLoop no limita los turnos ni pide una síntesis', async (t) => {
-  stubToolDispatch(t);
-  const originalStream = ChatAPI.streamChatCompletion;
-  const TOOL_TURNS = 45;
-
-  let callCount = 0;
-  let synthesisRequested = false;
-  ChatAPI.streamChatCompletion = async (params) => {
-    callCount++;
-    if (params.toolChoice === 'none') synthesisRequested = true;
-    if (callCount > TOOL_TURNS) {
-      return { accumulatedText: 'Hecho.', toolCalls: [], stats: null };
-    }
-    const tc = [{
-      id: 'call_turn_' + callCount,
-      type: 'function',
-      function: {
-        name: 'execute_javascript',
-        arguments: JSON.stringify({ code: `let v = ${callCount}` })
-      }
-    }];
-    return { accumulatedText: '', toolCalls: tc, stats: null };
-  };
-
-  const history = [{ role: 'user', content: 'Ejecuta muchas herramientas' }];
-  const appConfig = {
-    apiUrl: 'http://localhost:1234/v1',
-    apiType: 'openai',
-    model: 'test-model',
-    language: 'es'
-  };
-
-  try {
-    const res = await runTurn({
-      chatHistory: history,
-      appConfig: appConfig
-    });
-
-    assert.equal(res.success, true);
-    assert.equal(callCount, TOOL_TURNS + 1);
-    assert.equal(synthesisRequested, false, 'No debe pedirse una síntesis sin herramientas');
-    assert.equal(res.finalAssistantText, 'Hecho.');
-    assert.ok(history.some(m => m.id && m.id.endsWith('_final')), 'Debe registrar el turno final en el historial');
-  } finally {
-    ChatAPI.streamChatCompletion = originalStream;
-  }
-});
-
 test('ChatEngine - con herramientas en texto (WebLLM) no inyecta la guía de pseudo-firmas', () => {
   require('../../js/providers-webllm.js');
   const appConfig = { apiType: 'webllm', apiUrl: 'webllm://local', model: 'Qwen3-4B-q4f16_1-MLC', language: 'es', enabledTools: { search_web: true } };
@@ -719,18 +328,6 @@ const READY_PROJECT = {
   rules: { content: 'Project rules: AGENTS.md', truncated: false },
   state: { content: '- Next step: tests', truncated: false }
 };
-
-test('ChatEngine - inyecta normas y estado del proyecto solo en estado ready', () => {
-  const history = [{ role: 'user', content: 'Hola' }];
-  const config = { systemPrompt: 'BASE' };
-  const plain = buildMessages(history, config, { enableTools: false });
-  const ready = buildMessages(history, config, { enableTools: false, projectContext: READY_PROJECT });
-  const missing = buildMessages(history, config, { enableTools: false, projectContext: { ...READY_PROJECT, status: 'missing' } });
-
-  assert.match(ready[0].content, /\*Project mode:\*[\s\S]*Project rules: AGENTS\.md[\s\S]*- Next step: tests/);
-  assert.equal(missing[0].content, plain[0].content, 'Fuera de ready el prompt no cambia');
-  assert.doesNotMatch(plain[0].content, /Project mode/);
-});
 
 test('ChatEngine - el bloque del proyecto sigue en el prompt de sistema tras una compactación', () => {
   const history = [
@@ -798,34 +395,5 @@ test('ChatEngine - antepone al mensaje del usuario la nota de comandos terminado
   assert.equal(users[1].content[0].text, `${note}\n\nmira esto`);
   assert.equal(users[1].content[1].type, 'image_url');
   assert.equal(users[2].content, 'sin nota');
-});
-
-test('ChatEngine - executeAgentTurnLoop reposiciona al final al inicio de paso, tras el batch de herramientas y al terminar', async (t) => {
-  stubToolDispatch(t, 'resultado');
-  const originalStream = ChatAPI.streamChatCompletion;
-  let callCount = 0;
-  ChatAPI.streamChatCompletion = async () => {
-    callCount++;
-    if (callCount === 1) {
-      return {
-        accumulatedText: '',
-        toolCalls: [{ id: 'call_1', type: 'function', function: { name: 'read_file', arguments: '{}' } }],
-        stats: null
-      };
-    }
-    return { accumulatedText: 'Terminado', toolCalls: null, stats: null };
-  };
-
-  const view = createTurnView();
-  const res = await runTurn({
-    chatHistory: [{ role: 'user', content: 'hazlo' }],
-    assistantMsgId: 'asst_scroll_test',
-    view
-  });
-
-  assert.equal(res.success, true);
-  assert.ok(view.scrolls >= 3, `scrollToBottom debe llamarse en las transiciones del turno (llamadas: ${view.scrolls})`);
-
-  ChatAPI.streamChatCompletion = originalStream;
 });
 

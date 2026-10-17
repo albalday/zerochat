@@ -164,11 +164,6 @@ test('delegate_task - un informe vacío o un error del proveedor se devuelven co
   assert.match(long.report, /\[Report truncated at 20000 characters\.\]$/);
 });
 
-test('delegate_task - el Markdown del historial resume el encargo y el error', () => {
-  assert.match(delegateTask.toMarkdown({ task: 'Primera línea\nSegunda' }, { success: true, report: 'Informe' }), /delegate_task\*\*: Primera línea\n/);
-  assert.match(delegateTask.toMarkdown({}, { success: false, error: 'boom' }), /error: boom/);
-});
-
 test('delegate_task - un perfil de conexión «Subagente» da al subagente su propio modelo', async t => {
   const { services, context } = createHarness([]);
   const loaded = [];

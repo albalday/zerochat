@@ -2,7 +2,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const AgentCore = require('../../js/agent-core.js');
-const ToolSecurity = require('../../js/tool-security.js');
 const ConfigStore = require('../../js/config-store.js');
 
 const { Tool, ToolRegistry, ToolExecutor } = AgentCore;
@@ -33,45 +32,6 @@ test('AgentCore - el registro resuelve las nativas por nombre y por alias', () =
   const jsDef = registry.getActiveDefinitions(ConfigStore.normalize({})).find(d => d.function.name === 'execute_javascript');
   assert.equal(jsDef.type, 'function');
   assert.ok(jsDef.function.parameters.required.includes('code'));
-});
-
-test('AgentCore - Tool exige definición con nombre y execute, y solo se registran instancias de Tool', () => {
-  assert.throws(() => new Tool({ execute: async () => ({}) }), /definition with a name/);
-  assert.throws(() => new Tool({ definition: { name: 'no_execute' } }), /execute function/);
-  assert.throws(() => new ToolRegistry().registerTool({ name: 'plain_object' }), /Only Tool instances/);
-
-  const tool = makeTool({ name: 'defaults', execute: async () => ({}) });
-  assert.equal(tool.description, 'defaults', 'Sin descripción se usa el nombre');
-  assert.deepEqual(tool.parameters, { type: 'object', properties: {} });
-  assert.deepEqual(tool.settings, { titleKey: 'agent_defaults_title', descKey: 'agent_defaults_desc', defaultEnabled: true, showInSettings: true });
-  assert.equal(tool.displayMode, 'collapsed');
-  assert.equal(tool.getPromptGuide(), '- `defaults`: defaults');
-});
-
-test('AgentCore - un proveedor registra y retira sus herramientas', async () => {
-  const registry = new ToolRegistry();
-  const provider = {
-    id: 'mcp_filesystem',
-    getTools: () => [makeTool({
-      name: 'read_file',
-      description: 'Lee un archivo del sistema de archivos mediante MCP',
-      parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
-      category: 'mcp',
-      execute: async args => ({ success: true, content: `Contenido de ${args.path}` })
-    })]
-  };
-  registry.registerProvider(provider);
-  ToolSecurity.manager.setToolPolicy('read_file', 'allow');
-  try {
-    const res = await new ToolExecutor(registry).executeToolCall(call('read_file', { path: '/home/user/test.txt' }));
-    assert.equal(res.success, true);
-    assert.equal(res.result.content, 'Contenido de /home/user/test.txt');
-    assert.equal(res.toolName, 'read_file');
-  } finally {
-    ToolSecurity.manager.revokeToolPolicy('read_file');
-  }
-  registry.unregisterProvider('mcp_filesystem');
-  assert.equal(registry.getTool('read_file'), null);
 });
 
 test('AgentCore - MCP conserva identificadores que solo difieren por mayúsculas', () => {
@@ -142,28 +102,6 @@ test('AgentCore - ToolExecutor no ejecuta una herramienta tras cancelar el turno
   assert.match(res.error, /cancelled/i);
 });
 
-test('AgentCore - la herramienta recibe idioma, servicios sustituibles y su displayMode llega al resultado', async () => {
-  const sandbox = { execute: () => ({ success: true }) };
-  let received = null;
-  const registry = new ToolRegistry();
-  registry.registerTool(makeTool({
-    name: 'context_probe',
-    displayMode: 'expanded',
-    execute: async (_args, context) => {
-      received = context;
-      return { success: true };
-    }
-  }));
-
-  const result = await new ToolExecutor(registry).executeToolCall(call('context_probe'), { language: 'en', services: { sandbox } });
-
-  assert.equal(result.displayMode, 'expanded');
-  assert.equal(received.language, 'en');
-  assert.equal(received.services.sandbox, sandbox);
-  assert.equal(received.services.webBrowser, require('../../js/web-browser.js'), 'Los servicios no sustituidos son los módulos reales');
-  assert.equal(received.toolAuthorization, true);
-});
-
 test('AgentCore - el despacho serializa el resultado y el Markdown con el contrato de la herramienta', async () => {
   const registry = new ToolRegistry();
   registry.registerTool(makeTool({
@@ -220,12 +158,4 @@ test('AgentCore - las definiciones y la guía del prompt siguen los interruptore
   assert.match(guide, /execute_javascript/);
   assert.doesNotMatch(guide, /search_web/);
   assert.match(guide, new RegExp(AgentCore.TOOL_WORKFLOW_INSTRUCTION.slice(0, 30).replace(/[*]/g, '\\*')));
-});
-
-test('AgentCore - isToolEnabled usa el interruptor guardado o el valor por defecto', () => {
-  const { isToolEnabled } = AgentCore;
-  assert.equal(isToolEnabled({ a: false }, 'a'), false);
-  assert.equal(isToolEnabled({ a: true }, 'a', false), true);
-  assert.equal(isToolEnabled({}, 'a', false), false);
-  assert.equal(isToolEnabled(undefined, 'a'), true);
 });

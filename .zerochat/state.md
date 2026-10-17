@@ -1,5 +1,5 @@
 # Current state
 - Milestone: M24 happy-dom removal
-- Next task: M24-T21
+- Next task: M24-T22
 - Pending milestones: M22 CI workflow optimization (next task M22-T1)
 - Last updated: 2026-10-17

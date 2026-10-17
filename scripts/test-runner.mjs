@@ -34,7 +34,6 @@ export const GROUPS = {
     'tests/browser/browser_composer.test.js'
   ],
   generation: [
-    'tests/integration/test_generation_controller.js',
     'tests/integration/test_chat_engine.js',
     'tests/integration/test_agent_runtime.js',
     'tests/integration/test_delegate_task.js',

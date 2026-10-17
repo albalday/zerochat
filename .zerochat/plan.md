@@ -95,7 +95,7 @@ Done when: no test or module depends on happy-dom and Node-only branches are gon
 - [x] M24-T18 Review the browser tests added or moved in M24 (diff b15e953..) and delete trivial ones; decide whether createTurnView/createCardView/turn-view.js stay (2026-10-17)
 - [x] M24-T19 Review architecture and infrastructure tests (delete absence, cosmetic and duplicated checks) (2026-10-17)
 - [x] M24-T20 Review unit tests (2026-10-17)
-- [ ] M24-T21 Review integration tests of the agent loop (chat_engine, agent_runtime, agent_core, tool_dispatcher, delegate_task, generation_controller)
+- [x] M24-T21 Review integration tests of the agent loop (chat_engine, agent_runtime, agent_core, tool_dispatcher, delegate_task, generation_controller) (2026-10-17)
 - [ ] M24-T22 Review integration tests of providers, WebLLM, inspector, context manager and context cache
 - [ ] M24-T23 Review integration tests of MCP, tool security, security and builtin tools (security cases kept as tables)
 - [ ] M24-T24 Review integration tests of RAG, ingestion, profiles, project context, conversation service and storage reset
