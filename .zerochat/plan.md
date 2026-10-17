@@ -63,12 +63,7 @@ Done when: the backend computes unified diffs for file edits using Python's stan
 
 ## M21 Unified browser resource download and public proxy removal: closed 2026-10-16
 
-## M22 CI workflow optimization, retry resilience and browser test synchronization
-Goal: Make automated validation faster, more resilient to CI virtual machine jitter, and ensure UI tests never evaluate DOM state before asynchronous UI updates complete.
-Done when: CI splits fast-fail checks from browser execution without unnecessary browser installs on early failure, test-runner supports single retry on CI for browser tests, and browser test assertions follow strict async UI synchronization patterns.
-- [x] M22-T1 Split CI workflow into fast-fail validation and browser jobs to fail fast without installing Chromium on early errors (2026-10-17)
-- [x] M22-T2 Add CI-only single retry support for browser tests in test-runner to absorb transient runner load spikes (2026-10-17)
-- [x] M22-T3 Audit browser test suite to ensure all post-async DOM assertions wait for UI reactivity rather than raw storage promises (2026-10-17)
+## M22 CI workflow optimization, retry resilience and browser test synchronization: closed 2026-10-17
 
 ## M23 Fallback cleanup, public proxy elimination and backend-first web transport: closed 2026-10-16
 
