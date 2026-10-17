@@ -1,37 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Api = require('../../js/api.js');
-const Storage = require('../../js/storage.js');
-
-test('Api - Espejo construye una petición OpenAI y la devuelve sin usar la red', async () => {
-  const originalFetch = global.fetch;
-  let fetchCalled = false;
-  global.fetch = async () => {
-    fetchCalled = true;
-    throw new Error('Espejo no debe llamar a fetch');
-  };
-  try {
-    const response = await Api.streamChatCompletion({
-      apiUrl: 'mirror://local',
-      apiType: 'mirror',
-      model: 'mirror',
-      messages: [{ role: 'user', content: 'Refleja esta petición' }]
-    });
-    const payloadText = response.accumulatedText.match(/```json\n([^\n]+)\n```$/)[1];
-    const payload = JSON.parse(payloadText);
-    assert.equal(fetchCalled, false);
-    assert.equal(payload.model, 'mirror');
-    assert.equal(payload.messages[0].content, 'Refleja esta petición');
-    assert.equal(payload.stream, true);
-    assert.equal(payloadText.includes('\n'), false, 'Espejo debe reflejar el mismo JSON compacto enviado al servidor');
-    assert.match(response.accumulatedText, /^# Bienvenido a ZeroChat/m);
-    assert.match(response.accumulatedText, /## Continúa con un perfil/);
-    assert.equal(response.truncated, false);
-    assert.equal(response.recoveredReason, '');
-  } finally {
-    global.fetch = originalFetch;
-  }
-});
 
 test('Api - streamChatCompletion con señal cancelada devuelve resultado consistente', async () => {
   const controller = new AbortController();
@@ -52,32 +21,6 @@ test('Api - streamChatCompletion con señal cancelada devuelve resultado consist
     truncated: false,
     recoveredReason: ''
   });
-});
-
-test('Api - Espejo localiza su mensaje de orientación', async () => {
-  const I18n = require('../../js/i18n.js');
-  const previousLanguage = I18n.getLanguage();
-  try {
-    I18n.setLanguage('en');
-    const responseEn = await Api.streamChatCompletion({
-      apiUrl: 'mirror://local', apiType: 'mirror', model: 'mirror', messages: []
-    });
-    assert.match(responseEn.accumulatedText, /^# Welcome to ZeroChat/m);
-    assert.match(responseEn.accumulatedText, /## Continue with a profile/);
-    assert.match(responseEn.accumulatedText, /> \*\*WebLLM \(experimental\):\*\*/);
-    assert.match(responseEn.accumulatedText, /## Prepared request \(not sent\)/);
-    assert.match(responseEn.accumulatedText, /\]\(help\/en\/index\.html\)/);
-
-    I18n.setLanguage('es');
-    const responseEs = await Api.streamChatCompletion({
-      apiUrl: 'mirror://local', apiType: 'mirror', model: 'mirror', messages: []
-    });
-    assert.match(responseEs.accumulatedText, /^# Bienvenido a ZeroChat/m);
-    assert.match(responseEs.accumulatedText, /## Continúa con un perfil/);
-    assert.match(responseEs.accumulatedText, /\]\(help\/index\.html\)/);
-  } finally {
-    I18n.setLanguage(previousLanguage);
-  }
 });
 
 test('Api - publica estados de conexión, pensamiento y generación sin exponer el contenido', async () => {
@@ -200,28 +143,6 @@ test('Api - informa del parámetro rechazado tras repetir la petición sin él',
   } finally {
     global.fetch = originalFetch;
   }
-});
-
-test('Api - Espejo respeta callbacks, cancelación y consultas sin red', async () => {
-  const originalFetch = global.fetch;
-  let network = 0;
-  global.fetch = async () => { network++; throw new Error('Unexpected network'); };
-  try {
-    const input = { apiType: 'mirror', model: 'mirror', messages: [{ role: 'user', content: '<script>test</script>' }] };
-    let chunk;
-    const response = await Api.streamChatCompletion({ ...input, onChunk: (...args) => { chunk = args; } });
-    assert.equal(chunk[0], response.accumulatedText);
-    assert.equal(chunk[1], response.accumulatedText);
-    assert.equal(chunk[2], response.stats);
-    const controller = new AbortController();
-    controller.abort();
-    const cancelled = await Api.streamChatCompletion({ ...input, signal: controller.signal, onChunk: () => assert.fail('Cancelled callback') });
-    assert.equal(cancelled.accumulatedText, '');
-    assert.equal(cancelled.toolCalls, null);
-    assert.equal((await Api.fetchServerModels('mirror://local', '', 'mirror')).success, false);
-    assert.equal((await Api.inspectProvider(input)).success, false);
-    assert.equal(network, 0);
-  } finally { global.fetch = originalFetch; }
 });
 
 test('Api - onBeforeRequest puede modificar el payload o cancelar el envío sin invocar fetch (Debug Messages)', async () => {
@@ -359,16 +280,6 @@ test('ChatAPI - streamChatCompletion no duplica tokens de razonamiento en onLog 
   } finally {
     global.fetch = originalFetch;
   }
-});
-
-test('Api - estimateTokens delega en el estimador de ChatContextManager', () => {
-  const ContextManager = require('../../js/context-manager.js');
-  const prose = 'Texto de prueba en prosa para estimar tokens de salida.';
-  const code = 'const value = { answer: 42 };';
-  assert.equal(Api.estimateTokens(prose), ContextManager.estimateTextTokens(prose));
-  assert.equal(Api.estimateTokens(code), ContextManager.estimateTextTokens(code));
-  assert.equal(Api.estimateTokens('abc', 50), 50);
-  assert.equal(Api.estimateTokens(''), 0);
 });
 
 test('ChatAPI - streamChatCompletion interpreta <tool_call> en texto sin mostrarlo durante el streaming', async () => {

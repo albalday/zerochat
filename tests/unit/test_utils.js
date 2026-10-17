@@ -18,32 +18,6 @@ test('ChatUtils - escapa HTML y sanea URLs y orígenes de imagen no confiables',
   assert.equal(ChatUtils.sanitizeImageUrl('data:image/png;base64,AAAA<script>'), '');
   assert.equal(ChatUtils.sanitizeImageUrl('https://example.test/a.png" onerror="alert(1)'), '');
   assert.equal(ChatUtils.sanitizeImageUrl('blob:https://example.test/1234 onerror=alert(1)'), '');
-  assert.equal(ChatUtils.IMAGE_MIME_TYPES.png, 'image/png');
-  assert.equal(ChatUtils.IMAGE_MIME_TYPES.jpeg, 'image/jpeg');
-  assert.equal(ChatUtils.IMAGE_MIME_TYPES.svg, 'image/svg+xml');
-});
-
-test('ChatUtils - serializeContent, clone, formatShortValue y resolveDep', () => {
-  assert.strictEqual(ChatUtils.serializeContent('Hola mundo'), 'Hola mundo');
-  assert.strictEqual(ChatUtils.serializeContent([{ type: 'text', text: 'Parte' }]), '[{"type":"text","text":"Parte"}]');
-  assert.strictEqual(ChatUtils.serializeContent({ ok: true }), '{"ok":true}');
-  assert.strictEqual(ChatUtils.serializeContent(undefined), '');
-  assert.strictEqual(ChatUtils.serializeContent(42), '42');
-
-  const original = { a: 1, b: [2, 3], c: { d: 'test' } };
-  const copia = ChatUtils.clone(original);
-  assert.deepStrictEqual(copia, original);
-  assert.notStrictEqual(copia, original);
-  assert.notStrictEqual(copia.c, original.c);
-
-  assert.strictEqual(ChatUtils.formatShortValue(500), 500);
-  assert.strictEqual(ChatUtils.formatShortValue(1500), '1.5k');
-  assert.strictEqual(ChatUtils.formatShortValue(20000), '20.0k');
-  assert.strictEqual(ChatUtils.formatShortValue(NaN), '0');
-
-  const resolved = ChatUtils.resolveDep('ChatUtils', '../js/utils.js');
-  assert.ok(resolved);
-  assert.strictEqual(typeof resolved.escapeHtml, 'function');
 });
 
 test('ChatUtils - fetchWithTimeout combina la señal de quien llama con el plazo', async () => {

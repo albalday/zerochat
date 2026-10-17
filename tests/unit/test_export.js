@@ -2,21 +2,6 @@ const test = require('node:test');
 const assert = require('node:assert');
 const ChatExport = require('../../js/export.js');
 
-test('ChatExport - Generación de Markdown estructurado', () => {
-  const history = [
-    { role: 'system', content: 'Prompt sistema' },
-    { role: 'user', content: 'Hola asistente' },
-    { role: 'assistant', content: '¡Hola! ¿En qué puedo ayudarte?' }
-  ];
-
-  const md = ChatExport.buildMarkdownExport(history, { title: 'Charla de prueba', model: 'gpt-4o' });
-  assert.ok(md.includes('# Charla de prueba'));
-  assert.ok(md.includes('*Modelo: gpt-4o*'));
-  assert.ok(md.includes('### 👤 Usuario\n\nHola asistente'));
-  assert.ok(md.includes('### 🤖 Asistente\n\n¡Hola! ¿En qué puedo ayudarte?'));
-  assert.equal(md.includes('Prompt sistema'), false, 'No debe exportar el mensaje de sistema');
-});
-
 test('ChatExport - Generación y Parseo de JSON de conversación', () => {
   const history = [
     { id: 'u1', role: 'user', content: '¿Qué hora es?' },

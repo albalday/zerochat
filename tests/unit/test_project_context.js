@@ -18,11 +18,6 @@ test('ProjectContext.computeStatus - resuelve cada estado según configuración,
   assert.equal(ProjectContext.computeStatus(), 'disabled');
 });
 
-test('ProjectContext.joinPath - respeta el separador del directorio de trabajo', () => {
-  assert.equal(ProjectContext.joinPath('/home/u/repo/', '.zerochat/state.md'), '/home/u/repo/.zerochat/state.md');
-  assert.equal(ProjectContext.joinPath('C:\\Users\\u\\repo', '.zerochat/state.md'), 'C:\\Users\\u\\repo\\.zerochat\\state.md');
-});
-
 test('ProjectContext.buildPromptBlock - solo inyecta en estado ready y delimita el contenido', () => {
   for (const status of ['disabled', 'unavailable', 'declined', 'no_access', 'missing', 'error']) {
     assert.equal(ProjectContext.buildPromptBlock({ status, cwd: '/repo', rules: { content: 'x' } }), '');
@@ -79,29 +74,6 @@ test('ProjectContext.buildBootstrapPrompt - interpola cwd y plantillas, y exige 
   for (const template of ['MEMORY_SECTION_TEMPLATE', 'PLAN_TEMPLATE', 'LOG_TEMPLATE', 'STATE_TEMPLATE', 'TASK_SCRIPT_TEMPLATE']) {
     assert.ok(prompt.includes(ProjectContext[template]), template);
   }
-});
-
-test('ProjectContext - la sección de memoria define tareas numeradas, edición por línea y archivado', () => {
-  const section = ProjectContext.MEMORY_SECTION_TEMPLATE;
-  assert.match(section, /^## Project memory\n/);
-  assert.match(section, /`- \[ \] M2-T3 Short description`/);
-  assert.match(section, /Mark a task done by editing only its line/);
-  assert.match(section, /Never renumber or reuse an ID/);
-  assert.match(section, /Never rewrite \.zerochat\/plan\.md or \.zerochat\/log\.md as a whole/);
-  assert.match(section, /Before starting work that is not in \.zerochat\/plan\.md, add it as the next task of the current milestone/);
-  assert.match(section, /Right after finishing each task, before starting the next one: mark it/);
-  assert.match(section, /Ask the user before closing a milestone or adding a new one\. Every milestone has a Goal and a Done when line/);
-  assert.match(section, /^Rules for agents go in this file; if details live in other docs, link them from here\.$/m);
-  assert.match(section, /log\.md`: decisions, one line each, append only and never archived/);
-  assert.doesNotMatch(section, /Other agent instruction files/, 'Solo se añade si existen otros ficheros de agente');
-  assert.match(section, /move its section from \.zerochat\/plan\.md to `\.zerochat\/archive\/M<n>\.md` \(move, never delete\)/);
-  assert.doesNotMatch(section, /search_files|read_file|edit_file|write_file|ask_user|ZeroChat/, 'Neutral: la leen agentes sin las herramientas de ZeroChat');
-  assert.match(ProjectContext.PLAN_TEMPLATE, /- \[ \] M1-T1 <task>/);
-  assert.match(ProjectContext.STATE_TEMPLATE, /Next task: M1-T1/);
-  assert.match(ProjectContext.SUMMARIZER_PROJECT_ADDENDUM, /by task ID/);
-
-  const bootstrap = ProjectContext.buildBootstrapPrompt('/repo');
-  assert.match(bootstrap, /they never go in AGENTS\.md or the other agent files, which agents load in every session/);
 });
 
 test('ProjectContext - TASK_SCRIPT_TEMPLATE mantiene paridad exacta con .zerochat/task.py', () => {

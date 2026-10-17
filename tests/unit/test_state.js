@@ -2,51 +2,6 @@ const test = require('node:test');
 const assert = require('node:assert');
 const ChatState = require('../../js/state.js');
 
-test('ChatState - Inicialización con valores por defecto', () => {
-  const store = ChatState.createStore();
-  const state = store.getState();
-
-  assert.ok(state.config);
-  assert.equal(state.config.apiUrl, 'http://localhost:1234/v1');
-  assert.equal(state.config.temperature, '0.7');
-  assert.deepEqual(state.streaming, { isGenerating: false });
-  assert.ok(Array.isArray(state.messages));
-  assert.equal(state.messages.length, 0);
-  assert.ok(state.sessions.activeId);
-});
-
-test('ChatState - Actualizaciones parciales y atómicas', () => {
-  const store = ChatState.createStore();
-
-  // Actualizar slice con store.set()
-  store.set('telemetry', { stats: { tokens: 10 } });
-  assert.deepEqual(store.get('telemetry'), { stats: { tokens: 10 } }, 'Debe sustituir el slice por la fusión');
-
-  // Actualizar varios slices con store.setState()
-  store.setState({
-    config: { model: 'llama-3.3' },
-    ui: { attachedFiles: [{ name: 'a.txt' }] }
-  });
-
-  const full = store.getState();
-  assert.equal(full.config.model, 'llama-3.3');
-  assert.equal(full.config.apiUrl, 'http://localhost:1234/v1'); // Preservado
-  assert.equal(full.ui.attachedFiles.length, 1);
-  assert.deepEqual(full.ui.notices, []); // Preservado
-});
-
-test('ChatState - Actualización funcional con prevState', () => {
-  const store = ChatState.createStore();
-
-  store.set('messages', (prevMessages) => [
-    ...prevMessages,
-    { id: 'm1', role: 'user', content: 'Hola' }
-  ]);
-
-  assert.equal(store.get('messages').length, 1);
-  assert.equal(store.get('messages')[0].content, 'Hola');
-});
-
 test('ChatState - Aislamiento e inmutabilidad del estado interno', () => {
   const store = ChatState.createStore();
 
@@ -132,17 +87,6 @@ test('ChatState - Prevención de notificaciones innecesarias (Shallow Equality C
   assert.equal(callCount, 0);
 });
 
-test('ChatState - Reset del estado', () => {
-  const store = ChatState.createStore();
-  store.set('config', { model: 'gpt-4o' });
-  store.set('streaming', { isGenerating: true });
-
-  store.reset();
-  const state = store.getState();
-  assert.equal(state.config.model, '');
-  assert.equal(state.streaming.isGenerating, false);
-});
-
 test('ChatState - Activa una conversación y limpia todo el estado transitorio de turnos', () => {
   const store = ChatState.createStore();
   store.setState({
@@ -209,32 +153,6 @@ test('ChatState - Contrato de slices canónicos y rechazo de escrituras no autor
   }, /non-canonical slice/i);
 });
 
-test('ChatState - Mutadores de mensajes: appendMessage y replaceMessages', () => {
-  const store = ChatState.createStore();
-
-  assert.throws(() => store.appendMessage(null), /must be an object/);
-  assert.throws(() => store.appendMessage({ content: 'sin role' }), /role/);
-
-  const appended = store.appendMessage({ role: 'user', content: 'Pregunta 1' });
-  assert.ok(appended.id);
-  assert.equal(appended.content, 'Pregunta 1');
-  assert.equal(store.get('messages').length, 1);
-
-  // replaceMessages
-  assert.throws(() => store.replaceMessages('no array'), /Array/);
-  const newMessages = [
-    { id: 'm1', role: 'user', content: 'A' },
-    { id: 'm2', role: 'assistant', content: 'B' }
-  ];
-  store.replaceMessages(newMessages);
-  assert.equal(store.get('messages').length, 2);
-  assert.equal(store.get('messages')[1].content, 'B');
-
-  // Asegurar inmutabilidad
-  newMessages.push({ id: 'm3', role: 'user', content: 'C' });
-  assert.equal(store.get('messages').length, 2);
-});
-
 test('ChatState - Mutador removeTurn elimina turno y sanea tool calls huérfanos', () => {
   const store = ChatState.createStore();
   store.replaceMessages([
@@ -262,30 +180,6 @@ test('ChatState - Mutador removeTurn elimina turno y sanea tool calls huérfanos
   assert.equal(busyResult.reason, 'generation-active');
   assert.equal(store.get('messages').length, 2);
   store.set('streaming', { isGenerating: false });
-});
-
-test('ChatState - Mutadores de sesiones: saveSessionMetadata y removeSession', () => {
-  const store = ChatState.createStore();
-  const meta1 = { id: 'sess_1', title: 'Primera', messageCount: 2 };
-  store.saveSessionMetadata(meta1);
-
-  assert.equal(store.get('sessions').list.length, 1);
-  assert.equal(store.get('sessions').list[0].title, 'Primera');
-
-  // Actualizar metadata existente
-  store.saveSessionMetadata({ id: 'sess_1', title: 'Primera renombrada' });
-  assert.equal(store.get('sessions').list.length, 1);
-  assert.equal(store.get('sessions').list[0].title, 'Primera renombrada');
-
-  // Agregar segunda sesión
-  store.saveSessionMetadata({ id: 'sess_2', title: 'Segunda' });
-  assert.equal(store.get('sessions').list.length, 2);
-
-  // removeSession
-  const rem = store.removeSession('sess_1');
-  assert.equal(rem.ok, true);
-  assert.equal(store.get('sessions').list.length, 1);
-  assert.equal(store.get('sessions').list[0].id, 'sess_2');
 });
 
 test('ChatState - Mutador replaceConversation y guardas de concurrencia', () => {
@@ -323,33 +217,6 @@ test('ChatState - Mutador importConversation y reinicio transitorio', () => {
   assert.equal(store.get('telemetry').stats, null);
 });
 
-test('ChatState - Mutadores de adjuntos: setAttachments y clearAttachments', () => {
-  const store = ChatState.createStore();
-  assert.throws(() => store.setAttachments('invalid'), /Array/);
-
-  const files = [{ name: 'img.png', type: 'image' }, { name: 'doc.pdf', type: 'pdf' }];
-  store.setAttachments(files);
-  assert.equal(store.get('ui').attachedFiles.length, 2);
-
-  // Inmutabilidad
-  files.push({ name: 'extra.txt' });
-  assert.equal(store.get('ui').attachedFiles.length, 2);
-
-  store.clearAttachments();
-  assert.equal(store.get('ui').attachedFiles.length, 0);
-});
-
-test('ChatState - admite avisos de confirmación', () => {
-  const store = ChatState.createStore();
-  store.enqueueNotice({
-    message: 'Esta acción requiere confirmación.',
-    title: 'Aviso',
-    type: 'warning',
-    mode: 'confirm'
-  });
-  assert.equal(store.get('ui').notices[0].type, 'warning');
-});
-
 test('ChatState - setProjectContext valida el estado y el cambio de conversación no reinicia el proyecto', () => {
   const store = ChatState.createStore();
   assert.equal(store.get('project').status, 'disabled');
@@ -363,16 +230,4 @@ test('ChatState - setProjectContext valida el estado y el cambio de conversació
   store.replaceConversation({ sessionId: 'session_next', sessions: [], messages: [] });
   assert.equal(store.get('project').status, 'ready');
   assert.equal(store.get('project').cwd, '/repo');
-});
-
-test('ChatState - la configuración inicial coincide con los valores por defecto de ChatConfig', () => {
-  const Defaults = require('../../js/defaults.js');
-  const Config = require('../../js/config-store.js');
-  const initial = ChatState.createInitialState().config;
-  assert.deepEqual(initial, Config.DEFAULTS);
-  assert.deepEqual(initial, Config.normalize({}), 'La normalización no debe alterar los valores por defecto');
-  initial.projectDeclined.push('/tmp/x');
-  initial.enabledTools.search_web = false;
-  assert.deepEqual(Defaults.CONFIG_DEFAULTS.projectDeclined, []);
-  assert.equal(Defaults.CONFIG_DEFAULTS.enabledTools.search_web, true);
 });

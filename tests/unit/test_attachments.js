@@ -24,42 +24,11 @@ test('ChatAttachments - Gestión del estado de adjuntos y formateo de payload', 
   assert.equal(ChatAttachments.getFiles()[0].name, 'foto.png');
 });
 
-test('ChatAttachments - Sincronización transparente con ChatState.ui.attachedFiles', () => {
-  const ChatState = require('../../js/state.js');
-  ChatAttachments.clearFiles();
-  assert.deepEqual(ChatState.get('ui').attachedFiles, []);
-
-  ChatAttachments.addFile({ name: 'directo.txt', size: 50, type: 'text', content: 'test' });
-  assert.equal(ChatState.get('ui').attachedFiles.length, 1);
-  assert.equal(ChatState.get('ui').attachedFiles[0].name, 'directo.txt');
-
-  ChatState.setAttachments([
-    { name: 'desde_state.pdf', size: 200, type: 'pdf', content: 'doc' }
-  ]);
-  assert.equal(ChatAttachments.getFiles().length, 1);
-  assert.equal(ChatAttachments.getFiles()[0].name, 'desde_state.pdf');
-
-  ChatAttachments.clearFiles();
-  assert.equal(ChatState.get('ui').attachedFiles.length, 0);
-});
-
-test('ChatAttachments - Validación de tamaño máximo de archivo', () => {
-  assert.equal(ChatAttachments.MAX_FILE_SIZE, 50 * 1024 * 1024);
-
-  // Archivo aceptable (10 MB)
-  const okFile = { name: 'documento.pdf', size: 10 * 1024 * 1024 };
-  const resOk = ChatAttachments.validateFileSize(okFile);
-  assert.equal(resOk.valid, true);
-
-  // Archivo demasiado grande (51 MB)
-  const largeFile = { name: 'video.mp4', size: 51 * 1024 * 1024 };
-  const resLarge = ChatAttachments.validateFileSize(largeFile);
-  assert.equal(resLarge.valid, false);
-  assert.equal(resLarge.reason, 'too_large');
-
-  // Límite personalizado
-  const customLimit = ChatAttachments.validateFileSize({ size: 100 }, 50);
-  assert.equal(customLimit.valid, false);
+test('ChatAttachments - el tope de tamaño admite MAX_FILE_SIZE y rechaza un byte más', () => {
+  const max = ChatAttachments.MAX_FILE_SIZE;
+  assert.equal(ChatAttachments.validateFileSize({ name: 'borde.pdf', size: max }).valid, true);
+  assert.equal(ChatAttachments.validateFileSize({ name: 'grande.pdf', size: max + 1 }).valid, false);
+  assert.equal(ChatAttachments.validateFileSize({ name: 'grande.pdf', size: max + 1 }).reason, 'too_large');
 });
 
 test('ChatAttachments - un documento ofimático aporta su cabecera, su Markdown y sus imágenes', () => {

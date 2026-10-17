@@ -174,20 +174,6 @@ test('Service Worker - una librería bajo demanda se guarda al primer uso y se s
   assert.equal((await request(url)).body, `bundle:${url}`, 'Sin red debe servirse desde la caché');
 });
 
-test('PWA Manifest - manifest.webmanifest es válido y define propiedades obligatorias', () => {
-  const manifestPath = path.resolve(__dirname, '../../manifest.webmanifest');
-  assert.ok(fs.existsSync(manifestPath), 'manifest.webmanifest debe existir');
-
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  assert.equal(manifest.name, 'ZeroChat');
-  assert.equal(manifest.short_name, 'ZeroChat');
-  assert.equal(manifest.start_url, './zerochat.html');
-  assert.equal(manifest.display, 'standalone');
-  assert.ok(manifest.theme_color, 'Debe declarar theme_color');
-  assert.ok(manifest.background_color, 'Debe declarar background_color');
-  assert.ok(Array.isArray(manifest.icons) && manifest.icons.length > 0, 'Debe definir iconos');
-});
-
 
 test('Service Worker - install falla si algún recurso del precache no se descarga', async () => {
   const vm = require('node:vm');

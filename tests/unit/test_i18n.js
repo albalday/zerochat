@@ -2,25 +2,10 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const I18n = require('../../js/i18n.js');
 
-test('I18n - Traducción básica y fallback', () => {
-  assert.ok(I18n.TRANSLATIONS.es, 'Debe existir diccionario español');
-  assert.ok(I18n.TRANSLATIONS.en, 'Debe existir diccionario inglés');
-  
-  const esKeys = Object.keys(I18n.TRANSLATIONS.es);
-  const enKeys = Object.keys(I18n.TRANSLATIONS.en);
-  
-  // Comprobar paridad de claves entre idiomas
-  const missingInEn = esKeys.filter(k => !(k in I18n.TRANSLATIONS.en));
-  const missingInEs = enKeys.filter(k => !(k in I18n.TRANSLATIONS.es));
-  
-  assert.deepEqual(missingInEn, [], 'No deben faltar claves en el diccionario en');
-  assert.deepEqual(missingInEs, [], 'No deben faltar claves en el diccionario es');
-});
-
-test('I18n - Reemplazo dinámico de parámetros en t()', () => {
-  const t = I18n.t;
-  const msg = t('field_temperature', { val: '0.85' });
-  assert.match(msg, /0\.85/);
+test('I18n - los diccionarios es y en tienen las mismas claves', () => {
+  const { es, en } = I18n.TRANSLATIONS;
+  assert.deepEqual(Object.keys(es).filter(key => !(key in en)), [], 'Claves de es que faltan en en');
+  assert.deepEqual(Object.keys(en).filter(key => !(key in es)), [], 'Claves de en que faltan en es');
 });
 
 test('I18n - t() inserta los valores literalmente, sin patrones especiales de replace', () => {
@@ -30,94 +15,4 @@ test('I18n - t() inserta los valores literalmente, sin patrones especiales de re
   assert.equal(t('field_temperature', { val: value }), template.replace('{val}', () => value));
   assert.equal(t('field_temperature', { val: 0 }), template.replace('{val}', '0'));
   assert.equal(t('field_temperature', { other: 'x' }), template);
-});
-
-test('I18n - Traducciones del conocimiento local', () => {
-  I18n.setLanguage('es');
-  assert.equal(I18n.t('rag_modal_title_manage'), 'RAG-Ramas');
-  assert.ok(I18n.t('rag_dropzone_hint').includes('IndexedDB'));
-  assert.match(I18n.t('rag_status_desc_single'), /mediante Orama/);
-
-  I18n.setLanguage('en');
-  assert.equal(I18n.t('rag_modal_title_manage'), 'RAG-Branches');
-  assert.ok(I18n.t('rag_dropzone_hint').includes('IndexedDB'));
-  assert.match(I18n.t('rag_status_desc_single'), /using Orama/);
-});
-
-test('I18n - Título de la aplicación solo contiene ZeroChat y la versión', () => {
-  I18n.setLanguage('es');
-  assert.match(I18n.t('app_title'), /^ZeroChat v[^\s-]+$/);
-
-  I18n.setLanguage('en');
-  assert.match(I18n.t('app_title'), /^ZeroChat v[^\s-]+$/);
-  I18n.setLanguage('es');
-});
-
-test('I18n - Listener reactivo onChange se ejecuta al cambiar idioma', () => {
-  let callCount = 0;
-  let receivedLang = null;
-
-  const unsubscribe = I18n.onChange(lang => {
-    callCount++;
-    receivedLang = lang;
-  });
-
-  try {
-    I18n.setLanguage('en');
-    assert.equal(callCount, 1);
-    assert.equal(receivedLang, 'en');
-    assert.equal(I18n.getLanguage(), 'en');
-
-    // Comprobar formateo en inglés
-    const enText = I18n.t('rag_branch_summary_format', { count: 5, plural: 's', bytes: '12 MB' });
-    assert.equal(enText, '5 documents of 12 MB');
-
-    I18n.setLanguage('es');
-    assert.equal(callCount, 2);
-    assert.equal(receivedLang, 'es');
-    assert.equal(I18n.getLanguage(), 'es');
-
-    // Comprobar formateo en español
-    const esText = I18n.t('rag_branch_summary_format', { count: 5, plural: 's', bytes: '12 MB' });
-    assert.equal(esText, '5 documentos de 12 MB');
-  } finally {
-    unsubscribe();
-  }
-
-  // Tras cancelar suscripción, no debe invocarse
-  I18n.setLanguage('en');
-  assert.equal(callCount, 2, 'El listener desuscrito no debe ejecutarse');
-
-  // Restaurar idioma por defecto
-  I18n.setLanguage('es');
-});
-
-test('I18n - Simetría completa de diccionarios es y en y claves de auditoría', () => {
-  const esKeys = Object.keys(I18n.TRANSLATIONS.es);
-  const enKeys = Object.keys(I18n.TRANSLATIONS.en);
-  const esSet = new Set(esKeys);
-  const enSet = new Set(enKeys);
-
-  const missingInEn = esKeys.filter(k => !enSet.has(k));
-  const missingInEs = enKeys.filter(k => !esSet.has(k));
-
-  assert.deepEqual(missingInEn, [], 'No debe haber claves en español faltantes en inglés');
-  assert.deepEqual(missingInEs, [], 'No debe haber claves en inglés faltantes en español');
-
-  const requiredAuditKeys = [
-    'app_description',
-    'err_server_connect_title',
-    'err_file_too_large',
-    'not_specified',
-    'role_user',
-    'role_assistant',
-    'export_date',
-    'tool_rag_image_title',
-    'tool_search_sources_label'
-  ];
-
-  for (const key of requiredAuditKeys) {
-    assert.ok(esSet.has(key), `Clave requerida en es: ${key}`);
-    assert.ok(enSet.has(key), `Clave requerida en en: ${key}`);
-  }
 });

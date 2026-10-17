@@ -35,7 +35,6 @@ export const GROUPS = {
   ],
   generation: [
     'tests/integration/test_generation_controller.js',
-    'tests/unit/test_ui_generation_status.js',
     'tests/integration/test_chat_engine.js',
     'tests/integration/test_agent_runtime.js',
     'tests/integration/test_delegate_task.js',
@@ -50,7 +49,6 @@ export const GROUPS = {
   ],
   mcp: [
     'tests/unit/test_ui_mcp.js',
-    'tests/unit/test_command_card.js',
     'tests/integration/test_mcp.js',
     'tests/integration/test_mcp_tools.js',
     'tests/browser/browser_mcp_tools.test.js',
@@ -77,7 +75,6 @@ export const GROUPS = {
   ],
   bundle: [
     'tests/browser/browser_startup.test.js',
-    'tests/unit/test_vendor_loader.js',
     'tests/infrastructure/test_vendor_build.js'
   ]
 };

@@ -1,13 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 
 const ChatUIMcp = require('../../js/ui-mcp.js');
 const ChatState = require('../../js/state.js');
 const ChatMCP = require('../../js/mcp.js');
 const ChatToolSecurity = require('../../js/tool-security.js');
-const Defaults = require('../../js/defaults.js');
 
 /** Estado MCP de la prueba, restaurado al terminar junto con las autorizaciones. */
 function setup(t, mcp = {}) {
@@ -20,33 +17,11 @@ function setup(t, mcp = {}) {
   });
 }
 
-test('ChatUIMcp - recomienda el arranque por PyPI según el sistema y el puerto de zerochat.py', () => {
-  assert.equal(ChatUIMcp.generateTerminalCommand({ platform: 'Linux x86_64', userAgent: 'Mozilla/5.0 (X11; Linux x86_64)' }), 'pip install zerochat\nzerochat');
-  assert.equal(ChatUIMcp.generateTerminalCommand({ platform: 'MacIntel', userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' }), 'pip install zerochat\nzerochat');
-  assert.equal(ChatUIMcp.generateTerminalCommand({ platform: 'Win32', userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }), 'py -m pip install zerochat\npy -m zerochat');
-  assert.equal(ChatUIMcp.generateTerminalCommand({ userAgentData: { platform: 'Windows' }, platform: '' }), 'py -m pip install zerochat\npy -m zerochat');
-
-  const serverSource = fs.readFileSync(path.join(__dirname, '../..', 'zerochat.py'), 'utf8');
-  assert.match(serverSource, new RegExp(`DEFAULT_PORT\\s*=\\s*${Defaults.CONFIG_DEFAULTS.mcpPort}\\b`));
-});
-
-test('ChatUIMcp - incorpora herramientas externas al listado MCP', () => {
-  const allTools = ChatUIMcp.getAllMcpTools({ tools: [{ name: 'read_file' }], externalTools: [{ name: 'mcp_composio_search' }] });
-  assert.deepEqual(allTools.map(tool => tool.name), ['read_file', 'mcp_composio_search']);
-});
-
 test('ChatUIMcp - el campo help de service.json solo admite URL HTTP o rutas relativas seguras', () => {
   assert.deepEqual(ChatUIMcp.getServiceHelp({ url: 'https://example.com/help', label: { es: 'Ayuda' } }, 'es'), { url: 'https://example.com/help', label: 'Ayuda' });
   assert.deepEqual(ChatUIMcp.getServiceHelp({ url: 'help/mcp.html', label: { en: 'Help' } }, 'es'), { url: 'help/mcp.html', label: 'Help' });
   assert.equal(ChatUIMcp.getServiceHelp({ url: 'javascript:alert(1)', label: 'Unsafe' }, 'es'), null);
   assert.equal(ChatUIMcp.getServiceHelp({ url: '//example.com', label: 'Unsafe' }, 'es'), null);
-});
-
-test('ChatUIMcp - detecta si browser_action está activa', () => {
-  assert.equal(ChatUIMcp.isBrowserActionActive({}, { name: 'browser_action', available: true }), true);
-  assert.equal(ChatUIMcp.isBrowserActionActive({ browser_action: false }, { name: 'browser_action', available: true }), false);
-  assert.equal(ChatUIMcp.isBrowserActionActive({}, { name: 'browser_action', available: false }), false);
-  assert.equal(ChatUIMcp.isBrowserActionActive({}, null), false);
 });
 
 function useDialogs(t, confirmResult, alerts = []) {

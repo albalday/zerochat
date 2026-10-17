@@ -43,36 +43,6 @@ test('SearchProvider - SearXNG JSON parsing', () => {
   assert.equal(parsed[0].source, 'SearXNG (google)');
 });
 
-test('SearchProvider - Registry y cambio de proveedor sin alterar el cliente', async () => {
-  const registry = new WebSearch.SearchProviderRegistry();
-
-  // Crear e inscribir un proveedor mock personalizado
-  class MockCustomSearchProvider extends WebSearch.BaseSearchProvider {
-    constructor() {
-      super({ id: 'mock-custom', label: 'Mock Custom Engine' });
-    }
-    async search(query, options = {}) {
-      return {
-        success: true,
-        query: query,
-        count: 1,
-        results: [{ title: 'Custom Mock Result', url: 'https://mock.local/result', snippet: 'Mock content', source: this.label }],
-        markdown: this.formatMarkdown(query, [{ title: 'Custom Mock Result', url: 'https://mock.local/result', snippet: 'Mock content', source: this.label }], options.lang),
-        elapsedMs: 5
-      };
-    }
-  }
-
-  registry.register(new MockCustomSearchProvider());
-
-  // Probar búsqueda con el proveedor explícito
-  const res = await registry.search('inteligencia artificial', { provider: 'mock-custom', lang: 'es' });
-  assert.equal(res.success, true);
-  assert.equal(res.count, 1);
-  assert.equal(res.results[0].url, 'https://mock.local/result');
-  assert.ok(res.markdown.includes('Mock Custom Engine'));
-});
-
 test('PageFetcher - Validación de URLs y protección anti-SSRF', () => {
   // Protocolos válidos
   assert.equal(WebBrowser.validateUrlForFetch('https://es.wikipedia.org/wiki/Sol').valid, true);

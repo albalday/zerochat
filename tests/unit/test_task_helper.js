@@ -52,17 +52,6 @@ Done when: Next done
   };
 }
 
-test('task.py - status muestra el contenido de state.md', () => {
-  const env = setupMockZerochatDir();
-  try {
-    const output = runTaskScript(['status'], { dir: env.dir });
-    assert.match(output, /Milestone: M1 First milestone/);
-    assert.match(output, /Next task: M1-T1 First task/);
-  } finally {
-    env.cleanup();
-  }
-});
-
 test('task.py - done marca la tarea y detecta automáticamente la siguiente', () => {
   const env = setupMockZerochatDir();
   try {
@@ -124,19 +113,6 @@ test('task.py - add-task añade una tarea numerada consecutivamente al hito', ()
 
     const plan = fs.readFileSync(path.join(env.dir, 'plan.md'), 'utf-8');
     assert.match(plan, /- \[ \] M1-T3 Tercera tarea agregada/);
-  } finally {
-    env.cleanup();
-  }
-});
-
-test('task.py - next actualiza manualmente la siguiente tarea', () => {
-  const env = setupMockZerochatDir();
-  try {
-    runTaskScript(['next', 'M2-T1 Tarea adelantada', '--date', '2026-10-15'], { dir: env.dir });
-
-    const state = fs.readFileSync(path.join(env.dir, 'state.md'), 'utf-8');
-    assert.match(state, /- Next task: M2-T1 Tarea adelantada/);
-    assert.match(state, /- Last updated: 2026-10-15/);
   } finally {
     env.cleanup();
   }

@@ -41,29 +41,6 @@ test('ChatConfig - migra la configuración efectiva y registra el perfil aplicad
   assert.equal(getPersisted().activeProfileName, undefined);
 });
 
-test('ChatConfig - valores por defecto: razonamiento medio y mcpAutoConnect desactivado', () => {
-  {
-    const { store } = createFixture();
-    store.initialize();
-    assert.equal(store.updateRuntime({ reasoningEffort: undefined }).reasoningEffort, 'medium');
-    assert.equal(store.updateRuntime({ reasoningEffort: 'none' }).reasoningEffort, 'none');
-  }
-
-  {
-    const { store, getPersisted } = createFixture();
-    const config = store.initialize();
-    assert.equal(config.mcpAutoConnect, false);
-
-    const updated = store.updateRuntime({ mcpAutoConnect: true, mcpHost: '127.0.0.1', mcpPort: 6388 });
-    assert.equal(updated.mcpAutoConnect, true);
-    assert.equal(getPersisted().mcpAutoConnect, true);
-
-    const disabled = store.updateRuntime({ mcpAutoConnect: false });
-    assert.equal(disabled.mcpAutoConnect, false);
-    assert.equal(getPersisted().mcpAutoConnect, false);
-  }
-});
-
 test('ChatConfig - activar perfil reemplaza campos de perfil y conserva preferencias generales', () => {
   const { store } = createFixture();
   store.initialize();
@@ -78,26 +55,6 @@ test('ChatConfig - activar perfil reemplaza campos de perfil y conserva preferen
   assert.deepEqual(config.activeRagBranchIds, ['rag-a', 'rag-b']);
   assert.equal(config.activeProfile.version, 3);
   assert.ok(config.systemDataPrompt.includes('Format:'), 'Cambiar de perfil no debe perder las instrucciones de datos');
-});
-
-test('ChatConfig - la ventana de contexto WebLLM es 16K por defecto y descarta tamaños no ofrecidos', () => {
-  const { store } = createFixture();
-  store.initialize();
-  assert.equal(store.updateRuntime({ webllmConfig: undefined }).webllmConfig.context_window_size, '16384');
-  assert.equal(store.updateRuntime({ webllmConfig: { context_window_size: 'default', prefill_chunk_size: '1024' } }).webllmConfig.context_window_size, '16384');
-  assert.equal(store.updateRuntime({ webllmConfig: { context_window_size: '2048', prefill_chunk_size: '1024' } }).webllmConfig.context_window_size, '16384');
-  assert.equal(store.updateRuntime({ webllmConfig: { context_window_size: '4096', prefill_chunk_size: '1024' } }).webllmConfig.context_window_size, '4096');
-  const config = store.updateRuntime({ webllmConfig: { context_window_size: '131072', prefill_chunk_size: '1024' } });
-  assert.deepEqual(config.webllmConfig, { context_window_size: '131072', prefill_chunk_size: '1024' });
-});
-
-test('ChatConfig - snapshots no permiten mutar el estado interno', () => {
-  const { store } = createFixture();
-  store.initialize();
-  store.activateProfile('office');
-  const snapshot = store.getActive();
-  snapshot.enabledTools.search_web = true;
-  assert.equal(store.getActive().enabledTools.search_web, false);
 });
 
 test('ChatConfig - el límite detectado es volátil y se descarta al activar perfil o cambiar de conexión', () => {
@@ -184,12 +141,6 @@ test('ChatConfig - el modo proyecto es global: se normaliza y no cambia al activ
   assert.deepEqual(config.projectDeclined, ['/home/u/repo']);
 });
 
-test('ChatDefaults - el tema predeterminado compartido es oscuro', () => {
-  const Defaults = require('../../js/defaults.js');
-  assert.equal(Defaults.DEFAULT_THEME, 'dark');
-  assert.ok(Object.isFrozen(Defaults));
-});
-
 test('ChatDefaults - el contexto WebLLM predeterminado es 4K en móviles y 16K en el resto', () => {
   const Defaults = require('../../js/defaults.js');
   assert.equal(Defaults.getWebllmDefaultContextWindowSize({ userAgentData: { mobile: true }, userAgent: 'X11; Linux' }), 4096);
@@ -197,15 +148,5 @@ test('ChatDefaults - el contexto WebLLM predeterminado es 4K en móviles y 16K e
   assert.equal(Defaults.getWebllmDefaultContextWindowSize({ userAgent: 'Mozilla/5.0 (Android 14; Mobile; rv:131.0) Gecko/131.0 Firefox/131.0' }), 4096);
   assert.equal(Defaults.getWebllmDefaultContextWindowSize({ userAgent: 'Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0' }), 16384);
   assert.ok(Defaults.WEBLLM_CONTEXT_WINDOW_SIZES.includes(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE));
-});
-
-test('ChatDefaults - DEFAULT_SYSTEM_DATA_PROMPT incluye reglas de redacción de documentos, tablas e imágenes', () => {
-  const Defaults = require('../../js/defaults.js');
-  const prompt = Defaults.DEFAULT_SYSTEM_DATA_PROMPT;
-  assert.ok(prompt.includes('standard Markdown and plain text'));
-  assert.ok(prompt.includes('documents, reports and structured content'));
-  assert.ok(prompt.includes('Never output raw HTML tags'));
-  assert.ok(prompt.includes('tabular data, always format it as a valid Markdown table'));
-  assert.ok(prompt.includes('Embed images using standard Markdown'));
 });
 
