@@ -26,7 +26,6 @@ export const GROUPS = {
     'tests/integration/test_conversation_service.js'
   ],
   composer: [
-    'tests/unit/test_ui_composer.js',
     'tests/unit/test_attachments.js',
     'tests/unit/test_file_parser.js',
     'tests/unit/test_office_parser.js',

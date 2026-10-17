@@ -35,6 +35,112 @@ test('Browser UI - el fallback de contexto no invalida el formulario de envío',
   }
 });
 
+test('Browser UI - teclado del composer: Enter envía, Mayús+Enter salta de línea y ArrowUp recupera el último prompt', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+    const input = page.locator('#user-input');
+    const userPrompts = () => page.evaluate(() => window.ChatState.get('messages').filter(message => message.role === 'user').map(message => message.content));
+    const pressPrevented = (key, init) => input.evaluate((element, { key, init }) => {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    }, { key, init });
+
+    // Sin historial, ArrowUp no cambia nada.
+    await input.focus();
+    await page.keyboard.press('ArrowUp');
+    assert.equal(await input.inputValue(), '');
+
+    await input.fill('Primero');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => !window.ChatState.get('streaming').isGenerating && window.ChatState.get('messages').some(message => message.role === 'user'));
+    assert.deepEqual(await userPrompts(), ['Primero']);
+    assert.equal(await input.inputValue(), '');
+
+    await input.focus();
+    await page.keyboard.type('a');
+    await page.keyboard.press('Shift+Enter');
+    await page.keyboard.type('b');
+    assert.equal(await input.inputValue(), 'a\nb', 'Mayús+Enter inserta un salto de línea');
+    assert.deepEqual(await userPrompts(), ['Primero'], 'Mayús+Enter no envía');
+
+    await input.fill('');
+    await page.keyboard.press('ArrowUp');
+    assert.equal(await input.inputValue(), 'Primero');
+    assert.equal(await input.evaluate(element => element.selectionStart), 'Primero'.length, 'El cursor queda al final');
+
+    await input.fill('borrador');
+    assert.equal(await pressPrevented('ArrowUp'), false, 'Con texto, ArrowUp conserva su comportamiento nativo');
+    assert.equal(await input.inputValue(), 'borrador');
+    await input.fill('');
+    assert.equal(await pressPrevented('ArrowUp', { shiftKey: true }), false, 'Con modificadores no recupera el prompt');
+    assert.equal(await pressPrevented('ArrowUp', { isComposing: true }), false, 'Durante la composición IME no recupera el prompt');
+    assert.equal(await input.inputValue(), '');
+
+    // Reutilizar un mensaje escribe su prompt y devuelve el foco al composer.
+    await page.locator('#messages-list').focus().catch(() => {});
+    await page.locator('.message-wrapper.user .message-actions button').first().click();
+    assert.equal(await input.inputValue(), 'Primero');
+    assert.equal(await input.evaluate(element => element === document.activeElement), true);
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - Parar sustituye a Enviar durante la generación, la detiene y Adjuntar abre el selector de archivos', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+
+    // El proveedor no responde hasta que se cancela la petición.
+    await page.evaluate(() => {
+      window.__aborted = false;
+      window.ChatAPI.streamChatCompletion = ({ signal }) => new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => {
+          window.__aborted = true;
+          reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+        });
+      });
+    });
+    await page.fill('#user-input', 'Espera');
+    await page.click('#btn-send');
+    await page.waitForFunction(() => window.ChatState.get('streaming').isGenerating);
+    const during = await page.evaluate(() => ({
+      sendDisabled: document.getElementById('btn-send').disabled,
+      stopHidden: document.getElementById('btn-stop-stream').hidden,
+      statusHidden: document.getElementById('generation-status').hidden
+    }));
+    assert.deepEqual(during, { sendDisabled: true, stopHidden: false, statusHidden: false });
+
+    await page.click('#btn-stop-stream');
+    await page.waitForFunction(() => !window.ChatState.get('streaming').isGenerating);
+    const after = await page.evaluate(() => ({
+      aborted: window.__aborted,
+      sendDisabled: document.getElementById('btn-send').disabled,
+      stopHidden: document.getElementById('btn-stop-stream').hidden,
+      statusHidden: document.getElementById('generation-status').hidden,
+      phase: window.ChatState.get('ui').generationStatus.phase
+    }));
+    assert.deepEqual(after, { aborted: true, sendDisabled: false, stopHidden: true, statusHidden: true, phase: 'idle' });
+
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.click('#btn-attach-file')]);
+    assert.equal(chooser.isMultiple(), true);
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser.close();
+  }
+});
+
 test('Browser UI - composer: estructura, autoexpansión, razonamiento, RAG y envío/parada', async () => {
   const browser = await createTestBrowser();
   try {
