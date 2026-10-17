@@ -229,6 +229,150 @@ def set_project_directory(path) -> dict:
     return {"cwd": str(target), "previous_cwd": previous}
 
 
+def open_file_diff(path: str, tool: str | None = None, commit_fallback: bool = False) -> dict:
+    """Abre un visor externo de diffs (git difftool) para comparar el fichero actual frente a Git HEAD, su último commit o fichero vacío."""
+    if not isinstance(path, str) or not path.strip():
+        raise ValueError("La ruta del archivo está vacía.")
+    if len(path) > MAX_PATH_LENGTH:
+        raise ValueError("La ruta del archivo excede el tamaño máximo permitido.")
+    if tool is not None:
+        if not isinstance(tool, str) or not re.match(r"^[a-zA-Z0-9_-]{1,32}$", tool):
+            raise ValueError("Nombre de herramienta de diff inválido.")
+
+    target = Path(path.strip()).expanduser().resolve()
+    if not target.exists():
+        raise ValueError(f"El archivo '{path}' no existe.")
+    if not target.is_file():
+        raise ValueError(f"'{path}' no es un archivo regular.")
+
+    git_bin = shutil.which("git")
+    if not git_bin:
+        raise RuntimeError("Git no está instalado o no se encuentra en el PATH del sistema.")
+
+    try:
+        res = subprocess.run(
+            [git_bin, "rev-parse", "--show-toplevel"],
+            cwd=str(target.parent),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False
+        )
+    except Exception as err:
+        raise RuntimeError(f"Error comprobando repositorio Git: {err}")
+
+    if res.returncode != 0:
+        raise ValueError(f"El archivo '{target.name}' no pertenece a ningún repositorio Git.")
+
+    repo_root = Path(res.stdout.strip()).resolve()
+
+    has_head = subprocess.run(
+        [git_bin, "rev-parse", "--verify", "HEAD"],
+        cwd=str(repo_root),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=5,
+        check=False
+    ).returncode == 0
+
+    in_head = False
+    has_working_tree_diff = True
+    if has_head:
+        try:
+            rel_path = target.relative_to(repo_root).as_posix()
+            in_head = subprocess.run(
+                [git_bin, "cat-file", "-e", f"HEAD:{rel_path}"],
+                cwd=str(repo_root),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+                check=False
+            ).returncode == 0
+            if in_head:
+                diff_check = subprocess.run(
+                    [git_bin, "diff", "--quiet", "HEAD", "--", str(target)],
+                    cwd=str(repo_root),
+                    timeout=5,
+                    check=False
+                )
+                has_working_tree_diff = (diff_check.returncode != 0)
+        except ValueError:
+            in_head = False
+
+    cmd = [git_bin, "difftool", "--no-prompt", "-y"]
+    if tool:
+        cmd.append(f"--tool={tool}")
+    else:
+        cmd.append("--gui")
+
+    mode = "working_tree"
+    last_commit = ""
+    if has_working_tree_diff:
+        if in_head:
+            cmd.extend(["HEAD", "--", str(target)])
+        else:
+            cmd.extend(["--no-index", "--", os.devnull, str(target)])
+    else:
+        # No hay cambios pendientes en el árbol de trabajo. Comprobar historial del archivo.
+        rel_path = target.relative_to(repo_root).as_posix()
+        log_res = subprocess.run(
+            [git_bin, "log", "-n", "1", "--format=%H", "--", rel_path],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False
+        )
+        last_commit = log_res.stdout.strip() if log_res.returncode == 0 else ""
+        if not commit_fallback or not last_commit:
+            return {
+                "success": True,
+                "has_diff": False,
+                "in_head": in_head,
+                "has_commit_history": bool(last_commit),
+                "last_commit": last_commit or None,
+                "path": str(target)
+            }
+
+        mode = "commit"
+        parent_check = subprocess.run(
+            [git_bin, "rev-parse", "--verify", f"{last_commit}~1"],
+            cwd=str(repo_root),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False
+        )
+        if parent_check.returncode == 0:
+            cmd.extend([f"{last_commit}~1", last_commit, "--", str(target)])
+        else:
+            cmd.extend(["4b825dc642cb6eb9a060e54bf8d69288fbee4904", last_commit, "--", str(target)])
+
+    popen_kwargs = {
+        "cwd": str(repo_root),
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+    }
+    if os.name == "nt":
+        popen_kwargs["creationflags"] = (
+            getattr(subprocess, "DETACHED_PROCESS", 0) |
+            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        )
+    else:
+        popen_kwargs["start_new_session"] = True
+
+    proc = subprocess.Popen(cmd, **popen_kwargs)
+    return {
+        "success": True,
+        "has_diff": True,
+        "mode": mode,
+        "pid": proc.pid,
+        "path": str(target),
+        "in_head": in_head,
+        "commit": last_commit or None
+    }
+
+
 def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100) -> str:
     """Recursively search for plain text or regular expressions across project files."""
     try:

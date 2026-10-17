@@ -225,4 +225,89 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
       assert.deepEqual(result.document, [true, '_blank', 'noopener,noreferrer', 'text/html;charset=utf-8', '<h1>Folleto</h1>']);
     });
   });
+
+  test('Browser UI - write_file y edit_file muestran el botón de Diff y delegan la apertura en el backend', async () => {
+    await withTestApp(async page => {
+      const result = await page.evaluate(async () => {
+        const registry = window.ChatAgentCore.registry;
+        const fakeClient = {
+          id: 'mcp_proxy',
+          name: 'ZeroChat',
+          initialize: async () => ({ success: true }),
+          listTools: async () => [
+            { name: 'write_file', description: 'Write file' },
+            { name: 'edit_file', description: 'Edit file' },
+            { name: 'read_file', description: 'Read file' }
+          ],
+          callTool: async () => ({ success: true, text: 'ok' })
+        };
+        const provider = new window.ChatMCP.McpToolProvider(fakeClient, { id: 'mcp_prov_diff_test' });
+        await provider.discoverTools();
+        registry.registerProvider(provider);
+
+        const mcpManager = window.ChatMCP.manager;
+        const diffCalls = [];
+        const confirmCalls = [];
+        const origOpenDiff = mcpManager.openFileDiff;
+        const origIsProxy = mcpManager.isProxyConnected;
+        const origConfirm = window.ChatDialogs.confirm;
+
+        mcpManager.isProxyConnected = () => true;
+        window.ChatDialogs.confirm = async (msg) => {
+          confirmCalls.push(msg);
+          return true;
+        };
+        mcpManager.openFileDiff = async (path, options) => {
+          diffCalls.push({ path, options });
+          if (options?.commitFallback) {
+            return { success: true, has_diff: true, mode: 'commit' };
+          }
+          return { success: true, has_diff: false, has_commit_history: true };
+        };
+
+        const cards = window.ChatToolCards;
+        const writeArgs = { path: '/home/user/project/file.js', content: 'console.log(1);' };
+        const writeCard = cards.createLiveToolCard('write_file', writeArgs);
+        cards.updateLiveToolCard(writeCard, 'write_file', writeArgs, { success: true }, 5);
+
+        const editArgs = { path: '/home/user/project/file.js', old_str: '1', new_str: '2' };
+        const editCard = cards.createLiveToolCard('edit_file', editArgs);
+        cards.updateLiveToolCard(editCard, 'edit_file', editArgs, { success: true }, 5);
+
+        const readArgs = { path: '/home/user/project/file.js' };
+        const readCard = cards.createLiveToolCard('read_file', readArgs);
+        cards.updateLiveToolCard(readCard, 'read_file', readArgs, { success: true }, 5);
+
+        const writeDiffBtn = writeCard.querySelector('.btn-file-diff');
+        const editDiffBtn = editCard.querySelector('.btn-file-diff');
+        const readDiffBtn = readCard.querySelector('.btn-file-diff');
+
+        writeDiffBtn?.click();
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        mcpManager.openFileDiff = origOpenDiff;
+        mcpManager.isProxyConnected = origIsProxy;
+        window.ChatDialogs.confirm = origConfirm;
+        registry.unregisterProvider('mcp_prov_diff_test');
+
+        return {
+          hasWriteDiff: Boolean(writeDiffBtn),
+          hasEditDiff: Boolean(editDiffBtn),
+          hasReadDiff: Boolean(readDiffBtn),
+          confirmCallsCount: confirmCalls.length,
+          diffCalls
+        };
+      });
+      assert.deepEqual(result, {
+        hasWriteDiff: true,
+        hasEditDiff: true,
+        hasReadDiff: false,
+        confirmCallsCount: 1,
+        diffCalls: [
+          { path: '/home/user/project/file.js', options: undefined },
+          { path: '/home/user/project/file.js', options: { commitFallback: true } }
+        ]
+      });
+    });
+  });
 });

@@ -60,6 +60,7 @@
   const getState = () => resolveDep('ChatState', './state.js');
   const getCommandCard = () => resolveDep('ChatCommandCard', './command-card.js');
   const getSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
+  const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
 
   const proxyEndpoint = (host, port) => `http://${host}:${port}/sse`;
 
@@ -594,6 +595,45 @@
     actions.prepend(btn);
   }
 
+  function appendFileDiffAction(card, toolName, args, t) {
+    if (toolName !== 'write_file' && toolName !== 'edit_file') return;
+    const path = String(args?.path || args?.filepath || args?.file || '').trim();
+    if (!path) return;
+
+    if (card.querySelector('.btn-file-diff')) return;
+    const actions = card.querySelector('.tool-card-header-actions');
+    if (!actions) return;
+
+    const btn = card.ownerDocument.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-file-diff';
+    btn.title = t('tool_diff_file_title');
+    Utils.setTrustedHtml(btn, `${Icons.get('git-branch', { size: 12 })} <span>${escapeHtml(t('tool_diff_file_btn'))}</span>`);
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!manager.isProxyConnected()) {
+        await getDialogs().alert(t('tool_diff_file_no_backend'));
+        return;
+      }
+      try {
+        const res = await manager.openFileDiff(path);
+        if (res && res.has_diff === false) {
+          if (res.has_commit_history) {
+            const confirmed = await getDialogs().confirm(t('tool_diff_file_no_changes_ask_commit'));
+            if (confirmed) {
+              await manager.openFileDiff(path, { commitFallback: true });
+            }
+          } else {
+            await getDialogs().alert(t('tool_diff_file_no_changes'));
+          }
+        }
+      } catch (err) {
+        await getDialogs().alert(err?.message || String(err));
+      }
+    });
+    actions.prepend(btn);
+  }
+
   function createMcpToolView(toolName, serverName) {
     const iconSvg = Icons.get('plug', { size: 14 });
     const codeBlock = text => `<pre class="tool-card-code"><code>${escapeHtml(text)}</code></pre>`;
@@ -624,7 +664,10 @@
           ? `${ui.CHECK_SVG} <span>${ui.t('tool_status_success')} (${elapsedMs}ms)</span>`
           : `${ui.ERROR_SVG} <span>${ui.t('tool_status_error', { ms: elapsedMs })}</span>`;
         card.querySelector('.tool-card-result').innerHTML = codeBlock(getResultText(result));
-        if (isSuccess) appendFilePreviewAction(card, args, ui.t);
+        if (isSuccess) {
+          appendFilePreviewAction(card, args, ui.t);
+          appendFileDiffAction(card, toolName, args, ui.t);
+        }
         const screenshot = getSafeMcpImageDataUrl(result);
         if (!screenshot) return false;
         appendMcpScreenshot(card, screenshot, ui.t);
@@ -635,6 +678,7 @@
         const badge = `<span class="tool-card-badge status-success">${ui.CHECK_SVG} <span>${ui.t('tool_status_success')}</span></span>`;
         const card = renderCard(args, codeBlock(out), badge, ui, true);
         appendFilePreviewAction(card, args, ui.t);
+        appendFileDiffAction(card, toolName, args, ui.t);
         const screenshot = getSafeMcpImageFromMessage(message);
         if (screenshot) appendMcpScreenshot(card, screenshot, ui.t);
         return card;
@@ -1056,6 +1100,13 @@
       const result = await this.requestExternalControl('zerochat/project/set_directory', { path });
       this.syncProjectDirectory(result?.cwd);
       return result;
+    }
+
+    /** Solicita al backend abrir el visor externo de diffs para un fichero. */
+    async openFileDiff(path, options = {}) {
+      const tool = (typeof options === 'string' ? options : options?.tool) || undefined;
+      const commitFallback = typeof options === 'object' && Boolean(options?.commitFallback);
+      return this.requestExternalControl('zerochat/diff/open', { path, tool, commit_fallback: commitFallback });
     }
 
     async refreshExternalProvider() {
