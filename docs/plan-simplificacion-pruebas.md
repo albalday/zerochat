@@ -167,9 +167,21 @@ Es una propuesta preliminar hecha a partir de los títulos de las pruebas. Cada 
 | browser_startup | Se convierte en la prueba de humo de la sección 2 y absorbe las pruebas **A** del resto |
 | browser_sandbox_security, browser_dialogs_notices | Conservar (**S**); juntar en tablas |
 
-### Resultado orientativo
+### Resultado final y objetivos acordados (M24-T27)
 
-Se pasa de unas 820 pruebas y 26.200 líneas a unas 410 pruebas y menos de 13.000 líneas. La suite de navegador baja a menos de la mitad del tiempo. Las cifras finales se acuerdan con el usuario en M24-T27.
+| Nivel | Ficheros | Pruebas | Líneas | Tiempo ejecución |
+|---|---|---|---|---|
+| unit | 22 (-24%) | 146 (-28%) | 3.213 (-27%) | ~0,8s |
+| integration | 25 (-7%) | 272 (-21%) | 7.527 (-21%) | ~2,3s |
+| architecture | 13 (-7%) | 35 (-27%) | 879 (-17%) | ~0,8s |
+| infrastructure | 5 (-17%) | 34 (-21%) | 2.426 (-5%) | ~6,5s |
+| browser | 17 (=) | 104 (-42%) | 4.828 (-42%) | ~12,6s |
+| helpers | 7 | — | 338 | — |
+| **Total** | **89 (-10%)** | **591 (-28%)** | **19.211 (-27%)** | **~20s total suite** |
+
+Se eliminaron 229 pruebas y 6.967 líneas de prueba redundantes sin comprometer la seguridad ni la integridad de datos. Los objetivos máximos acordados en M24-T27 para la cláusula *Done when* son:
+- Suite: ≤ 600 pruebas y ≤ 20.000 líneas.
+- Tiempos de ejecución: Node (`npm test`) < 10s, navegador (`npm run test:browser`) < 15s.
 
 ## 6. Procedimiento en cada tarea
 
