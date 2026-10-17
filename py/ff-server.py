@@ -7,7 +7,8 @@ HEARTBEAT_WATCHDOG_STOP = threading.Event()
 _SERVER_SHUTTING_DOWN = threading.Event()
 # Si el servidor se detiene al cerrar el navegador, cerrar la pestaña detiene también los comandos.
 EXIT_ON_CLOSE = False
-QUIET_RPC_METHODS = frozenset({"zerochat/jobs/get", "zerochat/jobs/log", "zerochat/jobs/list"})
+# zerochat/run/progress ya se registra con su propio texto en dispatch_run.
+QUIET_RPC_METHODS = frozenset({"zerochat/jobs/get", "zerochat/jobs/log", "zerochat/jobs/list", "zerochat/run/progress"})
 
 
 def mark_browser_active():
@@ -643,6 +644,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 return None, {"code": -32603, "message": f"Error en transporte web: {exc}"}, str(exc)
         if method.startswith("zerochat/jobs/"):
             return self._dispatch_jobs(method, params)
+        if method.startswith("zerochat/run/"):
+            return dispatch_run(method, params)
         if method == "zerochat/external/status":
             return {"host": "running", "version": VERSION, "servers": GLOBAL_MCP_MANAGER.list_servers()}, None, ""
         if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):

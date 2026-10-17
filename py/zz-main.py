@@ -24,8 +24,7 @@ def remote_exposure_warning(host: str) -> str | None:
 
 
 def main():
-    global ACTIVE_PORT, ACTIVE_HOST, SESSION_TOKEN, CONSOLE_CONTROL, EXIT_ON_CLOSE
-    global TOOL_AUTH_KEY, TOOL_AUTH_SESSION_ID, TOOL_AUTH_NONCES
+    global ACTIVE_PORT, ACTIVE_HOST, CONSOLE_CONTROL, EXIT_ON_CLOSE
 
     parser = argparse.ArgumentParser(description=f"ZeroChat Local Server v{VERSION}")
     # Desde Python 3.14 argparse colorea la ayuda con códigos ANSI; la consola la muestra en texto plano.
@@ -37,11 +36,25 @@ def main():
     parser.add_argument("--no-exit-on-close", action="store_true", help="No detener el servidor automáticamente al cerrar el navegador")
     parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación de ~/zerochat/.venv")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
+    run_group = parser.add_argument_group("modo ejecución (Linux y Firefox)", "Ejecuta un prompt en la interfaz con la configuración de ZeroChat del perfil de Firefox, imprime solo la respuesta final y termina (0 terminado, 1 error de generación, 2 plazo agotado o navegador cerrado, 3 fallo de preparación)")
+    prompt_source = run_group.add_mutually_exclusive_group()
+    prompt_source.add_argument("--prompt", default=None, help="Prompt a ejecutar")
+    prompt_source.add_argument("--prompt-file", default=None, help="Fichero con el prompt ('-' para la entrada estándar)")
+    run_group.add_argument("--headless", action="store_true", help="Ejecutar Firefox sin ventana")
+    run_group.add_argument("--timeout", type=int, default=RUN_DEFAULT_TIMEOUT, help=f"Plazo total en segundos (default: {RUN_DEFAULT_TIMEOUT})")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     args = parser.parse_args()
 
     # Los avisos no persisten entre ejecuciones del servidor.
     reset_notices()
+
+    run_mode = args.prompt is not None or args.prompt_file is not None
+    if not run_mode and (args.headless or args.timeout != RUN_DEFAULT_TIMEOUT):
+        parser.error("--headless y --timeout solo se usan con --prompt o --prompt-file")
+    if args.timeout <= 0:
+        parser.error("--timeout debe ser un número positivo de segundos")
+    if run_mode:
+        sys.exit(run_mode_main(args))
 
     if args.test:
         print(timestamp_message(f"TEST list_directory {'ok' if json.loads(list_directory('.'))['success'] else 'error'}"))
@@ -77,12 +90,7 @@ def main():
 
     ACTIVE_PORT = args.port
     ACTIVE_HOST = args.host
-    SESSION_TOKEN = get_daily_token()
-    # A restart deliberately invalidates every browser-side signing credential.
-    TOOL_AUTH_KEY = secrets.token_bytes(32)
-    TOOL_AUTH_SESSION_ID = secrets.token_urlsafe(18)
-    with TOOL_AUTH_NONCES_LOCK:
-        TOOL_AUTH_NONCES = {}
+    init_session_credentials()
 
     server = ThreadingHTTPServer((ACTIVE_HOST, ACTIVE_PORT), ZeroChatServerHandler)
     exposure_warning = remote_exposure_warning(ACTIVE_HOST)

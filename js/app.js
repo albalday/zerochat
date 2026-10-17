@@ -37,6 +37,7 @@
     ChatUITelemetry: UITelemetry,
     ChatUIMcp: UIMcp,
     ChatRagUI: RagUI,
+    ChatRunMode: RunMode,
     ChatExport: Export
   } = window;
   const { t } = I18n;
@@ -296,7 +297,8 @@
     });
   }
 
-  function handleSendMessage() {
+  /** Envía el compositor; el modo ejecución pasa onProgress. Devuelve { text } o { error }. */
+  function handleSendMessage({ onProgress } = {}) {
     return GenerationController.handleSendMessage({
       elements,
       appendUserMessage: (text, originalPrompt, attachedImages) => UIConversation.appendUserMessage(
@@ -304,15 +306,16 @@
       createAssistantMessagePlaceholder: () => UIConversation.createAssistantMessagePlaceholder(elements.messagesList, null, messageCallbacks),
       updateConnectionTokensBadge,
       openDebugInterceptorModal,
-      saveCurrentSession
+      saveCurrentSession,
+      onProgress
     });
   }
 
   /** Envía un texto como si el usuario lo hubiera escrito en el compositor. */
-  async function submitComposerText(text) {
+  function submitComposerText(text, sendOptions) {
     elements.userInput.value = text;
     elements.userInput.dispatchEvent(new Event('input', { bubbles: true }));
-    await handleSendMessage();
+    return handleSendMessage(sendOptions);
   }
 
   async function importConversationSession(newSession) {
@@ -828,7 +831,7 @@
     subscribeToState();
     loadCachedModels();
     updateUIFromConfig();
-    ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
+    const sessionsLoaded = ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
     setupEventListeners();
     if (UISidebar.isMobile()) UISidebar.closeSidebar(elements);
 
@@ -857,8 +860,19 @@
     // Un paquete de perfiles exportado abre la página para importarlos: no arranca el chat.
     if (UIProfiles.startImportMode(elements)) return;
 
+    // connectBackend quita el fragmento de arranque: el modo ejecución se lee antes.
+    const runId = RunMode.readRunId(location.hash);
     const startupMcpConnection = connectBackend();
     updateNewTabLink();
+    if (runId) {
+      RunMode.start(runId, {
+        messagesList: elements.messagesList,
+        startupConnection: startupMcpConnection,
+        connectBackend,
+        sessionsLoaded,
+        submitComposerText
+      });
+    }
 
     // Registro del Service Worker para aceleración de arranque y soporte offline en móvil
     registerServiceWorker().then(async reloading => {

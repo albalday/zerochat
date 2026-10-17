@@ -113,6 +113,17 @@ TOOL_AUTH_SESSION_ID = secrets.token_urlsafe(18)
 TOOL_AUTH_NONCES: dict[str, int] = {}
 TOOL_AUTH_NONCES_LOCK = threading.Lock()
 
+
+def init_session_credentials():
+    """Carga el token diario y renueva la clave de firma de herramientas de este arranque."""
+    global SESSION_TOKEN, TOOL_AUTH_KEY, TOOL_AUTH_SESSION_ID, TOOL_AUTH_NONCES
+    SESSION_TOKEN = get_daily_token()
+    # A restart deliberately invalidates every browser-side signing credential.
+    TOOL_AUTH_KEY = secrets.token_bytes(32)
+    TOOL_AUTH_SESSION_ID = secrets.token_urlsafe(18)
+    with TOOL_AUTH_NONCES_LOCK:
+        TOOL_AUTH_NONCES = {}
+
 DETECTED_OS = "windows" if sys.platform.startswith("win") else ("macos" if sys.platform == "darwin" else ("android" if "ANDROID_ROOT" in os.environ else "linux"))
 
 
