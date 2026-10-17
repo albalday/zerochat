@@ -14,9 +14,7 @@
     event.preventDefault();
   }
 
-  if (typeof window !== 'undefined' && window.addEventListener) {
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-  }
+  window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
   return { handleBeforeInstallPrompt };
 });

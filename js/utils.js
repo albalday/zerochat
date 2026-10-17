@@ -122,8 +122,7 @@
 
       const blob = new Blob([viewerHtml], { type: 'text/html;charset=utf-8' });
       const blobUrl = URL.createObjectURL(blob);
-      const timer = setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
-      timer?.unref?.();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
       window.open(blobUrl, '_blank', 'noopener,noreferrer');
       return;
     } catch (_) { /* Fallback a apertura directa si Blob o createObjectURL fallan */ }
@@ -137,12 +136,11 @@
    * Abre un documento o marcado (HTML, SVG, etc.) en una nueva pestaña como un Blob URL seguro.
    */
   function openDocumentInNewTab(content, mimeType = 'text/html;charset=utf-8') {
-    if (typeof window === 'undefined' || !content) return false;
+    if (!content) return false;
     try {
       const blob = new Blob([content], { type: mimeType });
       const blobUrl = URL.createObjectURL(blob);
-      const timer = setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
-      timer?.unref?.();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
       window.open(blobUrl, '_blank', 'noopener,noreferrer');
       return true;
     } catch (_) {
@@ -432,7 +430,6 @@
         button._copyOriginalHtml = undefined;
         button.classList.remove('copied');
       }, 2000);
-      button._copyFeedbackTimer?.unref?.();
     }
     return true;
   }

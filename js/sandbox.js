@@ -1,9 +1,8 @@
 /**
  * Ejecución de JavaScript local (ChatSandbox).
  *
- * En el navegador el código se ejecuta en un iframe con sandbox="allow-scripts" (origen opaco),
- * CSP sin red y, dentro, un Web Worker sin APIs de red; un plazo elimina el iframe si no responde.
- * Sin DOM (Node.js) se ejecuta en el propio proceso con las mismas reglas de salida.
+ * El código se ejecuta en un iframe con sandbox="allow-scripts" (origen opaco), CSP sin red y,
+ * dentro, un Web Worker sin APIs de red; un plazo elimina el iframe si no responde.
  *
  * NOTA DE SEGURIDAD: es una herramienta de apoyo para cálculos y manipulación de datos bajo la
  * supervisión de un usuario técnico, no un aislamiento de seguridad del sistema operativo.
@@ -24,19 +23,12 @@
   const MAX_OUTPUT_LENGTH = 30000;
   const MAX_LOG_ENTRIES = 200;
 
-  // APIs que el código no recibe: en el Worker, las de red y de otros hilos; sin DOM, además las
-  // de la ventana. En el iframe el origen opaco y la CSP ya las bloquean.
+  // APIs que el código no recibe en el Worker: las de red y de otros hilos. En el iframe el origen
+  // opaco y la CSP ya las bloquean.
   const WORKER_BLOCKED_GLOBALS = [
     'fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource',
     'importScripts', 'indexedDB', 'Worker', 'SharedWorker', 'ServiceWorker',
     'postMessage', 'addEventListener', 'removeEventListener'
-  ];
-  const PROCESS_BLOCKED_GLOBALS = [
-    'window', 'document', 'fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource',
-    'localStorage', 'sessionStorage', 'indexedDB', 'cookie', 'location', 'navigator',
-    'parent', 'top', 'frames', 'opener', 'Worker', 'SharedWorker', 'ServiceWorker',
-    'FileReader', 'DecompressionStream', 'CompressionStream', 'alert', 'confirm', 'prompt',
-    'open', 'close', 'postMessage', 'importScripts'
   ];
 
   /**
@@ -211,9 +203,7 @@
     if (!code || typeof code !== 'string') {
       return { success: false, result: '', logs: [], executionTimeMs: 0, error: 'No JavaScript code was provided.' };
     }
-    if (typeof document !== 'undefined') return executeInIframe(code, effectiveTimeout);
-    const execution = runCode({ code, maxOutputLength: MAX_OUTPUT_LENGTH, maxLogEntries: MAX_LOG_ENTRIES, blockedGlobals: PROCESS_BLOCKED_GLOBALS });
-    return withTimeout(execution, effectiveTimeout, () => {});
+    return executeInIframe(code, effectiveTimeout);
   }
 
   return { execute };

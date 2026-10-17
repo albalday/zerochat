@@ -14,8 +14,7 @@
   const WEBLLM_DESKTOP_CONTEXT_WINDOW_SIZE = 16384;
 
   // Se usa el dispositivo y no el ancho de ventana: lo que limita es la memoria de la GPU.
-  function isMobileDevice(nav = typeof navigator !== 'undefined' ? navigator : null) {
-    if (!nav) return false;
+  function isMobileDevice(nav = navigator) {
     if (typeof nav.userAgentData?.mobile === 'boolean') return nav.userAgentData.mobile;
     return /Android|iPhone|iPad|iPod|Mobile/i.test(String(nav.userAgent || ''));
   }
@@ -25,8 +24,8 @@
   }
 
   // Idioma inicial de la interfaz: el del navegador si es inglés; en otro caso, español.
-  function getBrowserLanguage(nav = typeof navigator !== 'undefined' ? navigator : null) {
-    const language = String(nav?.languages?.[0] || nav?.language || '').toLowerCase();
+  function getBrowserLanguage(nav = navigator) {
+    const language = String(nav.languages?.[0] || nav.language || '').toLowerCase();
     return language.startsWith('en') ? 'en' : 'es';
   }
 

@@ -123,5 +123,74 @@ describe('Browser UI - Sandbox Security & Iframe Isolation', () => {
     });
     assert.equal(lingeringIframes, 0, 'No deben quedar iframes residuales tras el timeout');
   });
-});
+  /** Ejecuta código en el sandbox real de la página. */
+  const run = (code, timeoutMs) => page.evaluate(({ code, timeoutMs }) => window.ChatSandbox.execute(code, timeoutMs), { code, timeoutMs });
 
+  test('Sandbox - devuelve resultados de sentencias, expresiones, objetos, promesas y BigInt', async () => {
+    const results = await page.evaluate(async () => {
+      const execute = window.ChatSandbox.execute;
+      return {
+        statement: await execute('const a = 10; const b = 20; return a + b;'),
+        expression: await execute('Math.sqrt(144)'),
+        object: await execute('({ nombre: "ZeroChat", version: 5 })'),
+        bigint: await execute('function factorial(n) {\n  let result = 1n;\n  for (let i = 2n; i <= BigInt(n); i++) result *= i;\n  return result;\n}\nreturn factorial(100).toString();', {}),
+        promise: await execute('return Promise.resolve(12345);'),
+        asyncResult: await execute('return (async () => { return "resultado asíncrono"; })()'),
+        bigintLogs: await execute('const f = n => { let r = 1n; for (let i = 2; i <= n; i++) r *= BigInt(i); return r; };\nconsole.log([22].map(n => f(n) + 333n).map(r => r.toString()));')
+      };
+    });
+    assert.deepEqual([results.statement.success, results.statement.result], [true, '30']);
+    assert.deepEqual([results.expression.success, results.expression.result], [true, '12']);
+    assert.ok(results.object.result.includes('"nombre": "ZeroChat"'));
+    assert.ok(results.bigint.result.startsWith('93326215443944152681699238856266700490715968264381621468592963895217599993229915608941463976156518286253697920827223758251185210916864000000000000000000000000'));
+    assert.deepEqual([results.promise.result, results.asyncResult.result], ['12345', 'resultado asíncrono']);
+    assert.ok(results.bigintLogs.logs[0].includes('1124000727777607680333'));
+  });
+
+  test('Sandbox - captura la consola con su nivel y devuelve los errores de ejecución', async () => {
+    const logs = await run('console.log("Mensaje normal");\nconsole.info("Info log");\nconsole.warn("Alerta advertencia");\nconsole.error("Mensaje error");\nreturn 100;');
+    assert.equal(logs.result, '100');
+    assert.deepEqual(logs.logs, ['Mensaje normal', '[INFO] Info log', '[WARN] Alerta advertencia', '[ERROR] Mensaje error']);
+
+    const failed = await run('throw new Error("Fallo de prueba");');
+    assert.equal(failed.success, false);
+    assert.match(failed.error, /Fallo de prueba/);
+  });
+
+  test('Sandbox - acota la salida a 30.000 caracteres y la consola a 200 entradas, en el borde exacto', async () => {
+    const atLimit = await run('return "A".repeat(30000);');
+    assert.equal(atLimit.result.length, 30000, 'En el tope exacto la salida se conserva entera');
+    assert.doesNotMatch(atLimit.result, /output truncated/);
+    const overLimit = await run('return "A".repeat(30001);');
+    assert.equal(overLimit.result, `${'A'.repeat(30000)}... [output truncated]`);
+
+    const logsAtLimit = await run('for (let i = 0; i < 200; i++) console.log("Log " + i);\nreturn "done";');
+    assert.equal(logsAtLimit.logs.length, 200);
+    const logsOverLimit = await run('for (let i = 0; i < 201; i++) console.log("Log " + i);\nreturn "done";');
+    assert.equal(logsOverLimit.logs.length, 200);
+    assert.equal(logsOverLimit.logs.at(-1), 'Log 199', 'Las entradas que superan el tope se descartan');
+  });
+
+  test('Sandbox - un plazo vencido termina la ejecución; timeoutMs solo admite números finitos positivos', async () => {
+    const results = await page.evaluate(async () => {
+      const neverEnds = 'return new Promise(() => {});';
+      const invalid = [{ timeoutMs: 50 }, NaN, -1, 0, Infinity, '50'];
+      const fallback = await Promise.all(invalid.map(value => window.ChatSandbox.execute(neverEnds, value)));
+      const custom = await window.ChatSandbox.execute(neverEnds, 75);
+      return { fallback: fallback.map(result => [result.success, result.error]), custom: custom.error };
+    });
+    for (const [success, error] of results.fallback) {
+      assert.equal(success, false);
+      assert.match(error, /timed out after 2500ms/);
+    }
+    assert.match(results.custom, /timed out after 75ms/);
+  });
+
+  test('Sandbox - el código no recibe la ventana, el almacenamiento ni la mensajería, y rechaza llamadas sin código', async () => {
+    const probe = await run('return [typeof fetch, typeof window, typeof localStorage, typeof postMessage].join(",");');
+    assert.equal(probe.result, 'undefined,undefined,undefined,undefined');
+    assert.equal(await page.evaluate(() => Function.prototype.constructor === Function), true, 'El constructor de la página no cambia');
+    assert.match((await run('')).error, /No JavaScript code was provided/);
+    assert.match((await run(42)).error, /No JavaScript code was provided/);
+  });
+});

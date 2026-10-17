@@ -15,12 +15,17 @@ test('ToolDispatcher - dispatchToolCall ejecuta JavaScript de forma resiliente',
     }
   };
 
+  // El sandbox real necesita un navegador (browser_sandbox_security): aquí se prueba el despacho.
+  const executed = [];
+  const sandbox = { execute: async code => { executed.push(code); return { success: true, result: '30', logs: [], executionTimeMs: 1 }; } };
   const logs = [];
   const res = await AgentCore.dispatchToolCall(toolCall, {
+    services: { sandbox },
     onLog: (type, text) => logs.push({ type, text })
   });
 
   assert.ok(res.success);
+  assert.deepEqual(executed, ['const a = 10; const b = 20; return a + b;']);
   assert.equal(res.resultText, '30');
   assert.ok(res.markdownBlock.includes('execute_javascript'));
   assert.ok(logs.length >= 2);

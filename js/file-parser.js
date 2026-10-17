@@ -1474,14 +1474,11 @@
 
   /**
    * Convierte un Data URL JPEG CMYK / YCCK extraído de un PDF a un Data URL JPEG sRGB bajo demanda.
-   * La decodificación la hace el navegador; sin canvas (Node) el Data URL se devuelve sin cambios.
+   * La decodificación la hace el navegador con createImageBitmap y un canvas.
    */
   async function convertCmykDataUrlToRgb(dataUrl) {
     const prefix = 'data:image/jpeg;base64,';
     if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith(prefix)) return dataUrl;
-    if (typeof document === 'undefined' || typeof createImageBitmap !== 'function' || typeof atob !== 'function') {
-      return dataUrl;
-    }
     try {
       const bin = atob(dataUrl.substring(prefix.length));
       const bytes = new Uint8Array(bin.length);

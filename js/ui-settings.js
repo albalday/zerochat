@@ -181,8 +181,7 @@
     feedback.hidden = false;
     feedback.className = `server-query-status status-${type}`;
     feedback.textContent = message;
-    const timer = setTimeout(() => { feedback.hidden = true; }, 4000);
-    timer.unref?.();
+    setTimeout(() => { feedback.hidden = true; }, 4000);
   }
 
   const setSettingsFormDirty = (elements, dirty) => { elements.settingsDialog.dataset.settingsDirty = String(Boolean(dirty)); };

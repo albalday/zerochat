@@ -1620,12 +1620,10 @@
     }
 
     // Actualizar título de la página
-    if (typeof document !== 'undefined') {
-      document.title = t('app_title');
-      const metaDesc = document.querySelector('meta[name="description"]');
-      if (metaDesc) {
-        metaDesc.setAttribute('content', t('app_description'));
-      }
+    document.title = t('app_title');
+    const metaDesc = document.querySelector('meta[name="description"]');
+    if (metaDesc) {
+      metaDesc.setAttribute('content', t('app_description'));
     }
   }
 

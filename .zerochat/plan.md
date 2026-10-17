@@ -81,7 +81,7 @@ Done when: no test or module depends on happy-dom, the dependency and tests/help
 - [x] M24-T4 Office parser and web page extraction: move DOMParser-dependent tests to the browser and remove the regex extraction fallback (2026-10-17)
 - [x] M24-T5 Delete DOM tests already covered by browser tests (2026-10-17)
 - [x] M24-T6 Move the remaining DOM tests to browser tests (dropped: split into M24-T10..T15 by area, ~105 tests)
-- [ ] M24-T7 Remove Node-only branches (typeof document/window guards, sandbox non-iframe executor if unused)
+- [x] M24-T7 Remove Node-only branches (typeof document/window guards, sandbox non-iframe executor if unused) (2026-10-17)
 - [ ] M24-T8 Remove happy-dom, dom-env.js and the AGENTS.md/tests README rule
 - [ ] M24-T9 Review tests that still check the use of removed public proxies (r.jina.ai and others removed in M21/M23) and delete or adapt them
 - [x] M24-T10 Move the composer, sidebar and conversation transfer DOM tests to browser tests (ui_composer, ui_sidebar, ui_transfer) (2026-10-17)
