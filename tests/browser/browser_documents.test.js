@@ -197,35 +197,43 @@ describe('Browser - documents', () => {
     });
   });
 
-  test('Browser - sin backend, la búsqueda recurre a Wikipedia cuando DuckDuckGo no responde por CORS', async () => {
+  test('Browser - search_web pide la clave de Tavily la primera vez, con enlace para conseguirla, y la guarda', async () => {
     await withTestApp(async page => {
-      const result = await page.evaluate(async () => {
-        const originalFetch = window.fetch;
-        const requests = [];
+      await page.evaluate(() => {
+        window.__tavilyRequests = [];
         window.fetch = async (url, init) => {
-          requests.push({ url: String(url), headers: init.headers });
-          if (String(url).startsWith('https://html.duckduckgo.com/')) throw new TypeError('NetworkError when attempting to fetch resource.');
-          if (String(url).startsWith('https://api.duckduckgo.com/')) return new Response('{"Abstract":"","Results":[]}', { headers: { 'content-type': 'application/json' } });
-          return new Response(JSON.stringify({ query: { search: [
-            { title: 'Sistema solar', snippet: 'El <span class="searchmatch">Sol</span> y &quot;sus&quot; planetas' }
-          ] } }), { headers: { 'content-type': 'application/json' } });
+          window.__tavilyRequests.push({ url: String(url), authorization: init?.headers?.Authorization });
+          return Response.json({ results: [{ title: 'Sol', url: 'https://example.com/sol', content: 'Estrella' }] });
         };
-        try {
-          const results = await new ChatWebSearch.DuckDuckGoSearchProvider().fetchResults('sol', { lang: 'es', timeoutMs: 3000 });
-          return { results, requests };
-        } finally {
-          window.fetch = originalFetch;
-        }
+        const tool = ChatAgentCore.registry.getTool('search_web');
+        window.__search = tool.execute({ query: 'sol' }, { services: { webSearch: ChatWebSearch } });
       });
 
-      assert.deepEqual(result.results, [{
-        title: 'Sistema solar',
-        url: 'https://es.wikipedia.org/wiki/Sistema_solar',
-        snippet: 'El Sol y "sus" planetas',
-        source: 'Wikipedia'
-      }]);
-      assert.match(result.requests[2].url, /^https:\/\/es\.wikipedia\.org\/w\/api\.php\?action=query&list=search&srsearch=sol&.*origin=\*/);
-      assert.ok(result.requests.every(request => Object.keys(request.headers).join() === 'Accept'), 'Solo cabeceras CORS-safelisted');
+      const dialog = page.locator('#notice-dialog');
+      await dialog.waitFor({ state: 'visible' });
+      const link = page.locator('#notice-link');
+      assert.equal(await link.getAttribute('href'), 'https://app.tavily.com');
+      assert.equal(await link.getAttribute('target'), '_blank');
+      assert.ok(await link.isVisible());
+      await page.locator('#notice-input').fill('  tvly-abc ');
+      await page.locator('#notice-accept').click();
+
+      const result = await page.evaluate(async () => {
+        const first = await window.__search;
+        // Con la clave guardada, la siguiente búsqueda no vuelve a preguntar.
+        const second = await ChatAgentCore.registry.getTool('search_web').execute({ query: 'luna' }, { services: { webSearch: ChatWebSearch } });
+        return { first: first.count, second: second.count, stored: ChatWebSearch.getApiKey(), requests: window.__tavilyRequests };
+      });
+      assert.deepEqual(result, {
+        first: 1,
+        second: 1,
+        stored: 'tvly-abc',
+        requests: [
+          { url: 'https://api.tavily.com/search', authorization: 'Bearer tvly-abc' },
+          { url: 'https://api.tavily.com/search', authorization: 'Bearer tvly-abc' }
+        ]
+      });
+      assert.equal(await page.locator('#notice-link').isVisible(), false);
     });
   });
 

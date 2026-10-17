@@ -71,3 +71,4 @@ Done when: backend fetch revalidates every redirect and resolved address, bounds
 - [x] M26-T5 Move webFetch into ChatWebBrowser with single option names and no Node branches (2026-10-17)
 - [x] M26-T6 Diff button: stdin closed, GUI tool required with a clear error, local server only, absolute path from the result (2026-10-17)
 - [x] M26-T7 Remove the <tool_call substring check from the summary validation (2026-10-17)
+- [x] M26-T8 search_web uses only Tavily (direct API with the key of the «Tavily» connection profile), with or without backend; DuckDuckGo, SearXNG and Wikipedia search removed (2026-10-17)

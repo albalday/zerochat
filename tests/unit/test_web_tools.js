@@ -6,40 +6,46 @@ const WebSearch = require('../../js/web-search.js');
 const WebBrowser = require('../../js/web-browser.js');
 const ChatMCP = require('../../js/mcp.js');
 
-test('SearchProvider - DuckDuckGo HTML parsing', () => {
-  const ddg = new WebSearch.DuckDuckGoSearchProvider();
+test('WebSearch - Tavily: petición autenticada, resultados para el modelo y errores de la API', async t => {
+  const requests = [];
+  let reply = () => Response.json({ results: [
+    { title: 'Precio gasolina', url: 'https://example.com/gasolina', content: 'Hoy  el precio\n medio es 1,60 €.', score: 0.9 },
+    { title: 'Sin URL', content: 'descartado' }
+  ] });
+  t.mock.method(global, 'fetch', async (url, init) => {
+    requests.push({ url, init });
+    return reply();
+  });
 
-  // Test de parseo de HTML directo
-  const sampleHtml = `
-    <div class="results">
-      <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fhtml-example.com">HTML Title</a>
-      <a class="result__snippet">HTML Snippet content</a>
-    </div>
-  `;
-  const htmlResults = ddg.parseHtmlResults(sampleHtml);
-  assert.equal(htmlResults.length, 1);
-  assert.equal(htmlResults[0].title, 'HTML Title');
-  assert.equal(htmlResults[0].url, 'https://html-example.com');
-  assert.equal(htmlResults[0].snippet, 'HTML Snippet content');
-});
+  // Sin clave no se llama a Tavily
+  const noKey = await WebSearch.search('gasolina', '');
+  assert.equal(noKey.success, false);
+  assert.match(noKey.error, /needs a Tavily API key/);
+  assert.equal(requests.length, 0);
 
-test('SearchProvider - SearXNG JSON parsing', () => {
-  const searx = new WebSearch.SearXNGSearchProvider({ baseUrl: 'https://custom-searx.org' });
-  assert.equal(searx.id, 'searxng');
+  const ok = await WebSearch.search('  gasolina hoy ', 'tvly-test');
+  assert.equal(requests[0].url, 'https://api.tavily.com/search');
+  assert.equal(requests[0].init.method, 'POST');
+  assert.deepEqual(requests[0].init.headers, { 'Content-Type': 'application/json', Authorization: 'Bearer tvly-test' });
+  assert.deepEqual(JSON.parse(requests[0].init.body), { query: 'gasolina hoy', max_results: 8, search_depth: 'basic' });
+  assert.equal(ok.success, true);
+  assert.deepEqual(ok.results, [{ title: 'Precio gasolina', url: 'https://example.com/gasolina', snippet: 'Hoy el precio medio es 1,60 €.', source: 'Tavily' }]);
+  assert.match(ok.markdown, /1\. \*\*\[Precio gasolina\]\(https:\/\/example\.com\/gasolina\)\*\*/);
 
-  const sampleJson = {
-    results: [
-      { title: 'SearXNG Title 1', url: 'https://searx-res1.com', content: 'Snippet 1', engine: 'google' },
-      { title: 'SearXNG Title 2', url: 'https://searx-res2.com', snippet: 'Snippet 2', engine: 'bing' }
-    ]
-  };
+  // Cupo agotado u otro error: se devuelve el detalle de Tavily
+  reply = () => Response.json({ detail: { error: 'This request exceeds your plan\'s set usage limit.' } }, { status: 432 });
+  const limited = await WebSearch.search('gasolina', 'tvly-test');
+  assert.equal(limited.success, false);
+  assert.equal(limited.error, 'Tavily answered HTTP 432: This request exceeds your plan\'s set usage limit.');
 
-  const parsed = searx.parseJsonResponse(sampleJson);
-  assert.equal(parsed.length, 2);
-  assert.equal(parsed[0].title, 'SearXNG Title 1');
-  assert.equal(parsed[0].url, 'https://searx-res1.com');
-  assert.equal(parsed[0].snippet, 'Snippet 1');
-  assert.equal(parsed[0].source, 'SearXNG (google)');
+  // Clave rechazada: se borra para pedirla de nuevo en la siguiente búsqueda
+  WebSearch.saveApiKey(' tvly-bad ');
+  assert.equal(WebSearch.getApiKey(), 'tvly-bad');
+  reply = () => Response.json({ detail: { error: 'Unauthorized' } }, { status: 401 });
+  const rejected = await WebSearch.search('gasolina', WebSearch.getApiKey());
+  assert.equal(rejected.success, false);
+  assert.match(rejected.error, /HTTP 401/);
+  assert.equal(WebSearch.getApiKey(), '');
 });
 
 test('PageFetcher - Validación de URLs y protección anti-SSRF', () => {
@@ -68,14 +74,7 @@ test('PageFetcher - Validación de URLs y protección anti-SSRF', () => {
 
 test('PageFetcher - Pipeline de estrategias y límite de longitud de contenido', async () => {
   const pipeline = new WebBrowser.PageFetcherPipeline();
-  assert.deepEqual(pipeline.strategies.map(s => s.name), ['LocalDocumentExtractor', 'WikipediaArticle', 'DirectFetch']);
-
-  // Los artículos de Wikipedia se leen con la API REST de contenido, que admite CORS.
-  const restUrl = pipeline.strategies[1].constructor.restUrl;
-  assert.equal(restUrl('https://es.wikipedia.org/wiki/Sol'), 'https://es.wikipedia.org/api/rest_v1/page/html/Sol');
-  assert.equal(restUrl('https://en.m.wikipedia.org/wiki/AC%2FDC'), 'https://en.wikipedia.org/api/rest_v1/page/html/AC%2FDC');
-  assert.equal(restUrl('https://es.wikipedia.org/w/index.php?title=Sol'), '');
-  assert.equal(restUrl('https://example.com/wiki/Sol'), '');
+  assert.deepEqual(pipeline.strategies.map(s => s.name), ['LocalDocumentExtractor', 'DirectFetch']);
 
   // Test de estrategia simulada con contenido superior al límite
   const originalFetch = global.fetch;
@@ -146,65 +145,6 @@ test('ChatWebBrowser.webFetch - backend si está conectado y, sin backend, fetch
     assert.deepEqual(sentHeaders, { Accept: 'application/json' });
     assert.equal(direct.truncated, false);
     assert.equal(await direct.text(), 'ok');
-  } finally {
-    ChatMCP.manager.isProxyConnected = origIsProxyConnected;
-    ChatMCP.manager.fetchWebResource = origFetchWebResource;
-    global.fetch = origFetch;
-  }
-});
-
-test('SearchProvider - DuckDuckGo prioriza transporte backend y hace fallback si no está conectado', async () => {
-  const ddg = new WebSearch.DuckDuckGoSearchProvider();
-  const origIsProxyConnected = ChatMCP.manager.isProxyConnected;
-  const origFetchWebResource = ChatMCP.manager.fetchWebResource;
-  const origFetch = global.fetch;
-
-  try {
-    // 1. Backend conectado: se usa el backend sin tocar fetch del navegador
-    ChatMCP.manager.isProxyConnected = () => true;
-    let backendCalled = false;
-    ChatMCP.manager.fetchWebResource = async () => {
-      backendCalled = true;
-      return {
-        ok: true,
-        status: 200,
-        text: `
-          <div class="results">
-            <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fbackend-result.com">Backend Result</a>
-            <a class="result__snippet">Contenido desde el servidor local</a>
-          </div>
-        `
-      };
-    };
-
-    const results = await ddg.fetchResults('test query', { timeoutMs: 3000 });
-    assert.equal(backendCalled, true);
-    assert.equal(results.length, 1);
-    assert.equal(results[0].title, 'Backend Result');
-    assert.equal(results[0].url, 'https://backend-result.com');
-
-    // 2. Backend desconectado: fallback a fetch directo
-    ChatMCP.manager.isProxyConnected = () => false;
-    let browserFetchCalled = false;
-    global.fetch = async () => {
-      browserFetchCalled = true;
-      return {
-        ok: true,
-        status: 200,
-        text: async () => `
-          <div class="results">
-            <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fbrowser-result.com">Browser Result</a>
-            <a class="result__snippet">Contenido directo</a>
-          </div>
-        `
-      };
-    };
-
-    const fallbackResults = await ddg.fetchResults('fallback query', { timeoutMs: 3000 });
-    assert.equal(browserFetchCalled, true);
-    assert.equal(fallbackResults.length, 1);
-    assert.equal(fallbackResults[0].title, 'Browser Result');
-    assert.equal(fallbackResults[0].url, 'https://browser-result.com');
   } finally {
     ChatMCP.manager.isProxyConnected = origIsProxyConnected;
     ChatMCP.manager.fetchWebResource = origFetchWebResource;

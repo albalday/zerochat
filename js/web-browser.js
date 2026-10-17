@@ -16,8 +16,7 @@
  *      rechazan. El User-Agent lo pone el backend.
  *    - Estrategias de lectura desacopladas:
  *        a) Documentos Locales (LocalDocumentExtractor): Extracción directa en navegador para PDF y Office.
- *        b) Artículos de Wikipedia (WikipediaArticle): API REST de contenido, que admite CORS.
- *        c) Petición Directa (DirectFetch): Utilizada para servidores con CORS habilitado o a través del backend.
+ *        b) Petición Directa (DirectFetch): Utilizada para servidores con CORS habilitado o a través del backend.
  *
  * 2. Mitigación de SSRF (Server-Side Request Forgery) en el Cliente Web:
  *    - Los agentes LLM pueden recibir o generar URLs arbitrarias. ZeroChat aplica validación estricta
@@ -360,41 +359,6 @@
   }
 
   /**
-   * Artículo de Wikipedia (`<idioma>.wikipedia.org/wiki/<título>`) leído con la API REST de
-   * contenido, que admite CORS: funciona también sin backend. Si falla, sigue DirectFetch.
-   */
-  class WikipediaArticleStrategy extends BaseFetchStrategy {
-    constructor() {
-      super({ name: 'WikipediaArticle', timeoutMs: 10000 });
-    }
-
-    static restUrl(url) {
-      const parsed = new URL(url);
-      const host = parsed.hostname.match(/^([a-z0-9-]+)(?:\.m)?\.wikipedia\.org$/i);
-      if (!host || !parsed.pathname.startsWith('/wiki/') || parsed.pathname.length <= 6) return '';
-      const title = decodeURIComponent(parsed.pathname.slice(6));
-      return `https://${host[1].toLowerCase()}.wikipedia.org/api/rest_v1/page/html/${encodeURIComponent(title)}`;
-    }
-
-    async canHandle(url) {
-      return Boolean(WikipediaArticleStrategy.restUrl(url));
-    }
-
-    async fetch(url) {
-      const res = await webFetch(WikipediaArticleStrategy.restUrl(url), { timeoutMs: this.timeoutMs, accept: 'text/html' });
-      if (!res.ok) throw new Error(res.error || `HTTP ${res.status}`);
-      const html = await res.text();
-      return {
-        success: true,
-        content: extractReadableTextFromHtml(html, url) + (res.truncated ? TRUNCATION_NOTICE : ''),
-        byteSize: res.byteSize || html.length,
-        status: res.status,
-        strategy: this.name
-      };
-    }
-  }
-
-  /**
    * Estrategia de petición web mediante webFetch (vía backend local si está conectado, o directa en navegador).
    * El tipo de documento se decide también por el Content-Type: un PDF sin extensión en la URL
    * llega del backend en base64 y se lee igual que uno con extensión.
@@ -467,7 +431,6 @@
     constructor() {
       this.strategies = [
         new LocalDocumentStrategy(),
-        new WikipediaArticleStrategy(),
         new DirectFetchStrategy()
       ];
     }

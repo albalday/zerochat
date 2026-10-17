@@ -482,6 +482,11 @@
       if (notice.cancelText) item.cancelText = String(notice.cancelText).slice(0, 100);
       if (notice.checkbox) item.checkbox = String(notice.checkbox).slice(0, 500);
       if (notice.checkboxDefault !== undefined) item.checkboxDefault = Boolean(notice.checkboxDefault);
+      if (notice.link !== undefined) {
+        // Enlace externo bajo el mensaje: solo https, para no abrir esquemas como javascript:.
+        if (!notice.link || typeof notice.link.href !== 'string' || !/^https:\/\//i.test(notice.link.href) || typeof notice.link.text !== 'string') throw new TypeError('Invalid notice');
+        item.link = { href: notice.link.href.slice(0, 2000), text: notice.link.text.slice(0, 200) };
+      }
       if (notice.items !== undefined) {
         if (!Array.isArray(notice.items) || notice.items.length > 50 ||
             notice.items.some(entry => !entry || typeof entry.id !== 'string' || !entry.id || entry.id.length > 200 || typeof entry.label !== 'string')) throw new TypeError('Invalid notice');

@@ -19,7 +19,7 @@ test('AgentCore - el registro resuelve las nativas por nombre y por alias', () =
   assert.equal(registry.getTool('run_js').name, 'execute_javascript');
   assert.equal(registry.getTool('eval_javascript').name, 'execute_javascript');
   assert.equal(registry.getTool('searchweb').name, 'search_web');
-  assert.equal(registry.getTool('duckduckgo').name, 'search_web');
+  assert.equal(registry.getTool('tavily_search').name, 'search_web');
   assert.equal(registry.getTool('Search-Web').name, 'search_web');
   assert.equal(registry.getTool('fetchwebpage').name, 'fetch_web_page');
   assert.equal(registry.getTool('downloaddoc').name, 'download_doc');
