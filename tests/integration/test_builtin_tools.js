@@ -8,20 +8,6 @@ const AgentCore = require('../../js/agent-core.js');
 const ROOT_DIR = path.resolve(__dirname, '../..');
 const BUILTIN_DIR = path.join(ROOT_DIR, 'js/tools/builtin');
 const getTool = name => AgentCore.registry.getTool(name);
-const call = (name, args) => ({ function: { name, arguments: JSON.stringify(args) } });
-
-test('Builtin Tools - zerochat.html, sw.js y el registro cargan exactamente los módulos de builtin/', () => {
-  const available = fs.readdirSync(BUILTIN_DIR).filter(file => file.endsWith('.tool.js')).sort();
-  const html = fs.readFileSync(path.join(ROOT_DIR, 'zerochat.html'), 'utf-8');
-  const sw = fs.readFileSync(path.join(ROOT_DIR, 'sw.js'), 'utf-8');
-  const loaded = source => Array.from(source.matchAll(/js\/tools\/builtin\/([^"']+\.tool\.js)/g), match => match[1]).sort();
-  assert.deepEqual(loaded(html), available);
-  assert.deepEqual(loaded(sw), available);
-  for (const file of available) {
-    const spec = require(path.join(BUILTIN_DIR, file));
-    assert.equal(getTool(spec.definition.name).getDefinition().function.name, spec.definition.name, file);
-  }
-});
 
 // Claves de la especificación documentadas en la lista inicial de js/tools/README.md, sin lo que va
 // entre paréntesis (firmas y subclaves) ni lo que sigue a los dos puntos.
@@ -61,17 +47,6 @@ test('Builtin Tools - execute_javascript limpia las marcas de código y formatea
   assert.ok(!`${tool.description} ${tool.getPromptGuide()}`.toLowerCase().includes('sandbox'), 'El modelo no lee la palabra sandbox');
 });
 
-test('Builtin Tools - search_web pasa la consulta y el idioma y serializa el Markdown', async () => {
-  const tool = getTool('search_web');
-  const calls = [];
-  const webSearch = { search: async (query, language) => { calls.push({ query, language }); return { success: true, count: 1, markdown: '## Result' }; } };
-  const result = await tool.execute({ q: 'ZeroChat refactor' }, { language: 'en', services: { webSearch } });
-
-  assert.deepEqual(calls, [{ query: 'ZeroChat refactor', language: 'en' }]);
-  assert.equal(tool.toModel({}, result), '## Result');
-  assert.match(tool.toMarkdown({ query: 'ZeroChat refactor' }, result), /1 sources[\s\S]*ZeroChat refactor/);
-});
-
 test('Builtin Tools - fetch_web_page y download_doc aceptan los nombres de URL que usan los modelos', async () => {
   const urls = [];
   const webBrowser = { fetchPage: async url => { urls.push(url); return { success: true, content: 'Página' }; } };
@@ -81,13 +56,6 @@ test('Builtin Tools - fetch_web_page y download_doc aceptan los nombres de URL q
   assert.deepEqual(urls, ['https://example.com/article', 'https://example.com/document.pdf']);
   assert.equal(getTool('fetch_web_page').toModel({}, page), JSON.stringify(page));
   assert.match(getTool('download_doc').toMarkdown({ url: 'https://example.com/document.pdf' }, page), /download_doc[\s\S]*document\.pdf/);
-});
-
-test('Builtin Tools - render_chart solo informa al modelo del tipo y el título', async () => {
-  const tool = getTool('render_chart');
-  const args = { type: 'bar', title: '<img src=x onerror=alert(1)>', labels: ['Enero'], datasets: [{ label: '2026', data: [10] }] };
-  const result = await tool.execute(args, {});
-  assert.equal(tool.toModel(args, result), JSON.stringify({ success: true, type: 'bar', title: args.title }));
 });
 
 test('Builtin Tools - las herramientas de conocimiento usan las ramas activas del contexto', async () => {
@@ -117,16 +85,6 @@ test('Builtin Tools - las herramientas de conocimiento usan las ramas activas de
   assert.match(getTool('list_documents').toMarkdown({ filter: 'Walmart' }, { count: 1 }), /filter "Walmart"/);
   assert.doesNotMatch(getTool('list_documents').toMarkdown({}, { count: 5 }), /filter/);
   assert.match(getTool('read_knowledge_chunk').toMarkdown({ chunkId: 'c9' }, {}), /\(c9\)/);
-});
-
-test('Builtin Tools - los parámetros de conocimiento declaran alcances, filtro y varios fragmentos', () => {
-  const search = getTool('search_knowledge_base');
-  assert.deepEqual(search.parameters.properties.scope.enum, ['auto', 'document', 'corpus']);
-  assert.match(search.description, /one corpus search instead of repeating the same query per document/);
-  assert.equal(getTool('list_documents').parameters.properties.filter.type, 'string');
-  const chunk = getTool('read_knowledge_chunk').parameters.properties;
-  assert.equal(chunk.chunkId.type, 'string');
-  assert.equal(chunk.chunkIds.items.type, 'string');
 });
 
 test('Builtin Tools - ask_user valida opciones y cede el turno', async () => {

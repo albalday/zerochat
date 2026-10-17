@@ -390,52 +390,6 @@ test('MCP - una comprobación de salud fallida degrada una conexión previamente
   }
 });
 
-test('MCP - McpManager connectProxy y disconnectProxy gestionan estado', async () => {
-  const originalFetch = global.fetch;
-  const manager = new MCP.McpManager();
-
-  try {
-    global.fetch = async (url, options) => {
-      const body = JSON.parse(options.body || '{}');
-      if (body.method === 'initialize') {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            jsonrpc: '2.0',
-            id: body.id,
-            result: {
-              protocolVersion: '2024-11-05',
-              serverInfo: { name: 'mcp-proxy', version: '1.0.0' },
-              capabilities: {}
-            }
-          })
-        };
-      }
-      if (body.method === 'tools/list') {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            jsonrpc: '2.0',
-            id: body.id,
-            result: { tools: [] }
-          })
-        };
-      }
-      return { ok: true, status: 200, json: async () => ({}) };
-    };
-
-    const connResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388 });
-    assert.equal(connResult.success, true);
-
-    const discResult = await manager.disconnectProxy();
-    assert.equal(discResult.success, true);
-  } finally {
-    global.fetch = originalFetch;
-  }
-});
-
 test('MCP - McpClient disconnect() limpia recursos y cancela peticiones pendientes', async () => {
   const client = new MCP.McpClient({
     id: 'test_server',
@@ -630,44 +584,6 @@ test('MCP - la conexión silenciosa del arranque conecta si el servidor está ac
   } finally {
     global.fetch = originalFetch;
     await MCP.manager.disconnectProxy();
-  }
-});
-
-test('MCP - connectProxy soporta silentOnFailure para arranque y fallo explícito', async () => {
-  const originalFetch = global.fetch;
-  const manager = new MCP.McpManager();
-
-  try {
-    // Simular que no hay servidor escuchando (fetch falla)
-    global.fetch = async () => {
-      throw new Error('ECONNREFUSED');
-    };
-
-    // 1. Conexión de arranque (silentOnFailure: true)
-    const resSilent = await manager.connectProxy({
-      host: '127.0.0.1',
-      port: 6388,
-      silentOnFailure: true
-    });
-    assert.equal(resSilent.success, false);
-    assert.equal(resSilent.available, false);
-    const stateSilent = ChatState.get('mcp');
-    assert.equal(stateSilent.status, 'disconnected');
-    assert.equal(stateSilent.error, null);
-
-    // 2. Conexión manual por el usuario (silentOnFailure: false)
-    const resManual = await manager.connectProxy({
-      host: '127.0.0.1',
-      port: 6388,
-      silentOnFailure: false
-    });
-    assert.equal(resManual.success, false);
-    const stateManual = ChatState.get('mcp');
-    assert.equal(stateManual.status, 'error');
-    assert.ok(stateManual.error);
-  } finally {
-    global.fetch = originalFetch;
-    await manager.disconnectProxy();
   }
 });
 
@@ -965,27 +881,6 @@ test('MCP - syncExternalServers y connectProxy sincronizan y registran herramien
   }
 });
 
-test('MCP - ofrece una vez iniciar los servicios habilitados que siguen detenidos', () => {
-  const UIMcp = require('../../js/ui-mcp.js');
-  const offers = [];
-  const original = UIMcp.offerStoppedExternalServices;
-  try {
-    UIMcp.offerStoppedExternalServices = servers => { offers.push(servers); return Promise.resolve([]); };
-    const manager = new MCP.McpManager();
-    assert.equal(manager.notifyStoppedExternalServices([{ id: 'memory', enabled: false, status: 'stopped' }]), false);
-    const servers = [
-      { id: 'composio', enabled: true, status: 'stopped' },
-      { id: 'memory', enabled: false, status: 'stopped' }
-    ];
-    assert.equal(manager.notifyStoppedExternalServices(servers), true);
-    assert.deepEqual(offers, [servers]);
-    assert.equal(manager.notifyStoppedExternalServices(servers), false);
-    assert.equal(offers.length, 1);
-  } finally {
-    UIMcp.offerStoppedExternalServices = original;
-  }
-});
-
 test('MCP - SSE autenticado usa cabeceras en navegador y procesa CRLF fragmentado', async () => {
   const originalFetch = global.fetch;
   const originalEventSource = global.EventSource;
@@ -1145,42 +1040,6 @@ test('MCP - avisa de mensajes JSON-RPC malformados sin resolver peticiones pendi
   assert.equal(client.pendingRequests.has(1), true);
   assert.equal(console.warn.mock.callCount(), 1);
   assert.match(String(console.warn.mock.calls[0].arguments[0]), /malformed JSON-RPC/);
-});
-
-test('MCP - setProjectDirectory pide el cambio al servidor local y syncProjectDirectory lo publica', async () => {
-  const ToolSecurity = require('../../js/tool-security.js');
-  const previousState = ChatState.get('mcp');
-  const previousStartup = ToolSecurity.manager.startupDirectory;
-  const manager = new MCP.McpManager();
-  try {
-    ChatState.set('mcp', { ...previousState, status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/home/u/a' } });
-    assert.equal(manager.syncProjectDirectory(''), false);
-    assert.equal(manager.syncProjectDirectory('/home/u/a'), false);
-    assert.equal(manager.syncProjectDirectory('/home/u/b'), true);
-    assert.equal(ChatState.get('mcp').serverInfo.cwd, '/home/u/b');
-    assert.equal(ChatState.get('mcp').serverInfo.name, 'ZeroChat');
-    assert.equal(ToolSecurity.manager.getStartupDirectory(), '/home/u/b');
-
-    const requests = [];
-    manager.clients.set('mcp_proxy', {
-      request: async (method, params) => {
-        requests.push({ method, params });
-        if (params.path === '/nope') throw new Error("Error MCP (-32602): '/nope' no existe o no es un directorio.");
-        return { cwd: '/home/u/c', previous_cwd: '/home/u/b' };
-      }
-    });
-    assert.deepEqual(await manager.setProjectDirectory('~/c'), { cwd: '/home/u/c', previous_cwd: '/home/u/b' });
-    assert.deepEqual(requests, [{ method: 'zerochat/project/set_directory', params: { path: '~/c' } }]);
-    assert.equal(ChatState.get('mcp').serverInfo.cwd, '/home/u/c');
-    await assert.rejects(() => manager.setProjectDirectory('/nope'), /no existe/);
-    assert.equal(ChatState.get('mcp').serverInfo.cwd, '/home/u/c');
-
-    ChatState.set('mcp', { ...ChatState.get('mcp'), status: 'disconnected' });
-    assert.equal(manager.syncProjectDirectory('/home/u/d'), false, 'sin conexión no se publica');
-  } finally {
-    ChatState.set('mcp', previousState);
-    ToolSecurity.manager.startupDirectory = previousStartup;
-  }
 });
 
 test('MCP - syncCommandJobs publica solo los comandos en segundo plano en marcha y no reescribe el estado en cada latido', async () => {

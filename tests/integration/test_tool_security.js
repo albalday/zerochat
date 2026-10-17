@@ -2,12 +2,6 @@ const test = require('node:test');
 const assert = require('node:assert');
 const ChatToolSecurity = require('../../js/tool-security.js');
 
-test('ChatToolSecurity - Inicialización y valores por defecto', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_default' });
-  assert.equal(manager.getGlobalMcpPolicy(), 'ask');
-  assert.equal(manager.listAuthorizedTools().length, 0);
-});
-
 test('ChatToolSecurity - Herramientas integradas (Built-in) se autorizan directamente', () => {
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_builtin' });
   

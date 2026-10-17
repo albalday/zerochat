@@ -97,7 +97,7 @@ Done when: no test or module depends on happy-dom and Node-only branches are gon
 - [x] M24-T20 Review unit tests (2026-10-17)
 - [x] M24-T21 Review integration tests of the agent loop (chat_engine, agent_runtime, agent_core, tool_dispatcher, delegate_task, generation_controller) (2026-10-17)
 - [x] M24-T22 Review integration tests of providers, WebLLM, inspector, context manager and context cache (2026-10-17)
-- [ ] M24-T23 Review integration tests of MCP, tool security, security and builtin tools (security cases kept as tables)
+- [x] M24-T23 Review integration tests of MCP, tool security, security and builtin tools (security cases kept as tables) (2026-10-17)
 - [ ] M24-T24 Review integration tests of RAG, ingestion, profiles, project context, conversation service and storage reset
 - [ ] M24-T25 Review the remaining browser tests (cosmetic layout, duplicated flows, smoke-covered checks)
 - [ ] M24-T26 Remove exports, parameters and helpers whose only consumer is a test, and extend the hygiene test to every exported name
