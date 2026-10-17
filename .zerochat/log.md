@@ -83,3 +83,4 @@
 - 2026-10-16 M23-D4 Implementar transporte web backend-first via zerochat.py cuando esta conectado con fallback automatico a fetch directo en navegador (M23-T4)
 - 2026-10-16 M23-D5 Actualizar documentacion (READMEs y help bilingue) y validar suite completa de pruebas en todos los niveles (M23-T5)
 - 2026-10-16 M23-D6 Unificar transporte web en ChatUtils.webFetch con cabeceras y User-Agent centralizados; backend y fetch de navegador se seleccionan por estado de conexion sin fallback de uno al otro (M23-T4)
+- 2026-10-17 M24-D1 ChatEngine y AgentCore no tocan el DOM: el turno se pinta con una vista inyectada (ChatUIConversation.createTurnView, ChatToolCards.createCardView) y cada herramienta recibe su tarjeta en context.toolCard; las pruebas en Node usan vistas en memoria (tests/helpers/turn-view.js) (M24-T1)

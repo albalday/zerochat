@@ -64,26 +64,21 @@
     ].join('\n');
   }
 
-  /** Tarjeta en vivo de esta invocación, localizada por su data-invocation-id dentro del contenedor del turno. */
-  function findLiveCard(context) {
-    if (!context.container) return null;
-    return Array.from(context.container.querySelectorAll('[data-invocation-id]'))
-      .find(element => element.dataset.invocationId === context.invocationId) || null;
-  }
-
   const renderMarkdown = text => resolveDep('ChatMarkdown', './markdown.js').parseMarkdown(text);
 
   /**
-   * Progreso del subagente en su tarjeta: la insignia indica el paso y cada texto intermedio se
-   * añade al terminar su paso. Las tarjetas de sus herramientas se crean en el mismo contenedor.
-   * El bloque de texto se reserva al empezar el paso para que quede encima de sus herramientas.
+   * Progreso del subagente en su tarjeta en vivo (`context.toolCard`): la insignia indica el paso
+   * y cada texto intermedio se añade al terminar su paso. Las tarjetas de sus herramientas se
+   * abren en la vista `cards`, en el mismo contenedor. El bloque de texto se reserva al empezar el
+   * paso para que quede encima de sus herramientas.
    */
-  function createProgressView(card, context) {
+  function createProgressView(toolCard) {
+    const card = toolCard?.element;
     const steps = card?.querySelector('.subagent-steps');
     if (!steps) return null;
     let stepBlock = null;
     return {
-      steps,
+      cards: toolCard.nest(steps),
       setStep(step) {
         const label = card.querySelector('.tool-card-badge.status-loading span');
         if (label) label.textContent = t('tool_delegate_step', { step });
@@ -108,7 +103,7 @@
           return;
         }
         block.innerHTML = renderMarkdown(text);
-        context.attachListeners?.(block);
+        toolCard.attachListeners(block);
       }
     };
   }
@@ -192,7 +187,7 @@
     const connection = await resolveConnection(context);
     if (connection.error) return { success: false, error: connection.error };
 
-    const progress = createProgressView(findLiveCard(context), context);
+    const progress = createProgressView(context.toolCard);
     progress?.setProfile(connection.profileName, connection.model);
     // El modelo puede pedir una herramienta que no se le ofreció: se rechaza sin ejecutarla.
     const dispatch = async (toolCall, toolContext) => {
@@ -202,7 +197,7 @@
         return { success: false, toolName: name, error: `Tool '${name}' is not available to the subagent: it can only use the read-only tools it was given.` };
       }
       return context.dispatchToolCall
-        ? context.dispatchToolCall(toolCall, { ...toolContext, container: progress?.steps || null })
+        ? context.dispatchToolCall(toolCall, { ...toolContext, cards: progress?.cards || null })
         : AgentCore.executor.executeToolCall(toolCall, toolContext);
     };
 

@@ -71,3 +71,15 @@ Done when: CI splits fast-fail checks from browser execution without unnecessary
 - [ ] M22-T3 Audit browser test suite to ensure all post-async DOM assertions wait for UI reactivity rather than raw storage promises
 
 ## M23 Fallback cleanup, public proxy elimination and backend-first web transport: closed 2026-10-16
+
+## M24 happy-dom removal
+Goal: Run non-browser tests without a simulated DOM: domain logic is decoupled from presentation and tested in Node, and DOM behaviour is tested only in a real browser.
+Done when: no test or module depends on happy-dom, the dependency and tests/helpers/dom-env.js are removed, Node-only fallback branches are gone, AGENTS.md and tests/README.md state the new rule, and every removed DOM test is covered by a browser test.
+- [x] M24-T1 Inject a view into ChatEngine.executeAgentTurnLoop and AgentCore.dispatchToolCall instead of a DOM container (generation controller, delegate_task), with Node tests using an in-memory view (2026-10-17)
+- [ ] M24-T2 ConversationService branches by message ids instead of the DOM wrapper and receives viewport and loading indicator from its caller, with Node tests
+- [ ] M24-T3 ProfileExportBundle takes the base URL as a parameter and RagStorage tests drop the stray installDom
+- [ ] M24-T4 Office parser and web page extraction: move DOMParser-dependent tests to the browser and remove the regex extraction fallback
+- [ ] M24-T5 Delete DOM tests already covered by browser tests
+- [ ] M24-T6 Move the remaining DOM tests to browser tests
+- [ ] M24-T7 Remove Node-only branches (typeof document/window guards, sandbox non-iframe executor if unused)
+- [ ] M24-T8 Remove happy-dom, dom-env.js and the AGENTS.md/tests README rule

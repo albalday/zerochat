@@ -1006,12 +1006,11 @@ test('Browser UI - el subagente de delegate_task muestra sus herramientas en su 
           chatHistory: [{ role: 'user', content: 'Mensaje privado del agente principal' }],
           appConfig: window.ChatConfig.normalize({ apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', model: 'test-model', systemPrompt: 'Main system prompt', enabledTools: { execute_javascript: true, search_web: false, fetch_web_page: false, download_doc: false, download_image: false, render_chart: true, delegate_task: true } }),
           assistantMsgId: 'asst_subagent',
-          container,
+          view: window.ChatUIConversation.createTurnView(container, { scrollToBottom() {} }),
           onReasoningChunk() {},
           onLog() {},
           onStats() {},
-          onGenerationStatus() {},
-          scrollToBottom() {}
+          onGenerationStatus() {}
         });
         const card = [...container.querySelectorAll('.subagent-card')];
         const outer = card[0]?.closest('.tool-card-wrapper');
@@ -1102,12 +1101,11 @@ test('Browser UI - el subagente usa el perfil de conexión «Subagente» si exis
           chatHistory: [{ role: 'user', content: 'Hola' }],
           appConfig: window.ChatConfig.normalize({ apiUrl: 'http://127.0.0.1:9/main', apiType: 'openai', model: 'main-model', enabledTools: { execute_javascript: true, search_web: false, fetch_web_page: false, download_doc: false, download_image: false, render_chart: false, delegate_task: true } }),
           assistantMsgId: 'asst_subagent',
-          container,
+          view: window.ChatUIConversation.createTurnView(container, { scrollToBottom() {} }),
           onReasoningChunk() {},
           onLog() {},
           onStats() {},
-          onGenerationStatus() {},
-          scrollToBottom() {}
+          onGenerationStatus() {}
         });
         const label = container.querySelector('.subagent-card .subagent-model');
         return { requests, label: label?.textContent, labelTitle: label?.title, labelHidden: label?.hidden };

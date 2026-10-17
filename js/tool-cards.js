@@ -516,7 +516,40 @@
     });
   }
 
+  /**
+   * Vista de tarjetas en vivo dentro de `container` para AgentCore.dispatchToolCall: cada tarjeta
+   * abierta pide en ella la autorización y se completa con el resultado. `nest` abre otra vista
+   * dentro de la tarjeta, donde el subagente pinta las suyas.
+   */
+  function createCardView(container, { attachListeners, scrollToBottom }) {
+    return {
+      open(name, args, invocationId) {
+        const element = createLiveToolCard(name, args);
+        element.dataset.invocationId = invocationId;
+        appendToolCard(container, element);
+        attachListeners(element);
+        scrollToBottom();
+        return {
+          element,
+          attachListeners,
+          nest: nestedContainer => createCardView(nestedContainer, { attachListeners, scrollToBottom }),
+          requestAuthorization(toolCall, authorization) {
+            scrollToBottom();
+            return promptToolAuthorization(element, toolCall, authorization);
+          },
+          complete(result, elapsedMs, displayMode) {
+            updateLiveToolCard(element, name, args, result, elapsedMs, { displayMode });
+            completeToolCard(element, result);
+            attachListeners(element);
+            scrollToBottom();
+          }
+        };
+      }
+    };
+  }
+
   return {
+    createCardView,
     renderCardHtml,
     renderStatusBadge,
     getUrlArg,

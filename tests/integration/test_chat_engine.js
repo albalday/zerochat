@@ -18,7 +18,8 @@ const MessageTurns = require('../../js/message-turns.js');
 const ChatConfig = require('../../js/config-store.js');
 const ChatAPI = require('../../js/api.js');
 const ChatAgentCore = require('../../js/agent-core.js');
-const { installDom } = require('../helpers/dom-env.js');
+const I18n = require('../../js/i18n.js');
+const { createTurnView } = require('../helpers/turn-view.js');
 
 // La aplicación siempre entrega la configuración normalizada y todos los callbacks del turno.
 const config = (overrides = {}) => ChatConfig.normalize(overrides);
@@ -32,23 +33,17 @@ function stubToolDispatch(t, resultText = '4') {
   t.after(() => { ChatAgentCore.dispatchToolCall = original; });
 }
 
-async function runTurn({ appConfig = {}, ...params }) {
-  const dom = installDom();
-  try {
-    return await ChatEngine.executeAgentTurnLoop({
-      assistantMsgId: 'asst_test',
-      container: document.createElement('div'),
-      onReasoningChunk() {},
-      onLog() {},
-      onStats() {},
-      onGenerationStatus() {},
-      scrollToBottom() {},
-      ...params,
-      appConfig: config(appConfig)
-    });
-  } finally {
-    dom.restore();
-  }
+function runTurn({ appConfig = {}, ...params }) {
+  return ChatEngine.executeAgentTurnLoop({
+    assistantMsgId: 'asst_test',
+    view: createTurnView(),
+    onReasoningChunk() {},
+    onLog() {},
+    onStats() {},
+    onGenerationStatus() {},
+    ...params,
+    appConfig: config(appConfig)
+  });
 }
 
 test('ChatEngine - reenvía el razonamiento solo en los pasos del turno en curso', () => {
@@ -425,7 +420,7 @@ test('ChatEngine - executeAgentTurnLoop protege contra bucles infinitos repetido
   ChatAPI.streamChatCompletion = originalStream;
 });
 
-test('ChatEngine - executeAgentTurnLoop limpia el cursor inicial del contenedor en turnIndex 0', async (t) => {
+test('ChatEngine - executeAgentTurnLoop sustituye el cursor inicial por el primer bloque del turno', async () => {
   const originalStream = ChatAPI.streamChatCompletion;
 
   ChatAPI.streamChatCompletion = async (params) => {
@@ -435,21 +430,16 @@ test('ChatEngine - executeAgentTurnLoop limpia el cursor inicial del contenedor 
     return { accumulatedText: 'Respuesta de prueba', toolCalls: null, stats: null };
   };
 
-  const dom = installDom();
-  t.after(() => dom.restore());
-  const container = document.createElement('div');
-  container.innerHTML = '<span class="streaming-cursor initial-cursor"></span>';
+  const view = createTurnView();
   const res = await runTurn({
     chatHistory: [{ role: 'user', content: 'Hola' }],
     appConfig: { apiUrl: 'http://localhost:1234/v1', model: 'test-model' },
-    container
+    view
   });
 
-  // El cursor inicial debe haberse limpiado antes de añadir el agentic-turn-block
   assert.equal(res.success, true);
-  assert.equal(container.children.length, 1);
-  assert.match(container.children[0].innerHTML, /Respuesta de prueba/);
-  assert.equal(container.querySelector('.streaming-cursor'), null);
+  assert.equal(view.resets, 1);
+  assert.deepEqual(view.blocks, [{ text: 'Respuesta de prueba', streaming: false }]);
 
   ChatAPI.streamChatCompletion = originalStream;
 });
@@ -470,23 +460,19 @@ test('ChatEngine - executeAgentTurnLoop muestra una línea de compactación ante
     return { accumulatedText: 'Respuesta final', toolCalls: null, stats: null };
   };
 
-  const dom = installDom();
   try {
-    const container = document.createElement('div');
+    const view = createTurnView();
     const res = await runTurn({
       chatHistory: history,
       appConfig: { apiUrl: 'http://localhost:1234/v1', model: 'test-model', modelContextLimit: 300 },
-      container
+      view
     });
 
     assert.equal(res.success, true);
-    assert.equal(container.children.length, 2);
-    assert.match(container.children[0].innerHTML, /Compactando contexto\.\.\.\.\./);
-    assert.match(container.children[1].innerHTML, /Respuesta final/);
+    assert.deepEqual(view.blocks.map(block => block.text), [I18n.t('chat_context_compacting'), 'Respuesta final']);
     assert.equal(history[0]._isSummaryBlock, true);
   } finally {
     ChatAPI.streamChatCompletion = originalStream;
-    dom.restore();
   }
 });
 
@@ -830,15 +816,15 @@ test('ChatEngine - executeAgentTurnLoop reposiciona al final al inicio de paso, 
     return { accumulatedText: 'Terminado', toolCalls: null, stats: null };
   };
 
-  let scrollCount = 0;
+  const view = createTurnView();
   const res = await runTurn({
     chatHistory: [{ role: 'user', content: 'hazlo' }],
     assistantMsgId: 'asst_scroll_test',
-    scrollToBottom() { scrollCount++; }
+    view
   });
 
   assert.equal(res.success, true);
-  assert.ok(scrollCount >= 3, `scrollToBottom debe llamarse en las transiciones del turno (llamadas: ${scrollCount})`);
+  assert.ok(view.scrolls >= 3, `scrollToBottom debe llamarse en las transiciones del turno (llamadas: ${view.scrolls})`);
 
   ChatAPI.streamChatCompletion = originalStream;
 });

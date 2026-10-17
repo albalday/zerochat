@@ -18,7 +18,6 @@
   const getAPI = () => resolveDep('ChatAPI', './api.js');
   const getContextManager = () => resolveDep('ChatContextManager', './context-manager.js');
   const getToolSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
-  const getToolCards = () => resolveDep('ChatToolCards', './tool-cards.js');
 
   const BUILTIN_TOOL_MODULES = [
     ['ChatBuiltinExecuteJavascriptTool', './tools/builtin/execute-javascript.tool.js'],
@@ -403,25 +402,17 @@
     }
 
     /**
-     * Ejecuta una llamada con su tarjeta en vivo: la crea en `container`, pide en ella la
-     * autorización, la actualiza con el resultado y prepara el texto para el modelo y el Markdown.
+     * Ejecuta una llamada con su tarjeta en vivo: la abre en la vista `cards` del turno, pide en
+     * ella la autorización, la completa con el resultado y prepara el texto para el modelo y el
+     * Markdown. La herramienta recibe su tarjeta en `context.toolCard`.
      */
     async dispatchToolCall(toolCall, options = {}) {
-      const { container, onLog, attachListeners, scrollToBottom } = options;
+      const { cards, onLog } = options;
       const rawFuncName = toolCall?.function?.name || '';
       const parsedArgs = this.parseArguments(toolCall?.function?.arguments) || {};
-      const ToolCards = getToolCards();
       // Identifica esta invocación ante la herramienta y su tarjeta mientras se ejecuta.
       const invocationId = createId();
-
-      let cardEl = null;
-      if (container) {
-        cardEl = ToolCards.createLiveToolCard(rawFuncName, parsedArgs);
-        cardEl.dataset.invocationId = invocationId;
-        ToolCards.appendToolCard(container, cardEl);
-        attachListeners?.(cardEl);
-        scrollToBottom?.();
-      }
+      const toolCard = cards ? cards.open(rawFuncName, parsedArgs, invocationId) : null;
 
       onLog?.('tool', `${rawFuncName}:\n${JSON.stringify(parsedArgs, null, 2)}`);
       onLog?.('raw', `>>> TOOL CALL ${rawFuncName}:\n${JSON.stringify(parsedArgs, null, 2)}`);
@@ -429,21 +420,13 @@
       const execRes = await this.executeToolCall(toolCall, {
         ...options,
         invocationId,
-        requestToolAuthorization: cardEl
-          ? async (pendingToolCall, authorization) => {
-            scrollToBottom?.();
-            return ToolCards.promptToolAuthorization(cardEl, pendingToolCall, authorization);
-          }
+        toolCard,
+        requestToolAuthorization: toolCard
+          ? (pendingToolCall, authorization) => toolCard.requestAuthorization(pendingToolCall, authorization)
           : undefined
       });
       const shownResult = execRes.result || { success: false, error: execRes.error };
-
-      if (cardEl) {
-        ToolCards.updateLiveToolCard(cardEl, rawFuncName, parsedArgs, shownResult, execRes.executionTimeMs, { displayMode: execRes.displayMode });
-        ToolCards.completeToolCard(cardEl, shownResult);
-        attachListeners?.(cardEl);
-        scrollToBottom?.();
-      }
+      toolCard?.complete(shownResult, execRes.executionTimeMs, execRes.displayMode);
 
       const tool = execRes.tool;
       let resultText;
@@ -466,7 +449,7 @@
         markdownBlock = `> ❌ **${rawFuncName}**: ${err.message || String(err)}`;
       }
 
-      return { ...execRes, args: parsedArgs, resultText, markdownBlock, cardElement: cardEl };
+      return { ...execRes, args: parsedArgs, resultText, markdownBlock };
     }
   }
 

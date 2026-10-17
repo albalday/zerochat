@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 
 // Cargar módulos
 const AgentCore = require('../../js/agent-core.js');
-const { installDom } = require('../helpers/dom-env.js');
+const { createCardView } = require('../helpers/turn-view.js');
 
 test('ToolDispatcher - dispatchToolCall ejecuta JavaScript de forma resiliente', async () => {
   const toolCall = {
@@ -79,12 +79,11 @@ test('ToolDispatcher - getActiveDefinitions excluye todas las herramientas RAG s
   assert.ok(readChunkActive, 'read_knowledge_chunk DEBE enviarse cuando RAG está activo');
 });
 
-test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de herramientas MCP', async t => {
-  const dom = installDom();
-  t.after(() => dom.restore());
-  const container = document.createElement('div');
+test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de herramientas MCP', async () => {
   const ChatToolSecurity = require('../../js/tool-security.js');
-  const ChatToolCards = require('../../js/tool-cards.js');
+  // La respuesta del usuario en la tarjeta de autorización.
+  let answer = async () => 'deny';
+  const cards = createCardView({ authorize: (...args) => answer(...args) });
 
   // Registrar herramienta MCP ficticia cumpliendo el contrato declarativo
   const fakeMcpTool = new AgentCore.Tool({
@@ -124,38 +123,29 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
 
   // 2. Caso Ask con Denegación interactiva del usuario
   ChatToolSecurity.manager.setToolPolicy('mcp_testz5fzsrv_run_cmd', 'ask');
-  
-  // Mock de ToolCards.promptToolAuthorization
-  const origPrompt = ChatToolCards.promptToolAuthorization;
-  ChatToolCards.promptToolAuthorization = async () => 'deny';
-
-  try {
-    const resUserDeny = await AgentCore.dispatchToolCall(toolCall, {
-      container
-    });
-    assert.equal(resUserDeny.success, false);
-    assert.ok(resUserDeny.error.includes('denied by the user'));
-  } finally {
-    ChatToolCards.promptToolAuthorization = origPrompt;
-  }
+  const resUserDeny = await AgentCore.dispatchToolCall(toolCall, { cards });
+  assert.equal(resUserDeny.success, false);
+  assert.ok(resUserDeny.error.includes('denied by the user'));
+  const deniedCard = cards.opened.at(-1);
+  assert.equal(deniedCard.authorizations.length, 1, 'La autorización se pide en la tarjeta de la llamada');
+  assert.equal(deniedCard.completed, true);
+  assert.equal(deniedCard.result.success, false);
 
   // 3. Caso Ask con Autorización 'allow_always'
-  ChatToolCards.promptToolAuthorization = async () => 'allow_always';
+  answer = async () => 'allow_always';
   try {
-    const resAllowAlways = await AgentCore.dispatchToolCall(toolCall, {
-      container
-    });
+    const resAllowAlways = await AgentCore.dispatchToolCall(toolCall, { cards });
     assert.equal(resAllowAlways.success, true);
     assert.ok(resAllowAlways.resultText.includes('executed: echo hello'));
+    assert.equal(cards.opened.at(-1).result.output, 'executed: echo hello');
     // Verificar que se persistió 'allow'
     assert.equal(ChatToolSecurity.manager.getToolPolicy('mcp_testz5fzsrv_run_cmd'), 'allow');
   } finally {
-    ChatToolCards.promptToolAuthorization = origPrompt;
     ChatToolSecurity.manager.clearAllAuthorizations();
   }
 
   // 4. Caso Ask con restricciones granulares (allow_always con constraints)
-  ChatToolCards.promptToolAuthorization = async () => ({
+  answer = async () => ({
     decision: 'allow_always',
     constraints: {
       command: { allowedPrefixes: ['echo '], allowChaining: false }
@@ -163,18 +153,16 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
   });
 
   try {
-    const resFirst = await AgentCore.dispatchToolCall(toolCall, {
-      container
-    });
+    const resFirst = await AgentCore.dispatchToolCall(toolCall, { cards });
     assert.equal(resFirst.success, true);
     // Verificar que las restricciones se persistieron
     const savedConstraints = ChatToolSecurity.manager.getToolConstraints('mcp_testz5fzsrv_run_cmd');
     assert.ok(savedConstraints);
     assert.deepEqual(savedConstraints.command.allowedPrefixes, ['echo ']);
 
-    // Ejecutar otro comando permitido ('echo second') sin que promptToolAuthorization sea llamado
+    // Ejecutar otro comando permitido ('echo second') sin que se pida autorización
     let promptCalled = false;
-    ChatToolCards.promptToolAuthorization = async () => {
+    answer = async () => {
       promptCalled = true;
       return 'deny';
     };
@@ -188,13 +176,11 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
       }
     };
 
-    const resEcho2 = await AgentCore.dispatchToolCall(toolCallEcho2, {
-      container
-    });
+    const resEcho2 = await AgentCore.dispatchToolCall(toolCallEcho2, { cards });
     assert.equal(resEcho2.success, true);
     assert.equal(promptCalled, false, 'No debe pedir autorización para comando autorizado en lista blanca');
 
-    // Ejecutar comando no autorizado ('cat secret.txt') -> debe invocar prompt
+    // Ejecutar comando no autorizado ('cat secret.txt') -> debe pedir autorización
     const toolCallCat = {
       id: 'call_mcp_test_3',
       type: 'function',
@@ -204,28 +190,23 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
       }
     };
 
-    const resCat = await AgentCore.dispatchToolCall(toolCallCat, {
-      container
-    });
+    const resCat = await AgentCore.dispatchToolCall(toolCallCat, { cards });
     assert.equal(promptCalled, true, 'Debe pedir confirmación para comando fuera del prefijo autorizado');
     assert.equal(resCat.success, false);
 
     // Una segunda autorización contextual debe acumular, no sustituir, el prefijo anterior.
-    ChatToolCards.promptToolAuthorization = async () => ({
+    answer = async () => ({
       decision: 'allow_always',
       constraints: { command: { allowedPrefixes: ['cat '], allowChaining: false } }
     });
-    const resCatAllowed = await AgentCore.dispatchToolCall(toolCallCat, {
-      container
-    });
+    const resCatAllowed = await AgentCore.dispatchToolCall(toolCallCat, { cards });
     assert.equal(resCatAllowed.success, true);
     assert.deepEqual(
       ChatToolSecurity.manager.getToolConstraints('mcp_testz5fzsrv_run_cmd').command.allowedPrefixes,
       ['echo ', 'cat ']
     );
-    assert.equal((await AgentCore.dispatchToolCall(toolCallEcho2, { container })).success, true);
+    assert.equal((await AgentCore.dispatchToolCall(toolCallEcho2, { cards })).success, true);
   } finally {
-    ChatToolCards.promptToolAuthorization = origPrompt;
     ChatToolSecurity.manager.clearAllAuthorizations();
   }
 });
@@ -239,9 +220,11 @@ test('ToolDispatcher - cada invocación recibe un invocationId propio en su cont
     result: { toModel: () => 'ok' }
   }));
   const toolCall = { id: 'call_probe', type: 'function', function: { name: 'probe_invocation_id', arguments: '{}' } };
-  await AgentCore.dispatchToolCall(toolCall);
+  const cards = createCardView();
+  await AgentCore.dispatchToolCall(toolCall, { cards });
   await AgentCore.dispatchToolCall(toolCall);
   assert.equal(seen.length, 2);
+  assert.equal(cards.opened[0].invocationId, seen[0], 'La tarjeta lleva el invocationId de su ejecución');
   assert.ok(seen.every(id => typeof id === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(id)));
   assert.notEqual(seen[0], seen[1]);
 });

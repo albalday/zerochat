@@ -170,7 +170,7 @@
         projectContext,
         projectDirectory,
         signal: currentAbortController.signal,
-        container: content,
+        view: UIConversation.createTurnView(content, { scrollToBottom }),
         onBeforeRequest: config.enableDebugMessages ? options.openDebugInterceptorModal : null,
         onReasoningChunk: chunk => {
           if (!isCurrentSession()) return;
@@ -187,8 +187,7 @@
           if (!isCurrentSession()) return;
           updateStatsDisplay(statsContainer, stats);
           options.updateConnectionTokensBadge(stats);
-        },
-        scrollToBottom
+        }
       });
 
       if (!isCurrentSession()) {

@@ -28,10 +28,6 @@
     return resolveDep('ChatAgentCore', './agent-core.js');
   }
 
-  function getMarkdown() {
-    return resolveDep('ChatMarkdown', './markdown.js');
-  }
-
   function getContextManager() {
     return resolveDep('ChatContextManager', './context-manager.js');
   }
@@ -66,10 +62,6 @@
       .map(value => String(value || '').trim())
       .filter(Boolean)
       .join('\n\n');
-  }
-
-  function getUIConversation() {
-    return resolveDep('ChatUIConversation', './ui-conversation.js');
   }
 
   /**
@@ -263,6 +255,10 @@
 
   /**
    * Ejecuta el bucle agéntico multi-turno de inferencia, streaming y herramientas.
+   * El motor no conoce el DOM: pinta el turno a través de `params.view`
+   * (`createBlock({ reset }) → { render(text, options), remove() }`, `scrollToBottom()` y la vista
+   * de tarjetas `cards` de AgentCore.dispatchToolCall). En la interfaz la crea
+   * ChatUIConversation.createTurnView.
    * @param {Object} params - Parámetros de ejecución.
    * @returns {Promise<{ success: boolean, finalAssistantText: string, accumulatedMarkdown: string, stats: Object, cancelled?: boolean, error?: any }>}
    */
@@ -274,16 +270,14 @@
       currentRagSystemContext = '',
       projectContext = null,
       projectDirectory = '',
-      container,
+      view,
       onReasoningChunk,
       onLog,
       onStats,
       onBeforeRequest,
-      onGenerationStatus,
-      scrollToBottom
+      onGenerationStatus
     } = params;
     const AgentCore = getAgentCore();
-    const UIConversation = getUIConversation();
     const turnBlocks = new Map();
     const turnMarkdown = new Map();
 
@@ -301,7 +295,6 @@
       model: appConfig.model
     };
     const summarizerAddendum = getProjectContext().SUMMARIZER_PROJECT_ADDENDUM;
-    const renderBlock = (block, text, options) => UIConversation.renderAssistantBlock(block, text, options);
 
     const result = await AgentCore.runtime.execute({
       ...llm,
@@ -332,10 +325,8 @@
       }),
       resolveToolDefinitions: () => AgentCore.registry.getActiveDefinitions(appConfig),
       dispatchToolCall: async (toolCall, context) => AgentCore.dispatchToolCall(toolCall, {
-        container,
+        cards: view.cards,
         onLog,
-        attachListeners: getMarkdown().attachContentListeners,
-        scrollToBottom,
         language: appConfig.language,
         activeRagBranchIds: appConfig.activeRagBranchIds,
         ...context
@@ -343,21 +334,20 @@
       callbacks: {
         onGenerationStatus,
         onStepStart: turnIndex => {
-          if (turnIndex === 0) container.innerHTML = '';
-          turnBlocks.set(turnIndex, UIConversation.createAssistantBlock(container));
-          scrollToBottom();
+          turnBlocks.set(turnIndex, view.createBlock({ reset: turnIndex === 0 }));
+          view.scrollToBottom();
         },
         onCompactionStart: turnIndex => {
           // The notice occupies the block already opened for this step, so it
           // stays above the response, which continues in a fresh block.
-          renderBlock(turnBlocks.get(turnIndex), I18n.t('chat_context_compacting'));
-          turnBlocks.set(turnIndex, UIConversation.createAssistantBlock(container));
-          scrollToBottom();
+          turnBlocks.get(turnIndex).render(I18n.t('chat_context_compacting'));
+          turnBlocks.set(turnIndex, view.createBlock());
+          view.scrollToBottom();
         },
         onChunk: (text, delta, stats, turnIndex) => {
-          renderBlock(turnBlocks.get(turnIndex), text, { streaming: true });
+          turnBlocks.get(turnIndex).render(text, { streaming: true });
           if (stats) onStats(stats);
-          scrollToBottom();
+          view.scrollToBottom();
         },
         onReasoningChunk: chunk => onReasoningChunk(chunk),
         onLog: logData => {
@@ -378,12 +368,12 @@
           }
           const text = (step.type === 'final_response' || step.type === 'loop_detected') ? step.text : step.assistantMsg?.content;
           if (text) {
-            renderBlock(block, text);
+            block.render(text);
           } else {
             block.remove();
             turnBlocks.delete(turnIndex);
           }
-          scrollToBottom();
+          view.scrollToBottom();
         },
         onLoopDetected: () => {
           onGenerationStatus({ phase: 'error', text: I18n.t('generation_status_loop_detected') });
@@ -391,8 +381,8 @@
         },
         onDone: finalText => {
           const block = turnBlocks.get(Math.max(...turnBlocks.keys(), 0));
-          if (block && finalText) renderBlock(block, finalText);
-          scrollToBottom();
+          if (block && finalText) block.render(finalText);
+          view.scrollToBottom();
         }
       }
     });

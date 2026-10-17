@@ -93,6 +93,26 @@
   }
 
   /**
+   * Vista de un turno del asistente en `container` para ChatEngine.executeAgentTurnLoop: un bloque
+   * de texto por paso y las tarjetas de sus herramientas. El primer bloque sustituye al cursor
+   * inicial del marcador.
+   */
+  function createTurnView(container, { scrollToBottom }) {
+    return {
+      createBlock({ reset = false } = {}) {
+        if (reset) container.replaceChildren();
+        const block = createAssistantBlock(container);
+        return {
+          render: (text, options) => renderAssistantBlock(block, text, options),
+          remove: () => block.remove()
+        };
+      },
+      scrollToBottom,
+      cards: getToolCards().createCardView(container, { attachListeners: getMarkdown().attachContentListeners, scrollToBottom })
+    };
+  }
+
+  /**
    * Reconcilia los bloques de Markdown dentro de un turno sin destruir los elementos previos.
    * Conserva las instancias de imagen ya insertadas para evitar recargas, pérdidas de tamaño y parpadeos.
    */
@@ -531,6 +551,7 @@
     renderTruncationNotice,
     createAssistantBlock,
     renderAssistantBlock,
+    createTurnView,
     scrollToBottom,
     mountScrollToBottomButton,
     showTypingIndicator,

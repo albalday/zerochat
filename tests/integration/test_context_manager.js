@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const ChatContextManager = require('../../js/context-manager.js');
 const ChatEngine = require('../../js/chat-engine.js');
+const { createTurnView } = require('../helpers/turn-view.js');
 
 test('ContextManager - la estimación cuenta el razonamiento reenviado', () => {
   const base = { role: 'assistant', content: null, tool_calls: [] };
@@ -362,18 +363,16 @@ test('ChatEngine - la compactación en modo proyecto pide marcar los registros p
     }
     return { accumulatedText: 'ok', toolCalls: null, stats: null };
   };
-  const dom = require('../helpers/dom-env.js').installDom();
   try {
     const run = projectContext => ChatEngine.executeAgentTurnLoop({
       chatHistory: history.map(message => ({ ...message })),
       appConfig: require('../../js/config-store.js').normalize({ apiUrl: 'http://localhost:1234/v1', model: 'test-model', modelContextLimit: 300, enabledTools: {} }),
       assistantMsgId: 'asst_project',
-      container: document.createElement('div'),
+      view: createTurnView(),
       onReasoningChunk() {},
       onLog() {},
       onStats() {},
       onGenerationStatus() {},
-      scrollToBottom() {},
       projectContext
     });
     await run({ status: 'ready', cwd: '/repo', rules: { content: 'r' }, state: { content: '' } });
@@ -383,7 +382,6 @@ test('ChatEngine - la compactación en modo proyecto pide marcar los registros p
     assert.ok(!summarizerPrompts[1].includes('Pending project records'));
   } finally {
     ChatAPI.streamChatCompletion = originalStream;
-    dom.restore();
   }
 });
 
