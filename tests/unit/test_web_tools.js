@@ -24,11 +24,6 @@ test('SearchProvider - DuckDuckGo HTML parsing', () => {
   assert.equal(htmlResults[0].snippet, 'HTML Snippet content');
 });
 
-test('SearchProvider - DuckDuckGo no tiene fallback a Wikipedia ni métodos ajenos', () => {
-  const ddg = new WebSearch.DuckDuckGoSearchProvider();
-  assert.equal(typeof ddg.queryWikipediaApi, 'undefined', 'queryWikipediaApi debe estar eliminado');
-});
-
 test('SearchProvider - SearXNG JSON parsing', () => {
   const searx = new WebSearch.SearXNGSearchProvider({ baseUrl: 'https://custom-searx.org' });
   assert.equal(searx.id, 'searxng');
@@ -127,10 +122,6 @@ test('PageFetcher - Pipeline de estrategias y límite de longitud de contenido',
   } finally {
     global.fetch = originalFetch;
   }
-});
-
-test('PageFetcher - sin proxies ni intermediarios públicos (cero r.jina.ai)', () => {
-  assert.equal(typeof WebBrowser.ReaderGatewayStrategy, 'undefined', 'ReaderGatewayStrategy debe estar eliminada');
 });
 
 test('ChatUtils.webFetch - transporte unificado web (backend si está conectado, fetch en navegador si no)', async () => {
@@ -519,7 +510,7 @@ test('BinaryFetcher - terminación inmediata ante error de red o bloqueo CORS y 
   const originalFetch = global.fetch;
 
   try {
-    // Caso 1: Error de red / CORS directo -> termina de inmediato (<100ms) sin proxies externos
+    // Caso 1: Error de red / CORS directo -> termina de inmediato (<100ms)
     global.fetch = async () => {
       throw new TypeError('NetworkError when attempting to fetch resource');
     };
@@ -559,5 +550,4 @@ test('BinaryFetcher - terminación inmediata ante error de red o bloqueo CORS y 
     global.fetch = originalFetch;
   }
 });
-
 

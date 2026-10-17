@@ -112,3 +112,10 @@ test('Higiene - las pruebas en Node no cargan un DOM simulado: lo que usa el DOM
   const loadsDom = nodeTests.filter(file => DOM_LIBRARIES.some(name => fs.readFileSync(file, 'utf8').includes(`require('${name}')`)));
   assert.deepEqual(loadsDom.map(relative), []);
 });
+
+test('Higiene - el código no usa proxies ni lectores públicos de terceros', () => {
+  // Política de M21/M23: las peticiones web van directas desde el navegador o por el backend local.
+  const PUBLIC_PROXY = /r\.jina\.ai|allorigins|corsproxy|cors-anywhere|thingproxy|api\.codetabs\.com/i;
+  const sources = [...listSourceFiles(JS_DIR), ...listSourceFiles(path.join(ROOT, 'py'), '.py')];
+  assert.deepEqual(sources.filter(file => PUBLIC_PROXY.test(fs.readFileSync(file, 'utf8'))).map(relative), []);
+});

@@ -55,7 +55,7 @@ test('Ingesta RAG: los documentos ofimáticos se indexan con sus imágenes antes
   assert.ok(found.hits.some(hit => hit.documentTitle === 'ventas.ods'));
 });
 
-test('Herramientas web: un documento ofimático se descarga y lee en local, sin gateway ni proxy', async () => {
+test('Herramientas web: un documento ofimático se descarga una sola vez y se lee en local', async () => {
   const originalFetch = global.fetch;
   const requested = [];
   global.fetch = async url => {
@@ -65,7 +65,7 @@ test('Herramientas web: un documento ofimático se descarga y lee en local, sin 
       return new Response(fixtureBytes('exceljs.xlsx'), { headers: { 'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' } });
     }
     if (url === 'https://example.com/files/acta.doc') return new Response(new Uint8Array([0xD0, 0xCF, 0x11, 0xE0]), { headers: { 'content-type': 'application/msword' } });
-    return new Response('gateway unavailable', { status: 503 });
+    return new Response('unexpected request', { status: 503 });
   };
   try {
     const text = await WebBrowser.fetchPage('https://example.com/files/informe.odt');
@@ -87,7 +87,7 @@ test('Herramientas web: un documento ofimático se descarga y lee en local, sin 
     const legacy = await WebBrowser.fetchPage('https://example.com/files/acta.doc');
     assert.equal(legacy.success, false);
     assert.match(legacy.error, /Word 97-2003 files \(\.doc\) are not supported/);
-    assert.ok(requested.every(url => url === 'https://example.com/files/acta.doc'), 'No debe recurrir al gateway ni al proxy');
+    assert.ok(requested.every(url => url === 'https://example.com/files/acta.doc'), 'Solo se pide el documento');
   } finally {
     global.fetch = originalFetch;
   }
