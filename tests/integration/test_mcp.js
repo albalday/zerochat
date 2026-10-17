@@ -281,26 +281,6 @@ test('MCP - conserva capturas Base64 como evidencia visual antes de truncar el t
   }
 });
 
-test('MCP - la tarjeta solo muestra capturas Base64 válidas y acotadas', async t => {
-  const dom = require('../helpers/dom-env.js').installDom();
-  const provider = new MCP.McpToolProvider({ id: 'mcp_proxy', name: 'ZeroChat', initialize: async () => ({ success: true }), listTools: async () => [{ name: 'browser_action' }] }, { id: 'mcp_prov_screenshot_test' });
-  await provider.discoverTools();
-  AgentCore.registry.registerProvider(provider);
-  t.after(() => {
-    AgentCore.registry.unregisterProvider('mcp_prov_screenshot_test');
-    dom.restore();
-  });
-  const ToolCards = require('../../js/tool-cards.js');
-  const screenshot = result => {
-    const card = ToolCards.createLiveToolCard('browser_action', {});
-    ToolCards.updateLiveToolCard(card, 'browser_action', {}, { success: true, content: 'ok', ...result }, 1);
-    return card.querySelector('.mcp-screenshot-image')?.getAttribute('src') || null;
-  };
-  assert.equal(screenshot({ mime_type: 'image/png', image_base64: 'aGVsbG8=' }), 'data:image/png;base64,aGVsbG8=');
-  assert.equal(screenshot({ mime_type: 'text/html', image_base64: 'aGVsbG8=' }), null);
-  assert.equal(screenshot({ mime_type: 'image/png', image_base64: '<svg>' }), null);
-});
-
 test('MCP - el cliente conserva sus cabeceras propias junto a las de ZeroChat', () => {
   const client = new MCP.McpClient({ id: 'test_local', url: 'http://localhost:8000/rpc', headers: { Authorization: 'Bearer test-secret-token' }, token: 'session' });
   const headers = client.buildHeaders();
@@ -1006,7 +986,6 @@ test('MCP - ofrece una vez iniciar los servicios habilitados que siguen detenido
   }
 });
 
-
 test('MCP - SSE autenticado usa cabeceras en navegador y procesa CRLF fragmentado', async () => {
   const originalFetch = global.fetch;
   const originalEventSource = global.EventSource;
@@ -1091,7 +1070,6 @@ test('MCP - SSE rechaza endpoints externos, eventos excesivos y errores HTTP', a
     }
   } finally { global.fetch = originalFetch; }
 });
-
 
 test('MCP - el timeout de arranque no reconecta SSE ni reenvía el comando', async (t) => {
   const client = new MCP.McpClient({ url: 'http://127.0.0.1:6388/sse' });

@@ -3,9 +3,7 @@ const assert = require('node:assert/strict');
 
 const AgentCore = require('../../js/agent-core.js');
 const ChatAPI = require('../../js/api.js');
-const ToolCards = require('../../js/tool-cards.js');
 const ToolSecurity = require('../../js/tool-security.js');
-const { installDom } = require('../helpers/dom-env.js');
 
 const { Tool, ToolRegistry, ToolExecutor, AgentRuntime } = AgentCore;
 
@@ -166,21 +164,7 @@ test('delegate_task - un informe vacío o un error del proveedor se devuelven co
   assert.match(long.report, /\[Report truncated at 20000 characters\.\]$/);
 });
 
-test('delegate_task - la tarjeta escapa el encargo y el historial restaura el informe o el error', t => {
-  const dom = installDom();
-  t.after(() => dom.restore());
-  const args = { task: '<img src=x onerror=alert(1)>' };
-  const card = ToolCards.createLiveToolCard('delegate_task', args);
-  assert.equal(card.querySelector('img'), null);
-  assert.equal(card.querySelector('.subagent-task').textContent, args.task);
-  assert.ok(card.querySelector('.subagent-steps'));
-
-  const delegateCall = { function: { name: 'delegate_task', arguments: JSON.stringify(args) } };
-  const report = ToolCards.renderHistoricalToolCard(delegateCall, { content: delegateTask.toModel(args, { success: true, report: '**Informe**' }) });
-  assert.equal(report.querySelector('.subagent-report strong').textContent, 'Informe');
-  const failed = ToolCards.renderHistoricalToolCard(delegateCall, { content: delegateTask.toModel(args, { success: false, error: 'boom' }) });
-  assert.equal(failed.querySelector('.subagent-error').textContent, 'boom');
-
+test('delegate_task - el Markdown del historial resume el encargo y el error', () => {
   assert.match(delegateTask.toMarkdown({ task: 'Primera línea\nSegunda' }, { success: true, report: 'Informe' }), /delegate_task\*\*: Primera línea\n/);
   assert.match(delegateTask.toMarkdown({}, { success: false, error: 'boom' }), /error: boom/);
 });

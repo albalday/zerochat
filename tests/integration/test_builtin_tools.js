@@ -4,19 +4,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const AgentCore = require('../../js/agent-core.js');
-const ToolCards = require('../../js/tool-cards.js');
-const ChatUtils = require('../../js/utils.js');
-const { installDom } = require('../helpers/dom-env.js');
 
 const ROOT_DIR = path.resolve(__dirname, '../..');
 const BUILTIN_DIR = path.join(ROOT_DIR, 'js/tools/builtin');
 const getTool = name => AgentCore.registry.getTool(name);
 const call = (name, args) => ({ function: { name, arguments: JSON.stringify(args) } });
-
-function setupDom(t) {
-  const dom = installDom();
-  t.after(() => dom.restore());
-}
 
 test('Builtin Tools - zerochat.html, sw.js y el registro cargan exactamente los módulos de builtin/', () => {
   const available = fs.readdirSync(BUILTIN_DIR).filter(file => file.endsWith('.tool.js')).sort();
@@ -91,20 +83,11 @@ test('Builtin Tools - fetch_web_page y download_doc aceptan los nombres de URL q
   assert.match(getTool('download_doc').toMarkdown({ url: 'https://example.com/document.pdf' }, page), /download_doc[\s\S]*document\.pdf/);
 });
 
-test('Builtin Tools - render_chart dibuja el gráfico en la tarjeta y solo informa al modelo', async t => {
-  setupDom(t);
+test('Builtin Tools - render_chart solo informa al modelo del tipo y el título', async () => {
   const tool = getTool('render_chart');
   const args = { type: 'bar', title: '<img src=x onerror=alert(1)>', labels: ['Enero'], datasets: [{ label: '2026', data: [10] }] };
   const result = await tool.execute(args, {});
   assert.equal(tool.toModel(args, result), JSON.stringify({ success: true, type: 'bar', title: args.title }));
-
-  const card = ToolCards.createLiveToolCard('render_chart', args);
-  ToolCards.updateLiveToolCard(card, 'render_chart', args, result, 2);
-  assert.ok(card.querySelector('.chat-chart-card svg'));
-  assert.ok(!card.querySelector('img'), 'El título se escapa');
-  assert.equal(card.querySelector('.chat-chart-card').classList.contains('collapsed'), false);
-  const history = ToolCards.renderHistoricalToolCard(call('render_chart', args), { content: tool.toModel(args, result) });
-  assert.ok(history.querySelector('.chat-chart-card svg'));
 });
 
 test('Builtin Tools - las herramientas de conocimiento usan las ramas activas del contexto', async () => {
@@ -146,120 +129,7 @@ test('Builtin Tools - los parámetros de conocimiento declaran alcances, filtro 
   assert.equal(chunk.chunkIds.items.type, 'string');
 });
 
-test('Builtin Tools - las tarjetas de conocimiento muestran el texto y lo reconstruyen desde el historial', async t => {
-  setupDom(t);
-  const args = { query: '<b>margen</b>' };
-  const card = ToolCards.createLiveToolCard('search_knowledge_base', args);
-  assert.match(card.querySelector('.tool-card-title').textContent, /<b>margen<\/b>/, 'La consulta se muestra como texto');
-  ToolCards.updateLiveToolCard(card, 'search_knowledge_base', args, { success: true, matchesCount: 2, appliedScope: 'corpus', text: 'Fragmento <script>' }, 7);
-  assert.match(card.querySelector('.tool-card-badge').textContent, /2 coincidencias · corpus \(7ms\)/);
-  assert.equal(card.querySelector('.tool-result-pre').textContent, 'Fragmento <script>');
-  assert.equal(card.querySelector('script'), null);
-
-  // El historial guarda lo que recibió el modelo: aquí, el texto sin JSON.
-  const history = ToolCards.renderHistoricalToolCard(call('list_documents', {}), { content: 'Catálogo: informe.pdf' });
-  assert.equal(history.querySelector('.tool-result-pre').textContent, 'Catálogo: informe.pdf');
-  assert.ok(history.querySelector('.tool-execution-card').classList.contains('collapsed'));
-
-  const failed = ToolCards.renderHistoricalToolCard(call('read_knowledge_chunk', { chunkId: 'x' }), { content: JSON.stringify({ success: false, error: 'Chunk not found' }) });
-  assert.equal(failed.querySelector('.tool-card-badge').className, 'tool-card-badge status-error');
-  assert.match(failed.querySelector('.tool-card-badge').textContent, /Chunk not found/);
-});
-
-test('Builtin Tools - read_knowledge_image y search_web insertan los resultados externos como texto', async t => {
-  setupDom(t);
-  const args = { imageRef: 'rag-image://doc<img src=x onerror=alert(1)>:img1' };
-  const card = ToolCards.createLiveToolCard('read_knowledge_image', args);
-  assert.equal(card.querySelector('img'), null);
-  ToolCards.updateLiveToolCard(card, 'read_knowledge_image', args, { success: true, documentTitle: '<script>alert("xss")</script>' }, 0);
-  assert.equal(card.querySelector('.rag-image-result').textContent, '<script>alert("xss")</script>');
-  assert.equal(card.querySelector('script'), null);
-
-  const search = ToolCards.createLiveToolCard('search_web', { query: '<script>alert(1)</script>' });
-  assert.equal(search.querySelector('.query-badge strong').textContent, '<script>alert(1)</script>');
-  ToolCards.updateLiveToolCard(search, 'search_web', {}, { success: true, results: [{ title: '<i>t</i>', url: 'javascript:alert(1)', snippet: 's' }] }, 1);
-  assert.equal(search.querySelector('.search-result-item a').textContent.trim(), '<i>t</i>');
-  assert.doesNotMatch(search.querySelector('.search-result-item a').getAttribute('href'), /^javascript:/);
-});
-
-test('Builtin Tools - read_knowledge_image muestra miniatura clickeable en vivo y en historial', async t => {
-  setupDom(t);
-  const args = { imageRef: 'rag-image://doc_1:img_1' };
-  const card = ToolCards.createLiveToolCard('read_knowledge_image', args);
-
-  const opened = [];
-  const origOpen = ChatUtils.openImageInNewTab;
-  ChatUtils.openImageInNewTab = url => opened.push(url);
-
-  try {
-    ToolCards.updateLiveToolCard(card, 'read_knowledge_image', args, {
-      success: true,
-      documentTitle: 'Diagrama Técnico',
-      dataUrl: 'data:image/png;base64,iVBORw0KGgo='
-    }, 10);
-
-    const thumb = card.querySelector('.rag-image-thumb');
-    assert.ok(thumb, 'Debe renderizar la miniatura');
-    assert.equal(thumb.getAttribute('role'), 'button');
-    assert.equal(thumb.tabIndex, 0);
-
-    thumb.dispatchEvent(new Event('click'));
-    assert.equal(opened.length, 1);
-    assert.equal(opened[0], 'data:image/png;base64,iVBORw0KGgo=');
-
-    // Comprobar restauración en tarjeta histórica
-    const historical = ToolCards.renderHistoricalToolCard(
-      { function: { name: 'read_knowledge_image', arguments: JSON.stringify(args) } },
-      { content: 'Image retrieved: rag-image://doc_1:img_1', images: [{ dataUrl: 'data:image/png;base64,iVBORw0KGgo=', imageRef: args.imageRef, documentTitle: 'Diagrama Técnico' }] }
-    );
-    const histThumb = historical.querySelector('.rag-image-thumb');
-    assert.ok(histThumb, 'La tarjeta histórica debe restaurar la miniatura');
-  } finally {
-    ChatUtils.openImageInNewTab = origOpen;
-  }
-});
-
-test('Builtin Tools - download_image muestra miniatura clickeable en vivo y en historial', async t => {
-  setupDom(t);
-  const args = { url: 'https://example.com/photo.jpg' };
-  const card = ToolCards.createLiveToolCard('download_image', args);
-
-  const opened = [];
-  const origOpen = ChatUtils.openImageInNewTab;
-  ChatUtils.openImageInNewTab = url => opened.push(url);
-
-  try {
-    ToolCards.updateLiveToolCard(card, 'download_image', args, {
-      success: true,
-      url: args.url,
-      mimeType: 'image/jpeg',
-      byteSize: 1024,
-      dataUrl: 'data:image/jpeg;base64,/9j/4AAQSkZJRg=='
-    }, 15);
-
-    const thumb = card.querySelector('.rag-image-thumb');
-    assert.ok(thumb, 'Debe renderizar la miniatura de la imagen web');
-    assert.equal(thumb.getAttribute('role'), 'button');
-    assert.equal(thumb.tabIndex, 0);
-
-    thumb.dispatchEvent(new Event('click'));
-    assert.equal(opened.length, 1);
-    assert.equal(opened[0], 'data:image/jpeg;base64,/9j/4AAQSkZJRg==');
-
-    // Comprobar restauración en tarjeta histórica
-    const historical = ToolCards.renderHistoricalToolCard(
-      { function: { name: 'download_image', arguments: JSON.stringify(args) } },
-      { content: 'Image retrieved: https://example.com/photo.jpg', images: [{ dataUrl: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==', url: args.url, mimeType: 'image/jpeg', byteSize: 1024 }] }
-    );
-    const histThumb = historical.querySelector('.rag-image-thumb');
-    assert.ok(histThumb, 'La tarjeta histórica debe restaurar la miniatura de la imagen web');
-  } finally {
-    ChatUtils.openImageInNewTab = origOpen;
-  }
-});
-
-test('Builtin Tools - ask_user valida opciones, cede el turno y escapa su tarjeta', async t => {
-  setupDom(t);
+test('Builtin Tools - ask_user valida opciones y cede el turno', async () => {
   const tool = getTool('ask_user');
 
   assert.equal((await tool.execute({ question: '', options: ['a', 'b'] })).success, false);
@@ -277,17 +147,5 @@ test('Builtin Tools - ask_user valida opciones, cede el turno y escapa su tarjet
   assert.match(tool.toModel({}, result), /next user message/);
   assert.match(tool.toMarkdown({}, result), /ask_user\*\*: ¿Aplico el cambio\?[\s\S]*- Aplicar — Escribe AGENTS\.md/);
 
-  const card = ToolCards.createLiveToolCard('ask_user', {
-    question: '<img src=x onerror=alert(1)>?',
-    options: [{ label: '"><script>bad()</script>', description: '<b>x</b>' }, { label: 'Normal' }]
-  });
-  assert.equal(card.querySelector('img, script, b'), null);
-  const options = card.querySelectorAll('.ask-user-option');
-  assert.equal(options[0].dataset.askOption, '"><script>bad()</script>');
-  assert.ok([...options].every(option => option.disabled), 'Las opciones se pintan desactivadas hasta que la aplicación las habilita');
-
-  const invalidArgs = { question: '¿?', options: [] };
-  const invalid = ToolCards.createLiveToolCard('ask_user', invalidArgs);
-  ToolCards.updateLiveToolCard(invalid, 'ask_user', invalidArgs, { success: false, error: 'options must contain 2 to 4' }, 0);
-  assert.match(invalid.querySelector('.ask-user-error').textContent, /options must contain 2 to 4/);
 });
+

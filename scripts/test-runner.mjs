@@ -39,7 +39,8 @@ export const GROUPS = {
     'tests/integration/test_chat_engine.js',
     'tests/integration/test_agent_runtime.js',
     'tests/integration/test_delegate_task.js',
-    'tests/browser/browser_conversation.test.js'
+    'tests/browser/browser_conversation.test.js',
+    'tests/browser/browser_tool_cards.test.js'
   ],
   profiles: [
     'tests/integration/test_profiles.js',

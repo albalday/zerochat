@@ -40,39 +40,3 @@ test('ChatCommandCard - la insignia distingue cada estado del comando', () => {
   assert.equal(view({ status: 'unavailable' }).text, I18n.t('command_status_unavailable'));
 });
 
-test('ChatCommandCard - reactivate reposiciona al final de messages-list si la tarjeta está en el chat', t => {
-  const { installDom } = require('../helpers/dom-env.js');
-  const UIConversation = require('../../js/ui-conversation.js');
-  const dom = installDom({ app: true });
-  t.after(() => dom.restore());
-
-  const messagesList = document.getElementById('messages-list');
-  const view = CommandCard.createView();
-  const card = view.createLiveCard({ command: 'npm run test' }, {
-    createCardWrapper() {
-      const el = document.createElement('div');
-      el.className = 'tool-card-wrapper command-card-wrapper';
-      return el;
-    }
-  });
-  messagesList.appendChild(card);
-
-  let scrolled = false;
-  const originalScrollToBottom = UIConversation.scrollToBottom;
-  UIConversation.scrollToBottom = container => {
-    if (container === messagesList) scrolled = true;
-  };
-  t.after(() => { UIConversation.scrollToBottom = originalScrollToBottom; });
-
-  view.updateLiveCard(card, { command: 'npm run test' }, { content: JSON.stringify({ status: 'running', job_id: 10, output: 'ok' }) });
-
-  return new Promise(resolve => {
-    setTimeout(() => {
-      assert.equal(scrolled, true, 'reactivate debe invocar scrollToBottom en messages-list');
-      view.updateLiveCard(card, { command: 'npm run test' }, { content: JSON.stringify({ status: 'exited', exit_code: 0, output: 'ok' }) });
-      card.remove();
-      resolve();
-    }, 10);
-  });
-});
-

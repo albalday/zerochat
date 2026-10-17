@@ -88,5 +88,5 @@ Done when: no test or module depends on happy-dom, the dependency and tests/help
 - [x] M24-T11 Move the profiles, settings and RAG UI DOM tests to browser tests (ui_profiles, ui_settings, rag_ui) (2026-10-17)
 - [x] M24-T12 Move the conversation rendering DOM tests to browser tests (ui_conversation) (2026-10-17)
 - [x] M24-T13 Move the MCP panel and inspector DOM tests to browser tests (ui_mcp, ui_inspector) (2026-10-17)
-- [ ] M24-T14 Move the tool card, Markdown, chart, attachment and utils DOM tests to browser tests (tool_cards, builtin_tools, command_card, delegate_task, mcp, charts, markdown, attachments, utils)
+- [x] M24-T14 Move the tool card, Markdown, chart, attachment and utils DOM tests to browser tests (tool_cards, builtin_tools, command_card, delegate_task, mcp, charts, markdown, attachments, utils) (2026-10-17)
 - [ ] M24-T15 Move the generation, status, telemetry, reasoning, debug and reset DOM tests to browser tests (generation_controller, ui_generation_status, ui_telemetry, ui_reasoning, debug, error_infrastructure, storage_reset)

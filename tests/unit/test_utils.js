@@ -1,7 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const ChatUtils = require('../../js/utils.js');
-const { installDom } = require('../helpers/dom-env.js');
 
 test('ChatUtils - escapa HTML y sanea URLs y orígenes de imagen no confiables', () => {
   assert.strictEqual(ChatUtils.escapeHtml('<script>alert("XSS")&\'test\'</script>'), '&lt;script&gt;alert(&quot;XSS&quot;)&amp;&#39;test&#39;&lt;/script&gt;');
@@ -22,22 +21,6 @@ test('ChatUtils - escapa HTML y sanea URLs y orígenes de imagen no confiables',
   assert.equal(ChatUtils.IMAGE_MIME_TYPES.png, 'image/png');
   assert.equal(ChatUtils.IMAGE_MIME_TYPES.jpeg, 'image/jpeg');
   assert.equal(ChatUtils.IMAGE_MIME_TYPES.svg, 'image/svg+xml');
-});
-
-test('ChatUtils - primitivas de DOM separan texto no confiable de HTML interno', () => {
-  const dom = installDom();
-  try {
-    const parent = document.createElement('div');
-    const child = ChatUtils.appendTextElement(parent, 'span', '<img src=x onerror=alert(1)>', { className: 'safe-text' });
-    assert.equal(child.textContent, '<img src=x onerror=alert(1)>');
-    assert.equal(child.className, 'safe-text');
-    assert.equal(parent.querySelector('img'), null);
-    assert.equal(parent.children.length, 1);
-    ChatUtils.clearElement(parent);
-    assert.equal(parent.children.length, 0);
-  } finally {
-    dom.restore();
-  }
 });
 
 test('ChatUtils - serializeContent, clone, formatShortValue y resolveDep', () => {
@@ -89,92 +72,6 @@ test('ChatUtils - fetchWithTimeout combina la señal de quien llama con el plazo
     await assert.rejects(pending);
   } finally {
     global.fetch = originalFetch;
-  }
-});
-
-test('ChatUtils - openImageInNewTab abre URLs seguras en visor HTML Blob con noopener', () => {
-  const dom = installDom();
-  try {
-    const opened = [];
-    window.open = (url, target, features) => {
-      opened.push({ url, target, features });
-      return { document: {} };
-    };
-
-    ChatUtils.openImageInNewTab('javascript:alert(1)');
-    ChatUtils.openImageInNewTab('');
-    ChatUtils.openImageInNewTab('rag-image://doc:img');
-    assert.equal(opened.length, 0);
-
-    ChatUtils.openImageInNewTab('https://example.com/foto.jpg', 'Foto de prueba');
-    assert.equal(opened.length, 1);
-    assert.ok(opened[0].url.startsWith('blob:'));
-    assert.equal(opened[0].target, '_blank');
-    assert.equal(opened[0].features, 'noopener,noreferrer');
-
-    ChatUtils.openImageInNewTab('blob:https://example.com/uuid');
-    assert.equal(opened.length, 2);
-    assert.ok(opened[1].url.startsWith('blob:'));
-
-    ChatUtils.openImageInNewTab('data:image/png;base64,iVBORw0KGgo=');
-    assert.equal(opened.length, 3);
-    assert.ok(opened[2].url.startsWith('blob:'));
-  } finally {
-    dom.restore();
-  }
-});
-
-test('ChatUtils - openImageInNewTab abre una sola pestaña con noopener y revoca el blob', () => {
-  const dom = installDom();
-  try {
-    const opened = [];
-    const revoked = [];
-    window.open = (url, target, features) => {
-      opened.push({ url, target, features });
-      return null; // El estándar HTML define que window.open con noopener devuelve null
-    };
-    const origRevoke = URL.revokeObjectURL;
-    URL.revokeObjectURL = url => revoked.push(url);
-
-    ChatUtils.openImageInNewTab('https://example.com/imagen.jpg', 'Mi imagen');
-    assert.equal(opened.length, 1, 'Solo debe abrirse una pestaña a pesar de que window.open devuelva null');
-    assert.ok(opened[0].url.startsWith('blob:'));
-    assert.equal(opened[0].features, 'noopener,noreferrer');
-  } finally {
-    dom.restore();
-  }
-});
-
-test('ChatUtils - openDocumentInNewTab abre documentos en Blob con noopener y revoca', () => {
-  const dom = installDom();
-  try {
-    const opened = [];
-    const createdBlobs = [];
-    window.open = (url, target, features) => {
-      opened.push({ url, target, features });
-      return null;
-    };
-    const origBlob = global.Blob;
-    global.Blob = class MockBlob extends origBlob {
-      constructor(parts, options) {
-        super(parts, options);
-        createdBlobs.push({ parts, options });
-      }
-    };
-
-    assert.equal(ChatUtils.openDocumentInNewTab(''), false, 'Contenido vacío no abre nada');
-    assert.equal(opened.length, 0);
-
-    const ok = ChatUtils.openDocumentInNewTab('<h1>Folleto</h1>', 'text/html;charset=utf-8');
-    assert.equal(ok, true);
-    assert.equal(opened.length, 1);
-    assert.ok(opened[0].url.startsWith('blob:'));
-    assert.equal(opened[0].target, '_blank');
-    assert.equal(opened[0].features, 'noopener,noreferrer');
-    assert.equal(createdBlobs[0].options.type, 'text/html;charset=utf-8');
-    assert.deepEqual(createdBlobs[0].parts, ['<h1>Folleto</h1>']);
-  } finally {
-    dom.restore();
   }
 });
 

@@ -1,8 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Markdown = require('../../js/markdown.js');
-const ChatUtils = require('../../js/utils.js');
-const { installDom } = require('../helpers/dom-env.js');
 
 test('Markdown - escapa HTML y renderiza tablas, código, pensamiento y reglas horizontales', () => {
   {
@@ -84,8 +82,6 @@ test('Markdown - imágenes: base64, rag-image y URLs sin doble escape ni inyecci
   }
 });
 
-
-
 test('Markdown - el código en línea se muestra literal y no lo alteran otras reglas', () => {
   assert.equal(Markdown.parseMarkdown('- `6*7` = 42\n- `7*6` = 42'), '<ul><li><code>6*7</code> = 42</li><li><code>7*6</code> = 42</li></ul>');
   assert.equal(Markdown.parseMarkdown('usa `a _b_ c` y `**x**` con *cursiva*'), '<p>usa <code>a _b_ c</code> y <code>**x**</code> con <em>cursiva</em></p>');
@@ -137,148 +133,9 @@ test('Markdown - normaliza notación matemática y LaTeX a Unicode dentro de del
   assert.ok(table.includes('<td>→</td>'));
 });
 
-test('Markdown - attachContentListeners activa el click accesible en imágenes para abrir en nueva pestaña', () => {
-  const dom = installDom();
-  try {
-    const container = document.createElement('div');
-    container.innerHTML = Markdown.parseMarkdown('![Diagrama](https://example.test/img.png)');
-    const img = container.querySelector('img.chat-embedded-image');
-    assert.ok(img);
-    assert.equal(img.getAttribute('role'), null);
-
-    const opened = [];
-    window.open = url => {
-      opened.push(url);
-      return { document: {} };
-    };
-
-    Markdown.attachContentListeners(container);
-    assert.equal(img.getAttribute('role'), 'button');
-    assert.equal(img.tabIndex, 0);
-
-    img.dispatchEvent(new Event('click'));
-    assert.equal(opened.length, 1);
-    assert.ok(opened[0].startsWith('blob:'));
-
-    const enterEvent = new Event('keydown');
-    enterEvent.key = 'Enter';
-    img.dispatchEvent(enterEvent);
-    assert.equal(opened.length, 2);
-    assert.ok(opened[1].startsWith('blob:'));
-  } finally {
-    dom.restore();
-  }
+test('Markdown - solo los bloques de código HTML y SVG incluyen botón de vista previa', () => {
+  assert.ok(Markdown.parseMarkdown('```html\n<div class="folleto"><h1>Hola</h1></div>\n```').includes('btn-preview-code'), 'Bloque HTML debe tener botón de vista previa');
+  assert.ok(Markdown.parseMarkdown('```svg\n<svg><circle r="10"/></svg>\n```').includes('btn-preview-code'), 'Bloque SVG debe tener botón de vista previa');
+  assert.ok(!Markdown.parseMarkdown('```javascript\nconst a = 1;\n```').includes('btn-preview-code'), 'Bloque JS no debe tener botón de vista previa');
 });
-
-test('Markdown - tableToCsv convierte tablas HTML a formato CSV estándar con escape RFC 4180', () => {
-  const dom = installDom();
-  try {
-    const div = document.createElement('div');
-    div.innerHTML = `
-      <table>
-        <thead>
-          <tr><th>Producto</th><th>Precio</th><th>Notas</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>Manzana</td><td>1.50</td><td>Fruta fresca</td></tr>
-          <tr><td>Pera, conferencia</td><td>2.00</td><td>Con "piel" fina</td></tr>
-          <tr><td>Naranja</td><td>1.80</td><td>Línea 1\nLínea 2</td></tr>
-        </tbody>
-      </table>
-    `;
-    const table = div.querySelector('table');
-    const csv = Markdown.tableToCsv(table);
-    const expected = [
-      'Producto,Precio,Notas',
-      'Manzana,1.50,Fruta fresca',
-      '"Pera, conferencia",2.00,"Con ""piel"" fina"',
-      'Naranja,1.80,"Línea 1\nLínea 2"'
-    ].join('\r\n');
-    assert.equal(csv, expected);
-    assert.equal(Markdown.tableToCsv(null), '');
-  } finally {
-    dom.restore();
-  }
-});
-
-test('Markdown - attachContentListeners conecta copia y descarga CSV en las tablas', () => {
-  const dom = installDom();
-  try {
-    const container = document.createElement('div');
-    container.innerHTML = Markdown.parseMarkdown('| Nombre | Edad |\n|---|---|\n| Ana | 30 |\n| Bob | 25 |');
-
-    const copyBtn = container.querySelector('.btn-copy-table-csv');
-    const exportBtn = container.querySelector('.btn-export-table-csv');
-    assert.ok(copyBtn, 'Debe renderizar botón de copiar CSV');
-    assert.ok(exportBtn, 'Debe renderizar botón de exportar CSV');
-
-    let copiedText = null;
-    ChatUtils.copyToClipboard = (text) => {
-      copiedText = text;
-    };
-
-    const downloaded = [];
-    const fakeExport = {
-      downloadFile: (content, filename, mimeType) => {
-        downloaded.push({ content, filename, mimeType });
-        return true;
-      }
-    };
-    global.ChatExport = fakeExport;
-
-    Markdown.attachContentListeners(container);
-
-    copyBtn.dispatchEvent(new Event('click'));
-    assert.equal(copiedText, 'Nombre,Edad\r\nAna,30\r\nBob,25');
-
-    exportBtn.dispatchEvent(new Event('click'));
-    assert.equal(downloaded.length, 1);
-    assert.equal(downloaded[0].filename, 'tabla.csv');
-    assert.equal(downloaded[0].mimeType, 'text/csv;charset=utf-8');
-    assert.equal(downloaded[0].content, 'Nombre,Edad\r\nAna,30\r\nBob,25');
-  } finally {
-    delete global.ChatExport;
-    dom.restore();
-  }
-});
-
-test('Markdown - bloques de código HTML y SVG incluyen botón de vista previa que abre en pestaña', () => {
-  const dom = installDom();
-  try {
-    const mdHtml = '```html\n<div class="folleto"><h1>Hola</h1></div>\n```';
-    const parsedHtml = Markdown.parseMarkdown(mdHtml);
-    assert.ok(parsedHtml.includes('btn-preview-code'), 'Bloque HTML debe tener botón de vista previa');
-
-    const mdSvg = '```svg\n<svg><circle r="10"/></svg>\n```';
-    const parsedSvg = Markdown.parseMarkdown(mdSvg);
-    assert.ok(parsedSvg.includes('btn-preview-code'), 'Bloque SVG debe tener botón de vista previa');
-
-    const mdJs = '```javascript\nconst a = 1;\n```';
-    const parsedJs = Markdown.parseMarkdown(mdJs);
-    assert.ok(!parsedJs.includes('btn-preview-code'), 'Bloque JS no debe tener botón de vista previa');
-
-    const container = document.createElement('div');
-    container.innerHTML = parsedHtml;
-
-    const openedDocs = [];
-    ChatUtils.openDocumentInNewTab = (content, mimeType) => {
-      openedDocs.push({ content, mimeType });
-      return true;
-    };
-
-    Markdown.attachContentListeners(container);
-
-    const previewBtn = container.querySelector('.btn-preview-code');
-    assert.ok(previewBtn);
-    previewBtn.dispatchEvent(new Event('click'));
-
-    assert.equal(openedDocs.length, 1);
-    assert.equal(openedDocs[0].content, '<div class="folleto"><h1>Hola</h1></div>');
-    assert.equal(openedDocs[0].mimeType, 'text/html;charset=utf-8');
-  } finally {
-    dom.restore();
-  }
-});
-
-
 
