@@ -71,7 +71,7 @@ Este documento contiene las especificaciones técnicas y normas de desarrollo pa
 
 ## 7. Pruebas sin navegador
 
-* **Entorno DOM real:** Las pruebas de componentes sin navegador utilizan el DOM real proporcionado por `installDom` de `tests/helpers/dom-env.js` (con `{ app: true }` para cargar el marcado completo de `zerochat.html`). Está prohibido simular elementos con objetos planos.
+* **DOM solo en navegador:** Las pruebas en Node no tienen DOM. Los módulos de dominio no reciben elementos: el motor pinta a través de vistas (`ChatUIConversation.createTurnView`, `ChatToolCards.createCardView`) y los servicios reciben referencias y callbacks de presentación. Lo que pinta o lee elementos se prueba en `tests/browser/` sobre la aplicación real. Está prohibido simular elementos con objetos planos.
 * **Exportaciones limpias:** No se exportan funciones ni variables privadas exclusivamente para ser testeadas; las pruebas consumen la API pública y el contexto real.
 
 ---

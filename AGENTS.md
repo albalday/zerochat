@@ -62,7 +62,7 @@ El código nuevo debe:
 - gestionar errores de forma explícita y validar entradas externas y de configuración;
 - no añadir código especulativo (ramas, opciones o parámetros sin consumidor actual) ni de compatibilidad hacia atrás (alias, migraciones de datos, formatos antiguos) salvo petición expresa;
 - eliminar todo lo que quede huérfano tras una retirada (funciones, estilos CSS, claves i18n, pruebas);
-- en pruebas sin navegador, emplear siempre un DOM y APIs reales (`tests/helpers/dom-env.js`, `storage-env.js`), sin simular elementos con objetos parciales;
+- en pruebas sin navegador no hay DOM: la lógica se prueba en Node con implementaciones en memoria de sus dependencias (`storage-env.js`, `tests/helpers/turn-view.js`) y todo lo que pinta o lee elementos se prueba en navegador (`tests/browser/`), sin simular elementos ni documentos; el código que solo corre en el navegador no lleva ramas ni guardas para Node;
 - no exportar helpers internos exclusivamente para ser probados (exponer constantes o contratos del dominio sí forma parte de la interfaz pública).
 
 
