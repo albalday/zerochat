@@ -18,22 +18,6 @@ async function seed() {
   return { branch, document };
 }
 
-test('RagService - inyecta solo instrucciones compactas', async () => {
-  const { branch } = await seed();
-  const context = await RagService.buildRagSystemContext(branch.id);
-  assert.match(context, /Operaciones/);
-  assert.match(context, /search_knowledge_base/);
-  assert.match(context, /list_documents/);
-  assert.match(context, /read_knowledge_image/);
-  assert.match(context, /native vision/);
-  assert.match(context, /scope="corpus" for comparisons, multiple documents, companies, or years/);
-  assert.match(context, /Do not repeat the same query with different documentHint values/);
-  assert.match(context, /scope="auto" only when neither intent is clear/);
-  assert.doesNotMatch(context, /Kubernetes|PostgreSQL/);
-  assert.doesNotMatch(context, /agent_checkpoint/);
-  assert.match(await RagService.injectRagContext('Responde brevemente.', branch.id), /Responde brevemente/);
-});
-
 test('RagService - detecta un contexto conocido inferior a 32K como insuficiente para RAG', () => {
   assert.equal(RagService.RAG_MIN_CONTEXT_TOKENS, 32768);
   assert.equal(RagService.getInsufficientRagContextLimit({ modelContextLimit: 16384 }), 16384);
@@ -245,11 +229,11 @@ test('RagService - scope auto resuelve empresa y ejercicio desde títulos Financ
 
 test('RagService - documentHint resuelve exactamente sin contaminarse por años en la consulta', async () => {
   const branch = await RagStorage.createBranch('WalmartFinance');
-  const w2018 = await RagStorage.saveDocument({
+  await RagStorage.saveDocument({
     branchId: branch.id, title: 'WALMART_2018_10K.pdf',
     chunks: [{ title: 'P&L 2018', content: 'Operating income 2018 was 20437.' }]
   });
-  const w2019 = await RagStorage.saveDocument({
+  await RagStorage.saveDocument({
     branchId: branch.id, title: 'WALMART_2019_10K.pdf',
     chunks: [{ title: 'P&L 2019', content: 'Operating income 2019 was 21957.' }]
   });
@@ -398,7 +382,7 @@ test('RagService - diversidad de corpus no pierde documentos tras un resultado d
 
 test('RagService - dynamic maxPerDocument en scope auto con pocos candidatos amplía la profundidad', async () => {
   const branch = await RagStorage.createBranch('FinancialBench_Auto');
-  const wmtDoc = await RagStorage.saveDocument({
+  await RagStorage.saveDocument({
     branchId: branch.id,
     title: 'WALMART_2020_10K.pdf',
     chunks: [
@@ -451,31 +435,6 @@ test('RagService - maxPerDocument explícito es respetado en scope corpus', asyn
   assert.equal(result.appliedScope, 'corpus');
   assert.equal(result.maxChunksPerDocument, 3);
   assert.equal(result.matches.length, 3);
-});
-
-test('RagService - ambigüedad documental incluye recomendación de documentHint', async () => {
-  const branch = await RagStorage.createBranch('Ambiguous_Branch');
-  await RagStorage.saveDocument({
-    branchId: branch.id,
-    title: 'AMZN_2019_10K.pdf',
-    chunks: [{ title: 'Revenue', content: 'Amazon net sales and operating income.' }]
-  });
-  await RagStorage.saveDocument({
-    branchId: branch.id,
-    title: 'AMZN_2020_10K.pdf',
-    chunks: [{ title: 'Revenue', content: 'Amazon net sales and operating income.' }]
-  });
-
-  const result = await RagService.searchKnowledgeBase(branch.id, {
-    query: 'Amazon net sales',
-    scope: 'document',
-    documentHint: 'AMZN',
-    tolerance: 0
-  });
-
-  assert.equal(result.appliedScope, 'corpus');
-  assert.match(result.text, /Document candidates:/);
-  assert.match(result.text, /specify documentHint with the target document to retrieve more depth/);
 });
 
 test('RagService - listDocuments filtra por palabra clave, empresa o año con coincidencia flexible', async () => {

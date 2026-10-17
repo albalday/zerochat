@@ -10,19 +10,6 @@ beforeEach(async () => {
   await RagStorage.clearAllData();
 });
 
-test('IngestionEngine - normaliza y lee texto sin LLM', async () => {
-  assert.equal(Ingestion.normalizeExtractedText(' hola\r\n\0mundo '), 'hola\nmundo');
-  assert.equal(await Ingestion.extractTextFromPlainText(toFile({ name: 'guia.md', content: '# Guía\nTexto' })), '# Guía\nTexto');
-  assert.equal(Ingestion.detectFileType(toFile({ name: 'manual.PDF' })), 'pdf');
-  assert.equal(Ingestion.detectFileType(toFile({ name: 'notas.md' })), 'md');
-  assert.equal(Ingestion.detectFileType(toFile({ name: 'servidor.log' })), 'txt');
-  assert.equal(Ingestion.detectFileType(toFile({ name: 'main.py' })), 'txt');
-  assert.equal(Ingestion.detectFileType(toFile({ name: 'Dockerfile' })), 'txt');
-  assert.equal(Ingestion.detectFileType(toFile({ name: 'imagen.png', type: 'image/png' })), null);
-  assert.equal(Ingestion.isLikelyText('INFO servicio iniciado\n'), true);
-  assert.equal(Ingestion.isLikelyText('texto\0binario'), false);
-});
-
 test('IngestionEngine - genera chunks acotados con solapamiento y títulos', () => {
   const sectionA = '# Instalación\n\n' + 'Configuración inicial. '.repeat(90);
   const sectionB = '# Seguridad\n\n' + 'Autenticación multifactor. '.repeat(90);

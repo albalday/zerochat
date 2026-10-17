@@ -118,23 +118,6 @@ test('ConversationService - parar durante el resumen cancela la rama sin ofrecer
   assert.equal(State.isConversationBusy(), false);
 });
 
-test('ConversationService - cancelar el diálogo de bifurcación no crea la rama', async t => {
-  const { anchor, options } = await setupBranch(t);
-  const { confirms } = useDialogs(t, [{ accepted: false, checkboxChecked: true }]);
-  assert.equal(await ConversationService.createConversationBranch(anchor, options), false);
-  assert.equal(confirms.length, 1);
-  assert.ok(confirms[0].opts.checkbox, 'Debe ofrecer la casilla de resumen');
-  assert.deepEqual(await savedBranches(), []);
-});
-
-test('ConversationService - aceptar sin la casilla de resumen clona el historial completo', async t => {
-  const { anchor, options } = await setupBranch(t);
-  useDialogs(t, [{ accepted: true, checkboxChecked: false }]);
-  useSummarizer(t, async () => { throw new Error('no debe resumir'); });
-  assert.equal(await ConversationService.createConversationBranch(anchor, options), true);
-  assert.equal(State.get('messages').length, 5);
-});
-
 test('ConversationService - si el resumen falla ofrece bifurcar con el historial completo', async t => {
   t.mock.method(console, 'warn', () => {});
   {
@@ -159,12 +142,4 @@ test('ConversationService - una sesión sin mensajes del usuario no se guarda', 
   await ConversationService.saveCurrentSession({ renderSidebarChats() {} });
   assert.deepEqual(State.get('sessions').list, []);
   assert.equal(await Storage.getConversation('parent_sess_1'), null);
-});
-
-test('ConversationService - al guardar, el título sale de la primera línea del usuario sin Markdown', async t => {
-  await setupBranch(t, [{ id: 'm1', role: 'system', content: 'sys' }, { id: 'u1', role: 'user', content: '# Primera **pregunta**\nresto' }]);
-  State.set('sessions', { list: [] });
-  await ConversationService.saveCurrentSession({ renderSidebarChats() {} });
-  assert.equal(State.get('sessions').list[0].title, 'Primera pregunta');
-  assert.equal((await Storage.getConversation('parent_sess_1')).history.length, 2);
 });

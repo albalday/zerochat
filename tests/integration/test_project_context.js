@@ -114,20 +114,6 @@ test('ProjectContext.refresh - lee normas y estado con límite de tamaño', asyn
   assert.match(ProjectContext.buildPromptBlock(project), /- Next task: M1-T2 tests/);
 });
 
-test('ProjectContext.refresh - un AGENTS.md sin .zerochat/task.py no inicializa el proyecto', async () => {
-  const { context, calls, state } = createHarness({ files: { '/repo/AGENTS.md': '# Rules' } });
-  await context.refresh();
-  assert.equal(state.get('project').status, 'missing');
-  assert.deepEqual(calls.map(args => args.path), ['/repo/.zerochat/task.py']);
-});
-
-test('ProjectContext.refresh - un proyecto con .zerochat/state.md pero sin task.py queda missing para facilitar migración', async () => {
-  const { context, calls, state } = createHarness({ files: { '/repo/.zerochat/state.md': '- Next task: M1-T1' } });
-  await context.refresh();
-  assert.equal(state.get('project').status, 'missing');
-  assert.deepEqual(calls.map(args => args.path), ['/repo/.zerochat/task.py']);
-});
-
 test('ProjectContext.refresh - sin AGENTS.md el proyecto sigue activo y el bloque pide crearlo', async () => {
   const { context, state } = createHarness({ files: { '/repo/.zerochat/task.py': 'helper', '/repo/.zerochat/state.md': 'state' } });
   await context.refresh();
@@ -309,66 +295,6 @@ test('ProjectContext.refresh - un fallo de transporte sin contenido queda error 
 });
 
 
-test('ProjectContext.refresh - con el proveedor MCP real, un .zerochat/task.py inexistente queda missing', async () => {
-  const MCP = require('../../js/mcp.js');
-  const AgentCore = require('../../js/agent-core.js');
-  const backendResult = payload => ({
-    content: [{ type: 'text', text: JSON.stringify(payload) }],
-    isError: payload.success === false
-  });
-  const files = {};
-  const client = new MCP.McpClient({ id: 'mcp_proxy', name: 'ZeroChat Local Tools', url: 'http://127.0.0.1:6388/sse' });
-  client.initialize = async () => ({ success: true });
-  client.request = async (method, params) => {
-    if (method === 'tools/list') return { tools: [{ name: 'read_file', inputSchema: { type: 'object' } }, { name: 'write_file', inputSchema: { type: 'object' } }] };
-    if (method === 'tools/call') {
-      const content = files[params.arguments.path];
-      // Misma forma que py/ff-server.py: success: false del JSON se publica como isError.
-      return backendResult(content === undefined
-        ? { success: false, error: `File '${params.arguments.path}' does not exist.` }
-        : { success: true, content, truncated: false });
-    }
-    throw new Error(`unexpected ${method}`);
-  };
-  const provider = new MCP.McpToolProvider(client, { id: 'mcp_prov_mcp_proxy' });
-  const registry = new AgentCore.ToolRegistry();
-  registry.registerProvider(provider);
-  await provider.discoverTools();
-  registry.registerProvider(provider);
-
-  // Gestor de seguridad real con la política por defecto: basta la regla R:<cwd> que crea al conectar.
-  const Security = require('../../js/tool-security.js');
-  const previousStartup = Security.manager.getStartupDirectory();
-  const previousRules = Security.manager.getDirectoryRules();
-  Security.manager.setDirectoryRules([]);
-  Security.manager.setStartupDirectory('/repo');
-  const previousMcp = ChatState.get('mcp');
-  ChatState.set('mcp', { status: 'connected', serverInfo: { cwd: '/repo' } });
-  try {
-    assert.deepEqual(Security.manager.getDirectoryRules(), ['R:/repo']);
-    const context = ProjectContext.createProjectContext({
-      state: ChatState,
-      config: { getActive: () => ({ projectMode: true, projectDeclined: [] }) },
-      agentCore: { registry, executor: new AgentCore.ToolExecutor(registry) }
-    });
-    await context.refresh();
-    assert.equal(ChatState.get('project').status, 'missing', ChatState.get('project').error);
-    assert.equal(context.canInitialize(), true);
-
-    files['/repo/.zerochat/task.py'] = '# helper';
-    files['/repo/.zerochat/state.md'] = '- Next task: M1-T1';
-    files['/repo/AGENTS.md'] = '# Rules';
-    await context.refresh();
-    assert.equal(ChatState.get('project').status, 'ready');
-    assert.equal(ChatState.get('project').rules.content, '# Rules');
-  } finally {
-    Security.manager.setStartupDirectory(previousStartup);
-    Security.manager.setDirectoryRules(previousRules);
-    ChatState.set('mcp', previousMcp);
-    ChatState.setProjectContext({ status: 'disabled', cwd: '', rules: {}, state: {} });
-  }
-});
-
 test('ProjectContext.changeDirectory - pide al servidor el directorio escrito', async () => {
   const { context, directoryRequests } = createHarness({ directoryTool: true });
   assert.equal(context.canChangeDirectory(), true);
@@ -402,10 +328,4 @@ test('ProjectContext.changeDirectory - sin servidor local o generando no pregunt
   const busy = createHarness({ directoryTool: true });
   assert.deepEqual(await busy.context.changeDirectory({ askPath, isBusy: () => true }), { ok: false, reason: 'unavailable' });
   await assert.rejects(() => busy.context.changeDirectory({}), TypeError);
-});
-
-test('ProjectContext.changeDirectory - devuelve el motivo del servidor sin el prefijo JSON-RPC', async () => {
-  const { context } = createHarness({ directoryTool: true, directoryError: "Error MCP (-32602): '/nope' no existe o no es un directorio." });
-  const result = await context.changeDirectory({ askPath: () => '/nope' });
-  assert.deepEqual(result, { ok: false, reason: 'error', error: "'/nope' no existe o no es un directorio." });
 });

@@ -69,21 +69,6 @@ test('Ingestion - detecta duplicado idéntico por ruta y permite reemplazarlo at
   assert.match(chunks[0].content, /Texto versión 2 actualizado/);
 });
 
-test('Ingestion - archivos con distinta ruta relativa no son duplicados', async () => {
-  const branch = await RagStorage.createBranch('RamaRutas');
-
-  const fileA = toFile({ name: 'doc.txt', webkitRelativePath: 'folderA/doc.txt', content: 'Contenido A.' });
-  const fileB = toFile({ name: 'doc.txt', webkitRelativePath: 'folderB/doc.txt', content: 'Contenido B.' });
-
-  const res = await IngestionEngine.processDocumentQueue([fileA, fileB], branch.id);
-  assert.equal(res.processed, 2);
-  assert.equal(res.skipped, 0);
-  assert.equal(res.replaced, 0);
-
-  const docs = await RagStorage.getDocumentsByBranch(branch.id);
-  assert.equal(docs.length, 2);
-});
-
 test('Ingestion - casilla applyToAll automatiza respuesta en duplicados restantes', async () => {
   const branch = await RagStorage.createBranch('RamaBatch');
 

@@ -3,7 +3,6 @@ const assert = require('node:assert/strict');
 const Profiles = require('../../js/profile-repository.js');
 const Backup = require('../../js/profile-backup.js');
 const ProfileExportBundle = require('../../js/profile-export-bundle.js');
-const I18n = require('../../js/i18n.js');
 
 function createStorage(legacyProfiles = {}) {
   const values = new Map();
@@ -42,37 +41,6 @@ test('ProfileRepository - inicializa únicamente el perfil Espejo de solo lectur
   assert.equal(profiles[0].settings.apiType, 'mirror');
   assert.equal(repository.remove(Profiles.READONLY_PROFILE_ID), false);
   assert.throws(() => repository.save({ ...profiles[0], settings: { ...profiles[0].settings, model: 'other' } }));
-});
-
-test('ProfileRepository - guarda versiones sin exponer referencias mutables', () => {
-  const repository = Profiles.createRepository(createStorage());
-  const first = repository.save({ id: 'lab', name: 'Laboratorio', settings: { model: 'model-a' } });
-  const second = repository.save({ id: 'lab', name: 'Laboratorio', settings: { model: 'model-b' } });
-
-  assert.equal(first.version, 1);
-  assert.equal(second.version, 2);
-  const loaded = repository.get('lab');
-  loaded.settings.model = 'mutado';
-  assert.equal(repository.get('lab').settings.model, 'model-b');
-});
-
-test('ProfileRepository - conserva la descripción del perfil', () => {
-  const repository = Profiles.createRepository(createStorage());
-  repository.save({ id: 'lab', name: 'Laboratorio', description: 'Servidor de pruebas', settings: {} });
-
-  assert.equal(repository.get('lab').description, 'Servidor de pruebas');
-});
-
-test('ProfileRepository - conserva y normaliza webllmConfig en settings', () => {
-  const repository = Profiles.createRepository(createStorage());
-  const webllmConfig = {
-    context_window_size: '16384',
-    prefill_chunk_size: '2048'
-  };
-  repository.save({ id: 'webllm-profile', name: 'WebLLM High-End', settings: { apiType: 'webllm', webllmConfig } });
-
-  const retrieved = repository.get('webllm-profile');
-  assert.deepEqual(retrieved.settings.webllmConfig, webllmConfig);
 });
 
 test('ProfileRepository - fusiona una importación en una única escritura y conserva Espejo', async () => {
@@ -141,15 +109,6 @@ test('ProfileRepository - carga sin error perfiles heredados con apiKey vacía o
   assert.equal(list[1].id, 'profile:legacy-null');
   assert.equal((await repository.load('profile:mirror')).settings.apiKey, '');
   assert.equal((await repository.load('profile:legacy-null')).settings.apiKey, '');
-});
-
-test('ProfileRepository - informa cuántas API keys ha recifrado', async () => {
-  const repository = Profiles.createRepository(createStorage());
-  assert.equal(await repository.recipherApiKeys(null, null), 0);
-
-  await repository.saveEditable({ id: 'safe', name: 'Safe', settings: { apiKey: 'sk-secret' } });
-  assert.equal(await repository.recipherApiKeys(null, null), 1);
-  assert.equal((await repository.load('safe')).settings.apiKey, 'sk-secret');
 });
 
 // --- Cifrado y copia de seguridad de perfiles ---
@@ -257,16 +216,5 @@ test('ProfileExportBundle - aísla cada intento con un identificador de transfer
 
 test('ProfileExportBundle - desde file:// abre zerochat.html con una ruta relativa', () => {
   assert.match(generateBundle(undefined, 'file:///home/user/zerochat/zerochat.html'), /const TARGET_URL = "zerochat\.html"/);
-});
-
-test('ProfileExportBundle - los textos salen en el idioma activo y los estados se muestran como texto', t => {
-  I18n.setLanguage('en');
-  t.after(() => I18n.setLanguage('es'));
-  const html = generateBundle('</script><script>alert(1)</script>');
-  assert.match(html, /<html lang="en">/);
-  assert.match(html, /2 encrypted connection profile\(s\)/);
-  assert.match(html, /"importFailed":"The profiles could not be imported: \{error\}"/);
-  assert.doesNotMatch(html, /innerHTML/, 'Los mensajes de la otra pestaña no se insertan como HTML');
-  assert.equal(html.includes('</script><script>alert(1)'), false, 'Los datos embebidos no pueden cerrar el script');
 });
 

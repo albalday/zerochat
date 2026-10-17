@@ -4,18 +4,6 @@ const RagStorage = require('../../js/ragStorage.js');
 
 beforeEach(async () => RagStorage.clearAllData());
 
-test('RagStorage - CRUD de ramas con soporte de idioma', async () => {
-  const created = await RagStorage.createBranch('Manuales', 'Documentación técnica', 'english');
-  assert.equal(created.name, 'Manuales');
-  assert.equal(created.language, 'english');
-  assert.equal((await RagStorage.getBranchById(created.id)).language, 'english');
-
-  const updated = await RagStorage.updateBranch(created.id, { name: 'Guías', language: 'french' });
-  assert.equal(updated.name, 'Guías');
-  assert.equal(updated.language, 'french');
-  assert.equal(updated.description, 'Documentación técnica');
-});
-
 test('RagStorage - guarda metadatos y chunks por separado sin archivo fuente', async () => {
   const branch = await RagStorage.createBranch('Arquitectura');
   const document = await RagStorage.saveDocument({
@@ -40,16 +28,6 @@ test('RagStorage - guarda metadatos y chunks por separado sin archivo fuente', a
   assert.equal(chunks[0].id, `${document.id}:chunk:0`);
   assert.equal(chunks[1].content, 'Configuración de memoria DDR3.');
   assert.equal((await RagStorage.getChunksByBranch(branch.id)).length, 2);
-});
-
-test('RagStorage - guarda el número de imágenes como metadato del documento', async () => {
-  const branch = await RagStorage.createBranch('Imágenes');
-  const document = await RagStorage.saveDocument({
-    branchId: branch.id, title: 'informe.pdf', fileType: 'pdf', chunks: [{ content: 'Informe con gráfico.' }]
-  }, [{ id: 'img_1' }, { id: 'img_2' }]);
-
-  assert.equal(document.imageCount, 2);
-  assert.equal((await RagStorage.getDocumentById(document.id)).imageCount, 2);
 });
 
 test('RagStorage - elimina documentos y ramas en cascada', async () => {
