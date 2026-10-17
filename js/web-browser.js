@@ -8,12 +8,15 @@
  *    - Los navegadores web prohíben por defecto que el código JavaScript del cliente acceda
  *      directamente al contenido de orígenes web de terceros mediante fetch() o XMLHttpRequest
  *      a menos que el servidor de destino emita cabeceras 'Access-Control-Allow-Origin'.
- *    - Cero proxies de terceros: ZeroChat no utiliza intermediarios externos ni proxies públicos
- *      (como Jina Reader o servicios CORS ajenos). Las peticiones se realizan de forma directa y limpia
- *      o a través del backend local autorizado cuando esté conectado.
- *    - Sin backend, la petición del navegador solo lleva cabeceras CORS-safelisted (Accept): una
- *      cabecera como User-Agent provocaría una petición previa OPTIONS que muchos servidores
- *      rechazan. El User-Agent lo pone el backend.
+ *    - Casi ninguna web permite CORS, así que leerlas exige un proxy. webFetch elige la ruta:
+ *        a) Con el backend local conectado: el backend, para todo (leer y descargar).
+ *        b) Sin backend, para leer (search_web, fetch_web_page): Jina Reader (r.jina.ai) con
+ *           X-Return-Format: html, que devuelve el HTML de la página. No devuelve los bytes
+ *           originales de un fichero, así que no sirve para descargar.
+ *        c) Sin backend, para descargar (download_doc, download_image): petición directa del
+ *           navegador, que solo funciona con las webs que permiten CORS. Solo lleva la cabecera
+ *           Accept, CORS-safelisted: otra (como User-Agent) forzaría un preflight que muchos
+ *           servidores rechazan.
  *    - Estrategias de lectura desacopladas:
  *        a) Documentos Locales (LocalDocumentExtractor): Extracción directa en navegador para PDF y Office.
  *        b) Petición Directa (DirectFetch): Utilizada para servidores con CORS habilitado o a través del backend.
@@ -47,6 +50,7 @@
   const MAX_BINARY_BYTES = 10 * 1024 * 1024;
   const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
   const TRUNCATION_NOTICE = '\n\n[... Content truncated at the size limit ...]';
+  const JINA_READER_URL = 'https://r.jina.ai/';
 
   function getFileParser() {
     return resolveDep('ChatFileParser', './file-parser.js');
@@ -92,20 +96,8 @@
     };
   }
 
-  /**
-   * Petición web de ZeroChat: por el backend local autorizado si está conectado (sin CORS, con su
-   * User-Agent y su validación anti-SSRF) o, si no, con fetch del navegador y solo la cabecera
-   * Accept, que es CORS-safelisted. `truncated` indica que el backend cortó el cuerpo en `maxBytes`.
-   * @param {string} url
-   * @param {{ timeoutMs?: number, maxBytes?: number, binary?: boolean, accept?: string }} [options]
-   */
-  async function webFetch(url, { timeoutMs = 8000, maxBytes = DEFAULT_MAX_BYTES, binary = false, accept = '*/*' } = {}) {
-    const mcp = getMcpManager();
-    if (mcp.isProxyConnected()) {
-      return backendResponse(await mcp.fetchWebResource(url, { accept, timeoutMs, maxBytes, binary }));
-    }
-
-    const res = await fetchWithTimeout(url, { headers: { Accept: accept } }, timeoutMs);
+  /** Respuesta de fetch con la forma común de webFetch. */
+  function browserResponse(res, error) {
     return {
       ok: res.ok,
       status: res.status,
@@ -116,8 +108,43 @@
       text: () => res.text(),
       json: () => res.json(),
       arrayBuffer: () => res.arrayBuffer(),
-      error: res.ok ? undefined : `HTTP ${res.status}: ${res.statusText}`
+      error: res.ok ? undefined : error
     };
+  }
+
+  /** Mensaje de error de Jina Reader (`readableMessage` o `message` de su JSON) o el estado HTTP. */
+  async function readJinaError(res) {
+    try {
+      const data = await res.clone().json();
+      const detail = data?.readableMessage || data?.message;
+      if (typeof detail === 'string' && detail) return `Jina Reader answered HTTP ${res.status}: ${detail}`;
+    } catch (_) { /* cuerpo sin JSON: basta el estado */ }
+    return `Jina Reader answered HTTP ${res.status}`;
+  }
+
+  /**
+   * Petición web de ZeroChat. Elige el proxy, porque casi ninguna web permite CORS:
+   * - con el backend local conectado, el backend (sin CORS, con su User-Agent, su validación
+   *   anti-SSRF y `truncated` si el cuerpo supera `maxBytes`), para leer y para descargar;
+   * - sin backend y para leer (`binary` false), Jina Reader, que devuelve el HTML de la página;
+   * - sin backend y para descargar (`binary` true), fetch directo con solo Accept, que solo
+   *   funciona con las webs que permiten CORS.
+   * @param {string} url
+   * @param {{ timeoutMs?: number, maxBytes?: number, binary?: boolean, accept?: string }} [options]
+   */
+  async function webFetch(url, { timeoutMs = 8000, maxBytes = DEFAULT_MAX_BYTES, binary = false, accept = '*/*' } = {}) {
+    const mcp = getMcpManager();
+    if (mcp.isProxyConnected()) {
+      return backendResponse(await mcp.fetchWebResource(url, { accept, timeoutMs, maxBytes, binary }));
+    }
+
+    if (binary) {
+      const res = await fetchWithTimeout(url, { headers: { Accept: accept } }, timeoutMs);
+      return browserResponse(res, `HTTP ${res.status}: ${res.statusText}`);
+    }
+
+    const res = await fetchWithTimeout(`${JINA_READER_URL}${url}`, { headers: { Accept: 'text/html', 'X-Return-Format': 'html' } }, timeoutMs);
+    return browserResponse(res, res.ok ? undefined : await readJinaError(res));
   }
 
   /**
@@ -359,13 +386,14 @@
   }
 
   /**
-   * Estrategia de petición web mediante webFetch (vía backend local si está conectado, o directa en navegador).
+   * Estrategia de petición web mediante webFetch (vía backend local si está conectado o, si no, Jina Reader).
    * El tipo de documento se decide también por el Content-Type: un PDF sin extensión en la URL
    * llega del backend en base64 y se lee igual que uno con extensión.
    */
   class DirectFetchStrategy extends BaseFetchStrategy {
     constructor() {
-      super({ name: 'DirectFetch', timeoutMs: 10000 });
+      // Jina Reader tarda varios segundos en devolver la página.
+      super({ name: 'DirectFetch', timeoutMs: 20000 });
     }
 
     async canHandle() {
@@ -491,6 +519,8 @@
               strategy: result.strategy || strategy.name
             };
           }
+          // Un fallo sin excepción (HTTP o bloqueo del proxy) conserva su explicación para el modelo.
+          if (result?.error) lastError = new Error(result.error);
         } catch (err) {
           lastError = err;
           console.warn(`[WebBrowser] Strategy ${strategy.name} failed for ${url}:`, err.message);
@@ -560,7 +590,7 @@
         url,
         error: isTimeout
           ? `The download timed out after ${timeoutMs}ms.`
-          : `The ${resourceKind} could not be downloaded (${err?.message || 'connection error or network block'}).`,
+          : `The ${resourceKind} could not be downloaded (${err?.message || 'connection error or network block'}).${getMcpManager().isProxyConnected() ? '' : ' Without the local ZeroChat server, only sites that allow CORS can be downloaded.'}`,
         elapsedMs: calcElapsed()
       };
     }
