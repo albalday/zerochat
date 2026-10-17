@@ -40,7 +40,8 @@ export const GROUPS = {
     'tests/integration/test_agent_runtime.js',
     'tests/integration/test_delegate_task.js',
     'tests/browser/browser_conversation.test.js',
-    'tests/browser/browser_tool_cards.test.js'
+    'tests/browser/browser_tool_cards.test.js',
+    'tests/browser/browser_generation.test.js'
   ],
   profiles: [
     'tests/integration/test_profiles.js',

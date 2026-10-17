@@ -2,7 +2,6 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Status = require('../../js/ui-generation-status.js');
 const State = require('../../js/state.js');
-const { installDom } = require('../helpers/dom-env.js');
 
 test('GenerationStatus - getViewModel presenta progreso, pensamiento, herramientas y textos libres sin estado inactivo', () => {
   const loading = Status.getViewModel({ phase: 'loading', percent: 42 });
@@ -39,39 +38,6 @@ test('GenerationStatus - getViewModel presenta progreso, pensamiento, herramient
   const customStatus = Status.getViewModel({ message: 'Compilando código en sandbox...' });
   assert.equal(customStatus.active, true);
   assert.equal(customStatus.text, 'Compilando código en sandbox...');
-});
-
-test('GenerationStatus - render, setStatus y clearStatus muestran texto, progreso y ocultan al terminar', t => {
-  const dom = installDom({ app: true });
-  t.after(() => dom.restore());
-  const element = document.getElementById('generation-status');
-  const text = element.querySelector('.generation-status-text');
-  const progress = element.querySelector('.generation-status-progress');
-
-  Status.render(element, 'Analizando dependencias...');
-  assert.equal(element.hidden, false);
-  assert.equal(text.textContent, 'Analizando dependencias...');
-
-  Status.render(element, { text: 'Descargando paquete...', percent: 75 });
-  assert.equal(text.textContent, 'Descargando paquete... · 75 %');
-  assert.equal(progress.hidden, false);
-  assert.equal(progress.value, 75);
-
-  Status.render(element, { phase: 'idle' });
-  assert.equal(element.hidden, true);
-
-  Status.setStatus(element, { phase: 'tool', text: 'Ejecutando herramienta...' });
-  assert.equal(element.hidden, true, 'Sin generación en curso el indicador no se activa');
-
-  State.set('streaming', { isGenerating: true });
-  t.after(() => State.set('streaming', { isGenerating: false }));
-  Status.setStatus(element, { phase: 'tool', text: 'Ejecutando herramienta...' });
-  assert.equal(element.hidden, false);
-  assert.equal(element.dataset.phase, 'tool');
-  assert.equal(State.get('ui').generationStatus.phase, 'tool');
-  Status.clearStatus(element);
-  assert.equal(element.hidden, true);
-  assert.equal(State.get('ui').generationStatus.phase, 'idle');
 });
 
 test('GenerationStatus - integración con ChatState mutators', () => {

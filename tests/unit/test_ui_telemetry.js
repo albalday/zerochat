@@ -2,19 +2,12 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const UITelemetry = require('../../js/ui-telemetry.js');
 const ContextManager = require('../../js/context-manager.js');
-const I18n = require('../../js/i18n.js');
-const { installDom, getAppElements } = require('../helpers/dom-env.js');
 
 /** Sustituye los diagnósticos de ChatContextManager por unos fijos. */
 function useDiagnostics(t, diagnostics) {
   t.mock.method(ContextManager, 'getContextDiagnostics', (history, options) => ({ ...diagnostics, options }));
 }
 
-function setupDom(t) {
-  const dom = installDom({ app: true });
-  t.after(() => dom.restore());
-  return getAppElements(document);
-}
 
 test('UITelemetry - formatea y parsea recuentos de tokens y capacidades de contexto', () => {
   assert.equal(UITelemetry.formatTokenCount(0), '0');
@@ -119,60 +112,6 @@ test('UITelemetry - marca como asumida la capacidad cuando no la publica el serv
 
   assert.equal(vm.contextLimitSource, 'assumed');
   assert.equal(vm.badgeText, '~1.2k / 1M*');
-});
-
-test('UITelemetry - el botón muestra el uso, el semáforo y la píldora de caché', t => {
-  const elements = setupDom(t);
-  const vm = { badgeText: '90k / 128k', healthStatus: 'warning', cachedTokens: 2500, cachedFormatted: '2.5k' };
-  UITelemetry.renderTelemetry(elements, vm);
-  assert.equal(elements.connectionTokensText.textContent, '90k / 128k');
-  assert.ok(elements.connectionTokensBadge.classList.contains('status-warning'));
-  assert.equal(elements.connectionTokensBadge.hidden, false);
-  assert.equal(elements.connectionTokensBadge.title, I18n.t('context_hub_btn_title'));
-  assert.equal(elements.contextHubCachePill.hidden, false);
-  assert.equal(elements.contextHubCacheVal.textContent, '2.5k');
-
-  UITelemetry.renderTelemetry(elements, { ...vm, badgeText: '120k / 128k', healthStatus: 'critical', cachedTokens: 0, cachedFormatted: '0' });
-  assert.ok(!elements.connectionTokensBadge.classList.contains('status-warning'));
-  assert.ok(elements.connectionTokensBadge.classList.contains('status-critical'));
-  assert.equal(elements.contextHubCachePill.hidden, true);
-});
-
-test('UITelemetry - el panel solo se rellena abierto y el botón lo abre y cierra', t => {
-  const elements = setupDom(t);
-  useDiagnostics(t, { totalLimit: 128000, usedTokens: 10000, percentUsed: 7.8, isEstimated: false });
-  const vm = UITelemetry.computeTelemetryViewModel({ stats: { promptTokens: 10000 }, config: { model: 'm', modelContextLimit: 128000 }, chatHistory: [] });
-  let opened = 0;
-  UITelemetry.mount(elements, () => { opened++; UITelemetry.renderTelemetry(elements, vm, { forcePopover: true }); });
-
-  const initialUsed = elements.contextMetricUsedVal.textContent;
-  UITelemetry.renderTelemetry(elements, vm);
-  assert.equal(elements.contextMetricUsedVal.textContent, initialUsed, 'No actualiza el panel oculto');
-
-  elements.connectionTokensBadge.click();
-  assert.equal(elements.contextHubPopover.hidden, false);
-  assert.equal(elements.connectionTokensBadge.getAttribute('aria-expanded'), 'true');
-  assert.equal(opened, 1);
-  assert.equal(elements.contextMetricUsedVal.textContent, `${(10000).toLocaleString()} tok`);
-  assert.equal(elements.contextProgressBar.style.width, '7.8%');
-  assert.equal(elements.contextLimitOverrideInput.disabled, true, 'La capacidad del servidor no se edita');
-  assert.equal(elements.contextMetricStatusVal.textContent, I18n.t('context_status_ok'));
-
-  document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
-  assert.equal(elements.contextHubPopover.hidden, true);
-  elements.connectionTokensBadge.click();
-  document.body.click();
-  assert.equal(elements.contextHubPopover.hidden, true, 'Un clic fuera lo cierra');
-});
-
-test('UITelemetry - resetTelemetry deja el estado neutro de una conversación nueva', t => {
-  const elements = setupDom(t);
-  useDiagnostics(t, { totalLimit: 128000, usedTokens: 0, percentUsed: 0, isEstimated: false });
-  UITelemetry.resetTelemetry(elements, { model: 'gpt-4o', modelContextLimit: 128000 }, []);
-  assert.equal(elements.connectionTokensText.textContent, '0 / 128k');
-  assert.equal(elements.contextHubCachePill.hidden, true);
-  assert.equal(elements.contextProgressBar.style.width, '0%');
-  assert.equal(elements.contextMetricTurnPromptVal.textContent, '-');
 });
 
 test('TokenTelemetry - BaseProviderAdapter inyecta requestUsageStatistics en streaming independiente de promptCaching', () => {
