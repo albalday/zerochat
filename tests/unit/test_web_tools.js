@@ -6,7 +6,6 @@ const WebSearch = require('../../js/web-search.js');
 const WebBrowser = require('../../js/web-browser.js');
 const ChatMCP = require('../../js/mcp.js');
 const ChatUtils = require('../../js/utils.js');
-const { installDom } = require('../helpers/dom-env.js');
 
 test('SearchProvider - DuckDuckGo HTML parsing', () => {
   const ddg = new WebSearch.DuckDuckGoSearchProvider();
@@ -284,59 +283,6 @@ test('BinaryFetcher - transporte binario vía backend con límites en el borde (
   } finally {
     ChatMCP.manager.isProxyConnected = origIsProxyConnected;
     ChatMCP.manager.fetchWebResource = origFetchWebResource;
-  }
-});
-
-test('PageFetcher - extracción de imágenes HTML con URLs absolutas y filtrado de tracking', () => {
-  const dom = installDom();
-  try {
-    const html = `
-      <html>
-        <head><title>Artículo de prueba</title></head>
-        <body>
-          <main>
-            <h1>Titular</h1>
-            <p>Texto inicial</p>
-            <img src="/media/portada.jpg" alt="Foto de portada" />
-            <p>Segundo párrafo</p>
-            <img src="https://cdn.externo.com/chart.png" alt="Gráfico de ventas" />
-            <img src="/media/tracker.gif" width="1" height="1" alt="pixel" />
-            <img alt="Infografía" src="photo.jpg" width="200" height="150" />
-          </main>
-        </body>
-      </html>
-    `;
-
-    const extracted = WebBrowser.extractReadableTextFromHtml(html, 'https://example.com/articulos/hoy');
-    assert.ok(extracted.includes('![Foto de portada](https://example.com/media/portada.jpg)'), 'Debe convertir la imagen relativa a absoluta en su lugar');
-    assert.ok(extracted.includes('![Gráfico de ventas](https://cdn.externo.com/chart.png)'), 'Debe incluir la imagen con URL absoluta');
-    assert.ok(!extracted.includes('tracker.gif'), 'Debe omitir píxeles de tracking 1x1');
-    assert.ok(extracted.includes('![Infografía](https://example.com/articulos/photo.jpg)'), 'No debe descartar imágenes legítimas de 200px');
-    assert.ok(extracted.includes('[Images found on page: 3]'), 'Debe incluir el recuento en cabecera');
-    assert.ok(!extracted.includes('--- Images on page ---'), 'No debe duplicar las imágenes en una sección separada (F-08)');
-  } finally {
-    dom.restore();
-  }
-});
-
-test('PageFetcher - extracción por expresiones regulares respeta tamaños y orden de atributos', () => {
-  const html = `
-    <div>
-      <img alt="Logo" src="/img/logo.png" width="200">
-      <img src="https://cdn.org/pic.png" width="2" height="2">
-      <img src="//cdn.org/banner.webp" alt="Banner">
-    </div>
-  `;
-  // Sin DOMParser en el entorno para probar la ruta regex
-  const origDOMParser = global.DOMParser;
-  delete global.DOMParser;
-  try {
-    const extracted = WebBrowser.extractReadableTextFromHtml(html, 'https://example.com/sub/');
-    assert.ok(extracted.includes('![Logo](https://example.com/img/logo.png)'), 'Extrae alt anterior a src y no descarta 200px');
-    assert.ok(!extracted.includes('pic.png'), 'Descarta imagen tracker 2x2');
-    assert.ok(extracted.includes('![Banner](https://cdn.org/banner.webp)'), 'Resuelve URL protocol-relative');
-  } finally {
-    global.DOMParser = origDOMParser;
   }
 });
 

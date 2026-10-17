@@ -2,10 +2,8 @@ const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { installDom } = require('../helpers/dom-env.js');
 const { toFile } = require('../helpers/files.js');
 
-installDom();
 const RagStorage = require('../../js/ragStorage.js');
 const RagIndex = require('../../js/rag-index.js');
 const Ingestion = require('../../js/ingestionEngine.js');
@@ -23,7 +21,7 @@ beforeEach(async () => {
 test('Ingesta RAG: los documentos ofimáticos se indexan con sus imágenes antes del rechazo de ZIP', async () => {
   const branch = await RagStorage.createBranch('Ofimática');
   const result = await Ingestion.processDocumentQueue([
-    fixtureFile('pandoc.docx', 'informe.docx'),
+    fixtureFile('pandoc.odt', 'informe.odt'),
     fixtureFile('libreoffice.pptx', 'charla.pptx'),
     fixtureFile('libreoffice.ods', 'ventas.ods'),
     toFile({ name: 'acta.doc', type: 'application/msword', content: new Uint8Array([0xD0, 0xCF, 0x11, 0xE0]) }),
@@ -37,23 +35,23 @@ test('Ingesta RAG: los documentos ofimáticos se indexan con sus imágenes antes
 
   const documents = await RagStorage.getDocumentsByBranch(branch.id);
   const byTitle = Object.fromEntries(documents.map(document => [document.title, document]));
-  assert.deepEqual(Object.keys(byTitle).sort(), ['charla.pptx', 'informe.docx', 'ventas.ods']);
-  assert.equal(byTitle['informe.docx'].fileType, 'docx');
+  assert.deepEqual(Object.keys(byTitle).sort(), ['charla.pptx', 'informe.odt', 'ventas.ods']);
+  assert.equal(byTitle['informe.odt'].fileType, 'odt');
   assert.equal(byTitle['charla.pptx'].fileType, 'pptx');
   assert.equal(byTitle['ventas.ods'].fileType, 'ods');
   for (const document of documents) assert.equal(document.imageCount, 1, document.title);
 
-  const docxImages = await RagStorage.getDocumentImages(byTitle['informe.docx'].id);
-  assert.equal(docxImages[0].mimeType, 'image/png');
-  const docxChunks = await RagStorage.getChunksByDocument(byTitle['informe.docx'].id);
-  assert.ok(docxChunks.some(chunk => chunk.content.includes(`rag-image://${byTitle['informe.docx'].id}:img_1`)));
+  const textImages = await RagStorage.getDocumentImages(byTitle['informe.odt'].id);
+  assert.equal(textImages[0].mimeType, 'image/png');
+  const textChunks = await RagStorage.getChunksByDocument(byTitle['informe.odt'].id);
+  assert.ok(textChunks.some(chunk => chunk.content.includes(`rag-image://${byTitle['informe.odt'].id}:img_1`)));
 
   const slideChunks = await RagStorage.getChunksByDocument(byTitle['charla.pptx'].id);
   assert.equal(Math.min(...slideChunks.map(chunk => chunk.pageStart)), 1);
   assert.equal(Math.max(...slideChunks.map(chunk => chunk.pageEnd)), 2);
 
   const found = await RagIndex.searchBranch(branch.id, 'Café', { tolerance: 0 });
-  assert.ok(found.hits.some(hit => hit.documentTitle === 'informe.docx'));
+  assert.ok(found.hits.some(hit => hit.documentTitle === 'informe.odt'));
   assert.ok(found.hits.some(hit => hit.documentTitle === 'ventas.ods'));
 });
 
@@ -62,7 +60,7 @@ test('Herramientas web: un documento ofimático se descarga y lee en local, sin 
   const requested = [];
   global.fetch = async url => {
     requested.push(String(url));
-    if (url === 'https://example.com/files/informe.docx') return new Response(fixtureBytes('pandoc.docx'), { headers: { 'content-type': 'application/octet-stream' } });
+    if (url === 'https://example.com/files/informe.odt') return new Response(fixtureBytes('pandoc.odt'), { headers: { 'content-type': 'application/octet-stream' } });
     if (url === 'https://example.com/export?id=7') {
       return new Response(fixtureBytes('exceljs.xlsx'), { headers: { 'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' } });
     }
@@ -70,14 +68,14 @@ test('Herramientas web: un documento ofimático se descarga y lee en local, sin 
     return new Response('gateway unavailable', { status: 503 });
   };
   try {
-    const docx = await WebBrowser.fetchPage('https://example.com/files/informe.docx');
-    assert.equal(docx.success, true);
-    assert.equal(docx.strategy, 'LocalDocumentExtractor');
-    assert.match(docx.content, /^\[Word document: informe\.docx\]\n\[URL: https:\/\/example\.com\/files\/informe\.docx\]/);
-    assert.match(docx.content, /^# Informe trimestral$/m);
-    assert.match(docx.content, /\[Image: Logo rojo\]/);
-    assert.doesNotMatch(docx.content, /rag-image:/);
-    assert.deepEqual(requested, ['https://example.com/files/informe.docx']);
+    const text = await WebBrowser.fetchPage('https://example.com/files/informe.odt');
+    assert.equal(text.success, true);
+    assert.equal(text.strategy, 'LocalDocumentExtractor');
+    assert.match(text.content, /^\[OpenDocument text: informe\.odt\]\n\[URL: https:\/\/example\.com\/files\/informe\.odt\]/);
+    assert.match(text.content, /^# Informe trimestral$/m);
+    assert.match(text.content, /\[Image: Image 1 \(page 1\)\]/);
+    assert.doesNotMatch(text.content, /rag-image:/);
+    assert.deepEqual(requested, ['https://example.com/files/informe.odt']);
 
     const sheet = await WebBrowser.fetchPage('https://example.com/export?id=7');
     assert.equal(sheet.success, true);

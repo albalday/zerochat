@@ -118,6 +118,85 @@ describe('Browser - documents', () => {
     });
   });
 
+  // docx pasa por mammoth y el DOMParser del navegador; el resto de formatos se prueba en Node.
+  test('Browser - docx se convierte a Markdown con formato, listas, tablas e imágenes', async () => {
+    await withTestApp(async page => {
+      const errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      const files = [
+        ['pandoc.docx', 'pandoc.docx'],
+        ['libreoffice.docx', 'libreoffice.docx'],
+        ['linked-image.docx', 'linked-image.docx'],
+        ['pandoc.docx', 'informe.docm']
+      ].map(([name, as]) => ({ as, base64: fs.readFileSync(path.join(FIXTURES, name)).toString('base64') }));
+      const parsed = await page.evaluate(async files => {
+        const output = {};
+        for (const { as, base64 } of files) {
+          const bytes = Uint8Array.from(atob(base64), char => char.charCodeAt(0));
+          const { text, images } = await ChatOfficeParser.parseOfficeDocument(bytes.buffer, as);
+          output[as] = { text, images: images.map(image => ({ id: image.id, mimeType: image.mimeType, page: image.page, png: image.dataUrl.startsWith('data:image/png;base64,iVBORw0KGgo') })) };
+        }
+        return output;
+      }, files);
+
+      for (const name of ['pandoc.docx', 'libreoffice.docx']) {
+        const { text, images } = parsed[name];
+        assert.match(text, /^# Informe trimestral$/m, name);
+        assert.match(text, /^## Anexo$/m, name);
+        assert.match(text, /\*\*negrita\*\*/, name);
+        assert.match(text, /\[enlace\]\(https:\/\/example\.com\/?\)/, name);
+        assert.match(text, /^- Uno\n- Dos\n {2}- Dos punto uno$/m, name);
+        assert.match(text, /^1\. Primero\n2\. Segundo$/m, name);
+        assert.match(text, /^\| Producto \| Ventas \|\n\| --- \| --- \|\n\| Café \| 120 \|\n\| Té \\\| verde \| 80 \|$/m, name);
+        assert.match(text, /!\[[^\]]+\]\(rag-image:\/\/__DOC_ID__:img_1\)/, name);
+        assert.deepEqual(images, [{ id: 'img_1', mimeType: 'image/png', page: 1, png: true }], name);
+      }
+
+      const linked = parsed['linked-image.docx'];
+      assert.match(linked.text, /\[Image not shown: Logo rojo \(linked external image\)\]/);
+      assert.doesNotMatch(linked.text, /example\.com\/logo\.png/);
+      assert.deepEqual(linked.images, []);
+
+      assert.match(parsed['informe.docm'].text, /^# Informe trimestral$/m, 'Un documento con macros se lee como su formato base');
+      assert.deepEqual(errors, []);
+    });
+  });
+
+  test('Browser - la extracción HTML resuelve imágenes relativas y descarta píxeles de seguimiento', async () => {
+    await withTestApp(async page => {
+      const extracted = await page.evaluate(() => ChatWebBrowser.extractReadableTextFromHtml(`
+        <html>
+          <head><title>Artículo de prueba</title></head>
+          <body>
+            <nav>Menú</nav>
+            <main>
+              <h1>Titular</h1>
+              <p>Texto inicial</p>
+              <img src="/media/portada.jpg" alt="Foto de portada" />
+              <p>Segundo párrafo</p>
+              <img src="https://cdn.externo.com/chart.png" alt="Gráfico de ventas" />
+              <img src="/media/tracker.gif" width="1" height="1" alt="pixel" />
+              <img src="https://cdn.org/pic.png" width="2" height="2">
+              <img alt="Infografía" src="photo.jpg" width="200" height="150" />
+              <img src="//cdn.org/banner.webp" alt="Banner">
+              <script>alert(1)</script>
+            </main>
+          </body>
+        </html>
+      `, 'https://example.com/articulos/hoy'));
+
+      assert.match(extracted, /^\[Title: Artículo de prueba\]\n\[URL: https:\/\/example\.com\/articulos\/hoy\]\n\[Images found on page: 4\]\n\n--- Page content ---\n/);
+      assert.ok(extracted.includes('Titular') && extracted.includes('Segundo párrafo'));
+      assert.ok(extracted.includes('![Foto de portada](https://example.com/media/portada.jpg)'), 'La imagen relativa pasa a absoluta en su lugar');
+      assert.ok(extracted.includes('![Gráfico de ventas](https://cdn.externo.com/chart.png)'));
+      assert.ok(extracted.includes('![Infografía](https://example.com/articulos/photo.jpg)'), 'No descarta imágenes legítimas de 200px');
+      assert.ok(extracted.includes('![Banner](https://cdn.org/banner.webp)'), 'Resuelve URL protocol-relative');
+      assert.ok(!extracted.includes('tracker.gif') && !extracted.includes('pic.png'), 'Omite píxeles de seguimiento de 1x1 y 2x2');
+      assert.ok(!extracted.includes('Menú') && !extracted.includes('alert(1)'), 'Descarta navegación y scripts');
+      assert.ok(!extracted.includes('--- Images on page ---'), 'No duplica las imágenes en una sección aparte');
+    });
+  });
+
   test('Browser - la base de conocimiento indexa documentos ofimáticos con sus imágenes', async () => {
     await withTestApp(async page => {
       const errors = [];

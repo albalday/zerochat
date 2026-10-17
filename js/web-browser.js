@@ -157,84 +157,57 @@
 
 
   /**
-   * Extrae el texto legible y estructurado de un documento HTML local.
+   * Extrae el texto legible y estructurado de un documento HTML con el DOMParser del navegador.
    */
   function extractReadableTextFromHtml(htmlString, targetUrl) {
-    try {
-      if (typeof DOMParser !== 'undefined') {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(htmlString, 'text/html');
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlString, 'text/html');
 
-        const elementsToRemove = doc.querySelectorAll('script, style, noscript, iframe, svg, canvas, nav, footer, form');
-        elementsToRemove.forEach(el => el.remove());
+    const elementsToRemove = doc.querySelectorAll('script, style, noscript, iframe, svg, canvas, nav, footer, form');
+    elementsToRemove.forEach(el => el.remove());
 
-        const title = doc.querySelector('title') ? doc.querySelector('title').innerText.trim() : '';
-        const metaDesc = doc.querySelector('meta[name="description"]') ? doc.querySelector('meta[name="description"]').getAttribute('content') : '';
+    const title = doc.querySelector('title') ? doc.querySelector('title').innerText.trim() : '';
+    const metaDesc = doc.querySelector('meta[name="description"]') ? doc.querySelector('meta[name="description"]').getAttribute('content') : '';
 
-        const mainElement = doc.querySelector('main, article, #content, .content, #main, .main-content') || doc.body;
+    const mainElement = doc.querySelector('main, article, #content, .content, #main, .main-content') || doc.body;
 
-        const imagesFound = [];
-        const seenUrls = new Set();
-        const imgNodes = (mainElement || doc.body).querySelectorAll('img');
-        imgNodes.forEach(img => {
-          const rawSrc = img.getAttribute('src') || img.src || '';
-          const resolvedSrc = resolveImageUrl(rawSrc, targetUrl);
-          if (!resolvedSrc || seenUrls.has(resolvedSrc)) return;
-          const width = parseInt(img.getAttribute('width') || '', 10);
-          const height = parseInt(img.getAttribute('height') || '', 10);
-          if ((width && width <= 2) || (height && height <= 2)) return;
+    const imagesFound = [];
+    const seenUrls = new Set();
+    const imgNodes = (mainElement || doc.body).querySelectorAll('img');
+    imgNodes.forEach(img => {
+      const rawSrc = img.getAttribute('src') || img.src || '';
+      const resolvedSrc = resolveImageUrl(rawSrc, targetUrl);
+      if (!resolvedSrc || seenUrls.has(resolvedSrc)) return;
+      const width = parseInt(img.getAttribute('width') || '', 10);
+      const height = parseInt(img.getAttribute('height') || '', 10);
+      if ((width && width <= 2) || (height && height <= 2)) return;
 
-          seenUrls.add(resolvedSrc);
-          const altText = (img.getAttribute('alt') || img.getAttribute('title') || '').trim();
-          imagesFound.push({ url: resolvedSrc, alt: altText });
+      seenUrls.add(resolvedSrc);
+      const altText = (img.getAttribute('alt') || img.getAttribute('title') || '').trim();
+      imagesFound.push({ url: resolvedSrc, alt: altText });
 
-          const label = altText || 'Image';
-          const replacement = doc.createTextNode(`\n\n![${label}](${resolvedSrc})\n\n`);
-          img.replaceWith(replacement);
-        });
+      const label = altText || 'Image';
+      const replacement = doc.createTextNode(`\n\n![${label}](${resolvedSrc})\n\n`);
+      img.replaceWith(replacement);
+    });
 
-        let text = mainElement ? (mainElement.innerText || mainElement.textContent || '') : '';
+    let text = mainElement ? (mainElement.innerText || mainElement.textContent || '') : '';
 
-        text = text.replace(/\r\n/g, '\n')
-                   .replace(/[ \t]+/g, ' ')
-                   .replace(/\n\s*\n\s*\n+/g, '\n\n')
-                   .trim();
+    text = text.replace(/\r\n/g, '\n')
+               .replace(/[ \t]+/g, ' ')
+               .replace(/\n\s*\n\s*\n+/g, '\n\n')
+               .trim();
 
-        let headerInfo = `[Title: ${title || 'Untitled'}]\n[URL: ${targetUrl}]\n`;
-        if (metaDesc) headerInfo += `[Description: ${metaDesc}]\n`;
-        if (imagesFound.length > 0) headerInfo += `[Images found on page: ${imagesFound.length}]\n`;
-        headerInfo += '\n--- Page content ---\n';
+    let headerInfo = `[Title: ${title || 'Untitled'}]\n[URL: ${targetUrl}]\n`;
+    if (metaDesc) headerInfo += `[Description: ${metaDesc}]\n`;
+    if (imagesFound.length > 0) headerInfo += `[Images found on page: ${imagesFound.length}]\n`;
+    headerInfo += '\n--- Page content ---\n';
 
-        const fullOutput = headerInfo + text;
-        if (fullOutput.length > MAX_CONTENT_LENGTH) {
-          return fullOutput.slice(0, MAX_CONTENT_LENGTH) + '\n\n[... Content truncated at the size limit ...]';
-        }
-        return fullOutput;
-      }
-    } catch (e) { /* DOMParser no disponible o HTML ilegible: se usa la extracción por expresiones regulares */ }
-
-    // Fallback simple basado en expresiones regulares para Node.js o entornos sin DOMParser
-    let cleanText = htmlString
-      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
-      .replace(/<img\b([^>]*)>/gi, (match, attrs) => {
-        if (/\b(?:width|height)=["']?[0-2](?:px)?["']?(?:\s|>|$)/i.test(attrs)) return ' ';
-        const srcMatch = attrs.match(/\bsrc=["']([^"']+)["']/i);
-        if (!srcMatch) return ' ';
-        const resolved = resolveImageUrl(srcMatch[1], targetUrl);
-        if (!resolved) return ' ';
-        const altMatch = attrs.match(/\b(?:alt|title)=["']([^"']*)["']/i);
-        const label = (altMatch ? altMatch[1] : '').trim() || 'Image';
-        return `\n\n![${label}](${resolved})\n\n`;
-      })
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/[ \t]+/g, ' ')
-      .replace(/\n\s*\n+/g, '\n\n')
-      .trim();
-
-    return cleanText.length > MAX_CONTENT_LENGTH
-      ? cleanText.slice(0, MAX_CONTENT_LENGTH) + '\n\n[... Content truncated at the size limit ...]'
-      : cleanText;
+    const fullOutput = headerInfo + text;
+    if (fullOutput.length > MAX_CONTENT_LENGTH) {
+      return fullOutput.slice(0, MAX_CONTENT_LENGTH) + '\n\n[... Content truncated at the size limit ...]';
+    }
+    return fullOutput;
   }
 
   function documentFileName(url) {

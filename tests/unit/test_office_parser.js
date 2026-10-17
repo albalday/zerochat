@@ -2,9 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { installDom } = require('../helpers/dom-env.js');
 
-installDom();
 const OfficeParser = require('../../js/office-parser.js');
 
 const FIXTURES = path.resolve(__dirname, '../fixtures/office');
@@ -43,20 +41,7 @@ test('getOfficeDocumentKind devuelve el nombre legible según la tabla unificada
   assert.equal(OfficeParser.getOfficeDocumentKind('unknown'), 'Office document');
 });
 
-for (const fixture of ['pandoc.docx', 'libreoffice.docx']) {
-  test(`docx (${fixture}): títulos, formato, enlaces, listas, tablas e imágenes en Markdown`, async () => {
-    const { text, images } = await parseFixture(fixture);
-    assert.match(text, /^# Informe trimestral$/m);
-    assert.match(text, /^## Anexo$/m);
-    assert.match(text, /\*\*negrita\*\*/);
-    assert.match(text, /\[enlace\]\(https:\/\/example\.com\/?\)/);
-    assert.match(text, /^- Uno\n- Dos\n {2}- Dos punto uno$/m);
-    assert.match(text, /^1\. Primero\n2\. Segundo$/m);
-    assert.match(text, /^\| Producto \| Ventas \|\n\| --- \| --- \|\n\| Café \| 120 \|\n\| Té \\\| verde \| 80 \|$/m);
-    assert.match(text, /!\[[^\]]+\]\(rag-image:\/\/__DOC_ID__:img_1\)/);
-    assertRedPng(images, 1);
-  });
-}
+// docx se convierte con mammoth y el DOMParser del navegador: lo cubre browser_documents.
 
 for (const fixture of ['pandoc.odt', 'libreoffice.odt']) {
   test(`odt (${fixture}): títulos, enlaces, listas numeradas, tablas e imágenes`, async () => {
@@ -101,20 +86,10 @@ for (const fixture of ['exceljs.xlsx', 'libreoffice.xlsx', 'libreoffice.ods']) {
   });
 }
 
-test('las imágenes EMF y las enlazadas a URL externas quedan como marcadores de texto', async () => {
+test('las imágenes EMF quedan como marcadores de texto', async () => {
   const emf = await parseFixture('emf-image.pptx');
   assert.match(emf.text, /\[Image not shown: Image 1 \(slide 2\) \(EMF format is not supported\)\]/);
   assert.deepEqual(emf.images, []);
-
-  const linked = await parseFixture('linked-image.docx');
-  assert.match(linked.text, /\[Image not shown: Logo rojo \(linked external image\)\]/);
-  assert.doesNotMatch(linked.text, /example\.com\/logo\.png/);
-  assert.deepEqual(linked.images, []);
-});
-
-test('un documento con macros se lee como su formato base sin ejecutar nada', async () => {
-  const { text } = await parseFixture('pandoc.docx', 'informe.docm');
-  assert.match(text, /^# Informe trimestral$/m);
 });
 
 test('los formatos binarios antiguos y los archivos dañados se rechazan con un mensaje claro', async () => {
