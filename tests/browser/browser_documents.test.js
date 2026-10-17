@@ -197,6 +197,46 @@ describe('Browser - documents', () => {
     });
   });
 
+  test('Browser - search_web pide la clave de Tavily la primera vez, con enlace para conseguirla, y la guarda', async () => {
+    await withTestApp(async page => {
+      await page.evaluate(() => {
+        window.__tavilyRequests = [];
+        window.fetch = async (url, init) => {
+          window.__tavilyRequests.push({ url: String(url), authorization: init?.headers?.Authorization });
+          return Response.json({ results: [{ title: 'Sol', url: 'https://example.com/sol', content: 'Estrella' }] });
+        };
+        const tool = ChatAgentCore.registry.getTool('search_web');
+        window.__search = tool.execute({ query: 'sol' }, { services: { webSearch: ChatWebSearch } });
+      });
+
+      const dialog = page.locator('#notice-dialog');
+      await dialog.waitFor({ state: 'visible' });
+      const link = page.locator('#notice-link');
+      assert.equal(await link.getAttribute('href'), 'https://app.tavily.com');
+      assert.equal(await link.getAttribute('target'), '_blank');
+      assert.ok(await link.isVisible());
+      await page.locator('#notice-input').fill('  tvly-abc ');
+      await page.locator('#notice-accept').click();
+
+      const result = await page.evaluate(async () => {
+        const first = await window.__search;
+        // Con la clave guardada, la siguiente búsqueda no vuelve a preguntar.
+        const second = await ChatAgentCore.registry.getTool('search_web').execute({ query: 'luna' }, { services: { webSearch: ChatWebSearch } });
+        return { first: first.count, second: second.count, stored: ChatWebSearch.getApiKey(), requests: window.__tavilyRequests };
+      });
+      assert.deepEqual(result, {
+        first: 1,
+        second: 1,
+        stored: 'tvly-abc',
+        requests: [
+          { url: 'https://api.tavily.com/search', authorization: 'Bearer tvly-abc' },
+          { url: 'https://api.tavily.com/search', authorization: 'Bearer tvly-abc' }
+        ]
+      });
+      assert.equal(await page.locator('#notice-link').isVisible(), false);
+    });
+  });
+
   test('Browser - la base de conocimiento indexa documentos ofimáticos con sus imágenes', async () => {
     await withTestApp(async page => {
       const errors = [];

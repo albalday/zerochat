@@ -11,9 +11,12 @@
  *    - Cero proxies de terceros: ZeroChat no utiliza intermediarios externos ni proxies públicos
  *      (como Jina Reader o servicios CORS ajenos). Las peticiones se realizan de forma directa y limpia
  *      o a través del backend local autorizado cuando esté conectado.
+ *    - Sin backend, la petición del navegador solo lleva cabeceras CORS-safelisted (Accept): una
+ *      cabecera como User-Agent provocaría una petición previa OPTIONS que muchos servidores
+ *      rechazan. El User-Agent lo pone el backend.
  *    - Estrategias de lectura desacopladas:
  *        a) Documentos Locales (LocalDocumentExtractor): Extracción directa en navegador para PDF y Office.
- *        b) Petición Directa (DirectFetch): Utilizada para servidores con CORS habilitado o endpoints locales.
+ *        b) Petición Directa (DirectFetch): Utilizada para servidores con CORS habilitado o a través del backend.
  *
  * 2. Mitigación de SSRF (Server-Side Request Forgery) en el Cliente Web:
  *    - Los agentes LLM pueden recibir o generar URLs arbitrarias. ZeroChat aplica validación estricta
@@ -41,6 +44,9 @@
 
   const MAX_CONTENT_LENGTH = 60000;
   const DEFAULT_TIMEOUT_MS = 12000;
+  const MAX_BINARY_BYTES = 10 * 1024 * 1024;
+  const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
+  const TRUNCATION_NOTICE = '\n\n[... Content truncated at the size limit ...]';
 
   function getFileParser() {
     return resolveDep('ChatFileParser', './file-parser.js');
@@ -49,12 +55,75 @@
     return resolveDep('ChatOfficeParser', './office-parser.js');
   }
 
-  const { resolveDep, webFetch, bytesToBase64, formatBytes, IMAGE_MIME_TYPES, SAFE_IMAGE_MIME_TYPES } = Utils;
+  const { resolveDep, fetchWithTimeout, bytesToBase64, formatBytes, IMAGE_MIME_TYPES, SAFE_IMAGE_MIME_TYPES } = Utils;
+
+  const getMcpManager = () => resolveDep('ChatMCP', './mcp.js').manager;
+
+  function base64ToArrayBuffer(base64String) {
+    const binary = atob(base64String || '');
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  /** Respuesta del backend con la forma de Response que consumen las estrategias. */
+  function backendResponse(res) {
+    const ok = Boolean(res?.ok) && res.status >= 200 && res.status < 300;
+    const status = res?.status || 0;
+    const headers = res?.headers || {};
+    return {
+      ok,
+      status,
+      statusText: ok ? 'OK' : (res?.error || 'Error'),
+      headers: {
+        get: name => {
+          const lower = String(name).toLowerCase();
+          const entry = Object.entries(headers).find(([key]) => key.toLowerCase() === lower);
+          if (entry) return entry[1];
+          return lower === 'content-type' ? (res?.content_type || '') : null;
+        }
+      },
+      byteSize: res?.byte_size || 0,
+      truncated: res?.truncated === true,
+      text: async () => (typeof res?.text === 'string' ? res.text : new TextDecoder().decode(base64ToArrayBuffer(res?.base64))),
+      json: async () => JSON.parse(typeof res?.text === 'string' ? res.text : new TextDecoder().decode(base64ToArrayBuffer(res?.base64))),
+      arrayBuffer: async () => (typeof res?.base64 === 'string' ? base64ToArrayBuffer(res.base64) : new TextEncoder().encode(res?.text || '').buffer),
+      error: ok ? undefined : (res?.error || `HTTP ${status}`)
+    };
+  }
+
+  /**
+   * Petición web de ZeroChat: por el backend local autorizado si está conectado (sin CORS, con su
+   * User-Agent y su validación anti-SSRF) o, si no, con fetch del navegador y solo la cabecera
+   * Accept, que es CORS-safelisted. `truncated` indica que el backend cortó el cuerpo en `maxBytes`.
+   * @param {string} url
+   * @param {{ timeoutMs?: number, maxBytes?: number, binary?: boolean, accept?: string }} [options]
+   */
+  async function webFetch(url, { timeoutMs = 8000, maxBytes = DEFAULT_MAX_BYTES, binary = false, accept = '*/*' } = {}) {
+    const mcp = getMcpManager();
+    if (mcp.isProxyConnected()) {
+      return backendResponse(await mcp.fetchWebResource(url, { accept, timeoutMs, maxBytes, binary }));
+    }
+
+    const res = await fetchWithTimeout(url, { headers: { Accept: accept } }, timeoutMs);
+    return {
+      ok: res.ok,
+      status: res.status,
+      statusText: res.statusText,
+      headers: res.headers,
+      byteSize: 0,
+      truncated: false,
+      text: () => res.text(),
+      json: () => res.json(),
+      arrayBuffer: () => res.arrayBuffer(),
+      error: res.ok ? undefined : `HTTP ${res.status}: ${res.statusText}`
+    };
+  }
 
   /**
    * Analiza y normaliza posibles evasiones numéricas (decimal, octal, hex) y rangos privados/locales de direcciones IP.
    */
-  function isDangerousIpAddress(hostname, allowLocal = false) {
+  function isDangerousIpAddress(hostname) {
     if (!hostname) return false;
     const cleanHost = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '');
 
@@ -87,14 +156,12 @@
       }
     }
 
-    // Si no se permiten recursos locales/internos, bloquear loopback y rangos privados
-    if (!allowLocal) {
-      if (cleanHost === 'localhost' || cleanHost === '0.0.0.0' || cleanHost === '127.0.0.1' || cleanHost.startsWith('127.') || cleanHost === '::1' || cleanHost === '0:0:0:0:0:0:0:1') {
-        return true;
-      }
-      if (cleanHost.startsWith('192.168.') || cleanHost.startsWith('10.') || /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(cleanHost) || cleanHost.startsWith('169.254.')) {
-        return true;
-      }
+    // Loopback y rangos privados
+    if (cleanHost === 'localhost' || cleanHost === '0.0.0.0' || cleanHost === '127.0.0.1' || cleanHost.startsWith('127.') || cleanHost === '::1' || cleanHost === '0:0:0:0:0:0:0:1') {
+      return true;
+    }
+    if (cleanHost.startsWith('192.168.') || cleanHost.startsWith('10.') || /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(cleanHost) || cleanHost.startsWith('169.254.')) {
+      return true;
     }
 
     return false;
@@ -103,7 +170,7 @@
   /**
    * Valida la URL de destino para prevenir SSRF en servicios de metadatos o esquemas no seguros.
    */
-  function validateUrlForFetch(rawUrl, options = {}) {
+  function validateUrlForFetch(rawUrl) {
     if (!rawUrl || typeof rawUrl !== 'string') {
       return { valid: false, error: 'No valid URL was given.' };
     }
@@ -126,8 +193,7 @@
       }
 
       const hostname = parsed.hostname.toLowerCase();
-      const allowLocal = options.allowLocal === true;
-      if (isDangerousIpAddress(hostname, allowLocal)) {
+      if (isDangerousIpAddress(hostname)) {
         return { valid: false, error: 'Acceso bloqueado: intento de acceso a servicios internos, recursos locales o de metadatos de infraestructura (SSRF protection).' };
       }
 
@@ -205,7 +271,7 @@
 
     const fullOutput = headerInfo + text;
     if (fullOutput.length > MAX_CONTENT_LENGTH) {
-      return fullOutput.slice(0, MAX_CONTENT_LENGTH) + '\n\n[... Content truncated at the size limit ...]';
+      return fullOutput.slice(0, MAX_CONTENT_LENGTH) + TRUNCATION_NOTICE;
     }
     return fullOutput;
   }
@@ -294,25 +360,24 @@
 
   /**
    * Estrategia de petición web mediante webFetch (vía backend local si está conectado, o directa en navegador).
+   * El tipo de documento se decide también por el Content-Type: un PDF sin extensión en la URL
+   * llega del backend en base64 y se lee igual que uno con extensión.
    */
   class DirectFetchStrategy extends BaseFetchStrategy {
     constructor() {
       super({ name: 'DirectFetch', timeoutMs: 10000 });
     }
 
-    async canHandle(url, context = {}) {
+    async canHandle() {
       return true;
     }
 
-    async fetch(url, context = {}) {
+    async fetch(url) {
       const fileName = documentFileName(url);
-      const isDocument = Boolean(detectDocumentType(fileName));
-
       const res = await webFetch(url, {
         timeoutMs: this.timeoutMs,
-        maxBytes: MAX_CONTENT_LENGTH * 2,
-        binary: isDocument,
-        allowLocal: context.isLocalUrl,
+        maxBytes: MAX_BINARY_BYTES,
+        binary: Boolean(detectDocumentType(fileName)),
         accept: 'text/html,application/xhtml+xml,application/json,application/pdf,text/plain;q=0.9,*/*;q=0.8'
       });
 
@@ -329,23 +394,23 @@
 
       const contentType = (res.headers.get('content-type') || '').toLowerCase();
       const docType = detectDocumentType(fileName, contentType);
-      const isPdf = docType === 'pdf';
 
       let content = '';
       let byteSize = 0;
 
       if (docType) {
+        // Un documento cortado no se puede leer: se rechaza en vez de extraer un fichero incompleto.
+        if (res.truncated) throw new Error(`Document exceeds the size limit of ${formatBytes(MAX_BINARY_BYTES)}.`);
         const arrayBuffer = await res.arrayBuffer();
         byteSize = arrayBuffer.byteLength;
         content = await describeDownloadedDocument(arrayBuffer, url, contentType, docType);
       } else {
         const rawText = await res.text();
         byteSize = res.byteSize || rawText.length;
-        if (rawText.includes('<html') || rawText.includes('<!DOCTYPE')) {
-          content = extractReadableTextFromHtml(rawText, url);
-        } else {
-          content = rawText;
-        }
+        content = (rawText.includes('<html') || rawText.includes('<!DOCTYPE'))
+          ? extractReadableTextFromHtml(rawText, url)
+          : rawText;
+        if (res.truncated) content += TRUNCATION_NOTICE;
       }
 
       return {
@@ -353,7 +418,7 @@
         content: content,
         byteSize: byteSize,
         status: res.status,
-        isPdf: isPdf,
+        isPdf: docType === 'pdf',
         strategy: this.name
       };
     }
@@ -373,8 +438,8 @@
     /**
      * Ejecuta las estrategias en orden hasta obtener una respuesta exitosa.
      */
-    async fetch(rawUrl, options = {}) {
-      const validation = validateUrlForFetch(rawUrl, options);
+    async fetch(rawUrl) {
+      const validation = validateUrlForFetch(rawUrl);
       if (!validation.valid) {
         return {
           success: false,
@@ -387,18 +452,15 @@
 
       const url = validation.url;
       const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      const isLocalUrl = /^(localhost|127\.0\.0\.1|192\.168\.|10\.|0\.0\.0\.0)/i.test(validation.hostname);
       const fileName = documentFileName(url);
       const docType = detectDocumentType(fileName);
       const isPdfUrl = docType === 'pdf';
       const isOfficeUrl = Boolean(docType && docType !== 'pdf');
 
       const context = {
-        isLocalUrl,
         isPdfUrl,
         isOfficeUrl,
-        hostname: validation.hostname,
-        ...options
+        hostname: validation.hostname
       };
 
       let lastError = null;
@@ -414,7 +476,7 @@
           if (result && result.success) {
             let content = result.content || '';
             if (content.length > MAX_CONTENT_LENGTH) {
-              content = content.slice(0, MAX_CONTENT_LENGTH) + '\n\n[... Content truncated at the size limit ...]';
+              content = content.slice(0, MAX_CONTENT_LENGTH) + TRUNCATION_NOTICE;
             }
 
             const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -451,22 +513,21 @@
   /**
    * Consulta una página web o descarga un documento PDF u ofimático y devuelve el contenido legible.
    */
-  async function fetchPage(rawUrl, options = {}) {
-    return pipeline.fetch(rawUrl, options);
+  async function fetchPage(rawUrl) {
+    return pipeline.fetch(rawUrl);
   }
 
-  const MAX_BINARY_BYTES = 10 * 1024 * 1024;
   const MAX_IMAGE_BYTES = MAX_BINARY_BYTES;
 
   const VISION_IMAGE_MIME_TYPES = SAFE_IMAGE_MIME_TYPES;
 
   /**
-   * Descarga un recurso web binario (ArrayBuffer) directamente en el navegador de forma segura.
-   * Valida la URL (anti-SSRF), aplica límites de tamaño y timeout estricto, sin proxies de terceros ni backend.
+   * Descarga un recurso web binario (ArrayBuffer) con webFetch de forma segura.
+   * Valida la URL (anti-SSRF), aplica límites de tamaño y timeout estricto, sin proxies de terceros.
    * En caso de error de red o bloqueo de CORS, falla de inmediato sin reintentos externos ni cuelgues.
    */
   async function fetchBinaryResource(rawUrl, options = {}) {
-    const validation = validateUrlForFetch(rawUrl, options);
+    const validation = validateUrlForFetch(rawUrl);
     if (!validation.valid) {
       return {
         success: false,
@@ -488,11 +549,9 @@
     try {
       res = await webFetch(url, {
         timeoutMs,
-        maxBytes: maxBytes + 1,
+        maxBytes,
         binary: true,
-        accept: options.accept || '*/*',
-        headers: options.headers,
-        allowLocal: options.allowLocal === true
+        accept: options.accept || '*/*'
       });
     } catch (err) {
       const isTimeout = err?.name === 'AbortError' || /abort/i.test(err?.message || '');
@@ -551,7 +610,8 @@
       };
     }
 
-    if (byteLength > maxBytes) {
+    // El backend corta en maxBytes y lo indica con `truncated`; el navegador entrega el cuerpo entero.
+    if (res.truncated || byteLength > maxBytes) {
       return {
         success: false,
         url,
@@ -638,6 +698,7 @@
   }
 
   return {
+    webFetch,
     fetchPage,
     fetchImage,
     fetchBinaryResource,

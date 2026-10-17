@@ -338,21 +338,13 @@ test('ContextManager - formatHistoryTranscript genera una transcripción neutral
   assert.ok(!transcript.includes('Eres un asistente'), 'No debe incluir el prompt de sistema previo');
 });
 
-test('ContextManager - compressHistory rechaza resúmenes inválidos con llamadas a herramientas o vacíos', async () => {
+test('ContextManager - compressHistory rechaza resúmenes que son una llamada JSON a herramienta o vacíos', async () => {
   const messages = [
     { role: 'user', content: 'hola' },
     { role: 'assistant', content: 'mundo' }
   ];
 
-  // 1. Rechaza llamadas en formato XML (<tool_call>)
-  const xmlResult = await ChatContextManager.compressHistory({
-    messages,
-    summarizeFn: async () => '<tool_call>\n<function=run_command>\n<parameter=command>git status</parameter>\n</tool_call>'
-  });
-  assert.equal(xmlResult.compressed, false);
-  assert.equal(xmlResult.reason, 'invalid_summary');
-
-  // 2. Rechaza llamadas en formato JSON ({ name, arguments })
+  // 1. Rechaza llamadas en formato JSON ({ name, arguments })
   const jsonResult = await ChatContextManager.compressHistory({
     messages,
     summarizeFn: async () => '{"name": "run_command", "arguments": {"command": "git status"}}'
@@ -360,7 +352,7 @@ test('ContextManager - compressHistory rechaza resúmenes inválidos con llamada
   assert.equal(jsonResult.compressed, false);
   assert.equal(jsonResult.reason, 'invalid_summary');
 
-  // 3. Rechaza resúmenes vacíos
+  // 2. Rechaza resúmenes vacíos
   const emptyResult = await ChatContextManager.compressHistory({
     messages,
     summarizeFn: async () => '   \n  '
@@ -368,7 +360,7 @@ test('ContextManager - compressHistory rechaza resúmenes inválidos con llamada
   assert.equal(emptyResult.compressed, false);
   assert.equal(emptyResult.reason, 'empty_summary');
 
-  // 4. Acepta resúmenes válidos de texto plano / markdown
+  // 3. Acepta resúmenes válidos de texto plano / markdown
   const okResult = await ChatContextManager.compressHistory({
     messages,
     summarizeFn: async () => 'Resumen consolidado válido.'

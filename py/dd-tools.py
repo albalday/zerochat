@@ -229,15 +229,32 @@ def set_project_directory(path) -> dict:
     return {"cwd": str(target), "previous_cwd": previous}
 
 
-def open_file_diff(path: str, tool: str | None = None, commit_fallback: bool = False) -> dict:
+def _configured_gui_diff_tool(git_bin: str, repo_root: Path) -> str:
+    """Herramienta gráfica que usaría `git difftool --gui`, o '' si no hay ninguna configurada.
+
+    Sin diff.guitool ni merge.guitool, git recurre a diff.tool o adivina una, que puede ser de
+    terminal (vimdiff): lanzada sin terminal quedaría invisible y colgada.
+    """
+    for key in ("diff.guitool", "merge.guitool"):
+        res = subprocess.run(
+            [git_bin, "config", "--get", key],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip()
+    return ""
+
+
+def open_file_diff(path: str, commit_fallback: bool = False) -> dict:
     """Abre un visor externo de diffs (git difftool) para comparar el fichero actual frente a Git HEAD, su último commit o fichero vacío."""
     if not isinstance(path, str) or not path.strip():
         raise ValueError("La ruta del archivo está vacía.")
     if len(path) > MAX_PATH_LENGTH:
         raise ValueError("La ruta del archivo excede el tamaño máximo permitido.")
-    if tool is not None:
-        if not isinstance(tool, str) or not re.match(r"^[a-zA-Z0-9_-]{1,32}$", tool):
-            raise ValueError("Nombre de herramienta de diff inválido.")
 
     target = Path(path.strip()).expanduser().resolve()
     if not target.exists():
@@ -265,6 +282,11 @@ def open_file_diff(path: str, tool: str | None = None, commit_fallback: bool = F
         raise ValueError(f"El archivo '{target.name}' no pertenece a ningún repositorio Git.")
 
     repo_root = Path(res.stdout.strip()).resolve()
+    if not _configured_gui_diff_tool(git_bin, repo_root):
+        raise ValueError(
+            "No hay un visor gráfico de diffs configurado en Git. Configura uno, por ejemplo: "
+            "git config --global diff.guitool meld"
+        )
 
     has_head = subprocess.run(
         [git_bin, "rev-parse", "--verify", "HEAD"],
@@ -299,11 +321,7 @@ def open_file_diff(path: str, tool: str | None = None, commit_fallback: bool = F
         except ValueError:
             in_head = False
 
-    cmd = [git_bin, "difftool", "--no-prompt", "-y"]
-    if tool:
-        cmd.append(f"--tool={tool}")
-    else:
-        cmd.append("--gui")
+    cmd = [git_bin, "difftool", "--no-prompt", "--gui"]
 
     mode = "working_tree"
     last_commit = ""
@@ -350,6 +368,7 @@ def open_file_diff(path: str, tool: str | None = None, commit_fallback: bool = F
 
     popen_kwargs = {
         "cwd": str(repo_root),
+        "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
     }

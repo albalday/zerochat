@@ -534,9 +534,6 @@
       return { messages, compressed: false, reason: 'empty_summary' };
     }
 
-    if (/<tool_call[\s>]|<tool_response[\s>]|<function=/i.test(trimmedSummary)) {
-      return { messages, compressed: false, reason: 'invalid_summary' };
-    }
     try {
       const parsed = JSON.parse(trimmedSummary);
       if (parsed && typeof parsed === 'object') {

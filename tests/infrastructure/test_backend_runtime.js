@@ -387,16 +387,51 @@ spec = importlib.util.spec_from_file_location("zerochat_web_test", Path(${JSON.s
 zerochat = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(zerochat)
 
-# 1. Validación anti-SSRF (is_dangerous_host)
+# 1. Validación anti-SSRF (is_dangerous_host): nombres locales y direcciones resueltas no públicas
 assert zerochat.is_dangerous_host("169.254.169.254") is True
 assert zerochat.is_dangerous_host("metadata.google.internal") is True
-assert zerochat.is_dangerous_host("127.0.0.1", allow_local=False) is True
-assert zerochat.is_dangerous_host("localhost", allow_local=False) is True
-assert zerochat.is_dangerous_host("10.0.0.1", allow_local=False) is True
-assert zerochat.is_dangerous_host("192.168.1.1", allow_local=False) is True
-assert zerochat.is_dangerous_host("example.com", allow_local=False) is False
-# allow_local permite loopback/local
-assert zerochat.is_dangerous_host("127.0.0.1", allow_local=True) is False
+assert zerochat.is_dangerous_host("127.0.0.1") is True
+assert zerochat.is_dangerous_host("localhost") is True
+assert zerochat.is_dangerous_host("printer.local") is True
+assert zerochat.is_dangerous_host("10.0.0.1") is True
+assert zerochat.is_dangerous_host("192.168.1.1") is True
+assert zerochat.is_dangerous_host("100.64.0.1") is True
+assert zerochat.is_dangerous_host("::ffff:127.0.0.1") is True
+# Formas abreviadas que el resolvedor convierte en loopback
+assert zerochat.is_dangerous_host("127.1") is True
+assert zerochat.is_dangerous_host("2130706433") is True
+assert zerochat.is_dangerous_host("8.8.8.8") is False
+
+# 1b. Cada redirección pasa la misma validación
+import urllib.request
+handler = zerochat._ValidatingRedirectHandler()
+request = urllib.request.Request("https://8.8.8.8/start")
+for target in ("http://127.0.0.1:11434/api/tags", "http://169.254.169.254/latest/", "file:///etc/passwd"):
+    try:
+        handler.redirect_request(request, None, 302, "Found", {}, target)
+        assert False, f"Debe rechazar la redirección a {target}"
+    except (PermissionError, ValueError):
+        pass
+assert handler.redirect_request(request, None, 302, "Found", {}, "https://8.8.8.8/next").full_url == "https://8.8.8.8/next"
+
+# 1c. Cuerpo limitado tras descomprimir: N bytes caben, N+1 se truncan (también un gzip que se expande)
+import gzip as gzip_module
+import io
+limit = 4096
+for encoding, encode in (("", lambda raw: raw), ("gzip", gzip_module.compress)):
+    data, truncated = zerochat._read_limited_body(io.BytesIO(encode(b"a" * limit)), encoding, limit)
+    assert (len(data), truncated) == (limit, False), encoding
+    data, truncated = zerochat._read_limited_body(io.BytesIO(encode(b"a" * (limit + 1))), encoding, limit)
+    assert (len(data), truncated) == (limit, True), encoding
+bomb = gzip_module.compress(b"\\0" * (50 * 1024 * 1024))
+data, truncated = zerochat._read_limited_body(io.BytesIO(bomb), "gzip", limit)
+assert (len(data), truncated) == (limit, True)
+
+# 1d. Solo los tipos textuales viajan como texto; el resto (PDF, imágenes) en base64
+for content_type in ("text/html; charset=utf-8", "application/json", "application/x-javascript", "application/rss+xml", ""):
+    assert zerochat.is_text_content_type(content_type) is True, content_type
+for content_type in ("application/pdf", "image/png", "application/octet-stream", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"):
+    assert zerochat.is_text_content_type(content_type) is False, content_type
 
 # 2. fetch_web_resource rechaza SSRF peligroso
 try:

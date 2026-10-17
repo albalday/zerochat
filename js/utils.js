@@ -253,121 +253,6 @@
     }
   }
 
-  const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-
-  function getMcpManager() {
-    try {
-      if (globalThis.ChatMCP?.manager) return globalThis.ChatMCP.manager;
-      if (typeof module === 'object' && module.exports) {
-        return require('./mcp.js').manager;
-      }
-    } catch (_) {
-      /* ChatMCP not available in this environment */
-    }
-    return null;
-  }
-
-  function base64ToArrayBuffer(base64String) {
-    if (!base64String) return new ArrayBuffer(0);
-    if (typeof Buffer !== 'undefined') {
-      const buf = Buffer.from(base64String, 'base64');
-      return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-    }
-    const binaryString = atob(base64String);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes.buffer;
-  }
-
-  /**
-   * Petición web unificada de ZeroChat.
-   * Enruta la llamada a través del backend local autorizado si está conectado,
-   * o mediante fetch directo del navegador si no lo está.
-   * Aplica cabeceras por defecto (User-Agent, Accept) y normaliza la respuesta.
-   */
-  async function webFetch(url, options = {}) {
-    const timeoutMs = options.timeoutMs || 8000;
-    const asBinary = Boolean(options.binary);
-    const defaultAccept = asBinary
-      ? '*/*'
-      : 'text/html,application/xhtml+xml,application/json,application/pdf,text/plain;q=0.9,*/*;q=0.8';
-
-    const headers = {
-      'User-Agent': DEFAULT_USER_AGENT,
-      'Accept': options.accept || defaultAccept,
-      ...(options.headers || {})
-    };
-
-    const mcp = getMcpManager();
-    const useBackend = Boolean(mcp && typeof mcp.isProxyConnected === 'function' && mcp.isProxyConnected());
-
-    if (useBackend) {
-      const res = await mcp.fetchWebResource(url, {
-        headers,
-        timeoutMs,
-        maxBytes: options.maxBytes,
-        binary: asBinary,
-        allowLocal: options.allowLocal === true
-      });
-
-      const ok = Boolean(res && res.ok !== false && ((res.status >= 200 && res.status < 300) || (res.status === 0 && res.text)));
-      const status = res?.status || (ok ? 200 : 500);
-      const textContent = res?.text || '';
-      const base64Content = res?.base64 || '';
-      let cachedBuffer = null;
-
-      return {
-        ok,
-        status,
-        statusText: ok ? 'OK' : (res?.error || 'Error'),
-        headers: {
-          get: name => {
-            const lower = String(name).toLowerCase();
-            if (res?.headers) {
-              for (const [k, v] of Object.entries(res.headers)) {
-                if (k.toLowerCase() === lower) return v;
-              }
-            }
-            if (lower === 'content-type') return res?.content_type || '';
-            return null;
-          }
-        },
-        byteSize: res?.byte_size || (asBinary ? base64Content.length : textContent.length),
-        text: async () => textContent,
-        json: async () => JSON.parse(textContent),
-        arrayBuffer: async () => {
-          if (!cachedBuffer) {
-            cachedBuffer = base64ToArrayBuffer(base64Content);
-          }
-          return cachedBuffer;
-        },
-        error: ok ? undefined : (res?.error || `HTTP ${status}`)
-      };
-    }
-
-    // Petición directa en el navegador
-    const fetchRes = await fetchWithTimeout(url, {
-      method: options.method || 'GET',
-      headers,
-      signal: options.signal
-    }, timeoutMs);
-
-    return {
-      ok: fetchRes.ok,
-      status: fetchRes.status,
-      statusText: fetchRes.statusText,
-      headers: fetchRes.headers,
-      byteSize: 0,
-      text: () => fetchRes.text(),
-      json: () => fetchRes.json(),
-      arrayBuffer: () => fetchRes.arrayBuffer(),
-      error: fetchRes.ok ? undefined : `HTTP ${fetchRes.status}: ${fetchRes.statusText}`
-    };
-  }
-
   /**
    * Serializa el contenido de un mensaje para la API: el texto se conserva y el resto pasa a JSON.
    * @param {*} content
@@ -497,9 +382,7 @@
     formatShortValue,
     formatBytes,
     bytesToBase64,
-    resolveDep,
-    DEFAULT_USER_AGENT,
-    webFetch
+    resolveDep
   };
 
   return api;

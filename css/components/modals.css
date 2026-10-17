@@ -1070,6 +1070,13 @@ input.form-input:focus-visible,
   margin-top: 1rem;
 }
 
+.notice-link {
+  display: block;
+  margin-top: 0.75rem;
+  color: var(--accent-text);
+  overflow-wrap: anywhere;
+}
+
 .notice-items {
   margin: 1rem 0 0;
   padding: 0;

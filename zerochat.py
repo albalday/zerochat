@@ -17,7 +17,6 @@ import base64
 import datetime
 import fnmatch
 import functools
-import gzip
 import hashlib
 import hmac
 import importlib.metadata
@@ -30,6 +29,7 @@ import secrets
 import shutil
 import shlex
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -46,7 +46,7 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE_BACKEND_VERSION = "9.4.0"
+SOURCE_BACKEND_VERSION = "9.5.0"
 
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""
@@ -1344,15 +1344,32 @@ def set_project_directory(path) -> dict:
     return {"cwd": str(target), "previous_cwd": previous}
 
 
-def open_file_diff(path: str, tool: str | None = None, commit_fallback: bool = False) -> dict:
+def _configured_gui_diff_tool(git_bin: str, repo_root: Path) -> str:
+    """Herramienta gráfica que usaría `git difftool --gui`, o '' si no hay ninguna configurada.
+
+    Sin diff.guitool ni merge.guitool, git recurre a diff.tool o adivina una, que puede ser de
+    terminal (vimdiff): lanzada sin terminal quedaría invisible y colgada.
+    """
+    for key in ("diff.guitool", "merge.guitool"):
+        res = subprocess.run(
+            [git_bin, "config", "--get", key],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip()
+    return ""
+
+
+def open_file_diff(path: str, commit_fallback: bool = False) -> dict:
     """Abre un visor externo de diffs (git difftool) para comparar el fichero actual frente a Git HEAD, su último commit o fichero vacío."""
     if not isinstance(path, str) or not path.strip():
         raise ValueError("La ruta del archivo está vacía.")
     if len(path) > MAX_PATH_LENGTH:
         raise ValueError("La ruta del archivo excede el tamaño máximo permitido.")
-    if tool is not None:
-        if not isinstance(tool, str) or not re.match(r"^[a-zA-Z0-9_-]{1,32}$", tool):
-            raise ValueError("Nombre de herramienta de diff inválido.")
 
     target = Path(path.strip()).expanduser().resolve()
     if not target.exists():
@@ -1380,6 +1397,11 @@ def open_file_diff(path: str, tool: str | None = None, commit_fallback: bool = F
         raise ValueError(f"El archivo '{target.name}' no pertenece a ningún repositorio Git.")
 
     repo_root = Path(res.stdout.strip()).resolve()
+    if not _configured_gui_diff_tool(git_bin, repo_root):
+        raise ValueError(
+            "No hay un visor gráfico de diffs configurado en Git. Configura uno, por ejemplo: "
+            "git config --global diff.guitool meld"
+        )
 
     has_head = subprocess.run(
         [git_bin, "rev-parse", "--verify", "HEAD"],
@@ -1414,11 +1436,7 @@ def open_file_diff(path: str, tool: str | None = None, commit_fallback: bool = F
         except ValueError:
             in_head = False
 
-    cmd = [git_bin, "difftool", "--no-prompt", "-y"]
-    if tool:
-        cmd.append(f"--tool={tool}")
-    else:
-        cmd.append("--gui")
+    cmd = [git_bin, "difftool", "--no-prompt", "--gui"]
 
     mode = "working_tree"
     last_commit = ""
@@ -1465,6 +1483,7 @@ def open_file_diff(path: str, tool: str | None = None, commit_fallback: bool = F
 
     popen_kwargs = {
         "cwd": str(repo_root),
+        "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
     }
@@ -2860,59 +2879,83 @@ METADATA_HOSTS = frozenset({
     "100.100.100.200",
 })
 DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+WEB_FETCH_MAX_BYTES = 10 * 1024 * 1024
+WEB_FETCH_MAX_REDIRECTS = 5
+WEB_FETCH_READ_CHUNK = 64 * 1024
+TEXT_CONTENT_TYPE_RE = re.compile(
+    r"^(text/|application/(json|xml|xhtml\+xml|javascript|x-javascript|ecmascript)$|[a-z]+/[^;]*\+(json|xml)$)"
+)
 
 
-def is_dangerous_host(hostname: str, allow_local: bool = False) -> bool:
-    """Verifica si un host representa un riesgo de SSRF (metadatos cloud, loopback o privados)."""
-    if not hostname:
+def _is_public_ip(address: str) -> bool:
+    """Una dirección es pública si es global y no multicast; las IPv4 mapeadas en IPv6 se evalúan como IPv4."""
+    ip = ipaddress.ip_address(address.split("%", 1)[0])
+    if ip.version == 6 and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return ip.is_global and not ip.is_multicast
+
+
+def is_dangerous_host(hostname: str) -> bool:
+    """Riesgo de SSRF: metadatos cloud, nombres locales o cualquier dirección resuelta no pública."""
+    clean_host = (hostname or "").strip().lower().strip("[]").rstrip(".")
+    if not clean_host or clean_host in METADATA_HOSTS or clean_host == "localhost":
         return True
-    clean_host = hostname.strip().lower().strip("[]")
-    if clean_host in METADATA_HOSTS:
+    if clean_host.endswith((".localhost", ".local", ".internal")):
         return True
-
     try:
-        ip = ipaddress.ip_address(clean_host)
-        if ip.is_link_local:
-            return True
-        if not allow_local and (ip.is_loopback or ip.is_private or ip.is_reserved or ip.is_unspecified):
-            return True
+        infos = socket.getaddrinfo(clean_host, None, proto=socket.IPPROTO_TCP)
+    except (socket.gaierror, UnicodeError):
+        # Sin resolución no hay conexión posible: la petición fallará por sí misma.
         return False
-    except ValueError:
-        pass
+    return any(not _is_public_ip(info[4][0]) for info in infos)
 
-    if clean_host.isdigit():
-        try:
-            num = int(clean_host)
-            if 0 <= num <= 4294967295:
-                ip = ipaddress.IPv4Address(num)
-                if ip.is_link_local:
-                    return True
-                if not allow_local and (ip.is_loopback or ip.is_private or ip.is_reserved or ip.is_unspecified):
-                    return True
-                return False
-        except ValueError:
-            pass
 
-    if clean_host.startswith("0x"):
-        try:
-            num = int(clean_host, 16)
-            if 0 <= num <= 4294967295:
-                ip = ipaddress.IPv4Address(num)
-                if ip.is_link_local:
-                    return True
-                if not allow_local and (ip.is_loopback or ip.is_private or ip.is_reserved or ip.is_unspecified):
-                    return True
-                return False
-        except ValueError:
-            pass
+def _validate_web_url(url: str) -> str:
+    """Valida esquema y host de una URL de descarga (también de cada redirección)."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Protocolo no permitido: '{parsed.scheme}'. Solo se admite http y https.")
+    if not parsed.hostname:
+        raise ValueError("URL sin nombre de host válido.")
+    if is_dangerous_host(parsed.hostname):
+        raise PermissionError("Acceso bloqueado: intento de acceso a servicios internos o metadatos de infraestructura (SSRF).")
+    return url
 
-    if not allow_local:
-        if clean_host in ("localhost", "0.0.0.0", "127.0.0.1", "::1"):
-            return True
-        if clean_host.endswith(".local") or clean_host.endswith(".internal"):
-            return True
 
-    return False
+class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Sigue redirecciones solo si el destino supera la misma validación anti-SSRF que la URL pedida."""
+    max_redirections = WEB_FETCH_MAX_REDIRECTS
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _validate_web_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_WEB_OPENER = urllib.request.build_opener(_ValidatingRedirectHandler)
+
+
+def _read_limited_body(stream, content_encoding: str, max_bytes: int) -> tuple[bytes, bool]:
+    """Lee el cuerpo ya descomprimido hasta `max_bytes`; indica si había más (truncado)."""
+    encoding = (content_encoding or "").strip().lower()
+    # MAX_WBITS | 32 detecta la cabecera gzip o zlib.
+    decompressor = zlib.decompressobj(zlib.MAX_WBITS | 32) if encoding in ("gzip", "x-gzip", "deflate") else None
+    data = bytearray()
+    while len(data) <= max_bytes:
+        chunk = stream.read(WEB_FETCH_READ_CHUNK)
+        if not chunk:
+            break
+        if decompressor:
+            # La salida se limita al hueco restante: un cuerpo comprimido no puede crecer sin tope.
+            chunk = decompressor.decompress(chunk, max_bytes + 1 - len(data))
+        data += chunk
+    truncated = len(data) > max_bytes
+    return bytes(data[:max_bytes]), truncated
+
+
+def is_text_content_type(content_type: str) -> bool:
+    """Tipos que se devuelven como texto; el resto viaja en base64."""
+    media_type = (content_type or "").split(";", 1)[0].strip().lower()
+    return not media_type or bool(TEXT_CONTENT_TYPE_RE.match(media_type))
 
 
 def fetch_web_resource(params: dict) -> dict:
@@ -2920,97 +2963,48 @@ def fetch_web_resource(params: dict) -> dict:
     url = params.get("url")
     if not isinstance(url, str) or not url.strip():
         raise ValueError("URL no válida o ausente.")
-    url = url.strip()
-    parsed = urllib.parse.urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        raise ValueError(f"Protocolo no permitido: '{parsed.scheme}'. Solo se admite http y https.")
-    hostname = (parsed.hostname or "").lower().strip("[]")
-    if not hostname:
-        raise ValueError("URL sin nombre de host válido.")
+    url = _validate_web_url(url.strip())
 
-    allow_local = bool(params.get("allow_local", False))
-    if is_dangerous_host(hostname, allow_local):
-        raise PermissionError("Acceso bloqueado: intento de acceso a servicios internos o metadatos de infraestructura (SSRF).")
-
-    timeout_s = float(params.get("timeout_s", 10.0))
-    timeout_s = max(0.5, min(timeout_s, 30.0))
-    max_bytes = int(params.get("max_bytes", 2 * 1024 * 1024))
-    max_bytes = max(1024, min(max_bytes, 10 * 1024 * 1024))
+    timeout_s = max(0.5, min(float(params.get("timeout_s", 10.0)), 30.0))
+    max_bytes = max(1024, min(int(params.get("max_bytes", 2 * 1024 * 1024)), WEB_FETCH_MAX_BYTES))
     as_binary = bool(params.get("binary", False))
-
+    accept = params.get("accept")
     req_headers = {
         "User-Agent": DEFAULT_USER_AGENT,
-        "Accept": "text/html,application/xhtml+xml,application/json,application/pdf,text/plain;q=0.9,*/*;q=0.8",
+        "Accept": accept if isinstance(accept, str) and accept else "*/*",
         "Accept-Encoding": "gzip, deflate",
     }
-    custom_headers = params.get("headers")
-    if isinstance(custom_headers, dict):
-        for k, v in custom_headers.items():
-            if isinstance(k, str) and isinstance(v, str) and k.lower() != "host":
-                req_headers[k] = v
 
     req = urllib.request.Request(url, headers=req_headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-            status = resp.status
+        with _WEB_OPENER.open(req, timeout=timeout_s) as resp:
             content_type = resp.headers.get("Content-Type", "")
-            content_encoding = resp.headers.get("Content-Encoding", "").lower()
-            raw_data = resp.read(max_bytes + 1)
-            truncated = len(raw_data) > max_bytes
-            if truncated:
-                raw_data = raw_data[:max_bytes]
-
-            if "gzip" in content_encoding:
-                try:
-                    raw_data = gzip.decompress(raw_data)
-                except (OSError, gzip.BadGzipFile):
-                    pass
-            elif "deflate" in content_encoding:
-                try:
-                    raw_data = zlib.decompress(raw_data)
-                except (OSError, zlib.error):
-                    pass
-
-            resp_headers = {k: v for k, v in resp.getheaders()}
-
-            if as_binary:
-                return {
-                    "ok": True,
-                    "status": status,
-                    "content_type": content_type,
-                    "headers": resp_headers,
-                    "base64": base64.b64encode(raw_data).decode("ascii"),
-                    "byte_size": len(raw_data),
-                    "truncated": truncated
-                }
-
+            raw_data, truncated = _read_limited_body(resp, resp.headers.get("Content-Encoding", ""), max_bytes)
+            # Las cabeceras de transporte ya no describen el cuerpo descomprimido.
+            resp_headers = {k: v for k, v in resp.getheaders() if k.lower() not in ("content-encoding", "content-length")}
+            result = {
+                "ok": True,
+                "status": resp.status,
+                "url": resp.geturl(),
+                "content_type": content_type,
+                "headers": resp_headers,
+                "byte_size": len(raw_data),
+                "truncated": truncated
+            }
+            if as_binary or not is_text_content_type(content_type):
+                result["base64"] = base64.b64encode(raw_data).decode("ascii")
+                return result
             charset = resp.headers.get_content_charset() or "utf-8"
             try:
-                text_content = raw_data.decode(charset, errors="replace")
-                return {
-                    "ok": True,
-                    "status": status,
-                    "content_type": content_type,
-                    "headers": resp_headers,
-                    "text": text_content,
-                    "byte_size": len(raw_data),
-                    "truncated": truncated
-                }
-            except (UnicodeDecodeError, LookupError):
-                return {
-                    "ok": True,
-                    "status": status,
-                    "content_type": content_type,
-                    "headers": resp_headers,
-                    "base64": base64.b64encode(raw_data).decode("ascii"),
-                    "byte_size": len(raw_data),
-                    "truncated": truncated
-                }
+                result["text"] = raw_data.decode(charset, errors="replace")
+            except LookupError:
+                result["text"] = raw_data.decode("utf-8", errors="replace")
+            return result
     except urllib.error.HTTPError as he:
         err_body = ""
         try:
             err_body = he.read(2048).decode("utf-8", errors="replace")
-        except (OSError, UnicodeDecodeError):
+        except OSError:
             pass
         return {
             "ok": False,
@@ -3432,8 +3426,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 return None, {"code": -32602, "message": str(exc)}, ""
         if method == "zerochat/diff/open":
             try:
-                commit_fallback = bool(params.get("commit_fallback") or params.get("commitFallback"))
-                return open_file_diff(params.get("path"), params.get("tool"), commit_fallback), None, ""
+                return open_file_diff(params.get("path"), bool(params.get("commit_fallback"))), None, ""
             except (ValueError, RuntimeError) as exc:
                 return None, {"code": -32602, "message": str(exc)}, ""
             except Exception as exc:

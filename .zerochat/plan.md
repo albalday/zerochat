@@ -60,3 +60,5 @@ Done when: on Linux, zerochat.py --prompt runs the prompt with the production Ze
 ## M24 happy-dom removal: closed 2026-10-17
 
 ## M25 History summarization reliability, transcript sanitization and tool-call protection: closed 2026-10-17
+
+## M26 Web transport hardening and post-9.2.3 audit fixes: closed 2026-10-17

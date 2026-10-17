@@ -5,42 +5,47 @@ const assert = require('node:assert/strict');
 const WebSearch = require('../../js/web-search.js');
 const WebBrowser = require('../../js/web-browser.js');
 const ChatMCP = require('../../js/mcp.js');
-const ChatUtils = require('../../js/utils.js');
 
-test('SearchProvider - DuckDuckGo HTML parsing', () => {
-  const ddg = new WebSearch.DuckDuckGoSearchProvider();
+test('WebSearch - Tavily: petición autenticada, resultados para el modelo y errores de la API', async t => {
+  const requests = [];
+  let reply = () => Response.json({ results: [
+    { title: 'Precio gasolina', url: 'https://example.com/gasolina', content: 'Hoy  el precio\n medio es 1,60 €.', score: 0.9 },
+    { title: 'Sin URL', content: 'descartado' }
+  ] });
+  t.mock.method(global, 'fetch', async (url, init) => {
+    requests.push({ url, init });
+    return reply();
+  });
 
-  // Test de parseo de HTML directo
-  const sampleHtml = `
-    <div class="results">
-      <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fhtml-example.com">HTML Title</a>
-      <a class="result__snippet">HTML Snippet content</a>
-    </div>
-  `;
-  const htmlResults = ddg.parseHtmlResults(sampleHtml);
-  assert.equal(htmlResults.length, 1);
-  assert.equal(htmlResults[0].title, 'HTML Title');
-  assert.equal(htmlResults[0].url, 'https://html-example.com');
-  assert.equal(htmlResults[0].snippet, 'HTML Snippet content');
-});
+  // Sin clave no se llama a Tavily
+  const noKey = await WebSearch.search('gasolina', '');
+  assert.equal(noKey.success, false);
+  assert.match(noKey.error, /needs a Tavily API key/);
+  assert.equal(requests.length, 0);
 
-test('SearchProvider - SearXNG JSON parsing', () => {
-  const searx = new WebSearch.SearXNGSearchProvider({ baseUrl: 'https://custom-searx.org' });
-  assert.equal(searx.id, 'searxng');
+  const ok = await WebSearch.search('  gasolina hoy ', 'tvly-test');
+  assert.equal(requests[0].url, 'https://api.tavily.com/search');
+  assert.equal(requests[0].init.method, 'POST');
+  assert.deepEqual(requests[0].init.headers, { 'Content-Type': 'application/json', Authorization: 'Bearer tvly-test' });
+  assert.deepEqual(JSON.parse(requests[0].init.body), { query: 'gasolina hoy', max_results: 8, search_depth: 'basic' });
+  assert.equal(ok.success, true);
+  assert.deepEqual(ok.results, [{ title: 'Precio gasolina', url: 'https://example.com/gasolina', snippet: 'Hoy el precio medio es 1,60 €.', source: 'Tavily' }]);
+  assert.match(ok.markdown, /1\. \*\*\[Precio gasolina\]\(https:\/\/example\.com\/gasolina\)\*\*/);
 
-  const sampleJson = {
-    results: [
-      { title: 'SearXNG Title 1', url: 'https://searx-res1.com', content: 'Snippet 1', engine: 'google' },
-      { title: 'SearXNG Title 2', url: 'https://searx-res2.com', snippet: 'Snippet 2', engine: 'bing' }
-    ]
-  };
+  // Cupo agotado u otro error: se devuelve el detalle de Tavily
+  reply = () => Response.json({ detail: { error: 'This request exceeds your plan\'s set usage limit.' } }, { status: 432 });
+  const limited = await WebSearch.search('gasolina', 'tvly-test');
+  assert.equal(limited.success, false);
+  assert.equal(limited.error, 'Tavily answered HTTP 432: This request exceeds your plan\'s set usage limit.');
 
-  const parsed = searx.parseJsonResponse(sampleJson);
-  assert.equal(parsed.length, 2);
-  assert.equal(parsed[0].title, 'SearXNG Title 1');
-  assert.equal(parsed[0].url, 'https://searx-res1.com');
-  assert.equal(parsed[0].snippet, 'Snippet 1');
-  assert.equal(parsed[0].source, 'SearXNG (google)');
+  // Clave rechazada: se borra para pedirla de nuevo en la siguiente búsqueda
+  WebSearch.saveApiKey(' tvly-bad ');
+  assert.equal(WebSearch.getApiKey(), 'tvly-bad');
+  reply = () => Response.json({ detail: { error: 'Unauthorized' } }, { status: 401 });
+  const rejected = await WebSearch.search('gasolina', WebSearch.getApiKey());
+  assert.equal(rejected.success, false);
+  assert.match(rejected.error, /HTTP 401/);
+  assert.equal(WebSearch.getApiKey(), '');
 });
 
 test('PageFetcher - Validación de URLs y protección anti-SSRF', () => {
@@ -69,7 +74,6 @@ test('PageFetcher - Validación de URLs y protección anti-SSRF', () => {
 
 test('PageFetcher - Pipeline de estrategias y límite de longitud de contenido', async () => {
   const pipeline = new WebBrowser.PageFetcherPipeline();
-  assert.equal(pipeline.strategies.length, 2);
   assert.deepEqual(pipeline.strategies.map(s => s.name), ['LocalDocumentExtractor', 'DirectFetch']);
 
   // Test de estrategia simulada con contenido superior al límite
@@ -94,101 +98,53 @@ test('PageFetcher - Pipeline de estrategias y límite de longitud de contenido',
   }
 });
 
-test('ChatUtils.webFetch - transporte unificado web (backend si está conectado, fetch en navegador si no)', async () => {
-  const origIsProxyConnected = ChatMCP.manager.isProxyConnected;
-  const origFetchWebResource = ChatMCP.manager.fetchWebResource;
-
-  try {
-    // 1. Cuando el backend está conectado, canaliza la petición por backend
-    ChatMCP.manager.isProxyConnected = () => true;
-
-    let calledUrl = null;
-    let calledOptions = null;
-    ChatMCP.manager.fetchWebResource = async (url, options) => {
-      calledUrl = url;
-      calledOptions = options;
-      return {
-        ok: true,
-        status: 200,
-        content_type: 'text/html; charset=utf-8',
-        text: '<html><body><h1>Contenido Backend</h1><p>Texto extraído correctamente.</p></body></html>',
-        byte_size: 85
-      };
-    };
-
-    const res = await ChatUtils.webFetch('https://example.com/test');
-    assert.equal(calledUrl, 'https://example.com/test');
-    assert.equal(res.ok, true);
-    assert.equal(res.status, 200);
-    const text = await res.text();
-    assert.ok(text.includes('Contenido Backend'));
-
-    // 2. Si el backend falla, no hace fallback a fetch en navegador, devuelve el error directamente
-    ChatMCP.manager.fetchWebResource = async () => {
-      return { ok: false, status: 502, error: 'Bad Gateway' };
-    };
-    const failRes = await ChatUtils.webFetch('https://example.com/test');
-    assert.equal(failRes.ok, false);
-    assert.equal(failRes.status, 502);
-    assert.equal(failRes.error, 'Bad Gateway');
-  } finally {
-    ChatMCP.manager.isProxyConnected = origIsProxyConnected;
-    ChatMCP.manager.fetchWebResource = origFetchWebResource;
-  }
-});
-
-test('SearchProvider - DuckDuckGo prioriza transporte backend y hace fallback si no está conectado', async () => {
-  const ddg = new WebSearch.DuckDuckGoSearchProvider();
+test('ChatWebBrowser.webFetch - backend si está conectado y, sin backend, fetch solo con cabeceras CORS-safelisted', async () => {
   const origIsProxyConnected = ChatMCP.manager.isProxyConnected;
   const origFetchWebResource = ChatMCP.manager.fetchWebResource;
   const origFetch = global.fetch;
 
   try {
-    // 1. Backend conectado: se usa el backend sin tocar fetch del navegador
+    // 1. Con backend, la petición va por él con las opciones de un solo nombre
     ChatMCP.manager.isProxyConnected = () => true;
-    let backendCalled = false;
-    ChatMCP.manager.fetchWebResource = async () => {
-      backendCalled = true;
-      return {
-        ok: true,
-        status: 200,
-        text: `
-          <div class="results">
-            <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fbackend-result.com">Backend Result</a>
-            <a class="result__snippet">Contenido desde el servidor local</a>
-          </div>
-        `
-      };
+    let calledUrl = null;
+    let calledOptions = null;
+    ChatMCP.manager.fetchWebResource = async (url, options) => {
+      calledUrl = url;
+      calledOptions = options;
+      return { ok: true, status: 200, content_type: 'text/html; charset=utf-8', text: '<p>Contenido Backend</p>', byte_size: 24, truncated: true };
     };
+    const res = await WebBrowser.webFetch('https://example.com/test', { timeoutMs: 3000, maxBytes: 4096, accept: 'text/html' });
+    assert.equal(calledUrl, 'https://example.com/test');
+    assert.deepEqual(calledOptions, { accept: 'text/html', timeoutMs: 3000, maxBytes: 4096, binary: false });
+    assert.equal(res.ok, true);
+    assert.equal(res.truncated, true);
+    assert.equal(await res.text(), '<p>Contenido Backend</p>');
+    assert.equal(new TextDecoder().decode(await res.arrayBuffer()), '<p>Contenido Backend</p>');
 
-    const results = await ddg.fetchResults('test query', { timeoutMs: 3000 });
-    assert.equal(backendCalled, true);
-    assert.equal(results.length, 1);
-    assert.equal(results[0].title, 'Backend Result');
-    assert.equal(results[0].url, 'https://backend-result.com');
+    // 2. El cuerpo en base64 (tipo no textual) se lee como binario y como texto
+    ChatMCP.manager.fetchWebResource = async () => ({ ok: true, status: 200, content_type: 'application/pdf', base64: Buffer.from('%PDF-1.7').toString('base64') });
+    const binary = await WebBrowser.webFetch('https://example.com/pdf/1');
+    assert.equal(Buffer.from(await binary.arrayBuffer()).toString(), '%PDF-1.7');
+    assert.equal(await binary.text(), '%PDF-1.7');
 
-    // 2. Backend desconectado: fallback a fetch directo
+    // 3. Si el backend falla, no hay fallback al navegador
+    ChatMCP.manager.fetchWebResource = async () => ({ ok: false, status: 502, error: 'Bad Gateway' });
+    const failRes = await WebBrowser.webFetch('https://example.com/test');
+    assert.equal(failRes.ok, false);
+    assert.equal(failRes.status, 502);
+    assert.equal(failRes.error, 'Bad Gateway');
+
+    // 4. Sin backend, el navegador solo envía Accept: otra cabecera (User-Agent) forzaría un preflight CORS
     ChatMCP.manager.isProxyConnected = () => false;
-    let browserFetchCalled = false;
-    global.fetch = async () => {
-      browserFetchCalled = true;
-      return {
-        ok: true,
-        status: 200,
-        text: async () => `
-          <div class="results">
-            <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fbrowser-result.com">Browser Result</a>
-            <a class="result__snippet">Contenido directo</a>
-          </div>
-        `
-      };
+    let sentHeaders = null;
+    global.fetch = async (_url, init) => {
+      sentHeaders = init.headers;
+      return new Response('ok', { status: 200 });
     };
-
-    const fallbackResults = await ddg.fetchResults('fallback query', { timeoutMs: 3000 });
-    assert.equal(browserFetchCalled, true);
-    assert.equal(fallbackResults.length, 1);
-    assert.equal(fallbackResults[0].title, 'Browser Result');
-    assert.equal(fallbackResults[0].url, 'https://browser-result.com');
+    const direct = await WebBrowser.webFetch('https://example.com/test', { accept: 'application/json' });
+    assert.deepEqual(sentHeaders, { Accept: 'application/json' });
+    assert.equal(direct.truncated, false);
+    assert.equal(await direct.text(), 'ok');
   } finally {
     ChatMCP.manager.isProxyConnected = origIsProxyConnected;
     ChatMCP.manager.fetchWebResource = origFetchWebResource;
@@ -203,27 +159,27 @@ test('BinaryFetcher - transporte binario vía backend con límites en el borde (
   try {
     ChatMCP.manager.isProxyConnected = () => true;
 
-    // Caso 1: Dentro del límite N bytes exactos
+    // Caso 1: N bytes exactos sin truncar: se pide al backend exactamente el límite
     const maxBytes = 100;
     const exactBytes = Buffer.alloc(maxBytes, 'A');
-    ChatMCP.manager.fetchWebResource = async () => ({
-      ok: true,
-      status: 200,
-      content_type: 'application/pdf',
-      base64: exactBytes.toString('base64')
-    });
+    let requestedMaxBytes = null;
+    ChatMCP.manager.fetchWebResource = async (_url, options) => {
+      requestedMaxBytes = options.maxBytes;
+      return { ok: true, status: 200, content_type: 'application/pdf', base64: exactBytes.toString('base64'), truncated: false };
+    };
 
     const resExact = await WebBrowser.fetchBinaryResource('https://example.com/test.pdf', { maxBytes, resourceKind: 'document' });
+    assert.equal(requestedMaxBytes, maxBytes);
     assert.equal(resExact.success, true);
     assert.equal(resExact.byteSize, maxBytes);
 
-    // Caso 2: Excede el límite en N+1 bytes exactos
-    const overBytes = Buffer.alloc(maxBytes + 1, 'B');
+    // Caso 2: N+1 bytes en origen: el backend corta en N y marca truncated
     ChatMCP.manager.fetchWebResource = async () => ({
       ok: true,
       status: 200,
       content_type: 'application/pdf',
-      base64: overBytes.toString('base64')
+      base64: exactBytes.toString('base64'),
+      truncated: true
     });
 
     const resOver = await WebBrowser.fetchBinaryResource('https://example.com/test.pdf', { maxBytes, resourceKind: 'document' });

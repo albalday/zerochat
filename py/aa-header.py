@@ -17,7 +17,6 @@ import base64
 import datetime
 import fnmatch
 import functools
-import gzip
 import hashlib
 import hmac
 import importlib.metadata
@@ -30,6 +29,7 @@ import secrets
 import shutil
 import shlex
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -46,7 +46,7 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE_BACKEND_VERSION = "9.4.0"
+SOURCE_BACKEND_VERSION = "9.5.0"
 
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""

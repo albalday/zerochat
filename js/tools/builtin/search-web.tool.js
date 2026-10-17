@@ -13,6 +13,23 @@
 
   const getQuery = args => args.query || args.q || args.search || args.keyword || args.term || args.input || '';
 
+  /**
+   * Clave de Tavily guardada o, la primera vez, la que el usuario pega en un diálogo con el enlace
+   * para conseguirla; '' si cancela.
+   */
+  async function resolveTavilyKey(webSearch) {
+    const stored = webSearch.getApiKey();
+    if (stored) return stored;
+    const t = resolveDep('ChatI18n', './i18n.js').t;
+    const typed = (await resolveDep('ChatDialogs', './ui-dialogs.js').prompt(t('tavily_key_message'), '', {
+      title: t('tavily_key_title'),
+      acceptText: t('tavily_key_save'),
+      link: { href: webSearch.API_KEY_URL, text: t('tavily_key_link') }
+    }))?.trim() || '';
+    if (typed) webSearch.saveApiKey(typed);
+    return typed;
+  }
+
   function createLiveCard(args, ui) {
     const cardDiv = ui.createCardWrapper();
     cardDiv.innerHTML = getCards().renderCardHtml({
@@ -46,18 +63,21 @@
   return {
     definition: {
       name: 'search_web',
-      description: 'Searches the internet in real time for up-to-date information, news, articles, and web links using DuckDuckGo.',
+      description: 'Searches the internet in real time for up-to-date information, news, articles, and web links.',
       parameters: {
         type: 'object',
         properties: { query: { type: 'string', description: 'Search terms or query (e.g. "INE population Ceuta census", "DeepSeek R1").' } },
         required: ['query']
       }
     },
-    aliases: ['web_search', 'duckduckgo_search', 'duckduckgo', 'search_internet', 'internet_search', 'search'],
+    aliases: ['web_search', 'tavily_search', 'search_internet', 'internet_search', 'search'],
     category: 'web',
     settings: { titleKey: 'agent_search_title', descKey: 'agent_search_desc' },
-    promptGuide: '- `search_web(query="...")`: Searches up-to-date information, news, articles, and links on the internet using DuckDuckGo.',
-    execute: (args, context) => context.services.webSearch.search(getQuery(args), context.language),
+    promptGuide: '- `search_web(query="...")`: Searches up-to-date information, news, articles, and links on the internet.',
+    execute: async (args, context) => {
+      const webSearch = context.services.webSearch;
+      return webSearch.search(getQuery(args), await resolveTavilyKey(webSearch));
+    },
     result: {
       toModel: (_args, result) => result.markdown || JSON.stringify(result),
       toMarkdown: (args, result) => {

@@ -132,32 +132,6 @@ test('AgentRuntime - no reintenta una compactación fallida durante el mismo cic
   assert.equal(summaryCalls, 1);
 });
 
-test('AgentRuntime - compactación con salida de tool_call no corrompe el historial y desactiva reintentos', async t => {
-  const registry = new ToolRegistry();
-  const history = [];
-  for (let index = 0; index < 4; index++) {
-    history.push(
-      { role: 'user', content: `Pregunta ${index}: ${'detalle '.repeat(30)}` },
-      { role: 'assistant', content: `Respuesta ${index}: ${'resultado '.repeat(30)}` }
-    );
-  }
-
-  const result = await runAgent(t, registry, {
-    api: {
-      streamChatCompletion: async () => ({ accumulatedText: 'Respuesta sin corrupción.', toolCalls: [] })
-    },
-    messages: history,
-    appendFinalMessage: true,
-    contextOptions: { totalContextLimit: 300, compressionThresholdRatio: 0.5 },
-    summarizeHistory: async () => '<tool_call>\n<function=run_command>\n<parameter=command>git status</parameter>\n</tool_call>'
-  });
-
-  assert.equal(result.success, true);
-  // El historial conserva los mensajes previos y no fue sustituido por el tool_call corrupto
-  assert.ok(result.history.some(m => m.content && m.content.includes('Pregunta 0')));
-  assert.ok(!result.history.some(m => m.content && m.content.includes('<tool_call>')));
-});
-
 test('AgentRuntime - Tool call normal con resolución y respuesta final', async t => {
   const registry = new ToolRegistry();
   registry.registerTool(makeTool({

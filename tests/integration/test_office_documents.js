@@ -83,6 +83,26 @@ test('Herramientas web: un documento ofimático se descarga una sola vez y se le
     assert.match(sheet.content, /^\[Excel spreadsheet: export\]/);
     assert.match(sheet.content, /^## Sheet: Ventas$/m);
 
+    // Con backend, un documento sin extensión llega en base64 por su Content-Type y se lee igual.
+    const manager = require('../../js/mcp.js').manager;
+    const origIsProxyConnected = manager.isProxyConnected;
+    const origFetchWebResource = manager.fetchWebResource;
+    manager.isProxyConnected = () => true;
+    manager.fetchWebResource = async () => ({
+      ok: true,
+      status: 200,
+      content_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      base64: Buffer.from(fixtureBytes('exceljs.xlsx')).toString('base64')
+    });
+    try {
+      const backendSheet = await WebBrowser.fetchPage('https://example.com/export?id=8');
+      assert.equal(backendSheet.success, true);
+      assert.match(backendSheet.content, /^## Sheet: Ventas$/m);
+    } finally {
+      manager.isProxyConnected = origIsProxyConnected;
+      manager.fetchWebResource = origFetchWebResource;
+    }
+
     requested.length = 0;
     const legacy = await WebBrowser.fetchPage('https://example.com/files/acta.doc');
     assert.equal(legacy.success, false);
