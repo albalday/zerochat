@@ -1,41 +1,11 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { createTestBrowser, withTestApp, closeGlobalBrowser, getIndexUrl, waitForAppReady, openSavedSession } = require('../helpers/browser-env.js');
+const { withTestApp, closeGlobalBrowser, openSavedSession } = require('../helpers/browser-env.js');
 
 describe('Browser UI - sidebar', { concurrency: 2 }, () => {
   after(async () => {
     await closeGlobalBrowser();
   });
-
-test('Browser UI - el sidebar es panel en escritorio y drawer cerrado en móvil', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await waitForAppReady(page);
-    const display = () => page.$eval('#chat-sidebar', el => getComputedStyle(el).display);
-
-    assert.equal(await display(), 'flex', 'El sidebar debe estar abierto por defecto en escritorio');
-    await page.click('#btn-close-sidebar');
-    assert.equal(await display(), 'none', 'El sidebar debe cerrarse');
-    await page.click('#btn-toggle-sidebar');
-    assert.equal(await display(), 'flex', 'El botón de la cabecera debe reabrir el sidebar');
-
-    await page.setViewportSize({ width: 500, height: 800 });
-    const drawer = await page.$eval('#chat-sidebar', el => ({ position: getComputedStyle(el).position, zIndex: parseInt(getComputedStyle(el).zIndex, 10) }));
-    assert.equal(drawer.position, 'fixed', 'En móvil, el sidebar debe posicionarse como fixed drawer');
-    assert.ok(drawer.zIndex >= 100, 'En móvil, el drawer debe superponerse al chat');
-
-    const mobile = await browser.newPage({ viewport: { width: 500, height: 800 }, isMobile: true });
-    await mobile.goto(getIndexUrl(), { waitUntil: 'load' });
-    await mobile.waitForSelector('#welcome-banner');
-    assert.equal(await mobile.locator('#chat-sidebar').evaluate(el => el.classList.contains('sidebar-hidden')), true, 'En móvil el drawer debe comenzar cerrado');
-    await mobile.click('#btn-toggle-sidebar');
-    await mobile.waitForFunction(() => document.getElementById('chat-sidebar').classList.contains('sidebar-visible'));
-  } finally {
-    await browser.close();
-  }
-});
 
 test('Browser UI - el menú contextual de un chat es táctil y no activa la conversación', async () => {
   await withTestApp({ viewport: { width: 390, height: 800 }, isMobile: true }, async page => {

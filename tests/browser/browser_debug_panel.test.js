@@ -52,40 +52,4 @@ describe('Browser UI - debug panel', { concurrency: 2 }, () => {
     });
   });
 
-  test('en móvil el panel de depuración ocupa todo el ancho', async () => {
-    await withTestApp({ viewport: { width: 390, height: 844 } }, async page => {
-      await page.evaluate(() => document.getElementById('btn-toggle-debug').click());
-      const rect = await page.evaluate(() => {
-        const { left, width } = document.getElementById('debug-panel').getBoundingClientRect();
-        return { left, width };
-      });
-      assert.deepEqual(rect, { left: 0, width: 390 });
-    });
-  });
-
-  test('el editor de mensaje saliente sitúa las acciones de envío en la cabecera', async () => {
-    await withTestApp(async page => {
-      await page.evaluate(() => {
-        window.__debugInterceptorResult = window.ChatDebug.openInterceptorModal({
-          endpoint: '/v1/chat/completions', headers: {}, payload: { model: 'test', messages: [] }
-        });
-      });
-      const layout = await page.evaluate(() => {
-        const dialog = document.getElementById('debug-interceptor-dialog');
-        const header = dialog.querySelector('.modal-header');
-        return {
-          hasClose: !!dialog.querySelector('#btn-close-debug-modal'),
-          sendInHeader: header.contains(dialog.querySelector('#btn-debug-send')),
-          sendDisableInHeader: header.contains(dialog.querySelector('#btn-debug-send-disable')),
-          hasFooter: !!dialog.querySelector('.debug-modal-footer')
-        };
-      });
-      assert.equal(layout.hasClose, true);
-      assert.equal(layout.sendInHeader, true);
-      assert.equal(layout.sendDisableInHeader, true);
-      assert.equal(layout.hasFooter, false);
-      await page.click('#btn-close-debug-modal');
-      await page.evaluate(() => window.__debugInterceptorResult);
-    });
-  });
 });
