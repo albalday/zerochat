@@ -73,7 +73,7 @@ Done when: CI splits fast-fail checks from browser execution without unnecessary
 ## M23 Fallback cleanup, public proxy elimination and backend-first web transport: closed 2026-10-16
 
 ## M24 happy-dom removal
-Goal: Run non-browser tests without a simulated DOM, then cut the suite down to tests that catch real failures: no trivial, smoke-covered, cosmetic, duplicated, absence or mock-only tests, and no production code whose only consumer is a test (plan in docs/plan-simplificacion-pruebas.md).
+Goal: Run non-browser tests without a simulated DOM, then cut the suite down to tests that catch real failures: no trivial, smoke-covered, cosmetic, duplicated, absence or mock-only tests, and no production code whose only consumer is a test.
 Done when: no test or module depends on happy-dom and Node-only branches are gone; AGENTS.md and tests/README.md state the keep/delete criteria; every test file has been reviewed against them; test-only exports and parameters are removed and the hygiene test covers every exported name; the suite meets the agreed targets of ≤ 600 tests, ≤ 20.000 lines, Node run time < 10s and browser run time < 15s (measured: 591 tests, 19.211 lines, ~7s Node, ~13s browser).
 - [x] M24-T1 Inject a view into ChatEngine.executeAgentTurnLoop and AgentCore.dispatchToolCall instead of a DOM container (generation controller, delegate_task), with Node tests using an in-memory view (2026-10-17)
 - [x] M24-T2 ConversationService branches by message ids instead of the DOM wrapper and receives viewport and loading indicator from its caller, with Node tests (2026-10-17)
@@ -102,3 +102,4 @@ Done when: no test or module depends on happy-dom and Node-only branches are gon
 - [x] M24-T25 Review the remaining browser tests (cosmetic layout, duplicated flows, smoke-covered checks) (2026-10-17)
 - [x] M24-T26 Remove exports, parameters and helpers whose only consumer is a test, and extend the hygiene test to every exported name (2026-10-17)
 - [x] M24-T27 Measure tests, lines and run time before/after, agree the targets with the user and update the Done when figures (2026-10-17)
+- [x] M24-T28 Remove completed M24 planning draft and stale plan reference (2026-10-17)
