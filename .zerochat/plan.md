@@ -91,7 +91,7 @@ Done when: no test or module depends on happy-dom and Node-only branches are gon
 - [x] M24-T14 Move the tool card, Markdown, chart, attachment and utils DOM tests to browser tests (tool_cards, builtin_tools, command_card, delegate_task, mcp, charts, markdown, attachments, utils) (2026-10-17)
 - [x] M24-T15 Move the generation, status, telemetry, reasoning, debug and reset DOM tests to browser tests (generation_controller, ui_generation_status, ui_telemetry, ui_reasoning, debug, error_infrastructure, storage_reset) (2026-10-17)
 - [x] M24-T16 Rules: keep/delete test criteria and no test-only production code in AGENTS.md §2/§5/§8 and tests/README.md; log M24-D9 revoking M24-D4 (2026-10-17)
-- [ ] M24-T17 Extend the browser startup test into the single smoke test (send with Mirror, open every settings section and MCP panel, conversation CRUD, no console errors)
+- [x] M24-T17 Extend the browser startup test into the single smoke test (send with Mirror, open every settings section and MCP panel, conversation CRUD, no console errors) (2026-10-17)
 - [ ] M24-T18 Review the browser tests added or moved in M24 (diff b15e953..) and delete trivial ones; decide whether createTurnView/createCardView/turn-view.js stay
 - [ ] M24-T19 Review architecture and infrastructure tests (delete absence, cosmetic and duplicated checks)
 - [ ] M24-T20 Review unit tests

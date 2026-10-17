@@ -117,27 +117,70 @@ test('Browser help - PyPI (Unix y Windows) y descarga directa tienen bloques cop
   } finally { await browser.close(); }
 });
 
-test('Browser UI - zerochat.html carga sin errores de consola y con el runtime distribuido', async () => {
+// Prueba de humo: recorre lo que se ejecuta en cada uso normal de la aplicación. Lo que ella cubre
+// no necesita prueba propia (tests/README.md, sección 6).
+test('Browser UI - humo: arranca, conversa con Espejo, gestiona conversaciones y abre los ajustes sin errores de consola', { timeout: 20000 }, async () => {
   const browser = await createTestBrowser();
   try {
-    const page = await browser.newPage();
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    page.setDefaultTimeout(5000);
     const consoleErrors = [];
     page.on('console', msg => {
       if (msg.type() === 'error' && !msg.text().includes('favicon')) consoleErrors.push(msg.text());
     });
     page.on('pageerror', err => consoleErrors.push(err.message));
-
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
+    assert.equal(await page.title(), `ZeroChat v${version}`);
+
+    const send = async text => {
+      await page.fill('#user-input', text);
+      await page.click('#btn-send');
+      await page.waitForFunction(() => !window.ChatState.get('streaming').isGenerating);
+    };
+    const titles = () => page.$$eval('.sidebar-chat-item .sidebar-chat-title', items => items.map(item => item.textContent.trim()));
+    const answerNotice = async (input) => {
+      await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+      if (input !== undefined) await page.fill('#notice-input', input);
+      await page.click('#notice-accept');
+      await page.waitForFunction(() => !document.getElementById('notice-dialog').open);
+    };
+
+    await send('Primera');
+    assert.equal(await page.locator('#messages-list .message-wrapper.assistant').count(), 1);
+    await page.click('#btn-sidebar-new-chat');
+    await send('Segunda');
+    await page.waitForFunction(() => document.querySelectorAll('.sidebar-chat-item').length === 2);
+
+    const first = page.locator('.sidebar-chat-item', { hasText: 'Primera' });
+    await first.locator('.btn-chat-menu').click();
+    await first.locator('.btn-rename').click();
+    await answerNotice('Renombrada');
+    await page.waitForFunction(() => [...document.querySelectorAll('.sidebar-chat-title')].some(title => title.textContent.trim() === 'Renombrada'));
+    const renamed = page.locator('.sidebar-chat-item', { hasText: 'Renombrada' });
+    await renamed.locator('.btn-chat-menu').click();
+    await renamed.locator('.btn-delete').click();
+    await answerNotice();
+    await page.waitForFunction(() => document.querySelectorAll('.sidebar-chat-item').length === 1);
+    assert.deepEqual(await titles(), ['Segunda']);
+
+    await page.click('#btn-open-settings');
+    for (const section of ['model', 'agent', 'mcp', 'permissions']) {
+      await page.locator(`#sidebar-settings-nav [data-section="${section}"]`).evaluate(item => item.click());
+      await page.waitForFunction(id => document.getElementById('settings-dialog').open && document.getElementById(`settings-${id}`).classList.contains('active'), section);
+    }
+    await page.click('#btn-close-settings');
+    await page.waitForFunction(() => !document.getElementById('settings-dialog').open);
+    for (const [section, nav, back] of [['rag', '#sidebar-rag-nav', '#btn-rag-back'], ['encryption', '#sidebar-encryption-nav', '#btn-encryption-back']]) {
+      await page.locator(`#sidebar-settings-nav [data-section="${section}"]`).evaluate(item => item.click());
+      await page.waitForSelector(`${nav}:not([hidden])`);
+      await page.locator(back).evaluate(button => button.click());
+    }
+    await page.locator('#sidebar-choice-language .btn-lang-toggle[data-lang="en"]').evaluate(button => button.click());
+    await page.locator('#sidebar-choice-theme .btn-theme-toggle:not(.active)').evaluate(button => button.click());
+    assert.equal(await page.evaluate(() => document.documentElement.lang), 'en');
 
     assert.deepEqual(consoleErrors, []);
-    assert.equal(await page.title(), `ZeroChat v${version}`, 'El título de zerochat.html debe coincidir con la versión del proyecto');
-    const runtime = await page.evaluate(() => ({
-      chatIcons: typeof window.ChatIcons?.get === 'function',
-      iconStyles: getComputedStyle(document.querySelector('.ui-icon')).display,
-      shell: ['.chat-container', '#messages-list', '#chat-form'].every(selector => !!document.querySelector(selector))
-    }));
-    assert.deepEqual(runtime, { chatIcons: true, iconStyles: 'block', shell: true });
   } finally {
     await browser.close();
   }
