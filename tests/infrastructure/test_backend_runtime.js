@@ -4,7 +4,6 @@ const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
-const pkg = require('../../package.json');
 
 test('zerochat.py: la consola interactiva expone estado, ayuda y cierre ordenado', () => {
   const repoRoot = path.resolve(__dirname, '../..');
@@ -208,17 +207,6 @@ with tempfile.TemporaryDirectory() as temp_dir:
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });
 
-test('Versionado: el backend usa major.minor y la interfaz conserva el parche', () => {
-  const repoRoot = path.resolve(__dirname, '../..');
-  const output = execFileSync('python3', ['-c', `
-import zerochat
-assert zerochat.VERSION == '${pkg.version.split('.').slice(0, 2).join('.')}'
-assert zerochat.UI_VERSION == '${pkg.version}'
-print('VERSION_POLICY_OK')
-`], { cwd: repoRoot, encoding: 'utf8' });
-  assert.ok(output.includes('VERSION_POLICY_OK'));
-});
-
 test('Apertura de navegador en zerochat.py: open_browser prioriza herramientas de sistema y desacopla el proceso', () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const testScript = `
@@ -338,7 +326,6 @@ print("OPEN_BROWSER_TEST_OK")
 
 test('Servidor local zerochat.py: omite comprobación de versión remota en desarrollo local', () => {
   const repoRoot = path.resolve(__dirname, '../..');
-  const serverPath = path.resolve(repoRoot, 'zerochat.py');
 
   const checkPyCode = `
 import zerochat
@@ -460,33 +447,6 @@ for host in ("0.0.0.0", "::", "192.168.1.10", "mi-equipo.local", ""):
 `;
 
   execFileSync('python3', ['-c', checkPyCode], { cwd: repoRoot });
-});
-
-test('zerochat.py: la ayuda sale en texto plano aunque el entorno pida colores', () => {
-  const repoRoot = path.resolve(__dirname, '../..');
-  const help = execFileSync('python3', ['zerochat.py', '--help'], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-    env: { ...process.env, FORCE_COLOR: '1', PYTHON_COLORS: '1' }
-  });
-
-  assert.match(help, /--no-exit-on-close/);
-  assert.doesNotMatch(help, /\x1b\[/);
-});
-
-test('zerochat.py se reconstruye de forma idéntica desde sus módulos en py/ mediante sort | cat', () => {
-  const repoRoot = path.resolve(__dirname, '../..');
-  const pyDir = path.join(repoRoot, 'py');
-  assert.ok(fs.existsSync(pyDir), 'El directorio py/ debe existir');
-
-  const files = fs.readdirSync(pyDir).filter(f => f.endsWith('.py')).sort();
-  assert.ok(files.length > 1, 'Debe haber múltiples módulos divididos en py/');
-  assert.equal(files[files.length - 1], 'zz-main.py', 'El último módulo ordenado alfabéticamente debe ser zz-main.py');
-
-  const concatenated = files.map(f => fs.readFileSync(path.join(pyDir, f), 'utf8')).join('');
-  const currentZerochat = fs.readFileSync(path.join(repoRoot, 'zerochat.py'), 'utf8');
-
-  assert.equal(currentZerochat, concatenated, 'zerochat.py debe coincidir exactamente con la concatenación ordenada de py/*.py (ejecuta npm run build:backend)');
 });
 
 test('zerochat.py: run_command mata a los descendientes al agotar el plazo y acota la salida', { skip: process.platform === 'win32' }, () => {

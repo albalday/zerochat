@@ -60,3 +60,21 @@ test('ChatIcons - no se duplican glifos del catálogo como SVG en línea', () =>
       .map(match => `${file}: ${glyphs.get(normalizeSvg(match[1]))}`));
   assert.deepEqual(duplicates, [], `Usa ChatIcons.get en lugar de SVG en línea: ${duplicates.join(', ')}`);
 });
+
+test('Iconos - el marcado, el catálogo de iconos y los textos de los controles no usan emojis', () => {
+  const emoji = /\p{Extended_Pictographic}/u;
+  const html = fs.readFileSync(path.join(ROOT, 'zerochat.html'), 'utf8');
+  assert.equal(emoji.test(html), false, 'zerochat.html no debe contener emojis');
+  assert.equal(emoji.test(fs.readFileSync(path.join(ROOT, 'js/icons.js'), 'utf8')), false, 'js/icons.js no debe contener emojis');
+
+  // Textos de controles: claves btn_* y las que zerochat.html aplica dentro de botones, opciones,
+  // etiquetas y resúmenes. Las exportaciones y el contenido explicativo pueden llevar emojis.
+  const { TRANSLATIONS } = require('../../js/i18n.js');
+  const controlKeys = new Set(Object.keys(TRANSLATIONS.es).filter(key => key.startsWith('btn_')));
+  for (const control of html.matchAll(/<(button|option|label|summary)\b[\s\S]*?<\/\1>/g)) {
+    for (const match of control[0].matchAll(/data-i18n[\w-]*="([\w.-]+)"/g)) controlKeys.add(match[1]);
+  }
+  const offenders = Object.entries(TRANSLATIONS).flatMap(([language, dictionary]) =>
+    [...controlKeys].filter(key => emoji.test(dictionary[key] || '')).map(key => `${language}.${key}`));
+  assert.deepEqual(offenders, [], 'Los textos de los controles deben usar iconos de ChatIcons, no emojis');
+});

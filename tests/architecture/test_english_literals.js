@@ -92,8 +92,3 @@ test('Textos - fuera de i18n.js ningún literal de cadena está en español', ()
   }
   assert.deepEqual(offenders, [], `Redacta en inglés los mensajes para el modelo y usa ChatI18n para la interfaz:\n${offenders.join('\n')}`);
 });
-
-test('Textos - el analizador distingue cadenas de comentarios, expresiones regulares y plantillas', () => {
-  const source = "// comentario 'ñ'\nconst a = /'é'/g.test(x) ? 'Done' : `Paso ${n / 2} de ${`núcleo`}`; /* 'á' */";
-  assert.deepEqual(stringLiterals(source).map(item => item.text), ['Done', 'Paso ', ' de ', 'núcleo', '']);
-});

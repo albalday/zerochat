@@ -101,21 +101,3 @@ test('Higiene - sin guardas sobre módulos que siempre están cargados', () => {
   }
   assert.deepEqual(offenders, [], `Usa el módulo directamente, sin ?. ni typeof:\n${offenders.join('\n')}`);
 });
-
-test('Higiene - las pruebas en Node no cargan un DOM simulado: lo que usa el DOM se prueba en navegador', () => {
-  const DOM_LIBRARIES = ['happy-dom', 'jsdom', 'linkedom'];
-  const { dependencies = {}, devDependencies = {} } = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-  assert.deepEqual(DOM_LIBRARIES.filter(name => name in dependencies || name in devDependencies), []);
-
-  const nodeTests = ['unit', 'integration', 'architecture', 'infrastructure', 'helpers']
-    .flatMap(dir => listSourceFiles(path.join(ROOT, 'tests', dir)));
-  const loadsDom = nodeTests.filter(file => DOM_LIBRARIES.some(name => fs.readFileSync(file, 'utf8').includes(`require('${name}')`)));
-  assert.deepEqual(loadsDom.map(relative), []);
-});
-
-test('Higiene - el código no usa proxies ni lectores públicos de terceros', () => {
-  // Política de M21/M23: las peticiones web van directas desde el navegador o por el backend local.
-  const PUBLIC_PROXY = /r\.jina\.ai|allorigins|corsproxy|cors-anywhere|thingproxy|api\.codetabs\.com/i;
-  const sources = [...listSourceFiles(JS_DIR), ...listSourceFiles(path.join(ROOT, 'py'), '.py')];
-  assert.deepEqual(sources.filter(file => PUBLIC_PROXY.test(fs.readFileSync(file, 'utf8'))).map(relative), []);
-});

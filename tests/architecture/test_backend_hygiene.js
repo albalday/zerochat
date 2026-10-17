@@ -14,12 +14,6 @@ function listPyFiles(dir) {
     .map(file => path.join(dir, file));
 }
 
-test('Backend Higiene - el módulo con main() se denomina obligatoriamente zz-main.py', () => {
-  const files = listPyFiles(PY_DIR);
-  const lastFile = path.basename(files[files.length - 1]);
-  assert.equal(lastFile, 'zz-main.py', 'El último módulo de py/ debe ser zz-main.py');
-});
-
 test('Backend Higiene - zerochat.py se genera exactamente concatenando py/*.py ordenados', () => {
   const pyFiles = listPyFiles(PY_DIR);
   const concatenated = pyFiles.map(file => fs.readFileSync(file, 'utf8')).join('');

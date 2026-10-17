@@ -22,7 +22,7 @@ tests/
 - **`integration/`**: interacción entre varios módulos, estado compartido, servicios o flujos completos que no requieran un navegador real.
 - **`browser/`**: flujos de usuario en Chromium headless que cumplen los criterios de la sección 6, no cada render. `browser_startup.test.js` contiene la prueba de humo que cubre el arranque.
 - **`architecture/`**: restricciones estáticas y contratos transversales que deben mantenerse independientemente de un flujo de usuario concreto.
-- **`infrastructure/`**: herramientas que sustentan la ejecución y distribución local, como el runner, el servidor de pruebas, la versión y los recursos de proveedor construidos.
+- **`infrastructure/`**: el backend `zerochat.py` (servidor local, procesos, MCP), el cambio de versión y los recursos de proveedor construidos.
 - **`helpers/`**: código reutilizable de apoyo. No se ejecuta directamente como parte de la suite.
 
 ## 2. Comandos de ejecución
@@ -93,7 +93,7 @@ La responsabilidad de cada nivel está definida en la sección 1. Cada archivo d
 
 Al crear, mover o eliminar una suite, el runner la descubre si el archivo está bajo uno de los niveles anteriores y usa el patrón `test_*.js` o `*.test.js`. Después de cualquier cambio de estructura, confirma el resultado con `--list`.
 
-Los grupos funcionales son una selección explícita, no un descubrimiento automático. Si un nuevo test representa un flujo clave de uno de ellos, actualiza `GROUPS` en `scripts/test-runner.mjs` y la prueba de infraestructura que comprueba sus nombres. Evita incluir rutas inexistentes: el listado del grupo debe ser la comprobación final.
+Los grupos funcionales son una selección explícita, no un descubrimiento automático. Si un nuevo test representa un flujo clave de uno de ellos, actualiza `GROUPS` en `scripts/test-runner.mjs`. Evita incluir rutas inexistentes: el listado del grupo debe ser la comprobación final.
 
 Los cambios en el runner requieren actualizar esta guía solo si cambian sus comandos públicos, niveles, criterios de descubrimiento o grupos disponibles.
 

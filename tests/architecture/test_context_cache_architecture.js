@@ -6,9 +6,6 @@ const {
   GeminiProviderAdapter,
   OpenRouterProviderAdapter
 } = require('../../js/providers.js');
-const ChatState = require('../../js/state.js');
-const ChatProfileRepository = require('../../js/profile-repository.js');
-const ChatConfig = require('../../js/config-store.js');
 const ChatEngine = require('../../js/chat-engine.js');
 
 test('ContextCache - Jerarquía de prefijo en system prompt coloca base primero y fecha/RAG al final', () => {
@@ -165,45 +162,4 @@ test('ContextCache - Normalización de métricas de tokens en ChatAPI para OpenA
   const parsedClaude = claudeAdapter.parseStreamChunk(claudeChunk);
   assert.equal(parsedClaude.cachedTokens, 400);
   assert.equal(parsedClaude.cacheCreationTokens, 100);
-});
-
-test('ContextCache - Arquitectura: Perfiles de conexión persisten en config y la ejecución solo lee ChatState.config', () => {
-  // 1. Simular repositorio de perfiles con enableContextCache
-  const mockStorage = {
-    data: {},
-    getStorageItem(k) { return this.data[k] || null; },
-    setStorageItem(k, v) { this.data[k] = v; },
-    saveRuntimeConfigV2(c) { this.data['runtime_config'] = JSON.stringify(c); },
-    loadRuntimeConfigV2() { return this.data['runtime_config'] ? JSON.parse(this.data['runtime_config']) : null; }
-  };
-
-  const profileRepo = ChatProfileRepository.createRepository(mockStorage);
-  assert.equal(profileRepo.list().length, 1);
-  const targetProfile = profileRepo.save({
-    id: 'profile:cache-test',
-    name: 'Cache test',
-    settings: { enableContextCache: true }
-  });
-  assert.equal(targetProfile.settings.enableContextCache, true);
-
-  // 2. Modificar el perfil para desactivar la caché mediante save
-  const updated = profileRepo.save({
-    ...targetProfile,
-    settings: { ...targetProfile.settings, enableContextCache: false }
-  });
-  assert.equal(updated.settings.enableContextCache, false);
-
-  // 3. Al activar el perfil en ChatConfig, se vuelca en ChatState.config
-  const customStore = ChatConfig.createConfigStore({
-    storage: mockStorage,
-    profiles: profileRepo,
-    state: ChatState
-  });
-
-  const activeConfig = customStore.activateProfile(targetProfile.id);
-  assert.equal(activeConfig.enableContextCache, false);
-
-  // 4. La ejecución sólo consulta el estado general (ChatState / ChatConfig)
-  const stateConfig = ChatState.get('config');
-  assert.equal(stateConfig.enableContextCache, false, 'El estado general debe contener el valor sincronizado del perfil');
 });

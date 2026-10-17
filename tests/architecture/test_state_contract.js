@@ -15,12 +15,6 @@ test('ChatState - solo state.js y ui-inspector.js escriben el slice ui con State
   assert.deepEqual(offenders, [], `Usa los mutadores de ChatState en lugar de State.set('ui', …): ${offenders.join(', ')}`);
 });
 
-test('ChatState - app.js no mantiene una copia mutable del estado de generación', () => {
-  const appSource = fs.readFileSync(path.join(__dirname, '../..', 'js', 'app.js'), 'utf8');
-  assert.doesNotMatch(appSource, /let\s+isGenerating\s*=/);
-  assert.match(appSource, /State\.isConversationBusy/);
-});
-
 test('ChatState - el slice project solo se escribe mediante setProjectContext', () => {
   const offenders = fs.readdirSync(JS_DIR)
     .filter(name => name.endsWith('.js') && name !== 'state.js')

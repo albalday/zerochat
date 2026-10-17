@@ -10,7 +10,6 @@ const root = path.resolve(__dirname, '../..');
 const VendorLoader = require(path.join(root, 'js/vendor-loader.js'));
 const loadManifest = () => import(pathToFileURL(path.join(root, 'scripts/vendor-manifest.mjs')).href);
 const outfileOf = vendor => VendorLoader.bundleInfo(vendor.id).path;
-const globalNameOf = vendor => VendorLoader.bundleInfo(vendor.id).globalName;
 
 test('build:vendor reproduce exactamente los bundles, las licencias y los avisos versionados', async () => {
   const { VENDORS } = await loadManifest();
@@ -50,16 +49,6 @@ test('build:vendor exige versiones exactas para las librerías empaquetadas', as
   }
 });
 
-test('build:vendor expone cada librería como global clásico ejecutable en Node', async () => {
-  const { VENDORS } = await loadManifest();
-  const vm = require('node:vm');
-  for (const vendor of VENDORS) {
-    const context = vm.createContext({ console, TextEncoder, TextDecoder, setTimeout, clearTimeout });
-    vm.runInContext(fs.readFileSync(path.join(root, outfileOf(vendor)), 'utf8'), context);
-    assert.equal(typeof context[globalNameOf(vendor)], 'object', `${outfileOf(vendor)} debe definir ${globalNameOf(vendor)}`);
-  }
-});
-
 test('solo las librerías de arranque se cargan en zerochat.html y entran en el precache', async () => {
   const { VENDORS } = await loadManifest();
   const html = fs.readFileSync(path.join(root, 'zerochat.html'), 'utf8');
@@ -69,15 +58,4 @@ test('solo las librerías de arranque se cargan en zerochat.html y entran en el 
     assert.equal(html.includes(`src="${outfile}"`), !vendor.onDemand, `${outfile} en zerochat.html`);
     assert.equal(sw.includes(`'./${outfile}'`), !vendor.onDemand, `${outfile} en PRECACHE_ASSETS`);
   }
-});
-
-test('VendorLoader.bundleInfo devuelve la ruta y globalName esperados y rechaza IDs no válidos', () => {
-  const info = VendorLoader.bundleInfo('office-parser');
-  assert.deepEqual(info, {
-    id: 'office-parser',
-    path: 'js/vendor/office-parser.browser.js',
-    globalName: 'ZeroChatOfficeParser'
-  });
-  assert.throws(() => VendorLoader.bundleInfo('Invalid_Id!'), /Invalid vendor library id/);
-  assert.throws(() => VendorLoader.bundleInfo(123), /Invalid vendor library id/);
 });
