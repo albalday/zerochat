@@ -63,6 +63,249 @@ test('Browser UI - mensajes nuevos e históricos comparten copia y bloques segur
   } finally { await browser.close(); }
 });
 
+test('Browser UI - pintado de mensajes: bloques independientes, acciones, error escapado, imágenes saneadas y resumen plegado', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+    const result = await page.evaluate(() => {
+      const ui = window.ChatUIConversation;
+      const out = {};
+      const messagesList = document.createElement('div');
+      const welcomeBanner = document.createElement('div');
+      document.body.append(messagesList);
+      const calls = { reused: null, deleted: null, branched: null, telemetry: [] };
+      const callbacks = {
+        onReuse: text => { calls.reused = text; },
+        onDelete: wrapper => { calls.deleted = wrapper; },
+        onBranch: wrapper => { calls.branched = wrapper; },
+        resetTelemetry: () => calls.telemetry.push('reset'),
+        updateTelemetry: () => calls.telemetry.push('update')
+      };
+
+      // Cada bloque se pinta sin tocar los demás.
+      const blocks = document.createElement('div');
+      const first = ui.createAssistantBlock(blocks);
+      const second = ui.createAssistantBlock(blocks);
+      ui.renderAssistantBlock(first, '**First**', { streaming: true });
+      ui.renderAssistantBlock(second, 'Other response');
+      const untouched = second.innerHTML;
+      ui.renderAssistantBlock(first, '**Finished**');
+      out.blocks = { count: blocks.children.length, untouched: second.innerHTML === untouched, finished: first.querySelector('strong')?.textContent };
+
+      // Indicador de escritura único.
+      ui.showTypingIndicator(messagesList);
+      ui.showTypingIndicator(messagesList);
+      out.typing = [messagesList.querySelectorAll('#typing-indicator-wrapper').length];
+      ui.removeTypingIndicator();
+      out.typing.push(messagesList.querySelectorAll('#typing-indicator-wrapper').length);
+
+      // Mensaje del usuario con sus acciones e imágenes adjuntas saneadas.
+      const msgId = ui.appendUserMessage(messagesList, welcomeBanner, {
+        text: 'Hola mundo',
+        originalPrompt: 'Hola mundo prompt',
+        attachedImages: [
+          { name: 'segura.png', dataUrl: 'data:image/png;base64,iVBORw0KGgo=' },
+          { name: 'peligrosa.png', dataUrl: 'javascript:alert(1)' },
+          { name: 'xss.png', dataUrl: 'data:text/html,<script>alert(1)</script>' }
+        ]
+      }, callbacks);
+      const user = messagesList.querySelector(`[data-msg-id="${msgId}"]`);
+      const [reuse, copy, remove] = user.querySelectorAll('.message-actions button');
+      reuse.click();
+      remove.click();
+      out.user = {
+        idPrefix: msgId.startsWith('msg_usr_'),
+        welcomeHidden: welcomeBanner.hidden,
+        text: user.querySelector('.message-content').textContent.trim().startsWith('Hola mundo'),
+        copyButton: copy.classList.contains('btn-copy-user'),
+        reused: calls.reused,
+        deleted: calls.deleted === user,
+        imageItems: user.querySelectorAll('.message-images-grid .message-image-item').length,
+        images: [...user.querySelectorAll('.message-images-grid img')].map(img => [img.getAttribute('src'), img.getAttribute('alt')]),
+        scripts: user.querySelectorAll('script').length
+      };
+
+      // Marcador del asistente y su tarjeta de error.
+      const parts = ui.createAssistantMessagePlaceholder(messagesList, 'test_ast_1', callbacks);
+      parts.wrapper.querySelector('.btn-branch-conversation').click();
+      out.placeholder = {
+        msgId: parts.wrapper.getAttribute('data-msg-id'),
+        baseId: parts.wrapper.getAttribute('data-base-id'),
+        cursor: Boolean(parts.content.querySelector('.initial-cursor')),
+        actionsHidden: parts.actions.hidden,
+        statsInFooter: parts.statsContainer.parentNode === parts.footerRow,
+        branched: calls.branched === parts.wrapper
+      };
+      const payload = '<img src=x onerror="window.__probe=true">';
+      ui.renderConnectionError(parts, payload, payload);
+      out.error = {
+        img: Boolean(parts.content.querySelector('img')),
+        escaped: (parts.content.innerHTML.match(/&lt;img/g) || []).length,
+        title: Boolean(parts.content.querySelector('.message-error-card strong')),
+        rowError: parts.row.classList.contains('message-error'),
+        actionsHidden: parts.actions.hidden
+      };
+
+      // Sesión con resumen plegado y turnos.
+      const elements = { messagesList, welcomeBanner };
+      ui.renderSessionMessages(elements, [
+        { id: 's1', role: 'system', content: 'Prompt base' },
+        { id: 's2', role: 'system', content: 'Resumen **previo** <img src=x onerror="window.__probe=true">', _isSummaryBlock: true },
+        { id: 'u1', role: 'user', content: 'Pregunta' },
+        { id: 'a1_turn_0_assistant', role: 'assistant', content: 'Última respuesta del asistente' }
+      ], callbacks);
+      const banner = messagesList.querySelector('details.branch-summary-banner');
+      const assistant = messagesList.querySelector('.message-wrapper.assistant');
+      out.session = {
+        bannerOpen: banner.open,
+        header: Boolean(banner.querySelector('summary.branch-summary-header')),
+        markdown: banner.querySelector('strong')?.textContent,
+        img: Boolean(banner.querySelector('img')),
+        welcomeHidden: welcomeBanner.hidden,
+        baseId: assistant.getAttribute('data-base-id'),
+        msgIds: assistant.getAttribute('data-msg-ids'),
+        telemetry: [...calls.telemetry]
+      };
+
+      // Sin turnos vuelve la bienvenida y se reinicia la telemetría.
+      calls.telemetry.length = 0;
+      ui.renderSessionMessages(elements, [{ id: 's1', role: 'system', content: 'Prompt base' }], callbacks);
+      out.empty = { welcome: welcomeBanner.parentNode === messagesList, telemetry: [...calls.telemetry] };
+
+      messagesList.remove();
+      out.probe = Boolean(window.__probe);
+      return out;
+    });
+    assert.deepEqual(result.blocks, { count: 2, untouched: true, finished: 'Finished' });
+    assert.deepEqual(result.typing, [1, 0]);
+    assert.deepEqual(result.user, {
+      idPrefix: true, welcomeHidden: true, text: true, copyButton: true, reused: 'Hola mundo prompt', deleted: true,
+      imageItems: 3, images: [['data:image/png;base64,iVBORw0KGgo=', 'segura.png']], scripts: 0
+    });
+    assert.deepEqual(result.placeholder, { msgId: 'test_ast_1', baseId: 'test_ast_1', cursor: true, actionsHidden: true, statsInFooter: true, branched: true });
+    assert.deepEqual(result.error, { img: false, escaped: 2, title: true, rowError: true, actionsHidden: false });
+    assert.deepEqual(result.session, {
+      bannerOpen: false, header: true, markdown: 'previo', img: false, welcomeHidden: true,
+      baseId: 'a1', msgIds: 'a1_turn_0_assistant', telemetry: ['update']
+    });
+    assert.deepEqual(result.empty, { welcome: true, telemetry: ['reset'] });
+    assert.equal(result.probe, false);
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
+test('Browser UI - copiar usa el texto del momento, vuelve al icono original y un fallo del portapapeles no se da por copiado', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+    await page.clock.install();
+    const copied = await page.evaluate(async () => {
+      const copied = [];
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { copied.push(text); } } });
+      const button = document.createElement('button');
+      button.id = 'copy-probe';
+      button.innerHTML = '<span>copy</span>';
+      document.body.append(button);
+      window.__copyText = 'Original';
+      window.ChatUIConversation.bindMessageCopy(button, () => window.__copyText);
+      const results = [await button.onclick()];
+      window.__copyText = 'Updated';
+      results.push(await button.onclick());
+      return { results, copied, copiedClass: button.classList.contains('copied') };
+    });
+    assert.deepEqual(copied, { results: [true, true], copied: ['Original', 'Updated'], copiedClass: true });
+    await page.clock.runFor(2000);
+    assert.deepEqual(await page.$eval('#copy-probe', button => [button.classList.contains('copied'), button.innerHTML]), [false, '<span>copy</span>']);
+
+    const failed = await page.evaluate(async () => {
+      const warnings = [];
+      const originalWarn = console.warn;
+      console.warn = (...args) => warnings.push(args);
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('Clipboard denied'); } } });
+      const button = document.createElement('button');
+      window.ChatUIConversation.bindMessageCopy(button, () => 'Text');
+      const result = await button.onclick();
+      console.warn = originalWarn;
+      return { result, copied: button.classList.contains('copied'), warnings: warnings.length };
+    });
+    assert.deepEqual(failed, { result: false, copied: false, warnings: 1 });
+  } finally { await browser.close(); }
+});
+
+test('Browser UI - borrar el último turno lo quita del historial y del chat, guarda y muestra la bienvenida', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+    const result = await page.evaluate(() => {
+      const ui = window.ChatUIConversation;
+      const messagesList = document.createElement('div');
+      const welcomeBanner = document.createElement('div');
+      document.body.append(messagesList);
+      window.ChatState.replaceConversation({ sessionId: 'session_remove', messages: [{ id: 'msg_to_delete', role: 'user', content: 'Borrar' }] });
+      ui.appendUserMessage(messagesList, welcomeBanner, { text: 'Borrar', existingMsgId: 'msg_to_delete' }, { onReuse() {}, onDelete() {} });
+      const wrapper = messagesList.querySelector('[data-msg-id="msg_to_delete"]');
+      let saved = false;
+      ui.removeMessage(wrapper, { messagesList, welcomeBanner, saveSession: () => { saved = true; } });
+      const out = {
+        messages: window.ChatState.get('messages').length,
+        connected: wrapper.isConnected,
+        saved,
+        welcomeInList: welcomeBanner.parentNode === messagesList,
+        welcomeHidden: welcomeBanner.hidden
+      };
+      messagesList.remove();
+      return out;
+    });
+    assert.deepEqual(result, { messages: 0, connected: false, saved: true, welcomeInList: true, welcomeHidden: false });
+  } finally { await browser.close(); }
+});
+
+test('Browser UI - el streaming actualiza el texto junto a imágenes en listas y párrafos sin recrearlas', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+    await page.route(/^https:\/\/x\.org\//, route => route.fulfill({ status: 200, contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg"/>' }));
+    const result = await page.evaluate(() => {
+      const ui = window.ChatUIConversation;
+      const container = document.createElement('div');
+      document.body.append(container);
+      const list = ui.createAssistantBlock(container);
+      ui.renderAssistantBlock(list, '- foo ![a](https://x.org/a.png) bar', { streaming: true });
+      const listImg = list.querySelector('img.chat-embedded-image');
+      const initial = list.textContent.includes('foo') && list.textContent.includes('bar');
+      ui.renderAssistantBlock(list, '- foo ![a](https://x.org/a.png) bar BAZ\n\nfin', { streaming: true });
+      const streamed = { sameImg: listImg === list.querySelector('img.chat-embedded-image'), baz: list.textContent.includes('BAZ'), fin: list.textContent.includes('fin') };
+      ui.renderAssistantBlock(list, '- foo ![a](https://x.org/a.png) bar BAZ COMPLETO\n\nfin');
+      const final = { sameImg: listImg === list.querySelector('img.chat-embedded-image'), text: list.textContent.includes('BAZ COMPLETO') };
+
+      const paragraph = ui.createAssistantBlock(container);
+      ui.renderAssistantBlock(paragraph, 'Inicio ![b](https://x.org/b.png) medio', { streaming: true });
+      const paragraphImg = paragraph.querySelector('img.chat-embedded-image');
+      ui.renderAssistantBlock(paragraph, 'Inicio ![b](https://x.org/b.png) medio EXPANDIDO');
+      const inline = { sameImg: paragraphImg === paragraph.querySelector('img.chat-embedded-image'), text: paragraph.textContent.includes('EXPANDIDO') };
+      container.remove();
+      return { hasImg: Boolean(listImg), initial, streamed, final, inline };
+    });
+    assert.deepEqual(result, {
+      hasImg: true,
+      initial: true,
+      streamed: { sameImg: true, baz: true, fin: true },
+      final: { sameImg: true, text: true },
+      inline: { sameImg: true, text: true }
+    });
+  } finally { await browser.close(); }
+});
+
 test('Browser UI - agrupa llamadas consecutivas de herramientas y conserva su detalle desplegable', async () => {
   const browser = await createTestBrowser();
   try {
@@ -836,43 +1079,100 @@ test('Browser UI - fecha inicial persistente y hora solo mediante herramienta', 
     await browser.close();
   }
 });
-test('Browser UI - el autoscroll respeta al usuario que sube durante la generación', async () => {
+test('Browser UI - el autoscroll sigue el final salvo que el usuario suba por rueda, arrastre, teclas o toque, y lo retoma al volver o con force', async () => {
   const browser = await createTestBrowser();
   try {
-    const page = await browser.newPage();
+    const page = await browser.newPage({ hasTouch: true });
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
-    const result = await page.evaluate(() => {
+    const result = await page.evaluate(async () => {
       const ui = window.ChatUIConversation;
-      const container = document.createElement('div');
-      container.style.cssText = 'position:fixed;top:0;left:0;width:300px;height:200px;overflow-y:auto;scroll-behavior:smooth';
-      document.body.appendChild(container);
-      const addLines = n => {
-        for (let i = 0; i < n; i++) {
-          const line = document.createElement('p');
-          line.style.cssText = 'height:40px;margin:0';
-          container.appendChild(line);
-        }
+      const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      // Contenedor con layout real: 200 px visibles y líneas de 40 px.
+      const createContainer = async (lines = 20) => {
+        const container = document.createElement('div');
+        container.tabIndex = 0;
+        container.style.cssText = 'position:fixed;top:0;left:0;width:300px;height:200px;overflow-y:auto;scroll-behavior:smooth';
+        document.body.appendChild(container);
+        container.addLines = n => {
+          for (let i = 0; i < n; i++) {
+            const line = document.createElement('p');
+            line.style.cssText = 'height:40px;margin:0';
+            container.appendChild(line);
+          }
+        };
+        container.addLines(lines);
+        ui.scrollToBottom(container);
+        await frame();
+        return container;
       };
-      const atBottom = () => container.scrollHeight - container.scrollTop - container.clientHeight <= 1;
-      addLines(20);
-      ui.scrollToBottom(container);
-      const followed = atBottom();
-      container.dispatchEvent(new WheelEvent('wheel', { deltaY: -120 }));
-      container.scrollTo({ top: 100, behavior: 'instant' });
-      addLines(10);
-      ui.scrollToBottom(container);
-      const kept = container.scrollTop;
-      ui.scrollToBottom(container, { force: true });
-      const forced = atBottom();
-      container.remove();
-      return { followed, kept, forced };
+      const atBottom = container => container.scrollHeight - container.scrollTop - container.clientHeight <= 1;
+      /** El usuario se desplaza a `top` (rueda, barra o dedo): el navegador emite scroll. */
+      const userScrollTo = async (container, top) => {
+        container.scrollTo({ top, behavior: 'instant' });
+        await frame();
+      };
+      /** Llega un chunk nuevo y la aplicación pide seguir el final. */
+      const stream = container => {
+        container.addLines(10);
+        ui.scrollToBottom(container);
+        return container.scrollTop;
+      };
+      const out = {};
+
+      const follow = await createContainer();
+      out.followed = atBottom(follow);
+      stream(follow);
+      out.followedNewContent = atBottom(follow);
+
+      const wheel = await createContainer();
+      wheel.dispatchEvent(new WheelEvent('wheel', { deltaY: -120 }));
+      await userScrollTo(wheel, 100);
+      out.wheelKept = stream(wheel);
+
+      const dragged = await createContainer();
+      await userScrollTo(dragged, 300);
+      out.dragKept = stream(dragged);
+
+      const keyed = await createContainer();
+      keyed.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }));
+      await userScrollTo(keyed, 120);
+      out.keyKept = stream(keyed);
+
+      const touched = await createContainer();
+      const touch = clientY => [new Touch({ identifier: 1, target: touched, clientY })];
+      touched.dispatchEvent(new TouchEvent('touchstart', { touches: touch(100) }));
+      touched.dispatchEvent(new TouchEvent('touchmove', { touches: touch(180) }));
+      await userScrollTo(touched, 80);
+      out.touchKept = stream(touched);
+
+      const back = await createContainer();
+      back.dispatchEvent(new WheelEvent('wheel', { deltaY: -120 }));
+      await userScrollTo(back, 100);
+      await userScrollTo(back, back.scrollHeight);
+      stream(back);
+      out.resumedAtBottom = atBottom(back);
+
+      back.dispatchEvent(new WheelEvent('wheel', { deltaY: -120 }));
+      await userScrollTo(back, 40);
+      ui.scrollToBottom(back, { force: true });
+      out.forced = atBottom(back);
+
+      document.querySelectorAll('body > div[tabindex="0"]').forEach(container => container.remove());
+      return out;
     });
-    assert.equal(result.followed, true);
-    assert.equal(result.kept, 100);
-    assert.equal(result.forced, true);
+    assert.deepEqual(result, {
+      followed: true,
+      followedNewContent: true,
+      wheelKept: 100,
+      dragKept: 300,
+      keyKept: 120,
+      touchKept: 80,
+      resumedAtBottom: true,
+      forced: true
+    });
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });

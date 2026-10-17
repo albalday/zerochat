@@ -86,7 +86,7 @@ Done when: no test or module depends on happy-dom, the dependency and tests/help
 - [ ] M24-T9 Review tests that still check the use of removed public proxies (r.jina.ai and others removed in M21/M23) and delete or adapt them
 - [x] M24-T10 Move the composer, sidebar and conversation transfer DOM tests to browser tests (ui_composer, ui_sidebar, ui_transfer) (2026-10-17)
 - [x] M24-T11 Move the profiles, settings and RAG UI DOM tests to browser tests (ui_profiles, ui_settings, rag_ui) (2026-10-17)
-- [ ] M24-T12 Move the conversation rendering DOM tests to browser tests (ui_conversation)
+- [x] M24-T12 Move the conversation rendering DOM tests to browser tests (ui_conversation) (2026-10-17)
 - [ ] M24-T13 Move the MCP panel and inspector DOM tests to browser tests (ui_mcp, ui_inspector)
 - [ ] M24-T14 Move the tool card, Markdown, chart, attachment and utils DOM tests to browser tests (tool_cards, builtin_tools, command_card, delegate_task, mcp, charts, markdown, attachments, utils)
 - [ ] M24-T15 Move the generation, status, telemetry, reasoning, debug and reset DOM tests to browser tests (generation_controller, ui_generation_status, ui_telemetry, ui_reasoning, debug, error_infrastructure, storage_reset)
