@@ -20,7 +20,7 @@ tests/
 
 - **`unit/`**: comportamiento de un módulo aislado. Las dependencias externas se sustituyen por implementaciones en memoria: el almacenamiento lo aporta `storage-env.js` y las vistas del turno, `tests/helpers/turn-view.js`. No hay DOM: lo que pinta o lee elementos se prueba en `browser/`, nunca con objetos que imiten elementos.
 - **`integration/`**: interacción entre varios módulos, estado compartido, servicios o flujos completos que no requieran un navegador real.
-- **`browser/`**: comportamiento observable de la interfaz en Chromium headless: DOM, interacción, accesibilidad, temas y carga de la aplicación.
+- **`browser/`**: flujos de usuario en Chromium headless que cumplen los criterios de la sección 6, no cada render. `browser_startup.test.js` contiene la prueba de humo que cubre el arranque.
 - **`architecture/`**: restricciones estáticas y contratos transversales que deben mantenerse independientemente de un flujo de usuario concreto.
 - **`infrastructure/`**: herramientas que sustentan la ejecución y distribución local, como el runner, el servidor de pruebas, la versión y los recursos de proveedor construidos.
 - **`helpers/`**: código reutilizable de apoyo. No se ejecuta directamente como parte de la suite.
@@ -104,17 +104,29 @@ Los cambios en el runner requieren actualizar esta guía solo si cambian sus com
 3. Aísla efectos compartidos en `beforeEach` y `afterEach`; restaura mocks, temporizadores y estado global al terminar cada caso.
 4. Para pruebas de navegador, usa los helpers de `tests/helpers/browser-env.js` (como `withTestApp`, que gestiona contexto, arranque y cierre automático) y garantiza el cierre de páginas y contextos en `finally`. Espera a la aplicación con `waitForAppReady(page)` (no solo a `zerochat-ready`, que se marca antes de cargar la sesión) y nunca con esperas fijas.
 5. Para pruebas que arrancan `zerochat.py`, usa `tests/helpers/backend-env.js`: `freePort()` para el puerto, `tokenDataDir()` para el token y `waitForServer()` para el arranque.
-6. Para límites o topes (filas, tamaño, elementos, tiempo), incluye una prueba justo en el borde (`N` y `N+1`) y comprueba el aviso o marcador de truncado. Importa las listas de formatos, constantes o convenciones desde el módulo o manifiesto de origen en lugar de reimplementarlas en el test.
+6. Para topes que protegen memoria, contexto o seguridad (filas, tamaño, elementos, tiempo), incluye en la prueba de tabla del módulo el borde exacto (`N` y `N+1`) y comprueba el aviso o marcador de truncado. Importa las listas de formatos, constantes o convenciones desde el módulo o manifiesto de origen en lugar de reimplementarlas en el test.
 7. Añade la suite a un grupo funcional solo cuando forme parte de su flujo representativo.
 8. Ejecuta primero el nivel afectado y, cuando proceda, el grupo funcional y las validaciones exigidas por `AGENTS.md`.
 
-### Qué no merece un test propio
+### Qué merece una prueba
 
-- Un caso más de una función ya probada: añádelo como aserción o fila al test existente de esa función.
-- La mera existencia de métodos (`typeof x === 'function'`) o la ausencia de elementos ya retirados.
-- Las funciones reexportadas por fachadas: se prueban una vez en su módulo de origen.
+Antes de escribir una prueba, clasifícala. Solo se escriben las de la columna «conservar»; las de la otra columna no se escriben ni se apartan en una categoría sin ejecutar: se borran.
+
+| Conservar | No escribir |
+|---|---|
+| **S** Seguridad: escape, SSRF, sandbox, permisos, token, rutas | **A** Lo cubre el arranque: un fallo se nota al abrir la aplicación o enviar un mensaje |
+| **L** Lógica no trivial con ramas o bordes que no se ven al usar la aplicación (parsers, SSE, presupuesto de contexto, bucles, ranking) | **T** Trivial: getters, formateadores de pocas líneas, constantes, valores por defecto, textos de prompt, existencia de métodos |
+| **D** Integridad de datos: persistencia, migraciones, borrados en cascada, cifrado | **C** Cosmética: colores, contornos, alineación o anchos sin consecuencia funcional |
+| **X** Contrato externo: formato de proveedores, MCP, paridad JS-Python, `task.py` | **Z** Ausencia de algo ya retirado |
+| **R** Regresión de un fallo real que costó encontrar | **M** Prueba del mock: la aserción comprueba lo que devuelve la simulación |
+| | **2** Duplicado: el comportamiento ya se prueba en otro nivel; queda solo en el más bajo que lo observa |
+
+Además:
+- Un caso más de una función ya probada es una fila o aserción de su prueba existente, no una prueba nueva.
+- Las funciones reexportadas por fachadas se prueban una vez, en su módulo de origen.
+- No se añade a producción nada cuyo único consumidor sea una prueba (exportaciones, parámetros, inyecciones, vistas en memoria, ramas). Si algo no se puede probar sin ello, se prueba en navegador o no se prueba.
 - Lo que solo lee ficheros sin ejecutar nada no va en `browser/`, sino en `architecture/` o `unit/`.
-- Las esperas reales a temporizadores: usa `t.mock.timers`.
+- Las esperas reales a temporizadores se sustituyen por `t.mock.timers`.
 
 ## 7. Validación obligatoria
 

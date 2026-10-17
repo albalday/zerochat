@@ -73,8 +73,8 @@ Done when: CI splits fast-fail checks from browser execution without unnecessary
 ## M23 Fallback cleanup, public proxy elimination and backend-first web transport: closed 2026-10-16
 
 ## M24 happy-dom removal
-Goal: Run non-browser tests without a simulated DOM: domain logic is decoupled from presentation and tested in Node, and DOM behaviour is tested only in a real browser.
-Done when: no test or module depends on happy-dom, the dependency and tests/helpers/dom-env.js are removed, Node-only fallback branches are gone, AGENTS.md and tests/README.md state the new rule, and every removed DOM test is covered by a browser test.
+Goal: Run non-browser tests without a simulated DOM, then cut the suite down to tests that catch real failures: no trivial, smoke-covered, cosmetic, duplicated, absence or mock-only tests, and no production code whose only consumer is a test (plan in docs/plan-simplificacion-pruebas.md).
+Done when: no test or module depends on happy-dom and Node-only branches are gone; AGENTS.md and tests/README.md state the keep/delete criteria; every test file has been reviewed against them; test-only exports and parameters are removed and the hygiene test covers every exported name; the suite size and run time targets agreed in M24-T27 are met.
 - [x] M24-T1 Inject a view into ChatEngine.executeAgentTurnLoop and AgentCore.dispatchToolCall instead of a DOM container (generation controller, delegate_task), with Node tests using an in-memory view (2026-10-17)
 - [x] M24-T2 ConversationService branches by message ids instead of the DOM wrapper and receives viewport and loading indicator from its caller, with Node tests (2026-10-17)
 - [x] M24-T3 ProfileExportBundle takes the base URL as a parameter and RagStorage tests drop the stray installDom (2026-10-17)
@@ -90,3 +90,15 @@ Done when: no test or module depends on happy-dom, the dependency and tests/help
 - [x] M24-T13 Move the MCP panel and inspector DOM tests to browser tests (ui_mcp, ui_inspector) (2026-10-17)
 - [x] M24-T14 Move the tool card, Markdown, chart, attachment and utils DOM tests to browser tests (tool_cards, builtin_tools, command_card, delegate_task, mcp, charts, markdown, attachments, utils) (2026-10-17)
 - [x] M24-T15 Move the generation, status, telemetry, reasoning, debug and reset DOM tests to browser tests (generation_controller, ui_generation_status, ui_telemetry, ui_reasoning, debug, error_infrastructure, storage_reset) (2026-10-17)
+- [x] M24-T16 Rules: keep/delete test criteria and no test-only production code in AGENTS.md §2/§5/§8 and tests/README.md; log M24-D9 revoking M24-D4 (2026-10-17)
+- [ ] M24-T17 Extend the browser startup test into the single smoke test (send with Mirror, open every settings section and MCP panel, conversation CRUD, no console errors)
+- [ ] M24-T18 Review the browser tests added or moved in M24 (diff b15e953..) and delete trivial ones; decide whether createTurnView/createCardView/turn-view.js stay
+- [ ] M24-T19 Review architecture and infrastructure tests (delete absence, cosmetic and duplicated checks)
+- [ ] M24-T20 Review unit tests
+- [ ] M24-T21 Review integration tests of the agent loop (chat_engine, agent_runtime, agent_core, tool_dispatcher, delegate_task, generation_controller)
+- [ ] M24-T22 Review integration tests of providers, WebLLM, inspector, context manager and context cache
+- [ ] M24-T23 Review integration tests of MCP, tool security, security and builtin tools (security cases kept as tables)
+- [ ] M24-T24 Review integration tests of RAG, ingestion, profiles, project context, conversation service and storage reset
+- [ ] M24-T25 Review the remaining browser tests (cosmetic layout, duplicated flows, smoke-covered checks)
+- [ ] M24-T26 Remove exports, parameters and helpers whose only consumer is a test, and extend the hygiene test to every exported name
+- [ ] M24-T27 Measure tests, lines and run time before/after, agree the targets with the user and update the Done when figures

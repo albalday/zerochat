@@ -62,8 +62,8 @@ El código nuevo debe:
 - gestionar errores de forma explícita y validar entradas externas y de configuración;
 - no añadir código especulativo (ramas, opciones o parámetros sin consumidor actual) ni de compatibilidad hacia atrás (alias, migraciones de datos, formatos antiguos) salvo petición expresa;
 - eliminar todo lo que quede huérfano tras una retirada (funciones, estilos CSS, claves i18n, pruebas);
-- en pruebas sin navegador no hay DOM: la lógica se prueba en Node con implementaciones en memoria de sus dependencias (`storage-env.js`, `tests/helpers/turn-view.js`) y todo lo que pinta o lee elementos se prueba en navegador (`tests/browser/`), sin simular elementos ni documentos; el código que solo corre en el navegador no lleva ramas ni guardas para Node;
-- no exportar helpers internos exclusivamente para ser probados (exponer constantes o contratos del dominio sí forma parte de la interfaz pública).
+- en Node no hay DOM ni se simula: lo que pinta o lee elementos no se prueba en Node, y en navegador solo si cumple los criterios de §5; el código que solo corre en el navegador no lleva ramas ni guardas para Node;
+- no añadir a producción código cuyo único consumidor sea una prueba (exportaciones, parámetros opcionales, inyecciones de dependencias, vistas en memoria, ramas): si algo no se puede probar sin ello, se prueba en navegador o no se prueba; exponer constantes o contratos que usan otros módulos sí forma parte de la interfaz pública.
 
 
 ## 3. Arquitectura y límites del sistema
@@ -97,8 +97,9 @@ Validaciones según el nivel afectado:
 
 Antes de considerar terminado un cambio:
 1. deben pasar todas las pruebas aplicables;
-2. todo cambio de comportamiento debe incluir pruebas nuevas o modificadas;
-3. todo límite o tope (filas, bytes, elementos, tiempo) debe incluir prueba en el valor exacto del borde (`N` y `N+1`) y comprobar el aviso o marcador de truncado.
+2. llevan prueba los cambios de seguridad, de lógica no trivial, de integridad de datos y de contratos externos, y la corrección de fallos reales; no llevan prueba nueva los cambios de textos, maquetación, estilos o valores por defecto, ni el código que se ejecuta en cada arranque, que cubre la prueba de humo de navegador (criterios en [`tests/README.md`](./tests/README.md));
+3. cada comportamiento se prueba una sola vez, en el nivel más bajo que lo observa, y un caso nuevo de una función ya probada se añade como fila de su prueba existente;
+4. todo tope que protege memoria, contexto o seguridad (filas, bytes, elementos, tiempo) se prueba en el borde exacto (`N` y `N+1`) con su aviso o marcador de truncado.
 
 
 ## 6. Control de versiones y Git
@@ -128,7 +129,8 @@ Antes de cerrar una tarea (`task.py done`), revisar el `git diff` frente a esta 
 - sin ramas muertas, opciones especulativas ni código de compatibilidad previa;
 - ninguna decisión, lista de formatos o convención duplicada en 2 o más sitios;
 - comprobaciones y límites simétricos entre variantes hermanas de un mismo módulo;
-- topes cubiertos con prueba en el borde exacto y su aviso de truncado;
+- topes de memoria, contexto o seguridad cubiertos con prueba en el borde exacto y su aviso de truncado;
+- sin pruebas triviales, duplicadas, cosméticas o de ausencia de algo retirado, ni código de producción que solo usen las pruebas;
 - español e inglés sincronizados si afecta a la interfaz o a `/help/`;
 - backend recompilado (`npm run build:backend`) si se modificó `py/`;
 - documentación y memoria de proyecto (`.zerochat/`) actualizadas.
