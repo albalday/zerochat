@@ -104,3 +104,47 @@ test('Turns.getLastUserPrompt - devuelve el texto del último mensaje del usuari
     { role: 'tool', content: 'resultado' }
   ]), 'segundo');
 });
+
+test('Turns.sanitizeTurnBoundaries - sanea resultados huérfanos y llamadas a herramientas no respondidas', () => {
+  const history = [
+    { role: 'user', content: 'primero' },
+    // 1. Tool huérfano antes de cualquier llamada
+    { role: 'tool', tool_call_id: 'call_orphan', name: 'orphan', content: 'descartar' },
+    // 2. Assistant con llamada respondida y llamada no respondida
+    {
+      role: 'assistant',
+      content: 'Buscando...',
+      tool_calls: [
+        { id: 'call_1', function: { name: 'tool_a', arguments: '{}' } },
+        { id: 'call_2', function: { name: 'tool_b', arguments: '{}' } }
+      ]
+    },
+    { role: 'tool', tool_call_id: 'call_1', name: 'tool_a', content: 'resultado 1' },
+    // 3. Assistant final con llamada no respondida y texto
+    {
+      role: 'assistant',
+      content: 'Texto conservado',
+      tool_calls: [{ id: 'call_unanswered', function: { name: 'tool_c', arguments: '{}' } }]
+    },
+    // 4. Assistant sin texto con llamada no respondida (ej. interrumpido)
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: 'call_interrupted', function: { name: 'tool_d', arguments: '{}' } }]
+    }
+  ];
+
+  const sanitized = Turns.sanitizeTurnBoundaries(history);
+
+  assert.equal(sanitized.length, 4);
+  assert.equal(sanitized[0].role, 'user');
+  assert.equal(sanitized[1].role, 'assistant');
+  // call_2 fue descartada porque no tenía tool message
+  assert.deepEqual(sanitized[1].tool_calls.map(c => c.id), ['call_1']);
+  assert.equal(sanitized[2].role, 'tool');
+  assert.equal(sanitized[2].tool_call_id, 'call_1');
+  // call_unanswered fue descartada pero el texto se conserva sin campo tool_calls
+  assert.equal(sanitized[3].role, 'assistant');
+  assert.equal(sanitized[3].content, 'Texto conservado');
+  assert.equal(sanitized[3].tool_calls, undefined);
+});

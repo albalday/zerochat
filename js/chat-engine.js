@@ -419,6 +419,19 @@
    */
   function createHistorySummarizer({ apiUrl, apiType, apiKey = '', model, signal, onBeforeRequest } = {}) {
     return async ({ systemPrompt, messages }) => {
+      const transcript = Array.isArray(messages)
+        ? getContextManager().formatHistoryTranscript(messages)
+        : String(messages || '');
+      const userPrompt = [
+        'Here is the conversation history to consolidate into a checkpoint:',
+        '',
+        '<conversation_history>',
+        transcript,
+        '</conversation_history>',
+        '',
+        'Generate the replacement checkpoint now.'
+      ].join('\n');
+
       const response = await getAPI().streamChatCompletion({
         apiUrl,
         apiType,
@@ -426,8 +439,7 @@
         model,
         messages: [
           { role: 'system', content: systemPrompt },
-          ...messages,
-          { role: 'user', content: 'Generate the replacement checkpoint now.' }
+          { role: 'user', content: userPrompt }
         ],
         temperature: 0,
         reasoningEffort: 'none',

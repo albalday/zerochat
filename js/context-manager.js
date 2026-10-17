@@ -424,8 +424,63 @@
   }
 
   /**
-   * Construye el prompt de transcripción para enviar al motor de resumen.
+   * Construye una transcripción neutral en texto plano del historial para el resumidor.
+   * Evita enviar turnos conversacionales nativos (role: 'assistant'/'tool') que inducen
+   * inercia de rol agéntico o emisión de nuevas llamadas a herramientas.
    */
+  function formatHistoryTranscript(messages = [], options = {}) {
+    if (!Array.isArray(messages) || messages.length === 0) return '';
+    const maxToolChars = options.maxHistoricalToolChars || DEFAULT_MAX_HISTORICAL_TOOL_CHARS;
+    const lines = [];
+
+    messages.forEach(m => {
+      if (!m || !m.role) return;
+      if (m._isSummaryBlock) {
+        lines.push(`[Previous Checkpoint Summary]:\n${m.content || ''}`);
+        return;
+      }
+      if (m.role === 'user') {
+        let text = '';
+        if (typeof m.content === 'string') {
+          text = m.content;
+        } else if (Array.isArray(m.content)) {
+          text = m.content.filter(part => part?.type === 'text').map(part => part.text || '').join('\n');
+        }
+        if (m.commandNotes) text = text ? `${m.commandNotes}\n${text}` : m.commandNotes;
+        if (text) lines.push(`User: ${text}`);
+      } else if (m.role === 'assistant') {
+        const text = typeof m.content === 'string' ? m.content.trim() : '';
+        const toolCalls = Array.isArray(m.tool_calls) ? m.tool_calls : [];
+        const parts = [];
+        if (text) parts.push(text);
+        if (toolCalls.length > 0) {
+          const callDescs = toolCalls.map(tc => {
+            const name = tc?.function?.name || tc?.name || 'tool';
+            const rawArgs = tc?.function?.arguments ?? tc?.arguments;
+            let argsStr = '';
+            if (typeof rawArgs === 'string') {
+              argsStr = rawArgs;
+            } else if (rawArgs && typeof rawArgs === 'object') {
+              try { argsStr = JSON.stringify(rawArgs); } catch (_) { argsStr = ''; }
+            }
+            return argsStr ? `${name}(${argsStr})` : name;
+          });
+          parts.push(`[Called tools: ${callDescs.join(', ')}]`);
+        }
+        if (parts.length > 0) lines.push(`Assistant: ${parts.join('\n')}`);
+      } else if (m.role === 'tool') {
+        const name = m.name || 'tool';
+        const rawContent = typeof m.content === 'string' ? m.content : (m.content ? JSON.stringify(m.content) : '');
+        const contentStr = rawContent.length > maxToolChars
+          ? truncateToolContent(rawContent, maxToolChars, name)
+          : rawContent;
+        lines.push(`Tool (${name}): ${contentStr}`);
+      }
+    });
+
+    return lines.join('\n\n');
+  }
+
   /**
    * Comprime y consolida de forma segura los turnos antiguos de una conversación.
    */
@@ -474,15 +529,33 @@
       return { messages, compressed: false, reason: 'summarization_failed', error: err };
     }
 
-    if (typeof summaryContent !== 'string' || summaryContent.trim() === '') {
+    const trimmedSummary = typeof summaryContent === 'string' ? summaryContent.trim() : '';
+    if (!trimmedSummary) {
       return { messages, compressed: false, reason: 'empty_summary' };
+    }
+
+    if (/<tool_call[\s>]|<tool_response[\s>]|<function=/i.test(trimmedSummary)) {
+      return { messages, compressed: false, reason: 'invalid_summary' };
+    }
+    try {
+      const parsed = JSON.parse(trimmedSummary);
+      if (parsed && typeof parsed === 'object') {
+        if (parsed.name && (parsed.arguments !== undefined || parsed.parameters !== undefined)) {
+          return { messages, compressed: false, reason: 'invalid_summary' };
+        }
+        if (Array.isArray(parsed.tool_calls) && parsed.tool_calls.length > 0) {
+          return { messages, compressed: false, reason: 'invalid_summary' };
+        }
+      }
+    } catch (_) {
+      // Si no es un JSON válido, el texto no representa una llamada a herramienta serializada.
     }
 
     // 5. Construir el bloque de memoria sintético
     const memoryBlock = {
       id: `summary_${Date.now()}`,
       role: 'system',
-      content: summaryContent,
+      content: trimmedSummary,
       _isSummaryBlock: true,
       _compressedMetadata: {
         timestamp: Date.now(),
@@ -555,6 +628,7 @@
     buildOptimizedContext,
     getContextDiagnostics,
     shouldCompress,
-    compressHistory
+    compressHistory,
+    formatHistoryTranscript
   };
 }));

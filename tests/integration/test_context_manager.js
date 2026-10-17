@@ -307,3 +307,72 @@ test('ContextManager - buildOptimizedContext otorga presupuesto adaptativo para 
   assert.equal(toolMsg.content.length, tableContent.length);
 });
 
+test('ContextManager - formatHistoryTranscript genera una transcripción neutral y segura del historial', () => {
+  const history = [
+    { role: 'system', content: 'Eres un asistente' },
+    { role: 'system', content: 'Resumen previo', _isSummaryBlock: true },
+    { role: 'user', content: 'comprueba git', commandNotes: 'Notas previas' },
+    {
+      role: 'assistant',
+      content: 'Voy a comprobarlo.',
+      tool_calls: [{
+        id: 'call_1',
+        function: { name: 'run_command', arguments: '{"command":"git status"}' }
+      }]
+    },
+    { role: 'tool', name: 'run_command', content: 'salida de comando '.repeat(200) },
+    {
+      role: 'user',
+      content: [{ type: 'text', text: 'mira esta imagen' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } }]
+    }
+  ];
+
+  const transcript = ChatContextManager.formatHistoryTranscript(history, { maxHistoricalToolChars: 100 });
+
+  assert.ok(transcript.includes('[Previous Checkpoint Summary]:\nResumen previo'));
+  assert.ok(transcript.includes('User: Notas previas\ncomprueba git'));
+  assert.ok(transcript.includes('Assistant: Voy a comprobarlo.\n[Called tools: run_command({"command":"git status"})]'));
+  assert.ok(transcript.includes('Tool (run_command):'));
+  assert.ok(transcript.includes('Truncado por ChatContextManager'));
+  assert.ok(transcript.includes('User: mira esta imagen'));
+  assert.ok(!transcript.includes('Eres un asistente'), 'No debe incluir el prompt de sistema previo');
+});
+
+test('ContextManager - compressHistory rechaza resúmenes inválidos con llamadas a herramientas o vacíos', async () => {
+  const messages = [
+    { role: 'user', content: 'hola' },
+    { role: 'assistant', content: 'mundo' }
+  ];
+
+  // 1. Rechaza llamadas en formato XML (<tool_call>)
+  const xmlResult = await ChatContextManager.compressHistory({
+    messages,
+    summarizeFn: async () => '<tool_call>\n<function=run_command>\n<parameter=command>git status</parameter>\n</tool_call>'
+  });
+  assert.equal(xmlResult.compressed, false);
+  assert.equal(xmlResult.reason, 'invalid_summary');
+
+  // 2. Rechaza llamadas en formato JSON ({ name, arguments })
+  const jsonResult = await ChatContextManager.compressHistory({
+    messages,
+    summarizeFn: async () => '{"name": "run_command", "arguments": {"command": "git status"}}'
+  });
+  assert.equal(jsonResult.compressed, false);
+  assert.equal(jsonResult.reason, 'invalid_summary');
+
+  // 3. Rechaza resúmenes vacíos
+  const emptyResult = await ChatContextManager.compressHistory({
+    messages,
+    summarizeFn: async () => '   \n  '
+  });
+  assert.equal(emptyResult.compressed, false);
+  assert.equal(emptyResult.reason, 'empty_summary');
+
+  // 4. Acepta resúmenes válidos de texto plano / markdown
+  const okResult = await ChatContextManager.compressHistory({
+    messages,
+    summarizeFn: async () => 'Resumen consolidado válido.'
+  });
+  assert.equal(okResult.compressed, true);
+  assert.equal(okResult.memoryBlock.content, 'Resumen consolidado válido.');
+});

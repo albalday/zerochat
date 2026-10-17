@@ -98,3 +98,6 @@
 - 2026-10-17 M24-D13 Fijar los objetivos de control de la suite de pruebas en <= 600 pruebas y <= 20.000 líneas (medido: 591 pruebas, 19.211 líneas en 89 ficheros) con ejecución en Node < 10s y navegador < 15s tras eliminar 229 pruebas redundantes (M24-T27)
 - 2026-10-17 M24-D14 test_local_server.js comparte un único servidor por grupo de configuración (7 spawns a 4); el test de logging queda separado porque su aserción negativa de jobs/* choca con las llamadas del test principal; AGENTS.md §5 fija la regla de arranque compartido (M24-T29)
 - 2026-10-17 M24-D15 test_backend_runtime.js agrupa los scripts python3 -c en procesos compartidos: 13 a 6 spawns en Linux (grupo sin JOBS: token, open_browser, check_version, loopback, simbolicos, SSRF; grupo JOBS: shell, set_project_directory, descendientes); 14 tests a 7, cuerpos Python byte-identicos al original (M24-T30)
+- 2026-10-17 M25-D1 Transcripción neutral en texto plano para el resumidor del historial (M25-T1) (M25-T1)
+- 2026-10-17 M25-D2 Validación estricta del resumen en compressHistory rechazando tool calls y salida vacía (M25-T2) (M25-T2)
+- 2026-10-17 M25-D3 Saneamiento de límites de turnos en ramificación y mensajes efectivos (M25-T3) (M25-T3)

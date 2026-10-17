@@ -76,10 +76,11 @@ test('ConversationService - con resumen, la rama compacta el contexto previo y c
   useDialogs(t, [{ accepted: true, checkboxChecked: true }]);
   const summarized = [];
   let busyDuringSummary = null;
+  let summaryPrompt = '';
   useSummarizer(t, async ({ messages, signal }) => {
     busyDuringSummary = State.isConversationBusy();
     assert.equal(typeof signal.aborted, 'boolean');
-    summarized.push(...messages.slice(1, -1).map(message => message.content));
+    summaryPrompt = messages[1]?.content || '';
     return { accumulatedText: 'Consolidated summary of conversation' };
   });
 
@@ -88,7 +89,8 @@ test('ConversationService - con resumen, la rama compacta el contexto previo y c
   assert.deepEqual(summarizing, [true, false], 'El indicador se muestra durante el resumen y se retira al terminar');
   assert.equal(State.isConversationBusy(), false);
   assert.equal(State.get('ui').generationStatus.phase, 'idle');
-  assert.deepEqual(summarized, ['user 1', 'asst 1', 'user 2'], 'La respuesta de anclaje no se resume');
+  assert.ok(summaryPrompt.includes('User: user 1') && summaryPrompt.includes('Assistant: asst 1') && summaryPrompt.includes('User: user 2'));
+  assert.ok(!summaryPrompt.includes('asst 2'), 'La respuesta de anclaje no se resume');
   assert.deepEqual(State.get('messages').map(message => message.content), ['sys', 'Consolidated summary of conversation', 'asst 2']);
   assert.equal(State.get('messages')[1]._isSummaryBlock, true);
 });
@@ -134,6 +136,15 @@ test('ConversationService - si el resumen falla ofrece bifurcar con el historial
     useSummarizer(t, async () => { throw new Error('provider down'); });
     assert.equal(await ConversationService.createConversationBranch(anchor, options), false);
     assert.deepEqual(await savedBranches(), []);
+  }
+  {
+    // Si el modelo devuelve un bloque <tool_call>, se rechaza y ofrece el historial completo
+    const { anchor, options } = await setupBranch(t);
+    const { confirms } = useDialogs(t, [{ accepted: true, checkboxChecked: true }, true]);
+    useSummarizer(t, async () => ({ accumulatedText: '<tool_call>\n<function=run_command>\n<parameter=command>git status</parameter>\n</tool_call>' }));
+    assert.equal(await ConversationService.createConversationBranch(anchor, options), true);
+    assert.equal(confirms.length, 2);
+    assert.equal(State.get('messages').length, 5);
   }
 });
 

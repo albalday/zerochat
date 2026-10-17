@@ -385,8 +385,9 @@ test('ChatEngine.createHistorySummarizer - pide el checkpoint sin herramientas n
     assert.equal(request.signal, signal);
     assert.equal(request.toolChoice, 'none');
     assert.equal(request.reasoningEffort, 'none');
-    assert.deepEqual(request.messages.map(m => m.role), ['system', 'user', 'user']);
+    assert.deepEqual(request.messages.map(m => m.role), ['system', 'user']);
     assert.equal(request.messages[0].content, 'SUMMARIZE');
+    assert.match(request.messages[1].content, /<conversation_history>[\s\S]*User: hola[\s\S]*<\/conversation_history>/);
   } finally {
     ChatAPI.streamChatCompletion = originalStream;
   }

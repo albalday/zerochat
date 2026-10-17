@@ -73,5 +73,52 @@
     return '';
   }
 
-  return { extractBaseId, hasMatchingToolCall, dropOrphanToolMessages, removeSelectedTurn, getLastUserPrompt };
+  /**
+   * Sanea los límites de turnos en un historial:
+   * 1. Descarta mensajes 'tool' huérfanos (sin llamada previa del asistente).
+   * 2. Limpia tool_calls de turnos del asistente que no fueron respondidas por mensajes 'tool'
+   *    (p. ej. al bifurcar o tras interrupción), evitando llamadas abiertas que provocan
+   *    errores 400 en las APIs de proveedores.
+   */
+  function sanitizeTurnBoundaries(messages) {
+    if (!Array.isArray(messages)) return [];
+    const withValidTools = dropOrphanToolMessages(messages);
+    const result = [];
+
+    for (let i = 0; i < withValidTools.length; i++) {
+      const current = withValidTools[i];
+      if (!current) continue;
+
+      if (current.role === 'assistant' && Array.isArray(current.tool_calls) && current.tool_calls.length > 0) {
+        const answeredCalls = new Set();
+        for (let j = i + 1; j < withValidTools.length; j++) {
+          const next = withValidTools[j];
+          if (next?.role !== 'tool') break;
+          for (const call of current.tool_calls) {
+            if (call && (call.id === next.tool_call_id || (call.function && call.function.name === next.name))) {
+              answeredCalls.add(call.id || call.function?.name);
+            }
+          }
+        }
+
+        const validCalls = current.tool_calls.filter(call => answeredCalls.has(call.id || call.function?.name));
+        if (validCalls.length === 0) {
+          if (typeof current.content === 'string' && current.content.trim()) {
+            const { tool_calls: _tc, ...rest } = current;
+            result.push(rest);
+          }
+          continue;
+        }
+
+        result.push({ ...current, tool_calls: validCalls });
+        continue;
+      }
+
+      result.push(current);
+    }
+
+    return result;
+  }
+
+  return { extractBaseId, hasMatchingToolCall, dropOrphanToolMessages, removeSelectedTurn, getLastUserPrompt, sanitizeTurnBoundaries };
 });

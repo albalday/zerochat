@@ -165,7 +165,7 @@
   }
 
   function cloneBranchHistory(history, boundary, sessionId) {
-    return renumberForSession(history.slice(0, boundary + 1), sessionId);
+    return renumberForSession(MessageTurns.sanitizeTurnBoundaries(history.slice(0, boundary + 1)), sessionId);
   }
 
   function shouldOfferBranchSummary(history, boundary) {
@@ -199,7 +199,7 @@
       }
     });
     return compacted.compressed
-      ? renumberForSession([...compacted.messages, history[boundary]], sessionId)
+      ? renumberForSession(MessageTurns.sanitizeTurnBoundaries([...compacted.messages, history[boundary]]), sessionId)
       : null;
   }
 
