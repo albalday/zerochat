@@ -148,7 +148,9 @@ test('Browser UI - humo: arranca, conversa con Espejo, gestiona conversaciones y
 
     await send('Primera');
     assert.equal(await page.locator('#messages-list .message-wrapper.assistant').count(), 1);
+    const firstId = await page.evaluate(() => window.ChatState.get('sessions').activeId);
     await page.click('#btn-sidebar-new-chat');
+    await page.waitForFunction(id => window.ChatState.get('sessions').activeId !== id && window.ChatState.get('messages').length === 1, firstId);
     await send('Segunda');
     await page.waitForFunction(() => document.querySelectorAll('.sidebar-chat-item').length === 2);
 

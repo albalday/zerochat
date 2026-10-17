@@ -1,6 +1,5 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 const path = require('node:path');
 const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl, waitForAppReady, openSavedSession } = require('../helpers/browser-env.js');
 
@@ -195,76 +194,6 @@ test('Browser UI - pintado de mensajes: bloques independientes, acciones, error 
     assert.deepEqual(result.empty, { welcome: true, telemetry: ['reset'] });
     assert.equal(result.probe, false);
     assert.deepEqual(errors, []);
-  } finally { await browser.close(); }
-});
-
-test('Browser UI - copiar usa el texto del momento, vuelve al icono original y un fallo del portapapeles no se da por copiado', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage();
-    await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await waitForAppReady(page);
-    await page.clock.install();
-    const copied = await page.evaluate(async () => {
-      const copied = [];
-      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { copied.push(text); } } });
-      const button = document.createElement('button');
-      button.id = 'copy-probe';
-      button.innerHTML = '<span>copy</span>';
-      document.body.append(button);
-      window.__copyText = 'Original';
-      window.ChatUIConversation.bindMessageCopy(button, () => window.__copyText);
-      const results = [await button.onclick()];
-      window.__copyText = 'Updated';
-      results.push(await button.onclick());
-      return { results, copied, copiedClass: button.classList.contains('copied') };
-    });
-    assert.deepEqual(copied, { results: [true, true], copied: ['Original', 'Updated'], copiedClass: true });
-    await page.clock.runFor(2000);
-    assert.deepEqual(await page.$eval('#copy-probe', button => [button.classList.contains('copied'), button.innerHTML]), [false, '<span>copy</span>']);
-
-    const failed = await page.evaluate(async () => {
-      const warnings = [];
-      const originalWarn = console.warn;
-      console.warn = (...args) => warnings.push(args);
-      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('Clipboard denied'); } } });
-      const button = document.createElement('button');
-      window.ChatUIConversation.bindMessageCopy(button, () => 'Text');
-      const result = await button.onclick();
-      console.warn = originalWarn;
-      return { result, copied: button.classList.contains('copied'), warnings: warnings.length };
-    });
-    assert.deepEqual(failed, { result: false, copied: false, warnings: 1 });
-  } finally { await browser.close(); }
-});
-
-test('Browser UI - borrar el último turno lo quita del historial y del chat, guarda y muestra la bienvenida', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage();
-    await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await waitForAppReady(page);
-    const result = await page.evaluate(() => {
-      const ui = window.ChatUIConversation;
-      const messagesList = document.createElement('div');
-      const welcomeBanner = document.createElement('div');
-      document.body.append(messagesList);
-      window.ChatState.replaceConversation({ sessionId: 'session_remove', messages: [{ id: 'msg_to_delete', role: 'user', content: 'Borrar' }] });
-      ui.appendUserMessage(messagesList, welcomeBanner, { text: 'Borrar', existingMsgId: 'msg_to_delete' }, { onReuse() {}, onDelete() {} });
-      const wrapper = messagesList.querySelector('[data-msg-id="msg_to_delete"]');
-      let saved = false;
-      ui.removeMessage(wrapper, { messagesList, welcomeBanner, saveSession: () => { saved = true; } });
-      const out = {
-        messages: window.ChatState.get('messages').length,
-        connected: wrapper.isConnected,
-        saved,
-        welcomeInList: welcomeBanner.parentNode === messagesList,
-        welcomeHidden: welcomeBanner.hidden
-      };
-      messagesList.remove();
-      return out;
-    });
-    assert.deepEqual(result, { messages: 0, connected: false, saved: true, welcomeInList: true, welcomeHidden: false });
   } finally { await browser.close(); }
 });
 

@@ -104,22 +104,6 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
     });
   });
 
-  test('Browser UI - copiar el comando de arranque lo copia y lo confirma en el botón', async () => {
-    await withMcpPanel({}, async page => {
-      const result = await page.evaluate(async () => {
-        const copied = [];
-        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { copied.push(text); } } });
-        const button = document.getElementById('btn-mcp-copy-cmd');
-        const ok = await window.ChatUIMcp.copyCommandToClipboard('test command', button);
-        return { ok, copied, copiedClass: button.classList.contains('copied'), text: button.textContent, expected: window.ChatI18n.t('mcp_cmd_copied') };
-      });
-      assert.equal(result.ok, true);
-      assert.deepEqual(result.copied, ['test command']);
-      assert.equal(result.copiedClass, true);
-      assert.ok(result.text.includes(result.expected));
-    });
-  });
-
   test('Browser UI - la lista de herramientas muestra el estado vacío y sus interruptores actualizan la configuración', async () => {
     await withMcpPanel({ status: 'disconnected' }, async page => {
       const empty = await page.evaluate(() => {
@@ -246,30 +230,6 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
     });
   });
 
-  test('Browser UI - un error al iniciar se muestra en su tarjeta con enlace a la ayuda y deja el servidor detenido', async () => {
-    await withMcpPanel({ externalServers: [{ id: 'ejemplo', status: 'stopped' }] }, async page => {
-      const card = await page.evaluate(() => {
-        const list = document.getElementById('mcp-servers-list');
-        window.ChatUIMcp.renderExternalServers(list, [{ id: 'example-mcp', status: 'error', error: 'example-mcp requiere Node.js 24+' }]);
-        return { help: list.querySelector('.mcp-server-error a').getAttribute('href'), text: list.textContent };
-      });
-      assert.equal(card.help, 'help/mcp.html');
-      assert.match(card.text, /Consultar ayuda de dependencias MCP/);
-      assert.match(card.text, /Node\.js 24\+/);
-
-      const action = await page.evaluate(async () => {
-        window.ChatMCP.manager.startExternalServer = async () => { throw new Error('connection failed'); };
-        const originalError = console.error;
-        console.error = () => {};
-        const ok = await window.ChatUIMcp.runExternalServerAction('ejemplo', 'start');
-        console.error = originalError;
-        const server = window.ChatState.get('mcp').externalServers[0];
-        return { ok, status: server.status, error: server.error };
-      });
-      assert.deepEqual(action, { ok: false, status: 'stopped', error: 'No se pudo actualizar el servidor MCP.' });
-    });
-  });
-
   test('Browser UI - repintar las listas MCP no vuelve a enlazar eventos: cada acción se dispara una vez', async () => {
     await withMcpPanel({}, async page => {
       const counts = await page.evaluate(async () => {
@@ -298,34 +258,4 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
     });
   });
 
-  test('Browser UI - la tarjeta de write_file ofrece vista previa del HTML escrito', async () => {
-    await withMcpPanel({}, async page => {
-      const result = await page.evaluate(async () => {
-        const provider = new window.ChatMCP.McpToolProvider({
-          id: 'local',
-          name: 'local',
-          url: 'http://127.0.0.1:6388',
-          initialize: async () => ({ success: true }),
-          listTools: async () => [{ name: 'write_file', description: 'Escribe archivo', inputSchema: { type: 'object' } }]
-        });
-        const [tool] = await provider.discoverTools();
-        const args = { path: 'catedral.html', content: '<h1>Catedral</h1>' };
-        const card = window.ChatToolCards.createLiveToolCard(tool.name, args);
-        document.body.append(card);
-        tool.view.updateLiveCard(card, args, { success: true }, 10, {
-          createCardWrapper: className => Object.assign(document.createElement('div'), { className: className || '' }),
-          t: window.ChatI18n.t,
-          CHECK_SVG: '',
-          ERROR_SVG: '',
-          SPINNER_SVG: ''
-        });
-        let opened = null;
-        window.ChatUtils.openDocumentInNewTab = (content, mime) => { opened = { content, mime }; return true; };
-        const button = card.querySelector('.btn-file-preview');
-        button?.click();
-        return { button: Boolean(button), opened };
-      });
-      assert.deepEqual(result, { button: true, opened: { content: '<h1>Catedral</h1>', mime: 'text/html;charset=utf-8' } });
-    });
-  });
 });

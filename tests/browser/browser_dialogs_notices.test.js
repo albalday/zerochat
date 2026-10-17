@@ -1,8 +1,7 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 const path = require('node:path');
-const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, getIndexUrl } = require('../helpers/browser-env.js');
 
 describe('Browser UI - dialogs_notices', { concurrency: 2 }, () => {
   after(async () => {

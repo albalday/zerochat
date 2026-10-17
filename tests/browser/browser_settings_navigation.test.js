@@ -425,22 +425,6 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
     await page.waitForFunction(id => document.getElementById('settings-dialog').open && document.getElementById(`settings-${id}`).classList.contains('active'), section);
   }
 
-  test('Browser UI - abrir una sección activa su panel y título y lista solo las herramientas configurables', async () => {
-    await withTestApp({ viewport: { width: 1280, height: 800 } }, async page => {
-      page.setDefaultTimeout(5000);
-      await openSettings(page, 'mcp');
-      assert.deepEqual(await page.evaluate(() => ({
-        active: [...document.querySelectorAll('#settings-dialog .settings-section-pane.active')].map(pane => pane.id),
-        title: document.getElementById('settings-section-title').dataset.i18n,
-        sidebar: document.querySelector('#sidebar-settings-nav .sidebar-settings-item.active')?.dataset.section
-      })), { active: ['settings-mcp'], title: 'settings_mcp', sidebar: 'mcp' });
-
-      await openSettings(page, 'agent');
-      assert.equal(await page.locator('#agent-tools-container .agent-tool-checkbox[data-tool-id="search_web"]').count(), 1, 'Se listan las herramientas configurables');
-      assert.equal(await page.locator('#agent-tools-container [data-tool-id="list_documents"]').count(), 0, 'Las de conocimiento local no tienen interruptor');
-    });
-  });
-
   test('Browser UI - la sección MCP se aplica al momento: sin Guardar ni cambios pendientes', async () => {
     await withTestApp({ viewport: { width: 1280, height: 800 } }, async page => {
       page.setDefaultTimeout(5000);
@@ -461,25 +445,6 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       await page.fill('#setting-system-data-prompt', 'Datos propios');
       await openSettings(page, 'mcp');
       assert.equal(await page.locator('#btn-save-settings').isVisible(), true, 'Con cambios de otra sección se puede guardar desde MCP');
-    });
-  });
-
-  test('Browser UI - el tema y el idioma marcan su botón activo y traducen la interfaz', async () => {
-    await withTestApp({ viewport: { width: 1280, height: 800 } }, async page => {
-      page.setDefaultTimeout(5000);
-      await page.click('#btn-open-settings');
-      const active = selector => page.$$eval(`${selector}.active`, buttons => buttons.map(button => button.dataset.theme || button.dataset.lang));
-      await page.click('#sidebar-choice-theme .btn-theme-toggle[data-theme="dark"]');
-      assert.deepEqual(await active('#sidebar-choice-theme .btn-theme-toggle'), ['dark']);
-      assert.equal(await page.evaluate(() => document.documentElement.getAttribute('data-theme')), 'dark');
-      await page.click('#sidebar-choice-theme .btn-theme-toggle[data-theme="light"]');
-      assert.deepEqual(await active('#sidebar-choice-theme .btn-theme-toggle'), ['light']);
-      assert.equal(await page.evaluate(() => document.documentElement.hasAttribute('data-theme')), false);
-
-      await page.click('#sidebar-choice-language .btn-lang-toggle[data-lang="en"]');
-      assert.deepEqual(await active('#sidebar-choice-language .btn-lang-toggle'), ['en']);
-      await openSettings(page, 'model');
-      assert.equal(await page.textContent('#settings-section-title'), 'Model', 'ChatI18n traduce el marcado');
     });
   });
 

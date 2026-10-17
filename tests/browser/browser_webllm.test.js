@@ -1,6 +1,5 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl, waitForAppReady } = require('../helpers/browser-env.js');
 
 describe('Browser UI - webllm', { concurrency: 2 }, () => {

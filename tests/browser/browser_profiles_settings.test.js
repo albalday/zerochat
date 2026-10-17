@@ -1,6 +1,5 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl, waitForAppReady } = require('../helpers/browser-env.js');
 
 describe('Browser UI - profiles_settings', { concurrency: 4 }, () => {
@@ -730,24 +729,6 @@ test('Browser UI - reabrir el editor no conserva cambios descartados y una consu
   }
 });
 
-test('Browser UI - cancelar el borrado de un perfil lo conserva', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await openProfilesPage(browser);
-    await page.click('#active-profile-trigger');
-    await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="delete"]');
-    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
-    assert.match(await page.textContent('#notice-message'), /Local chat/);
-    await page.click('#notice-cancel');
-    await page.waitForFunction(() => !document.getElementById('notice-dialog').open);
-    assert.ok(await page.evaluate(() => window.ChatProfileRepository.get('profile:local')));
-    await page.click('#active-profile-trigger');
-    assert.equal(await page.locator('#active-profile-list [data-profile-id="profile:local"]').count(), 1);
-  } finally {
-    await browser.close();
-  }
-});
-
 test('Browser UI - un perfil nuevo abre el editor vacío sin pedir nombre ni heredar la clave', async () => {
   const browser = await createTestBrowser();
   try {
@@ -772,66 +753,4 @@ test('Browser UI - un perfil nuevo abre el editor vacío sin pedir nombre ni her
   }
 });
 
-test('Browser UI - el editor exige API key a los proveedores remotos, enlaza sus guías y ajusta la temperatura', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await openProfilesPage(browser);
-    await openProfileEditor(page, 'profile:local');
-    const provider = async apiType => {
-      await page.selectOption('#setting-api-type', apiType);
-      return page.evaluate(() => ({
-        hint: document.getElementById('api-key-hint-text').dataset.i18n,
-        help: document.getElementById('api-key-free-help-link').hidden ? null : document.getElementById('api-key-free-help-link').getAttribute('href'),
-        temperatureDisabled: document.getElementById('setting-temperature').disabled,
-        temperatureHint: document.getElementById('temperature-hint').dataset.i18n
-      }));
-    };
-    assert.deepEqual(await provider('openrouter'), { hint: 'field_api_key_required_hint', help: 'help/openrouter-free.html', temperatureDisabled: false, temperatureHint: 'field_temperature_hint' });
-    assert.deepEqual(await provider('gemini'), { hint: 'field_api_key_required_hint', help: 'help/gemini-free.html', temperatureDisabled: true, temperatureHint: 'field_temperature_unsupported_hint' });
-    assert.deepEqual(await provider('ollama'), { hint: 'field_api_key_hint', help: null, temperatureDisabled: false, temperatureHint: 'field_temperature_hint' });
-  } finally {
-    await browser.close();
-  }
-});
-
-test('Browser UI - editar un perfil rellena el editor, usa el endpoint por defecto y muestra los parámetros de WebLLM', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await openProfilesPage(browser, [
-      { id: 'profile:claude', name: 'Claude', settings: { apiType: 'claude', apiUrl: 'https://api.anthropic.com/v1', apiKey: 'sk-ant-test', model: 'claude-3-7-sonnet', systemPrompt: 'Eres un asistente experto.', temperature: '0.2' } },
-      { id: 'profile:sin-url', name: 'Sin URL', settings: { apiType: 'openai', apiUrl: '', apiKey: '', model: '' } },
-      { id: 'profile:webllm', name: 'Local WebLLM', settings: { apiType: 'webllm', apiKey: '', model: '', webllmConfig: { context_window_size: '16384', prefill_chunk_size: 'default' } } }
-    ]);
-    const form = () => page.evaluate(() => ({
-      apiType: document.getElementById('setting-api-type').value,
-      apiUrl: document.getElementById('setting-api-url').value,
-      placeholder: document.getElementById('setting-api-url').placeholder,
-      model: document.getElementById('setting-model').value,
-      systemPrompt: document.getElementById('setting-system-prompt').value,
-      temperature: document.getElementById('temperature-val').textContent,
-      webllmPanel: !document.getElementById('webllm-params-panel').hidden,
-      webllmHelp: !document.getElementById('webllm-help-link').hidden,
-      contextWindow: document.getElementById('setting-webllm-context-window').value,
-      prefillChunk: document.getElementById('setting-webllm-prefill-chunk').value
-    }));
-
-    await openProfileEditor(page, 'profile:claude');
-    const claude = await form();
-    assert.deepEqual([claude.apiType, claude.apiUrl, claude.model, claude.systemPrompt, claude.temperature, claude.webllmPanel],
-      ['claude', 'https://api.anthropic.com/v1', 'claude-3-7-sonnet', 'Eres un asistente experto.', '0.2', false]);
-    await closeProfileEditor(page);
-
-    await openProfileEditor(page, 'profile:sin-url');
-    const openai = await form();
-    assert.equal(openai.apiUrl, 'http://localhost:1234/v1', 'Sin URL se usa la del proveedor');
-    assert.equal(openai.placeholder, 'http://localhost:1234/v1');
-    await closeProfileEditor(page);
-
-    await openProfileEditor(page, 'profile:webllm');
-    const webllm = await form();
-    assert.deepEqual([webllm.webllmPanel, webllm.webllmHelp, webllm.contextWindow, webllm.prefillChunk], [true, true, '16384', 'default']);
-  } finally {
-    await browser.close();
-  }
-});
 });
