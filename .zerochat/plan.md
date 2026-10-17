@@ -32,11 +32,9 @@ Done when: to be agreed with the user before the milestone starts.
 
 ## M15 Legacy binary Office (.doc and .xls) reading: closed 2026-10-16
 
-## M16 RAG and web image rendering with local models and reasoning levels
-Goal: Ensure images from RAG and web tools are shown consistently across local models as with Gemini, accounting for the dependence on the configured reasoning level (reasoningEffort), with a generic fix and no per-model rules.
-Done when: the cause of missing RAG/web images in local models across reasoning levels (none, low, medium, high) is identified and fixed generically, with unit/integration tests covering different reasoningEffort values.
-- [ ] M16-T1 Reproduce and compare how RAG and web tool images are handled with Gemini vs. local models across reasoningEffort levels (none, low, medium, high)
-- [ ] M16-T2 Implement a generic fix for image reference preservation and rendering independent of model name and reasoning level, with tests
+## M16 RAG and web image rendering with local models and reasoning levels: closed 2026-10-17
+
+
 
 ## M17 Native XLSX reading without external libraries: closed 2026-10-16
 
@@ -54,12 +52,14 @@ Done when: on Linux, zerochat.py --prompt runs the prompt with the production Ze
 ## M19 Web image ingestion and multimodal analysis: closed 2026-10-16
 
 ## M20 Diff visualization for file edits
-Goal: Allow users to view unified diffs of file modifications performed by local tools (edit_file and write_file) on demand in the chat UI, without cluttering the conversation or context window.
-Done when: the backend computes unified diffs for file edits using Python's standard difflib, the tool card in the UI displays an on-demand expandable diff view with accessible semantic line highlighting (+ additions, - deletions), model context is protected from diff verbosity, with unit/browser tests and /help (ES/EN) updated.
-- [ ] M20-T1 Study and decide diff payload design: backend difflib integration in edit_file/write_file, context token preservation and UI toggle behavior
-- [ ] M20-T2 Backend implementation: generate unified diff in edit_file and write_file (when overwriting existing files), with tests
-- [ ] M20-T3 UI tool card integration: interactive [View diff] toggle, syntax highlighting for additions/deletions via tokens.css, and historical reconstruction
+Goal: Allow users to launch an external OS diff viewer (via git difftool) on demand from edit_file and write_file tool cards to inspect current file changes against Git, without cluttering the chat UI or context window.
+Done when: backend exposes an endpoint to launch git difftool non-blockingly for a given path against Git HEAD (with fallback for untracked files and non-git dirs), tool cards in the UI display an action button to launch it, with tests and /help (ES/EN) updated.
+- [x] M20-T1 Study and decide diff payload design: backend difflib integration in edit_file/write_file, context token preservation and UI toggle behavior (2026-10-17)
+- [x] M20-T2 Backend implementation: generate unified diff in edit_file and write_file (when overwriting existing files), with tests (dropped: superseded by OS git difftool launcher in M20-T5)
+- [x] M20-T3 UI tool card integration: interactive [View diff] toggle, syntax highlighting for additions/deletions via tokens.css, and historical reconstruction (dropped: superseded by OS git difftool launcher action in M20-T6)
 - [ ] M20-T4 Tests (unit, architecture, browser) and /help (ES/EN) documentation update
+- [x] M20-T5 Backend endpoint and launcher for git difftool with non-blocking execution, Git repo validation, and untracked file handling, with tests (2026-10-17)
+- [x] M20-T6 UI action button in edit_file and write_file tool cards to trigger external git difftool via backend endpoint (2026-10-17)
 
 ## M21 Unified browser resource download and public proxy removal: closed 2026-10-16
 
