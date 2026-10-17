@@ -2,10 +2,10 @@ const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const RagStorage = require('../../js/ragStorage.js');
 const RagIndex = require('../../js/rag-index.js');
+const { clearRagData } = require('../helpers/rag-data.js');
 
 beforeEach(async () => {
-  RagIndex.clearCache();
-  await RagStorage.clearAllData();
+  await clearRagData();
 });
 
 test('RagIndex - indexa y busca chunks con Orama', async () => {

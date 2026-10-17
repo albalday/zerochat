@@ -77,159 +77,157 @@
     };
   }
 
-  function createRepository(storage = Storage) {
-    function readDocument() {
-      const raw = storage.getStorageItem(STORAGE_KEY);
-      if (!raw) return null;
-      let doc;
-      try {
-        doc = JSON.parse(raw);
-      } catch (_) {
-        throw new Error('The profile storage is not valid JSON.');
-      }
-      if (!doc || doc.schemaVersion !== SCHEMA_VERSION || !Array.isArray(doc.profiles)) {
-        throw new Error('The profile storage has an invalid format.');
-      }
-      return { schemaVersion: SCHEMA_VERSION, profiles: doc.profiles.map(normalizeRecord) };
+  function readDocument() {
+    const raw = Storage.getStorageItem(STORAGE_KEY);
+    if (!raw) return null;
+    let doc;
+    try {
+      doc = JSON.parse(raw);
+    } catch (_) {
+      throw new Error('The profile storage is not valid JSON.');
     }
-
-    function writeDocument(document) {
-      storage.setStorageItem(STORAGE_KEY, JSON.stringify(document));
+    if (!doc || doc.schemaVersion !== SCHEMA_VERSION || !Array.isArray(doc.profiles)) {
+      throw new Error('The profile storage has an invalid format.');
     }
-
-    function initialize() {
-      const existing = readDocument();
-      if (existing) {
-        if (!existing.profiles.some(profile => profile.id === READONLY_PROFILE_ID)) {
-          existing.profiles.unshift(normalizeRecord(MIRROR_PROFILE));
-          writeDocument(existing);
-        }
-        return clone(existing);
-      }
-
-      const document = { schemaVersion: SCHEMA_VERSION, profiles: [normalizeRecord(MIRROR_PROFILE)] };
-      writeDocument(document);
-      return clone(document);
-    }
-
-    function list() {
-      return initialize().profiles;
-    }
-
-    function get(id) {
-      const cleanId = String(id || '');
-      return list().find(profile => profile.id === cleanId) || null;
-    }
-
-    async function load(id, keyMaterial = null) {
-      const profile = get(id);
-      if (!profile) return null;
-      const secret = profile.settings.apiKey;
-      if (secret) {
-        profile.settings.apiKey = await Backup.decryptApiKey(secret, keyMaterial || undefined);
-      } else {
-        profile.settings.apiKey = '';
-      }
-      return profile;
-    }
-
-    function findByName(name) {
-      const cleanName = String(name || '').trim();
-      return list().find(profile => profile.name === cleanName) || null;
-    }
-
-    function save(record) {
-      const current = initialize();
-      const normalized = normalizeRecord(record);
-      if (normalized.id === READONLY_PROFILE_ID || normalized.name === MIRROR_PROFILE.name) {
-        throw new Error('The Mirror profile cannot be modified.');
-      }
-      const index = current.profiles.findIndex(profile => profile.id === normalized.id);
-      if (index >= 0) {
-        if (current.profiles[index].settings.apiKeyLocked === true) throw new Error('Changes to this profile are locked.');
-        normalized.version = current.profiles[index].version + 1;
-      }
-      normalized.updatedAt = Date.now();
-      if (index >= 0) current.profiles[index] = normalized;
-      else current.profiles.push(normalized);
-      writeDocument(current);
-      return clone(normalized);
-    }
-
-    async function saveEditable(record) {
-      if (typeof record?.settings?.apiKey !== 'string') throw new Error('The profile API key is not valid.');
-      const apiKey = await Backup.encryptApiKey(record.settings.apiKey);
-      return save({ ...record, settings: { ...record.settings, apiKey } });
-    }
-
-    async function recipherApiKeys(currentKeyMaterial, nextKeyMaterial) {
-      const current = initialize();
-      const rewritten = [];
-      let reciphered = 0;
-      for (const profile of current.profiles) {
-        if (profile.id === READONLY_PROFILE_ID || !profile.settings.apiKey) {
-          rewritten.push(profile);
-          continue;
-        }
-        const apiKey = await Backup.decryptApiKey(profile.settings.apiKey, currentKeyMaterial);
-        const encrypted = await Backup.encryptApiKey(apiKey, nextKeyMaterial);
-        rewritten.push({ ...profile, updatedAt: Date.now(), version: profile.version + 1, settings: { ...profile.settings, apiKey: encrypted } });
-        reciphered += 1;
-      }
-      writeDocument({ schemaVersion: SCHEMA_VERSION, profiles: rewritten });
-      return reciphered;
-    }
-
-    async function verifyApiKeyMaterial(keyMaterial) {
-      const current = initialize();
-      for (const profile of current.profiles) {
-        if (profile.id !== READONLY_PROFILE_ID && profile.settings.apiKey) {
-          await Backup.decryptApiKey(profile.settings.apiKey, keyMaterial);
-        }
-      }
-      return true;
-    }
-
-    function remove(id) {
-      if (String(id || '') === READONLY_PROFILE_ID) return false;
-      const current = initialize();
-      const index = current.profiles.findIndex(profile => profile.id === String(id || ''));
-      if (index < 0) return false;
-      current.profiles.splice(index, 1);
-      writeDocument(current);
-      return true;
-    }
-
-    function mergeImported(records) {
-      if (!Array.isArray(records) || records.length > 100) throw new Error('The imported profile list is not valid.');
-      const current = initialize();
-      const imported = records.map(normalizeRecord).filter(profile => profile.id !== READONLY_PROFILE_ID && profile.name !== MIRROR_PROFILE.name);
-      if (imported.length !== records.length) throw new Error('La copia no puede modificar el perfil Espejo.');
-      const ids = new Set();
-      const names = new Set();
-      imported.forEach(profile => {
-        if (ids.has(profile.id) || names.has(profile.name)) throw new Error('La copia contiene perfiles duplicados.');
-        ids.add(profile.id); names.add(profile.name);
-      });
-      const editable = current.profiles.filter(profile => profile.id !== READONLY_PROFILE_ID);
-      const byId = new Map(editable.map(profile => [profile.id, profile]));
-      const existingNames = new Map(editable.map(profile => [profile.name, profile.id]));
-      let added = 0;
-      let replaced = 0;
-      imported.forEach(profile => {
-        const nameOwner = existingNames.get(profile.name);
-        if (nameOwner && nameOwner !== profile.id) throw new Error(`Ya existe un perfil llamado "${profile.name}" con otro identificador.`);
-        if (byId.has(profile.id)) replaced += 1;
-        else added += 1;
-        byId.set(profile.id, profile);
-      });
-      writeDocument({ schemaVersion: SCHEMA_VERSION, profiles: [normalizeRecord(MIRROR_PROFILE), ...byId.values()] });
-      return { added, replaced, total: imported.length };
-    }
-
-    return { initialize, list, get, load, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported };
+    return { schemaVersion: SCHEMA_VERSION, profiles: doc.profiles.map(normalizeRecord) };
   }
 
-  const defaultRepository = createRepository();
-  return { STORAGE_KEY, SCHEMA_VERSION, PROFILE_FIELDS, STORAGE_PROFILE_FIELDS, READONLY_PROFILE_ID, MIRROR_PROFILE: clone(MIRROR_PROFILE), NEW_PROFILE_SETTINGS: clone(NEW_PROFILE_SETTINGS), createRepository, ...defaultRepository };
+  function writeDocument(document) {
+    Storage.setStorageItem(STORAGE_KEY, JSON.stringify(document));
+  }
+
+  function initialize() {
+    const existing = readDocument();
+    if (existing) {
+      if (!existing.profiles.some(profile => profile.id === READONLY_PROFILE_ID)) {
+        existing.profiles.unshift(normalizeRecord(MIRROR_PROFILE));
+        writeDocument(existing);
+      }
+      return clone(existing);
+    }
+
+    const document = { schemaVersion: SCHEMA_VERSION, profiles: [normalizeRecord(MIRROR_PROFILE)] };
+    writeDocument(document);
+    return clone(document);
+  }
+
+  function list() {
+    return initialize().profiles;
+  }
+
+  function get(id) {
+    const cleanId = String(id || '');
+    return list().find(profile => profile.id === cleanId) || null;
+  }
+
+  async function load(id, keyMaterial = null) {
+    const profile = get(id);
+    if (!profile) return null;
+    const secret = profile.settings.apiKey;
+    if (secret) {
+      profile.settings.apiKey = await Backup.decryptApiKey(secret, keyMaterial || undefined);
+    } else {
+      profile.settings.apiKey = '';
+    }
+    return profile;
+  }
+
+  function findByName(name) {
+    const cleanName = String(name || '').trim();
+    return list().find(profile => profile.name === cleanName) || null;
+  }
+
+  function save(record) {
+    const current = initialize();
+    const normalized = normalizeRecord(record);
+    if (normalized.id === READONLY_PROFILE_ID || normalized.name === MIRROR_PROFILE.name) {
+      throw new Error('The Mirror profile cannot be modified.');
+    }
+    const index = current.profiles.findIndex(profile => profile.id === normalized.id);
+    if (index >= 0) {
+      if (current.profiles[index].settings.apiKeyLocked === true) throw new Error('Changes to this profile are locked.');
+      normalized.version = current.profiles[index].version + 1;
+    }
+    normalized.updatedAt = Date.now();
+    if (index >= 0) current.profiles[index] = normalized;
+    else current.profiles.push(normalized);
+    writeDocument(current);
+    return clone(normalized);
+  }
+
+  async function saveEditable(record) {
+    if (typeof record?.settings?.apiKey !== 'string') throw new Error('The profile API key is not valid.');
+    const apiKey = await Backup.encryptApiKey(record.settings.apiKey);
+    return save({ ...record, settings: { ...record.settings, apiKey } });
+  }
+
+  async function recipherApiKeys(currentKeyMaterial, nextKeyMaterial) {
+    const current = initialize();
+    const rewritten = [];
+    let reciphered = 0;
+    for (const profile of current.profiles) {
+      if (profile.id === READONLY_PROFILE_ID || !profile.settings.apiKey) {
+        rewritten.push(profile);
+        continue;
+      }
+      const apiKey = await Backup.decryptApiKey(profile.settings.apiKey, currentKeyMaterial);
+      const encrypted = await Backup.encryptApiKey(apiKey, nextKeyMaterial);
+      rewritten.push({ ...profile, updatedAt: Date.now(), version: profile.version + 1, settings: { ...profile.settings, apiKey: encrypted } });
+      reciphered += 1;
+    }
+    writeDocument({ schemaVersion: SCHEMA_VERSION, profiles: rewritten });
+    return reciphered;
+  }
+
+  async function verifyApiKeyMaterial(keyMaterial) {
+    const current = initialize();
+    for (const profile of current.profiles) {
+      if (profile.id !== READONLY_PROFILE_ID && profile.settings.apiKey) {
+        await Backup.decryptApiKey(profile.settings.apiKey, keyMaterial);
+      }
+    }
+    return true;
+  }
+
+  function remove(id) {
+    if (String(id || '') === READONLY_PROFILE_ID) return false;
+    const current = initialize();
+    const index = current.profiles.findIndex(profile => profile.id === String(id || ''));
+    if (index < 0) return false;
+    current.profiles.splice(index, 1);
+    writeDocument(current);
+    return true;
+  }
+
+  function mergeImported(records) {
+    if (!Array.isArray(records) || records.length > 100) throw new Error('The imported profile list is not valid.');
+    const current = initialize();
+    const imported = records.map(normalizeRecord).filter(profile => profile.id !== READONLY_PROFILE_ID && profile.name !== MIRROR_PROFILE.name);
+    if (imported.length !== records.length) throw new Error('La copia no puede modificar el perfil Espejo.');
+    const ids = new Set();
+    const names = new Set();
+    imported.forEach(profile => {
+      if (ids.has(profile.id) || names.has(profile.name)) throw new Error('La copia contiene perfiles duplicados.');
+      ids.add(profile.id); names.add(profile.name);
+    });
+    const editable = current.profiles.filter(profile => profile.id !== READONLY_PROFILE_ID);
+    const byId = new Map(editable.map(profile => [profile.id, profile]));
+    const existingNames = new Map(editable.map(profile => [profile.name, profile.id]));
+    let added = 0;
+    let replaced = 0;
+    imported.forEach(profile => {
+      const nameOwner = existingNames.get(profile.name);
+      if (nameOwner && nameOwner !== profile.id) throw new Error(`Ya existe un perfil llamado "${profile.name}" con otro identificador.`);
+      if (byId.has(profile.id)) replaced += 1;
+      else added += 1;
+      byId.set(profile.id, profile);
+    });
+    writeDocument({ schemaVersion: SCHEMA_VERSION, profiles: [normalizeRecord(MIRROR_PROFILE), ...byId.values()] });
+    return { added, replaced, total: imported.length };
+  }
+
+  return {
+    STORAGE_KEY, SCHEMA_VERSION, PROFILE_FIELDS, STORAGE_PROFILE_FIELDS, READONLY_PROFILE_ID, MIRROR_PROFILE: clone(MIRROR_PROFILE), NEW_PROFILE_SETTINGS: clone(NEW_PROFILE_SETTINGS),
+    initialize, list, get, load, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported
+  };
 }));

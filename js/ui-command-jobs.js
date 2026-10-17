@@ -34,7 +34,8 @@
   }
 
   /** Tarjeta con los comandos en marcha y el tiempo que llevaban al crearla. */
-  function createSummaryCard(jobs, messagesList, now = Date.now()) {
+  function createSummaryCard(jobs, messagesList) {
+    const now = Date.now();
     const format = getCommandCard().formatDuration;
     // Plegada por defecto: con varios comandos, la lista no debe ocupar la respuesta.
     const card = document.createElement('details');

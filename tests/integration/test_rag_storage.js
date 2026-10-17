@@ -1,8 +1,9 @@
 const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const RagStorage = require('../../js/ragStorage.js');
+const { clearRagData } = require('../helpers/rag-data.js');
 
-beforeEach(async () => RagStorage.clearAllData());
+beforeEach(clearRagData);
 
 test('RagStorage - guarda metadatos y chunks por separado sin archivo fuente', async () => {
   const branch = await RagStorage.createBranch('Arquitectura');
@@ -73,7 +74,7 @@ test('RagStorage - exporta e importa únicamente el formato actual', async () =>
   assert.equal(backup.version, 2);
   assert.equal(backup.documents[0].source, undefined);
 
-  await RagStorage.clearAllData();
+  await clearRagData();
   const restoredBranch = await RagStorage.importBranch(JSON.stringify(backup));
   const restoredDocuments = await RagStorage.getDocumentsByBranch(restoredBranch.id);
   assert.equal(restoredBranch.name, 'Respaldo');
@@ -111,7 +112,7 @@ test('RagStorage - exportBranchBlob genera un respaldo comprimido gzip en stream
   assert.equal(parsed.documents[0].chunks[0].content, 'Contenido extenso de prueba para compresión gzip.');
 
   // Probar importación tras limpiar datos
-  await RagStorage.clearAllData();
+  await clearRagData();
   const restored = await RagStorage.importBranch(decompressedText);
   assert.equal(restored.name, 'GzipTest');
   const docs = await RagStorage.getDocumentsByBranch(restored.id);

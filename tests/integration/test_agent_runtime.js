@@ -12,7 +12,7 @@ const makeTool = ({ name, description, parameters, ...options }) => new Tool({ d
 /** Ejecuta el runtime con la red sustituida por `api` y las herramientas activas del registro. */
 function runAgent(t, registry, { api, ...params }) {
   t.mock.method(ChatAPI, 'streamChatCompletion', params2 => api.streamChatCompletion(params2));
-  return new AgentRuntime({ registry }).execute({ resolveToolDefinitions: () => registry.getActiveDefinitions(TOOL_CONFIG), ...params });
+  return new AgentRuntime({ registry, executor: new ToolExecutor(registry) }).execute({ resolveToolDefinitions: () => registry.getActiveDefinitions(TOOL_CONFIG), ...params });
 }
 
 test('AgentRuntime - la ejecución directa de tools no omite su política', async t => {

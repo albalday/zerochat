@@ -1,57 +1,60 @@
-const { test } = require('node:test');
+const { test, mock } = require('node:test');
 const assert = require('node:assert/strict');
 const ChatState = require('../../js/state.js');
+const ChatConfig = require('../../js/config-store.js');
+const AgentCore = require('../../js/agent-core.js');
+const ToolSecurity = require('../../js/tool-security.js');
+const MCP = require('../../js/mcp.js');
 const ProjectContext = require('../../js/project-context.js');
 
-function createHarness({ config = {}, connected = true, cwd = '/repo', files = {}, approval = false, readTool = true, writeTool = true, directoryTool = false, directoryError = null, security: securityOverride = null } = {}) {
-  const state = ChatState.createStore();
-  if (connected) state.set('mcp', { status: 'connected', serverInfo: { cwd } });
+// ProjectContext usa los singletons reales; el arnés sustituye solo lo que en Node no existe
+// (servidor local, herramientas MCP) o lo que el caso fija (configuración, autorización).
+test.afterEach(() => {
+  mock.restoreAll();
+  localStorage.clear();
+});
+
+function readResult(files, path) {
+  const file = files[path];
+  if (file instanceof Error) return { success: false, error: file.message, result: null };
+  const payload = file === undefined
+    ? { success: false, error: `File '${path}' does not exist.` }
+    : (typeof file === 'string' ? { success: true, content: file, truncated: false } : file);
+  // Igual que McpToolProvider con el servidor local: success: false del JSON llega como isError.
+  const ok = payload.success !== false;
+  return { success: ok, result: { success: ok, isError: !ok, content: JSON.stringify(payload) } };
+}
+
+function createHarness({ config = {}, connected = true, cwd = '/repo', files = {}, approval = false, readTool = true, writeTool = true, directoryError = null, authorize = null, realSecurity = false } = {}) {
+  // Un caso puede crear varios arneses: se restaura antes para no apilar sustituciones.
+  mock.restoreAll();
+  ChatState.set('mcp', connected ? { status: 'connected', serverInfo: { cwd } } : { status: 'disconnected', serverInfo: null });
+  ChatState.setProjectContext({ cwd: '', status: 'disabled' });
+  mock.method(ChatConfig, 'getActive', () => ({ projectMode: true, projectDeclined: [], ...config }));
   const calls = [];
-  const tool = { name: 'read_file', isAvailable: () => true };
-  const agentCore = {
-    registry: {
-      getTool: name => {
-        if (readTool && name === 'read_file') return tool;
-        if (writeTool && name === 'write_file') return { name: 'write_file', isAvailable: () => true };
-        return null;
-      }
-    },
-    executor: {
-      async executeToolCall(call) {
-        const args = JSON.parse(call.function.arguments);
-        calls.push(args);
-        const file = files[args.path];
-        if (file instanceof Error) return { success: false, error: file.message, result: null };
-        const payload = file === undefined
-          ? { success: false, error: `File '${args.path}' does not exist.` }
-          : (typeof file === 'string' ? { success: true, content: file, truncated: false } : file);
-        // Igual que McpToolProvider con el servidor local: success: false del JSON llega como isError.
-        const ok = payload.success !== false;
-        return { success: ok, result: { success: ok, isError: !ok, content: JSON.stringify(payload) } };
-      }
-    }
-  };
-  const security = securityOverride || {
-    rules: [],
-    evaluateAuthorization: () => (approval ? { status: 'ask', requiresApproval: true } : { status: 'allow', requiresApproval: false }),
-    addDirectoryRule(rule) { this.rules.push(rule); }
-  };
-  const directoryRequests = [];
-  const mcp = directoryTool ? {
-    async setProjectDirectory(path) {
-      directoryRequests.push(path);
-      if (directoryError) throw new Error(directoryError);
-      return { cwd: path, previous_cwd: cwd };
-    }
-  } : {};
-  const context = ProjectContext.createProjectContext({
-    state,
-    config: { getActive: () => ({ projectMode: true, projectDeclined: [], ...config }) },
-    agentCore,
-    security,
-    mcp
+  mock.method(AgentCore.registry, 'getTool', name => {
+    if (readTool && name === 'read_file') return { name: 'read_file', isAvailable: () => true };
+    if (writeTool && name === 'write_file') return { name: 'write_file', isAvailable: () => true };
+    return null;
   });
-  return { state, context, calls, security, directoryRequests };
+  mock.method(AgentCore.executor, 'executeToolCall', async call => {
+    const args = JSON.parse(call.function.arguments);
+    calls.push(args);
+    return readResult(files, args.path);
+  });
+  const security = ToolSecurity.manager;
+  const rules = [];
+  if (!realSecurity) {
+    mock.method(security, 'evaluateAuthorization', authorize || (() => (approval ? { status: 'ask', requiresApproval: true } : { status: 'allow', requiresApproval: false })));
+    mock.method(security, 'addDirectoryRule', rule => { rules.push(rule); });
+  }
+  const directoryRequests = [];
+  mock.method(MCP.manager, 'setProjectDirectory', async path => {
+    directoryRequests.push(path);
+    if (directoryError) throw new Error(directoryError);
+    return { cwd: path, previous_cwd: cwd };
+  });
+  return { state: ChatState, context: ProjectContext, calls, security: { rules }, directoryRequests };
 }
 
 test('ProjectContext.refresh - desactivado no lee ficheros', async () => {
@@ -156,12 +159,9 @@ test('ProjectContext.refresh - si la lectura de state.md falla, es denegada o qu
       '/repo/.zerochat/state.md': 'state',
       '/repo/AGENTS.md': 'rules'
     },
-    security: {
-      evaluateAuthorization: (tool, args) => {
-        if (args.path.endsWith('state.md')) return { status: 'deny', requiresApproval: false };
-        return { status: 'allow', requiresApproval: false };
-      }
-    }
+    authorize: (tool, args) => (args.path.endsWith('state.md')
+      ? { status: 'deny', requiresApproval: false }
+      : { status: 'allow', requiresApproval: false })
   });
   await harnessDenied.context.refresh();
   assert.equal(harnessDenied.state.get('project').status, 'no_access');
@@ -186,15 +186,7 @@ test('ProjectContext.refresh - si la lectura de state.md falla, es denegada o qu
       '/repo/AGENTS.md': 'rules'
     }
   });
-  harnessUnavail.context = ProjectContext.createProjectContext({
-    state: harnessUnavail.state,
-    config: { getActive: () => ({ projectMode: true, projectDeclined: [] }) },
-    agentCore: {
-      registry: { getTool: name => (name === 'read_file' ? toolDynamic : null) },
-      executor: harnessErr.context ? { executeToolCall: async () => ({ success: true, result: { success: true, isError: false, content: JSON.stringify({ success: true, content: 'ok' }) } }) } : null
-    },
-    security: { evaluateAuthorization: () => ({ status: 'allow', requiresApproval: false }) }
-  });
+  mock.method(AgentCore.registry, 'getTool', name => (name === 'read_file' ? toolDynamic : null));
   await harnessUnavail.context.refresh();
   assert.equal(harnessUnavail.state.get('project').status, 'unavailable');
 });
@@ -271,10 +263,9 @@ test('ProjectContext.initialize - sin write_file o fuera de missing no hace nada
 });
 
 test('ProjectContext.initialize - la regla concedida permite escribir en .zerochat y no en el resto del proyecto', async () => {
-  const ChatToolSecurity = require('../../js/tool-security.js');
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_project_init_rule' });
+  const manager = ToolSecurity.manager;
   manager.setStartupDirectory('/repo');
-  const { context } = createHarness({ security: manager });
+  const { context } = createHarness({ realSecurity: true });
   await context.refresh();
   const result = await context.initialize(initCallbacks().callbacks);
   assert.equal(result.ok, true);
@@ -296,7 +287,7 @@ test('ProjectContext.refresh - un fallo de transporte sin contenido queda error 
 
 
 test('ProjectContext.changeDirectory - pide al servidor el directorio escrito', async () => {
-  const { context, directoryRequests } = createHarness({ directoryTool: true });
+  const { context, directoryRequests } = createHarness();
   assert.equal(context.canChangeDirectory(), true);
   const asked = [];
   const result = await context.changeDirectory({ askPath: cwd => { asked.push(cwd); return '  /other  '; } });
@@ -306,12 +297,12 @@ test('ProjectContext.changeDirectory - pide al servidor el directorio escrito', 
 });
 
 test('ProjectContext.changeDirectory - cancelar, la misma ruta o un cambio de estado no piden nada', async () => {
-  const cancelled = createHarness({ directoryTool: true });
+  const cancelled = createHarness();
   assert.deepEqual(await cancelled.context.changeDirectory({ askPath: () => null }), { ok: false, reason: 'cancelled' });
   assert.deepEqual(await cancelled.context.changeDirectory({ askPath: () => '/repo' }), { ok: false, reason: 'cancelled' });
   assert.equal(cancelled.directoryRequests.length, 0);
 
-  const moved = createHarness({ directoryTool: true });
+  const moved = createHarness();
   const askPath = () => { moved.state.set('mcp', { status: 'connected', serverInfo: { cwd: '/elsewhere' } }); return '/other'; };
   assert.deepEqual(await moved.context.changeDirectory({ askPath }), { ok: false, reason: 'state-changed' });
   let busy = false;
@@ -321,11 +312,11 @@ test('ProjectContext.changeDirectory - cancelar, la misma ruta o un cambio de es
 
 test('ProjectContext.changeDirectory - sin servidor local o generando no pregunta', async () => {
   const askPath = () => { throw new Error('no debe preguntar'); };
-  for (const harness of [createHarness({ directoryTool: false }), createHarness({ directoryTool: true, connected: false })]) {
+  for (const harness of [createHarness({ connected: false })]) {
     assert.equal(harness.context.canChangeDirectory(), false);
     assert.deepEqual(await harness.context.changeDirectory({ askPath }), { ok: false, reason: 'unavailable' });
   }
-  const busy = createHarness({ directoryTool: true });
+  const busy = createHarness();
   assert.deepEqual(await busy.context.changeDirectory({ askPath, isBusy: () => true }), { ok: false, reason: 'unavailable' });
   await assert.rejects(() => busy.context.changeDirectory({}), TypeError);
 });

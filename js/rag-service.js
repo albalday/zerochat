@@ -131,11 +131,6 @@
     }
   }
 
-  async function injectRagContext(systemPrompt, branchIds, options = {}) {
-    const context = await buildRagSystemContext(branchIds, options);
-    return [context, String(systemPrompt || '').trim()].filter(Boolean).join('\n\n');
-  }
-
   async function listDocuments(branchIds, rawArgs) {
     try {
       const branches = await resolveBranches(branchIds);
@@ -519,8 +514,8 @@
   return {
     RAG_MIN_CONTEXT_TOKENS, getInsufficientRagContextLimit,
     parseArguments, normalizeBranchIds, resolveBranches,
-    normalizeDocumentReference, documentReferenceTokens, selectDocumentCandidate,
-    buildRagSystemContext, injectRagContext,
+    documentReferenceTokens, selectDocumentCandidate,
+    buildRagSystemContext,
     listDocuments, searchKnowledgeBase, readKnowledgeChunk, readKnowledgeImage
   };
 });

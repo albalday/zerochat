@@ -259,8 +259,8 @@
    * Estrategia de descarga y extracción local de documentos PDF y ofimáticos.
    */
   class LocalDocumentStrategy extends BaseFetchStrategy {
-    constructor(options = {}) {
-      super({ name: 'LocalDocumentExtractor', timeoutMs: 10000, ...options });
+    constructor() {
+      super({ name: 'LocalDocumentExtractor', timeoutMs: 10000 });
     }
 
     async canHandle(url, context = {}) {
@@ -296,8 +296,8 @@
    * Estrategia de petición web mediante webFetch (vía backend local si está conectado, o directa en navegador).
    */
   class DirectFetchStrategy extends BaseFetchStrategy {
-    constructor(options = {}) {
-      super({ name: 'DirectFetch', timeoutMs: 10000, ...options });
+    constructor() {
+      super({ name: 'DirectFetch', timeoutMs: 10000 });
     }
 
     async canHandle(url, context = {}) {
@@ -643,15 +643,9 @@
     fetchBinaryResource,
     validateUrlForFetch,
     detectVisionImageMimeType,
-    documentFileName,
     extractReadableTextFromHtml,
-    BaseFetchStrategy,
-    LocalDocumentStrategy,
-    DirectFetchStrategy,
     PageFetcherPipeline,
     pipeline,
-    MAX_BINARY_BYTES,
-    MAX_IMAGE_BYTES,
-    VISION_IMAGE_MIME_TYPES
+    MAX_IMAGE_BYTES
   };
 });

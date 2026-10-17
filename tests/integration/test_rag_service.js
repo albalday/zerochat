@@ -1,10 +1,10 @@
 const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const RagStorage = require('../../js/ragStorage.js');
-const RagIndex = require('../../js/rag-index.js');
 const RagService = require('../../js/rag-service.js');
+const { clearRagData } = require('../helpers/rag-data.js');
 
-beforeEach(async () => { RagIndex.clearCache(); await RagStorage.clearAllData(); });
+beforeEach(clearRagData);
 
 async function seed() {
   const branch = await RagStorage.createBranch('Operaciones', 'Procedimientos internos');

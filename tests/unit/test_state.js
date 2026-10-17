@@ -146,11 +146,6 @@ test('ChatState - Contrato de slices canónicos y rechazo de escrituras no autor
   assert.throws(() => {
     store.setState({ illegalProp: true });
   }, /non-canonical slice/i);
-
-  // createInitialState con slice no canónico en overrides debe lanzar error
-  assert.throws(() => {
-    ChatState.createInitialState({ unknownSlice: 123 });
-  }, /non-canonical slice/i);
 });
 
 test('ChatState - Mutador removeTurn elimina turno y sanea tool calls huérfanos', () => {

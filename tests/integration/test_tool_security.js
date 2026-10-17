@@ -2,8 +2,19 @@ const test = require('node:test');
 const assert = require('node:assert');
 const ChatToolSecurity = require('../../js/tool-security.js');
 
+// Cada caso parte de un almacenamiento vacío; el gestor real persiste en él.
+test.beforeEach(() => localStorage.clear());
+
+/** Gestor con el token de sesión y el directorio de arranque que el backend informaría al conectar. */
+function createManager({ sessionToken, startupDirectory } = {}) {
+  const manager = new ChatToolSecurity.ToolSecurityManager();
+  if (sessionToken) manager.setSessionToken(sessionToken);
+  if (startupDirectory) manager.setStartupDirectory(startupDirectory);
+  return manager;
+}
+
 test('ChatToolSecurity - Herramientas integradas (Built-in) se autorizan directamente', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_builtin' });
+  const manager = new ChatToolSecurity.ToolSecurityManager();
   
   const evalSearch = manager.evaluateAuthorization('search_web', { query: 'test' });
   assert.equal(evalSearch.requiresApproval, false);
@@ -16,7 +27,7 @@ test('ChatToolSecurity - Herramientas integradas (Built-in) se autorizan directa
 });
 
 test('ChatToolSecurity - Herramientas MCP requieren confirmación por defecto', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_mcp_default' });
+  const manager = new ChatToolSecurity.ToolSecurityManager();
 
   const evalMcp = manager.evaluateAuthorization({
     id: 'run_command',
@@ -32,7 +43,7 @@ test('ChatToolSecurity - Herramientas MCP requieren confirmación por defecto', 
 });
 
 test('ChatToolSecurity - Lista global R/W controla las herramientas integradas de archivos', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_directory_rules' });
+  const manager = new ChatToolSecurity.ToolSecurityManager();
   manager.setDirectoryRules(['R:./project/**', 'W:./project/src/**']);
 
   const readTool = { id: 'read_file', name: 'read_file', category: 'mcp', metadata: { originalName: 'read_file' } };
@@ -56,7 +67,7 @@ test('ChatToolSecurity - Lista global R/W controla las herramientas integradas d
 });
 
 test('ChatToolSecurity - La lista de directorios restringe herramientas de archivos en ausencia de allow_all', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_directory_over_global' });
+  const manager = new ChatToolSecurity.ToolSecurityManager();
   manager.setDirectoryRules(['R:./allowed/**']);
   const tool = { id: 'read_file', name: 'read_file', category: 'mcp', metadata: { originalName: 'read_file' } };
   assert.equal(manager.evaluateAuthorization(tool, { path: './allowed/data.txt' }).status, 'allow');
@@ -68,7 +79,7 @@ test('ChatToolSecurity - La lista de directorios restringe herramientas de archi
 });
 
 test('ChatToolSecurity - run_command aplica constraints y bloquea encadenamiento no autorizado', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_command_directory_rules' });
+  const manager = new ChatToolSecurity.ToolSecurityManager();
   manager.setToolPolicy('run_command', 'allow', {
     constraints: {
       command: {
@@ -88,7 +99,7 @@ test('ChatToolSecurity - run_command aplica constraints y bloquea encadenamiento
 });
 
 test('ChatToolSecurity - Modo global allow_all autoriza todas las herramientas MCP', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_allow_all' });
+  const manager = new ChatToolSecurity.ToolSecurityManager();
   manager.setGlobalMcpPolicy('allow_all');
   assert.equal(manager.getGlobalMcpPolicy(), 'allow_all');
 
@@ -107,7 +118,7 @@ test('ChatToolSecurity - Modo global allow_all autoriza todas las herramientas M
 });
 
 test('ChatToolSecurity - Autorización granular de grano fino por herramienta', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_granular' });
+  const manager = new ChatToolSecurity.ToolSecurityManager();
 
   const toolA = { id: 'read_file', name: 'read_file', category: 'mcp' };
   const toolB = { id: 'run_command', name: 'run_command', category: 'mcp' };
@@ -138,7 +149,7 @@ test('ChatToolSecurity - Autorización granular de grano fino por herramienta', 
 });
 
 test('ChatToolSecurity - Revocación y reseteo de permisos guardados', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_revoke' });
+  const manager = new ChatToolSecurity.ToolSecurityManager();
 
   manager.setToolPolicy('tool1', 'allow');
   manager.setToolPolicy('tool2', 'allow');
@@ -156,13 +167,13 @@ test('ChatToolSecurity - Revocación y reseteo de permisos guardados', () => {
 });
 
 test('ChatToolSecurity - Persistencia y recarga entre instancias', () => {
-  const manager1 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist' });
+  const manager1 = new ChatToolSecurity.ToolSecurityManager();
   manager1.setGlobalMcpPolicy('allow_all');
   manager1.setToolPolicy('saved_tool', 'allow', { serverName: 'mcp-proxy', originalName: 'saved_tool' });
   manager1.setDirectoryRules(['RW:./workspace/**']);
 
   // Segunda instancia leyendo la misma clave
-  const manager2 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist' });
+  const manager2 = new ChatToolSecurity.ToolSecurityManager();
   assert.equal(manager2.getGlobalMcpPolicy(), 'allow_all');
   assert.equal(manager2.getToolPolicy('saved_tool'), 'allow');
   assert.equal(manager2.listAuthorizedTools().length, 1);
@@ -170,7 +181,7 @@ test('ChatToolSecurity - Persistencia y recarga entre instancias', () => {
 });
 
 test('ChatToolSecurity - Restricciones de comandos: allowlist, encadenamiento y patrones denegados', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_cmd_constraints' });
+  const manager = new ChatToolSecurity.ToolSecurityManager();
 
   const tool = {
     id: 'mcp_srv_cmd',
@@ -217,7 +228,7 @@ test('ChatToolSecurity - Restricciones de comandos: allowlist, encadenamiento y 
 });
 
 test('ChatToolSecurity - Autorización contextual de comandos con pipes y permisos por nombre canónico', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_cmd_pipes' });
+  const manager = new ChatToolSecurity.ToolSecurityManager();
 
   const canonicalTool = {
     id: 'run_command',
@@ -291,7 +302,7 @@ test('ChatToolSecurity - Autorización contextual de comandos con pipes y permis
 });
 
 test('ChatToolSecurity - Permisos recordados en herramientas integradas de archivo sobreviven recarga', () => {
-  const manager1 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist_files' });
+  const manager1 = new ChatToolSecurity.ToolSecurityManager();
   const readFileTool = { id: 'read_file', name: 'read_file', category: 'mcp' };
 
   // 1. Sin permisos específicos ni coincidencia de directorio externo, pide autorización
@@ -306,7 +317,7 @@ test('ChatToolSecurity - Permisos recordados en herramientas integradas de archi
   assert.equal(evalAfterAllow.status, 'allow');
 
   // 3. Nueva instancia tras recarga (F5) con el mismo almacenamiento
-  const manager2 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist_files' });
+  const manager2 = new ChatToolSecurity.ToolSecurityManager();
   assert.equal(manager2.getToolPolicy('read_file'), 'allow');
   const evalReloaded = manager2.evaluateAuthorization(readFileTool, { path: '/var/data/main.js' });
   assert.equal(evalReloaded.requiresApproval, false);
@@ -314,7 +325,7 @@ test('ChatToolSecurity - Permisos recordados en herramientas integradas de archi
 });
 
 test('ChatToolSecurity - F1: Una regla de directorio no omite restricciones de prefijo en comandos', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_f1_prefix_bypass' });
+  const manager = new ChatToolSecurity.ToolSecurityManager();
   manager.setDirectoryRules(['R:/tmp/zc-audit/**', 'W:/tmp/zc-audit/**']);
 
   const cmdTool = {
@@ -346,7 +357,7 @@ test('ChatToolSecurity - F1: Una regla de directorio no omite restricciones de p
 });
 
 test('ChatToolSecurity - list_directory sin path normaliza a "." y aplica reglas de directorio', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_list_dir_norm' });
+  const manager = new ChatToolSecurity.ToolSecurityManager();
   const listTool = {
     id: 'list_directory',
     name: 'list_directory',
@@ -379,10 +390,7 @@ test('ChatToolSecurity - list_directory sin path normaliza a "." y aplica reglas
 });
 
 test('ChatToolSecurity - Sesión acotada por token y preservación de autorizaciones permanentes', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({
-    storageKey: 'test_sec_v3_session_test',
-    sessionToken: 'token_active_123'
-  });
+  const manager = createManager({ sessionToken: 'token_active_123' });
 
   // 1. Guardar una regla permanente y otra de sesión
   manager.setToolPolicy('perm_tool', 'allow', { scope: 'permanent' });
@@ -404,17 +412,14 @@ test('ChatToolSecurity - Sesión acotada por token y preservación de autorizaci
   assert.equal(manager.getServerPolicy('server_perm'), 'allow', 'El servidor permanente se conserva');
 
   // 3. Crear una nueva instancia con el mismo storageKey: carga las permanentes del almacenamiento
-  const manager2 = new ChatToolSecurity.ToolSecurityManager({
-    storageKey: 'test_sec_v3_session_test',
-    sessionToken: 'token_fresh_789'
-  });
+  const manager2 = createManager({ sessionToken: 'token_fresh_789' });
   assert.equal(manager2.getToolPolicy('perm_tool'), 'allow');
   assert.equal(manager2.getServerPolicy('server_perm'), 'allow');
   assert.equal(manager2.getToolPolicy('session_tool'), null);
 });
 
 test('ChatToolSecurity - check_command no pide confirmación salvo denegación expresa', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_check_command' });
+  const manager = new ChatToolSecurity.ToolSecurityManager();
   const checkTool = { id: 'check_command', name: 'check_command', category: 'mcp', metadata: { originalName: 'check_command' } };
   const runTool = { id: 'run_command', name: 'run_command', category: 'mcp', metadata: { originalName: 'run_command' } };
 
@@ -428,7 +433,7 @@ test('ChatToolSecurity - check_command no pide confirmación salvo denegación e
 });
 
 test('ChatToolSecurity - Comandos autorizados soportan rutas relativas y argumentos entrecomillados', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_cmd_paths_quotes' });
+  const manager = new ChatToolSecurity.ToolSecurityManager();
   const execTool = { id: 'run_command', name: 'run_command', category: 'mcp' };
 
   manager.setToolPolicy('run_command', 'allow', {
@@ -449,7 +454,7 @@ test('ChatToolSecurity - Comandos autorizados soportan rutas relativas y argumen
 });
 
 test('ChatToolSecurity - Política a nivel de servidor MCP autoriza todas sus herramientas', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_server_policy' });
+  const manager = new ChatToolSecurity.ToolSecurityManager();
   const tool1 = { id: 'mcp_playwright_navigate', name: 'navigate', metadata: { mcpServerId: 'playwright', mcpServerName: 'Playwright' } };
   const tool2 = { id: 'mcp_playwright_click', name: 'click', metadata: { mcpServerId: 'playwright', mcpServerName: 'Playwright' } };
   const otherTool = { id: 'mcp_github_issue', name: 'issue', metadata: { mcpServerId: 'github', mcpServerName: 'GitHub' } };
@@ -481,7 +486,7 @@ test('ChatToolSecurity - Política a nivel de servidor MCP autoriza todas sus he
 });
 
 test('ChatToolSecurity - Política workspace_trust autoriza comandos y archivos locales pero bloquea traversal', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_workspace_trust' });
+  const manager = new ChatToolSecurity.ToolSecurityManager();
   manager.setGlobalMcpPolicy('workspace_trust');
 
   const readFileTool = { id: 'read_file', name: 'read_file', category: 'mcp' };
@@ -503,10 +508,7 @@ test('ChatToolSecurity - Política workspace_trust autoriza comandos y archivos 
 });
 
 test('ChatToolSecurity - Permitir prefijo cd * no autoriza los comandos que siguen al cd', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({
-    storageKey: 'test_sec_cd_chaining',
-    startupDirectory: '/home/user/proj'
-  });
+  const manager = createManager({ startupDirectory: '/home/user/proj' });
   const runTool = { id: 'run_command', name: 'run_command', category: 'mcp' };
 
   manager.setToolPolicy('run_command', 'allow', {
@@ -526,10 +528,7 @@ test('ChatToolSecurity - Permitir prefijo cd * no autoriza los comandos que sigu
 });
 
 test('ChatToolSecurity - Navegación con cd hereda permisos del comando secundario si está en allowedPrefixes', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({
-    storageKey: 'test_sec_cd_subcmd',
-    startupDirectory: '/home/user/proj'
-  });
+  const manager = createManager({ startupDirectory: '/home/user/proj' });
   const runTool = { id: 'run_command', name: 'run_command', category: 'mcp' };
 
   // Restricciones del botón "Permitir siempre git *"
@@ -560,10 +559,7 @@ test('ChatToolSecurity - Navegación con cd hereda permisos del comando secundar
 
 test('ChatToolSecurity - Inyección por defecto de R:<startup_directory> y restricciones estrictas en modo ask', () => {
   const customStartupDir = '/home/user/myproject';
-  const manager = new ChatToolSecurity.ToolSecurityManager({
-    storageKey: 'test_sec_default_startup_dir',
-    startupDirectory: customStartupDir
-  });
+  const manager = createManager({ startupDirectory: customStartupDir });
 
   // 1. Por defecto, si no hay definición, se inyecta R:<startup_directory>
   assert.equal(manager.getGlobalMcpPolicy(), 'ask');
@@ -618,7 +614,7 @@ test('ChatToolSecurity - Inyección por defecto de R:<startup_directory> y restr
 
 test('ChatToolSecurity - T02: "Permitir siempre <cmd> *" y las restricciones sin allowChaining/allowPipes no autorizan encadenamiento ni tuberías', () => {
   {
-    const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_t02_cmd_prefix' });
+    const manager = new ChatToolSecurity.ToolSecurityManager();
     const runTool = { id: 'run_command', name: 'run_command', category: 'mcp', metadata: { originalName: 'run_command' } };
 
     // Restricciones exactas que genera el botón "Permitir siempre <cmd> *" de la tarjeta
@@ -663,7 +659,7 @@ test('ChatToolSecurity - T02: "Permitir siempre <cmd> *" y las restricciones sin
   }
 
   {
-    const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_t02_cmd_defaults' });
+    const manager = new ChatToolSecurity.ToolSecurityManager();
     const runTool = { id: 'run_command', name: 'run_command', category: 'mcp' };
     manager.setToolPolicy('run_command', 'allow', { constraints: { command: { allowedPrefixes: ['git'] } } });
 
@@ -675,7 +671,7 @@ test('ChatToolSecurity - T02: "Permitir siempre <cmd> *" y las restricciones sin
 
 test('ChatToolSecurity - T02: una política guardada con otra versión se descarta entera', () => {
   const Storage = require('../../js/storage.js');
-  const storageKey = 'test_sec_t02_version';
+  const storageKey = ChatToolSecurity.STORAGE_KEY;
   Storage.setStorageItem(storageKey, JSON.stringify({
     version: 3,
     globalMcpPolicy: 'ask',
@@ -691,7 +687,7 @@ test('ChatToolSecurity - T02: una política guardada con otra versión se descar
   }));
 
   try {
-    const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey, startupDirectory: '/home/user/proj' });
+    const manager = createManager({ startupDirectory: '/home/user/proj' });
     const runTool = { id: 'run_command', name: 'run_command', category: 'mcp' };
     assert.equal(manager.getToolConstraints('run_command'), null);
     assert.equal(manager.evaluateAuthorization(runTool, { command: 'git status; rm -rf ~' }).status, 'ask');
@@ -702,7 +698,7 @@ test('ChatToolSecurity - T02: una política guardada con otra versión se descar
       constraints: { command: { allowedPrefixes: ['git'], allowChaining: false, allowPipes: true } }
     });
     assert.equal(JSON.parse(Storage.getStorageItem(storageKey)).version, 4);
-    const reloaded = new ChatToolSecurity.ToolSecurityManager({ storageKey, startupDirectory: '/home/user/proj' });
+    const reloaded = createManager({ startupDirectory: '/home/user/proj' });
     assert.equal(reloaded.getToolConstraints('run_command').command.allowPipes, true);
   } finally {
     Storage.deleteStorageItem(storageKey);
@@ -710,10 +706,7 @@ test('ChatToolSecurity - T02: una política guardada con otra versión se descar
 });
 
 test('ChatToolSecurity - T01/T02: el cd inicial de un comando autorizado debe estar cubierto por una regla de directorio', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({
-    storageKey: 'test_sec_t02_cwd',
-    startupDirectory: '/home/user/proj'
-  });
+  const manager = createManager({ startupDirectory: '/home/user/proj' });
   const runTool = { id: 'run_command', name: 'run_command', category: 'mcp' };
   manager.setToolPolicy('run_command', 'allow', {
     constraints: { command: { allowedPrefixes: ['git'], allowChaining: false, allowPipes: false } }
@@ -731,7 +724,7 @@ test('ChatToolSecurity - T01/T02: el cd inicial de un comando autorizado debe es
 });
 
 test('ChatToolSecurity - T02: workspace_trust pide confirmación para ~, $HOME, rutas de usuario y tuberías a shell', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_t02_workspace_trust' });
+  const manager = new ChatToolSecurity.ToolSecurityManager();
   manager.setGlobalMcpPolicy('workspace_trust');
   const execTool = { id: 'run_command', name: 'run_command', category: 'mcp' };
 
@@ -770,10 +763,7 @@ test('ChatToolSecurity - T02: workspace_trust pide confirmación para ~, $HOME, 
 });
 
 test('ChatToolSecurity - T02: workspace_trust confía en comandos simples dentro de las reglas de directorio', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({
-    storageKey: 'test_sec_t02_workspace_trust_local',
-    startupDirectory: '/home/user/proj'
-  });
+  const manager = createManager({ startupDirectory: '/home/user/proj' });
   manager.setGlobalMcpPolicy('workspace_trust');
   const execTool = { id: 'run_command', name: 'run_command', category: 'mcp' };
 
@@ -787,10 +777,7 @@ test('ChatToolSecurity - T02: workspace_trust confía en comandos simples dentro
 });
 
 test('ChatToolSecurity - T01: rutas con ~, ~usuario o variables piden confirmación (no se resuelven en el navegador)', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({
-    storageKey: 'test_sec_t01_unresolved',
-    startupDirectory: '/home/user/myproject'
-  });
+  const manager = createManager({ startupDirectory: '/home/user/myproject' });
   const readTool = { id: 'read_file', name: 'read_file', category: 'mcp', metadata: { originalName: 'read_file' } };
   const writeTool = { id: 'write_file', name: 'write_file', category: 'mcp', metadata: { originalName: 'write_file' } };
 
@@ -835,10 +822,7 @@ test('ChatToolSecurity - T01: rutas con ~, ~usuario o variables piden confirmaci
 });
 
 test('ChatToolSecurity - T01: workspace_trust no confía en rutas con ~ ni variables', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({
-    storageKey: 'test_sec_t01_workspace_trust',
-    startupDirectory: '/home/user/myproject'
-  });
+  const manager = createManager({ startupDirectory: '/home/user/myproject' });
   manager.setGlobalMcpPolicy('workspace_trust');
   const readTool = { id: 'read_file', name: 'read_file', category: 'mcp', metadata: { originalName: 'read_file' } };
 

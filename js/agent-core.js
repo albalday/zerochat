@@ -46,13 +46,13 @@
     profilesUI: ['ChatUIProfiles', './ui-profiles.js']
   };
 
-  /** Servicios resueltos al usarlos; `overrides` sustituye los indicados. */
-  function createToolServices(overrides = {}) {
+  /** Servicios resueltos al usarlos. */
+  function createToolServices() {
     const services = {};
     for (const [name, [globalName, modulePath]] of Object.entries(TOOL_SERVICES)) {
       Object.defineProperty(services, name, {
         enumerable: true,
-        get: () => (name in overrides ? overrides[name] : resolveDep(globalName, modulePath))
+        get: () => resolveDep(globalName, modulePath)
       });
     }
     return services;
@@ -392,7 +392,7 @@
         const result = await tool.execute(args, {
           ...context,
           language: context.language || 'es',
-          services: createToolServices(context.services),
+          services: createToolServices(),
           toolAuthorization: true
         });
         return { ...base, success: result?.success !== false, toolName: tool.name, result, error: result?.error, executionTimeMs: elapsed() };
@@ -488,7 +488,7 @@
    * (ask_user), la cancelación o un error.
    */
   class AgentRuntime {
-    constructor({ registry, executor = new ToolExecutor(registry) }) {
+    constructor({ registry, executor }) {
       this.registry = registry;
       this.executor = executor;
     }

@@ -54,7 +54,7 @@ test('Browser UI - autorización de Composio muestra y devuelve únicamente su s
         }]
       });
       const [tool] = await provider.discoverTools();
-      const manager = new window.ChatToolSecurity.ToolSecurityManager({ storageKey: 'browser_composio_auth' });
+      const manager = new window.ChatToolSecurity.ToolSecurityManager();
       const auth = manager.evaluateAuthorization(tool, {});
       const call = { function: { name: tool.name, arguments: '{}' } };
       const card = window.ChatToolCards.createLiveToolCard(tool.name, {});
@@ -82,10 +82,8 @@ test('Browser UI - la autorización de carpeta solo se ofrece para rutas que pue
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
     const result = await page.evaluate(async () => {
-      const manager = new window.ChatToolSecurity.ToolSecurityManager({
-        storageKey: 'browser_path_rule_button',
-        startupDirectory: '/home/user/proj'
-      });
+      const manager = new window.ChatToolSecurity.ToolSecurityManager();
+      manager.setStartupDirectory('/home/user/proj');
       const tool = { id: 'read_file', name: 'read_file', category: 'mcp' };
       const render = (path) => {
         const args = { path };
@@ -257,7 +255,7 @@ test('Browser UI - RAG avisa al combinar ramas con idiomas distintos sin alterar
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
     const branchIds = await page.evaluate(async () => {
-      await window.ChatRagStorage.clearAllData();
+      for (const branch of await window.ChatRagStorage.getBranches()) await window.ChatRagStorage.deleteBranch(branch.id);
       window.ChatConfig.updateRuntime({ activeRagBranchIds: [] });
       const spanishOne = await window.ChatRagStorage.createBranch({ name: 'ES uno', language: 'spanish' });
       const spanishTwo = await window.ChatRagStorage.createBranch({ name: 'ES dos', language: 'spanish' });

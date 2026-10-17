@@ -446,12 +446,12 @@ ${stateBody}
     return /does not exist|not found|no such file/i.test(String(message || ''));
   }
 
-  function createProjectContext(deps = {}) {
-    const getState = () => deps.state || resolveDep('ChatState', './state.js');
-    const getConfig = () => deps.config || resolveDep('ChatConfig', './config-store.js');
-    const getAgentCore = () => deps.agentCore || resolveDep('ChatAgentCore', './agent-core.js');
-    const getSecurity = () => deps.security || resolveDep('ChatToolSecurity', './tool-security.js').manager;
-    const getMcp = () => deps.mcp || resolveDep('ChatMCP', './mcp.js').manager;
+  function createProjectContext() {
+    const getState = () => resolveDep('ChatState', './state.js');
+    const getConfig = () => resolveDep('ChatConfig', './config-store.js');
+    const getAgentCore = () => resolveDep('ChatAgentCore', './agent-core.js');
+    const getSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js').manager;
+    const getMcp = () => resolveDep('ChatMCP', './mcp.js').manager;
 
     let refreshSequence = 0;
 
@@ -601,7 +601,7 @@ ${stateBody}
     }
 
     function canChangeDirectory() {
-      return Boolean(getCwd() && typeof getMcp()?.setProjectDirectory === 'function');
+      return Boolean(getCwd());
     }
 
     /**
@@ -634,14 +634,6 @@ ${stateBody}
   const defaultContext = createProjectContext();
 
   return {
-    RULES_FILE,
-    MEMORY_DIR,
-    STATE_FILE,
-    PLAN_FILE,
-    LOG_FILE,
-    ARCHIVE_DIR,
-    TASK_HELPER_FILE,
-    MEMORY_SECTION_TITLE,
     MAX_FILE_BYTES,
     MEMORY_SECTION_TEMPLATE,
     PLAN_TEMPLATE,
@@ -649,11 +641,9 @@ ${stateBody}
     STATE_TEMPLATE,
     TASK_SCRIPT_TEMPLATE,
     SUMMARIZER_PROJECT_ADDENDUM,
-    joinPath,
     computeStatus,
     buildPromptBlock,
     buildBootstrapPrompt,
-    createProjectContext,
     refresh: defaultContext.refresh,
     canInitialize: defaultContext.canInitialize,
     initialize: defaultContext.initialize,

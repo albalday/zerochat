@@ -276,15 +276,6 @@
     return true;
   }
 
-  async function clearAllData() {
-    const db = await openDatabase();
-    const names = [STORES.ragBranches, ...DOCUMENT_STORES];
-    const tx = db.transaction(names, 'readwrite');
-    names.forEach(name => tx.objectStore(name).clear());
-    await transactionDone(tx);
-    return true;
-  }
-
   async function buildDocumentExport(document) {
     const chunks = await getChunksByDocument(document.id);
     const images = await getDocumentImages(document.id);
@@ -392,6 +383,6 @@
     saveDocument, replaceDocument, findDocumentByPath, getDocumentsByBranch, getDocumentById,
     getChunksByBranch, getChunksByDocument, getChunkById, deleteDocument,
     getDocumentImages, getDocumentImage,
-    clearAllData, exportBranchBlob, importBranch
+    exportBranchBlob, importBranch
   };
 });

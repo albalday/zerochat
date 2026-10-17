@@ -1347,9 +1347,7 @@
   const registry = new ProviderRegistry();
 
   return {
-    DEFAULT_CAPABILITIES,
     BaseProviderAdapter,
-    MirrorProviderAdapter,
     ClaudeProviderAdapter,
     GeminiProviderAdapter,
     OllamaProviderAdapter,

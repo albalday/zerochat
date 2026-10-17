@@ -3,15 +3,10 @@ const assert = require('node:assert/strict');
 const Profiles = require('../../js/profile-repository.js');
 const Backup = require('../../js/profile-backup.js');
 const ProfileExportBundle = require('../../js/profile-export-bundle.js');
+const Storage = require('../../js/storage.js');
 
-function createStorage(legacyProfiles = {}) {
-  const values = new Map();
-  return {
-    getStorageItem: key => values.has(key) ? values.get(key) : null,
-    setStorageItem: (key, value) => values.set(key, String(value)),
-    getProfiles: () => JSON.parse(JSON.stringify(legacyProfiles))
-  };
-}
+// Cada caso parte de un almacenamiento vacío: el repositorio real lee y escribe en él.
+test.beforeEach(() => localStorage.clear());
 
 const sampleProfiles = [{
   id: 'profile:remote',
@@ -31,8 +26,7 @@ function generateBundle(payload = '{"encrypted":true}', appUrl = 'http://127.0.0
 // --- Repositorio y persistencia de perfiles ---
 
 test('ProfileRepository - inicializa únicamente el perfil Espejo de solo lectura', () => {
-  const storage = createStorage();
-  const repository = Profiles.createRepository(storage);
+  const repository = Profiles;
 
   const profiles = repository.list();
   assert.equal(profiles.length, 1);
@@ -44,7 +38,7 @@ test('ProfileRepository - inicializa únicamente el perfil Espejo de solo lectur
 });
 
 test('ProfileRepository - fusiona una importación en una única escritura y conserva Espejo', async () => {
-  const repository = Profiles.createRepository(createStorage());
+  const repository = Profiles;
   repository.save({ id: 'local', name: 'Local', settings: { model: 'before' } });
   const encryptedApiKey = await Backup.encryptApiKey('sk-imported');
   const result = repository.mergeImported([
@@ -60,18 +54,17 @@ test('ProfileRepository - fusiona una importación en una única escritura y con
 });
 
 test('ProfileRepository - no guarda ni importa API keys en texto plano', async () => {
-  const storage = createStorage();
-  const repository = Profiles.createRepository(storage);
+  const repository = Profiles;
   assert.throws(() => repository.save({ id: 'unsafe', name: 'Unsafe', settings: { apiKey: 'sk-plain' } }), /encrypted API key/);
   assert.throws(() => repository.mergeImported([{ id: 'unsafe', name: 'Unsafe', settings: { apiKey: 'sk-plain' } }]), /encrypted API key/);
   await repository.saveEditable({ id: 'safe', name: 'Safe', settings: { apiKey: 'sk-secret' } });
   assert.equal((await repository.load('safe')).settings.apiKey, 'sk-secret');
   assert.equal(typeof repository.get('safe').settings.apiKey, 'object');
-  assert.doesNotMatch(storage.getStorageItem(Profiles.STORAGE_KEY), /sk-secret/);
+  assert.doesNotMatch(Storage.getStorageItem(Profiles.STORAGE_KEY), /sk-secret/);
 });
 
 test('ProfileRepository - un perfil bloqueado no se modifica pero puede borrarse', async () => {
-  const repository = Profiles.createRepository(createStorage());
+  const repository = Profiles;
   const locked = await repository.saveEditable({ id: 'locked', name: 'Locked', settings: { apiKey: 'sk-locked', apiKeyLocked: true } });
   assert.throws(() => repository.save({ ...locked, settings: { ...locked.settings, model: 'changed' } }), /locked/);
   assert.equal(repository.remove('locked'), true);
@@ -79,14 +72,13 @@ test('ProfileRepository - un perfil bloqueado no se modifica pero puede borrarse
 });
 
 test('ProfileRepository - no reinicializa silenciosamente documentos con API keys antiguas', () => {
-  const storage = createStorage();
-  storage.setStorageItem(Profiles.STORAGE_KEY, JSON.stringify({ schemaVersion: 1, profiles: [{ id: 'old', name: 'Old', settings: { apiKey: 'sk-plain' } }] }));
-  assert.throws(() => Profiles.createRepository(storage).list(), /encrypted API key/);
-  assert.match(storage.getStorageItem(Profiles.STORAGE_KEY), /sk-plain/);
+  Storage.setStorageItem(Profiles.STORAGE_KEY, JSON.stringify({ schemaVersion: 1, profiles: [{ id: 'old', name: 'Old', settings: { apiKey: 'sk-plain' } }] }));
+  assert.throws(() => Profiles.list(), /encrypted API key/);
+  assert.match(Storage.getStorageItem(Profiles.STORAGE_KEY), /sk-plain/);
 });
 
 test('ProfileRepository - rechaza una importación que intenta modificar Espejo', () => {
-  const repository = Profiles.createRepository(createStorage());
+  const repository = Profiles;
   assert.throws(() => repository.mergeImported([
     { id: Profiles.READONLY_PROFILE_ID, name: 'Espejo', settings: { model: 'changed' } }
   ]), /Espejo/);
@@ -94,15 +86,14 @@ test('ProfileRepository - rechaza una importación que intenta modificar Espejo'
 });
 
 test('ProfileRepository - carga sin error perfiles heredados con apiKey vacía o nula', async () => {
-  const storage = createStorage();
-  storage.setStorageItem(Profiles.STORAGE_KEY, JSON.stringify({
+  Storage.setStorageItem(Profiles.STORAGE_KEY, JSON.stringify({
     schemaVersion: 1,
     profiles: [
       { id: 'profile:mirror', name: 'Espejo', settings: { apiUrl: 'mirror://local', apiType: 'mirror', apiKey: '', model: 'mirror' } },
       { id: 'profile:legacy-null', name: 'Legacy Null', settings: { apiUrl: 'http://localhost:1234', apiKey: null } }
     ]
   }));
-  const repository = Profiles.createRepository(storage);
+  const repository = Profiles;
   const list = repository.list();
   assert.equal(list.length, 2);
   assert.equal(list[0].id, 'profile:mirror');

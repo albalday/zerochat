@@ -182,7 +182,7 @@
     const baseSystemPrompt = getConfiguredSystemPrompt(appConfig);
 
     const AgentCore = getAgentCore();
-    const isToolsEnabled = options.enableTools ?? AgentCore.registry.getActiveTools(appConfig).length > 0;
+    const isToolsEnabled = AgentCore.registry.getActiveTools(appConfig).length > 0;
 
     // Las herramientas en texto (<tool_call>) reciben sus firmas en el payload del adaptador.
     const caps = getAPI().getProviderCapabilities(appConfig.apiUrl, appConfig.apiType, appConfig.model);

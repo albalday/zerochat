@@ -190,10 +190,8 @@
   }
 
   return {
-    formatTokenCount,
     formatContextCapacity,
     parseContextCapacity,
-    getContextHealthStatus,
     computeTelemetryViewModel,
     renderTelemetry,
     resetTelemetry,

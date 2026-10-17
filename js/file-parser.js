@@ -1511,8 +1511,6 @@
     parsePdfDocument,
     convertCmykDataUrlToRgb,
     decodePdfShiftedText,
-    unshiftAsciiString,
-    collapseSpacedLettersAndNumbers,
     collapseVerticallySplitGlyphs,
     parsePdfStreamText
   };

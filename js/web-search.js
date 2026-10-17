@@ -119,12 +119,8 @@
    * Proveedor de búsqueda DuckDuckGo con arquitectura multitrayecto y fallbacks.
    */
   class DuckDuckGoSearchProvider extends BaseSearchProvider {
-    constructor(options = {}) {
-      super({
-        id: 'duckduckgo',
-        label: 'DuckDuckGo',
-        ...options
-      });
+    constructor() {
+      super({ id: 'duckduckgo', label: 'DuckDuckGo' });
     }
 
 
@@ -241,13 +237,9 @@
    * Proveedor de búsqueda compatible con instancias SearXNG.
    */
   class SearXNGSearchProvider extends BaseSearchProvider {
-    constructor(options = {}) {
-      super({
-        id: 'searxng',
-        label: 'SearXNG',
-        ...options
-      });
-      this.baseUrl = (options.baseUrl || 'https://searx.be').trim().replace(/\/+$/, '');
+    constructor() {
+      super({ id: 'searxng', label: 'SearXNG' });
+      this.baseUrl = 'https://searx.be';
     }
 
     /**
@@ -339,10 +331,8 @@
 
   return {
     search,
-    BaseSearchProvider,
     DuckDuckGoSearchProvider,
     SearXNGSearchProvider,
-    SearchProviderRegistry,
     registry
   };
 });

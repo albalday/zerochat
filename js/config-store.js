@@ -78,106 +78,93 @@
     return { id: profile.id, name: profile.name, version: profile.version, appliedAt: Date.now() };
   }
 
-  function createConfigStore(options = {}) {
-    const state = options.state || State;
-    const storage = options.storage || Storage;
-    const profiles = options.profiles || Profiles;
+  function persist(next) {
+    Storage.saveRuntimeConfigV2({ ...next, modelContextLimit: null });
+  }
 
-    function persist(next) {
-      storage.saveRuntimeConfigV2({ ...next, modelContextLimit: null });
+  function commit(next) {
+    const normalized = normalize(next);
+    persist(normalized);
+    State.set('config', normalized);
+    return State.get('config');
+  }
+
+  function initialize() {
+    // Un almacenamiento de perfiles dañado no impide arrancar: se usa la configuración guardada.
+    try {
+      Profiles.initialize();
+    } catch (error) {
+      console.warn('[ChatConfig] Could not initialize the profile repository:', error);
     }
-
-    function commit(next) {
-      const normalized = normalize(next);
-      persist(normalized);
-      state.set('config', normalized);
-      return state.get('config');
-    }
-
-    function initialize() {
-      // Un almacenamiento de perfiles dañado no impide arrancar: se usa la configuración guardada.
+    const stored = Storage.loadRuntimeConfigV2();
+    let fallbackProfile = null;
+    try {
+      fallbackProfile = Profiles.get(Profiles.READONLY_PROFILE_ID) || Profiles.list()[0] || null;
+    } catch (_) { /* perfiles no disponibles: sin perfil de respaldo */ }
+    if (stored) {
+      const config = { ...stored, modelContextLimit: null };
       try {
-        profiles.initialize();
-      } catch (error) {
-        console.warn('[ChatConfig] Could not initialize the profile repository:', error);
-      }
-      const stored = storage.loadRuntimeConfigV2();
-      let fallbackProfile = null;
-      try {
-        fallbackProfile = profiles.get(profiles.READONLY_PROFILE_ID) || profiles.list()[0] || null;
-      } catch (_) { /* perfiles no disponibles: sin perfil de respaldo */ }
-      if (stored) {
-        const config = { ...stored, modelContextLimit: null };
-        try {
-          if (!profiles.get(config.activeProfile?.id) && fallbackProfile) {
-            return commit(applyProfile(config, fallbackProfile));
-          }
-        } catch (_) { /* perfiles no disponibles: se conserva la configuración guardada */ }
-        return commit(config);
-      }
-
-      try {
-        return fallbackProfile ? activateProfile(fallbackProfile.id) : commit(DEFAULTS);
-      } catch (_) {
-        return commit(DEFAULTS);
-      }
+        if (!Profiles.get(config.activeProfile?.id) && fallbackProfile) {
+          return commit(applyProfile(config, fallbackProfile));
+        }
+      } catch (_) { /* perfiles no disponibles: se conserva la configuración guardada */ }
+      return commit(config);
     }
 
-    function getActive() {
-      return normalize(state.get('config') || DEFAULTS);
-    }
-
-    function updateRuntime(patch = {}) {
-      const current = getActive();
-      const safePatch = { ...patch };
-      delete safePatch.activeProfile;
-      const connectionChanged = ['apiUrl', 'apiType', 'model'].some(key => Object.prototype.hasOwnProperty.call(safePatch, key)
-        && safePatch[key] !== current[key]);
-      if (connectionChanged && !Object.prototype.hasOwnProperty.call(safePatch, 'modelContextLimit')) {
-        safePatch.modelContextLimit = null;
-      }
-      return commit({ ...current, ...safePatch });
-    }
-
-    function activateProfile(profileId) {
-      const profile = profiles.get(profileId);
-      if (!profile) throw new Error('The selected profile does not exist.');
-      return commit(applyProfile(getActive(), profile));
-    }
-
-    function applyProfile(config, profile) {
-      const patch = {};
-      PROFILE_FIELDS.forEach(field => {
-        patch[field] = clone(profile.settings[field] !== undefined ? profile.settings[field] : DEFAULTS[field]);
-      });
-      return {
-        ...config,
-        ...patch,
-        modelContextLimit: null,
-        contextLimitOverride: profile.settings.contextLimitOverride ?? null,
-        activeProfile: profileMetadata(profile)
-      };
-    }
-
-    function activateFallbackProfile() {
-      const fallbackProfile = profiles.get(profiles.READONLY_PROFILE_ID) || profiles.list()[0] || null;
+    try {
       return fallbackProfile ? activateProfile(fallbackProfile.id) : commit(DEFAULTS);
+    } catch (_) {
+      return commit(DEFAULTS);
     }
+  }
 
-    function subscribe(listener) {
-      return state.subscribe('config', listener);
+  function getActive() {
+    return normalize(State.get('config') || DEFAULTS);
+  }
+
+  function updateRuntime(patch = {}) {
+    const current = getActive();
+    const safePatch = { ...patch };
+    delete safePatch.activeProfile;
+    const connectionChanged = ['apiUrl', 'apiType', 'model'].some(key => Object.prototype.hasOwnProperty.call(safePatch, key)
+      && safePatch[key] !== current[key]);
+    if (connectionChanged && !Object.prototype.hasOwnProperty.call(safePatch, 'modelContextLimit')) {
+      safePatch.modelContextLimit = null;
     }
+    return commit({ ...current, ...safePatch });
+  }
 
+  function activateProfile(profileId) {
+    const profile = Profiles.get(profileId);
+    if (!profile) throw new Error('The selected profile does not exist.');
+    return commit(applyProfile(getActive(), profile));
+  }
+
+  function applyProfile(config, profile) {
+    const patch = {};
+    PROFILE_FIELDS.forEach(field => {
+      patch[field] = clone(profile.settings[field] !== undefined ? profile.settings[field] : DEFAULTS[field]);
+    });
     return {
-      initialize,
-      getActive,
-      updateRuntime,
-      activateProfile,
-      activateFallbackProfile,
-      subscribe
+      ...config,
+      ...patch,
+      modelContextLimit: null,
+      contextLimitOverride: profile.settings.contextLimitOverride ?? null,
+      activeProfile: profileMetadata(profile)
     };
   }
 
-  const defaultStore = createConfigStore();
-  return { DEFAULT_SYSTEM_DATA_PROMPT, DEFAULTS: clone(DEFAULTS), normalize, createConfigStore, ...defaultStore };
+  function activateFallbackProfile() {
+    const fallbackProfile = Profiles.get(Profiles.READONLY_PROFILE_ID) || Profiles.list()[0] || null;
+    return fallbackProfile ? activateProfile(fallbackProfile.id) : commit(DEFAULTS);
+  }
+
+  function subscribe(listener) {
+    return State.subscribe('config', listener);
+  }
+
+  return {
+    DEFAULT_SYSTEM_DATA_PROMPT, DEFAULTS: clone(DEFAULTS), normalize,
+    initialize, getActive, updateRuntime, activateProfile, activateFallbackProfile, subscribe
+  };
 }));

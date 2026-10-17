@@ -8,14 +8,14 @@ const RagStorage = require('../../js/ragStorage.js');
 const RagIndex = require('../../js/rag-index.js');
 const Ingestion = require('../../js/ingestionEngine.js');
 const WebBrowser = require('../../js/web-browser.js');
+const { clearRagData } = require('../helpers/rag-data.js');
 
 const FIXTURES = path.resolve(__dirname, '../fixtures/office');
 const fixtureBytes = name => fs.readFileSync(path.join(FIXTURES, name));
 const fixtureFile = (fixture, name = fixture, type = '') => toFile({ name, type, content: fixtureBytes(fixture) });
 
 beforeEach(async () => {
-  RagIndex.clearCache();
-  await RagStorage.clearAllData();
+  await clearRagData();
 });
 
 test('Ingesta RAG: los documentos ofimáticos se indexan con sus imágenes antes del rechazo de ZIP', async () => {

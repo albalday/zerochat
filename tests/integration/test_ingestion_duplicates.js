@@ -3,9 +3,10 @@ const assert = require('node:assert/strict');
 const RagStorage = require('../../js/ragStorage.js');
 const IngestionEngine = require('../../js/ingestionEngine.js');
 const { toFile } = require('../helpers/files.js');
+const { clearRagData } = require('../helpers/rag-data.js');
 
 beforeEach(async () => {
-  await RagStorage.clearAllData();
+  await clearRagData();
 });
 
 test('Ingestion - detecta duplicado idéntico por ruta y permite ignorarlo', async () => {

@@ -62,9 +62,9 @@
   }
 
   /** Estado visible de la insignia según el estado del comando. */
-  function getBadgeView(state, now = Date.now()) {
+  function getBadgeView(state) {
     const elapsed = state.status === 'running' && state.startedAt
-      ? (now - state.startedAt) / 1000
+      ? (Date.now() - state.startedAt) / 1000
       : state.elapsed;
     const time = formatDuration(elapsed);
     switch (state.status) {
@@ -444,7 +444,6 @@
   return {
     createView,
     parseResult,
-    formatDuration,
-    getBadgeView
+    formatDuration
   };
 }));

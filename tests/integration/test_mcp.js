@@ -725,9 +725,9 @@ else:
   const saved = new Map();
   global.localStorage = { getItem: k => saved.get(k) || null, setItem: (k, v) => saved.set(k, v) };
   try {
-    const first = new Security.ToolSecurityManager({ storageKey: 'mcp_names' });
+    const first = new Security.ToolSecurityManager();
     first.setToolPolicy(tools[0].name, 'allow', { originalName: 'browser_navigate' });
-    const restored = new Security.ToolSecurityManager({ storageKey: 'mcp_names' });
+    const restored = new Security.ToolSecurityManager();
     assert.equal(restored.evaluateAuthorization(tools[0], {}).status, 'allow');
     assert.equal(restored.evaluateAuthorization(tools[2], {}).requiresApproval, true);
     assert.equal(restored.getToolPolicy('browser_navigate'), null);
@@ -762,7 +762,7 @@ test('MCP - autorización externa muestra el servicio de origen y conserva permi
     }))
   });
   const [search, execute, browser] = await provider.discoverTools();
-  const manager = new Security.ToolSecurityManager({ storageKey: 'test_external_service_labels' });
+  const manager = new Security.ToolSecurityManager();
   for (const tool of [search, execute, browser]) {
     const auth = manager.evaluateAuthorization(tool, {});
     assert.equal(auth.serverName, tool.metadata.mcpServerId);

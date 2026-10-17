@@ -63,7 +63,7 @@ El código nuevo debe:
 - no añadir código especulativo (ramas, opciones o parámetros sin consumidor actual) ni de compatibilidad hacia atrás (alias, migraciones de datos, formatos antiguos) salvo petición expresa;
 - eliminar todo lo que quede huérfano tras una retirada (funciones, estilos CSS, claves i18n, pruebas);
 - en Node no hay DOM ni se simula: lo que pinta o lee elementos no se prueba en Node, y en navegador solo si cumple los criterios de §5; el código que solo corre en el navegador no lleva ramas ni guardas para Node;
-- no añadir a producción código cuyo único consumidor sea una prueba (exportaciones, parámetros opcionales, inyecciones de dependencias, vistas en memoria, ramas): si algo no se puede probar sin ello, se prueba en navegador o no se prueba; exponer constantes o contratos que usan otros módulos sí forma parte de la interfaz pública.
+- no añadir a producción código que la aplicación no ejecuta y solo usan las pruebas: funciones, parámetros u opciones que nadie pasa, inyecciones de dependencias, guardas o ramas para objetos falsos; las pruebas usan los módulos reales, sustituyen métodos de sus objetos (`mock.method`) y la plataforma en memoria (`storage-env.js`), y si algo no se puede probar así, se prueba en navegador o no se prueba; se puede exportar una pieza que la aplicación ejecuta (función, clase o constante) para probarla aislada.
 
 
 ## 3. Arquitectura y límites del sistema
@@ -130,7 +130,7 @@ Antes de cerrar una tarea (`task.py done`), revisar el `git diff` frente a esta 
 - ninguna decisión, lista de formatos o convención duplicada en 2 o más sitios;
 - comprobaciones y límites simétricos entre variantes hermanas de un mismo módulo;
 - topes de memoria, contexto o seguridad cubiertos con prueba en el borde exacto y su aviso de truncado;
-- sin pruebas triviales, duplicadas, cosméticas o de ausencia de algo retirado, ni código de producción que solo usen las pruebas;
+- sin pruebas triviales, duplicadas, cosméticas o de ausencia de algo retirado, ni código de producción que la aplicación no ejecute (parámetros, opciones, inyecciones o ramas que solo usan las pruebas);
 - español e inglés sincronizados si afecta a la interfaz o a `/help/`;
 - backend recompilado (`npm run build:backend`) si se modificó `py/`;
 - documentación y memoria de proyecto (`.zerochat/`) actualizadas.

@@ -269,17 +269,9 @@
     revisions.set(branchId, (revisions.get(branchId) || 0) + 1);
   }
 
-  function clearCache() {
-    indexes.clear();
-    builds.clear();
-    documentIndexes.clear();
-    documentBuilds.clear();
-    revisions.clear();
-  }
-
   return {
-    buildBranchIndex, buildDocumentIndex,
+    buildDocumentIndex,
     searchBranch, searchBranches, searchDocuments,
-    invalidateBranch, clearCache
+    invalidateBranch
   };
 });

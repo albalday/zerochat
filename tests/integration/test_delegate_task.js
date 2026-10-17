@@ -72,7 +72,7 @@ test('delegate_task - solo ofrece al subagente herramientas de lectura', async t
   });
 
   const result = await delegateTask.execute({ task: 'Investigate' }, {
-    services: { agent: { registry, executor: new ToolExecutor(registry), runtime: new AgentRuntime({ registry }) }, profiles: { list: () => [] } },
+    services: { agent: { registry, executor: new ToolExecutor(registry), runtime: new AgentRuntime({ registry, executor: new ToolExecutor(registry) }) }, profiles: { list: () => [] } },
     resolveToolDefinitions: () => registry.listTools().map(tool => tool.getDefinition())
   });
 
@@ -84,9 +84,17 @@ test('delegate_task - solo ofrece al subagente herramientas de lectura', async t
 });
 
 test('delegate_task - el subagente trabaja con contexto propio y devuelve solo su informe', async t => {
+  // Recorrido completo por el agente real: las herramientas del servidor local se registran en
+  // su registro y se retiran al terminar.
   const executed = [];
-  const { registry, runtime, context } = createHarness(executed);
-  registry.registerTool(delegateTask);
+  const fakeTools = [
+    localTool('read_file', async args => { executed.push(`read_file:${args.path}`); return { success: true, content: 'export const answer = 42;' }; }),
+    localTool('write_file', async () => { executed.push('write_file'); return { success: true }; })
+  ];
+  fakeTools.forEach(tool => AgentCore.registry.registerTool(tool));
+  t.after(() => fakeTools.forEach(tool => AgentCore.registry.unregisterTool(tool.name)));
+  const runtime = AgentCore.runtime;
+  const context = { resolveToolDefinitions: () => [...fakeTools, delegateTask].map(tool => tool.getDefinition()) };
   const controller = new AbortController();
   const subagentRequests = [];
   let parentRequests = 0;

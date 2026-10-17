@@ -322,9 +322,6 @@
   }
 
   return {
-    renderBarChart,
-    renderLineChart,
-    renderPieOrDonutChart,
     renderChartCard
   };
 });

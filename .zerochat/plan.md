@@ -100,5 +100,5 @@ Done when: no test or module depends on happy-dom and Node-only branches are gon
 - [x] M24-T23 Review integration tests of MCP, tool security, security and builtin tools (security cases kept as tables) (2026-10-17)
 - [x] M24-T24 Review integration tests of RAG, ingestion, profiles, project context, conversation service and storage reset (2026-10-17)
 - [x] M24-T25 Review the remaining browser tests (cosmetic layout, duplicated flows, smoke-covered checks) (2026-10-17)
-- [ ] M24-T26 Remove exports, parameters and helpers whose only consumer is a test, and extend the hygiene test to every exported name
+- [x] M24-T26 Remove exports, parameters and helpers whose only consumer is a test, and extend the hygiene test to every exported name (2026-10-17)
 - [ ] M24-T27 Measure tests, lines and run time before/after, agree the targets with the user and update the Done when figures

@@ -611,16 +611,11 @@
 
   return {
     generateTerminalCommand,
-    isBrowserActionActive,
-    getAllMcpTools,
     getServiceHelp,
-    copyCommandToClipboard,
     renderConnectionStatus,
     renderToolsList,
-    renderCurrentToolsList,
     renderExternalServers,
     renderSavedAuthorizations,
-    runExternalServerAction,
     offerStoppedExternalServices,
     syncSecurityControls,
     initMcpUI,

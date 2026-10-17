@@ -268,10 +268,13 @@
   }
 
   class WebLLMEngineManager {
-    constructor(createEngine = createWorkerEngine) {
-      this.createEngine = createEngine;
+    constructor() {
       this.active = null;
       this.pending = null;
+    }
+
+    createEngine(webllm, modelId, appConfig, onProgress, signal, chatOpts) {
+      return createWorkerEngine(webllm, modelId, appConfig, onProgress, signal, chatOpts);
     }
 
     async acquire(webllm, modelId, appConfig, onProgress, signal, chatOpts = {}) {
@@ -366,14 +369,13 @@
   }
 
   class WebLLMProviderAdapter extends Providers.BaseProviderAdapter {
-    constructor(options = {}) {
+    constructor() {
       super({
         id: 'webllm', label: 'WebLLM (local)', reasoningLevels: ['none'],
         connection: { endpoint: 'webllm://local', endpointReadOnly: true, credentials: false, localModelManagement: true },
-        capabilities: { vision: false, tools: false, textTools: true, reasoning: false, jsonMode: false, promptCaching: false, embeddings: false, modelListing: true },
-        ...options
+        capabilities: { vision: false, tools: false, textTools: true, reasoning: false, jsonMode: false, promptCaching: false, embeddings: false, modelListing: true }
       });
-      this.engines = options.engineManager || new WebLLMEngineManager();
+      this.engines = new WebLLMEngineManager();
     }
 
     normalizeEndpoint() { return 'webllm://local'; }
@@ -469,23 +471,17 @@
   const adapter = new WebLLMProviderAdapter();
   Providers.registry.register(adapter);
   return {
-    WEBLLM_URL,
     COMPLETED_MODELS_STORAGE_KEY,
-    isToolsRecommendedModel,
     compareCatalogModels,
     WebLLMEngineManager,
     WebLLMProviderAdapter,
     adapter,
     loadWebLLM,
-    getAppConfig,
     listModels,
-    getModelAvailability,
     getCompletedModelIds,
     isModelCompleted,
-    normalizeProgress,
     createWorkerEngine,
     extractOverrides,
-    applyModelOverrides,
-    getActiveWebllmConfig
+    applyModelOverrides
   };
 });

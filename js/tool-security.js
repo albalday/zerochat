@@ -266,13 +266,11 @@
    * Administrador de Seguridad y Políticas de Ejecución de ZeroChat.
    */
   class ToolSecurityManager {
-    constructor(options = {}) {
-      this.explicitStorageKey = options.storageKey || null;
-      this.storageKey = this.explicitStorageKey || STORAGE_KEY;
-      this.sessionToken = options.sessionToken || null;
+    constructor() {
+      this.sessionToken = null;
       this.globalMcpPolicy = GLOBAL_POLICIES.ASK;
       // El backend local informa del directorio real al conectarse (setStartupDirectory).
-      this.startupDirectory = normalizeDirectoryPath(options.startupDirectory || '.');
+      this.startupDirectory = normalizeDirectoryPath('.');
       this.tools = new Map();
       this.servers = new Map();
       this.directoryRules = [];
@@ -311,7 +309,7 @@
      */
     load() {
       try {
-        const raw = getStorage().getStorageItem(this.storageKey);
+        const raw = getStorage().getStorageItem(STORAGE_KEY);
 
         if (raw) {
           const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
@@ -407,7 +405,7 @@
           updatedAt: Date.now()
         };
 
-        Storage.setStorageItem(this.storageKey, JSON.stringify(payload));
+        Storage.setStorageItem(STORAGE_KEY, JSON.stringify(payload));
       } catch (err) {
         console.warn('[ToolSecurity] Could not save the policies:', err?.message || err);
       }
@@ -992,13 +990,7 @@
 
   return {
     STORAGE_KEY,
-    GLOBAL_POLICIES,
-    TOOL_POLICIES,
-    SERVER_POLICIES,
-    SCOPES,
     ToolSecurityManager,
-    evaluateCommandConstraint,
-    evaluateConstraints,
     getCommandBaseName,
     canBuildDirectoryRule,
     manager

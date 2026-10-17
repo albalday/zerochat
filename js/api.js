@@ -675,7 +675,6 @@
     deleteLocalModel,
     cancelLocalModelOperation,
     streamChatCompletion,
-    estimateTokens,
     getProviderCapabilities,
     inspectProvider,
     registry

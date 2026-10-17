@@ -130,7 +130,7 @@
   }
 
   return {
-    DB_NAME, DB_VERSION, STORES,
+    DB_VERSION, STORES,
     openDatabase, closeDatabase, deleteOriginDatabases,
     requestResult, transactionDone, deleteByIndex, getAllByIndex
   };

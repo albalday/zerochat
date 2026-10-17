@@ -547,15 +547,11 @@
   }
 
   return {
-    DEFAULT_CONTEXT_LIMIT,
     getModelContextLimit,
     calculateInputBudget,
     estimateTextTokens,
     estimateMessageTokens,
-    estimateHistoryTokens,
     truncateToolContent,
-    pruneHistoricalToolMessage,
-    groupIntoAtomicBlocks,
     buildOptimizedContext,
     getContextDiagnostics,
     shouldCompress,

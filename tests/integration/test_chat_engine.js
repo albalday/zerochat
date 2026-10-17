@@ -22,7 +22,17 @@ const { createTurnView } = require('../helpers/turn-view.js');
 
 // La aplicación siempre entrega la configuración normalizada y todos los callbacks del turno.
 const config = (overrides = {}) => ChatConfig.normalize(overrides);
-const buildMessages = (history, appConfig = {}, options) => ChatEngine.buildEffectiveMessages(history, config(appConfig), options);
+// `enableTools` fija si el registro real tiene herramientas activas durante la llamada.
+function buildMessages(history, appConfig = {}, { enableTools, ...options } = {}) {
+  const registry = require('../../js/agent-core.js').registry;
+  const original = registry.getActiveTools;
+  if (enableTools !== undefined) registry.getActiveTools = () => (enableTools ? [{ name: 'tool' }] : []);
+  try {
+    return ChatEngine.buildEffectiveMessages(history, config(appConfig), options);
+  } finally {
+    registry.getActiveTools = original;
+  }
+}
 
 // El sandbox real necesita un navegador (lo cubren las pruebas de browser): aquí la herramienta
 // devuelve un resultado fijo y el motor se prueba con el resto de piezas reales.

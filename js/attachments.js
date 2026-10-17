@@ -145,7 +145,6 @@
     MAX_FILE_SIZE,
     validateFileSize,
     getFiles,
-    setFiles,
     clearFiles,
     removeFileAt,
     addFile,

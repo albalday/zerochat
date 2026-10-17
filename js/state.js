@@ -43,7 +43,7 @@
 
   const PROJECT_STATUSES = Object.freeze(['disabled', 'unavailable', 'declined', 'no_access', 'missing', 'ready', 'error']);
 
-  function createInitialState(overrides = {}) {
+  function createInitialState() {
     const defaultState = {
       // 1. Configuración de la Aplicación y Preferencias (valores por defecto compartidos con ChatConfig)
       config: clone(Defaults.CONFIG_DEFAULTS),
@@ -109,24 +109,11 @@
       }
     };
 
-    if (overrides && typeof overrides === 'object') {
-      for (const k of Object.keys(overrides)) {
-        if (!CANONICAL_SLICES.includes(k)) {
-          throw new Error(`[ChatState] Non-canonical slice in overrides: "${k}". Allowed slices: ${CANONICAL_SLICES.join(', ')}`);
-        }
-        if (typeof overrides[k] === 'object' && overrides[k] !== null && !Array.isArray(overrides[k])) {
-          defaultState[k] = Object.assign({}, defaultState[k], overrides[k]);
-        } else {
-          defaultState[k] = overrides[k];
-        }
-      }
-    }
-
     return defaultState;
   }
 
-  function createStore(initialConfigOverrides = {}) {
-    let state = createInitialState(initialConfigOverrides);
+  function createStore() {
+    let state = createInitialState();
     const listeners = new Set();
     let isEmitting = false;
 
@@ -296,15 +283,6 @@
       }
     }
 
-    /**
-     * Reinicia el estado a los valores por defecto.
-     */
-    function reset(overrides = {}) {
-      const prevState = state;
-      state = createInitialState(overrides);
-      notifyListeners(state, prevState);
-      return getState();
-    }
 
     function isConversationBusy() {
       return Boolean(state.streaming && state.streaming.isGenerating);
@@ -597,7 +575,6 @@
       setState,
       set,
       subscribe,
-      reset,
       isConversationBusy,
       replaceConversation,
       appendMessage,
@@ -622,15 +599,12 @@
 
   return {
     createStore,
-    createInitialState,
     CANONICAL_SLICES,
-    PROJECT_STATUSES,
     getState: defaultStore.getState,
     get: defaultStore.get,
     setState: defaultStore.setState,
     set: defaultStore.set,
     subscribe: defaultStore.subscribe,
-    reset: defaultStore.reset,
     isConversationBusy: defaultStore.isConversationBusy,
     replaceConversation: defaultStore.replaceConversation,
     appendMessage: defaultStore.appendMessage,

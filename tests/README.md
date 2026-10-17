@@ -124,7 +124,7 @@ Antes de escribir una prueba, clasifícala. Solo se escriben las de la columna �
 Además:
 - Un caso más de una función ya probada es una fila o aserción de su prueba existente, no una prueba nueva.
 - Las funciones reexportadas por fachadas se prueban una vez, en su módulo de origen.
-- No se añade a producción nada cuyo único consumidor sea una prueba (exportaciones, parámetros, inyecciones, vistas en memoria, ramas). Si algo no se puede probar sin ello, se prueba en navegador o no se prueba.
+- No se añade a producción código que la aplicación no ejecuta: funciones, parámetros u opciones que nadie pasa, inyecciones de dependencias o ramas para objetos falsos. Las pruebas usan los módulos reales y sustituyen solo métodos de sus objetos con `mock.method` (restaurados en `afterEach`) y la plataforma con `storage-env.js`; para vaciar la base de conocimiento usan `tests/helpers/rag-data.js`. Se puede exportar una pieza que la aplicación ejecuta para probarla aislada; `test_code_hygiene.js` rechaza funciones y clases que la aplicación no ejecuta.
 - Lo que solo lee ficheros sin ejecutar nada no va en `browser/`, sino en `architecture/` o `unit/`.
 - Las esperas reales a temporizadores se sustituyen por `t.mock.timers`.
 

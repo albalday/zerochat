@@ -1,51 +1,41 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const State = require('../../js/state.js');
+const Storage = require('../../js/storage.js');
+const Profiles = require('../../js/profile-repository.js');
 const ChatConfig = require('../../js/config-store.js');
 
-function createFixture() {
-  let persisted = null;
-  const profile = {
-    id: 'office', name: 'Servidor Oficina', version: 3,
-    settings: {
-      apiUrl: 'http://office.test/v1', apiType: 'openai',
-      model: 'qwen-office', systemPrompt: 'Oficina', temperature: '0.2',
-      reasoningEffort: 'high', enabledTools: { search_web: false },
-      enableRawLogs: true
-    }
-  };
-  const storage = {
-    loadRuntimeConfigV2: () => persisted,
-    saveRuntimeConfigV2: value => { persisted = JSON.parse(JSON.stringify(value)); },
-  };
-  const profiles = {
-    PROFILE_FIELDS: require('../../js/profile-repository.js').PROFILE_FIELDS,
-    initialize: () => {},
-    findByName: name => name === profile.name ? profile : null,
-    list: () => [profile],
-    get: id => id === profile.id ? profile : null
-  };
-  return { store: ChatConfig.createConfigStore({ state: State.createStore(), storage, profiles }), getPersisted: () => persisted };
+// ChatConfig trabaja con ChatState, ChatStorage y el repositorio de perfiles reales sobre el
+// localStorage en memoria de storage-env.js; cada caso parte de un almacenamiento vacío.
+test.beforeEach(() => localStorage.clear());
+
+const OFFICE = {
+  id: 'office', name: 'Servidor Oficina',
+  settings: {
+    apiUrl: 'http://office.test/v1', apiType: 'openai',
+    model: 'qwen-office', systemPrompt: 'Oficina', temperature: '0.2',
+    reasoningEffort: 'high', enabledTools: { search_web: false },
+    enableRawLogs: true
+  }
+};
+
+function initializeWithOffice() {
+  ChatConfig.initialize();
+  Profiles.save(OFFICE);
 }
 
-test('ChatConfig - migra la configuración efectiva y registra el perfil aplicado', () => {
-  const { store, getPersisted } = createFixture();
-  const config = store.initialize();
-
-  assert.equal(config.theme, 'dark');
-  assert.equal(config.language, require('../../js/defaults.js').CONFIG_DEFAULTS.language);
-  assert.equal(config.mcpAutoConnect, false);
-  assert.equal(config.activeProfile.name, 'Servidor Oficina');
+test('ChatConfig - arranca con Espejo, conserva las instrucciones de datos y no persiste el perfil por nombre', () => {
+  const config = ChatConfig.initialize();
+  assert.equal(config.activeProfile.id, Profiles.READONLY_PROFILE_ID);
+  assert.equal(config.apiType, 'mirror');
   assert.ok(config.systemDataPrompt.includes('Format:'), 'Debe conservar las instrucciones de datos de ZeroChat');
-  assert.deepEqual(config.activeRagBranchIds, []);
-  assert.equal(getPersisted().activeProfileName, undefined);
+  assert.equal(Storage.loadRuntimeConfigV2().activeProfileName, undefined);
 });
 
 test('ChatConfig - activar perfil reemplaza campos de perfil y conserva preferencias generales', () => {
-  const { store } = createFixture();
-  store.initialize();
-  store.updateRuntime({ theme: 'dark', activeRagBranchIds: ['rag-a', 'rag-b'] });
-  const config = store.activateProfile('office');
+  initializeWithOffice();
+  ChatConfig.updateRuntime({ theme: 'dark', activeRagBranchIds: ['rag-a', 'rag-b'] });
+  const config = ChatConfig.activateProfile('office');
 
   assert.equal(config.apiUrl, 'http://office.test/v1');
   assert.equal(config.model, 'qwen-office');
@@ -53,68 +43,41 @@ test('ChatConfig - activar perfil reemplaza campos de perfil y conserva preferen
   assert.equal(config.enableRawLogs, true);
   assert.equal(config.theme, 'dark');
   assert.deepEqual(config.activeRagBranchIds, ['rag-a', 'rag-b']);
-  assert.equal(config.activeProfile.version, 3);
+  assert.equal(config.activeProfile.version, Profiles.get('office').version);
   assert.ok(config.systemDataPrompt.includes('Format:'), 'Cambiar de perfil no debe perder las instrucciones de datos');
 });
 
 test('ChatConfig - el límite detectado es volátil y se descarta al activar perfil o cambiar de conexión', () => {
-  {
-    const { store, getPersisted } = createFixture();
-    store.initialize();
-    store.updateRuntime({ modelContextLimit: 90112, contextLimitOverride: 1000000 });
+  initializeWithOffice();
+  ChatConfig.updateRuntime({ modelContextLimit: 90112, contextLimitOverride: 1000000 });
+  assert.equal(ChatConfig.getActive().modelContextLimit, 90112);
+  assert.equal(Storage.loadRuntimeConfigV2().modelContextLimit, null);
 
-    assert.equal(store.getActive().modelContextLimit, 90112);
-    assert.equal(getPersisted().modelContextLimit, null);
+  const activated = ChatConfig.activateProfile('office');
+  assert.equal(activated.modelContextLimit, null);
+  assert.equal(activated.contextLimitOverride, null);
 
-    const config = store.activateProfile('office');
-
-    assert.equal(config.modelContextLimit, null);
-    assert.equal(config.contextLimitOverride, null);
-  }
-
-  {
-    const { store } = createFixture();
-    store.initialize();
-    store.updateRuntime({ modelContextLimit: 90112 });
-
-    const config = store.updateRuntime({ apiUrl: 'https://api.example.test/v1' });
-
-    assert.equal(config.modelContextLimit, null);
-  }
-});
-
-test('ChatConfig - el perfil de respaldo sustituye una selección ausente', () => {
-  const { store } = createFixture();
-  store.initialize();
-  const config = store.activateFallbackProfile();
-
-  assert.equal(config.activeProfile.name, 'Servidor Oficina');
-  assert.equal(config.apiUrl, 'http://office.test/v1');
-  assert.equal(config.model, 'qwen-office');
+  ChatConfig.updateRuntime({ modelContextLimit: 90112 });
+  assert.equal(ChatConfig.updateRuntime({ apiUrl: 'https://api.example.test/v1' }).modelContextLimit, null);
 });
 
 test('ChatConfig - migración y borrado vuelven a Espejo sin conservar credenciales del perfil anterior', () => {
-  const Profiles = require('../../js/profile-repository.js');
-  const values = new Map();
-  let persisted = { activeProfile: { id: 'deleted', name: 'Old' }, model: 'old', apiKey: 'test-only', theme: 'dark', language: 'en' };
-  const storage = {
-    getStorageItem: key => values.get(key), setStorageItem: (key, value) => values.set(key, value),
-    loadRuntimeConfigV2: () => persisted, saveRuntimeConfigV2: value => { persisted = value; }
-  };
-  const profiles = Profiles.createRepository(storage);
-  const state = State.createStore();
+  Storage.saveRuntimeConfigV2({ activeProfile: { id: 'deleted', name: 'Old' }, model: 'old', apiKey: 'test-only', theme: 'dark', language: 'en' });
   let updates = 0;
-  state.subscribe('config', () => updates++);
-  const store = ChatConfig.createConfigStore({ state, storage, profiles: { ...profiles, READONLY_PROFILE_ID: Profiles.READONLY_PROFILE_ID } });
-  const config = store.initialize();
-  assert.equal(updates, 1);
-  assert.equal(config.apiType, 'mirror');
-  assert.equal(config.apiKey, undefined);
-  assert.equal(config.theme, 'dark');
-  profiles.save({ id: 'test', name: 'Test', settings: { model: 'test' } });
-  store.activateProfile('test');
-  profiles.remove('test');
-  const fallback = store.activateFallbackProfile();
+  const unsubscribe = State.subscribe('config', () => updates++);
+  try {
+    const config = ChatConfig.initialize();
+    assert.equal(updates, 1);
+    assert.equal(config.apiType, 'mirror');
+    assert.equal(config.apiKey, undefined);
+    assert.equal(config.theme, 'dark');
+  } finally {
+    unsubscribe();
+  }
+  Profiles.save({ id: 'test', name: 'Test', settings: { model: 'test' } });
+  ChatConfig.activateProfile('test');
+  Profiles.remove('test');
+  const fallback = ChatConfig.activateFallbackProfile();
   assert.equal(fallback.activeProfile.id, Profiles.READONLY_PROFILE_ID);
   assert.equal(fallback.apiKey, undefined);
   assert.equal(fallback.language, 'en');
@@ -133,10 +96,9 @@ test('ChatConfig - el modo proyecto es global: se normaliza y no cambia al activ
   assert.equal(normalized.projectDeclined[49], '/repo/59');
   assert.ok(!normalized.projectDeclined.includes(''));
 
-  const { store } = createFixture();
-  store.initialize();
-  store.updateRuntime({ projectMode: false, projectDeclined: ['/home/u/repo'] });
-  const config = store.activateProfile('office');
+  initializeWithOffice();
+  ChatConfig.updateRuntime({ projectMode: false, projectDeclined: ['/home/u/repo'] });
+  const config = ChatConfig.activateProfile('office');
   assert.equal(config.projectMode, false);
   assert.deepEqual(config.projectDeclined, ['/home/u/repo']);
 });
@@ -149,4 +111,3 @@ test('ChatDefaults - el contexto WebLLM predeterminado es 4K en móviles y 16K e
   assert.equal(Defaults.getWebllmDefaultContextWindowSize({ userAgent: 'Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0' }), 16384);
   assert.ok(Defaults.WEBLLM_CONTEXT_WINDOW_SIZES.includes(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE));
 });
-

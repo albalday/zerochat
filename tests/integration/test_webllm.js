@@ -42,6 +42,20 @@ test.after(() => {
   global.ChatStorage = previousChatStorage;
 });
 
+
+/** Gestor real con la creación del motor sustituida: en Node no hay Worker ni GPU. */
+function engineManager(createEngine) {
+  const manager = new WebLLM.WebLLMEngineManager();
+  manager.createEngine = createEngine;
+  return manager;
+}
+
+function adapterWith(manager) {
+  const adapter = new WebLLM.WebLLMProviderAdapter();
+  adapter.engines = manager;
+  return adapter;
+}
+
 test('WebLLM - el catálogo usa Cache Storage por defecto sin requerir IndexedDB', async () => {
   const result = await WebLLM.listModels({ loader: async () => fakeModule({
     hasModelInCache: async (_model, appConfig) => {
@@ -161,7 +175,7 @@ test('WebLLM - describe las herramientas en texto y convierte el historial de ll
 test('WebLLM - reutiliza el motor ya cargado entre turnos del mismo modelo', async () => {
   cached = true;
   storageValues.set(WebLLM.COMPLETED_MODELS_STORAGE_KEY, '["test-model"]');
-  const manager = new WebLLM.WebLLMEngineManager(async () => {
+  const manager = engineManager(async () => {
     createdEngines += 1;
     return {
       engine: {
@@ -174,7 +188,7 @@ test('WebLLM - reutiliza el motor ya cargado entre turnos del mismo modelo', asy
       release: async () => {}
     };
   });
-  const adapter = new WebLLM.WebLLMProviderAdapter({ engineManager: manager });
+  const adapter = adapterWith(manager);
   try {
     completionPayloads.length = 0;
     const request = content => adapter.createStreamResponse({ payload: { model: 'test-model', messages: [{ role: 'user', content }] } });
@@ -194,7 +208,7 @@ test('WebLLM - descarta el motor si se pierde la GPU durante la generación', as
   storageValues.set(WebLLM.COMPLETED_MODELS_STORAGE_KEY, '["test-model"]');
   let created = 0;
   let released = 0;
-  const manager = new WebLLM.WebLLMEngineManager(async () => {
+  const manager = engineManager(async () => {
     created += 1;
     const lost = created === 1;
     return {
@@ -207,7 +221,7 @@ test('WebLLM - descarta el motor si se pierde la GPU durante la generación', as
       release: async () => { released += 1; }
     };
   });
-  const adapter = new WebLLM.WebLLMProviderAdapter({ engineManager: manager });
+  const adapter = adapterWith(manager);
   try {
     const request = () => adapter.createStreamResponse({ payload: { model: 'test-model', messages: [{ role: 'user', content: 'hi' }] } });
     const failed = await request();
@@ -274,7 +288,7 @@ test('WebLLM - no oculta como fallback un error real de preparación', async () 
 
 test('WebLLM - el gestor cancela una preparación pendiente al desactivarse', async () => {
   let cancelled = false;
-  const manager = new WebLLM.WebLLMEngineManager((_webllm, _model, _config, _progress, signal) => new Promise((resolve, reject) => {
+  const manager = engineManager((_webllm, _model, _config, _progress, signal) => new Promise((resolve, reject) => {
     signal.addEventListener('abort', () => {
       cancelled = true;
       reject(Object.assign(new Error('Aborted'), { name: 'AbortError' }));

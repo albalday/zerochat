@@ -778,7 +778,6 @@
     sanitizeUrl,
     sanitizeImageUrl,
     parseMarkdown,
-    attachContentListeners,
-    tableToCsv
+    attachContentListeners
   };
 });

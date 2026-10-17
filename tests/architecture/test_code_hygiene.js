@@ -35,28 +35,36 @@ test('Higiene - las dependencias se resuelven con ChatUtils.resolveDep, no con w
   assert.deepEqual(offenders, [], `Usa resolveDep(globalName, modulePath):\n${offenders.join('\n')}`);
 });
 
-// Declaraciones de funciones, funciones flecha y métodos de clase.
-const DEFINITION = /^\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(|^\s*(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)|^ {4}(?:async\s+)?([a-zA-Z_$][\w$]*)\s*\([^)]*\)\s*\{\s*$/gm;
-// Entrada de una lista de exportación: «nombre,» o «nombre: nombre,».
-const isExportEntry = (line, name) => new RegExp(`^\\s*${escapeRegExp(name)}\\s*(?::\\s*${escapeRegExp(name)}\\s*)?,?\\s*$`).test(line);
+// Declaraciones de funciones, funciones flecha, clases y métodos de clase.
+const DEFINITION = /^\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(|^\s*(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)|^ {4}(?:async\s+)?([a-zA-Z_$][\w$]*)\s*\([^)]*\)\s*\{\s*$|^\s*class\s+([A-Za-z_$][\w$]*)\b/gm;
 
-test('Higiene - no hay funciones sin uso ni exportadas solo para las pruebas', () => {
+/**
+ * Indica si la aparición de `name` en `index` es solo su entrada en el objeto que exporta la fábrica
+ * UMD (`return { … };` final), como `name` o `name: name`: exportarse no es usarse. Una entrada
+ * `clave: name` sí es un uso, porque la aplicación llama a `clave` (p. ej. `execute` de una herramienta).
+ */
+function isExportEntry(source, index, name) {
+  const start = source.lastIndexOf('\n  return {');
+  if (start === -1 || index < start || index > source.indexOf('\n  };', start)) return false;
+  const lineStart = source.lastIndexOf('\n', index) + 1;
+  const lineEnd = source.indexOf('\n', index);
+  const entries = source.slice(lineStart, lineEnd === -1 ? undefined : lineEnd).split(',').map(entry => entry.trim()).filter(Boolean);
+  return entries.some(entry => entry === name || new RegExp(`^${escapeRegExp(name)}\\s*:\\s*${escapeRegExp(name)}$`).test(entry));
+}
+
+// Una función o clase que la aplicación no ejecuta es código muerto aunque una prueba la use: las
+// pruebas no cuentan como uso y exportarla no la mantiene viva (tests/README.md, sección 6).
+test('Higiene - no hay funciones ni clases que la aplicación no ejecute', () => {
   const offenders = [];
   for (const [file, source] of SOURCES) {
     const others = [...[...SOURCES].filter(([other]) => other !== file).map(([, text]) => text), ...OTHER_CONSUMERS];
     for (const match of source.matchAll(DEFINITION)) {
-      const name = match[1] || match[2] || match[3];
+      const name = match[1] || match[2] || match[3] || match[4];
       if (name === 'constructor' || others.some(text => countWord(text, name) > 0)) continue;
       const definitionIndex = match.index + match[0].indexOf(name);
-      const uses = [...source.matchAll(new RegExp(`(?<![\\w$.])${escapeRegExp(name)}(?![\\w$])`, 'g'))]
-        .filter(use => use.index !== definitionIndex)
-        .filter(use => {
-          const start = source.lastIndexOf('\n', use.index) + 1;
-          const end = source.indexOf('\n', use.index);
-          return !isExportEntry(source.slice(start, end === -1 ? undefined : end), name);
-        });
-      const memberUses = (source.match(new RegExp(`\\.${escapeRegExp(name)}(?![\\w$])`, 'g')) || []).length;
-      if (uses.length === 0 && memberUses === 0) offenders.push(`${relative(file)}:${lineOf(source, match.index + 1)} ${name}`);
+      const uses = [...source.matchAll(new RegExp(`(?<![\\w$])${escapeRegExp(name)}(?![\\w$])`, 'g'))]
+        .filter(use => use.index !== definitionIndex && !isExportEntry(source, use.index, name));
+      if (uses.length === 0) offenders.push(`${relative(file)}:${lineOf(source, match.index + 1)} ${name}`);
     }
   }
   assert.deepEqual(offenders, [], `Elimina el código muerto o úsalo:\n${offenders.join('\n')}`);
