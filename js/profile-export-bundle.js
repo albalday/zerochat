@@ -26,9 +26,8 @@
     openFailed: 'profile_bundle_open_failed'
   };
 
-  /** URL de zerochat.html: absoluta si se sirve por http(s) y relativa con file://. */
-  function getZeroChatURL() {
-    const { protocol, host, pathname } = window.location;
+  /** URL de zerochat.html junto a la página que exporta: absoluta si se sirve por http(s) y relativa con file://. */
+  function getZeroChatURL({ protocol, host, pathname }) {
     const basePath = pathname.substring(0, pathname.lastIndexOf('/') + 1);
     return protocol.startsWith('http') ? `${protocol}//${host}${basePath}zerochat.html` : 'zerochat.html';
   }
@@ -36,7 +35,8 @@
   /**
    * HTML completo de la página de importación con los perfiles cifrados.
    * @param {string} encryptedPayload - Perfiles cifrados (JSON).
-   * @param {{ profileCount: number }} metadata
+   * @param {{ profileCount: number, appLocation: Location|URL }} metadata - `appLocation` es la
+   *   ubicación de la aplicación que exporta (window.location); la página abre zerochat.html allí.
    */
   function generateExportHTML(encryptedPayload, metadata) {
     const lang = I18n.getLanguage();
@@ -295,7 +295,7 @@
       'use strict';
 
       const ENCRYPTED_PAYLOAD = ${json(encryptedPayload)};
-      const TARGET_URL = ${json(getZeroChatURL())};
+      const TARGET_URL = ${json(getZeroChatURL(metadata.appLocation))};
       const METADATA = ${json(metadata)};
       const TEXT = ${json(text)};
       const TIMEOUT_MS = 20000;

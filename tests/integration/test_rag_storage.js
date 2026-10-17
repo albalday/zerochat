@@ -219,8 +219,6 @@ test('RagStorage - getChunkById resuelve alias comunes generados por LLMs (docId
 });
 
 test('RagStorage - coherencia de formatos admitidos con ChatOfficeParser (F-15)', async () => {
-  const { installDom } = require('../helpers/dom-env.js');
-  installDom();
   const OfficeParser = require('../../js/office-parser.js');
   const branch = await RagStorage.createBranch('FormatTest');
 

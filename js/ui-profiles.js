@@ -229,7 +229,7 @@
       if (keyMaterial) ProfileBackup.cacheKeyMaterial(keyMaterial);
       const encrypted = await ProfileBackup.encryptProfiles(profiles, keyMaterial);
       const date = new Date().toISOString().slice(0, 10);
-      const htmlBundle = getProfileExportBundle().generateExportHTML(encrypted, { profileCount: profiles.length, exportDate: date });
+      const htmlBundle = getProfileExportBundle().generateExportHTML(encrypted, { profileCount: profiles.length, appLocation: window.location });
       if (!getExport().downloadFile(htmlBundle, `zerochat_profiles_${date}.html`, 'text/html')) {
         throw new Error('The file could not be downloaded.');
       }

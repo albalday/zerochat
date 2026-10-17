@@ -4,7 +4,6 @@ const Profiles = require('../../js/profile-repository.js');
 const Backup = require('../../js/profile-backup.js');
 const ProfileExportBundle = require('../../js/profile-export-bundle.js');
 const I18n = require('../../js/i18n.js');
-const { installDom } = require('../helpers/dom-env.js');
 
 function createStorage(legacyProfiles = {}) {
   const values = new Map();
@@ -26,10 +25,8 @@ function passwordRequiredError() {
   return Object.assign(new Error('password required'), { code: 'PASSWORD_REQUIRED' });
 }
 
-function generateBundle(t, payload = '{"encrypted":true}', metadata = { profileCount: 2 }) {
-  const dom = installDom({ url: 'http://127.0.0.1:6388/app/zerochat.html' });
-  t.after(() => dom.restore());
-  return ProfileExportBundle.generateExportHTML(payload, metadata);
+function generateBundle(payload = '{"encrypted":true}', appUrl = 'http://127.0.0.1:6388/app/zerochat.html') {
+  return ProfileExportBundle.generateExportHTML(payload, { profileCount: 2, appLocation: new URL(appUrl) });
 }
 
 // --- Repositorio y persistencia de perfiles ---
@@ -248,8 +245,8 @@ test('ProfileBackup.withPassword - propaga otros errores sin pedir contraseña',
 
 // --- Paquete exportable independiente (bundle HTML) ---
 
-test('ProfileExportBundle - aísla cada intento con un identificador de transferencia efímero', t => {
-  const html = generateBundle(t);
+test('ProfileExportBundle - aísla cada intento con un identificador de transferencia efímero', () => {
+  const html = generateBundle();
   assert.match(html, /function createTransferId\(\)/);
   assert.match(html, /const targetName = 'zerochat_import_' \+ activeTransferId/);
   assert.match(html, /#mode=import&transferId=/);
@@ -258,10 +255,14 @@ test('ProfileExportBundle - aísla cada intento con un identificador de transfer
   assert.match(html, /const TARGET_URL = "http:\/\/127\.0\.0\.1:6388\/app\/zerochat\.html"/);
 });
 
+test('ProfileExportBundle - desde file:// abre zerochat.html con una ruta relativa', () => {
+  assert.match(generateBundle(undefined, 'file:///home/user/zerochat/zerochat.html'), /const TARGET_URL = "zerochat\.html"/);
+});
+
 test('ProfileExportBundle - los textos salen en el idioma activo y los estados se muestran como texto', t => {
   I18n.setLanguage('en');
   t.after(() => I18n.setLanguage('es'));
-  const html = generateBundle(t, '</script><script>alert(1)</script>');
+  const html = generateBundle('</script><script>alert(1)</script>');
   assert.match(html, /<html lang="en">/);
   assert.match(html, /2 encrypted connection profile\(s\)/);
   assert.match(html, /"importFailed":"The profiles could not be imported: \{error\}"/);
