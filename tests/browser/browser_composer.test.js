@@ -236,7 +236,7 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       assert.equal(shown.svg, true);
       assert.equal(await page.locator('#command-jobs-bar').count(), 0, 'Ya no hay franja fija sobre el composer');
 
-      // No se actualiza: el tiempo queda como estaba.
+      // No se actualiza: el tiempo queda como estaba (aserción negativa: la espera fija es a propósito).
       const timeBefore = shown.items[1][1];
       await page.waitForTimeout(400);
       assert.equal(await notice.locator('li').nth(1).locator('.command-jobs-time').textContent(), timeBefore);
@@ -254,9 +254,11 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       // Cerrar la pestaña detendría el servidor y los comandos: el navegador pide confirmación.
       await page.evaluate(() => window.ChatMCP.manager.syncCommandJobs(window.__running, { exitOnClose: true }));
       let beforeUnload = null;
-      page.once('dialog', async dialog => { beforeUnload = dialog.type(); await dialog.dismiss(); });
+      const dialogSeen = new Promise(resolve => {
+        page.once('dialog', async dialog => { beforeUnload = dialog.type(); await dialog.dismiss(); resolve(); });
+      });
       await page.evaluate(() => { location.href = 'about:blank#salir'; });
-      await page.waitForTimeout(300);
+      await dialogSeen;
       assert.equal(beforeUnload, 'beforeunload');
 
       // El turno siguiente sustituye el aviso; sin comandos en marcha, no queda ninguno.
@@ -275,6 +277,7 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       let secondDialog = null;
       page.once('dialog', async dialog => { secondDialog = dialog.type(); await dialog.dismiss(); });
       await page.evaluate(() => { location.href = 'about:blank#salir'; });
+      // Aserción negativa: la espera fija es a propósito para confirmar que el diálogo no aparece.
       await page.waitForTimeout(300);
       assert.equal(secondDialog, null, 'Sin comandos en marcha no se pide confirmación al salir');
       assert.deepEqual(errors, []);

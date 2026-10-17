@@ -516,6 +516,7 @@ test('Browser UI - el progreso MCP sobrevive al renderizado y el timeout conserv
           error.code = 'EXTERNAL_START_WAIT_TIMEOUT';
           error.externalServer = { id: 'ejemplo', status: 'starting' };
           rejectStart(error);
+          // Flush de macrotarea: deja ejecutar el callback asíncrono del mock.
           await new Promise(resolve => setTimeout(resolve, 0));
           const timedOut = {
             status: ChatState.get('mcp').externalServers[0].status,
@@ -734,6 +735,7 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
     assert.deepEqual(stopped, { stopHidden: true, archived: true, status: 'success' });
     assert.ok((await page.evaluate(() => window.__jobCalls)).some(call => call.method === 'zerochat/jobs/stop' && call.params.id === 7));
     const callsAfterStop = await page.evaluate(() => window.__jobCalls.length);
+    // Aserción negativa: la espera fija es a propósito para confirmar que el contador no cambia.
     await page.waitForTimeout(300);
     assert.equal(await page.evaluate(() => window.__jobCalls.length), callsAfterStop, 'Un comando terminado deja de consultarse');
 
@@ -789,13 +791,21 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
       card.dataset.invocationId = job.key;
       window.ChatToolCards.appendToolCard(document.getElementById('command-card-test'), card);
       window.ChatToolCards.updateLiveToolCard(card, 'run_command', args, { content: JSON.stringify({ success: true, status: 'running', job_id: 11, elapsed_s: 2.5, output: 'vigilando\n' }) }, 2500);
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => {
+        const deadline = Date.now() + 2000;
+        const check = () => (/^Ejecutándose · /.test(card.querySelector('.tool-card-badge').textContent.trim()) || Date.now() > deadline) ? resolve() : requestAnimationFrame(check);
+        check();
+      });
       // Plegada (tras volver a la vista), solo pregunta por el final.
       card.querySelector('.tool-execution-card').classList.add('collapsed');
       Object.assign(job, { status: 'exited', exit_code: 0, elapsed_s: 42 });
       const before = window.__jobCalls.length;
       window.ChatMCP.manager.syncCommandJobs([]);
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => {
+        const deadline = Date.now() + 2000;
+        const check = () => (card.querySelector('.tool-card-badge').textContent.trim() === 'Terminado · 42 s' || Date.now() > deadline) ? resolve() : requestAnimationFrame(check);
+        check();
+      });
       return {
         badge: card.querySelector('.tool-card-badge').textContent.trim(),
         calls: window.__jobCalls.slice(before).map(call => [call.method, call.params.id])
@@ -818,11 +828,17 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
       };
       const card = make('5 passed\n');
       const empty = make('');
+      // Aserción negativa: la espera fija es a propósito para confirmar que plegada no pide nada.
       await new Promise(resolve => setTimeout(resolve, 50));
       const before = { collapsed: card.querySelector('.tool-execution-card').classList.contains('collapsed'), requests: requests.length };
       card.querySelector('.tool-execution-card').classList.remove('collapsed');
       empty.querySelector('.tool-execution-card').classList.remove('collapsed');
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await new Promise(resolve => {
+        const deadline = Date.now() + 2000;
+        const check = () => (card.querySelector('.command-card-log').textContent === '5 passed'
+          && empty.querySelector('.command-card-log').textContent.length > 0 || Date.now() > deadline) ? resolve() : requestAnimationFrame(check);
+        check();
+      });
       return {
         before,
         badge: card.querySelector('.tool-card-badge').textContent.trim(),
