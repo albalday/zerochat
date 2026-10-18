@@ -155,6 +155,8 @@ def main():
             server.server_close()
             sys.stdout = result_out
             sys.exit(RUN_EXIT_SETUP)
+        if headless_browser is not None:
+            threading.Thread(target=fall_back_when_headless_exits, args=(headless_browser, target_url), daemon=True).start()
         threading.Thread(target=run_supervisor, args=(server, RUN_SESSION), daemon=True).start()
     else:
         CONSOLE_CONTROL = ConsoleControl(server, parser, target_url=target_url)

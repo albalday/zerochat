@@ -105,3 +105,14 @@ def run_outcome(session: RunSession) -> tuple[int, str | None]:
         return RUN_EXIT_ERROR, None
     log_event("[run] Ejecución terminada.")
     return RUN_EXIT_DONE, session.result["text"]
+
+
+def fall_back_when_headless_exits(proc: subprocess.Popen, url: str):
+    """
+    Un navegador sin ventana termina enseguida si su perfil ya está abierto (Firefox avisa de que
+    ya está en marcha): si acaba antes de que conecte la interfaz, se abre la pestaña normal.
+    """
+    proc.wait()
+    if not HEARTBEAT_INITIALIZED and not _SERVER_SHUTTING_DOWN.is_set():
+        log_event("El navegador sin ventana terminó sin abrir la interfaz (¿ya estaba abierto?); se abre una pestaña de la forma normal.")
+        launch_browser(url)
