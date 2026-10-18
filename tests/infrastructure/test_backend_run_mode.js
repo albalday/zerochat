@@ -101,7 +101,7 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
   await new Promise(resolve => busy.listen(0, '127.0.0.1', resolve));
   try {
     const [ok, failed, idle, chatty, browserGone, emptyPrompt, portInUse] = await Promise.all([
-      runZerochat('hola mundo', { args: ['--profile', ' Oficina '] }),
+      runZerochat('hola mundo', { args: ['--profile', ' Oficina ', '--log', 'on'] }),
       runZerochat('hola', { scenario: 'error' }),
       runZerochat('hola', { scenario: 'idle', env: { ZEROCHAT_RUN_IDLE_SECONDS: '1' } }),
       runZerochat('hola', { scenario: 'chatty', env: { ZEROCHAT_RUN_IDLE_SECONDS: '1', ZEROCHAT_RUN_TIMEOUT: '2' } }),
@@ -126,7 +126,8 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.match(ok.stderr, /ZeroChat Local Server/, 'la cabecera del arranque va a stderr');
 
     assert.equal(failed.code, 1);
-    assert.match(failed.stderr, /Error de generación: model failed/);
+    // Con --prompt el registro está desactivado por defecto: solo queda el motivo del fallo.
+    assert.match(failed.stderr, /^\[\d\d:\d\d:\d\d\] \[run\] Error de generación: model failed\n$/);
     assert.equal(idle.code, 2);
     assert.match(idle.stderr, /Sin progreso de la interfaz durante 1s/);
     // El progreso continuo reinicia la inactividad, pero no el plazo total.

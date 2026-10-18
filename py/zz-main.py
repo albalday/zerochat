@@ -39,6 +39,7 @@ def main():
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
     parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 plazo agotado o navegador cerrado, 3 fallo de arranque)")
     parser.add_argument("--profile", default=None, help="Con --prompt, perfil de conexión (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo")
+    parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt)")
     parser.add_argument("--headless", action="store_true", help="Con --prompt, abrir el navegador predeterminado sin ventana (si ya está abierto puede verse la pestaña)")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     args = parser.parse_args()
@@ -52,14 +53,20 @@ def main():
         parser.error("--headless y --profile solo se usan con --prompt")
     if args.prompt is not None:
         if not args.prompt.strip():
-            print(timestamp_message("[run] El prompt está vacío."), file=sys.stderr)
+            run_error("El prompt está vacío.")
             sys.exit(RUN_EXIT_SETUP)
         if args.no_browser:
             parser.error("--prompt necesita abrir el navegador: no se combina con --no-browser")
-        sys.stdout = sys.stderr
         if args.profile is not None and not args.profile.strip():
             parser.error("--profile no puede estar vacío")
         RUN_SESSION = RunSession(args.prompt.strip(), args.profile.strip() if args.profile else None)
+    # Todo el registro pasa por stdout: con --prompt va a stderr para dejar stdout a la respuesta,
+    # y con --log off se descarta.
+    log_enabled = args.log == "on" if args.log else RUN_SESSION is None
+    if not log_enabled:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    elif RUN_SESSION:
+        sys.stdout = sys.stderr
 
     if args.test:
         print(timestamp_message(f"TEST list_directory {'ok' if json.loads(list_directory('.'))['success'] else 'error'}"))
@@ -107,7 +114,7 @@ def main():
     except OSError as exc:
         if not RUN_SESSION:
             raise
-        log_event(f"[run] No se pudo escuchar en {ACTIVE_HOST}:{ACTIVE_PORT}: {exc}")
+        run_error(f"No se pudo escuchar en {ACTIVE_HOST}:{ACTIVE_PORT}: {exc}")
         sys.exit(RUN_EXIT_SETUP)
     exposure_warning = remote_exposure_warning(ACTIVE_HOST)
     if exposure_warning:
@@ -155,6 +162,7 @@ def main():
     if RUN_SESSION:
         headless_browser = launch_headless_browser(target_url) if args.headless else None
         if headless_browser is None and not launch_browser(target_url):
+            run_error("No se pudo abrir el navegador.")
             server.server_close()
             sys.stdout = result_out
             sys.exit(RUN_EXIT_SETUP)

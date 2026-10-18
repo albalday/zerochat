@@ -97,13 +97,18 @@ def run_supervisor(server: ThreadingHTTPServer, session: RunSession):
     stop_zerochat_server(server)
 
 
+def run_error(message: str):
+    """Motivo de un final sin respuesta: va a stderr aunque el registro esté desactivado (--log off)."""
+    print(timestamp_message(f"[run] {message}"), file=sys.stderr, flush=True)
+
+
 def run_outcome(session: RunSession) -> tuple[int, str | None]:
-    """Código de salida y respuesta final (solo si terminó bien), registrando el motivo en stderr."""
+    """Código de salida y respuesta final (solo si terminó bien), con el motivo de un fallo en stderr."""
     if session.result is None:
-        log_event(f"[run] {session.stop_reason or 'El navegador se cerró o la ejecución se interrumpió sin resultado.'}")
+        run_error(session.stop_reason or "El navegador se cerró o la ejecución se interrumpió sin resultado.")
         return RUN_EXIT_TIMEOUT, None
     if "error" in session.result:
-        log_event(f"[run] Error de generación: {session.result['error']}")
+        run_error(f"Error de generación: {session.result['error']}")
         return RUN_EXIT_ERROR, None
     log_event("[run] Ejecución terminada.")
     return RUN_EXIT_DONE, session.result["text"]
