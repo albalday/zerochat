@@ -53,6 +53,7 @@ Done when: zerochat.py --prompt starts like a normal run (same port, UI and brow
 - [x] M18-T11 General --log on|off option: on by default, off by default with --prompt (2026-10-18)
 - [ ] M18-T12 Detect another running zerochat.py (default port in use or live session) when starting --prompt and decide how the run coexists with it
 - [ ] M18-T13 Run --prompt from cron: no terminal or graphical session (DISPLAY/WAYLAND_DISPLAY, DBUS), environment and PATH, browser launch and output/exit codes for scheduled jobs
+- [ ] M18-T14 Export the --prompt conversation with the current exporter options (Markdown, session JSON, print/PDF) to a file chosen on the command line, reusing ChatExport
 
 ## M19 Web image ingestion and multimodal analysis: closed 2026-10-16
 
