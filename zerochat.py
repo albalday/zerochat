@@ -14,7 +14,6 @@ from __future__ import annotations
 import argparse
 import atexit
 import base64
-import configparser
 import datetime
 import fnmatch
 import functools
@@ -31,7 +30,6 @@ import shutil
 import shlex
 import signal
 import socket
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -324,17 +322,6 @@ TOOL_AUTH_KEY = secrets.token_bytes(32)
 TOOL_AUTH_SESSION_ID = secrets.token_urlsafe(18)
 TOOL_AUTH_NONCES: dict[str, int] = {}
 TOOL_AUTH_NONCES_LOCK = threading.Lock()
-
-
-def init_session_credentials():
-    """Carga el token diario y renueva la clave de firma de herramientas de este arranque."""
-    global SESSION_TOKEN, TOOL_AUTH_KEY, TOOL_AUTH_SESSION_ID, TOOL_AUTH_NONCES
-    SESSION_TOKEN = get_daily_token()
-    # A restart deliberately invalidates every browser-side signing credential.
-    TOOL_AUTH_KEY = secrets.token_bytes(32)
-    TOOL_AUTH_SESSION_ID = secrets.token_urlsafe(18)
-    with TOOL_AUTH_NONCES_LOCK:
-        TOOL_AUTH_NONCES = {}
 
 DETECTED_OS = "windows" if sys.platform.startswith("win") else ("macos" if sys.platform == "darwin" else ("android" if "ANDROID_ROOT" in os.environ else "linux"))
 
@@ -3736,202 +3723,15 @@ def launch_browser(url: str) -> bool:
 
 
 # ==============================================================================
-# Perfil de Firefox para el modo ejecución (zerochat.py --prompt)
+# Modo ejecución desatendida (zerochat.py --prompt)
 # ==============================================================================
-# Todo lo que depende del navegador y del sistema vive aquí, detrás de tres funciones:
-# locate_firefox_profile, create_firefox_run_profile y firefox_launch_command.
+# El servidor arranca y abre el navegador como siempre, con run=<id> en el fragmento: la interfaz
+# pide el prompt, informa del progreso y devuelve el resultado por JSON-RPC zerochat/run/*.
 
-class RunSetupError(Exception):
-    """Fallo al preparar la ejecución desatendida (código de salida 3)."""
-
-
-FIREFOX_PROFILE_ROOTS = (Path(".mozilla") / "firefox", Path(".config") / "mozilla" / "firefox")
-# Ficheros auxiliares de SQLite: la copia se hace con la API de backup, que ya los incorpora.
-SQLITE_SIDECAR_SUFFIXES = ("-wal", "-shm", "-journal")
-# La copia es desechable: sin páginas de bienvenida, avisos de navegador predeterminado ni
-# restauración de sesión tras matar el proceso; window.close() cierra la pestaña aunque tenga historial.
-FIREFOX_RUN_PREFS = {
-    "browser.shell.checkDefaultBrowser": False,
-    "browser.aboutwelcome.enabled": False,
-    "browser.startup.homepage_override.mstone": "ignore",
-    "startup.homepage_welcome_url": "",
-    "startup.homepage_welcome_url.additional": "",
-    "datareporting.policy.dataSubmissionPolicyBypassNotification": True,
-    "toolkit.telemetry.reportingpolicy.firstRun": False,
-    "browser.sessionstore.resume_from_crash": False,
-    "browser.tabs.warnOnClose": False,
-    "dom.allow_scripts_to_close_windows": True,
-}
-
-
-def ui_origin(url: str = DEFAULT_UI_URL) -> str:
-    """Origen web (esquema://host[:puerto]) de la interfaz."""
-    parsed = urllib.parse.urlparse(url)
-    return f"{parsed.scheme}://{parsed.netloc}"
-
-
-def firefox_origin_dir_name(origin: str) -> str:
-    """Nombre del directorio de almacenamiento de un origen en storage/default de Firefox."""
-    return origin.replace("://", "+++", 1).replace(":", "+")
-
-
-def _firefox_profile_candidates(root: Path) -> list[Path]:
-    """Perfiles de una raíz de Firefox por prioridad: instalaciones, perfil por defecto y el resto."""
-    def resolve(path_value: str, is_relative: bool = True) -> Path:
-        path = Path(path_value)
-        return path if path.is_absolute() or not is_relative else root / path
-
-    def read_ini(name: str) -> configparser.ConfigParser:
-        parser = configparser.ConfigParser(interpolation=None)
-        try:
-            parser.read(root / name, encoding="utf-8")
-        except (configparser.Error, UnicodeDecodeError) as exc:
-            raise RunSetupError(f"No se pudo leer {root / name}: {exc}") from exc
-        return parser
-
-    candidates: list[Path] = []
-    installs = read_ini("installs.ini")
-    for section in installs.sections():
-        if installs.get(section, "Default", fallback=""):
-            candidates.append(resolve(installs.get(section, "Default")))
-    profiles = read_ini("profiles.ini")
-    for section in profiles.sections():
-        if section.startswith("Install") and profiles.get(section, "Default", fallback=""):
-            candidates.append(resolve(profiles.get(section, "Default")))
-    entries = [profiles[section] for section in profiles.sections() if section.startswith("Profile") and profiles.get(section, "Path", fallback="")]
-    for entry in sorted(entries, key=lambda item: item.get("Default", "0") != "1"):
-        candidates.append(resolve(entry.get("Path"), entry.get("IsRelative", "1") == "1"))
-    return list(dict.fromkeys(candidates))
-
-
-def locate_firefox_profile(origin: str) -> Path:
-    """Perfil activo de Firefox que guarda datos de `origin` (~/.mozilla/firefox o ~/.config/mozilla/firefox)."""
-    origin_dir = firefox_origin_dir_name(origin)
-    roots = [Path.home() / relative for relative in FIREFOX_PROFILE_ROOTS]
-    searched = []
-    for root in roots:
-        if not (root / "profiles.ini").is_file():
-            continue
-        for profile in _firefox_profile_candidates(root):
-            searched.append(str(profile))
-            if (profile / "storage" / "default" / origin_dir).is_dir():
-                return profile
-    if not searched:
-        raise RunSetupError("No se encontró ningún perfil de Firefox (profiles.ini) en " + " ni en ".join(str(root) for root in roots))
-    raise RunSetupError(f"Ningún perfil de Firefox contiene datos de {origin}: abre ZeroChat una vez en Firefox. Perfiles revisados: {', '.join(searched)}")
-
-
-def _copy_sqlite(source: Path, target: Path):
-    """
-    Copia coherente de una base SQLite en uso con la API de backup. Si Firefox la tiene bloqueada
-    en modo exclusivo, copia el fichero y su WAL tal cual y los consolida en la copia.
-    """
-    try:
-        src = sqlite3.connect(f"{source.resolve().as_uri()}?mode=ro", uri=True, timeout=2)
-        try:
-            # backup() reintenta sin fin mientras la base esté bloqueada: una lectura falla antes.
-            src.execute("SELECT count(*) FROM sqlite_master").fetchone()
-            dst = sqlite3.connect(target)
-            try:
-                src.backup(dst)
-            finally:
-                dst.close()
-        finally:
-            src.close()
-        return
-    except sqlite3.OperationalError:
-        target.unlink(missing_ok=True)
-    shutil.copyfile(source, target)
-    wal = source.with_name(source.name + "-wal")
-    if wal.is_file():
-        shutil.copyfile(wal, target.with_name(target.name + "-wal"))
-    conn = sqlite3.connect(target)
-    try:
-        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-    finally:
-        conn.close()
-    for suffix in SQLITE_SIDECAR_SUFFIXES:
-        target.with_name(target.name + suffix).unlink(missing_ok=True)
-
-
-def _copy_origin_storage(source: Path, target: Path):
-    """Copia el almacenamiento de un origen (localStorage, IndexedDB, caché, metadatos)."""
-    def fail(error: OSError):
-        raise error
-    for current, _dirs, files in os.walk(source, onerror=fail):
-        rel = Path(current).relative_to(source)
-        (target / rel).mkdir(mode=0o700, exist_ok=True)
-        for name in files:
-            if name.endswith(SQLITE_SIDECAR_SUFFIXES):
-                continue
-            src_file = Path(current) / name
-            dst_file = target / rel / name
-            if name.endswith(".sqlite"):
-                _copy_sqlite(src_file, dst_file)
-            else:
-                shutil.copyfile(src_file, dst_file)
-
-
-def _copy_origin_permissions(source: Path, target: Path, origin: str):
-    """Copia permissions.sqlite conservando solo los permisos del origen (acceso a la red local incluido)."""
-    if not source.is_file():
-        return
-    _copy_sqlite(source, target)
-    conn = sqlite3.connect(target)
-    try:
-        conn.execute("DELETE FROM moz_perms WHERE origin != ?", (origin,))
-        if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'moz_hosts'").fetchone():
-            conn.execute("DELETE FROM moz_hosts")
-        conn.commit()
-        conn.execute("VACUUM")
-    finally:
-        conn.close()
-
-
-def _firefox_pref_line(name: str, value) -> str:
-    return f"user_pref({json.dumps(name)}, {json.dumps(value)});"
-
-
-def create_firefox_run_profile(profile: Path, origin: str) -> Path:
-    """
-    Crea un perfil temporal 0700 con solo el almacenamiento y los permisos de `origin` copiados de
-    `profile`. Contiene credenciales en claro: quien lo crea debe borrarlo al terminar.
-    """
-    copy_dir = Path(tempfile.mkdtemp(prefix="zerochat-run-"))
-    try:
-        copy_dir.chmod(0o700)
-        origin_dir = firefox_origin_dir_name(origin)
-        storage = copy_dir / "storage" / "default"
-        storage.mkdir(mode=0o700, parents=True)
-        _copy_origin_storage(profile / "storage" / "default" / origin_dir, storage / origin_dir)
-        _copy_origin_permissions(profile / "permissions.sqlite", copy_dir / "permissions.sqlite", origin)
-        (copy_dir / "user.js").write_text("\n".join(_firefox_pref_line(name, value) for name, value in FIREFOX_RUN_PREFS.items()) + "\n", encoding="utf-8")
-    except (OSError, sqlite3.Error) as exc:
-        shutil.rmtree(copy_dir, ignore_errors=True)
-        raise RunSetupError(f"No se pudo copiar el perfil de Firefox {profile}: {exc}") from exc
-    except BaseException:
-        shutil.rmtree(copy_dir, ignore_errors=True)
-        raise
-    return copy_dir
-
-
-def firefox_launch_command(profile_copy: Path, url: str, headless: bool) -> list[str]:
-    """Firefox propio (-no-remote) sobre la copia, sin tocar la instancia del usuario."""
-    executable = shutil.which("firefox")
-    if not executable:
-        raise RunSetupError("No se encontró el ejecutable firefox en el PATH.")
-    return [executable, "-no-remote", "-profile", str(profile_copy), *(["--headless"] if headless else []), url]
-# ==============================================================================
-# Modo ejecución desatendida (zerochat.py --prompt / --prompt-file)
-# ==============================================================================
-# El backend lanza su propio Firefox sobre una copia del perfil con la configuración real de
-# ZeroChat; la interfaz pide el prompt, informa del progreso y devuelve el resultado por JSON-RPC.
-
-RUN_DEFAULT_TIMEOUT = 900
-# Sin progreso de la interfaz durante este plazo se da la ejecución por colgada.
+# Plazo total y sin progreso de la interfaz; las variables de entorno solo las usan las pruebas.
+RUN_TOTAL_TIMEOUT = float(os.environ.get("ZEROCHAT_RUN_TIMEOUT", "900"))
 RUN_IDLE_SECONDS = float(os.environ.get("ZEROCHAT_RUN_IDLE_SECONDS", "180"))
 RUN_POLL_SECONDS = 0.2
-RUN_BROWSER_CLOSE_GRACE = 3.0
 RUN_PROGRESS_TEXT_MAX = 500
 RUN_PROGRESS_KIND_PATTERN = re.compile(r"[a-z_]{1,32}")
 RUN_EXIT_DONE = 0
@@ -3941,7 +3741,7 @@ RUN_EXIT_SETUP = 3
 
 
 class RunSession:
-    """Estado de la única ejecución en curso: prompt, último progreso y resultado."""
+    """Estado de la ejecución: prompt, último progreso, resultado y motivo de un final sin él."""
     def __init__(self, prompt: str):
         self.run_id = secrets.token_urlsafe(24)
         self.prompt = prompt
@@ -3949,8 +3749,8 @@ class RunSession:
         self.last_activity = time.monotonic()
         self.prompt_delivered = False
         self.result: dict | None = None
+        self.stop_reason: str | None = None
         self.finished = threading.Event()
-        self.interrupted = threading.Event()
 
     def touch(self):
         with self.lock:
@@ -3965,7 +3765,7 @@ RUN_SESSION: RunSession | None = None
 
 
 def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
-    """Métodos zerochat/run/* que usa la interfaz lanzada por el modo ejecución."""
+    """Métodos zerochat/run/* que usa la interfaz abierta por el modo ejecución."""
     session = RUN_SESSION
     if session is None:
         return None, {"code": -32601, "message": "El servidor no está en modo ejecución."}, ""
@@ -4003,131 +3803,32 @@ def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, s
     return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
 
-def read_run_prompt(prompt: str | None, prompt_file: str | None) -> str:
-    """Prompt de --prompt o de --prompt-file ('-' lee la entrada estándar)."""
-    if prompt_file is not None:
-        try:
-            prompt = sys.stdin.read() if prompt_file == "-" else Path(prompt_file).read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
-            raise RunSetupError(f"No se pudo leer el prompt de {prompt_file}: {exc}") from exc
-    if not prompt or not prompt.strip():
-        raise RunSetupError("El prompt está vacío.")
-    return prompt.strip()
-
-
-def _stop_browser(proc: subprocess.Popen | None, headless: bool):
-    """Deja cerrar sola la ventana visible un momento y mata después todo el grupo del navegador."""
-    if proc is None:
-        return
-    if not headless:
-        try:
-            proc.wait(timeout=RUN_BROWSER_CLOSE_GRACE)
-        except subprocess.TimeoutExpired:
-            pass
-    _kill_process_tree(proc)
-    try:
-        proc.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        log_event(f"[run] El navegador (PID {proc.pid}) no terminó tras matarlo.")
-
-
-def _remove_profile_copy(copy_dir: Path | None):
-    if copy_dir is None:
-        return
-    shutil.rmtree(copy_dir, ignore_errors=True)
-    if copy_dir.exists():
-        log_event(f"[run] AVISO: no se pudo borrar la copia del perfil {copy_dir}; contiene credenciales, bórrala a mano.")
-
-
-def _supervise_run(session: RunSession, proc: subprocess.Popen, timeout: float) -> tuple[int, str]:
-    """Espera el resultado vigilando el navegador, la inactividad y el plazo total."""
-    deadline = time.monotonic() + timeout
+def run_supervisor(server: ThreadingHTTPServer, session: RunSession):
+    """Detiene el servidor al recibir el resultado o al agotar el plazo total o el de inactividad."""
+    deadline = time.monotonic() + RUN_TOTAL_TIMEOUT
     while not session.finished.wait(RUN_POLL_SECONDS):
-        if session.interrupted.is_set():
-            return RUN_EXIT_TIMEOUT, "Ejecución interrumpida."
-        if proc.poll() is not None:
-            return RUN_EXIT_TIMEOUT, f"El navegador terminó sin devolver resultado (código {proc.returncode})."
+        # El latido o una señal ya detienen el servidor: el resultado queda vacío.
+        if _SERVER_SHUTTING_DOWN.is_set():
+            return
         if time.monotonic() >= deadline:
-            return RUN_EXIT_TIMEOUT, f"Plazo total agotado ({timeout:.0f}s)."
+            session.stop_reason = f"Plazo total agotado ({RUN_TOTAL_TIMEOUT:.0f}s)."
+            break
         if session.idle_seconds() > RUN_IDLE_SECONDS:
-            return RUN_EXIT_TIMEOUT, f"Sin progreso de la interfaz durante {RUN_IDLE_SECONDS:.0f}s."
+            session.stop_reason = f"Sin progreso de la interfaz durante {RUN_IDLE_SECONDS:.0f}s."
+            break
+    stop_zerochat_server(server)
+
+
+def run_outcome(session: RunSession) -> tuple[int, str | None]:
+    """Código de salida y respuesta final (solo si terminó bien), registrando el motivo en stderr."""
+    if session.result is None:
+        log_event(f"[run] {session.stop_reason or 'El navegador se cerró o la ejecución se interrumpió sin resultado.'}")
+        return RUN_EXIT_TIMEOUT, None
     if "error" in session.result:
-        return RUN_EXIT_ERROR, f"Error de generación: {session.result['error']}"
-    return RUN_EXIT_DONE, ""
-
-
-def run_prompt(prompt: str, headless: bool, timeout: float) -> tuple[int, str | None]:
-    """Ejecuta el prompt en la interfaz y devuelve (código de salida, respuesta final si terminó bien)."""
-    global RUN_SESSION, ACTIVE_PORT, ACTIVE_HOST
-    origin = ui_origin()
-    session = RunSession(prompt)
-    server = None
-    serve_thread = None
-    proc = None
-    copy_dir = None
-
-    # Una señal no mata el proceso: termina la supervisión y la limpieza borra la copia del perfil.
-    def interrupt(*_):
-        session.interrupted.set()
-    for sig in (signal.SIGINT, signal.SIGTERM, getattr(signal, "SIGHUP", None)):
-        if sig is not None:
-            signal.signal(sig, interrupt)
-
-    try:
-        try:
-            profile = locate_firefox_profile(origin)
-            log_event(f"[run] Perfil de Firefox: {profile}")
-            copy_dir = create_firefox_run_profile(profile, origin)
-            init_session_credentials()
-            ACTIVE_HOST = DEFAULT_HOST
-            server = ThreadingHTTPServer((ACTIVE_HOST, 0), ZeroChatServerHandler)
-            ACTIVE_PORT = server.server_address[1]
-            RUN_SESSION = session
-            serve_thread = threading.Thread(target=server.serve_forever, name="zerochat-run-server", daemon=True)
-            serve_thread.start()
-            fragment = urlencode({"token": SESSION_TOKEN, "host": ACTIVE_HOST, "port": ACTIVE_PORT, "run": session.run_id})
-            command = firefox_launch_command(copy_dir, f"{DEFAULT_UI_URL}#{fragment}", headless)
-            proc = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-        except (RunSetupError, OSError) as exc:
-            log_event(f"[run] {exc}")
-            return RUN_EXIT_SETUP, None
-        log_event(f"[run] Firefox {'sin ventana' if headless else 'con ventana'} en marcha (PID {proc.pid}); servidor en el puerto {ACTIVE_PORT}.")
-        code, message = _supervise_run(session, proc, timeout)
-        log_event(f"[run] {message or 'Ejecución terminada.'}")
-        return code, session.result["text"] if code == RUN_EXIT_DONE else None
-    finally:
-        _stop_browser(proc, headless)
-        _remove_profile_copy(copy_dir)
-        if server is not None:
-            stop_zerochat_server(server)
-            if serve_thread is not None:
-                serve_thread.join(timeout=5)
-            server.server_close()
-        RUN_SESSION = None
-
-
-def run_mode_main(args) -> int:
-    """Modo ejecución completo: stdout lleva solo la respuesta final; el registro va a stderr."""
-    result_out = sys.stdout
-    sys.stdout = sys.stderr
-    try:
-        try:
-            prompt = read_run_prompt(args.prompt, args.prompt_file)
-        except RunSetupError as exc:
-            log_event(f"[run] {exc}")
-            return RUN_EXIT_SETUP
-        orphans = cleanup_orphan_jobs()
-        if orphans:
-            log_event(f"Detenidos {orphans} comando(s) que seguían en marcha de una sesión anterior interrumpida.")
-        if not args.no_venv:
-            ensure_virtual_environment()
-        code, text = run_prompt(prompt, args.headless, args.timeout)
-    finally:
-        sys.stdout = result_out
-    if text is not None:
-        result_out.write(text if text.endswith("\n") else text + "\n")
-        result_out.flush()
-    return code
+        log_event(f"[run] Error de generación: {session.result['error']}")
+        return RUN_EXIT_ERROR, None
+    log_event("[run] Ejecución terminada.")
+    return RUN_EXIT_DONE, session.result["text"]
 # ==============================================================================
 # Punto de Entrada Principal (CLI)
 # ==============================================================================
@@ -4154,7 +3855,8 @@ def remote_exposure_warning(host: str) -> str | None:
 
 
 def main():
-    global ACTIVE_PORT, ACTIVE_HOST, CONSOLE_CONTROL, EXIT_ON_CLOSE
+    global ACTIVE_PORT, ACTIVE_HOST, SESSION_TOKEN, CONSOLE_CONTROL, EXIT_ON_CLOSE
+    global TOOL_AUTH_KEY, TOOL_AUTH_SESSION_ID, TOOL_AUTH_NONCES, RUN_SESSION
 
     parser = argparse.ArgumentParser(description=f"ZeroChat Local Server v{VERSION}")
     # Desde Python 3.14 argparse colorea la ayuda con códigos ANSI; la consola la muestra en texto plano.
@@ -4166,25 +3868,23 @@ def main():
     parser.add_argument("--no-exit-on-close", action="store_true", help="No detener el servidor automáticamente al cerrar el navegador")
     parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación de ~/zerochat/.venv")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
-    run_group = parser.add_argument_group("modo ejecución (Linux y Firefox)", "Ejecuta un prompt en la interfaz con la configuración de ZeroChat del perfil de Firefox, imprime solo la respuesta final y termina (0 terminado, 1 error de generación, 2 plazo agotado o navegador cerrado, 3 fallo de preparación)")
-    prompt_source = run_group.add_mutually_exclusive_group()
-    prompt_source.add_argument("--prompt", default=None, help="Prompt a ejecutar")
-    prompt_source.add_argument("--prompt-file", default=None, help="Fichero con el prompt ('-' para la entrada estándar)")
-    run_group.add_argument("--headless", action="store_true", help="Ejecutar Firefox sin ventana")
-    run_group.add_argument("--timeout", type=int, default=RUN_DEFAULT_TIMEOUT, help=f"Plazo total en segundos (default: {RUN_DEFAULT_TIMEOUT})")
+    parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 plazo agotado o navegador cerrado, 3 fallo de arranque)")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     args = parser.parse_args()
 
     # Los avisos no persisten entre ejecuciones del servidor.
     reset_notices()
 
-    run_mode = args.prompt is not None or args.prompt_file is not None
-    if not run_mode and (args.headless or args.timeout != RUN_DEFAULT_TIMEOUT):
-        parser.error("--headless y --timeout solo se usan con --prompt o --prompt-file")
-    if args.timeout <= 0:
-        parser.error("--timeout debe ser un número positivo de segundos")
-    if run_mode:
-        sys.exit(run_mode_main(args))
+    # Modo ejecución: stdout queda solo para la respuesta final; todo el registro va a stderr.
+    result_out = sys.stdout
+    if args.prompt is not None:
+        if not args.prompt.strip():
+            print(timestamp_message("[run] El prompt está vacío."), file=sys.stderr)
+            sys.exit(RUN_EXIT_SETUP)
+        if args.no_browser:
+            parser.error("--prompt necesita abrir el navegador: no se combina con --no-browser")
+        sys.stdout = sys.stderr
+        RUN_SESSION = RunSession(args.prompt.strip())
 
     if args.test:
         print(timestamp_message(f"TEST list_directory {'ok' if json.loads(list_directory('.'))['success'] else 'error'}"))
@@ -4220,9 +3920,20 @@ def main():
 
     ACTIVE_PORT = args.port
     ACTIVE_HOST = args.host
-    init_session_credentials()
+    SESSION_TOKEN = get_daily_token()
+    # A restart deliberately invalidates every browser-side signing credential.
+    TOOL_AUTH_KEY = secrets.token_bytes(32)
+    TOOL_AUTH_SESSION_ID = secrets.token_urlsafe(18)
+    with TOOL_AUTH_NONCES_LOCK:
+        TOOL_AUTH_NONCES = {}
 
-    server = ThreadingHTTPServer((ACTIVE_HOST, ACTIVE_PORT), ZeroChatServerHandler)
+    try:
+        server = ThreadingHTTPServer((ACTIVE_HOST, ACTIVE_PORT), ZeroChatServerHandler)
+    except OSError as exc:
+        if not RUN_SESSION:
+            raise
+        log_event(f"[run] No se pudo escuchar en {ACTIVE_HOST}:{ACTIVE_PORT}: {exc}")
+        sys.exit(RUN_EXIT_SETUP)
     exposure_warning = remote_exposure_warning(ACTIVE_HOST)
     if exposure_warning:
         add_notice(exposure_warning)
@@ -4235,8 +3946,12 @@ def main():
         ui_url = DEFAULT_UI_URL
 
     browser_host = ACTIVE_HOST if ACTIVE_HOST in {"127.0.0.1", "localhost"} else "127.0.0.1"
-    target_url = f"{ui_url}#{urlencode({'token': SESSION_TOKEN, 'host': browser_host, 'port': ACTIVE_PORT})}"
-    exit_on_close = not args.no_exit_on_close
+    fragment = {'token': SESSION_TOKEN, 'host': browser_host, 'port': ACTIVE_PORT}
+    if RUN_SESSION:
+        fragment['run'] = RUN_SESSION.run_id
+    target_url = f"{ui_url}#{urlencode(fragment)}"
+    # El modo ejecución detecta con el latido que el navegador se cerró sin devolver resultado.
+    exit_on_close = RUN_SESSION is not None or not args.no_exit_on_close
     EXIT_ON_CLOSE = exit_on_close
 
     print("=" * 64)
@@ -4261,11 +3976,17 @@ def main():
         print("  Auto-cierre           : Desactivado")
     print("=" * 64, flush=True)
 
-    CONSOLE_CONTROL = ConsoleControl(server, parser, target_url=target_url)
-    CONSOLE_CONTROL.start()
-
-    if not args.no_browser:
-        launch_browser(target_url)
+    if RUN_SESSION:
+        if not launch_browser(target_url):
+            server.server_close()
+            sys.stdout = result_out
+            sys.exit(RUN_EXIT_SETUP)
+        threading.Thread(target=run_supervisor, args=(server, RUN_SESSION), daemon=True).start()
+    else:
+        CONSOLE_CONTROL = ConsoleControl(server, parser, target_url=target_url)
+        CONSOLE_CONTROL.start()
+        if not args.no_browser:
+            launch_browser(target_url)
 
     if exit_on_close:
         require_initial = not args.no_browser
@@ -4293,6 +4014,14 @@ def main():
         if CONSOLE_CONTROL:
             CONSOLE_CONTROL.close()
             CONSOLE_CONTROL = None
+
+    if RUN_SESSION:
+        code, text = run_outcome(RUN_SESSION)
+        sys.stdout = result_out
+        if text is not None:
+            result_out.write(text if text.endswith("\n") else text + "\n")
+            result_out.flush()
+        sys.exit(code)
 
 
 if __name__ == "__main__":

@@ -24,7 +24,8 @@ def remote_exposure_warning(host: str) -> str | None:
 
 
 def main():
-    global ACTIVE_PORT, ACTIVE_HOST, CONSOLE_CONTROL, EXIT_ON_CLOSE
+    global ACTIVE_PORT, ACTIVE_HOST, SESSION_TOKEN, CONSOLE_CONTROL, EXIT_ON_CLOSE
+    global TOOL_AUTH_KEY, TOOL_AUTH_SESSION_ID, TOOL_AUTH_NONCES, RUN_SESSION
 
     parser = argparse.ArgumentParser(description=f"ZeroChat Local Server v{VERSION}")
     # Desde Python 3.14 argparse colorea la ayuda con códigos ANSI; la consola la muestra en texto plano.
@@ -36,25 +37,23 @@ def main():
     parser.add_argument("--no-exit-on-close", action="store_true", help="No detener el servidor automáticamente al cerrar el navegador")
     parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación de ~/zerochat/.venv")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
-    run_group = parser.add_argument_group("modo ejecución (Linux y Firefox)", "Ejecuta un prompt en la interfaz con la configuración de ZeroChat del perfil de Firefox, imprime solo la respuesta final y termina (0 terminado, 1 error de generación, 2 plazo agotado o navegador cerrado, 3 fallo de preparación)")
-    prompt_source = run_group.add_mutually_exclusive_group()
-    prompt_source.add_argument("--prompt", default=None, help="Prompt a ejecutar")
-    prompt_source.add_argument("--prompt-file", default=None, help="Fichero con el prompt ('-' para la entrada estándar)")
-    run_group.add_argument("--headless", action="store_true", help="Ejecutar Firefox sin ventana")
-    run_group.add_argument("--timeout", type=int, default=RUN_DEFAULT_TIMEOUT, help=f"Plazo total en segundos (default: {RUN_DEFAULT_TIMEOUT})")
+    parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 plazo agotado o navegador cerrado, 3 fallo de arranque)")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     args = parser.parse_args()
 
     # Los avisos no persisten entre ejecuciones del servidor.
     reset_notices()
 
-    run_mode = args.prompt is not None or args.prompt_file is not None
-    if not run_mode and (args.headless or args.timeout != RUN_DEFAULT_TIMEOUT):
-        parser.error("--headless y --timeout solo se usan con --prompt o --prompt-file")
-    if args.timeout <= 0:
-        parser.error("--timeout debe ser un número positivo de segundos")
-    if run_mode:
-        sys.exit(run_mode_main(args))
+    # Modo ejecución: stdout queda solo para la respuesta final; todo el registro va a stderr.
+    result_out = sys.stdout
+    if args.prompt is not None:
+        if not args.prompt.strip():
+            print(timestamp_message("[run] El prompt está vacío."), file=sys.stderr)
+            sys.exit(RUN_EXIT_SETUP)
+        if args.no_browser:
+            parser.error("--prompt necesita abrir el navegador: no se combina con --no-browser")
+        sys.stdout = sys.stderr
+        RUN_SESSION = RunSession(args.prompt.strip())
 
     if args.test:
         print(timestamp_message(f"TEST list_directory {'ok' if json.loads(list_directory('.'))['success'] else 'error'}"))
@@ -90,9 +89,20 @@ def main():
 
     ACTIVE_PORT = args.port
     ACTIVE_HOST = args.host
-    init_session_credentials()
+    SESSION_TOKEN = get_daily_token()
+    # A restart deliberately invalidates every browser-side signing credential.
+    TOOL_AUTH_KEY = secrets.token_bytes(32)
+    TOOL_AUTH_SESSION_ID = secrets.token_urlsafe(18)
+    with TOOL_AUTH_NONCES_LOCK:
+        TOOL_AUTH_NONCES = {}
 
-    server = ThreadingHTTPServer((ACTIVE_HOST, ACTIVE_PORT), ZeroChatServerHandler)
+    try:
+        server = ThreadingHTTPServer((ACTIVE_HOST, ACTIVE_PORT), ZeroChatServerHandler)
+    except OSError as exc:
+        if not RUN_SESSION:
+            raise
+        log_event(f"[run] No se pudo escuchar en {ACTIVE_HOST}:{ACTIVE_PORT}: {exc}")
+        sys.exit(RUN_EXIT_SETUP)
     exposure_warning = remote_exposure_warning(ACTIVE_HOST)
     if exposure_warning:
         add_notice(exposure_warning)
@@ -105,8 +115,12 @@ def main():
         ui_url = DEFAULT_UI_URL
 
     browser_host = ACTIVE_HOST if ACTIVE_HOST in {"127.0.0.1", "localhost"} else "127.0.0.1"
-    target_url = f"{ui_url}#{urlencode({'token': SESSION_TOKEN, 'host': browser_host, 'port': ACTIVE_PORT})}"
-    exit_on_close = not args.no_exit_on_close
+    fragment = {'token': SESSION_TOKEN, 'host': browser_host, 'port': ACTIVE_PORT}
+    if RUN_SESSION:
+        fragment['run'] = RUN_SESSION.run_id
+    target_url = f"{ui_url}#{urlencode(fragment)}"
+    # El modo ejecución detecta con el latido que el navegador se cerró sin devolver resultado.
+    exit_on_close = RUN_SESSION is not None or not args.no_exit_on_close
     EXIT_ON_CLOSE = exit_on_close
 
     print("=" * 64)
@@ -131,11 +145,17 @@ def main():
         print("  Auto-cierre           : Desactivado")
     print("=" * 64, flush=True)
 
-    CONSOLE_CONTROL = ConsoleControl(server, parser, target_url=target_url)
-    CONSOLE_CONTROL.start()
-
-    if not args.no_browser:
-        launch_browser(target_url)
+    if RUN_SESSION:
+        if not launch_browser(target_url):
+            server.server_close()
+            sys.stdout = result_out
+            sys.exit(RUN_EXIT_SETUP)
+        threading.Thread(target=run_supervisor, args=(server, RUN_SESSION), daemon=True).start()
+    else:
+        CONSOLE_CONTROL = ConsoleControl(server, parser, target_url=target_url)
+        CONSOLE_CONTROL.start()
+        if not args.no_browser:
+            launch_browser(target_url)
 
     if exit_on_close:
         require_initial = not args.no_browser
@@ -163,6 +183,14 @@ def main():
         if CONSOLE_CONTROL:
             CONSOLE_CONTROL.close()
             CONSOLE_CONTROL = None
+
+    if RUN_SESSION:
+        code, text = run_outcome(RUN_SESSION)
+        sys.stdout = result_out
+        if text is not None:
+            result_out.write(text if text.endswith("\n") else text + "\n")
+            result_out.flush()
+        sys.exit(code)
 
 
 if __name__ == "__main__":
