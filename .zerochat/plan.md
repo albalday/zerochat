@@ -7,6 +7,7 @@
 Goal: Use ZeroChat to write and maintain Playwright automation scripts.
 Done when: to be agreed with the user before the milestone starts.
 - [ ] M3-T1 Study with the user how to approach Playwright scripts and agree the milestone's Done when
+- [ ] M3-T2 True headless and concurrent zerochat.py --prompt runs on a copy of the user's browser profile, starting from M18-D2/D3/D5/D6/D7 (selective Firefox copy of storage/default/<UI origin> plus its moz_perms rows via the SQLite backup API with a raw copy+WAL fallback for exclusively locked databases, 0700 and deleted after use; Playwright storageState for Chromium; headless needs local network access granted) and the dropped M18-T4 code in git history (commit a4b9bbd, py/hh-firefox-profile.py)
 
 ## M4 Images and office files in the chat: closed 2026-10-16
 
@@ -47,6 +48,7 @@ Done when: zerochat.py --prompt starts like a normal run (same port, UI and brow
 - [x] M18-T6 UI run mode module: read run from the launch fragment, wait for the backend, send the prompt in a new conversation, report progress per step/tool/status, unattended dialogs and approvals, return {error} from handleSendMessage, send the result and close, with real-DOM tests (2026-10-17)
 - [ ] M18-T7 /help (ES/EN) and py/README.md for run mode, and manual end-to-end check headless and visible (including whether the visible window closes)
 - [x] M18-T8 Rework run mode onto the normal zerochat.py startup: default port and UI, normal browser launcher with run= in the fragment, heartbeat detects a closed browser; remove the Firefox profile module and --prompt-file/--timeout (2026-10-18)
+- [x] M18-T9 Best-effort --headless for --prompt: launch the default browser executable with --headless on the normal profile, falling back to the normal launcher (2026-10-18)
 
 ## M19 Web image ingestion and multimodal analysis: closed 2026-10-16
 
