@@ -67,7 +67,7 @@ def main():
         if args.export is not None:
             export_path = Path(args.export).expanduser().absolute()
             if export_path.suffix.lower() not in RUN_EXPORT_FORMATS:
-                parser.error(f"--export necesita una extensión {' o '.join(RUN_EXPORT_FORMATS)}")
+                parser.error(f"--export necesita una de estas extensiones: {', '.join(RUN_EXPORT_FORMATS)}")
             if not export_path.parent.is_dir():
                 parser.error(f"--export: no existe el directorio {export_path.parent}")
         RUN_SESSION = RunSession(args.prompt.strip(), args.profile.strip() if args.profile else None, export_path, args.keep_open)

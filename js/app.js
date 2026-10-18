@@ -82,6 +82,7 @@
     btnCancelExport: 'btn-cancel-export',
     btnExportMarkdown: 'btn-export-markdown',
     btnExportJson: 'btn-export-json',
+    btnExportHtml: 'btn-export-html',
     btnExportPrint: 'btn-export-print',
     // Perfil activo e inspector
     activeProfileMenu: 'active-profile-menu',

@@ -3278,9 +3278,10 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_req("POST", safe_path)
             self._reject(400, {"error": "Invalid Content-Length"}, safe_path, t0, "Content-Length negativo")
             return None
-        if content_len > MAX_HTTP_BODY_BYTES:
+        body_limit = http_body_limit()
+        if content_len > body_limit:
             self._log_req("POST", safe_path)
-            if content_len <= MAX_HTTP_BODY_BYTES * 2:
+            if content_len <= body_limit * 2:
                 try:
                     self.rfile.read(content_len)
                 except (OSError, ValueError):
@@ -3793,7 +3794,9 @@ RUN_EXIT_ERROR = 1
 RUN_EXIT_TIMEOUT = 2
 RUN_EXIT_SETUP = 3
 # Formato de --export según la extensión del fichero; la interfaz genera el contenido con ChatExport.
-RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json"}
+RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json", ".html": "html"}
+# Cuerpo HTTP admitido mientras se espera la exportación: el JSON y el HTML llevan las imágenes incrustadas.
+RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 
 
 class RunSession:
@@ -3826,6 +3829,14 @@ class RunSession:
 
 
 RUN_SESSION: RunSession | None = None
+
+
+def http_body_limit() -> int:
+    """Tope del cuerpo de una petición: el general, o el de la exportación mientras se espera."""
+    session = RUN_SESSION
+    if session is not None and session.export_path is not None and not session.exported:
+        return RUN_EXPORT_MAX_BODY_BYTES
+    return MAX_HTTP_BODY_BYTES
 
 
 def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
@@ -4002,7 +4013,7 @@ def main():
         if args.export is not None:
             export_path = Path(args.export).expanduser().absolute()
             if export_path.suffix.lower() not in RUN_EXPORT_FORMATS:
-                parser.error(f"--export necesita una extensión {' o '.join(RUN_EXPORT_FORMATS)}")
+                parser.error(f"--export necesita una de estas extensiones: {', '.join(RUN_EXPORT_FORMATS)}")
             if not export_path.parent.is_dir():
                 parser.error(f"--export: no existe el directorio {export_path.parent}")
         RUN_SESSION = RunSession(args.prompt.strip(), args.profile.strip() if args.profile else None, export_path, args.keep_open)

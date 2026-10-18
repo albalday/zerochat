@@ -24,7 +24,7 @@ test.after(() => {
 });
 
 const FAKE_BROWSER = `
-import json, os, sys, time, urllib.parse, urllib.request
+import json, os, sys, time, urllib.error, urllib.parse, urllib.request
 from pathlib import Path
 url = sys.argv[-1]
 fragment = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).fragment))
@@ -37,6 +37,14 @@ def rpc(method, run_id=fragment["run"], **params):
         "Content-Type": "application/json", "Origin": "http://127.0.0.1", "X-ZeroChat-Token": fragment["token"]})
     return json.loads(urllib.request.urlopen(request, timeout=5).read())
 
+def post_status(size):
+    request = urllib.request.Request(f"http://{fragment['host']}:{fragment['port']}/", data=b"x" * size, headers={
+        "Content-Type": "application/json", "Origin": "http://127.0.0.1", "X-ZeroChat-Token": fragment["token"]})
+    try:
+        return urllib.request.urlopen(request, timeout=30).status
+    except urllib.error.HTTPError as err:
+        return err.code
+
 def save():
     Path(os.environ["FAKE_UI_INFO"]).write_text(json.dumps(info), encoding="utf-8")
 
@@ -48,9 +56,13 @@ info["export"] = delivered["export"]
 info["keep_open"] = delivered["keep_open"]
 info["second_prompt"] = rpc("zerochat/run/prompt").get("error", {}).get("message")
 save()
+if delivered["export"] and scenario == "ok":
+    # Mientras se espera la exportación, el tope del cuerpo es el suyo; al recibirla, vuelve el general.
+    info["export_limit"] = [post_status(64 * 1024 * 1024), post_status(64 * 1024 * 1024 + 1)]
 if delivered["export"]:
     info["export_reply"] = rpc("zerochat/run/export", content=f"{delivered['export']}: {prompt}")
     info["second_export"] = rpc("zerochat/run/export", content="x").get("error", {}).get("message")
+    info["limit_after_export"] = post_status(1024 * 1024 + 1)
     save()
 if scenario == "ok":
     rpc("zerochat/run/progress", kind="tool", text="y" * 500)
@@ -137,6 +149,9 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(ok.info.keep_open, true);
     assert.equal(fs.readFileSync(exportPath, 'utf8'), 'markdown: hola mundo');
     assert.equal(ok.info.second_export, 'La exportación ya se recibió.');
+    // El cuerpo en el tope exacto pasa el límite y falla al no ser JSON; un byte más se rechaza.
+    assert.deepEqual(ok.info.export_limit, [400, 413]);
+    assert.equal(ok.info.limit_after_export, 413);
     assert.deepEqual([failed.info.export, failed.info.keep_open], [null, false]);
     // Una exportación pedida que no se escribe es un error, pero la respuesta sigue en stdout.
     assert.equal(unexported.info.export, 'json');

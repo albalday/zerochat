@@ -56,6 +56,7 @@ Done when: zerochat.py --prompt starts like a normal run (same port, UI and brow
 - [x] M18-T14 Export the --prompt conversation with the current exporter options (Markdown, session JSON, print/PDF) to a file chosen on the command line, reusing ChatExport (2026-10-18)
 - [ ] M18-T15 Unattended approvals in --prompt: always answer allow for this session, except write_file, edit_file and execute_command, which are denied according to command-line parameters; and inventory the MCP servers the run needs available
 - [ ] M18-T16 Option to stop the --prompt run on any user request, both ask_user question dialogs and execution permission prompts, with its exit code
+- [x] M18-T17 Export the conversation as self-contained HTML that looks like the chat (rendered messages, page CSS, used icons, inlined knowledge images) from the export dialog and --export FILE.html, with a larger body limit for the pending run export (2026-10-18)
 
 ## M19 Web image ingestion and multimodal analysis: closed 2026-10-16
 

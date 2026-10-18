@@ -698,24 +698,26 @@
     });
   }
 
+  /** Imagen rag-image://docId:imgId guardada en la base de conocimiento, como data URL; null si no existe. */
+  async function loadRagImage(ref) {
+    if (resolvedRagImagesCache.has(ref)) return resolvedRagImagesCache.get(ref);
+    const reference = Utils.parseRagImageRef(ref);
+    if (!reference) return null;
+    const imageRecord = await resolveDep('ChatRagStorage', './ragStorage.js').getDocumentImage(reference.documentId, reference.imageId);
+    if (!imageRecord?.dataUrl) return null;
+    const finalUrl = await resolveDep('ChatFileParser', './file-parser.js').convertCmykDataUrlToRgb(imageRecord.dataUrl);
+    resolvedRagImagesCache.set(ref, finalUrl);
+    return finalUrl;
+  }
+
   /** Sustituye las imágenes rag-image://docId:imgId por la imagen guardada en la base de conocimiento. */
   function resolveRagImages(container) {
     container.querySelectorAll('img[data-rag-src]').forEach(async img => {
-      const ref = img.dataset.ragSrc;
-      if (resolvedRagImagesCache.has(ref)) {
-        img.src = resolvedRagImagesCache.get(ref);
-        img.classList.add('rag-resolved-image');
-        return;
-      }
       if (img.dataset.ragResolving) return;
-      const reference = Utils.parseRagImageRef(ref);
-      if (!reference) return;
       img.dataset.ragResolving = 'true';
       try {
-        const imageRecord = await resolveDep('ChatRagStorage', './ragStorage.js').getDocumentImage(reference.documentId, reference.imageId);
-        if (!imageRecord?.dataUrl) return;
-        const finalUrl = await resolveDep('ChatFileParser', './file-parser.js').convertCmykDataUrlToRgb(imageRecord.dataUrl);
-        resolvedRagImagesCache.set(ref, finalUrl);
+        const finalUrl = await loadRagImage(img.dataset.ragSrc);
+        if (!finalUrl) return;
         img.src = finalUrl;
         img.classList.add('rag-resolved-image');
       } catch (error) {
@@ -778,6 +780,7 @@
     sanitizeUrl,
     sanitizeImageUrl,
     parseMarkdown,
+    loadRagImage,
     attachContentListeners
   };
 });

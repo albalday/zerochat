@@ -15,7 +15,9 @@ RUN_EXIT_ERROR = 1
 RUN_EXIT_TIMEOUT = 2
 RUN_EXIT_SETUP = 3
 # Formato de --export según la extensión del fichero; la interfaz genera el contenido con ChatExport.
-RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json"}
+RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json", ".html": "html"}
+# Cuerpo HTTP admitido mientras se espera la exportación: el JSON y el HTML llevan las imágenes incrustadas.
+RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 
 
 class RunSession:
@@ -48,6 +50,14 @@ class RunSession:
 
 
 RUN_SESSION: RunSession | None = None
+
+
+def http_body_limit() -> int:
+    """Tope del cuerpo de una petición: el general, o el de la exportación mientras se espera."""
+    session = RUN_SESSION
+    if session is not None and session.export_path is not None and not session.exported:
+        return RUN_EXPORT_MAX_BODY_BYTES
+    return MAX_HTTP_BODY_BYTES
 
 
 def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, str]:

@@ -1,5 +1,5 @@
 /**
- * Diálogo de exportación de una conversación (Markdown, JSON o impresión) e importación de una
+ * Diálogo de exportación de una conversación (Markdown, JSON, HTML o impresión) e importación de una
  * conversación desde su JSON. Los formatos los genera ChatExport.
  */
 (function (root, factory) {
@@ -46,10 +46,19 @@
     return { session: conversation, history: conversation.history || conversation.messages || [] };
   }
 
-  /** Conversación indicada (la activa si no se indica) en el formato de ChatExport, con su título. */
+  /** Muestra la conversación indicada si no es la activa, para los formatos que salen de la página. */
+  async function showConversation(id) {
+    if (id !== options.getActiveSessionId()) await options.onSwitchSession(id);
+  }
+
+  /**
+   * Conversación indicada (la activa si no se indica) en el formato de ChatExport, con su título; un
+   * formato que sale de la página cambia antes a esa conversación.
+   */
   async function buildConversationExport(format, sessionId = options.getActiveSessionId()) {
+    if (getExport().isRenderedFormat(format)) await showConversation(sessionId);
     const { session, history } = await resolveSessionForExport(sessionId);
-    return { title: session.title || 'ZeroChat_Conversation', ...getExport().buildConversationExport(format, session, history, options.getConfig()) };
+    return { title: session.title || 'ZeroChat_Conversation', ...(await getExport().buildConversationExport(format, session, history, options.getConfig())) };
   }
 
   async function downloadConversation(format) {
@@ -62,7 +71,7 @@
   async function exportConversationAsPrint() {
     const id = targetSessionId();
     closeExportModal();
-    if (id !== options.getActiveSessionId()) await options.onSwitchSession(id);
+    await showConversation(id);
     setTimeout(() => window.print(), 200);
   }
 
@@ -104,6 +113,7 @@
     listen(els.btnCancelExport, 'click', closeExportModal);
     listen(els.btnExportMarkdown, 'click', () => downloadConversation('markdown'));
     listen(els.btnExportJson, 'click', () => downloadConversation('json'));
+    listen(els.btnExportHtml, 'click', () => downloadConversation('html'));
     listen(els.btnExportPrint, 'click', exportConversationAsPrint);
     listen(els.btnImportChatFile, 'click', () => els.importJsonInput.click());
     listen(els.importJsonInput, 'change', handleImportFileSelected);

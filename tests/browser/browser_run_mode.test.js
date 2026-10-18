@@ -139,11 +139,11 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     }
   });
 
-  test('Browser UI - el modo ejecución exporta la conversación, devuelve el error de generación y deja la página abierta con keep_open', async () => {
+  test('Browser UI - el modo ejecución exporta la conversación en HTML como se ve en el chat, devuelve el error de generación y deja la página abierta con keep_open', async () => {
     const server = await startStaticServer();
     const browser = await createTestBrowser();
     try {
-      const { page, backend } = await openRun(browser, server, 'Hola', { exportFormat: 'markdown', keepOpen: true });
+      const { page, backend } = await openRun(browser, server, 'Hola', { exportFormat: 'html', keepOpen: true });
       await page.evaluate(() => {
         window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
         window.ChatAPI.streamChatCompletion = async () => { throw new Error('Provider unavailable'); };
@@ -153,8 +153,30 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
       assert.deepEqual(resultOf(backend), { run_id: RUN_ID, error: 'Provider unavailable' });
       const exportCall = backend.calls.find(call => call.method === 'zerochat/run/export');
       assert.ok(backend.calls.indexOf(exportCall) < backend.calls.findIndex(call => call.method === 'zerochat/run/result'), 'la exportación llega antes del resultado');
-      assert.match(exportCall.params.content, /### .+\n\nHola\n/);
       assert.equal(await page.evaluate(() => window.__closed === true), false, 'keep_open no cierra la página');
+
+      // El HTML exportado se abre solo, sin scripts, con el aspecto del chat y desplazamiento normal.
+      const html = exportCall.params.content;
+      assert.doesNotMatch(html, /<script/i);
+      const expected = await page.evaluate(() => {
+        const bubble = document.querySelector('.message-row.user .message-content');
+        return { theme: document.documentElement.dataset.theme, background: getComputedStyle(bubble).backgroundColor };
+      });
+      const exported = await browser.newPage();
+      await exported.setContent(html);
+      const view = await exported.evaluate(() => {
+        const bubble = document.querySelector('.message-row.user .message-content');
+        const icon = document.querySelector('.messages-list use');
+        return {
+          theme: document.documentElement.dataset.theme,
+          user: bubble.textContent.trim(),
+          background: getComputedStyle(bubble).backgroundColor,
+          overflow: getComputedStyle(document.body).overflowY,
+          actions: document.querySelectorAll('.message-actions').length,
+          iconResolved: !icon || Boolean(document.getElementById(icon.getAttribute('href').slice(1)))
+        };
+      });
+      assert.deepEqual(view, { theme: expected.theme, user: 'Hola', background: expected.background, overflow: 'visible', actions: 0, iconResolved: true });
     } finally {
       await browser.close();
       await stopStaticServer(server);

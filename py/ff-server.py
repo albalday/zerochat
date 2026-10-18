@@ -481,9 +481,10 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_req("POST", safe_path)
             self._reject(400, {"error": "Invalid Content-Length"}, safe_path, t0, "Content-Length negativo")
             return None
-        if content_len > MAX_HTTP_BODY_BYTES:
+        body_limit = http_body_limit()
+        if content_len > body_limit:
             self._log_req("POST", safe_path)
-            if content_len <= MAX_HTTP_BODY_BYTES * 2:
+            if content_len <= body_limit * 2:
                 try:
                     self.rfile.read(content_len)
                 except (OSError, ValueError):

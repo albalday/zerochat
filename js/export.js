@@ -1,6 +1,6 @@
 /**
- * Formatos de exportación e importación de conversaciones (ChatExport): Markdown, JSON de sesión y
- * descarga de archivos.
+ * Formatos de exportación e importación de conversaciones (ChatExport): Markdown, JSON de sesión,
+ * HTML como se ve en el chat y descarga de archivos.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -11,9 +11,16 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Defaults) {
   'use strict';
 
-  const { createId } = Utils;
+  const { createId, escapeHtml, resolveDep } = Utils;
   const { t } = I18n;
   const DEFAULT_TITLE = 'ZeroChat_Conversation';
+  // La copia de la conversación se lee como documento, sin la altura fija de la aplicación, y no
+  // ejecuta nada (las imágenes pueden ser data: o remotas).
+  const HTML_EXPORT_CSS = 'html, body { height: auto; min-height: 0; overflow: visible; display: block; width: auto; }'
+    + ' .chat-container, .messages-list { height: auto; max-height: none; overflow: visible; }';
+  // Lo que no aporta sin scripts: acciones de los mensajes, del código, de las tablas y de las tarjetas.
+  const HTML_EXPORT_REMOVED = 'script, #welcome-banner, .message-actions, .btn-copy-code, .btn-preview-code, .table-actions, .btn-tool-collapse';
+  const HTML_EXPORT_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data: http: https:";
 
   /** Descarga `content` como archivo; devuelve false si el navegador no lo permite. */
   function downloadFile(content, filename, mimeType) {
@@ -62,6 +69,52 @@
     }, null, 2);
   }
 
+  /** Reglas CSS de una hoja de la página, dentro de su media si la tiene (print.css). */
+  function styleSheetText(sheet) {
+    const rules = [...sheet.cssRules].map(rule => rule.cssText).join('\n');
+    return sheet.media.mediaText ? `@media ${sheet.media.mediaText} {\n${rules}\n}` : rules;
+  }
+
+  /**
+   * Conversación pintada en `doc` como HTML autónomo que se ve como en el chat: los mensajes, el
+   * CSS de la página, los iconos que usan y las imágenes de la base de conocimiento incrustadas.
+   */
+  async function buildHtmlExport(doc, { title = DEFAULT_TITLE } = {}) {
+    const copy = doc.getElementById('messages-list').cloneNode(true);
+    copy.querySelectorAll(HTML_EXPORT_REMOVED).forEach(node => node.remove());
+    // Sin scripts las tarjetas no se pliegan: se exportan desplegadas para que se vea su contenido.
+    copy.querySelectorAll('.tool-execution-card.collapsed, .chat-chart-card.collapsed').forEach(card => card.classList.remove('collapsed'));
+    const Markdown = resolveDep('ChatMarkdown', './markdown.js');
+    await Promise.all([...copy.querySelectorAll('img')].map(async img => {
+      img.removeAttribute('loading');
+      if (!img.dataset.ragSrc) return;
+      const dataUrl = await Markdown.loadRagImage(img.dataset.ragSrc).catch(() => null);
+      if (dataUrl) img.setAttribute('src', dataUrl);
+    }));
+    const iconIds = new Set([...copy.querySelectorAll('use')].map(use => (use.getAttribute('href') || '').replace(/^#/, '')));
+    const icons = [...iconIds].map(id => doc.getElementById(id)).filter(symbol => symbol?.tagName.toLowerCase() === 'symbol');
+    const css = [...doc.styleSheets].map(styleSheetText).join('\n').replace(/<\/style/gi, '<\\/style');
+    const attributes = element => element.getAttributeNames().map(name => ` ${name}="${escapeHtml(element.getAttribute(name))}"`).join('');
+    return `<!DOCTYPE html>
+<html${attributes(doc.documentElement)}>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="${HTML_EXPORT_CSP}">
+<title>${escapeHtml(title)}</title>
+<style>
+${css}
+${HTML_EXPORT_CSS}
+</style>
+</head>
+<body${attributes(doc.body)}>
+<svg xmlns="http://www.w3.org/2000/svg" hidden>${icons.map(symbol => symbol.outerHTML).join('')}</svg>
+<main class="chat-container">${copy.outerHTML}</main>
+</body>
+</html>
+`;
+  }
+
   // Formatos de exportación de una conversación: los usan el diálogo y zerochat.py --export.
   const CONVERSATION_FORMATS = {
     markdown: {
@@ -73,14 +126,24 @@
       extension: 'json',
       mimeType: 'application/json',
       build: buildJsonExport
+    },
+    // Se genera desde la página: la conversación tiene que ser la que se está viendo.
+    html: {
+      extension: 'html',
+      mimeType: 'text/html',
+      rendered: true,
+      build: session => buildHtmlExport(document, { title: session.title || DEFAULT_TITLE })
     }
   };
 
-  /** Contenido, extensión y tipo MIME de la conversación en el formato indicado (markdown o json). */
-  function buildConversationExport(format, session, history, config) {
+  /** Si el formato se genera desde la conversación pintada en la página y no desde su historial. */
+  const isRenderedFormat = format => CONVERSATION_FORMATS[format]?.rendered === true;
+
+  /** Contenido, extensión y tipo MIME de la conversación en el formato indicado (markdown, json o html). */
+  async function buildConversationExport(format, session, history, config) {
     const spec = CONVERSATION_FORMATS[format];
     if (!spec) throw new Error(`Unknown export format: ${format}`);
-    return { content: spec.build(session, history, config), extension: spec.extension, mimeType: spec.mimeType };
+    return { content: await spec.build(session, history, config), extension: spec.extension, mimeType: spec.mimeType };
   }
 
   /** Sesión nueva a partir de un JSON exportado; conserva el historial con otro id. */
@@ -135,6 +198,16 @@
             </div>
           </button>
 
+          <button type="button" id="btn-export-html" class="export-card-btn">
+            <span class="export-card-icon">
+              <svg class="ui-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-globe"></use></svg>
+            </span>
+            <div class="export-card-info">
+              <strong data-i18n="export_html_title">Descargar HTML (.html)</strong>
+              <span data-i18n="export_html_desc">La conversación tal como se ve en el chat, en un único archivo para abrir en cualquier navegador.</span>
+            </div>
+          </button>
+
           <button type="button" id="btn-export-print" class="export-card-btn">
             <span class="export-card-icon">
               <svg class="ui-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-printer"></use></svg>
@@ -164,6 +237,7 @@
     buildMarkdownExport,
     buildJsonExport,
     buildConversationExport,
+    isRenderedFormat,
     parseImportedJson,
     ensureDialogMarkup
   };
