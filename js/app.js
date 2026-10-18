@@ -879,16 +879,18 @@
         sessionsLoaded,
         activateSessionProfile: profileId => UIProfiles.activateConnectionProfile(profileId, { sessionOnly: true }),
         exportConversation: async format => (await UITransfer.buildConversationExport(format)).content,
-        submitComposerText
+        submitComposerText,
+        stopGeneration: GenerationController.handleStopGeneration
       });
+    } else {
+      // Registro del Service Worker para aceleración de arranque y soporte offline en móvil; el modo
+      // ejecución no lo hace porque su aviso de actualización es un diálogo que la terminaría.
+      registerServiceWorker().then(async reloading => {
+        if (reloading) return;
+        const connection = await startupMcpConnection;
+        if (connection.success) MCP.manager.notifyStoppedExternalServices(State.get('mcp').externalServers);
+      }).catch(error => console.warn('[App] Could not check MCP services on startup:', error));
     }
-
-    // Registro del Service Worker para aceleración de arranque y soporte offline en móvil
-    registerServiceWorker().then(async reloading => {
-      if (reloading) return;
-      const connection = await startupMcpConnection;
-      if (connection.success) MCP.manager.notifyStoppedExternalServices(State.get('mcp').externalServers);
-    }).catch(error => console.warn('[App] Could not check MCP services on startup:', error));
 
     document.documentElement.classList.add('zerochat-ready');
     console.log('💬 ZeroChat initialized with autonomous tools and local Orama knowledge.');

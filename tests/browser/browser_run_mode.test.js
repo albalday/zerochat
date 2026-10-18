@@ -14,7 +14,7 @@ const CORS = {
 };
 
 /** Servidor local falso: registra las llamadas zerochat/run/* y retiene el prompt hasta `release`. */
-async function routeBackend(page, prompt, { profile, exportFormat, keepOpen = false } = {}) {
+async function routeBackend(page, prompt, { profile, exportFormat, keepOpen = false, allowDangerous = false } = {}) {
   const calls = [];
   let release;
   const released = new Promise(resolve => { release = resolve; });
@@ -31,14 +31,14 @@ async function routeBackend(page, prompt, { profile, exportFormat, keepOpen = fa
       return reply({ protocolVersion: '2024-11-05', serverInfo: { name: 'ZeroChat Local Server', version: '9.5', cwd: '/tmp/run', os: 'linux' }, capabilities: { tools: {} } });
     }
     if (method === 'tools/list') {
-      return reply({ tools: [{ name: 'demo_action', description: 'Demo action', inputSchema: { type: 'object', properties: {} } }] });
+      return reply({ tools: ['demo_action', 'write_file', 'run_command'].map(name => ({ name, description: name, inputSchema: { type: 'object', properties: {} } })) });
     }
     if (method === 'zerochat/external/status') return reply({ host: 'running', servers: [] });
     if (method.startsWith('zerochat/run/')) {
       calls.push({ method, params });
       if (method === 'zerochat/run/prompt') {
         await released;
-        return reply({ prompt, profile: profile ?? null, export: exportFormat ?? null, keep_open: keepOpen });
+        return reply({ prompt, profile: profile ?? null, export: exportFormat ?? null, keep_open: keepOpen, allow_dangerous_tools: allowDangerous });
       }
       if (method === 'zerochat/run/result') receiveResult();
       return reply({ ok: true });
@@ -64,13 +64,14 @@ async function openRun(browser, server, prompt, { seedProfiles = false, ...runOp
 
 const resultOf = backend => backend.calls.find(call => call.method === 'zerochat/run/result')?.params;
 const progressOf = backend => backend.calls.filter(call => call.method === 'zerochat/run/progress').map(call => call.params);
+const approvalsOf = backend => progressOf(backend).filter(event => event.kind.startsWith('approval_')).map(event => `${event.kind}:${event.text}`).sort();
 
 describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
   after(async () => {
     await closeGlobalBrowser();
   });
 
-  test('Browser UI - el modo ejecución envía el prompt en una conversación nueva, informa del progreso, deniega la aprobación, cierra los diálogos y devuelve la respuesta final', async () => {
+  test('Browser UI - el modo ejecución envía el prompt en una conversación nueva, informa del progreso, aprueba para la sesión salvo las herramientas peligrosas y devuelve la respuesta final', async () => {
     const server = await startStaticServer();
     const browser = await createTestBrowser();
     try {
@@ -82,26 +83,26 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
         window.ChatAPI.streamChatCompletion = async params => {
           calls += 1;
           if (calls === 1) {
-            params.onChunk?.('Voy a usar una herramienta', 'Voy a usar una herramienta', null);
-            return { accumulatedText: '', toolCalls: [{ id: 'call_1', type: 'function', function: { name: 'demo_action', arguments: '{}' } }], stats: null };
+            params.onChunk?.('Voy a usar herramientas', 'Voy a usar herramientas', null);
+            return { accumulatedText: '', toolCalls: [
+              { id: 'call_1', type: 'function', function: { name: 'demo_action', arguments: '{}' } },
+              { id: 'call_2', type: 'function', function: { name: 'write_file', arguments: '{"path":"a.txt","content":"x"}' } }
+            ], stats: null };
           }
-          // Un diálogo durante la ejecución no la bloquea.
-          await window.ChatDialogs.confirm('¿Continuar?');
-          const denied = params.messages.some(message => message.role === 'tool' && /denied/i.test(message.content));
-          return { accumulatedText: denied ? 'Respuesta final sin la herramienta' : 'herramienta ejecutada', toolCalls: null, stats: null };
+          return { accumulatedText: 'Respuesta final', toolCalls: null, stats: null };
         };
       });
       backend.release();
       await page.waitForFunction(() => window.__closed === true);
 
-      assert.deepEqual(resultOf(backend), { run_id: RUN_ID, text: 'Respuesta final sin la herramienta' });
+      assert.deepEqual(resultOf(backend), { run_id: RUN_ID, text: 'Respuesta final' });
       assert.ok(backend.calls.every(call => call.params.run_id === RUN_ID));
       const kinds = progressOf(backend).map(event => event.kind);
-      for (const kind of ['step', 'stream', 'tool', 'approval_denied', 'dialog']) assert.ok(kinds.includes(kind), `progreso ${kind}: ${kinds}`);
-      assert.match(progressOf(backend).find(event => event.kind === 'dialog').text, /¿Continuar\?/);
+      for (const kind of ['step', 'stream', 'tool']) assert.ok(kinds.includes(kind), `progreso ${kind}: ${kinds}`);
+      assert.deepEqual(approvalsOf(backend), ['approval_allowed:demo_action', 'approval_denied:write_file']);
       const messages = await page.evaluate(() => window.ChatState.get('messages').map(message => ({ role: message.role, content: message.content })));
       assert.deepEqual(messages.filter(message => message.role === 'user').map(message => message.content), ['Resume el proyecto']);
-      assert.equal(messages.at(-1).content, 'Respuesta final sin la herramienta');
+      assert.equal(messages.at(-1).content, 'Respuesta final');
       assert.equal(await page.evaluate(() => (window.ChatState.get('ui').notices || []).length), 0);
       assert.equal(await page.evaluate(() => window.ChatStorage.getBackendSession()), null, 'la conexión de la ejecución no se guarda en la cookie de las demás pestañas');
     } finally {
@@ -110,15 +111,16 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     }
   });
 
-  test('Browser UI - el modo ejecución usa el perfil pedido solo en esa página y rechaza uno inexistente', async () => {
+  test('Browser UI - el modo ejecución usa el perfil pedido solo en esa página, rechaza uno inexistente y aprueba las herramientas peligrosas si se permiten', async () => {
     const server = await startStaticServer();
     const browser = await createTestBrowser();
     try {
-      const { page, backend } = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true });
+      const { page, backend } = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, allowDangerous: true });
       const storedBefore = await page.evaluate(() => window.ChatStorage.loadRuntimeConfigV2()?.activeProfile?.id);
       await page.evaluate(() => {
         window.ChatAPI.streamChatCompletion = async params => {
           window.__model = params.model;
+          if (!params.messages.some(message => message.role === 'tool')) return { accumulatedText: '', toolCalls: [{ id: 'call_1', type: 'function', function: { name: 'run_command', arguments: '{"command":"ls"}' } }], stats: null };
           return { accumulatedText: 'ok', toolCalls: null, stats: null };
         };
       });
@@ -126,6 +128,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
       await page.waitForFunction(() => window.__closed === true);
       assert.deepEqual(resultOf(backend), { run_id: RUN_ID, text: 'ok' });
       assert.equal(await page.evaluate(() => window.__model), 'google/gemma-4-26b-a4b-qat');
+      assert.deepEqual(approvalsOf(backend), ['approval_allowed:run_command']);
       assert.equal(await page.evaluate(() => window.ChatConfig.getActive().activeProfile.id), 'profile:local');
       assert.notEqual(storedBefore, 'profile:local');
       assert.equal(await page.evaluate(() => window.ChatStorage.loadRuntimeConfigV2()?.activeProfile?.id), storedBefore, 'el perfil activo guardado no cambia');
@@ -178,6 +181,40 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
         };
       });
       assert.deepEqual(view, { theme: expected.theme, user: 'Hola', background: expected.background, overflow: 'visible', actions: 0, iconResolved: true });
+    } finally {
+      await browser.close();
+      await stopStaticServer(server);
+    }
+  });
+
+  test('Browser UI - el modo ejecución termina con error cuando un diálogo o ask_user preguntan al usuario', async () => {
+    const server = await startStaticServer();
+    const browser = await createTestBrowser();
+    try {
+      const dialog = await openRun(browser, server, 'Hola');
+      await dialog.page.evaluate(() => {
+        window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
+        window.ChatAPI.streamChatCompletion = async () => {
+          await window.ChatDialogs.confirm('¿Continuar?', { title: 'Confirmar' });
+          return { accumulatedText: 'no debe llegar', toolCalls: null, stats: null };
+        };
+      });
+      dialog.backend.release();
+      await dialog.page.waitForFunction(() => window.__closed === true);
+      assert.deepEqual(resultOf(dialog.backend), { run_id: RUN_ID, error: 'The run needs the user: Confirmar: ¿Continuar?' });
+
+      const ask = await openRun(browser, server, 'Hola');
+      await ask.page.evaluate(() => {
+        window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
+        window.ChatAPI.streamChatCompletion = async () => ({
+          accumulatedText: '',
+          toolCalls: [{ id: 'call_1', type: 'function', function: { name: 'ask_user', arguments: '{"question":"¿A o B?","options":["A","B"]}' } }],
+          stats: null
+        });
+      });
+      ask.backend.release();
+      await ask.page.waitForFunction(() => window.__closed === true);
+      assert.deepEqual(resultOf(ask.backend), { run_id: RUN_ID, error: 'The run needs the user: ¿A o B?' });
     } finally {
       await browser.close();
       await stopStaticServer(server);

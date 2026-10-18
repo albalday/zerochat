@@ -22,7 +22,8 @@ RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 
 class RunSession:
     """Estado de la ejecución: prompt, opciones, último progreso, exportación, resultado y motivo de un final sin él."""
-    def __init__(self, prompt: str, profile: str | None = None, export_path: Path | None = None, keep_open: bool = False):
+    def __init__(self, prompt: str, profile: str | None = None, export_path: Path | None = None, keep_open: bool = False,
+                 allow_dangerous_tools: bool = False):
         self.run_id = secrets.token_urlsafe(24)
         self.prompt = prompt
         # Perfil de conexión (nombre o id) que la interfaz usa solo en esta ejecución; None, el activo.
@@ -33,6 +34,8 @@ class RunSession:
         self.export_error: str | None = None
         # La interfaz no cierra la página al terminar, para ver la conversación (sin --headless).
         self.keep_open = keep_open
+        # La interfaz aprueba también write_file, edit_file y run_command, que si no deniega.
+        self.allow_dangerous_tools = allow_dangerous_tools
         self.lock = threading.Lock()
         self.last_activity = time.monotonic()
         self.prompt_delivered = False
@@ -75,7 +78,8 @@ def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, s
             session.prompt_delivered = True
         session.touch()
         export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
-        return {"prompt": session.prompt, "profile": session.profile, "export": export_format, "keep_open": session.keep_open}, None, ""
+        return {"prompt": session.prompt, "profile": session.profile, "export": export_format, "keep_open": session.keep_open,
+                "allow_dangerous_tools": session.allow_dangerous_tools}, None, ""
     if method == "zerochat/run/progress":
         kind = params.get("kind")
         text = params.get("text", "")

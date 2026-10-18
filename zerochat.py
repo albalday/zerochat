@@ -3801,7 +3801,8 @@ RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 
 class RunSession:
     """Estado de la ejecución: prompt, opciones, último progreso, exportación, resultado y motivo de un final sin él."""
-    def __init__(self, prompt: str, profile: str | None = None, export_path: Path | None = None, keep_open: bool = False):
+    def __init__(self, prompt: str, profile: str | None = None, export_path: Path | None = None, keep_open: bool = False,
+                 allow_dangerous_tools: bool = False):
         self.run_id = secrets.token_urlsafe(24)
         self.prompt = prompt
         # Perfil de conexión (nombre o id) que la interfaz usa solo en esta ejecución; None, el activo.
@@ -3812,6 +3813,8 @@ class RunSession:
         self.export_error: str | None = None
         # La interfaz no cierra la página al terminar, para ver la conversación (sin --headless).
         self.keep_open = keep_open
+        # La interfaz aprueba también write_file, edit_file y run_command, que si no deniega.
+        self.allow_dangerous_tools = allow_dangerous_tools
         self.lock = threading.Lock()
         self.last_activity = time.monotonic()
         self.prompt_delivered = False
@@ -3854,7 +3857,8 @@ def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, s
             session.prompt_delivered = True
         session.touch()
         export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
-        return {"prompt": session.prompt, "profile": session.profile, "export": export_format, "keep_open": session.keep_open}, None, ""
+        return {"prompt": session.prompt, "profile": session.profile, "export": export_format, "keep_open": session.keep_open,
+                "allow_dangerous_tools": session.allow_dangerous_tools}, None, ""
     if method == "zerochat/run/progress":
         kind = params.get("kind")
         text = params.get("text", "")
@@ -3988,6 +3992,7 @@ def main():
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt)")
     parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
     parser.add_argument("--keep-open", action="store_true", help="Con --prompt, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")
+    parser.add_argument("--allow-dangerous-tools", action="store_true", help="Con --prompt, aprobar también las herramientas que escriben o ejecutan (write_file, edit_file, run_command); las demás se aprueban siempre para la sesión")
     parser.add_argument("--headless", action="store_true", help="Con --prompt, abrir el navegador predeterminado sin ventana (si ya está abierto puede verse la pestaña)")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     args = parser.parse_args()
@@ -3997,8 +4002,8 @@ def main():
 
     # Modo ejecución: stdout queda solo para la respuesta final; todo el registro va a stderr.
     result_out = sys.stdout
-    if args.prompt is None and (args.headless or args.keep_open or args.profile is not None or args.export is not None):
-        parser.error("--headless, --keep-open, --profile y --export solo se usan con --prompt")
+    if args.prompt is None and (args.headless or args.keep_open or args.allow_dangerous_tools or args.profile is not None or args.export is not None):
+        parser.error("--headless, --keep-open, --allow-dangerous-tools, --profile y --export solo se usan con --prompt")
     if args.prompt is not None:
         if not args.prompt.strip():
             run_error("El prompt está vacío.")
@@ -4016,7 +4021,7 @@ def main():
                 parser.error(f"--export necesita una de estas extensiones: {', '.join(RUN_EXPORT_FORMATS)}")
             if not export_path.parent.is_dir():
                 parser.error(f"--export: no existe el directorio {export_path.parent}")
-        RUN_SESSION = RunSession(args.prompt.strip(), args.profile.strip() if args.profile else None, export_path, args.keep_open)
+        RUN_SESSION = RunSession(args.prompt.strip(), args.profile.strip() if args.profile else None, export_path, args.keep_open, args.allow_dangerous_tools)
     # Todo el registro pasa por stdout: con --prompt va a stderr para dejar stdout a la respuesta,
     # y con --log off se descarta.
     log_enabled = args.log == "on" if args.log else RUN_SESSION is None
