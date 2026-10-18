@@ -40,6 +40,8 @@ def main():
     parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 plazo agotado o navegador cerrado, 3 fallo de arranque)")
     parser.add_argument("--profile", default=None, help="Con --prompt, perfil de conexión (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo")
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt)")
+    parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
+    parser.add_argument("--keep-open", action="store_true", help="Con --prompt, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")
     parser.add_argument("--headless", action="store_true", help="Con --prompt, abrir el navegador predeterminado sin ventana (si ya está abierto puede verse la pestaña)")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     args = parser.parse_args()
@@ -49,8 +51,8 @@ def main():
 
     # Modo ejecución: stdout queda solo para la respuesta final; todo el registro va a stderr.
     result_out = sys.stdout
-    if args.prompt is None and (args.headless or args.profile is not None):
-        parser.error("--headless y --profile solo se usan con --prompt")
+    if args.prompt is None and (args.headless or args.keep_open or args.profile is not None or args.export is not None):
+        parser.error("--headless, --keep-open, --profile y --export solo se usan con --prompt")
     if args.prompt is not None:
         if not args.prompt.strip():
             run_error("El prompt está vacío.")
@@ -59,7 +61,16 @@ def main():
             parser.error("--prompt necesita abrir el navegador: no se combina con --no-browser")
         if args.profile is not None and not args.profile.strip():
             parser.error("--profile no puede estar vacío")
-        RUN_SESSION = RunSession(args.prompt.strip(), args.profile.strip() if args.profile else None)
+        if args.keep_open and args.headless:
+            parser.error("--keep-open necesita la ventana del navegador: no se combina con --headless")
+        export_path = None
+        if args.export is not None:
+            export_path = Path(args.export).expanduser().absolute()
+            if export_path.suffix.lower() not in RUN_EXPORT_FORMATS:
+                parser.error(f"--export necesita una extensión {' o '.join(RUN_EXPORT_FORMATS)}")
+            if not export_path.parent.is_dir():
+                parser.error(f"--export: no existe el directorio {export_path.parent}")
+        RUN_SESSION = RunSession(args.prompt.strip(), args.profile.strip() if args.profile else None, export_path, args.keep_open)
     # Todo el registro pasa por stdout: con --prompt va a stderr para dejar stdout a la respuesta,
     # y con --log off se descarta.
     log_enabled = args.log == "on" if args.log else RUN_SESSION is None

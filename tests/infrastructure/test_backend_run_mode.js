@@ -44,8 +44,14 @@ info["wrong_run_id"] = rpc("zerochat/run/prompt", run_id="x" * 32).get("error", 
 delivered = rpc("zerochat/run/prompt")["result"]
 prompt = delivered["prompt"]
 info["profile"] = delivered["profile"]
+info["export"] = delivered["export"]
+info["keep_open"] = delivered["keep_open"]
 info["second_prompt"] = rpc("zerochat/run/prompt").get("error", {}).get("message")
 save()
+if delivered["export"]:
+    info["export_reply"] = rpc("zerochat/run/export", content=f"{delivered['export']}: {prompt}")
+    info["second_export"] = rpc("zerochat/run/export", content="x").get("error", {}).get("message")
+    save()
 if scenario == "ok":
     rpc("zerochat/run/progress", kind="tool", text="y" * 500)
     rpc("zerochat/run/progress", kind="tool", text="x" * 501)
@@ -99,10 +105,16 @@ function runZerochat(prompt, { scenario = 'ok', env = {}, port, args = [] } = {}
 test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos de salida y plazos', { skip: process.platform !== 'linux' }, async () => {
   const busy = net.createServer();
   await new Promise(resolve => busy.listen(0, '127.0.0.1', resolve));
+  const exportDir = tempDir('zerochat-run-export-');
+  const exportPath = path.join(exportDir, 'conversacion.md');
+  // Un directorio con la extensión válida hace fallar la escritura.
+  const unwritable = path.join(exportDir, 'directorio.json');
+  fs.mkdirSync(unwritable);
   try {
-    const [ok, failed, idle, chatty, browserGone, emptyPrompt, portInUse] = await Promise.all([
-      runZerochat('hola mundo', { args: ['--profile', ' Oficina ', '--log', 'on'] }),
+    const [ok, failed, unexported, idle, chatty, browserGone, emptyPrompt, portInUse] = await Promise.all([
+      runZerochat('hola mundo', { args: ['--profile', ' Oficina ', '--log', 'on', '--export', exportPath, '--keep-open'] }),
       runZerochat('hola', { scenario: 'error' }),
+      runZerochat('hola', { args: ['--export', unwritable] }),
       runZerochat('hola', { scenario: 'idle', env: { ZEROCHAT_RUN_IDLE_SECONDS: '1' } }),
       runZerochat('hola', { scenario: 'chatty', env: { ZEROCHAT_RUN_IDLE_SECONDS: '1', ZEROCHAT_RUN_TIMEOUT: '2' } }),
       runZerochat('hola', { scenario: 'exit', env: { ZEROCHAT_HEARTBEAT_TIMEOUT: '1' } }),
@@ -120,6 +132,18 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(ok.info.wrong_run_id, 'run_id no válido.');
     assert.equal(ok.info.second_prompt, 'El prompt ya se entregó.');
     assert.equal(ok.info.bad_result, 'El resultado lleva text o error.');
+    // La conversación exportada se escribe una sola vez en el fichero, con el formato de su extensión.
+    assert.equal(ok.info.export, 'markdown');
+    assert.equal(ok.info.keep_open, true);
+    assert.equal(fs.readFileSync(exportPath, 'utf8'), 'markdown: hola mundo');
+    assert.equal(ok.info.second_export, 'La exportación ya se recibió.');
+    assert.deepEqual([failed.info.export, failed.info.keep_open], [null, false]);
+    // Una exportación pedida que no se escribe es un error, pero la respuesta sigue en stdout.
+    assert.equal(unexported.info.export, 'json');
+    assert.match(unexported.info.export_reply.error.message, /No se pudo escribir/);
+    assert.equal(unexported.code, 1);
+    assert.equal(unexported.stdout, 'Respuesta a: hola\n');
+    assert.match(unexported.stderr, /\[run\] No se pudo escribir .*directorio\.json/);
     // El progreso se registra en stderr recortado en su tope exacto.
     assert.match(ok.stderr, new RegExp(`\\[run\\] tool: ${'y'.repeat(500)}\\n`));
     assert.match(ok.stderr, new RegExp(`\\[run\\] tool: ${'x'.repeat(500)}…\\n`));

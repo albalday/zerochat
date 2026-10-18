@@ -62,6 +62,27 @@
     }, null, 2);
   }
 
+  // Formatos de exportación de una conversación: los usan el diálogo y zerochat.py --export.
+  const CONVERSATION_FORMATS = {
+    markdown: {
+      extension: 'md',
+      mimeType: 'text/markdown',
+      build: (session, history, config) => buildMarkdownExport(history, { title: session.title || DEFAULT_TITLE, model: config.model })
+    },
+    json: {
+      extension: 'json',
+      mimeType: 'application/json',
+      build: buildJsonExport
+    }
+  };
+
+  /** Contenido, extensión y tipo MIME de la conversación en el formato indicado (markdown o json). */
+  function buildConversationExport(format, session, history, config) {
+    const spec = CONVERSATION_FORMATS[format];
+    if (!spec) throw new Error(`Unknown export format: ${format}`);
+    return { content: spec.build(session, history, config), extension: spec.extension, mimeType: spec.mimeType };
+  }
+
   /** Sesión nueva a partir de un JSON exportado; conserva el historial con otro id. */
   function parseImportedJson(jsonString, defaultTitle) {
     const data = JSON.parse(jsonString);
@@ -142,6 +163,7 @@
     downloadFile,
     buildMarkdownExport,
     buildJsonExport,
+    buildConversationExport,
     parseImportedJson,
     ensureDialogMarkup
   };

@@ -14,10 +14,12 @@ const CORS = {
 };
 
 /** Servidor local falso: registra las llamadas zerochat/run/* y retiene el prompt hasta `release`. */
-async function routeBackend(page, prompt, profile) {
+async function routeBackend(page, prompt, { profile, exportFormat, keepOpen = false } = {}) {
   const calls = [];
   let release;
   const released = new Promise(resolve => { release = resolve; });
+  let receiveResult;
+  const resultReceived = new Promise(resolve => { receiveResult = resolve; });
   const json = (route, body) => route.fulfill({ status: 200, headers: CORS, contentType: 'application/json', body: JSON.stringify(body) });
   await page.route(`http://127.0.0.1:${BACKEND_PORT}/**`, async route => {
     const request = route.request();
@@ -36,23 +38,24 @@ async function routeBackend(page, prompt, profile) {
       calls.push({ method, params });
       if (method === 'zerochat/run/prompt') {
         await released;
-        return reply({ prompt, profile: profile ?? null });
+        return reply({ prompt, profile: profile ?? null, export: exportFormat ?? null, keep_open: keepOpen });
       }
+      if (method === 'zerochat/run/result') receiveResult();
       return reply({ ok: true });
     }
     return json(route, { jsonrpc: '2.0', id, error: { code: -32601, message: `Unsupported ${method}` } });
   });
-  return { calls, release };
+  return { calls, release, resultReceived };
 }
 
 /** Abre la interfaz como la abre el modo ejecución, con window.close() registrado en vez de cerrar. */
-async function openRun(browser, server, prompt, { profile, seedProfiles = false } = {}) {
+async function openRun(browser, server, prompt, { seedProfiles = false, ...runOptions } = {}) {
   const page = await browser.newPage();
   if (seedProfiles) await seedConnectionProfiles(page);
   await page.addInitScript(() => {
     window.close = () => { window.__closed = true; };
   });
-  const backend = await routeBackend(page, prompt, profile);
+  const backend = await routeBackend(page, prompt, runOptions);
   const fragment = new URLSearchParams({ token: 'run-token', host: '127.0.0.1', port: String(BACKEND_PORT), run: RUN_ID });
   await page.goto(`http://127.0.0.1:${server.address().port}/zerochat.html#${fragment}`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.ChatState.get('mcp').status === 'connected');
@@ -136,18 +139,22 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     }
   });
 
-  test('Browser UI - el modo ejecución devuelve el error de generación', async () => {
+  test('Browser UI - el modo ejecución exporta la conversación, devuelve el error de generación y deja la página abierta con keep_open', async () => {
     const server = await startStaticServer();
     const browser = await createTestBrowser();
     try {
-      const { page, backend } = await openRun(browser, server, 'Hola');
+      const { page, backend } = await openRun(browser, server, 'Hola', { exportFormat: 'markdown', keepOpen: true });
       await page.evaluate(() => {
         window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
         window.ChatAPI.streamChatCompletion = async () => { throw new Error('Provider unavailable'); };
       });
       backend.release();
-      await page.waitForFunction(() => window.__closed === true);
+      await backend.resultReceived;
       assert.deepEqual(resultOf(backend), { run_id: RUN_ID, error: 'Provider unavailable' });
+      const exportCall = backend.calls.find(call => call.method === 'zerochat/run/export');
+      assert.ok(backend.calls.indexOf(exportCall) < backend.calls.findIndex(call => call.method === 'zerochat/run/result'), 'la exportación llega antes del resultado');
+      assert.match(exportCall.params.content, /### .+\n\nHola\n/);
+      assert.equal(await page.evaluate(() => window.__closed === true), false, 'keep_open no cierra la página');
     } finally {
       await browser.close();
       await stopStaticServer(server);

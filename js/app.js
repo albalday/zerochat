@@ -871,6 +871,7 @@
         connectBackend,
         sessionsLoaded,
         activateSessionProfile: profileId => UIProfiles.activateConnectionProfile(profileId, { sessionOnly: true }),
+        exportConversation: async format => (await UITransfer.buildConversationExport(format)).content,
         submitComposerText
       });
     }

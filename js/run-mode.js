@@ -2,7 +2,8 @@
  * Modo ejecución desatendida (zerochat.py --prompt). El backend abre la interfaz con `run=<id>` en
  * el fragmento de arranque: la página pide el prompt, lo envía en la conversación nueva con la que
  * arranca, informa del progreso, resuelve sola los diálogos, deniega las herramientas que piden
- * aprobación, devuelve el resultado y se cierra. Todo viaja por JSON-RPC zerochat/run/*.
+ * aprobación, exporta la conversación si se pidió (--export), devuelve el resultado y se cierra
+ * salvo con --keep-open. Todo viaja por JSON-RPC zerochat/run/*.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -85,20 +86,23 @@
   /**
    * Ejecuta la petición: `startupConnection` es la conexión del arranque, `connectBackend` la
    * reintenta, `sessionsLoaded` espera a la conversación inicial, `activateSessionProfile` activa
-   * sin guardarlo el perfil de conexión pedido (nombre o id) y `submitComposerText` envía el prompt
-   * como el usuario y devuelve { text } o { error }.
+   * sin guardarlo el perfil de conexión pedido (nombre o id), `submitComposerText` envía el prompt
+   * como el usuario y devuelve { text } o { error }, y `exportConversation` da la conversación
+   * activa en un formato de ChatExport.
    */
-  async function start(runId, { messagesList, startupConnection, connectBackend, sessionsLoaded, activateSessionProfile, submitComposerText }) {
+  async function start(runId, { messagesList, startupConnection, connectBackend, sessionsLoaded, activateSessionProfile, submitComposerText, exportConversation }) {
     const send = (method, params = {}) => getMcpManager().requestExternalControl(method, { run_id: runId, ...params });
     const report = createProgressReporter(event => {
       send('zerochat/run/progress', event).catch(error => console.warn('[RunMode] Could not report progress:', error));
     });
+    let keepOpen = false;
     try {
       dismissDialogs(report);
       denyToolApprovals(messagesList, report);
       await sessionsLoaded;
       await waitForBackend(startupConnection, connectBackend);
-      const { prompt, profile } = await send('zerochat/run/prompt');
+      const { prompt, profile, export: exportFormat, keep_open: keepOpenRequested } = await send('zerochat/run/prompt');
+      keepOpen = keepOpenRequested === true;
       if (typeof prompt !== 'string' || !prompt) throw new Error('The local server returned no prompt.');
       if (profile) {
         const match = getProfiles().findByName(profile) || getProfiles().get(profile);
@@ -107,13 +111,21 @@
         report({ kind: 'profile', text: match.name });
       }
       const result = await submitComposerText(prompt, { onProgress: report });
+      // La conversación se exporta también tras un error de generación; si falla, el resultado sigue.
+      if (exportFormat) {
+        try {
+          await send('zerochat/run/export', { content: await exportConversation(exportFormat) });
+        } catch (error) {
+          console.error('[RunMode] Could not export the conversation:', error);
+        }
+      }
       await send('zerochat/run/result', result.error ? { error: result.error } : { text: result.text });
     } catch (error) {
       console.error('[RunMode] Unattended run failed:', error);
       await send('zerochat/run/result', { error: error?.message || String(error) })
         .catch(sendError => console.error('[RunMode] Could not send the result:', sendError));
     } finally {
-      window.close();
+      if (!keepOpen) window.close();
     }
   }
 

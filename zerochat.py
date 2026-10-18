@@ -3792,15 +3792,23 @@ RUN_EXIT_DONE = 0
 RUN_EXIT_ERROR = 1
 RUN_EXIT_TIMEOUT = 2
 RUN_EXIT_SETUP = 3
+# Formato de --export según la extensión del fichero; la interfaz genera el contenido con ChatExport.
+RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json"}
 
 
 class RunSession:
-    """Estado de la ejecución: prompt, perfil, último progreso, resultado y motivo de un final sin él."""
-    def __init__(self, prompt: str, profile: str | None = None):
+    """Estado de la ejecución: prompt, opciones, último progreso, exportación, resultado y motivo de un final sin él."""
+    def __init__(self, prompt: str, profile: str | None = None, export_path: Path | None = None, keep_open: bool = False):
         self.run_id = secrets.token_urlsafe(24)
         self.prompt = prompt
         # Perfil de conexión (nombre o id) que la interfaz usa solo en esta ejecución; None, el activo.
         self.profile = profile
+        # Fichero donde se escribe la conversación exportada (formato por su extensión); None, sin exportar.
+        self.export_path = export_path
+        self.exported = False
+        self.export_error: str | None = None
+        # La interfaz no cierra la página al terminar, para ver la conversación (sin --headless).
+        self.keep_open = keep_open
         self.lock = threading.Lock()
         self.last_activity = time.monotonic()
         self.prompt_delivered = False
@@ -3834,7 +3842,8 @@ def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, s
                 return None, {"code": -32602, "message": "El prompt ya se entregó."}, ""
             session.prompt_delivered = True
         session.touch()
-        return {"prompt": session.prompt, "profile": session.profile}, None, ""
+        export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
+        return {"prompt": session.prompt, "profile": session.profile, "export": export_format, "keep_open": session.keep_open}, None, ""
     if method == "zerochat/run/progress":
         kind = params.get("kind")
         text = params.get("text", "")
@@ -3844,6 +3853,22 @@ def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, s
         if len(text) > RUN_PROGRESS_TEXT_MAX:
             text = text[:RUN_PROGRESS_TEXT_MAX] + "…"
         log_event(f"[run] {kind}{': ' + text if text else ''}")
+        return {"ok": True}, None, ""
+    if method == "zerochat/run/export":
+        content = params.get("content")
+        if session.export_path is None or not isinstance(content, str):
+            return None, {"code": -32602, "message": "Exportación no pedida o sin contenido."}, ""
+        with session.lock:
+            if session.exported:
+                return None, {"code": -32602, "message": "La exportación ya se recibió."}, ""
+            try:
+                session.export_path.write_text(content, encoding="utf-8")
+            except OSError as exc:
+                session.export_error = f"No se pudo escribir {session.export_path}: {exc}"
+                return None, {"code": -32603, "message": session.export_error}, ""
+            session.exported = True
+        session.touch()
+        log_event(f"[run] Conversación exportada en {session.export_path}")
         return {"ok": True}, None, ""
     if method == "zerochat/run/result":
         text = params.get("text")
@@ -3881,7 +3906,12 @@ def run_error(message: str):
 
 
 def run_outcome(session: RunSession) -> tuple[int, str | None]:
-    """Código de salida y respuesta final (solo si terminó bien), con el motivo de un fallo en stderr."""
+    """
+    Código de salida y respuesta final (solo si terminó bien), con el motivo de un fallo en stderr;
+    una exportación pedida que no se escribió convierte un final correcto en error sin quitar la respuesta.
+    """
+    if session.export_path and not session.exported:
+        run_error(session.export_error or f"La interfaz no envió la conversación para {session.export_path}.")
     if session.result is None:
         run_error(session.stop_reason or "El navegador se cerró o la ejecución se interrumpió sin resultado.")
         return RUN_EXIT_TIMEOUT, None
@@ -3889,6 +3919,8 @@ def run_outcome(session: RunSession) -> tuple[int, str | None]:
         run_error(f"Error de generación: {session.result['error']}")
         return RUN_EXIT_ERROR, None
     log_event("[run] Ejecución terminada.")
+    if session.export_path and not session.exported:
+        return RUN_EXIT_ERROR, session.result["text"]
     return RUN_EXIT_DONE, session.result["text"]
 
 
@@ -3943,6 +3975,8 @@ def main():
     parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 plazo agotado o navegador cerrado, 3 fallo de arranque)")
     parser.add_argument("--profile", default=None, help="Con --prompt, perfil de conexión (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo")
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt)")
+    parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
+    parser.add_argument("--keep-open", action="store_true", help="Con --prompt, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")
     parser.add_argument("--headless", action="store_true", help="Con --prompt, abrir el navegador predeterminado sin ventana (si ya está abierto puede verse la pestaña)")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     args = parser.parse_args()
@@ -3952,8 +3986,8 @@ def main():
 
     # Modo ejecución: stdout queda solo para la respuesta final; todo el registro va a stderr.
     result_out = sys.stdout
-    if args.prompt is None and (args.headless or args.profile is not None):
-        parser.error("--headless y --profile solo se usan con --prompt")
+    if args.prompt is None and (args.headless or args.keep_open or args.profile is not None or args.export is not None):
+        parser.error("--headless, --keep-open, --profile y --export solo se usan con --prompt")
     if args.prompt is not None:
         if not args.prompt.strip():
             run_error("El prompt está vacío.")
@@ -3962,7 +3996,16 @@ def main():
             parser.error("--prompt necesita abrir el navegador: no se combina con --no-browser")
         if args.profile is not None and not args.profile.strip():
             parser.error("--profile no puede estar vacío")
-        RUN_SESSION = RunSession(args.prompt.strip(), args.profile.strip() if args.profile else None)
+        if args.keep_open and args.headless:
+            parser.error("--keep-open necesita la ventana del navegador: no se combina con --headless")
+        export_path = None
+        if args.export is not None:
+            export_path = Path(args.export).expanduser().absolute()
+            if export_path.suffix.lower() not in RUN_EXPORT_FORMATS:
+                parser.error(f"--export necesita una extensión {' o '.join(RUN_EXPORT_FORMATS)}")
+            if not export_path.parent.is_dir():
+                parser.error(f"--export: no existe el directorio {export_path.parent}")
+        RUN_SESSION = RunSession(args.prompt.strip(), args.profile.strip() if args.profile else None, export_path, args.keep_open)
     # Todo el registro pasa por stdout: con --prompt va a stderr para dejar stdout a la respuesta,
     # y con --log off se descarta.
     log_enabled = args.log == "on" if args.log else RUN_SESSION is None
