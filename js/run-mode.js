@@ -16,6 +16,7 @@
   const { resolveDep } = Utils;
   const getState = () => resolveDep('ChatState', './state.js');
   const getMcpManager = () => resolveDep('ChatMCP', './mcp.js').manager;
+  const getProfiles = () => resolveDep('ChatProfileRepository', './profile-repository.js');
 
   const RUN_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
   // El streaming informa como mucho cada este intervalo; el resto de avisos, siempre.
@@ -83,10 +84,11 @@
 
   /**
    * Ejecuta la petición: `startupConnection` es la conexión del arranque, `connectBackend` la
-   * reintenta, `sessionsLoaded` espera a la conversación inicial y `submitComposerText` envía el
-   * prompt como el usuario y devuelve { text } o { error }.
+   * reintenta, `sessionsLoaded` espera a la conversación inicial, `activateSessionProfile` activa
+   * sin guardarlo el perfil de conexión pedido (nombre o id) y `submitComposerText` envía el prompt
+   * como el usuario y devuelve { text } o { error }.
    */
-  async function start(runId, { messagesList, startupConnection, connectBackend, sessionsLoaded, submitComposerText }) {
+  async function start(runId, { messagesList, startupConnection, connectBackend, sessionsLoaded, activateSessionProfile, submitComposerText }) {
     const send = (method, params = {}) => getMcpManager().requestExternalControl(method, { run_id: runId, ...params });
     const report = createProgressReporter(event => {
       send('zerochat/run/progress', event).catch(error => console.warn('[RunMode] Could not report progress:', error));
@@ -96,8 +98,14 @@
       denyToolApprovals(messagesList, report);
       await sessionsLoaded;
       await waitForBackend(startupConnection, connectBackend);
-      const { prompt } = await send('zerochat/run/prompt');
+      const { prompt, profile } = await send('zerochat/run/prompt');
       if (typeof prompt !== 'string' || !prompt) throw new Error('The local server returned no prompt.');
+      if (profile) {
+        const match = getProfiles().findByName(profile) || getProfiles().get(profile);
+        if (!match) throw new Error(`Connection profile not found: ${profile}`);
+        activateSessionProfile(match.id);
+        report({ kind: 'profile', text: match.name });
+      }
       const result = await submitComposerText(prompt, { onProgress: report });
       await send('zerochat/run/result', result.error ? { error: result.error } : { text: result.text });
     } catch (error) {

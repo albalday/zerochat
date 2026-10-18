@@ -17,10 +17,12 @@ RUN_EXIT_SETUP = 3
 
 
 class RunSession:
-    """Estado de la ejecución: prompt, último progreso, resultado y motivo de un final sin él."""
-    def __init__(self, prompt: str):
+    """Estado de la ejecución: prompt, perfil, último progreso, resultado y motivo de un final sin él."""
+    def __init__(self, prompt: str, profile: str | None = None):
         self.run_id = secrets.token_urlsafe(24)
         self.prompt = prompt
+        # Perfil de conexión (nombre o id) que la interfaz usa solo en esta ejecución; None, el activo.
+        self.profile = profile
         self.lock = threading.Lock()
         self.last_activity = time.monotonic()
         self.prompt_delivered = False
@@ -54,7 +56,7 @@ def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, s
                 return None, {"code": -32602, "message": "El prompt ya se entregó."}, ""
             session.prompt_delivered = True
         session.touch()
-        return {"prompt": session.prompt}, None, ""
+        return {"prompt": session.prompt, "profile": session.profile}, None, ""
     if method == "zerochat/run/progress":
         kind = params.get("kind")
         text = params.get("text", "")

@@ -870,6 +870,7 @@
         startupConnection: startupMcpConnection,
         connectBackend,
         sessionsLoaded,
+        activateSessionProfile: profileId => UIProfiles.activateConnectionProfile(profileId, { sessionOnly: true }),
         submitComposerText
       });
     }

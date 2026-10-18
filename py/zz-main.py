@@ -38,6 +38,7 @@ def main():
     parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación de ~/zerochat/.venv")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
     parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 plazo agotado o navegador cerrado, 3 fallo de arranque)")
+    parser.add_argument("--profile", default=None, help="Con --prompt, perfil de conexión (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo")
     parser.add_argument("--headless", action="store_true", help="Con --prompt, abrir el navegador predeterminado sin ventana (si ya está abierto puede verse la pestaña)")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     args = parser.parse_args()
@@ -47,8 +48,8 @@ def main():
 
     # Modo ejecución: stdout queda solo para la respuesta final; todo el registro va a stderr.
     result_out = sys.stdout
-    if args.prompt is None and args.headless:
-        parser.error("--headless solo se usa con --prompt")
+    if args.prompt is None and (args.headless or args.profile is not None):
+        parser.error("--headless y --profile solo se usan con --prompt")
     if args.prompt is not None:
         if not args.prompt.strip():
             print(timestamp_message("[run] El prompt está vacío."), file=sys.stderr)
@@ -56,7 +57,9 @@ def main():
         if args.no_browser:
             parser.error("--prompt necesita abrir el navegador: no se combina con --no-browser")
         sys.stdout = sys.stderr
-        RUN_SESSION = RunSession(args.prompt.strip())
+        if args.profile is not None and not args.profile.strip():
+            parser.error("--profile no puede estar vacío")
+        RUN_SESSION = RunSession(args.prompt.strip(), args.profile.strip() if args.profile else None)
 
     if args.test:
         print(timestamp_message(f"TEST list_directory {'ok' if json.loads(list_directory('.'))['success'] else 'error'}"))

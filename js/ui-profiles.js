@@ -114,9 +114,9 @@
     syncProfileSaveState();
   }
 
-  function activateConnectionProfile(profileId) {
+  function activateConnectionProfile(profileId, activationOptions) {
     getWebLLM().adapter.disposeActiveEngine().catch(() => {});
-    getConfig().activateProfile(profileId);
+    getConfig().activateProfile(profileId, activationOptions);
     options.loadCachedModels();
     options.resetTelemetryDisplay();
   }

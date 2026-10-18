@@ -1,6 +1,6 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { createTestBrowser, closeGlobalBrowser, startStaticServer, stopStaticServer } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, startStaticServer, stopStaticServer, seedConnectionProfiles } = require('../helpers/browser-env.js');
 
 // Modo ejecución (zerochat.py --prompt) sobre la aplicación real: el servidor local se simula en
 // la red de la página y el proveedor en ChatAPI.streamChatCompletion.
@@ -14,7 +14,7 @@ const CORS = {
 };
 
 /** Servidor local falso: registra las llamadas zerochat/run/* y retiene el prompt hasta `release`. */
-async function routeBackend(page, prompt) {
+async function routeBackend(page, prompt, profile) {
   const calls = [];
   let release;
   const released = new Promise(resolve => { release = resolve; });
@@ -36,7 +36,7 @@ async function routeBackend(page, prompt) {
       calls.push({ method, params });
       if (method === 'zerochat/run/prompt') {
         await released;
-        return reply({ prompt });
+        return reply({ prompt, profile: profile ?? null });
       }
       return reply({ ok: true });
     }
@@ -46,12 +46,13 @@ async function routeBackend(page, prompt) {
 }
 
 /** Abre la interfaz como la abre el modo ejecución, con window.close() registrado en vez de cerrar. */
-async function openRun(browser, server, prompt) {
+async function openRun(browser, server, prompt, { profile, seedProfiles = false } = {}) {
   const page = await browser.newPage();
+  if (seedProfiles) await seedConnectionProfiles(page);
   await page.addInitScript(() => {
     window.close = () => { window.__closed = true; };
   });
-  const backend = await routeBackend(page, prompt);
+  const backend = await routeBackend(page, prompt, profile);
   const fragment = new URLSearchParams({ token: 'run-token', host: '127.0.0.1', port: String(BACKEND_PORT), run: RUN_ID });
   await page.goto(`http://127.0.0.1:${server.address().port}/zerochat.html#${fragment}`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.ChatState.get('mcp').status === 'connected');
@@ -99,6 +100,36 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
       assert.deepEqual(messages.filter(message => message.role === 'user').map(message => message.content), ['Resume el proyecto']);
       assert.equal(messages.at(-1).content, 'Respuesta final sin la herramienta');
       assert.equal(await page.evaluate(() => (window.ChatState.get('ui').notices || []).length), 0);
+    } finally {
+      await browser.close();
+      await stopStaticServer(server);
+    }
+  });
+
+  test('Browser UI - el modo ejecución usa el perfil pedido solo en esa página y rechaza uno inexistente', async () => {
+    const server = await startStaticServer();
+    const browser = await createTestBrowser();
+    try {
+      const { page, backend } = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true });
+      const storedBefore = await page.evaluate(() => window.ChatStorage.loadRuntimeConfigV2()?.activeProfile?.id);
+      await page.evaluate(() => {
+        window.ChatAPI.streamChatCompletion = async params => {
+          window.__model = params.model;
+          return { accumulatedText: 'ok', toolCalls: null, stats: null };
+        };
+      });
+      backend.release();
+      await page.waitForFunction(() => window.__closed === true);
+      assert.deepEqual(resultOf(backend), { run_id: RUN_ID, text: 'ok' });
+      assert.equal(await page.evaluate(() => window.__model), 'google/gemma-4-26b-a4b-qat');
+      assert.equal(await page.evaluate(() => window.ChatConfig.getActive().activeProfile.id), 'profile:local');
+      assert.notEqual(storedBefore, 'profile:local');
+      assert.equal(await page.evaluate(() => window.ChatStorage.loadRuntimeConfigV2()?.activeProfile?.id), storedBefore, 'el perfil activo guardado no cambia');
+
+      const missing = await openRun(browser, server, 'Hola', { profile: 'No existe', seedProfiles: true });
+      missing.backend.release();
+      await missing.page.waitForFunction(() => window.__closed === true);
+      assert.deepEqual(resultOf(missing.backend), { run_id: RUN_ID, error: 'Connection profile not found: No existe' });
     } finally {
       await browser.close();
       await stopStaticServer(server);

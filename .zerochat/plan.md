@@ -49,6 +49,7 @@ Done when: zerochat.py --prompt starts like a normal run (same port, UI and brow
 - [ ] M18-T7 /help (ES/EN) and py/README.md for run mode, and manual end-to-end check headless and visible (including whether the visible window closes)
 - [x] M18-T8 Rework run mode onto the normal zerochat.py startup: default port and UI, normal browser launcher with run= in the fragment, heartbeat detects a closed browser; remove the Firefox profile module and --prompt-file/--timeout (2026-10-18)
 - [x] M18-T9 Best-effort --headless for --prompt: launch the default browser executable with --headless on the normal profile, falling back to the normal launcher (2026-10-18)
+- [x] M18-T10 --profile for --prompt: the UI runs with that connection profile (name or id) for this page only, without changing the saved active profile (2026-10-18)
 
 ## M19 Web image ingestion and multimodal analysis: closed 2026-10-16
 

@@ -41,7 +41,9 @@ def save():
     Path(os.environ["FAKE_UI_INFO"]).write_text(json.dumps(info), encoding="utf-8")
 
 info["wrong_run_id"] = rpc("zerochat/run/prompt", run_id="x" * 32).get("error", {}).get("message")
-prompt = rpc("zerochat/run/prompt")["result"]["prompt"]
+delivered = rpc("zerochat/run/prompt")["result"]
+prompt = delivered["prompt"]
+info["profile"] = delivered["profile"]
 info["second_prompt"] = rpc("zerochat/run/prompt").get("error", {}).get("message")
 save()
 if scenario == "ok":
@@ -63,7 +65,7 @@ elif scenario == "idle":
     time.sleep(5)
 `;
 
-function runZerochat(prompt, { scenario = 'ok', env = {}, port } = {}) {
+function runZerochat(prompt, { scenario = 'ok', env = {}, port, args = [] } = {}) {
   const work = tempDir('zerochat-run-');
   const binDir = path.join(work, 'bin');
   fs.mkdirSync(binDir);
@@ -71,7 +73,7 @@ function runZerochat(prompt, { scenario = 'ok', env = {}, port } = {}) {
   fs.writeFileSync(path.join(binDir, 'xdg-open'), `#!${python}\n${FAKE_BROWSER}`, { mode: 0o755 });
   const infoPath = path.join(work, 'info.json');
   return Promise.resolve(port || freePort()).then(listenPort => new Promise(resolve => {
-    const proc = spawn('python3', [backendPath, '--no-venv', '--port', String(listenPort), '--prompt', prompt], {
+    const proc = spawn('python3', [backendPath, '--no-venv', '--port', String(listenPort), '--prompt', prompt, ...args], {
       cwd: repoRoot,
       env: {
         ...process.env,
@@ -99,7 +101,7 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
   await new Promise(resolve => busy.listen(0, '127.0.0.1', resolve));
   try {
     const [ok, failed, idle, chatty, browserGone, emptyPrompt, portInUse] = await Promise.all([
-      runZerochat('hola mundo'),
+      runZerochat('hola mundo', { args: ['--profile', ' Oficina '] }),
       runZerochat('hola', { scenario: 'error' }),
       runZerochat('hola', { scenario: 'idle', env: { ZEROCHAT_RUN_IDLE_SECONDS: '1' } }),
       runZerochat('hola', { scenario: 'chatty', env: { ZEROCHAT_RUN_IDLE_SECONDS: '1', ZEROCHAT_RUN_TIMEOUT: '2' } }),
@@ -113,6 +115,8 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     // La interfaz es la del arranque normal (la local en desarrollo) con run= en el fragmento.
     assert.equal(ok.info.url, `http://127.0.0.1:${ok.port}/zerochat.html`);
     assert.deepEqual(ok.info.fragment_keys, ['host', 'port', 'run', 'token']);
+    assert.equal(ok.info.profile, 'Oficina');
+    assert.equal(failed.info.profile, null, 'sin --profile la interfaz usa el perfil activo');
     assert.equal(ok.info.wrong_run_id, 'run_id no válido.');
     assert.equal(ok.info.second_prompt, 'El prompt ya se entregó.');
     assert.equal(ok.info.bad_result, 'El resultado lleva text o error.');
