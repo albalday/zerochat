@@ -83,16 +83,26 @@ elif scenario == "idle":
     time.sleep(5)
 `;
 
-function runZerochat(prompt, { scenario = 'ok', env = {}, port, args = [] } = {}) {
+/**
+ * Lanza zerochat.py --prompt con el navegador falso; `port: null` no pasa --port y `production`
+ * ejecuta una copia fuera del repositorio, que abre la interfaz de GitHub Pages.
+ */
+function runZerochat(prompt, { scenario = 'ok', env = {}, port, args = [], production = false } = {}) {
   const work = tempDir('zerochat-run-');
+  let script = backendPath;
+  if (production) {
+    script = path.join(work, 'zerochat.py');
+    fs.copyFileSync(backendPath, script);
+  }
   const binDir = path.join(work, 'bin');
   fs.mkdirSync(binDir);
   const python = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim();
   fs.writeFileSync(path.join(binDir, 'xdg-open'), `#!${python}\n${FAKE_BROWSER}`, { mode: 0o755 });
   const infoPath = path.join(work, 'info.json');
-  return Promise.resolve(port || freePort()).then(listenPort => new Promise(resolve => {
-    const proc = spawn('python3', [backendPath, '--no-venv', '--port', String(listenPort), '--prompt', prompt, ...args], {
-      cwd: repoRoot,
+  return Promise.resolve(port === null ? null : port || freePort()).then(listenPort => new Promise(resolve => {
+    const portArgs = listenPort === null ? [] : ['--port', String(listenPort)];
+    const proc = spawn('python3', [script, '--no-venv', ...portArgs, '--prompt', prompt, ...args], {
+      cwd: production ? work : repoRoot,
       env: {
         ...process.env,
         PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
@@ -123,7 +133,8 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
   const unwritable = path.join(exportDir, 'directorio.json');
   fs.mkdirSync(unwritable);
   try {
-    const [ok, failed, unexported, idle, chatty, browserGone, emptyPrompt, portInUse] = await Promise.all([
+    const busyPort = String(busy.address().port);
+    const [ok, failed, unexported, idle, chatty, browserGone, emptyPrompt, portInUse, devDefaultInUse, productionDefaultInUse] = await Promise.all([
       runZerochat('hola mundo', { args: ['--profile', ' Oficina ', '--log', 'on', '--export', exportPath, '--keep-open'] }),
       runZerochat('hola', { scenario: 'error' }),
       runZerochat('hola', { args: ['--export', unwritable] }),
@@ -131,7 +142,10 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
       runZerochat('hola', { scenario: 'chatty', env: { ZEROCHAT_RUN_IDLE_SECONDS: '1', ZEROCHAT_RUN_TIMEOUT: '2' } }),
       runZerochat('hola', { scenario: 'exit', env: { ZEROCHAT_HEARTBEAT_TIMEOUT: '1' } }),
       runZerochat('   '),
-      runZerochat('hola', { port: busy.address().port })
+      runZerochat('hola', { port: busy.address().port }),
+      // Sin --port, el puerto por defecto (aquí ZEROCHAT_PORT) ocupado.
+      runZerochat('hola', { port: null, env: { ZEROCHAT_PORT: busyPort } }),
+      runZerochat('hola', { port: null, env: { ZEROCHAT_PORT: busyPort }, production: true })
     ]);
 
     assert.equal(ok.code, 0, ok.stderr);
@@ -181,6 +195,13 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(portInUse.code, 3);
     assert.match(portInUse.stderr, /No se pudo escuchar/);
     assert.equal(portInUse.info, null);
+    // Sin --port: en desarrollo es un fallo de arranque; en producción la ejecución usa un puerto libre.
+    assert.equal(devDefaultInUse.code, 3);
+    assert.match(devDefaultInUse.stderr, /en desarrollo la interfaz local necesita ese puerto/);
+    assert.equal(devDefaultInUse.info, null);
+    assert.equal(productionDefaultInUse.code, 0, productionDefaultInUse.stderr);
+    assert.equal(productionDefaultInUse.stdout, 'Respuesta a: hola\n');
+    assert.equal(productionDefaultInUse.info.url, 'https://albalday.github.io/zerochat/zerochat.html');
   } finally {
     busy.close();
   }

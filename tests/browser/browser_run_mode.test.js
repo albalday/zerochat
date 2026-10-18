@@ -103,6 +103,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
       assert.deepEqual(messages.filter(message => message.role === 'user').map(message => message.content), ['Resume el proyecto']);
       assert.equal(messages.at(-1).content, 'Respuesta final sin la herramienta');
       assert.equal(await page.evaluate(() => (window.ChatState.get('ui').notices || []).length), 0);
+      assert.equal(await page.evaluate(() => window.ChatStorage.getBackendSession()), null, 'la conexión de la ejecución no se guarda en la cookie de las demás pestañas');
     } finally {
       await browser.close();
       await stopStaticServer(server);

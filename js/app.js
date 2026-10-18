@@ -784,6 +784,8 @@
 
   // El fragmento se usa exclusivamente para el primer arranque desde zerochat.py.
   // Después la sesión se resuelve mediante una cookie del mismo origen.
+  let runBackendSession = null;
+
   function persistBackendSessionFromLaunchFragment() {
     const hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
     const token = hashParams.get('token');
@@ -793,7 +795,11 @@
       host: hashParams.get('host') || Defaults.CONFIG_DEFAULTS.mcpHost,
       port: hashParams.get('port') || Defaults.CONFIG_DEFAULTS.mcpPort
     });
-    if (session && !Storage.setBackendSession(session)) {
+    // El servidor de --prompt puede estar en otro puerto y termina con la ejecución: su conexión
+    // queda en esta página y la cookie sigue apuntando las demás pestañas al servidor normal.
+    if (hashParams.has('run')) {
+      runBackendSession = session;
+    } else if (session && !Storage.setBackendSession(session)) {
       console.warn('[App] Could not persist the initial backend session.');
     }
     history.replaceState(null, '', location.pathname + location.search);
@@ -802,7 +808,7 @@
   /** Conecta con zerochat.py si hay sesión o autoconexión; devuelve el resultado de la conexión. */
   function connectBackend() {
     persistBackendSessionFromLaunchFragment();
-    const backendSession = Storage.getBackendSession();
+    const backendSession = runBackendSession || Storage.getBackendSession();
     const token = backendSession?.token || MCP.manager.getSessionToken();
     if (token) {
       MCP.manager.setSessionToken(token);

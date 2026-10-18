@@ -3976,7 +3976,7 @@ def main():
     parser = argparse.ArgumentParser(description=f"ZeroChat Local Server v{VERSION}")
     # Desde Python 3.14 argparse colorea la ayuda con códigos ANSI; la consola la muestra en texto plano.
     parser.color = False
-    parser.add_argument("--port", type=int, default=int(os.environ.get("ZEROCHAT_PORT", DEFAULT_PORT)), help=f"Puerto de escucha (default: {DEFAULT_PORT})")
+    parser.add_argument("--port", type=int, default=None, help=f"Puerto de escucha (default: ZEROCHAT_PORT o {DEFAULT_PORT}; con --prompt, si está ocupado se usa otro libre salvo en desarrollo)")
     parser.add_argument("--host", default=os.environ.get("ZEROCHAT_HOST", DEFAULT_HOST), help=f"Host de escucha (default: {DEFAULT_HOST})")
     parser.add_argument("--ui-url", default=None, help="URL de la interfaz web a abrir (por defecto: interfaz local en desarrollo o GitHub Pages)")
     parser.add_argument("--no-browser", action="store_true", help="No abrir automáticamente el navegador")
@@ -4057,7 +4057,7 @@ def main():
     if not is_dev:
         threading.Thread(target=check_version, daemon=True).start()
 
-    ACTIVE_PORT = args.port
+    ACTIVE_PORT = args.port if args.port is not None else int(os.environ.get("ZEROCHAT_PORT", DEFAULT_PORT))
     ACTIVE_HOST = args.host
     SESSION_TOKEN = get_daily_token()
     # A restart deliberately invalidates every browser-side signing credential.
@@ -4066,13 +4066,25 @@ def main():
     with TOOL_AUTH_NONCES_LOCK:
         TOOL_AUTH_NONCES = {}
 
+    # La interfaz local de desarrollo tiene el puerto en su origen: en otro no vería los datos guardados.
+    local_ui = static_root is not None and not args.ui_url
     try:
         server = ThreadingHTTPServer((ACTIVE_HOST, ACTIVE_PORT), ZeroChatServerHandler)
     except OSError as exc:
         if not RUN_SESSION:
             raise
-        run_error(f"No se pudo escuchar en {ACTIVE_HOST}:{ACTIVE_PORT}: {exc}")
-        sys.exit(RUN_EXIT_SETUP)
+        if args.port is not None or local_ui:
+            hint = "" if args.port is not None else " (en desarrollo la interfaz local necesita ese puerto: cierra el zerochat que lo usa)"
+            run_error(f"No se pudo escuchar en {ACTIVE_HOST}:{ACTIVE_PORT}: {exc}{hint}")
+            sys.exit(RUN_EXIT_SETUP)
+        # Otro zerochat (u otro programa) usa el puerto por defecto: la ejecución usa uno libre.
+        try:
+            server = ThreadingHTTPServer((ACTIVE_HOST, 0), ZeroChatServerHandler)
+        except OSError as retry_exc:
+            run_error(f"No se pudo escuchar en {ACTIVE_HOST}: {retry_exc}")
+            sys.exit(RUN_EXIT_SETUP)
+        log_event(f"El puerto {ACTIVE_PORT} está ocupado; la ejecución usa el {server.server_address[1]}.")
+        ACTIVE_PORT = server.server_address[1]
     exposure_warning = remote_exposure_warning(ACTIVE_HOST)
     if exposure_warning:
         add_notice(exposure_warning)

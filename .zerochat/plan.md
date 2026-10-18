@@ -51,7 +51,7 @@ Done when: zerochat.py --prompt starts like a normal run (same port, UI and brow
 - [x] M18-T9 Best-effort --headless for --prompt: launch the default browser executable with --headless on the normal profile, falling back to the normal launcher (2026-10-18)
 - [x] M18-T10 --profile for --prompt: the UI runs with that connection profile (name or id) for this page only, without changing the saved active profile (2026-10-18)
 - [x] M18-T11 General --log on|off option: on by default, off by default with --prompt (2026-10-18)
-- [ ] M18-T12 Detect another running zerochat.py (default port in use or live session) when starting --prompt and decide how the run coexists with it
+- [x] M18-T12 Detect another running zerochat.py (default port in use or live session) when starting --prompt and decide how the run coexists with it (2026-10-18)
 - [ ] M18-T13 Run --prompt from cron: no terminal or graphical session (DISPLAY/WAYLAND_DISPLAY, DBUS), environment and PATH, browser launch and output/exit codes for scheduled jobs
 - [x] M18-T14 Export the --prompt conversation with the current exporter options (Markdown, session JSON, print/PDF) to a file chosen on the command line, reusing ChatExport (2026-10-18)
 - [ ] M18-T15 Unattended approvals in --prompt: always answer allow for this session, except write_file, edit_file and execute_command, which are denied according to command-line parameters; and inventory the MCP servers the run needs available
