@@ -579,20 +579,31 @@ select.form-input:focus-visible {
   gap: 0.85rem;
 }
 
+.profile-chapters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
 .profile-chapter {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   background: var(--bg-surface);
+  overflow: hidden;
 }
 
 .profile-chapter-summary {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.65rem 0.8rem;
-  border-radius: var(--radius-md);
+  gap: 0.45rem;
+  padding: 0.4rem 0.7rem;
+  background: var(--bg-surface-subtle);
   cursor: pointer;
   list-style: none;
+}
+
+.profile-chapter-summary:focus-visible {
+  outline-offset: -2px;
 }
 
 .profile-chapter-summary::-webkit-details-marker {
@@ -600,7 +611,7 @@ select.form-input:focus-visible {
 }
 
 .profile-chapter-summary:hover {
-  background: var(--bg-hover);
+  background-image: linear-gradient(var(--overlay-strong), var(--overlay-strong));
 }
 
 .profile-chapter-chevron {
@@ -615,7 +626,7 @@ select.form-input:focus-visible {
 
 .profile-chapter-title {
   flex-shrink: 0;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 600;
 }
 
@@ -718,7 +729,7 @@ select.form-input:focus-visible {
   flex-direction: column;
   gap: 0.85rem;
   padding: 0.85rem 0.8rem;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--border-color);
 }
 
 .form-field input[type="text"],
