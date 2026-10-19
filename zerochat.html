@@ -23,7 +23,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#0d1117">
   <meta name="description" content="ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación">
-  <title>ZeroChat v9.6.0</title>
+  <title>ZeroChat v9.6.1</title>
   <link rel="manifest" href="manifest.webmanifest">
   <!-- Carga concurrente paralela de hojas de estilo (elimina la cascada bloqueante de @import en móvil) -->
   <link rel="stylesheet" href="css/tokens.css">
@@ -309,14 +309,14 @@
       <div class="header-center">
         <!-- Selector de Perfil Activo (movido desde el compositor) -->
         <div id="active-profile-menu" class="header-profile-menu">
-          <button type="button" id="active-profile-trigger" class="header-profile-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls="active-profile-list" data-i18n-title="profile_badge_title" title="Perfil de conexión activo">
+          <button type="button" id="active-profile-trigger" class="header-profile-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls="active-profile-list" data-i18n-title="profile_badge_title" title="Perfil activo">
             <span class="profile-icon"><svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-zap"></use></svg></span>
             <span id="active-profile-name" class="header-profile-name">Espejo</span>
             <span class="profile-chevron"><svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-up"></use></svg></span>
           </button>
           <div id="active-profile-popover" class="header-profile-popover" hidden>
             <div class="header-profile-popover-header">
-              <span id="profile-menu-title" class="header-profile-popover-title" data-i18n="profile_menu_title">Perfiles de conexión</span>
+              <span id="profile-menu-title" class="header-profile-popover-title" data-i18n="profile_menu_title">Perfiles</span>
               <div class="header-profile-header-actions">
                 <button type="button" id="btn-menu-new-profile" class="btn-profile-header-icon" data-i18n-title="btn_new_profile_title" title="Crear un perfil nuevo" aria-label="Crear un perfil nuevo">
                   <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-plus"></use></svg>
@@ -357,7 +357,7 @@
         <a id="welcome-help-link" class="welcome-status-badge welcome-help-link" href="help/index.html" target="_blank" rel="noopener noreferrer" data-i18n-title="welcome_help_title" data-i18n-href="welcome_help_href" title="Abrir centro de ayuda y documentación online">
           <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg>
           <span data-i18n="welcome_help_link">Ayuda y Documentación</span>
-          <span id="welcome-version" class="welcome-version">(v9.6.0)</span>
+          <span id="welcome-version" class="welcome-version">(v9.6.1)</span>
           <svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-external-link"></use></svg>
         </a>
       </div>

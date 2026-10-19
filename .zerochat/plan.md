@@ -3,11 +3,23 @@
 ## M1 Project setup: closed 2026-10-12
 
 ## M2 Audit closure, Anthropic connection and detected bugs: closed 2026-10-13
-## M3 Playwright automation scripts
-Goal: Use ZeroChat to write and maintain Playwright automation scripts.
-Done when: to be agreed with the user before the milestone starts.
-- [ ] M3-T1 Study with the user how to approach Playwright scripts and agree the milestone's Done when
-- [ ] M3-T2 True headless and concurrent zerochat.py --prompt runs on a copy of the user's browser profile, starting from M18-D2/D3/D5/D6/D7 (selective Firefox copy of storage/default/<UI origin> plus its moz_perms rows via the SQLite backup API with a raw copy+WAL fallback for exclusively locked databases, 0700 and deleted after use; Playwright storageState for Chromium; headless needs local network access granted) and the dropped M18-T4 code in git history (commit a4b9bbd, py/hh-firefox-profile.py)
+## M3 Playwright and browser_action configuration
+Goal: A Playwright panel in Settings that installs the browser engines and holds the default configuration shared by Playwright MCP and browser_action, with parameters each ZeroChat profile can override, so a later scripts project can rely on them.
+Done when: the Playwright panel lists, installs and removes the browser engines and edits the default configuration used by both Playwright MCP and browser_action; each profile can override those parameters and the effective configuration applies to the interactive session and to zerochat --prompt --profile; with ES/EN help and tests.
+- [x] M3-T1 Study with the user how to approach Playwright scripts and agree the milestone's Done when (2026-10-19)
+- [x] M3-T2 True headless and concurrent zerochat.py --prompt runs on a copy of the user's browser profile, starting from M18-D2/D3/D5/D6/D7 (selective Firefox copy of storage/default/<UI origin> plus its moz_perms rows via the SQLite backup API with a raw copy+WAL fallback for exclusively locked databases, 0700 and deleted after use; Playwright storageState for Chromium; headless needs local network access granted) and the dropped M18-T4 code in git history (commit a4b9bbd, py/hh-firefox-profile.py) (dropped: outside the new M3 scope (Playwright and browser_action configuration); it concerns the browser running the ZeroChat UI in --prompt runs and needs a new task when taken up, see M3-D7)
+- [x] M3-T3 Playwright parameters as a section of the profile (browser, headless, isolated or persistent browser profile, origins, code generation, output directory): the backend generates the MCP config.json from the active profile in ~/zerochat/config/playwright/<profile file id>.json (0700 directory, safe file name derived from the profile id, outside the MCP service directory), keeps persistent browser profiles in ~/zerochat/playwright-profiles/<profile file id>/ (0700), launches the MCP with --config and migrates the current headless option; deleting a profile deletes its generated config and persistent browser profile (dropped: replaced by M3-T10 and M3-T14, see M3-D7)
+- [x] M3-T4 Playwright section in the profile editor: browser (installing it), headless, isolated or persistent browser profile, allowed/blocked origins, code generation and an output directory for screenshots and traces instead of the MCP service directory; profile backups and exports carry the parameters (dropped: replaced by M3-T12 and M3-T13, see M3-D7)
+- [x] M3-T5 Playwright secrets of each profile in a 0600 .env passed with --secrets (dropped: secrets belong to the scripts project, not to ZeroChat, see M3-D5)
+- [x] M3-T6 browser_action applies the active Playwright configuration (browser, headless, profile, origins) (dropped: replaced by M3-T10, see M3-D7)
+- [x] M3-T7 zerochat --prompt --playwright-config <name> for one run, with a clear error when the persistent profile is in use (dropped: the profile chooses the Playwright configuration, see M3-T9 and M3-D2)
+- [x] M3-T8 Installed Playwright version and browsers shown in the settings screen and given to the model with a read-only description of the active configuration, so generated scripts pin the same version and reuse the downloaded browsers (dropped: installed version and browsers go to the panel (M3-T11); what the model knows for script generation belongs to the scripts project, see M3-D7)
+- [x] M3-T9 Applying the profile's Playwright parameters: activating a profile with other parameters restarts the MCP after a notice (last activated tab wins), --prompt --profile hands them to the run's backend before Playwright starts, and a clear error when the persistent browser profile is in use (dropped: replaced by M3-T14, see M3-D7)
+- [ ] M3-T10 Default Playwright configuration in ~/zerochat/config/playwright/default.json (0700 directory, outside the MCP service directory) in the Playwright MCP config.json format: the MCP launches with --config, browser_action reads the same browser, headless, browser profile and origins, and the current headless service option migrates into it
+- [ ] M3-T11 Browser engines: list the installed Playwright version and its own engines (Chromium, Firefox, WebKit), install or remove them with progress inside the Playwright cache, and only detect whether a system browser (Chrome, Edge) can be used, never installing anything system-wide
+- [ ] M3-T12 Playwright panel in Settings: engines (M3-T11) and default parameters (browser, headless, isolated or persistent browser profile in ~/zerochat/playwright-profiles/, allowed/blocked origins, code generation, output directory for screenshots and traces instead of the MCP service directory), restarting the MCP after a notice when they change; ES/EN help
+- [ ] M3-T13 Profile overrides: a profile field holding only the Playwright parameters that differ from the default, edited in the profile editor, carried by profile backups and exports
+- [ ] M3-T14 Effective configuration: default plus the active profile's overrides, generated as the MCP config file of that profile, applied on profile activation (MCP restart after a notice, last activated tab wins) and by --prompt --profile before Playwright starts, with a clear error when a persistent browser profile is in use; deleting a profile deletes its generated config and browser profile
 
 ## M4 Images and office files in the chat: closed 2026-10-16
 
@@ -37,29 +49,7 @@ Done when: to be agreed with the user before the milestone starts.
 
 ## M17 Native XLSX reading without external libraries: closed 2026-10-16
 
-## M18 Unattended prompt execution and browser profiles
-Goal: Run a ZeroChat prompt from the zerochat.py command line, letting the UI process it and return the result, and find out how to reuse copies of the user's browser profiles (sessions, cookies, ZeroChat settings) for the UI and for Playwright automation, as groundwork for the Playwright scripts milestone (M3).
-Done when: zerochat.py --prompt starts like a normal run (same port, UI and browser launcher), the UI runs the prompt with the user's ZeroChat configuration, only the final answer reaches stdout with the agreed exit codes, the run aborts on idle or total timeout or when the browser closes without a result, with tests and /help (ES/EN) updated; headless runs, profile copies and several concurrent runs are handled in later tasks.
-- [x] M18-T1 Exploratory tests P1-P2: tab self-closing and headless UI behaviour (JS, IndexedDB, fetch to 127.0.0.1) in Firefox and Chromium across launch methods (2026-10-16)
-- [x] M18-T2 Exploratory tests P3-P5: copying Firefox and Chromium profiles and inheriting sessions in Playwright (persistent context vs. storageState) (2026-10-16)
-- [x] M18-T3 Decide the prompt/result transport (JSON-RPC over the existing token-checked POST) and the UI browser for run mode from the test results (2026-10-16)
-- [x] M18-T4 Python module to locate the active Firefox profile and make the minimal 0700 copy of the GitHub Pages UI origin storage and its permissions (first verify the minimal file set), with tests on sample profiles (dropped: run mode uses the browser that zerochat.py normally opens; profile copies move to the Playwright milestone)
-- [x] M18-T5 Backend run mode: --prompt/--prompt-file/--headless/--timeout, JSON-RPC zerochat/run/prompt, progress and result, own Firefox launch and watch, idle and total timeouts, stdout/stderr split, exit codes and guaranteed cleanup, with tests (2026-10-17)
-- [x] M18-T6 UI run mode module: read run from the launch fragment, wait for the backend, send the prompt in a new conversation, report progress per step/tool/status, unattended dialogs and approvals, return {error} from handleSendMessage, send the result and close, with real-DOM tests (2026-10-17)
-- [x] M18-T7 /help (ES/EN) and py/README.md for run mode, and manual end-to-end check headless and visible (including whether the visible window closes) (2026-10-19)
-- [x] M18-T8 Rework run mode onto the normal zerochat.py startup: default port and UI, normal browser launcher with run= in the fragment, heartbeat detects a closed browser; remove the Firefox profile module and --prompt-file/--timeout (2026-10-18)
-- [x] M18-T9 Best-effort --headless for --prompt: launch the default browser executable with --headless on the normal profile, falling back to the normal launcher (2026-10-18)
-- [x] M18-T10 --profile for --prompt: the UI runs with that connection profile (name or id) for this page only, without changing the saved active profile (2026-10-18)
-- [x] M18-T11 General --log on|off option: on by default, off by default with --prompt (2026-10-18)
-- [x] M18-T12 Detect another running zerochat.py (default port in use or live session) when starting --prompt and decide how the run coexists with it (2026-10-18)
-- [x] M18-T13 Run --prompt from cron: no terminal or graphical session (DISPLAY/WAYLAND_DISPLAY, DBUS), environment and PATH, browser launch and output/exit codes for scheduled jobs (2026-10-19)
-- [x] M18-T14 Export the --prompt conversation with the current exporter options (Markdown, session JSON, print/PDF) to a file chosen on the command line, reusing ChatExport (2026-10-18)
-- [x] M18-T15 Unattended approvals in --prompt: always answer allow for this session, except write_file, edit_file and execute_command, which are denied according to command-line parameters; and inventory the MCP servers the run needs available (2026-10-18)
-- [x] M18-T16 Option to stop the --prompt run on any user request, both ask_user question dialogs and execution permission prompts, with its exit code (2026-10-18)
-- [x] M18-T17 Export the conversation as self-contained HTML that looks like the chat (rendered messages, page CSS, used icons, inlined knowledge images) from the export dialog and --export FILE.html, with a larger body limit for the pending run export (2026-10-18)
-- [x] M18-T18 Authorized MCP servers for --prompt runs: which servers and tools a run may use, possibly organized as profiles (dropped: moved to M29-T1)
-- [x] M18-T19 Rename --no-exit-on-close to --keep-server and --keep-open to --keep-page, and reject --keep-server with --prompt (2026-10-19)
-- [x] M18-T20 Distinct exit code 4 for invalid arguments, which argparse reports with 2, the --prompt timeout code (2026-10-19)
+## M18 Unattended prompt execution and browser profiles: closed 2026-10-19
 
 ## M19 Web image ingestion and multimodal analysis: closed 2026-10-16
 
@@ -90,7 +80,4 @@ Done when: the site root serves a static bilingual landing page instead of the J
 - [ ] M28-T6 docs/seo.md: Search Console URL-prefix property and HTML-file verification, sitemap submission, URL inspection and coverage follow-up, GitHub repository description/topics/homepage and README links; link it from AGENTS.md §9
 - [ ] M28-T7 Manual check with the owner: Lighthouse SEO on landing and help index, Rich Results Test, Search Console verification file committed and sitemap submitted
 
-## M29 Authorized MCP servers for unattended runs
-Goal: Decide which MCP servers and tools a zerochat.py --prompt run may use, instead of every server enabled in the browser, so scheduled runs only reach the services meant for them.
-Done when: a --prompt run limits its MCP servers and tools to an authorized set chosen on the command line (possibly as named profiles), servers outside that set are not offered to the model, the inventory of what each run needs is documented in help/run-mode.html (ES/EN), with tests.
-- [ ] M29-T1 Authorized MCP servers for --prompt runs: which servers and tools a run may use, possibly organized as profiles
+## M29 Configuration profiles: MCP servers per profile: closed 2026-10-19

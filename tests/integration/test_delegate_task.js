@@ -34,7 +34,7 @@ function stubApi(t, respond) {
 }
 
 /**
- * Agente principal y subagente sobre el mismo registro, sin perfiles de conexión. Las herramientas
+ * Agente principal y subagente sobre el mismo registro, sin perfiles. Las herramientas
  * ofrecidas son todas las del registro, como hace la aplicación con resolveToolDefinitions.
  */
 function createHarness(executed) {
@@ -172,7 +172,7 @@ test('delegate_task - un informe vacío o un error del proveedor se devuelven co
   assert.match(long.report, /\[Report truncated at 20000 characters\.\]$/);
 });
 
-test('delegate_task - un perfil de conexión «Subagente» da al subagente su propio modelo', async t => {
+test('delegate_task - un perfil «Subagente» da al subagente su propio modelo', async t => {
   const { services, context } = createHarness([]);
   const loaded = [];
   const summarizers = [];
@@ -220,12 +220,12 @@ test('delegate_task - sin perfil «Subagente» usa el modelo principal; uno ileg
   services.profilesUI = { loadProfileUnlocked: async () => { throw new Error('Password required'); } };
   const failed = await delegateTask.execute({ task: 'Investigate' }, mainContext);
   assert.equal(failed.success, false);
-  assert.match(failed.error, /"Subagent" connection profile could not be loaded: Password required/);
+  assert.match(failed.error, /"Subagent" profile could not be loaded: Password required/);
 
   services.profilesUI = { loadProfileUnlocked: async () => ({ settings: { apiUrl: 'http://sub/v1', apiType: 'openai', model: '' } }) };
-  assert.match((await delegateTask.execute({ task: 'Investigate' }, mainContext)).error, /"Subagent" connection profile is incomplete: missing model\./);
+  assert.match((await delegateTask.execute({ task: 'Investigate' }, mainContext)).error, /"Subagent" profile is incomplete: missing model\./);
 
   services.profiles = { list: () => { throw new Error('corrupt storage'); } };
-  assert.match((await delegateTask.execute({ task: 'Investigate' }, mainContext)).error, /connection profiles could not be read: corrupt storage/);
+  assert.match((await delegateTask.execute({ task: 'Investigate' }, mainContext)).error, /profiles could not be read: corrupt storage/);
   assert.equal(requests.length, 1, 'No recurre en silencio al modelo principal');
 });

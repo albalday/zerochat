@@ -28,7 +28,7 @@ class RunSession:
                  allow_dangerous_tools: bool = False):
         self.run_id = secrets.token_urlsafe(24)
         self.prompt = prompt
-        # Perfil de conexión (nombre o id) que la interfaz usa solo en esta ejecución; None, el activo.
+        # Perfil (nombre o id) que la interfaz usa solo en esta ejecución; None, el activo.
         self.profile = profile
         # Fichero donde se escribe la conversación exportada (formato por su extensión); None, sin exportar.
         self.export_path = export_path

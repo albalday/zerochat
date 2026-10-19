@@ -97,6 +97,16 @@ with tempfile.TemporaryDirectory() as temp_dir:
     assert "fixture-key" not in "".join(traces)
     assert next(item for item in manager.list_servers() if item["id"] == "custom-key")["status"] == "running"
     manager.close()
+    # Solo un arranque recordado se guarda como activo para la siguiente sesión.
+    preferences = Path(temp_dir) / "config" / "services.json"
+    with patch.object(module, "StdioMcpClient", return_value=client):
+        assert json.loads(preferences.read_text())["custom-key"]["enabled"] is True
+        preferences.unlink()
+        manager = module.McpServiceManager(root)
+        manager.start("custom-key", remember=False)
+        assert not preferences.exists()
+        assert next(item for item in manager.list_servers() if item["id"] == "custom-key")["enabled"] is False
+    manager.close()
 `;
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });

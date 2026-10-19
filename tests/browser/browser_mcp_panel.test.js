@@ -185,8 +185,8 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
     });
   });
 
-  test('Browser UI - los servidores externos muestran tarjetas con estado, ayuda, origen remoto sin secretos y aviso de browser_action', async () => {
-    await withMcpPanel({ tools: [{ id: 'browser_action', name: 'browser_action', available: true, metadata: {} }] }, async page => {
+  test('Browser UI - los servidores externos muestran tarjetas con estado, ayuda, origen remoto sin secretos y aviso del navegador del perfil', async () => {
+    await withMcpPanel({}, async page => {
       const result = await page.evaluate(() => {
         const list = document.getElementById('mcp-servers-list');
         window.ChatUIMcp.renderExternalServers(list, []);
@@ -226,7 +226,7 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
       assert.match(result.composio.text, /MCP remoto HTTP/);
       assert.match(result.composio.text, /connect\.composio\.dev/);
       assert.doesNotMatch(result.composio.markup, /must-not-be-rendered/);
-      assert.match(result.playwright, /browser_action está activa/);
+      assert.match(result.playwright, /si el perfil activo elige Playwright MCP/);
     });
   });
 

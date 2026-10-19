@@ -35,6 +35,9 @@
   const DEFAULT_THEME = 'dark';
   const DEFAULT_SYSTEM_DATA_PROMPT = '[Format: Always use standard Markdown and plain text. For documents, reports and structured content, use standard Markdown elements (headings #/##/###, lists, quotes, and Markdown tables). Embed images using standard Markdown ![caption](url). Never output raw HTML tags (e.g. <div>, <table>, <p>, <img>) or HTML code blocks unless the user explicitly requests HTML web development code. For tabular data, always format it as a valid Markdown table with headers. Use direct Unicode symbols (→, ≤, ≥, ≈, ≠, ×, ÷, ±, ²) for mathematics and logic; never output LaTeX commands (\\rightarrow, \\le, \\frac) or delimiters ($ or $$).]';
 
+  /** Navegadores que puede elegir un perfil: ninguno, browser_action o Playwright MCP. */
+  const PROFILE_BROWSERS = Object.freeze(['none', 'browser_action', 'playwright']);
+
   /** Configuración de ejecución por defecto: estado inicial de ChatState y base de ChatConfig.normalize. */
   const CONFIG_DEFAULTS = Object.freeze({
     activeProfile: null,
@@ -46,6 +49,7 @@
     apiKeyLocked: false,
     theme: DEFAULT_THEME, language: getBrowserLanguage(), enableDebugMessages: false,
     activeRagBranchIds: Object.freeze([]),
+    mcpServers: Object.freeze([]), browser: 'browser_action',
     mcpHost: '127.0.0.1', mcpPort: 6388, mcpAutoConnect: false,
     projectMode: true, projectDeclined: Object.freeze([]),
     webllmConfig: Object.freeze({
@@ -56,6 +60,7 @@
 
   return Object.freeze({
     APP_VERSION,
+    PROFILE_BROWSERS,
     DEFAULT_THEME,
     DEFAULT_SYSTEM_DATA_PROMPT,
     CONFIG_DEFAULTS,

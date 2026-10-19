@@ -77,6 +77,18 @@ test('ProfileRepository - no reinicializa silenciosamente documentos con API key
   assert.match(Storage.getStorageItem(Profiles.STORAGE_KEY), /sk-plain/);
 });
 
+test('ProfileRepository - los servicios MCP del perfil son identificadores únicos y acotados', () => {
+  const ids = count => Array.from({ length: count }, (_, index) => `server-${index}`);
+  const save = mcpServers => Profiles.save({ id: 'mcp', name: 'MCP', settings: { mcpServers } });
+  assert.deepEqual(save([' memory ', 'memory', 'github']).settings.mcpServers, ['memory', 'github']);
+  assert.equal(save(ids(Profiles.MAX_PROFILE_MCP_SERVERS)).settings.mcpServers.length, Profiles.MAX_PROFILE_MCP_SERVERS);
+  assert.throws(() => save(ids(Profiles.MAX_PROFILE_MCP_SERVERS + 1)), /more than 64 MCP servers/);
+  assert.equal(save(['x'.repeat(128)]).settings.mcpServers[0].length, 128);
+  for (const invalid of ['memory', [''], [42], ['x'.repeat(129)]]) {
+    assert.throws(() => save(invalid), /MCP server/, JSON.stringify(invalid));
+  }
+});
+
 test('ProfileRepository - rechaza una importación que intenta modificar Espejo', () => {
   const repository = Profiles;
   assert.throws(() => repository.mergeImported([

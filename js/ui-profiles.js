@@ -1,5 +1,5 @@
 /**
- * Interfaz de los perfiles de conexión: menú del perfil activo, editor de perfiles con detección de
+ * Interfaz de los perfiles: menú del perfil activo, editor de perfiles con detección de
  * cambios sin guardar, borrado, exportación cifrada, importación desde un paquete exportado y
  * contraseña de cifrado de las API keys.
  */
@@ -24,6 +24,7 @@
   const getExport = () => resolveDep('ChatExport', './export.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getUISettings = () => resolveDep('ChatUISettings', './ui-settings.js');
+  const getUIMcp = () => resolveDep('ChatUIMcp', './ui-mcp.js');
 
   // Elementos y callbacks de la aplicación, fijados en mount().
   let els = null;
@@ -114,11 +115,39 @@
     syncProfileSaveState();
   }
 
+  /**
+   * Activa un perfil y arranca sus servicios MCP externos y, si es su navegador, Playwright MCP.
+   * Devuelve una promesa con { started, unavailable }, para que cada llamada decida cómo avisar.
+   */
   function activateConnectionProfile(profileId, activationOptions) {
     getWebLLM().adapter.disposeActiveEngine().catch(() => {});
     getConfig().activateProfile(profileId, activationOptions);
     options.loadCachedModels();
     options.resetTelemetryDisplay();
+    return getUIMcp().startProfileServers(runtimeConfig());
+  }
+
+  /**
+   * Avisa de los servicios MCP que ha arrancado el perfil, que siguen en marcha hasta que el usuario
+   * los detenga, y de los que no ha podido arrancar.
+   */
+  async function reportProfileServers({ started, unavailable }) {
+    const lines = [];
+    if (started.length > 0) lines.push(t('profile_mcp_started', { names: started.join(', ') }));
+    if (unavailable.length > 0) lines.push(t('profile_mcp_unavailable', { names: unavailable.join(', ') }));
+    if (lines.length === 0) return;
+    await getDialogs().alert(lines.join('\n\n'), { type: unavailable.length > 0 ? 'warning' : 'info' });
+  }
+
+  /** Activa un perfil desde la interfaz y avisa de los servicios MCP que ha arrancado o no. */
+  function activateProfileFromUI(profileId) {
+    activateConnectionProfile(profileId).then(reportProfileServers)
+      .catch(error => console.warn('[UIProfiles] Could not start the profile MCP servers:', error));
+  }
+
+  /** Arranca los servicios MCP del perfil activo al conectar con el servidor local. */
+  function startActiveProfileServers() {
+    return getUIMcp().startProfileServers(runtimeConfig()).then(reportProfileServers);
   }
 
   function setProfileMenuOpen(open) {
@@ -170,7 +199,9 @@
         model: els.settingModel.value.trim(),
         systemPrompt: els.settingSystemPrompt.value.trim(),
         temperature: els.settingTemperature.value || baseSettings.temperature,
-        webllmConfig: formConfig.webllmConfig
+        webllmConfig: formConfig.webllmConfig,
+        mcpServers: getUISettings().gatherProfileMcpServers(els),
+        browser: getUISettings().gatherProfileBrowser(els)
       }
     });
 
@@ -178,7 +209,7 @@
     els.settingApiKey._loadedApiKey = apiKey;
     setProfileDirty(false);
     setProfileQueryState(false);
-    activateConnectionProfile(saved.id);
+    activateProfileFromUI(saved.id);
     showProfileFeedback(t('msg_profile_saved', { name }), 'success');
     return true;
   }
@@ -391,6 +422,7 @@
 
   function showProfilesDialog() {
     hideEditorStatus();
+    getUISettings().resetProfileChapters(els);
     setProfileQueryState(false);
     setProfileDirty(false);
     options.loadCachedModels();
@@ -452,7 +484,7 @@
     els.profileSelectHelper.value = profile.id;
     applyProfileToForm(profile.settings, profile.id);
     els.settingProfileDescription.value = profile.description || '';
-    activateConnectionProfile(profile.id);
+    activateProfileFromUI(profile.id);
     setProfileQueryState(false);
     setProfileDirty(false);
   }
@@ -536,7 +568,7 @@
       }
       const option = event.target.closest('[data-profile-id]');
       if (!option || !getProfiles().get(option.dataset.profileId)) return;
-      activateConnectionProfile(option.dataset.profileId);
+      activateProfileFromUI(option.dataset.profileId);
       options.updateUIFromConfig();
       closeProfileMenu();
       els.activeProfileTrigger.focus();
@@ -584,6 +616,7 @@
     setProfileQueryState,
     closeProfilesModal,
     activateConnectionProfile,
+    startActiveProfileServers,
     handleEncryptionPassword,
     handleUseDefaultEncryptionKey,
     loadProfileUnlocked,

@@ -14,7 +14,7 @@ const OFFICE = {
   settings: {
     apiUrl: 'http://office.test/v1', apiType: 'openai',
     model: 'qwen-office', systemPrompt: 'Oficina', temperature: '0.2',
-    reasoningEffort: 'high', enabledTools: { search_web: false },
+    reasoningEffort: 'high',
     enableRawLogs: true
   }
 };
@@ -34,7 +34,7 @@ test('ChatConfig - arranca con Espejo, conserva las instrucciones de datos y no 
 
 test('ChatConfig - activar perfil reemplaza campos de perfil y conserva preferencias generales', () => {
   initializeWithOffice();
-  ChatConfig.updateRuntime({ theme: 'dark', activeRagBranchIds: ['rag-a', 'rag-b'] });
+  ChatConfig.updateRuntime({ theme: 'dark', activeRagBranchIds: ['rag-a', 'rag-b'], enabledTools: { search_web: false } });
   const config = ChatConfig.activateProfile('office');
 
   assert.equal(config.apiUrl, 'http://office.test/v1');
@@ -43,6 +43,7 @@ test('ChatConfig - activar perfil reemplaza campos de perfil y conserva preferen
   assert.equal(config.enableRawLogs, true);
   assert.equal(config.theme, 'dark');
   assert.deepEqual(config.activeRagBranchIds, ['rag-a', 'rag-b']);
+  assert.deepEqual(config.enabledTools, { search_web: false }, 'Las herramientas nativas son una preferencia general');
   assert.equal(config.activeProfile.version, Profiles.get('office').version);
   assert.ok(config.systemDataPrompt.includes('Format:'), 'Cambiar de perfil no debe perder las instrucciones de datos');
 });

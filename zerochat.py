@@ -2652,7 +2652,8 @@ class McpServiceManager:
         if int(version_match.group(1)) < required_node_major:
             raise RuntimeError(f"{server_id} requiere Node.js {required_node_major}+; se detectó {detected}")
 
-    def start(self, server_id: str) -> list[dict]:
+    def start(self, server_id: str, remember: bool = True) -> list[dict]:
+        """Arranca un servicio; con remember lo guarda como activo para ofrecerlo en la siguiente sesión."""
         with self._lock:
             self.services = self._load_services()
             server = self.services.get(server_id)
@@ -2697,9 +2698,10 @@ class McpServiceManager:
                 self.clients[server_id] = client
                 client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
                 self.states[server_id] = "running"
-                entry = self.preferences.setdefault(server_id, {})
-                entry["enabled"] = True
-                self._save_preferences()
+                if remember:
+                    entry = self.preferences.setdefault(server_id, {})
+                    entry["enabled"] = True
+                    self._save_preferences()
                 self._trace(server_id, "started successfully")
             except Exception as exc:
                 self.states[server_id] = "error"
@@ -3483,13 +3485,16 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     def _dispatch_server_control(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
         server_id = params.get("serverId")
         opts = params.get("options", {})
+        remember = params.get("remember", True)
         if not isinstance(server_id, str) or not server_id:
             return None, {"code": -32602, "message": "serverId debe ser un texto no vacío."}, ""
         if not isinstance(opts, dict):
             return None, {"code": -32602, "message": "options debe ser un objeto."}, ""
+        if not isinstance(remember, bool):
+            return None, {"code": -32602, "message": "remember debe ser un booleano."}, ""
         try:
             if method.endswith("/start"):
-                servers = GLOBAL_MCP_MANAGER.start(server_id)
+                servers = GLOBAL_MCP_MANAGER.start(server_id, remember)
             elif method.endswith("/stop"):
                 servers = GLOBAL_MCP_MANAGER.stop(server_id)
             else:
@@ -3807,7 +3812,7 @@ class RunSession:
                  allow_dangerous_tools: bool = False):
         self.run_id = secrets.token_urlsafe(24)
         self.prompt = prompt
-        # Perfil de conexión (nombre o id) que la interfaz usa solo en esta ejecución; None, el activo.
+        # Perfil (nombre o id) que la interfaz usa solo en esta ejecución; None, el activo.
         self.profile = profile
         # Fichero donde se escribe la conversación exportada (formato por su extensión); None, sin exportar.
         self.export_path = export_path
@@ -3997,7 +4002,7 @@ def main():
     parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación de ~/zerochat/.venv")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
     parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 plazo agotado o navegador cerrado, 3 fallo de arranque, 4 argumentos no válidos)")
-    parser.add_argument("--profile", default=None, help="Con --prompt, perfil de conexión (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo")
+    parser.add_argument("--profile", default=None, help="Con --prompt, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo")
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt)")
     parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
     parser.add_argument("--keep-page", action="store_true", help="Página: con --prompt, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")

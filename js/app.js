@@ -188,6 +188,15 @@
     modelDatalist: 'model-datalist',
     modelSelectHelper: 'model-select-helper',
     webllmParamsPanel: 'webllm-params-panel',
+    profileChapterConnection: 'profile-chapter-connection',
+    profileSummaryConnection: 'profile-summary-connection',
+    profileSummaryWebllm: 'profile-summary-webllm',
+    profileSummaryBehavior: 'profile-summary-behavior',
+    profileSummaryMcp: 'profile-summary-mcp',
+    profileSummaryMcpWarning: 'profile-summary-mcp-warning',
+    profileMcpServers: 'profile-mcp-servers',
+    profileMcpDisconnected: 'profile-mcp-disconnected',
+    profileSummaryBrowser: 'profile-summary-browser',
     webllmLocalHint: 'webllm-local-hint',
     webllmHelpLink: 'webllm-help-link',
     apiKeyHintText: 'api-key-hint-text',
@@ -888,7 +897,9 @@
       registerServiceWorker().then(async reloading => {
         if (reloading) return;
         const connection = await startupMcpConnection;
-        if (connection.success) MCP.manager.notifyStoppedExternalServices(State.get('mcp').externalServers);
+        if (!connection.success) return;
+        await UIProfiles.startActiveProfileServers();
+        MCP.manager.notifyStoppedExternalServices(State.get('mcp').externalServers);
       }).catch(error => console.warn('[App] Could not check MCP services on startup:', error));
     }
 

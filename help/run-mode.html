@@ -26,7 +26,7 @@
 
     <div class="card" id="como-funciona">
       <h2>1. Cómo funciona</h2>
-      <p><code>zerochat --prompt "TEXTO"</code> (o <code>python3 zerochat.py --prompt "TEXTO"</code>) arranca el <a href="install.html">servidor local</a> como siempre y abre la interfaz en el navegador. La página crea una conversación nueva, envía el prompt con tu configuración de ese navegador (perfil de conexión activo, servicios MCP, ajustes) y, al terminar, devuelve la respuesta y se cierra. Después el proceso termina.</p>
+      <p><code>zerochat --prompt "TEXTO"</code> (o <code>python3 zerochat.py --prompt "TEXTO"</code>) arranca el <a href="install.html">servidor local</a> como siempre y abre la interfaz en el navegador. La página crea una conversación nueva, envía el prompt con tu configuración de ese navegador (perfil activo o el de <code>--profile</code>, ajustes, permisos) y, al terminar, devuelve la respuesta y se cierra. Después el proceso termina.</p>
       <div class="code-wrapper"><pre><code>zerochat --prompt "Resume los cambios de hoy en este repositorio" &gt; resumen.txt</code></pre></div>
       <ul>
         <li><strong>Salida estándar:</strong> solo la respuesta final del modelo.</li>
@@ -41,7 +41,7 @@
       <div class="table-responsive"><table>
         <thead><tr><th>Opción</th><th>Efecto</th></tr></thead>
         <tbody>
-          <tr><td><code>--profile NOMBRE</code></td><td>Usa ese perfil de conexión (nombre o id) solo en esta ejecución, sin cambiar el perfil activo guardado. Si no existe, la ejecución termina con error.</td></tr>
+          <tr><td><code>--profile NOMBRE</code></td><td>Usa ese perfil (nombre o id) solo en esta ejecución, sin cambiar el perfil activo guardado. Si no existe, la ejecución termina con error.</td></tr>
           <tr><td><code>--export FICHERO</code></td><td>Guarda la conversación en <code>FICHERO</code>; el formato sale de la extensión: <code>.md</code> (Markdown), <code>.json</code> (sesión) o <code>.html</code> (como se ve en el chat). Se exporta también tras un error de generación.</td></tr>
           <tr><td><code>--keep-page</code></td><td>No cierra la página al terminar, para ver la conversación. El proceso termina igual y la página queda desconectada del servidor. No se combina con <code>--headless</code>.</td></tr>
           <tr><td><code>--headless</code></td><td>Abre el navegador sin ventana. Ver <a href="#sin-ventana">sección 5</a>.</td></tr>
@@ -58,7 +58,7 @@
       <ul>
         <li><strong>Aprobaciones:</strong> cada herramienta que pide permiso se permite para la sesión de esa página. <code>write_file</code>, <code>edit_file</code> y <code>run_command</code> se deniegan, salvo con <code>--allow-dangerous-tools</code>. Las reglas que ya tengas configuradas (permitir todo, confianza en el espacio de trabajo, reglas permanentes) se aplican igual que en el chat.</li>
         <li><strong>Preguntas:</strong> nadie puede contestarlas. Si el modelo pregunta con <code>ask_user</code> o aparece cualquier diálogo, la generación se detiene y la ejecución termina con error (<em>The run needs the user</em>).</li>
-        <li><strong>Servicios MCP:</strong> se usan los que tengas configurados y activos, igual que en el chat.</li>
+        <li><strong>Servicios MCP:</strong> la ejecución arranca su propio servidor local, sin servicios MCP externos en marcha. Con <code>--profile</code> se arrancan los que marque el perfil en su capítulo Servidores MCP, y Playwright MCP si es su navegador; si alguno no está configurado o no arranca, la ejecución termina con error. Sin <code>--profile</code> no se arranca ninguno. Todos se detienen al terminar y no dejan rastro para la siguiente sesión.</li>
       </ul>
     </div>
 
@@ -69,7 +69,7 @@
         <thead><tr><th>Código</th><th>Significado</th></tr></thead>
         <tbody>
           <tr><td><code>0</code></td><td>Terminada: la respuesta está en la salida estándar.</td></tr>
-          <tr><td><code>1</code></td><td>Error de generación, perfil inexistente, petición al usuario o exportación pedida que no se pudo escribir (en este último caso la respuesta sí sale).</td></tr>
+          <tr><td><code>1</code></td><td>Error de generación, perfil inexistente, servicio MCP del perfil no disponible, petición al usuario o exportación pedida que no se pudo escribir (en este último caso la respuesta sí sale).</td></tr>
           <tr><td><code>2</code></td><td>Plazo agotado, o el navegador se cerró sin devolver resultado.</td></tr>
           <tr><td><code>3</code></td><td>Fallo de arranque: puerto ocupado o navegador que no se pudo abrir.</td></tr>
           <tr><td><code>4</code></td><td>Argumentos no válidos (también fuera de <code>--prompt</code>).</td></tr>
@@ -96,6 +96,19 @@
       </ul>
       <div class="code-wrapper"><pre><code>MAILTO=usuario
 0 7 * * * cd "$HOME/proyecto" &amp;&amp; PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" flock -n /tmp/zerochat-prompt.lock zerochat --prompt "Prepara el informe diario" --headless --export "$HOME/informes/diario.html"</code></pre></div>
+    </div>
+
+    <div class="card" id="inventario">
+      <h2>7. Qué necesita cada ejecución</h2>
+      <p>Antes de programar una ejecución, comprueba que el equipo tiene todo lo que usa:</p>
+      <ul>
+        <li><strong>ZeroChat y el navegador:</strong> el servidor local instalado y un navegador cuyo perfil tenga ZeroChat configurado desde el mismo origen (el de GitHub Pages o el de tu instalación), con sus perfiles, claves API y la contraseña de cifrado si usas una propia.</li>
+        <li><strong>Perfil:</strong> el que nombra <code>--profile</code>, con proveedor, URL, modelo y clave API. Un servidor de modelos local (LM Studio, Ollama…) tiene que estar en marcha.</li>
+        <li><strong>Servicios MCP del perfil:</strong> los que marca su capítulo Servidores MCP deben existir en <code>~/zerochat/services</code>, con sus dependencias instaladas, sus credenciales en su <code>service.json</code> y sus comandos (<code>node</code>, <code>npx</code>, <code>uvx</code>…) en el <code>PATH</code> de la tarea. Los que piden autorización OAuth necesitan haberla completado antes en una sesión con ventana.</li>
+        <li><strong>Navegador del modelo:</strong> si el perfil elige Playwright MCP, el servicio instalado desde Configuración › MCP; si elige <code>browser_action</code>, Node.js con Playwright y un navegador compatible (ver <a href="browser-action.html">automatización del navegador</a>).</li>
+        <li><strong>Permisos:</strong> <code>--allow-dangerous-tools</code> si la tarea escribe archivos o ejecuta comandos, y las reglas de directorios de Configuración › Permisos que necesite.</li>
+        <li><strong>Directorio de trabajo:</strong> la orden se lanza desde el directorio sobre el que trabaja la tarea.</li>
+      </ul>
     </div>
 
     <footer>

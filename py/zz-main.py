@@ -45,7 +45,7 @@ def main():
     parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación de ~/zerochat/.venv")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
     parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 plazo agotado o navegador cerrado, 3 fallo de arranque, 4 argumentos no válidos)")
-    parser.add_argument("--profile", default=None, help="Con --prompt, perfil de conexión (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo")
+    parser.add_argument("--profile", default=None, help="Con --prompt, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo")
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt)")
     parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
     parser.add_argument("--keep-page", action="store_true", help="Página: con --prompt, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")

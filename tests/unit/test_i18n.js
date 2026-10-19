@@ -10,9 +10,9 @@ test('I18n - los diccionarios es y en tienen las mismas claves', () => {
 
 test('I18n - t() inserta los valores literalmente, sin patrones especiales de replace', () => {
   const t = I18n.t;
-  const template = t('field_temperature');
+  const template = t('profile_summary_temperature');
   const value = 'precio $& y $` fin $1 $$';
-  assert.equal(t('field_temperature', { val: value }), template.replace('{val}', () => value));
-  assert.equal(t('field_temperature', { val: 0 }), template.replace('{val}', '0'));
-  assert.equal(t('field_temperature', { other: 'x' }), template);
+  assert.equal(t('profile_summary_temperature', { val: value }), template.replace('{val}', () => value));
+  assert.equal(t('profile_summary_temperature', { val: 0 }), template.replace('{val}', '0'));
+  assert.equal(t('profile_summary_temperature', { other: 'x' }), template);
 });
