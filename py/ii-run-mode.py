@@ -14,6 +14,8 @@ RUN_EXIT_DONE = 0
 RUN_EXIT_ERROR = 1
 RUN_EXIT_TIMEOUT = 2
 RUN_EXIT_SETUP = 3
+# Argumentos no válidos, en cualquier modo: argparse usaría 2, que con --prompt es plazo agotado.
+RUN_EXIT_ARGS = 4
 # Formato de --export según la extensión del fichero; la interfaz genera el contenido con ChatExport.
 RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json", ".html": "html"}
 # Cuerpo HTTP admitido mientras se espera la exportación: el JSON y el HTML llevan las imágenes incrustadas.

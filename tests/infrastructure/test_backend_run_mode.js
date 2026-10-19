@@ -192,8 +192,8 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.match(browserGone.stderr, /sin resultado/);
     for (const run of [failed, idle, chatty, browserGone]) assert.equal(run.stdout, '');
 
-    assert.equal(emptyPrompt.code, 3);
-    assert.match(emptyPrompt.stderr, /El prompt está vacío/);
+    assert.equal(emptyPrompt.code, 4);
+    assert.match(emptyPrompt.stderr, /error: el prompt está vacío/);
     assert.equal(portInUse.code, 3);
     assert.match(portInUse.stderr, /No se pudo escuchar/);
     assert.equal(portInUse.info, null);
