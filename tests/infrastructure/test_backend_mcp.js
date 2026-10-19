@@ -87,7 +87,7 @@ with tempfile.TemporaryDirectory() as temp_dir:
     client = Mock(tools=[])
     client.running.return_value = True
     with patch.dict(os.environ, {"SERVICE_API_KEY": "inherited-fixture"}), patch.object(module, "StdioMcpClient", return_value=client) as constructor:
-        manager.start("custom-key")
+        manager.start("custom-key", remember=True)
         env = constructor.call_args.args[3]
         assert env["SERVICE_API_KEY"] == "fixture-key"
         assert env["HOME"] == str(custom)
@@ -401,8 +401,8 @@ for line in sys.stdin:
     write_service("broken", 'import sys\\nprint("intentional MCP startup failure", file=sys.stderr, flush=True)\\nsys.exit(3)\\n')
 
     manager = zerochat.McpServiceManager(root)
-    assert next(item for item in manager.start("healthy") if item["id"] == "healthy")["status"] == "running"
-    assert next(item for item in manager.start("broken") if item["id"] == "broken")["status"] == "error"
+    assert next(item for item in manager.start("healthy", remember=True) if item["id"] == "healthy")["status"] == "running"
+    assert next(item for item in manager.start("broken", remember=True) if item["id"] == "broken")["status"] == "error"
     time.sleep(0.1)
     manager.close()
 
@@ -458,7 +458,7 @@ with tempfile.TemporaryDirectory() as temp_dir:
                 raise RuntimeError("OAuth failed")
         client.start.side_effect = handshake
         with patch.object(manager, "_prepare_service", side_effect=prepare), patch.object(module, "StdioMcpClient", return_value=client):
-            manager.start("oauth-fixture")
+            manager.start("oauth-fixture", remember=True)
         assert status()["status"] == ("error" if fail else "running")
         assert status()["error"] == ("OAuth failed" if fail else None)
         assert client.stop.call_count == (1 if fail else 0)
@@ -616,7 +616,7 @@ with tempfile.TemporaryDirectory() as temp_dir:
     zerochat.StdioMcpClient.max_message_chars = 1024 * 1024
     manager = zerochat.McpServiceManager(root)
     try:
-        assert next(item for item in manager.start("limits") if item["id"] == "limits")["status"] == "running"
+        assert next(item for item in manager.start("limits", remember=True) if item["id"] == "limits")["status"] == "running"
         client = manager.clients["limits"]
         assert client.call_timeout == 0.5
 

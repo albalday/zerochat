@@ -1010,7 +1010,7 @@ test('MCP - startExternalServer espera instalaciones largas y limita cada fase',
       polls += 1;
       return { servers: [{ id: 'playwright', status }] };
     };
-    const result = await manager.startExternalServer('playwright', (attempt, total, status) => waits.push({ attempt, total, status }));
+    const result = await manager.startExternalServer('playwright', (attempt, total, status) => waits.push({ attempt, total, status }), { remember: true });
     return { result, waits };
   };
   try {

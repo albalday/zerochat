@@ -540,7 +540,7 @@ class McpServiceManager:
         if int(version_match.group(1)) < required_node_major:
             raise RuntimeError(f"{server_id} requiere Node.js {required_node_major}+; se detectó {detected}")
 
-    def start(self, server_id: str, remember: bool = True, browser: dict | None = None) -> list[dict]:
+    def start(self, server_id: str, remember: bool, browser: dict | None = None) -> list[dict]:
         """Arranca un servicio; con remember lo guarda como activo para ofrecerlo en la siguiente sesión.
         `browser` es el navegador que exige el perfil activo, solo para Playwright MCP."""
         with self._lock:

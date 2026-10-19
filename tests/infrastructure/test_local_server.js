@@ -751,15 +751,23 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     const browserRes = await fetch(baseUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 70, method: 'zerochat/external/servers/start', params: { serverId: 'ejemplo', browser: { mode: 'own', engine: 'chromium' } } })
+      body: JSON.stringify({ jsonrpc: '2.0', id: 70, method: 'zerochat/external/servers/start', params: { serverId: 'ejemplo', remember: false, browser: { mode: 'own', engine: 'chromium' } } })
     });
     assert.deepEqual((await browserRes.json()).error, { code: -32602, message: 'ejemplo no admite elegir navegador.' });
+
+    // Arrancar sin decir si se recuerda es un error del cliente.
+    const noRememberRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 71, method: 'zerochat/external/servers/start', params: { serverId: 'ejemplo' } })
+    });
+    assert.deepEqual((await noRememberRes.json()).error, { code: -32602, message: 'remember es obligatorio al arrancar y debe ser un booleano.' });
 
     // Iniciar individualmente el ejemplo
     const startRes = await fetch(baseUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'zerochat/external/servers/start', params: { serverId: 'ejemplo' } })
+      body: JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'zerochat/external/servers/start', params: { serverId: 'ejemplo', remember: true } })
     });
     assert.equal(startRes.status, 200);
     const startJson = await startRes.json();
@@ -1090,7 +1098,7 @@ test('Servidor local zerochat.py: --keep-server desactiva el watchdog', async ()
     };
     for (const action of ['start', 'stop', 'configure']) {
       const method = `zerochat/external/servers/${action}`;
-      const unknown = await rpc(method, { serverId: 'no-existe', options: {} });
+      const unknown = await rpc(method, { serverId: 'no-existe', options: {}, remember: false });
       assert.equal(unknown.error?.code, -32602, `${method} con servidor desconocido`);
       assert.match(unknown.error?.message, /no-existe/);
       const invalidId = await rpc(method, { serverId: 42 });
