@@ -148,3 +148,57 @@ def launch_browser(url: str) -> bool:
 
 
 
+
+
+def default_browser_executable() -> str | None:
+    """Ejecutable del navegador predeterminado en Linux (xdg-settings y su fichero .desktop), o None."""
+    if not sys.platform.startswith("linux") or is_termux_environment() or not shutil.which("xdg-settings"):
+        return None
+    try:
+        desktop = subprocess.run(["xdg-settings", "get", "default-web-browser"], capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if not desktop.endswith(".desktop") or "/" in desktop:
+        return None
+    data_dirs = [os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")]
+    data_dirs += (os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":")
+    for data_dir in data_dirs:
+        entry = Path(data_dir) / "applications" / desktop
+        if not entry.is_file():
+            continue
+        try:
+            lines = entry.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return None
+        exec_line = next((line[5:] for line in lines if line.startswith("Exec=")), "")
+        try:
+            tokens = [token for token in shlex.split(exec_line) if token != "env" and "=" not in token]
+        except ValueError:
+            return None
+        # Flatpak o Snap envuelven el navegador: no admiten sus opciones directamente.
+        if not tokens or Path(tokens[0]).name in ("flatpak", "snap"):
+            return None
+        return shutil.which(tokens[0])
+    return None
+
+
+def launch_headless_browser(url: str) -> subprocess.Popen | None:
+    """
+    Abre la URL en el navegador predeterminado con --headless y el perfil normal del usuario.
+    Si el navegador ya está abierto, este suele recibir la URL como una pestaña visible.
+    Devuelve el proceso lanzado, o None si no se pudo y hay que abrirlo de la forma normal.
+    """
+    executable = default_browser_executable()
+    if not executable:
+        log_event("No se pudo identificar el navegador predeterminado para abrirlo sin ventana; se abrirá de la forma normal.")
+        return None
+    log_event(f"Abriendo {Path(executable).name} sin ventana en la interfaz configurada...")
+    try:
+        return subprocess.Popen(
+            [executable, "--headless", url],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as error:
+        log_event(f"No se pudo abrir {executable} sin ventana ({error}); se abrirá de la forma normal.")
+        return None

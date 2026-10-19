@@ -71,6 +71,7 @@
     }
     next.webllmConfig = webllmConfig;
     if (!next.activeProfile || typeof next.activeProfile !== 'object') next.activeProfile = null;
+    next.sessionOnly = next.sessionOnly === true;
     return next;
   }
 
@@ -79,6 +80,8 @@
   }
 
   function persist(next) {
+    // Un perfil activado solo para esta página (modo ejecución) no cambia la configuración guardada.
+    if (next.sessionOnly) return;
     Storage.saveRuntimeConfigV2({ ...next, modelContextLimit: null });
   }
 
@@ -134,10 +137,12 @@
     return commit({ ...current, ...safePatch });
   }
 
-  function activateProfile(profileId) {
+  /** Activa un perfil; con sessionOnly, ni él ni ningún cambio posterior de esta página se guardan. */
+  function activateProfile(profileId, { sessionOnly = false } = {}) {
     const profile = Profiles.get(profileId);
     if (!profile) throw new Error('The selected profile does not exist.');
-    return commit(applyProfile(getActive(), profile));
+    const next = applyProfile(getActive(), profile);
+    return commit(sessionOnly ? { ...next, sessionOnly: true } : next);
   }
 
   function applyProfile(config, profile) {

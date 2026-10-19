@@ -5,7 +5,8 @@
  *
  * handleSendMessage recibe de app.js los elementos del DOM y los callbacks que dependen de su
  * cableado: appendUserMessage, createAssistantMessagePlaceholder, updateConnectionTokensBadge,
- * openDebugInterceptorModal y saveCurrentSession.
+ * openDebugInterceptorModal y saveCurrentSession; el modo ejecución añade onProgress. Devuelve
+ * { text } con la respuesta final o { error } si no la hubo.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -108,7 +109,9 @@
 
     const rawText = elements.userInput.value.trim();
     const currentFiles = Attachments.getFiles();
-    if ((!rawText && currentFiles.length === 0) || State.isConversationBusy()) return;
+    if ((!rawText && currentFiles.length === 0) || State.isConversationBusy()) {
+      return { error: 'There is nothing to send or a generation is already running.' };
+    }
 
     const config = getConfig().getActive();
     const { fullPrompt, displayText, imageAttachments } = Attachments.buildAttachmentsPayload(rawText, currentFiles);
@@ -118,7 +121,6 @@
     const getSessionId = () => State.get('sessions').activeId;
     const generationSessionId = getSessionId();
     const isCurrentSession = () => getSessionId() === generationSessionId;
-    let generationError = null;
 
     elements.userInput.value = '';
     getUIComposer().clearAttachedFiles(elements);
@@ -141,7 +143,7 @@
         hintHtml: t('err_no_model_desc', { url: escapeHtml(config.apiUrl) })
       });
       finishGeneration(elements, { skipSave: false, saveCurrentSession: options.saveCurrentSession });
-      return;
+      return { error: 'No model is configured.' };
     }
 
     const currentRagSystemContext = await loadRagSystemContext(elements, config);
@@ -179,7 +181,9 @@
         },
         onGenerationStatus: update => {
           if (isCurrentSession()) status.setStatus(elements.generationStatus, update);
+          options.onProgress?.({ kind: update.phase === 'tool' ? 'tool' : 'status', text: update.text || update.phase || '' });
         },
+        onProgress: options.onProgress,
         onLog: (type, text) => {
           if (isCurrentSession()) Debug.addLog(type, text);
         },
@@ -192,7 +196,7 @@
 
       if (!isCurrentSession()) {
         console.warn('[GenerationController] Inference discarded after a session change.');
-        return;
+        return { error: 'The conversation changed during the generation.' };
       }
 
       if (loopResult.chatHistory) {
@@ -203,14 +207,14 @@
       if (loopResult.cancelled) {
         if (!wrapper.querySelector('.tool-call-group, .agentic-turn-block')) wrapper.remove();
         Debug.setStatus('idle');
-        return;
+        return { error: 'The generation was cancelled.' };
       }
 
       if (loopResult.loopDetected) {
         Debug.setStatus('error', t('debug_status_loop_detected'));
         Debug.addLog('error', t('agent_loop_warning_notice'));
       } else if (loopResult.error) {
-        if (currentAbortController.signal.aborted) return;
+        if (currentAbortController.signal.aborted) return { error: 'The generation was cancelled.' };
         const message = loopResult.error.message || String(loopResult.error);
         Debug.setStatus('error', t('debug_status_error'));
         Debug.addLog('error', message);
@@ -219,7 +223,7 @@
         } else {
           UIConversation.renderConnectionError(parts, message, config.apiUrl);
         }
-        return;
+        return { error: message };
       } else {
         Debug.setStatus('done', t('debug_status_done'));
       }
@@ -232,14 +236,16 @@
       }
       actions.hidden = false;
       UIConversation.bindMessageCopy(btnCopy, () => loopResult.accumulatedMarkdown || loopResult.finalAssistantText || '');
+      if (loopResult.loopDetected) return { error: 'The agent loop was stopped after repeated tool calls.' };
+      return { text: loopResult.finalAssistantText };
     } catch (err) {
       console.error('[GenerationController] Agent inference failed:', err);
-      if (!currentAbortController.signal.aborted && err?.name !== 'AbortError') {
-        generationError = err?.message || String(err);
-        Debug.setStatus('error', t('debug_status_error'));
-        Debug.addLog('error', generationError);
-        UIConversation.renderConnectionError(parts, generationError, config.apiUrl);
-      }
+      if (currentAbortController.signal.aborted || err?.name === 'AbortError') return { error: 'The generation was cancelled.' };
+      const generationError = err?.message || String(err);
+      Debug.setStatus('error', t('debug_status_error'));
+      Debug.addLog('error', generationError);
+      UIConversation.renderConnectionError(parts, generationError, config.apiUrl);
+      return { error: generationError };
     } finally {
       finishGeneration(elements, { skipSave: !isCurrentSession(), saveCurrentSession: options.saveCurrentSession });
     }

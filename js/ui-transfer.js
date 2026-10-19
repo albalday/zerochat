@@ -1,5 +1,5 @@
 /**
- * Diálogo de exportación de una conversación (Markdown, JSON o impresión) e importación de una
+ * Diálogo de exportación de una conversación (Markdown, JSON, HTML o impresión) e importación de una
  * conversación desde su JSON. Los formatos los genera ChatExport.
  */
 (function (root, factory) {
@@ -36,9 +36,8 @@
     els.exportModal.close();
   }
 
-  /** Metadatos e historial de la conversación a exportar: la activa está en memoria, el resto en el almacenamiento. */
-  async function resolveSessionForExport() {
-    const id = targetSessionId();
+  /** Metadatos e historial de una conversación: la activa está en memoria, el resto en el almacenamiento. */
+  async function resolveSessionForExport(id) {
     if (id === options.getActiveSessionId()) {
       const session = options.getSavedSessions().find(item => item.id === id) || { id, title: '' };
       return { session, history: options.getHistory() };
@@ -47,18 +46,24 @@
     return { session: conversation, history: conversation.history || conversation.messages || [] };
   }
 
-  async function exportConversationAsMarkdown() {
-    const { session, history } = await resolveSessionForExport();
-    const title = session.title || 'ZeroChat_Conversation';
-    const Export = getExport();
-    Export.downloadFile(Export.buildMarkdownExport(history, { title, model: options.getConfig().model }), `${fileBaseName(title)}.md`, 'text/markdown');
-    closeExportModal();
+  /** Muestra la conversación indicada si no es la activa, para los formatos que salen de la página. */
+  async function showConversation(id) {
+    if (id !== options.getActiveSessionId()) await options.onSwitchSession(id);
   }
 
-  async function exportConversationAsJson() {
-    const { session, history } = await resolveSessionForExport();
-    const Export = getExport();
-    Export.downloadFile(Export.buildJsonExport(session, history, options.getConfig()), `${fileBaseName(session.title || 'ZeroChat_Conversation')}.json`, 'application/json');
+  /**
+   * Conversación indicada (la activa si no se indica) en el formato de ChatExport, con su título; un
+   * formato que sale de la página cambia antes a esa conversación.
+   */
+  async function buildConversationExport(format, sessionId = options.getActiveSessionId()) {
+    if (getExport().isRenderedFormat(format)) await showConversation(sessionId);
+    const { session, history } = await resolveSessionForExport(sessionId);
+    return { title: session.title || 'ZeroChat_Conversation', ...(await getExport().buildConversationExport(format, session, history, options.getConfig())) };
+  }
+
+  async function downloadConversation(format) {
+    const { title, content, extension, mimeType } = await buildConversationExport(format, targetSessionId());
+    getExport().downloadFile(content, `${fileBaseName(title)}.${extension}`, mimeType);
     closeExportModal();
   }
 
@@ -66,7 +71,7 @@
   async function exportConversationAsPrint() {
     const id = targetSessionId();
     closeExportModal();
-    if (id !== options.getActiveSessionId()) await options.onSwitchSession(id);
+    await showConversation(id);
     setTimeout(() => window.print(), 200);
   }
 
@@ -106,12 +111,13 @@
     listen(els.exportModal, 'close', () => { delete els.exportModal.dataset.sessionId; });
     listen(els.btnCloseExport, 'click', closeExportModal);
     listen(els.btnCancelExport, 'click', closeExportModal);
-    listen(els.btnExportMarkdown, 'click', exportConversationAsMarkdown);
-    listen(els.btnExportJson, 'click', exportConversationAsJson);
+    listen(els.btnExportMarkdown, 'click', () => downloadConversation('markdown'));
+    listen(els.btnExportJson, 'click', () => downloadConversation('json'));
+    listen(els.btnExportHtml, 'click', () => downloadConversation('html'));
     listen(els.btnExportPrint, 'click', exportConversationAsPrint);
     listen(els.btnImportChatFile, 'click', () => els.importJsonInput.click());
     listen(els.importJsonInput, 'change', handleImportFileSelected);
   }
 
-  return { mount, openExportModal };
+  return { mount, openExportModal, buildConversationExport };
 }));

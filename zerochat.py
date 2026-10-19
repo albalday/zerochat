@@ -46,7 +46,7 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE_BACKEND_VERSION = "9.5.0"
+SOURCE_BACKEND_VERSION = "9.6.0"
 
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""
@@ -2804,7 +2804,8 @@ HEARTBEAT_WATCHDOG_STOP = threading.Event()
 _SERVER_SHUTTING_DOWN = threading.Event()
 # Si el servidor se detiene al cerrar el navegador, cerrar la pestaña detiene también los comandos.
 EXIT_ON_CLOSE = False
-QUIET_RPC_METHODS = frozenset({"zerochat/jobs/get", "zerochat/jobs/log", "zerochat/jobs/list"})
+# zerochat/run/progress ya se registra con su propio texto en dispatch_run.
+QUIET_RPC_METHODS = frozenset({"zerochat/jobs/get", "zerochat/jobs/log", "zerochat/jobs/list", "zerochat/run/progress"})
 
 
 def mark_browser_active():
@@ -3277,9 +3278,10 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_req("POST", safe_path)
             self._reject(400, {"error": "Invalid Content-Length"}, safe_path, t0, "Content-Length negativo")
             return None
-        if content_len > MAX_HTTP_BODY_BYTES:
+        body_limit = http_body_limit()
+        if content_len > body_limit:
             self._log_req("POST", safe_path)
-            if content_len <= MAX_HTTP_BODY_BYTES * 2:
+            if content_len <= body_limit * 2:
                 try:
                     self.rfile.read(content_len)
                 except (OSError, ValueError):
@@ -3440,6 +3442,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 return None, {"code": -32603, "message": f"Error en transporte web: {exc}"}, str(exc)
         if method.startswith("zerochat/jobs/"):
             return self._dispatch_jobs(method, params)
+        if method.startswith("zerochat/run/"):
+            return dispatch_run(method, params)
         if method == "zerochat/external/status":
             return {"host": "running", "version": VERSION, "servers": GLOBAL_MCP_MANAGER.list_servers()}, None, ""
         if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):
@@ -3719,6 +3723,233 @@ def launch_browser(url: str) -> bool:
 
 
 
+
+
+def default_browser_executable() -> str | None:
+    """Ejecutable del navegador predeterminado en Linux (xdg-settings y su fichero .desktop), o None."""
+    if not sys.platform.startswith("linux") or is_termux_environment() or not shutil.which("xdg-settings"):
+        return None
+    try:
+        desktop = subprocess.run(["xdg-settings", "get", "default-web-browser"], capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if not desktop.endswith(".desktop") or "/" in desktop:
+        return None
+    data_dirs = [os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")]
+    data_dirs += (os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":")
+    for data_dir in data_dirs:
+        entry = Path(data_dir) / "applications" / desktop
+        if not entry.is_file():
+            continue
+        try:
+            lines = entry.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return None
+        exec_line = next((line[5:] for line in lines if line.startswith("Exec=")), "")
+        try:
+            tokens = [token for token in shlex.split(exec_line) if token != "env" and "=" not in token]
+        except ValueError:
+            return None
+        # Flatpak o Snap envuelven el navegador: no admiten sus opciones directamente.
+        if not tokens or Path(tokens[0]).name in ("flatpak", "snap"):
+            return None
+        return shutil.which(tokens[0])
+    return None
+
+
+def launch_headless_browser(url: str) -> subprocess.Popen | None:
+    """
+    Abre la URL en el navegador predeterminado con --headless y el perfil normal del usuario.
+    Si el navegador ya está abierto, este suele recibir la URL como una pestaña visible.
+    Devuelve el proceso lanzado, o None si no se pudo y hay que abrirlo de la forma normal.
+    """
+    executable = default_browser_executable()
+    if not executable:
+        log_event("No se pudo identificar el navegador predeterminado para abrirlo sin ventana; se abrirá de la forma normal.")
+        return None
+    log_event(f"Abriendo {Path(executable).name} sin ventana en la interfaz configurada...")
+    try:
+        return subprocess.Popen(
+            [executable, "--headless", url],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as error:
+        log_event(f"No se pudo abrir {executable} sin ventana ({error}); se abrirá de la forma normal.")
+        return None
+# ==============================================================================
+# Modo ejecución desatendida (zerochat.py --prompt)
+# ==============================================================================
+# El servidor arranca y abre el navegador como siempre, con run=<id> en el fragmento: la interfaz
+# pide el prompt, informa del progreso y devuelve el resultado por JSON-RPC zerochat/run/*.
+
+# Plazo total y sin progreso de la interfaz; las variables de entorno solo las usan las pruebas.
+RUN_TOTAL_TIMEOUT = float(os.environ.get("ZEROCHAT_RUN_TIMEOUT", "900"))
+RUN_IDLE_SECONDS = float(os.environ.get("ZEROCHAT_RUN_IDLE_SECONDS", "180"))
+RUN_POLL_SECONDS = 0.2
+RUN_PROGRESS_TEXT_MAX = 500
+RUN_PROGRESS_KIND_PATTERN = re.compile(r"[a-z_]{1,32}")
+RUN_EXIT_DONE = 0
+RUN_EXIT_ERROR = 1
+RUN_EXIT_TIMEOUT = 2
+RUN_EXIT_SETUP = 3
+# Argumentos no válidos, en cualquier modo: argparse usaría 2, que con --prompt es plazo agotado.
+RUN_EXIT_ARGS = 4
+# Formato de --export según la extensión del fichero; la interfaz genera el contenido con ChatExport.
+RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json", ".html": "html"}
+# Cuerpo HTTP admitido mientras se espera la exportación: el JSON y el HTML llevan las imágenes incrustadas.
+RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
+
+
+class RunSession:
+    """Estado de la ejecución: prompt, opciones, último progreso, exportación, resultado y motivo de un final sin él."""
+    def __init__(self, prompt: str, profile: str | None = None, export_path: Path | None = None, keep_page: bool = False,
+                 allow_dangerous_tools: bool = False):
+        self.run_id = secrets.token_urlsafe(24)
+        self.prompt = prompt
+        # Perfil de conexión (nombre o id) que la interfaz usa solo en esta ejecución; None, el activo.
+        self.profile = profile
+        # Fichero donde se escribe la conversación exportada (formato por su extensión); None, sin exportar.
+        self.export_path = export_path
+        self.exported = False
+        self.export_error: str | None = None
+        # La interfaz no cierra la página al terminar, para ver la conversación (sin --headless).
+        self.keep_page = keep_page
+        # La interfaz aprueba también write_file, edit_file y run_command, que si no deniega.
+        self.allow_dangerous_tools = allow_dangerous_tools
+        self.lock = threading.Lock()
+        self.last_activity = time.monotonic()
+        self.prompt_delivered = False
+        self.result: dict | None = None
+        self.stop_reason: str | None = None
+        self.finished = threading.Event()
+
+    def touch(self):
+        with self.lock:
+            self.last_activity = time.monotonic()
+
+    def idle_seconds(self) -> float:
+        with self.lock:
+            return time.monotonic() - self.last_activity
+
+
+RUN_SESSION: RunSession | None = None
+
+
+def http_body_limit() -> int:
+    """Tope del cuerpo de una petición: el general, o el de la exportación mientras se espera."""
+    session = RUN_SESSION
+    if session is not None and session.export_path is not None and not session.exported:
+        return RUN_EXPORT_MAX_BODY_BYTES
+    return MAX_HTTP_BODY_BYTES
+
+
+def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+    """Métodos zerochat/run/* que usa la interfaz abierta por el modo ejecución."""
+    session = RUN_SESSION
+    if session is None:
+        return None, {"code": -32601, "message": "El servidor no está en modo ejecución."}, ""
+    run_id = params.get("run_id")
+    if not isinstance(run_id, str) or not hmac.compare_digest(run_id, session.run_id):
+        return None, {"code": -32602, "message": "run_id no válido."}, ""
+    if method == "zerochat/run/prompt":
+        with session.lock:
+            if session.prompt_delivered:
+                return None, {"code": -32602, "message": "El prompt ya se entregó."}, ""
+            session.prompt_delivered = True
+        session.touch()
+        export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
+        return {"prompt": session.prompt, "profile": session.profile, "export": export_format, "keep_page": session.keep_page,
+                "allow_dangerous_tools": session.allow_dangerous_tools}, None, ""
+    if method == "zerochat/run/progress":
+        kind = params.get("kind")
+        text = params.get("text", "")
+        if not isinstance(kind, str) or not RUN_PROGRESS_KIND_PATTERN.fullmatch(kind) or not isinstance(text, str):
+            return None, {"code": -32602, "message": "Progreso no válido."}, ""
+        session.touch()
+        if len(text) > RUN_PROGRESS_TEXT_MAX:
+            text = text[:RUN_PROGRESS_TEXT_MAX] + "…"
+        log_event(f"[run] {kind}{': ' + text if text else ''}")
+        return {"ok": True}, None, ""
+    if method == "zerochat/run/export":
+        content = params.get("content")
+        if session.export_path is None or not isinstance(content, str):
+            return None, {"code": -32602, "message": "Exportación no pedida o sin contenido."}, ""
+        with session.lock:
+            if session.exported:
+                return None, {"code": -32602, "message": "La exportación ya se recibió."}, ""
+            try:
+                session.export_path.write_text(content, encoding="utf-8")
+            except OSError as exc:
+                session.export_error = f"No se pudo escribir {session.export_path}: {exc}"
+                return None, {"code": -32603, "message": session.export_error}, ""
+            session.exported = True
+        session.touch()
+        log_event(f"[run] Conversación exportada en {session.export_path}")
+        return {"ok": True}, None, ""
+    if method == "zerochat/run/result":
+        text = params.get("text")
+        error = params.get("error")
+        if not ((isinstance(text, str) and error is None) or (isinstance(error, str) and error and text is None)):
+            return None, {"code": -32602, "message": "El resultado lleva text o error."}, ""
+        with session.lock:
+            if session.result is not None:
+                return None, {"code": -32602, "message": "El resultado ya se recibió."}, ""
+            session.result = {"text": text} if error is None else {"error": error}
+        session.finished.set()
+        return {"ok": True}, None, ""
+    return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
+
+
+def run_supervisor(server: ThreadingHTTPServer, session: RunSession):
+    """Detiene el servidor al recibir el resultado o al agotar el plazo total o el de inactividad."""
+    deadline = time.monotonic() + RUN_TOTAL_TIMEOUT
+    while not session.finished.wait(RUN_POLL_SECONDS):
+        # El latido o una señal ya detienen el servidor: el resultado queda vacío.
+        if _SERVER_SHUTTING_DOWN.is_set():
+            return
+        if time.monotonic() >= deadline:
+            session.stop_reason = f"Plazo total agotado ({RUN_TOTAL_TIMEOUT:.0f}s)."
+            break
+        if session.idle_seconds() > RUN_IDLE_SECONDS:
+            session.stop_reason = f"Sin progreso de la interfaz durante {RUN_IDLE_SECONDS:.0f}s."
+            break
+    stop_zerochat_server(server)
+
+
+def run_error(message: str):
+    """Motivo de un final sin respuesta: va a stderr aunque el registro esté desactivado (--log off)."""
+    print(timestamp_message(f"[run] {message}"), file=sys.stderr, flush=True)
+
+
+def run_outcome(session: RunSession) -> tuple[int, str | None]:
+    """
+    Código de salida y respuesta final (solo si terminó bien), con el motivo de un fallo en stderr;
+    una exportación pedida que no se escribió convierte un final correcto en error sin quitar la respuesta.
+    """
+    if session.export_path and not session.exported:
+        run_error(session.export_error or f"La interfaz no envió la conversación para {session.export_path}.")
+    if session.result is None:
+        run_error(session.stop_reason or "El navegador se cerró o la ejecución se interrumpió sin resultado.")
+        return RUN_EXIT_TIMEOUT, None
+    if "error" in session.result:
+        run_error(f"Error de generación: {session.result['error']}")
+        return RUN_EXIT_ERROR, None
+    log_event("[run] Ejecución terminada.")
+    if session.export_path and not session.exported:
+        return RUN_EXIT_ERROR, session.result["text"]
+    return RUN_EXIT_DONE, session.result["text"]
+
+
+def fall_back_when_headless_exits(proc: subprocess.Popen, url: str):
+    """
+    Un navegador sin ventana termina enseguida si su perfil ya está abierto (Firefox avisa de que
+    ya está en marcha): si acaba antes de que conecte la interfaz, se abre la pestaña normal.
+    """
+    proc.wait()
+    if not HEARTBEAT_INITIALIZED and not _SERVER_SHUTTING_DOWN.is_set():
+        log_event("El navegador sin ventana terminó sin abrir la interfaz (¿ya estaba abierto?); se abre una pestaña de la forma normal.")
+        launch_browser(url)
 # ==============================================================================
 # Punto de Entrada Principal (CLI)
 # ==============================================================================
@@ -3744,25 +3975,70 @@ def remote_exposure_warning(host: str) -> str | None:
     )
 
 
+class ZeroChatArgumentParser(argparse.ArgumentParser):
+    """Los errores de argumentos salen con RUN_EXIT_ARGS para no confundirse con los códigos de --prompt."""
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        self.exit(RUN_EXIT_ARGS, f"{self.prog}: error: {message}\n")
+
+
 def main():
     global ACTIVE_PORT, ACTIVE_HOST, SESSION_TOKEN, CONSOLE_CONTROL, EXIT_ON_CLOSE
-    global TOOL_AUTH_KEY, TOOL_AUTH_SESSION_ID, TOOL_AUTH_NONCES
+    global TOOL_AUTH_KEY, TOOL_AUTH_SESSION_ID, TOOL_AUTH_NONCES, RUN_SESSION
 
-    parser = argparse.ArgumentParser(description=f"ZeroChat Local Server v{VERSION}")
+    parser = ZeroChatArgumentParser(description=f"ZeroChat Local Server v{VERSION}")
     # Desde Python 3.14 argparse colorea la ayuda con códigos ANSI; la consola la muestra en texto plano.
     parser.color = False
-    parser.add_argument("--port", type=int, default=int(os.environ.get("ZEROCHAT_PORT", DEFAULT_PORT)), help=f"Puerto de escucha (default: {DEFAULT_PORT})")
+    parser.add_argument("--port", type=int, default=None, help=f"Puerto de escucha (default: ZEROCHAT_PORT o {DEFAULT_PORT}; con --prompt, si está ocupado se usa otro libre salvo en desarrollo)")
     parser.add_argument("--host", default=os.environ.get("ZEROCHAT_HOST", DEFAULT_HOST), help=f"Host de escucha (default: {DEFAULT_HOST})")
     parser.add_argument("--ui-url", default=None, help="URL de la interfaz web a abrir (por defecto: interfaz local en desarrollo o GitHub Pages)")
     parser.add_argument("--no-browser", action="store_true", help="No abrir automáticamente el navegador")
-    parser.add_argument("--no-exit-on-close", action="store_true", help="No detener el servidor automáticamente al cerrar el navegador")
+    parser.add_argument("--keep-server", action="store_true", help="Servidor: seguir en marcha al cerrar el navegador (no se combina con --prompt)")
     parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación de ~/zerochat/.venv")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
+    parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 plazo agotado o navegador cerrado, 3 fallo de arranque, 4 argumentos no válidos)")
+    parser.add_argument("--profile", default=None, help="Con --prompt, perfil de conexión (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo")
+    parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt)")
+    parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
+    parser.add_argument("--keep-page", action="store_true", help="Página: con --prompt, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")
+    parser.add_argument("--allow-dangerous-tools", action="store_true", help="Con --prompt, aprobar también las herramientas que escriben o ejecutan (write_file, edit_file, run_command); las demás se aprueban siempre para la sesión")
+    parser.add_argument("--headless", action="store_true", help="Con --prompt, abrir el navegador predeterminado sin ventana (si ya está abierto puede verse la pestaña)")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     args = parser.parse_args()
 
     # Los avisos no persisten entre ejecuciones del servidor.
     reset_notices()
+
+    # Modo ejecución: stdout queda solo para la respuesta final; todo el registro va a stderr.
+    result_out = sys.stdout
+    if args.prompt is None and (args.headless or args.keep_page or args.allow_dangerous_tools or args.profile is not None or args.export is not None):
+        parser.error("--headless, --keep-page, --allow-dangerous-tools, --profile y --export solo se usan con --prompt")
+    if args.prompt is not None:
+        if not args.prompt.strip():
+            parser.error("el prompt está vacío")
+        if args.no_browser:
+            parser.error("--prompt necesita abrir el navegador: no se combina con --no-browser")
+        if args.keep_server:
+            parser.error("--prompt termina al devolver el resultado: no se combina con --keep-server (para no cerrar la página, --keep-page)")
+        if args.profile is not None and not args.profile.strip():
+            parser.error("--profile no puede estar vacío")
+        if args.keep_page and args.headless:
+            parser.error("--keep-page necesita la ventana del navegador: no se combina con --headless")
+        export_path = None
+        if args.export is not None:
+            export_path = Path(args.export).expanduser().absolute()
+            if export_path.suffix.lower() not in RUN_EXPORT_FORMATS:
+                parser.error(f"--export necesita una de estas extensiones: {', '.join(RUN_EXPORT_FORMATS)}")
+            if not export_path.parent.is_dir():
+                parser.error(f"--export: no existe el directorio {export_path.parent}")
+        RUN_SESSION = RunSession(args.prompt.strip(), args.profile.strip() if args.profile else None, export_path, args.keep_page, args.allow_dangerous_tools)
+    # Todo el registro pasa por stdout: con --prompt va a stderr para dejar stdout a la respuesta,
+    # y con --log off se descarta.
+    log_enabled = args.log == "on" if args.log else RUN_SESSION is None
+    if not log_enabled:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    elif RUN_SESSION:
+        sys.stdout = sys.stderr
 
     if args.test:
         print(timestamp_message(f"TEST list_directory {'ok' if json.loads(list_directory('.'))['success'] else 'error'}"))
@@ -3796,7 +4072,7 @@ def main():
     if not is_dev:
         threading.Thread(target=check_version, daemon=True).start()
 
-    ACTIVE_PORT = args.port
+    ACTIVE_PORT = args.port if args.port is not None else int(os.environ.get("ZEROCHAT_PORT", DEFAULT_PORT))
     ACTIVE_HOST = args.host
     SESSION_TOKEN = get_daily_token()
     # A restart deliberately invalidates every browser-side signing credential.
@@ -3805,7 +4081,25 @@ def main():
     with TOOL_AUTH_NONCES_LOCK:
         TOOL_AUTH_NONCES = {}
 
-    server = ThreadingHTTPServer((ACTIVE_HOST, ACTIVE_PORT), ZeroChatServerHandler)
+    # La interfaz local de desarrollo tiene el puerto en su origen: en otro no vería los datos guardados.
+    local_ui = static_root is not None and not args.ui_url
+    try:
+        server = ThreadingHTTPServer((ACTIVE_HOST, ACTIVE_PORT), ZeroChatServerHandler)
+    except OSError as exc:
+        if not RUN_SESSION:
+            raise
+        if args.port is not None or local_ui:
+            hint = "" if args.port is not None else " (en desarrollo la interfaz local necesita ese puerto: cierra el zerochat que lo usa)"
+            run_error(f"No se pudo escuchar en {ACTIVE_HOST}:{ACTIVE_PORT}: {exc}{hint}")
+            sys.exit(RUN_EXIT_SETUP)
+        # Otro zerochat (u otro programa) usa el puerto por defecto: la ejecución usa uno libre.
+        try:
+            server = ThreadingHTTPServer((ACTIVE_HOST, 0), ZeroChatServerHandler)
+        except OSError as retry_exc:
+            run_error(f"No se pudo escuchar en {ACTIVE_HOST}: {retry_exc}")
+            sys.exit(RUN_EXIT_SETUP)
+        log_event(f"El puerto {ACTIVE_PORT} está ocupado; la ejecución usa el {server.server_address[1]}.")
+        ACTIVE_PORT = server.server_address[1]
     exposure_warning = remote_exposure_warning(ACTIVE_HOST)
     if exposure_warning:
         add_notice(exposure_warning)
@@ -3818,8 +4112,12 @@ def main():
         ui_url = DEFAULT_UI_URL
 
     browser_host = ACTIVE_HOST if ACTIVE_HOST in {"127.0.0.1", "localhost"} else "127.0.0.1"
-    target_url = f"{ui_url}#{urlencode({'token': SESSION_TOKEN, 'host': browser_host, 'port': ACTIVE_PORT})}"
-    exit_on_close = not args.no_exit_on_close
+    fragment = {'token': SESSION_TOKEN, 'host': browser_host, 'port': ACTIVE_PORT}
+    if RUN_SESSION:
+        fragment['run'] = RUN_SESSION.run_id
+    target_url = f"{ui_url}#{urlencode(fragment)}"
+    # El modo ejecución (que rechaza --keep-server) detecta con el latido que el navegador se cerró sin devolver resultado.
+    exit_on_close = not args.keep_server
     EXIT_ON_CLOSE = exit_on_close
 
     print("=" * 64)
@@ -3844,11 +4142,22 @@ def main():
         print("  Auto-cierre           : Desactivado")
     print("=" * 64, flush=True)
 
-    CONSOLE_CONTROL = ConsoleControl(server, parser, target_url=target_url)
-    CONSOLE_CONTROL.start()
-
-    if not args.no_browser:
-        launch_browser(target_url)
+    headless_browser = None
+    if RUN_SESSION:
+        headless_browser = launch_headless_browser(target_url) if args.headless else None
+        if headless_browser is None and not launch_browser(target_url):
+            run_error("No se pudo abrir el navegador.")
+            server.server_close()
+            sys.stdout = result_out
+            sys.exit(RUN_EXIT_SETUP)
+        if headless_browser is not None:
+            threading.Thread(target=fall_back_when_headless_exits, args=(headless_browser, target_url), daemon=True).start()
+        threading.Thread(target=run_supervisor, args=(server, RUN_SESSION), daemon=True).start()
+    else:
+        CONSOLE_CONTROL = ConsoleControl(server, parser, target_url=target_url)
+        CONSOLE_CONTROL.start()
+        if not args.no_browser:
+            launch_browser(target_url)
 
     if exit_on_close:
         require_initial = not args.no_browser
@@ -3876,6 +4185,17 @@ def main():
         if CONSOLE_CONTROL:
             CONSOLE_CONTROL.close()
             CONSOLE_CONTROL = None
+
+    if RUN_SESSION:
+        # Firefox sin ventana sigue vivo al cerrar la página; uno ya abierto solo recibió la pestaña.
+        if headless_browser is not None and headless_browser.poll() is None:
+            _kill_process_tree(headless_browser)
+        code, text = run_outcome(RUN_SESSION)
+        sys.stdout = result_out
+        if text is not None:
+            result_out.write(text if text.endswith("\n") else text + "\n")
+            result_out.flush()
+        sys.exit(code)
 
 
 if __name__ == "__main__":

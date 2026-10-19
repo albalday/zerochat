@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Run a prompt from the command line · ZeroChat Help · 9.x</title>
+  <meta name="description" content="zerochat.py --prompt: run a prompt unattended with the browser's ZeroChat configuration, options, exit codes, windowless mode and scheduled jobs with cron.">
+  <link rel="stylesheet" href="../help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat 9.x Docs
+        </a>
+        <div class="header-actions">
+          <a href="../run-mode.html" class="top-nav-link">Español</a>
+          <a href="index.html" class="top-nav-link">← Back to Index</a>
+        </div>
+      </div>
+      <h1>Run a prompt from the command line</h1>
+      <p class="subtitle">The interface answers on its own and the final answer goes to standard output.</p>
+    </header>
+
+    <div class="card" id="como-funciona">
+      <h2>1. How it works</h2>
+      <p><code>zerochat --prompt "TEXT"</code> (or <code>python3 zerochat.py --prompt "TEXT"</code>) starts the <a href="install.html">local server</a> as usual and opens the interface in the browser. The page creates a new conversation, sends the prompt with your configuration in that browser (active connection profile, MCP services, settings) and, when it finishes, returns the answer and closes. Then the process exits.</p>
+      <div class="code-wrapper"><pre><code>zerochat --prompt "Summarize today's changes in this repository" &gt; summary.txt</code></pre></div>
+      <ul>
+        <li><strong>Standard output:</strong> only the model's final answer.</li>
+        <li><strong>Standard error:</strong> the reason for a run without an answer. The server log is off by default; with <code>--log on</code> it also goes to standard error.</li>
+        <li><strong>Conversation:</strong> it is saved in the browser like any other.</li>
+        <li><strong>Working directory:</strong> file and command tools work in the directory you run the command from, as in a normal session.</li>
+      </ul>
+    </div>
+
+    <div class="card" id="opciones">
+      <h2>2. Options</h2>
+      <div class="table-responsive"><table>
+        <thead><tr><th>Option</th><th>Effect</th></tr></thead>
+        <tbody>
+          <tr><td><code>--profile NAME</code></td><td>Uses that connection profile (name or id) for this run only, without changing the saved active profile. If it does not exist, the run ends with an error.</td></tr>
+          <tr><td><code>--export FILE</code></td><td>Saves the conversation to <code>FILE</code>; the format comes from the extension: <code>.md</code> (Markdown), <code>.json</code> (session) or <code>.html</code> (as shown in the chat). It is also exported after a generation error.</td></tr>
+          <tr><td><code>--keep-page</code></td><td>Does not close the page when it finishes, so you can see the conversation. The process exits anyway and the page is left disconnected from the server. Not combined with <code>--headless</code>.</td></tr>
+          <tr><td><code>--headless</code></td><td>Opens the browser without a window. See <a href="#sin-ventana">section 5</a>.</td></tr>
+          <tr><td><code>--allow-dangerous-tools</code></td><td>Also approves the tools that write or execute. See <a href="#herramientas">section 3</a>.</td></tr>
+          <tr><td><code>--log on|off</code></td><td>Shows the startup banner and the server log on standard error. Defaults to <code>off</code> with <code>--prompt</code>.</td></tr>
+          <tr><td><code>--port PORT</code></td><td>Listening port; if it is in use, the run does not start. Without <code>--port</code>, if another open ZeroChat uses the default port, the run listens on a free port and coexists with it (in development, with the local interface, it does not start).</td></tr>
+        </tbody>
+      </table></div>
+      <p><code>--prompt</code> is not combined with <code>--no-browser</code> or <code>--keep-server</code>, because the run needs the browser and ends when it returns the result.</p>
+    </div>
+
+    <div class="card" id="herramientas">
+      <h2>3. Tools and requests to the user</h2>
+      <ul>
+        <li><strong>Approvals:</strong> every tool that asks for permission is allowed for that page's session. <code>write_file</code>, <code>edit_file</code> and <code>run_command</code> are denied unless you pass <code>--allow-dangerous-tools</code>. The rules you already have (allow all, workspace trust, permanent rules) apply as in the chat.</li>
+        <li><strong>Questions:</strong> nobody can answer them. If the model asks with <code>ask_user</code> or any dialog appears, generation stops and the run ends with an error (<em>The run needs the user</em>).</li>
+        <li><strong>MCP services:</strong> the ones you have configured and enabled are used, as in the chat.</li>
+      </ul>
+    </div>
+
+    <div class="card" id="codigos">
+      <h2>4. Time limits and exit codes</h2>
+      <p>The run is cut off after 15 minutes, or after 3 minutes without progress from the interface (each step, tool or answer fragment counts as progress).</p>
+      <div class="table-responsive"><table>
+        <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>0</code></td><td>Finished: the answer is on standard output.</td></tr>
+          <tr><td><code>1</code></td><td>Generation error, unknown profile, request to the user, or a requested export that could not be written (in that last case the answer is still printed).</td></tr>
+          <tr><td><code>2</code></td><td>Time limit reached, or the browser closed without returning a result.</td></tr>
+          <tr><td><code>3</code></td><td>Startup failure: port in use or browser that could not be opened.</td></tr>
+          <tr><td><code>4</code></td><td>Invalid arguments (also outside <code>--prompt</code>).</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="card" id="sin-ventana">
+      <h2>5. Without a window (<code>--headless</code>)</h2>
+      <p>On Linux, ZeroChat looks up the default browser (<code>xdg-settings</code>) and launches it with <code>--headless</code> on your normal profile, so it has your configuration. Windowless Firefox does not need a graphical session.</p>
+      <ul>
+        <li><strong>Browser already open:</strong> the profile is in use and the windowless browser cannot use it. The run then opens as a visible tab in the open browser, which closes when it finishes.</li>
+        <li><strong>No identifiable browser:</strong> on Windows, macOS, Termux, or with Flatpak or Snap browsers, it opens the normal way.</li>
+      </ul>
+    </div>
+
+    <div class="card" id="cron">
+      <h2>6. Scheduled jobs (cron)</h2>
+      <ul>
+        <li><strong>User:</strong> the ZeroChat configuration lives in the browser profile of the user who runs the job. If you use a dedicated user, open its browser once with a window and set up ZeroChat there.</li>
+        <li><strong>No graphical session:</strong> use <code>--headless</code>, and keep that user's browser closed in other sessions while the job runs, because the run would try to open there as a tab.</li>
+        <li><strong>Environment:</strong> cron starts with a minimal <code>PATH</code> in the home directory. Change to the working directory with <code>cd</code> and add to <code>PATH</code> the commands your MCP services need (<code>node</code>, <code>npx</code>, <code>uvx</code>…).</li>
+        <li><strong>Result:</strong> cron mails the output (<code>MAILTO</code>); the exit code tells each case apart. <code>flock</code> keeps two runs from overlapping.</li>
+      </ul>
+      <div class="code-wrapper"><pre><code>MAILTO=user
+0 7 * * * cd "$HOME/project" &amp;&amp; PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" flock -n /tmp/zerochat-prompt.lock zerochat --prompt "Prepare the daily report" --headless --export "$HOME/reports/daily.html"</code></pre></div>
+    </div>
+
+    <footer>
+      <p>ZeroChat 9.x · Personal user guide</p>
+    </footer>
+  </div>
+  <script src="../help.js"></script>
+</body>
+</html>

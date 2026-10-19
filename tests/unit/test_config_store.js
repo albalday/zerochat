@@ -47,6 +47,22 @@ test('ChatConfig - activar perfil reemplaza campos de perfil y conserva preferen
   assert.ok(config.systemDataPrompt.includes('Format:'), 'Cambiar de perfil no debe perder las instrucciones de datos');
 });
 
+test('ChatConfig - un perfil activado solo para la sesión no cambia la configuración guardada', () => {
+  initializeWithOffice();
+  const stored = Storage.loadRuntimeConfigV2();
+  try {
+    const config = ChatConfig.activateProfile('office', { sessionOnly: true });
+    assert.equal(config.model, 'qwen-office');
+    ChatConfig.updateRuntime({ theme: 'dark' });
+    assert.equal(ChatConfig.getActive().theme, 'dark');
+    assert.deepEqual(Storage.loadRuntimeConfigV2(), stored);
+    assert.equal(stored.activeProfile.id, Profiles.READONLY_PROFILE_ID);
+  } finally {
+    // La marca vive en la configuración en memoria: los demás casos parten de una página nueva.
+    State.set('config', ChatConfig.normalize({}));
+  }
+});
+
 test('ChatConfig - el límite detectado es volátil y se descarta al activar perfil o cambiar de conexión', () => {
   initializeWithOffice();
   ChatConfig.updateRuntime({ modelContextLimit: 90112, contextLimitOverride: 1000000 });

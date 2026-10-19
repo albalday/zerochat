@@ -37,6 +37,7 @@
     ChatUITelemetry: UITelemetry,
     ChatUIMcp: UIMcp,
     ChatRagUI: RagUI,
+    ChatRunMode: RunMode,
     ChatExport: Export
   } = window;
   const { t } = I18n;
@@ -81,6 +82,7 @@
     btnCancelExport: 'btn-cancel-export',
     btnExportMarkdown: 'btn-export-markdown',
     btnExportJson: 'btn-export-json',
+    btnExportHtml: 'btn-export-html',
     btnExportPrint: 'btn-export-print',
     // Perfil activo e inspector
     activeProfileMenu: 'active-profile-menu',
@@ -296,7 +298,8 @@
     });
   }
 
-  function handleSendMessage() {
+  /** Envía el compositor; el modo ejecución pasa onProgress. Devuelve { text } o { error }. */
+  function handleSendMessage({ onProgress } = {}) {
     return GenerationController.handleSendMessage({
       elements,
       appendUserMessage: (text, originalPrompt, attachedImages) => UIConversation.appendUserMessage(
@@ -304,15 +307,16 @@
       createAssistantMessagePlaceholder: () => UIConversation.createAssistantMessagePlaceholder(elements.messagesList, null, messageCallbacks),
       updateConnectionTokensBadge,
       openDebugInterceptorModal,
-      saveCurrentSession
+      saveCurrentSession,
+      onProgress
     });
   }
 
   /** Envía un texto como si el usuario lo hubiera escrito en el compositor. */
-  async function submitComposerText(text) {
+  function submitComposerText(text, sendOptions) {
     elements.userInput.value = text;
     elements.userInput.dispatchEvent(new Event('input', { bubbles: true }));
-    await handleSendMessage();
+    return handleSendMessage(sendOptions);
   }
 
   async function importConversationSession(newSession) {
@@ -780,6 +784,8 @@
 
   // El fragmento se usa exclusivamente para el primer arranque desde zerochat.py.
   // Después la sesión se resuelve mediante una cookie del mismo origen.
+  let runBackendSession = null;
+
   function persistBackendSessionFromLaunchFragment() {
     const hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
     const token = hashParams.get('token');
@@ -789,7 +795,11 @@
       host: hashParams.get('host') || Defaults.CONFIG_DEFAULTS.mcpHost,
       port: hashParams.get('port') || Defaults.CONFIG_DEFAULTS.mcpPort
     });
-    if (session && !Storage.setBackendSession(session)) {
+    // El servidor de --prompt puede estar en otro puerto y termina con la ejecución: su conexión
+    // queda en esta página y la cookie sigue apuntando las demás pestañas al servidor normal.
+    if (hashParams.has('run')) {
+      runBackendSession = session;
+    } else if (session && !Storage.setBackendSession(session)) {
       console.warn('[App] Could not persist the initial backend session.');
     }
     history.replaceState(null, '', location.pathname + location.search);
@@ -798,7 +808,7 @@
   /** Conecta con zerochat.py si hay sesión o autoconexión; devuelve el resultado de la conexión. */
   function connectBackend() {
     persistBackendSessionFromLaunchFragment();
-    const backendSession = Storage.getBackendSession();
+    const backendSession = runBackendSession || Storage.getBackendSession();
     const token = backendSession?.token || MCP.manager.getSessionToken();
     if (token) {
       MCP.manager.setSessionToken(token);
@@ -828,7 +838,7 @@
     subscribeToState();
     loadCachedModels();
     updateUIFromConfig();
-    ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
+    const sessionsLoaded = ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
     setupEventListeners();
     if (UISidebar.isMobile()) UISidebar.closeSidebar(elements);
 
@@ -857,15 +867,30 @@
     // Un paquete de perfiles exportado abre la página para importarlos: no arranca el chat.
     if (UIProfiles.startImportMode(elements)) return;
 
+    // connectBackend quita el fragmento de arranque: el modo ejecución se lee antes.
+    const runId = RunMode.readRunId(location.hash);
     const startupMcpConnection = connectBackend();
     updateNewTabLink();
-
-    // Registro del Service Worker para aceleración de arranque y soporte offline en móvil
-    registerServiceWorker().then(async reloading => {
-      if (reloading) return;
-      const connection = await startupMcpConnection;
-      if (connection.success) MCP.manager.notifyStoppedExternalServices(State.get('mcp').externalServers);
-    }).catch(error => console.warn('[App] Could not check MCP services on startup:', error));
+    if (runId) {
+      RunMode.start(runId, {
+        messagesList: elements.messagesList,
+        startupConnection: startupMcpConnection,
+        connectBackend,
+        sessionsLoaded,
+        activateSessionProfile: profileId => UIProfiles.activateConnectionProfile(profileId, { sessionOnly: true }),
+        exportConversation: async format => (await UITransfer.buildConversationExport(format)).content,
+        submitComposerText,
+        stopGeneration: GenerationController.handleStopGeneration
+      });
+    } else {
+      // Registro del Service Worker para aceleración de arranque y soporte offline en móvil; el modo
+      // ejecución no lo hace porque su aviso de actualización es un diálogo que la terminaría.
+      registerServiceWorker().then(async reloading => {
+        if (reloading) return;
+        const connection = await startupMcpConnection;
+        if (connection.success) MCP.manager.notifyStoppedExternalServices(State.get('mcp').externalServers);
+      }).catch(error => console.warn('[App] Could not check MCP services on startup:', error));
+    }
 
     document.documentElement.classList.add('zerochat-ready');
     console.log('💬 ZeroChat initialized with autonomous tools and local Orama knowledge.');

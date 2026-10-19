@@ -275,7 +275,8 @@
       onLog,
       onStats,
       onBeforeRequest,
-      onGenerationStatus
+      onGenerationStatus,
+      onProgress
     } = params;
     const AgentCore = getAgentCore();
     const turnBlocks = new Map();
@@ -336,6 +337,7 @@
         onStepStart: turnIndex => {
           turnBlocks.set(turnIndex, view.createBlock({ reset: turnIndex === 0 }));
           view.scrollToBottom();
+          onProgress?.({ kind: 'step', text: String(turnIndex + 1) });
         },
         onCompactionStart: turnIndex => {
           // The notice occupies the block already opened for this step, so it
@@ -348,6 +350,7 @@
           turnBlocks.get(turnIndex).render(text, { streaming: true });
           if (stats) onStats(stats);
           view.scrollToBottom();
+          onProgress?.({ kind: 'stream', text: `step ${turnIndex + 1}: ${text.length} characters` });
         },
         onReasoningChunk: chunk => onReasoningChunk(chunk),
         onLog: logData => {

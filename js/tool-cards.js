@@ -318,6 +318,8 @@
     if (!authPromptEl) {
       authPromptEl = document.createElement('div');
       authPromptEl.className = 'tool-card-auth-prompt';
+      // El modo ejecución decide la respuesta según la herramienta.
+      authPromptEl.dataset.toolName = toolName;
       (card.querySelector('.tool-card-collapsible-body') || cardEl).prepend(authPromptEl);
     }
 

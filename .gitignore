@@ -1,11 +1,7 @@
 .gh/
 node_modules/
-tmp_*
-tests/tmp_*
 .vscode/
 __pycache__/
-bundle-profiles/*.zcp
-zerochat/
 build/
 dist/
 *.egg-info/
