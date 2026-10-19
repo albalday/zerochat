@@ -115,8 +115,12 @@ test('Browser UI - cualquier cambio del perfil habilita guardar, incluido un mod
     assert.equal(await page.locator('#btn-save-profile').isDisabled(), false, 'Un modelo escrito libremente habilita Guardar');
     await page.fill('#setting-model', initialModel);
     assert.equal(await page.locator('#btn-save-profile').isDisabled(), false, 'Al deshacer el cambio permanece habilitado');
+    assert.equal(await page.locator('#profile-chapter-behavior').evaluate(chapter => chapter.open), false, 'Solo la conexión se abre al editar');
+    await page.click('#profile-chapter-behavior summary');
     await page.fill('#setting-system-prompt', 'Instrucción personalizada');
     assert.equal(await page.locator('#btn-save-profile').isDisabled(), false, 'Un cambio en otro campo habilita Guardar');
+    await page.click('#profile-chapter-behavior summary');
+    assert.match(await page.textContent('#profile-summary-behavior'), /^Prompt propio · temperatura /, 'El resumen del capítulo plegado refleja el cambio');
   } finally {
     await browser.close();
   }

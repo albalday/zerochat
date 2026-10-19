@@ -391,6 +391,7 @@
 
   function showProfilesDialog() {
     hideEditorStatus();
+    getUISettings().resetProfileChapters(els);
     setProfileQueryState(false);
     setProfileDirty(false);
     options.loadCachedModels();
