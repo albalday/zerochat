@@ -32,15 +32,6 @@
     return isWindowsPlatform(nav) ? WINDOWS_TERMINAL_COMMAND : UNIX_TERMINAL_COMMAND;
   }
 
-  function isBrowserActionActive(enabledTools, browserTool) {
-    return enabledTools.browser_action !== false && Boolean(browserTool) && browserTool.available !== false;
-  }
-
-  function isBrowserActionCurrentlyActive() {
-    const browserTool = getState().get('mcp').tools.find(tool => tool.name === 'browser_action');
-    return isBrowserActionActive(getConfig().getActive().enabledTools, browserTool);
-  }
-
   function getAllMcpTools(state) {
     return [...state.tools, ...state.externalTools];
   }
@@ -113,7 +104,11 @@
       </select>`;
   }
 
-  function renderToolsList(container, tools, enabledTools) {
+  /**
+   * Lista de herramientas MCP con su interruptor; las de navegador (browser_action y Playwright MCP)
+   * no tienen interruptor propio porque las elige el perfil activo.
+   */
+  function renderToolsList(container, tools, appConfig) {
     if (tools.length === 0) {
       const msg = getState().get('mcp').status === 'connected' ? t('mcp_tools_empty_connected') : t('mcp_tools_empty_disconnected');
       container.innerHTML = `<div class="mcp-tools-empty">${Icons.get('plug', { size: 24 })}<p>${escapeHtml(msg)}</p></div>`;
@@ -124,7 +119,8 @@
     const badgeText = escapeHtml(t('mcp_tool_badge'));
     const AgentCore = getAgentCore();
     const items = tools.map(tool => {
-      const isChecked = tool.available !== false && AgentCore.isToolEnabled(enabledTools, tool.name);
+      const browser = AgentCore.browserOfTool(tool);
+      const isChecked = tool.available !== false && (browser ? browser === appConfig.browser : AgentCore.isToolEnabled(appConfig.enabledTools, tool.name));
       const schema = tool.inputSchema || {};
       const required = Array.isArray(schema.required) ? schema.required : [];
       const paramsHint = Object.entries(schema.properties || {})
@@ -142,10 +138,11 @@
             </div>
             <p class="mcp-tool-desc">${escapeHtml(tool.description || '')}</p>
             ${paramsHint ? `<div class="mcp-tool-params"><code>${escapeHtml(paramsHint)}</code></div>` : ''}
+            ${browser ? `<p class="label-hint">${escapeHtml(t('mcp_tool_profile_browser'))}</p>` : ''}
           </div>
           <div class="mcp-tool-action">
             <label class="switch">
-              <input type="checkbox" class="agent-tool-checkbox mcp-tool-checkbox" data-tool-id="${escapeHtml(tool.name)}" ${isChecked ? 'checked' : ''}>
+              <input type="checkbox" class="agent-tool-checkbox mcp-tool-checkbox" data-tool-id="${escapeHtml(tool.name)}" ${isChecked ? 'checked' : ''}${browser ? ' disabled' : ''}>
               <span class="slider"></span>
             </label>
           </div>
@@ -179,19 +176,7 @@
       return;
     }
     if (!target.matches('.mcp-tool-checkbox')) return;
-    const toolId = target.getAttribute('data-tool-id');
-    if (toolId === 'browser_action' && target.checked) {
-      let availability = { available: false };
-      try {
-        availability = await getMCP().manager.requestExternalControl('tools/availability', { name: 'browser_action' });
-      } catch (error) { /* sin respuesta del servidor: se considera no disponible */ }
-      if (!availability.available) {
-        target.checked = false;
-        await getDialogs().alert(t('browser_action_requirements_notice'), { type: 'info' });
-        return;
-      }
-    }
-    updateToolEnabledState(toolId, target.checked);
+    updateToolEnabledState(target.getAttribute('data-tool-id'), target.checked);
   }
 
   function renderServerOptions(server, language) {
@@ -214,7 +199,7 @@
     }).join('')}</div>`;
   }
 
-  function renderServer(server, language, browserActionActive) {
+  function renderServer(server, language) {
     const isRunning = server.status === 'running';
     const isBusy = server.status === 'starting' || server.status === 'installing';
     const statusClass = isRunning ? 'status-running' : (isBusy ? 'status-starting' : (server.status === 'error' ? 'status-error' : 'status-stopped'));
@@ -245,7 +230,7 @@
           ${description ? `<p class="mcp-server-desc">${escapeHtml(description)}</p>` : ''}
           ${remote ? `<p class="mcp-server-remote"><span class="mcp-server-remote-badge">${escapeHtml(t('mcp_remote_transport'))}</span>${remoteEndpoint ? ` <span>${escapeHtml(remoteEndpoint)}</span>` : ''}</p>` : ''}
           ${help ? `<p class="mcp-server-help"><a href="${escapeHtml(help.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(help.label)}</a></p>` : ''}
-          ${server.id === 'playwright' ? `<p class="mcp-server-replacement-notice">${escapeHtml(t(browserActionActive ? 'mcp_playwright_browser_action_active' : 'mcp_playwright_browser_action_inactive'))}</p>` : ''}
+          ${server.id === 'playwright' ? `<p class="label-hint mcp-server-profile-notice">${escapeHtml(t('mcp_playwright_profile_notice'))}</p>` : ''}
           ${server.error ? `<div class="mcp-server-error"><p>${escapeHtml(server.error)}</p><a href="help/mcp.html" target="_blank" rel="noopener noreferrer">${escapeHtml(t('mcp_external_help'))}</a></div>` : ''}
           ${server.oauthUrl ? `<div class="mcp-server-oauth-banner"><p class="mcp-server-oauth-msg">${escapeHtml(t('mcp_oauth_required_msg'))}</p><a class="btn-secondary btn-mcp-oauth-open" href="${escapeHtml(server.oauthUrl)}" target="_blank" rel="noopener noreferrer" data-server-id="${id}">${escapeHtml(t('mcp_btn_oauth_authorize'))}</a></div>` : ''}
           ${renderServerOptions(server, language)}
@@ -267,8 +252,7 @@
       return;
     }
     const language = I18n.getLanguage();
-    const browserActionActive = isBrowserActionCurrentlyActive();
-    container.innerHTML = servers.map(server => renderServer(server, language, browserActionActive)).join('');
+    container.innerHTML = servers.map(server => renderServer(server, language)).join('');
 
   }
 
@@ -285,8 +269,7 @@
     }
     const toggle = target.closest('.btn-mcp-server-toggle');
     if (toggle) {
-      runExternalServerAction(toggle.getAttribute('data-server-id'), toggle.getAttribute('data-action'),
-        { browserActionActive: isBrowserActionCurrentlyActive(), button: toggle });
+      runExternalServerAction(toggle.getAttribute('data-server-id'), toggle.getAttribute('data-action'), { button: toggle });
     }
   }
 
@@ -317,22 +300,7 @@
    * Inicia o detiene un servicio MCP gestionado reflejando el progreso en su tarjeta.
    * Devuelve true si la acción terminó correctamente.
    */
-  async function runExternalServerAction(serverId, action, { browserActionActive = false, button = null } = {}) {
-    let browserActionDisabled = false;
-    if (serverId === 'playwright' && action === 'start' && browserActionActive) {
-      const accepted = await getDialogs().confirm(t('mcp_playwright_replacement_confirm'), {
-        type: 'warning',
-        title: t('mcp_playwright_replacement_title'),
-        acceptText: t('mcp_playwright_replacement_accept'),
-        cancelText: t('notice_cancel')
-      });
-      if (!accepted) return false;
-      browserActionDisabled = updateToolEnabledState('browser_action', false);
-      if (!browserActionDisabled) {
-        await getDialogs().alert(t('mcp_external_action_error'), { type: 'error' });
-        return false;
-      }
-    }
+  async function runExternalServerAction(serverId, action, { button = null } = {}) {
     const pendingStatus = action === 'start' ? 'starting' : 'stopped';
     if (button) {
       button.disabled = true;
@@ -364,7 +332,6 @@
         error: t(stillPending ? 'mcp_external_start_wait_timeout' : 'mcp_external_action_error'),
         ...(error.externalServer?.oauthUrl ? { oauthUrl: error.externalServer.oauthUrl } : {})
       });
-      if (browserActionDisabled && !stillPending) updateToolEnabledState('browser_action', true);
       return false;
     } finally {
       if (button) {
@@ -375,13 +342,14 @@
   }
 
   /**
-   * Arranca los servicios externos de un perfil que no estén ya en marcha, sin parar los demás.
-   * Devuelve los que no están configurados en el servidor local o no han arrancado; sin conexión
-   * con el servidor local no arranca nada.
+   * Arranca los servicios externos de un perfil (los suyos y Playwright MCP si es su navegador) que
+   * no estén ya en marcha, sin parar los demás. Devuelve los que no están configurados en el
+   * servidor local o no han arrancado; sin conexión con el servidor local no arranca nada.
    */
-  async function startProfileServers(ids) {
+  async function startProfileServers(appConfig) {
     const State = getState();
-    if (ids.length === 0 || State.get('mcp').status !== 'connected') return [];
+    if (State.get('mcp').status !== 'connected') return [];
+    const ids = appConfig.browser === 'playwright' ? [...appConfig.mcpServers, 'playwright'] : appConfig.mcpServers;
     const language = I18n.getLanguage();
     const unavailable = [];
     for (const id of ids) {
@@ -391,7 +359,7 @@
         continue;
       }
       if (['running', 'starting', 'installing'].includes(server.status)) continue;
-      const started = await runExternalServerAction(id, 'start', { browserActionActive: isBrowserActionCurrentlyActive() });
+      const started = await runExternalServerAction(id, 'start');
       if (!started) unavailable.push(getServiceName(server, language));
     }
     return unavailable;
@@ -439,7 +407,7 @@
     for (const id of chosen) {
       // El usuario pudo iniciarlo desde Ajustes mientras el diálogo seguía abierto.
       if (!isStopped(id)) continue;
-      const ok = await runExternalServerAction(id, 'start', { browserActionActive: isBrowserActionCurrentlyActive() });
+      const ok = await runExternalServerAction(id, 'start');
       if (!ok) failed.push(items.find(item => item.id === id).label);
     }
     if (failed.length > 0) {
@@ -541,7 +509,7 @@
   function renderCurrentToolsList(elements) {
     const el = elements || cachedElements;
     if (el?.toolsContainer) {
-      renderToolsList(el.toolsContainer, getConnectedTools(), getConfig().getActive().enabledTools);
+      renderToolsList(el.toolsContainer, getConnectedTools(), getConfig().getActive());
     }
   }
 

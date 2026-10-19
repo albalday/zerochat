@@ -520,19 +520,23 @@ test('Browser UI - reabrir el editor no conserva cambios descartados y una consu
   }
 });
 
-test('Browser UI - el capítulo MCP del perfil avisa de los servicios no configurados y guarda los elegidos', async () => {
+test('Browser UI - los capítulos MCP y Navegador del perfil avisan de los servicios no configurados y guardan lo elegido', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await openProfilesPage(browser, [{ id: 'profile:mcp', name: 'Con MCP', settings: { apiType: 'openai', model: 'test', apiKey: 'sk-test', mcpServers: ['ghost'] } }]);
     // Servidor local conectado con un servicio ya en marcha: guardar no arranca nada ni avisa.
-    await page.evaluate(() => window.ChatState.set('mcp', { status: 'connected', externalServers: [{ id: 'memory', displayName: { es: 'Memoria', en: 'Memory' }, status: 'running' }] }));
+    await page.evaluate(() => window.ChatState.set('mcp', { status: 'connected', externalServers: [
+      { id: 'memory', displayName: { es: 'Memoria', en: 'Memory' }, status: 'running' },
+      { id: 'playwright', displayName: { es: 'Playwright MCP' }, status: 'running' }
+    ] }));
     await openProfileEditor(page, 'profile:mcp');
     const rows = () => page.locator('.profile-mcp-server').evaluateAll(labels => labels.map(label => ({
       name: label.querySelector('.profile-mcp-name').textContent,
       checked: label.querySelector('input').checked,
       missing: label.classList.contains('is-missing')
     })));
-    assert.deepEqual(await rows(), [{ name: 'Memoria', checked: false, missing: false }, { name: 'ghost', checked: true, missing: true }]);
+    assert.deepEqual(await rows(), [{ name: 'Memoria', checked: false, missing: false }, { name: 'ghost', checked: true, missing: true }], 'Playwright se elige en Navegador');
+    assert.equal(await page.textContent('#profile-summary-browser'), 'browser_action', 'Sin elección, el navegador es browser_action');
     assert.equal(await page.textContent('#profile-summary-mcp'), 'ghost');
     assert.equal(await page.textContent('#profile-summary-mcp-warning'), '1 no configurado(s)', 'El aviso se ve con el capítulo plegado');
 
@@ -541,10 +545,15 @@ test('Browser UI - el capítulo MCP del perfil avisa de los servicios no configu
     await page.uncheck('.profile-mcp-checkbox[value="ghost"]');
     assert.equal(await page.textContent('#profile-summary-mcp'), 'Memoria');
     assert.equal(await page.locator('#profile-summary-mcp-warning').isVisible(), false);
+    await page.click('#profile-chapter-browser summary');
+    await page.check('.profile-browser-radio[value="playwright"]');
+    assert.equal(await page.textContent('#profile-summary-browser'), 'Playwright MCP');
     await page.click('#btn-save-profile');
     await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
-    assert.deepEqual(await page.evaluate(() => window.ChatProfileRepository.get('profile:mcp').settings.mcpServers), ['memory']);
-    assert.deepEqual(await page.evaluate(() => window.ChatConfig.getActive().mcpServers), ['memory']);
+    assert.deepEqual(await page.evaluate(() => {
+      const { mcpServers, browser } = window.ChatProfileRepository.get('profile:mcp').settings;
+      return { mcpServers, browser, active: window.ChatConfig.getActive().browser };
+    }), { mcpServers: ['memory'], browser: 'playwright', active: 'playwright' });
     assert.equal(await page.evaluate(() => document.getElementById('notice-dialog').open), false);
   } finally {
     await browser.close();

@@ -196,6 +196,7 @@
     profileSummaryMcpWarning: 'profile-summary-mcp-warning',
     profileMcpServers: 'profile-mcp-servers',
     profileMcpDisconnected: 'profile-mcp-disconnected',
+    profileSummaryBrowser: 'profile-summary-browser',
     webllmLocalHint: 'webllm-local-hint',
     webllmHelpLink: 'webllm-help-link',
     apiKeyHintText: 'api-key-hint-text',

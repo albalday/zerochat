@@ -58,7 +58,7 @@
       <ul>
         <li><strong>Approvals:</strong> every tool that asks for permission is allowed for that page's session. <code>write_file</code>, <code>edit_file</code> and <code>run_command</code> are denied unless you pass <code>--allow-dangerous-tools</code>. The rules you already have (allow all, workspace trust, permanent rules) apply as in the chat.</li>
         <li><strong>Questions:</strong> nobody can answer them. If the model asks with <code>ask_user</code> or any dialog appears, generation stops and the run ends with an error (<em>The run needs the user</em>).</li>
-        <li><strong>MCP services:</strong> the run starts its own local server, with no external MCP services running. With <code>--profile</code> it starts the ones the profile ticks in its MCP servers chapter; if one is not configured or does not start, the run ends with an error. Without <code>--profile</code> none is started.</li>
+        <li><strong>MCP services:</strong> the run starts its own local server, with no external MCP services running. With <code>--profile</code> it starts the ones the profile ticks in its MCP servers chapter, and Playwright MCP if it is its browser; if one is not configured or does not start, the run ends with an error. Without <code>--profile</code> none is started.</li>
       </ul>
     </div>
 

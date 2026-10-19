@@ -58,7 +58,7 @@
       <ul>
         <li><strong>Aprobaciones:</strong> cada herramienta que pide permiso se permite para la sesión de esa página. <code>write_file</code>, <code>edit_file</code> y <code>run_command</code> se deniegan, salvo con <code>--allow-dangerous-tools</code>. Las reglas que ya tengas configuradas (permitir todo, confianza en el espacio de trabajo, reglas permanentes) se aplican igual que en el chat.</li>
         <li><strong>Preguntas:</strong> nadie puede contestarlas. Si el modelo pregunta con <code>ask_user</code> o aparece cualquier diálogo, la generación se detiene y la ejecución termina con error (<em>The run needs the user</em>).</li>
-        <li><strong>Servicios MCP:</strong> la ejecución arranca su propio servidor local, sin servicios MCP externos en marcha. Con <code>--profile</code> se arrancan los que marque el perfil en su capítulo Servidores MCP; si alguno no está configurado o no arranca, la ejecución termina con error. Sin <code>--profile</code> no se arranca ninguno.</li>
+        <li><strong>Servicios MCP:</strong> la ejecución arranca su propio servidor local, sin servicios MCP externos en marcha. Con <code>--profile</code> se arrancan los que marque el perfil en su capítulo Servidores MCP, y Playwright MCP si es su navegador; si alguno no está configurado o no arranca, la ejecución termina con error. Sin <code>--profile</code> no se arranca ninguno.</li>
       </ul>
     </div>
 

@@ -70,6 +70,16 @@
     return enabledTools[name] !== undefined ? enabledTools[name] !== false : defaultEnabled;
   }
 
+  /**
+   * Navegador al que pertenece una herramienta: browser_action del servidor local o las de
+   * Playwright MCP. El perfil elige uno solo; null para el resto de herramientas.
+   */
+  function browserOfTool(tool) {
+    if (tool.name === 'browser_action') return 'browser_action';
+    if (tool.metadata.mcpServerId === 'playwright') return 'playwright';
+    return null;
+  }
+
   function withoutReasoningReplay(message) {
     if (!message.reasoningReplay) return message;
     const { reasoningReplay, ...rest } = message;
@@ -190,10 +200,13 @@
 
     /**
      * Una herramienta está activa si está disponible en su contexto (por ejemplo, RAG exige una
-     * rama activa) y, cuando se configura en la interfaz, si su interruptor está encendido.
+     * rama activa) y, cuando se configura en la interfaz, si su interruptor está encendido; las de
+     * navegador, si son del navegador que eligió el perfil.
      */
     isToolActive(tool, appConfig) {
       if (!tool.isAvailable(appConfig)) return false;
+      const browser = browserOfTool(tool);
+      if (browser) return browser === appConfig.browser;
       if (!tool.settings.showInSettings) return true;
       return isToolEnabled(appConfig.enabledTools, tool.name, tool.settings.defaultEnabled);
     }
@@ -829,6 +842,7 @@
   return {
     TOOL_WORKFLOW_INSTRUCTION,
     isToolEnabled,
+    browserOfTool,
     Tool,
     ToolRegistry,
     ToolExecutor,

@@ -97,6 +97,8 @@
     selectValue(elements.settingWebllmContextWindow, webllmConfig.context_window_size, String(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE));
     selectValue(elements.settingWebllmPrefillChunk, webllmConfig.prefill_chunk_size, 'default');
     renderProfileMcpServers(elements, profileData.mcpServers || []);
+    const browser = profileData.browser || Defaults.CONFIG_DEFAULTS.browser;
+    profileBrowserRadios(elements).forEach(radio => { radio.checked = radio.value === browser; });
     syncProviderFields(elements);
     syncApiKeyLock(elements);
   }
@@ -549,6 +551,7 @@ zerochat</code></pre>
     const missing = servers.filter(checkbox => checkbox.dataset.missing === 'true').length;
     elements.profileSummaryMcpWarning.parentElement.hidden = missing === 0;
     elements.profileSummaryMcpWarning.textContent = t('profile_mcp_missing_count', { count: missing });
+    elements.profileSummaryBrowser.textContent = t(`profile_browser_${gatherProfileBrowser(elements)}`);
   }
 
   /**
@@ -559,14 +562,15 @@ zerochat</code></pre>
     const mcp = getState().get('mcp');
     const connected = mcp.status === 'connected';
     const language = I18n.getLanguage();
-    const known = connected ? mcp.externalServers : [];
+    // Playwright MCP no se elige aquí: es una opción del capítulo Navegador.
+    const known = connected ? mcp.externalServers.filter(server => server.id !== 'playwright') : [];
     const rows = known.map(server => ({
       id: server.id,
       name: getUIMcp().getServiceName(server, language),
       status: t(`mcp_external_status_${server.status || 'stopped'}`),
       missing: false
     }));
-    selectedIds.filter(id => !known.some(server => server.id === id)).forEach(id => rows.push({
+    selectedIds.filter(id => id !== 'playwright' && !known.some(server => server.id === id)).forEach(id => rows.push({
       id, name: id, status: t(connected ? 'profile_mcp_not_configured' : 'profile_mcp_unknown'), missing: connected
     }));
     elements.profileMcpDisconnected.hidden = connected;
@@ -578,6 +582,9 @@ zerochat</code></pre>
           <span class="profile-mcp-status">${escapeHtml(row.status)}</span>
         </label>`).join('');
   }
+
+  const profileBrowserRadios = elements => [...elements.profilesDialog.querySelectorAll('.profile-browser-radio')];
+  const gatherProfileBrowser = elements => profileBrowserRadios(elements).find(radio => radio.checked)?.value || Defaults.CONFIG_DEFAULTS.browser;
 
   const gatherProfileMcpServers = elements => [...elements.profileMcpServers.querySelectorAll('.profile-mcp-checkbox:checked')].map(checkbox => checkbox.value);
 
@@ -597,8 +604,8 @@ zerochat</code></pre>
   }
 
   /** Capítulo plegable del editor de perfiles; su cabecera resume el contenido aunque esté cerrado. */
-  const profileChapter = (id, summaryId, titleKey, body, warningId = '') => `<details id="${id}" class="profile-chapter">
-          <summary class="profile-chapter-summary"><svg class="ui-icon profile-chapter-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><use href="#icon-chevron-right"></use></svg><span class="profile-chapter-title" data-i18n="${titleKey}">${t(titleKey)}</span><span id="${summaryId}" class="profile-chapter-detail"></span>${warningId ? `<span class="profile-chapter-warning" hidden>${Icons.get('alert-triangle', { size: 12 })}<span id="${warningId}"></span></span>` : ''}</summary>
+  const profileChapter = (id, summaryId, titleKey, body, warningId = '', titleId = '') => `<details id="${id}" class="profile-chapter">
+          <summary class="profile-chapter-summary"><svg class="ui-icon profile-chapter-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><use href="#icon-chevron-right"></use></svg><span${titleId ? ` id="${titleId}"` : ''} class="profile-chapter-title" data-i18n="${titleKey}">${t(titleKey)}</span><span id="${summaryId}" class="profile-chapter-detail"></span>${warningId ? `<span class="profile-chapter-warning" hidden>${Icons.get('alert-triangle', { size: 12 })}<span id="${warningId}"></span></span>` : ''}</summary>
           <div class="profile-chapter-body">${body}</div>
         </details>`;
 
@@ -649,6 +656,15 @@ zerochat</code></pre>
             <p id="profile-mcp-disconnected" class="label-hint" data-i18n="profile_mcp_disconnected" hidden>${t('profile_mcp_disconnected')}</p>
             <div id="profile-mcp-servers" class="profile-mcp-servers"></div>
         `, 'profile-summary-mcp-warning')}
+        ${profileChapter('profile-chapter-browser', 'profile-summary-browser', 'profile_chapter_browser', `
+            <p class="label-hint" data-i18n="profile_browser_hint">${t('profile_browser_hint')}</p>
+            <div class="profile-browser-options" role="radiogroup" aria-labelledby="profile-chapter-browser-title">
+              ${Defaults.PROFILE_BROWSERS.map(browser => `<label class="profile-browser-option">
+                <input type="radio" name="profile-browser" class="profile-browser-radio" value="${browser}">
+                <span class="profile-browser-text"><strong data-i18n="profile_browser_${browser}">${t(`profile_browser_${browser}`)}</strong><span class="label-hint" data-i18n="profile_browser_${browser}_hint">${t(`profile_browser_${browser}_hint`)}</span></span>
+              </label>`).join('')}
+            </div>
+        `, '', 'profile-chapter-browser-title')}
       </div>
     </form>`;
   }
@@ -674,6 +690,7 @@ zerochat</code></pre>
     syncProfileEditor,
     resetProfileChapters,
     gatherProfileMcpServers,
+    gatherProfileBrowser,
     openSettingsSection,
     closeSettingsModal,
     ensureDialogMarkup,

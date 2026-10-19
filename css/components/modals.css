@@ -681,6 +681,38 @@ select.form-input:focus-visible {
   color: var(--warning-text);
 }
 
+.profile-browser-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.profile-browser-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.profile-browser-option:has(input:checked) {
+  border-color: var(--primary-border);
+  background: var(--primary-soft);
+}
+
+.profile-browser-option input {
+  margin-top: 0.15rem;
+}
+
+.profile-browser-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.83rem;
+}
+
 .profile-chapter-body {
   display: flex;
   flex-direction: column;

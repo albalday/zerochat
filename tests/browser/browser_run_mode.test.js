@@ -58,15 +58,15 @@ async function routeBackend(page, prompt, { profile, exportFormat, keepPage = fa
 }
 
 /** Abre la interfaz como la abre el modo ejecución, con window.close() registrado en vez de cerrar. */
-async function openRun(browser, server, prompt, { seedProfiles = false, profileMcpServers = null, ...runOptions } = {}) {
+async function openRun(browser, server, prompt, { seedProfiles = false, profileSettings = null, ...runOptions } = {}) {
   const page = await browser.newPage();
   if (seedProfiles) await seedConnectionProfiles(page);
-  if (profileMcpServers) {
-    await page.addInitScript(mcpServers => {
+  if (profileSettings) {
+    await page.addInitScript(settings => {
       const document = JSON.parse(localStorage.getItem('zerochat_profiles_v1'));
-      document.profiles.find(profile => profile.id === 'profile:local').settings.mcpServers = mcpServers;
+      Object.assign(document.profiles.find(profile => profile.id === 'profile:local').settings, settings);
       localStorage.setItem('zerochat_profiles_v1', JSON.stringify(document));
-    }, profileMcpServers);
+    }, profileSettings);
   }
   await page.addInitScript(() => {
     window.close = () => { window.__closed = true; };
@@ -159,21 +159,21 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     }
   });
 
-  test('Browser UI - el modo ejecución arranca solo los servicios MCP del perfil y falla si alguno no está configurado', async () => {
+  test('Browser UI - el modo ejecución arranca solo los servicios MCP del perfil y su navegador, y falla si alguno no está configurado', async () => {
     const server = await startStaticServer();
     const browser = await createTestBrowser();
-    const externalServers = () => ['memory', 'github'].map(id => ({ id, displayName: { es: id, en: id }, status: 'stopped', enabled: false }));
+    const externalServers = () => ['memory', 'github', 'playwright'].map(id => ({ id, displayName: { es: id, en: id }, status: 'stopped', enabled: false }));
     try {
-      const run = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileMcpServers: ['memory'], externalServers: externalServers() });
+      const run = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileSettings: { mcpServers: ['memory'], browser: 'playwright' }, externalServers: externalServers() });
       await run.page.evaluate(() => {
         window.ChatAPI.streamChatCompletion = async () => ({ accumulatedText: 'ok', toolCalls: null, stats: null });
       });
       run.backend.release();
       await run.page.waitForFunction(() => window.__closed === true);
       assert.deepEqual(resultOf(run.backend), { run_id: RUN_ID, text: 'ok' });
-      assert.deepEqual(run.backend.started, ['memory'], 'solo arranca los servicios del perfil');
+      assert.deepEqual(run.backend.started, ['memory', 'playwright'], 'solo arranca los servicios del perfil y su navegador');
 
-      const missing = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileMcpServers: ['memory', 'ghost'], externalServers: externalServers() });
+      const missing = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileSettings: { mcpServers: ['memory', 'ghost'] }, externalServers: externalServers() });
       missing.backend.release();
       await missing.page.waitForFunction(() => window.__closed === true);
       assert.deepEqual(resultOf(missing.backend), { run_id: RUN_ID, error: 'MCP servers of the profile are not available: ghost' });
