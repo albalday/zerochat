@@ -116,7 +116,7 @@
   }
 
   /**
-   * Activa un perfil y arranca sus servicios MCP externos y, si es su navegador, Playwright MCP.
+   * Activa un perfil y arranca sus servicios MCP externos y, si es la herramienta de navegación, Playwright MCP.
    * Devuelve una promesa con { started, unavailable }, para que cada llamada decida cómo avisar.
    */
   function activateConnectionProfile(profileId, activationOptions) {
@@ -200,8 +200,7 @@
         systemPrompt: els.settingSystemPrompt.value.trim(),
         temperature: els.settingTemperature.value || baseSettings.temperature,
         webllmConfig: formConfig.webllmConfig,
-        mcpServers: getUISettings().gatherProfileMcpServers(els),
-        browser: getUISettings().gatherProfileBrowser(els)
+        mcpServers: getUISettings().gatherProfileMcpServers(els)
       }
     });
 

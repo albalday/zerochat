@@ -44,7 +44,7 @@ test('ChatI18n - no hay textos alternativos tras t(), que nunca se usarían', ()
 });
 
 // Claves que el código compone con un prefijo y un estado, en lugar de citarlas literalmente.
-const DYNAMIC_KEY_PREFIXES = ['notice_', 'project_status_', 'project_action_', 'mcp_status_', 'mcp_external_status_', 'profile_browser_'];
+const DYNAMIC_KEY_PREFIXES = ['notice_', 'project_status_', 'project_action_', 'mcp_status_', 'mcp_external_status_', 'browser_tool_', 'browser_other_', 'browser_user_'];
 
 test('ChatI18n - toda clave de los diccionarios se usa', () => {
   const { TRANSLATIONS } = require('../../js/i18n.js');

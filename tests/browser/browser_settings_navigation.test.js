@@ -112,4 +112,51 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       assert.equal(await page.evaluate(() => document.getElementById('settings-dialog').open), true, 'Una regla inválida no cierra los ajustes');
     });
   });
+
+  test('Browser UI - Navegador guarda la herramienta y la configuración de Playwright y lo reinicia tras confirmar', async () => {
+    await withTestApp({ viewport: { width: 1280, height: 800 } }, async page => {
+      page.setDefaultTimeout(5000);
+      // Servidor local con Playwright MCP en marcha: solo Chromium instalado y solo Edge en el sistema.
+      await page.evaluate(() => {
+        window.ChatState.set('mcp', { status: 'connected', externalServers: [{ id: 'playwright', status: 'running' }] });
+        window.__requests = [];
+        window.__actions = [];
+        const saved = { mode: 'own', engine: 'chromium', userBrowser: 'chrome', headless: true };
+        window.ChatMCP.manager.requestExternalControl = async (method, params) => {
+          window.__requests.push({ method, params });
+          if (method === 'zerochat/browser/config/get') return saved;
+          if (method === 'zerochat/browser/config/set') return params.config;
+          return { available: true, systemBrowsers: { chrome: false, msedge: true, firefox: true }, engines: [
+            { id: 'chromium', title: 'Chrome for Testing 1', installed: true },
+            { id: 'firefox', title: 'Firefox 2', installed: false }
+          ] };
+        };
+        window.ChatUIMcp.runExternalServerAction = async (id, action) => { window.__actions.push(`${action} ${id}`); return true; };
+      });
+      await openSettings(page, 'browser');
+      assert.equal(await page.isChecked('input[name="browser-tool"][value="browser_action"]'), true);
+      assert.equal(await page.locator('.browser-modes').count(), 0, 'Sin Playwright MCP no hay opciones de navegador');
+
+      await page.check('input[name="browser-tool"][value="playwright"]');
+      await page.waitForSelector('.browser-modes');
+      assert.equal(await page.isDisabled('input[name="browser-engine"][value="firefox"]'), true, 'Un motor sin instalar no se elige');
+      assert.equal(await page.isDisabled('#browser-user-browser option[value="chrome"]'), true, 'Un navegador no detectado no se elige');
+      await page.check('input[name="browser-mode"][value="user"]');
+      await page.selectOption('#browser-user-browser', 'msedge');
+      await page.click('#btn-save-settings');
+      await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+      await page.click('#notice-accept');
+      await page.waitForFunction(() => !document.getElementById('settings-dialog').open);
+      await page.waitForFunction(() => window.__actions.length === 2);
+      assert.deepEqual(await page.evaluate(() => ({
+        set: window.__requests.filter(request => request.method === 'zerochat/browser/config/set').map(request => request.params),
+        actions: window.__actions,
+        tool: window.ChatConfig.getActive().browser
+      })), {
+        set: [{ config: { mode: 'user', engine: 'chromium', userBrowser: 'msedge', headless: true } }],
+        actions: ['stop playwright', 'start playwright'],
+        tool: 'playwright'
+      });
+    });
+  });
 });

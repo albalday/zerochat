@@ -2158,6 +2158,30 @@ def load_browser_config() -> dict:
         return dict(BROWSER_CONFIG_DEFAULTS)
 
 
+def save_browser_config(raw) -> dict:
+    config = validate_browser_config(raw)
+    path = browser_config_file()
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _atomic_write_text(path, json.dumps(config, indent=2))
+    return config
+
+
+def _playwright_active() -> bool:
+    return any(server["id"] == "playwright" and server["status"] in ("running", "starting", "installing")
+               for server in GLOBAL_MCP_MANAGER.list_servers())
+
+
+def clear_own_browser_data(engine) -> dict:
+    """Borra el perfil persistente del motor (cookies, sesiones, almacenamiento de los sitios)."""
+    if engine not in OWN_BROWSER_ENGINES:
+        raise ValueError(f"engine debe ser uno de: {', '.join(OWN_BROWSER_ENGINES)}")
+    # El navegador abierto tiene el perfil bloqueado y volvería a escribirlo.
+    if _playwright_active():
+        raise ValueError("Detén Playwright MCP antes de borrar los datos del navegador.")
+    shutil.rmtree(own_browser_profile_dir(engine), ignore_errors=True)
+    return {"cleared": engine}
+
+
 def playwright_launch_args(config: dict) -> list[str]:
     """Argumentos de Playwright MCP para la configuración del navegador."""
     if config["mode"] == "user":
@@ -2303,15 +2327,20 @@ class BrowserEngines:
         with self._lock:
             cli = self._check_engine(engine)
             # Borrar un motor en uso deja al navegador abierto sin sus ficheros.
-            if any(server["id"] == "playwright" and server["status"] in ("running", "starting", "installing")
-                   for server in GLOBAL_MCP_MANAGER.list_servers()):
+            if _playwright_active():
                 raise ValueError("Detén Playwright MCP antes de quitar un motor.")
             locations = self._locations(cli)
             for name in ENGINE_CACHE_ENTRIES[engine]:
                 if name in locations:
                     shutil.rmtree(locations[name][1], ignore_errors=True)
             self._jobs.pop(engine, None)
-        return self.list()
+        result = self.list()
+        # La configuración no se queda con un motor quitado si hay otro instalado.
+        config = load_browser_config()
+        replacement = next((item["id"] for item in result["engines"] if item["installed"]), None)
+        if config["engine"] == engine and replacement:
+            save_browser_config({**config, "engine": replacement})
+        return result
 
 
 BROWSER_ENGINES = BrowserEngines()
@@ -3654,8 +3683,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return {"host": "running", "version": VERSION, "servers": GLOBAL_MCP_MANAGER.list_servers()}, None, ""
         if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):
             return self._dispatch_server_control(method, params)
-        if method.startswith("zerochat/browser/engines"):
-            return self._dispatch_browser_engines(method, params)
+        if method.startswith("zerochat/browser/"):
+            return self._dispatch_browser(method, params)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @staticmethod
@@ -3688,9 +3717,15 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @staticmethod
-    def _dispatch_browser_engines(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
-        """Motores propios de Playwright para la sección Navegador de Ajustes."""
+    def _dispatch_browser(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+        """Configuración, datos y motores propios de Playwright para la sección Navegador de Ajustes."""
         try:
+            if method == "zerochat/browser/config/get":
+                return load_browser_config(), None, ""
+            if method == "zerochat/browser/config/set":
+                return save_browser_config(params.get("config")), None, ""
+            if method == "zerochat/browser/data/clear":
+                return clear_own_browser_data(params.get("engine")), None, ""
             if method == "zerochat/browser/engines/list":
                 return BROWSER_ENGINES.list(), None, ""
             if method == "zerochat/browser/engines/install":

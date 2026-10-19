@@ -72,7 +72,7 @@
 
   /**
    * Navegador al que pertenece una herramienta: browser_action del servidor local o las de
-   * Playwright MCP. El perfil elige uno solo; null para el resto de herramientas.
+   * Playwright MCP. Ajustes › Navegador elige uno solo; null para el resto de herramientas.
    */
   function browserOfTool(tool) {
     if (tool.name === 'browser_action') return 'browser_action';
@@ -201,7 +201,7 @@
     /**
      * Una herramienta está activa si está disponible en su contexto (por ejemplo, RAG exige una
      * rama activa) y, cuando se configura en la interfaz, si su interruptor está encendido; las de
-     * navegador, si son del navegador que eligió el perfil.
+     * navegador, si son de la herramienta de navegación elegida en Ajustes › Navegador.
      */
     isToolActive(tool, appConfig) {
       if (!tool.isAvailable(appConfig)) return false;

@@ -155,6 +155,23 @@ with tempfile.TemporaryDirectory() as temp_dir:
     # Con el navegador del usuario manda la extensión y siempre hay ventana.
     assert launch_args({"mode": "user", "userBrowser": "msedge", "headless": True}) == ["--extension", "--browser=msedge"]
 
+    # Lo guardado se valida y es lo que usa el siguiente arranque.
+    saved = module.save_browser_config({"engine": "webkit", "headless": False})
+    assert saved == {"mode": "own", "engine": "webkit", "userBrowser": "chrome", "headless": False}
+    assert launch_args(saved) == ["--browser=webkit", f"--user-data-dir={own / 'webkit'}"]
+
+    # Borrar los datos quita solo el perfil de ese motor y exige Playwright MCP detenido.
+    (own / "chromium" / "Cookies").write_text("x")
+    with patch.object(module.GLOBAL_MCP_MANAGER, "list_servers", return_value=[{"id": "playwright", "status": "starting"}]):
+        try:
+            module.clear_own_browser_data("chromium")
+        except ValueError as err:
+            assert "Detén Playwright MCP" in str(err)
+        else:
+            raise AssertionError("se borraron los datos de un navegador abierto")
+    assert module.clear_own_browser_data("chromium") == {"cleared": "chromium"}
+    assert sorted(path.name for path in own.iterdir()) == ["firefox", "webkit"]
+
     for raw, message in [
         ([], "objeto"),
         ({"mode": "own", "extra": 1}, "extra"),
@@ -163,11 +180,12 @@ with tempfile.TemporaryDirectory() as temp_dir:
         ({"headless": "no"}, "headless"),
     ]:
         try:
-            module.validate_browser_config(raw)
+            module.save_browser_config(raw)
         except ValueError as err:
             assert message in str(err), (raw, err)
         else:
             raise AssertionError(raw)
+    assert module.load_browser_config() == saved, "un valor rechazado no cambia lo guardado"
 `;
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });
@@ -265,8 +283,14 @@ wait();
             assert "Detén Playwright MCP" in str(err)
         else:
             raise AssertionError("se quitó un motor en uso")
+    # Al quitar el motor elegido, la configuración pasa a otro instalado.
+    engines.install("firefox")
+    assert settled("firefox")["installed"]
     assert engine(engines.remove("chromium"), "chromium")["installed"] is False
-    assert sorted(path.name for path in cache.iterdir()) == ["ffmpeg-1", "go"]
+    assert sorted(path.name for path in cache.iterdir()) == ["ffmpeg-1", "firefox-1", "go"]
+    assert module.load_browser_config()["engine"] == "firefox"
+    engines.remove("firefox")
+    assert module.load_browser_config()["engine"] == "firefox", "sin otro instalado se conserva"
 
     cli.unlink()
     assert engines.list() == {"systemBrowsers": module.system_browsers(), "engines": [], "available": False,

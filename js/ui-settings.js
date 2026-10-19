@@ -23,9 +23,10 @@
   const getToolSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
   const getSidebar = () => resolveDep('ChatUISidebar', './ui-sidebar.js');
   const getState = () => resolveDep('ChatState', './state.js');
+  const getUIBrowser = () => resolveDep('ChatUIBrowser', './ui-browser.js');
 
   const FREE_TIER_HELP = { openrouter: 'help/openrouter-free.html', gemini: 'help/gemini-free.html' };
-  const SECTION_TITLES = { model: 'settings_model', agent: 'settings_agent', mcp: 'settings_mcp', permissions: 'settings_permissions' };
+  const SECTION_TITLES = { model: 'settings_model', agent: 'settings_agent', mcp: 'settings_mcp', browser: 'settings_browser', permissions: 'settings_permissions' };
 
   const markActive = (buttons, attribute, value) => buttons.forEach(button => button.classList.toggle('active', button.getAttribute(attribute) === value));
   const getAdapter = elements => getProviders().registry.get(elements.settingApiType.value || 'openai');
@@ -97,8 +98,6 @@
     selectValue(elements.settingWebllmContextWindow, webllmConfig.context_window_size, String(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE));
     selectValue(elements.settingWebllmPrefillChunk, webllmConfig.prefill_chunk_size, 'default');
     renderProfileMcpServers(elements, profileData.mcpServers || []);
-    const browser = profileData.browser || Defaults.CONFIG_DEFAULTS.browser;
-    profileBrowserRadios(elements).forEach(radio => { radio.checked = radio.value === browser; });
     syncProviderFields(elements);
     syncApiKeyLock(elements);
   }
@@ -171,6 +170,7 @@
       systemPrompt: elements.settingSystemPrompt.value.trim(),
       systemDataPrompt: elements.settingSystemDataPrompt.value.trim(),
       temperature: elements.settingTemperature.value,
+      browser: getUIBrowser().getTool(),
       enabledTools: {
         ...appConfig.enabledTools,
         ...gatherEnabledToolsFromUI(elements.agentToolsContainer),
@@ -202,6 +202,7 @@
       applyTheme(elements, appConfig.theme);
       applyLanguage(elements, appConfig.language);
       renderAgentToolsUI(elements.agentToolsContainer, appConfig.enabledTools);
+      getUIBrowser().load(appConfig.browser);
     }
     getUIMcp().syncSecurityControls();
 
@@ -259,6 +260,10 @@
   async function saveCurrentSettings(elements, appConfig, callbacks) {
     if (!saveDirectoryRulesFromSettings(elements)) return false;
     saveMcpGlobalPolicyFromSettings(elements);
+    if (!await getUIBrowser().save()) {
+      openSettingsSection(elements, appConfig, 'browser');
+      return false;
+    }
     const savedConfig = getConfig().updateRuntime(gatherCurrentFormConfig(elements, appConfig));
     setSettingsFormDirty(elements, false);
     callbacks.loadCachedModels();
@@ -433,6 +438,9 @@ zerochat</code></pre>
           <div id="mcp-tools-container" class="mcp-tools-container"></div>
         </div>
 
+        <!-- Sección: Navegador (la pinta ChatUIBrowser) -->
+        <div id="settings-browser" class="settings-section-pane"></div>
+
         <!-- Sección: Permisos de ejecución MCP -->
         <div id="settings-permissions" class="settings-section-pane">
           <!-- Tarjeta 1: Política Global de Ejecución -->
@@ -551,7 +559,6 @@ zerochat</code></pre>
     const missing = servers.filter(checkbox => checkbox.dataset.missing === 'true').length;
     elements.profileSummaryMcpWarning.parentElement.hidden = missing === 0;
     elements.profileSummaryMcpWarning.textContent = t('profile_mcp_missing_count', { count: missing });
-    elements.profileSummaryBrowser.textContent = t(`profile_browser_${gatherProfileBrowser(elements)}`);
   }
 
   /**
@@ -562,7 +569,7 @@ zerochat</code></pre>
     const mcp = getState().get('mcp');
     const connected = mcp.status === 'connected';
     const language = I18n.getLanguage();
-    // Playwright MCP no se elige aquí: es una opción del capítulo Navegador.
+    // Playwright MCP no se elige aquí: es una opción de Ajustes › Navegador.
     const known = connected ? mcp.externalServers.filter(server => server.id !== 'playwright') : [];
     const rows = known.map(server => ({
       id: server.id,
@@ -583,9 +590,6 @@ zerochat</code></pre>
         </label>`).join('');
   }
 
-  const profileBrowserRadios = elements => [...elements.profilesDialog.querySelectorAll('.profile-browser-radio')];
-  const gatherProfileBrowser = elements => profileBrowserRadios(elements).find(radio => radio.checked)?.value || Defaults.CONFIG_DEFAULTS.browser;
-
   const gatherProfileMcpServers = elements => [...elements.profileMcpServers.querySelectorAll('.profile-mcp-checkbox:checked')].map(checkbox => checkbox.value);
 
   /** Al abrir el editor solo se despliega la conexión. */
@@ -604,8 +608,8 @@ zerochat</code></pre>
   }
 
   /** Capítulo plegable del editor de perfiles; su cabecera resume el contenido aunque esté cerrado. */
-  const profileChapter = (id, summaryId, titleKey, body, warningId = '', titleId = '') => `<details id="${id}" class="profile-chapter">
-          <summary class="profile-chapter-summary"><svg class="ui-icon profile-chapter-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><use href="#icon-chevron-right"></use></svg><span${titleId ? ` id="${titleId}"` : ''} class="profile-chapter-title" data-i18n="${titleKey}">${t(titleKey)}</span><span id="${summaryId}" class="profile-chapter-detail"></span>${warningId ? `<span class="profile-chapter-warning" hidden>${Icons.get('alert-triangle', { size: 12 })}<span id="${warningId}"></span></span>` : ''}</summary>
+  const profileChapter = (id, summaryId, titleKey, body, warningId = '') => `<details id="${id}" class="profile-chapter">
+          <summary class="profile-chapter-summary"><svg class="ui-icon profile-chapter-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><use href="#icon-chevron-right"></use></svg><span class="profile-chapter-title" data-i18n="${titleKey}">${t(titleKey)}</span><span id="${summaryId}" class="profile-chapter-detail"></span>${warningId ? `<span class="profile-chapter-warning" hidden>${Icons.get('alert-triangle', { size: 12 })}<span id="${warningId}"></span></span>` : ''}</summary>
           <div class="profile-chapter-body">${body}</div>
         </details>`;
 
@@ -657,15 +661,6 @@ zerochat</code></pre>
             <p id="profile-mcp-disconnected" class="label-hint" data-i18n="profile_mcp_disconnected" hidden>${t('profile_mcp_disconnected')}</p>
             <div id="profile-mcp-servers" class="profile-mcp-servers"></div>
         `, 'profile-summary-mcp-warning')}
-        ${profileChapter('profile-chapter-browser', 'profile-summary-browser', 'profile_chapter_browser', `
-            <p class="label-hint" data-i18n="profile_browser_hint">${t('profile_browser_hint')}</p>
-            <div class="profile-browser-options" role="radiogroup" aria-labelledby="profile-chapter-browser-title">
-              ${Defaults.PROFILE_BROWSERS.map(browser => `<label class="profile-browser-option">
-                <input type="radio" name="profile-browser" class="profile-browser-radio" value="${browser}">
-                <span class="profile-browser-text"><strong data-i18n="profile_browser_${browser}">${t(`profile_browser_${browser}`)}</strong><span class="label-hint" data-i18n="profile_browser_${browser}_hint">${t(`profile_browser_${browser}_hint`)}</span></span>
-              </label>`).join('')}
-            </div>
-        `, '', 'profile-chapter-browser-title')}
         </div>
       </div>
     </form>`;
@@ -692,7 +687,6 @@ zerochat</code></pre>
     syncProfileEditor,
     resetProfileChapters,
     gatherProfileMcpServers,
-    gatherProfileBrowser,
     openSettingsSection,
     closeSettingsModal,
     ensureDialogMarkup,

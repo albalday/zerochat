@@ -86,6 +86,7 @@ const PRECACHE_ASSETS = [
   './js/ui-settings.js',
   './js/ui-telemetry.js',
   './js/ui-mcp.js',
+  './js/ui-browser.js',
   './js/ui-shell.js',
   './js/data-reset-service.js',
   './js/ui-transfer.js',

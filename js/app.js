@@ -36,6 +36,7 @@
     ChatUIConversation: UIConversation,
     ChatUITelemetry: UITelemetry,
     ChatUIMcp: UIMcp,
+    ChatUIBrowser: UIBrowser,
     ChatRagUI: RagUI,
     ChatRunMode: RunMode,
     ChatExport: Export
@@ -196,7 +197,6 @@
     profileSummaryMcpWarning: 'profile-summary-mcp-warning',
     profileMcpServers: 'profile-mcp-servers',
     profileMcpDisconnected: 'profile-mcp-disconnected',
-    profileSummaryBrowser: 'profile-summary-browser',
     webllmLocalHint: 'webllm-local-hint',
     webllmHelpLink: 'webllm-help-link',
     apiKeyHintText: 'api-key-hint-text',
@@ -212,6 +212,7 @@
     temperatureHint: 'temperature-hint',
     inspectorResults: 'inspector-results',
     agentToolsContainer: 'agent-tools-container',
+    settingsBrowser: 'settings-browser',
     // MCP
     mcpToolsContainer: 'mcp-tools-container',
     mcpServersList: 'mcp-servers-list',
@@ -852,6 +853,7 @@
     if (UISidebar.isMobile()) UISidebar.closeSidebar(elements);
 
     RagUI.initRagUI();
+    UIBrowser.mountBrowserUI(elements.settingsBrowser, openSettingsSection);
     UIMcp.initMcpUI({
       statusBadge: elements.mcpStatusBadge,
       statusText: elements.mcpStatusText,

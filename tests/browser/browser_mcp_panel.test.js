@@ -185,7 +185,7 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
     });
   });
 
-  test('Browser UI - los servidores externos muestran tarjetas con estado, ayuda, origen remoto sin secretos y aviso del navegador del perfil', async () => {
+  test('Browser UI - los servidores externos muestran tarjetas con estado, ayuda, origen remoto sin secretos y aviso de Ajustes › Navegador', async () => {
     await withMcpPanel({}, async page => {
       const result = await page.evaluate(() => {
         const list = document.getElementById('mcp-servers-list');
@@ -226,7 +226,7 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
       assert.match(result.composio.text, /MCP remoto HTTP/);
       assert.match(result.composio.text, /connect\.composio\.dev/);
       assert.doesNotMatch(result.composio.markup, /must-not-be-rendered/);
-      assert.match(result.playwright, /si el perfil activo elige Playwright MCP/);
+      assert.match(result.playwright, /se configura en Ajustes › Navegador/);
     });
   });
 

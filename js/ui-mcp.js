@@ -106,7 +106,7 @@
 
   /**
    * Lista de herramientas MCP con su interruptor; las de navegador (browser_action y Playwright MCP)
-   * no tienen interruptor propio porque las elige el perfil activo.
+   * no tienen interruptor propio porque se eligen en Ajustes › Navegador.
    */
   function renderToolsList(container, tools, appConfig) {
     if (tools.length === 0) {
@@ -138,7 +138,7 @@
             </div>
             <p class="mcp-tool-desc">${escapeHtml(tool.description || '')}</p>
             ${paramsHint ? `<div class="mcp-tool-params"><code>${escapeHtml(paramsHint)}</code></div>` : ''}
-            ${browser ? `<p class="label-hint">${escapeHtml(t('mcp_tool_profile_browser'))}</p>` : ''}
+            ${browser ? `<p class="label-hint">${escapeHtml(t('mcp_tool_browser_setting'))}</p>` : ''}
           </div>
           <div class="mcp-tool-action">
             <label class="switch">
@@ -230,7 +230,7 @@
           ${description ? `<p class="mcp-server-desc">${escapeHtml(description)}</p>` : ''}
           ${remote ? `<p class="mcp-server-remote"><span class="mcp-server-remote-badge">${escapeHtml(t('mcp_remote_transport'))}</span>${remoteEndpoint ? ` <span>${escapeHtml(remoteEndpoint)}</span>` : ''}</p>` : ''}
           ${help ? `<p class="mcp-server-help"><a href="${escapeHtml(help.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(help.label)}</a></p>` : ''}
-          ${server.id === 'playwright' ? `<p class="label-hint mcp-server-profile-notice">${escapeHtml(t('mcp_playwright_profile_notice'))}</p>` : ''}
+          ${server.id === 'playwright' ? `<p class="label-hint mcp-server-browser-notice">${escapeHtml(t('mcp_playwright_browser_notice'))}</p>` : ''}
           ${server.error ? `<div class="mcp-server-error"><p>${escapeHtml(server.error)}</p><a href="help/mcp.html" target="_blank" rel="noopener noreferrer">${escapeHtml(t('mcp_external_help'))}</a></div>` : ''}
           ${server.oauthUrl ? `<div class="mcp-server-oauth-banner"><p class="mcp-server-oauth-msg">${escapeHtml(t('mcp_oauth_required_msg'))}</p><a class="btn-secondary btn-mcp-oauth-open" href="${escapeHtml(server.oauthUrl)}" target="_blank" rel="noopener noreferrer" data-server-id="${id}">${escapeHtml(t('mcp_btn_oauth_authorize'))}</a></div>` : ''}
           ${renderServerOptions(server, language)}
@@ -342,8 +342,9 @@
   }
 
   /**
-   * Arranca los servicios externos de un perfil (los suyos y Playwright MCP si es su navegador) que
-   * no estén ya en marcha, sin parar los demás ni guardarlos como activos para la siguiente sesión.
+   * Arranca los servicios externos de un perfil (los suyos y Playwright MCP si es la herramienta de
+   * navegación de Ajustes › Navegador) que no estén ya en marcha, sin parar los demás ni guardarlos
+   * como activos para la siguiente sesión.
    * Devuelve { started, unavailable }: los nombres de los que ha arrancado y de los que no están
    * configurados en el servidor local o no han arrancado. Sin conexión no arranca nada.
    */
@@ -607,6 +608,7 @@
     getServiceHelp,
     getServiceName,
     startProfileServers,
+    runExternalServerAction,
     renderConnectionStatus,
     renderToolsList,
     renderExternalServers,

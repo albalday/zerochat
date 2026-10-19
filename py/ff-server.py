@@ -651,8 +651,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return {"host": "running", "version": VERSION, "servers": GLOBAL_MCP_MANAGER.list_servers()}, None, ""
         if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):
             return self._dispatch_server_control(method, params)
-        if method.startswith("zerochat/browser/engines"):
-            return self._dispatch_browser_engines(method, params)
+        if method.startswith("zerochat/browser/"):
+            return self._dispatch_browser(method, params)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @staticmethod
@@ -685,9 +685,15 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @staticmethod
-    def _dispatch_browser_engines(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
-        """Motores propios de Playwright para la sección Navegador de Ajustes."""
+    def _dispatch_browser(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+        """Configuración, datos y motores propios de Playwright para la sección Navegador de Ajustes."""
         try:
+            if method == "zerochat/browser/config/get":
+                return load_browser_config(), None, ""
+            if method == "zerochat/browser/config/set":
+                return save_browser_config(params.get("config")), None, ""
+            if method == "zerochat/browser/data/clear":
+                return clear_own_browser_data(params.get("engine")), None, ""
             if method == "zerochat/browser/engines/list":
                 return BROWSER_ENGINES.list(), None, ""
             if method == "zerochat/browser/engines/install":
