@@ -5,15 +5,16 @@
 ## M2 Audit closure, Anthropic connection and detected bugs: closed 2026-10-13
 ## M3 Playwright configuration for interactive use, --prompt runs and script generation
 Goal: Configure Playwright (browser, window, profile, origins, secrets, code generation) so a later scripts project can use ZeroChat to generate scripts that run without it and to run decision-making navigations with zerochat --prompt.
-Done when: a Playwright configuration created in Settings applies to the interactive session (Playwright MCP and browser_action) and to zerochat --prompt --playwright-config, secrets stay out of the chat, and the model knows the active configuration and the installed Playwright version so it can generate scripts that run without ZeroChat, with ES/EN help and tests.
+Done when: a Playwright configuration created in Settings and chosen in a profile applies to the interactive session (Playwright MCP and browser_action) and to zerochat --prompt --profile, secrets stay out of the chat, and the model knows the active configuration and the installed Playwright version so it can generate scripts that run without ZeroChat, with ES/EN help and tests.
 - [x] M3-T1 Study with the user how to approach Playwright scripts and agree the milestone's Done when (2026-10-19)
 - [ ] M3-T2 True headless and concurrent zerochat.py --prompt runs on a copy of the user's browser profile, starting from M18-D2/D3/D5/D6/D7 (selective Firefox copy of storage/default/<UI origin> plus its moz_perms rows via the SQLite backup API with a raw copy+WAL fallback for exclusively locked databases, 0700 and deleted after use; Playwright storageState for Chromium; headless needs local network access granted) and the dropped M18-T4 code in git history (commit a4b9bbd, py/hh-firefox-profile.py)
 - [ ] M3-T3 Named Playwright configurations in the Playwright MCP config.json format, migration of the current headless option and MCP launch with --config
 - [ ] M3-T4 Playwright settings screen: create, edit and activate configurations; browser (installing it), headless, isolated or persistent profile, allowed/blocked origins and code generation
 - [ ] M3-T5 Playwright secrets in a 0600 .env file passed with --secrets, never shown to the model or the chat
 - [ ] M3-T6 browser_action applies the active Playwright configuration (browser, headless, profile, origins)
-- [ ] M3-T7 zerochat --prompt --playwright-config <name> for one run, with a clear error when the persistent profile is in use
+- [x] M3-T7 zerochat --prompt --playwright-config <name> for one run, with a clear error when the persistent profile is in use (dropped: the profile chooses the Playwright configuration, see M3-T9 and M3-D2)
 - [ ] M3-T8 Installed Playwright version and browsers shown in the settings screen and given to the model with a read-only description of the active configuration, so generated scripts pin the same version and reuse the downloaded browsers
+- [ ] M3-T9 Profile field naming the Playwright configuration (reference, not a copy): activating a profile with another configuration restarts the MCP after a notice (last activated tab wins), --prompt --profile uses it, a clear error when the persistent profile is in use, and a missing configuration warns in the UI and fails a --prompt run
 
 ## M4 Images and office files in the chat: closed 2026-10-16
 
@@ -74,7 +75,9 @@ Done when: the site root serves a static bilingual landing page instead of the J
 - [ ] M28-T6 docs/seo.md: Search Console URL-prefix property and HTML-file verification, sitemap submission, URL inspection and coverage follow-up, GitHub repository description/topics/homepage and README links; link it from AGENTS.md §9
 - [ ] M28-T7 Manual check with the owner: Lighthouse SEO on landing and help index, Rich Results Test, Search Console verification file committed and sitemap submitted
 
-## M29 Authorized MCP servers for unattended runs
-Goal: Decide which MCP servers and tools a zerochat.py --prompt run may use, instead of every server enabled in the browser, so scheduled runs only reach the services meant for them.
-Done when: a --prompt run limits its MCP servers and tools to an authorized set chosen on the command line (possibly as named profiles), servers outside that set are not offered to the model, the inventory of what each run needs is documented in help/run-mode.html (ES/EN), with tests.
-- [ ] M29-T1 Authorized MCP servers for --prompt runs: which servers and tools a run may use, possibly organized as profiles
+## M29 Configuration profiles: MCP servers per profile
+Goal: Turn connection profiles into configuration profiles that also choose which MCP servers and tools are offered to the model, so a zerochat.py --prompt --profile run only reaches the services meant for it and profiles are managed in one place.
+Done when: a profile lists the MCP servers and tools offered to the model (a per-request filter like enabledTools, not their start or stop), a --prompt --profile run starts and offers only those, a missing server warns in the UI and fails a --prompt run, profile backups and exports carry the new fields, the UI and help call them profiles, and the inventory of what each run needs is documented in help/run-mode.html (ES/EN), with tests.
+- [x] M29-T1 Authorized MCP servers for --prompt runs: which servers and tools a run may use, possibly organized as profiles (dropped: replaced by the profile field of M29-T2, see M29-D1)
+- [ ] M29-T2 Profile field with the MCP servers and tools offered to the model, applied as a per-request filter; a --prompt --profile run starts only those servers; missing servers warn in the UI and fail a --prompt run; backups and exports carry the field
+- [ ] M29-T3 Rename connection profiles to profiles in the UI, i18n (ES/EN) and help
