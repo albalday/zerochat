@@ -134,14 +134,14 @@ with tempfile.TemporaryDirectory() as temp_dir:
 
     launched_env = {}
 
-    def launch_args(config):
+    def launch_args(config, browser=None):
         if config is None:
             config_file.unlink(missing_ok=True)
         else:
             config_file.write_text(config if isinstance(config, str) else json.dumps(config), encoding="utf-8")
         with patch.object(manager, "_prepare_service", return_value={"serviceDir": "/svc", "nodeExecutable": "node", "pythonExecutable": "python"}), \\
              patch.object(module, "StdioMcpClient", return_value=client) as constructor:
-            manager.start("playwright", remember=False)
+            manager.start("playwright", remember=False, browser=browser)
             manager.close()
             launched_env.clear()
             launched_env.update(constructor.call_args.args[3])
@@ -169,6 +169,23 @@ with tempfile.TemporaryDirectory() as temp_dir:
             assert "Chromium" in str(err)
         else:
             raise AssertionError("arrancó sin Chromium")
+
+    # El navegador que exige el perfil sustituye solo al modo y al navegador de Ajustes, en ese arranque.
+    settings = {"mode": "own", "engine": "firefox", "headless": False, "extensionToken": "abc"}
+    assert launch_args(settings, {"mode": "user", "userBrowser": "msedge"}) == ["--extension", "--browser=msedge"]
+    assert launched_env["PLAYWRIGHT_MCP_EXTENSION_TOKEN"] == "abc"
+    assert manager.browsers["playwright"] == {"mode": "user", "userBrowser": "msedge"}
+    assert launch_args({**settings, "mode": "user"}, {"mode": "own", "engine": "webkit"}) == ["--browser=webkit", f"--user-data-dir={own / 'webkit'}"]
+    assert launch_args(settings) == ["--browser=firefox", f"--user-data-dir={own / 'firefox'}"]
+    assert manager.browsers["playwright"] == {"mode": "own", "engine": "firefox"}
+    for invalid in [None, [], {"mode": "own"}, {"mode": "own", "engine": "opera"}, {"mode": "user", "userBrowser": "firefox"},
+                    {"mode": "own", "engine": "chromium", "headless": False}, {"mode": "user", "engine": "chromium"}]:
+        try:
+            module.validate_profile_browser(invalid)
+        except ValueError as err:
+            assert "browser debe ser" in str(err)
+        else:
+            raise AssertionError(f"navegador de perfil aceptado: {invalid}")
 
     # La extensión cuenta como instalada si algún perfil del navegador la tiene en su carpeta Extensions.
     profiles = Path(temp_dir) / "user-browsers"

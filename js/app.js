@@ -194,6 +194,8 @@
     profileSummaryWebllm: 'profile-summary-webllm',
     profileSummaryBehavior: 'profile-summary-behavior',
     profileSummaryMcp: 'profile-summary-mcp',
+    profileSummaryBrowser: 'profile-summary-browser',
+    profileBrowser: 'profile-browser',
     profileSummaryMcpWarning: 'profile-summary-mcp-warning',
     profileMcpServers: 'profile-mcp-servers',
     profileMcpDisconnected: 'profile-mcp-disconnected',
@@ -854,6 +856,7 @@
 
     RagUI.initRagUI();
     UIBrowser.mountBrowserUI(elements.settingsBrowser, openSettingsSection);
+    UIBrowser.mountProfileBrowser(elements.profileBrowser);
     UIMcp.initMcpUI({
       statusBadge: elements.mcpStatusBadge,
       statusText: elements.mcpStatusText,

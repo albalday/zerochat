@@ -17,7 +17,8 @@
   const PROFILE_FIELDS = Object.freeze([
     'apiUrl', 'apiType', 'model', 'systemPrompt', 'temperature',
     'reasoningEffort', 'modelReasoningConfig',
-    'enableRawLogs', 'enableContextCache', 'contextLimitOverride', 'webllmConfig', 'apiKeyLocked', 'mcpServers'
+    'enableRawLogs', 'enableContextCache', 'contextLimitOverride', 'webllmConfig', 'apiKeyLocked', 'mcpServers',
+    'playwrightBrowser'
   ]);
   const STORAGE_PROFILE_FIELDS = Object.freeze([...PROFILE_FIELDS, 'apiKey']);
 
@@ -30,7 +31,7 @@
   const NEW_PROFILE_SETTINGS = Object.freeze({
     apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: '', systemPrompt: '',
     temperature: '0.7', reasoningEffort: 'medium', modelReasoningConfig: null,
-    enableRawLogs: false, enableContextCache: true, contextLimitOverride: null, apiKeyLocked: false, mcpServers: [],
+    enableRawLogs: false, enableContextCache: true, contextLimitOverride: null, apiKeyLocked: false, mcpServers: [], playwrightBrowser: null,
     webllmConfig: {
       context_window_size: String(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE),
       prefill_chunk_size: 'default'
@@ -68,6 +69,9 @@
           return;
         }
         Backup.validateApiKeySecret(source[key]);
+      }
+      if (key === 'playwrightBrowser' && source[key] !== undefined && source[key] !== null && !Defaults.isPlaywrightBrowser(source[key])) {
+        throw new Error('The browser the profile requires is not valid.');
       }
       if (key === 'mcpServers' && source[key] !== undefined) {
         settings.mcpServers = normalizeMcpServers(source[key]);

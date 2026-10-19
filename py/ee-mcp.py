@@ -367,6 +367,8 @@ class McpServiceManager:
         self.clients: dict[str, StdioMcpClient] = {}
         self.states: dict[str, str] = {}
         self.errors: dict[str, str] = {}
+        # Modo y navegador con los que arrancó cada servicio de SERVICE_LAUNCH.
+        self.browsers: dict[str, dict] = {}
         self._lock = threading.Lock()
         materialize_managed_services(self.services_root)
         self.services = self._load_services()
@@ -431,6 +433,7 @@ class McpServiceManager:
                 "options": server.get("options", []),
                 "userOptions": pref.get("options", {}),
                 "oauthUrl": client.oauth_url if client else None,
+                "browser": self.browsers.get(server_id) if running else None,
             })
 
         return result
@@ -537,8 +540,9 @@ class McpServiceManager:
         if int(version_match.group(1)) < required_node_major:
             raise RuntimeError(f"{server_id} requiere Node.js {required_node_major}+; se detectó {detected}")
 
-    def start(self, server_id: str, remember: bool = True) -> list[dict]:
-        """Arranca un servicio; con remember lo guarda como activo para ofrecerlo en la siguiente sesión."""
+    def start(self, server_id: str, remember: bool = True, browser: dict | None = None) -> list[dict]:
+        """Arranca un servicio; con remember lo guarda como activo para ofrecerlo en la siguiente sesión.
+        `browser` es el navegador que exige el perfil activo, solo para Playwright MCP."""
         with self._lock:
             self.services = self._load_services()
             server = self.services.get(server_id)
@@ -571,8 +575,9 @@ class McpServiceManager:
                 env = os.environ.copy()
                 for k, v in launch.get("env", {}).items():
                     env[k] = self._expand(v, values)
+                self.browsers.pop(server_id, None)
                 if server_id in SERVICE_LAUNCH:
-                    extra_args, extra_env = SERVICE_LAUNCH[server_id]()
+                    extra_args, extra_env, self.browsers[server_id] = SERVICE_LAUNCH[server_id](browser)
                     args += extra_args
                     env.update(extra_env)
 

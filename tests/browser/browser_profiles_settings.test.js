@@ -476,6 +476,53 @@ async function closeProfileEditor(page, { discard = false } = {}) {
   await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
 }
 
+test('Browser UI - el capítulo Navegador del perfil exige Playwright MCP con un navegador instalado y lo reinicia si usa otro', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await openProfilesPage(browser, [{ id: 'profile:web', name: 'Web', settings: { apiType: 'openai', model: 'test', apiKey: 'sk-test' } }]);
+    // Playwright MCP en marcha con el Chromium propio; instalados Chromium y WebKit, en el sistema Edge y Chromium.
+    await page.evaluate(() => {
+      window.ChatState.set('mcp', { status: 'connected', externalServers: [
+        { id: 'playwright', displayName: { es: 'Playwright MCP' }, status: 'running', browser: { mode: 'own', engine: 'chromium' } }
+      ] });
+      window.__actions = [];
+      const setStatus = status => window.ChatState.set('mcp', state => ({ ...state, externalServers: state.externalServers.map(server => ({ ...server, status })) }));
+      window.ChatMCP.manager.requestExternalControl = async () => ({
+        available: true, systemBrowsers: { chrome: false, msedge: true, chromium: true }, extensions: {},
+        engines: [{ id: 'chromium', installed: true }, { id: 'firefox', installed: false }, { id: 'webkit', installed: true }]
+      });
+      window.ChatMCP.manager.stopExternalServer = async serverId => { window.__actions.push({ stop: serverId }); setStatus('stopped'); };
+      window.ChatMCP.manager.startExternalServer = async (serverId, onWait, options) => { window.__actions.push({ start: serverId, ...options }); setStatus('running'); };
+    });
+    await openProfileEditor(page, 'profile:web');
+    assert.equal(await page.textContent('#profile-summary-browser'), 'El de Ajustes', 'Sin exigir nada usa lo de Ajustes');
+    await page.click('#profile-chapter-browser summary');
+    await page.check('input[name="profile-browser-required"]');
+    const options = () => page.locator('#profile-browser-name option').evaluateAll(items => items.map(item => item.textContent));
+    assert.deepEqual(await options(), ['Chromium', 'WebKit'], 'Solo los motores instalados');
+    await page.check('input[name="profile-browser-mode"][value="user"]');
+    assert.deepEqual(await options(), ['Microsoft Edge', 'Chromium'], 'Solo los navegadores detectados');
+    await page.selectOption('#profile-browser-name', 'chromium');
+    assert.equal(await page.textContent('#profile-summary-browser'), 'Playwright MCP · tu Chromium');
+    await page.click('#btn-save-profile');
+    await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
+    const required = { mode: 'user', userBrowser: 'chromium' };
+    assert.deepEqual(await page.evaluate(() => window.ChatProfileRepository.get('profile:web').settings.playwrightBrowser), required);
+    // Al activarse, Playwright MCP en marcha con otro navegador se reinicia con el del perfil.
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    assert.deepEqual(await page.evaluate(() => window.__actions), [{ stop: 'playwright' }, { start: 'playwright', remember: false, browser: required }]);
+    await page.click('#notice-accept');
+
+    // Ajustes › Navegador avisa de que el perfil activo manda sobre su herramienta.
+    if (await page.locator('#sidebar-view-settings').isHidden()) await page.click('#btn-open-settings');
+    await page.locator('#sidebar-settings-nav [data-section="browser"]').evaluate(item => item.click());
+    await page.waitForFunction(() => document.getElementById('settings-dialog').open);
+    assert.match(await page.textContent('#settings-browser .browser-notice'), /El perfil activo «Web» exige Playwright MCP con tu Chromium/);
+  } finally {
+    await browser.close();
+  }
+});
+
 test('Browser UI - elegir un perfil del menú lo activa, cierra el menú y marca el activo', async () => {
   const browser = await createTestBrowser();
   try {

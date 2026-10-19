@@ -98,6 +98,7 @@
     selectValue(elements.settingWebllmContextWindow, webllmConfig.context_window_size, String(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE));
     selectValue(elements.settingWebllmPrefillChunk, webllmConfig.prefill_chunk_size, 'default');
     renderProfileMcpServers(elements, profileData.mcpServers || []);
+    getUIBrowser().loadProfileBrowser(profileData.playwrightBrowser ?? null);
     syncProviderFields(elements);
     syncApiKeyLock(elements);
   }
@@ -117,6 +118,7 @@
         || (control === elements.settingTemperature && !providerSupportsTemperature(elements));
     });
     elements.settingApiKeyLocked.disabled = disabled;
+    getUIBrowser().setProfileBrowserDisabled(disabled);
   }
 
   /** Ajusta el editor al proveedor elegido: endpoint, credenciales, temperatura y campos de WebLLM. */
@@ -559,6 +561,7 @@ zerochat</code></pre>
     const missing = servers.filter(checkbox => checkbox.dataset.missing === 'true').length;
     elements.profileSummaryMcpWarning.parentElement.hidden = missing === 0;
     elements.profileSummaryMcpWarning.textContent = t('profile_mcp_missing_count', { count: missing });
+    elements.profileSummaryBrowser.textContent = getUIBrowser().profileBrowserSummary();
   }
 
   /**
@@ -660,6 +663,9 @@ zerochat</code></pre>
             <p id="profile-mcp-disconnected" class="label-hint" data-i18n="profile_mcp_disconnected" hidden>${t('profile_mcp_disconnected')}</p>
             <div id="profile-mcp-servers" class="profile-mcp-servers"></div>
         `, 'profile-summary-mcp-warning')}
+        ${profileChapter('profile-chapter-browser', 'profile-summary-browser', 'profile_chapter_browser', `
+            <div id="profile-browser"></div>
+        `)}
         </div>
       </div>
     </form>`;

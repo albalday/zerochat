@@ -2235,12 +2235,32 @@ def playwright_launch_env(config: dict) -> dict[str, str]:
     return {}
 
 
-def _playwright_launch() -> tuple[list[str], dict[str, str]]:
+def validate_profile_browser(raw) -> dict:
+    """Navegador que exige un perfil: el propio con un motor o el del usuario con uno de sus navegadores."""
+    if isinstance(raw, dict) and raw.get("mode") == "own" and set(raw) == {"mode", "engine"} and raw["engine"] in OWN_BROWSER_ENGINES:
+        return {"mode": "own", "engine": raw["engine"]}
+    if isinstance(raw, dict) and raw.get("mode") == "user" and set(raw) == {"mode", "userBrowser"} and raw["userBrowser"] in USER_BROWSERS:
+        return {"mode": "user", "userBrowser": raw["userBrowser"]}
+    raise ValueError("browser debe ser {mode: own, engine} o {mode: user, userBrowser} con un motor o navegador admitido")
+
+
+def browser_choice(config: dict) -> dict:
+    """Modo y navegador con los que arranca Playwright MCP, en la forma de validate_profile_browser."""
+    if config["mode"] == "own":
+        return {"mode": "own", "engine": config["engine"]}
+    return {"mode": "user", "userBrowser": config["userBrowser"]}
+
+
+def _playwright_launch(browser: dict | None) -> tuple[list[str], dict[str, str], dict]:
+    """La configuración de Ajustes › Navegador con el modo y el navegador que exija el perfil activo."""
     config = load_browser_config()
-    return playwright_launch_args(config), playwright_launch_env(config)
+    if browser is not None:
+        config = {**config, **validate_profile_browser(browser)}
+    return playwright_launch_args(config), playwright_launch_env(config), browser_choice(config)
 
 
-# Argumentos y entorno que añade ZeroChat al arrancar un servicio gestionado, calculados en cada arranque.
+# Argumentos, entorno y navegador elegido que añade ZeroChat al arrancar un servicio gestionado,
+# calculados en cada arranque.
 SERVICE_LAUNCH = {"playwright": _playwright_launch}
 
 
@@ -2783,6 +2803,8 @@ class McpServiceManager:
         self.clients: dict[str, StdioMcpClient] = {}
         self.states: dict[str, str] = {}
         self.errors: dict[str, str] = {}
+        # Modo y navegador con los que arrancó cada servicio de SERVICE_LAUNCH.
+        self.browsers: dict[str, dict] = {}
         self._lock = threading.Lock()
         materialize_managed_services(self.services_root)
         self.services = self._load_services()
@@ -2847,6 +2869,7 @@ class McpServiceManager:
                 "options": server.get("options", []),
                 "userOptions": pref.get("options", {}),
                 "oauthUrl": client.oauth_url if client else None,
+                "browser": self.browsers.get(server_id) if running else None,
             })
 
         return result
@@ -2953,8 +2976,9 @@ class McpServiceManager:
         if int(version_match.group(1)) < required_node_major:
             raise RuntimeError(f"{server_id} requiere Node.js {required_node_major}+; se detectó {detected}")
 
-    def start(self, server_id: str, remember: bool = True) -> list[dict]:
-        """Arranca un servicio; con remember lo guarda como activo para ofrecerlo en la siguiente sesión."""
+    def start(self, server_id: str, remember: bool = True, browser: dict | None = None) -> list[dict]:
+        """Arranca un servicio; con remember lo guarda como activo para ofrecerlo en la siguiente sesión.
+        `browser` es el navegador que exige el perfil activo, solo para Playwright MCP."""
         with self._lock:
             self.services = self._load_services()
             server = self.services.get(server_id)
@@ -2987,8 +3011,9 @@ class McpServiceManager:
                 env = os.environ.copy()
                 for k, v in launch.get("env", {}).items():
                     env[k] = self._expand(v, values)
+                self.browsers.pop(server_id, None)
                 if server_id in SERVICE_LAUNCH:
-                    extra_args, extra_env = SERVICE_LAUNCH[server_id]()
+                    extra_args, extra_env, self.browsers[server_id] = SERVICE_LAUNCH[server_id](browser)
                     args += extra_args
                     env.update(extra_env)
 
@@ -3818,9 +3843,17 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return None, {"code": -32602, "message": "options debe ser un objeto."}, ""
         if not isinstance(remember, bool):
             return None, {"code": -32602, "message": "remember debe ser un booleano."}, ""
+        browser = params.get("browser")
+        if browser is not None:
+            if server_id not in SERVICE_LAUNCH:
+                return None, {"code": -32602, "message": f"{server_id} no admite elegir navegador."}, ""
+            try:
+                browser = validate_profile_browser(browser)
+            except ValueError as exc:
+                return None, {"code": -32602, "message": str(exc)}, ""
         try:
             if method.endswith("/start"):
-                servers = GLOBAL_MCP_MANAGER.start(server_id, remember)
+                servers = GLOBAL_MCP_MANAGER.start(server_id, remember, browser)
             elif method.endswith("/stop"):
                 servers = GLOBAL_MCP_MANAGER.stop(server_id)
             else:

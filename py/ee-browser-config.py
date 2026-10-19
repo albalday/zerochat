@@ -120,12 +120,32 @@ def playwright_launch_env(config: dict) -> dict[str, str]:
     return {}
 
 
-def _playwright_launch() -> tuple[list[str], dict[str, str]]:
+def validate_profile_browser(raw) -> dict:
+    """Navegador que exige un perfil: el propio con un motor o el del usuario con uno de sus navegadores."""
+    if isinstance(raw, dict) and raw.get("mode") == "own" and set(raw) == {"mode", "engine"} and raw["engine"] in OWN_BROWSER_ENGINES:
+        return {"mode": "own", "engine": raw["engine"]}
+    if isinstance(raw, dict) and raw.get("mode") == "user" and set(raw) == {"mode", "userBrowser"} and raw["userBrowser"] in USER_BROWSERS:
+        return {"mode": "user", "userBrowser": raw["userBrowser"]}
+    raise ValueError("browser debe ser {mode: own, engine} o {mode: user, userBrowser} con un motor o navegador admitido")
+
+
+def browser_choice(config: dict) -> dict:
+    """Modo y navegador con los que arranca Playwright MCP, en la forma de validate_profile_browser."""
+    if config["mode"] == "own":
+        return {"mode": "own", "engine": config["engine"]}
+    return {"mode": "user", "userBrowser": config["userBrowser"]}
+
+
+def _playwright_launch(browser: dict | None) -> tuple[list[str], dict[str, str], dict]:
+    """La configuración de Ajustes › Navegador con el modo y el navegador que exija el perfil activo."""
     config = load_browser_config()
-    return playwright_launch_args(config), playwright_launch_env(config)
+    if browser is not None:
+        config = {**config, **validate_profile_browser(browser)}
+    return playwright_launch_args(config), playwright_launch_env(config), browser_choice(config)
 
 
-# Argumentos y entorno que añade ZeroChat al arrancar un servicio gestionado, calculados en cada arranque.
+# Argumentos, entorno y navegador elegido que añade ZeroChat al arrancar un servicio gestionado,
+# calculados en cada arranque.
 SERVICE_LAUNCH = {"playwright": _playwright_launch}
 
 

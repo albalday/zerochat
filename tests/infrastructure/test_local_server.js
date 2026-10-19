@@ -747,6 +747,14 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
       authentication: 'composio-connect'
     });
 
+    // Solo Playwright MCP admite el navegador que exige un perfil.
+    const browserRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 70, method: 'zerochat/external/servers/start', params: { serverId: 'ejemplo', browser: { mode: 'own', engine: 'chromium' } } })
+    });
+    assert.deepEqual((await browserRes.json()).error, { code: -32602, message: 'ejemplo no admite elegir navegador.' });
+
     // Iniciar individualmente el ejemplo
     const startRes = await fetch(baseUrl, {
       method: 'POST',
@@ -758,6 +766,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     const runningExample = (startJson.result?.servers || []).find(s => s.id === 'ejemplo');
     assert.equal(runningExample?.status, 'running');
     assert.equal(runningExample?.toolCount, 1);
+    assert.equal(runningExample?.browser, null);
 
     // tools/list en /mcp/external
     const extToolsRes = await fetch(`${baseUrl}/mcp/external`, {

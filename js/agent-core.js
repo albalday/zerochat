@@ -80,6 +80,9 @@
     return null;
   }
 
+  /** Herramienta de navegación activa: Playwright MCP si el perfil lo exige; si no, la de Ajustes › Navegador. */
+  const activeBrowserTool = appConfig => (appConfig.playwrightBrowser ? 'playwright' : appConfig.browser);
+
   function withoutReasoningReplay(message) {
     if (!message.reasoningReplay) return message;
     const { reasoningReplay, ...rest } = message;
@@ -206,7 +209,7 @@
     isToolActive(tool, appConfig) {
       if (!tool.isAvailable(appConfig)) return false;
       const browser = browserOfTool(tool);
-      if (browser) return browser === appConfig.browser;
+      if (browser) return browser === activeBrowserTool(appConfig);
       if (!tool.settings.showInSettings) return true;
       return isToolEnabled(appConfig.enabledTools, tool.name, tool.settings.defaultEnabled);
     }
@@ -843,6 +846,7 @@
     TOOL_WORKFLOW_INSTRUCTION,
     isToolEnabled,
     browserOfTool,
+    activeBrowserTool,
     Tool,
     ToolRegistry,
     ToolExecutor,

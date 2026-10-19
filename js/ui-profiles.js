@@ -24,6 +24,7 @@
   const getExport = () => resolveDep('ChatExport', './export.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getUISettings = () => resolveDep('ChatUISettings', './ui-settings.js');
+  const getUIBrowser = () => resolveDep('ChatUIBrowser', './ui-browser.js');
   const getUIMcp = () => resolveDep('ChatUIMcp', './ui-mcp.js');
 
   // Elementos y callbacks de la aplicación, fijados en mount().
@@ -199,7 +200,8 @@
         systemPrompt: els.settingSystemPrompt.value.trim(),
         temperature: els.settingTemperature.value || baseSettings.temperature,
         webllmConfig: formConfig.webllmConfig,
-        mcpServers: getUISettings().gatherProfileMcpServers(els)
+        mcpServers: getUISettings().gatherProfileMcpServers(els),
+        playwrightBrowser: getUIBrowser().getProfileBrowser()
       }
     });
 

@@ -37,6 +37,21 @@
 
   /** Herramientas de navegación de Ajustes › Navegador: ninguna, browser_action o Playwright MCP. */
   const BROWSER_TOOLS = Object.freeze(['none', 'browser_action', 'playwright']);
+  /** Motores propios de Playwright y navegadores del usuario que maneja su extensión. */
+  const PLAYWRIGHT_ENGINES = Object.freeze(['chromium', 'firefox', 'webkit']);
+  const USER_BROWSERS = Object.freeze(['chrome', 'msedge', 'chromium']);
+
+  /**
+   * Navegador que exige un perfil para Playwright MCP: el propio con un motor o el del usuario
+   * con uno de sus navegadores. El resto de la configuración es la de Ajustes › Navegador.
+   */
+  function isPlaywrightBrowser(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const keys = Object.keys(value).sort().join(',');
+    if (value.mode === 'own') return keys === 'engine,mode' && PLAYWRIGHT_ENGINES.includes(value.engine);
+    if (value.mode === 'user') return keys === 'mode,userBrowser' && USER_BROWSERS.includes(value.userBrowser);
+    return false;
+  }
 
   /** Configuración de ejecución por defecto: estado inicial de ChatState y base de ChatConfig.normalize. */
   const CONFIG_DEFAULTS = Object.freeze({
@@ -49,7 +64,7 @@
     apiKeyLocked: false,
     theme: DEFAULT_THEME, language: getBrowserLanguage(), enableDebugMessages: false,
     activeRagBranchIds: Object.freeze([]),
-    mcpServers: Object.freeze([]), browser: 'browser_action',
+    mcpServers: Object.freeze([]), browser: 'browser_action', playwrightBrowser: null,
     mcpHost: '127.0.0.1', mcpPort: 6388, mcpAutoConnect: false,
     projectMode: true, projectDeclined: Object.freeze([]),
     webllmConfig: Object.freeze({
@@ -61,6 +76,9 @@
   return Object.freeze({
     APP_VERSION,
     BROWSER_TOOLS,
+    PLAYWRIGHT_ENGINES,
+    USER_BROWSERS,
+    isPlaywrightBrowser,
     DEFAULT_THEME,
     DEFAULT_SYSTEM_DATA_PROMPT,
     CONFIG_DEFAULTS,

@@ -715,9 +715,17 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return None, {"code": -32602, "message": "options debe ser un objeto."}, ""
         if not isinstance(remember, bool):
             return None, {"code": -32602, "message": "remember debe ser un booleano."}, ""
+        browser = params.get("browser")
+        if browser is not None:
+            if server_id not in SERVICE_LAUNCH:
+                return None, {"code": -32602, "message": f"{server_id} no admite elegir navegador."}, ""
+            try:
+                browser = validate_profile_browser(browser)
+            except ValueError as exc:
+                return None, {"code": -32602, "message": str(exc)}, ""
         try:
             if method.endswith("/start"):
-                servers = GLOBAL_MCP_MANAGER.start(server_id, remember)
+                servers = GLOBAL_MCP_MANAGER.start(server_id, remember, browser)
             elif method.endswith("/stop"):
                 servers = GLOBAL_MCP_MANAGER.stop(server_id)
             else:

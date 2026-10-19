@@ -1178,10 +1178,10 @@
      * Arranca un servicio externo; con `remember` el servidor local lo guarda como activo y lo
      * ofrece de nuevo en la siguiente sesión.
      */
-    async startExternalServer(serverId, onWait = null, { remember = true } = {}) {
+    async startExternalServer(serverId, onWait = null, { remember = true, browser = null } = {}) {
       let result = null;
       try {
-        result = await this.requestExternalControl('zerochat/external/servers/start', { serverId, remember });
+        result = await this.requestExternalControl('zerochat/external/servers/start', { serverId, remember, ...(browser ? { browser } : {}) });
       } catch (error) {
         // El timeout inicial no implica fallo: el backend puede estar aún
         // iniciando el servicio (p. ej. esperando la autorización OAuth).

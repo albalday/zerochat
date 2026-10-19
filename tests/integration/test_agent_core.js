@@ -169,4 +169,9 @@ test('AgentCore - las definiciones y la guía del prompt siguen los interruptore
   assert.deepEqual(browserTools('playwright'), ['playwright_browser_click']);
   assert.deepEqual(browserTools('none'), []);
   assert.deepEqual(browserTools('otro'), ['browser_action'], 'Un valor desconocido toma el predeterminado');
+  // El perfil que exige Playwright MCP manda sobre la herramienta de Ajustes; uno no válido no exige nada.
+  const profileTools = playwrightBrowser => registry.getActiveDefinitions(ConfigStore.normalize({ browser: 'none', playwrightBrowser }))
+    .map(d => d.function.name).filter(name => ['browser_action', 'playwright_browser_click'].includes(name));
+  assert.deepEqual(profileTools({ mode: 'user', userBrowser: 'chromium' }), ['playwright_browser_click']);
+  assert.deepEqual(profileTools({ mode: 'own', engine: 'opera' }), []);
 });
