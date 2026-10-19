@@ -170,6 +170,14 @@ with tempfile.TemporaryDirectory() as temp_dir:
         else:
             raise AssertionError("arrancó sin Chromium")
 
+    # La extensión cuenta como instalada si algún perfil del navegador la tiene en su carpeta Extensions.
+    profiles = Path(temp_dir) / "user-browsers"
+    (profiles / "chrome" / "Profile 2" / "Extensions" / module.PLAYWRIGHT_EXTENSION_ID / "1.0_0").mkdir(parents=True)
+    (profiles / "msedge" / "Default" / "Extensions" / "otra").mkdir(parents=True)
+    data_dirs = {"chrome": profiles / "chrome", "msedge": profiles / "msedge", "chromium": None}
+    with patch.object(module, "user_browser_data_dir", side_effect=data_dirs.get):
+        assert module.user_browser_extensions() == {"chrome": True, "msedge": False, "chromium": False}
+
     # El token de la extensión va en el entorno, nunca en los argumentos, y solo con el navegador del usuario.
     token = "abc_DEF-123"
     assert launch_args({"mode": "user", "userBrowser": "chrome", "extensionToken": token}) == ["--extension", "--browser=chrome"]
@@ -319,7 +327,7 @@ wait();
     assert module.load_browser_config()["engine"] == "firefox", "sin otro instalado se conserva"
 
     cli.unlink()
-    assert engines.list() == {"systemBrowsers": module.system_browsers(), "engines": [], "available": False,
+    assert engines.list() == {"systemBrowsers": module.system_browsers(), "extensions": module.user_browser_extensions(), "engines": [], "available": False,
                               "error": "Playwright MCP is not installed."}
 `;
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));

@@ -126,7 +126,8 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
           window.__requests.push({ method, params });
           if (method === 'zerochat/browser/config/get') return saved;
           if (method === 'zerochat/browser/config/set') return params.config;
-          return { available: true, systemBrowsers: { chrome: false, msedge: true, firefox: true }, engines: [
+          return { available: true, systemBrowsers: { chrome: false, msedge: true, chromium: true, firefox: true },
+            extensions: { chrome: false, msedge: false, chromium: true }, engines: [
             { id: 'chromium', title: 'Chrome for Testing 1', installed: true },
             { id: 'firefox', title: 'Firefox 2', installed: false }
           ] };
@@ -142,9 +143,22 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       assert.equal(await page.isDisabled('input[name="browser-engine"][value="firefox"]'), true, 'Un motor sin instalar no se elige');
       assert.equal(await page.isDisabled('#browser-user-browser option[value="chrome"]'), true, 'Un navegador no detectado no se elige');
       await page.check('input[name="browser-mode"][value="user"]');
+      // Con la extensión instalada en el navegador elegido no se ofrece cómo instalarla.
+      await page.selectOption('#browser-user-browser', 'chromium');
+      assert.equal(await page.locator('a[href*="browser-action.html#extension"]').count(), 0, 'Chromium ya tiene la extensión');
       await page.selectOption('#browser-user-browser', 'msedge');
-      await page.fill('#browser-extension-token', ' tok_1 ');
+      assert.equal(await page.locator('a[href*="browser-action.html#extension"]').count(), 1, 'Edge no tiene la extensión');
+      // Un token no válido se señala en su campo y no deja guardar.
+      await page.fill('#browser-extension-token', 'tok 1');
       await page.locator('#browser-extension-token').blur();
+      await page.click('#btn-save-settings');
+      await page.waitForSelector('#browser-extension-token-error');
+      assert.equal(await page.evaluate(() => document.getElementById('settings-dialog').open), true, 'Un token no válido no cierra los ajustes');
+      // Se admite pegar la línea de entorno que muestra la extensión.
+      await page.fill('#browser-extension-token', ' PLAYWRIGHT_MCP_EXTENSION_TOKEN=tok_1 ');
+      await page.locator('#browser-extension-token').blur();
+      assert.equal(await page.inputValue('#browser-extension-token'), 'tok_1');
+      assert.equal(await page.locator('#browser-extension-token-error').count(), 0);
       await page.click('#btn-save-settings');
       await page.waitForFunction(() => document.getElementById('notice-dialog').open);
       await page.click('#notice-accept');

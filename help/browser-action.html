@@ -43,11 +43,11 @@
       <h2>Tu navegador</h2>
       <p>Con esta opción, Playwright MCP se conecta a tu Chrome, Edge o Chromium mediante la extensión de Playwright y usa tus pestañas y sesiones abiertas, sin volver a iniciar sesión. Se elige entre los navegadores detectados en el sistema, sin necesidad de que sea el predeterminado. Firefox y Safari no admiten la extensión; para usar tus sesiones de Firefox, entra en esos sitios desde el navegador propio.</p>
       <ol>
-        <li>En el navegador elegido, abre la <a href="https://chromewebstore.google.com/detail/playwright-extension/mmlmfjhmonkocbjadbfplnigmagldckm" target="_blank" rel="noopener noreferrer">extensión de Playwright en Chrome Web Store</a> y pulsa <strong>Añadir</strong>. En Edge, permite antes las extensiones de otras tiendas cuando lo pida. Con Chromium se usa el perfil en el que esté instalada la extensión.</li>
+        <li>En el navegador elegido, abre la <a href="https://chromewebstore.google.com/detail/playwright-extension/mmlmfjhmonkocbjadbfplnigmagldckm" target="_blank" rel="noopener noreferrer">extensión de Playwright en Chrome Web Store</a> y pulsa <strong>Añadir</strong>. En Edge, permite antes las extensiones de otras tiendas cuando lo pida. Con Chromium se usa el perfil en el que esté instalada la extensión. Ajustes › Navegador indica si ya está instalada en ese navegador.</li>
         <li>Deja abierto ese navegador. En Ajustes › Navegador elige <strong>Tu navegador</strong> y el navegador, y guarda.</li>
         <li>La primera vez que el modelo navega tras arrancar Playwright MCP, la extensión te pide aceptar la conexión y elegir la pestaña que compartes con él.</li>
       </ol>
-      <p>Para no aceptar cada conexión, copia el token que muestra la ventana de la extensión en <strong>Token de la extensión</strong>. Se guarda en <code>~/zerochat/config/browser.json</code>, legible solo por tu usuario, y Playwright MCP lo recibe al arrancar. Quien tenga el token puede conectar con tu navegador sin que lo aceptes: no lo compartas.</p>
+      <p>Para no aceptar cada conexión, copia el token que muestra la ventana de la extensión en <strong>Token de la extensión</strong>; puedes pegar la línea <code>PLAYWRIGHT_MCP_EXTENSION_TOKEN=…</code> entera. Se guarda en <code>~/zerochat/config/browser.json</code>, legible solo por tu usuario, y Playwright MCP lo recibe al arrancar. Quien tenga el token puede conectar con tu navegador sin que lo aceptes: no lo compartas.</p>
       <p>Este modo siempre tiene ventana: el modelo trabaja en tu navegador abierto.</p>
     </div>
 

@@ -24,6 +24,9 @@
   const USER_BROWSERS = ['chrome', 'msedge', 'chromium'];
   const ENGINE_POLL_MS = 1000;
   const CONFIG_KEYS = ['mode', 'engine', 'userBrowser', 'headless', 'extensionToken'];
+  // La extensión muestra el token como variable de entorno: se admite pegar la línea entera.
+  const TOKEN_ENV_PREFIX = /^PLAYWRIGHT_MCP_EXTENSION_TOKEN\s*=\s*/;
+  const TOKEN_PATTERN = /^[A-Za-z0-9_-]{0,256}$/;
 
   let container = null;
   // Lo que muestra la sección: la herramienta y la configuración en edición, la guardada y los motores.
@@ -35,6 +38,8 @@
   const isConnected = () => getState().get('mcp').status === 'connected';
   const playwrightStatus = () => getState().get('mcp').externalServers.find(server => server.id === 'playwright')?.status || null;
   const sameConfig = (a, b) => CONFIG_KEYS.every(key => a[key] === b[key]);
+  const tokenValid = () => TOKEN_PATTERN.test(view.config.extensionToken);
+  const extensionToken = value => value.trim().replace(TOKEN_ENV_PREFIX, '').replace(/^(["'])(.*)\1$/, '$2').trim();
 
   const card = (selected, body) => `<div class="browser-card${selected ? ' is-selected' : ''}">${body}</div>`;
   const choice = (name, value, checked, title, hint) => `<label class="browser-choice">
@@ -82,6 +87,11 @@
       return `<option value="${id}"${view.config.userBrowser === id ? ' selected' : ''}${detected[id] ? '' : ' disabled'}>${escapeHtml(label)}</option>`;
     }).join('') + `<option value="firefox" disabled>${escapeHtml(t('browser_user_firefox'))}</option>`;
     const noneDetected = !USER_BROWSERS.some(id => detected[id]);
+    const extensionInstalled = view.engines.extensions[view.config.userBrowser] === true;
+    const extensionHelp = extensionInstalled ? ''
+      : `<a href="${escapeHtml(t('browser_extension_help_href'))}" target="_blank" rel="noopener noreferrer">${escapeHtml(t('browser_extension_help'))}</a>`;
+    const tokenError = tokenValid() ? ''
+      : `<p id="browser-extension-token-error" class="server-query-status status-error" role="alert">${escapeHtml(t('browser_extension_token_invalid'))}</p>`;
     return `${choice('browser-mode', 'user', view.config.mode === 'user', t('browser_mode_user'), t('browser_mode_user_hint'))}
       <div class="browser-card-body">
         <div class="form-field">
@@ -89,12 +99,13 @@
           <select id="browser-user-browser" name="browser-user-browser">${options}</select>
         </div>
         <div class="browser-row">
-          <span class="browser-row-text"><strong>${escapeHtml(t('browser_extension_title'))}</strong><span class="label-hint">${escapeHtml(t('browser_extension_hint'))}</span></span>
-          <a href="${escapeHtml(t('browser_extension_help_href'))}" target="_blank" rel="noopener noreferrer">${escapeHtml(t('browser_extension_help'))}</a>
+          <span class="browser-row-text"><strong>${escapeHtml(t('browser_extension_title'))}</strong><span class="label-hint">${escapeHtml(t(extensionInstalled ? 'browser_extension_installed' : 'browser_extension_hint'))}</span></span>
+          ${extensionHelp}
         </div>
         <div class="form-field">
           <label for="browser-extension-token"><strong>${escapeHtml(t('browser_extension_token'))}</strong><span class="label-hint">${escapeHtml(t('browser_extension_token_hint'))}</span></label>
-          <input type="password" id="browser-extension-token" name="browser-extension-token" value="${escapeHtml(view.config.extensionToken)}" autocomplete="off" spellcheck="false">
+          <input type="password" id="browser-extension-token" name="browser-extension-token" value="${escapeHtml(view.config.extensionToken)}" autocomplete="off" spellcheck="false"${tokenValid() ? '' : ' aria-invalid="true" aria-describedby="browser-extension-token-error"'}>
+          ${tokenError}
         </div>
         <p class="browser-warning">${Icons.get('alert-triangle', { size: 14 })}<span>${escapeHtml(t('browser_user_warning'))}</span></p>
       </div>`;
@@ -213,16 +224,21 @@
     else if (target.name === 'browser-engine') view.config.engine = target.value;
     else if (target.name === 'browser-user-browser') view.config.userBrowser = target.value;
     else if (target.name === 'browser-show-window') view.config.headless = !target.checked;
-    else if (target.name === 'browser-extension-token') view.config.extensionToken = target.value.trim();
+    else if (target.name === 'browser-extension-token') view.config.extensionToken = extensionToken(target.value);
     else return;
     render();
   }
 
   /**
    * Guarda la configuración del navegador al guardar los ajustes; la herramienta la guarda la
-   * configuración del cliente. Devuelve false si el servidor rechaza la configuración.
+   * configuración del cliente. Devuelve false si el token no es válido o el servidor rechaza la configuración.
    */
   async function save() {
+    if (view.tool === 'playwright' && view.config && !tokenValid()) {
+      render();
+      container.querySelector('#browser-extension-token')?.focus();
+      return false;
+    }
     const UIMcp = getUIMcp();
     const status = isConnected() ? playwrightStatus() : null;
     if (view.config && view.savedConfig && !sameConfig(view.config, view.savedConfig)) {

@@ -2120,6 +2120,8 @@ BROWSER_MODES = ("own", "user")
 OWN_BROWSER_ENGINES = ("chromium", "firefox", "webkit")
 USER_BROWSERS = ("chrome", "msedge", "chromium")
 BROWSER_CONFIG_DEFAULTS = {"mode": "own", "engine": "chromium", "userBrowser": "chrome", "headless": True, "extensionToken": ""}
+# Identificador de la extensión de Playwright en la tienda de Chrome, que también usa Edge.
+PLAYWRIGHT_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm"
 # Token que muestra la extensión: con él la conexión no pide aceptarla en el navegador.
 _EXTENSION_TOKEN = re.compile(r"^[A-Za-z0-9_-]{0,256}$")
 _BROWSER_CONFIG_CHOICES = {"mode": BROWSER_MODES, "engine": OWN_BROWSER_ENGINES, "userBrowser": USER_BROWSERS}
@@ -2282,6 +2284,30 @@ def system_browsers() -> dict[str, bool]:
     return {**found, "chromium": chromium_install() is not None}
 
 
+def user_browser_data_dir(browser: str) -> Path | None:
+    """Carpeta de datos del usuario de Chrome, Edge o Chromium, donde están sus perfiles."""
+    if browser == "chromium":
+        install = chromium_install()
+        return install[1] if install else None
+    if sys.platform == "darwin":
+        root, paths = Path.home() / "Library" / "Application Support", {"chrome": "Google/Chrome", "msedge": "Microsoft Edge"}
+    elif sys.platform.startswith("win"):
+        root = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+        paths = {"chrome": "Google/Chrome/User Data", "msedge": "Microsoft/Edge/User Data"}
+    else:
+        root, paths = Path.home() / ".config", {"chrome": "google-chrome", "msedge": "microsoft-edge"}
+    return root / paths[browser]
+
+
+def user_browser_extensions() -> dict[str, bool]:
+    """Si algún perfil de cada navegador del usuario tiene instalada la extensión de Playwright desde la tienda."""
+    found = {}
+    for browser in USER_BROWSERS:
+        data_dir = user_browser_data_dir(browser)
+        found[browser] = bool(data_dir) and any(data_dir.glob(f"*/Extensions/{PLAYWRIGHT_EXTENSION_ID}"))
+    return found
+
+
 class BrowserEngines:
     """Lista, instala y quita los motores propios de Playwright en su caché, nunca en el sistema."""
 
@@ -2304,7 +2330,7 @@ class BrowserEngines:
 
     def list(self) -> dict:
         cli = playwright_service_cli()
-        result = {"systemBrowsers": system_browsers(), "engines": []}
+        result = {"systemBrowsers": system_browsers(), "extensions": user_browser_extensions(), "engines": []}
         if not cli.is_file():
             return {**result, "available": False, "error": "Playwright MCP is not installed."}
         try:
