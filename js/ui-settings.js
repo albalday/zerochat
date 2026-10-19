@@ -600,9 +600,8 @@ zerochat</code></pre>
   }
 
   /** Estado del botón de guardar y de los campos del editor de perfiles. */
-  function syncProfileEditor(elements, readOnly, canSave) {
+  function syncProfileEditor(elements, readOnly) {
     syncProfileChapterSummaries(elements);
-    elements.btnSaveProfile.disabled = readOnly || isProfileLocked(elements) || !canSave;
     syncApiKeyLock(elements, readOnly);
     if (readOnly) elements.profileSaveQueryHint.textContent = t('err_profile_read_only');
   }

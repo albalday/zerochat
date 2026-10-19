@@ -69,16 +69,13 @@
   function syncProfileSaveState() {
     const canSave = canSaveProfile();
     const isReadOnly = selectedProfileId() === getProfiles().READONLY_PROFILE_ID;
-    getUISettings().syncProfileEditor(els, isReadOnly, canSave);
+    getUISettings().syncProfileEditor(els, isReadOnly);
 
     // Mientras se descifra la API key del perfil no se puede editar ni guardar.
     const keyUnavailable = els.settingApiKey._loadedApiKey === undefined;
-    if (keyUnavailable) {
-      els.settingApiKey.disabled = true;
-      els.btnSaveProfile.disabled = true;
-    }
+    if (keyUnavailable) els.settingApiKey.disabled = true;
+    els.btnSaveProfile.disabled = keyUnavailable;
     if (isReadOnly) return;
-    els.btnSaveProfile.disabled = !canSave || keyUnavailable || els.profilesDialog.dataset.profileLocked === 'true';
     const selectedModel = (els.settingModel.value || els.modelSelectHelper.value).trim();
     if (!els.settingProfileName.value.trim()) {
       els.profileSaveQueryHint.textContent = t('field_profile_placeholder');
@@ -165,9 +162,11 @@
   async function handleSaveProfile() {
     const Profiles = getProfiles();
     if (els.settingApiKey._loadedApiKey === undefined) return false;
+    // Sin nada que guardar, Guardar cierra el panel como en el resto de paneles.
+    if (!isProfileFormDirty() && !isProfileQueryReady()) return true;
     if (els.profilesDialog.dataset.profileLocked === 'true') return false;
     if (!canSaveProfile()) {
-      showProfileFeedback(t('profile_save_changes_required'), 'error');
+      showProfileFeedback(t('field_profile_placeholder'), 'error');
       return false;
     }
     const name = els.settingProfileName.value.trim();

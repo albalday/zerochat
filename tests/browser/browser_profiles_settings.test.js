@@ -97,7 +97,7 @@ test('Browser UI - perfiles: teclado, alineación, solo lectura y borrado', asyn
   } finally { await browser.close(); }
 });
 
-test('Browser UI - cualquier cambio del perfil habilita guardar, incluido un modelo libre', async () => {
+test('Browser UI - cualquier cambio del perfil queda pendiente de guardar, incluido un modelo libre', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
@@ -109,16 +109,16 @@ test('Browser UI - cualquier cambio del perfil habilita guardar, incluido un mod
     await page.click('#active-profile-trigger');
     await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
     await page.waitForFunction(() => document.getElementById('setting-api-key')._loadedApiKey !== undefined);
-    assert.equal(await page.locator('#btn-save-profile').isDisabled(), true, 'Sin cambios no debe guardarse');
+    assert.equal(await page.textContent('#profile-save-query-hint'), 'No hay cambios pendientes: Guardar cierra el panel.');
     const initialModel = await page.locator('#setting-model').inputValue();
     await page.fill('#setting-model', 'modelo-personalizado');
-    assert.equal(await page.locator('#btn-save-profile').isDisabled(), false, 'Un modelo escrito libremente habilita Guardar');
+    assert.equal(await page.textContent('#profile-save-query-hint'), 'Hay cambios pendientes. Guarda el perfil para conservarlos.', 'Un modelo escrito libremente queda pendiente');
     await page.fill('#setting-model', initialModel);
-    assert.equal(await page.locator('#btn-save-profile').isDisabled(), false, 'Al deshacer el cambio permanece habilitado');
+    assert.equal(await page.textContent('#profile-save-query-hint'), 'Hay cambios pendientes. Guarda el perfil para conservarlos.', 'Al deshacer el cambio sigue pendiente');
     assert.equal(await page.locator('#profile-chapter-behavior').evaluate(chapter => chapter.open), false, 'Solo la conexión se abre al editar');
     await page.click('#profile-chapter-behavior summary');
     await page.fill('#setting-system-prompt', 'Instrucción personalizada');
-    assert.equal(await page.locator('#btn-save-profile').isDisabled(), false, 'Un cambio en otro campo habilita Guardar');
+    assert.equal(await page.locator('#btn-save-profile').isDisabled(), false);
     await page.click('#profile-chapter-behavior summary');
     assert.match(await page.textContent('#profile-summary-behavior'), /^Prompt propio · temperatura /, 'El resumen del capítulo plegado refleja el cambio');
   } finally {
@@ -387,8 +387,8 @@ test('Browser UI - el bloqueo cargado afecta a todas las pestañas y el borrador
     for (const selector of ['#setting-profile-name', '#setting-api-url', '#setting-api-key', '#setting-model', '#setting-system-prompt', '#setting-temperature']) {
       assert.equal(await page.locator(selector).isDisabled(), true, `${selector} debe quedar bloqueado`);
     }
-    assert.equal(await page.locator('#btn-save-profile').isDisabled(), true, 'Guardar debe estar deshabilitado en perfil bloqueado');
-    await page.click('#btn-close-profiles');
+    // Un perfil bloqueado no tiene nada que guardar: Guardar cierra el panel.
+    await page.click('#btn-save-profile');
     await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
     await page.click('#active-profile-trigger');
     await page.waitForFunction(() => !document.getElementById('active-profile-popover').hidden);
@@ -508,13 +508,13 @@ test('Browser UI - reabrir el editor no conserva cambios descartados y una consu
 
     await openProfileEditor(page, 'profile:local');
     assert.equal(await page.inputValue('#setting-model'), 'google/gemma-4-26b-a4b-qat');
-    assert.equal(await page.locator('#btn-save-profile').isDisabled(), true, 'Al reabrir no quedan cambios pendientes');
+    assert.equal(await page.textContent('#profile-save-query-hint'), 'No hay cambios pendientes: Guardar cierra el panel.', 'Al reabrir no quedan cambios pendientes');
     await page.evaluate(() => {
       window.ChatAPI.fetchServerModels = async () => ({ success: true, count: 1, endpoint: 'http://localhost:1234/v1', models: [{ id: 'google/gemma-4-26b-a4b-qat' }] });
     });
     await page.click('#btn-query-server');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').dataset.queryReady === 'true');
-    assert.equal(await page.locator('#btn-save-profile').isDisabled(), false, 'Una consulta al servidor lista permite guardar');
+    assert.equal(await page.textContent('#profile-save-query-hint'), 'Hay cambios pendientes. Guarda el perfil para conservarlos.', 'Una consulta al servidor lista queda pendiente de guardar');
   } finally {
     await browser.close();
   }
@@ -582,7 +582,12 @@ test('Browser UI - un perfil nuevo abre el editor vacío sin pedir nombre ni her
       locked: document.getElementById('setting-api-key-locked').checked,
       saveDisabled: document.getElementById('btn-save-profile').disabled
     }));
-    assert.deepEqual(editor, { notice: false, name: '', description: '', apiKey: '', locked: false, saveDisabled: true });
+    assert.deepEqual(editor, { notice: false, name: '', description: '', apiKey: '', locked: false, saveDisabled: false });
+    // Sin cambios, Guardar cierra el panel sin crear ningún perfil.
+    const before = await page.evaluate(() => window.ChatProfileRepository.list().length);
+    await page.click('#btn-save-profile');
+    await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
+    assert.equal(await page.evaluate(() => window.ChatProfileRepository.list().length), before);
   } finally {
     await browser.close();
   }

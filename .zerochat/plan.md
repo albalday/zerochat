@@ -25,6 +25,7 @@ Done when: the Navegador section chooses the browsing tool, installs and removes
 - [x] M3-T17 Chromium of the system as a user browser in the extension mode (Playwright has no chromium channel for --extension) (2026-10-19)
 - [x] M3-T18 Optional extension token in the user browser mode so the extension does not ask to accept each connection (2026-10-19)
 - [x] M3-T19 Token pegado como línea PLAYWRIGHT_MCP_EXTENSION_TOKEN=… y error en su campo; el aviso de cómo instalar la extensión solo si no está instalada en el navegador elegido (2026-10-19)
+- [x] M3-T20 Guardar del panel de perfiles sin cambios cierra el panel, como el resto de paneles (2026-10-19)
 
 ## M4 Images and office files in the chat: closed 2026-10-16
 
