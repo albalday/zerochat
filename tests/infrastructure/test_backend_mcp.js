@@ -154,6 +154,17 @@ with tempfile.TemporaryDirectory() as temp_dir:
     assert launch_args({"mode": "own", "engine": "firefox", "headless": False}) == ["--browser=firefox", f"--user-data-dir={own / 'firefox'}"]
     # Con el navegador del usuario manda la extensión y siempre hay ventana.
     assert launch_args({"mode": "user", "userBrowser": "msedge", "headless": True}) == ["--extension", "--browser=msedge"]
+    # Chromium no es un canal: su ejecutable y su perfil, con el canal chrome; sin Chromium no arranca.
+    with patch.object(module, "chromium_install", return_value=("/usr/bin/chromium", Path("/home/u/.config/chromium"))):
+        assert launch_args({"mode": "user", "userBrowser": "chromium"}) == [
+            "--extension", "--browser=chrome", "--executable-path=/usr/bin/chromium", "--user-data-dir=/home/u/.config/chromium"]
+    with patch.object(module, "chromium_install", return_value=None):
+        try:
+            module.playwright_launch_args({**module.BROWSER_CONFIG_DEFAULTS, "mode": "user", "userBrowser": "chromium"})
+        except RuntimeError as err:
+            assert "Chromium" in str(err)
+        else:
+            raise AssertionError("arrancó sin Chromium")
 
     # Lo guardado se valida y es lo que usa el siguiente arranque.
     saved = module.save_browser_config({"engine": "webkit", "headless": False})

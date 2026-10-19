@@ -22,6 +22,7 @@ Done when: the Navegador section chooses the browsing tool, installs and removes
 - [x] M3-T14 Effective configuration: default plus the active profile's overrides, generated as the MCP config file of that profile (dropped: there are no per-profile overrides of Playwright parameters; launching from the configuration goes to M3-T10 and the profile part to M3-T13, see M3-D9)
 - [ ] M3-T15 The remember parameter of zerochat/external/servers/start becomes required (no default in the backend RPC nor in McpServiceManager.start), so no default only serves old clients and tests
 - [ ] M3-T16 Import Firefox sessions into the own browser: a button in the own mode copies cookies (and site storage when needed) from the user's Firefox profile into the chosen engine's browser profile with the SQLite backup API and raw copy+WAL fallback of M18, as a one-off snapshot (no sync, no saved passwords); after M3-T12
+- [x] M3-T17 Chromium of the system as a user browser in the extension mode (Playwright has no chromium channel for --extension) (2026-10-19)
 
 ## M4 Images and office files in the chat: closed 2026-10-16
 

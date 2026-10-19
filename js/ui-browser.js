@@ -1,7 +1,7 @@
 /**
  * Sección Navegador de los ajustes: la herramienta de navegación (configuración del cliente) y,
  * con Playwright MCP, su navegador (config/browser.json del servidor local): el propio de ZeroChat
- * con sus motores y sus datos, o el del usuario mediante la extensión de Playwright.
+ * con sus motores y sus datos, o el del usuario (Chrome, Edge o Chromium) mediante la extensión de Playwright.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -21,7 +21,7 @@
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
 
   const ENGINE_NAMES = { chromium: 'Chromium', firefox: 'Firefox', webkit: 'WebKit' };
-  const USER_BROWSERS = ['chrome', 'msedge'];
+  const USER_BROWSERS = ['chrome', 'msedge', 'chromium'];
   const ENGINE_POLL_MS = 1000;
   const CONFIG_KEYS = ['mode', 'engine', 'userBrowser', 'headless'];
 

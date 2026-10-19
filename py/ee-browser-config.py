@@ -1,9 +1,9 @@
 # Configuración del navegador de Playwright MCP (sección Navegador de Ajustes).
 # Modo propio: un motor de Playwright con perfil persistente en ~/zerochat/playwright/profile/<motor>.
-# Modo del usuario: su Chrome o Edge mediante la extensión Playwright MCP Bridge (--extension).
+# Modo del usuario: su Chrome, Edge o Chromium mediante la extensión de Playwright (--extension).
 BROWSER_MODES = ("own", "user")
 OWN_BROWSER_ENGINES = ("chromium", "firefox", "webkit")
-USER_BROWSERS = ("chrome", "msedge")
+USER_BROWSERS = ("chrome", "msedge", "chromium")
 BROWSER_CONFIG_DEFAULTS = {"mode": "own", "engine": "chromium", "userBrowser": "chrome", "headless": True}
 _BROWSER_CONFIG_CHOICES = {"mode": BROWSER_MODES, "engine": OWN_BROWSER_ENGINES, "userBrowser": USER_BROWSERS}
 
@@ -67,11 +67,36 @@ def clear_own_browser_data(engine) -> dict:
     return {"cleared": engine}
 
 
+def chromium_install() -> tuple[str, Path] | None:
+    """Chromium del sistema: ejecutable y carpeta de datos del usuario, o None si no está."""
+    if sys.platform == "darwin":
+        executable = "/Applications/Chromium.app/Contents/MacOS/Chromium"
+        data_dir = Path.home() / "Library" / "Application Support" / "Chromium"
+    elif sys.platform.startswith("win"):
+        local = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+        executable = str(local / "Chromium" / "Application" / "chrome.exe")
+        data_dir = local / "Chromium" / "User Data"
+    else:
+        executable = shutil.which("chromium") or shutil.which("chromium-browser") or ""
+        # El Chromium de snap guarda el perfil dentro de su confinamiento.
+        snap = os.path.realpath(executable).startswith("/snap/")
+        data_dir = Path.home() / ("snap/chromium/common/chromium" if snap else ".config/chromium")
+    return (executable, data_dir) if executable and os.path.isfile(executable) else None
+
+
 def playwright_launch_args(config: dict) -> list[str]:
     """Argumentos de Playwright MCP para la configuración del navegador."""
     if config["mode"] == "user":
         # La extensión maneja el navegador abierto del usuario: siempre con ventana.
-        return ["--extension", f"--browser={config['userBrowser']}"]
+        if config["userBrowser"] != "chromium":
+            return ["--extension", f"--browser={config['userBrowser']}"]
+        # Chromium no es un canal de Playwright: se da su ejecutable y su perfil, con el canal chrome
+        # para que no lo lance sin sandbox si no está abierto.
+        install = chromium_install()
+        if not install:
+            raise RuntimeError("No se encuentra Chromium en el sistema: elige otro navegador en Ajustes › Navegador.")
+        executable, data_dir = install
+        return ["--extension", "--browser=chrome", f"--executable-path={executable}", f"--user-data-dir={data_dir}"]
     profile_dir = own_browser_profile_dir(config["engine"])
     for directory in (profile_dir.parent.parent, profile_dir.parent, profile_dir):
         directory.mkdir(mode=0o700, exist_ok=True)
@@ -99,7 +124,8 @@ def playwright_service_cli() -> Path:
 
 
 def system_browsers() -> dict[str, bool]:
-    """Chrome y Edge en las rutas donde los busca Playwright para --browser=chrome|msedge; Firefox solo se informa."""
+    """Chrome y Edge en las rutas donde los busca Playwright para --browser=chrome|msedge, Chromium donde lo
+    busca chromium_install; Firefox solo se informa."""
     if sys.platform == "darwin":
         candidates = {
             "chrome": ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"],
@@ -120,7 +146,8 @@ def system_browsers() -> dict[str, bool]:
             "msedge": ["/opt/microsoft/msedge/msedge"],
             "firefox": [shutil.which("firefox") or ""],
         }
-    return {name: any(path and os.path.isfile(path) for path in paths) for name, paths in candidates.items()}
+    found = {name: any(path and os.path.isfile(path) for path in paths) for name, paths in candidates.items()}
+    return {**found, "chromium": chromium_install() is not None}
 
 
 class BrowserEngines:
