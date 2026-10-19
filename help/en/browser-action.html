@@ -45,8 +45,9 @@
       <ol>
         <li>In the chosen browser, open the <a href="https://chromewebstore.google.com/detail/playwright-extension/mmlmfjhmonkocbjadbfplnigmagldckm" target="_blank" rel="noopener noreferrer">Playwright extension in the Chrome Web Store</a> and click <strong>Add</strong>. In Edge, allow extensions from other stores first when asked. With Chromium, the profile where the extension is installed is used.</li>
         <li>Keep that browser open. In Settings › Browser choose <strong>Your browser</strong> and the browser, and save.</li>
-        <li>The first time the model browses, the extension asks you to choose the tab you share with it.</li>
+        <li>The first time the model browses after Playwright MCP starts, the extension asks you to accept the connection and choose the tab you share with it.</li>
       </ol>
+      <p>To avoid accepting every connection, copy the token shown in the extension window into <strong>Extension token</strong>. It is saved in <code>~/zerochat/config/browser.json</code>, readable only by your user, and Playwright MCP receives it when it starts. Whoever has the token can connect to your browser without your approval: do not share it.</p>
       <p>This mode always has a window: the model works in your open browser.</p>
     </div>
 

@@ -568,12 +568,13 @@ class McpServiceManager:
                 launch = server.get("launch", {})
                 command = self._expand(launch.get("executable", sys.executable), values)
                 args = [self._expand(arg, values) for arg in launch.get("args", []) + option_args]
-                if server_id in SERVICE_LAUNCH_ARGS:
-                    args += SERVICE_LAUNCH_ARGS[server_id]()
-
                 env = os.environ.copy()
                 for k, v in launch.get("env", {}).items():
                     env[k] = self._expand(v, values)
+                if server_id in SERVICE_LAUNCH:
+                    extra_args, extra_env = SERVICE_LAUNCH[server_id]()
+                    args += extra_args
+                    env.update(extra_env)
 
                 client = StdioMcpClient(
                     command, args, str(service_dir), env,

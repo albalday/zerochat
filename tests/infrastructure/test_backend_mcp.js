@@ -132,6 +132,8 @@ with tempfile.TemporaryDirectory() as temp_dir:
     client = Mock(tools=[])
     client.running.return_value = True
 
+    launched_env = {}
+
     def launch_args(config):
         if config is None:
             config_file.unlink(missing_ok=True)
@@ -141,6 +143,8 @@ with tempfile.TemporaryDirectory() as temp_dir:
              patch.object(module, "StdioMcpClient", return_value=client) as constructor:
             manager.start("playwright", remember=False)
             manager.close()
+            launched_env.clear()
+            launched_env.update(constructor.call_args.args[3])
             return constructor.call_args.args[1][1:]
 
     own = Path(temp_dir) / "playwright" / "profile"
@@ -166,9 +170,18 @@ with tempfile.TemporaryDirectory() as temp_dir:
         else:
             raise AssertionError("arrancó sin Chromium")
 
-    # Lo guardado se valida y es lo que usa el siguiente arranque.
+    # El token de la extensión va en el entorno, nunca en los argumentos, y solo con el navegador del usuario.
+    token = "abc_DEF-123"
+    assert launch_args({"mode": "user", "userBrowser": "chrome", "extensionToken": token}) == ["--extension", "--browser=chrome"]
+    assert launched_env["PLAYWRIGHT_MCP_EXTENSION_TOKEN"] == token
+    launch_args({"mode": "own", "extensionToken": token})
+    assert "PLAYWRIGHT_MCP_EXTENSION_TOKEN" not in launched_env
+
+    # Lo guardado se valida, solo lo lee el usuario y es lo que usa el siguiente arranque.
     saved = module.save_browser_config({"engine": "webkit", "headless": False})
-    assert saved == {"mode": "own", "engine": "webkit", "userBrowser": "chrome", "headless": False}
+    assert saved == {"mode": "own", "engine": "webkit", "userBrowser": "chrome", "headless": False, "extensionToken": ""}
+    assert config_file.stat().st_mode & 0o777 == 0o600
+    assert module.validate_browser_config({"extensionToken": "a" * 256})["extensionToken"] == "a" * 256
     assert launch_args(saved) == ["--browser=webkit", f"--user-data-dir={own / 'webkit'}"]
 
     # Borrar los datos quita solo el perfil de ese motor y exige Playwright MCP detenido.
@@ -189,6 +202,8 @@ with tempfile.TemporaryDirectory() as temp_dir:
         ({"mode": "remote"}, "mode"),
         ({"userBrowser": "firefox"}, "userBrowser"),
         ({"headless": "no"}, "headless"),
+        ({"extensionToken": "a b"}, "extensionToken"),
+        ({"extensionToken": "a" * 257}, "extensionToken"),
     ]:
         try:
             module.save_browser_config(raw)

@@ -23,7 +23,7 @@
   const ENGINE_NAMES = { chromium: 'Chromium', firefox: 'Firefox', webkit: 'WebKit' };
   const USER_BROWSERS = ['chrome', 'msedge', 'chromium'];
   const ENGINE_POLL_MS = 1000;
-  const CONFIG_KEYS = ['mode', 'engine', 'userBrowser', 'headless'];
+  const CONFIG_KEYS = ['mode', 'engine', 'userBrowser', 'headless', 'extensionToken'];
 
   let container = null;
   // Lo que muestra la sección: la herramienta y la configuración en edición, la guardada y los motores.
@@ -91,6 +91,10 @@
         <div class="browser-row">
           <span class="browser-row-text"><strong>${escapeHtml(t('browser_extension_title'))}</strong><span class="label-hint">${escapeHtml(t('browser_extension_hint'))}</span></span>
           <a href="${escapeHtml(t('browser_extension_help_href'))}" target="_blank" rel="noopener noreferrer">${escapeHtml(t('browser_extension_help'))}</a>
+        </div>
+        <div class="form-field">
+          <label for="browser-extension-token"><strong>${escapeHtml(t('browser_extension_token'))}</strong><span class="label-hint">${escapeHtml(t('browser_extension_token_hint'))}</span></label>
+          <input type="password" id="browser-extension-token" name="browser-extension-token" value="${escapeHtml(view.config.extensionToken)}" autocomplete="off" spellcheck="false">
         </div>
         <p class="browser-warning">${Icons.get('alert-triangle', { size: 14 })}<span>${escapeHtml(t('browser_user_warning'))}</span></p>
       </div>`;
@@ -209,6 +213,7 @@
     else if (target.name === 'browser-engine') view.config.engine = target.value;
     else if (target.name === 'browser-user-browser') view.config.userBrowser = target.value;
     else if (target.name === 'browser-show-window') view.config.headless = !target.checked;
+    else if (target.name === 'browser-extension-token') view.config.extensionToken = target.value.trim();
     else return;
     render();
   }

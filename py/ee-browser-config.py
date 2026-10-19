@@ -4,7 +4,9 @@
 BROWSER_MODES = ("own", "user")
 OWN_BROWSER_ENGINES = ("chromium", "firefox", "webkit")
 USER_BROWSERS = ("chrome", "msedge", "chromium")
-BROWSER_CONFIG_DEFAULTS = {"mode": "own", "engine": "chromium", "userBrowser": "chrome", "headless": True}
+BROWSER_CONFIG_DEFAULTS = {"mode": "own", "engine": "chromium", "userBrowser": "chrome", "headless": True, "extensionToken": ""}
+# Token que muestra la extensión: con él la conexión no pide aceptarla en el navegador.
+_EXTENSION_TOKEN = re.compile(r"^[A-Za-z0-9_-]{0,256}$")
 _BROWSER_CONFIG_CHOICES = {"mode": BROWSER_MODES, "engine": OWN_BROWSER_ENGINES, "userBrowser": USER_BROWSERS}
 
 
@@ -29,6 +31,8 @@ def validate_browser_config(raw) -> dict:
             raise ValueError(f"{key} debe ser uno de: {', '.join(choices)}")
     if not isinstance(config["headless"], bool):
         raise ValueError("headless debe ser un booleano")
+    if not isinstance(config["extensionToken"], str) or not _EXTENSION_TOKEN.match(config["extensionToken"]):
+        raise ValueError("extensionToken debe tener hasta 256 letras, cifras, guiones o guiones bajos")
     return config
 
 
@@ -47,7 +51,8 @@ def save_browser_config(raw) -> dict:
     config = validate_browser_config(raw)
     path = browser_config_file()
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    _atomic_write_text(path, json.dumps(config, indent=2))
+    # Guarda el token de la extensión: solo lo lee el usuario.
+    _write_private_text(path, json.dumps(config, indent=2))
     return config
 
 
@@ -106,8 +111,20 @@ def playwright_launch_args(config: dict) -> list[str]:
     return args
 
 
-# Argumentos que añade ZeroChat al arrancar un servicio gestionado, calculados en cada arranque.
-SERVICE_LAUNCH_ARGS = {"playwright": lambda: playwright_launch_args(load_browser_config())}
+def playwright_launch_env(config: dict) -> dict[str, str]:
+    """Entorno de Playwright MCP: el token de la extensión, que no aparece en la línea de órdenes ni en el log."""
+    if config["mode"] == "user" and config["extensionToken"]:
+        return {"PLAYWRIGHT_MCP_EXTENSION_TOKEN": config["extensionToken"]}
+    return {}
+
+
+def _playwright_launch() -> tuple[list[str], dict[str, str]]:
+    config = load_browser_config()
+    return playwright_launch_args(config), playwright_launch_env(config)
+
+
+# Argumentos y entorno que añade ZeroChat al arrancar un servicio gestionado, calculados en cada arranque.
+SERVICE_LAUNCH = {"playwright": _playwright_launch}
 
 
 # Motores propios de Playwright: cada uno se compone de las entradas de la caché que instala

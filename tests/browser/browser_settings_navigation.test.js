@@ -121,7 +121,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
         window.ChatState.set('mcp', { status: 'connected', externalServers: [{ id: 'playwright', status: 'running' }] });
         window.__requests = [];
         window.__actions = [];
-        const saved = { mode: 'own', engine: 'chromium', userBrowser: 'chrome', headless: true };
+        const saved = { mode: 'own', engine: 'chromium', userBrowser: 'chrome', headless: true, extensionToken: '' };
         window.ChatMCP.manager.requestExternalControl = async (method, params) => {
           window.__requests.push({ method, params });
           if (method === 'zerochat/browser/config/get') return saved;
@@ -143,6 +143,8 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       assert.equal(await page.isDisabled('#browser-user-browser option[value="chrome"]'), true, 'Un navegador no detectado no se elige');
       await page.check('input[name="browser-mode"][value="user"]');
       await page.selectOption('#browser-user-browser', 'msedge');
+      await page.fill('#browser-extension-token', ' tok_1 ');
+      await page.locator('#browser-extension-token').blur();
       await page.click('#btn-save-settings');
       await page.waitForFunction(() => document.getElementById('notice-dialog').open);
       await page.click('#notice-accept');
@@ -153,7 +155,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
         actions: window.__actions,
         tool: window.ChatConfig.getActive().browser
       })), {
-        set: [{ config: { mode: 'user', engine: 'chromium', userBrowser: 'msedge', headless: true } }],
+        set: [{ config: { mode: 'user', engine: 'chromium', userBrowser: 'msedge', headless: true, extensionToken: 'tok_1' } }],
         actions: ['stop playwright', 'start playwright'],
         tool: 'playwright'
       });
