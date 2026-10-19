@@ -111,6 +111,67 @@ with tempfile.TemporaryDirectory() as temp_dir:
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });
 
+test('zerochat.py: Playwright MCP arranca con el navegador de la configuración del navegador', () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const script = `
+import importlib.util
+import json
+import os
+import tempfile
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    spec = importlib.util.spec_from_file_location("zerochat_browser_config_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.console_log = lambda message, **kwargs: None
+    manager = module.McpServiceManager()
+    config_file = Path(temp_dir) / "config" / "browser.json"
+    client = Mock(tools=[])
+    client.running.return_value = True
+
+    def launch_args(config):
+        if config is None:
+            config_file.unlink(missing_ok=True)
+        else:
+            config_file.write_text(config if isinstance(config, str) else json.dumps(config), encoding="utf-8")
+        with patch.object(manager, "_prepare_service", return_value={"serviceDir": "/svc", "nodeExecutable": "node", "pythonExecutable": "python"}), \\
+             patch.object(module, "StdioMcpClient", return_value=client) as constructor:
+            manager.start("playwright", remember=False)
+            manager.close()
+            return constructor.call_args.args[1][1:]
+
+    own = Path(temp_dir) / "playwright" / "profile"
+    default_args = ["--browser=chromium", f"--user-data-dir={own / 'chromium'}", "--headless"]
+    # Sin fichero, o con uno no válido, se usan los valores por defecto: navegador propio sin ventana.
+    assert launch_args(None) == default_args
+    for directory in (own.parent, own, own / "chromium"):
+        assert directory.stat().st_mode & 0o777 == 0o700, directory
+    assert launch_args("{roto") == default_args
+    assert launch_args({"mode": "own", "engine": "opera"}) == default_args
+    assert launch_args({"mode": "own", "engine": "firefox", "headless": False}) == ["--browser=firefox", f"--user-data-dir={own / 'firefox'}"]
+    # Con el navegador del usuario manda la extensión y siempre hay ventana.
+    assert launch_args({"mode": "user", "userBrowser": "msedge", "headless": True}) == ["--extension", "--browser=msedge"]
+
+    for raw, message in [
+        ([], "objeto"),
+        ({"mode": "own", "extra": 1}, "extra"),
+        ({"mode": "remote"}, "mode"),
+        ({"userBrowser": "firefox"}, "userBrowser"),
+        ({"headless": "no"}, "headless"),
+    ]:
+        try:
+            module.validate_browser_config(raw)
+        except ValueError as err:
+            assert message in str(err), (raw, err)
+        else:
+            raise AssertionError(raw)
+`;
+  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+});
+
 test('zerochat.py: el arranque MCP deja traza de éxito y fallo en la consola', () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const script = `

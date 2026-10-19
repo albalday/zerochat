@@ -21,7 +21,8 @@ Este documento contiene las especificaciones de arquitectura, entorno local y em
 El backend opera de forma idéntica provenga del paquete PyPI o de la descarga con `curl`:
 
 * **Directorio de datos:** Crea y gestiona la carpeta del usuario `~/zerochat/`, que contiene:
-  * `config/`: configuración local y token diario de sesión.
+  * `config/`: configuración local y token diario de sesión. `config/browser.json` guarda el navegador de Playwright MCP (modo propio con motor y ventana, o el Chrome o Edge del usuario con la extensión); `ee-browser-config.py` lo valida y añade sus argumentos en cada arranque del servicio.
+  * `playwright/profile/<motor>/`: perfil persistente (`0700`) del navegador propio de Playwright MCP.
   * `services/`: servicios locales y definiciones MCP.
   * `.venv/`: entorno virtual Python aislado.
 * **Aislamiento de dependencias MCP:** Las herramientas y dependencias Python de MCP se instalan y ejecutan exclusivamente dentro de `~/zerochat/.venv/`. Queda prohibido instalar dependencias en el Python global o en el entorno del comando de PyPI.
