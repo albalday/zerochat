@@ -20,7 +20,7 @@
   // Del servidor local, solo las de lectura. Los MCP externos quedan fuera: no declaran si escriben.
   const READ_ONLY_LOCAL_TOOLS = new Set(['read_file', 'list_directory', 'search_files', 'get_diagnostics']);
   const LOCAL_SERVER_ID = 'mcp_proxy';
-  // Un perfil de conexión con este nombre (sin distinguir mayúsculas) da al subagente otro modelo.
+  // Un perfil con este nombre (sin distinguir mayúsculas) da al subagente otro modelo.
   const SUBAGENT_PROFILE_NAMES = new Set(['subagente', 'subagent']);
 
   const definition = {
@@ -128,7 +128,7 @@
       match = context.services.profiles.list()
         .find(profile => SUBAGENT_PROFILE_NAMES.has(String(profile?.name || '').trim().toLowerCase()));
     } catch (error) {
-      return { error: `The connection profiles could not be read: ${error?.message || String(error)}` };
+      return { error: `The profiles could not be read: ${error?.message || String(error)}` };
     }
     if (!match) return inherited;
 
@@ -138,10 +138,10 @@
       if (!profile) throw new Error('the profile no longer exists.');
       settings = profile.settings || {};
     } catch (error) {
-      return { error: `The "${match.name}" connection profile could not be loaded: ${error?.message || String(error)}` };
+      return { error: `The "${match.name}" profile could not be loaded: ${error?.message || String(error)}` };
     }
     const missing = ['apiUrl', 'apiType', 'model'].filter(key => !settings[key]);
-    if (missing.length > 0) return { error: `The "${match.name}" connection profile is incomplete: missing ${missing.join(', ')}.` };
+    if (missing.length > 0) return { error: `The "${match.name}" profile is incomplete: missing ${missing.join(', ')}.` };
 
     const connection = {
       profileName: match.name,

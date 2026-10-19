@@ -152,7 +152,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
       const missing = await openRun(browser, server, 'Hola', { profile: 'No existe', seedProfiles: true });
       missing.backend.release();
       await missing.page.waitForFunction(() => window.__closed === true);
-      assert.deepEqual(resultOf(missing.backend), { run_id: RUN_ID, error: 'Connection profile not found: No existe' });
+      assert.deepEqual(resultOf(missing.backend), { run_id: RUN_ID, error: 'Profile not found: No existe' });
     } finally {
       await browser.close();
       await stopStaticServer(server);

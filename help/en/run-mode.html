@@ -26,7 +26,7 @@
 
     <div class="card" id="como-funciona">
       <h2>1. How it works</h2>
-      <p><code>zerochat --prompt "TEXT"</code> (or <code>python3 zerochat.py --prompt "TEXT"</code>) starts the <a href="install.html">local server</a> as usual and opens the interface in the browser. The page creates a new conversation, sends the prompt with your configuration in that browser (active connection profile, MCP services, settings) and, when it finishes, returns the answer and closes. Then the process exits.</p>
+      <p><code>zerochat --prompt "TEXT"</code> (or <code>python3 zerochat.py --prompt "TEXT"</code>) starts the <a href="install.html">local server</a> as usual and opens the interface in the browser. The page creates a new conversation, sends the prompt with your configuration in that browser (the active profile or the one in <code>--profile</code>, settings, permissions) and, when it finishes, returns the answer and closes. Then the process exits.</p>
       <div class="code-wrapper"><pre><code>zerochat --prompt "Summarize today's changes in this repository" &gt; summary.txt</code></pre></div>
       <ul>
         <li><strong>Standard output:</strong> only the model's final answer.</li>
@@ -41,7 +41,7 @@
       <div class="table-responsive"><table>
         <thead><tr><th>Option</th><th>Effect</th></tr></thead>
         <tbody>
-          <tr><td><code>--profile NAME</code></td><td>Uses that connection profile (name or id) for this run only, without changing the saved active profile. If it does not exist, the run ends with an error.</td></tr>
+          <tr><td><code>--profile NAME</code></td><td>Uses that profile (name or id) for this run only, without changing the saved active profile. If it does not exist, the run ends with an error.</td></tr>
           <tr><td><code>--export FILE</code></td><td>Saves the conversation to <code>FILE</code>; the format comes from the extension: <code>.md</code> (Markdown), <code>.json</code> (session) or <code>.html</code> (as shown in the chat). It is also exported after a generation error.</td></tr>
           <tr><td><code>--keep-page</code></td><td>Does not close the page when it finishes, so you can see the conversation. The process exits anyway and the page is left disconnected from the server. Not combined with <code>--headless</code>.</td></tr>
           <tr><td><code>--headless</code></td><td>Opens the browser without a window. See <a href="#sin-ventana">section 5</a>.</td></tr>
@@ -96,6 +96,19 @@
       </ul>
       <div class="code-wrapper"><pre><code>MAILTO=user
 0 7 * * * cd "$HOME/project" &amp;&amp; PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" flock -n /tmp/zerochat-prompt.lock zerochat --prompt "Prepare the daily report" --headless --export "$HOME/reports/daily.html"</code></pre></div>
+    </div>
+
+    <div class="card" id="inventario">
+      <h2>7. What each run needs</h2>
+      <p>Before scheduling a run, check that the machine has everything it uses:</p>
+      <ul>
+        <li><strong>ZeroChat and the browser:</strong> the local server installed and a browser whose profile has ZeroChat set up from the same origin (GitHub Pages or your installation), with its profiles, API keys and the encryption password if you use your own.</li>
+        <li><strong>Profile:</strong> the one named by <code>--profile</code>, with provider, URL, model and API key. A local model server (LM Studio, Ollama…) must be running.</li>
+        <li><strong>Profile MCP services:</strong> the ones ticked in its MCP servers chapter must exist in <code>~/zerochat/services</code>, with their dependencies installed, their credentials in their <code>service.json</code> and their commands (<code>node</code>, <code>npx</code>, <code>uvx</code>…) in the job's <code>PATH</code>. Those that ask for OAuth authorization must have completed it before in a windowed session.</li>
+        <li><strong>Model browser:</strong> if the profile chooses Playwright MCP, the service installed from Settings › MCP; if it chooses <code>browser_action</code>, Node.js with Playwright and a compatible browser (see <a href="browser-action.html">browser automation</a>).</li>
+        <li><strong>Permissions:</strong> <code>--allow-dangerous-tools</code> if the job writes files or runs commands, and the directory rules in Settings › Permissions it needs.</li>
+        <li><strong>Working directory:</strong> the command is launched from the directory the job works on.</li>
+      </ul>
     </div>
 
     <footer>

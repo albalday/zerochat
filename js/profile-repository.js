@@ -1,5 +1,5 @@
 /**
- * Versioned repository for editable connection profiles.
+ * Versioned repository for editable profiles.
  * Runtime consumers must use ChatConfig instead of reading this repository.
  */
 (function (root, factory) {

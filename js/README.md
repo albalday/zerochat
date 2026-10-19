@@ -30,7 +30,7 @@ Este documento contiene las especificaciones técnicas y normas de desarrollo pa
 
 * **Coordinación:** `app.js` coordina el arranque y la integración entre módulos. La lógica de dominio reside en su módulo específico.
 * **Slices canónicos:** El estado compartido, persistente o necesario para coordinar subsistemas debe residir en `ChatState`, respetando sus slices:
-  * `config`: configuración general y perfiles de conexión.
+  * `config`: configuración general y perfiles.
   * `sessions`: sesiones guardadas y metadatos.
   * `messages`: historial de conversación activo.
   * `streaming`: estado en tiempo real de la inferencia en curso.

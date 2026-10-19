@@ -21,7 +21,7 @@ The interface runs entirely in the browser as static files: history and settings
 
 ### Quick start
 
-1. **Web (client-only):** Open [ZeroChat on GitHub Pages](https://albalday.github.io/zerochat/zerochat.html), configure a connection profile, and start chatting.
+1. **Web (client-only):** Open [ZeroChat on GitHub Pages](https://albalday.github.io/zerochat/zerochat.html), configure a profile, and start chatting.
 2. **With local computer tools (Python backend):**
 
 ```bash
@@ -71,7 +71,7 @@ La interfaz se ejecuta íntegramente en el navegador como archivos estáticos: e
 
 ### Inicio rápido
 
-1. **Web directa (solo cliente):** Abre [ZeroChat en GitHub Pages](https://albalday.github.io/zerochat/zerochat.html), configura un perfil de conexión y comienza.
+1. **Web directa (solo cliente):** Abre [ZeroChat en GitHub Pages](https://albalday.github.io/zerochat/zerochat.html), configura un perfil y comienza.
 2. **Con herramientas del equipo (backend Python):**
 
 ```bash

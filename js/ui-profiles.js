@@ -1,5 +1,5 @@
 /**
- * Interfaz de los perfiles de conexión: menú del perfil activo, editor de perfiles con detección de
+ * Interfaz de los perfiles: menú del perfil activo, editor de perfiles con detección de
  * cambios sin guardar, borrado, exportación cifrada, importación desde un paquete exportado y
  * contraseña de cifrado de las API keys.
  */

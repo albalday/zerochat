@@ -88,4 +88,4 @@ Done when: the profile editor shows collapsible chapters with a summary line (co
 - [x] M29-T5 Native tool selection (enabledTools) leaves the profile and becomes a global setting in Settings › Agente (2026-10-19)
 - [x] M29-T2 Profile field with the external MCP servers it starts: activating the profile starts them without stopping the others; a --prompt --profile run starts only those; missing servers warn in the UI and fail a --prompt run; backups and exports carry the field (2026-10-19)
 - [x] M29-T6 Browser chapter of the profile: none, browser_action or Playwright MCP, never both; Playwright leaves the MCP server list and the profile starts it when chosen; backups and exports carry the field (2026-10-19)
-- [ ] M29-T3 Rename connection profiles to profiles in the UI, i18n (ES/EN) and help
+- [x] M29-T3 Rename connection profiles to profiles in the UI, i18n (ES/EN) and help (2026-10-19)
