@@ -524,11 +524,19 @@ test('Browser UI - los capítulos MCP y Navegador del perfil avisan de los servi
   const browser = await createTestBrowser();
   try {
     const page = await openProfilesPage(browser, [{ id: 'profile:mcp', name: 'Con MCP', settings: { apiType: 'openai', model: 'test', apiKey: 'sk-test', mcpServers: ['ghost'] } }]);
-    // Servidor local conectado con un servicio ya en marcha: guardar no arranca nada ni avisa.
-    await page.evaluate(() => window.ChatState.set('mcp', { status: 'connected', externalServers: [
-      { id: 'memory', displayName: { es: 'Memoria', en: 'Memory' }, status: 'running' },
-      { id: 'playwright', displayName: { es: 'Playwright MCP' }, status: 'running' }
-    ] }));
+    // Servidor local conectado: Memoria está parada y Playwright ya en marcha. El arranque se
+    // sustituye para registrar qué servicios arranca el perfil.
+    await page.evaluate(() => {
+      window.ChatState.set('mcp', { status: 'connected', externalServers: [
+        { id: 'memory', displayName: { es: 'Memoria', en: 'Memory' }, status: 'stopped' },
+        { id: 'playwright', displayName: { es: 'Playwright MCP' }, status: 'running' }
+      ] });
+      window.__started = [];
+      window.ChatMCP.manager.startExternalServer = async (serverId, onWait, options) => {
+        window.__started.push({ serverId, ...options });
+        window.ChatState.set('mcp', state => ({ ...state, externalServers: state.externalServers.map(server => (server.id === serverId ? { ...server, status: 'running' } : server)) }));
+      };
+    });
     await openProfileEditor(page, 'profile:mcp');
     const rows = () => page.locator('.profile-mcp-server').evaluateAll(labels => labels.map(label => ({
       name: label.querySelector('.profile-mcp-name').textContent,
@@ -554,7 +562,10 @@ test('Browser UI - los capítulos MCP y Navegador del perfil avisan de los servi
       const { mcpServers, browser } = window.ChatProfileRepository.get('profile:mcp').settings;
       return { mcpServers, browser, active: window.ChatConfig.getActive().browser };
     }), { mcpServers: ['memory'], browser: 'playwright', active: 'playwright' });
-    assert.equal(await page.evaluate(() => document.getElementById('notice-dialog').open), false);
+    // Solo arranca lo que estaba parado, sin recordarlo, y avisa de ello con un diálogo.
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    assert.deepEqual(await page.evaluate(() => window.__started), [{ serverId: 'memory', remember: false }]);
+    assert.match(await page.textContent('#notice-message'), /El perfil ha arrancado estos servicios MCP: Memoria\. Siguen en marcha hasta que los detengas/);
   } finally {
     await browser.close();
   }

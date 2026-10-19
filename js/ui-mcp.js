@@ -230,7 +230,6 @@
           ${description ? `<p class="mcp-server-desc">${escapeHtml(description)}</p>` : ''}
           ${remote ? `<p class="mcp-server-remote"><span class="mcp-server-remote-badge">${escapeHtml(t('mcp_remote_transport'))}</span>${remoteEndpoint ? ` <span>${escapeHtml(remoteEndpoint)}</span>` : ''}</p>` : ''}
           ${help ? `<p class="mcp-server-help"><a href="${escapeHtml(help.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(help.label)}</a></p>` : ''}
-          ${isRunning && server.enabled === false ? `<p class="label-hint">${escapeHtml(t('mcp_external_started_by_profile'))}</p>` : ''}
           ${server.id === 'playwright' ? `<p class="label-hint mcp-server-profile-notice">${escapeHtml(t('mcp_playwright_profile_notice'))}</p>` : ''}
           ${server.error ? `<div class="mcp-server-error"><p>${escapeHtml(server.error)}</p><a href="help/mcp.html" target="_blank" rel="noopener noreferrer">${escapeHtml(t('mcp_external_help'))}</a></div>` : ''}
           ${server.oauthUrl ? `<div class="mcp-server-oauth-banner"><p class="mcp-server-oauth-msg">${escapeHtml(t('mcp_oauth_required_msg'))}</p><a class="btn-secondary btn-mcp-oauth-open" href="${escapeHtml(server.oauthUrl)}" target="_blank" rel="noopener noreferrer" data-server-id="${id}">${escapeHtml(t('mcp_btn_oauth_authorize'))}</a></div>` : ''}
@@ -344,15 +343,17 @@
 
   /**
    * Arranca los servicios externos de un perfil (los suyos y Playwright MCP si es su navegador) que
-   * no estén ya en marcha, sin parar los demás ni guardarlos como activos para la siguiente sesión. Devuelve los que no están configurados en el
-   * servidor local o no han arrancado; sin conexión con el servidor local no arranca nada.
+   * no estén ya en marcha, sin parar los demás ni guardarlos como activos para la siguiente sesión.
+   * Devuelve { started, unavailable }: los nombres de los que ha arrancado y de los que no están
+   * configurados en el servidor local o no han arrancado. Sin conexión no arranca nada.
    */
   async function startProfileServers(appConfig) {
     const State = getState();
-    if (State.get('mcp').status !== 'connected') return [];
+    const started = [];
+    const unavailable = [];
+    if (State.get('mcp').status !== 'connected') return { started, unavailable };
     const ids = appConfig.browser === 'playwright' ? [...appConfig.mcpServers, 'playwright'] : appConfig.mcpServers;
     const language = I18n.getLanguage();
-    const unavailable = [];
     for (const id of ids) {
       const server = State.get('mcp').externalServers.find(item => item.id === id);
       if (!server) {
@@ -360,10 +361,10 @@
         continue;
       }
       if (['running', 'starting', 'installing'].includes(server.status)) continue;
-      const started = await runExternalServerAction(id, 'start', { remember: false });
-      if (!started) unavailable.push(getServiceName(server, language));
+      const ok = await runExternalServerAction(id, 'start', { remember: false });
+      (ok ? started : unavailable).push(getServiceName(server, language));
     }
-    return unavailable;
+    return { started, unavailable };
   }
 
   /**

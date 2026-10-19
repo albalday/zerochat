@@ -116,8 +116,8 @@
   }
 
   /**
-   * Activa un perfil y arranca sus servicios MCP externos y, si es su navegador, Playwright MCP. Devuelve una promesa con los servicios
-   * que no están disponibles, para que cada llamada decida cómo avisar.
+   * Activa un perfil y arranca sus servicios MCP externos y, si es su navegador, Playwright MCP.
+   * Devuelve una promesa con { started, unavailable }, para que cada llamada decida cómo avisar.
    */
   function activateConnectionProfile(profileId, activationOptions) {
     getWebLLM().adapter.disposeActiveEngine().catch(() => {});
@@ -127,20 +127,27 @@
     return getUIMcp().startProfileServers(runtimeConfig());
   }
 
-  async function warnUnavailableServers(unavailable) {
-    if (unavailable.length === 0) return;
-    await getDialogs().alert(t('profile_mcp_unavailable', { names: unavailable.join(', ') }), { type: 'warning' });
+  /**
+   * Avisa de los servicios MCP que ha arrancado el perfil, que siguen en marcha hasta que el usuario
+   * los detenga, y de los que no ha podido arrancar.
+   */
+  async function reportProfileServers({ started, unavailable }) {
+    const lines = [];
+    if (started.length > 0) lines.push(t('profile_mcp_started', { names: started.join(', ') }));
+    if (unavailable.length > 0) lines.push(t('profile_mcp_unavailable', { names: unavailable.join(', ') }));
+    if (lines.length === 0) return;
+    await getDialogs().alert(lines.join('\n\n'), { type: unavailable.length > 0 ? 'warning' : 'info' });
   }
 
-  /** Activa un perfil desde la interfaz y avisa de los servicios MCP que no ha podido arrancar. */
+  /** Activa un perfil desde la interfaz y avisa de los servicios MCP que ha arrancado o no. */
   function activateProfileFromUI(profileId) {
-    activateConnectionProfile(profileId).then(warnUnavailableServers)
+    activateConnectionProfile(profileId).then(reportProfileServers)
       .catch(error => console.warn('[UIProfiles] Could not start the profile MCP servers:', error));
   }
 
   /** Arranca los servicios MCP del perfil activo al conectar con el servidor local. */
   function startActiveProfileServers() {
-    return getUIMcp().startProfileServers(runtimeConfig()).then(warnUnavailableServers);
+    return getUIMcp().startProfileServers(runtimeConfig()).then(reportProfileServers);
   }
 
   function setProfileMenuOpen(open) {

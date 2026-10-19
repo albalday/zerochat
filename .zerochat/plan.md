@@ -91,3 +91,4 @@ Done when: the profile editor shows collapsible chapters with a summary line (co
 - [x] M29-T3 Rename connection profiles to profiles in the UI, i18n (ES/EN) and help (2026-10-19)
 - [x] M29-T7 Lower chapter headers with their own background in the profile editor, and fix the temperature label showing {val} (2026-10-19)
 - [x] M29-T8 Services started by a profile are not saved as enabled in the local server preferences; their Settings › MCP card says they keep running until stopped (2026-10-19)
+- [x] M29-T9 A dialog, instead of a note on the Settings › MCP card, lists the services a profile starts and says they keep running until stopped (2026-10-19)
