@@ -230,6 +230,7 @@
           ${description ? `<p class="mcp-server-desc">${escapeHtml(description)}</p>` : ''}
           ${remote ? `<p class="mcp-server-remote"><span class="mcp-server-remote-badge">${escapeHtml(t('mcp_remote_transport'))}</span>${remoteEndpoint ? ` <span>${escapeHtml(remoteEndpoint)}</span>` : ''}</p>` : ''}
           ${help ? `<p class="mcp-server-help"><a href="${escapeHtml(help.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(help.label)}</a></p>` : ''}
+          ${isRunning && server.enabled === false ? `<p class="label-hint">${escapeHtml(t('mcp_external_started_by_profile'))}</p>` : ''}
           ${server.id === 'playwright' ? `<p class="label-hint mcp-server-profile-notice">${escapeHtml(t('mcp_playwright_profile_notice'))}</p>` : ''}
           ${server.error ? `<div class="mcp-server-error"><p>${escapeHtml(server.error)}</p><a href="help/mcp.html" target="_blank" rel="noopener noreferrer">${escapeHtml(t('mcp_external_help'))}</a></div>` : ''}
           ${server.oauthUrl ? `<div class="mcp-server-oauth-banner"><p class="mcp-server-oauth-msg">${escapeHtml(t('mcp_oauth_required_msg'))}</p><a class="btn-secondary btn-mcp-oauth-open" href="${escapeHtml(server.oauthUrl)}" target="_blank" rel="noopener noreferrer" data-server-id="${id}">${escapeHtml(t('mcp_btn_oauth_authorize'))}</a></div>` : ''}
@@ -300,7 +301,7 @@
    * Inicia o detiene un servicio MCP gestionado reflejando el progreso en su tarjeta.
    * Devuelve true si la acción terminó correctamente.
    */
-  async function runExternalServerAction(serverId, action, { button = null } = {}) {
+  async function runExternalServerAction(serverId, action, { button = null, remember = true } = {}) {
     const pendingStatus = action === 'start' ? 'starting' : 'stopped';
     if (button) {
       button.disabled = true;
@@ -319,7 +320,7 @@
     };
     const manager = getMCP().manager;
     try {
-      if (action === 'start') await manager.startExternalServer(serverId, reportStartWait);
+      if (action === 'start') await manager.startExternalServer(serverId, reportStartWait, { remember });
       else await manager.stopExternalServer(serverId);
       return true;
     } catch (error) {
@@ -343,7 +344,7 @@
 
   /**
    * Arranca los servicios externos de un perfil (los suyos y Playwright MCP si es su navegador) que
-   * no estén ya en marcha, sin parar los demás. Devuelve los que no están configurados en el
+   * no estén ya en marcha, sin parar los demás ni guardarlos como activos para la siguiente sesión. Devuelve los que no están configurados en el
    * servidor local o no han arrancado; sin conexión con el servidor local no arranca nada.
    */
   async function startProfileServers(appConfig) {
@@ -359,7 +360,7 @@
         continue;
       }
       if (['running', 'starting', 'installing'].includes(server.status)) continue;
-      const started = await runExternalServerAction(id, 'start');
+      const started = await runExternalServerAction(id, 'start', { remember: false });
       if (!started) unavailable.push(getServiceName(server, language));
     }
     return unavailable;

@@ -90,3 +90,4 @@ Done when: the profile editor shows collapsible chapters with a summary line (co
 - [x] M29-T6 Browser chapter of the profile: none, browser_action or Playwright MCP, never both; Playwright leaves the MCP server list and the profile starts it when chosen; backups and exports carry the field (2026-10-19)
 - [x] M29-T3 Rename connection profiles to profiles in the UI, i18n (ES/EN) and help (2026-10-19)
 - [x] M29-T7 Lower chapter headers with their own background in the profile editor, and fix the temperature label showing {val} (2026-10-19)
+- [x] M29-T8 Services started by a profile are not saved as enabled in the local server preferences; their Settings › MCP card says they keep running until stopped (2026-10-19)

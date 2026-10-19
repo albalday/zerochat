@@ -39,7 +39,7 @@ async function routeBackend(page, prompt, { profile, exportFormat, keepPage = fa
     }
     if (method === 'zerochat/external/status') return reply({ host: 'running', servers: externalServers });
     if (method === 'zerochat/external/servers/start') {
-      started.push(params.serverId);
+      started.push({ id: params.serverId, remember: params.remember });
       externalServers.find(server => server.id === params.serverId).status = 'running';
       return reply({ servers: externalServers });
     }
@@ -171,7 +171,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
       run.backend.release();
       await run.page.waitForFunction(() => window.__closed === true);
       assert.deepEqual(resultOf(run.backend), { run_id: RUN_ID, text: 'ok' });
-      assert.deepEqual(run.backend.started, ['memory', 'playwright'], 'solo arranca los servicios del perfil y su navegador');
+      assert.deepEqual(run.backend.started, [{ id: 'memory', remember: false }, { id: 'playwright', remember: false }], 'solo arranca los servicios del perfil y su navegador, sin guardarlos como activos');
 
       const missing = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileSettings: { mcpServers: ['memory', 'ghost'] }, externalServers: externalServers() });
       missing.backend.release();

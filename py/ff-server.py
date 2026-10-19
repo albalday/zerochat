@@ -686,13 +686,16 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     def _dispatch_server_control(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
         server_id = params.get("serverId")
         opts = params.get("options", {})
+        remember = params.get("remember", True)
         if not isinstance(server_id, str) or not server_id:
             return None, {"code": -32602, "message": "serverId debe ser un texto no vacío."}, ""
         if not isinstance(opts, dict):
             return None, {"code": -32602, "message": "options debe ser un objeto."}, ""
+        if not isinstance(remember, bool):
+            return None, {"code": -32602, "message": "remember debe ser un booleano."}, ""
         try:
             if method.endswith("/start"):
-                servers = GLOBAL_MCP_MANAGER.start(server_id)
+                servers = GLOBAL_MCP_MANAGER.start(server_id, remember)
             elif method.endswith("/stop"):
                 servers = GLOBAL_MCP_MANAGER.stop(server_id)
             else:
