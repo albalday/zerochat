@@ -58,6 +58,7 @@ Done when: zerochat.py --prompt starts like a normal run (same port, UI and brow
 - [x] M18-T16 Option to stop the --prompt run on any user request, both ask_user question dialogs and execution permission prompts, with its exit code (2026-10-18)
 - [x] M18-T17 Export the conversation as self-contained HTML that looks like the chat (rendered messages, page CSS, used icons, inlined knowledge images) from the export dialog and --export FILE.html, with a larger body limit for the pending run export (2026-10-18)
 - [ ] M18-T18 Authorized MCP servers for --prompt runs: which servers and tools a run may use, possibly organized as profiles
+- [x] M18-T19 Rename --no-exit-on-close to --keep-server and --keep-open to --keep-page, and reject --keep-server with --prompt (2026-10-19)
 
 ## M19 Web image ingestion and multimodal analysis: closed 2026-10-16
 

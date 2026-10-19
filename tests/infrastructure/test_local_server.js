@@ -1036,7 +1036,7 @@ test('Servidor local zerochat.py: heartbeat y apagado automático por inactivida
   }
 });
 
-test('Servidor local zerochat.py: --no-exit-on-close desactiva el watchdog', async () => {
+test('Servidor local zerochat.py: --keep-server desactiva el watchdog', async () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const serverPath = path.resolve(repoRoot, 'zerochat.py');
   const port = await freePort();
@@ -1044,7 +1044,7 @@ test('Servidor local zerochat.py: --no-exit-on-close desactiva el watchdog', asy
   const testToken = 'no-exit-token-99999';
 
   const serverProc = spawn('python3', [
-    serverPath, '--port', String(port), '--no-browser', '--no-exit-on-close', '--no-venv'
+    serverPath, '--port', String(port), '--no-browser', '--keep-server', '--no-venv'
   ], {
     env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken) },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -1064,9 +1064,9 @@ test('Servidor local zerochat.py: --no-exit-on-close desactiva el watchdog', asy
     // Esperar 400ms (> ZEROCHAT_HEARTBEAT_TIMEOUT=0.2)
     await new Promise(resolve => setTimeout(resolve, 400));
 
-    // El servidor debe seguir activo porque --no-exit-on-close desactivó el watchdog
+    // El servidor debe seguir activo porque --keep-server desactivó el watchdog
     const checkRes = await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });
-    assert.equal(checkRes.status, 200, 'El servidor debe seguir respondiendo con --no-exit-on-close');
+    assert.equal(checkRes.status, 200, 'El servidor debe seguir respondiendo con --keep-server');
     assert.match(serverOutput, /Auto-cierre\s*:\s*Desactivado/, 'El banner debe indicar auto-cierre desactivado');
 
     // Métodos de control MCP: error JSON-RPC ante entradas inválidas

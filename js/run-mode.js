@@ -4,7 +4,7 @@
  * arranca, informa del progreso, aprueba para la sesión las herramientas que lo piden (las que
  * escriben o ejecutan, solo con --allow-dangerous-tools), termina con error si algo pregunta al
  * usuario (un diálogo o ask_user), exporta la conversación si se pidió (--export), devuelve el
- * resultado y se cierra salvo con --keep-open. Todo viaja por JSON-RPC zerochat/run/*.
+ * resultado y se cierra salvo con --keep-page. Todo viaja por JSON-RPC zerochat/run/*.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -120,13 +120,13 @@
     const report = createProgressReporter(event => {
       send('zerochat/run/progress', event).catch(error => console.warn('[RunMode] Could not report progress:', error));
     });
-    let keepOpen = false;
+    let keepPage = false;
     const userRequest = watchUserRequests(messagesList, report, stopGeneration);
     try {
       await sessionsLoaded;
       await waitForBackend(startupConnection, connectBackend);
-      const { prompt, profile, export: exportFormat, keep_open: keepOpenRequested, allow_dangerous_tools: allowDangerous } = await send('zerochat/run/prompt');
-      keepOpen = keepOpenRequested === true;
+      const { prompt, profile, export: exportFormat, keep_page: keepPageRequested, allow_dangerous_tools: allowDangerous } = await send('zerochat/run/prompt');
+      keepPage = keepPageRequested === true;
       if (typeof prompt !== 'string' || !prompt) throw new Error('The local server returned no prompt.');
       if (profile) {
         const match = getProfiles().findByName(profile) || getProfiles().get(profile);
@@ -152,7 +152,7 @@
       await send('zerochat/run/result', { error: error?.message || String(error) })
         .catch(sendError => console.error('[RunMode] Could not send the result:', sendError));
     } finally {
-      if (!keepOpen) window.close();
+      if (!keepPage) window.close();
     }
   }
 

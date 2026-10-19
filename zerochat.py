@@ -3801,7 +3801,7 @@ RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 
 class RunSession:
     """Estado de la ejecución: prompt, opciones, último progreso, exportación, resultado y motivo de un final sin él."""
-    def __init__(self, prompt: str, profile: str | None = None, export_path: Path | None = None, keep_open: bool = False,
+    def __init__(self, prompt: str, profile: str | None = None, export_path: Path | None = None, keep_page: bool = False,
                  allow_dangerous_tools: bool = False):
         self.run_id = secrets.token_urlsafe(24)
         self.prompt = prompt
@@ -3812,7 +3812,7 @@ class RunSession:
         self.exported = False
         self.export_error: str | None = None
         # La interfaz no cierra la página al terminar, para ver la conversación (sin --headless).
-        self.keep_open = keep_open
+        self.keep_page = keep_page
         # La interfaz aprueba también write_file, edit_file y run_command, que si no deniega.
         self.allow_dangerous_tools = allow_dangerous_tools
         self.lock = threading.Lock()
@@ -3857,7 +3857,7 @@ def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, s
             session.prompt_delivered = True
         session.touch()
         export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
-        return {"prompt": session.prompt, "profile": session.profile, "export": export_format, "keep_open": session.keep_open,
+        return {"prompt": session.prompt, "profile": session.profile, "export": export_format, "keep_page": session.keep_page,
                 "allow_dangerous_tools": session.allow_dangerous_tools}, None, ""
     if method == "zerochat/run/progress":
         kind = params.get("kind")
@@ -3984,14 +3984,14 @@ def main():
     parser.add_argument("--host", default=os.environ.get("ZEROCHAT_HOST", DEFAULT_HOST), help=f"Host de escucha (default: {DEFAULT_HOST})")
     parser.add_argument("--ui-url", default=None, help="URL de la interfaz web a abrir (por defecto: interfaz local en desarrollo o GitHub Pages)")
     parser.add_argument("--no-browser", action="store_true", help="No abrir automáticamente el navegador")
-    parser.add_argument("--no-exit-on-close", action="store_true", help="No detener el servidor automáticamente al cerrar el navegador")
+    parser.add_argument("--keep-server", action="store_true", help="Servidor: seguir en marcha al cerrar el navegador (no se combina con --prompt)")
     parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación de ~/zerochat/.venv")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
     parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 plazo agotado o navegador cerrado, 3 fallo de arranque)")
     parser.add_argument("--profile", default=None, help="Con --prompt, perfil de conexión (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo")
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt)")
     parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
-    parser.add_argument("--keep-open", action="store_true", help="Con --prompt, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")
+    parser.add_argument("--keep-page", action="store_true", help="Página: con --prompt, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")
     parser.add_argument("--allow-dangerous-tools", action="store_true", help="Con --prompt, aprobar también las herramientas que escriben o ejecutan (write_file, edit_file, run_command); las demás se aprueban siempre para la sesión")
     parser.add_argument("--headless", action="store_true", help="Con --prompt, abrir el navegador predeterminado sin ventana (si ya está abierto puede verse la pestaña)")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
@@ -4002,18 +4002,20 @@ def main():
 
     # Modo ejecución: stdout queda solo para la respuesta final; todo el registro va a stderr.
     result_out = sys.stdout
-    if args.prompt is None and (args.headless or args.keep_open or args.allow_dangerous_tools or args.profile is not None or args.export is not None):
-        parser.error("--headless, --keep-open, --allow-dangerous-tools, --profile y --export solo se usan con --prompt")
+    if args.prompt is None and (args.headless or args.keep_page or args.allow_dangerous_tools or args.profile is not None or args.export is not None):
+        parser.error("--headless, --keep-page, --allow-dangerous-tools, --profile y --export solo se usan con --prompt")
     if args.prompt is not None:
         if not args.prompt.strip():
             run_error("El prompt está vacío.")
             sys.exit(RUN_EXIT_SETUP)
         if args.no_browser:
             parser.error("--prompt necesita abrir el navegador: no se combina con --no-browser")
+        if args.keep_server:
+            parser.error("--prompt termina al devolver el resultado: no se combina con --keep-server (para no cerrar la página, --keep-page)")
         if args.profile is not None and not args.profile.strip():
             parser.error("--profile no puede estar vacío")
-        if args.keep_open and args.headless:
-            parser.error("--keep-open necesita la ventana del navegador: no se combina con --headless")
+        if args.keep_page and args.headless:
+            parser.error("--keep-page necesita la ventana del navegador: no se combina con --headless")
         export_path = None
         if args.export is not None:
             export_path = Path(args.export).expanduser().absolute()
@@ -4021,7 +4023,7 @@ def main():
                 parser.error(f"--export necesita una de estas extensiones: {', '.join(RUN_EXPORT_FORMATS)}")
             if not export_path.parent.is_dir():
                 parser.error(f"--export: no existe el directorio {export_path.parent}")
-        RUN_SESSION = RunSession(args.prompt.strip(), args.profile.strip() if args.profile else None, export_path, args.keep_open, args.allow_dangerous_tools)
+        RUN_SESSION = RunSession(args.prompt.strip(), args.profile.strip() if args.profile else None, export_path, args.keep_page, args.allow_dangerous_tools)
     # Todo el registro pasa por stdout: con --prompt va a stderr para dejar stdout a la respuesta,
     # y con --log off se descarta.
     log_enabled = args.log == "on" if args.log else RUN_SESSION is None
@@ -4106,8 +4108,8 @@ def main():
     if RUN_SESSION:
         fragment['run'] = RUN_SESSION.run_id
     target_url = f"{ui_url}#{urlencode(fragment)}"
-    # El modo ejecución detecta con el latido que el navegador se cerró sin devolver resultado.
-    exit_on_close = RUN_SESSION is not None or not args.no_exit_on_close
+    # El modo ejecución (que rechaza --keep-server) detecta con el latido que el navegador se cerró sin devolver resultado.
+    exit_on_close = not args.keep_server
     EXIT_ON_CLOSE = exit_on_close
 
     print("=" * 64)

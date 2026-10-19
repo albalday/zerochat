@@ -14,7 +14,7 @@ const CORS = {
 };
 
 /** Servidor local falso: registra las llamadas zerochat/run/* y retiene el prompt hasta `release`. */
-async function routeBackend(page, prompt, { profile, exportFormat, keepOpen = false, allowDangerous = false } = {}) {
+async function routeBackend(page, prompt, { profile, exportFormat, keepPage = false, allowDangerous = false } = {}) {
   const calls = [];
   let release;
   const released = new Promise(resolve => { release = resolve; });
@@ -38,7 +38,7 @@ async function routeBackend(page, prompt, { profile, exportFormat, keepOpen = fa
       calls.push({ method, params });
       if (method === 'zerochat/run/prompt') {
         await released;
-        return reply({ prompt, profile: profile ?? null, export: exportFormat ?? null, keep_open: keepOpen, allow_dangerous_tools: allowDangerous });
+        return reply({ prompt, profile: profile ?? null, export: exportFormat ?? null, keep_page: keepPage, allow_dangerous_tools: allowDangerous });
       }
       if (method === 'zerochat/run/result') receiveResult();
       return reply({ ok: true });
@@ -143,11 +143,11 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     }
   });
 
-  test('Browser UI - el modo ejecución exporta la conversación en HTML como se ve en el chat, devuelve el error de generación y deja la página abierta con keep_open', async () => {
+  test('Browser UI - el modo ejecución exporta la conversación en HTML como se ve en el chat, devuelve el error de generación y deja la página abierta con keep_page', async () => {
     const server = await startStaticServer();
     const browser = await createTestBrowser();
     try {
-      const { page, backend } = await openRun(browser, server, 'Hola', { exportFormat: 'html', keepOpen: true });
+      const { page, backend } = await openRun(browser, server, 'Hola', { exportFormat: 'html', keepPage: true });
       await page.evaluate(() => {
         window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
         window.ChatAPI.streamChatCompletion = async () => { throw new Error('Provider unavailable'); };
@@ -157,7 +157,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
       assert.deepEqual(resultOf(backend), { run_id: RUN_ID, error: 'Provider unavailable' });
       const exportCall = backend.calls.find(call => call.method === 'zerochat/run/export');
       assert.ok(backend.calls.indexOf(exportCall) < backend.calls.findIndex(call => call.method === 'zerochat/run/result'), 'la exportación llega antes del resultado');
-      assert.equal(await page.evaluate(() => window.__closed === true), false, 'keep_open no cierra la página');
+      assert.equal(await page.evaluate(() => window.__closed === true), false, 'keep_page no cierra la página');
 
       // El HTML exportado se abre solo, sin scripts, con el aspecto del chat y desplazamiento normal.
       const html = exportCall.params.content;

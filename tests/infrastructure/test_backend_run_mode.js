@@ -53,7 +53,7 @@ delivered = rpc("zerochat/run/prompt")["result"]
 prompt = delivered["prompt"]
 info["profile"] = delivered["profile"]
 info["export"] = delivered["export"]
-info["keep_open"] = delivered["keep_open"]
+info["keep_page"] = delivered["keep_page"]
 info["allow_dangerous_tools"] = delivered["allow_dangerous_tools"]
 info["second_prompt"] = rpc("zerochat/run/prompt").get("error", {}).get("message")
 save()
@@ -136,7 +136,7 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
   try {
     const busyPort = String(busy.address().port);
     const [ok, failed, unexported, idle, chatty, browserGone, emptyPrompt, portInUse, devDefaultInUse, productionDefaultInUse] = await Promise.all([
-      runZerochat('hola mundo', { args: ['--profile', ' Oficina ', '--log', 'on', '--export', exportPath, '--keep-open', '--allow-dangerous-tools'] }),
+      runZerochat('hola mundo', { args: ['--profile', ' Oficina ', '--log', 'on', '--export', exportPath, '--keep-page', '--allow-dangerous-tools'] }),
       runZerochat('hola', { scenario: 'error' }),
       runZerochat('hola', { args: ['--export', unwritable] }),
       runZerochat('hola', { scenario: 'idle', env: { ZEROCHAT_RUN_IDLE_SECONDS: '1' } }),
@@ -161,14 +161,14 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(ok.info.bad_result, 'El resultado lleva text o error.');
     // La conversación exportada se escribe una sola vez en el fichero, con el formato de su extensión.
     assert.equal(ok.info.export, 'markdown');
-    assert.equal(ok.info.keep_open, true);
+    assert.equal(ok.info.keep_page, true);
     assert.equal(ok.info.allow_dangerous_tools, true);
     assert.equal(fs.readFileSync(exportPath, 'utf8'), 'markdown: hola mundo');
     assert.equal(ok.info.second_export, 'La exportación ya se recibió.');
     // El cuerpo en el tope exacto pasa el límite y falla al no ser JSON; un byte más se rechaza.
     assert.deepEqual(ok.info.export_limit, [400, 413]);
     assert.equal(ok.info.limit_after_export, 413);
-    assert.deepEqual([failed.info.export, failed.info.keep_open, failed.info.allow_dangerous_tools], [null, false, false]);
+    assert.deepEqual([failed.info.export, failed.info.keep_page, failed.info.allow_dangerous_tools], [null, false, false]);
     // Una exportación pedida que no se escribe es un error, pero la respuesta sigue en stdout.
     assert.equal(unexported.info.export, 'json');
     assert.match(unexported.info.export_reply.error.message, /No se pudo escribir/);

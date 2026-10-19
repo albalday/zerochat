@@ -57,7 +57,7 @@ def main() -> None:
         else:
             env["HOME"] = str(home_dir)
         process = subprocess.Popen(
-            [str(executable), "--port", str(port), "--no-browser", "--no-exit-on-close"],
+            [str(executable), "--port", str(port), "--no-browser", "--keep-server"],
             cwd=temp_dir,
             env=env,
             stdout=subprocess.PIPE,
