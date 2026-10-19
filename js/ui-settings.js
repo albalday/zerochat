@@ -22,6 +22,7 @@
   const getUIMcp = () => resolveDep('ChatUIMcp', './ui-mcp.js');
   const getToolSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
   const getSidebar = () => resolveDep('ChatUISidebar', './ui-sidebar.js');
+  const getState = () => resolveDep('ChatState', './state.js');
 
   const FREE_TIER_HELP = { openrouter: 'help/openrouter-free.html', gemini: 'help/gemini-free.html' };
   const SECTION_TITLES = { model: 'settings_model', agent: 'settings_agent', mcp: 'settings_mcp', permissions: 'settings_permissions' };
@@ -95,6 +96,7 @@
     };
     selectValue(elements.settingWebllmContextWindow, webllmConfig.context_window_size, String(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE));
     selectValue(elements.settingWebllmPrefillChunk, webllmConfig.prefill_chunk_size, 'default');
+    renderProfileMcpServers(elements, profileData.mcpServers || []);
     syncProviderFields(elements);
     syncApiKeyLock(elements);
   }
@@ -542,7 +544,42 @@ zerochat</code></pre>
     const behavior = [t(elements.settingSystemPrompt.value.trim() ? 'profile_summary_custom_prompt' : 'profile_summary_no_prompt')];
     if (providerSupportsTemperature(elements)) behavior.push(t('profile_summary_temperature', { val: elements.settingTemperature.value }));
     elements.profileSummaryBehavior.textContent = behavior.join(' · ');
+    const servers = [...elements.profileMcpServers.querySelectorAll('.profile-mcp-checkbox:checked')];
+    elements.profileSummaryMcp.textContent = servers.map(checkbox => checkbox.dataset.name).join(', ') || t('profile_summary_none');
+    const missing = servers.filter(checkbox => checkbox.dataset.missing === 'true').length;
+    elements.profileSummaryMcpWarning.parentElement.hidden = missing === 0;
+    elements.profileSummaryMcpWarning.textContent = t('profile_mcp_missing_count', { count: missing });
   }
+
+  /**
+   * Servicios MCP externos que el perfil puede arrancar: los del servidor local y los que el perfil
+   * pide sin estar configurados en él, marcados como no disponibles.
+   */
+  function renderProfileMcpServers(elements, selectedIds) {
+    const mcp = getState().get('mcp');
+    const connected = mcp.status === 'connected';
+    const language = I18n.getLanguage();
+    const known = connected ? mcp.externalServers : [];
+    const rows = known.map(server => ({
+      id: server.id,
+      name: getUIMcp().getServiceName(server, language),
+      status: t(`mcp_external_status_${server.status || 'stopped'}`),
+      missing: false
+    }));
+    selectedIds.filter(id => !known.some(server => server.id === id)).forEach(id => rows.push({
+      id, name: id, status: t(connected ? 'profile_mcp_not_configured' : 'profile_mcp_unknown'), missing: connected
+    }));
+    elements.profileMcpDisconnected.hidden = connected;
+    elements.profileMcpServers.innerHTML = rows.length === 0
+      ? `<p class="label-hint">${escapeHtml(t('profile_mcp_empty'))}</p>`
+      : rows.map(row => `<label class="profile-mcp-server${row.missing ? ' is-missing' : ''}">
+          <input type="checkbox" class="profile-mcp-checkbox" value="${escapeHtml(row.id)}" data-name="${escapeHtml(row.name)}" data-missing="${row.missing}"${selectedIds.includes(row.id) ? ' checked' : ''}>
+          <span class="profile-mcp-name">${escapeHtml(row.name)}</span>
+          <span class="profile-mcp-status">${escapeHtml(row.status)}</span>
+        </label>`).join('');
+  }
+
+  const gatherProfileMcpServers = elements => [...elements.profileMcpServers.querySelectorAll('.profile-mcp-checkbox:checked')].map(checkbox => checkbox.value);
 
   /** Al abrir el editor solo se despliega la conexión. */
   function resetProfileChapters(elements) {
@@ -560,8 +597,8 @@ zerochat</code></pre>
   }
 
   /** Capítulo plegable del editor de perfiles; su cabecera resume el contenido aunque esté cerrado. */
-  const profileChapter = (id, summaryId, titleKey, body) => `<details id="${id}" class="profile-chapter">
-          <summary class="profile-chapter-summary"><svg class="ui-icon profile-chapter-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><use href="#icon-chevron-right"></use></svg><span class="profile-chapter-title" data-i18n="${titleKey}">${t(titleKey)}</span><span id="${summaryId}" class="profile-chapter-detail"></span></summary>
+  const profileChapter = (id, summaryId, titleKey, body, warningId = '') => `<details id="${id}" class="profile-chapter">
+          <summary class="profile-chapter-summary"><svg class="ui-icon profile-chapter-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><use href="#icon-chevron-right"></use></svg><span class="profile-chapter-title" data-i18n="${titleKey}">${t(titleKey)}</span><span id="${summaryId}" class="profile-chapter-detail"></span>${warningId ? `<span class="profile-chapter-warning" hidden>${Icons.get('alert-triangle', { size: 12 })}<span id="${warningId}"></span></span>` : ''}</summary>
           <div class="profile-chapter-body">${body}</div>
         </details>`;
 
@@ -607,6 +644,11 @@ zerochat</code></pre>
               <input type="range" id="setting-temperature" min="0" max="1.5" step="0.1" value="0.7">
             </div>
         `)}
+        ${profileChapter('profile-chapter-mcp', 'profile-summary-mcp', 'profile_chapter_mcp', `
+            <p class="label-hint" data-i18n="profile_mcp_hint">${t('profile_mcp_hint')}</p>
+            <p id="profile-mcp-disconnected" class="label-hint" data-i18n="profile_mcp_disconnected" hidden>${t('profile_mcp_disconnected')}</p>
+            <div id="profile-mcp-servers" class="profile-mcp-servers"></div>
+        `, 'profile-summary-mcp-warning')}
       </div>
     </form>`;
   }
@@ -631,6 +673,7 @@ zerochat</code></pre>
     renderProfileMenu,
     syncProfileEditor,
     resetProfileChapters,
+    gatherProfileMcpServers,
     openSettingsSection,
     closeSettingsModal,
     ensureDialogMarkup,

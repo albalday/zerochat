@@ -34,7 +34,7 @@ const REVIEWED_USES = {
   'js/ui-mcp.js': 6,
   'js/ui-profiles.js': 1,
   'js/ui-reasoning.js': 1,
-  'js/ui-settings.js': 5,
+  'js/ui-settings.js': 6,
   'js/ui-sidebar.js': 2,
   'js/utils.js': 3
 };

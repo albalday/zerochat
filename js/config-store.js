@@ -63,6 +63,7 @@
     next.projectMode = next.projectMode !== false;
     next.projectDeclined = normalizeDeclinedProjects(next.projectDeclined);
     next.activeRagBranchIds = normalizeBranchIds(next.activeRagBranchIds);
+    next.mcpServers = Array.isArray(next.mcpServers) ? next.mcpServers.filter(id => typeof id === 'string') : [];
     next.modelReasoningConfig = next.modelReasoningConfig && typeof next.modelReasoningConfig === 'object' ? clone(next.modelReasoningConfig) : null;
     const webllmConfig = next.webllmConfig && typeof next.webllmConfig === 'object' ? clone(next.webllmConfig) : clone(DEFAULTS.webllmConfig);
     // Solo se admiten los tamaños ofrecidos en la interfaz; los valores antiguos pasan al predeterminado.

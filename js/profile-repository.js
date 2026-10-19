@@ -17,7 +17,7 @@
   const PROFILE_FIELDS = Object.freeze([
     'apiUrl', 'apiType', 'model', 'systemPrompt', 'temperature',
     'reasoningEffort', 'modelReasoningConfig',
-    'enableRawLogs', 'enableContextCache', 'contextLimitOverride', 'webllmConfig', 'apiKeyLocked'
+    'enableRawLogs', 'enableContextCache', 'contextLimitOverride', 'webllmConfig', 'apiKeyLocked', 'mcpServers'
   ]);
   const STORAGE_PROFILE_FIELDS = Object.freeze([...PROFILE_FIELDS, 'apiKey']);
 
@@ -30,7 +30,7 @@
   const NEW_PROFILE_SETTINGS = Object.freeze({
     apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: '', systemPrompt: '',
     temperature: '0.7', reasoningEffort: 'medium', modelReasoningConfig: null,
-    enableRawLogs: false, enableContextCache: true, contextLimitOverride: null, apiKeyLocked: false,
+    enableRawLogs: false, enableContextCache: true, contextLimitOverride: null, apiKeyLocked: false, mcpServers: [],
     webllmConfig: {
       context_window_size: String(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE),
       prefill_chunk_size: 'default'
@@ -46,6 +46,18 @@
     }
   });
 
+  const MAX_PROFILE_MCP_SERVERS = 64;
+  const MAX_MCP_SERVER_ID_LENGTH = 128;
+
+  /** Servicios MCP externos que arranca el perfil: identificadores únicos y acotados. */
+  function normalizeMcpServers(value) {
+    if (!Array.isArray(value)) throw new Error('The MCP servers of a profile must be a list.');
+    const ids = [...new Set(value.map(id => (typeof id === 'string' ? id.trim() : '')))];
+    if (ids.some(id => !id || id.length > MAX_MCP_SERVER_ID_LENGTH)) throw new Error('An MCP server of the profile is not valid.');
+    if (ids.length > MAX_PROFILE_MCP_SERVERS) throw new Error(`A profile cannot start more than ${MAX_PROFILE_MCP_SERVERS} MCP servers.`);
+    return ids;
+  }
+
   function normalizeSettings(source = {}) {
     if (!source || typeof source !== 'object' || Array.isArray(source)) throw new Error('The profile data is not valid.');
     const settings = {};
@@ -56,6 +68,10 @@
           return;
         }
         Backup.validateApiKeySecret(source[key]);
+      }
+      if (key === 'mcpServers' && source[key] !== undefined) {
+        settings.mcpServers = normalizeMcpServers(source[key]);
+        return;
       }
       if (source[key] !== undefined) settings[key] = clone(source[key]);
     });
@@ -226,7 +242,7 @@
   }
 
   return {
-    STORAGE_KEY, SCHEMA_VERSION, PROFILE_FIELDS, STORAGE_PROFILE_FIELDS, READONLY_PROFILE_ID, MIRROR_PROFILE: clone(MIRROR_PROFILE), NEW_PROFILE_SETTINGS: clone(NEW_PROFILE_SETTINGS),
+    STORAGE_KEY, SCHEMA_VERSION, PROFILE_FIELDS, MAX_PROFILE_MCP_SERVERS, STORAGE_PROFILE_FIELDS, READONLY_PROFILE_ID, MIRROR_PROFILE: clone(MIRROR_PROFILE), NEW_PROFILE_SETTINGS: clone(NEW_PROFILE_SETTINGS),
     initialize, list, get, load, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported
   };
 }));

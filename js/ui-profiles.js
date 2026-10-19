@@ -24,6 +24,7 @@
   const getExport = () => resolveDep('ChatExport', './export.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getUISettings = () => resolveDep('ChatUISettings', './ui-settings.js');
+  const getUIMcp = () => resolveDep('ChatUIMcp', './ui-mcp.js');
 
   // Elementos y callbacks de la aplicación, fijados en mount().
   let els = null;
@@ -114,11 +115,32 @@
     syncProfileSaveState();
   }
 
+  /**
+   * Activa un perfil y arranca sus servicios MCP externos. Devuelve una promesa con los servicios
+   * que no están disponibles, para que cada llamada decida cómo avisar.
+   */
   function activateConnectionProfile(profileId, activationOptions) {
     getWebLLM().adapter.disposeActiveEngine().catch(() => {});
     getConfig().activateProfile(profileId, activationOptions);
     options.loadCachedModels();
     options.resetTelemetryDisplay();
+    return getUIMcp().startProfileServers(runtimeConfig().mcpServers);
+  }
+
+  async function warnUnavailableServers(unavailable) {
+    if (unavailable.length === 0) return;
+    await getDialogs().alert(t('profile_mcp_unavailable', { names: unavailable.join(', ') }), { type: 'warning' });
+  }
+
+  /** Activa un perfil desde la interfaz y avisa de los servicios MCP que no ha podido arrancar. */
+  function activateProfileFromUI(profileId) {
+    activateConnectionProfile(profileId).then(warnUnavailableServers)
+      .catch(error => console.warn('[UIProfiles] Could not start the profile MCP servers:', error));
+  }
+
+  /** Arranca los servicios MCP del perfil activo al conectar con el servidor local. */
+  function startActiveProfileServers() {
+    return getUIMcp().startProfileServers(runtimeConfig().mcpServers).then(warnUnavailableServers);
   }
 
   function setProfileMenuOpen(open) {
@@ -170,7 +192,8 @@
         model: els.settingModel.value.trim(),
         systemPrompt: els.settingSystemPrompt.value.trim(),
         temperature: els.settingTemperature.value || baseSettings.temperature,
-        webllmConfig: formConfig.webllmConfig
+        webllmConfig: formConfig.webllmConfig,
+        mcpServers: getUISettings().gatherProfileMcpServers(els)
       }
     });
 
@@ -178,7 +201,7 @@
     els.settingApiKey._loadedApiKey = apiKey;
     setProfileDirty(false);
     setProfileQueryState(false);
-    activateConnectionProfile(saved.id);
+    activateProfileFromUI(saved.id);
     showProfileFeedback(t('msg_profile_saved', { name }), 'success');
     return true;
   }
@@ -453,7 +476,7 @@
     els.profileSelectHelper.value = profile.id;
     applyProfileToForm(profile.settings, profile.id);
     els.settingProfileDescription.value = profile.description || '';
-    activateConnectionProfile(profile.id);
+    activateProfileFromUI(profile.id);
     setProfileQueryState(false);
     setProfileDirty(false);
   }
@@ -537,7 +560,7 @@
       }
       const option = event.target.closest('[data-profile-id]');
       if (!option || !getProfiles().get(option.dataset.profileId)) return;
-      activateConnectionProfile(option.dataset.profileId);
+      activateProfileFromUI(option.dataset.profileId);
       options.updateUIFromConfig();
       closeProfileMenu();
       els.activeProfileTrigger.focus();
@@ -585,6 +608,7 @@
     setProfileQueryState,
     closeProfilesModal,
     activateConnectionProfile,
+    startActiveProfileServers,
     handleEncryptionPassword,
     handleUseDefaultEncryptionKey,
     loadProfileUnlocked,

@@ -13,9 +13,13 @@ const CORS = {
   'access-control-allow-methods': 'GET, POST, OPTIONS'
 };
 
-/** Servidor local falso: registra las llamadas zerochat/run/* y retiene el prompt hasta `release`. */
-async function routeBackend(page, prompt, { profile, exportFormat, keepPage = false, allowDangerous = false } = {}) {
+/**
+ * Servidor local falso: registra las llamadas zerochat/run/* y los servicios MCP externos que se
+ * arrancan, y retiene el prompt hasta `release`.
+ */
+async function routeBackend(page, prompt, { profile, exportFormat, keepPage = false, allowDangerous = false, externalServers = [] } = {}) {
   const calls = [];
+  const started = [];
   let release;
   const released = new Promise(resolve => { release = resolve; });
   let receiveResult;
@@ -33,7 +37,12 @@ async function routeBackend(page, prompt, { profile, exportFormat, keepPage = fa
     if (method === 'tools/list') {
       return reply({ tools: ['demo_action', 'write_file', 'run_command'].map(name => ({ name, description: name, inputSchema: { type: 'object', properties: {} } })) });
     }
-    if (method === 'zerochat/external/status') return reply({ host: 'running', servers: [] });
+    if (method === 'zerochat/external/status') return reply({ host: 'running', servers: externalServers });
+    if (method === 'zerochat/external/servers/start') {
+      started.push(params.serverId);
+      externalServers.find(server => server.id === params.serverId).status = 'running';
+      return reply({ servers: externalServers });
+    }
     if (method.startsWith('zerochat/run/')) {
       calls.push({ method, params });
       if (method === 'zerochat/run/prompt') {
@@ -45,13 +54,20 @@ async function routeBackend(page, prompt, { profile, exportFormat, keepPage = fa
     }
     return json(route, { jsonrpc: '2.0', id, error: { code: -32601, message: `Unsupported ${method}` } });
   });
-  return { calls, release, resultReceived };
+  return { calls, started, release, resultReceived };
 }
 
 /** Abre la interfaz como la abre el modo ejecución, con window.close() registrado en vez de cerrar. */
-async function openRun(browser, server, prompt, { seedProfiles = false, ...runOptions } = {}) {
+async function openRun(browser, server, prompt, { seedProfiles = false, profileMcpServers = null, ...runOptions } = {}) {
   const page = await browser.newPage();
   if (seedProfiles) await seedConnectionProfiles(page);
+  if (profileMcpServers) {
+    await page.addInitScript(mcpServers => {
+      const document = JSON.parse(localStorage.getItem('zerochat_profiles_v1'));
+      document.profiles.find(profile => profile.id === 'profile:local').settings.mcpServers = mcpServers;
+      localStorage.setItem('zerochat_profiles_v1', JSON.stringify(document));
+    }, profileMcpServers);
+  }
   await page.addInitScript(() => {
     window.close = () => { window.__closed = true; };
   });
@@ -137,6 +153,30 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
       missing.backend.release();
       await missing.page.waitForFunction(() => window.__closed === true);
       assert.deepEqual(resultOf(missing.backend), { run_id: RUN_ID, error: 'Connection profile not found: No existe' });
+    } finally {
+      await browser.close();
+      await stopStaticServer(server);
+    }
+  });
+
+  test('Browser UI - el modo ejecución arranca solo los servicios MCP del perfil y falla si alguno no está configurado', async () => {
+    const server = await startStaticServer();
+    const browser = await createTestBrowser();
+    const externalServers = () => ['memory', 'github'].map(id => ({ id, displayName: { es: id, en: id }, status: 'stopped', enabled: false }));
+    try {
+      const run = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileMcpServers: ['memory'], externalServers: externalServers() });
+      await run.page.evaluate(() => {
+        window.ChatAPI.streamChatCompletion = async () => ({ accumulatedText: 'ok', toolCalls: null, stats: null });
+      });
+      run.backend.release();
+      await run.page.waitForFunction(() => window.__closed === true);
+      assert.deepEqual(resultOf(run.backend), { run_id: RUN_ID, text: 'ok' });
+      assert.deepEqual(run.backend.started, ['memory'], 'solo arranca los servicios del perfil');
+
+      const missing = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileMcpServers: ['memory', 'ghost'], externalServers: externalServers() });
+      missing.backend.release();
+      await missing.page.waitForFunction(() => window.__closed === true);
+      assert.deepEqual(resultOf(missing.backend), { run_id: RUN_ID, error: 'MCP servers of the profile are not available: ghost' });
     } finally {
       await browser.close();
       await stopStaticServer(server);

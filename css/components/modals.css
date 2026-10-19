@@ -628,6 +628,59 @@ select.form-input:focus-visible {
   color: var(--text-secondary);
 }
 
+.profile-chapter-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--warning-soft);
+  color: var(--warning-text);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.profile-mcp-servers {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.profile-mcp-server {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.profile-mcp-server.is-missing {
+  border-color: var(--warning-border);
+  background: var(--warning-soft);
+}
+
+.profile-mcp-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.83rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.profile-mcp-status {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.profile-mcp-server.is-missing .profile-mcp-status {
+  color: var(--warning-text);
+}
+
 .profile-chapter-body {
   display: flex;
   flex-direction: column;

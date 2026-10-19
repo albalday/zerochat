@@ -111,7 +111,8 @@
   /**
    * Ejecuta la petición: `startupConnection` es la conexión del arranque, `connectBackend` la
    * reintenta, `sessionsLoaded` espera a la conversación inicial, `activateSessionProfile` activa
-   * sin guardarlo el perfil de conexión pedido (nombre o id), `submitComposerText` envía el prompt
+   * sin guardarlo el perfil de conexión pedido (nombre o id), arranca sus servicios MCP y devuelve
+   * los que no están disponibles, `submitComposerText` envía el prompt
    * como el usuario y devuelve { text } o { error }, `stopGeneration` la detiene y
    * `exportConversation` da la conversación activa en un formato de ChatExport.
    */
@@ -131,7 +132,8 @@
       if (profile) {
         const match = getProfiles().findByName(profile) || getProfiles().get(profile);
         if (!match) throw new Error(`Connection profile not found: ${profile}`);
-        activateSessionProfile(match.id);
+        const unavailable = await activateSessionProfile(match.id);
+        if (unavailable.length > 0) throw new Error(`MCP servers of the profile are not available: ${unavailable.join(', ')}`);
         report({ kind: 'profile', text: match.name });
       }
       answerToolApprovals(messagesList, allowDangerous === true, report);

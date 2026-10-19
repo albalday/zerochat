@@ -375,6 +375,29 @@
   }
 
   /**
+   * Arranca los servicios externos de un perfil que no estén ya en marcha, sin parar los demás.
+   * Devuelve los que no están configurados en el servidor local o no han arrancado; sin conexión
+   * con el servidor local no arranca nada.
+   */
+  async function startProfileServers(ids) {
+    const State = getState();
+    if (ids.length === 0 || State.get('mcp').status !== 'connected') return [];
+    const language = I18n.getLanguage();
+    const unavailable = [];
+    for (const id of ids) {
+      const server = State.get('mcp').externalServers.find(item => item.id === id);
+      if (!server) {
+        unavailable.push(id);
+        continue;
+      }
+      if (['running', 'starting', 'installing'].includes(server.status)) continue;
+      const started = await runExternalServerAction(id, 'start', { browserActionActive: isBrowserActionCurrentlyActive() });
+      if (!started) unavailable.push(getServiceName(server, language));
+    }
+    return unavailable;
+  }
+
+  /**
    * Marca como no iniciados los servicios que el usuario no quiso arrancar: detener un servicio
    * detenido solo guarda ese estado, que es el que se consulta en el siguiente arranque.
    */
@@ -612,6 +635,8 @@
   return {
     generateTerminalCommand,
     getServiceHelp,
+    getServiceName,
+    startProfileServers,
     renderConnectionStatus,
     renderToolsList,
     renderExternalServers,
