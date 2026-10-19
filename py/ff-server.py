@@ -651,6 +651,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return {"host": "running", "version": VERSION, "servers": GLOBAL_MCP_MANAGER.list_servers()}, None, ""
         if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):
             return self._dispatch_server_control(method, params)
+        if method.startswith("zerochat/browser/engines"):
+            return self._dispatch_browser_engines(method, params)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @staticmethod
@@ -680,6 +682,20 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if method == "zerochat/jobs/stop":
             JOBS.stop(job, "user")
             return job_details(job), None, ""
+        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
+
+    @staticmethod
+    def _dispatch_browser_engines(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+        """Motores propios de Playwright para la sección Navegador de Ajustes."""
+        try:
+            if method == "zerochat/browser/engines/list":
+                return BROWSER_ENGINES.list(), None, ""
+            if method == "zerochat/browser/engines/install":
+                return BROWSER_ENGINES.install(params.get("engine")), None, ""
+            if method == "zerochat/browser/engines/remove":
+                return BROWSER_ENGINES.remove(params.get("engine")), None, ""
+        except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+            return None, {"code": -32602, "message": str(exc)}, ""
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @staticmethod

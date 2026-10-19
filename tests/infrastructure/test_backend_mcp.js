@@ -172,6 +172,109 @@ with tempfile.TemporaryDirectory() as temp_dir:
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });
 
+test('zerochat.py: los motores de Playwright se listan, instalan con progreso y quitan en su caché', { skip: process.platform === 'win32' }, () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const script = `
+import importlib.util
+import json
+import os
+import tempfile
+import time
+from pathlib import Path
+from unittest.mock import patch
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    cache = Path(temp_dir) / "cache"
+    cli = Path(temp_dir) / "services" / "playwright" / "node_modules" / "playwright" / "cli.js"
+    cli.parent.mkdir(parents=True)
+    (cli.parent / "package.json").write_text('{"version": "1.2.3"}', encoding="utf-8")
+    # CLI simulado: --dry-run da las rutas de esta versión; install escribe el progreso como sin
+    # terminal, espera a que exista "go" y falla con webkit.
+    cli.write_text('''
+const fs = require("fs"), path = require("path");
+const cache = ${JSON.stringify('CACHE')};
+const titles = {"chromium": "Chrome for Testing 1", "chromium-headless-shell": "Chrome Headless Shell 1", "firefox": "Firefox 2", "webkit": "WebKit 3"};
+const dir = name => path.join(cache, name.replace(/-/g, "_") + "-1");
+const args = process.argv.slice(2);
+if (args.includes("--dry-run")) {
+  for (const name of args.slice(2)) console.log(titles[name] + " (playwright " + name + " v1)\\\\n  Install location:    " + dir(name) + "\\\\n");
+  process.exit(0);
+}
+const engine = args[1];
+if (engine === "webkit") { console.error("Host system is missing dependencies"); process.exit(1); }
+const names = engine === "chromium" ? ["chromium", "chromium-headless-shell"] : [engine];
+console.log("Downloading " + titles[names[0]] + " (playwright " + names[0] + " v1) from https://example.invalid");
+console.log("|■■■■■■■■■■■■■■■■■■■■■■■■                                                        |  30% of 10 MiB");
+const wait = () => {
+  if (!fs.existsSync(path.join(cache, "go"))) return setTimeout(wait, 20);
+  for (const name of names) { fs.mkdirSync(dir(name), {recursive: true}); fs.writeFileSync(path.join(dir(name), "INSTALLATION_COMPLETE"), ""); }
+};
+wait();
+'''.replace("CACHE", str(cache)), encoding="utf-8")
+    cache.mkdir()
+    (cache / "ffmpeg-1").mkdir()
+    spec = importlib.util.spec_from_file_location("zerochat_engines_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.console_log = lambda message, **kwargs: None
+    engines = module.BrowserEngines()
+
+    def engine(listing, engine_id):
+        return next(item for item in listing["engines"] if item["id"] == engine_id)
+
+    def settled(engine_id):
+        for _ in range(250):
+            item = engine(engines.list(), engine_id)
+            if item.get("status") != "installing":
+                return item
+            time.sleep(0.02)
+        raise AssertionError("la instalación no terminó")
+
+    listing = engines.list()
+    assert listing["available"] and listing["playwrightVersion"] == "1.2.3"
+    assert [(item["id"], item["title"], item["installed"]) for item in listing["engines"]] == [
+        ("chromium", "Chrome for Testing 1", False), ("firefox", "Firefox 2", False), ("webkit", "WebKit 3", False)]
+
+    engines.install("chromium")
+    for _ in range(250):
+        progress = engine(engines.list(), "chromium")
+        if progress.get("percent"):
+            break
+        time.sleep(0.02)
+    assert progress == {"id": "chromium", "title": "Chrome for Testing 1", "installed": False,
+                        "status": "installing", "download": "Chrome for Testing 1", "percent": 30}, progress
+    for call in (lambda: engines.install("chromium"), lambda: engines.install("opera")):
+        try:
+            call()
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("se aceptó una instalación repetida o un motor desconocido")
+    (cache / "go").write_text("")
+    assert settled("chromium") == {"id": "chromium", "title": "Chrome for Testing 1", "installed": True}
+    engines.install("webkit")
+    failed = settled("webkit")
+    assert failed["status"] == "error" and "missing dependencies" in failed["error"] and not failed["installed"], failed
+
+    # Quitar un motor exige Playwright MCP detenido y conserva ffmpeg, común a todos.
+    with patch.object(module.GLOBAL_MCP_MANAGER, "list_servers", return_value=[{"id": "playwright", "status": "running"}]):
+        try:
+            engines.remove("chromium")
+        except ValueError as err:
+            assert "Detén Playwright MCP" in str(err)
+        else:
+            raise AssertionError("se quitó un motor en uso")
+    assert engine(engines.remove("chromium"), "chromium")["installed"] is False
+    assert sorted(path.name for path in cache.iterdir()) == ["ffmpeg-1", "go"]
+
+    cli.unlink()
+    assert engines.list() == {"systemBrowsers": module.system_browsers(), "engines": [], "available": False,
+                              "error": "Playwright MCP is not installed."}
+`;
+  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+});
+
 test('zerochat.py: el arranque MCP deja traza de éxito y fallo en la consola', () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const script = `
