@@ -46,18 +46,18 @@ Done when: zerochat.py --prompt starts like a normal run (same port, UI and brow
 - [x] M18-T4 Python module to locate the active Firefox profile and make the minimal 0700 copy of the GitHub Pages UI origin storage and its permissions (first verify the minimal file set), with tests on sample profiles (dropped: run mode uses the browser that zerochat.py normally opens; profile copies move to the Playwright milestone)
 - [x] M18-T5 Backend run mode: --prompt/--prompt-file/--headless/--timeout, JSON-RPC zerochat/run/prompt, progress and result, own Firefox launch and watch, idle and total timeouts, stdout/stderr split, exit codes and guaranteed cleanup, with tests (2026-10-17)
 - [x] M18-T6 UI run mode module: read run from the launch fragment, wait for the backend, send the prompt in a new conversation, report progress per step/tool/status, unattended dialogs and approvals, return {error} from handleSendMessage, send the result and close, with real-DOM tests (2026-10-17)
-- [ ] M18-T7 /help (ES/EN) and py/README.md for run mode, and manual end-to-end check headless and visible (including whether the visible window closes)
+- [x] M18-T7 /help (ES/EN) and py/README.md for run mode, and manual end-to-end check headless and visible (including whether the visible window closes) (2026-10-19)
 - [x] M18-T8 Rework run mode onto the normal zerochat.py startup: default port and UI, normal browser launcher with run= in the fragment, heartbeat detects a closed browser; remove the Firefox profile module and --prompt-file/--timeout (2026-10-18)
 - [x] M18-T9 Best-effort --headless for --prompt: launch the default browser executable with --headless on the normal profile, falling back to the normal launcher (2026-10-18)
 - [x] M18-T10 --profile for --prompt: the UI runs with that connection profile (name or id) for this page only, without changing the saved active profile (2026-10-18)
 - [x] M18-T11 General --log on|off option: on by default, off by default with --prompt (2026-10-18)
 - [x] M18-T12 Detect another running zerochat.py (default port in use or live session) when starting --prompt and decide how the run coexists with it (2026-10-18)
-- [ ] M18-T13 Run --prompt from cron: no terminal or graphical session (DISPLAY/WAYLAND_DISPLAY, DBUS), environment and PATH, browser launch and output/exit codes for scheduled jobs
+- [x] M18-T13 Run --prompt from cron: no terminal or graphical session (DISPLAY/WAYLAND_DISPLAY, DBUS), environment and PATH, browser launch and output/exit codes for scheduled jobs (2026-10-19)
 - [x] M18-T14 Export the --prompt conversation with the current exporter options (Markdown, session JSON, print/PDF) to a file chosen on the command line, reusing ChatExport (2026-10-18)
 - [x] M18-T15 Unattended approvals in --prompt: always answer allow for this session, except write_file, edit_file and execute_command, which are denied according to command-line parameters; and inventory the MCP servers the run needs available (2026-10-18)
 - [x] M18-T16 Option to stop the --prompt run on any user request, both ask_user question dialogs and execution permission prompts, with its exit code (2026-10-18)
 - [x] M18-T17 Export the conversation as self-contained HTML that looks like the chat (rendered messages, page CSS, used icons, inlined knowledge images) from the export dialog and --export FILE.html, with a larger body limit for the pending run export (2026-10-18)
-- [ ] M18-T18 Authorized MCP servers for --prompt runs: which servers and tools a run may use, possibly organized as profiles
+- [x] M18-T18 Authorized MCP servers for --prompt runs: which servers and tools a run may use, possibly organized as profiles (dropped: moved to M29-T1)
 - [x] M18-T19 Rename --no-exit-on-close to --keep-server and --keep-open to --keep-page, and reject --keep-server with --prompt (2026-10-19)
 - [x] M18-T20 Distinct exit code 4 for invalid arguments, which argparse reports with 2, the --prompt timeout code (2026-10-19)
 
@@ -89,3 +89,8 @@ Done when: the site root serves a static bilingual landing page instead of the J
 - [ ] M28-T5 npm run build:sitemap: generate sitemap.xml from the landing and help page list with hreflang alternates and lastmod from git, plus an architecture test that the committed sitemap matches the generated one; robots.txt limits documented (a project site cannot serve the domain root robots.txt)
 - [ ] M28-T6 docs/seo.md: Search Console URL-prefix property and HTML-file verification, sitemap submission, URL inspection and coverage follow-up, GitHub repository description/topics/homepage and README links; link it from AGENTS.md §9
 - [ ] M28-T7 Manual check with the owner: Lighthouse SEO on landing and help index, Rich Results Test, Search Console verification file committed and sitemap submitted
+
+## M29 Authorized MCP servers for unattended runs
+Goal: Decide which MCP servers and tools a zerochat.py --prompt run may use, instead of every server enabled in the browser, so scheduled runs only reach the services meant for them.
+Done when: a --prompt run limits its MCP servers and tools to an authorized set chosen on the command line (possibly as named profiles), servers outside that set are not offered to the model, the inventory of what each run needs is documented in help/run-mode.html (ES/EN), with tests.
+- [ ] M29-T1 Authorized MCP servers for --prompt runs: which servers and tools a run may use, possibly organized as profiles

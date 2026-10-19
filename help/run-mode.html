@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ejecutar un prompt desde la línea de comandos · Ayuda de ZeroChat · 9.x</title>
+  <meta name="description" content="zerochat.py --prompt: ejecutar un prompt sin intervención con la configuración de ZeroChat del navegador, opciones, códigos de salida, modo sin ventana y tareas programadas con cron.">
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat 9.x Docs
+        </a>
+        <div class="header-actions">
+          <a href="en/run-mode.html" class="top-nav-link">English</a>
+          <a href="index.html" class="top-nav-link">← Volver al Índice</a>
+        </div>
+      </div>
+      <h1>Ejecutar un prompt desde la línea de comandos</h1>
+      <p class="subtitle">La interfaz responde sola y la respuesta final sale por la salida estándar.</p>
+    </header>
+
+    <div class="card" id="como-funciona">
+      <h2>1. Cómo funciona</h2>
+      <p><code>zerochat --prompt "TEXTO"</code> (o <code>python3 zerochat.py --prompt "TEXTO"</code>) arranca el <a href="install.html">servidor local</a> como siempre y abre la interfaz en el navegador. La página crea una conversación nueva, envía el prompt con tu configuración de ese navegador (perfil de conexión activo, servicios MCP, ajustes) y, al terminar, devuelve la respuesta y se cierra. Después el proceso termina.</p>
+      <div class="code-wrapper"><pre><code>zerochat --prompt "Resume los cambios de hoy en este repositorio" &gt; resumen.txt</code></pre></div>
+      <ul>
+        <li><strong>Salida estándar:</strong> solo la respuesta final del modelo.</li>
+        <li><strong>Salida de errores:</strong> el motivo de una ejecución sin respuesta. El registro del servidor está desactivado por defecto; con <code>--log on</code> también va a la salida de errores.</li>
+        <li><strong>Conversación:</strong> queda guardada en el navegador como cualquier otra.</li>
+        <li><strong>Directorio de trabajo:</strong> las herramientas de archivos y comandos trabajan en el directorio desde el que lanzas la orden, como en una sesión normal.</li>
+      </ul>
+    </div>
+
+    <div class="card" id="opciones">
+      <h2>2. Opciones</h2>
+      <div class="table-responsive"><table>
+        <thead><tr><th>Opción</th><th>Efecto</th></tr></thead>
+        <tbody>
+          <tr><td><code>--profile NOMBRE</code></td><td>Usa ese perfil de conexión (nombre o id) solo en esta ejecución, sin cambiar el perfil activo guardado. Si no existe, la ejecución termina con error.</td></tr>
+          <tr><td><code>--export FICHERO</code></td><td>Guarda la conversación en <code>FICHERO</code>; el formato sale de la extensión: <code>.md</code> (Markdown), <code>.json</code> (sesión) o <code>.html</code> (como se ve en el chat). Se exporta también tras un error de generación.</td></tr>
+          <tr><td><code>--keep-page</code></td><td>No cierra la página al terminar, para ver la conversación. El proceso termina igual y la página queda desconectada del servidor. No se combina con <code>--headless</code>.</td></tr>
+          <tr><td><code>--headless</code></td><td>Abre el navegador sin ventana. Ver <a href="#sin-ventana">sección 5</a>.</td></tr>
+          <tr><td><code>--allow-dangerous-tools</code></td><td>Aprueba también las herramientas que escriben o ejecutan. Ver <a href="#herramientas">sección 3</a>.</td></tr>
+          <tr><td><code>--log on|off</code></td><td>Muestra la cabecera y el registro del servidor en la salida de errores. Por defecto <code>off</code> con <code>--prompt</code>.</td></tr>
+          <tr><td><code>--port PUERTO</code></td><td>Puerto de escucha; si está ocupado, la ejecución no arranca. Sin <code>--port</code>, si el puerto por defecto lo usa otro ZeroChat abierto, la ejecución escucha en un puerto libre y convive con él (en desarrollo, con la interfaz local, no arranca).</td></tr>
+        </tbody>
+      </table></div>
+      <p><code>--prompt</code> no se combina con <code>--no-browser</code> ni con <code>--keep-server</code>, porque la ejecución necesita el navegador y termina al devolver el resultado.</p>
+    </div>
+
+    <div class="card" id="herramientas">
+      <h2>3. Herramientas y peticiones al usuario</h2>
+      <ul>
+        <li><strong>Aprobaciones:</strong> cada herramienta que pide permiso se permite para la sesión de esa página. <code>write_file</code>, <code>edit_file</code> y <code>run_command</code> se deniegan, salvo con <code>--allow-dangerous-tools</code>. Las reglas que ya tengas configuradas (permitir todo, confianza en el espacio de trabajo, reglas permanentes) se aplican igual que en el chat.</li>
+        <li><strong>Preguntas:</strong> nadie puede contestarlas. Si el modelo pregunta con <code>ask_user</code> o aparece cualquier diálogo, la generación se detiene y la ejecución termina con error (<em>The run needs the user</em>).</li>
+        <li><strong>Servicios MCP:</strong> se usan los que tengas configurados y activos, igual que en el chat.</li>
+      </ul>
+    </div>
+
+    <div class="card" id="codigos">
+      <h2>4. Plazos y códigos de salida</h2>
+      <p>La ejecución se corta a los 15 minutos, o tras 3 minutos sin progreso de la interfaz (cada paso, herramienta o fragmento de respuesta cuenta como progreso).</p>
+      <div class="table-responsive"><table>
+        <thead><tr><th>Código</th><th>Significado</th></tr></thead>
+        <tbody>
+          <tr><td><code>0</code></td><td>Terminada: la respuesta está en la salida estándar.</td></tr>
+          <tr><td><code>1</code></td><td>Error de generación, perfil inexistente, petición al usuario o exportación pedida que no se pudo escribir (en este último caso la respuesta sí sale).</td></tr>
+          <tr><td><code>2</code></td><td>Plazo agotado, o el navegador se cerró sin devolver resultado.</td></tr>
+          <tr><td><code>3</code></td><td>Fallo de arranque: puerto ocupado o navegador que no se pudo abrir.</td></tr>
+          <tr><td><code>4</code></td><td>Argumentos no válidos (también fuera de <code>--prompt</code>).</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="card" id="sin-ventana">
+      <h2>5. Sin ventana (<code>--headless</code>)</h2>
+      <p>En Linux, ZeroChat busca el navegador predeterminado (<code>xdg-settings</code>) y lo lanza con <code>--headless</code> sobre tu perfil normal, para que tenga tu configuración. Firefox sin ventana no necesita sesión gráfica.</p>
+      <ul>
+        <li><strong>Navegador ya abierto:</strong> el perfil está en uso y el navegador sin ventana no puede usarlo. La ejecución se abre entonces como una pestaña visible en el navegador abierto, que se cierra al terminar.</li>
+        <li><strong>Sin navegador identificable:</strong> en Windows, macOS, Termux, o con navegadores de Flatpak o Snap, se abre de la forma normal.</li>
+      </ul>
+    </div>
+
+    <div class="card" id="cron">
+      <h2>6. Tareas programadas (cron)</h2>
+      <ul>
+        <li><strong>Usuario:</strong> la configuración de ZeroChat vive en el perfil del navegador del usuario que ejecuta la tarea. Si usas un usuario dedicado, abre una vez su navegador con ventana y configura ZeroChat en él.</li>
+        <li><strong>Sin sesión gráfica:</strong> usa <code>--headless</code>, y evita que el navegador de ese usuario esté abierto en otra sesión mientras corre la tarea, porque la ejecución intentaría abrirse allí como pestaña.</li>
+        <li><strong>Entorno:</strong> cron arranca con un <code>PATH</code> mínimo y en el directorio personal. Entra en el directorio de trabajo con <code>cd</code> y añade al <code>PATH</code> los comandos que necesitan tus servicios MCP (<code>node</code>, <code>npx</code>, <code>uvx</code>…).</li>
+        <li><strong>Resultado:</strong> cron envía por correo la salida (<code>MAILTO</code>); el código de salida distingue cada caso. Con <code>flock</code> evitas que dos ejecuciones se solapen.</li>
+      </ul>
+      <div class="code-wrapper"><pre><code>MAILTO=usuario
+0 7 * * * cd "$HOME/proyecto" &amp;&amp; PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" flock -n /tmp/zerochat-prompt.lock zerochat --prompt "Prepara el informe diario" --headless --export "$HOME/informes/diario.html"</code></pre></div>
+    </div>
+
+    <footer>
+      <p>ZeroChat 9.x · Ayuda de uso personal</p>
+    </footer>
+  </div>
+  <script src="help.js"></script>
+</body>
+</html>
