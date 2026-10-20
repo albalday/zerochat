@@ -879,7 +879,6 @@
     updateNewTabLink();
     if (runId) {
       RunMode.start(runId, {
-        messagesList: elements.messagesList,
         startupConnection: startupMcpConnection,
         connectBackend,
         sessionsLoaded,
