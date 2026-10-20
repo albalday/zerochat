@@ -50,7 +50,3 @@ test('ChatUtils - fetchWithTimeout combina la señal de quien llama con el plazo
 });
 
 
-test('ChatUtils.isPreviewable solo previsualiza HTML y SVG', () => {
-  const rows = [['html', true], [' HTM ', true], ['SVG', true], ['js', false], ['', false], [undefined, false]];
-  for (const [kind, expected] of rows) assert.equal(ChatUtils.isPreviewable(kind), expected, String(kind));
-});

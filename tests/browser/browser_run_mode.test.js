@@ -120,6 +120,11 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
       const kinds = progressOf(backend).map(event => event.kind);
       for (const kind of ['step', 'stream', 'tool']) assert.ok(kinds.includes(kind), `progreso ${kind}: ${kinds}`);
       assert.deepEqual(approvalsOf(backend), ['approval_allowed:demo_action', 'approval_denied:write_file']);
+      // El responder contesta sin clic: las tarjetas no quedan esperando autorización.
+      assert.deepEqual(await page.evaluate(() => ({
+        cards: document.querySelectorAll('#messages-list .tool-execution-card').length,
+        waiting: document.querySelectorAll('#messages-list .tool-card-auth-prompt, #messages-list .tool-card-auth-active, #messages-list .status-pending-auth').length
+      })), { cards: 2, waiting: 0 });
       const messages = await page.evaluate(() => window.ChatState.get('messages').map(message => ({ role: message.role, content: message.content })));
       assert.deepEqual(messages.filter(message => message.role === 'user').map(message => message.content), ['Resume el proyecto']);
       assert.equal(messages.at(-1).content, 'Respuesta final');
