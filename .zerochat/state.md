@@ -1,5 +1,5 @@
 # Current state
-- Milestone: M32 Review of the tests added since 9.2.0
-- Next task: Close M32 (pending user confirmation)
+- Milestone: none active (M32 closed 2026-10-20)
+- Next task: none pending
 - Pending milestones: M28
 - Last updated: 2026-10-20
