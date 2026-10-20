@@ -501,6 +501,11 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._reject(400, {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": f"Parse error: {err}"}},
                          safe_path, t0, f"Error parseando JSON: {err}")
             return None
+        # El tope ampliado de http_body_limit es solo para la exportación de --prompt --export.
+        if content_len > MAX_HTTP_BODY_BYTES and not (isinstance(req, dict) and req.get("method") == "zerochat/run/export"):
+            self._log_req("POST", safe_path)
+            self._reject(413, {"error": "Request body too large"}, safe_path, t0, "Cuerpo HTTP excede el límite")
+            return None
 
         rpc_error = self._validate_rpc(req)
         if rpc_error:

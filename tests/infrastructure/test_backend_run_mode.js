@@ -45,6 +45,17 @@ def post_status(size):
     except urllib.error.HTTPError as err:
         return err.code
 
+def rpc_status(method, size, **params):
+    """Estado HTTP de un JSON-RPC válido rellenado hasta medir exactamente size bytes."""
+    envelope = {"jsonrpc": "2.0", "id": 1, "method": method, "params": {"run_id": fragment["run"], **params, "pad": ""}}
+    envelope["params"]["pad"] = "p" * (size - len(json.dumps(envelope).encode()))
+    request = urllib.request.Request(f"http://{fragment['host']}:{fragment['port']}/", data=json.dumps(envelope).encode(), headers={
+        "Content-Type": "application/json", "Origin": "http://127.0.0.1", "X-ZeroChat-Token": fragment["token"]})
+    try:
+        return urllib.request.urlopen(request, timeout=30).status
+    except urllib.error.HTTPError as err:
+        return err.code
+
 def save():
     Path(os.environ["FAKE_UI_INFO"]).write_text(json.dumps(info), encoding="utf-8")
 
@@ -60,8 +71,12 @@ save()
 if delivered["export"] and scenario == "ok":
     # Mientras se espera la exportación, el tope del cuerpo es el suyo; al recibirla, vuelve el general.
     info["export_limit"] = [post_status(64 * 1024 * 1024), post_status(64 * 1024 * 1024 + 1)]
+    # Otro método no aprovecha el tope ampliado: el general se aplica tras analizar el cuerpo.
+    info["other_method_limit"] = [rpc_status("zerochat/run/progress", 1024 * 1024, kind="stream"),
+                                  rpc_status("zerochat/run/progress", 1024 * 1024 + 1, kind="stream")]
 if delivered["export"]:
-    info["export_reply"] = rpc("zerochat/run/export", content=f"{delivered['export']}: {prompt}")
+    # La exportación sí admite un cuerpo por encima del tope general.
+    info["export_reply"] = rpc("zerochat/run/export", content=f"{delivered['export']}: {prompt}", pad="p" * (1024 * 1024))
     info["second_export"] = rpc("zerochat/run/export", content="x").get("error", {}).get("message")
     info["limit_after_export"] = post_status(1024 * 1024 + 1)
     save()
@@ -168,6 +183,10 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     // El cuerpo en el tope exacto pasa el límite y falla al no ser JSON; un byte más se rechaza.
     assert.deepEqual(ok.info.export_limit, [400, 413]);
     assert.equal(ok.info.limit_after_export, 413);
+    // Con la exportación pendiente, otro método válido en el tope general exacto pasa y un byte más es 413;
+    // la exportación por encima del tope general se acepta.
+    assert.deepEqual(ok.info.other_method_limit, [200, 413]);
+    assert.deepEqual(ok.info.export_reply.result, { ok: true });
     assert.deepEqual([failed.info.export, failed.info.keep_page, failed.info.allow_dangerous_tools], [null, false, false]);
     // Una exportación pedida que no se escribe es un error, pero la respuesta sigue en stdout.
     assert.equal(unexported.info.export, 'json');

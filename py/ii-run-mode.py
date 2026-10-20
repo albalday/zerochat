@@ -58,7 +58,8 @@ RUN_SESSION: RunSession | None = None
 
 
 def http_body_limit() -> int:
-    """Tope del cuerpo de una petición: el general, o el de la exportación mientras se espera."""
+    """Tope del cuerpo que se lee: el general, o el de la exportación mientras se espera (ff-server
+    rechaza después cualquier otro método que supere el general)."""
     session = RUN_SESSION
     if session is not None and session.export_path is not None and not session.exported:
         return RUN_EXPORT_MAX_BODY_BYTES
