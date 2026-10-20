@@ -463,7 +463,8 @@
             } else if (rawArgs && typeof rawArgs === 'object') {
               try { argsStr = JSON.stringify(rawArgs); } catch (_) { argsStr = ''; }
             }
-            return argsStr ? `${name}(${argsStr})` : name;
+            // Los argumentos (p. ej. el contenido de write_file) tienen el mismo tope que los resultados.
+            return argsStr ? `${name}(${truncateToolContent(argsStr, maxToolChars, name)})` : name;
           });
           parts.push(`[Called tools: ${callDescs.join(', ')}]`);
         }

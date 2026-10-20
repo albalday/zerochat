@@ -336,6 +336,15 @@ test('ContextManager - formatHistoryTranscript genera una transcripción neutral
   assert.ok(transcript.includes('Truncado por ChatContextManager'));
   assert.ok(transcript.includes('User: mira esta imagen'));
   assert.ok(!transcript.includes('Eres un asistente'), 'No debe incluir el prompt de sistema previo');
+
+  // Los argumentos de las llamadas tienen el mismo tope que los resultados, en el borde exacto.
+  const callWithArgs = length => ChatContextManager.formatHistoryTranscript([{
+    role: 'assistant',
+    content: '',
+    tool_calls: [{ id: 'call_w', function: { name: 'write_file', arguments: 'a'.repeat(length) } }]
+  }], { maxHistoricalToolChars: 100 });
+  assert.equal(callWithArgs(100), `Assistant: [Called tools: write_file(${'a'.repeat(100)})]`);
+  assert.match(callWithArgs(101), /Truncado por ChatContextManager: 1 caracteres omitidos de la salida de write_file/);
 });
 
 test('ContextManager - compressHistory rechaza resúmenes que son una llamada JSON a herramienta o vacíos', async () => {
