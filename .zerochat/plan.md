@@ -76,5 +76,5 @@ Done when: the duplicated SSRF and image size tests and the isPreviewable test a
 - [x] M32-T1 test_web_tools: remove the fetchImage and fetchBinaryResource SSRF tests and the fetchImage size test (covered by webFetch and fetchBinaryResource), merge the three BinaryFetcher tests into one table per route without the elapsed assertion, and use t.mock.method instead of manual save and restore (2026-10-20)
 - [x] M32-T2 Remove the trivial ChatUtils.isPreviewable test, merge the render_chart card test into the chart injection test and the authorization responder browser test into the first run mode browser test (2026-10-20)
 - [x] M32-T3 Export findModelInCatalog from ui-inspector.js and test it as a unit table instead of the browser inspector lookup test (2026-10-20)
-- [ ] M32-T4 browser_run_mode shares one static server and test browser across its tests (before/after)
+- [x] M32-T4 browser_run_mode shares one static server and test browser across its tests (before/after) (2026-10-20)
 - [ ] M32-T5 Flaky zerochat.py --prompt infrastructure test: browserGone exited 3 instead of 2 once under load; find the cause (freePort race suspected), fix it and show stderr in the exit code assertions
