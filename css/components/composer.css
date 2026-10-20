@@ -5,7 +5,7 @@
 .chat-input-wrapper {
   flex-shrink: 0;
   width: 100%;
-  padding: 0.4rem 1rem max(1rem, env(safe-area-inset-bottom));
+  padding: 0.4rem 1rem max(0.75rem, env(safe-area-inset-bottom));
   padding-left: max(1rem, env(safe-area-inset-left));
   padding-right: max(1rem, env(safe-area-inset-right));
   background: linear-gradient(180deg, rgba(var(--primary-rgb), 0) 0%, var(--bg-app) 28px);
@@ -16,6 +16,7 @@
 @media (max-width: 640px) {
   .chat-input-wrapper {
     padding-top: 0.25rem;
+    padding-bottom: max(0.4rem, env(safe-area-inset-bottom));
     padding-left: max(0.5rem, env(safe-area-inset-left));
     padding-right: max(0.5rem, env(safe-area-inset-right));
   }

@@ -17,6 +17,12 @@
   user-select: none;
 }
 
+@media (max-width: 640px) {
+  .app-header {
+    --header-height: 3rem;
+  }
+}
+
 .header-left,
 .header-right {
   display: flex;
