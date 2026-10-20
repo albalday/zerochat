@@ -74,4 +74,4 @@ Done when: previews run with an opaque origin and a browser test shows they cann
 - [x] M31-T1 F-01 HTML/SVG previews (code blocks and write_file cards) open in a sandboxed iframe without allow-same-origin instead of a same-origin blob: page, with a browser test that the preview cannot read document.cookie or localStorage (2026-10-20)
 - [x] M31-T2 F-02 formatHistoryTranscript bounds tool-call arguments with truncateToolContent like tool results, with an N/N+1 test (2026-10-20)
 - [x] M31-T3 F-03 A single fetch strategy for documents in PageFetcherPipeline, so a failing document URL is downloaded once (2026-10-20)
-- [ ] M31-T4 F-04 Restarting Playwright MCP from Settings › Browser (clear data, remove engine, config change) keeps its remembered state
+- [x] M31-T4 F-04 Restarting Playwright MCP from Settings › Browser (clear data, remove engine, config change) keeps its remembered state (2026-10-20)

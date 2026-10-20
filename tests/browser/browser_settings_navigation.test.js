@@ -119,7 +119,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       page.setDefaultTimeout(5000);
       // Servidor local con Playwright MCP en marcha: solo Chromium instalado y solo Edge en el sistema.
       await page.evaluate(() => {
-        window.ChatState.set('mcp', { status: 'connected', externalServers: [{ id: 'playwright', status: 'running' }] });
+        window.ChatState.set('mcp', { status: 'connected', externalServers: [{ id: 'playwright', status: 'running', enabled: false }] });
         window.__requests = [];
         window.__actions = [];
         const saved = { mode: 'own', engine: 'chromium', userBrowser: 'chrome', headless: true, extensionToken: '' };
@@ -133,7 +133,8 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
             { id: 'firefox', title: 'Firefox 2', installed: false }
           ] };
         };
-        window.ChatUIMcp.runExternalServerAction = async (id, action) => { window.__actions.push(`${action} ${id}`); return true; };
+        window.ChatMCP.manager.stopExternalServer = async id => { window.__actions.push(`stop ${id}`); };
+        window.ChatMCP.manager.startExternalServer = async (id, onWait, { remember }) => { window.__actions.push(`start ${id} remember=${remember}`); };
       });
       await openSettings(page, 'browser');
       assert.equal(await page.isChecked('input[name="browser-tool"][value="browser_action"]'), true);
@@ -171,7 +172,8 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
         tool: window.ChatConfig.getActive().browser
       })), {
         set: [{ config: { mode: 'user', engine: 'chromium', userBrowser: 'msedge', headless: true, extensionToken: 'tok_1' } }],
-        actions: ['stop playwright', 'start playwright'],
+        // El reinicio no cambia si Playwright MCP queda recordado para la siguiente sesión.
+        actions: ['stop playwright', 'start playwright remember=false'],
         tool: 'playwright'
       });
     });
