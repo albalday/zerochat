@@ -544,6 +544,30 @@ test('Browser UI - elegir un perfil del menú lo activa, cierra el menú y marca
   }
 });
 
+test('Browser UI - guardar Ajustes tras editar otro perfil no cambia la conexión activa', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await openProfilesPage(browser);
+    await page.click('#active-profile-trigger');
+    await page.click('.header-profile-item [data-profile-id="profile:local"]');
+    await openProfileEditor(page, 'profile:remote');
+    await closeProfileEditor(page);
+
+    await page.click('#btn-open-settings');
+    await page.locator('#sidebar-settings-nav [data-section="model"]').evaluate(item => item.click());
+    await page.waitForFunction(() => document.getElementById('settings-dialog').open);
+    await page.fill('#setting-system-data-prompt', 'Datos propios');
+    await page.click('#btn-save-settings');
+    await page.waitForFunction(() => !document.getElementById('settings-dialog').open);
+    assert.deepEqual(await page.evaluate(() => {
+      const { activeProfile, apiType, apiUrl, model, systemDataPrompt } = window.ChatConfig.getActive();
+      return { profile: activeProfile.id, apiType, apiUrl, model, systemDataPrompt };
+    }), { profile: 'profile:local', apiType: 'openai', apiUrl: 'http://localhost:1234/v1', model: 'google/gemma-4-26b-a4b-qat', systemDataPrompt: 'Datos propios' });
+  } finally {
+    await browser.close();
+  }
+});
+
 test('Browser UI - reabrir el editor no conserva cambios descartados y una consulta lista permite guardar', async () => {
   const browser = await createTestBrowser();
   try {

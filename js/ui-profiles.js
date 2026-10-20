@@ -160,6 +160,23 @@
 
   const closeProfileMenu = () => setProfileMenuOpen(false);
 
+  /** Conexión y modelo del editor de perfiles sobre los ajustes del perfil editado. */
+  function gatherProfileFormSettings(baseSettings) {
+    const apiType = els.settingApiType.value || baseSettings.apiType;
+    const selectOr = (select, fallback) => select.value.trim() || fallback || 'default';
+    return {
+      apiType,
+      apiUrl: els.settingApiUrl.value.trim() || baseSettings.apiUrl || getProviders().registry.get(apiType).getConnectionConfig().endpoint,
+      model: els.settingModel.value.trim(),
+      systemPrompt: els.settingSystemPrompt.value.trim(),
+      temperature: els.settingTemperature.value || baseSettings.temperature,
+      webllmConfig: {
+        context_window_size: selectOr(els.settingWebllmContextWindow, baseSettings.webllmConfig?.context_window_size),
+        prefill_chunk_size: selectOr(els.settingWebllmPrefillChunk, baseSettings.webllmConfig?.prefill_chunk_size)
+      }
+    };
+  }
+
   async function handleSaveProfile() {
     const Profiles = getProfiles();
     if (els.settingApiKey._loadedApiKey === undefined) return false;
@@ -183,8 +200,6 @@
     }
 
     const baseSettings = selected?.settings || Profiles.NEW_PROFILE_SETTINGS;
-    const formConfig = getUISettings().gatherCurrentFormConfig(els, runtimeConfig());
-    const apiType = els.settingApiType.value || baseSettings.apiType;
     const apiKey = els.settingApiKey.value.trim();
     const saved = await Profiles.saveEditable({
       id: selected?.id || createId('profile'),
@@ -192,14 +207,9 @@
       description: els.settingProfileDescription.value.trim(),
       settings: {
         ...baseSettings,
-        apiType,
-        apiUrl: els.settingApiUrl.value.trim() || baseSettings.apiUrl || getProviders().registry.get(apiType).getConnectionConfig().endpoint,
+        ...gatherProfileFormSettings(baseSettings),
         apiKey,
         apiKeyLocked: els.settingApiKeyLocked.checked,
-        model: els.settingModel.value.trim(),
-        systemPrompt: els.settingSystemPrompt.value.trim(),
-        temperature: els.settingTemperature.value || baseSettings.temperature,
-        webllmConfig: formConfig.webllmConfig,
         mcpServers: getUISettings().gatherProfileMcpServers(els),
         playwrightBrowser: getUIBrowser().getProfileBrowser()
       }

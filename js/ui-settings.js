@@ -155,30 +155,19 @@
     elements.webllmParamsPanel.hidden = !isWebLLM;
   }
 
-  /** Configuración resultante del formulario sobre la configuración en ejecución. */
-  function gatherCurrentFormConfig(elements, appConfig) {
-    const valueOr = (select, fallback) => select.value.trim() || fallback || 'default';
+  /**
+   * Cambios de los campos propios de Ajustes sobre la configuración en ejecución. La conexión y el
+   * modelo pertenecen al editor de perfiles, que puede estar mostrando otro perfil.
+   */
+  function gatherSettingsFormConfig(elements, appConfig) {
     return {
-      ...appConfig,
-      apiUrl: elements.settingApiUrl.value.trim(),
-      apiType: elements.settingApiType.value,
-      model: elements.settingModel.value.trim(),
-      webllmConfig: {
-        context_window_size: valueOr(elements.settingWebllmContextWindow, appConfig.webllmConfig?.context_window_size),
-        prefill_chunk_size: valueOr(elements.settingWebllmPrefillChunk, appConfig.webllmConfig?.prefill_chunk_size)
-      },
-      // El límite publicado pertenece a la conexión en ejecución, no al formulario.
-      modelContextLimit: null,
-      systemPrompt: elements.settingSystemPrompt.value.trim(),
       systemDataPrompt: elements.settingSystemDataPrompt.value.trim(),
-      temperature: elements.settingTemperature.value,
       browser: getUIBrowser().getTool(),
       enabledTools: {
         ...appConfig.enabledTools,
         ...gatherEnabledToolsFromUI(elements.agentToolsContainer),
         ...gatherEnabledToolsFromUI(elements.mcpToolsContainer)
-      },
-      activeRagBranchIds: [...appConfig.activeRagBranchIds]
+      }
     };
   }
 
@@ -266,7 +255,7 @@
       openSettingsSection(elements, appConfig, 'browser');
       return false;
     }
-    const savedConfig = getConfig().updateRuntime(gatherCurrentFormConfig(elements, appConfig));
+    const savedConfig = getConfig().updateRuntime(gatherSettingsFormConfig(elements, appConfig));
     setSettingsFormDirty(elements, false);
     callbacks.loadCachedModels();
     callbacks.onConfigSaved(savedConfig);
@@ -686,7 +675,6 @@ zerochat</code></pre>
     applyProfileToForm,
     syncProviderFields,
     syncApiKeyLock,
-    gatherCurrentFormConfig,
     showProfileFeedback,
     renderProfileMenu,
     syncProfileEditor,
