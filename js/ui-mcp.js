@@ -525,20 +525,13 @@
     }
   }
 
-  /** Pinta los controles de seguridad con el estado de ChatToolSecurity; los eventos los enlaza initMcpUI. */
+  /**
+   * Pinta las autorizaciones guardadas y las herramientas con el estado de ChatToolSecurity. La política
+   * global y las reglas de directorios las carga y guarda el diálogo de ajustes.
+   */
   function syncSecurityControls(elements = cachedElements) {
     const el = elements || cachedElements;
     if (!el) return;
-    const security = getSecurity();
-    const policy = security.getGlobalMcpPolicy();
-    if (el.policyRadios) {
-      for (const [value, radio] of Object.entries(el.policyRadios)) {
-        if (radio) radio.checked = policy === value;
-      }
-    }
-    if (el.directoryRules && document.activeElement !== el.directoryRules) {
-      el.directoryRules.value = security.getDirectoryRules().join('\n');
-    }
     renderSavedAuthorizations(el);
     renderCurrentToolsList(el);
   }
@@ -563,25 +556,6 @@
       const server = event.target.closest('.btn-revoke-server-auth');
       if (server) security.revokeServerPolicy(server.getAttribute('data-server-id'));
     });
-    if (elements.policyRadios) {
-      for (const [value, radio] of Object.entries(elements.policyRadios)) {
-        if (radio) {
-          on(radio, 'change', () => {
-            if (radio.checked) security.setGlobalMcpPolicy(value);
-          });
-        }
-      }
-    }
-    const onRulesChange = () => {
-      try {
-        security.setDirectoryRules(elements.directoryRules.value.split(/\r?\n/).map(rule => rule.trim()).filter(Boolean));
-        elements.directoryRulesError.textContent = '';
-      } catch (err) {
-        elements.directoryRulesError.textContent = err.message || t('mcp_directory_rules_invalid');
-      }
-    };
-    on(elements.directoryRules, 'change', onRulesChange);
-    on(elements.directoryRules, 'input', onRulesChange);
     on(elements.btnClearAuths, 'click', () => security.clearAllAuthorizations());
 
     const unsubscribeSecurity = security.subscribe(() => syncSecurityControls(elements));

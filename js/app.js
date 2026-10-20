@@ -226,10 +226,7 @@
     btnMcpCopyCmd: 'btn-mcp-copy-cmd',
     mcpBootstrapCard: 'mcp-bootstrap-card',
     mcpSavedAuthsList: 'mcp-saved-auths-list',
-    btnMcpClearAuths: 'btn-mcp-clear-auths',
-    mcpPolicyAsk: 'mcp-policy-ask',
-    mcpPolicyWorkspaceTrust: 'mcp-policy-workspace-trust',
-    mcpPolicyAllowAll: 'mcp-policy-allow-all'
+    btnMcpClearAuths: 'btn-mcp-clear-auths'
   };
 
   let elements = {};
@@ -869,14 +866,7 @@
       toolsContainer: elements.mcpToolsContainer,
       serversList: elements.mcpServersList,
       savedAuthsList: elements.mcpSavedAuthsList,
-      btnClearAuths: elements.btnMcpClearAuths,
-      directoryRules: elements.mcpDirectoryRules,
-      directoryRulesError: elements.mcpDirectoryRulesError,
-      policyRadios: {
-        ask: elements.mcpPolicyAsk,
-        workspace_trust: elements.mcpPolicyWorkspaceTrust,
-        allow_all: elements.mcpPolicyAllowAll
-      }
+      btnClearAuths: elements.btnMcpClearAuths
     });
 
     // Un paquete de perfiles exportado abre la página para importarlos: no arranca el chat.

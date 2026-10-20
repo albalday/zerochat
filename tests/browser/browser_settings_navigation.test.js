@@ -89,7 +89,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       page.setDefaultTimeout(5000);
       await openSettings(page, 'agent');
       await page.locator('.switch:has([data-tool-id="search_web"])').click();
-      assert.equal(await page.evaluate(() => window.ChatConfig.getActive().enabledTools.search_web), false, 'El interruptor se aplica al momento');
+      assert.notEqual(await page.evaluate(() => window.ChatConfig.getActive().enabledTools.search_web), false, 'El interruptor espera a Guardar');
 
       await openSettings(page, 'permissions');
       await page.fill('#mcp-directory-rules', 'R:/home/user\nW:/tmp\n\n');
@@ -101,8 +101,9 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       assert.deepEqual(await page.evaluate(() => ({
         rules: window.ChatToolSecurity.manager.getDirectoryRules(),
         policy: window.ChatToolSecurity.manager.getGlobalMcpPolicy(),
-        dataPrompt: window.ChatConfig.getActive().systemDataPrompt
-      })), { rules: ['R:/home/user', 'W:/tmp'], policy: 'workspace_trust', dataPrompt: 'Datos propios' });
+        dataPrompt: window.ChatConfig.getActive().systemDataPrompt,
+        searchWeb: window.ChatConfig.getActive().enabledTools.search_web
+      })), { rules: ['R:/home/user', 'W:/tmp'], policy: 'workspace_trust', dataPrompt: 'Datos propios', searchWeb: false });
 
       await openSettings(page, 'permissions');
       assert.equal(await page.inputValue('#mcp-directory-rules'), 'R:/home/user\nW:/tmp', 'El campo muestra las reglas guardadas');

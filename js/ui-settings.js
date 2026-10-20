@@ -81,6 +81,15 @@
     };
   }
 
+  /** Pinta la política MCP global y las reglas de directorios guardadas en ChatToolSecurity. */
+  function loadPermissionControls(elements) {
+    const security = getToolSecurity().manager;
+    const policy = security.getGlobalMcpPolicy();
+    elements.settingsDialog.querySelectorAll('input[name="mcp-global-policy"]').forEach(radio => { radio.checked = radio.value === policy; });
+    elements.mcpDirectoryRules.value = security.getDirectoryRules().join('\n');
+    elements.mcpDirectoryRulesError.textContent = '';
+  }
+
   const setSettingsFormDirty = (elements, dirty) => { elements.settingsDialog.dataset.settingsDirty = String(Boolean(dirty)); };
   const isSettingsFormDirty = elements => elements.settingsDialog.dataset.settingsDirty === 'true';
 
@@ -96,6 +105,7 @@
       applyLanguage(elements, appConfig.language);
       renderAgentToolsUI(elements.agentToolsContainer, appConfig.enabledTools);
       getUIBrowser().load(appConfig.browser);
+      loadPermissionControls(elements);
     }
     getUIMcp().syncSecurityControls();
 
@@ -201,12 +211,6 @@
       if (!isSettingsFormDirty(elements)) return;
       event.preventDefault();
       closeSettingsPanelOnly(elements);
-    });
-    listen(elements.agentToolsContainer, 'change', event => {
-      const checkbox = event.target.closest('.agent-tool-checkbox');
-      if (!checkbox) return;
-      const Config = getConfig();
-      Config.updateRuntime({ enabledTools: { ...Config.getActive().enabledTools, [checkbox.dataset.toolId]: checkbox.checked } });
     });
     listen(elements.btnClearAllData, 'click', () => getDataResetService().resetAllData());
   }

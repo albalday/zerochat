@@ -289,7 +289,7 @@ test('Browser UI - RAG avisa al combinar ramas con idiomas distintos sin alterar
   }
 });
 
-test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajustes', async () => {
+test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajustes y descartarlos no los guarda', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -297,9 +297,17 @@ test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajust
     await waitForAppReady(page);
 
     await page.click('#btn-open-settings');
+    const savedState = () => page.evaluate(() => ({
+      enabledTools: window.ChatConfig.getActive().enabledTools,
+      policy: window.ChatToolSecurity.manager.getGlobalMcpPolicy(),
+      rules: window.ChatToolSecurity.manager.getDirectoryRules()
+    }));
+    const before = await savedState();
     await page.click('[data-section="agent"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
-    await page.locator('#settings-agent .agent-tool-checkbox:not([data-tool-id="browser_action"])').first().locator('..').click();
+    const toolCheckbox = page.locator('#settings-agent .agent-tool-checkbox:not([data-tool-id="browser_action"])').first();
+    const toolChecked = await toolCheckbox.isChecked();
+    await toolCheckbox.locator('..').click();
     assert.equal(await page.$eval('#settings-dialog', dialog => dialog.dataset.settingsDirty), 'true');
 
     await page.click('#btn-close-settings');
@@ -312,18 +320,29 @@ test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajust
     await page.waitForFunction(() => document.getElementById('notice-dialog')?.open);
     await page.click('#notice-accept');
     await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
+    await page.click('[data-section="agent"]');
+    await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
+    assert.equal(await toolCheckbox.isChecked(), toolChecked, 'Reabrir restaura el interruptor descartado');
+    await page.click('#btn-close-settings');
+    await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
+
     await page.click('[data-section="permissions"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
     await page.locator('.mcp-policy-option:has(#mcp-policy-allow-all)').click();
+    await page.fill('#mcp-directory-rules', 'RW:/tmp/descartado');
     assert.equal(await page.$eval('#settings-dialog', dialog => dialog.dataset.settingsDirty), 'true');
-    await page.click('#btn-close-settings');
-    await page.waitForFunction(() => document.getElementById('notice-dialog')?.open);
-    await page.click('#notice-cancel');
-    await page.locator('.mcp-policy-option:has(#mcp-policy-ask)').click();
     await page.click('#btn-close-settings');
     await page.waitForFunction(() => document.getElementById('notice-dialog')?.open);
     await page.click('#notice-accept');
     await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
+    assert.deepEqual(await savedState(), before, 'Descartar no guarda herramientas, política ni reglas');
+
+    await page.click('[data-section="permissions"]');
+    await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
+    assert.deepEqual(await page.evaluate(() => ({
+      policy: document.querySelector('input[name="mcp-global-policy"]:checked')?.value,
+      rules: document.getElementById('mcp-directory-rules').value
+    })), { policy: before.policy, rules: before.rules.join('\n') }, 'Reabrir restaura los permisos guardados');
   } finally {
     await browser.close();
   }
