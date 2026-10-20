@@ -55,7 +55,7 @@ test('Ingesta RAG: los documentos ofimáticos se indexan con sus imágenes antes
   assert.ok(found.hits.some(hit => hit.documentTitle === 'ventas.ods'));
 });
 
-test('Herramientas web: un documento ofimático se descarga una sola vez y se lee en local', async () => {
+test('Herramientas web: un documento ofimático se descarga una sola vez, también si falla, y se lee en local', async () => {
   const originalFetch = global.fetch;
   const requested = [];
   global.fetch = async url => {
@@ -67,7 +67,6 @@ test('Herramientas web: un documento ofimático se descarga una sola vez y se le
   try {
     const text = await WebBrowser.fetchPage('https://example.com/files/informe.odt');
     assert.equal(text.success, true);
-    assert.equal(text.strategy, 'LocalDocumentExtractor');
     assert.match(text.content, /^\[OpenDocument text: informe\.odt\]\n\[URL: https:\/\/example\.com\/files\/informe\.odt\]/);
     assert.match(text.content, /^# Informe trimestral$/m);
     assert.match(text.content, /\[Image: Image 1 \(page 1\)\]/);
@@ -98,7 +97,7 @@ test('Herramientas web: un documento ofimático se descarga una sola vez y se le
     const legacy = await WebBrowser.fetchPage('https://example.com/files/acta.doc');
     assert.equal(legacy.success, false);
     assert.match(legacy.error, /Word 97-2003 files \(\.doc\) are not supported/);
-    assert.ok(requested.every(url => url === 'https://example.com/files/acta.doc'), 'Solo se pide el documento');
+    assert.deepEqual(requested, ['https://example.com/files/acta.doc'], 'Un documento que falla se pide una sola vez');
   } finally {
     global.fetch = originalFetch;
   }

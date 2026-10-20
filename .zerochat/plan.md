@@ -67,3 +67,7 @@ Done when: the site root serves a static bilingual landing page instead of the J
 ## M29 Configuration profiles: MCP servers per profile: closed 2026-10-19
 
 ## M30 Fixes from the 9.2.0–9.6.1 code quality audit: closed 2026-10-20
+
+## M31 Fixes from the 9.2.0–9.7.1 scoped audit: closed 2026-10-20
+
+## M32 Review of the tests added since 9.2.0: closed 2026-10-20

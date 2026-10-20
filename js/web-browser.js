@@ -17,9 +17,9 @@
  *           navegador, que solo funciona con las webs que permiten CORS. Solo lleva la cabecera
  *           Accept, CORS-safelisted: otra (como User-Agent) forzaría un preflight que muchos
  *           servidores rechazan.
- *    - Estrategias de lectura desacopladas:
- *        a) Documentos Locales (LocalDocumentExtractor): Extracción directa en navegador para PDF y Office.
- *        b) Petición Directa (DirectFetch): Utilizada para servidores con CORS habilitado o a través del backend.
+ *    - fetchPage lee de una sola vez: un PDF u ofimático por la extensión de su URL se descarga
+ *      (fetchBinaryResource) y se extrae en el navegador; el resto se pide con webFetch como página,
+ *      y si su Content-Type es de documento se extrae igual.
  *
  * 2. Mitigación de SSRF (Server-Side Request Forgery) en el Cliente Web:
  *    - Los agentes LLM pueden recibir o generar URLs arbitrarias. webFetch, por donde pasa toda
@@ -46,7 +46,8 @@
   'use strict';
 
   const MAX_CONTENT_LENGTH = 60000;
-  const DEFAULT_TIMEOUT_MS = 12000;
+  // Jina Reader tarda varios segundos en devolver la página.
+  const READ_TIMEOUT_MS = 20000;
   const MAX_BINARY_BYTES = 10 * 1024 * 1024;
   const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
   const TRUNCATION_NOTICE = '\n\n[... Content truncated at the size limit ...]';
@@ -362,208 +363,101 @@
   }
 
   /**
-   * Interfaz Base para estrategias de extracción de contenido (FetchStrategy).
+   * Documento PDF u ofimático por la extensión de su URL: se descarga una sola vez con
+   * fetchBinaryResource (límites de tamaño, vacío y plazo) y se lee en local.
    */
-  class BaseFetchStrategy {
-    constructor(options = {}) {
-      this.name = options.name || 'base';
-      this.timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
-    }
+  async function readDocument(url, docType) {
+    const binaryResult = await fetchBinaryResource(url, {
+      timeoutMs: READ_TIMEOUT_MS,
+      accept: docType === 'pdf' ? 'application/pdf,*/*' : '*/*',
+      resourceKind: 'document'
+    });
+    if (!binaryResult.success) return { success: false, status: binaryResult.status, error: binaryResult.error || 'Error downloading the document' };
 
-    async canHandle(url, context = {}) {
-      return true;
-    }
-
-    async fetch(url, context = {}) {
-      throw new Error(`fetch() must be implemented by ${this.constructor.name}`);
-    }
+    const contentType = (binaryResult.contentType || '').toLowerCase();
+    const type = detectDocumentType(documentFileName(url), contentType);
+    return {
+      success: true,
+      content: await describeDownloadedDocument(binaryResult.arrayBuffer, url, contentType, type),
+      byteSize: binaryResult.byteSize,
+      status: binaryResult.status || 200,
+      isPdf: type === 'pdf'
+    };
   }
 
   /**
-   * Estrategia de descarga y extracción local de documentos PDF y ofimáticos.
+   * Página web con webFetch (backend local si está conectado o, si no, Jina Reader). Un documento
+   * sin extensión en la URL se reconoce por el Content-Type: el backend lo entrega en base64.
    */
-  class LocalDocumentStrategy extends BaseFetchStrategy {
-    constructor() {
-      super({ name: 'LocalDocumentExtractor', timeoutMs: 10000 });
-    }
+  async function readPage(url) {
+    const res = await webFetch(url, {
+      timeoutMs: READ_TIMEOUT_MS,
+      maxBytes: MAX_BINARY_BYTES,
+      accept: 'text/html,application/xhtml+xml,application/json,application/pdf,text/plain;q=0.9,*/*;q=0.8'
+    });
+    if (!res.ok) return { success: false, status: res.status, error: res.error || `HTTP ${res.status}: ${res.statusText}` };
 
-    async canHandle(url, context = {}) {
-      return Boolean(context.isPdfUrl || context.isOfficeUrl);
-    }
-
-    async fetch(url, context = {}) {
-      const accept = context.isPdfUrl ? 'application/pdf,*/*' : '*/*';
-      const binaryResult = await fetchBinaryResource(url, {
-        timeoutMs: this.timeoutMs,
-        accept,
-        resourceKind: 'document'
-      });
-
-      if (!binaryResult.success) {
-        throw new Error(binaryResult.error || 'Error downloading the document');
-      }
-
-      const contentType = (binaryResult.contentType || '').toLowerCase();
-      const docType = detectDocumentType(documentFileName(url), contentType);
+    const contentType = (res.headers.get('content-type') || '').toLowerCase();
+    const docType = detectDocumentType(documentFileName(url), contentType);
+    if (docType) {
+      // Un documento cortado no se puede leer: se rechaza en vez de extraer un fichero incompleto.
+      if (res.truncated) return { success: false, status: res.status, error: `Document exceeds the size limit of ${formatBytes(MAX_BINARY_BYTES)}.` };
+      const arrayBuffer = await res.arrayBuffer();
       return {
         success: true,
-        content: await describeDownloadedDocument(binaryResult.arrayBuffer, url, contentType, docType),
-        byteSize: binaryResult.byteSize,
-        status: binaryResult.status || 200,
-        isPdf: docType === 'pdf',
-        strategy: this.name
-      };
-    }
-  }
-
-  /**
-   * Estrategia de petición web mediante webFetch (vía backend local si está conectado o, si no, Jina Reader).
-   * El tipo de documento se decide también por el Content-Type: un PDF sin extensión en la URL
-   * llega del backend en base64 y se lee igual que uno con extensión.
-   */
-  class DirectFetchStrategy extends BaseFetchStrategy {
-    constructor() {
-      // Jina Reader tarda varios segundos en devolver la página.
-      super({ name: 'DirectFetch', timeoutMs: 20000 });
-    }
-
-    async canHandle() {
-      return true;
-    }
-
-    async fetch(url) {
-      const fileName = documentFileName(url);
-      const res = await webFetch(url, {
-        timeoutMs: this.timeoutMs,
-        maxBytes: MAX_BINARY_BYTES,
-        binary: Boolean(detectDocumentType(fileName)),
-        accept: 'text/html,application/xhtml+xml,application/json,application/pdf,text/plain;q=0.9,*/*;q=0.8'
-      });
-
-      if (!res.ok) {
-        return {
-          success: false,
-          content: '',
-          byteSize: 0,
-          status: res.status,
-          strategy: this.name,
-          error: res.error || `HTTP ${res.status}: ${res.statusText}`
-        };
-      }
-
-      const contentType = (res.headers.get('content-type') || '').toLowerCase();
-      const docType = detectDocumentType(fileName, contentType);
-
-      let content = '';
-      let byteSize = 0;
-
-      if (docType) {
-        // Un documento cortado no se puede leer: se rechaza en vez de extraer un fichero incompleto.
-        if (res.truncated) throw new Error(`Document exceeds the size limit of ${formatBytes(MAX_BINARY_BYTES)}.`);
-        const arrayBuffer = await res.arrayBuffer();
-        byteSize = arrayBuffer.byteLength;
-        content = await describeDownloadedDocument(arrayBuffer, url, contentType, docType);
-      } else {
-        const rawText = await res.text();
-        byteSize = res.byteSize || rawText.length;
-        content = (rawText.includes('<html') || rawText.includes('<!DOCTYPE'))
-          ? extractReadableTextFromHtml(rawText, url)
-          : rawText;
-        if (res.truncated) content += TRUNCATION_NOTICE;
-      }
-
-      return {
-        success: true,
-        content: content,
-        byteSize: byteSize,
+        content: await describeDownloadedDocument(arrayBuffer, url, contentType, docType),
+        byteSize: arrayBuffer.byteLength,
         status: res.status,
-        isPdf: docType === 'pdf',
-        strategy: this.name
+        isPdf: docType === 'pdf'
       };
     }
+
+    const rawText = await res.text();
+    let content = (rawText.includes('<html') || rawText.includes('<!DOCTYPE'))
+      ? extractReadableTextFromHtml(rawText, url)
+      : rawText;
+    if (res.truncated) content += TRUNCATION_NOTICE;
+    return { success: true, content, byteSize: res.byteSize || rawText.length, status: res.status, isPdf: false };
   }
-
-  /**
-   * Orquestador de estrategias de lectura web (PageFetcherPipeline).
-   */
-  class PageFetcherPipeline {
-    constructor() {
-      this.strategies = [
-        new LocalDocumentStrategy(),
-        new DirectFetchStrategy()
-      ];
-    }
-
-    /**
-     * Ejecuta las estrategias en orden hasta obtener una respuesta exitosa.
-     */
-    async fetch(rawUrl) {
-      const url = toWebUrl(rawUrl);
-      const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      const fileName = documentFileName(url);
-      const docType = detectDocumentType(fileName);
-      const isPdfUrl = docType === 'pdf';
-      const isOfficeUrl = Boolean(docType && docType !== 'pdf');
-
-      const context = {
-        isPdfUrl,
-        isOfficeUrl
-      };
-
-      let lastError = null;
-
-      const executionList = this.strategies;
-
-      for (const strategy of executionList) {
-        try {
-          const can = await strategy.canHandle(url, context);
-          if (!can) continue;
-
-          const result = await strategy.fetch(url, context);
-          if (result && result.success) {
-            let content = result.content || '';
-            if (content.length > MAX_CONTENT_LENGTH) {
-              content = content.slice(0, MAX_CONTENT_LENGTH) + TRUNCATION_NOTICE;
-            }
-
-            const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
-            return {
-              success: true,
-              url: url,
-              status: result.status || 200,
-              content: content,
-              byteSize: result.byteSize || content.length,
-              isPdf: result.isPdf || isPdfUrl,
-              elapsedMs: parseFloat((endTime - startTime).toFixed(2)),
-              strategy: result.strategy || strategy.name
-            };
-          }
-          // Un fallo sin excepción (HTTP o bloqueo del proxy) conserva su explicación para el modelo.
-          if (result?.error) lastError = new Error(result.error);
-        } catch (err) {
-          lastError = err;
-          console.warn(`[WebBrowser] Strategy ${strategy.name} failed for ${url}:`, err.message);
-        }
-      }
-
-      const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      return {
-        success: false,
-        url: url,
-        content: '',
-        elapsedMs: parseFloat((endTime - startTime).toFixed(2)),
-        error: `The web page could not be accessed or the document downloaded (${lastError ? lastError.message : 'connection error or network block'}).`
-      };
-    }
-  }
-
-  const pipeline = new PageFetcherPipeline();
 
   /**
    * Consulta una página web o descarga un documento PDF u ofimático y devuelve el contenido legible.
    */
   async function fetchPage(rawUrl) {
-    return pipeline.fetch(rawUrl);
+    const url = toWebUrl(rawUrl);
+    const startTime = performance.now();
+    const elapsed = () => parseFloat((performance.now() - startTime).toFixed(2));
+    const docType = detectDocumentType(documentFileName(url));
+
+    let result;
+    try {
+      result = docType ? await readDocument(url, docType) : await readPage(url);
+    } catch (err) {
+      console.warn(`[WebBrowser] Could not read ${url}:`, err.message);
+      result = { success: false, error: err.message };
+    }
+    if (!result.success) {
+      return {
+        success: false,
+        url,
+        content: '',
+        elapsedMs: elapsed(),
+        error: `The web page could not be accessed or the document downloaded (${result.error || 'connection error or network block'}).`
+      };
+    }
+
+    const content = result.content.length > MAX_CONTENT_LENGTH
+      ? result.content.slice(0, MAX_CONTENT_LENGTH) + TRUNCATION_NOTICE
+      : result.content;
+    return {
+      success: true,
+      url,
+      status: result.status || 200,
+      content,
+      byteSize: result.byteSize || content.length,
+      isPdf: result.isPdf,
+      elapsedMs: elapsed()
+    };
   }
 
   const MAX_IMAGE_BYTES = MAX_BINARY_BYTES;
@@ -744,8 +638,6 @@
     validateUrlForFetch,
     detectVisionImageMimeType,
     extractReadableTextFromHtml,
-    PageFetcherPipeline,
-    pipeline,
     MAX_IMAGE_BYTES
   };
 });

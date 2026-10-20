@@ -22,3 +22,21 @@ test('UIInspector - getModelContextLimit reconoce los formatos de contexto sin r
     assert.equal(UIInspector.getModelContextLimit(model, catalog), limit, model);
   }
 });
+
+test('UIInspector - findModelInCatalog localiza el modelo por id, sin prefijo models/ ni :latest, por ruta y sin distinguir mayúsculas', () => {
+  const catalog = [{ id: 'google/gemma-4-26b-a4b-qat' }, { id: 'llama3.2:latest' }, { id: 'models/gemini-2.5-flash' }, { id: 'Qwen/Qwen2.5-Coder-7B' }, 'texto-plano'];
+  const rows = [
+    ['llama3.2', 'llama3.2:latest'],
+    ['gemini-2.5-flash', 'models/gemini-2.5-flash'],
+    ['qwen/qwen2.5-coder-7b', 'Qwen/Qwen2.5-Coder-7B'],
+    ['gemma-4-26b-a4b-qat', 'google/gemma-4-26b-a4b-qat'],
+    ['org/texto-plano', 'texto-plano'],
+    [' LLAMA3.2:latest ', 'llama3.2:latest'],
+    ['inexistente', null],
+    ['', null]
+  ];
+  for (const [requested, expected] of rows) {
+    const found = UIInspector.findModelInCatalog(catalog, requested);
+    assert.equal(found === null ? null : (found.id || found), expected, requested);
+  }
+});

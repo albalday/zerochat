@@ -583,12 +583,12 @@
       const rawCodeAttr = encodeURIComponent(rawCode);
 
       const trimmedLang = (codeLang || '').trim().toLowerCase();
-      const isPreviewable = Utils.previewMimeType(trimmedLang) !== null;
+      const isPreviewable = Utils.isPreviewable(trimmedLang);
       const previewTitle = I18n.t('md_preview_code_title');
       const previewBtn = I18n.t('md_preview_code_btn');
 
       const previewActionHtml = isPreviewable
-        ? `<button class="btn-preview-code" data-code="${rawCodeAttr}" data-lang="${escapeHtml(trimmedLang)}" title="${previewTitle}">
+        ? `<button class="btn-preview-code" data-code="${rawCodeAttr}" title="${previewTitle}">
             ${Icons.get('external-link', { size: 13, className: 'icon-preview' })}
             <span>${previewBtn}</span>
           </button>`
@@ -658,7 +658,7 @@
       button.dataset.listenerAttached = 'true';
       button.addEventListener('click', () => {
         const rawCode = decodeURIComponent(button.dataset.code || '');
-        Utils.openDocumentInNewTab(rawCode, Utils.previewMimeType(button.dataset.lang || 'html'));
+        Utils.openDocumentInNewTab(rawCode);
       });
     });
   }

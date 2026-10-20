@@ -58,146 +58,105 @@ test('PageFetcher - Validación de URLs y protección anti-SSRF', () => {
   assert.equal(WebBrowser.validateUrlForFetch('http://0x7f000001/').valid, false); // 127.0.0.1 en hex
 });
 
-test('PageFetcher - Pipeline de estrategias y límite de longitud de contenido', async () => {
-  const pipeline = new WebBrowser.PageFetcherPipeline();
-  assert.deepEqual(pipeline.strategies.map(s => s.name), ['LocalDocumentExtractor', 'DirectFetch']);
+test('fetchPage - límite de longitud de contenido y error de Jina Reader', async t => {
+  const fetchMock = t.mock.method(global, 'fetch', async () => new Response('A'.repeat(70000), { status: 200, headers: { 'content-type': 'text/html' } }));
+  const res = await WebBrowser.fetchPage('https://example.com/large-page');
+  assert.equal(res.success, true);
+  assert.ok(res.content.length <= 60100, 'El contenido debe truncarse cerca de MAX_CONTENT_LENGTH');
+  assert.ok(res.content.includes('[... Content truncated at the size limit ...]'));
 
-  // Test de estrategia simulada con contenido superior al límite
-  const originalFetch = global.fetch;
-  try {
-    const hugeString = 'A'.repeat(70000);
-    global.fetch = async () => {
-      return {
-        ok: true,
-        status: 200,
-        headers: new Headers({ 'content-type': 'text/html' }),
-        text: async () => hugeString
-      };
-    };
-
-    const res = await pipeline.fetch('https://example.com/large-page');
-    assert.equal(res.success, true);
-    assert.ok(res.content.length <= 60100, 'El contenido debe truncarse cerca de MAX_CONTENT_LENGTH');
-    assert.ok(res.content.includes('[... Content truncated at the size limit ...]'));
-
-    // Un bloqueo de Jina Reader llega al modelo con su explicación
-    global.fetch = async () => Response.json({ message: 'Anonymous access to domain github.com blocked' }, { status: 403 });
-    const blocked = await pipeline.fetch('https://github.com/albalday/zerochat');
-    assert.equal(blocked.success, false);
-    assert.match(blocked.error, /Jina Reader answered HTTP 403: Anonymous access to domain github\.com blocked/);
-  } finally {
-    global.fetch = originalFetch;
-  }
+  // Un bloqueo de Jina Reader llega al modelo con su explicación
+  fetchMock.mock.mockImplementation(async () => Response.json({ message: 'Anonymous access to domain github.com blocked' }, { status: 403 }));
+  const blocked = await WebBrowser.fetchPage('https://github.com/albalday/zerochat');
+  assert.equal(blocked.success, false);
+  assert.match(blocked.error, /Jina Reader answered HTTP 403: Anonymous access to domain github\.com blocked/);
 });
 
-test('ChatWebBrowser.webFetch - backend si está conectado; sin backend, Jina Reader para leer y fetch directo para descargar', async () => {
-  const origIsProxyConnected = ChatMCP.manager.isProxyConnected;
-  const origFetchWebResource = ChatMCP.manager.fetchWebResource;
-  const origFetch = global.fetch;
+test('ChatWebBrowser.webFetch - backend si está conectado; sin backend, Jina Reader para leer y fetch directo para descargar', async t => {
+  // 1. Con backend, la petición va por él con las opciones de un solo nombre
+  const connected = t.mock.method(ChatMCP.manager, 'isProxyConnected', () => true);
+  const backend = t.mock.method(ChatMCP.manager, 'fetchWebResource', async () => (
+    { ok: true, status: 200, content_type: 'text/html; charset=utf-8', text: '<p>Contenido Backend</p>', byte_size: 24, truncated: true }
+  ));
+  const res = await WebBrowser.webFetch('https://example.com/test', { timeoutMs: 3000, maxBytes: 4096, accept: 'text/html' });
+  assert.deepEqual(backend.mock.calls[0].arguments, ['https://example.com/test', { accept: 'text/html', timeoutMs: 3000, maxBytes: 4096, binary: false }]);
+  assert.equal(res.ok, true);
+  assert.equal(res.headers.get('content-type'), 'text/html; charset=utf-8');
+  assert.equal(res.byteSize, 24);
+  assert.equal(res.truncated, true);
+  assert.equal(await res.text(), '<p>Contenido Backend</p>');
+  assert.equal(new TextDecoder().decode(await res.arrayBuffer()), '<p>Contenido Backend</p>');
 
-  try {
-    // 1. Con backend, la petición va por él con las opciones de un solo nombre
-    ChatMCP.manager.isProxyConnected = () => true;
-    let calledUrl = null;
-    let calledOptions = null;
-    ChatMCP.manager.fetchWebResource = async (url, options) => {
-      calledUrl = url;
-      calledOptions = options;
-      return { ok: true, status: 200, content_type: 'text/html; charset=utf-8', text: '<p>Contenido Backend</p>', byte_size: 24, truncated: true };
-    };
-    const res = await WebBrowser.webFetch('https://example.com/test', { timeoutMs: 3000, maxBytes: 4096, accept: 'text/html' });
-    assert.equal(calledUrl, 'https://example.com/test');
-    assert.deepEqual(calledOptions, { accept: 'text/html', timeoutMs: 3000, maxBytes: 4096, binary: false });
-    assert.equal(res.ok, true);
-    assert.equal(res.truncated, true);
-    assert.equal(await res.text(), '<p>Contenido Backend</p>');
-    assert.equal(new TextDecoder().decode(await res.arrayBuffer()), '<p>Contenido Backend</p>');
+  // 2. El cuerpo en base64 (tipo no textual) se lee como binario y como texto
+  backend.mock.mockImplementation(async () => ({ ok: true, status: 200, content_type: 'application/pdf', base64: Buffer.from('%PDF-1.7').toString('base64') }));
+  const binary = await WebBrowser.webFetch('https://example.com/pdf/1');
+  assert.equal(Buffer.from(await binary.arrayBuffer()).toString(), '%PDF-1.7');
+  assert.equal(await binary.text(), '%PDF-1.7');
 
-    // 2. El cuerpo en base64 (tipo no textual) se lee como binario y como texto
-    ChatMCP.manager.fetchWebResource = async () => ({ ok: true, status: 200, content_type: 'application/pdf', base64: Buffer.from('%PDF-1.7').toString('base64') });
-    const binary = await WebBrowser.webFetch('https://example.com/pdf/1');
-    assert.equal(Buffer.from(await binary.arrayBuffer()).toString(), '%PDF-1.7');
-    assert.equal(await binary.text(), '%PDF-1.7');
+  // 3. Si el backend falla, no hay fallback al navegador
+  backend.mock.mockImplementation(async () => ({ ok: false, status: 502, error: 'Bad Gateway' }));
+  const failRes = await WebBrowser.webFetch('https://example.com/test');
+  assert.deepEqual([failRes.ok, failRes.status, failRes.error], [false, 502, 'Bad Gateway']);
 
-    // 3. Si el backend falla, no hay fallback al navegador
-    ChatMCP.manager.fetchWebResource = async () => ({ ok: false, status: 502, error: 'Bad Gateway' });
-    const failRes = await WebBrowser.webFetch('https://example.com/test');
-    assert.equal(failRes.ok, false);
-    assert.equal(failRes.status, 502);
-    assert.equal(failRes.error, 'Bad Gateway');
+  // 4. Sin backend, leer va por Jina Reader, que devuelve el HTML de la página
+  connected.mock.mockImplementation(() => false);
+  const sent = [];
+  t.mock.method(global, 'fetch', async (url, init) => {
+    sent.push({ url: String(url), headers: init.headers });
+    return new Response('ok', { status: 200 });
+  });
+  const read = await WebBrowser.webFetch('https://example.com/test?a=1', { accept: 'application/json' });
+  assert.equal(await read.text(), 'ok');
 
-    // 4. Sin backend, leer va por Jina Reader, que devuelve el HTML de la página
-    ChatMCP.manager.isProxyConnected = () => false;
-    const sent = [];
-    global.fetch = async (url, init) => {
-      sent.push({ url: String(url), headers: init.headers });
-      return new Response('ok', { status: 200 });
-    };
-    const read = await WebBrowser.webFetch('https://example.com/test?a=1', { accept: 'application/json' });
-    assert.equal(await read.text(), 'ok');
-
-    // 5. Sin backend, descargar es una petición directa con solo Accept: otra cabecera forzaría un preflight CORS
-    const download = await WebBrowser.webFetch('https://example.com/file.pdf', { binary: true, accept: 'application/pdf' });
-    assert.equal(download.truncated, false);
-    assert.deepEqual(sent, [
-      { url: 'https://r.jina.ai/https://example.com/test?a=1', headers: { Accept: 'text/html', 'X-Return-Format': 'html' } },
-      { url: 'https://example.com/file.pdf', headers: { Accept: 'application/pdf' } }
-    ]);
-  } finally {
-    ChatMCP.manager.isProxyConnected = origIsProxyConnected;
-    ChatMCP.manager.fetchWebResource = origFetchWebResource;
-    global.fetch = origFetch;
-  }
+  // 5. Sin backend, descargar es una petición directa con solo Accept: otra cabecera forzaría un preflight CORS
+  const download = await WebBrowser.webFetch('https://example.com/file.pdf', { binary: true, accept: 'application/pdf' });
+  assert.equal(download.truncated, false);
+  assert.deepEqual(sent, [
+    { url: 'https://r.jina.ai/https://example.com/test?a=1', headers: { Accept: 'text/html', 'X-Return-Format': 'html' } },
+    { url: 'https://example.com/file.pdf', headers: { Accept: 'application/pdf' } }
+  ]);
 });
 
-test('BinaryFetcher - transporte binario vía backend con límites en el borde (N y N+1)', async () => {
-  const origIsProxyConnected = ChatMCP.manager.isProxyConnected;
-  const origFetchWebResource = ChatMCP.manager.fetchWebResource;
-
-  try {
-    ChatMCP.manager.isProxyConnected = () => true;
-
-    // Caso 1: N bytes exactos sin truncar: se pide al backend exactamente el límite
-    const maxBytes = 100;
-    const exactBytes = Buffer.alloc(maxBytes, 'A');
-    let requestedMaxBytes = null;
-    ChatMCP.manager.fetchWebResource = async (_url, options) => {
-      requestedMaxBytes = options.maxBytes;
-      return { ok: true, status: 200, content_type: 'application/pdf', base64: exactBytes.toString('base64'), truncated: false };
-    };
-
-    const resExact = await WebBrowser.fetchBinaryResource('https://example.com/test.pdf', { maxBytes, resourceKind: 'document' });
-    assert.equal(requestedMaxBytes, maxBytes);
-    assert.equal(resExact.success, true);
-    assert.equal(resExact.byteSize, maxBytes);
-
-    // Caso 2: N+1 bytes en origen: el backend corta en N y marca truncated
-    ChatMCP.manager.fetchWebResource = async () => ({
-      ok: true,
-      status: 200,
-      content_type: 'application/pdf',
-      base64: exactBytes.toString('base64'),
-      truncated: true
+test('fetchBinaryResource - límites en el borde (N y N+1), Content-Length, vacíos, plazo y errores, por el backend y directo', async t => {
+  const N = 128;
+  const bytes = length => new Uint8Array(length);
+  // Por el backend: se le pide el límite exacto y corta en N marcando truncated.
+  const viaBackend = reply => {
+    t.mock.method(ChatMCP.manager, 'isProxyConnected', () => true);
+    t.mock.method(ChatMCP.manager, 'fetchWebResource', async (_url, options) => {
+      assert.equal(options.maxBytes, N);
+      return { ok: true, status: 200, content_type: 'application/pdf', ...reply };
     });
-
-    const resOver = await WebBrowser.fetchBinaryResource('https://example.com/test.pdf', { maxBytes, resourceKind: 'document' });
-    assert.equal(resOver.success, false);
-    assert.ok(resOver.error.includes('exceeds the size limit'));
-
-    // Caso 3: Recurso vacío (0 bytes)
-    ChatMCP.manager.fetchWebResource = async () => ({
-      ok: true,
-      status: 200,
-      content_type: 'application/pdf',
-      base64: ''
-    });
-
-    const resEmpty = await WebBrowser.fetchBinaryResource('https://example.com/test.pdf', { maxBytes, resourceKind: 'document' });
-    assert.equal(resEmpty.success, false);
-    assert.ok(resEmpty.error.includes('is empty (0 bytes)'));
-  } finally {
-    ChatMCP.manager.isProxyConnected = origIsProxyConnected;
-    ChatMCP.manager.fetchWebResource = origFetchWebResource;
+  };
+  // Directo (sin backend): el navegador entrega el cuerpo entero y se mide después.
+  const direct = reply => {
+    t.mock.method(ChatMCP.manager, 'isProxyConnected', () => false);
+    t.mock.method(global, 'fetch', reply);
+  };
+  const ok = (length, headers = {}) => async () => new Response(bytes(length), { status: 200, headers: { 'content-type': 'image/png', ...headers } });
+  const rows = [
+    ['backend N', () => viaBackend({ base64: Buffer.from(bytes(N)).toString('base64') }), { success: true, byteSize: N }],
+    ['backend N+1 truncado', () => viaBackend({ base64: Buffer.from(bytes(N)).toString('base64'), truncated: true }), /Image exceeds the size limit of 128 B\./],
+    ['backend vacío', () => viaBackend({ base64: '' }), /The image is empty \(0 bytes\)/],
+    ['directo N', () => direct(ok(N)), { success: true, byteSize: N }],
+    ['directo N+1', () => direct(ok(N + 1)), /Image exceeds the size limit of 128 B\./],
+    ['directo Content-Length', () => direct(async () => ({ ok: true, status: 200, headers: new Headers({ 'content-length': String(N + 1) }), arrayBuffer: async () => assert.fail('No debe leer el cuerpo') })), /reported/],
+    ['directo vacío', () => direct(ok(0)), /The image is empty \(0 bytes\)/],
+    ['directo HTTP 404', () => direct(async () => new Response('', { status: 404, statusText: 'Not Found' })), /HTTP 404/],
+    ['directo plazo', () => direct(async () => { throw Object.assign(new Error('aborted'), { name: 'AbortError' }); }), /timed out after 3000ms/],
+    ['directo CORS', () => direct(async () => { throw new TypeError('NetworkError'); }), /could not be downloaded \(NetworkError\)\. Without the local ZeroChat server, only sites that allow CORS can be downloaded\./]
+  ];
+  for (const [name, arrange, expected] of rows) {
+    arrange();
+    const result = await WebBrowser.fetchBinaryResource('https://example.com/a.png', { maxBytes: N, timeoutMs: 3000, resourceKind: 'image' });
+    if (expected instanceof RegExp) {
+      assert.equal(result.success, false, name);
+      assert.match(result.error, expected, name);
+    } else {
+      assert.deepEqual({ success: result.success, byteSize: result.byteSize }, expected, name);
+      assert.ok(result.arrayBuffer instanceof ArrayBuffer, name);
+    }
+    t.mock.restoreAll();
   }
 });
 
@@ -226,255 +185,21 @@ test('ImageFetcher - detectVisionImageMimeType reconoce formatos de visión rast
   assert.equal(WebBrowser.detectVisionImageMimeType('', ''), '');
 });
 
-test('ImageFetcher - validación de URLs y protección anti-SSRF en fetchImage', async () => {
-  // URLs inválidas o protocolos no permitidos
-  const r1 = await WebBrowser.fetchImage('file:///etc/shadow');
-  assert.equal(r1.success, false);
-  assert.ok(r1.error.includes('Protocolo no permitido'));
+test('ImageFetcher - validación de tipos MIME y conversión base64 dataUrl', async t => {
+  const sampleBytes = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]); // PNG header bytes
+  const fetchMock = t.mock.method(global, 'fetch', async () => new Response(sampleBytes, { status: 200, headers: { 'content-type': 'image/png' } }));
+  const res = await WebBrowser.fetchImage('https://example.com/sample.png');
+  assert.equal(res.success, true);
+  assert.equal(res.mimeType, 'image/png');
+  assert.equal(res.byteSize, sampleBytes.byteLength);
+  assert.equal(res.dataUrl, 'data:image/png;base64,iVBORw0KGgo=');
 
-  const r2 = await WebBrowser.fetchImage('javascript:alert(1)');
-  assert.equal(r2.success, false);
-
-  // SSRF a metadatos cloud y loopback
-  const r3 = await WebBrowser.fetchImage('http://169.254.169.254/latest/meta-data/');
-  assert.equal(r3.success, false);
-  assert.ok(r3.error.includes('Acceso bloqueado') || r3.error.includes('SSRF'));
-
-  const r4 = await WebBrowser.fetchImage('http://127.0.0.1/private.png');
-  assert.equal(r4.success, false);
-  assert.ok(r4.error.includes('Acceso bloqueado') || r4.error.includes('SSRF'));
+  // Rechazo de formato no admitido (SVG)
+  fetchMock.mock.mockImplementation(async () => new Response('<svg></svg>', { status: 200, headers: { 'content-type': 'image/svg+xml' } }));
+  const resSvg = await WebBrowser.fetchImage('https://example.com/vector.svg');
+  assert.equal(resSvg.success, false);
+  assert.ok(resSvg.error.includes('Unsupported image format'));
 });
-
-test('ImageFetcher - límites de tamaño exactos en el borde (N y N+1) y rechazo de vacíos', async () => {
-  const originalFetch = global.fetch;
-  const boundaryLimit = 100; // N = 100 bytes
-
-  try {
-    // Caso 1: Borde exacto N (100 bytes) -> ACEPTADO
-    global.fetch = async () => ({
-      ok: true,
-      status: 200,
-      headers: new Headers({ 'content-type': 'image/png' }),
-      arrayBuffer: async () => new Uint8Array(boundaryLimit).buffer
-    });
-
-    const resN = await WebBrowser.fetchImage('https://example.com/border.png', { maxBytes: boundaryLimit });
-    assert.equal(resN.success, true);
-    assert.equal(resN.byteSize, boundaryLimit);
-    assert.equal(resN.mimeType, 'image/png');
-    assert.ok(resN.dataUrl.startsWith('data:image/png;base64,'));
-
-    // Caso 2: Borde exacto N + 1 (101 bytes) -> RECHAZADO por sobrepasar límite
-    global.fetch = async () => ({
-      ok: true,
-      status: 200,
-      headers: new Headers({ 'content-type': 'image/png' }),
-      arrayBuffer: async () => new Uint8Array(boundaryLimit + 1).buffer
-    });
-
-    const resNPlus1 = await WebBrowser.fetchImage('https://example.com/oversize.png', { maxBytes: boundaryLimit });
-    assert.equal(resNPlus1.success, false);
-    assert.ok(resNPlus1.error.includes('Image exceeds the size limit'));
-
-    // Caso 3: Imagen vacía (0 bytes) -> RECHAZADO
-    global.fetch = async () => ({
-      ok: true,
-      status: 200,
-      headers: new Headers({ 'content-type': 'image/png' }),
-      arrayBuffer: async () => new Uint8Array(0).buffer
-    });
-
-    const resEmpty = await WebBrowser.fetchImage('https://example.com/empty.png', { maxBytes: boundaryLimit });
-    assert.equal(resEmpty.success, false);
-    assert.ok(resEmpty.error.includes('empty (0 bytes)'));
-
-    // Caso 4: Cabecera Content-Length sobrepasa el límite N antes de descargar el buffer -> RECHAZADO
-    global.fetch = async () => ({
-      ok: true,
-      status: 200,
-      headers: new Headers({ 'content-type': 'image/png', 'content-length': String(boundaryLimit + 50) }),
-      arrayBuffer: async () => { throw new Error('No debe descargar el buffer si la cabecera ya excede'); }
-    });
-
-    const resHeaderOversize = await WebBrowser.fetchImage('https://example.com/header-huge.png', { maxBytes: boundaryLimit });
-    assert.equal(resHeaderOversize.success, false);
-    assert.ok(resHeaderOversize.error.includes('Image exceeds the size limit'));
-  } finally {
-    global.fetch = originalFetch;
-  }
-});
-
-test('ImageFetcher - validación de tipos MIME y conversión base64 dataUrl', async () => {
-  const originalFetch = global.fetch;
-
-  try {
-    const sampleBytes = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]); // PNG header bytes
-    global.fetch = async () => ({
-      ok: true,
-      status: 200,
-      headers: new Headers({ 'content-type': 'image/png' }),
-      arrayBuffer: async () => sampleBytes.buffer
-    });
-
-    const res = await WebBrowser.fetchImage('https://example.com/sample.png');
-    assert.equal(res.success, true);
-    assert.equal(res.mimeType, 'image/png');
-    assert.equal(res.byteSize, sampleBytes.byteLength);
-    assert.ok(res.dataUrl.startsWith('data:image/png;base64,'));
-    assert.ok(res.dataUrl.includes('iVBORw0KGgo=')); // Base64 del magic PNG
-
-    // Rechazo de formato no admitido (SVG)
-    global.fetch = async () => ({
-      ok: true,
-      status: 200,
-      headers: new Headers({ 'content-type': 'image/svg+xml' }),
-      arrayBuffer: async () => new TextEncoder().encode('<svg></svg>').buffer
-    });
-
-    const resSvg = await WebBrowser.fetchImage('https://example.com/vector.svg');
-    assert.equal(resSvg.success, false);
-    assert.ok(resSvg.error.includes('Unsupported image format'));
-
-    // Error HTTP 404
-    global.fetch = async () => ({
-      ok: false,
-      status: 404,
-      statusText: 'Not Found',
-      headers: new Headers()
-    });
-
-    const res404 = await WebBrowser.fetchImage('https://example.com/not-found.png');
-    assert.equal(res404.success, false);
-    assert.equal(res404.status, 404);
-    assert.ok(res404.error.includes('HTTP 404'));
-  } finally {
-    global.fetch = originalFetch;
-  }
-});
-
-test('BinaryFetcher - validación de URLs y protección anti-SSRF en fetchBinaryResource', async () => {
-  const r1 = await WebBrowser.fetchBinaryResource('file:///etc/shadow');
-  assert.equal(r1.success, false);
-  assert.ok(r1.error.includes('Protocolo no permitido'));
-
-  const r2 = await WebBrowser.fetchBinaryResource('javascript:alert(1)');
-  assert.equal(r2.success, false);
-
-  const r3 = await WebBrowser.fetchBinaryResource('http://169.254.169.254/latest/meta-data/');
-  assert.equal(r3.success, false);
-  assert.ok(r3.error.includes('Acceso bloqueado') || r3.error.includes('SSRF'));
-
-  const r4 = await WebBrowser.fetchBinaryResource('http://127.0.0.1/private.bin');
-  assert.equal(r4.success, false);
-  assert.ok(r4.error.includes('Acceso bloqueado') || r4.error.includes('SSRF'));
-});
-
-test('BinaryFetcher - límites de tamaño exactos en el borde (N y N+1), Content-Length y vacíos', async () => {
-  const originalFetch = global.fetch;
-  const boundaryLimit = 128; // N = 128 bytes
-
-  try {
-    // Caso 1: Borde exacto N (128 bytes) -> ACEPTADO
-    global.fetch = async () => ({
-      ok: true,
-      status: 200,
-      headers: new Headers({ 'content-type': 'application/pdf' }),
-      arrayBuffer: async () => new Uint8Array(boundaryLimit).buffer
-    });
-
-    const resN = await WebBrowser.fetchBinaryResource('https://example.com/doc.pdf', { maxBytes: boundaryLimit });
-    assert.equal(resN.success, true);
-    assert.equal(resN.byteSize, boundaryLimit);
-    assert.equal(resN.status, 200);
-    assert.equal(resN.contentType, 'application/pdf');
-    assert.equal(resN.fileName, 'doc.pdf');
-    assert.ok(resN.arrayBuffer instanceof ArrayBuffer);
-
-    // Caso 2: Borde exacto N + 1 (129 bytes) -> RECHAZADO
-    global.fetch = async () => ({
-      ok: true,
-      status: 200,
-      headers: new Headers({ 'content-type': 'application/pdf' }),
-      arrayBuffer: async () => new Uint8Array(boundaryLimit + 1).buffer
-    });
-
-    const resNPlus1 = await WebBrowser.fetchBinaryResource('https://example.com/huge.pdf', { maxBytes: boundaryLimit });
-    assert.equal(resNPlus1.success, false);
-    assert.ok(resNPlus1.error.includes('exceeds the size limit'));
-
-    // Caso 3: Recurso vacío (0 bytes) -> RECHAZADO
-    global.fetch = async () => ({
-      ok: true,
-      status: 200,
-      headers: new Headers({ 'content-type': 'application/pdf' }),
-      arrayBuffer: async () => new Uint8Array(0).buffer
-    });
-
-    const resEmpty = await WebBrowser.fetchBinaryResource('https://example.com/empty.pdf', { maxBytes: boundaryLimit });
-    assert.equal(resEmpty.success, false);
-    assert.ok(resEmpty.error.includes('empty (0 bytes)'));
-
-    // Caso 4: Content-Length sobrepasa el límite N antes de descargar el buffer -> RECHAZADO
-    global.fetch = async () => ({
-      ok: true,
-      status: 200,
-      headers: new Headers({ 'content-type': 'application/pdf', 'content-length': String(boundaryLimit + 200) }),
-      arrayBuffer: async () => { throw new Error('No debe descargar buffer si Content-Length excede'); }
-    });
-
-    const resHeaderOversize = await WebBrowser.fetchBinaryResource('https://example.com/oversized-header.pdf', { maxBytes: boundaryLimit });
-    assert.equal(resHeaderOversize.success, false);
-    assert.ok(resHeaderOversize.error.includes('exceeds the size limit'));
-  } finally {
-    global.fetch = originalFetch;
-  }
-});
-
-test('BinaryFetcher - terminación inmediata ante error de red o bloqueo CORS y ante timeout', async () => {
-  const originalFetch = global.fetch;
-
-  try {
-    // Caso 1: Error de red / CORS directo -> termina de inmediato (<100ms)
-    global.fetch = async () => {
-      throw new TypeError('NetworkError when attempting to fetch resource');
-    };
-
-    const t0 = Date.now();
-    const resCors = await WebBrowser.fetchBinaryResource('https://blocked.example.com/image.jpg');
-    const elapsed = Date.now() - t0;
-
-    assert.equal(resCors.success, false);
-    assert.ok(resCors.error.includes('could not be downloaded') || resCors.error.includes('CORS'));
-    assert.ok(elapsed < 1000, `Debe terminar de inmediato ante error de red o CORS, tardó ${elapsed}ms`);
-
-    // Caso 2: Timeout por AbortError
-    global.fetch = async () => {
-      const err = new Error('The operation was aborted.');
-      err.name = 'AbortError';
-      throw err;
-    };
-
-    const resTimeout = await WebBrowser.fetchBinaryResource('https://slow.example.com/file.bin', { timeoutMs: 3000 });
-    assert.equal(resTimeout.success, false);
-    assert.ok(resTimeout.error.includes('timed out after 3000ms'));
-
-    // Caso 3: Error HTTP 404 y 500 terminan de inmediato
-    global.fetch = async () => ({
-      ok: false,
-      status: 404,
-      statusText: 'Not Found',
-      headers: new Headers()
-    });
-
-    const res404 = await WebBrowser.fetchBinaryResource('https://example.com/missing.bin');
-    assert.equal(res404.success, false);
-    assert.equal(res404.status, 404);
-    assert.ok(res404.error.includes('HTTP 404'));
-  } finally {
-    global.fetch = originalFetch;
-  }
-});
-
 
 test('ChatWebBrowser.webFetch - valida la URL antes de cualquier petición, sea quien sea quien llama', async t => {
   const requested = [];

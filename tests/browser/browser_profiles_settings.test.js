@@ -476,14 +476,14 @@ async function closeProfileEditor(page, { discard = false } = {}) {
   await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
 }
 
-test('Browser UI - el capítulo Navegador del perfil exige Playwright MCP con un navegador instalado y lo reinicia si usa otro', async () => {
+test('Browser UI - el capítulo Navegador del perfil exige Playwright MCP con un navegador instalado y lo reinicia si usa otro sin cambiar si queda recordado', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await openProfilesPage(browser, [{ id: 'profile:web', name: 'Web', settings: { apiType: 'openai', model: 'test', apiKey: 'sk-test' } }]);
     // Playwright MCP en marcha con el Chromium propio; instalados Chromium y WebKit, en el sistema Edge y Chromium.
     await page.evaluate(() => {
       window.ChatState.set('mcp', { status: 'connected', externalServers: [
-        { id: 'playwright', displayName: { es: 'Playwright MCP' }, status: 'running', browser: { mode: 'own', engine: 'chromium' } }
+        { id: 'playwright', displayName: { es: 'Playwright MCP' }, status: 'running', enabled: true, browser: { mode: 'own', engine: 'chromium' } }
       ] });
       window.__actions = [];
       const setStatus = status => window.ChatState.set('mcp', state => ({ ...state, externalServers: state.externalServers.map(server => ({ ...server, status })) }));
@@ -508,9 +508,10 @@ test('Browser UI - el capítulo Navegador del perfil exige Playwright MCP con un
     await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
     const required = { mode: 'user', userBrowser: 'chromium' };
     assert.deepEqual(await page.evaluate(() => window.ChatProfileRepository.get('profile:web').settings.playwrightBrowser), required);
-    // Al activarse, Playwright MCP en marcha con otro navegador se reinicia con el del perfil.
+    // Al activarse, Playwright MCP en marcha con otro navegador se reinicia con el del perfil y sigue
+    // recordado para la siguiente sesión, como estaba (detenerlo lo desmarca).
     await page.waitForFunction(() => document.getElementById('notice-dialog').open);
-    assert.deepEqual(await page.evaluate(() => window.__actions), [{ stop: 'playwright' }, { start: 'playwright', remember: false, browser: required }]);
+    assert.deepEqual(await page.evaluate(() => window.__actions), [{ stop: 'playwright' }, { start: 'playwright', remember: true, browser: required }]);
     await page.click('#notice-accept');
 
     // Ajustes › Navegador avisa de que el perfil activo manda sobre su herramienta.

@@ -123,6 +123,30 @@ describe('Browser UI - Sandbox Security & Iframe Isolation', () => {
     });
     assert.equal(lingeringIframes, 0, 'No deben quedar iframes residuales tras el timeout');
   });
+
+  test('Vista previa HTML/SVG - el documento corre con origen opaco y no lee cookies ni almacenamiento de ZeroChat', async () => {
+    const isolation = await page.evaluate(async () => {
+      document.cookie = 'zerochat_preview_probe=1;Path=/';
+      localStorage.setItem('zerochat_preview_probe', '1');
+      let viewerUrl = null;
+      const open = window.open;
+      window.open = url => { viewerUrl = url; return null; };
+      window.ChatUtils.openDocumentInNewTab(`<script>
+        const read = get => { try { return String(get()); } catch (_) { return 'blocked'; } };
+        top.postMessage({ origin, cookie: read(() => document.cookie), storage: read(() => localStorage.length) }, '*');
+      <\/script>`);
+      window.open = open;
+      const report = new Promise(resolve => window.addEventListener('message', event => resolve(event.data), { once: true }));
+      const frame = document.createElement('iframe');
+      frame.src = viewerUrl;
+      document.body.appendChild(frame);
+      const data = await report;
+      frame.remove();
+      return data;
+    });
+    assert.deepEqual(isolation, { origin: 'null', cookie: 'blocked', storage: 'blocked' });
+  });
+
   /** Ejecuta código en el sandbox real de la página. */
   const run = (code, timeoutMs) => page.evaluate(({ code, timeoutMs }) => window.ChatSandbox.execute(code, timeoutMs), { code, timeoutMs });
 

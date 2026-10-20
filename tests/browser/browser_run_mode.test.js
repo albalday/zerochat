@@ -1,4 +1,4 @@
-const { describe, test, after } = require('node:test');
+const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { createTestBrowser, closeGlobalBrowser, startStaticServer, stopStaticServer, seedConnectionProfiles } = require('../helpers/browser-env.js');
 
@@ -87,191 +87,172 @@ const progressOf = backend => backend.calls.filter(call => call.method === 'zero
 const approvalsOf = backend => progressOf(backend).filter(event => event.kind.startsWith('approval_')).map(event => `${event.kind}:${event.text}`).sort();
 
 describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
+  // Un servidor y un navegador para todo el bloque: cada página abre su propio contexto aislado.
+  let server;
+  let browser;
+
+  before(async () => {
+    server = await startStaticServer();
+    browser = await createTestBrowser();
+  });
+
   after(async () => {
+    await browser?.close();
+    if (server) await stopStaticServer(server);
     await closeGlobalBrowser();
   });
 
   test('Browser UI - el modo ejecución envía el prompt en una conversación nueva, informa del progreso, aprueba para la sesión salvo las herramientas peligrosas y devuelve la respuesta final', async () => {
-    const server = await startStaticServer();
-    const browser = await createTestBrowser();
-    try {
-      const { page, backend } = await openRun(browser, server, 'Resume el proyecto');
-      assert.equal(page.url().includes('run-token') || page.url().includes(RUN_ID), false, 'el fragmento se limpia');
-      await page.evaluate(() => {
-        window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
-        let calls = 0;
-        window.ChatAPI.streamChatCompletion = async params => {
-          calls += 1;
-          if (calls === 1) {
-            params.onChunk?.('Voy a usar herramientas', 'Voy a usar herramientas', null);
-            return { accumulatedText: '', toolCalls: [
-              { id: 'call_1', type: 'function', function: { name: 'demo_action', arguments: '{}' } },
-              { id: 'call_2', type: 'function', function: { name: 'write_file', arguments: '{"path":"a.txt","content":"x"}' } }
-            ], stats: null };
-          }
-          return { accumulatedText: 'Respuesta final', toolCalls: null, stats: null };
-        };
-      });
-      backend.release();
-      await page.waitForFunction(() => window.__closed === true);
+    const { page, backend } = await openRun(browser, server, 'Resume el proyecto');
+    assert.equal(page.url().includes('run-token') || page.url().includes(RUN_ID), false, 'el fragmento se limpia');
+    await page.evaluate(() => {
+      window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
+      let calls = 0;
+      window.ChatAPI.streamChatCompletion = async params => {
+        calls += 1;
+        if (calls === 1) {
+          params.onChunk?.('Voy a usar herramientas', 'Voy a usar herramientas', null);
+          return { accumulatedText: '', toolCalls: [
+            { id: 'call_1', type: 'function', function: { name: 'demo_action', arguments: '{}' } },
+            { id: 'call_2', type: 'function', function: { name: 'write_file', arguments: '{"path":"a.txt","content":"x"}' } }
+          ], stats: null };
+        }
+        return { accumulatedText: 'Respuesta final', toolCalls: null, stats: null };
+      };
+    });
+    backend.release();
+    await page.waitForFunction(() => window.__closed === true);
 
-      assert.deepEqual(resultOf(backend), { run_id: RUN_ID, text: 'Respuesta final' });
-      assert.ok(backend.calls.every(call => call.params.run_id === RUN_ID));
-      const kinds = progressOf(backend).map(event => event.kind);
-      for (const kind of ['step', 'stream', 'tool']) assert.ok(kinds.includes(kind), `progreso ${kind}: ${kinds}`);
-      assert.deepEqual(approvalsOf(backend), ['approval_allowed:demo_action', 'approval_denied:write_file']);
-      const messages = await page.evaluate(() => window.ChatState.get('messages').map(message => ({ role: message.role, content: message.content })));
-      assert.deepEqual(messages.filter(message => message.role === 'user').map(message => message.content), ['Resume el proyecto']);
-      assert.equal(messages.at(-1).content, 'Respuesta final');
-      assert.equal(await page.evaluate(() => (window.ChatState.get('ui').notices || []).length), 0);
-      assert.equal(await page.evaluate(() => window.ChatStorage.getBackendSession()), null, 'la conexión de la ejecución no se guarda en la cookie de las demás pestañas');
-    } finally {
-      await browser.close();
-      await stopStaticServer(server);
-    }
+    assert.deepEqual(resultOf(backend), { run_id: RUN_ID, text: 'Respuesta final' });
+    assert.ok(backend.calls.every(call => call.params.run_id === RUN_ID));
+    const kinds = progressOf(backend).map(event => event.kind);
+    for (const kind of ['step', 'stream', 'tool']) assert.ok(kinds.includes(kind), `progreso ${kind}: ${kinds}`);
+    assert.deepEqual(approvalsOf(backend), ['approval_allowed:demo_action', 'approval_denied:write_file']);
+    // El responder contesta sin clic: las tarjetas no quedan esperando autorización.
+    assert.deepEqual(await page.evaluate(() => ({
+      cards: document.querySelectorAll('#messages-list .tool-execution-card').length,
+      waiting: document.querySelectorAll('#messages-list .tool-card-auth-prompt, #messages-list .tool-card-auth-active, #messages-list .status-pending-auth').length
+    })), { cards: 2, waiting: 0 });
+    const messages = await page.evaluate(() => window.ChatState.get('messages').map(message => ({ role: message.role, content: message.content })));
+    assert.deepEqual(messages.filter(message => message.role === 'user').map(message => message.content), ['Resume el proyecto']);
+    assert.equal(messages.at(-1).content, 'Respuesta final');
+    assert.equal(await page.evaluate(() => (window.ChatState.get('ui').notices || []).length), 0);
+    assert.equal(await page.evaluate(() => window.ChatStorage.getBackendSession()), null, 'la conexión de la ejecución no se guarda en la cookie de las demás pestañas');
   });
 
   test('Browser UI - el modo ejecución usa el perfil pedido solo en esa página, rechaza uno inexistente y aprueba las herramientas peligrosas si se permiten', async () => {
-    const server = await startStaticServer();
-    const browser = await createTestBrowser();
-    try {
-      const { page, backend } = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, allowDangerous: true });
-      const storedBefore = await page.evaluate(() => window.ChatStorage.loadRuntimeConfigV2()?.activeProfile?.id);
-      await page.evaluate(() => {
-        window.ChatAPI.streamChatCompletion = async params => {
-          window.__model = params.model;
-          if (!params.messages.some(message => message.role === 'tool')) return { accumulatedText: '', toolCalls: [{ id: 'call_1', type: 'function', function: { name: 'run_command', arguments: '{"command":"ls"}' } }], stats: null };
-          return { accumulatedText: 'ok', toolCalls: null, stats: null };
-        };
-      });
-      backend.release();
-      await page.waitForFunction(() => window.__closed === true);
-      assert.deepEqual(resultOf(backend), { run_id: RUN_ID, text: 'ok' });
-      assert.equal(await page.evaluate(() => window.__model), 'google/gemma-4-26b-a4b-qat');
-      assert.deepEqual(approvalsOf(backend), ['approval_allowed:run_command']);
-      assert.equal(await page.evaluate(() => window.ChatConfig.getActive().activeProfile.id), 'profile:local');
-      assert.notEqual(storedBefore, 'profile:local');
-      assert.equal(await page.evaluate(() => window.ChatStorage.loadRuntimeConfigV2()?.activeProfile?.id), storedBefore, 'el perfil activo guardado no cambia');
+    const { page, backend } = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, allowDangerous: true });
+    const storedBefore = await page.evaluate(() => window.ChatStorage.loadRuntimeConfigV2()?.activeProfile?.id);
+    await page.evaluate(() => {
+      window.ChatAPI.streamChatCompletion = async params => {
+        window.__model = params.model;
+        if (!params.messages.some(message => message.role === 'tool')) return { accumulatedText: '', toolCalls: [{ id: 'call_1', type: 'function', function: { name: 'run_command', arguments: '{"command":"ls"}' } }], stats: null };
+        return { accumulatedText: 'ok', toolCalls: null, stats: null };
+      };
+    });
+    backend.release();
+    await page.waitForFunction(() => window.__closed === true);
+    assert.deepEqual(resultOf(backend), { run_id: RUN_ID, text: 'ok' });
+    assert.equal(await page.evaluate(() => window.__model), 'google/gemma-4-26b-a4b-qat');
+    assert.deepEqual(approvalsOf(backend), ['approval_allowed:run_command']);
+    assert.equal(await page.evaluate(() => window.ChatConfig.getActive().activeProfile.id), 'profile:local');
+    assert.notEqual(storedBefore, 'profile:local');
+    assert.equal(await page.evaluate(() => window.ChatStorage.loadRuntimeConfigV2()?.activeProfile?.id), storedBefore, 'el perfil activo guardado no cambia');
 
-      const missing = await openRun(browser, server, 'Hola', { profile: 'No existe', seedProfiles: true });
-      missing.backend.release();
-      await missing.page.waitForFunction(() => window.__closed === true);
-      assert.deepEqual(resultOf(missing.backend), { run_id: RUN_ID, error: 'Profile not found: No existe' });
-    } finally {
-      await browser.close();
-      await stopStaticServer(server);
-    }
+    const missing = await openRun(browser, server, 'Hola', { profile: 'No existe', seedProfiles: true });
+    missing.backend.release();
+    await missing.page.waitForFunction(() => window.__closed === true);
+    assert.deepEqual(resultOf(missing.backend), { run_id: RUN_ID, error: 'Profile not found: No existe' });
   });
 
   test('Browser UI - el modo ejecución arranca solo los servicios MCP del perfil y Playwright MCP si es la herramienta de navegación o el perfil lo exige, y falla si alguno no está configurado', async () => {
-    const server = await startStaticServer();
-    const browser = await createTestBrowser();
     const externalServers = () => ['memory', 'github', 'playwright'].map(id => ({ id, displayName: { es: id, en: id }, status: 'stopped', enabled: false }));
-    try {
-      const run = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileSettings: { mcpServers: ['memory'] }, browserTool: 'playwright', externalServers: externalServers() });
-      await run.page.evaluate(() => {
-        window.ChatAPI.streamChatCompletion = async () => ({ accumulatedText: 'ok', toolCalls: null, stats: null });
-      });
-      run.backend.release();
-      await run.page.waitForFunction(() => window.__closed === true);
-      assert.deepEqual(resultOf(run.backend), { run_id: RUN_ID, text: 'ok' });
-      assert.deepEqual(run.backend.started, [{ id: 'memory', remember: false }, { id: 'playwright', remember: false }], 'solo arranca los servicios del perfil y Playwright MCP, sin guardarlos como activos');
+    const run = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileSettings: { mcpServers: ['memory'] }, browserTool: 'playwright', externalServers: externalServers() });
+    await run.page.evaluate(() => {
+      window.ChatAPI.streamChatCompletion = async () => ({ accumulatedText: 'ok', toolCalls: null, stats: null });
+    });
+    run.backend.release();
+    await run.page.waitForFunction(() => window.__closed === true);
+    assert.deepEqual(resultOf(run.backend), { run_id: RUN_ID, text: 'ok' });
+    assert.deepEqual(run.backend.started, [{ id: 'memory', remember: false }, { id: 'playwright', remember: false }], 'solo arranca los servicios del perfil y Playwright MCP, sin guardarlos como activos');
 
-      // Un perfil que exige Playwright MCP lo arranca con su navegador aunque Ajustes no lo elija.
-      const required = { mode: 'own', engine: 'firefox' };
-      const forced = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileSettings: { playwrightBrowser: required }, externalServers: externalServers() });
-      await forced.page.evaluate(() => {
-        window.ChatAPI.streamChatCompletion = async () => ({ accumulatedText: 'ok', toolCalls: null, stats: null });
-      });
-      forced.backend.release();
-      await forced.page.waitForFunction(() => window.__closed === true);
-      assert.deepEqual(forced.backend.started, [{ id: 'playwright', remember: false, browser: required }]);
+    // Un perfil que exige Playwright MCP lo arranca con su navegador aunque Ajustes no lo elija.
+    const required = { mode: 'own', engine: 'firefox' };
+    const forced = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileSettings: { playwrightBrowser: required }, externalServers: externalServers() });
+    await forced.page.evaluate(() => {
+      window.ChatAPI.streamChatCompletion = async () => ({ accumulatedText: 'ok', toolCalls: null, stats: null });
+    });
+    forced.backend.release();
+    await forced.page.waitForFunction(() => window.__closed === true);
+    assert.deepEqual(forced.backend.started, [{ id: 'playwright', remember: false, browser: required }]);
 
-      const missing = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileSettings: { mcpServers: ['memory', 'ghost'] }, externalServers: externalServers() });
-      missing.backend.release();
-      await missing.page.waitForFunction(() => window.__closed === true);
-      assert.deepEqual(resultOf(missing.backend), { run_id: RUN_ID, error: 'MCP servers of the profile are not available: ghost' });
-    } finally {
-      await browser.close();
-      await stopStaticServer(server);
-    }
+    const missing = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileSettings: { mcpServers: ['memory', 'ghost'] }, externalServers: externalServers() });
+    missing.backend.release();
+    await missing.page.waitForFunction(() => window.__closed === true);
+    assert.deepEqual(resultOf(missing.backend), { run_id: RUN_ID, error: 'MCP servers of the profile are not available: ghost' });
   });
 
   test('Browser UI - el modo ejecución exporta la conversación en HTML como se ve en el chat, devuelve el error de generación y deja la página abierta con keep_page', async () => {
-    const server = await startStaticServer();
-    const browser = await createTestBrowser();
-    try {
-      const { page, backend } = await openRun(browser, server, 'Hola', { exportFormat: 'html', keepPage: true });
-      await page.evaluate(() => {
-        window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
-        window.ChatAPI.streamChatCompletion = async () => { throw new Error('Provider unavailable'); };
-      });
-      backend.release();
-      await backend.resultReceived;
-      assert.deepEqual(resultOf(backend), { run_id: RUN_ID, error: 'Provider unavailable' });
-      const exportCall = backend.calls.find(call => call.method === 'zerochat/run/export');
-      assert.ok(backend.calls.indexOf(exportCall) < backend.calls.findIndex(call => call.method === 'zerochat/run/result'), 'la exportación llega antes del resultado');
-      assert.equal(await page.evaluate(() => window.__closed === true), false, 'keep_page no cierra la página');
+    const { page, backend } = await openRun(browser, server, 'Hola', { exportFormat: 'html', keepPage: true });
+    await page.evaluate(() => {
+      window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
+      window.ChatAPI.streamChatCompletion = async () => { throw new Error('Provider unavailable'); };
+    });
+    backend.release();
+    await backend.resultReceived;
+    assert.deepEqual(resultOf(backend), { run_id: RUN_ID, error: 'Provider unavailable' });
+    const exportCall = backend.calls.find(call => call.method === 'zerochat/run/export');
+    assert.ok(backend.calls.indexOf(exportCall) < backend.calls.findIndex(call => call.method === 'zerochat/run/result'), 'la exportación llega antes del resultado');
+    assert.equal(await page.evaluate(() => window.__closed === true), false, 'keep_page no cierra la página');
 
-      // El HTML exportado se abre solo, sin scripts, con el aspecto del chat y desplazamiento normal.
-      const html = exportCall.params.content;
-      assert.doesNotMatch(html, /<script/i);
-      const expected = await page.evaluate(() => {
-        const bubble = document.querySelector('.message-row.user .message-content');
-        return { theme: document.documentElement.dataset.theme, background: getComputedStyle(bubble).backgroundColor };
-      });
-      const exported = await browser.newPage();
-      await exported.setContent(html);
-      const view = await exported.evaluate(() => {
-        const bubble = document.querySelector('.message-row.user .message-content');
-        const icon = document.querySelector('.messages-list use');
-        return {
-          theme: document.documentElement.dataset.theme,
-          user: bubble.textContent.trim(),
-          background: getComputedStyle(bubble).backgroundColor,
-          overflow: getComputedStyle(document.body).overflowY,
-          actions: document.querySelectorAll('.message-actions').length,
-          iconResolved: !icon || Boolean(document.getElementById(icon.getAttribute('href').slice(1)))
-        };
-      });
-      assert.deepEqual(view, { theme: expected.theme, user: 'Hola', background: expected.background, overflow: 'visible', actions: 0, iconResolved: true });
-    } finally {
-      await browser.close();
-      await stopStaticServer(server);
-    }
+    // El HTML exportado se abre solo, sin scripts, con el aspecto del chat y desplazamiento normal.
+    const html = exportCall.params.content;
+    assert.doesNotMatch(html, /<script/i);
+    const expected = await page.evaluate(() => {
+      const bubble = document.querySelector('.message-row.user .message-content');
+      return { theme: document.documentElement.dataset.theme, background: getComputedStyle(bubble).backgroundColor };
+    });
+    const exported = await browser.newPage();
+    await exported.setContent(html);
+    const view = await exported.evaluate(() => {
+      const bubble = document.querySelector('.message-row.user .message-content');
+      const icon = document.querySelector('.messages-list use');
+      return {
+        theme: document.documentElement.dataset.theme,
+        user: bubble.textContent.trim(),
+        background: getComputedStyle(bubble).backgroundColor,
+        overflow: getComputedStyle(document.body).overflowY,
+        actions: document.querySelectorAll('.message-actions').length,
+        iconResolved: !icon || Boolean(document.getElementById(icon.getAttribute('href').slice(1)))
+      };
+    });
+    assert.deepEqual(view, { theme: expected.theme, user: 'Hola', background: expected.background, overflow: 'visible', actions: 0, iconResolved: true });
   });
 
   test('Browser UI - el modo ejecución termina con error cuando un diálogo o ask_user preguntan al usuario', async () => {
-    const server = await startStaticServer();
-    const browser = await createTestBrowser();
-    try {
-      const dialog = await openRun(browser, server, 'Hola');
-      await dialog.page.evaluate(() => {
-        window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
-        window.ChatAPI.streamChatCompletion = async () => {
-          await window.ChatDialogs.confirm('¿Continuar?', { title: 'Confirmar' });
-          return { accumulatedText: 'no debe llegar', toolCalls: null, stats: null };
-        };
-      });
-      dialog.backend.release();
-      await dialog.page.waitForFunction(() => window.__closed === true);
-      assert.deepEqual(resultOf(dialog.backend), { run_id: RUN_ID, error: 'The run needs the user: Confirmar: ¿Continuar?' });
+    const dialog = await openRun(browser, server, 'Hola');
+    await dialog.page.evaluate(() => {
+      window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
+      window.ChatAPI.streamChatCompletion = async () => {
+        await window.ChatDialogs.confirm('¿Continuar?', { title: 'Confirmar' });
+        return { accumulatedText: 'no debe llegar', toolCalls: null, stats: null };
+      };
+    });
+    dialog.backend.release();
+    await dialog.page.waitForFunction(() => window.__closed === true);
+    assert.deepEqual(resultOf(dialog.backend), { run_id: RUN_ID, error: 'The run needs the user: Confirmar: ¿Continuar?' });
 
-      const ask = await openRun(browser, server, 'Hola');
-      await ask.page.evaluate(() => {
-        window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
-        window.ChatAPI.streamChatCompletion = async () => ({
-          accumulatedText: '',
-          toolCalls: [{ id: 'call_1', type: 'function', function: { name: 'ask_user', arguments: '{"question":"¿A o B?","options":["A","B"]}' } }],
-          stats: null
-        });
+    const ask = await openRun(browser, server, 'Hola');
+    await ask.page.evaluate(() => {
+      window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
+      window.ChatAPI.streamChatCompletion = async () => ({
+        accumulatedText: '',
+        toolCalls: [{ id: 'call_1', type: 'function', function: { name: 'ask_user', arguments: '{"question":"¿A o B?","options":["A","B"]}' } }],
+        stats: null
       });
-      ask.backend.release();
-      await ask.page.waitForFunction(() => window.__closed === true);
-      assert.deepEqual(resultOf(ask.backend), { run_id: RUN_ID, error: 'The run needs the user: ¿A o B?' });
-    } finally {
-      await browser.close();
-      await stopStaticServer(server);
-    }
+    });
+    ask.backend.release();
+    await ask.page.waitForFunction(() => window.__closed === true);
+    assert.deepEqual(resultOf(ask.backend), { run_id: RUN_ID, error: 'The run needs the user: ¿A o B?' });
   });
 });

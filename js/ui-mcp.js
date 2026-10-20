@@ -343,6 +343,25 @@
   }
 
   /**
+   * Ejecuta `action` con el servicio detenido y lo vuelve a arrancar si estaba en marcha, sin cambiar
+   * si queda recordado para la siguiente sesión (detenerlo lo desmarca). Devuelve false si no se pudo
+   * detener o volver a arrancar.
+   */
+  async function withExternalServerStopped(serverId, action = async () => {}) {
+    const server = getState().get('mcp').externalServers.find(item => item.id === serverId);
+    const wasRunning = server?.status === 'running';
+    const remember = server?.enabled === true;
+    if (wasRunning && !await runExternalServerAction(serverId, 'stop')) return false;
+    let restarted = true;
+    try {
+      await action();
+    } finally {
+      if (wasRunning) restarted = await runExternalServerAction(serverId, 'start', { remember });
+    }
+    return restarted;
+  }
+
+  /**
    * Arranca los servicios externos de un perfil (los suyos y Playwright MCP si es la herramienta de
    * navegación activa) que no estén ya en marcha, sin parar los demás ni guardarlos como activos para
    * la siguiente sesión. Si el perfil exige otro navegador del que usa Playwright MCP, lo reinicia.
@@ -366,11 +385,10 @@
         continue;
       }
       if (otherBrowser(server)) {
-        if (!await runExternalServerAction(id, 'stop')) {
-          unavailable.push(getServiceName(server, language));
-          continue;
-        }
-      } else if (['running', 'starting', 'installing'].includes(server.status)) continue;
+        (await withExternalServerStopped(id) ? started : unavailable).push(getServiceName(server, language));
+        continue;
+      }
+      if (['running', 'starting', 'installing'].includes(server.status)) continue;
       const ok = await runExternalServerAction(id, 'start', { remember: false });
       (ok ? started : unavailable).push(getServiceName(server, language));
     }
@@ -592,6 +610,7 @@
     getServiceName,
     startProfileServers,
     runExternalServerAction,
+    withExternalServerStopped,
     renderConnectionStatus,
     renderToolsList,
     renderExternalServers,

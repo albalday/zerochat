@@ -12,30 +12,9 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
     await closeGlobalBrowser();
   });
 
-  test('Browser UI - render_chart dibuja el gráfico en la tarjeta en vivo y en el historial con el título escapado', async () => {
+  test('Browser UI - render_chart dibuja el gráfico en vivo y en el historial, y los argumentos del modelo no crean nodos ni atributos', async () => {
     await withTestApp(async page => {
       const result = await page.evaluate(async () => {
-        const cards = window.ChatToolCards;
-        const tool = window.ChatAgentCore.registry.getTool('render_chart');
-        const args = { type: 'bar', title: '<img src=x onerror=alert(1)>', labels: ['Enero'], datasets: [{ label: '2026', data: [10] }] };
-        const outcome = await tool.execute(args, {});
-        const card = cards.createLiveToolCard('render_chart', args);
-        cards.updateLiveToolCard(card, 'render_chart', args, outcome, 2);
-        const history = cards.renderHistoricalToolCard({ function: { name: 'render_chart', arguments: JSON.stringify(args) } }, { content: tool.toModel(args, outcome) });
-        return {
-          svg: Boolean(card.querySelector('.chat-chart-card svg')),
-          img: Boolean(card.querySelector('img')),
-          collapsed: card.querySelector('.chat-chart-card').classList.contains('collapsed'),
-          historySvg: Boolean(history.querySelector('.chat-chart-card svg'))
-        };
-      });
-      assert.deepEqual(result, { svg: true, img: false, collapsed: false, historySvg: true });
-    });
-  });
-
-  test('Browser UI - los argumentos del modelo no crean nodos ni atributos al pintar un gráfico', async () => {
-    await withTestApp(async page => {
-      const result = await page.evaluate(() => {
         const payload = '"/><img src=x onerror="window.__chartXss=1">';
         const render = spec => {
           const host = document.createElement('div');
@@ -53,9 +32,19 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
         }
         const colors = render({ type: 'bar', labels: ['A'], datasets: [{ label: 'a', data: [1], color: '#ff0000' }, { label: 'b', data: [2], color: payload }] });
         const fills = [...colors.querySelectorAll('rect[fill]')].map(rect => rect.getAttribute('fill'));
-        return { byType, validColor: fills.includes('#ff0000'), unsafeColor: fills.some(fill => fill.includes('<') || fill.includes('"')), xss: Boolean(window.__chartXss) };
+        // La tarjeta en vivo y la del historial dibujan el gráfico desplegado con el título escapado.
+        const cards = window.ChatToolCards;
+        const tool = window.ChatAgentCore.registry.getTool('render_chart');
+        const args = { type: 'bar', title: payload, labels: ['Enero'], datasets: [{ label: '2026', data: [10] }] };
+        const outcome = await tool.execute(args, {});
+        const live = cards.createLiveToolCard('render_chart', args);
+        cards.updateLiveToolCard(live, 'render_chart', args, outcome, 2);
+        const history = cards.renderHistoricalToolCard({ function: { name: 'render_chart', arguments: JSON.stringify(args) } }, { content: tool.toModel(args, outcome) });
+        const card = [live, history].map(element => [Boolean(element.querySelector('.chat-chart-card svg')), Boolean(element.querySelector('img')), element.querySelector('.chat-chart-card').classList.contains('collapsed')]);
+        return { byType, card, validColor: fills.includes('#ff0000'), unsafeColor: fills.some(fill => fill.includes('<') || fill.includes('"')), xss: Boolean(window.__chartXss) };
       });
       for (const type of ['bar', 'line', 'pie']) assert.deepEqual(result.byType[type], { img: false, handlers: [], text: true }, type);
+      assert.deepEqual(result.card, [[true, false, false], [true, false, false]], 'Tarjeta en vivo e historial con el gráfico desplegado y sin nodos inyectados');
       assert.equal(result.validColor, true, 'Un color válido se respeta');
       assert.equal(result.unsafeColor, false);
       assert.equal(result.xss, false);
@@ -207,22 +196,25 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
         const images = opened.splice(0);
 
         const emptyDocument = utils.openDocumentInNewTab('');
-        const documentOpened = utils.openDocumentInNewTab('<h1>Folleto</h1>', 'text/html;charset=utf-8');
+        const documentOpened = utils.openDocumentInNewTab('<h1>Folleto</h1>');
         const [doc] = opened;
         const blob = blobs.get(doc.url);
+        const viewer = new DOMParser().parseFromString(await blob.text(), 'text/html').querySelector('iframe');
         return {
           rejected,
           images: images.map(({ url, target, features }) => [url.startsWith('blob:'), target, features]),
           emptyDocument,
           documentOpened,
-          document: [doc.url.startsWith('blob:'), doc.target, doc.features, blob.type, await blob.text()]
+          document: [doc.url.startsWith('blob:'), doc.target, doc.features, blob.type],
+          viewer: viewer.getAttribute('srcdoc')
         };
       });
       assert.equal(result.rejected, 0, 'Las URL no seguras no abren nada');
       assert.deepEqual(result.images, Array(3).fill([true, '_blank', 'noopener,noreferrer']), 'Cada imagen abre una sola pestaña aunque window.open devuelva null');
       assert.equal(result.emptyDocument, false, 'Contenido vacío no abre nada');
       assert.equal(result.documentOpened, true);
-      assert.deepEqual(result.document, [true, '_blank', 'noopener,noreferrer', 'text/html;charset=utf-8', '<h1>Folleto</h1>']);
+      assert.deepEqual(result.document, [true, '_blank', 'noopener,noreferrer', 'text/html;charset=utf-8']);
+      assert.equal(result.viewer, '<h1>Folleto</h1>', 'El visor lleva el documento íntegro en su iframe');
     });
   });
 

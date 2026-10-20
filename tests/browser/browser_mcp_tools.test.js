@@ -75,38 +75,6 @@ test('Browser UI - autorización de Composio muestra y devuelve únicamente su s
   } finally { await browser.close(); }
 });
 
-test('Browser UI - con un responder la autorización se resuelve sin clic y la tarjeta muestra la decisión', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage();
-    await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await waitForAppReady(page);
-    const result = await page.evaluate(async () => {
-      const asked = [];
-      window.ChatToolCards.setAuthorizationResponder(name => { asked.push(name); return name === 'run_command' ? 'deny' : 'allow_session'; });
-      const decide = async name => {
-        const card = window.ChatToolCards.createLiveToolCard(name, {});
-        document.body.appendChild(card);
-        const decision = await window.ChatToolCards.promptToolAuthorization(card, { function: { name, arguments: '{}' } }, { args: {} });
-        const shown = {
-          decision,
-          promptLeft: Boolean(card.querySelector('.tool-card-auth-prompt')),
-          badge: card.querySelector('.tool-card-badge').className
-        };
-        card.remove();
-        return shown;
-      };
-      const allowed = await decide('read_file');
-      const denied = await decide('run_command');
-      window.ChatToolCards.setAuthorizationResponder(null);
-      return { asked, allowed, denied };
-    });
-    assert.deepEqual(result.asked, ['read_file', 'run_command']);
-    assert.deepEqual(result.allowed, { decision: 'allow_session', promptLeft: false, badge: 'tool-card-badge status-loading' });
-    assert.deepEqual(result.denied, { decision: 'deny', promptLeft: false, badge: 'tool-card-badge status-error' });
-  } finally { await browser.close(); }
-});
-
 test('Browser UI - la autorización de carpeta solo se ofrece para rutas que pueden ser una regla', async () => {
   const browser = await createTestBrowser();
   try {
