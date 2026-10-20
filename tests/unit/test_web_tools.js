@@ -475,3 +475,37 @@ test('BinaryFetcher - terminación inmediata ante error de red o bloqueo CORS y 
   }
 });
 
+
+test('ChatWebBrowser.webFetch - valida la URL antes de cualquier petición, sea quien sea quien llama', async t => {
+  const requested = [];
+  t.mock.method(global, 'fetch', async url => { requested.push(String(url)); return new Response('ok', { status: 200 }); });
+  t.mock.method(ChatMCP.manager, 'fetchWebResource', async url => { requested.push(`backend:${url}`); return { ok: true, status: 200, text: 'ok' }; });
+
+  for (const connected of [true, false]) {
+    t.mock.method(ChatMCP.manager, 'isProxyConnected', () => connected);
+    for (const binary of [false, true]) {
+      const blocked = await WebBrowser.webFetch('http://169.254.169.254/latest/meta-data/', { binary });
+      assert.equal(blocked.ok, false);
+      assert.equal(blocked.status, 0);
+      assert.match(blocked.error, /SSRF protection/);
+      await assert.rejects(blocked.text(), /SSRF protection/);
+    }
+    assert.match((await WebBrowser.webFetch('file:///etc/passwd')).error, /file:/);
+    assert.equal((await WebBrowser.webFetch('')).error, 'No valid URL was given.');
+  }
+  assert.deepEqual(requested, []);
+
+  // Las herramientas ya no validan por su cuenta: el motivo del rechazo de webFetch llega al modelo
+  const page = await WebBrowser.fetchPage('http://127.0.0.1/report.pdf');
+  assert.equal(page.success, false);
+  assert.match(page.error, /SSRF protection/);
+  const image = await WebBrowser.fetchBinaryResource('http://0x7f000001/a.png');
+  assert.equal(image.success, false);
+  assert.match(image.error, /SSRF protection/);
+  assert.deepEqual(requested, []);
+
+  // Una URL sin esquema se pide con https:// y se informa normalizada
+  const read = await WebBrowser.fetchPage(' example.com ');
+  assert.equal(read.url, 'https://example.com/');
+  assert.deepEqual(requested, ['https://r.jina.ai/https://example.com/']);
+});
