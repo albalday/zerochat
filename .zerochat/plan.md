@@ -65,3 +65,15 @@ Done when: the site root serves a static bilingual landing page instead of the J
 - [ ] M28-T7 Manual check with the owner: Lighthouse SEO on landing and help index, Rich Results Test, Search Console verification file committed and sitemap submitted
 
 ## M29 Configuration profiles: MCP servers per profile: closed 2026-10-19
+
+## M30 Fixes from the 9.2.0–9.6.1 code quality audit
+Goal: Fix the findings of docs/audits/Audit-9.2.0-9.6.1.md verified against the code; F-06 and F-07 are dropped (the cited code does not exist or already uses the shared source), .btn-profile-item-delete is not orphan, and F-04 keeps the M18-D18 approval policy.
+Done when: every task is closed or dropped with its reason and the applicable test suites pass.
+- [ ] M30-T1 Saving Settings no longer overwrites the active connection: split gatherCurrentFormConfig into the Settings fields and the profile editor fields (also used by handleSaveProfile), with a browser test editing profile B and saving Settings while A is active (F-01 bug)
+- [ ] M30-T2 Move the profile editor and menu view (getProfilesDialogHTML, applyProfileToForm, syncApiKeyLock, syncProviderFields, showProfileFeedback, renderProfileMenu, chapters, MCP servers, syncProfileEditor) from ui-settings.js to ui-profiles.js, removing the circular dependency (F-01 refactor)
+- [ ] M30-T3 Permissions (global MCP policy, directory rules) and AI agent tools persist only on Save, and discarding changes restores the controls from ChatToolSecurity and ChatConfig, with a browser test (F-02)
+- [ ] M30-T4 browser_action_availability reuses the ee-browser-config.py detection (system_browsers and a shared engine cache path, without launching Node) instead of shutil.which, and the browser_action Node runner gets the real data dir instead of ~/zerochat (F-03)
+- [ ] M30-T5 Hygiene: shared preview MIME helper for mcp.js and markdown.js (F-08), shared ephemeral id pattern and hash reading for run-mode.js, ui-profiles.js and app.js keeping fragment stripping in app.js (F-09), remove orphan .mcp-auth-badge.status-ask, await every ChatDialogs call plus an architecture check (F-11)
+- [ ] M30-T6 Rewrite js/README.md §9 consistently with M27-D1 and validate the URL inside webFetch as the single point (F-05)
+- [ ] M30-T7 The 64 MB body limit applies only to zerochat/run/export: after parsing, reject with 413 any other method above MAX_HTTP_BODY_BYTES, with an exact-edge test (F-10)
+- [ ] M30-T8 Assess replacing the run-mode.js MutationObservers and synthetic clicks (approvals and ask_user) with hooks in the engine/tool-card authorization flow, keeping the M18-D18 policy; decide with the user whether to implement it (F-04)
