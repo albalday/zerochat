@@ -39,7 +39,7 @@ async function routeBackend(page, prompt, { profile, exportFormat, keepPage = fa
     }
     if (method === 'zerochat/external/status') return reply({ host: 'running', servers: externalServers });
     if (method === 'zerochat/external/servers/start') {
-      started.push({ id: params.serverId, remember: params.remember });
+      started.push({ id: params.serverId, remember: params.remember, ...(params.browser ? { browser: params.browser } : {}) });
       externalServers.find(server => server.id === params.serverId).status = 'running';
       return reply({ servers: externalServers });
     }
@@ -58,9 +58,13 @@ async function routeBackend(page, prompt, { profile, exportFormat, keepPage = fa
 }
 
 /** Abre la interfaz como la abre el modo ejecución, con window.close() registrado en vez de cerrar. */
-async function openRun(browser, server, prompt, { seedProfiles = false, profileSettings = null, ...runOptions } = {}) {
+async function openRun(browser, server, prompt, { seedProfiles = false, profileSettings = null, browserTool = null, ...runOptions } = {}) {
   const page = await browser.newPage();
   if (seedProfiles) await seedConnectionProfiles(page);
+  if (browserTool) {
+    // Herramienta de navegación de Ajustes › Navegador, guardada en la configuración del cliente.
+    await page.addInitScript(browser => localStorage.setItem('zerochat_runtime_config_v2', JSON.stringify({ browser })), browserTool);
+  }
   if (profileSettings) {
     await page.addInitScript(settings => {
       const document = JSON.parse(localStorage.getItem('zerochat_profiles_v1'));
@@ -159,19 +163,29 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     }
   });
 
-  test('Browser UI - el modo ejecución arranca solo los servicios MCP del perfil y su navegador, y falla si alguno no está configurado', async () => {
+  test('Browser UI - el modo ejecución arranca solo los servicios MCP del perfil y Playwright MCP si es la herramienta de navegación o el perfil lo exige, y falla si alguno no está configurado', async () => {
     const server = await startStaticServer();
     const browser = await createTestBrowser();
     const externalServers = () => ['memory', 'github', 'playwright'].map(id => ({ id, displayName: { es: id, en: id }, status: 'stopped', enabled: false }));
     try {
-      const run = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileSettings: { mcpServers: ['memory'], browser: 'playwright' }, externalServers: externalServers() });
+      const run = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileSettings: { mcpServers: ['memory'] }, browserTool: 'playwright', externalServers: externalServers() });
       await run.page.evaluate(() => {
         window.ChatAPI.streamChatCompletion = async () => ({ accumulatedText: 'ok', toolCalls: null, stats: null });
       });
       run.backend.release();
       await run.page.waitForFunction(() => window.__closed === true);
       assert.deepEqual(resultOf(run.backend), { run_id: RUN_ID, text: 'ok' });
-      assert.deepEqual(run.backend.started, [{ id: 'memory', remember: false }, { id: 'playwright', remember: false }], 'solo arranca los servicios del perfil y su navegador, sin guardarlos como activos');
+      assert.deepEqual(run.backend.started, [{ id: 'memory', remember: false }, { id: 'playwright', remember: false }], 'solo arranca los servicios del perfil y Playwright MCP, sin guardarlos como activos');
+
+      // Un perfil que exige Playwright MCP lo arranca con su navegador aunque Ajustes no lo elija.
+      const required = { mode: 'own', engine: 'firefox' };
+      const forced = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileSettings: { playwrightBrowser: required }, externalServers: externalServers() });
+      await forced.page.evaluate(() => {
+        window.ChatAPI.streamChatCompletion = async () => ({ accumulatedText: 'ok', toolCalls: null, stats: null });
+      });
+      forced.backend.release();
+      await forced.page.waitForFunction(() => window.__closed === true);
+      assert.deepEqual(forced.backend.started, [{ id: 'playwright', remember: false, browser: required }]);
 
       const missing = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileSettings: { mcpServers: ['memory', 'ghost'] }, externalServers: externalServers() });
       missing.backend.release();

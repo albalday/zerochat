@@ -22,8 +22,8 @@
  *        b) Petición Directa (DirectFetch): Utilizada para servidores con CORS habilitado o a través del backend.
  *
  * 2. Mitigación de SSRF (Server-Side Request Forgery) en el Cliente Web:
- *    - Los agentes LLM pueden recibir o generar URLs arbitrarias. ZeroChat aplica validación estricta
- *      antes de despachar cualquier petición:
+ *    - Los agentes LLM pueden recibir o generar URLs arbitrarias. webFetch, por donde pasa toda
+ *      petición web, aplica validación estricta (validateUrlForFetch) antes de despacharla:
  *        a) Protocolos: Exclusivamente http:// y https://. Se rechazan esquemas como file://, data://,
  *           javascript://, vbscript://, blob://, etc.
  *        b) Metadatos Cloud: Se bloquean de forma terminante accesos a endpoints de metadatos de
@@ -112,6 +112,23 @@
     };
   }
 
+  /** Respuesta de webFetch para una URL rechazada antes de hacer ninguna petición. */
+  function rejectedResponse(error) {
+    const empty = () => Promise.reject(new Error(error));
+    return {
+      ok: false,
+      status: 0,
+      statusText: error,
+      headers: { get: () => null },
+      byteSize: 0,
+      truncated: false,
+      text: empty,
+      json: empty,
+      arrayBuffer: empty,
+      error
+    };
+  }
+
   /** Mensaje de error de Jina Reader (`readableMessage` o `message` de su JSON) o el estado HTTP. */
   async function readJinaError(res) {
     try {
@@ -123,7 +140,9 @@
   }
 
   /**
-   * Petición web de ZeroChat. Elige el proxy, porque casi ninguna web permite CORS:
+   * Petición web de ZeroChat. Valida la URL (validateUrlForFetch) antes de cualquier petición: es el
+   * único punto de validación, y una URL rechazada devuelve `ok` false con el motivo en `error`.
+   * Elige el proxy, porque casi ninguna web permite CORS:
    * - con el backend local conectado, el backend (sin CORS, con su User-Agent, su validación
    *   anti-SSRF y `truncated` si el cuerpo supera `maxBytes`), para leer y para descargar;
    * - sin backend y para leer (`binary` false), Jina Reader, que devuelve el HTML de la página;
@@ -132,7 +151,10 @@
    * @param {string} url
    * @param {{ timeoutMs?: number, maxBytes?: number, binary?: boolean, accept?: string }} [options]
    */
-  async function webFetch(url, { timeoutMs = 8000, maxBytes = DEFAULT_MAX_BYTES, binary = false, accept = '*/*' } = {}) {
+  async function webFetch(rawUrl, { timeoutMs = 8000, maxBytes = DEFAULT_MAX_BYTES, binary = false, accept = '*/*' } = {}) {
+    const validation = validateUrlForFetch(rawUrl);
+    if (!validation.valid) return rejectedResponse(validation.error);
+    const { url } = validation;
     const mcp = getMcpManager();
     if (mcp.isProxyConnected()) {
       return backendResponse(await mcp.fetchWebResource(url, { accept, timeoutMs, maxBytes, binary }));
@@ -194,6 +216,21 @@
     return false;
   }
 
+  const URL_SCHEME = /^([a-zA-Z][a-zA-Z0-9+.-]*):/;
+
+  /** URL tal como se pedirá: sin espacios, con https:// si no trae esquema y normalizada si se puede analizar. */
+  function toWebUrl(rawUrl) {
+    if (typeof rawUrl !== 'string') return '';
+    const trimmed = rawUrl.trim();
+    if (!trimmed) return '';
+    const url = URL_SCHEME.test(trimmed) ? trimmed : 'https://' + trimmed;
+    try {
+      return new URL(url).toString();
+    } catch (_) {
+      return url;
+    }
+  }
+
   /**
    * Valida la URL de destino para prevenir SSRF en servicios de metadatos o esquemas no seguros.
    */
@@ -202,19 +239,13 @@
       return { valid: false, error: 'No valid URL was given.' };
     }
 
-    let url = rawUrl.trim();
-    const schemeMatch = url.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/);
-    if (schemeMatch) {
-      const scheme = schemeMatch[1].toLowerCase();
-      if (scheme !== 'http' && scheme !== 'https') {
-        return { valid: false, error: `Protocolo no permitido: ${scheme}:. Solo se admiten http:// y https://.` };
-      }
-    } else {
-      url = 'https://' + url;
+    const scheme = rawUrl.trim().match(URL_SCHEME)?.[1].toLowerCase();
+    if (scheme && scheme !== 'http' && scheme !== 'https') {
+      return { valid: false, error: `Protocolo no permitido: ${scheme}:. Solo se admiten http:// y https://.` };
     }
 
     try {
-      const parsed = new URL(url);
+      const parsed = new URL(toWebUrl(rawUrl));
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
         return { valid: false, error: `Protocolo no permitido: ${parsed.protocol}. Solo se admiten http:// y https://.` };
       }
@@ -224,7 +255,7 @@
         return { valid: false, error: 'Acceso bloqueado: intento de acceso a servicios internos, recursos locales o de metadatos de infraestructura (SSRF protection).' };
       }
 
-      return { valid: true, url: parsed.toString(), hostname: hostname };
+      return { valid: true, url: parsed.toString() };
     } catch (e) {
       return { valid: false, error: 'Invalid URL format.' };
     }
@@ -467,18 +498,7 @@
      * Ejecuta las estrategias en orden hasta obtener una respuesta exitosa.
      */
     async fetch(rawUrl) {
-      const validation = validateUrlForFetch(rawUrl);
-      if (!validation.valid) {
-        return {
-          success: false,
-          url: rawUrl || '',
-          content: '',
-          elapsedMs: 0,
-          error: validation.error
-        };
-      }
-
-      const url = validation.url;
+      const url = toWebUrl(rawUrl);
       const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
       const fileName = documentFileName(url);
       const docType = detectDocumentType(fileName);
@@ -487,8 +507,7 @@
 
       const context = {
         isPdfUrl,
-        isOfficeUrl,
-        hostname: validation.hostname
+        isOfficeUrl
       };
 
       let lastError = null;
@@ -553,21 +572,11 @@
 
   /**
    * Descarga un recurso web binario (ArrayBuffer) con webFetch de forma segura.
-   * Valida la URL (anti-SSRF), aplica límites de tamaño y timeout estricto, sin proxies de terceros.
+   * webFetch valida la URL (anti-SSRF); aquí se aplican los límites de tamaño y el timeout.
    * En caso de error de red o bloqueo de CORS, falla de inmediato sin reintentos externos ni cuelgues.
    */
   async function fetchBinaryResource(rawUrl, options = {}) {
-    const validation = validateUrlForFetch(rawUrl);
-    if (!validation.valid) {
-      return {
-        success: false,
-        url: rawUrl || '',
-        error: validation.error,
-        elapsedMs: 0
-      };
-    }
-
-    const url = validation.url;
+    const url = toWebUrl(rawUrl);
     const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const maxBytes = options.maxBytes || MAX_BINARY_BYTES;
     const timeoutMs = options.timeoutMs || 8000;

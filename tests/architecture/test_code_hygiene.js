@@ -109,3 +109,20 @@ test('Higiene - sin guardas sobre módulos que siempre están cargados', () => {
   }
   assert.deepEqual(offenders, [], `Usa el módulo directamente, sin ?. ni typeof:\n${offenders.join('\n')}`);
 });
+
+// ChatDialogs devuelve una promesa que se resuelve al cerrar el aviso: quien lo abre la espera o la
+// devuelve a quien la espera, para no seguir mientras el aviso está abierto.
+const DIALOG_CALL = /(?<![\w$.])(?:getDialogs\(\)|Dialogs)\.(?:alert|confirm|prompt|askDuplicate)\(/g;
+const DIALOG_CALL_HANDLED = /(?:\bawait|\breturn|=>)\s*$/;
+
+test('Higiene - cada llamada a ChatDialogs se espera', () => {
+  const offenders = [];
+  for (const [file, source] of SOURCES) {
+    for (const match of source.matchAll(DIALOG_CALL)) {
+      if (!DIALOG_CALL_HANDLED.test(source.slice(Math.max(0, match.index - 40), match.index))) {
+        offenders.push(`${relative(file)}:${lineOf(source, match.index)} ${match[0]}`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, [], `Espera (await) o devuelve la promesa del diálogo:\n${offenders.join('\n')}`);
+});

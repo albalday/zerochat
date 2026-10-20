@@ -75,6 +75,38 @@ test('Browser UI - autorización de Composio muestra y devuelve únicamente su s
   } finally { await browser.close(); }
 });
 
+test('Browser UI - con un responder la autorización se resuelve sin clic y la tarjeta muestra la decisión', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+    const result = await page.evaluate(async () => {
+      const asked = [];
+      window.ChatToolCards.setAuthorizationResponder(name => { asked.push(name); return name === 'run_command' ? 'deny' : 'allow_session'; });
+      const decide = async name => {
+        const card = window.ChatToolCards.createLiveToolCard(name, {});
+        document.body.appendChild(card);
+        const decision = await window.ChatToolCards.promptToolAuthorization(card, { function: { name, arguments: '{}' } }, { args: {} });
+        const shown = {
+          decision,
+          promptLeft: Boolean(card.querySelector('.tool-card-auth-prompt')),
+          badge: card.querySelector('.tool-card-badge').className
+        };
+        card.remove();
+        return shown;
+      };
+      const allowed = await decide('read_file');
+      const denied = await decide('run_command');
+      window.ChatToolCards.setAuthorizationResponder(null);
+      return { asked, allowed, denied };
+    });
+    assert.deepEqual(result.asked, ['read_file', 'run_command']);
+    assert.deepEqual(result.allowed, { decision: 'allow_session', promptLeft: false, badge: 'tool-card-badge status-loading' });
+    assert.deepEqual(result.denied, { decision: 'deny', promptLeft: false, badge: 'tool-card-badge status-error' });
+  } finally { await browser.close(); }
+});
+
 test('Browser UI - la autorización de carpeta solo se ofrece para rutas que pueden ser una regla', async () => {
   const browser = await createTestBrowser();
   try {
@@ -289,7 +321,7 @@ test('Browser UI - RAG avisa al combinar ramas con idiomas distintos sin alterar
   }
 });
 
-test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajustes', async () => {
+test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajustes y descartarlos no los guarda', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -297,9 +329,17 @@ test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajust
     await waitForAppReady(page);
 
     await page.click('#btn-open-settings');
+    const savedState = () => page.evaluate(() => ({
+      enabledTools: window.ChatConfig.getActive().enabledTools,
+      policy: window.ChatToolSecurity.manager.getGlobalMcpPolicy(),
+      rules: window.ChatToolSecurity.manager.getDirectoryRules()
+    }));
+    const before = await savedState();
     await page.click('[data-section="agent"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
-    await page.locator('#settings-agent .agent-tool-checkbox:not([data-tool-id="browser_action"])').first().locator('..').click();
+    const toolCheckbox = page.locator('#settings-agent .agent-tool-checkbox:not([data-tool-id="browser_action"])').first();
+    const toolChecked = await toolCheckbox.isChecked();
+    await toolCheckbox.locator('..').click();
     assert.equal(await page.$eval('#settings-dialog', dialog => dialog.dataset.settingsDirty), 'true');
 
     await page.click('#btn-close-settings');
@@ -312,18 +352,29 @@ test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajust
     await page.waitForFunction(() => document.getElementById('notice-dialog')?.open);
     await page.click('#notice-accept');
     await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
+    await page.click('[data-section="agent"]');
+    await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
+    assert.equal(await toolCheckbox.isChecked(), toolChecked, 'Reabrir restaura el interruptor descartado');
+    await page.click('#btn-close-settings');
+    await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
+
     await page.click('[data-section="permissions"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
     await page.locator('.mcp-policy-option:has(#mcp-policy-allow-all)').click();
+    await page.fill('#mcp-directory-rules', 'RW:/tmp/descartado');
     assert.equal(await page.$eval('#settings-dialog', dialog => dialog.dataset.settingsDirty), 'true');
-    await page.click('#btn-close-settings');
-    await page.waitForFunction(() => document.getElementById('notice-dialog')?.open);
-    await page.click('#notice-cancel');
-    await page.locator('.mcp-policy-option:has(#mcp-policy-ask)').click();
     await page.click('#btn-close-settings');
     await page.waitForFunction(() => document.getElementById('notice-dialog')?.open);
     await page.click('#notice-accept');
     await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
+    assert.deepEqual(await savedState(), before, 'Descartar no guarda herramientas, política ni reglas');
+
+    await page.click('[data-section="permissions"]');
+    await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
+    assert.deepEqual(await page.evaluate(() => ({
+      policy: document.querySelector('input[name="mcp-global-policy"]:checked')?.value,
+      rules: document.getElementById('mcp-directory-rules').value
+    })), { policy: before.policy, rules: before.rules.join('\n') }, 'Reabrir restaura los permisos guardados');
   } finally {
     await browser.close();
   }

@@ -501,6 +501,11 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._reject(400, {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": f"Parse error: {err}"}},
                          safe_path, t0, f"Error parseando JSON: {err}")
             return None
+        # El tope ampliado de http_body_limit es solo para la exportación de --prompt --export.
+        if content_len > MAX_HTTP_BODY_BYTES and not (isinstance(req, dict) and req.get("method") == "zerochat/run/export"):
+            self._log_req("POST", safe_path)
+            self._reject(413, {"error": "Request body too large"}, safe_path, t0, "Cuerpo HTTP excede el límite")
+            return None
 
         rpc_error = self._validate_rpc(req)
         if rpc_error:
@@ -651,6 +656,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return {"host": "running", "version": VERSION, "servers": GLOBAL_MCP_MANAGER.list_servers()}, None, ""
         if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):
             return self._dispatch_server_control(method, params)
+        if method.startswith("zerochat/browser/"):
+            return self._dispatch_browser(method, params)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @staticmethod
@@ -683,19 +690,48 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @staticmethod
+    def _dispatch_browser(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+        """Configuración, datos y motores propios de Playwright para la sección Navegador de Ajustes."""
+        try:
+            if method == "zerochat/browser/config/get":
+                return load_browser_config(), None, ""
+            if method == "zerochat/browser/config/set":
+                return save_browser_config(params.get("config")), None, ""
+            if method == "zerochat/browser/data/clear":
+                return clear_own_browser_data(params.get("engine")), None, ""
+            if method == "zerochat/browser/engines/list":
+                return BROWSER_ENGINES.list(), None, ""
+            if method == "zerochat/browser/engines/install":
+                return BROWSER_ENGINES.install(params.get("engine")), None, ""
+            if method == "zerochat/browser/engines/remove":
+                return BROWSER_ENGINES.remove(params.get("engine")), None, ""
+        except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+            return None, {"code": -32602, "message": str(exc)}, ""
+        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
+
+    @staticmethod
     def _dispatch_server_control(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
         server_id = params.get("serverId")
         opts = params.get("options", {})
-        remember = params.get("remember", True)
+        remember = params.get("remember")
+        browser = params.get("browser")
         if not isinstance(server_id, str) or not server_id:
             return None, {"code": -32602, "message": "serverId debe ser un texto no vacío."}, ""
         if not isinstance(opts, dict):
             return None, {"code": -32602, "message": "options debe ser un objeto."}, ""
-        if not isinstance(remember, bool):
-            return None, {"code": -32602, "message": "remember debe ser un booleano."}, ""
+        # Al arrancar, el cliente decide siempre si el servicio se recuerda para la siguiente sesión.
+        if method.endswith("/start") and not isinstance(remember, bool):
+            return None, {"code": -32602, "message": "remember es obligatorio al arrancar y debe ser un booleano."}, ""
+        if method.endswith("/start") and browser is not None:
+            if server_id not in SERVICE_LAUNCH:
+                return None, {"code": -32602, "message": f"{server_id} no admite elegir navegador."}, ""
+            try:
+                browser = validate_profile_browser(browser)
+            except ValueError as exc:
+                return None, {"code": -32602, "message": str(exc)}, ""
         try:
             if method.endswith("/start"):
-                servers = GLOBAL_MCP_MANAGER.start(server_id, remember)
+                servers = GLOBAL_MCP_MANAGER.start(server_id, remember, browser)
             elif method.endswith("/stop"):
                 servers = GLOBAL_MCP_MANAGER.stop(server_id)
             else:

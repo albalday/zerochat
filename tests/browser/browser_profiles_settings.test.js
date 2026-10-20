@@ -97,7 +97,7 @@ test('Browser UI - perfiles: teclado, alineación, solo lectura y borrado', asyn
   } finally { await browser.close(); }
 });
 
-test('Browser UI - cualquier cambio del perfil habilita guardar, incluido un modelo libre', async () => {
+test('Browser UI - cualquier cambio del perfil queda pendiente de guardar, incluido un modelo libre', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
@@ -109,16 +109,16 @@ test('Browser UI - cualquier cambio del perfil habilita guardar, incluido un mod
     await page.click('#active-profile-trigger');
     await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
     await page.waitForFunction(() => document.getElementById('setting-api-key')._loadedApiKey !== undefined);
-    assert.equal(await page.locator('#btn-save-profile').isDisabled(), true, 'Sin cambios no debe guardarse');
+    assert.equal(await page.textContent('#profile-save-query-hint'), 'No hay cambios pendientes: Guardar cierra el panel.');
     const initialModel = await page.locator('#setting-model').inputValue();
     await page.fill('#setting-model', 'modelo-personalizado');
-    assert.equal(await page.locator('#btn-save-profile').isDisabled(), false, 'Un modelo escrito libremente habilita Guardar');
+    assert.equal(await page.textContent('#profile-save-query-hint'), 'Hay cambios pendientes. Guarda el perfil para conservarlos.', 'Un modelo escrito libremente queda pendiente');
     await page.fill('#setting-model', initialModel);
-    assert.equal(await page.locator('#btn-save-profile').isDisabled(), false, 'Al deshacer el cambio permanece habilitado');
+    assert.equal(await page.textContent('#profile-save-query-hint'), 'Hay cambios pendientes. Guarda el perfil para conservarlos.', 'Al deshacer el cambio sigue pendiente');
     assert.equal(await page.locator('#profile-chapter-behavior').evaluate(chapter => chapter.open), false, 'Solo la conexión se abre al editar');
     await page.click('#profile-chapter-behavior summary');
     await page.fill('#setting-system-prompt', 'Instrucción personalizada');
-    assert.equal(await page.locator('#btn-save-profile').isDisabled(), false, 'Un cambio en otro campo habilita Guardar');
+    assert.equal(await page.locator('#btn-save-profile').isDisabled(), false);
     await page.click('#profile-chapter-behavior summary');
     assert.match(await page.textContent('#profile-summary-behavior'), /^Prompt propio · temperatura /, 'El resumen del capítulo plegado refleja el cambio');
   } finally {
@@ -387,8 +387,8 @@ test('Browser UI - el bloqueo cargado afecta a todas las pestañas y el borrador
     for (const selector of ['#setting-profile-name', '#setting-api-url', '#setting-api-key', '#setting-model', '#setting-system-prompt', '#setting-temperature']) {
       assert.equal(await page.locator(selector).isDisabled(), true, `${selector} debe quedar bloqueado`);
     }
-    assert.equal(await page.locator('#btn-save-profile').isDisabled(), true, 'Guardar debe estar deshabilitado en perfil bloqueado');
-    await page.click('#btn-close-profiles');
+    // Un perfil bloqueado no tiene nada que guardar: Guardar cierra el panel.
+    await page.click('#btn-save-profile');
     await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
     await page.click('#active-profile-trigger');
     await page.waitForFunction(() => !document.getElementById('active-profile-popover').hidden);
@@ -476,6 +476,53 @@ async function closeProfileEditor(page, { discard = false } = {}) {
   await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
 }
 
+test('Browser UI - el capítulo Navegador del perfil exige Playwright MCP con un navegador instalado y lo reinicia si usa otro', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await openProfilesPage(browser, [{ id: 'profile:web', name: 'Web', settings: { apiType: 'openai', model: 'test', apiKey: 'sk-test' } }]);
+    // Playwright MCP en marcha con el Chromium propio; instalados Chromium y WebKit, en el sistema Edge y Chromium.
+    await page.evaluate(() => {
+      window.ChatState.set('mcp', { status: 'connected', externalServers: [
+        { id: 'playwright', displayName: { es: 'Playwright MCP' }, status: 'running', browser: { mode: 'own', engine: 'chromium' } }
+      ] });
+      window.__actions = [];
+      const setStatus = status => window.ChatState.set('mcp', state => ({ ...state, externalServers: state.externalServers.map(server => ({ ...server, status })) }));
+      window.ChatMCP.manager.requestExternalControl = async () => ({
+        available: true, systemBrowsers: { chrome: false, msedge: true, chromium: true }, extensions: {},
+        engines: [{ id: 'chromium', installed: true }, { id: 'firefox', installed: false }, { id: 'webkit', installed: true }]
+      });
+      window.ChatMCP.manager.stopExternalServer = async serverId => { window.__actions.push({ stop: serverId }); setStatus('stopped'); };
+      window.ChatMCP.manager.startExternalServer = async (serverId, onWait, options) => { window.__actions.push({ start: serverId, ...options }); setStatus('running'); };
+    });
+    await openProfileEditor(page, 'profile:web');
+    assert.equal(await page.textContent('#profile-summary-browser'), 'El de Ajustes', 'Sin exigir nada usa lo de Ajustes');
+    await page.click('#profile-chapter-browser summary');
+    await page.check('input[name="profile-browser-required"]');
+    const options = () => page.locator('#profile-browser-name option').evaluateAll(items => items.map(item => item.textContent));
+    assert.deepEqual(await options(), ['Chromium', 'WebKit'], 'Solo los motores instalados');
+    await page.check('input[name="profile-browser-mode"][value="user"]');
+    assert.deepEqual(await options(), ['Microsoft Edge', 'Chromium'], 'Solo los navegadores detectados');
+    await page.selectOption('#profile-browser-name', 'chromium');
+    assert.equal(await page.textContent('#profile-summary-browser'), 'Playwright MCP · tu Chromium');
+    await page.click('#btn-save-profile');
+    await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
+    const required = { mode: 'user', userBrowser: 'chromium' };
+    assert.deepEqual(await page.evaluate(() => window.ChatProfileRepository.get('profile:web').settings.playwrightBrowser), required);
+    // Al activarse, Playwright MCP en marcha con otro navegador se reinicia con el del perfil.
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    assert.deepEqual(await page.evaluate(() => window.__actions), [{ stop: 'playwright' }, { start: 'playwright', remember: false, browser: required }]);
+    await page.click('#notice-accept');
+
+    // Ajustes › Navegador avisa de que el perfil activo manda sobre su herramienta.
+    if (await page.locator('#sidebar-view-settings').isHidden()) await page.click('#btn-open-settings');
+    await page.locator('#sidebar-settings-nav [data-section="browser"]').evaluate(item => item.click());
+    await page.waitForFunction(() => document.getElementById('settings-dialog').open);
+    assert.match(await page.textContent('#settings-browser .browser-notice'), /El perfil activo «Web» exige Playwright MCP con tu Chromium/);
+  } finally {
+    await browser.close();
+  }
+});
+
 test('Browser UI - elegir un perfil del menú lo activa, cierra el menú y marca el activo', async () => {
   const browser = await createTestBrowser();
   try {
@@ -497,6 +544,30 @@ test('Browser UI - elegir un perfil del menú lo activa, cierra el menú y marca
   }
 });
 
+test('Browser UI - guardar Ajustes tras editar otro perfil no cambia la conexión activa', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await openProfilesPage(browser);
+    await page.click('#active-profile-trigger');
+    await page.click('.header-profile-item [data-profile-id="profile:local"]');
+    await openProfileEditor(page, 'profile:remote');
+    await closeProfileEditor(page);
+
+    await page.click('#btn-open-settings');
+    await page.locator('#sidebar-settings-nav [data-section="model"]').evaluate(item => item.click());
+    await page.waitForFunction(() => document.getElementById('settings-dialog').open);
+    await page.fill('#setting-system-data-prompt', 'Datos propios');
+    await page.click('#btn-save-settings');
+    await page.waitForFunction(() => !document.getElementById('settings-dialog').open);
+    assert.deepEqual(await page.evaluate(() => {
+      const { activeProfile, apiType, apiUrl, model, systemDataPrompt } = window.ChatConfig.getActive();
+      return { profile: activeProfile.id, apiType, apiUrl, model, systemDataPrompt };
+    }), { profile: 'profile:local', apiType: 'openai', apiUrl: 'http://localhost:1234/v1', model: 'google/gemma-4-26b-a4b-qat', systemDataPrompt: 'Datos propios' });
+  } finally {
+    await browser.close();
+  }
+});
+
 test('Browser UI - reabrir el editor no conserva cambios descartados y una consulta lista permite guardar', async () => {
   const browser = await createTestBrowser();
   try {
@@ -508,19 +579,19 @@ test('Browser UI - reabrir el editor no conserva cambios descartados y una consu
 
     await openProfileEditor(page, 'profile:local');
     assert.equal(await page.inputValue('#setting-model'), 'google/gemma-4-26b-a4b-qat');
-    assert.equal(await page.locator('#btn-save-profile').isDisabled(), true, 'Al reabrir no quedan cambios pendientes');
+    assert.equal(await page.textContent('#profile-save-query-hint'), 'No hay cambios pendientes: Guardar cierra el panel.', 'Al reabrir no quedan cambios pendientes');
     await page.evaluate(() => {
       window.ChatAPI.fetchServerModels = async () => ({ success: true, count: 1, endpoint: 'http://localhost:1234/v1', models: [{ id: 'google/gemma-4-26b-a4b-qat' }] });
     });
     await page.click('#btn-query-server');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').dataset.queryReady === 'true');
-    assert.equal(await page.locator('#btn-save-profile').isDisabled(), false, 'Una consulta al servidor lista permite guardar');
+    assert.equal(await page.textContent('#profile-save-query-hint'), 'Hay cambios pendientes. Guarda el perfil para conservarlos.', 'Una consulta al servidor lista queda pendiente de guardar');
   } finally {
     await browser.close();
   }
 });
 
-test('Browser UI - los capítulos MCP y Navegador del perfil avisan de los servicios no configurados y guardan lo elegido', async () => {
+test('Browser UI - el capítulo MCP del perfil avisa de los servicios no configurados y guarda lo elegido', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await openProfilesPage(browser, [{ id: 'profile:mcp', name: 'Con MCP', settings: { apiType: 'openai', model: 'test', apiKey: 'sk-test', mcpServers: ['ghost'] } }]);
@@ -543,8 +614,7 @@ test('Browser UI - los capítulos MCP y Navegador del perfil avisan de los servi
       checked: label.querySelector('input').checked,
       missing: label.classList.contains('is-missing')
     })));
-    assert.deepEqual(await rows(), [{ name: 'Memoria', checked: false, missing: false }, { name: 'ghost', checked: true, missing: true }], 'Playwright se elige en Navegador');
-    assert.equal(await page.textContent('#profile-summary-browser'), 'browser_action', 'Sin elección, el navegador es browser_action');
+    assert.deepEqual(await rows(), [{ name: 'Memoria', checked: false, missing: false }, { name: 'ghost', checked: true, missing: true }], 'Playwright se elige en Ajustes › Navegador');
     assert.equal(await page.textContent('#profile-summary-mcp'), 'ghost');
     assert.equal(await page.textContent('#profile-summary-mcp-warning'), '1 no configurado(s)', 'El aviso se ve con el capítulo plegado');
 
@@ -553,15 +623,9 @@ test('Browser UI - los capítulos MCP y Navegador del perfil avisan de los servi
     await page.uncheck('.profile-mcp-checkbox[value="ghost"]');
     assert.equal(await page.textContent('#profile-summary-mcp'), 'Memoria');
     assert.equal(await page.locator('#profile-summary-mcp-warning').isVisible(), false);
-    await page.click('#profile-chapter-browser summary');
-    await page.check('.profile-browser-radio[value="playwright"]');
-    assert.equal(await page.textContent('#profile-summary-browser'), 'Playwright MCP');
     await page.click('#btn-save-profile');
     await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
-    assert.deepEqual(await page.evaluate(() => {
-      const { mcpServers, browser } = window.ChatProfileRepository.get('profile:mcp').settings;
-      return { mcpServers, browser, active: window.ChatConfig.getActive().browser };
-    }), { mcpServers: ['memory'], browser: 'playwright', active: 'playwright' });
+    assert.deepEqual(await page.evaluate(() => window.ChatProfileRepository.get('profile:mcp').settings.mcpServers), ['memory']);
     // Solo arranca lo que estaba parado, sin recordarlo, y avisa de ello con un diálogo.
     await page.waitForFunction(() => document.getElementById('notice-dialog').open);
     assert.deepEqual(await page.evaluate(() => window.__started), [{ serverId: 'memory', remember: false }]);
@@ -589,7 +653,12 @@ test('Browser UI - un perfil nuevo abre el editor vacío sin pedir nombre ni her
       locked: document.getElementById('setting-api-key-locked').checked,
       saveDisabled: document.getElementById('btn-save-profile').disabled
     }));
-    assert.deepEqual(editor, { notice: false, name: '', description: '', apiKey: '', locked: false, saveDisabled: true });
+    assert.deepEqual(editor, { notice: false, name: '', description: '', apiKey: '', locked: false, saveDisabled: false });
+    // Sin cambios, Guardar cierra el panel sin crear ningún perfil.
+    const before = await page.evaluate(() => window.ChatProfileRepository.list().length);
+    await page.click('#btn-save-profile');
+    await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
+    assert.equal(await page.evaluate(() => window.ChatProfileRepository.list().length), before);
   } finally {
     await browser.close();
   }

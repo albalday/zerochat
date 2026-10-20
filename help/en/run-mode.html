@@ -58,7 +58,7 @@
       <ul>
         <li><strong>Approvals:</strong> every tool that asks for permission is allowed for that page's session. <code>write_file</code>, <code>edit_file</code> and <code>run_command</code> are denied unless you pass <code>--allow-dangerous-tools</code>. The rules you already have (allow all, workspace trust, permanent rules) apply as in the chat.</li>
         <li><strong>Questions:</strong> nobody can answer them. If the model asks with <code>ask_user</code> or any dialog appears, generation stops and the run ends with an error (<em>The run needs the user</em>).</li>
-        <li><strong>MCP services:</strong> the run starts its own local server, with no external MCP services running. With <code>--profile</code> it starts the ones the profile ticks in its MCP servers chapter, and Playwright MCP if it is its browser; if one is not configured or does not start, the run ends with an error. Without <code>--profile</code> none is started. All of them stop when the run ends and leave no trace for the next session.</li>
+        <li><strong>MCP services:</strong> the run starts its own local server, with no external MCP services running. With <code>--profile</code> it starts the ones the profile ticks in its MCP servers chapter, and Playwright MCP if it is the browsing tool or the profile requires it, with the profile’s browser; if one is not configured or does not start, the run ends with an error. Without <code>--profile</code> none is started. All of them stop when the run ends and leave no trace for the next session.</li>
       </ul>
     </div>
 
@@ -105,7 +105,7 @@
         <li><strong>ZeroChat and the browser:</strong> the local server installed and a browser whose profile has ZeroChat set up from the same origin (GitHub Pages or your installation), with its profiles, API keys and the encryption password if you use your own.</li>
         <li><strong>Profile:</strong> the one named by <code>--profile</code>, with provider, URL, model and API key. A local model server (LM Studio, Ollama…) must be running.</li>
         <li><strong>Profile MCP services:</strong> the ones ticked in its MCP servers chapter must exist in <code>~/zerochat/services</code>, with their dependencies installed, their credentials in their <code>service.json</code> and their commands (<code>node</code>, <code>npx</code>, <code>uvx</code>…) in the job's <code>PATH</code>. Those that ask for OAuth authorization must have completed it before in a windowed session.</li>
-        <li><strong>Model browser:</strong> if the profile chooses Playwright MCP, the service installed from Settings › MCP; if it chooses <code>browser_action</code>, Node.js with Playwright and a compatible browser (see <a href="browser-action.html">browser automation</a>).</li>
+        <li><strong>Model browser:</strong> the one chosen in Settings › Browser: with Playwright MCP, the service installed from Settings › MCP; with <code>browser_action</code>, Node.js with Playwright and a compatible browser (see <a href="browser-action.html">model browser</a>).</li>
         <li><strong>Permissions:</strong> <code>--allow-dangerous-tools</code> if the job writes files or runs commands, and the directory rules in Settings › Permissions it needs.</li>
         <li><strong>Working directory:</strong> the command is launched from the directory the job works on.</li>
       </ul>

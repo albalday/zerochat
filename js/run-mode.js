@@ -15,12 +15,12 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { resolveDep } = Utils;
+  const { resolveDep, EPHEMERAL_ID_PATTERN, readLaunchFragment } = Utils;
   const getState = () => resolveDep('ChatState', './state.js');
   const getMcpManager = () => resolveDep('ChatMCP', './mcp.js').manager;
   const getProfiles = () => resolveDep('ChatProfileRepository', './profile-repository.js');
+  const getToolCards = () => resolveDep('ChatToolCards', './tool-cards.js');
 
-  const RUN_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
   // El streaming informa como mucho cada este intervalo; el resto de avisos, siempre.
   const STREAM_PROGRESS_INTERVAL_MS = 2000;
   const CONNECT_ATTEMPTS = 30;
@@ -30,8 +30,8 @@
 
   /** Identificador de la ejecución en el fragmento de arranque, o null fuera del modo ejecución. */
   function readRunId(hash) {
-    const runId = new URLSearchParams(String(hash || '').replace(/^#/, '')).get('run');
-    return runId && RUN_ID_PATTERN.test(runId) ? runId : null;
+    const runId = readLaunchFragment(hash).get('run');
+    return runId && EPHEMERAL_ID_PATTERN.test(runId) ? runId : null;
   }
 
   /** Envía cada aviso de progreso, salvo los de streaming más seguidos que el intervalo. */
@@ -48,10 +48,10 @@
   }
 
   /**
-   * Vigila lo que pregunta al usuario: cada diálogo se cierra como cancelado y cada pregunta de
-   * ask_user se anota; la primera detiene la generación. Devuelve { text } con esa primera petición.
+   * Vigila los diálogos: cada uno se cierra como cancelado y se anota; el primero detiene la
+   * generación. Devuelve { text } con esa primera petición.
    */
-  function watchUserRequests(container, report, stopGeneration) {
+  function watchUserDialogs(report, stopGeneration) {
     const State = getState();
     const request = { text: '' };
     const handled = new Set();
@@ -72,31 +72,39 @@
     };
     State.subscribe(state => (state.ui.notices || []).map(notice => notice.id).join(','), dismissPending);
     dismissPending();
-    const askPending = () => {
-      container.querySelectorAll('.ask-user-question').forEach(question => {
-        if (handled.has(question)) return;
-        handled.add(question);
-        requestUser(question.textContent.trim());
-      });
-    };
-    new MutationObserver(askPending).observe(container, { childList: true, subtree: true });
     return request;
   }
 
   /**
-   * Responde cada petición de aprobación que se pinte en la conversación: permitida para la sesión,
-   * salvo las herramientas que escriben o ejecutan sin `allowDangerous`, que se deniegan.
+   * Pregunta de ask_user con la que terminó el turno (entre los mensajes tool del final del
+   * historial), o null. ask_user cede el turno, así que la generación ya terminó con ella.
    */
-  function answerToolApprovals(container, allowDangerous, report) {
-    const answerPending = () => {
-      container.querySelectorAll('.tool-card-auth-prompt').forEach(prompt => {
-        const toolName = prompt.dataset.toolName || '';
-        const allowed = allowDangerous || !DANGEROUS_TOOLS.has(toolName);
-        report({ kind: allowed ? 'approval_allowed' : 'approval_denied', text: toolName });
-        prompt.querySelector(allowed ? '.btn-auth-allow-session' : '.btn-auth-deny').click();
-      });
-    };
-    new MutationObserver(answerPending).observe(container, { childList: true, subtree: true });
+  function pendingAskUserQuestion(messages) {
+    const asked = [];
+    for (let i = messages.length - 1; i >= 0 && messages[i].role === 'tool'; i--) {
+      if (messages[i].name === 'ask_user') asked.push(messages[i]);
+    }
+    if (asked.length === 0) return null;
+    const assistant = messages.findLast(message => message.role === 'assistant' && Array.isArray(message.tool_calls));
+    const calls = (assistant?.tool_calls || []).filter(call => call.function?.name === 'ask_user');
+    const call = calls.find(item => asked.some(message => message.tool_call_id === item.id)) || calls[0];
+    try {
+      const question = JSON.parse(call?.function?.arguments || '{}').question;
+      if (typeof question === 'string' && question.trim()) return question.trim();
+    } catch (_) { /* argumentos sin JSON: basta el nombre de la herramienta */ }
+    return 'ask_user';
+  }
+
+  /**
+   * Contesta cada petición de autorización: permitida para la sesión, salvo las herramientas que
+   * escriben o ejecutan sin `allowDangerous`, que se deniegan.
+   */
+  function answerToolApprovals(allowDangerous, report) {
+    getToolCards().setAuthorizationResponder(toolName => {
+      const allowed = allowDangerous || !DANGEROUS_TOOLS.has(toolName);
+      report({ kind: allowed ? 'approval_allowed' : 'approval_denied', text: toolName });
+      return allowed ? 'allow_session' : 'deny';
+    });
   }
 
   async function waitForBackend(startupConnection, connectBackend) {
@@ -116,13 +124,13 @@
    * como el usuario y devuelve { text } o { error }, `stopGeneration` la detiene y
    * `exportConversation` da la conversación activa en un formato de ChatExport.
    */
-  async function start(runId, { messagesList, startupConnection, connectBackend, sessionsLoaded, activateSessionProfile, submitComposerText, stopGeneration, exportConversation }) {
+  async function start(runId, { startupConnection, connectBackend, sessionsLoaded, activateSessionProfile, submitComposerText, stopGeneration, exportConversation }) {
     const send = (method, params = {}) => getMcpManager().requestExternalControl(method, { run_id: runId, ...params });
     const report = createProgressReporter(event => {
       send('zerochat/run/progress', event).catch(error => console.warn('[RunMode] Could not report progress:', error));
     });
     let keepPage = false;
-    const userRequest = watchUserRequests(messagesList, report, stopGeneration);
+    const userRequest = watchUserDialogs(report, stopGeneration);
     try {
       await sessionsLoaded;
       await waitForBackend(startupConnection, connectBackend);
@@ -136,10 +144,13 @@
         if (unavailable.length > 0) throw new Error(`MCP servers of the profile are not available: ${unavailable.join(', ')}`);
         report({ kind: 'profile', text: match.name });
       }
-      answerToolApprovals(messagesList, allowDangerous === true, report);
+      answerToolApprovals(allowDangerous === true, report);
       const generated = userRequest.text ? null : await submitComposerText(prompt, { onProgress: report });
+      const question = userRequest.text ? null : pendingAskUserQuestion(getState().get('messages'));
+      if (question) report({ kind: 'user_request', text: question });
       // Una ejecución desatendida no puede contestar al usuario: su petición es el error.
-      const result = userRequest.text ? { error: `The run needs the user: ${userRequest.text}` } : generated;
+      const needsUser = userRequest.text || question;
+      const result = needsUser ? { error: `The run needs the user: ${needsUser}` } : generated;
       // La conversación se exporta también tras un error de generación; si falla, el resultado sigue.
       if (exportFormat) {
         try {
@@ -161,6 +172,8 @@
   return {
     readRunId,
     createProgressReporter,
+    pendingAskUserQuestion,
+    answerToolApprovals,
     start
   };
 }));

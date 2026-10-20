@@ -67,6 +67,14 @@
     'image/gif'
   ]));
 
+  /** Identificadores efímeros que viajan en el fragmento de arranque (ejecución, transferencia de perfiles). */
+  const EPHEMERAL_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
+
+  /** Parámetros del fragmento de arranque (`#clave=valor&...`). */
+  function readLaunchFragment(hash) {
+    return new URLSearchParams(String(hash || '').replace(/^#/, ''));
+  }
+
   function sanitizeImageUrl(rawUrl) {
     if (!rawUrl || typeof rawUrl !== 'string') return '';
     const trimmed = rawUrl.trim();
@@ -130,6 +138,16 @@
     try {
       window.open(safeUrl, '_blank', 'noopener,noreferrer');
     } catch (_) { /* Ventana emergente bloqueada por el navegador */ }
+  }
+
+  /**
+   * Tipo MIME con el que se previsualiza un lenguaje o extensión (html, htm, svg); null si no es previsualizable.
+   */
+  function previewMimeType(kind) {
+    const value = String(kind || '').trim().toLowerCase();
+    if (value === 'svg') return 'image/svg+xml;charset=utf-8';
+    if (value === 'html' || value === 'htm') return 'text/html;charset=utf-8';
+    return null;
   }
 
   /**
@@ -366,7 +384,10 @@
     sanitizeImageUrl,
     IMAGE_MIME_TYPES,
     SAFE_IMAGE_MIME_TYPES,
+    EPHEMERAL_ID_PATTERN,
+    readLaunchFragment,
     openImageInNewTab,
+    previewMimeType,
     openDocumentInNewTab,
     makeImageOpenable,
     parseRagImageRef,

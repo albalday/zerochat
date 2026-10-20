@@ -484,7 +484,7 @@
     await renderManageDialog(branch.id);
     await syncActivationIfOpen();
     updateToolbarStatus();
-    getDialogs().alert(t('notice_branch_restored', { name: branch.name }), { type: 'success' });
+    await getDialogs().alert(t('notice_branch_restored', { name: branch.name }), { type: 'success' });
   }
 
   async function refresh() {
@@ -555,7 +555,7 @@
       try {
         if (importInput.files[0]) await importBranchFile(importInput.files[0]);
       } catch (error) {
-        getDialogs().alert(t('notice_import_error', { err: error.message || error }), { type: 'error' });
+        await getDialogs().alert(t('notice_import_error', { err: error.message || error }), { type: 'error' });
       } finally {
         importInput.value = '';
       }

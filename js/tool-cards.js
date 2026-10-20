@@ -24,6 +24,14 @@
   const GROUP_CARDS = ':scope > .tool-call-group-history > .tool-call-group-cards';
   const GROUP_ACTIVE_CARDS = ':scope > .tool-call-group-active-cards';
 
+  // Quien contesta las autorizaciones sin usuario (el modo ejecución); null, las contesta el usuario.
+  let authorizationResponder = null;
+
+  /** `responder(toolName)` devuelve la decisión de cada petición de autorización en vez de esperar un clic. */
+  function setAuthorizationResponder(responder) {
+    authorizationResponder = responder;
+  }
+
   function getToolCallGroup(container) {
     const lastChild = container.lastElementChild;
     return lastChild?.classList.contains('tool-call-group') ? lastChild : null;
@@ -318,8 +326,6 @@
     if (!authPromptEl) {
       authPromptEl = document.createElement('div');
       authPromptEl.className = 'tool-card-auth-prompt';
-      // El modo ejecución decide la respuesta según la herramienta.
-      authPromptEl.dataset.toolName = toolName;
       (card.querySelector('.tool-card-collapsible-body') || cardEl).prepend(authPromptEl);
     }
 
@@ -515,6 +521,7 @@
           signal.addEventListener('abort', abortHandler, { once: true });
         }
       }
+      if (authorizationResponder) handleDecision(authorizationResponder(toolName));
     });
   }
 
@@ -563,6 +570,7 @@
     appendToolCard,
     completeToolCard,
     reactivateToolCard,
-    promptToolAuthorization
+    promptToolAuthorization,
+    setAuthorizationResponder
   };
 }));

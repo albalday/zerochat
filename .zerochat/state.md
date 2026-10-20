@@ -1,5 +1,5 @@
 # Current state
-- Milestone: M28 Search engine indexing of the public site
-- Next task: M28-T1 Static bilingual landing page at the site root and .nojekyll
-- Pending milestones: M3 (after M29, closed: M3 adds Playwright fields to the profile)
-- Last updated: 2026-10-19
+- Milestone: none active (M30 closed 2026-10-20)
+- Next task: none pending
+- Pending milestones: M28
+- Last updated: 2026-10-20

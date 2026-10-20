@@ -27,14 +27,15 @@ const REVIEWED_USES = {
   'js/tools/builtin/read-knowledge-image.tool.js': 1,
   'js/tools/builtin/render-chart.tool.js': 2,
   'js/tools/builtin/search-web.tool.js': 4,
+  'js/ui-browser.js': 2,
   'js/ui-command-jobs.js': 1,
   'js/ui-conversation.js': 10,
   'js/ui-dialogs.js': 1,
   'js/ui-inspector.js': 12,
   'js/ui-mcp.js': 6,
-  'js/ui-profiles.js': 1,
+  'js/ui-profiles.js': 5,
   'js/ui-reasoning.js': 1,
-  'js/ui-settings.js': 6,
+  'js/ui-settings.js': 2,
   'js/ui-sidebar.js': 2,
   'js/utils.js': 3
 };

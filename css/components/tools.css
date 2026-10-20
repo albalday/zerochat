@@ -869,12 +869,6 @@
   border: 1px solid var(--danger-border);
 }
 
-.mcp-auth-badge.status-ask {
-  background: var(--warning-soft);
-  color: var(--warning-text);
-  border: 1px solid var(--warning-border);
-}
-
 /* Selectores interactivos de autorización en lista MCP */
 .mcp-auth-select {
   font-size: 0.7rem;

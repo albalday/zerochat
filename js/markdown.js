@@ -583,7 +583,7 @@
       const rawCodeAttr = encodeURIComponent(rawCode);
 
       const trimmedLang = (codeLang || '').trim().toLowerCase();
-      const isPreviewable = /^(html|htm|svg)$/i.test(trimmedLang);
+      const isPreviewable = Utils.previewMimeType(trimmedLang) !== null;
       const previewTitle = I18n.t('md_preview_code_title');
       const previewBtn = I18n.t('md_preview_code_btn');
 
@@ -658,9 +658,7 @@
       button.dataset.listenerAttached = 'true';
       button.addEventListener('click', () => {
         const rawCode = decodeURIComponent(button.dataset.code || '');
-        const lang = (button.dataset.lang || 'html').toLowerCase();
-        const mimeType = lang === 'svg' ? 'image/svg+xml;charset=utf-8' : 'text/html;charset=utf-8';
-        Utils.openDocumentInNewTab(rawCode, mimeType);
+        Utils.openDocumentInNewTab(rawCode, Utils.previewMimeType(button.dataset.lang || 'html'));
       });
     });
   }

@@ -159,8 +159,8 @@ test('AgentCore - las definiciones y la guía del prompt siguen los interruptore
   assert.doesNotMatch(guide, /search_web/);
   assert.match(guide, new RegExp(AgentCore.TOOL_WORKFLOW_INSTRUCTION.slice(0, 30).replace(/[*]/g, '\\*')));
 
-  // El navegador lo elige el perfil: browser_action o Playwright MCP, nunca los dos, aunque el
-  // interruptor general de browser_action esté apagado.
+  // La herramienta de navegación de Ajustes › Navegador: browser_action o Playwright MCP, nunca los
+  // dos, aunque el interruptor general de browser_action esté apagado.
   registry.registerTool(makeTool({ name: 'browser_action', category: 'mcp', settings: { showInSettings: true }, metadata: { mcpServerId: 'mcp_proxy' }, execute: async () => '' }));
   registry.registerTool(makeTool({ name: 'playwright_browser_click', category: 'mcp', settings: { showInSettings: true }, metadata: { mcpServerId: 'playwright' }, execute: async () => '' }));
   const browserTools = browser => registry.getActiveDefinitions(ConfigStore.normalize({ browser, enabledTools: { browser_action: false } }))
@@ -169,4 +169,9 @@ test('AgentCore - las definiciones y la guía del prompt siguen los interruptore
   assert.deepEqual(browserTools('playwright'), ['playwright_browser_click']);
   assert.deepEqual(browserTools('none'), []);
   assert.deepEqual(browserTools('otro'), ['browser_action'], 'Un valor desconocido toma el predeterminado');
+  // El perfil que exige Playwright MCP manda sobre la herramienta de Ajustes; uno no válido no exige nada.
+  const profileTools = playwrightBrowser => registry.getActiveDefinitions(ConfigStore.normalize({ browser: 'none', playwrightBrowser }))
+    .map(d => d.function.name).filter(name => ['browser_action', 'playwright_browser_click'].includes(name));
+  assert.deepEqual(profileTools({ mode: 'user', userBrowser: 'chromium' }), ['playwright_browser_click']);
+  assert.deepEqual(profileTools({ mode: 'own', engine: 'opera' }), []);
 });

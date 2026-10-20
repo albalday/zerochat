@@ -87,7 +87,7 @@ with tempfile.TemporaryDirectory() as temp_dir:
     client = Mock(tools=[])
     client.running.return_value = True
     with patch.dict(os.environ, {"SERVICE_API_KEY": "inherited-fixture"}), patch.object(module, "StdioMcpClient", return_value=client) as constructor:
-        manager.start("custom-key")
+        manager.start("custom-key", remember=True)
         env = constructor.call_args.args[3]
         assert env["SERVICE_API_KEY"] == "fixture-key"
         assert env["HOME"] == str(custom)
@@ -107,6 +107,245 @@ with tempfile.TemporaryDirectory() as temp_dir:
         assert not preferences.exists()
         assert next(item for item in manager.list_servers() if item["id"] == "custom-key")["enabled"] is False
     manager.close()
+`;
+  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+});
+
+test('zerochat.py: Playwright MCP arranca con el navegador de la configuración del navegador', () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const script = `
+import importlib.util
+import json
+import os
+import tempfile
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    spec = importlib.util.spec_from_file_location("zerochat_browser_config_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.console_log = lambda message, **kwargs: None
+    manager = module.McpServiceManager()
+    config_file = Path(temp_dir) / "config" / "browser.json"
+    client = Mock(tools=[])
+    client.running.return_value = True
+
+    launched_env = {}
+
+    def launch_args(config, browser=None):
+        if config is None:
+            config_file.unlink(missing_ok=True)
+        else:
+            config_file.write_text(config if isinstance(config, str) else json.dumps(config), encoding="utf-8")
+        with patch.object(manager, "_prepare_service", return_value={"serviceDir": "/svc", "nodeExecutable": "node", "pythonExecutable": "python"}), \\
+             patch.object(module, "StdioMcpClient", return_value=client) as constructor:
+            manager.start("playwright", remember=False, browser=browser)
+            manager.close()
+            launched_env.clear()
+            launched_env.update(constructor.call_args.args[3])
+            return constructor.call_args.args[1][1:]
+
+    own = Path(temp_dir) / "playwright" / "profile"
+    default_args = ["--browser=chromium", f"--user-data-dir={own / 'chromium'}", "--headless"]
+    # Sin fichero, o con uno no válido, se usan los valores por defecto: navegador propio sin ventana.
+    assert launch_args(None) == default_args
+    for directory in (own.parent, own, own / "chromium"):
+        assert directory.stat().st_mode & 0o777 == 0o700, directory
+    assert launch_args("{roto") == default_args
+    assert launch_args({"mode": "own", "engine": "opera"}) == default_args
+    assert launch_args({"mode": "own", "engine": "firefox", "headless": False}) == ["--browser=firefox", f"--user-data-dir={own / 'firefox'}"]
+    # Con el navegador del usuario manda la extensión y siempre hay ventana.
+    assert launch_args({"mode": "user", "userBrowser": "msedge", "headless": True}) == ["--extension", "--browser=msedge"]
+    # Chromium no es un canal: su ejecutable y su perfil, con el canal chrome; sin Chromium no arranca.
+    with patch.object(module, "chromium_install", return_value=("/usr/bin/chromium", Path("/home/u/.config/chromium"))):
+        assert launch_args({"mode": "user", "userBrowser": "chromium"}) == [
+            "--extension", "--browser=chrome", "--executable-path=/usr/bin/chromium", "--user-data-dir=/home/u/.config/chromium"]
+    with patch.object(module, "chromium_install", return_value=None):
+        try:
+            module.playwright_launch_args({**module.BROWSER_CONFIG_DEFAULTS, "mode": "user", "userBrowser": "chromium"})
+        except RuntimeError as err:
+            assert "Chromium" in str(err)
+        else:
+            raise AssertionError("arrancó sin Chromium")
+
+    # El navegador que exige el perfil sustituye solo al modo y al navegador de Ajustes, en ese arranque.
+    settings = {"mode": "own", "engine": "firefox", "headless": False, "extensionToken": "abc"}
+    assert launch_args(settings, {"mode": "user", "userBrowser": "msedge"}) == ["--extension", "--browser=msedge"]
+    assert launched_env["PLAYWRIGHT_MCP_EXTENSION_TOKEN"] == "abc"
+    assert manager.browsers["playwright"] == {"mode": "user", "userBrowser": "msedge"}
+    assert launch_args({**settings, "mode": "user"}, {"mode": "own", "engine": "webkit"}) == ["--browser=webkit", f"--user-data-dir={own / 'webkit'}"]
+    assert launch_args(settings) == ["--browser=firefox", f"--user-data-dir={own / 'firefox'}"]
+    assert manager.browsers["playwright"] == {"mode": "own", "engine": "firefox"}
+    for invalid in [None, [], {"mode": "own"}, {"mode": "own", "engine": "opera"}, {"mode": "user", "userBrowser": "firefox"},
+                    {"mode": "own", "engine": "chromium", "headless": False}, {"mode": "user", "engine": "chromium"}]:
+        try:
+            module.validate_profile_browser(invalid)
+        except ValueError as err:
+            assert "browser debe ser" in str(err)
+        else:
+            raise AssertionError(f"navegador de perfil aceptado: {invalid}")
+
+    # La extensión cuenta como instalada si algún perfil del navegador la tiene en su carpeta Extensions.
+    profiles = Path(temp_dir) / "user-browsers"
+    (profiles / "chrome" / "Profile 2" / "Extensions" / module.PLAYWRIGHT_EXTENSION_ID / "1.0_0").mkdir(parents=True)
+    (profiles / "msedge" / "Default" / "Extensions" / "otra").mkdir(parents=True)
+    data_dirs = {"chrome": profiles / "chrome", "msedge": profiles / "msedge", "chromium": None}
+    with patch.object(module, "user_browser_data_dir", side_effect=data_dirs.get):
+        assert module.user_browser_extensions() == {"chrome": True, "msedge": False, "chromium": False}
+
+    # El token de la extensión va en el entorno, nunca en los argumentos, y solo con el navegador del usuario.
+    token = "abc_DEF-123"
+    assert launch_args({"mode": "user", "userBrowser": "chrome", "extensionToken": token}) == ["--extension", "--browser=chrome"]
+    assert launched_env["PLAYWRIGHT_MCP_EXTENSION_TOKEN"] == token
+    launch_args({"mode": "own", "extensionToken": token})
+    assert "PLAYWRIGHT_MCP_EXTENSION_TOKEN" not in launched_env
+
+    # Lo guardado se valida, solo lo lee el usuario y es lo que usa el siguiente arranque.
+    saved = module.save_browser_config({"engine": "webkit", "headless": False})
+    assert saved == {"mode": "own", "engine": "webkit", "userBrowser": "chrome", "headless": False, "extensionToken": ""}
+    assert config_file.stat().st_mode & 0o777 == 0o600
+    assert module.validate_browser_config({"extensionToken": "a" * 256})["extensionToken"] == "a" * 256
+    assert launch_args(saved) == ["--browser=webkit", f"--user-data-dir={own / 'webkit'}"]
+
+    # Borrar los datos quita solo el perfil de ese motor y exige Playwright MCP detenido.
+    (own / "chromium" / "Cookies").write_text("x")
+    with patch.object(module.GLOBAL_MCP_MANAGER, "list_servers", return_value=[{"id": "playwright", "status": "starting"}]):
+        try:
+            module.clear_own_browser_data("chromium")
+        except ValueError as err:
+            assert "Detén Playwright MCP" in str(err)
+        else:
+            raise AssertionError("se borraron los datos de un navegador abierto")
+    assert module.clear_own_browser_data("chromium") == {"cleared": "chromium"}
+    assert sorted(path.name for path in own.iterdir()) == ["firefox", "webkit"]
+
+    for raw, message in [
+        ([], "objeto"),
+        ({"mode": "own", "extra": 1}, "extra"),
+        ({"mode": "remote"}, "mode"),
+        ({"userBrowser": "firefox"}, "userBrowser"),
+        ({"headless": "no"}, "headless"),
+        ({"extensionToken": "a b"}, "extensionToken"),
+        ({"extensionToken": "a" * 257}, "extensionToken"),
+    ]:
+        try:
+            module.save_browser_config(raw)
+        except ValueError as err:
+            assert message in str(err), (raw, err)
+        else:
+            raise AssertionError(raw)
+    assert module.load_browser_config() == saved, "un valor rechazado no cambia lo guardado"
+`;
+  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+});
+
+test('zerochat.py: los motores de Playwright se listan, instalan con progreso y quitan en su caché', { skip: process.platform === 'win32' }, () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const script = `
+import importlib.util
+import json
+import os
+import tempfile
+import time
+from pathlib import Path
+from unittest.mock import patch
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    cache = Path(temp_dir) / "cache"
+    cli = Path(temp_dir) / "services" / "playwright" / "node_modules" / "playwright" / "cli.js"
+    cli.parent.mkdir(parents=True)
+    (cli.parent / "package.json").write_text('{"version": "1.2.3"}', encoding="utf-8")
+    # CLI simulado: --dry-run da las rutas de esta versión; install escribe el progreso como sin
+    # terminal, espera a que exista "go" y falla con webkit.
+    cli.write_text('''
+const fs = require("fs"), path = require("path");
+const cache = ${JSON.stringify('CACHE')};
+const titles = {"chromium": "Chrome for Testing 1", "chromium-headless-shell": "Chrome Headless Shell 1", "firefox": "Firefox 2", "webkit": "WebKit 3"};
+const dir = name => path.join(cache, name.replace(/-/g, "_") + "-1");
+const args = process.argv.slice(2);
+if (args.includes("--dry-run")) {
+  for (const name of args.slice(2)) console.log(titles[name] + " (playwright " + name + " v1)\\\\n  Install location:    " + dir(name) + "\\\\n");
+  process.exit(0);
+}
+const engine = args[1];
+if (engine === "webkit") { console.error("Host system is missing dependencies"); process.exit(1); }
+const names = engine === "chromium" ? ["chromium", "chromium-headless-shell"] : [engine];
+console.log("Downloading " + titles[names[0]] + " (playwright " + names[0] + " v1) from https://example.invalid");
+console.log("|■■■■■■■■■■■■■■■■■■■■■■■■                                                        |  30% of 10 MiB");
+const wait = () => {
+  if (!fs.existsSync(path.join(cache, "go"))) return setTimeout(wait, 20);
+  for (const name of names) { fs.mkdirSync(dir(name), {recursive: true}); fs.writeFileSync(path.join(dir(name), "INSTALLATION_COMPLETE"), ""); }
+};
+wait();
+'''.replace("CACHE", str(cache)), encoding="utf-8")
+    cache.mkdir()
+    (cache / "ffmpeg-1").mkdir()
+    spec = importlib.util.spec_from_file_location("zerochat_engines_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.console_log = lambda message, **kwargs: None
+    engines = module.BrowserEngines()
+
+    def engine(listing, engine_id):
+        return next(item for item in listing["engines"] if item["id"] == engine_id)
+
+    def settled(engine_id):
+        for _ in range(250):
+            item = engine(engines.list(), engine_id)
+            if item.get("status") != "installing":
+                return item
+            time.sleep(0.02)
+        raise AssertionError("la instalación no terminó")
+
+    listing = engines.list()
+    assert listing["available"] and listing["playwrightVersion"] == "1.2.3"
+    assert [(item["id"], item["title"], item["installed"]) for item in listing["engines"]] == [
+        ("chromium", "Chrome for Testing 1", False), ("firefox", "Firefox 2", False), ("webkit", "WebKit 3", False)]
+
+    engines.install("chromium")
+    for _ in range(250):
+        progress = engine(engines.list(), "chromium")
+        if progress.get("percent"):
+            break
+        time.sleep(0.02)
+    assert progress == {"id": "chromium", "title": "Chrome for Testing 1", "installed": False,
+                        "status": "installing", "download": "Chrome for Testing 1", "percent": 30}, progress
+    for call in (lambda: engines.install("chromium"), lambda: engines.install("opera")):
+        try:
+            call()
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("se aceptó una instalación repetida o un motor desconocido")
+    (cache / "go").write_text("")
+    assert settled("chromium") == {"id": "chromium", "title": "Chrome for Testing 1", "installed": True}
+    engines.install("webkit")
+    failed = settled("webkit")
+    assert failed["status"] == "error" and "missing dependencies" in failed["error"] and not failed["installed"], failed
+
+    # Quitar un motor exige Playwright MCP detenido y conserva ffmpeg, común a todos.
+    with patch.object(module.GLOBAL_MCP_MANAGER, "list_servers", return_value=[{"id": "playwright", "status": "running"}]):
+        try:
+            engines.remove("chromium")
+        except ValueError as err:
+            assert "Detén Playwright MCP" in str(err)
+        else:
+            raise AssertionError("se quitó un motor en uso")
+    # Al quitar el motor elegido, la configuración pasa a otro instalado.
+    engines.install("firefox")
+    assert settled("firefox")["installed"]
+    assert engine(engines.remove("chromium"), "chromium")["installed"] is False
+    assert sorted(path.name for path in cache.iterdir()) == ["ffmpeg-1", "firefox-1", "go"]
+    assert module.load_browser_config()["engine"] == "firefox"
+    engines.remove("firefox")
+    assert module.load_browser_config()["engine"] == "firefox", "sin otro instalado se conserva"
+
+    cli.unlink()
+    assert engines.list() == {"systemBrowsers": module.system_browsers(), "extensions": module.user_browser_extensions(), "engines": [], "available": False,
+                              "error": "Playwright MCP is not installed."}
 `;
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });
@@ -162,8 +401,8 @@ for line in sys.stdin:
     write_service("broken", 'import sys\\nprint("intentional MCP startup failure", file=sys.stderr, flush=True)\\nsys.exit(3)\\n')
 
     manager = zerochat.McpServiceManager(root)
-    assert next(item for item in manager.start("healthy") if item["id"] == "healthy")["status"] == "running"
-    assert next(item for item in manager.start("broken") if item["id"] == "broken")["status"] == "error"
+    assert next(item for item in manager.start("healthy", remember=True) if item["id"] == "healthy")["status"] == "running"
+    assert next(item for item in manager.start("broken", remember=True) if item["id"] == "broken")["status"] == "error"
     time.sleep(0.1)
     manager.close()
 
@@ -219,7 +458,7 @@ with tempfile.TemporaryDirectory() as temp_dir:
                 raise RuntimeError("OAuth failed")
         client.start.side_effect = handshake
         with patch.object(manager, "_prepare_service", side_effect=prepare), patch.object(module, "StdioMcpClient", return_value=client):
-            manager.start("oauth-fixture")
+            manager.start("oauth-fixture", remember=True)
         assert status()["status"] == ("error" if fail else "running")
         assert status()["error"] == ("OAuth failed" if fail else None)
         assert client.stop.call_count == (1 if fail else 0)
@@ -377,7 +616,7 @@ with tempfile.TemporaryDirectory() as temp_dir:
     zerochat.StdioMcpClient.max_message_chars = 1024 * 1024
     manager = zerochat.McpServiceManager(root)
     try:
-        assert next(item for item in manager.start("limits") if item["id"] == "limits")["status"] == "running"
+        assert next(item for item in manager.start("limits", remember=True) if item["id"] == "limits")["status"] == "running"
         client = manager.clients["limits"]
         assert client.call_timeout == 0.5
 

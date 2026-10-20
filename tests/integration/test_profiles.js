@@ -89,6 +89,17 @@ test('ProfileRepository - los servicios MCP del perfil son identificadores únic
   }
 });
 
+test('ProfileRepository - el navegador que exige el perfil es el propio con un motor o el del usuario con un navegador', () => {
+  const save = playwrightBrowser => Profiles.save({ id: 'browser', name: 'Navegador', settings: { playwrightBrowser } }).settings.playwrightBrowser;
+  assert.equal(save(null), null);
+  assert.deepEqual(save({ mode: 'own', engine: 'webkit' }), { mode: 'own', engine: 'webkit' });
+  assert.deepEqual(save({ userBrowser: 'msedge', mode: 'user' }), { userBrowser: 'msedge', mode: 'user' });
+  for (const invalid of ['playwright', [], {}, { mode: 'own' }, { mode: 'own', engine: 'opera' }, { mode: 'user', userBrowser: 'firefox' },
+    { mode: 'user', engine: 'chromium' }, { mode: 'own', engine: 'chromium', headless: false }]) {
+    assert.throws(() => save(invalid), /browser the profile requires/, JSON.stringify(invalid));
+  }
+});
+
 test('ProfileRepository - rechaza una importación que intenta modificar Espejo', () => {
   const repository = Profiles;
   assert.throws(() => repository.mergeImported([

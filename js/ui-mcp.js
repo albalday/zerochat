@@ -106,7 +106,7 @@
 
   /**
    * Lista de herramientas MCP con su interruptor; las de navegador (browser_action y Playwright MCP)
-   * no tienen interruptor propio porque las elige el perfil activo.
+   * no tienen interruptor propio porque se eligen en Ajustes › Navegador.
    */
   function renderToolsList(container, tools, appConfig) {
     if (tools.length === 0) {
@@ -120,7 +120,7 @@
     const AgentCore = getAgentCore();
     const items = tools.map(tool => {
       const browser = AgentCore.browserOfTool(tool);
-      const isChecked = tool.available !== false && (browser ? browser === appConfig.browser : AgentCore.isToolEnabled(appConfig.enabledTools, tool.name));
+      const isChecked = tool.available !== false && (browser ? browser === AgentCore.activeBrowserTool(appConfig) : AgentCore.isToolEnabled(appConfig.enabledTools, tool.name));
       const schema = tool.inputSchema || {};
       const required = Array.isArray(schema.required) ? schema.required : [];
       const paramsHint = Object.entries(schema.properties || {})
@@ -138,7 +138,7 @@
             </div>
             <p class="mcp-tool-desc">${escapeHtml(tool.description || '')}</p>
             ${paramsHint ? `<div class="mcp-tool-params"><code>${escapeHtml(paramsHint)}</code></div>` : ''}
-            ${browser ? `<p class="label-hint">${escapeHtml(t('mcp_tool_profile_browser'))}</p>` : ''}
+            ${browser ? `<p class="label-hint">${escapeHtml(t('mcp_tool_browser_setting'))}</p>` : ''}
           </div>
           <div class="mcp-tool-action">
             <label class="switch">
@@ -230,7 +230,7 @@
           ${description ? `<p class="mcp-server-desc">${escapeHtml(description)}</p>` : ''}
           ${remote ? `<p class="mcp-server-remote"><span class="mcp-server-remote-badge">${escapeHtml(t('mcp_remote_transport'))}</span>${remoteEndpoint ? ` <span>${escapeHtml(remoteEndpoint)}</span>` : ''}</p>` : ''}
           ${help ? `<p class="mcp-server-help"><a href="${escapeHtml(help.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(help.label)}</a></p>` : ''}
-          ${server.id === 'playwright' ? `<p class="label-hint mcp-server-profile-notice">${escapeHtml(t('mcp_playwright_profile_notice'))}</p>` : ''}
+          ${server.id === 'playwright' ? `<p class="label-hint mcp-server-browser-notice">${escapeHtml(t('mcp_playwright_browser_notice'))}</p>` : ''}
           ${server.error ? `<div class="mcp-server-error"><p>${escapeHtml(server.error)}</p><a href="help/mcp.html" target="_blank" rel="noopener noreferrer">${escapeHtml(t('mcp_external_help'))}</a></div>` : ''}
           ${server.oauthUrl ? `<div class="mcp-server-oauth-banner"><p class="mcp-server-oauth-msg">${escapeHtml(t('mcp_oauth_required_msg'))}</p><a class="btn-secondary btn-mcp-oauth-open" href="${escapeHtml(server.oauthUrl)}" target="_blank" rel="noopener noreferrer" data-server-id="${id}">${escapeHtml(t('mcp_btn_oauth_authorize'))}</a></div>` : ''}
           ${renderServerOptions(server, language)}
@@ -297,8 +297,8 @@
   }
 
   /**
-   * Inicia o detiene un servicio MCP gestionado reflejando el progreso en su tarjeta.
-   * Devuelve true si la acción terminó correctamente.
+   * Inicia o detiene un servicio MCP gestionado reflejando el progreso en su tarjeta. Playwright MCP
+   * arranca con el navegador que exija el perfil activo. Devuelve true si la acción terminó correctamente.
    */
   async function runExternalServerAction(serverId, action, { button = null, remember = true } = {}) {
     const pendingStatus = action === 'start' ? 'starting' : 'stopped';
@@ -319,7 +319,8 @@
     };
     const manager = getMCP().manager;
     try {
-      if (action === 'start') await manager.startExternalServer(serverId, reportStartWait, { remember });
+      const browser = serverId === 'playwright' ? getConfig().getActive().playwrightBrowser : null;
+      if (action === 'start') await manager.startExternalServer(serverId, reportStartWait, { remember, ...(browser ? { browser } : {}) });
       else await manager.stopExternalServer(serverId);
       return true;
     } catch (error) {
@@ -342,8 +343,9 @@
   }
 
   /**
-   * Arranca los servicios externos de un perfil (los suyos y Playwright MCP si es su navegador) que
-   * no estén ya en marcha, sin parar los demás ni guardarlos como activos para la siguiente sesión.
+   * Arranca los servicios externos de un perfil (los suyos y Playwright MCP si es la herramienta de
+   * navegación activa) que no estén ya en marcha, sin parar los demás ni guardarlos como activos para
+   * la siguiente sesión. Si el perfil exige otro navegador del que usa Playwright MCP, lo reinicia.
    * Devuelve { started, unavailable }: los nombres de los que ha arrancado y de los que no están
    * configurados en el servidor local o no han arrancado. Sin conexión no arranca nada.
    */
@@ -352,7 +354,10 @@
     const started = [];
     const unavailable = [];
     if (State.get('mcp').status !== 'connected') return { started, unavailable };
-    const ids = appConfig.browser === 'playwright' ? [...appConfig.mcpServers, 'playwright'] : appConfig.mcpServers;
+    const ids = getAgentCore().activeBrowserTool(appConfig) === 'playwright' ? [...appConfig.mcpServers, 'playwright'] : appConfig.mcpServers;
+    const required = appConfig.playwrightBrowser;
+    const otherBrowser = server => server.id === 'playwright' && required && server.status === 'running'
+      && (server.browser?.mode !== required.mode || server.browser.engine !== required.engine || server.browser.userBrowser !== required.userBrowser);
     const language = I18n.getLanguage();
     for (const id of ids) {
       const server = State.get('mcp').externalServers.find(item => item.id === id);
@@ -360,7 +365,12 @@
         unavailable.push(id);
         continue;
       }
-      if (['running', 'starting', 'installing'].includes(server.status)) continue;
+      if (otherBrowser(server)) {
+        if (!await runExternalServerAction(id, 'stop')) {
+          unavailable.push(getServiceName(server, language));
+          continue;
+        }
+      } else if (['running', 'starting', 'installing'].includes(server.status)) continue;
       const ok = await runExternalServerAction(id, 'start', { remember: false });
       (ok ? started : unavailable).push(getServiceName(server, language));
     }
@@ -515,20 +525,13 @@
     }
   }
 
-  /** Pinta los controles de seguridad con el estado de ChatToolSecurity; los eventos los enlaza initMcpUI. */
+  /**
+   * Pinta las autorizaciones guardadas y las herramientas con el estado de ChatToolSecurity. La política
+   * global y las reglas de directorios las carga y guarda el diálogo de ajustes.
+   */
   function syncSecurityControls(elements = cachedElements) {
     const el = elements || cachedElements;
     if (!el) return;
-    const security = getSecurity();
-    const policy = security.getGlobalMcpPolicy();
-    if (el.policyRadios) {
-      for (const [value, radio] of Object.entries(el.policyRadios)) {
-        if (radio) radio.checked = policy === value;
-      }
-    }
-    if (el.directoryRules && document.activeElement !== el.directoryRules) {
-      el.directoryRules.value = security.getDirectoryRules().join('\n');
-    }
     renderSavedAuthorizations(el);
     renderCurrentToolsList(el);
   }
@@ -553,25 +556,6 @@
       const server = event.target.closest('.btn-revoke-server-auth');
       if (server) security.revokeServerPolicy(server.getAttribute('data-server-id'));
     });
-    if (elements.policyRadios) {
-      for (const [value, radio] of Object.entries(elements.policyRadios)) {
-        if (radio) {
-          on(radio, 'change', () => {
-            if (radio.checked) security.setGlobalMcpPolicy(value);
-          });
-        }
-      }
-    }
-    const onRulesChange = () => {
-      try {
-        security.setDirectoryRules(elements.directoryRules.value.split(/\r?\n/).map(rule => rule.trim()).filter(Boolean));
-        elements.directoryRulesError.textContent = '';
-      } catch (err) {
-        elements.directoryRulesError.textContent = err.message || t('mcp_directory_rules_invalid');
-      }
-    };
-    on(elements.directoryRules, 'change', onRulesChange);
-    on(elements.directoryRules, 'input', onRulesChange);
     on(elements.btnClearAuths, 'click', () => security.clearAllAuthorizations());
 
     const unsubscribeSecurity = security.subscribe(() => syncSecurityControls(elements));
@@ -607,6 +591,7 @@
     getServiceHelp,
     getServiceName,
     startProfileServers,
+    runExternalServerAction,
     renderConnectionStatus,
     renderToolsList,
     renderExternalServers,

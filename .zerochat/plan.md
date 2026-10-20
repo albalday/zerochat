@@ -3,23 +3,7 @@
 ## M1 Project setup: closed 2026-10-12
 
 ## M2 Audit closure, Anthropic connection and detected bugs: closed 2026-10-13
-## M3 Playwright and browser_action configuration
-Goal: A Playwright panel in Settings that installs the browser engines and holds the default configuration shared by Playwright MCP and browser_action, with parameters each ZeroChat profile can override, so a later scripts project can rely on them.
-Done when: the Playwright panel lists, installs and removes the browser engines and edits the default configuration used by both Playwright MCP and browser_action; each profile can override those parameters and the effective configuration applies to the interactive session and to zerochat --prompt --profile; with ES/EN help and tests.
-- [x] M3-T1 Study with the user how to approach Playwright scripts and agree the milestone's Done when (2026-10-19)
-- [x] M3-T2 True headless and concurrent zerochat.py --prompt runs on a copy of the user's browser profile, starting from M18-D2/D3/D5/D6/D7 (selective Firefox copy of storage/default/<UI origin> plus its moz_perms rows via the SQLite backup API with a raw copy+WAL fallback for exclusively locked databases, 0700 and deleted after use; Playwright storageState for Chromium; headless needs local network access granted) and the dropped M18-T4 code in git history (commit a4b9bbd, py/hh-firefox-profile.py) (dropped: outside the new M3 scope (Playwright and browser_action configuration); it concerns the browser running the ZeroChat UI in --prompt runs and needs a new task when taken up, see M3-D7)
-- [x] M3-T3 Playwright parameters as a section of the profile (browser, headless, isolated or persistent browser profile, origins, code generation, output directory): the backend generates the MCP config.json from the active profile in ~/zerochat/config/playwright/<profile file id>.json (0700 directory, safe file name derived from the profile id, outside the MCP service directory), keeps persistent browser profiles in ~/zerochat/playwright-profiles/<profile file id>/ (0700), launches the MCP with --config and migrates the current headless option; deleting a profile deletes its generated config and persistent browser profile (dropped: replaced by M3-T10 and M3-T14, see M3-D7)
-- [x] M3-T4 Playwright section in the profile editor: browser (installing it), headless, isolated or persistent browser profile, allowed/blocked origins, code generation and an output directory for screenshots and traces instead of the MCP service directory; profile backups and exports carry the parameters (dropped: replaced by M3-T12 and M3-T13, see M3-D7)
-- [x] M3-T5 Playwright secrets of each profile in a 0600 .env passed with --secrets (dropped: secrets belong to the scripts project, not to ZeroChat, see M3-D5)
-- [x] M3-T6 browser_action applies the active Playwright configuration (browser, headless, profile, origins) (dropped: replaced by M3-T10, see M3-D7)
-- [x] M3-T7 zerochat --prompt --playwright-config <name> for one run, with a clear error when the persistent profile is in use (dropped: the profile chooses the Playwright configuration, see M3-T9 and M3-D2)
-- [x] M3-T8 Installed Playwright version and browsers shown in the settings screen and given to the model with a read-only description of the active configuration, so generated scripts pin the same version and reuse the downloaded browsers (dropped: installed version and browsers go to the panel (M3-T11); what the model knows for script generation belongs to the scripts project, see M3-D7)
-- [x] M3-T9 Applying the profile's Playwright parameters: activating a profile with other parameters restarts the MCP after a notice (last activated tab wins), --prompt --profile hands them to the run's backend before Playwright starts, and a clear error when the persistent browser profile is in use (dropped: replaced by M3-T14, see M3-D7)
-- [ ] M3-T10 Default Playwright configuration in ~/zerochat/config/playwright/default.json (0700 directory, outside the MCP service directory) in the Playwright MCP config.json format: the MCP launches with --config, browser_action reads the same browser, headless, browser profile and origins, and the current headless service option migrates into it
-- [ ] M3-T11 Browser engines: list the installed Playwright version and its own engines (Chromium, Firefox, WebKit), install or remove them with progress inside the Playwright cache, and only detect whether a system browser (Chrome, Edge) can be used, never installing anything system-wide
-- [ ] M3-T12 Playwright panel in Settings: engines (M3-T11) and default parameters (browser, headless, isolated or persistent browser profile in ~/zerochat/playwright-profiles/, allowed/blocked origins, code generation, output directory for screenshots and traces instead of the MCP service directory), restarting the MCP after a notice when they change; ES/EN help
-- [ ] M3-T13 Profile overrides: a profile field holding only the Playwright parameters that differ from the default, edited in the profile editor, carried by profile backups and exports
-- [ ] M3-T14 Effective configuration: default plus the active profile's overrides, generated as the MCP config file of that profile, applied on profile activation (MCP restart after a notice, last activated tab wins) and by --prompt --profile before Playwright starts, with a clear error when a persistent browser profile is in use; deleting a profile deletes its generated config and browser profile
+## M3 Playwright and browser_action configuration: closed 2026-10-19
 
 ## M4 Images and office files in the chat: closed 2026-10-16
 
@@ -81,3 +65,5 @@ Done when: the site root serves a static bilingual landing page instead of the J
 - [ ] M28-T7 Manual check with the owner: Lighthouse SEO on landing and help index, Rich Results Test, Search Console verification file committed and sitemap submitted
 
 ## M29 Configuration profiles: MCP servers per profile: closed 2026-10-19
+
+## M30 Fixes from the 9.2.0–9.6.1 code quality audit: closed 2026-10-20

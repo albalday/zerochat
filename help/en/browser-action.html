@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Browser automation · ZeroChat Help · 9.x</title>
-  <meta name="description" content="Preparing and using browser_action with the local server.">
+  <title>Model browser · ZeroChat Help · 9.x</title>
+  <meta name="description" content="Choosing the browsing tool and the Playwright MCP browser in Settings › Browser.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -14,24 +14,51 @@
         <a href="index.html" class="logo-badge">ZeroChat 9.x Docs</a>
         <div class="header-actions"><a href="../browser-action.html" class="top-nav-link">Español</a><a href="mcp.html" class="top-nav-link">← MCP</a></div>
       </div>
-      <h1>Browser automation</h1>
-      <p class="subtitle">Preparing and using browser_action with the local server.</p>
+      <h1>Model browser</h1>
+      <p class="subtitle">Choosing the browsing tool and the Playwright MCP browser in Settings › Browser.</p>
     </header>
 
     <div class="card">
-      <p><code>browser_action</code> is a local server tool that controls Chromium to navigate, take screenshots, click elements and fill forms. It requires Node.js, Playwright and a compatible browser. Playwright cannot currently be used on Termux, so this tool is not available on Android. It does not control the ZeroChat tab or necessarily inherit sessions from your usual browser. Valid screenshots are shown in the tool card and sent to the model as visual evidence.</p>
+      <p>In <strong>Settings › Browser</strong> you choose how the model browses. It needs the local server (<code>zerochat</code>) with Node.js and <code>npm</code>; on Windows, see <a href="mcp.html#nodejs-windows">Installing Node.js on Windows</a>. Playwright cannot currently be used on Termux, so there is no model browser on Android. No option controls the ZeroChat tab.</p>
+      <ul>
+        <li><strong>None:</strong> the model does not drive a browser, although it can still search and read pages.</li>
+        <li><strong><code>browser_action</code>:</strong> a local server tool without options that opens pages, clicks, types and takes screenshots in a windowless Chromium. It uses the Playwright installed by the Playwright MCP service, so start that service once in Settings › MCP to install it.</li>
+        <li><strong>Playwright MCP:</strong> the complete Playwright toolset, with the browser you choose below. When you save this option, Playwright MCP starts if it is stopped.</li>
+      </ul>
+      <p>Only one of the two is offered to the model: even if Playwright MCP is running, its tools are not offered if you choose <code>browser_action</code> or none. The choice belongs to the application, not to the active profile. Valid screenshots are shown in the tool card and handed to the model as visual evidence.</p>
+    </div>
+
+    <div class="card" id="navegador-propio">
+      <h2>ZeroChat’s own browser</h2>
+      <p>Playwright MCP opens a separate browser with a persistent profile in <code>~/zerochat/playwright/profile/&lt;engine&gt;</code>: the cookies and sessions you sign in to are kept between uses, apart from your browser.</p>
+      <ul>
+        <li><strong>Engines:</strong> Chromium, Firefox or WebKit, downloaded to the Playwright cache, never to the system. Chromium is installed with the service; <strong>Install</strong> downloads the others and shows the progress, and <strong>Remove</strong> deletes them from the cache. Only an installed engine can be chosen; if you remove the chosen one, another installed one is used. WebKit and Firefox may need system libraries on Linux.</li>
+        <li><strong>Browser data:</strong> <strong>Clear</strong> deletes the cookies, sessions and site data of the chosen engine. You will have to sign in to those sites again.</li>
+        <li><strong>Show the window:</strong> by default the browser runs without a window; check it to watch what the model does.</li>
+      </ul>
+      <p>Removing an engine or clearing its data stops Playwright MCP if it is running and starts it again when done.</p>
+    </div>
+
+    <div class="card" id="extension">
+      <h2>Your browser</h2>
+      <p>With this option, Playwright MCP connects to your Chrome, Edge or Chromium through the Playwright extension and uses your open tabs and sessions, without signing in again. You choose among the browsers detected on the system; it does not need to be the default one. Firefox and Safari do not support the extension; to use your Firefox sessions, sign in to those sites from the own browser.</p>
+      <ol>
+        <li>In the chosen browser, open the <a href="https://chromewebstore.google.com/detail/playwright-extension/mmlmfjhmonkocbjadbfplnigmagldckm" target="_blank" rel="noopener noreferrer">Playwright extension in the Chrome Web Store</a> and click <strong>Add</strong>. In Edge, allow extensions from other stores first when asked. With Chromium, the profile where the extension is installed is used. Settings › Browser shows whether it is already installed in that browser.</li>
+        <li>Keep that browser open. In Settings › Browser choose <strong>Your browser</strong> and the browser, and save.</li>
+        <li>The first time the model browses after Playwright MCP starts, the extension asks you to accept the connection and choose the tab you share with it.</li>
+      </ol>
+      <p>To avoid accepting every connection, copy the token shown in the extension window into <strong>Extension token</strong>; you can paste the whole <code>PLAYWRIGHT_MCP_EXTENSION_TOKEN=…</code> line. It is saved in <code>~/zerochat/config/browser.json</code>, readable only by your user, and Playwright MCP receives it when it starts. Whoever has the token can connect to your browser without your approval: do not share it.</p>
+      <p>This mode always has a window: the model works in your open browser.</p>
     </div>
 
     <div class="card">
-      <h2>Setup</h2>
-      <ol><li>Start the backend with <code>zerochat</code> or <code>python3 zerochat.py</code> and check that Node.js and <code>npm</code> are available to that process. On Windows, see <a href="mcp.html#nodejs-windows">Install Node.js on Windows</a>.</li>
-      <li>In the <strong>Browser</strong> chapter of the <a href="profiles.html">profile</a> choose <code>browser_action</code> or, for the complete toolset, <strong>Playwright MCP</strong>: the profile starts it when it is activated. Its installation prepares Playwright and Chromium under <code>~/zerochat/services/playwright/</code>.</li></ol>
-      <p>The local <code>browser_action</code> tool and external Playwright MCP tools are separate interfaces even when they share dependencies, but the profile chooses only one to avoid duplicate browser automation: even if Playwright MCP is running, its tools are not offered when the active profile chooses <code>browser_action</code> or none. A Node.js Playwright installation with Chrome, Edge or Chromium may also be detected. Installing the Python Playwright package does not satisfy this requirement.</p>
-      <p>If unavailable, check installation output and browser requirements for your system. Downloads may need network access and system libraries; installing the npm package alone does not guarantee Chromium will start.</p>
+      <h2>On save</h2>
+      <p>With <strong>Save</strong>, the chosen tool is offered to the model, and the Playwright options are saved in <code>~/zerochat/config/browser.json</code> and used the next time Playwright MCP starts; if it is running, ZeroChat asks whether to restart it now. Without the local server, the section only lets you choose the tool.</p>
+      <p>A profile can require Playwright MCP with a browser in its <a href="profiles.html">Browser</a> chapter. While that profile is active, Playwright MCP is the browsing tool and starts with that browser, without changing what is saved here; the section shows a notice about it.</p>
     </div>
 
     <div class="alert alert-warning">
-      <strong>Privacy and security:</strong> the tool can visit URLs and perform web actions requested by the model. Keep the permission policy set to “Ask” and review sensitive accounts or forms before automation.
+      <strong>Privacy and security:</strong> the model can visit URLs and perform web actions. With <strong>Your browser</strong> it acts with your accounts: it can read what you see and submit forms on your behalf. Keep the permission policy on “Ask” and do not automate sensitive accounts or forms without reviewing them.
     </div>
 
     <nav class="page-navigation" aria-label="Help navigation">

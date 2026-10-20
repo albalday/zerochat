@@ -8,6 +8,7 @@
   'use strict';
 
   const {
+    ChatUtils: Utils,
     ChatStorage: Storage,
     ChatI18n: I18n,
     ChatDebug: Debug,
@@ -36,6 +37,7 @@
     ChatUIConversation: UIConversation,
     ChatUITelemetry: UITelemetry,
     ChatUIMcp: UIMcp,
+    ChatUIBrowser: UIBrowser,
     ChatRagUI: RagUI,
     ChatRunMode: RunMode,
     ChatExport: Export
@@ -193,10 +195,11 @@
     profileSummaryWebllm: 'profile-summary-webllm',
     profileSummaryBehavior: 'profile-summary-behavior',
     profileSummaryMcp: 'profile-summary-mcp',
+    profileSummaryBrowser: 'profile-summary-browser',
+    profileBrowser: 'profile-browser',
     profileSummaryMcpWarning: 'profile-summary-mcp-warning',
     profileMcpServers: 'profile-mcp-servers',
     profileMcpDisconnected: 'profile-mcp-disconnected',
-    profileSummaryBrowser: 'profile-summary-browser',
     webllmLocalHint: 'webllm-local-hint',
     webllmHelpLink: 'webllm-help-link',
     apiKeyHintText: 'api-key-hint-text',
@@ -212,6 +215,7 @@
     temperatureHint: 'temperature-hint',
     inspectorResults: 'inspector-results',
     agentToolsContainer: 'agent-tools-container',
+    settingsBrowser: 'settings-browser',
     // MCP
     mcpToolsContainer: 'mcp-tools-container',
     mcpServersList: 'mcp-servers-list',
@@ -223,10 +227,7 @@
     btnMcpCopyCmd: 'btn-mcp-copy-cmd',
     mcpBootstrapCard: 'mcp-bootstrap-card',
     mcpSavedAuthsList: 'mcp-saved-auths-list',
-    btnMcpClearAuths: 'btn-mcp-clear-auths',
-    mcpPolicyAsk: 'mcp-policy-ask',
-    mcpPolicyWorkspaceTrust: 'mcp-policy-workspace-trust',
-    mcpPolicyAllowAll: 'mcp-policy-allow-all'
+    btnMcpClearAuths: 'btn-mcp-clear-auths'
   };
 
   let elements = {};
@@ -241,6 +242,7 @@
 
   function ensureModalsMarkup() {
     UISettings.ensureDialogMarkup();
+    UIProfiles.ensureDialogMarkup();
     RagUI.ensureDialogMarkup();
     Export.ensureDialogMarkup();
     Debug.ensureDialogMarkup();
@@ -334,7 +336,7 @@
     if (!result.ok) throw new Error(result.reason);
     renderSessionMessages(getChatHistory());
     await saveCurrentSession();
-    Dialogs.alert(t('chat_imported_success'), { type: 'success' });
+    await Dialogs.alert(t('chat_imported_success'), { type: 'success' });
   }
 
   // ==========================================================================
@@ -532,7 +534,7 @@
     const config = getRuntimeConfig();
     elements.activeProfileName.textContent = config.activeProfile?.name || '';
     if (!elements.activeProfilePopover.hidden) {
-      UISettings.renderProfileMenu(elements, Profiles.list(), config.activeProfile?.id);
+      UIProfiles.renderProfileMenu();
     }
     // El diálogo contiene un borrador de perfil. Las notificaciones de la
     // configuración activa (telemetría, caché, etc.) no deben sobrescribirlo.
@@ -796,7 +798,7 @@
   let runBackendSession = null;
 
   function persistBackendSessionFromLaunchFragment() {
-    const hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
+    const hashParams = Utils.readLaunchFragment(location.hash);
     const token = hashParams.get('token');
     if (!token) return;
     const session = Storage.normalizeBackendSession({
@@ -852,6 +854,8 @@
     if (UISidebar.isMobile()) UISidebar.closeSidebar(elements);
 
     RagUI.initRagUI();
+    UIBrowser.mountBrowserUI(elements.settingsBrowser, openSettingsSection);
+    UIBrowser.mountProfileBrowser(elements.profileBrowser);
     UIMcp.initMcpUI({
       statusBadge: elements.mcpStatusBadge,
       statusText: elements.mcpStatusText,
@@ -863,14 +867,7 @@
       toolsContainer: elements.mcpToolsContainer,
       serversList: elements.mcpServersList,
       savedAuthsList: elements.mcpSavedAuthsList,
-      btnClearAuths: elements.btnMcpClearAuths,
-      directoryRules: elements.mcpDirectoryRules,
-      directoryRulesError: elements.mcpDirectoryRulesError,
-      policyRadios: {
-        ask: elements.mcpPolicyAsk,
-        workspace_trust: elements.mcpPolicyWorkspaceTrust,
-        allow_all: elements.mcpPolicyAllowAll
-      }
+      btnClearAuths: elements.btnMcpClearAuths
     });
 
     // Un paquete de perfiles exportado abre la página para importarlos: no arranca el chat.
@@ -882,7 +879,6 @@
     updateNewTabLink();
     if (runId) {
       RunMode.start(runId, {
-        messagesList: elements.messagesList,
         startupConnection: startupMcpConnection,
         connectBackend,
         sessionsLoaded,
@@ -910,15 +906,16 @@
   let serviceWorkerUpdatePrompt = null;
 
   function promptServiceWorkerUpdate() {
-    serviceWorkerUpdatePrompt ||= Dialogs.confirm(t('pwa_update_available'), {
-      type: 'info',
-      title: t('pwa_update_title'),
-      acceptText: t('pwa_update_reload'),
-      cancelText: t('pwa_update_later')
-    }).then(accepted => {
+    serviceWorkerUpdatePrompt ||= (async () => {
+      const accepted = await Dialogs.confirm(t('pwa_update_available'), {
+        type: 'info',
+        title: t('pwa_update_title'),
+        acceptText: t('pwa_update_reload'),
+        cancelText: t('pwa_update_later')
+      });
       if (accepted) location.reload();
       return accepted;
-    });
+    })();
     return serviceWorkerUpdatePrompt;
   }
 
