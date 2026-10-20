@@ -140,23 +140,35 @@
     } catch (_) { /* Ventana emergente bloqueada por el navegador */ }
   }
 
-  /**
-   * Tipo MIME con el que se previsualiza un lenguaje o extensión (html, htm, svg); null si no es previsualizable.
-   */
-  function previewMimeType(kind) {
-    const value = String(kind || '').trim().toLowerCase();
-    if (value === 'svg') return 'image/svg+xml;charset=utf-8';
-    if (value === 'html' || value === 'htm') return 'text/html;charset=utf-8';
-    return null;
+  /** Si un lenguaje o extensión (html, htm, svg) se puede previsualizar con openDocumentInNewTab. */
+  function isPreviewable(kind) {
+    return ['html', 'htm', 'svg'].includes(String(kind || '').trim().toLowerCase());
   }
 
+  // Permisos del documento previsualizado: sin allow-same-origin su origen es opaco, así que sus
+  // scripts no leen las cookies (token del servidor local) ni el almacenamiento de ZeroChat.
+  const PREVIEW_SANDBOX = 'allow-scripts allow-forms allow-modals allow-popups';
+
   /**
-   * Abre un documento o marcado (HTML, SVG, etc.) en una nueva pestaña como un Blob URL seguro.
+   * Abre HTML o SVG (generado por el modelo, no confiable) en una nueva pestaña: una página propia
+   * con el documento en un iframe aislado (sandbox sin allow-same-origin).
    */
-  function openDocumentInNewTab(content, mimeType = 'text/html;charset=utf-8') {
+  function openDocumentInNewTab(content) {
     if (!content) return false;
+    const viewerHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ZeroChat Preview</title>
+  <style>html, body, iframe { margin: 0; width: 100%; height: 100%; border: 0; display: block; }</style>
+</head>
+<body>
+  <iframe sandbox="${PREVIEW_SANDBOX}" srcdoc="${escapeHtml(content)}"></iframe>
+</body>
+</html>`;
     try {
-      const blob = new Blob([content], { type: mimeType });
+      const blob = new Blob([viewerHtml], { type: 'text/html;charset=utf-8' });
       const blobUrl = URL.createObjectURL(blob);
       setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
       window.open(blobUrl, '_blank', 'noopener,noreferrer');
@@ -387,7 +399,7 @@
     EPHEMERAL_ID_PATTERN,
     readLaunchFragment,
     openImageInNewTab,
-    previewMimeType,
+    isPreviewable,
     openDocumentInNewTab,
     makeImageOpenable,
     parseRagImageRef,

@@ -207,22 +207,25 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
         const images = opened.splice(0);
 
         const emptyDocument = utils.openDocumentInNewTab('');
-        const documentOpened = utils.openDocumentInNewTab('<h1>Folleto</h1>', 'text/html;charset=utf-8');
+        const documentOpened = utils.openDocumentInNewTab('<h1>Folleto</h1>');
         const [doc] = opened;
         const blob = blobs.get(doc.url);
+        const viewer = new DOMParser().parseFromString(await blob.text(), 'text/html').querySelector('iframe');
         return {
           rejected,
           images: images.map(({ url, target, features }) => [url.startsWith('blob:'), target, features]),
           emptyDocument,
           documentOpened,
-          document: [doc.url.startsWith('blob:'), doc.target, doc.features, blob.type, await blob.text()]
+          document: [doc.url.startsWith('blob:'), doc.target, doc.features, blob.type],
+          viewer: viewer.getAttribute('srcdoc')
         };
       });
       assert.equal(result.rejected, 0, 'Las URL no seguras no abren nada');
       assert.deepEqual(result.images, Array(3).fill([true, '_blank', 'noopener,noreferrer']), 'Cada imagen abre una sola pestaña aunque window.open devuelva null');
       assert.equal(result.emptyDocument, false, 'Contenido vacío no abre nada');
       assert.equal(result.documentOpened, true);
-      assert.deepEqual(result.document, [true, '_blank', 'noopener,noreferrer', 'text/html;charset=utf-8', '<h1>Folleto</h1>']);
+      assert.deepEqual(result.document, [true, '_blank', 'noopener,noreferrer', 'text/html;charset=utf-8']);
+      assert.equal(result.viewer, '<h1>Folleto</h1>', 'El visor lleva el documento íntegro en su iframe');
     });
   });
 
