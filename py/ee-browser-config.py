@@ -158,8 +158,36 @@ _INSTALL_PERCENT = re.compile(r"(\d{1,3})% of ")
 _INSTALL_DOWNLOAD = re.compile(r"^Downloading (.+?) \(playwright ")
 
 
+def playwright_engine_cache() -> Path:
+    """Caché de motores de Playwright sin lanzar Node: PLAYWRIGHT_BROWSERS_PATH o la ruta por defecto de la plataforma."""
+    configured = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "ms-playwright"
+    if sys.platform.startswith("win"):
+        return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "ms-playwright"
+    return Path.home() / ".cache" / "ms-playwright"
+
+
+def cached_engine_entries() -> set[str]:
+    """Entradas de ENGINE_CACHE_ENTRIES con alguna revisión completa en la caché; la revisión exacta de esta
+    versión de Playwright solo la da BrowserEngines.list lanzando Node."""
+    try:
+        folders = [child.name for child in playwright_engine_cache().iterdir() if (child / "INSTALLATION_COMPLETE").is_file()]
+    except OSError:
+        return set()
+    # Las carpetas se llaman como la entrada con guiones bajos y su revisión: chromium_headless_shell-1187.
+    names = {name for entries in ENGINE_CACHE_ENTRIES.values() for name in entries}
+    return {name for name in names if any(folder.startswith(name.replace("-", "_") + "-") for folder in folders)}
+
+
+def playwright_service_module() -> Path:
+    return get_data_dir() / "services" / "playwright" / "node_modules" / "playwright"
+
+
 def playwright_service_cli() -> Path:
-    return get_data_dir() / "services" / "playwright" / "node_modules" / "playwright" / "cli.js"
+    return playwright_service_module() / "cli.js"
 
 
 def system_browsers() -> dict[str, bool]:

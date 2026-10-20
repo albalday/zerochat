@@ -104,11 +104,31 @@ import subprocess
 from unittest.mock import patch, MagicMock
 import zerochat
 
-# La comprobación de browser_action solo inspecciona requisitos: no inicia Chromium.
-with patch('subprocess.Popen') as mock_popen:
-    availability = zerochat.browser_action_availability()
-    assert isinstance(availability.get('available'), bool)
-    mock_popen.assert_not_called()
+# browser_action busca Playwright en la carpeta de datos real y Chromium en la caché de motores compartida
+# o en los canales chrome y msedge, sin lanzar Node ni Chromium.
+import tempfile
+from pathlib import Path
+with tempfile.TemporaryDirectory() as data_dir, tempfile.TemporaryDirectory() as cache, tempfile.TemporaryDirectory() as cwd:
+    env = {'ZEROCHAT_DATA_DIR': data_dir, 'PLAYWRIGHT_BROWSERS_PATH': cache}
+    no_browsers = {'chrome': False, 'msedge': False, 'chromium': True, 'firefox': True}
+    with patch.dict(os.environ, env), patch('subprocess.Popen') as mock_popen, patch('shutil.which', return_value='/usr/bin/node'), \
+            patch('pathlib.Path.cwd', return_value=Path(cwd)), patch.object(zerochat, 'system_browsers', return_value=no_browsers):
+        assert zerochat.browser_action_availability() == {'available': False, 'error': 'Playwright is not available.'}
+        (Path(data_dir) / 'services' / 'playwright' / 'node_modules' / 'playwright').mkdir(parents=True)
+        # Una descarga a medias, sin INSTALLATION_COMPLETE, y Chromium del sistema, que el runner no lanza, no cuentan.
+        (Path(cache) / 'chromium_headless_shell-1200').mkdir()
+        assert zerochat.browser_action_availability() == {'available': False, 'error': 'Playwright Chromium is not installed.'}
+        (Path(cache) / 'chromium_headless_shell-1200' / 'INSTALLATION_COMPLETE').touch()
+        assert zerochat.browser_action_availability() == {'available': True}
+        assert zerochat.cached_engine_entries() == {'chromium-headless-shell'}
+        (Path(cache) / 'chromium_headless_shell-1200' / 'INSTALLATION_COMPLETE').unlink()
+        with patch.object(zerochat, 'system_browsers', return_value={**no_browsers, 'msedge': True}):
+            assert zerochat.browser_action_availability() == {'available': True}
+        mock_popen.assert_not_called()
+        # El runner de Node carga el Playwright de la carpeta de datos real.
+        mock_popen.return_value.stdout.readline.return_value = '{"ready": true}'
+        zerochat.PersistentBrowserSession()._ensure_running()
+        assert mock_popen.call_args.kwargs['env']['ZEROCHAT_PLAYWRIGHT_MODULE'] == str(Path(data_dir).resolve() / 'services' / 'playwright' / 'node_modules' / 'playwright')
 
 # 1. En Termux se prioriza termux-open-url incluso si xdg-open está disponible
 with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=lambda cmd: '/data/data/com.termux/files/usr/bin/' + cmd if cmd in ('termux-open-url', 'xdg-open') else None), patch.dict(os.environ, {'TERMUX_VERSION': '0.118'}, clear=True):

@@ -1730,9 +1730,7 @@ try {
   playwright = require('playwright');
 } catch (e1) {
   try {
-    const path = require('path');
-    const home = process.env.HOME || process.env.USERPROFILE || '';
-    playwright = require(path.join(home, 'zerochat', 'services', 'playwright', 'node_modules', 'playwright'));
+    playwright = require(process.env.ZEROCHAT_PLAYWRIGHT_MODULE);
   } catch (e2) {
     console.log(JSON.stringify({
       success: false,
@@ -1748,8 +1746,8 @@ try {
     const candidates = [
       {},                      // 1. Playwright bundled Chromium
       { channel: 'chrome' },   // 2. System Google Chrome
-      { channel: 'msedge' },   // 3. System Microsoft Edge (Windows 10/11)
-      { channel: 'chromium' }  // 4. System Chromium (/usr/bin/chromium)
+      { channel: 'msedge' },   // 3. System Microsoft Edge
+      { channel: 'chromium' }  // 4. Playwright full Chromium, if only the headless shell is missing
     ];
     let lastErr = null;
     for (const cand of candidates) {
@@ -1841,6 +1839,7 @@ try {
 """
         proc = subprocess.Popen(
             [node, "-e", runner_js],
+            env={**os.environ, "ZEROCHAT_PLAYWRIGHT_MODULE": str(playwright_service_module())},
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -1904,30 +1903,12 @@ def browser_action_availability() -> dict:
     """Comprueba requisitos locales sin lanzar Node.js ni Chromium."""
     if not shutil.which("node"):
         return {"available": False, "error": "Node.js is not installed or not found in system PATH."}
-    playwright_locations = (
-        Path.cwd() / "node_modules" / "playwright",
-        get_data_dir() / "services" / "playwright" / "node_modules" / "playwright"
-    )
+    playwright_locations = (Path.cwd() / "node_modules" / "playwright", playwright_service_module())
     if not any(location.is_dir() for location in playwright_locations):
         return {"available": False, "error": "Playwright is not available."}
-    browser_commands = (
-        "google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
-        "msedge", "msedge.exe", "chrome", "chrome.exe"
-    )
-    if sys.platform == "darwin":
-        playwright_cache = Path.home() / "Library" / "Caches" / "ms-playwright"
-    elif sys.platform.startswith("win"):
-        playwright_cache = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "ms-playwright"
-    else:
-        playwright_cache = Path.home() / ".cache" / "ms-playwright"
-    try:
-        has_playwright_browser = playwright_cache.is_dir() and any(
-            child.is_dir() and child.name.startswith("chromium")
-            for child in playwright_cache.iterdir()
-        )
-    except OSError:
-        has_playwright_browser = False
-    if has_playwright_browser or any(shutil.which(command) for command in browser_commands):
+    # El runner prueba las entradas de Chromium de Playwright y los canales chrome y msedge.
+    browsers = system_browsers()
+    if cached_engine_entries() & set(ENGINE_CACHE_ENTRIES["chromium"]) or browsers["chrome"] or browsers["msedge"]:
         return {"available": True}
     return {"available": False, "error": "Playwright Chromium is not installed."}
 
@@ -2273,8 +2254,36 @@ _INSTALL_PERCENT = re.compile(r"(\d{1,3})% of ")
 _INSTALL_DOWNLOAD = re.compile(r"^Downloading (.+?) \(playwright ")
 
 
+def playwright_engine_cache() -> Path:
+    """Caché de motores de Playwright sin lanzar Node: PLAYWRIGHT_BROWSERS_PATH o la ruta por defecto de la plataforma."""
+    configured = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "ms-playwright"
+    if sys.platform.startswith("win"):
+        return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "ms-playwright"
+    return Path.home() / ".cache" / "ms-playwright"
+
+
+def cached_engine_entries() -> set[str]:
+    """Entradas de ENGINE_CACHE_ENTRIES con alguna revisión completa en la caché; la revisión exacta de esta
+    versión de Playwright solo la da BrowserEngines.list lanzando Node."""
+    try:
+        folders = [child.name for child in playwright_engine_cache().iterdir() if (child / "INSTALLATION_COMPLETE").is_file()]
+    except OSError:
+        return set()
+    # Las carpetas se llaman como la entrada con guiones bajos y su revisión: chromium_headless_shell-1187.
+    names = {name for entries in ENGINE_CACHE_ENTRIES.values() for name in entries}
+    return {name for name in names if any(folder.startswith(name.replace("-", "_") + "-") for folder in folders)}
+
+
+def playwright_service_module() -> Path:
+    return get_data_dir() / "services" / "playwright" / "node_modules" / "playwright"
+
+
 def playwright_service_cli() -> Path:
-    return get_data_dir() / "services" / "playwright" / "node_modules" / "playwright" / "cli.js"
+    return playwright_service_module() / "cli.js"
 
 
 def system_browsers() -> dict[str, bool]:
