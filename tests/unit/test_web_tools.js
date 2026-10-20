@@ -58,10 +58,7 @@ test('PageFetcher - Validación de URLs y protección anti-SSRF', () => {
   assert.equal(WebBrowser.validateUrlForFetch('http://0x7f000001/').valid, false); // 127.0.0.1 en hex
 });
 
-test('PageFetcher - Pipeline de estrategias y límite de longitud de contenido', async () => {
-  const pipeline = new WebBrowser.PageFetcherPipeline();
-  assert.deepEqual(pipeline.strategies.map(s => s.name), ['LocalDocumentExtractor', 'DirectFetch']);
-
+test('fetchPage - límite de longitud de contenido y error de Jina Reader', async () => {
   // Test de estrategia simulada con contenido superior al límite
   const originalFetch = global.fetch;
   try {
@@ -75,14 +72,14 @@ test('PageFetcher - Pipeline de estrategias y límite de longitud de contenido',
       };
     };
 
-    const res = await pipeline.fetch('https://example.com/large-page');
+    const res = await WebBrowser.fetchPage('https://example.com/large-page');
     assert.equal(res.success, true);
     assert.ok(res.content.length <= 60100, 'El contenido debe truncarse cerca de MAX_CONTENT_LENGTH');
     assert.ok(res.content.includes('[... Content truncated at the size limit ...]'));
 
     // Un bloqueo de Jina Reader llega al modelo con su explicación
     global.fetch = async () => Response.json({ message: 'Anonymous access to domain github.com blocked' }, { status: 403 });
-    const blocked = await pipeline.fetch('https://github.com/albalday/zerochat');
+    const blocked = await WebBrowser.fetchPage('https://github.com/albalday/zerochat');
     assert.equal(blocked.success, false);
     assert.match(blocked.error, /Jina Reader answered HTTP 403: Anonymous access to domain github\.com blocked/);
   } finally {

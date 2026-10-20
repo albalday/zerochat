@@ -73,5 +73,5 @@ Goal: Fix the four findings of the 9.2.0–9.7.1 scoped audit: the same-origin H
 Done when: previews run with an opaque origin and a browser test shows they cannot read cookies or storage; the summarizer transcript bounds tool-call arguments with an N/N+1 test; a failing document URL is downloaded once; restarting Playwright from Settings › Browser keeps its remembered state; all test levels pass.
 - [x] M31-T1 F-01 HTML/SVG previews (code blocks and write_file cards) open in a sandboxed iframe without allow-same-origin instead of a same-origin blob: page, with a browser test that the preview cannot read document.cookie or localStorage (2026-10-20)
 - [x] M31-T2 F-02 formatHistoryTranscript bounds tool-call arguments with truncateToolContent like tool results, with an N/N+1 test (2026-10-20)
-- [ ] M31-T3 F-03 A single fetch strategy for documents in PageFetcherPipeline, so a failing document URL is downloaded once
+- [x] M31-T3 F-03 A single fetch strategy for documents in PageFetcherPipeline, so a failing document URL is downloaded once (2026-10-20)
 - [ ] M31-T4 F-04 Restarting Playwright MCP from Settings › Browser (clear data, remove engine, config change) keeps its remembered state
