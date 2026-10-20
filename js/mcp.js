@@ -578,9 +578,8 @@
     const path = String(args?.path || args?.filepath || args?.file || '').trim();
     const content = typeof args?.content === 'string' ? args.content : '';
     if (!path || !content) return;
-    const isHtml = /\.(html|htm)$/i.test(path);
-    const isSvg = /\.svg$/i.test(path);
-    if (!isHtml && !isSvg) return;
+    const mime = Utils.previewMimeType(path.match(/\.([^./\\]+)$/)?.[1]);
+    if (!mime) return;
 
     if (card.querySelector('.btn-file-preview')) return;
     const actions = card.querySelector('.tool-card-header-actions');
@@ -593,7 +592,6 @@
     Utils.setTrustedHtml(btn, `${Icons.get('external-link', { size: 12 })} <span>${escapeHtml(t('tool_preview_file_btn'))}</span>`);
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const mime = isSvg ? 'image/svg+xml;charset=utf-8' : 'text/html;charset=utf-8';
       Utils.openDocumentInNewTab(content, mime);
     });
     actions.prepend(btn);

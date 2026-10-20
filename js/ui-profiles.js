@@ -12,7 +12,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, Defaults) {
   'use strict';
 
-  const { resolveDep, createId, escapeHtml } = Utils;
+  const { resolveDep, createId, escapeHtml, EPHEMERAL_ID_PATTERN, readLaunchFragment } = Utils;
   const { t } = I18n;
 
   const getProfiles = () => resolveDep('ChatProfileRepository', './profile-repository.js');
@@ -545,10 +545,10 @@
    * bien o mal, se recarga sin el fragmento para arrancar con normalidad.
    */
   function startImportMode(elements) {
-    const hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
+    const hashParams = readLaunchFragment(location.hash);
     if (hashParams.get('mode') !== 'import') return false;
     const transferId = hashParams.get('transferId') || '';
-    const validTransfer = /^[A-Za-z0-9_-]{16,128}$/.test(transferId);
+    const validTransfer = EPHEMERAL_ID_PATTERN.test(transferId);
 
     elements.messagesList.hidden = true;
     elements.chatForm.hidden = true;

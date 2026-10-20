@@ -8,6 +8,7 @@
   'use strict';
 
   const {
+    ChatUtils: Utils,
     ChatStorage: Storage,
     ChatI18n: I18n,
     ChatDebug: Debug,
@@ -335,7 +336,7 @@
     if (!result.ok) throw new Error(result.reason);
     renderSessionMessages(getChatHistory());
     await saveCurrentSession();
-    Dialogs.alert(t('chat_imported_success'), { type: 'success' });
+    await Dialogs.alert(t('chat_imported_success'), { type: 'success' });
   }
 
   // ==========================================================================
@@ -797,7 +798,7 @@
   let runBackendSession = null;
 
   function persistBackendSessionFromLaunchFragment() {
-    const hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
+    const hashParams = Utils.readLaunchFragment(location.hash);
     const token = hashParams.get('token');
     if (!token) return;
     const session = Storage.normalizeBackendSession({
@@ -906,15 +907,16 @@
   let serviceWorkerUpdatePrompt = null;
 
   function promptServiceWorkerUpdate() {
-    serviceWorkerUpdatePrompt ||= Dialogs.confirm(t('pwa_update_available'), {
-      type: 'info',
-      title: t('pwa_update_title'),
-      acceptText: t('pwa_update_reload'),
-      cancelText: t('pwa_update_later')
-    }).then(accepted => {
+    serviceWorkerUpdatePrompt ||= (async () => {
+      const accepted = await Dialogs.confirm(t('pwa_update_available'), {
+        type: 'info',
+        title: t('pwa_update_title'),
+        acceptText: t('pwa_update_reload'),
+        cancelText: t('pwa_update_later')
+      });
       if (accepted) location.reload();
       return accepted;
-    });
+    })();
     return serviceWorkerUpdatePrompt;
   }
 

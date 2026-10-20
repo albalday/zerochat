@@ -192,7 +192,6 @@ test('Browser UI - Notices disappear immediately after a blocked import and conf
         name: 'blocked.json', mimeType: 'application/json', buffer: Buffer.from('{}')
       });
       assert.equal(await page.locator('#notice-message').textContent(), await page.evaluate(() => ChatI18n.t('chat_import_blocked_generating')));
-      assert.equal(await page.locator('#import-json-input').inputValue(), '');
       for (const mode of ['alert', 'confirm']) {
         if (mode === 'confirm') await page.evaluate(() => { ChatDialogs.confirm('Continue?'); });
         // Esperar a que termine la entrada para comprobar la antigua transición de salida.
@@ -213,6 +212,8 @@ test('Browser UI - Notices disappear immediately after a blocked import and conf
         });
         assert.ok(frames.every(frame => !frame.open && frame.height === 0 && frame.display === 'none'), file + ': closed notice must never remain visible');
       }
+      // La importación espera a que se cierre el aviso y después vacía el selector de archivo.
+      assert.equal(await page.locator('#import-json-input').inputValue(), '');
       assert.deepEqual(await page.evaluate(() => ({ messages: ChatState.get('messages'), session: ChatState.get('sessions').activeId })), before);
       assert.deepEqual(errors, []);
       await page.close();

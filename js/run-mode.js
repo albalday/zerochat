@@ -15,12 +15,11 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { resolveDep } = Utils;
+  const { resolveDep, EPHEMERAL_ID_PATTERN, readLaunchFragment } = Utils;
   const getState = () => resolveDep('ChatState', './state.js');
   const getMcpManager = () => resolveDep('ChatMCP', './mcp.js').manager;
   const getProfiles = () => resolveDep('ChatProfileRepository', './profile-repository.js');
 
-  const RUN_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
   // El streaming informa como mucho cada este intervalo; el resto de avisos, siempre.
   const STREAM_PROGRESS_INTERVAL_MS = 2000;
   const CONNECT_ATTEMPTS = 30;
@@ -30,8 +29,8 @@
 
   /** Identificador de la ejecución en el fragmento de arranque, o null fuera del modo ejecución. */
   function readRunId(hash) {
-    const runId = new URLSearchParams(String(hash || '').replace(/^#/, '')).get('run');
-    return runId && RUN_ID_PATTERN.test(runId) ? runId : null;
+    const runId = readLaunchFragment(hash).get('run');
+    return runId && EPHEMERAL_ID_PATTERN.test(runId) ? runId : null;
   }
 
   /** Envía cada aviso de progreso, salvo los de streaming más seguidos que el intervalo. */

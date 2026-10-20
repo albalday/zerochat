@@ -79,7 +79,7 @@
     const input = els.importJsonInput;
     const file = input.files[0];
     try {
-      if (!file || options.isBusy()) return;
+      if (!file || await options.isBusy()) return;
       const check = resolveDep('ChatAttachments', './attachments.js').validateFileSize(file);
       if (!check.valid) {
         await getDialogs().alert(t('err_file_too_large', { name: file.name, max: Utils.formatBytes(check.maxBytes) }), { type: 'error' });
@@ -89,7 +89,7 @@
       await options.onImportSuccess(session);
     } catch (error) {
       console.error('[UITransfer] Conversation import failed:', error);
-      getDialogs().alert(t('chat_import_json_err', { err: error?.message || error }), { type: 'error' });
+      await getDialogs().alert(t('chat_import_json_err', { err: error?.message || error }), { type: 'error' });
     } finally {
       input.value = '';
     }

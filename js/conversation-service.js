@@ -41,15 +41,15 @@
     }];
   }
 
-  function blockSessionTransitionIfBusy(messageKey) {
+  async function blockSessionTransitionIfBusy(messageKey) {
     if (!getState().isConversationBusy()) return false;
-    getDialogs().alert(t(messageKey));
+    await getDialogs().alert(t(messageKey));
     return true;
   }
 
-  function activateConversation(sessionId, history, blockedMessageKey, options) {
+  async function activateConversation(sessionId, history, blockedMessageKey, options) {
     if (!getState().replaceConversation({ sessionId, messages: history }).ok) {
-      getDialogs().alert(t(blockedMessageKey));
+      await getDialogs().alert(t(blockedMessageKey));
       return false;
     }
     options.onSessionReset();
@@ -70,7 +70,7 @@
       sessions = await getStorage().getConversationsList();
     } catch (error) {
       console.warn('[ConversationService] Could not load saved conversations:', error);
-      getDialogs().alert(t('chat_storage_read_error'), { type: 'error' });
+      await getDialogs().alert(t('chat_storage_read_error'), { type: 'error' });
     }
     getState().replaceConversation({ sessionId: createId('session'), sessions, messages: createInitialChatHistory() });
     options.renderSessionMessages(getHistory());
@@ -112,7 +112,7 @@
       await Storage.saveConversation(session, history);
     } catch (error) {
       console.warn('[ConversationService] Could not save conversation:', error);
-      getDialogs().alert(t('chat_storage_save_error'), { type: 'error' });
+      await getDialogs().alert(t('chat_storage_save_error'), { type: 'error' });
     }
     options.renderSidebarChats();
   }
@@ -120,7 +120,7 @@
   async function switchToSession(sessionId, options) {
     const { force = false, saveCurrent = true } = options;
     if (!force && sessionId === getActiveSessionId()) return;
-    if (blockSessionTransitionIfBusy('chat_switch_blocked_generating')) return false;
+    if (await blockSessionTransitionIfBusy('chat_switch_blocked_generating')) return false;
     if (saveCurrent) await saveCurrentSession(options);
 
     let conversation = null;
@@ -128,23 +128,23 @@
       conversation = await getStorage().getConversation(sessionId);
     } catch (error) {
       console.warn('[ConversationService] Could not read conversation:', error);
-      getDialogs().alert(t('chat_storage_read_error'), { type: 'error' });
+      await getDialogs().alert(t('chat_storage_read_error'), { type: 'error' });
       return false;
     }
     if (!conversation) return;
     const history = conversation.history.length > 0 ? [...conversation.history] : createInitialChatHistory();
     getEngine().ensureConversationDate(history, conversation.createdAt);
 
-    if (!activateConversation(conversation.id, history, 'chat_switch_blocked_generating', options)) return false;
+    if (!await activateConversation(conversation.id, history, 'chat_switch_blocked_generating', options)) return false;
     showActiveSession(options, { resetComposer: false });
     return true;
   }
 
   async function createNewSession(options) {
     const { saveCurrent = true } = options;
-    if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
+    if (await blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
     if (saveCurrent) await saveCurrentSession(options);
-    if (!activateConversation(createId('session'), createInitialChatHistory(), 'chat_new_blocked_generating', options)) return false;
+    if (!await activateConversation(createId('session'), createInitialChatHistory(), 'chat_new_blocked_generating', options)) return false;
     showActiveSession(options, { resetComposer: true });
     return true;
   }
@@ -241,7 +241,7 @@
       onSummarizing(false);
     }
 
-    if (cancelled || blockSessionTransitionIfBusy('chat_new_blocked_generating')) return null;
+    if (cancelled || await blockSessionTransitionIfBusy('chat_new_blocked_generating')) return null;
     if (summarized) return summarized;
     const useFullHistory = await getDialogs().confirm(t('chat_branch_summary_failed'), {
       title: t('chat_branch_dialog_title'),
@@ -256,17 +256,17 @@
    * de ChatUIConversation.getMessageRef). `options.onSummarizing` pinta el progreso del resumen.
    */
   async function createConversationBranch(anchor, options) {
-    if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
+    if (await blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
 
     const history = getHistory();
     const boundary = getBranchBoundaryIndex(anchor, history);
     if (boundary < 0) return false;
 
     await saveCurrentSession(options);
-    if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
+    if (await blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
 
     const mode = await askBranchMode(history, boundary);
-    if (!mode || blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
+    if (!mode || await blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
 
     const parentSessionId = getActiveSessionId();
     const parentTitle = getSavedSessions().find(session => session.id === parentSessionId)?.title || t('chat_untitled');
@@ -290,10 +290,10 @@
       await Storage.saveConversation(branchSession, branchHistory);
     } catch (error) {
       console.warn('[ConversationService] Could not save branch conversation:', error);
-      getDialogs().alert(t('chat_branch_error'), { type: 'error' });
+      await getDialogs().alert(t('chat_branch_error'), { type: 'error' });
       return false;
     }
-    if (!activateConversation(branchSessionId, branchHistory, 'chat_new_blocked_generating', options)) {
+    if (!await activateConversation(branchSessionId, branchHistory, 'chat_new_blocked_generating', options)) {
       try {
         await Storage.deleteConversation(branchSessionId);
       } catch (_) { /* intento de limpieza */ }
@@ -306,18 +306,18 @@
 
   async function deleteSession(sessionId, options) {
     if (!await getDialogs().confirm(t('chat_delete_confirm'))) return;
-    if (blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
+    if (await blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
 
     const activeId = getActiveSessionId();
     if (!getState().removeSession(sessionId).ok) {
-      getDialogs().alert(t('chat_delete_blocked_generating'));
+      await getDialogs().alert(t('chat_delete_blocked_generating'));
       return;
     }
     try {
       await getStorage().deleteConversation(sessionId);
     } catch (error) {
       console.warn('[ConversationService] Could not delete conversation:', error);
-      getDialogs().alert(t('chat_delete_history_err'), { type: 'error' });
+      await getDialogs().alert(t('chat_delete_history_err'), { type: 'error' });
       return;
     }
 
@@ -333,15 +333,15 @@
 
   async function deleteAllSessions(options) {
     if (getSavedSessions().length === 0) return;
-    if (blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
+    if (await blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
     if (!await getDialogs().confirm(t('chat_delete_all_confirm'))) return;
-    if (blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
+    if (await blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
 
     try {
       await getStorage().deleteAllConversations();
     } catch (error) {
       console.warn('[ConversationService] Could not delete all conversations:', error);
-      getDialogs().alert(t('chat_delete_history_err'), { type: 'error' });
+      await getDialogs().alert(t('chat_delete_history_err'), { type: 'error' });
       return;
     }
     getState().set('sessions', { activeId: null, list: [] });
@@ -361,7 +361,7 @@
       await getStorage().renameConversation(sessionId, newTitle);
     } catch (error) {
       console.warn('[ConversationService] Could not rename conversation:', error);
-      getDialogs().alert(t('chat_storage_save_error'), { type: 'error' });
+      await getDialogs().alert(t('chat_storage_save_error'), { type: 'error' });
     }
     options.renderSidebarChats();
   }
