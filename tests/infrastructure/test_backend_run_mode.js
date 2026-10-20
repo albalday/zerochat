@@ -101,9 +101,17 @@ elif scenario == "idle":
 
 /**
  * Lanza zerochat.py --prompt con el navegador falso; `port: null` no pasa --port y `production`
- * ejecuta una copia fuera del repositorio, que abre la interfaz de GitHub Pages.
+ * ejecuta una copia fuera del repositorio, que abre la interfaz de GitHub Pages. Sin `port`, el
+ * puerto lo elige freePort(), que lo libera antes de que zerochat.py lo ocupe: si entretanto otro
+ * proceso de la suite lo toma, el arranque falla con el código 3 y se repite una vez con otro puerto.
  */
-function runZerochat(prompt, { scenario = 'ok', env = {}, port, args = [], production = false } = {}) {
+async function runZerochat(prompt, options = {}) {
+  const run = await launchZerochat(prompt, options);
+  const portTaken = options.port === undefined && run.code === 3 && /No se pudo escuchar/.test(run.stderr);
+  return portTaken ? launchZerochat(prompt, options) : run;
+}
+
+function launchZerochat(prompt, { scenario = 'ok', env = {}, port, args = [], production = false } = {}) {
   const work = tempDir('zerochat-run-');
   let script = backendPath;
   if (production) {
@@ -191,7 +199,7 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     // Una exportación pedida que no se escribe es un error, pero la respuesta sigue en stdout.
     assert.equal(unexported.info.export, 'json');
     assert.match(unexported.info.export_reply.error.message, /No se pudo escribir/);
-    assert.equal(unexported.code, 1);
+    assert.equal(unexported.code, 1, unexported.stderr);
     assert.equal(unexported.stdout, 'Respuesta a: hola\n');
     assert.match(unexported.stderr, /\[run\] No se pudo escribir .*directorio\.json/);
     // El progreso se registra en stderr recortado en su tope exacto.
@@ -199,25 +207,25 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.match(ok.stderr, new RegExp(`\\[run\\] tool: ${'x'.repeat(500)}…\\n`));
     assert.match(ok.stderr, /ZeroChat Local Server/, 'la cabecera del arranque va a stderr');
 
-    assert.equal(failed.code, 1);
+    assert.equal(failed.code, 1, failed.stderr);
     // Con --prompt el registro está desactivado por defecto: solo queda el motivo del fallo.
     assert.match(failed.stderr, /^\[\d\d:\d\d:\d\d\] \[run\] Error de generación: model failed\n$/);
-    assert.equal(idle.code, 2);
+    assert.equal(idle.code, 2, idle.stderr);
     assert.match(idle.stderr, /Sin progreso de la interfaz durante 1s/);
     // El progreso continuo reinicia la inactividad, pero no el plazo total.
-    assert.equal(chatty.code, 2);
+    assert.equal(chatty.code, 2, chatty.stderr);
     assert.match(chatty.stderr, /Plazo total agotado \(2s\)/);
-    assert.equal(browserGone.code, 2);
+    assert.equal(browserGone.code, 2, browserGone.stderr);
     assert.match(browserGone.stderr, /sin resultado/);
     for (const run of [failed, idle, chatty, browserGone]) assert.equal(run.stdout, '');
 
-    assert.equal(emptyPrompt.code, 4);
+    assert.equal(emptyPrompt.code, 4, emptyPrompt.stderr);
     assert.match(emptyPrompt.stderr, /error: el prompt está vacío/);
-    assert.equal(portInUse.code, 3);
+    assert.equal(portInUse.code, 3, portInUse.stderr);
     assert.match(portInUse.stderr, /No se pudo escuchar/);
     assert.equal(portInUse.info, null);
     // Sin --port: en desarrollo es un fallo de arranque; en producción la ejecución usa un puerto libre.
-    assert.equal(devDefaultInUse.code, 3);
+    assert.equal(devDefaultInUse.code, 3, devDefaultInUse.stderr);
     assert.match(devDefaultInUse.stderr, /en desarrollo la interfaz local necesita ese puerto/);
     assert.equal(devDefaultInUse.info, null);
     assert.equal(productionDefaultInUse.code, 0, productionDefaultInUse.stderr);
