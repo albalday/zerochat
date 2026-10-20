@@ -630,6 +630,7 @@
   }
 
   return {
+    findModelInCatalog,
     loadCachedModels,
     getModelContextLimit,
     handleQueryServer,

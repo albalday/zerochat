@@ -98,31 +98,6 @@ describe('Browser UI - consulta de modelos e inspector', { concurrency: 2 }, () 
     });
   });
 
-  test('Browser UI - el inspector localiza el modelo por id, sin prefijo models/ ni :latest y por ruta', async () => {
-    await withEditor({}, async page => {
-      const result = await page.evaluate(async () => {
-        window.stubModels([{ id: 'google/gemma-4-26b-a4b-qat' }, { id: 'llama3.2:latest' }, { id: 'models/gemini-2.5-flash' }, { id: 'Qwen/Qwen2.5-Coder-7B' }]);
-        window.ChatAPI.inspectProvider = async () => ({ success: true, capabilities: {} });
-        const elements = window.appElements();
-        const run = model => window.ChatUIInspector.handleRunInspector(elements, {}, { settings: { apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model } });
-        const found = {};
-        for (const requested of ['llama3.2', 'gemini-2.5-flash', 'qwen/qwen2.5-coder-7b', 'gemma-4-26b-a4b-qat']) {
-          found[requested] = [await run(requested), elements.inspectorResults.querySelector('.inspector-model-title strong').textContent];
-        }
-        const missing = [await run('inexistente'), elements.inspectorResults.querySelector('.status-error').textContent];
-        return { found, missing };
-      });
-      assert.deepEqual(result.found, {
-        'llama3.2': [true, 'llama3.2:latest'],
-        'gemini-2.5-flash': [true, 'models/gemini-2.5-flash'],
-        'qwen/qwen2.5-coder-7b': [true, 'Qwen/Qwen2.5-Coder-7B'],
-        'gemma-4-26b-a4b-qat': [true, 'google/gemma-4-26b-a4b-qat']
-      });
-      assert.equal(result.missing[0], false);
-      assert.match(result.missing[1], /inexistente/);
-    });
-  });
-
   test('Browser UI - el inspector usa la conexión indicada y muestra contexto, razonamiento y capacidades como texto', async () => {
     await withEditor({ apiUrl: 'http://editor.invalid/v1' }, async page => {
       const result = await page.evaluate(async () => {
@@ -179,7 +154,8 @@ describe('Browser UI - consulta de modelos e inspector', { concurrency: 2 }, () 
         window.stubModels([{ id: 'llama3' }]);
         window.ChatAPI.inspectProvider = async () => ({ success: false, connected: false, error: 'Endpoint unreachable' });
         const unreachable = [await run('llama3'), error(), Boolean(elements.inspectorResults.querySelector('.inspector-model-section')), Boolean(elements.inspectorResults.querySelector('.inspector-cap-grid'))];
-        return { empty, offline, unreachable };
+        const missing = [await run('inexistente'), error()];
+        return { empty, offline, unreachable, missing };
       });
       assert.equal(result.empty[0], false);
       assert.ok(result.empty[1] !== null);
@@ -187,6 +163,8 @@ describe('Browser UI - consulta de modelos e inspector', { concurrency: 2 }, () 
       assert.match(result.offline[1], /ECONNREFUSED/);
       assert.deepEqual([result.unreachable[0], result.unreachable[2], result.unreachable[3]], [true, true, false]);
       assert.match(result.unreachable[1], /Endpoint unreachable/);
+      assert.equal(result.missing[0], false);
+      assert.match(result.missing[1], /inexistente/, 'Un modelo que no está en el catálogo se nombra en el error');
     });
   });
 });
