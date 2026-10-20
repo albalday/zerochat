@@ -33,9 +33,9 @@ const REVIEWED_USES = {
   'js/ui-dialogs.js': 1,
   'js/ui-inspector.js': 12,
   'js/ui-mcp.js': 6,
-  'js/ui-profiles.js': 1,
+  'js/ui-profiles.js': 5,
   'js/ui-reasoning.js': 1,
-  'js/ui-settings.js': 6,
+  'js/ui-settings.js': 2,
   'js/ui-sidebar.js': 2,
   'js/utils.js': 3
 };

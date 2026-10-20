@@ -244,6 +244,7 @@
 
   function ensureModalsMarkup() {
     UISettings.ensureDialogMarkup();
+    UIProfiles.ensureDialogMarkup();
     RagUI.ensureDialogMarkup();
     Export.ensureDialogMarkup();
     Debug.ensureDialogMarkup();
@@ -535,7 +536,7 @@
     const config = getRuntimeConfig();
     elements.activeProfileName.textContent = config.activeProfile?.name || '';
     if (!elements.activeProfilePopover.hidden) {
-      UISettings.renderProfileMenu(elements, Profiles.list(), config.activeProfile?.id);
+      UIProfiles.renderProfileMenu();
     }
     // El diálogo contiene un borrador de perfil. Las notificaciones de la
     // configuración activa (telemetría, caché, etc.) no deben sobrescribirlo.
