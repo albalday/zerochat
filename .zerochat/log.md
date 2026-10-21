@@ -177,3 +177,4 @@
 - 2026-10-21 M34-D1 Tool-argument aliases (getCommandArg/getPathArg) and the permanent rule offered by the permission prompt (getRuleOffer) live in ToolSecurity; tool-cards only renders the offer. Fixes the card ignoring directory/dir aliases and labelling write_file rules as R (M34-T1)
 - 2026-10-21 M35-D1 Unificar el parseo de formato inline (imagenes, enlaces, negritas, cursivas) en parseInlineMarkdown para bloques y tablas (M35-T5)
 - 2026-10-21 M28-D1 M28 simplified to quiet discoverability: short descriptive landing, per-page title/description, generated sitemap; dropped hreflang/OG/JSON-LD, favicon/OG image work, docs/seo.md and Search Console follow-up (M28-T1..T3)
+- 2026-10-21 M37-D1 New milestone M37: diff button auto-detects installed GUI diff tools and offers to configure diff.guitool with one confirmation, after the kompare config loss incident (M37-T1, M37-T2)

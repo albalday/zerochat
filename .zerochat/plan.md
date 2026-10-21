@@ -59,7 +59,6 @@ Done when: the site root serves a short static bilingual landing page (descripti
 - [ ] M28-T1 Short static bilingual landing page at the site root (index.html ES/EN pair: what ZeroChat is in 2-3 lines, links to the app, help and install; descriptive tone, no feature marketing) and .nojekyll so Pages stops rendering README.md as the root
 - [ ] M28-T2 Unique title and meta description on every public page (landing, zerochat.html, help ES/EN); no hreflang, Open Graph or JSON-LD; extend tests/architecture/test_help_pages.js
 - [ ] M28-T3 npm run build:sitemap: generate sitemap.xml from the landing and help page list with lastmod from git, plus an architecture test that the committed sitemap matches the generated one
-- [ ] M28-T7 Manual check with the owner: Lighthouse SEO on landing and help index, Rich Results Test, Search Console verification file committed and sitemap submitted
 
 ## M29 Configuration profiles: MCP servers per profile: closed 2026-10-19
 
@@ -80,3 +79,9 @@ Goal: Stop the native PDF reader (js/file-parser.js, findPdfStreamBounds) from g
 Done when: stream data is sliced using the direct /Length integer of the stream dictionary when present and consistent (data followed by optional EOL and `endstream`), with EOL trimming kept only as fallback for indirect or inconsistent /Length; unit tests cover a stream whose compressed data ends in 0x0A/0x0D, a direct /Length, an indirect /Length (fallback) and a wrong /Length (fallback).
 - [ ] M36-T1 Read the direct /Length of the stream dictionary in findPdfStreamBounds and use it when it lands on EOL+`endstream`; keep EOL trimming as last-resort fallback
 - [ ] M36-T2 Unit tests in tests/unit for /Length-based bounds, data ending in 0x0A/0x0D, indirect /Length and inconsistent /Length fallbacks
+
+## M37 Diff tool configuration onboarding
+Goal: When the diff button fails because no GUI diff tool is configured, the system detects the available GUI diff tools on the machine and offers to configure one with a single confirmation, so the button works out of the box.
+Done when: with no diff.guitool/merge.guitool configured, the diff button detects the installed GUI diff tools (kompare, kdiff3, meld, vscode, gvimdiff), offers to set diff.guitool via a ChatDialogs confirm showing the exact git config command, applies it when accepted and opens the diff with it, and unit tests cover detection order, the no-tools case and the config write.
+- [ ] M37-T1 In py/dd-tools.py open_file_diff: when no GUI diff tool is configured, probe PATH for known tools, ask via ChatDialogs confirm which one to configure (showing the git config --global diff.guitool command), persist the choice on accept and use it for the difftool call; keep the explicit-config path unchanged
+- [ ] M37-T2 Unit tests in tests/unit for tool detection order, accept/reject of the confirm, no-tools-available error and that the configured tool is passed to git difftool
