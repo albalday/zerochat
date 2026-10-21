@@ -578,7 +578,7 @@ for line in sys.stdin:
     send(json.dumps({"jsonrpc": "2.0", "id": req_id, "result": result}))
 `;
 
-test('zerochat.py: el cliente MCP stdio acota los mensajes, aplica el plazo del servicio y termina sus descendientes', { skip: process.platform === 'win32' }, () => {
+test('zerochat.py: el cliente MCP stdio acota los mensajes, aplica el plazo del servicio, informa de su caída y termina sus descendientes', { skip: process.platform === 'win32' }, () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-mcp-limits-'));
   const fixturePath = path.join(fixtureDir, 'server.py');
@@ -646,6 +646,12 @@ with tempfile.TemporaryDirectory() as temp_dir:
 
         child_pid = int(child_pid_file.read_text())
         os.kill(child_pid, 0)
+        # Si el proceso del servicio muere, deja de figurar en marcha y stop() limpia sus descendientes.
+        client.process.kill()
+        client.process.wait(timeout=5)
+        crashed = next(item for item in manager.list_servers() if item["id"] == "limits")
+        assert (crashed["status"], crashed["toolCount"]) == ("error", 0), crashed
+        assert crashed["error"].startswith("MCP process exited with code"), crashed
         manager.stop("limits")
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
