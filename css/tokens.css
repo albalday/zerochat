@@ -114,6 +114,8 @@
   /* Viewport y Layout */
   --header-height: 3.5rem;
   --max-content-width: 68rem;
+  /* Separación vertical entre turnos del chat y entre los bloques de un turno */
+  --space-block: 0.4rem;
   --app-height: 100dvh;
 
   /* Tokens para glassmorphism (rgba sobre variables) */

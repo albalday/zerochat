@@ -2,7 +2,6 @@
    Tarjetas de Gráficos Nativos en SVG (ChatCharts)
    ========================================================================== */
 .chat-chart-card {
-  margin-top: 0.85rem;
   overflow: hidden;
   animation: fadeIn 0.2s ease-out;
 }
@@ -1343,7 +1342,6 @@
 
 /* Pregunta del agente con opciones (ask_user): resultado principal, fuera de los grupos. */
 .ask-user-card {
-  margin-top: 0.85rem;
   padding: 0.9rem 1rem;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
