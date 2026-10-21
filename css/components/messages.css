@@ -94,11 +94,12 @@
 }
 
 /* Eliminar margen superior en primer párrafo y margen inferior en último párrafo */
-.message-row.assistant .message-content > p:first-child {
+.agentic-turn-block > :first-child {
   margin-top: 0;
 }
 
-.message-row.assistant .message-content > p:last-child {
+.agentic-turn-block > :last-child,
+.message-content li:last-child {
   margin-bottom: 0;
 }
 
@@ -305,7 +306,7 @@
 
 /* Bloque de razonamiento / CoT <think> como acordeón elegante */
 .thought-block {
-  margin: 0.85rem 0;
+  margin: 0.5rem 0;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   border-left: 3px solid var(--primary);
