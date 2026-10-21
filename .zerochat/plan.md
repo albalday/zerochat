@@ -75,3 +75,6 @@ Done when: the site root serves a static bilingual landing page instead of the J
 ## M33 Live MCP state from the local server: closed 2026-10-21
 
 ## M34 Refactor of the spaghetti hotspots found in the 9.8.1 audit: closed 2026-10-21
+
+## M35 Frontend complexity and spaghetti refactor: closed 2026-10-21
+
