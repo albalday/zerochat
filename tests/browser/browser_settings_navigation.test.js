@@ -137,7 +137,11 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
         window.ChatMCP.manager.startExternalServer = async (id, onWait, { remember }) => { window.__actions.push(`start ${id} remember=${remember}`); };
       });
       await openSettings(page, 'browser');
-      assert.equal(await page.isChecked('input[name="browser-tool"][value="browser_action"]'), true);
+      // Sin Playwright instalado el servidor declara browser_action no disponible: no se elige y se ve «Ninguna».
+      assert.equal(await page.isDisabled('input[name="browser-tool"][value="browser_action"]'), true);
+      assert.equal(await page.isChecked('input[name="browser-tool"][value="none"]'), true);
+      await page.evaluate(() => window.ChatState.set('mcp', { tools: [{ name: 'browser_action', available: true }] }));
+      assert.equal(await page.isChecked('input[name="browser-tool"][value="browser_action"]'), true, 'Disponible, vuelve la elección guardada');
       assert.equal(await page.locator('.browser-modes').count(), 0, 'Sin Playwright MCP no hay opciones de navegador');
 
       await page.check('input[name="browser-tool"][value="playwright"]');

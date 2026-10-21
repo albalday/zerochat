@@ -37,13 +37,17 @@
   const request = (method, params = {}) => getMCP().manager.requestExternalControl(method, params);
   const isConnected = () => getState().get('mcp').status === 'connected';
   const playwrightStatus = () => getState().get('mcp').externalServers.find(server => server.id === 'playwright')?.status || null;
+  // browser_action solo se elige si el servidor local la declara disponible (Playwright instalado).
+  const browserActionAvailable = () => getState().get('mcp').tools.some(tool => tool.name === 'browser_action' && tool.available !== false);
+  // Sin ella se muestra «Ninguna», pero se conserva la elección guardada para cuando vuelva a estarlo.
+  const shownTool = () => (view.tool === 'browser_action' && !browserActionAvailable() ? 'none' : view.tool);
   const sameConfig = (a, b) => CONFIG_KEYS.every(key => a[key] === b[key]);
   const tokenValid = () => TOKEN_PATTERN.test(view.config.extensionToken);
   const extensionToken = value => value.trim().replace(TOKEN_ENV_PREFIX, '').replace(/^(["'])(.*)\1$/, '$2').trim();
 
   const card = (selected, body) => `<div class="browser-card${selected ? ' is-selected' : ''}">${body}</div>`;
-  const choice = (name, value, checked, title, hint) => `<label class="browser-choice">
-      <input type="radio" name="${name}" value="${escapeHtml(value)}"${checked ? ' checked' : ''}>
+  const choice = (name, value, checked, title, hint, disabled = false) => `<label class="browser-choice">
+      <input type="radio" name="${name}" value="${escapeHtml(value)}"${checked ? ' checked' : ''}${disabled ? ' disabled' : ''}>
       <span class="browser-choice-text"><strong>${escapeHtml(title)}</strong><span class="label-hint">${escapeHtml(hint)}</span></span>
     </label>`;
   const openMcpButton = () => `<button type="button" class="btn-secondary" data-browser-action="open-mcp">${escapeHtml(t('browser_open_mcp'))}</button>`;
@@ -138,8 +142,12 @@
 
   function render() {
     if (!container || view.tool === null) return;
-    const tools = Defaults.BROWSER_TOOLS.map(tool => card(view.tool === tool,
-      choice('browser-tool', tool, view.tool === tool, t(`browser_tool_${tool}`), t(`browser_tool_${tool}_hint`)))).join('');
+    const shown = shownTool();
+    const tools = Defaults.BROWSER_TOOLS.map(tool => {
+      const unavailable = tool === 'browser_action' && !browserActionAvailable();
+      return card(shown === tool, choice('browser-tool', tool, shown === tool, t(`browser_tool_${tool}`),
+        t(unavailable ? 'browser_tool_browser_action_unavailable' : `browser_tool_${tool}_hint`), unavailable));
+    }).join('');
     const notice = view.notice ? `<p class="server-query-status status-${view.notice.type}" role="status">${escapeHtml(view.notice.text)}</p>` : '';
     container.innerHTML = `<div class="browser-section">
         <div class="browser-tools" role="radiogroup" aria-label="${escapeHtml(t('browser_tool_title'))}">
@@ -148,7 +156,7 @@
         </div>
         ${renderProfileRequirement()}
         ${notice}
-        ${view.tool === 'playwright' ? renderPlaywright() : `<p class="label-hint">${escapeHtml(t(`browser_other_${view.tool}`))}</p>`}
+        ${shown === 'playwright' ? renderPlaywright() : `<p class="label-hint">${escapeHtml(t(`browser_other_${shown}`))}</p>`}
       </div>`;
   }
 
@@ -279,11 +287,16 @@
       if (button) handleAction(button);
     });
     let wasConnected = isConnected();
+    let wasAvailable = browserActionAvailable();
     getState().subscribe('mcp', () => {
-      if (isConnected() === wasConnected) return;
-      wasConnected = isConnected();
-      if (wasConnected) refreshServerData().catch(showError);
-      else render();
+      const connected = isConnected();
+      const available = browserActionAvailable();
+      if (connected === wasConnected && available === wasAvailable) return;
+      const reconnected = connected && !wasConnected;
+      wasConnected = connected;
+      wasAvailable = available;
+      render();
+      if (reconnected) refreshServerData().catch(showError);
     });
     I18n.onChange(render);
   }
