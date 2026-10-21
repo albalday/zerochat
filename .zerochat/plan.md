@@ -71,3 +71,12 @@ Done when: the site root serves a static bilingual landing page instead of the J
 ## M31 Fixes from the 9.2.0–9.7.1 scoped audit: closed 2026-10-20
 
 ## M32 Review of the tests added since 9.2.0: closed 2026-10-20
+
+## M33 Live MCP state from the local server
+Goal: Every piece of MCP state that can change during a session (external services and their tools, Playwright installation) has a single source in ChatState kept current by the local server, so no panel or tool decides on a stale snapshot or on a second check that can disagree.
+Done when: the plan below has been reviewed and simplified before any code (fewer tasks, fewer moving parts, reuse of the existing heartbeat and syncExternalServers); a crashed external service is reported as stopped/error, not running; a service started, stopped or crashed outside this tab reaches mcp.externalServers and mcp.externalTools without reconnecting; the profile editor uses the global Playwright state; all applicable suites pass.
+- [ ] M33-T1 Review this milestone to simplify it: check each task against the code, drop or merge what is not needed, prefer extending what exists (heartbeat, sync* methods, syncExternalServers) over new mechanisms, and rewrite the remaining task lines before starting
+- [ ] M33-T2 Backend: list_servers reports stopped/error when an external service process has died instead of its last stored state "running", with a test on a real dead process
+- [ ] M33-T3 Heartbeat carries a cheap signature of the external services (id and status); when it changes the client calls syncExternalServers, so crashes and changes from other tabs reach externalServers and externalTools
+- [ ] M33-T4 One table of live heartbeat fields (payload field → mcp state key → normalizer) with a single sync loop and a single reset on disconnect, replacing the per-field wiring of cwd, jobs, playwright and the new services field (only if T1 keeps it)
+- [ ] M33-T5 Profile editor Browser chapter uses ChatMCP.playwrightInstalled() instead of engines.available; the engine list only says which engines exist
