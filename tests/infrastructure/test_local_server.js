@@ -37,12 +37,17 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
   };
   global.fetch = signedFetch;
 
+  // browser_action usa solo el Playwright del servicio: se enlaza el de las pruebas en su lugar.
+  const dataDir = tokenDataDir(testToken);
+  const servicePlaywright = path.join(dataDir, 'services', 'playwright', 'node_modules', 'playwright');
+  fs.mkdirSync(path.dirname(servicePlaywright), { recursive: true });
+  fs.symlinkSync(path.join(repoRoot, 'node_modules', 'playwright'), servicePlaywright, 'junction');
   const serverProc = spawn('python3', [
     serverPath, '--port', String(port), '--no-browser', '--no-venv'
   ], {
     cwd: repoRoot,
     // Sin la configuración de Git del usuario: el visor de diffs solo ve la del repositorio de prueba.
-    env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken), GIT_CONFIG_GLOBAL: os.devnull, GIT_CONFIG_NOSYSTEM: '1' },
+    env: { ...process.env, ZEROCHAT_DATA_DIR: dataDir, GIT_CONFIG_GLOBAL: os.devnull, GIT_CONFIG_NOSYSTEM: '1' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 

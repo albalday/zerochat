@@ -108,11 +108,11 @@ import zerochat
 # o en los canales chrome y msedge, sin lanzar Node ni Chromium.
 import tempfile
 from pathlib import Path
-with tempfile.TemporaryDirectory() as data_dir, tempfile.TemporaryDirectory() as cache, tempfile.TemporaryDirectory() as cwd:
+with tempfile.TemporaryDirectory() as data_dir, tempfile.TemporaryDirectory() as cache:
     env = {'ZEROCHAT_DATA_DIR': data_dir, 'PLAYWRIGHT_BROWSERS_PATH': cache}
     no_browsers = {'chrome': False, 'msedge': False, 'chromium': True, 'firefox': True}
     with patch.dict(os.environ, env), patch('subprocess.Popen') as mock_popen, patch('shutil.which', return_value='/usr/bin/node'), \
-            patch('pathlib.Path.cwd', return_value=Path(cwd)), patch.object(zerochat, 'system_browsers', return_value=no_browsers):
+            patch.object(zerochat, 'system_browsers', return_value=no_browsers):
         assert zerochat.browser_action_availability() == {'available': False, 'error': 'Playwright is not available.'}
         (Path(data_dir) / 'services' / 'playwright' / 'node_modules' / 'playwright').mkdir(parents=True)
         # Una descarga a medias, sin INSTALLATION_COMPLETE, y Chromium del sistema, que el runner no lanza, no cuentan.
