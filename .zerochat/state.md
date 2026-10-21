@@ -1,5 +1,5 @@
 # Current state
-- Milestone: none active (M33 closed 2026-10-21)
-- Next task: none pending
+- Milestone: M34 Refactor of the spaghetti hotspots found in the 9.8.1 audit
+- Next task: M34-T2
 - Pending milestones: M28
 - Last updated: 2026-10-21

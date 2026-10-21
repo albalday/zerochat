@@ -552,9 +552,6 @@ test('ChatToolSecurity - Navegación con cd hereda permisos del comando secundar
   assert.equal(manager.evaluateAuthorization(runTool, { command: 'cd $HOME && git status' }).status, 'ask');
   assert.equal(manager.evaluateAuthorization(runTool, { command: 'cd "$HOME" && git status' }).status, 'ask');
 
-  // La tarjeta ofrece autorizar el programa que sigue al cd
-  assert.equal(ChatToolSecurity.getCommandBaseName('cd /home/user/proj && git status'), 'git');
-  assert.equal(ChatToolSecurity.getCommandBaseName('npm test'), 'npm');
 });
 
 test('ChatToolSecurity - Inyección por defecto de R:<startup_directory> y restricciones estrictas en modo ask', () => {
@@ -810,15 +807,37 @@ test('ChatToolSecurity - T01: rutas con ~, ~usuario o variables piden confirmaci
   const outsideEval = manager.evaluateAuthorization(readTool, { path: '/home/user/other/a.txt' });
   assert.equal(outsideEval.directoryAccess, 'R');
   assert.equal(outsideEval.directoryPath, '/home/user/other/a.txt');
-  assert.equal(ChatToolSecurity.canBuildDirectoryRule('~/.ssh'), false);
-  assert.equal(ChatToolSecurity.canBuildDirectoryRule('$HOME/x'), false);
-  assert.equal(ChatToolSecurity.canBuildDirectoryRule('../x'), false);
-  assert.equal(ChatToolSecurity.canBuildDirectoryRule('/home/user/other'), true);
-  assert.equal(ChatToolSecurity.canBuildDirectoryRule('src/app.js'), true);
 
   // Las reglas con ~ o variables son inválidas (no pueden resolverse en el navegador)
   assert.throws(() => manager.setDirectoryRules(['R:~/docs/**']), /Invalid directory rule/);
   assert.throws(() => manager.setDirectoryRules(['RW:$HOME/proyecto/**']), /Invalid directory rule/);
+});
+
+test('ChatToolSecurity - la petición de permiso ofrece la regla del programa o de la carpeta de la llamada', () => {
+  const manager = createManager({ startupDirectory: '/home/user/proj' });
+  const command = name => ({ command: { allowedPrefixes: [name], allowChaining: false, allowPipes: false } });
+  const rows = [
+    // Programa que sigue al cd, sin la ruta del ejecutable
+    ['run_command', { command: 'cd /home/user/proj && git status' }, { type: 'command', command: 'git', constraints: command('git') }],
+    ['run_command', { cmd: '/usr/bin/npm test' }, { type: 'command', command: '/usr/bin/npm', constraints: command('npm') }],
+    // Carpeta del archivo; en list_directory, la propia carpeta, con cualquier alias de ruta
+    ['read_file', { path: '/home/user/other/a.txt' }, { type: 'directory', access: 'R', directoryRule: 'R:/home/user/other/**' }],
+    ['write_file', { filepath: '/home/user/other/a.txt' }, { type: 'directory', access: 'W', directoryRule: 'W:/home/user/other/**' }],
+    ['list_directory', { directory: '/home/user/other' }, { type: 'directory', access: 'R', directoryRule: 'R:/home/user/other/**' }],
+    ['read_file', { path: '/a.txt' }, { type: 'directory', access: 'R', directoryRule: 'R:/' }],
+    // Herramienta externa sin acceso integrado: el nombre decide lectura o escritura
+    ['fs_edit_file', { file: 'notes/a.md' }, { type: 'directory', access: 'W', directoryRule: 'W:notes/**' }],
+    // ~, variables y ".." fuera de la raíz no pueden ser una regla
+    ['read_file', { path: '~/.ssh/id_rsa' }, null],
+    ['read_file', { path: '$HOME/x' }, null],
+    ['read_file', { path: '../x' }, null],
+    ['run_command', {}, null]
+  ];
+  for (const [name, args, expected] of rows) {
+    const tool = { name, category: 'mcp', metadata: { originalName: name } };
+    const auth = manager.evaluateAuthorization(tool, args);
+    assert.deepEqual(ChatToolSecurity.getRuleOffer(name, args, auth), expected, `${name} ${JSON.stringify(args)}`);
+  }
 });
 
 test('ChatToolSecurity - T01: workspace_trust no confía en rutas con ~ ni variables', () => {

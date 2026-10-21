@@ -73,12 +73,6 @@
     return `${isAbsolute ? '/' : ''}${parts.join('/')}` || (isAbsolute ? '/' : '.');
   }
 
-  // Solo se puede crear una regla para rutas que el navegador resuelve: sin ~, variables
-  // ni ".." por encima de la raíz.
-  function canBuildDirectoryRule(path) {
-    return Boolean(normalizeDirectoryPath(path));
-  }
-
   function parseDirectoryRule(rawRule) {
     if (typeof rawRule !== 'string') return null;
     const match = rawRule.trim().match(DIRECTORY_RULE_PATTERN);
@@ -141,6 +135,46 @@
     const trimmed = String(cmd || '').trim();
     const leadingCd = splitLeadingCd(trimmed);
     return (leadingCd ? leadingCd.command : trimmed).split(/\s+/)[0] || '';
+  }
+
+  // Nombres con que las herramientas locales y MCP reciben el comando y la ruta.
+  function getCommandArg(args = {}) {
+    return String(args.command || args.cmd || args.script || '').trim();
+  }
+
+  function getPathArg(args = {}) {
+    const value = args.path || args.filepath || args.file || args.directory || args.dir || '';
+    return typeof value === 'string' ? value.trim() : '';
+  }
+
+  /**
+   * Regla permanente que la petición de permiso puede ofrecer para esta llamada: el programa del
+   * comando o la carpeta de la ruta (la del archivo, o la propia en list_directory). `auth` es el
+   * resultado de evaluateAuthorization; sin regla válida devuelve null.
+   */
+  function getRuleOffer(toolName, args = {}, auth = {}) {
+    const command = getCommandArg(args);
+    if (command && !auth.directoryAccess) {
+      const name = getCommandBaseName(command);
+      if (!name) return null;
+      return {
+        type: 'command',
+        command: name,
+        constraints: {
+          command: { allowedPrefixes: [name.split('/').pop()], allowChaining: false, allowPipes: false }
+        }
+      };
+    }
+    const path = auth.directoryPath || getPathArg(args);
+    // Sin regla para ~, variables o ".." fuera de la raíz: no se resuelven en el navegador.
+    if (!path || !normalizeDirectoryPath(path)) return null;
+    const access = auth.directoryAccess || (/(?:^|_)(?:edit|write)_file$/.test(toolName) ? 'W' : 'R');
+    const cleanPath = path.replace(/\\/g, '/').replace(/\/+$/, '');
+    const folder = /(?:^|_)list_directory$/.test(toolName)
+      ? cleanPath
+      : (cleanPath.includes('/') ? cleanPath.slice(0, cleanPath.lastIndexOf('/')) : '.');
+    const dir = folder || '/';
+    return { type: 'directory', access, directoryRule: `${access}:${dir}${dir === '/' ? '' : '/**'}` };
   }
 
   // workspace_trust solo confía en comandos simples: sin encadenar, redirigir ni sustituir, sin
@@ -247,7 +281,7 @@
     }
 
     if (constraints.command) {
-      const cmdVal = args.command || args.cmd || args.script || '';
+      const cmdVal = getCommandArg(args);
       if (cmdVal) {
         const cmdRes = evaluateCommandConstraint(cmdVal, constraints.command);
         if (cmdRes.denied) {
@@ -534,8 +568,7 @@
      * el del proyecto): debe estar cubierto por alguna regla de directorio (T01/T02).
      */
     evaluateCommandDirectories(args = {}) {
-      const cmdVal = String(args.command || args.cmd || args.script || '').trim();
-      const leadingCd = splitLeadingCd(cmdVal);
+      const leadingCd = splitLeadingCd(getCommandArg(args));
       if (!leadingCd) return { allowed: true };
       const dir = leadingCd.directory;
       const covered = this.evaluateDirectoryRule('R', dir).allowed || this.evaluateDirectoryRule('W', dir).allowed;
@@ -751,7 +784,7 @@
 
       const args = { ...rawArgs };
       const defaultPathTools = new Set(['list_directory', 'search_files', 'get_diagnostics']);
-      if ((defaultPathTools.has(toolName) || defaultPathTools.has(originalName)) && !args.path && !args.directory && !args.dir) {
+      if ((defaultPathTools.has(toolName) || defaultPathTools.has(originalName)) && !getPathArg(args)) {
         args.path = '.';
       }
 
@@ -891,10 +924,9 @@
 
       // 6. Reglas de Directorio y Workspace Trust
       const pathAccess = getIntegratedPathAccess(toolName) || getIntegratedPathAccess(originalName);
-      const rawPath = args.path || args.filepath || args.file || args.directory || args.dir || '';
+      const path = getPathArg(args);
 
-      if (pathAccess && typeof rawPath === 'string' && rawPath.trim()) {
-        const path = rawPath.trim();
+      if (pathAccess && path) {
         const directoryEval = this.evaluateDirectoryRule(pathAccess, path);
         if (directoryEval.allowed) {
           return {
@@ -944,7 +976,7 @@
 
       if ((toolName === COMMAND_TOOL || originalName === COMMAND_TOOL)
           && this.globalMcpPolicy === GLOBAL_POLICIES.WORKSPACE_TRUST) {
-        const cmdVal = String(args.command || args.cmd || args.script || '').trim();
+        const cmdVal = getCommandArg(args);
         const leadingCd = splitLeadingCd(cmdVal);
         const isLocal = isWorkspaceLocalCommand(leadingCd ? leadingCd.command : cmdVal) &&
           this.evaluateCommandDirectories(args).allowed;
@@ -991,8 +1023,7 @@
   return {
     STORAGE_KEY,
     ToolSecurityManager,
-    getCommandBaseName,
-    canBuildDirectoryRule,
+    getRuleOffer,
     manager
   };
 });
