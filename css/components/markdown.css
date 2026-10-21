@@ -311,7 +311,7 @@
 .tool-card-wrapper {
   width: 100%;
   box-sizing: border-box;
-  margin: 0.5rem 0;
+  margin: var(--space-block) 0;
   text-align: left;
 }
 
@@ -319,7 +319,7 @@
 .tool-call-group {
   width: 100%;
   box-sizing: border-box;
-  margin: 0.5rem 0;
+  margin: var(--space-block) 0;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   background: var(--bg-surface-subtle);
@@ -330,10 +330,6 @@
   overflow: visible;
   position: relative;
   z-index: 2;
-}
-
-.tool-call-group-history {
-  margin: 0;
 }
 
 .tool-call-group-summary {
@@ -365,14 +361,12 @@
 .tool-call-group.is-running { border-color: var(--primary); }
 .tool-call-group.is-running .tool-call-group-summary > .ui-icon { color: var(--primary); animation: pulse-tool-badge 1.4s infinite ease-in-out; }
 .tool-call-group.has-error .tool-call-group-summary > .ui-icon { color: var(--danger); }
-.tool-call-group-cards { padding: 0 0.5rem 0.25rem; }
-.tool-call-group-active-cards { padding: 0 0.5rem 0.25rem; }
-.tool-call-group-active-cards > .tool-card-wrapper { margin: 0.35rem 0; }
-.tool-call-group-cards > .tool-card-wrapper { margin: 0.35rem 0; }
+.tool-call-group-cards,
+.tool-call-group-active-cards { padding: 0 var(--space-block); }
 
 
 .tool-execution-card {
-  margin: 0.75rem 0;
+  margin: 0;
   border: 1px solid var(--border-color);
   background-color: var(--bg-surface);
   border-radius: var(--radius-lg);
@@ -562,13 +556,7 @@
     background: transparent;
   }
 
-  .tool-call-group-cards,
-  .tool-call-group-active-cards {
-    padding: 0 0.35rem 0.2rem;
-  }
-
   .tool-execution-card {
-    margin: 0.45rem 0;
     border-color: var(--border-subtle);
     border-radius: var(--radius-md);
     box-shadow: none;
