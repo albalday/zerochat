@@ -179,6 +179,114 @@
     };
   }
 
+  async function readServerError(response) {
+    try {
+      const rawError = await response.text();
+      try {
+        const errorJson = JSON.parse(rawError);
+        return (errorJson && (errorJson.error?.message || errorJson.message || errorJson.error)) || rawError;
+      } catch (jsonErr) {
+        return rawError;
+      }
+    } catch (readErr) {
+      return response.statusText;
+    }
+  }
+
+  /**
+   * Envía la petición de streaming. Si el servidor rechaza un parámetro, el adaptador lo retira del
+   * payload y se repite una vez; devuelve { response, recoveredReason } o lanza el error HTTP.
+   */
+  async function fetchStreamResponse({ adapter, endpoint, headers, payload, signal, onProgress, onLog }) {
+    let response = adapter.createStreamResponse
+      ? await adapter.createStreamResponse({ payload, signal, onProgress })
+      : await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(payload), signal });
+    let recoveredReason = '';
+
+    if (!response.ok) {
+      const serverErrorMsg = await readServerError(response);
+
+      const recovery = adapter.handleHttpError(response.status, serverErrorMsg, payload);
+      if (recovery && recovery.retry) {
+        recoveredReason = recovery.reason || '';
+        if (onLog) {
+          onLog({
+            type: 'error',
+            text: `HTTP 400: the server rejected a parameter (${recovery.reason || 'incompatible parameter'}). Retrying without it...`
+          });
+        }
+        response = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(payload), signal });
+      }
+
+      if (!response.ok) {
+        let errorMessage = serverErrorMsg || `HTTP error ${response.status}: ${response.statusText}`;
+        if (response.status === 401) {
+          errorMessage = 'Invalid or unauthorized API key (401). Check the API key in Settings.';
+        } else if (response.status === 404) {
+          errorMessage = `Endpoint not found (404). Check the server URL: ${endpoint}`;
+        }
+        if (onLog) {
+          onLog({ type: 'error', text: errorMessage });
+          onLog({ type: 'raw', subtype: 'incoming', text: `<<< INCOMING HTTP ${response.status} ${response.statusText}\n${serverErrorMsg || errorMessage}` });
+        }
+        throw new Error(errorMessage);
+      }
+    }
+
+    if (!response.body) {
+      throw new Error('The server response does not support streaming.');
+    }
+    return { response, recoveredReason };
+  }
+
+  /** Líneas no vacías del cuerpo SSE, sin comentarios ":"; cada línea recibida se registra en bruto. */
+  async function* readSseLines(reader, onLog) {
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        onLog?.({ type: 'raw', subtype: 'incoming', text: rawLine });
+        if (!line.startsWith(':')) yield line;
+      }
+    }
+
+    // Vaciar buffer residual de TextDecoder si quedaron bytes en streaming
+    try {
+      const flushText = decoder.decode();
+      if (flushText) onLog?.({ type: 'raw', subtype: 'incoming', text: flushText });
+    } catch (e) { /* bytes residuales no decodificables: no afectan a la respuesta */ }
+  }
+
+  /** Acumula en `calls` (por índice) un delta de llamada a herramienta y devuelve la llamada. */
+  function mergeToolCallDelta(calls, delta, thoughtSignature) {
+    const idx = delta.index ?? 0;
+    if (!calls[idx]) {
+      calls[idx] = {
+        id: delta.id || `call_${Date.now()}_${idx}`,
+        type: 'function',
+        function: { name: delta.function?.name || '', arguments: '' }
+      };
+    }
+    const call = calls[idx];
+    if (delta.id) call.id = delta.id;
+    if (delta.function?.name) call.function.name = delta.function.name;
+    if (delta.function?.arguments) call.function.arguments += delta.function.arguments;
+    if (delta.thought_signature) call.thought_signature = delta.thought_signature;
+    if (delta.extra_content) call.extra_content = delta.extra_content;
+    if (delta.provider_specific_fields) call.provider_specific_fields = delta.provider_specific_fields;
+    if (thoughtSignature && !call.thought_signature) call.thought_signature = thoughtSignature;
+    return call;
+  }
+
   function streamResult({
     accumulatedText = '',
     accumulatedReasoning = '',
@@ -427,222 +535,117 @@
       return streamResult({ accumulatedText, accumulatedReasoning, reasoningReplay: getReasoningReplay(), stats: getStats(), toolCalls, truncated, recoveredReason });
     }
 
-    try {
-      let response = adapter.createStreamResponse
-        ? await adapter.createStreamResponse({
-          payload,
-          signal,
-          onProgress: progress => {
-            publishGenerationStatus(progress);
-            onLog?.({ type: 'info', text: `${adapter.label || adapter.id}: ${String(progress?.detail || progress?.phase || 'preparing')}` });
-          }
-        })
-        : await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(payload), signal });
+    // Aplica un trozo del streaming y devuelve el error que el servidor envió dentro de él.
+    function applyChunk(parsed) {
+      const chunkData = adapter.parseStreamChunk(parsed, { firstTokenTime, accumulatedReasoning, accumulatedText });
 
-      if (!response.ok) {
-        let serverErrorMsg = '';
-        try {
-          const rawError = await response.text();
-          try {
-            const errorJson = JSON.parse(rawError);
-            serverErrorMsg = (errorJson && (errorJson.error?.message || errorJson.message || errorJson.error)) || rawError;
-          } catch (jsonErr) {
-            serverErrorMsg = rawError;
+      if (chunkData.cachedTokens > 0) serverCachedTokens = chunkData.cachedTokens;
+      if (chunkData.cacheCreationTokens > 0) serverCacheCreationTokens = chunkData.cacheCreationTokens;
+      if (typeof chunkData.reasoningSignature === 'string') replaySignature = (replaySignature || '') + chunkData.reasoningSignature;
+      if (chunkData.truncatedBy && !truncated) {
+        truncated = true;
+        onLog?.({ type: 'warning', text: `The server cut the response at the output token limit (${chunkData.truncatedBy}).` });
+      }
+
+      // Tokens de razonamiento específicos
+      if (chunkData.reasoningChunk) {
+        if (!firstTokenTime) firstTokenTime = performance.now();
+        if (chunkData.reasoningField) {
+          replayReasoningField = chunkData.reasoningField;
+          replayReasoning += chunkData.reasoningChunk;
+        }
+        emitReasoning(chunkData.reasoningChunk);
+      }
+
+      if (chunkData.textChunk) {
+        if (!firstTokenTime) firstTokenTime = performance.now();
+        for (const part of splitReasoningTags(chunkData.textChunk)) {
+          if (part.reasoning) {
+            emitReasoning(part.text);
+          } else {
+            publishGenerationStatus({ phase: 'generating', percent: null, detail: '' });
+            emitText(part.text);
           }
-        } catch (readErr) {
-          serverErrorMsg = response.statusText;
+        }
+      }
+
+      if (chunkData.toolCallDeltas && chunkData.toolCallDeltas.length > 0) {
+        if (!firstTokenTime) firstTokenTime = performance.now();
+        for (const delta of chunkData.toolCallDeltas) {
+          const call = mergeToolCallDelta(accumulatedToolCalls, delta, chunkData.thoughtSignature);
+          if (onToolCallDelta) onToolCallDelta(call);
+        }
+      }
+
+      // Usage logging si viene en el chunk (OpenAI prompt_tokens / Anthropic input_tokens / Ollama)
+      const streamUsage = chunkData.usage || parsed.usage;
+      if (streamUsage) {
+        const pTokens = streamUsage.prompt_tokens ?? streamUsage.input_tokens ?? streamUsage.prompt_eval_count ?? 0;
+        const cTokens = streamUsage.completion_tokens ?? streamUsage.output_tokens ?? streamUsage.eval_count ?? 0;
+        const rTokens = streamUsage.completion_tokens_details?.reasoning_tokens ?? streamUsage.reasoning_tokens ?? 0;
+
+        if (pTokens > 0) serverPromptTokens = pTokens;
+        if (cTokens > 0) serverCompletionTokens = cTokens;
+        if (rTokens > 0) serverReasoningTokens = rTokens;
+
+        if (streamUsage.total_tokens && streamUsage.total_tokens > 0) {
+          serverTotalTokens = Math.max(streamUsage.total_tokens, (serverPromptTokens + serverCompletionTokens));
+        } else if (serverPromptTokens > 0 || serverCompletionTokens > 0) {
+          serverTotalTokens = serverPromptTokens + serverCompletionTokens;
         }
 
-        // Auto-recuperación delegando en el adaptador
-        const recovery = adapter.handleHttpError(response.status, serverErrorMsg, payload);
-        if (recovery && recovery.retry) {
-          recoveredReason = recovery.reason || '';
-          if (onLog) {
-            onLog({
-              type: 'error',
-              text: `HTTP 400: the server rejected a parameter (${recovery.reason || 'incompatible parameter'}). Retrying without it...`
-            });
-          }
-          response = await fetch(endpoint, {
-            method: 'POST',
-            headers: headers,
-            body: JSON.stringify(payload),
-            signal: signal
+        if (onLog) {
+          const cacheLog = serverCachedTokens > 0 ? ` (⚡ Cache: ${serverCachedTokens} tok)` : '';
+          onLog({
+            type: 'stats',
+            text: `Token usage: Prompt=${serverPromptTokens}, Completion=${serverCompletionTokens}, Total=${serverTotalTokens}${serverReasoningTokens ? ` (Reasoning: ${serverReasoningTokens})` : ''}${cacheLog}`
           });
         }
+      }
 
-        if (!response.ok) {
-          let errorMessage = serverErrorMsg || `HTTP error ${response.status}: ${response.statusText}`;
-          if (response.status === 401) {
-            errorMessage = 'Invalid or unauthorized API key (401). Check the API key in Settings.';
-          } else if (response.status === 404) {
-            errorMessage = `Endpoint not found (404). Check the server URL: ${endpoint}`;
-          }
-          if (onLog) {
-            onLog({ type: 'error', text: errorMessage });
-            onLog({ type: 'raw', subtype: 'incoming', text: `<<< INCOMING HTTP ${response.status} ${response.statusText}\n${serverErrorMsg || errorMessage}` });
-          }
-          throw new Error(errorMessage);
+      return chunkData.error || '';
+    }
+
+    try {
+      const { response, recoveredReason: recovered } = await fetchStreamResponse({
+        adapter, endpoint, headers, payload, signal, onLog,
+        onProgress: progress => {
+          publishGenerationStatus(progress);
+          onLog?.({ type: 'info', text: `${adapter.label || adapter.id}: ${String(progress?.detail || progress?.phase || 'preparing')}` });
         }
-      }
-
-      if (!response.body) {
-        throw new Error('The server response does not support streaming.');
-      }
+      });
+      recoveredReason = recovered;
 
       const reader = response.body.getReader();
-      const decoder = new TextDecoder('utf-8');
-      let buffer = '';
+      for await (const line of readSseLines(reader, onLog)) {
+        if (!line.startsWith('data: ')) continue;
+        const dataStr = line.substring(6).trim();
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (let i = 0; i < lines.length; i++) {
-          const rawLine = lines[i];
-          const trimmedLine = rawLine.trim();
-          if (!trimmedLine) continue;
-
+        if (dataStr === '[DONE]') {
+          const result = buildResult();
           if (onLog) {
+            const { stats } = result;
+            const cacheInfo = stats.cachedTokens > 0 ? ` | ⚡ Cache: ${stats.cachedTokens} tok` : '';
             onLog({
-              type: 'raw',
-              subtype: 'incoming',
-              text: rawLine
+              type: 'stats',
+              text: `Streaming finished [DONE] | Total: ${stats.tokens} tokens | ${stats.tokensPerSec} t/s | TTFT: ${stats.ttftSec}s${cacheInfo}`
             });
           }
+          return result;
+        }
 
-          if (trimmedLine.startsWith(':')) continue;
-
-          if (trimmedLine.startsWith('data: ')) {
-            const dataStr = trimmedLine.substring(6).trim();
-
-            if (dataStr === '[DONE]') {
-              const result = buildResult();
-              if (onLog) {
-                const { stats } = result;
-                const cacheInfo = stats.cachedTokens > 0 ? ` | ⚡ Cache: ${stats.cachedTokens} tok` : '';
-                onLog({
-                  type: 'stats',
-                  text: `Streaming finished [DONE] | Total: ${stats.tokens} tokens | ${stats.tokensPerSec} t/s | TTFT: ${stats.ttftSec}s${cacheInfo}`
-                });
-              }
-              return result;
-            }
-
-            let streamFailure = '';
-            try {
-              const parsed = JSON.parse(dataStr);
-              const chunkData = adapter.parseStreamChunk(parsed, { firstTokenTime, accumulatedReasoning, accumulatedText });
-
-              if (chunkData.cachedTokens > 0) serverCachedTokens = chunkData.cachedTokens;
-              if (chunkData.cacheCreationTokens > 0) serverCacheCreationTokens = chunkData.cacheCreationTokens;
-              if (typeof chunkData.reasoningSignature === 'string') replaySignature = (replaySignature || '') + chunkData.reasoningSignature;
-              if (chunkData.error) streamFailure = chunkData.error;
-              if (chunkData.truncatedBy && !truncated) {
-                truncated = true;
-                onLog?.({ type: 'warning', text: `The server cut the response at the output token limit (${chunkData.truncatedBy}).` });
-              }
-
-              // Tokens de razonamiento específicos
-              if (chunkData.reasoningChunk) {
-                if (!firstTokenTime) firstTokenTime = performance.now();
-                if (chunkData.reasoningField) {
-                  replayReasoningField = chunkData.reasoningField;
-                  replayReasoning += chunkData.reasoningChunk;
-                }
-                emitReasoning(chunkData.reasoningChunk);
-              }
-
-              if (chunkData.textChunk) {
-                if (!firstTokenTime) firstTokenTime = performance.now();
-                for (const part of splitReasoningTags(chunkData.textChunk)) {
-                  if (part.reasoning) {
-                    emitReasoning(part.text);
-                  } else {
-                    publishGenerationStatus({ phase: 'generating', percent: null, detail: '' });
-                    emitText(part.text);
-                  }
-                }
-              }
-
-              // Tool Call Deltas
-              if (chunkData.toolCallDeltas && chunkData.toolCallDeltas.length > 0) {
-                if (!firstTokenTime) firstTokenTime = performance.now();
-                chunkData.toolCallDeltas.forEach(tc => {
-                  const idx = tc.index ?? 0;
-                  if (!accumulatedToolCalls[idx]) {
-                    accumulatedToolCalls[idx] = {
-                      id: tc.id || `call_${Date.now()}_${idx}`,
-                      type: 'function',
-                      function: {
-                        name: tc.function?.name || '',
-                        arguments: ''
-                      }
-                    };
-                  }
-                  if (tc.id) accumulatedToolCalls[idx].id = tc.id;
-                  if (tc.function?.name) accumulatedToolCalls[idx].function.name = tc.function.name;
-                  if (tc.function?.arguments) accumulatedToolCalls[idx].function.arguments += tc.function.arguments;
-                  if (tc.thought_signature) accumulatedToolCalls[idx].thought_signature = tc.thought_signature;
-                  if (tc.extra_content) accumulatedToolCalls[idx].extra_content = tc.extra_content;
-                  if (tc.provider_specific_fields) accumulatedToolCalls[idx].provider_specific_fields = tc.provider_specific_fields;
-                  if (chunkData.thoughtSignature && !accumulatedToolCalls[idx].thought_signature) {
-                    accumulatedToolCalls[idx].thought_signature = chunkData.thoughtSignature;
-                  }
-
-                  if (onToolCallDelta) onToolCallDelta(accumulatedToolCalls[idx]);
-                });
-              }
-
-              // Usage logging si viene en el chunk (OpenAI prompt_tokens / Anthropic input_tokens / Ollama)
-              const streamUsage = chunkData.usage || parsed.usage;
-              if (streamUsage) {
-                const pTokens = streamUsage.prompt_tokens ?? streamUsage.input_tokens ?? streamUsage.prompt_eval_count ?? 0;
-                const cTokens = streamUsage.completion_tokens ?? streamUsage.output_tokens ?? streamUsage.eval_count ?? 0;
-                const rTokens = streamUsage.completion_tokens_details?.reasoning_tokens ?? streamUsage.reasoning_tokens ?? 0;
-
-                if (pTokens > 0) serverPromptTokens = pTokens;
-                if (cTokens > 0) serverCompletionTokens = cTokens;
-                if (rTokens > 0) serverReasoningTokens = rTokens;
-
-                if (streamUsage.total_tokens && streamUsage.total_tokens > 0) {
-                  serverTotalTokens = Math.max(streamUsage.total_tokens, (serverPromptTokens + serverCompletionTokens));
-                } else if (serverPromptTokens > 0 || serverCompletionTokens > 0) {
-                  serverTotalTokens = serverPromptTokens + serverCompletionTokens;
-                }
-
-                if (onLog) {
-                  const cacheLog = serverCachedTokens > 0 ? ` (⚡ Cache: ${serverCachedTokens} tok)` : '';
-                  onLog({
-                    type: 'stats',
-                    text: `Token usage: Prompt=${serverPromptTokens}, Completion=${serverCompletionTokens}, Total=${serverTotalTokens}${serverReasoningTokens ? ` (Reasoning: ${serverReasoningTokens})` : ''}${cacheLog}`
-                  });
-                }
-              }
-
-            } catch (jsonErr) {
-              console.warn('[ChatAPI] Ignored unreadable stream chunk:', jsonErr);
-              if (onLog) onLog({ type: 'warning', text: `Ignored unreadable stream chunk: ${jsonErr?.message || String(jsonErr)}` });
-            }
-            if (streamFailure) {
-              reader.cancel().catch(() => {});
-              throw new StreamServerError(streamFailure);
-            }
-          }
+        let streamFailure = '';
+        try {
+          streamFailure = applyChunk(JSON.parse(dataStr));
+        } catch (jsonErr) {
+          console.warn('[ChatAPI] Ignored unreadable stream chunk:', jsonErr);
+          if (onLog) onLog({ type: 'warning', text: `Ignored unreadable stream chunk: ${jsonErr?.message || String(jsonErr)}` });
+        }
+        if (streamFailure) {
+          reader.cancel().catch(() => {});
+          throw new StreamServerError(streamFailure);
         }
       }
-
-      // Vaciar buffer residual de TextDecoder si quedaron bytes en streaming
-      try {
-        const flushText = decoder.decode();
-        if (flushText && onLog) {
-          onLog({ type: 'raw', subtype: 'incoming', text: flushText });
-        }
-      } catch (e) { /* bytes residuales no decodificables: no afectan a la respuesta */ }
 
       return buildResult();
     } catch (err) {
