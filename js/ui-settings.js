@@ -320,6 +320,7 @@ zerochat</code></pre>
                 </span>
                 <strong data-i18n="mcp_servers_section_title">Servidores MCP Disponibles</strong>
               </div>
+              <a href="help/mcp.html#crear-mcp-con-agente" target="_blank" rel="noopener noreferrer" class="mcp-servers-create-help" data-i18n="mcp_servers_create_help" data-i18n-href="mcp_servers_create_help_href">Añadir un MCP con el agente</a>
             </div>
             <p class="label-hint mcp-section-hint" data-i18n="mcp_servers_section_desc">Servicios MCP externos configurados en el servidor local listos para arrancar de forma individual.</p>
             <div id="mcp-servers-list" class="mcp-servers-list"></div>
