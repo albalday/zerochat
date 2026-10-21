@@ -37,10 +37,24 @@
   const request = (method, params = {}) => getMCP().manager.requestExternalControl(method, params);
   const isConnected = () => getState().get('mcp').status === 'connected';
   const playwrightStatus = () => getState().get('mcp').externalServers.find(server => server.id === 'playwright')?.status || null;
-  // browser_action solo se elige si el servidor local la declara disponible (Playwright instalado).
   const browserActionAvailable = () => getState().get('mcp').tools.some(tool => tool.name === 'browser_action' && tool.available !== false);
-  // Sin ella se muestra «Ninguna», pero se conserva la elección guardada para cuando vuelva a estarlo.
-  const shownTool = () => (view.tool === 'browser_action' && !browserActionAvailable() ? 'none' : view.tool);
+
+  /** Playwright en el servidor local: 'disconnected', 'loading', 'missing' o 'installed'. */
+  function playwrightState() {
+    if (!isConnected()) return 'disconnected';
+    if (!view.engines) return 'loading';
+    return view.engines.available ? 'installed' : 'missing';
+  }
+
+  /** browser_action y Playwright MCP solo se eligen con Playwright instalado; mientras se consulta se respeta la elección. */
+  function selectable(tool) {
+    const state = playwrightState();
+    if (tool === 'none' || state === 'loading') return true;
+    return state === 'installed' && (tool !== 'browser_action' || browserActionAvailable());
+  }
+
+  // Si no se puede elegir se muestra «Ninguna», pero se conserva la elección guardada para cuando se pueda.
+  const shownTool = () => (selectable(view.tool) ? view.tool : 'none');
   const sameConfig = (a, b) => CONFIG_KEYS.every(key => a[key] === b[key]);
   const tokenValid = () => TOKEN_PATTERN.test(view.config.extensionToken);
   const extensionToken = value => value.trim().replace(TOKEN_ENV_PREFIX, '').replace(/^(["'])(.*)\1$/, '$2').trim();
@@ -69,13 +83,9 @@
   }
 
   function renderOwnMode() {
-    const engines = view.engines;
-    const enginesHtml = engines.available
-      ? `<span class="label-hint">${escapeHtml(t('browser_engines_hint'))}</span>${engines.engines.map(renderEngine).join('')}`
-      : `<div class="browser-notice"><span>${escapeHtml(t('browser_playwright_missing'))}</span>${openMcpButton()}</div>`;
     return `${choice('browser-mode', 'own', view.config.mode === 'own', t('browser_mode_own'), t('browser_mode_own_hint'))}
       <div class="browser-card-body">
-        ${enginesHtml}
+        <span class="label-hint">${escapeHtml(t('browser_engines_hint'))}</span>${view.engines.engines.map(renderEngine).join('')}
         <div class="browser-row">
           <span class="browser-row-text"><strong>${escapeHtml(t('browser_data_title'))}</strong><span class="label-hint">${escapeHtml(t('browser_data_hint', { name: ENGINE_NAMES[view.config.engine] }))}</span></span>
           <button type="button" class="btn-secondary" data-browser-action="clear">${escapeHtml(t('browser_data_clear'))}</button>
@@ -116,7 +126,6 @@
   }
 
   function renderPlaywright() {
-    if (!isConnected()) return `<div class="browser-notice"><span>${escapeHtml(t('browser_needs_server'))}</span>${openMcpButton()}</div>`;
     if (!view.config || !view.engines) return `<p class="label-hint">${escapeHtml(t('browser_loading'))}</p>`;
     return `<div class="browser-modes" role="radiogroup" aria-label="${escapeHtml(t('browser_mode_aria'))}">
         ${card(view.config.mode === 'own', renderOwnMode())}
@@ -144,16 +153,20 @@
     if (!container || view.tool === null) return;
     const shown = shownTool();
     const tools = Defaults.BROWSER_TOOLS.map(tool => {
-      const unavailable = tool === 'browser_action' && !browserActionAvailable();
-      return card(shown === tool, choice('browser-tool', tool, shown === tool, t(`browser_tool_${tool}`),
-        t(unavailable ? 'browser_tool_browser_action_unavailable' : `browser_tool_${tool}_hint`), unavailable));
+      const unavailable = !selectable(tool);
+      // Con Playwright instalado, browser_action aún necesita un Chromium con el que navegar.
+      const hint = unavailable && tool === 'browser_action' && playwrightState() === 'installed' ? 'browser_tool_browser_action_unavailable' : `browser_tool_${tool}_hint`;
+      return card(shown === tool, choice('browser-tool', tool, shown === tool, t(`browser_tool_${tool}`), t(hint), unavailable));
     }).join('');
+    const missingKey = { disconnected: 'browser_needs_server', missing: 'browser_playwright_missing' }[playwrightState()];
+    const missing = missingKey ? `<div class="browser-notice"><span>${escapeHtml(t(missingKey))}</span>${openMcpButton()}</div>` : '';
     const notice = view.notice ? `<p class="server-query-status status-${view.notice.type}" role="status">${escapeHtml(view.notice.text)}</p>` : '';
     container.innerHTML = `<div class="browser-section">
         <div class="browser-tools" role="radiogroup" aria-label="${escapeHtml(t('browser_tool_title'))}">
           <strong>${escapeHtml(t('browser_tool_title'))}</strong>
           <div class="browser-tool-grid">${tools}</div>
         </div>
+        ${missing}
         ${renderProfileRequirement()}
         ${notice}
         ${shown === 'playwright' ? renderPlaywright() : `<p class="label-hint">${escapeHtml(t(`browser_other_${shown}`))}</p>`}
@@ -170,9 +183,9 @@
     }
   }
 
-  /** Configuración guardada y motores: solo se piden cuando se muestran las opciones de Playwright. */
+  /** Configuración guardada y motores, que dicen también si Playwright está instalado. */
   async function refreshServerData() {
-    if (!isConnected() || view.tool !== 'playwright') return;
+    if (!isConnected()) return;
     const saved = await request('zerochat/browser/config/get');
     view.savedConfig = saved;
     view.config = { ...saved };
@@ -231,7 +244,6 @@
   function handleChange(target) {
     if (target.name === 'browser-tool') {
       view.tool = target.value;
-      if (!view.config) refreshServerData().catch(showError);
     } else if (target.name === 'browser-mode') view.config.mode = target.value;
     else if (target.name === 'browser-engine') view.config.engine = target.value;
     else if (target.name === 'browser-user-browser') view.config.userBrowser = target.value;

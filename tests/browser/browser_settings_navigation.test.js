@@ -122,12 +122,13 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
         window.ChatState.set('mcp', { status: 'connected', externalServers: [{ id: 'playwright', status: 'running', enabled: false }] });
         window.__requests = [];
         window.__actions = [];
+        window.__playwrightInstalled = false;
         const saved = { mode: 'own', engine: 'chromium', userBrowser: 'chrome', headless: true, extensionToken: '' };
         window.ChatMCP.manager.requestExternalControl = async (method, params) => {
           window.__requests.push({ method, params });
           if (method === 'zerochat/browser/config/get') return saved;
           if (method === 'zerochat/browser/config/set') return params.config;
-          return { available: true, systemBrowsers: { chrome: false, msedge: true, chromium: true, firefox: true },
+          return { available: window.__playwrightInstalled, systemBrowsers: { chrome: false, msedge: true, chromium: true, firefox: true },
             extensions: { chrome: false, msedge: false, chromium: true }, engines: [
             { id: 'chromium', title: 'Chrome for Testing 1', installed: true },
             { id: 'firefox', title: 'Firefox 2', installed: false }
@@ -137,11 +138,22 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
         window.ChatMCP.manager.startExternalServer = async (id, onWait, { remember }) => { window.__actions.push(`start ${id} remember=${remember}`); };
       });
       await openSettings(page, 'browser');
-      // Sin Playwright instalado el servidor declara browser_action no disponible: no se elige y se ve «Ninguna».
+      // Sin Playwright instalado no se elige browser_action ni Playwright MCP: se ve «Ninguna» y el aviso lleva a MCP.
+      await page.waitForSelector('.browser-notice [data-browser-action="open-mcp"]');
       assert.equal(await page.isDisabled('input[name="browser-tool"][value="browser_action"]'), true);
+      assert.equal(await page.isDisabled('input[name="browser-tool"][value="playwright"]'), true);
       assert.equal(await page.isChecked('input[name="browser-tool"][value="none"]'), true);
+      // Instalado al reconectar, vuelve la elección guardada; browser_action además ha de estar disponible.
+      await page.evaluate(() => {
+        window.__playwrightInstalled = true;
+        window.ChatState.set('mcp', { status: 'disconnected' });
+        window.ChatState.set('mcp', { status: 'connected' });
+      });
+      await page.waitForSelector('.browser-notice', { state: 'detached' });
+      assert.equal(await page.isDisabled('input[name="browser-tool"][value="browser_action"]'), true, 'Sin Chromium browser_action no se elige');
+      assert.equal(await page.isEnabled('input[name="browser-tool"][value="playwright"]'), true);
       await page.evaluate(() => window.ChatState.set('mcp', { tools: [{ name: 'browser_action', available: true }] }));
-      assert.equal(await page.isChecked('input[name="browser-tool"][value="browser_action"]'), true, 'Disponible, vuelve la elección guardada');
+      assert.equal(await page.isChecked('input[name="browser-tool"][value="browser_action"]'), true);
       assert.equal(await page.locator('.browser-modes').count(), 0, 'Sin Playwright MCP no hay opciones de navegador');
 
       await page.check('input[name="browser-tool"][value="playwright"]');
