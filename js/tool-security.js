@@ -734,6 +734,73 @@
       return list.sort((a, b) => (b.grantedAt || 0) - (a.grantedAt || 0));
     }
 
+    mergeToolConstraints(targetToolId, requestedConstraints) {
+      const existingConstraints = this.getToolConstraints(targetToolId);
+      let mergedPrefixes = undefined;
+      if (requestedConstraints?.command?.allowedPrefixes || existingConstraints?.command?.allowedPrefixes) {
+        const rawList = [
+          ...(Array.isArray(existingConstraints?.command?.allowedPrefixes) ? existingConstraints.command.allowedPrefixes : []),
+          ...(Array.isArray(requestedConstraints?.command?.allowedPrefixes) ? requestedConstraints.command.allowedPrefixes : [])
+        ];
+        const seen = new Set();
+        mergedPrefixes = [];
+        for (const p of rawList) {
+          if (typeof p !== 'string') continue;
+          const clean = p.trim();
+          if (!clean || seen.has(clean)) continue;
+          seen.add(clean);
+          mergedPrefixes.push(p);
+        }
+      }
+
+      const grantsSyntax = (key) => requestedConstraints.command[key] === true &&
+        (!existingConstraints?.command || existingConstraints.command[key] === true);
+
+      return requestedConstraints?.command
+        ? {
+          ...(existingConstraints?.command ? existingConstraints : {}),
+          ...requestedConstraints,
+          command: {
+            ...(existingConstraints?.command || {}),
+            ...requestedConstraints.command,
+            ...(mergedPrefixes ? { allowedPrefixes: mergedPrefixes } : {}),
+            allowChaining: grantsSyntax('allowChaining'),
+            allowPipes: grantsSyntax('allowPipes')
+          }
+        }
+        : requestedConstraints;
+    }
+
+    recordDecision(decision, authEval, fallbackToolName) {
+      const decisionType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;
+      const targetToolId = authEval?.toolId || fallbackToolName;
+
+      if (decisionType === 'allow_session') {
+        this.setToolPolicy(targetToolId, 'allow', {
+          scope: 'session',
+          serverName: authEval?.serverName,
+          originalName: authEval?.originalName
+        });
+      } else if (decisionType === 'allow_server_always') {
+        const targetServerId = decision?.serverId || authEval?.serverId;
+        if (targetServerId) {
+          this.setServerPolicy(targetServerId, 'allow', {
+            scope: 'permanent',
+            serverName: authEval?.serverName
+          });
+        }
+      } else if (decisionType === 'allow_always') {
+        const requestedConstraints = (typeof decision === 'object' && decision !== null) ? (decision.constraints || null) : null;
+        const constraints = requestedConstraints ? this.mergeToolConstraints(targetToolId, requestedConstraints) : null;
+        this.setToolPolicy(targetToolId, 'allow', {
+          scope: 'permanent',
+          serverName: authEval?.serverName,
+          originalName: authEval?.originalName,
+          constraints
+        });
+      }
+    }
+
     /**
      * Evalúa la autorización de una herramienta aplicando la jerarquía determinista.
      *
@@ -766,20 +833,23 @@
       const originalName = tool?.metadata?.originalName || toolName;
       const serverId = String(tool?.metadata?.mcpServerId || tool?.metadata?.mcpServerName || '');
 
+      const authResult = (status, reason, extra = {}) => ({
+        requiresApproval: status === TOOL_POLICIES.ASK,
+        status,
+        reason,
+        toolId,
+        serverName,
+        serverId,
+        originalName,
+        ...extra
+      });
+
       // Una herramienta que no está en el registro se trata como externa: necesita autorización.
       const isMcp = !tool || tool.category === 'mcp' || Boolean(serverId) || LOCAL_MANAGED_TOOLS.has(toolName);
 
       // 1. Herramientas nativas y seguras (search_web, execute_javascript, etc.)
       if (!isMcp) {
-        return {
-          requiresApproval: false,
-          status: TOOL_POLICIES.ALLOW,
-          reason: 'builtin_tool',
-          toolId,
-          serverName: '',
-          serverId: '',
-          originalName: toolName
-        };
+        return authResult(TOOL_POLICIES.ALLOW, 'builtin_tool', { serverName: '', serverId: '', originalName: toolName });
       }
 
       const args = { ...rawArgs };
@@ -791,55 +861,23 @@
       // 2. Denegación explícita (Blacklist) a nivel de herramienta o servidor
       const foundTool = this.findToolEntry(toolId, tool);
       if (foundTool?.entry?.policy === TOOL_POLICIES.DENY) {
-        return {
-          requiresApproval: false,
-          status: TOOL_POLICIES.DENY,
-          reason: 'granular_deny_rule',
-          toolId: foundTool.toolId,
-          serverName,
-          serverId,
-          originalName
-        };
+        return authResult(TOOL_POLICIES.DENY, 'granular_deny_rule', { toolId: foundTool.toolId });
       }
 
       if (serverId) {
         const foundServer = this.findServerEntry(serverId);
         if (foundServer?.entry?.policy === SERVER_POLICIES.DENY) {
-          return {
-            requiresApproval: false,
-            status: TOOL_POLICIES.DENY,
-            reason: 'server_deny_rule',
-            toolId,
-            serverName,
-            serverId,
-            originalName
-          };
+          return authResult(TOOL_POLICIES.DENY, 'server_deny_rule');
         }
       }
 
       if (toolName === JOB_CONTROL_TOOL || originalName === JOB_CONTROL_TOOL) {
-        return {
-          requiresApproval: false,
-          status: TOOL_POLICIES.ALLOW,
-          reason: 'job_control_tool',
-          toolId,
-          serverName,
-          serverId,
-          originalName
-        };
+        return authResult(TOOL_POLICIES.ALLOW, 'job_control_tool');
       }
 
       // 3. Modo global allow_all: TODO permitido
       if (this.globalMcpPolicy === GLOBAL_POLICIES.ALLOW_ALL) {
-        return {
-          requiresApproval: false,
-          status: TOOL_POLICIES.ALLOW,
-          reason: 'mcp_global_allow_all',
-          toolId,
-          serverName,
-          serverId,
-          originalName
-        };
+        return authResult(TOOL_POLICIES.ALLOW, 'mcp_global_allow_all');
       }
 
       // 4. Herramienta individual expresamente permitida (allow permanente o sesión)
@@ -850,58 +888,28 @@
         if (rule.constraints) {
           const constraintEval = evaluateConstraints(rule.constraints, args);
           if (constraintEval.status === TOOL_POLICIES.DENY) {
-            return {
-              requiresApproval: false,
-              status: TOOL_POLICIES.DENY,
-              reason: constraintEval.reason || 'constraint_violation_denied',
-              toolId: resolvedToolId,
-              serverName,
-              serverId,
-              originalName,
-              details: constraintEval.details
-            };
+            return authResult(TOOL_POLICIES.DENY, constraintEval.reason || 'constraint_violation_denied', { toolId: resolvedToolId, details: constraintEval.details });
           }
           if (constraintEval.status === TOOL_POLICIES.ASK) {
-            return {
-              requiresApproval: true,
-              status: TOOL_POLICIES.ASK,
-              reason: constraintEval.reason || 'constraint_outside_scope',
-              toolId: resolvedToolId,
-              serverName,
-              serverId,
-              originalName,
-              details: constraintEval.details
-            };
+            return authResult(TOOL_POLICIES.ASK, constraintEval.reason || 'constraint_outside_scope', { toolId: resolvedToolId, details: constraintEval.details });
           }
           if (rule.constraints.command) {
             const directoryEval = this.evaluateCommandDirectories(args);
             if (!directoryEval.allowed) {
-              return {
-                requiresApproval: true,
-                status: TOOL_POLICIES.ASK,
-                reason: 'command_directory_outside_rules',
+              return authResult(TOOL_POLICIES.ASK, 'command_directory_outside_rules', {
                 toolId: resolvedToolId,
-                serverName,
-                serverId,
-                originalName,
                 details: `El comando se ejecuta fuera de las reglas de directorio: ${directoryEval.directory}`
-              };
+              });
             }
           }
         }
 
         rule.lastUsedAt = Date.now();
-        return {
-          requiresApproval: false,
-          status: TOOL_POLICIES.ALLOW,
-          reason: 'granular_allow_rule',
+        return authResult(TOOL_POLICIES.ALLOW, 'granular_allow_rule', {
           toolId: resolvedToolId,
-          serverName,
-          serverId,
-          originalName,
           scope: rule.scope || SCOPES.PERMANENT,
           constraints: rule.constraints || null
-        };
+        });
       }
 
       // 5. Servidor MCP completo expresamente permitido (allow permanente o sesión)
@@ -909,16 +917,9 @@
         const foundServer = this.findServerEntry(serverId);
         if (foundServer?.entry?.policy === SERVER_POLICIES.ALLOW) {
           foundServer.entry.lastUsedAt = Date.now();
-          return {
-            requiresApproval: false,
-            status: TOOL_POLICIES.ALLOW,
-            reason: 'server_allow_rule',
-            toolId,
-            serverName,
-            serverId,
-            originalName,
+          return authResult(TOOL_POLICIES.ALLOW, 'server_allow_rule', {
             scope: foundServer.entry.scope || SCOPES.PERMANENT
-          };
+          });
         }
       }
 
@@ -929,16 +930,9 @@
       if (pathAccess && path) {
         const directoryEval = this.evaluateDirectoryRule(pathAccess, path);
         if (directoryEval.allowed) {
-          return {
-            requiresApproval: false,
-            status: TOOL_POLICIES.ALLOW,
-            reason: 'directory_rule_allow',
-            toolId,
-            serverName,
-            serverId,
-            originalName,
+          return authResult(TOOL_POLICIES.ALLOW, 'directory_rule_allow', {
             directoryRule: directoryEval.rule
-          };
+          });
         }
 
         // Si workspace_trust está activo y no es escape traversal
@@ -948,30 +942,15 @@
           const isInsideWorkspace = Boolean(resolved) && !/^[A-Za-z]:/.test(path) &&
             (!resolved.startsWith('/') || resolved === '/workspace' || resolved.startsWith('/workspace/'));
           if (isInsideWorkspace) {
-            return {
-              requiresApproval: false,
-              status: TOOL_POLICIES.ALLOW,
-              reason: 'workspace_trust_allow',
-              toolId,
-              serverName,
-              serverId,
-              originalName
-            };
+            return authResult(TOOL_POLICIES.ALLOW, 'workspace_trust_allow');
           }
         }
 
-        return {
-          requiresApproval: true,
-          status: TOOL_POLICIES.ASK,
-          reason: 'directory_rule_required',
-          toolId,
-          serverName,
-          serverId,
-          originalName,
+        return authResult(TOOL_POLICIES.ASK, 'directory_rule_required', {
           details: `La ruta no coincide con una regla ${pathAccess}: ${path}`,
           directoryAccess: directoryEval.path ? pathAccess : '',
           directoryPath: directoryEval.path || ''
-        };
+        });
       }
 
       if ((toolName === COMMAND_TOOL || originalName === COMMAND_TOOL)
@@ -982,39 +961,16 @@
           this.evaluateCommandDirectories(args).allowed;
 
         if (isLocal) {
-          return {
-            requiresApproval: false,
-            status: TOOL_POLICIES.ALLOW,
-            reason: 'workspace_trust_command',
-            toolId,
-            serverName,
-            serverId,
-            originalName
-          };
+          return authResult(TOOL_POLICIES.ALLOW, 'workspace_trust_command');
         }
 
-        return {
-          requiresApproval: true,
-          status: TOOL_POLICIES.ASK,
-          reason: 'workspace_trust_external_or_global_command',
-          toolId,
-          serverName,
-          serverId,
-          originalName,
+        return authResult(TOOL_POLICIES.ASK, 'workspace_trust_external_or_global_command', {
           details: 'El comando accede a recursos globales o rutas fuera del espacio de trabajo.'
-        };
+        });
       }
 
       // 7. Por defecto en MCP: solicitar confirmación interactiva
-      return {
-        requiresApproval: true,
-        status: TOOL_POLICIES.ASK,
-        reason: 'mcp_default_ask',
-        toolId,
-        serverName,
-        serverId,
-        originalName
-      };
+      return authResult(TOOL_POLICIES.ASK, 'mcp_default_ask');
     }
   }
 

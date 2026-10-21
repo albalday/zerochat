@@ -316,68 +316,7 @@
         }
       }
 
-      const targetToolId = authEval.toolId || tool.name;
-
-      if (decisionType === 'allow_session') {
-        security.setToolPolicy(targetToolId, 'allow', {
-          scope: 'session',
-          serverName: authEval.serverName,
-          originalName: authEval.originalName
-        });
-      } else if (decisionType === 'allow_server_always') {
-        const targetServerId = decision?.serverId || authEval.serverId;
-        if (targetServerId) {
-          security.setServerPolicy(targetServerId, 'allow', {
-            scope: 'permanent',
-            serverName: authEval.serverName
-          });
-        }
-      } else if (decisionType === 'allow_always') {
-        const requestedConstraints = (typeof decision === 'object' && decision !== null) ? (decision.constraints || null) : null;
-        const existingConstraints = security.getToolConstraints(targetToolId);
-        let mergedPrefixes = undefined;
-        if (requestedConstraints?.command?.allowedPrefixes || existingConstraints?.command?.allowedPrefixes) {
-          const rawList = [
-            ...(Array.isArray(existingConstraints?.command?.allowedPrefixes) ? existingConstraints.command.allowedPrefixes : []),
-            ...(Array.isArray(requestedConstraints?.command?.allowedPrefixes) ? requestedConstraints.command.allowedPrefixes : [])
-          ];
-          const seen = new Set();
-          mergedPrefixes = [];
-          for (const p of rawList) {
-            if (typeof p !== 'string') continue;
-            const clean = p.trim();
-            if (!clean || seen.has(clean)) continue;
-            seen.add(clean);
-            mergedPrefixes.push(p);
-          }
-        }
-
-        // Encadenamiento y tuberías solo se conservan si la nueva autorización y la existente
-        // los conceden explícitamente; al fusionar prevalece siempre la opción más restrictiva.
-        const grantsSyntax = (key) => requestedConstraints.command[key] === true &&
-          (!existingConstraints?.command || existingConstraints.command[key] === true);
-
-        const constraints = requestedConstraints?.command
-          ? {
-            ...(existingConstraints?.command ? existingConstraints : {}),
-            ...requestedConstraints,
-            command: {
-              ...(existingConstraints?.command || {}),
-              ...requestedConstraints.command,
-              ...(mergedPrefixes ? { allowedPrefixes: mergedPrefixes } : {}),
-              allowChaining: grantsSyntax('allowChaining'),
-              allowPipes: grantsSyntax('allowPipes')
-            }
-          }
-          : requestedConstraints;
-
-        security.setToolPolicy(targetToolId, 'allow', {
-          scope: 'permanent',
-          serverName: authEval.serverName,
-          originalName: authEval.originalName,
-          constraints
-        });
-      }
+      security.recordDecision(decision, authEval, tool.name);
 
       return { allowed: true };
     }

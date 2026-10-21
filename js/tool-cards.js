@@ -7,6 +7,8 @@
   const { t } = I18n;
   const getRegistry = () => resolveDep('ChatAgentCore', './agent-core.js').registry;
   const getToolSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
+  const getMcp = () => resolveDep('ChatMCP', './mcp.js');
+  const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getView = name => getRegistry().getTool(name)?.view || null;
 
   const SPINNER_SVG = Icons.get('spinner', { size: 12, strokeWidth: 2.5, className: 'ui-icon-spin' });
@@ -175,6 +177,152 @@
         renderStatusBadge(card.querySelector('.tool-card-badge'), success, success ? successLabel(result, elapsedMs) : (result.error || t(errorKey)));
         const text = success ? getText(result) : (result.error || '');
         card.querySelector('.tool-card-result').innerHTML = `<pre class="tool-result-pre"><code>${escapeHtml(text.slice(0, 3000))}${text.length > 3000 ? `\n${escapeHtml(t('tool_card_truncated'))}` : ''}</code></pre>`;
+      }
+    };
+  }
+
+  function appendMcpScreenshot(card, dataUrl, t) {
+    const figure = card.ownerDocument.createElement('figure');
+    figure.className = 'mcp-screenshot-preview';
+    const image = card.ownerDocument.createElement('img');
+    image.className = 'mcp-screenshot-image';
+    image.src = dataUrl;
+    image.alt = t('mcp_screenshot_alt');
+    image.loading = 'lazy';
+    image.decoding = 'async';
+    Utils.makeImageOpenable(image, dataUrl, t('image_open_tab'));
+    const caption = card.ownerDocument.createElement('figcaption');
+    caption.textContent = t('mcp_screenshot_caption');
+    figure.append(image, caption);
+    card.querySelector('.tool-card-result').appendChild(figure);
+  }
+
+  function appendFilePreviewAction(card, args, t) {
+    const path = String(args?.path || args?.filepath || args?.file || '').trim();
+    const content = typeof args?.content === 'string' ? args.content : '';
+    if (!path || !content) return;
+    if (!Utils.isPreviewable(path.match(/\.([^./\\]+)$/)?.[1])) return;
+
+    if (card.querySelector('.btn-file-preview')) return;
+    const actions = card.querySelector('.tool-card-header-actions');
+    if (!actions) return;
+
+    const btn = card.ownerDocument.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-file-preview';
+    btn.title = t('tool_preview_file_title');
+    Utils.setTrustedHtml(btn, `${Icons.get('external-link', { size: 12 })} <span>${escapeHtml(t('tool_preview_file_btn'))}</span>`);
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      Utils.openDocumentInNewTab(content);
+    });
+    actions.prepend(btn);
+  }
+
+  /** Ruta absoluta que devuelve write_file/edit_file del servidor local; '' si el resultado no la trae. */
+  function getWrittenFilePath(resultText) {
+    try {
+      const path = JSON.parse(resultText)?.path;
+      return typeof path === 'string' ? path : '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /**
+   * Botón Diff de las escrituras del servidor local: abre el visor de git del sistema sobre la ruta
+   * absoluta del resultado, que no depende del directorio de proyecto activo al pulsarlo.
+   */
+  function appendFileDiffAction(card, resultText, t) {
+    const path = getWrittenFilePath(resultText);
+    if (!path) return;
+
+    if (card.querySelector('.btn-file-diff')) return;
+    const actions = card.querySelector('.tool-card-header-actions');
+    if (!actions) return;
+
+    const btn = card.ownerDocument.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-file-diff';
+    btn.title = t('tool_diff_file_title');
+    Utils.setTrustedHtml(btn, `${Icons.get('git-branch', { size: 12 })} <span>${escapeHtml(t('tool_diff_file_btn'))}</span>`);
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const manager = getMcp().manager;
+      if (!manager.isProxyConnected()) {
+        await getDialogs().alert(t('tool_diff_file_no_backend'));
+        return;
+      }
+      try {
+        const res = await manager.openFileDiff(path);
+        if (res && res.has_diff === false) {
+          if (res.has_commit_history) {
+            const confirmed = await getDialogs().confirm(t('tool_diff_file_no_changes_ask_commit'));
+            if (confirmed) {
+              await manager.openFileDiff(path, true);
+            }
+          } else {
+            await getDialogs().alert(t('tool_diff_file_no_changes'));
+          }
+        }
+      } catch (err) {
+        await getDialogs().alert(err?.message || String(err));
+      }
+    });
+    actions.prepend(btn);
+  }
+
+  /** Vista de tarjeta de una herramienta MCP; `offersFileDiff` añade el botón Diff a sus resultados. */
+  function createMcpToolView(toolName, serverName, offersFileDiff) {
+    const iconSvg = Icons.get('plug', { size: 14 });
+    const codeBlock = text => `<pre class="tool-card-code"><code>${escapeHtml(text)}</code></pre>`;
+
+    const renderCard = (args, contentHtml, badgeHtml, ui, collapsed) => {
+      const card = ui.createCardWrapper('mcp-card');
+      const argStr = args && Object.keys(args).length ? escapeHtml(JSON.stringify(args, null, 2)) : '';
+      card.innerHTML = renderCardHtml({
+        collapsed,
+        titleHtml: `${iconSvg}<span>${escapeHtml(toolName)}</span>`,
+        titleSuffixHtml: `<span class="tool-card-tag">${escapeHtml(serverName)}</span>`,
+        badgeHtml,
+        bodyHtml: `${argStr ? `<div class="mcp-input-summary"><code>${argStr}</code></div>` : ''}<div class="tool-card-result">${contentHtml}</div>`
+      });
+      return card;
+    };
+
+    return {
+      createLiveCard: (args, ui) => {
+        const running = `${ui.SPINNER_SVG} <span>${ui.t('tool_badge_executing')}</span>`;
+        return renderCard(args, `<div class="tool-loading-placeholder">${running}</div>`, `<span class="tool-card-badge status-loading">${running}</span>`, ui, false);
+      },
+      updateLiveCard: (card, args, result, elapsedMs, ui) => {
+        const isSuccess = result.success !== false && !result.error && !result.isError;
+        const badge = card.querySelector('.tool-card-badge');
+        badge.className = `tool-card-badge ${isSuccess ? 'status-success' : 'status-error'}`;
+        badge.innerHTML = isSuccess
+          ? `${ui.CHECK_SVG} <span>${ui.t('tool_status_success')} (${elapsedMs}ms)</span>`
+          : `${ui.ERROR_SVG} <span>${ui.t('tool_status_error', { ms: elapsedMs })}</span>`;
+        const mcp = getMcp();
+        const resultText = mcp.getResultText(result);
+        card.querySelector('.tool-card-result').innerHTML = codeBlock(resultText);
+        if (isSuccess) {
+          appendFilePreviewAction(card, args, ui.t);
+          if (offersFileDiff) appendFileDiffAction(card, resultText, ui.t);
+        }
+        const screenshot = mcp.getSafeMcpImageDataUrl(result);
+        if (!screenshot) return false;
+        appendMcpScreenshot(card, screenshot, ui.t);
+        return true;
+      },
+      renderHistoricalCard: (args, message, ui) => {
+        const out = typeof message?.content === 'string' ? message.content : (message?.content ? JSON.stringify(message.content, null, 2) : '');
+        const badge = `<span class="tool-card-badge status-success">${ui.CHECK_SVG} <span>${ui.t('tool_status_success')}</span></span>`;
+        const card = renderCard(args, codeBlock(out), badge, ui, true);
+        appendFilePreviewAction(card, args, ui.t);
+        if (offersFileDiff) appendFileDiffAction(card, out, ui.t);
+        const screenshot = getMcp().getSafeMcpImageFromMessage(message);
+        if (screenshot) appendMcpScreenshot(card, screenshot, ui.t);
+        return card;
       }
     };
   }
@@ -526,6 +674,7 @@
     getUrlArg,
     createWebRequestView,
     createTextResultView,
+    createMcpToolView,
     createLiveToolCard,
     updateLiveToolCard,
     renderHistoricalToolCard,
