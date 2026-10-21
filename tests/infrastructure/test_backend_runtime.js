@@ -115,6 +115,7 @@ with tempfile.TemporaryDirectory() as data_dir, tempfile.TemporaryDirectory() as
             patch.object(zerochat, 'system_browsers', return_value=no_browsers):
         assert zerochat.browser_action_availability() == {'available': False, 'error': 'Playwright is not available.'}
         (Path(data_dir) / 'services' / 'playwright' / 'node_modules' / 'playwright').mkdir(parents=True)
+        (Path(data_dir) / 'services' / 'playwright' / 'node_modules' / 'playwright' / 'cli.js').touch()
         # Una descarga a medias, sin INSTALLATION_COMPLETE, y Chromium del sistema, que el runner no lanza, no cuentan.
         (Path(cache) / 'chromium_headless_shell-1200').mkdir()
         assert zerochat.browser_action_availability() == {'available': False, 'error': 'Playwright Chromium is not installed.'}

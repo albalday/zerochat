@@ -1900,13 +1900,18 @@ def browser_action_availability() -> dict:
     if not shutil.which("node"):
         return {"available": False, "error": "Node.js is not installed or not found in system PATH."}
     # Solo el Playwright del servicio, no el node_modules de la carpeta desde la que arranca el servidor.
-    if not playwright_service_module().is_dir():
+    if not playwright_service_cli().is_file():
         return {"available": False, "error": "Playwright is not available."}
     # El runner prueba las entradas de Chromium de Playwright y los canales chrome y msedge.
     browsers = system_browsers()
     if cached_engine_entries() & set(ENGINE_CACHE_ENTRIES["chromium"]) or browsers["chrome"] or browsers["msedge"]:
         return {"available": True}
     return {"available": False, "error": "Playwright Chromium is not installed."}
+
+
+def playwright_status() -> dict:
+    """Playwright del servicio y browser_action tal como están ahora, para el latido del cliente."""
+    return {"installed": playwright_service_cli().is_file(), "browserAction": browser_action_availability()}
 
 
 def browser_action(action: str, url: str | None = None, selector: str | None = None, value: str | None = None) -> str:
@@ -3564,12 +3569,14 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if is_heartbeat:
             mark_browser_active()
             # cwd permite a cada pestaña notar que otra ha cambiado el directorio del proyecto;
-            # jobs, mostrar los comandos que siguen en marcha y avisar antes de cerrar si se detendrían.
+            # jobs, mostrar los comandos que siguen en marcha y avisar antes de cerrar si se detendrían;
+            # playwright, si se puede navegar aunque se haya instalado o quitado durante la sesión.
             self._send_json_response(200, {
                 "ok": True,
                 "cwd": str(Path.cwd().resolve()),
                 "jobs": [job.summary() for job in JOBS.running()],
-                "exit_on_close": EXIT_ON_CLOSE
+                "exit_on_close": EXIT_ON_CLOSE,
+                "playwright": playwright_status()
             })
             return
 
@@ -3593,7 +3600,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             "version": VERSION,
             "cwd": str(Path.cwd().resolve()),
             "tools_count": len(LOCAL_TOOLS_DEFINITIONS),
-            "browser_action": browser_action_availability(),
             "os": DETECTED_OS
         })
         self._log_res(200, safe_path, (time.monotonic() - t0) * 1000)
@@ -3727,18 +3733,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             }
             return self._initialize_result(server_info), None, ""
         if method == "tools/list":
-            browser_availability = browser_action_availability()
-            tools = []
-            for definition in LOCAL_TOOLS_DEFINITIONS:
-                item = dict(definition)
-                if item.get("name") == "browser_action":
-                    item["availability"] = browser_availability
-                tools.append(item)
-            return {"tools": tools}, None, ""
-        if method == "tools/availability":
-            if params.get("name", "") != "browser_action":
-                return None, {"code": -32602, "message": "Herramienta no compatible con comprobación de disponibilidad."}, ""
-            return browser_action_availability(), None, ""
+            return {"tools": [dict(definition) for definition in LOCAL_TOOLS_DEFINITIONS]}, None, ""
         if method == "tools/call":
             tool_name = params["name"]
             handler = LOCAL_TOOL_HANDLERS.get(tool_name)

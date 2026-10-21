@@ -1083,6 +1083,38 @@ test('MCP - syncCommandJobs publica solo los comandos en segundo plano en marcha
   }
 });
 
+test('MCP - syncPlaywright publica el estado de Playwright del latido y browser_action lo sigue sin volver a listar', async () => {
+  const previousState = ChatState.get('mcp');
+  const manager = new MCP.McpManager();
+  try {
+    ChatState.set('mcp', { ...previousState, status: 'connected', playwright: null });
+    const provider = new MCP.McpToolProvider({ id: 'mcp_proxy', name: 'ZeroChat', initialize: async () => ({ success: true }), listTools: async () => [{ name: 'browser_action' }] });
+    const [tool] = await provider.discoverTools();
+    assert.equal(tool.isAvailable(), false, 'Sin latido no se sabe si hay Playwright');
+    assert.equal(MCP.playwrightInstalled(), null);
+
+    const writes = [];
+    const unsubscribe = ChatState.subscribe('mcp', value => writes.push(value.playwright));
+    assert.equal(manager.syncPlaywright({ installed: true, browserAction: { available: true, extra: 1 } }), true);
+    assert.deepEqual(ChatState.get('mcp').playwright, { installed: true, browserAction: { available: true } });
+    assert.equal(tool.isAvailable(), true);
+    assert.equal(manager.syncPlaywright({ installed: true, browserAction: { available: true } }), false, 'El mismo estado no vuelve a escribir');
+    assert.equal(writes.length, 1);
+    // Sin Chromium, o con el servicio quitado durante la sesión, browser_action deja de estar disponible.
+    assert.equal(manager.syncPlaywright({ installed: true, browserAction: { available: false, error: 'Playwright Chromium is not installed.' } }), true);
+    assert.equal(tool.isAvailable(), false);
+    assert.equal(manager.syncPlaywright({ installed: false, browserAction: { available: false } }), true);
+    assert.equal(MCP.playwrightInstalled(), false);
+    unsubscribe?.();
+
+    assert.equal(manager.syncPlaywright({ browserAction: { available: true } }), false, 'Un latido sin installed no se publica');
+    ChatState.set('mcp', { ...ChatState.get('mcp'), status: 'disconnected' });
+    assert.equal(manager.syncPlaywright({ installed: true, browserAction: { available: true } }), false, 'sin conexión no se publica');
+  } finally {
+    ChatState.set('mcp', previousState);
+  }
+});
+
 test('MCP - buildCommandNotes redacta en inglés los comandos en segundo plano terminados sin que el modelo lo viera', async () => {
   const manager = new MCP.McpManager();
   const requests = [];

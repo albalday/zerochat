@@ -37,20 +37,20 @@
   const request = (method, params = {}) => getMCP().manager.requestExternalControl(method, params);
   const isConnected = () => getState().get('mcp').status === 'connected';
   const playwrightStatus = () => getState().get('mcp').externalServers.find(server => server.id === 'playwright')?.status || null;
-  const browserActionAvailable = () => getState().get('mcp').tools.some(tool => tool.name === 'browser_action' && tool.available !== false);
 
-  /** Playwright en el servidor local: 'disconnected', 'loading', 'missing' o 'installed'. */
+  /** Playwright en el servidor local según el estado global de MCP: 'disconnected', 'loading', 'missing' o 'installed'. */
   function playwrightState() {
     if (!isConnected()) return 'disconnected';
-    if (!view.engines) return 'loading';
-    return view.engines.available ? 'installed' : 'missing';
+    const installed = getMCP().playwrightInstalled();
+    if (installed === null) return 'loading';
+    return installed ? 'installed' : 'missing';
   }
 
   /** browser_action y Playwright MCP solo se eligen con Playwright instalado; mientras se consulta se respeta la elección. */
   function selectable(tool) {
     const state = playwrightState();
     if (tool === 'none' || state === 'loading') return true;
-    return state === 'installed' && (tool !== 'browser_action' || browserActionAvailable());
+    return state === 'installed' && (tool !== 'browser_action' || getMCP().browserActionAvailable());
   }
 
   // Si no se puede elegir se muestra «Ninguna», pero se conserva la elección guardada para cuando se pueda.
@@ -183,9 +183,9 @@
     }
   }
 
-  /** Configuración guardada y motores, que dicen también si Playwright está instalado. */
+  /** Configuración guardada y motores: solo con Playwright instalado, que es cuando se muestran. */
   async function refreshServerData() {
-    if (!isConnected()) return;
+    if (playwrightState() !== 'installed') return;
     const saved = await request('zerochat/browser/config/get');
     view.savedConfig = saved;
     view.config = { ...saved };
@@ -298,17 +298,16 @@
       const button = event.target.closest('[data-browser-action]');
       if (button) handleAction(button);
     });
-    let wasConnected = isConnected();
-    let wasAvailable = browserActionAvailable();
+    // Se repinta al cambiar la conexión o Playwright; los datos de Playwright se piden al quedar instalado.
+    const snapshot = () => `${playwrightState()}|${getMCP().browserActionAvailable()}`;
+    let last = snapshot();
     getState().subscribe('mcp', () => {
-      const connected = isConnected();
-      const available = browserActionAvailable();
-      if (connected === wasConnected && available === wasAvailable) return;
-      const reconnected = connected && !wasConnected;
-      wasConnected = connected;
-      wasAvailable = available;
+      const next = snapshot();
+      if (next === last) return;
+      const installedNow = playwrightState() === 'installed' && !last.startsWith('installed|');
+      last = next;
       render();
-      if (reconnected) refreshServerData().catch(showError);
+      if (installedNow) refreshServerData().catch(showError);
     });
     I18n.onChange(render);
   }

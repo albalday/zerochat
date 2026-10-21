@@ -204,9 +204,6 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.ok(!toolNames.includes('set_project_directory'), 'El cambio de proyecto no es una herramienta del modelo');
     assert.ok(toolNames.includes('get_diagnostics'));
     assert.ok(toolNames.includes('browser_action'));
-    const browserAction = tools.find(t => t.name === 'browser_action');
-    assert.equal(typeof browserAction?.availability?.available, 'boolean',
-      'browser_action debe publicar su disponibilidad antes de poder activarse');
     const listDirectory = tools.find(t => t.name === 'list_directory');
     assert.equal(listDirectory?.inputSchema?.properties?.max_depth, undefined,
       'list_directory no debe publicar una profundidad recursiva inexistente');
@@ -216,19 +213,6 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.match(editFile.description, /several edit_file calls in the same response/,
       'edit_file indica al modelo que varias ediciones van en varias llamadas de la misma respuesta');
     assert.deepEqual(editFile.inputSchema.required.sort(), ['new_str', 'old_str', 'path']);
-
-    const availabilityRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://albalday.github.io',
-        'X-ZeroChat-Token': testToken
-      },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 41, method: 'tools/availability', params: { name: 'browser_action' } })
-    });
-    assert.equal(availabilityRes.status, 200);
-    const availabilityJson = await availabilityRes.json();
-    assert.equal(typeof availabilityJson.result?.available, 'boolean');
 
     // El cambio de directorio del proyecto es un método de control de la interfaz.
     const projectRpc = async (id, params) => (await fetch(baseUrl, {
@@ -244,6 +228,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
       assert.equal(moved.result?.previous_cwd, startCwd);
       const movedHb = await (await fetch(`${baseUrl}/zerochat/heartbeat`, { headers: { 'X-ZeroChat-Token': testToken } })).json();
       assert.equal(movedHb.cwd, projectDir, 'El heartbeat publica el nuevo directorio');
+      assert.deepEqual(movedHb.playwright, { installed: true, browserAction: { available: true } }, 'El heartbeat publica el estado de Playwright');
       assert.equal((await projectRpc(43, { path: path.join(projectDir, 'missing') })).error?.code, -32602);
       assert.equal((await projectRpc(44, { path: 7 })).error?.code, -32602);
       assert.equal((await projectRpc(45, {})).error?.code, -32602);

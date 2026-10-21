@@ -44,6 +44,12 @@
   const EXTERNAL_ID = 'mcp_external';
   const DEFAULT_TIMEOUT_MS = 15000;
   const LOCAL_COMMAND_TOOL = 'run_command';
+  const BROWSER_ACTION_TOOL = 'browser_action';
+
+  /** Playwright del servicio instalado según el último latido; null mientras no se sabe. */
+  const playwrightInstalled = () => getState().get('mcp').playwright?.installed ?? null;
+  /** browser_action se puede usar ahora: Playwright instalado y un Chromium con el que navegar. */
+  const browserActionAvailable = () => getState().get('mcp').playwright?.browserAction?.available === true;
   const LOCAL_COMMAND_CHECK_TOOL = 'check_command';
   const EXTERNAL_START_POLL_ATTEMPTS = 10;
   const EXTERNAL_START_POLL_INTERVAL_MS = 15000;
@@ -708,7 +714,6 @@
       name: tool.name,
       description: tool.metadata.description,
       inputSchema: tool.parameters,
-      available: tool.metadata.available,
       metadata: {
         mcpServerName: tool.metadata.mcpServerName,
         mcpServerId: tool.metadata.mcpServerId,
@@ -749,25 +754,24 @@
         const toolName = external ? rt.metadata?.originalName : rt.name;
         // run_command del servidor local: tarjeta propia y detención del comando al abortar.
         const isLocalCommand = isProxy && toolName === LOCAL_COMMAND_TOOL;
+        const isBrowserAction = isProxy && toolName === BROWSER_ACTION_TOOL;
         const namespacedName = publicToolName(isProxy ? null : sourceServer, toolName);
         if (external && rt.name !== namespacedName) throw new Error('Invalid external MCP public name');
         if (toolInstances.some(tool => tool.name === namespacedName)) throw new Error('Duplicate MCP public name');
-        const available = rt.availability?.available !== false;
 
         toolInstances.push(new Tool({
           // El nombre público ya identifica el servidor; repetirlo en la descripción gasta contexto.
           definition: { name: namespacedName, description: rt.description || toolName, parameters: rt.inputSchema },
           category: 'mcp',
-          isAvailable: () => available && (!isProxy || getState().get('mcp').status === 'connected'),
-          settings: { defaultEnabled: available, showInSettings: true },
+          isAvailable: () => (!isProxy || getState().get('mcp').status === 'connected') && (!isBrowserAction || browserActionAvailable()),
+          settings: { showInSettings: true },
           metadata: {
             iconSvg: Icons.get('plug', { size: 14 }),
             mcpServerName: serverName,
             mcpServerUrl: this.serverUrl,
             originalName: toolName,
             mcpServerId: sourceServer,
-            description: rt.description || '',
-            available
+            description: rt.description || ''
           },
           execute: async (args, context) => {
             // Un comando del servidor local sigue vivo aunque se aborte la petición: se detiene
@@ -927,7 +931,7 @@
           host, port, endpoint,
           error: silentOnFailure ? null : probe.error,
           latencyMs: silentOnFailure ? null : probe.latencyMs,
-          serverInfo: null, tools: [], commandJobs: []
+          serverInfo: null, tools: [], commandJobs: [], playwright: null
         });
         return { success: false, available: false, probe, error: probe.error };
       }
@@ -974,7 +978,7 @@
     async disconnectProxy() {
       this.dropClient(PROXY_ID);
       this.dropClient(EXTERNAL_ID);
-      getState().set('mcp', { status: 'disconnected', serverInfo: null, tools: [], latencyMs: null, error: null, externalServers: [], externalTools: [], commandJobs: [] });
+      getState().set('mcp', { status: 'disconnected', serverInfo: null, tools: [], latencyMs: null, error: null, externalServers: [], externalTools: [], commandJobs: [], playwright: null });
       return { success: true };
     }
 
@@ -984,9 +988,9 @@
      */
     startHeartbeat(host, port) {
       const target = { host, port, token: this.sessionToken };
-      const changed = !this.heartbeatTarget || ['host', 'port', 'token'].some(key => this.heartbeatTarget[key] !== target[key]);
       this.heartbeatTarget = target;
-      if (changed) this.sendHeartbeat();
+      // El primero va al conectar: trae ya el estado de Playwright.
+      this.sendHeartbeat();
       if (!this.heartbeatTimer) this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), HEARTBEAT_INTERVAL_MS);
     }
 
@@ -1010,6 +1014,7 @@
         // Otra pestaña o el modelo pueden haber cambiado el directorio del proyecto.
         this.syncProjectDirectory(payload.cwd);
         this.syncCommandJobs(payload.jobs, { exitOnClose: payload.exit_on_close === true });
+        this.syncPlaywright(payload.playwright);
       } catch (_) {
         if (this.heartbeatCheckInFlight) return;
         this.heartbeatCheckInFlight = true;
@@ -1068,6 +1073,20 @@
       const exit = typeof exitOnClose === 'boolean' ? exitOnClose : current.exitOnClose === true;
       if (signature(next) === signature(current.commandJobs) && exit === (current.exitOnClose === true)) return false;
       State.set('mcp', { commandJobs: next, exitOnClose: exit });
+      return true;
+    }
+
+    /**
+     * Publica en ChatState el estado de Playwright que trae el latido (instalado y disponibilidad de
+     * browser_action), que cambia al instalar o quitar el servicio. Solo escribe si cambia.
+     */
+    syncPlaywright(status) {
+      const State = getState();
+      const current = State.get('mcp');
+      if (current.status !== 'connected' || typeof status?.installed !== 'boolean') return false;
+      const next = { installed: status.installed, browserAction: { available: status.browserAction?.available === true } };
+      if (JSON.stringify(next) === JSON.stringify(current.playwright)) return false;
+      State.set('mcp', { playwright: next });
       return true;
     }
 
@@ -1249,6 +1268,8 @@
     McpManager,
     probeConnection,
     publicToolName,
+    playwrightInstalled,
+    browserActionAvailable,
     manager
   };
 });

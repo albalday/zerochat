@@ -120,7 +120,8 @@
     const AgentCore = getAgentCore();
     const items = tools.map(tool => {
       const browser = AgentCore.browserOfTool(tool);
-      const isChecked = tool.available !== false && (browser ? browser === AgentCore.activeBrowserTool(appConfig) : AgentCore.isToolEnabled(appConfig.enabledTools, tool.name));
+      const available = browser !== 'browser_action' || getMCP().browserActionAvailable();
+      const isChecked = available && (browser ? browser === AgentCore.activeBrowserTool(appConfig) : AgentCore.isToolEnabled(appConfig.enabledTools, tool.name));
       const schema = tool.inputSchema || {};
       const required = Array.isArray(schema.required) ? schema.required : [];
       const paramsHint = Object.entries(schema.properties || {})
