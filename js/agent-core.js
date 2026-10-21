@@ -549,6 +549,73 @@
       return 0;
     }
 
+    /**
+     * Control de bucles de un turno: devuelve una función que registra cada lote de herramientas y
+     * devuelve el periodo del bucle en que ha entrado (0 si no hay). Un texto nuevo para el usuario
+     * reinicia el historial; la misma frase repetida en cada paso ("Voy a buscar...") no lo reinicia.
+     */
+    createLoopGuard() {
+      let history = [];
+      let lastResetText = null;
+      return (text, toolCalls) => {
+        const visibleText = (text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        if (visibleText && visibleText !== lastResetText) {
+          history = [];
+          lastResetText = visibleText;
+        }
+        history.push(this.getToolBatchFingerprint(toolCalls));
+        if (history.length > LOOP_HISTORY_SIZE) history.shift();
+        return this.detectLoop(history);
+      };
+    }
+
+    /**
+     * Ejecuta en orden las llamadas de un paso hasta que se cancele el turno. Devuelve los
+     * resultados, los mensajes tool para el historial y el registro de ejecuciones.
+     */
+    async executeToolBatch(toolCalls, { stepIndex, params, signal, dispatchToolCall, createMessageId, callbacks }) {
+      const results = [];
+      const toolMessages = [];
+      const executions = [];
+
+      for (const [toolIndex, call] of toolCalls.entries()) {
+        if (signal.aborted) break;
+        const toolFnName = call.function?.name || 'tool';
+        callbacks.onToolStart?.(call, stepIndex);
+
+        const toolContext = { signal, ...params };
+        const execResult = dispatchToolCall
+          ? await dispatchToolCall(call, toolContext)
+          : await this.executor.executeToolCall(call, toolContext);
+        results.push(execResult);
+
+        const { content, images } = toToolMessageContent(execResult);
+        callbacks.onToolComplete?.(call, execResult, content, stepIndex);
+
+        executions.push({
+          step: stepIndex,
+          toolName: toolFnName,
+          args: execResult.args || call.function?.arguments,
+          result: execResult.result,
+          success: execResult.success,
+          executionTimeMs: execResult.executionTimeMs || 0,
+          error: execResult.error || null
+        });
+
+        const toolMessage = {
+          id: createMessageId('tool', { stepIndex, toolCall: call, toolIndex }),
+          role: 'tool',
+          tool_call_id: call.id || createId('call'),
+          name: toolFnName,
+          content
+        };
+        if (images) toolMessage.images = images;
+        toolMessages.push(toolMessage);
+      }
+
+      return { results, toolMessages, executions };
+    }
+
     /** Texto de un paso con herramientas que solo repite la llamada emitida como texto. */
     isToolCallText(text) {
       const trimmed = text.trim();
@@ -589,8 +656,7 @@
       let finalReasoningText = '';
       let lastStats = null;
       const toolExecutions = [];
-      let toolBatchHistory = [];
-      let lastResetText = null;
+      const trackToolBatch = this.createLoopGuard();
       let compressionUnavailable = false;
       let status = 'completed';
       let executionError = null;
@@ -717,16 +783,7 @@
           }
           if (this.isToolCallText(currentStepText || '')) currentStepText = '';
 
-          // Un texto nuevo para el usuario reinicia el control de bucles. La misma frase
-          // repetida en cada paso ("Voy a buscar...") no lo reinicia.
-          const visibleText = (currentStepText || '').replace(/\s+/g, ' ').trim().toLowerCase();
-          if (visibleText && visibleText !== lastResetText) {
-            toolBatchHistory = [];
-            lastResetText = visibleText;
-          }
-          toolBatchHistory.push(this.getToolBatchFingerprint(stepToolCalls));
-          if (toolBatchHistory.length > LOOP_HISTORY_SIZE) toolBatchHistory.shift();
-          const loopPeriod = this.detectLoop(toolBatchHistory);
+          const loopPeriod = trackToolBatch(currentStepText, stepToolCalls);
 
           if (loopPeriod > 0) {
             status = 'loop_detected';
@@ -739,43 +796,10 @@
             break;
           }
 
-          const executedToolMessages = [];
-          const stepExecResults = [];
-
-          for (const [toolIndex, call] of stepToolCalls.entries()) {
-            if (abortSignal.aborted) break;
-            const toolFnName = call.function?.name || 'tool';
-            callbacks.onToolStart?.(call, stepIndex);
-
-            const toolContext = { signal: abortSignal, ...params };
-            const execResult = dispatchToolCall
-              ? await dispatchToolCall(call, toolContext)
-              : await this.executor.executeToolCall(call, toolContext);
-            stepExecResults.push(execResult);
-
-            const { content, images } = toToolMessageContent(execResult);
-            callbacks.onToolComplete?.(call, execResult, content, stepIndex);
-
-            toolExecutions.push({
-              step: stepIndex,
-              toolName: toolFnName,
-              args: execResult.args || call.function?.arguments,
-              result: execResult.result,
-              success: execResult.success,
-              executionTimeMs: execResult.executionTimeMs || 0,
-              error: execResult.error || null
-            });
-
-            const toolMessage = {
-              id: createMessageId('tool', { stepIndex, toolCall: call, toolIndex }),
-              role: 'tool',
-              tool_call_id: call.id || createId('call'),
-              name: toolFnName,
-              content
-            };
-            if (images) toolMessage.images = images;
-            executedToolMessages.push(toolMessage);
-          }
+          const batch = await this.executeToolBatch(stepToolCalls, {
+            stepIndex, params, signal: abortSignal, dispatchToolCall, createMessageId, callbacks
+          });
+          toolExecutions.push(...batch.executions);
 
           // Cada assistant con tool_calls va seguido de los mensajes tool de sus resultados.
           const assistantMsg = {
@@ -786,14 +810,14 @@
           };
           // Solo vive durante el turno: buildEffectiveMessages lo reenvía y el historial devuelto lo omite.
           if (stepReasoningReplay) assistantMsg.reasoningReplay = stepReasoningReplay;
-          workingMessages.push(assistantMsg, ...executedToolMessages);
+          workingMessages.push(assistantMsg, ...batch.toolMessages);
           callbacks.onStepDone?.(stepIndex, { type: 'tool_execution', assistantMsg });
 
           stepIndex++;
 
           // Una herramienta puede ceder el turno al usuario (ask_user): el bucle termina
           // y la respuesta del usuario llega como el siguiente mensaje.
-          if (stepExecResults.some(r => r.success && r.result?.endTurn === true)) {
+          if (batch.results.some(r => r.success && r.result?.endTurn === true)) {
             yieldedToUser = true;
             status = 'completed';
             break;

@@ -329,35 +329,16 @@
       (card.querySelector('.tool-card-collapsible-body') || cardEl).prepend(authPromptEl);
     }
 
-    const parsedArgs = options.args || {};
-    const cmdArg = parsedArgs.command || parsedArgs.cmd || parsedArgs.script;
-    const pathArg = parsedArgs.path || parsedArgs.filepath || parsedArgs.file;
-    const requestedDirectoryAccess = options.directoryAccess || '';
-    const requestedDirectoryPath = options.directoryPath || '';
-    const isWritePathTool = /(?:^|_)edit_file$/.test(toolName);
-    const isDirectoryTool = /(?:^|_)list_directory$/.test(toolName);
-
-    const ToolSecurity = getToolSecurity();
+    const ruleOffer = getToolSecurity().getRuleOffer(toolName, options.args || {}, options);
     let contextualButtonsHtml = '';
-    let baseCmd = '';
-    if (typeof cmdArg === 'string' && cmdArg.trim()) {
+    if (ruleOffer?.type === 'command') {
       // Con "cd <dir> && git status" se ofrece autorizar git, no cd.
-      baseCmd = ToolSecurity.getCommandBaseName(cmdArg);
-      if (baseCmd && !requestedDirectoryAccess) {
-        contextualButtonsHtml = `
-          <button type="button" class="btn-auth-action btn-auth-allow-cmd" title="${escapeHtml(t('tool_auth_allow_cmd_title', { cmd: baseCmd }))}">${SHIELD_SVG} <span>${escapeHtml(t('tool_auth_allow_cmd_btn', { cmd: baseCmd + ' *' }))}</span></button>
-        `;
-      }
-      if (requestedDirectoryAccess && requestedDirectoryPath) {
-        contextualButtonsHtml = `
-          <button type="button" class="btn-auth-action btn-auth-allow-path" title="${escapeHtml(t('tool_auth_allow_path_title'))}">${SHIELD_SVG} <span>${escapeHtml(t('tool_auth_allow_path_btn', { access: requestedDirectoryAccess }))}</span></button>
-        `;
-      }
-    } else if (typeof pathArg === 'string' && pathArg.trim() && ToolSecurity.canBuildDirectoryRule(pathArg)) {
-      // Sin botón para ~, variables o ".." fuera de la raíz: la regla resultante sería inválida.
-      const access = isWritePathTool ? 'W' : 'R';
       contextualButtonsHtml = `
-        <button type="button" class="btn-auth-action btn-auth-allow-path" title="${escapeHtml(t('tool_auth_allow_path_title'))}">${SHIELD_SVG} <span>${escapeHtml(t('tool_auth_allow_path_btn', { access }))}</span></button>
+        <button type="button" class="btn-auth-action btn-auth-allow-cmd" title="${escapeHtml(t('tool_auth_allow_cmd_title', { cmd: ruleOffer.command }))}">${SHIELD_SVG} <span>${escapeHtml(t('tool_auth_allow_cmd_btn', { cmd: ruleOffer.command + ' *' }))}</span></button>
+      `;
+    } else if (ruleOffer?.type === 'directory') {
+      contextualButtonsHtml = `
+        <button type="button" class="btn-auth-action btn-auth-allow-path" title="${escapeHtml(t('tool_auth_allow_path_title'))}">${SHIELD_SVG} <span>${escapeHtml(t('tool_auth_allow_path_btn', { access: ruleOffer.access }))}</span></button>
       `;
     }
 
@@ -480,31 +461,12 @@
 
       btnAllowCmd?.addEventListener('click', (e) => {
         e.stopPropagation();
-        const baseNameOnly = (baseCmd.includes('/') ? baseCmd.split('/').pop() : baseCmd).trim();
-        handleDecision({
-          decision: 'allow_always',
-          constraints: {
-            command: {
-              allowedPrefixes: [baseNameOnly],
-              allowChaining: false,
-              allowPipes: false
-            }
-          }
-        });
+        handleDecision({ decision: 'allow_always', constraints: ruleOffer.constraints });
       });
 
       btnAllowPath?.addEventListener('click', (e) => {
         e.stopPropagation();
-        // La regla cubre la carpeta (la del archivo, o la propia en list_directory), no un único archivo.
-        const cleanPath = (requestedDirectoryPath || pathArg || '').trim().replace(/\\/g, '/').replace(/\/+$/, '');
-        const parent = isDirectoryTool
-          ? cleanPath
-          : (cleanPath.includes('/') ? cleanPath.slice(0, cleanPath.lastIndexOf('/')) : '.');
-        const access = requestedDirectoryAccess || (isWritePathTool ? 'W' : 'R');
-        handleDecision({
-          decision: 'allow_always',
-          directoryRule: `${access}:${parent || '/'}${parent === '/' ? '' : '/**'}`
-        });
+        handleDecision({ decision: 'allow_always', directoryRule: ruleOffer.directoryRule });
       });
 
       btnDeny?.addEventListener('click', (e) => {
