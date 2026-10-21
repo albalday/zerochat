@@ -299,6 +299,237 @@
     return { accumulatedText, accumulatedReasoning, reasoningReplay, stats, toolCalls, truncated, recoveredReason };
   }
 
+  function createStreamAccumulator({
+    adapter,
+    toolsList = [],
+    onChunk,
+    onReasoningChunk,
+    onGenerationStatus,
+    onToolCallDelta,
+    onLog
+  }) {
+    let accumulatedText = '';
+    let accumulatedReasoning = '';
+    let replayReasoning = '';
+    let replayReasoningField = '';
+    let replaySignature = null;
+    let truncated = false;
+    let recoveredReason = '';
+    let accumulatedToolCalls = {};
+    let chunkCount = 0;
+    const splitReasoningTags = createReasoningTagSplitter();
+    let serverCachedTokens = 0;
+    let serverCacheCreationTokens = 0;
+    let serverPromptTokens = 0;
+    let serverCompletionTokens = 0;
+    let serverTotalTokens = 0;
+    let serverReasoningTokens = 0;
+    const requestStartTime = performance.now();
+    let firstTokenTime = null;
+    let generationStatus = { phase: '', percent: null, detail: '' };
+
+    function publishGenerationStatus(update = {}) {
+      const next = { ...generationStatus, ...update };
+      if (next.phase === generationStatus.phase && next.percent === generationStatus.percent && next.detail === generationStatus.detail) return;
+      generationStatus = next;
+      onGenerationStatus?.(next);
+    }
+    publishGenerationStatus({ phase: 'connecting' });
+
+    function getStats() {
+      const now = performance.now();
+      const totalElapsedSec = ((now - requestStartTime) / 1000).toFixed(2);
+      const isEstimated = serverCompletionTokens <= 0;
+      const tokens = serverCompletionTokens > 0
+        ? serverCompletionTokens
+        : estimateTokens(accumulatedText + accumulatedReasoning, chunkCount);
+
+      if (firstTokenTime) {
+        const ttftSec = ((firstTokenTime - requestStartTime) / 1000).toFixed(2);
+        const generationElapsedMs = Math.max(now - firstTokenTime, 10);
+        const generationElapsedSec = generationElapsedMs / 1000;
+        const tokensPerSec = tokens > 0 ? (tokens / generationElapsedSec).toFixed(1) : '0.0';
+
+        return {
+          ttftSec,
+          generationSec: generationElapsedSec.toFixed(2),
+          totalSec: totalElapsedSec,
+          tokens,
+          tokensPerSec,
+          cachedTokens: serverCachedTokens,
+          cacheCreationTokens: serverCacheCreationTokens,
+          promptTokens: serverPromptTokens,
+          completionTokens: serverCompletionTokens,
+          totalTokens: serverTotalTokens,
+          reasoningTokens: serverReasoningTokens,
+          isEstimated
+        };
+      }
+      return {
+        ttftSec: totalElapsedSec,
+        generationSec: '0.00',
+        totalSec: totalElapsedSec,
+        tokens,
+        tokensPerSec: '0.0',
+        cachedTokens: serverCachedTokens,
+        cacheCreationTokens: serverCacheCreationTokens,
+        promptTokens: serverPromptTokens,
+        completionTokens: serverCompletionTokens,
+        totalTokens: serverTotalTokens,
+        reasoningTokens: serverReasoningTokens,
+        isEstimated
+      };
+    }
+
+    const parsesTextToolCalls = toolsList.length > 0;
+    let textToolCalls = null;
+    let lastVisibleText = '';
+
+    function emitText(piece) {
+      accumulatedText += piece;
+      chunkCount++;
+      if (!onChunk) return;
+      if (!parsesTextToolCalls) {
+        onChunk(accumulatedText, piece, getStats());
+        return;
+      }
+      const previousVisible = lastVisibleText;
+      lastVisibleText = TextToolCalls.visibleText(accumulatedText);
+      if (lastVisibleText === previousVisible) return;
+      onChunk(lastVisibleText, lastVisibleText.startsWith(previousVisible) ? lastVisibleText.slice(previousVisible.length) : lastVisibleText, getStats());
+    }
+
+    function emitReasoning(piece) {
+      publishGenerationStatus({ phase: 'thinking', percent: null, detail: '' });
+      if (!piece) return;
+      accumulatedReasoning += piece;
+      if (onReasoningChunk) {
+        onReasoningChunk(piece, accumulatedReasoning);
+      } else if (onLog) {
+        onLog({ type: 'thinking', text: piece });
+      }
+    }
+
+    function getReasoningReplay() {
+      if (!replayReasoningField || !replayReasoning) return null;
+      const replay = { field: replayReasoningField, text: replayReasoning };
+      if (replaySignature !== null) replay.signature = replaySignature;
+      return replay;
+    }
+
+    function getFinalToolCalls() {
+      const callIndices = Object.keys(accumulatedToolCalls);
+      if (callIndices.length > 0) {
+        return callIndices.map(idx => accumulatedToolCalls[idx]);
+      }
+      if (parsesTextToolCalls) {
+        if (textToolCalls) return textToolCalls;
+        const extracted = TextToolCalls.extractToolCalls(accumulatedText);
+        if (extracted.toolCalls) {
+          accumulatedText = extracted.text;
+          textToolCalls = extracted.toolCalls;
+          if (onLog) onLog({ type: 'info', text: `Tool calls extracted from the text: ${textToolCalls.map(call => call.function.name).join(', ')}` });
+        } else {
+          const visible = TextToolCalls.visibleText(accumulatedText).trim();
+          if (visible !== accumulatedText.trim() && onLog) {
+            onLog({ type: 'warning', text: 'Invalid <tool_call> block removed from the response.' });
+          }
+          accumulatedText = visible;
+        }
+        return textToolCalls;
+      }
+      return null;
+    }
+
+    function buildResult() {
+      const toolCalls = getFinalToolCalls();
+      return streamResult({
+        accumulatedText,
+        accumulatedReasoning,
+        reasoningReplay: getReasoningReplay(),
+        stats: getStats(),
+        toolCalls,
+        truncated,
+        recoveredReason
+      });
+    }
+
+    function applyChunk(parsed) {
+      const chunkData = adapter.parseStreamChunk(parsed, { firstTokenTime, accumulatedReasoning, accumulatedText });
+
+      if (chunkData.cachedTokens > 0) serverCachedTokens = chunkData.cachedTokens;
+      if (chunkData.cacheCreationTokens > 0) serverCacheCreationTokens = chunkData.cacheCreationTokens;
+      if (typeof chunkData.reasoningSignature === 'string') replaySignature = (replaySignature || '') + chunkData.reasoningSignature;
+      if (chunkData.truncatedBy && !truncated) {
+        truncated = true;
+        onLog?.({ type: 'warning', text: `The server cut the response at the output token limit (${chunkData.truncatedBy}).` });
+      }
+
+      if (chunkData.reasoningChunk) {
+        if (!firstTokenTime) firstTokenTime = performance.now();
+        if (chunkData.reasoningField) {
+          replayReasoningField = chunkData.reasoningField;
+          replayReasoning += chunkData.reasoningChunk;
+        }
+        emitReasoning(chunkData.reasoningChunk);
+      }
+
+      if (chunkData.textChunk) {
+        if (!firstTokenTime) firstTokenTime = performance.now();
+        for (const part of splitReasoningTags(chunkData.textChunk)) {
+          if (part.reasoning) {
+            emitReasoning(part.text);
+          } else {
+            publishGenerationStatus({ phase: 'generating', percent: null, detail: '' });
+            emitText(part.text);
+          }
+        }
+      }
+
+      if (chunkData.toolCallDeltas && chunkData.toolCallDeltas.length > 0) {
+        if (!firstTokenTime) firstTokenTime = performance.now();
+        for (const delta of chunkData.toolCallDeltas) {
+          const call = mergeToolCallDelta(accumulatedToolCalls, delta, chunkData.thoughtSignature);
+          if (onToolCallDelta) onToolCallDelta(call);
+        }
+      }
+
+      const streamUsage = chunkData.usage || parsed.usage;
+      if (streamUsage) {
+        const pTokens = streamUsage.prompt_tokens ?? streamUsage.input_tokens ?? streamUsage.prompt_eval_count ?? 0;
+        const cTokens = streamUsage.completion_tokens ?? streamUsage.output_tokens ?? streamUsage.eval_count ?? 0;
+        const rTokens = streamUsage.completion_tokens_details?.reasoning_tokens ?? streamUsage.reasoning_tokens ?? 0;
+
+        if (pTokens > 0) serverPromptTokens = pTokens;
+        if (cTokens > 0) serverCompletionTokens = cTokens;
+        if (rTokens > 0) serverReasoningTokens = rTokens;
+
+        if (streamUsage.total_tokens && streamUsage.total_tokens > 0) {
+          serverTotalTokens = Math.max(streamUsage.total_tokens, (serverPromptTokens + serverCompletionTokens));
+        } else if (serverPromptTokens > 0 || serverCompletionTokens > 0) {
+          serverTotalTokens = serverPromptTokens + serverCompletionTokens;
+        }
+
+        if (onLog) {
+          const cacheLog = serverCachedTokens > 0 ? ` (⚡ Cache: ${serverCachedTokens} tok)` : '';
+          onLog({
+            type: 'stats',
+            text: `Token usage: Prompt=${serverPromptTokens}, Completion=${serverCompletionTokens}, Total=${serverTotalTokens}${serverReasoningTokens ? ` (Reasoning: ${serverReasoningTokens})` : ''}${cacheLog}`
+          });
+        }
+      }
+
+      return chunkData.error || '';
+    }
+
+    return {
+      publishGenerationStatus,
+      setRecoveredReason(r) { recoveredReason = r; },
+      applyChunk,
+      buildResult
+    };
+  }
+
   /**
    * Orquestador común de streaming HTTP/SSE. Devuelve { accumulatedText, accumulatedReasoning,
    * reasoningReplay, stats, toolCalls, truncated, recoveredReason }, también al cancelar (con lo recibido hasta entonces); un
@@ -390,231 +621,25 @@
       });
     }
 
-    let accumulatedText = '';
-    let accumulatedReasoning = '';
-    // Razonamiento recibido en un campo propio del delta; el agente lo reenvía dentro del turno.
-    let replayReasoning = '';
-    let replayReasoningField = '';
-    // Firma con la que la Messages API valida el bloque thinking reenviado; puede llegar vacía.
-    let replaySignature = null;
-    const getReasoningReplay = () => {
-      if (!replayReasoningField || !replayReasoning) return null;
-      const replay = { field: replayReasoningField, text: replayReasoning };
-      if (replaySignature !== null) replay.signature = replaySignature;
-      return replay;
-    };
-    // El servidor cortó la respuesta en el límite de tokens de salida.
-    let truncated = false;
-    // Parámetro que el servidor rechazó y sin el que se repitió la petición.
-    let recoveredReason = '';
-    let accumulatedToolCalls = {};
-    let chunkCount = 0;
-    const splitReasoningTags = createReasoningTagSplitter();
-    let serverCachedTokens = 0;
-    let serverCacheCreationTokens = 0;
-    let serverPromptTokens = 0;
-    let serverCompletionTokens = 0;
-    let serverTotalTokens = 0;
-    let serverReasoningTokens = 0;
-    const requestStartTime = performance.now();
-    let firstTokenTime = null;
-    let generationStatus = { phase: '', percent: null, detail: '' };
-    function publishGenerationStatus(update = {}) {
-      const next = { ...generationStatus, ...update };
-      if (next.phase === generationStatus.phase && next.percent === generationStatus.percent && next.detail === generationStatus.detail) return;
-      generationStatus = next;
-      onGenerationStatus?.(next);
-    }
-    publishGenerationStatus({ phase: 'connecting' });
-
-    function getStats() {
-      const now = performance.now();
-      const totalElapsedSec = ((now - requestStartTime) / 1000).toFixed(2);
-      const isEstimated = serverCompletionTokens <= 0;
-      const tokens = serverCompletionTokens > 0
-        ? serverCompletionTokens
-        : estimateTokens(accumulatedText + accumulatedReasoning, chunkCount);
-
-      if (firstTokenTime) {
-        const ttftSec = ((firstTokenTime - requestStartTime) / 1000).toFixed(2);
-        const generationElapsedMs = Math.max(now - firstTokenTime, 10);
-        const generationElapsedSec = generationElapsedMs / 1000;
-        const tokensPerSec = tokens > 0 ? (tokens / generationElapsedSec).toFixed(1) : '0.0';
-
-        return {
-          ttftSec: ttftSec,
-          generationSec: generationElapsedSec.toFixed(2),
-          totalSec: totalElapsedSec,
-          tokens: tokens,
-          tokensPerSec: tokensPerSec,
-          cachedTokens: serverCachedTokens,
-          cacheCreationTokens: serverCacheCreationTokens,
-          promptTokens: serverPromptTokens,
-          completionTokens: serverCompletionTokens,
-          totalTokens: serverTotalTokens,
-          reasoningTokens: serverReasoningTokens,
-          isEstimated: isEstimated
-        };
-      } else {
-        return {
-          ttftSec: totalElapsedSec,
-          generationSec: '0.00',
-          totalSec: totalElapsedSec,
-          tokens: tokens,
-          tokensPerSec: '0.0',
-          cachedTokens: serverCachedTokens,
-          cacheCreationTokens: serverCacheCreationTokens,
-          promptTokens: serverPromptTokens,
-          completionTokens: serverCompletionTokens,
-          totalTokens: serverTotalTokens,
-          reasoningTokens: serverReasoningTokens,
-          isEstimated: isEstimated
-        };
-      }
-    }
-
-    // Con herramientas activas, los bloques <tool_call> del texto se ocultan y se
-    // interpretan como llamadas si el proveedor no devolvió llamadas nativas.
-    const parsesTextToolCalls = toolsList.length > 0;
-    let textToolCalls = null;
-    let lastVisibleText = '';
-
-    function emitText(piece) {
-      accumulatedText += piece;
-      chunkCount++;
-      if (!onChunk) return;
-      if (!parsesTextToolCalls) {
-        onChunk(accumulatedText, piece, getStats());
-        return;
-      }
-      const previousVisible = lastVisibleText;
-      lastVisibleText = TextToolCalls.visibleText(accumulatedText);
-      if (lastVisibleText === previousVisible) return;
-      onChunk(lastVisibleText, lastVisibleText.startsWith(previousVisible) ? lastVisibleText.slice(previousVisible.length) : lastVisibleText, getStats());
-    }
-
-    function emitReasoning(piece) {
-      publishGenerationStatus({ phase: 'thinking', percent: null, detail: '' });
-      if (!piece) return;
-      accumulatedReasoning += piece;
-      if (onReasoningChunk) {
-        onReasoningChunk(piece, accumulatedReasoning);
-      } else if (onLog) {
-        onLog({ type: 'thinking', text: piece });
-      }
-    }
-
-    function getFinalToolCalls() {
-      const callIndices = Object.keys(accumulatedToolCalls);
-      if (callIndices.length > 0) {
-        return callIndices.map(idx => accumulatedToolCalls[idx]);
-      }
-      if (parsesTextToolCalls) {
-        if (textToolCalls) return textToolCalls;
-        const extracted = TextToolCalls.extractToolCalls(accumulatedText);
-        if (extracted.toolCalls) {
-          accumulatedText = extracted.text;
-          textToolCalls = extracted.toolCalls;
-          if (onLog) onLog({ type: 'info', text: `Tool calls extracted from the text: ${textToolCalls.map(call => call.function.name).join(', ')}` });
-        } else {
-          // Igual que durante el streaming: un bloque <tool_call> inválido o sin cerrar no se muestra.
-          const visible = TextToolCalls.visibleText(accumulatedText).trim();
-          if (visible !== accumulatedText.trim() && onLog) {
-            onLog({ type: 'warning', text: 'Invalid <tool_call> block removed from the response.' });
-          }
-          accumulatedText = visible;
-        }
-        return textToolCalls;
-      }
-      return null;
-    }
-
-    function buildResult() {
-      // Las llamadas en texto se extraen antes porque recortan accumulatedText.
-      const toolCalls = getFinalToolCalls();
-      return streamResult({ accumulatedText, accumulatedReasoning, reasoningReplay: getReasoningReplay(), stats: getStats(), toolCalls, truncated, recoveredReason });
-    }
-
-    // Aplica un trozo del streaming y devuelve el error que el servidor envió dentro de él.
-    function applyChunk(parsed) {
-      const chunkData = adapter.parseStreamChunk(parsed, { firstTokenTime, accumulatedReasoning, accumulatedText });
-
-      if (chunkData.cachedTokens > 0) serverCachedTokens = chunkData.cachedTokens;
-      if (chunkData.cacheCreationTokens > 0) serverCacheCreationTokens = chunkData.cacheCreationTokens;
-      if (typeof chunkData.reasoningSignature === 'string') replaySignature = (replaySignature || '') + chunkData.reasoningSignature;
-      if (chunkData.truncatedBy && !truncated) {
-        truncated = true;
-        onLog?.({ type: 'warning', text: `The server cut the response at the output token limit (${chunkData.truncatedBy}).` });
-      }
-
-      // Tokens de razonamiento específicos
-      if (chunkData.reasoningChunk) {
-        if (!firstTokenTime) firstTokenTime = performance.now();
-        if (chunkData.reasoningField) {
-          replayReasoningField = chunkData.reasoningField;
-          replayReasoning += chunkData.reasoningChunk;
-        }
-        emitReasoning(chunkData.reasoningChunk);
-      }
-
-      if (chunkData.textChunk) {
-        if (!firstTokenTime) firstTokenTime = performance.now();
-        for (const part of splitReasoningTags(chunkData.textChunk)) {
-          if (part.reasoning) {
-            emitReasoning(part.text);
-          } else {
-            publishGenerationStatus({ phase: 'generating', percent: null, detail: '' });
-            emitText(part.text);
-          }
-        }
-      }
-
-      if (chunkData.toolCallDeltas && chunkData.toolCallDeltas.length > 0) {
-        if (!firstTokenTime) firstTokenTime = performance.now();
-        for (const delta of chunkData.toolCallDeltas) {
-          const call = mergeToolCallDelta(accumulatedToolCalls, delta, chunkData.thoughtSignature);
-          if (onToolCallDelta) onToolCallDelta(call);
-        }
-      }
-
-      // Usage logging si viene en el chunk (OpenAI prompt_tokens / Anthropic input_tokens / Ollama)
-      const streamUsage = chunkData.usage || parsed.usage;
-      if (streamUsage) {
-        const pTokens = streamUsage.prompt_tokens ?? streamUsage.input_tokens ?? streamUsage.prompt_eval_count ?? 0;
-        const cTokens = streamUsage.completion_tokens ?? streamUsage.output_tokens ?? streamUsage.eval_count ?? 0;
-        const rTokens = streamUsage.completion_tokens_details?.reasoning_tokens ?? streamUsage.reasoning_tokens ?? 0;
-
-        if (pTokens > 0) serverPromptTokens = pTokens;
-        if (cTokens > 0) serverCompletionTokens = cTokens;
-        if (rTokens > 0) serverReasoningTokens = rTokens;
-
-        if (streamUsage.total_tokens && streamUsage.total_tokens > 0) {
-          serverTotalTokens = Math.max(streamUsage.total_tokens, (serverPromptTokens + serverCompletionTokens));
-        } else if (serverPromptTokens > 0 || serverCompletionTokens > 0) {
-          serverTotalTokens = serverPromptTokens + serverCompletionTokens;
-        }
-
-        if (onLog) {
-          const cacheLog = serverCachedTokens > 0 ? ` (⚡ Cache: ${serverCachedTokens} tok)` : '';
-          onLog({
-            type: 'stats',
-            text: `Token usage: Prompt=${serverPromptTokens}, Completion=${serverCompletionTokens}, Total=${serverTotalTokens}${serverReasoningTokens ? ` (Reasoning: ${serverReasoningTokens})` : ''}${cacheLog}`
-          });
-        }
-      }
-
-      return chunkData.error || '';
-    }
+    const accumulator = createStreamAccumulator({
+      adapter,
+      toolsList,
+      onChunk,
+      onReasoningChunk,
+      onGenerationStatus,
+      onToolCallDelta,
+      onLog
+    });
 
     try {
-      const { response, recoveredReason: recovered } = await fetchStreamResponse({
+      const { response, recoveredReason } = await fetchStreamResponse({
         adapter, endpoint, headers, payload, signal, onLog,
         onProgress: progress => {
-          publishGenerationStatus(progress);
+          accumulator.publishGenerationStatus(progress);
           onLog?.({ type: 'info', text: `${adapter.label || adapter.id}: ${String(progress?.detail || progress?.phase || 'preparing')}` });
         }
       });
-      recoveredReason = recovered;
+      accumulator.setRecoveredReason(recoveredReason);
 
       const reader = response.body.getReader();
       for await (const line of readSseLines(reader, onLog)) {
@@ -622,7 +647,7 @@
         const dataStr = line.substring(6).trim();
 
         if (dataStr === '[DONE]') {
-          const result = buildResult();
+          const result = accumulator.buildResult();
           if (onLog) {
             const { stats } = result;
             const cacheInfo = stats.cachedTokens > 0 ? ` | ⚡ Cache: ${stats.cachedTokens} tok` : '';
@@ -636,7 +661,7 @@
 
         let streamFailure = '';
         try {
-          streamFailure = applyChunk(JSON.parse(dataStr));
+          streamFailure = accumulator.applyChunk(JSON.parse(dataStr));
         } catch (jsonErr) {
           console.warn('[ChatAPI] Ignored unreadable stream chunk:', jsonErr);
           if (onLog) onLog({ type: 'warning', text: `Ignored unreadable stream chunk: ${jsonErr?.message || String(jsonErr)}` });
@@ -647,10 +672,10 @@
         }
       }
 
-      return buildResult();
+      return accumulator.buildResult();
     } catch (err) {
       if (err.name === 'AbortError') {
-        return buildResult();
+        return accumulator.buildResult();
       }
       console.error('[ChatAPI] streamChatCompletion failed:', err);
       onError?.(err);

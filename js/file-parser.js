@@ -117,6 +117,19 @@
     }
   }
 
+  function findPdfStreamBounds(text, streamIdx, endStreamIdx) {
+    let dataStart = streamIdx + 6;
+    if (text.charCodeAt(dataStart) === 13) dataStart++;
+    if (text.charCodeAt(dataStart) === 10) dataStart++;
+    let dataEnd = endStreamIdx;
+    while (dataEnd > dataStart) {
+      const code = text.charCodeAt(dataEnd - 1);
+      if (code === 10 || code === 13 || code === 32) dataEnd--;
+      else break;
+    }
+    return { dataStart, dataEnd };
+  }
+
   async function parseCMaps(allObjects, fullText, bytes, objOffsets, security = null) {
     const cmap = new Map();
     const toUnicodeObjNums = new Set();
@@ -156,13 +169,7 @@
         const streamIdx = fullText.indexOf('stream', offset);
         const endStreamIdx = fullText.indexOf('endstream', streamIdx);
         if (streamIdx !== -1 && endStreamIdx !== -1) {
-          let dataStart = streamIdx + 6;
-          if (fullText.charCodeAt(dataStart) === 13) dataStart++;
-          if (fullText.charCodeAt(dataStart) === 10) dataStart++;
-          let dataEnd = endStreamIdx;
-          while (dataEnd > dataStart && (fullText.charCodeAt(dataEnd - 1) === 10 || fullText.charCodeAt(dataEnd - 1) === 13 || fullText.charCodeAt(dataEnd - 1) === 32)) {
-            dataEnd--;
-          }
+          const { dataStart, dataEnd } = findPdfStreamBounds(fullText, streamIdx, endStreamIdx);
           try {
             const rawBytes = bytes.subarray(dataStart, dataEnd);
             const generation = Number(body?.match(/^\s*\d+\s+(\d+)\s+obj/)?.[1] || 0);
@@ -257,6 +264,65 @@
     return (hasMapping || decoded.length >= raw.length * 0.5) ? decoded : raw;
   }
 
+  function readPdfLiteralString(str, start, len) {
+    let depth = 1;
+    let j = start + 1;
+    let lit = '';
+    while (j < len && depth > 0) {
+      const sc = str.charCodeAt(j);
+      if (sc === 92 /* \ */) {
+        lit += str.charAt(j) + (j + 1 < len ? str.charAt(j + 1) : '');
+        j += 2;
+        continue;
+      }
+      if (sc === 40 /* ( */) depth++;
+      else if (sc === 41 /* ) */) {
+        depth--;
+        if (depth === 0) { j++; break; }
+      }
+      lit += str.charAt(j);
+      j++;
+    }
+    return { text: lit, nextIndex: j };
+  }
+
+  function readPdfHexString(str, start, len) {
+    if (start + 1 < len && str.charCodeAt(start + 1) === 60 /* < */) {
+      return { hex: null, nextIndex: start + 2 };
+    }
+    let j = start + 1;
+    let hex = '';
+    while (j < len && str.charCodeAt(j) !== 62 /* > */) {
+      const hc = str.charCodeAt(j);
+      if ((hc >= 48 && hc <= 57) || (hc >= 65 && hc <= 70) || (hc >= 97 && hc <= 102)) {
+        hex += str.charAt(j);
+      }
+      j++;
+    }
+    if (j < len && str.charCodeAt(j) === 62) j++;
+    return { hex, nextIndex: j };
+  }
+
+  function decodePdfHexString(hex, cmap) {
+    if (!hex) return '';
+    let decoded = '';
+    for (let k = 0; k < hex.length; k += 4) {
+      const chunk = hex.slice(k, k + 4).toLowerCase();
+      if (cmap.has(chunk)) decoded += cmap.get(chunk);
+      else {
+        const sub2 = hex.slice(k, k + 2).toLowerCase();
+        if (cmap.has(sub2)) {
+          decoded += cmap.get(sub2);
+          k -= 2;
+        } else {
+          const code = parseInt(chunk, 16);
+          if (!isNaN(code) && code >= 32 && code < 127) decoded += String.fromCharCode(code);
+        }
+      }
+    }
+    return decoded;
+  }
+
   function parsePdfStreamText(streamString, cmap = new Map()) {
     if (!streamString || typeof streamString !== 'string') return '';
 
@@ -308,60 +374,20 @@
 
       // Literal string: (texto)
       if (c === 40 /* ( */) {
-        let depth = 1;
-        let j = i + 1;
-        let lit = '';
-        while (j < len && depth > 0) {
-          const sc = streamString.charCodeAt(j);
-          if (sc === 92 /* \ */) {
-            lit += streamString.charAt(j) + (j + 1 < len ? streamString.charAt(j + 1) : '');
-            j += 2;
-            continue;
-          }
-          if (sc === 40 /* ( */) depth++;
-          else if (sc === 41 /* ) */) {
-            depth--;
-            if (depth === 0) { j++; break; }
-          }
-          lit += streamString.charAt(j);
-          j++;
-        }
+        const { text: lit, nextIndex } = readPdfLiteralString(streamString, i, len);
         if (lit) out.push(mapPdfLiteralString(lit, activeCmap));
-        i = j;
+        i = nextIndex;
         continue;
       }
 
       // Hex string: <hex>
       if (c === 60 /* < */) {
-        if (i + 1 < len && streamString.charCodeAt(i + 1) === 60) {
-          i += 2;
-          continue;
+        const { hex, nextIndex } = readPdfHexString(streamString, i, len);
+        if (hex) {
+          const decoded = decodePdfHexString(hex, activeCmap);
+          if (decoded) out.push(decoded);
         }
-        let j = i + 1;
-        let hex = '';
-        while (j < len && streamString.charCodeAt(j) !== 62 /* > */) {
-          const hc = streamString.charCodeAt(j);
-          if ((hc >= 48 && hc <= 57) || (hc >= 65 && hc <= 70) || (hc >= 97 && hc <= 102)) {
-            hex += streamString.charAt(j);
-          }
-          j++;
-        }
-        if (j < len && streamString.charCodeAt(j) === 62) j++;
-        let decoded = '';
-        for (let k = 0; k < hex.length; k += 4) {
-          const chunk = hex.slice(k, k + 4).toLowerCase();
-          if (activeCmap.has(chunk)) decoded += activeCmap.get(chunk);
-          else {
-            const sub2 = hex.slice(k, k + 2).toLowerCase();
-            if (activeCmap.has(sub2)) { decoded += activeCmap.get(sub2); k -= 2; }
-            else {
-              const code = parseInt(chunk, 16);
-              if (!isNaN(code) && code >= 32 && code < 127) decoded += String.fromCharCode(code);
-            }
-          }
-        }
-        if (decoded) out.push(decoded);
-        i = j;
+        i = nextIndex;
         continue;
       }
 
@@ -372,48 +398,14 @@
         while (j < len && streamString.charCodeAt(j) !== 93 /* ] */) {
           const ac = streamString.charCodeAt(j);
           if (ac === 40 /* ( */) {
-            let depth = 1;
-            let k = j + 1;
-            let lit = '';
-            while (k < len && depth > 0) {
-              const sc = streamString.charCodeAt(k);
-              if (sc === 92) {
-                lit += streamString.charAt(k) + (k + 1 < len ? streamString.charAt(k + 1) : '');
-                k += 2;
-                continue;
-              }
-              if (sc === 40) depth++;
-              else if (sc === 41) {
-                depth--;
-                if (depth === 0) { k++; break; }
-              }
-              lit += streamString.charAt(k);
-              k++;
-            }
+            const { text: lit, nextIndex } = readPdfLiteralString(streamString, j, len);
             arrText += mapPdfLiteralString(lit, activeCmap);
-            j = k;
+            j = nextIndex;
             continue;
           } else if (ac === 60 /* < */) {
-            if (j + 1 < len && streamString.charCodeAt(j + 1) === 60) { j += 2; continue; }
-            let k = j + 1;
-            let hex = '';
-            while (k < len && streamString.charCodeAt(k) !== 62) {
-              const hc = streamString.charCodeAt(k);
-              if ((hc >= 48 && hc <= 57) || (hc >= 65 && hc <= 70) || (hc >= 97 && hc <= 102)) {
-                hex += streamString.charAt(k);
-              }
-              k++;
-            }
-            if (k < len && streamString.charCodeAt(k) === 62) k++;
-            for (let m = 0; m < hex.length; m += 4) {
-              const chunk = hex.slice(m, m + 4).toLowerCase();
-              if (activeCmap.has(chunk)) arrText += activeCmap.get(chunk);
-              else {
-                const sub2 = hex.slice(m, m + 2).toLowerCase();
-                if (activeCmap.has(sub2)) { arrText += activeCmap.get(sub2); m -= 2; }
-              }
-            }
-            j = k;
+            const { hex, nextIndex } = readPdfHexString(streamString, j, len);
+            if (hex) arrText += decodePdfHexString(hex, activeCmap);
+            j = nextIndex;
             continue;
           } else if ((ac >= 48 && ac <= 57) || ac === 45 /* - */) {
             let numStr = '';
@@ -830,13 +822,7 @@
       const eIdx = body.indexOf('endstream', sIdx);
       if (sIdx === -1 || eIdx === -1) continue;
 
-      let dStart = sIdx + 6;
-      if (body.charCodeAt(dStart) === 13) dStart++;
-      if (body.charCodeAt(dStart) === 10) dStart++;
-      let dEnd = eIdx;
-      while (dEnd > dStart && (body.charCodeAt(dEnd - 1) === 10 || body.charCodeAt(dEnd - 1) === 13 || body.charCodeAt(dEnd - 1) === 32)) {
-        dEnd--;
-      }
+      const { dataStart: dStart, dataEnd: dEnd } = findPdfStreamBounds(body, sIdx, eIdx);
 
       const offset = objOffsets.get(String(num)) || 0;
       const rawBytes = bytes.subarray(offset + dStart, offset + dEnd);
@@ -912,12 +898,7 @@
         const sIdx = body.indexOf('stream');
         const eIdx = body.indexOf('endstream', sIdx);
         if (sIdx !== -1 && eIdx !== -1) {
-          let dStart = sIdx + 6;
-          if (body.charCodeAt(dStart) === 13) dStart++;
-          if (body.charCodeAt(dStart) === 10) dStart++;
-          let rEnd = eIdx;
-          if (rEnd > dStart && (body.charCodeAt(rEnd - 1) === 10 || body.charCodeAt(rEnd - 1) === 13)) rEnd--;
-          if (rEnd > dStart && (body.charCodeAt(rEnd - 1) === 10 || body.charCodeAt(rEnd - 1) === 13)) rEnd--;
+          const { dataStart: dStart, dataEnd: rEnd } = findPdfStreamBounds(body, sIdx, eIdx);
 
           const offset = objOffsets.get(num) || 0;
           const rawStream = bytes.subarray(offset + dStart, offset + rEnd);
@@ -1011,12 +992,7 @@
           const streamIdx = cBody.indexOf('stream');
           const endStreamIdx = cBody.indexOf('endstream', streamIdx);
           if (streamIdx !== -1 && endStreamIdx !== -1) {
-            let dataStart = streamIdx + 6;
-            if (cBody.charCodeAt(dataStart) === 13) dataStart++;
-            if (cBody.charCodeAt(dataStart) === 10) dataStart++;
-            let rawEnd = endStreamIdx;
-            if (rawEnd > dataStart && (cBody.charCodeAt(rawEnd - 1) === 10 || cBody.charCodeAt(rawEnd - 1) === 13)) rawEnd--;
-            if (rawEnd > dataStart && (cBody.charCodeAt(rawEnd - 1) === 10 || cBody.charCodeAt(rawEnd - 1) === 13)) rawEnd--;
+            const { dataStart, dataEnd: rawEnd } = findPdfStreamBounds(cBody, streamIdx, endStreamIdx);
 
             const offset = objOffsets.get(String(cNum));
             const rawBytes = offset !== undefined
@@ -1125,20 +1101,14 @@
 
         const prevChar = streamIdx > 0 ? fullText.charCodeAt(streamIdx - 1) : 32;
         if (prevChar <= 32 || prevChar === 62 || prevChar === 47) {
-          let dataStart = streamIdx + 6;
-          if (dataStart < len && fullText.charCodeAt(dataStart) === 13) dataStart++;
-          if (dataStart < len && fullText.charCodeAt(dataStart) === 10) dataStart++;
-
-          const endStreamIdx = fullText.indexOf('endstream', dataStart);
+          const endStreamIdx = fullText.indexOf('endstream', streamIdx + 6);
           if (endStreamIdx !== -1) {
+            const { dataStart, dataEnd: rawEnd } = findPdfStreamBounds(fullText, streamIdx, endStreamIdx);
             const dictStart = Math.max(0, streamIdx - 400);
             const dictSlice = fullText.substring(dictStart, streamIdx);
             const isDCT = dictSlice.includes('DCTDecode');
             const isFlate = dictSlice.includes('FlateDecode');
             const isFontOrMeta = dictSlice.includes('/Font') || dictSlice.includes('/Metadata') || dictSlice.includes('/ICCBased');
-            let rawEnd = endStreamIdx;
-            if (rawEnd > dataStart && (fullText.charCodeAt(rawEnd - 1) === 10 || fullText.charCodeAt(rawEnd - 1) === 13)) rawEnd--;
-            if (rawEnd > dataStart && (fullText.charCodeAt(rawEnd - 1) === 10 || fullText.charCodeAt(rawEnd - 1) === 13)) rawEnd--;
 
             const byteOffset = dataStart;
             const byteLen = rawEnd - dataStart;

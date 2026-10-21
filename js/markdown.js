@@ -57,22 +57,23 @@
     return `\n<figure class="chat-image-figure">${img}${caption}</figure>\n`;
   }
 
-  function parseInlineMarkdown(text) {
+  function parseInlineMarkdown(text, { inlineImages = true } = {}) {
     if (!text) return '';
     let p = text;
-    p = p.replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>');
-    p = p.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    p = p.replace(/__(.*?)__/g, '<strong>$1</strong>');
-    p = p.replace(/\*([^\*\n]+)\*/g, '<em>$1</em>');
-    p = p.replace(/_([^_\n]+)_/g, '<em>$1</em>');
     // Imágenes: ![alt](url)
-    p = p.replace(/!\[([^\]]*)\]\(([^)]+)\)/gi, (match, altText, url) => renderImage(altText, url, true));
+    p = p.replace(/!\[([^\]]*)\]\(([^)]+)\)/gi, (match, altText, url) => renderImage(altText, url, inlineImages));
     // Enlaces: [texto](url)
-    p = p.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (match, linkText, url) {
+    p = p.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (match, linkText, url) => {
       const safeHref = sanitizeUrl(url);
       if (safeHref === '#') return linkText;
       return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer">${linkText}</a>`;
     });
+    // Negrita y cursiva
+    p = p.replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    p = p.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    p = p.replace(/__(.*?)__/g, '<strong>$1</strong>');
+    p = p.replace(/\*([^\*\n]+)\*/g, '<em>$1</em>');
+    p = p.replace(/(^|\s)_([^_<>\n]+)_(?=\s|$|[.,;:!?\)])/g, '$1<em>$2</em>');
     return p;
   }
 
@@ -516,18 +517,8 @@
       return `<ol>${listItems}</ol>\n`;
     });
 
-    // 8. Imágenes Markdown: ![alt](url)
-    p = p.replace(/!\[([^\]]*)\]\(([^)]+)\)/gi, (match, altText, url) => renderImage(altText, url, false));
-
-    // 10. Enlaces [texto](url)
-    p = p.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-
-    // 11. Negrita y cursiva
-    p = p.replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>');
-    p = p.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    p = p.replace(/__(.*?)__/g, '<strong>$1</strong>');
-    p = p.replace(/\*([^\*\n]+)\*/g, '<em>$1</em>');
-    p = p.replace(/(?:^|\s)_([^_<>\n]+)_(?=\s|$|[.,;:!?\)])/g, ' <em>$1</em>');
+    // 8. Imágenes Markdown, enlaces, negrita y cursiva
+    p = parseInlineMarkdown(p, { inlineImages: false });
 
     // 12. Párrafos y saltos de línea
     const chunks = p.split(/\n{2,}/);
