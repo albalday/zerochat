@@ -504,8 +504,6 @@ test('Browser UI - el progreso MCP sobrevive al renderizado y el timeout conserv
       const container = document.getElementById('mcp-servers-list');
       const manager = ChatMCP.manager;
       const originalStart = manager.startExternalServer;
-      const originalSync = manager.syncExternalServers;
-      manager.syncExternalServers = async () => {};
       const results = [];
       try {
         for (const language of ['es', 'en']) {
@@ -546,8 +544,6 @@ test('Browser UI - el progreso MCP sobrevive al renderizado y el timeout conserv
         }
       } finally {
         manager.startExternalServer = originalStart;
-        manager.syncExternalServers = originalSync;
-
       }
       return results;
     });
@@ -581,9 +577,8 @@ test('Browser UI - tras el primer timeout MCP pasa de instalación a OAuth y act
       const container = document.getElementById('mcp-servers-list');
       const manager = ChatMCP.manager;
       const originalRequest = manager.requestExternalControl;
-      const originalSync = manager.syncExternalServers;
+      const originalRead = manager.readLiveState;
       const originalTimeout = window.setTimeout;
-      manager.syncExternalServers = async () => {};
       const results = [];
       try {
         for (const language of ['es', 'en']) {
@@ -595,18 +590,18 @@ test('Browser UI - tras el primer timeout MCP pasa de instalación a OAuth y act
           let starts = 0, checks = 0;
           const phases = [];
           const running = { id: 'oauth-fixture', status: 'running', toolCount: 1 };
-          manager.requestExternalControl = async method => {
-            if (method.endsWith('/start')) {
-              starts += 1;
-              const error = new Error('Initial request timed out');
-              error.name = 'AbortError';
-              throw error;
-            }
-            checks += 1;
-            return { servers: [checks < 3 ? { id: 'oauth-fixture', status: checks === 1 ? 'installing' : 'starting' } : running] };
+          manager.requestExternalControl = async () => {
+            starts += 1;
+            const error = new Error('Initial request timed out');
+            error.name = 'AbortError';
+            throw error;
           };
-          manager.syncExternalServers = async () => {
-            ChatState.set('mcp', state => ({ ...state, externalServers: [running] }));
+          // El latido publica lo que lee, como haría con el servidor real.
+          manager.readLiveState = async () => {
+            checks += 1;
+            const payload = { servers: [checks < 3 ? { id: 'oauth-fixture', status: checks === 1 ? 'installing' : 'starting' } : running] };
+            await manager.applyLiveState(payload);
+            return payload;
           };
           window.setTimeout = (callback, delay, ...args) => {
             if (delay === 15000) {
@@ -630,8 +625,7 @@ test('Browser UI - tras el primer timeout MCP pasa de instalación a OAuth y act
       } finally {
         window.setTimeout = originalTimeout;
         manager.requestExternalControl = originalRequest;
-        manager.syncExternalServers = originalSync;
-
+        manager.readLiveState = originalRead;
       }
       return results;
     });
@@ -804,7 +798,7 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
       const job = window.__job;
       Object.assign(job, { id: 11, key: 'inv-tarjeta-3', status: 'running', exit_code: null, log: 'vigilando\n' });
       window.ChatState.set('mcp', { status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/tmp' }, tools: [] });
-      window.ChatMCP.manager.syncCommandJobs([{ id: 11, command: 'npm run watch', status: 'running', started_at: Date.now(), background: true }]);
+      window.ChatMCP.manager.applyLiveState({ jobs: [{ id: 11, command: 'npm run watch', status: 'running', started_at: Date.now(), background: true }] });
       const args = { command: 'npm run watch', background: true };
       const card = window.ChatToolCards.createLiveToolCard('run_command', args);
       card.dataset.invocationId = job.key;
@@ -819,7 +813,7 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
       card.querySelector('.tool-execution-card').classList.add('collapsed');
       Object.assign(job, { status: 'exited', exit_code: 0, elapsed_s: 42 });
       const before = window.__jobCalls.length;
-      window.ChatMCP.manager.syncCommandJobs([]);
+      window.ChatMCP.manager.applyLiveState({ jobs: [] });
       await new Promise(resolve => {
         const deadline = Date.now() + 2000;
         const check = () => (card.querySelector('.tool-card-badge').textContent.trim() === 'Terminado · 42 s' || Date.now() > deadline) ? resolve() : requestAnimationFrame(check);

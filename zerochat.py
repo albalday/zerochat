@@ -46,7 +46,7 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE_BACKEND_VERSION = "9.7.0"
+SOURCE_BACKEND_VERSION = "9.8.0"
 
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""
@@ -1727,17 +1727,13 @@ class PersistentBrowserSession:
 const readline = require('readline');
 let playwright;
 try {
-  playwright = require('playwright');
-} catch (e1) {
-  try {
-    playwright = require(process.env.ZEROCHAT_PLAYWRIGHT_MODULE);
-  } catch (e2) {
-    console.log(JSON.stringify({
-      success: false,
-      error: "Playwright is not available. Install it with 'npm install playwright' or enable the Playwright MCP service."
-    }));
-    process.exit(1);
-  }
+  playwright = require(process.env.ZEROCHAT_PLAYWRIGHT_MODULE);
+} catch (e) {
+  console.log(JSON.stringify({
+    success: false,
+    error: "Playwright is not available. Start the Playwright service once in Settings > MCP to install it."
+  }));
+  process.exit(1);
 }
 
 (async () => {
@@ -1903,14 +1899,19 @@ def browser_action_availability() -> dict:
     """Comprueba requisitos locales sin lanzar Node.js ni Chromium."""
     if not shutil.which("node"):
         return {"available": False, "error": "Node.js is not installed or not found in system PATH."}
-    playwright_locations = (Path.cwd() / "node_modules" / "playwright", playwright_service_module())
-    if not any(location.is_dir() for location in playwright_locations):
+    # Solo el Playwright del servicio, no el node_modules de la carpeta desde la que arranca el servidor.
+    if not playwright_service_cli().is_file():
         return {"available": False, "error": "Playwright is not available."}
     # El runner prueba las entradas de Chromium de Playwright y los canales chrome y msedge.
     browsers = system_browsers()
     if cached_engine_entries() & set(ENGINE_CACHE_ENTRIES["chromium"]) or browsers["chrome"] or browsers["msedge"]:
         return {"available": True}
     return {"available": False, "error": "Playwright Chromium is not installed."}
+
+
+def playwright_status() -> dict:
+    """Playwright del servicio y browser_action tal como están ahora, para el latido del cliente."""
+    return {"installed": playwright_service_cli().is_file(), "browserAction": browser_action_availability()}
 
 
 def browser_action(action: str, url: str | None = None, selector: str | None = None, value: str | None = None) -> str:
@@ -2358,22 +2359,19 @@ class BrowserEngines:
         return {name: (title, Path(location.strip())) for title, name, location in _DRY_RUN_ENTRY.findall(result.stdout)}
 
     def list(self) -> dict:
+        """Navegadores del sistema y motores de Playwright; sin Playwright del servicio no hay motores."""
         cli = playwright_service_cli()
         result = {"systemBrowsers": system_browsers(), "extensions": user_browser_extensions(), "engines": []}
         if not cli.is_file():
-            return {**result, "available": False, "error": "Playwright MCP is not installed."}
-        try:
-            version = json.loads((cli.parent / "package.json").read_text(encoding="utf-8")).get("version")
-            locations = self._locations(cli)
-        except (OSError, json.JSONDecodeError, RuntimeError, subprocess.SubprocessError) as err:
-            return {**result, "available": False, "error": str(err)}
+            return result
+        locations = self._locations(cli)
         with self._lock:
             jobs = {engine: dict(job) for engine, job in self._jobs.items()}
         for engine, entries in ENGINE_CACHE_ENTRIES.items():
             title = locations.get(entries[0], (engine,))[0]
             installed = all(name in locations and (locations[name][1] / "INSTALLATION_COMPLETE").is_file() for name in entries)
             result["engines"].append({"id": engine, "title": title, "installed": installed, **jobs.get(engine, {})})
-        return {**result, "available": True, "playwrightVersion": version}
+        return result
 
     def _check_engine(self, engine) -> Path:
         if engine not in ENGINE_CACHE_ENTRIES:
@@ -2864,6 +2862,12 @@ class McpServiceManager:
             client = self.clients.get(server_id)
             state = self.states.get(server_id, "stopped")
             running = bool(client and client.running() and state == "running")
+            error = self.errors.get(server_id)
+            # El proceso de un servicio en marcha puede morir sin que nadie lo detenga.
+            if state == "running" and client and not running:
+                code = client.process.poll() if client.process else None
+                state = "error"
+                error = f"MCP process exited with code {code}" if code is not None else "MCP process is not responding"
             pref = self.preferences.get(server_id, {})
             result.append({
                 "id": server_id,
@@ -2874,7 +2878,7 @@ class McpServiceManager:
                 "enabled": pref.get("enabled", server.get("enabledByDefault", False)),
                 "status": "running" if running else state,
                 "toolCount": len(client.tools) if running else 0,
-                "error": self.errors.get(server_id),
+                "error": error,
                 "options": server.get("options", []),
                 "userOptions": pref.get("options", {}),
                 "oauthUrl": client.oauth_url if client else None,
@@ -3568,12 +3572,16 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if is_heartbeat:
             mark_browser_active()
             # cwd permite a cada pestaña notar que otra ha cambiado el directorio del proyecto;
-            # jobs, mostrar los comandos que siguen en marcha y avisar antes de cerrar si se detendrían.
+            # jobs, mostrar los comandos que siguen en marcha y avisar antes de cerrar si se detendrían;
+            # playwright, si se puede navegar aunque se haya instalado o quitado durante la sesión;
+            # servers, los servicios MCP externos aunque otra pestaña los cambie o su proceso muera.
             self._send_json_response(200, {
                 "ok": True,
                 "cwd": str(Path.cwd().resolve()),
                 "jobs": [job.summary() for job in JOBS.running()],
-                "exit_on_close": EXIT_ON_CLOSE
+                "exit_on_close": EXIT_ON_CLOSE,
+                "playwright": playwright_status(),
+                "servers": GLOBAL_MCP_MANAGER.list_servers()
             })
             return
 
@@ -3597,7 +3605,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             "version": VERSION,
             "cwd": str(Path.cwd().resolve()),
             "tools_count": len(LOCAL_TOOLS_DEFINITIONS),
-            "browser_action": browser_action_availability(),
             "os": DETECTED_OS
         })
         self._log_res(200, safe_path, (time.monotonic() - t0) * 1000)
@@ -3731,18 +3738,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             }
             return self._initialize_result(server_info), None, ""
         if method == "tools/list":
-            browser_availability = browser_action_availability()
-            tools = []
-            for definition in LOCAL_TOOLS_DEFINITIONS:
-                item = dict(definition)
-                if item.get("name") == "browser_action":
-                    item["availability"] = browser_availability
-                tools.append(item)
-            return {"tools": tools}, None, ""
-        if method == "tools/availability":
-            if params.get("name", "") != "browser_action":
-                return None, {"code": -32602, "message": "Herramienta no compatible con comprobación de disponibilidad."}, ""
-            return browser_action_availability(), None, ""
+            return {"tools": [dict(definition) for definition in LOCAL_TOOLS_DEFINITIONS]}, None, ""
         if method == "tools/call":
             tool_name = params["name"]
             handler = LOCAL_TOOL_HANDLERS.get(tool_name)
@@ -3789,8 +3785,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return self._dispatch_jobs(method, params)
         if method.startswith("zerochat/run/"):
             return dispatch_run(method, params)
-        if method == "zerochat/external/status":
-            return {"host": "running", "version": VERSION, "servers": GLOBAL_MCP_MANAGER.list_servers()}, None, ""
         if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):
             return self._dispatch_server_control(method, params)
         if method.startswith("zerochat/browser/"):

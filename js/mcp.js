@@ -44,6 +44,12 @@
   const EXTERNAL_ID = 'mcp_external';
   const DEFAULT_TIMEOUT_MS = 15000;
   const LOCAL_COMMAND_TOOL = 'run_command';
+  const BROWSER_ACTION_TOOL = 'browser_action';
+
+  /** Playwright del servicio instalado según el último latido; null mientras no se sabe. */
+  const playwrightInstalled = () => getState().get('mcp').playwright?.installed ?? null;
+  /** browser_action se puede usar ahora: Playwright instalado y un Chromium con el que navegar. */
+  const browserActionAvailable = () => getState().get('mcp').playwright?.browserAction?.available === true;
   const LOCAL_COMMAND_CHECK_TOOL = 'check_command';
   const EXTERNAL_START_POLL_ATTEMPTS = 10;
   const EXTERNAL_START_POLL_INTERVAL_MS = 15000;
@@ -51,6 +57,8 @@
   // y la espera de la autorización OAuth.
   const EXTERNAL_LONG_START_POLL_ATTEMPTS = 80;
   const HEARTBEAT_INTERVAL_MS = 10000;
+  // Lo que el servidor local informa en vivo, vacío mientras no hay conexión.
+  const LIVE_RESET = Object.freeze({ serverInfo: null, tools: [], externalServers: [], externalTools: [], commandJobs: [], exitOnClose: false, playwright: null });
   const MAX_OUTPUT_LENGTH = 60000;
   const MAX_IMAGE_BASE64_LENGTH = 8 * 1024 * 1024;
   const TOOL_AUTH_VERSION = 'zerochat-tool-auth-v1';
@@ -708,7 +716,6 @@
       name: tool.name,
       description: tool.metadata.description,
       inputSchema: tool.parameters,
-      available: tool.metadata.available,
       metadata: {
         mcpServerName: tool.metadata.mcpServerName,
         mcpServerId: tool.metadata.mcpServerId,
@@ -749,25 +756,24 @@
         const toolName = external ? rt.metadata?.originalName : rt.name;
         // run_command del servidor local: tarjeta propia y detención del comando al abortar.
         const isLocalCommand = isProxy && toolName === LOCAL_COMMAND_TOOL;
+        const isBrowserAction = isProxy && toolName === BROWSER_ACTION_TOOL;
         const namespacedName = publicToolName(isProxy ? null : sourceServer, toolName);
         if (external && rt.name !== namespacedName) throw new Error('Invalid external MCP public name');
         if (toolInstances.some(tool => tool.name === namespacedName)) throw new Error('Duplicate MCP public name');
-        const available = rt.availability?.available !== false;
 
         toolInstances.push(new Tool({
           // El nombre público ya identifica el servidor; repetirlo en la descripción gasta contexto.
           definition: { name: namespacedName, description: rt.description || toolName, parameters: rt.inputSchema },
           category: 'mcp',
-          isAvailable: () => available && (!isProxy || getState().get('mcp').status === 'connected'),
-          settings: { defaultEnabled: available, showInSettings: true },
+          isAvailable: () => (!isProxy || getState().get('mcp').status === 'connected') && (!isBrowserAction || browserActionAvailable()),
+          settings: { showInSettings: true },
           metadata: {
             iconSvg: Icons.get('plug', { size: 14 }),
             mcpServerName: serverName,
             mcpServerUrl: this.serverUrl,
             originalName: toolName,
             mcpServerId: sourceServer,
-            description: rt.description || '',
-            available
+            description: rt.description || ''
           },
           execute: async (args, context) => {
             // Un comando del servidor local sigue vivo aunque se aborte la petición: se detiene
@@ -835,6 +841,10 @@
       this.heartbeatTarget = null;
       this.heartbeatTimer = null;
       this.heartbeatCheckInFlight = false;
+      // Últimos servicios externos que informó el servidor, para no pisar en cada latido lo que la
+      // interfaz muestra de una acción en curso, y cuáles estaban en marcha.
+      this.liveServers = null;
+      this.liveRunning = null;
     }
 
     setSessionToken(token) {
@@ -863,16 +873,50 @@
     }
 
     /**
-     * Publica el directorio del proyecto que informa el servidor local (al cambiarlo o en el
-     * heartbeat) para que el modo proyecto y la regla de lectura por defecto lo sigan.
+     * Publica en ChatState el estado vivo que informa el servidor local, en el latido o en la respuesta
+     * de un control: el directorio del proyecto (que siguen el modo proyecto y la regla de lectura por
+     * defecto), los comandos en segundo plano en marcha (los esperados ya se ven en su tarjeta), si el
+     * servidor se detiene al cerrar el navegador, Playwright (instalado y browser_action disponible)
+     * y los servicios externos, cuyas herramientas se vuelven a registrar si cambian los que están en
+     * marcha. Solo lee los campos presentes y solo escribe los que cambian, no en cada latido.
      */
-    syncProjectDirectory(cwd) {
+    async applyLiveState(payload) {
       const State = getState();
       const current = State.get('mcp');
-      const next = typeof cwd === 'string' ? cwd.trim() : '';
-      if (!next || current.status !== 'connected' || !current.serverInfo || current.serverInfo.cwd === next) return false;
-      getSecurity().manager.setStartupDirectory(next);
-      State.set('mcp', { serverInfo: { ...current.serverInfo, cwd: next } });
+      if (current.status !== 'connected' || !payload) return false;
+      const next = {};
+      const cwd = typeof payload.cwd === 'string' ? payload.cwd.trim() : '';
+      if (cwd && current.serverInfo && current.serverInfo.cwd !== cwd) {
+        getSecurity().manager.setStartupDirectory(cwd);
+        next.serverInfo = { ...current.serverInfo, cwd };
+      }
+      if (Array.isArray(payload.jobs)) {
+        const jobs = payload.jobs
+          .filter(job => job && Number.isInteger(job.id) && job.status === 'running' && job.background === true)
+          .map(job => ({
+            id: job.id,
+            command: typeof job.command === 'string' ? job.command : '',
+            startedAt: Number.isFinite(job.started_at) ? job.started_at : Date.now()
+          }));
+        if (JSON.stringify(jobs) !== JSON.stringify(current.commandJobs)) next.commandJobs = jobs;
+      }
+      if (typeof payload.exit_on_close === 'boolean' && payload.exit_on_close !== current.exitOnClose) next.exitOnClose = payload.exit_on_close;
+      if (typeof payload.playwright?.installed === 'boolean') {
+        const playwright = { installed: payload.playwright.installed, browserAction: { available: payload.playwright.browserAction?.available === true } };
+        if (JSON.stringify(playwright) !== JSON.stringify(current.playwright)) next.playwright = playwright;
+      }
+      let running = this.liveRunning;
+      if (Array.isArray(payload.servers) && JSON.stringify(payload.servers) !== this.liveServers) {
+        this.liveServers = JSON.stringify(payload.servers);
+        next.externalServers = payload.servers;
+        running = payload.servers.filter(server => server?.status === 'running').map(server => `${server.id}:${server.toolCount}`).join();
+      }
+      if (Object.keys(next).length === 0) return false;
+      State.set('mcp', next);
+      if (running !== this.liveRunning) {
+        this.liveRunning = running;
+        await this.refreshExternalTools(running !== '');
+      }
       return true;
     }
 
@@ -927,7 +971,7 @@
           host, port, endpoint,
           error: silentOnFailure ? null : probe.error,
           latencyMs: silentOnFailure ? null : probe.latencyMs,
-          serverInfo: null, tools: [], commandJobs: []
+          ...LIVE_RESET
         });
         return { success: false, available: false, probe, error: probe.error };
       }
@@ -953,10 +997,12 @@
       });
       if (error) return { success: false, available: true, probe, error, tools };
 
-      const externalSync = await this.syncExternalServers().catch(() => null);
-      if (notifyStartup) this.notifyStoppedExternalServices(externalSync?.status?.servers);
-      if (this.sessionToken) this.startHeartbeat(host, port);
-      return { success: true, available: true, probe, tools, externalSync };
+      // El primer latido trae los servicios externos y el resto del estado vivo.
+      this.liveServers = null;
+      this.liveRunning = null;
+      if (this.sessionToken) await this.startHeartbeat(host, port);
+      if (notifyStartup) this.notifyStoppedExternalServices(State.get('mcp').externalServers);
+      return { success: true, available: true, probe, tools };
     }
 
     notifyStoppedExternalServices(servers) {
@@ -974,20 +1020,20 @@
     async disconnectProxy() {
       this.dropClient(PROXY_ID);
       this.dropClient(EXTERNAL_ID);
-      getState().set('mcp', { status: 'disconnected', serverInfo: null, tools: [], latencyMs: null, error: null, externalServers: [], externalTools: [], commandJobs: [] });
+      getState().set('mcp', { status: 'disconnected', latencyMs: null, error: null, ...LIVE_RESET });
       return { success: true };
     }
 
     /**
-     * Latido periódico al servidor local: publica su directorio de trabajo y sus comandos en
-     * segundo plano y, si no responde, comprueba la conexión.
+     * Latido periódico al servidor local: publica su estado vivo (applyLiveState) y, si no responde,
+     * comprueba la conexión.
      */
     startHeartbeat(host, port) {
       const target = { host, port, token: this.sessionToken };
-      const changed = !this.heartbeatTarget || ['host', 'port', 'token'].some(key => this.heartbeatTarget[key] !== target[key]);
       this.heartbeatTarget = target;
-      if (changed) this.sendHeartbeat();
       if (!this.heartbeatTimer) this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), HEARTBEAT_INTERVAL_MS);
+      // El primero va al conectar.
+      return this.sendHeartbeat();
     }
 
     stopHeartbeat() {
@@ -996,20 +1042,25 @@
       this.heartbeatCheckInFlight = false;
     }
 
-    async sendHeartbeat() {
+    /** Lee el latido y publica su estado vivo; devuelve lo leído o falla si el servidor no responde. */
+    async readLiveState() {
       const { host, port, token } = this.heartbeatTarget;
+      const response = await fetch(getHeartbeatUrl(host, port), {
+        method: 'GET',
+        cache: 'no-store',
+        mode: 'cors',
+        headers: { 'X-ZeroChat-Token': token }
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || payload?.ok !== true) throw new Error(`Heartbeat HTTP ${response.status}`);
+      // Otra pestaña, el modelo o una instalación pueden haber cambiado el estado del servidor.
+      await this.applyLiveState(payload);
+      return payload;
+    }
+
+    async sendHeartbeat() {
       try {
-        const response = await fetch(getHeartbeatUrl(host, port), {
-          method: 'GET',
-          cache: 'no-store',
-          mode: 'cors',
-          headers: { 'X-ZeroChat-Token': token }
-        });
-        const payload = await response.json().catch(() => null);
-        if (!response.ok || payload?.ok !== true) throw new Error(`Heartbeat HTTP ${response.status}`);
-        // Otra pestaña o el modelo pueden haber cambiado el directorio del proyecto.
-        this.syncProjectDirectory(payload.cwd);
-        this.syncCommandJobs(payload.jobs, { exitOnClose: payload.exit_on_close === true });
+        await this.readLiveState();
       } catch (_) {
         if (this.heartbeatCheckInFlight) return;
         this.heartbeatCheckInFlight = true;
@@ -1048,34 +1099,11 @@
       }, { timeoutMs: timeoutMs + WEB_FETCH_CONTROL_MARGIN_MS });
     }
 
-    /**
-     * Publica en ChatState los comandos en segundo plano que siguen en marcha en el servidor
-     * local. Los esperados ya se ven en su tarjeta mientras el turno los espera. Solo escribe
-     * si cambia el conjunto, no en cada latido.
-     */
-    syncCommandJobs(jobs, { exitOnClose } = {}) {
-      const State = getState();
-      const current = State.get('mcp');
-      if (current.status !== 'connected') return false;
-      const next = (Array.isArray(jobs) ? jobs : [])
-        .filter(job => job && Number.isInteger(job.id) && job.status === 'running' && job.background === true)
-        .map(job => ({
-          id: job.id,
-          command: typeof job.command === 'string' ? job.command : '',
-          startedAt: Number.isFinite(job.started_at) ? job.started_at : Date.now()
-        }));
-      const signature = list => JSON.stringify(list.map(job => [job.id, job.command, job.startedAt]));
-      const exit = typeof exitOnClose === 'boolean' ? exitOnClose : current.exitOnClose === true;
-      if (signature(next) === signature(current.commandJobs) && exit === (current.exitOnClose === true)) return false;
-      State.set('mcp', { commandJobs: next, exitOnClose: exit });
-      return true;
-    }
-
     /** Vuelve a leer del servidor los comandos en marcha, tras lanzar o detener alguno. */
     async refreshCommandJobs() {
       try {
         const result = await this.requestExternalControl('zerochat/jobs/list', {});
-        return this.syncCommandJobs(result?.jobs);
+        return await this.applyLiveState({ jobs: result?.jobs });
       } catch (_) {
         return false;
       }
@@ -1118,7 +1146,7 @@
     /** Cambia el directorio del proyecto en el servidor local a petición del usuario. */
     async setProjectDirectory(path) {
       const result = await this.requestExternalControl('zerochat/project/set_directory', { path });
-      this.syncProjectDirectory(result?.cwd);
+      await this.applyLiveState({ cwd: result?.cwd });
       return result;
     }
 
@@ -1130,45 +1158,25 @@
       return this.requestExternalControl('zerochat/diff/open', { path, commit_fallback: commitFallback });
     }
 
-    async refreshExternalProvider() {
-      const control = this.clients.get(PROXY_ID);
-      if (!control) throw new Error('The local tool server is not connected.');
+    /** Vuelve a registrar las herramientas de los servicios externos, o las retira si no hay ninguno en marcha. */
+    async refreshExternalTools(anyRunning) {
       this.dropClient(EXTERNAL_ID);
-      const client = new McpClient({
-        id: EXTERNAL_ID,
-        name: 'ZeroChat External MCP Host',
-        url: `${control.url.replace(/\/sse\/?$/, '')}/mcp/external`,
-        token: this.sessionToken
-      });
-      try {
-        const tools = await this.registerClient(client);
-        getState().set('mcp', { externalTools: tools });
-        return { success: true, toolCount: tools.length, tools };
-      } catch (error) {
-        return { success: false, error: error.message || String(error), tools: [] };
+      let tools = [];
+      const control = this.clients.get(PROXY_ID);
+      if (anyRunning && control) {
+        const client = new McpClient({
+          id: EXTERNAL_ID,
+          name: 'ZeroChat External MCP Host',
+          url: `${control.url.replace(/\/sse\/?$/, '')}/mcp/external`,
+          token: this.sessionToken
+        });
+        try {
+          tools = await this.registerClient(client);
+        } catch (error) {
+          console.warn('[MCP] Could not list the external MCP tools:', error);
+        }
       }
-    }
-
-    async fetchExternalServers(options = {}) {
-      try {
-        return await this.requestExternalControl('zerochat/external/status', {}, options);
-      } catch (error) {
-        if (options.throwOnError) throw error;
-        return { servers: [] };
-      }
-    }
-
-    async syncExternalServers() {
-      const status = await this.fetchExternalServers();
-      let externalTools = [];
-      if (status.servers.some(server => server.status === 'running')) {
-        const refresh = await this.refreshExternalProvider();
-        if (refresh.success) externalTools = refresh.tools;
-      } else {
-        this.dropClient(EXTERNAL_ID);
-      }
-      getState().set('mcp', { externalServers: status.servers, externalTools });
-      return { status, externalTools };
+      getState().set('mcp', { externalTools: tools });
     }
 
     /**
@@ -1185,7 +1193,7 @@
         if (error.name !== 'AbortError' && error.code !== 'MCP_REQUEST_TIMEOUT') throw error;
       }
       if (result) {
-        await this.syncExternalServers().catch(() => {});
+        await this.applyLiveState(result);
         return result;
       }
       // Cada fase (installing, starting) dispone de su propio presupuesto de esperas.
@@ -1194,17 +1202,14 @@
       for (;;) {
         let status;
         try {
-          status = await this.fetchExternalServers({ throwOnError: true });
+          status = await this.readLiveState();
         } catch (cause) {
           const error = new Error('Unable to check MCP startup status.', { cause });
           error.code = 'EXTERNAL_START_STATUS_UNAVAILABLE';
           throw error;
         }
         const server = (status?.servers || []).find(item => item?.id === serverId);
-        if (server?.status === 'running') {
-          await this.syncExternalServers();
-          return status;
-        }
+        if (server?.status === 'running') return status;
         if (server?.status !== 'starting' && server?.status !== 'installing') {
           const error = new Error(`MCP server '${serverId}' did not start: ${server?.status || 'unknown'}`);
           error.code = 'EXTERNAL_START_STATUS_UNAVAILABLE';
@@ -1232,12 +1237,14 @@
 
     async stopExternalServer(serverId) {
       const result = await this.requestExternalControl('zerochat/external/servers/stop', { serverId });
-      await this.syncExternalServers().catch(() => {});
+      await this.applyLiveState(result);
       return result;
     }
 
     async configureExternalServer(serverId, options) {
-      return this.requestExternalControl('zerochat/external/servers/configure', { serverId, options });
+      const result = await this.requestExternalControl('zerochat/external/servers/configure', { serverId, options });
+      await this.applyLiveState(result);
+      return result;
     }
   }
 
@@ -1249,6 +1256,8 @@
     McpManager,
     probeConnection,
     publicToolName,
+    playwrightInstalled,
+    browserActionAvailable,
     manager
   };
 });

@@ -87,6 +87,8 @@
         error: null,
         // Comandos de run_command que siguen en marcha en el servidor local.
         commandJobs: [],
+        // Playwright del servicio según el latido: { installed, browserAction: { available } }; null sin saberlo.
+        playwright: null,
         // El servidor se detiene (y con él los comandos) al cerrar el navegador.
         exitOnClose: false
       },

@@ -37,13 +37,31 @@
   const request = (method, params = {}) => getMCP().manager.requestExternalControl(method, params);
   const isConnected = () => getState().get('mcp').status === 'connected';
   const playwrightStatus = () => getState().get('mcp').externalServers.find(server => server.id === 'playwright')?.status || null;
+
+  /** Playwright en el servidor local según el estado global de MCP: 'disconnected', 'loading', 'missing' o 'installed'. */
+  function playwrightState() {
+    if (!isConnected()) return 'disconnected';
+    const installed = getMCP().playwrightInstalled();
+    if (installed === null) return 'loading';
+    return installed ? 'installed' : 'missing';
+  }
+
+  /** browser_action y Playwright MCP solo se eligen con Playwright instalado; mientras se consulta se respeta la elección. */
+  function selectable(tool) {
+    const state = playwrightState();
+    if (tool === 'none' || state === 'loading') return true;
+    return state === 'installed' && (tool !== 'browser_action' || getMCP().browserActionAvailable());
+  }
+
+  // Si no se puede elegir se muestra «Ninguna», pero se conserva la elección guardada para cuando se pueda.
+  const shownTool = () => (selectable(view.tool) ? view.tool : 'none');
   const sameConfig = (a, b) => CONFIG_KEYS.every(key => a[key] === b[key]);
   const tokenValid = () => TOKEN_PATTERN.test(view.config.extensionToken);
   const extensionToken = value => value.trim().replace(TOKEN_ENV_PREFIX, '').replace(/^(["'])(.*)\1$/, '$2').trim();
 
   const card = (selected, body) => `<div class="browser-card${selected ? ' is-selected' : ''}">${body}</div>`;
-  const choice = (name, value, checked, title, hint) => `<label class="browser-choice">
-      <input type="radio" name="${name}" value="${escapeHtml(value)}"${checked ? ' checked' : ''}>
+  const choice = (name, value, checked, title, hint, disabled = false) => `<label class="browser-choice">
+      <input type="radio" name="${name}" value="${escapeHtml(value)}"${checked ? ' checked' : ''}${disabled ? ' disabled' : ''}>
       <span class="browser-choice-text"><strong>${escapeHtml(title)}</strong><span class="label-hint">${escapeHtml(hint)}</span></span>
     </label>`;
   const openMcpButton = () => `<button type="button" class="btn-secondary" data-browser-action="open-mcp">${escapeHtml(t('browser_open_mcp'))}</button>`;
@@ -65,13 +83,9 @@
   }
 
   function renderOwnMode() {
-    const engines = view.engines;
-    const enginesHtml = engines.available
-      ? `<span class="label-hint">${escapeHtml(t('browser_engines_hint'))}</span>${engines.engines.map(renderEngine).join('')}`
-      : `<div class="browser-notice"><span>${escapeHtml(t('browser_playwright_missing'))}</span>${openMcpButton()}</div>`;
     return `${choice('browser-mode', 'own', view.config.mode === 'own', t('browser_mode_own'), t('browser_mode_own_hint'))}
       <div class="browser-card-body">
-        ${enginesHtml}
+        <span class="label-hint">${escapeHtml(t('browser_engines_hint'))}</span>${view.engines.engines.map(renderEngine).join('')}
         <div class="browser-row">
           <span class="browser-row-text"><strong>${escapeHtml(t('browser_data_title'))}</strong><span class="label-hint">${escapeHtml(t('browser_data_hint', { name: ENGINE_NAMES[view.config.engine] }))}</span></span>
           <button type="button" class="btn-secondary" data-browser-action="clear">${escapeHtml(t('browser_data_clear'))}</button>
@@ -112,7 +126,6 @@
   }
 
   function renderPlaywright() {
-    if (!isConnected()) return `<div class="browser-notice"><span>${escapeHtml(t('browser_needs_server'))}</span>${openMcpButton()}</div>`;
     if (!view.config || !view.engines) return `<p class="label-hint">${escapeHtml(t('browser_loading'))}</p>`;
     return `<div class="browser-modes" role="radiogroup" aria-label="${escapeHtml(t('browser_mode_aria'))}">
         ${card(view.config.mode === 'own', renderOwnMode())}
@@ -138,17 +151,25 @@
 
   function render() {
     if (!container || view.tool === null) return;
-    const tools = Defaults.BROWSER_TOOLS.map(tool => card(view.tool === tool,
-      choice('browser-tool', tool, view.tool === tool, t(`browser_tool_${tool}`), t(`browser_tool_${tool}_hint`)))).join('');
+    const shown = shownTool();
+    const tools = Defaults.BROWSER_TOOLS.map(tool => {
+      const unavailable = !selectable(tool);
+      // Con Playwright instalado, browser_action aún necesita un Chromium con el que navegar.
+      const hint = unavailable && tool === 'browser_action' && playwrightState() === 'installed' ? 'browser_tool_browser_action_unavailable' : `browser_tool_${tool}_hint`;
+      return card(shown === tool, choice('browser-tool', tool, shown === tool, t(`browser_tool_${tool}`), t(hint), unavailable));
+    }).join('');
+    const missingKey = { disconnected: 'browser_needs_server', missing: 'browser_playwright_missing' }[playwrightState()];
+    const missing = missingKey ? `<div class="browser-notice"><span>${escapeHtml(t(missingKey))}</span>${openMcpButton()}</div>` : '';
     const notice = view.notice ? `<p class="server-query-status status-${view.notice.type}" role="status">${escapeHtml(view.notice.text)}</p>` : '';
     container.innerHTML = `<div class="browser-section">
         <div class="browser-tools" role="radiogroup" aria-label="${escapeHtml(t('browser_tool_title'))}">
           <strong>${escapeHtml(t('browser_tool_title'))}</strong>
           <div class="browser-tool-grid">${tools}</div>
         </div>
+        ${missing}
         ${renderProfileRequirement()}
         ${notice}
-        ${view.tool === 'playwright' ? renderPlaywright() : `<p class="label-hint">${escapeHtml(t(`browser_other_${view.tool}`))}</p>`}
+        ${shown === 'playwright' ? renderPlaywright() : `<p class="label-hint">${escapeHtml(t(`browser_other_${shown}`))}</p>`}
       </div>`;
   }
 
@@ -162,9 +183,9 @@
     }
   }
 
-  /** Configuración guardada y motores: solo se piden cuando se muestran las opciones de Playwright. */
+  /** Configuración guardada y motores: solo con Playwright instalado, que es cuando se muestran. */
   async function refreshServerData() {
-    if (!isConnected() || view.tool !== 'playwright') return;
+    if (playwrightState() !== 'installed') return;
     const saved = await request('zerochat/browser/config/get');
     view.savedConfig = saved;
     view.config = { ...saved };
@@ -223,7 +244,6 @@
   function handleChange(target) {
     if (target.name === 'browser-tool') {
       view.tool = target.value;
-      if (!view.config) refreshServerData().catch(showError);
     } else if (target.name === 'browser-mode') view.config.mode = target.value;
     else if (target.name === 'browser-engine') view.config.engine = target.value;
     else if (target.name === 'browser-user-browser') view.config.userBrowser = target.value;
@@ -278,12 +298,16 @@
       const button = event.target.closest('[data-browser-action]');
       if (button) handleAction(button);
     });
-    let wasConnected = isConnected();
+    // Se repinta al cambiar la conexión o Playwright; los datos de Playwright se piden al quedar instalado.
+    const snapshot = () => `${playwrightState()}|${getMCP().browserActionAvailable()}`;
+    let last = snapshot();
     getState().subscribe('mcp', () => {
-      if (isConnected() === wasConnected) return;
-      wasConnected = isConnected();
-      if (wasConnected) refreshServerData().catch(showError);
-      else render();
+      const next = snapshot();
+      if (next === last) return;
+      const installedNow = playwrightState() === 'installed' && !last.startsWith('installed|');
+      last = next;
+      render();
+      if (installedNow) refreshServerData().catch(showError);
     });
     I18n.onChange(render);
   }
@@ -297,7 +321,7 @@
   function installedChoices(mode) {
     const engines = profileView.engines;
     if (!engines) return null;
-    if (mode === 'own') return engines.available ? engines.engines.filter(engine => engine.installed).map(engine => engine.id) : [];
+    if (mode === 'own') return engines.engines.filter(engine => engine.installed).map(engine => engine.id);
     return USER_BROWSERS.filter(id => engines.systemBrowsers[id]);
   }
 

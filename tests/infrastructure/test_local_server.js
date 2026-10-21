@@ -37,12 +37,17 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
   };
   global.fetch = signedFetch;
 
+  // browser_action usa solo el Playwright del servicio: se enlaza el de las pruebas en su lugar.
+  const dataDir = tokenDataDir(testToken);
+  const servicePlaywright = path.join(dataDir, 'services', 'playwright', 'node_modules', 'playwright');
+  fs.mkdirSync(path.dirname(servicePlaywright), { recursive: true });
+  fs.symlinkSync(path.join(repoRoot, 'node_modules', 'playwright'), servicePlaywright, 'junction');
   const serverProc = spawn('python3', [
     serverPath, '--port', String(port), '--no-browser', '--no-venv'
   ], {
     cwd: repoRoot,
     // Sin la configuración de Git del usuario: el visor de diffs solo ve la del repositorio de prueba.
-    env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken), GIT_CONFIG_GLOBAL: os.devnull, GIT_CONFIG_NOSYSTEM: '1' },
+    env: { ...process.env, ZEROCHAT_DATA_DIR: dataDir, GIT_CONFIG_GLOBAL: os.devnull, GIT_CONFIG_NOSYSTEM: '1' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
@@ -199,9 +204,6 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.ok(!toolNames.includes('set_project_directory'), 'El cambio de proyecto no es una herramienta del modelo');
     assert.ok(toolNames.includes('get_diagnostics'));
     assert.ok(toolNames.includes('browser_action'));
-    const browserAction = tools.find(t => t.name === 'browser_action');
-    assert.equal(typeof browserAction?.availability?.available, 'boolean',
-      'browser_action debe publicar su disponibilidad antes de poder activarse');
     const listDirectory = tools.find(t => t.name === 'list_directory');
     assert.equal(listDirectory?.inputSchema?.properties?.max_depth, undefined,
       'list_directory no debe publicar una profundidad recursiva inexistente');
@@ -211,19 +213,6 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.match(editFile.description, /several edit_file calls in the same response/,
       'edit_file indica al modelo que varias ediciones van en varias llamadas de la misma respuesta');
     assert.deepEqual(editFile.inputSchema.required.sort(), ['new_str', 'old_str', 'path']);
-
-    const availabilityRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://albalday.github.io',
-        'X-ZeroChat-Token': testToken
-      },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 41, method: 'tools/availability', params: { name: 'browser_action' } })
-    });
-    assert.equal(availabilityRes.status, 200);
-    const availabilityJson = await availabilityRes.json();
-    assert.equal(typeof availabilityJson.result?.available, 'boolean');
 
     // El cambio de directorio del proyecto es un método de control de la interfaz.
     const projectRpc = async (id, params) => (await fetch(baseUrl, {
@@ -239,6 +228,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
       assert.equal(moved.result?.previous_cwd, startCwd);
       const movedHb = await (await fetch(`${baseUrl}/zerochat/heartbeat`, { headers: { 'X-ZeroChat-Token': testToken } })).json();
       assert.equal(movedHb.cwd, projectDir, 'El heartbeat publica el nuevo directorio');
+      assert.deepEqual(movedHb.playwright, { installed: true, browserAction: { available: true } }, 'El heartbeat publica el estado de Playwright');
       assert.equal((await projectRpc(43, { path: path.join(projectDir, 'missing') })).error?.code, -32602);
       assert.equal((await projectRpc(44, { path: 7 })).error?.code, -32602);
       assert.equal((await projectRpc(45, {})).error?.code, -32602);
@@ -721,25 +711,20 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(sseRes.headers.get('content-type'), 'text/event-stream');
     assert.equal(sseRes.headers.get('cache-control'), 'no-store');
 
-    // 8. Comprobar servicios MCP externos arrancables individualmente
-    const statusRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 6, method: 'zerochat/external/status', params: {} })
-    });
+    // 8. Comprobar servicios MCP externos arrancables individualmente: el latido los publica.
+    const statusRes = await fetch(`${baseUrl}/zerochat/heartbeat`, { headers: { 'X-ZeroChat-Token': testToken } });
     assert.equal(statusRes.status, 200);
-    const statusJson = await statusRes.json();
-    assert.equal(statusJson.result?.host, 'running');
-    const serverIds = (statusJson.result?.servers || []).map(s => s.id);
+    const listedServers = (await statusRes.json()).servers;
+    const serverIds = listedServers.map(s => s.id);
     assert.ok(serverIds.includes('ejemplo'), 'ejemplo debe estar provisto');
     assert.ok(serverIds.includes('composio'), 'composio debe estar provisto');
     assert.ok(serverIds.includes('playwright'), 'playwright debe estar provisto');
     assert.ok(serverIds.includes('memory'), 'memory debe estar provisto');
     assert.equal(serverIds.includes('lsp'), false, 'lsp no debe ofrecerse como servicio integrado');
-    const exampleServer = (statusJson.result?.servers || []).find(s => s.id === 'ejemplo');
+    const exampleServer = listedServers.find(s => s.id === 'ejemplo');
     assert.equal(exampleServer?.status, 'stopped');
     assert.equal(exampleServer?.help?.url, 'help/mcp.html#crear-mcp-con-agente');
-    const composioServer = (statusJson.result?.servers || []).find(s => s.id === 'composio');
+    const composioServer = listedServers.find(s => s.id === 'composio');
     assert.deepEqual(composioServer?.remote, {
       type: 'mcp-remote',
       transport: 'streamable-http',
@@ -1106,8 +1091,8 @@ test('Servidor local zerochat.py: --keep-server desactiva el watchdog', async ()
     }
     const invalidOptions = await rpc('zerochat/external/servers/configure', { serverId: 'ejemplo', options: 'x' });
     assert.equal(invalidOptions.error?.code, -32602);
-    const status = await rpc('zerochat/external/status', {});
-    assert.equal(status.result.servers.some(server => server.id === 'no-existe'), false);
+    const heartbeat = await (await fetch(`${baseUrl}/zerochat/heartbeat`, { headers: { 'X-ZeroChat-Token': testToken } })).json();
+    assert.equal(heartbeat.servers.some(server => server.id === 'no-existe'), false);
   } finally {
     serverProc.kill('SIGTERM');
   }

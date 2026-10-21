@@ -257,7 +257,6 @@ with tempfile.TemporaryDirectory() as temp_dir:
     cache = Path(temp_dir) / "cache"
     cli = Path(temp_dir) / "services" / "playwright" / "node_modules" / "playwright" / "cli.js"
     cli.parent.mkdir(parents=True)
-    (cli.parent / "package.json").write_text('{"version": "1.2.3"}', encoding="utf-8")
     # CLI simulado: --dry-run da las rutas de esta versión; install escribe el progreso como sin
     # terminal, espera a que exista "go" y falla con webkit.
     cli.write_text('''
@@ -301,7 +300,6 @@ wait();
         raise AssertionError("la instalación no terminó")
 
     listing = engines.list()
-    assert listing["available"] and listing["playwrightVersion"] == "1.2.3"
     assert [(item["id"], item["title"], item["installed"]) for item in listing["engines"]] == [
         ("chromium", "Chrome for Testing 1", False), ("firefox", "Firefox 2", False), ("webkit", "WebKit 3", False)]
 
@@ -344,8 +342,7 @@ wait();
     assert module.load_browser_config()["engine"] == "firefox", "sin otro instalado se conserva"
 
     cli.unlink()
-    assert engines.list() == {"systemBrowsers": module.system_browsers(), "extensions": module.user_browser_extensions(), "engines": [], "available": False,
-                              "error": "Playwright MCP is not installed."}
+    assert engines.list() == {"systemBrowsers": module.system_browsers(), "extensions": module.user_browser_extensions(), "engines": []}
 `;
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });
@@ -578,7 +575,7 @@ for line in sys.stdin:
     send(json.dumps({"jsonrpc": "2.0", "id": req_id, "result": result}))
 `;
 
-test('zerochat.py: el cliente MCP stdio acota los mensajes, aplica el plazo del servicio y termina sus descendientes', { skip: process.platform === 'win32' }, () => {
+test('zerochat.py: el cliente MCP stdio acota los mensajes, aplica el plazo del servicio, informa de su caída y termina sus descendientes', { skip: process.platform === 'win32' }, () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-mcp-limits-'));
   const fixturePath = path.join(fixtureDir, 'server.py');
@@ -646,6 +643,12 @@ with tempfile.TemporaryDirectory() as temp_dir:
 
         child_pid = int(child_pid_file.read_text())
         os.kill(child_pid, 0)
+        # Si el proceso del servicio muere, deja de figurar en marcha y stop() limpia sus descendientes.
+        client.process.kill()
+        client.process.wait(timeout=5)
+        crashed = next(item for item in manager.list_servers() if item["id"] == "limits")
+        assert (crashed["status"], crashed["toolCount"]) == ("error", 0), crashed
+        assert crashed["error"].startswith("MCP process exited with code"), crashed
         manager.stop("limits")
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:

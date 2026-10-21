@@ -71,3 +71,5 @@ Done when: the site root serves a static bilingual landing page instead of the J
 ## M31 Fixes from the 9.2.0–9.7.1 scoped audit: closed 2026-10-20
 
 ## M32 Review of the tests added since 9.2.0: closed 2026-10-20
+
+## M33 Live MCP state from the local server: closed 2026-10-21

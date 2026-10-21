@@ -612,17 +612,13 @@ class PersistentBrowserSession:
 const readline = require('readline');
 let playwright;
 try {
-  playwright = require('playwright');
-} catch (e1) {
-  try {
-    playwright = require(process.env.ZEROCHAT_PLAYWRIGHT_MODULE);
-  } catch (e2) {
-    console.log(JSON.stringify({
-      success: false,
-      error: "Playwright is not available. Install it with 'npm install playwright' or enable the Playwright MCP service."
-    }));
-    process.exit(1);
-  }
+  playwright = require(process.env.ZEROCHAT_PLAYWRIGHT_MODULE);
+} catch (e) {
+  console.log(JSON.stringify({
+    success: false,
+    error: "Playwright is not available. Start the Playwright service once in Settings > MCP to install it."
+  }));
+  process.exit(1);
 }
 
 (async () => {
@@ -788,14 +784,19 @@ def browser_action_availability() -> dict:
     """Comprueba requisitos locales sin lanzar Node.js ni Chromium."""
     if not shutil.which("node"):
         return {"available": False, "error": "Node.js is not installed or not found in system PATH."}
-    playwright_locations = (Path.cwd() / "node_modules" / "playwright", playwright_service_module())
-    if not any(location.is_dir() for location in playwright_locations):
+    # Solo el Playwright del servicio, no el node_modules de la carpeta desde la que arranca el servidor.
+    if not playwright_service_cli().is_file():
         return {"available": False, "error": "Playwright is not available."}
     # El runner prueba las entradas de Chromium de Playwright y los canales chrome y msedge.
     browsers = system_browsers()
     if cached_engine_entries() & set(ENGINE_CACHE_ENTRIES["chromium"]) or browsers["chrome"] or browsers["msedge"]:
         return {"available": True}
     return {"available": False, "error": "Playwright Chromium is not installed."}
+
+
+def playwright_status() -> dict:
+    """Playwright del servicio y browser_action tal como están ahora, para el latido del cliente."""
+    return {"installed": playwright_service_cli().is_file(), "browserAction": browser_action_availability()}
 
 
 def browser_action(action: str, url: str | None = None, selector: str | None = None, value: str | None = None) -> str:

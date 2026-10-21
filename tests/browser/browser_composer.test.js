@@ -134,7 +134,7 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
         manager.setProjectDirectory = async path => {
           window.__directoryCalls.push(path);
           if (window.__directoryError) throw new Error(window.__directoryError);
-          manager.syncProjectDirectory(path);
+          manager.applyLiveState({ cwd: path });
           return { cwd: path };
         };
         window.ChatState.set('mcp', { status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/home/u/repo' }, tools: [] });
@@ -252,7 +252,7 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       assert.deepEqual(opened, { open: true, collapsed: false, highlighted: true });
 
       // Cerrar la pestaña detendría el servidor y los comandos: el navegador pide confirmación.
-      await page.evaluate(() => window.ChatMCP.manager.syncCommandJobs(window.__running, { exitOnClose: true }));
+      await page.evaluate(() => window.ChatMCP.manager.applyLiveState({ jobs: window.__running, exit_on_close: true }));
       let beforeUnload = null;
       const dialogSeen = new Promise(resolve => {
         page.once('dialog', async dialog => { beforeUnload = dialog.type(); await dialog.dismiss(); resolve(); });

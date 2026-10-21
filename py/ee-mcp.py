@@ -419,6 +419,12 @@ class McpServiceManager:
             client = self.clients.get(server_id)
             state = self.states.get(server_id, "stopped")
             running = bool(client and client.running() and state == "running")
+            error = self.errors.get(server_id)
+            # El proceso de un servicio en marcha puede morir sin que nadie lo detenga.
+            if state == "running" and client and not running:
+                code = client.process.poll() if client.process else None
+                state = "error"
+                error = f"MCP process exited with code {code}" if code is not None else "MCP process is not responding"
             pref = self.preferences.get(server_id, {})
             result.append({
                 "id": server_id,
@@ -429,7 +435,7 @@ class McpServiceManager:
                 "enabled": pref.get("enabled", server.get("enabledByDefault", False)),
                 "status": "running" if running else state,
                 "toolCount": len(client.tools) if running else 0,
-                "error": self.errors.get(server_id),
+                "error": error,
                 "options": server.get("options", []),
                 "userOptions": pref.get("options", {}),
                 "oauthUrl": client.oauth_url if client else None,

@@ -796,11 +796,17 @@ test('MCP - nombres inválidos, duplicados y demasiado largos fallan explícitam
   assert.equal((await provider.discoverTools())[0].name, 'read_file');
 });
 
-test('MCP - syncExternalServers y connectProxy sincronizan y registran herramientas externas activas', async () => {
+test('MCP - connectProxy registra las herramientas de los servicios externos en marcha que trae el primer latido', async () => {
   const originalFetch = global.fetch;
   const manager = new MCP.McpManager();
   let startupNotices = 0;
+  let heartbeats = 0;
   manager.notifyStoppedExternalServices = () => { startupNotices += 1; };
+  // La URL del latido depende de la página; aquí se sustituye su lectura por lo que publicaría.
+  manager.readLiveState = async () => {
+    heartbeats += 1;
+    await manager.applyLiveState({ ok: true, jobs: [], servers: [{ id: 'sqlite', status: 'running', toolCount: 1, enabled: true }] });
+  };
 
   try {
     global.fetch = async (url, options) => {
@@ -818,18 +824,6 @@ test('MCP - syncExternalServers y connectProxy sincronizan y registran herramien
           return {
             ok: true, status: 200,
             json: async () => ({ jsonrpc: '2.0', id: body.id, result: { tools: [{ name: 'edit_file' }] } })
-          };
-        }
-        if (body.method === 'zerochat/external/status') {
-          return {
-            ok: true, status: 200,
-            json: async () => ({
-              jsonrpc: '2.0', id: body.id,
-              result: {
-                host: 'running',
-                servers: [{ id: 'sqlite', status: 'running', toolCount: 1 }]
-              }
-            })
           };
         }
       }
@@ -857,13 +851,12 @@ test('MCP - syncExternalServers y connectProxy sincronizan y registran herramien
       return { ok: true, status: 200, json: async () => ({}) };
     };
 
-    const connResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388, notifyStartup: false });
+    const connResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388, token: 'tok', notifyStartup: false });
     assert.equal(connResult.success, true);
+    assert.equal(heartbeats, 1);
     assert.equal(startupNotices, 0);
-    assert.ok(connResult.externalSync);
-    assert.equal(connResult.externalSync.status.host, 'running');
-    assert.equal(connResult.externalSync.externalTools.length, 1);
-    assert.equal(connResult.externalSync.externalTools[0].name, 'sqlite_query');
+    assert.deepEqual(ChatState.get('mcp').externalServers.map(server => server.id), ['sqlite']);
+    assert.deepEqual(ChatState.get('mcp').externalTools.map(tool => tool.name), ['sqlite_query']);
 
     // La herramienta externa debe estar en el registry
     const tool = AgentCore.registry.getTool('sqlite_query');
@@ -872,11 +865,13 @@ test('MCP - syncExternalServers y connectProxy sincronizan y registran herramien
     // Reconectar connectProxy no debe destruir las herramientas externas
     const reconnectResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388 });
     assert.equal(reconnectResult.success, true);
+    assert.equal(heartbeats, 2);
     assert.equal(startupNotices, 1);
     assert.ok(AgentCore.registry.getTool('sqlite_query'), 'sqlite_query debe seguir registrada tras reconectar');
 
     await manager.disconnectProxy();
   } finally {
+    manager.stopHeartbeat();
     global.fetch = originalFetch;
   }
 });
@@ -1003,9 +998,8 @@ test('MCP - startExternalServer espera instalaciones largas y limita cada fase',
     const manager = new MCP.McpManager();
     const waits = [];
     let polls = 0;
-    manager.syncExternalServers = async () => {};
-    manager.requestExternalControl = async (method) => {
-      if (method === 'zerochat/external/servers/start') throw timeout();
+    manager.requestExternalControl = async () => { throw timeout(); };
+    manager.readLiveState = async () => {
       const status = phases[Math.min(polls, phases.length - 1)];
       polls += 1;
       return { servers: [{ id: 'playwright', status }] };
@@ -1042,42 +1036,83 @@ test('MCP - avisa de mensajes JSON-RPC malformados sin resolver peticiones pendi
   assert.match(String(console.warn.mock.calls[0].arguments[0]), /malformed JSON-RPC/);
 });
 
-test('MCP - syncCommandJobs publica solo los comandos en segundo plano en marcha y no reescribe el estado en cada latido', async () => {
+test('MCP - applyLiveState publica el estado vivo del servidor y solo escribe lo que cambia', async t => {
+  const Security = require('../../js/tool-security.js');
   const previousState = ChatState.get('mcp');
   const manager = new MCP.McpManager();
+  const startup = t.mock.method(Security.manager, 'setStartupDirectory', () => {});
   try {
-    ChatState.set('mcp', { ...previousState, status: 'connected', commandJobs: [], exitOnClose: false });
+    ChatState.set('mcp', { ...previousState, status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo' }, commandJobs: [], exitOnClose: false, playwright: null });
+    const provider = new MCP.McpToolProvider({ id: 'mcp_proxy', name: 'ZeroChat', initialize: async () => ({ success: true }), listTools: async () => [{ name: 'browser_action' }] });
+    const [browserAction] = await provider.discoverTools();
+    assert.equal(browserAction.isAvailable(), false, 'Sin latido no se sabe si hay Playwright');
+    assert.equal(MCP.playwrightInstalled(), null);
+
     const writes = [];
-    const unsubscribe = ChatState.subscribe('mcp', value => writes.push(value.commandJobs));
+    const unsubscribe = ChatState.subscribe('mcp', value => writes.push(value));
     const jobs = [
       { id: 1, key: 'inv-a', command: 'npm run dev', status: 'running', started_at: 1000, background: true, elapsed_s: 3 },
       { id: 2, command: 'npm test', status: 'exited', started_at: 2000, background: true },
       { id: 4, command: 'npm run build', status: 'running', started_at: 3000, background: false },
       { id: 'x', command: 'malo', status: 'running', background: true }
     ];
-    assert.equal(manager.syncCommandJobs(jobs, { exitOnClose: true }), true);
+    const heartbeat = { ok: true, cwd: '/otro', jobs, exit_on_close: true, playwright: { installed: true, browserAction: { available: true, extra: 1 } } };
+    assert.equal(await manager.applyLiveState(heartbeat), true);
+    assert.equal(writes.length, 1, 'Un latido es una sola escritura');
+    const mcp = ChatState.get('mcp');
     // Solo los de segundo plano: un comando esperado ya se ve en su tarjeta.
-    assert.deepEqual(ChatState.get('mcp').commandJobs, [{ id: 1, command: 'npm run dev', startedAt: 1000 }]);
-    assert.equal(ChatState.get('mcp').exitOnClose, true);
-    // El mismo conjunto con otro tiempo transcurrido no vuelve a escribir.
-    assert.equal(manager.syncCommandJobs([{ ...jobs[0], elapsed_s: 13 }], { exitOnClose: true }), false);
+    assert.deepEqual(mcp.commandJobs, [{ id: 1, command: 'npm run dev', startedAt: 1000 }]);
+    assert.equal(mcp.exitOnClose, true);
+    assert.equal(mcp.serverInfo.cwd, '/otro');
+    assert.deepEqual(startup.mock.calls.map(call => call.arguments[0]), ['/otro']);
+    assert.deepEqual(mcp.playwright, { installed: true, browserAction: { available: true } });
+    assert.equal(browserAction.isAvailable(), true);
+    // El mismo estado con otro tiempo transcurrido no vuelve a escribir.
+    assert.equal(await manager.applyLiveState({ ...heartbeat, jobs: [{ ...jobs[0], elapsed_s: 13 }] }), false);
     assert.equal(writes.length, 1);
 
+    // Un control solo trae su campo y deja el resto como estaba.
     const requests = [];
     manager.clients.set('mcp_proxy', {
-      request: async (method, params) => {
-        requests.push({ method, params });
+      request: async method => {
+        requests.push(method);
         return { jobs: [] };
       }
     });
-    // Tras detener un comando, refreshCommandJobs relee la lista del servidor.
     assert.equal(await manager.refreshCommandJobs(), true);
-    assert.deepEqual(requests.map(request => request.method), ['zerochat/jobs/list']);
+    assert.deepEqual(requests, ['zerochat/jobs/list']);
     assert.deepEqual(ChatState.get('mcp').commandJobs, []);
+    assert.equal(ChatState.get('mcp').exitOnClose, true);
+    // Sin Chromium, o con el servicio quitado durante la sesión, browser_action deja de estar disponible.
+    assert.equal(await manager.applyLiveState({ playwright: { installed: true, browserAction: { available: false, error: 'Playwright Chromium is not installed.' } } }), true);
+    assert.equal(browserAction.isAvailable(), false);
+    assert.equal(await manager.applyLiveState({ playwright: { installed: false, browserAction: { available: false } } }), true);
+    assert.equal(MCP.playwrightInstalled(), false);
+    assert.equal(await manager.applyLiveState({ playwright: { browserAction: { available: true } } }), false, 'Playwright sin installed no se publica');
+
+    // Los servicios externos: solo se escriben si cambia lo que informa el servidor, y sus
+    // herramientas se vuelven a registrar solo si cambian los que están en marcha.
+    const refresh = t.mock.method(manager, 'refreshExternalTools', async () => {});
+    const servers = [{ id: 'memory', status: 'running', toolCount: 3 }, { id: 'ejemplo', status: 'stopped', toolCount: 0 }];
+    assert.equal(await manager.applyLiveState({ servers }), true);
+    assert.deepEqual(ChatState.get('mcp').externalServers, servers);
+    assert.deepEqual(refresh.mock.calls.map(call => call.arguments[0]), [true]);
+    // Lo que muestra la interfaz de una acción en curso sigue mientras el servidor no cambie.
+    ChatState.set('mcp', { externalServers: [servers[0], { ...servers[1], status: 'starting', startWait: { attempt: 1, total: 10 } }] });
+    assert.equal(await manager.applyLiveState({ servers }), false);
+    assert.equal(ChatState.get('mcp').externalServers[1].status, 'starting');
+    // Uno empieza a arrancar: cambia la lista pero no las herramientas.
+    const starting = [servers[0], { ...servers[1], status: 'starting' }];
+    assert.equal(await manager.applyLiveState({ servers: starting }), true);
+    assert.deepEqual(ChatState.get('mcp').externalServers, starting);
+    assert.equal(refresh.mock.callCount(), 1);
+    // El que estaba en marcha muere: se retiran sus herramientas.
+    await manager.applyLiveState({ servers: [{ ...servers[0], status: 'error', toolCount: 0 }, starting[1]] });
+    assert.deepEqual(refresh.mock.calls.map(call => call.arguments[0]), [true, false]);
     unsubscribe?.();
 
     ChatState.set('mcp', { ...ChatState.get('mcp'), status: 'disconnected' });
-    assert.equal(manager.syncCommandJobs(jobs), false, 'sin conexión no se publica');
+    assert.equal(await manager.applyLiveState(heartbeat), false, 'sin conexión no se publica');
   } finally {
     ChatState.set('mcp', previousState);
   }
