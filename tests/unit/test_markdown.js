@@ -139,3 +139,11 @@ test('Markdown - solo los bloques de código HTML y SVG incluyen botón de vista
   assert.ok(!Markdown.parseMarkdown('```javascript\nconst a = 1;\n```').includes('btn-preview-code'), 'Bloque JS no debe tener botón de vista previa');
 });
 
+
+test('Markdown - negrita y cursiva no se aplican dentro de las URL de enlaces e imágenes', () => {
+  const href = '<a href="https://e.com/a__b__c" target="_blank" rel="noopener noreferrer">';
+  assert.equal(Markdown.parseMarkdown('ver [**doc**](https://e.com/a__b__c) ya'), `<p>ver ${href}<strong>doc</strong></a> ya</p>`);
+  const table = Markdown.parseMarkdown('| a |\n|---|\n| [x](https://e.com/a__b__c) ![i](https://e.com/*x*.png) |');
+  assert.ok(table.includes(`<td>${href}x</a> <img`));
+  assert.ok(table.includes('src="https://e.com/*x*.png"'));
+});
