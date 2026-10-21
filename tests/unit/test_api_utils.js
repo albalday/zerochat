@@ -39,6 +39,24 @@ test('Api - publica estados de conexión, pensamiento y generación sin exponer 
   }
 });
 
+test('Api - createReasoningTagSplitter separa los bloques de razonamiento aunque abarquen varios trozos', () => {
+  const text = value => ({ reasoning: false, text: value });
+  const thought = value => ({ reasoning: true, text: value });
+  const rows = [
+    [['Hola'], [[text('Hola')]]],
+    [['a<think>b</think>c'], [[text('a'), thought(''), thought('b'), text('c')]]],
+    // Abre en un trozo y cierra en otro, con la etiqueta en mayúsculas
+    [['pre<THOUGHT>uno', ' dos', '</thought>fin'], [[text('pre'), thought(''), thought('uno')], [thought(' dos')], [text('fin')]]],
+    // Solo cierra la etiqueta que abrió: </think> dentro de <reasoning> es razonamiento
+    [['<reasoning>x</think>y</reasoning>'], [[thought(''), thought('x</think>y')]]],
+    [['<think>', '</think>', 'z'], [[thought('')], [], [text('z')]]]
+  ];
+  for (const [chunks, expected] of rows) {
+    const split = Api.createReasoningTagSplitter();
+    assert.deepEqual(chunks.map(split), expected, JSON.stringify(chunks));
+  }
+});
+
 test('Api - devuelve para reenviar solo el razonamiento recibido en un campo propio', async () => {
   const originalFetch = global.fetch;
   try {

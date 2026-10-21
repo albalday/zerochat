@@ -142,6 +142,43 @@
     return adapter.cancelModelOperation(model);
   }
 
+  /**
+   * Separa el texto en streaming de los bloques <think>, <thought> o <reasoning> que algunos modelos
+   * escriben en la respuesta; un bloque puede abrirse en un trozo y cerrarse en otro. Cada trozo da
+   * partes { reasoning, text }, y abrir un bloque da una parte de razonamiento aunque llegue vacía
+   * para que la interfaz pase a "pensando".
+   */
+  function createReasoningTagSplitter() {
+    let openTag = null;
+    return function split(chunk) {
+      const parts = [];
+      let rest = chunk;
+      while (rest) {
+        if (!openTag) {
+          const open = rest.match(/<(think|thought|reasoning)>/i);
+          if (!open) {
+            parts.push({ reasoning: false, text: rest });
+            break;
+          }
+          if (open.index > 0) parts.push({ reasoning: false, text: rest.slice(0, open.index) });
+          openTag = open[1].toLowerCase();
+          parts.push({ reasoning: true, text: '' });
+          rest = rest.slice(open.index + open[0].length);
+        } else {
+          const close = rest.match(new RegExp(`</${openTag}>`, 'i'));
+          if (!close) {
+            parts.push({ reasoning: true, text: rest });
+            break;
+          }
+          if (close.index > 0) parts.push({ reasoning: true, text: rest.slice(0, close.index) });
+          openTag = null;
+          rest = rest.slice(close.index + close[0].length);
+        }
+      }
+      return parts;
+    };
+  }
+
   function streamResult({
     accumulatedText = '',
     accumulatedReasoning = '',
@@ -264,7 +301,7 @@
     let recoveredReason = '';
     let accumulatedToolCalls = {};
     let chunkCount = 0;
-    let activeReasoningTag = null;
+    const splitReasoningTags = createReasoningTagSplitter();
     let serverCachedTokens = 0;
     let serverCacheCreationTokens = 0;
     let serverPromptTokens = 0;
@@ -346,6 +383,17 @@
       lastVisibleText = TextToolCalls.visibleText(accumulatedText);
       if (lastVisibleText === previousVisible) return;
       onChunk(lastVisibleText, lastVisibleText.startsWith(previousVisible) ? lastVisibleText.slice(previousVisible.length) : lastVisibleText, getStats());
+    }
+
+    function emitReasoning(piece) {
+      publishGenerationStatus({ phase: 'thinking', percent: null, detail: '' });
+      if (!piece) return;
+      accumulatedReasoning += piece;
+      if (onReasoningChunk) {
+        onReasoningChunk(piece, accumulatedReasoning);
+      } else if (onLog) {
+        onLog({ type: 'thinking', text: piece });
+      }
     }
 
     function getFinalToolCalls() {
@@ -501,69 +549,22 @@
 
               // Tokens de razonamiento específicos
               if (chunkData.reasoningChunk) {
-                publishGenerationStatus({ phase: 'thinking', percent: null, detail: '' });
                 if (!firstTokenTime) firstTokenTime = performance.now();
-                accumulatedReasoning += chunkData.reasoningChunk;
                 if (chunkData.reasoningField) {
                   replayReasoningField = chunkData.reasoningField;
                   replayReasoning += chunkData.reasoningChunk;
                 }
-                if (onReasoningChunk) {
-                  onReasoningChunk(chunkData.reasoningChunk, accumulatedReasoning);
-                } else if (onLog) {
-                  onLog({ type: 'thinking', text: chunkData.reasoningChunk });
-                }
+                emitReasoning(chunkData.reasoningChunk);
               }
 
-              // Contenido textual con soporte de etiquetas <think>, <thought>, <reasoning>
-              const textChunk = chunkData.textChunk;
-              if (textChunk) {
+              if (chunkData.textChunk) {
                 if (!firstTokenTime) firstTokenTime = performance.now();
-
-                let remaining = textChunk;
-                while (remaining.length > 0) {
-                  if (!activeReasoningTag) {
-                    const openMatch = remaining.match(/<(think|thought|reasoning)>/i);
-                    if (openMatch) {
-                      const preText = remaining.slice(0, openMatch.index);
-                      if (preText) {
-                        publishGenerationStatus({ phase: 'generating', percent: null, detail: '' });
-                        emitText(preText);
-                      }
-                      activeReasoningTag = openMatch[1].toLowerCase();
-                      remaining = remaining.slice(openMatch.index + openMatch[0].length);
-                      publishGenerationStatus({ phase: 'thinking', percent: null, detail: '' });
-                    } else {
-                      publishGenerationStatus({ phase: 'generating', percent: null, detail: '' });
-                      emitText(remaining);
-                      remaining = '';
-                    }
+                for (const part of splitReasoningTags(chunkData.textChunk)) {
+                  if (part.reasoning) {
+                    emitReasoning(part.text);
                   } else {
-                    const closeRegex = new RegExp(`<\/${activeReasoningTag}>`, 'i');
-                    const closeMatch = remaining.match(closeRegex);
-                    if (closeMatch) {
-                      const rText = remaining.slice(0, closeMatch.index);
-                      if (rText) {
-                        publishGenerationStatus({ phase: 'thinking', percent: null, detail: '' });
-                        accumulatedReasoning += rText;
-                        if (onReasoningChunk) {
-                          onReasoningChunk(rText, accumulatedReasoning);
-                        } else if (onLog) {
-                          onLog({ type: 'thinking', text: rText });
-                        }
-                      }
-                      activeReasoningTag = null;
-                      remaining = remaining.slice(closeMatch.index + closeMatch[0].length);
-                    } else {
-                      publishGenerationStatus({ phase: 'thinking', percent: null, detail: '' });
-                      accumulatedReasoning += remaining;
-                      if (onReasoningChunk) {
-                        onReasoningChunk(remaining, accumulatedReasoning);
-                      } else if (onLog) {
-                        onLog({ type: 'thinking', text: remaining });
-                      }
-                      remaining = '';
-                    }
+                    publishGenerationStatus({ phase: 'generating', percent: null, detail: '' });
+                    emitText(part.text);
                   }
                 }
               }
@@ -675,6 +676,7 @@
     deleteLocalModel,
     cancelLocalModelOperation,
     streamChatCompletion,
+    createReasoningTagSplitter,
     getProviderCapabilities,
     inspectProvider,
     registry
