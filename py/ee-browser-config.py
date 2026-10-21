@@ -262,22 +262,19 @@ class BrowserEngines:
         return {name: (title, Path(location.strip())) for title, name, location in _DRY_RUN_ENTRY.findall(result.stdout)}
 
     def list(self) -> dict:
+        """Navegadores del sistema y motores de Playwright; sin Playwright del servicio no hay motores."""
         cli = playwright_service_cli()
         result = {"systemBrowsers": system_browsers(), "extensions": user_browser_extensions(), "engines": []}
         if not cli.is_file():
-            return {**result, "available": False, "error": "Playwright MCP is not installed."}
-        try:
-            version = json.loads((cli.parent / "package.json").read_text(encoding="utf-8")).get("version")
-            locations = self._locations(cli)
-        except (OSError, json.JSONDecodeError, RuntimeError, subprocess.SubprocessError) as err:
-            return {**result, "available": False, "error": str(err)}
+            return result
+        locations = self._locations(cli)
         with self._lock:
             jobs = {engine: dict(job) for engine, job in self._jobs.items()}
         for engine, entries in ENGINE_CACHE_ENTRIES.items():
             title = locations.get(entries[0], (engine,))[0]
             installed = all(name in locations and (locations[name][1] / "INSTALLATION_COMPLETE").is_file() for name in entries)
             result["engines"].append({"id": engine, "title": title, "installed": installed, **jobs.get(engine, {})})
-        return {**result, "available": True, "playwrightVersion": version}
+        return result
 
     def _check_engine(self, engine) -> Path:
         if engine not in ENGINE_CACHE_ENTRIES:

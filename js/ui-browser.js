@@ -321,7 +321,7 @@
   function installedChoices(mode) {
     const engines = profileView.engines;
     if (!engines) return null;
-    if (mode === 'own') return engines.available ? engines.engines.filter(engine => engine.installed).map(engine => engine.id) : [];
+    if (mode === 'own') return engines.engines.filter(engine => engine.installed).map(engine => engine.id);
     return USER_BROWSERS.filter(id => engines.systemBrowsers[id]);
   }
 

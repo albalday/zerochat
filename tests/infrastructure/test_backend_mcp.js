@@ -257,7 +257,6 @@ with tempfile.TemporaryDirectory() as temp_dir:
     cache = Path(temp_dir) / "cache"
     cli = Path(temp_dir) / "services" / "playwright" / "node_modules" / "playwright" / "cli.js"
     cli.parent.mkdir(parents=True)
-    (cli.parent / "package.json").write_text('{"version": "1.2.3"}', encoding="utf-8")
     # CLI simulado: --dry-run da las rutas de esta versión; install escribe el progreso como sin
     # terminal, espera a que exista "go" y falla con webkit.
     cli.write_text('''
@@ -301,7 +300,6 @@ wait();
         raise AssertionError("la instalación no terminó")
 
     listing = engines.list()
-    assert listing["available"] and listing["playwrightVersion"] == "1.2.3"
     assert [(item["id"], item["title"], item["installed"]) for item in listing["engines"]] == [
         ("chromium", "Chrome for Testing 1", False), ("firefox", "Firefox 2", False), ("webkit", "WebKit 3", False)]
 
@@ -344,8 +342,7 @@ wait();
     assert module.load_browser_config()["engine"] == "firefox", "sin otro instalado se conserva"
 
     cli.unlink()
-    assert engines.list() == {"systemBrowsers": module.system_browsers(), "extensions": module.user_browser_extensions(), "engines": [], "available": False,
-                              "error": "Playwright MCP is not installed."}
+    assert engines.list() == {"systemBrowsers": module.system_browsers(), "extensions": module.user_browser_extensions(), "engines": []}
 `;
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });
