@@ -1042,74 +1042,63 @@ test('MCP - avisa de mensajes JSON-RPC malformados sin resolver peticiones pendi
   assert.match(String(console.warn.mock.calls[0].arguments[0]), /malformed JSON-RPC/);
 });
 
-test('MCP - syncCommandJobs publica solo los comandos en segundo plano en marcha y no reescribe el estado en cada latido', async () => {
+test('MCP - applyLiveState publica el estado vivo del servidor y solo escribe lo que cambia', async t => {
+  const Security = require('../../js/tool-security.js');
   const previousState = ChatState.get('mcp');
   const manager = new MCP.McpManager();
+  const startup = t.mock.method(Security.manager, 'setStartupDirectory', () => {});
   try {
-    ChatState.set('mcp', { ...previousState, status: 'connected', commandJobs: [], exitOnClose: false });
+    ChatState.set('mcp', { ...previousState, status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo' }, commandJobs: [], exitOnClose: false, playwright: null });
+    const provider = new MCP.McpToolProvider({ id: 'mcp_proxy', name: 'ZeroChat', initialize: async () => ({ success: true }), listTools: async () => [{ name: 'browser_action' }] });
+    const [browserAction] = await provider.discoverTools();
+    assert.equal(browserAction.isAvailable(), false, 'Sin latido no se sabe si hay Playwright');
+    assert.equal(MCP.playwrightInstalled(), null);
+
     const writes = [];
-    const unsubscribe = ChatState.subscribe('mcp', value => writes.push(value.commandJobs));
+    const unsubscribe = ChatState.subscribe('mcp', value => writes.push(value));
     const jobs = [
       { id: 1, key: 'inv-a', command: 'npm run dev', status: 'running', started_at: 1000, background: true, elapsed_s: 3 },
       { id: 2, command: 'npm test', status: 'exited', started_at: 2000, background: true },
       { id: 4, command: 'npm run build', status: 'running', started_at: 3000, background: false },
       { id: 'x', command: 'malo', status: 'running', background: true }
     ];
-    assert.equal(manager.syncCommandJobs(jobs, { exitOnClose: true }), true);
+    const heartbeat = { ok: true, cwd: '/otro', jobs, exit_on_close: true, playwright: { installed: true, browserAction: { available: true, extra: 1 } } };
+    assert.equal(manager.applyLiveState(heartbeat), true);
+    assert.equal(writes.length, 1, 'Un latido es una sola escritura');
+    const mcp = ChatState.get('mcp');
     // Solo los de segundo plano: un comando esperado ya se ve en su tarjeta.
-    assert.deepEqual(ChatState.get('mcp').commandJobs, [{ id: 1, command: 'npm run dev', startedAt: 1000 }]);
-    assert.equal(ChatState.get('mcp').exitOnClose, true);
-    // El mismo conjunto con otro tiempo transcurrido no vuelve a escribir.
-    assert.equal(manager.syncCommandJobs([{ ...jobs[0], elapsed_s: 13 }], { exitOnClose: true }), false);
+    assert.deepEqual(mcp.commandJobs, [{ id: 1, command: 'npm run dev', startedAt: 1000 }]);
+    assert.equal(mcp.exitOnClose, true);
+    assert.equal(mcp.serverInfo.cwd, '/otro');
+    assert.deepEqual(startup.mock.calls.map(call => call.arguments[0]), ['/otro']);
+    assert.deepEqual(mcp.playwright, { installed: true, browserAction: { available: true } });
+    assert.equal(browserAction.isAvailable(), true);
+    // El mismo estado con otro tiempo transcurrido no vuelve a escribir.
+    assert.equal(manager.applyLiveState({ ...heartbeat, jobs: [{ ...jobs[0], elapsed_s: 13 }] }), false);
     assert.equal(writes.length, 1);
 
+    // Un control solo trae su campo y deja el resto como estaba.
     const requests = [];
     manager.clients.set('mcp_proxy', {
-      request: async (method, params) => {
-        requests.push({ method, params });
+      request: async method => {
+        requests.push(method);
         return { jobs: [] };
       }
     });
-    // Tras detener un comando, refreshCommandJobs relee la lista del servidor.
     assert.equal(await manager.refreshCommandJobs(), true);
-    assert.deepEqual(requests.map(request => request.method), ['zerochat/jobs/list']);
+    assert.deepEqual(requests, ['zerochat/jobs/list']);
     assert.deepEqual(ChatState.get('mcp').commandJobs, []);
-    unsubscribe?.();
-
-    ChatState.set('mcp', { ...ChatState.get('mcp'), status: 'disconnected' });
-    assert.equal(manager.syncCommandJobs(jobs), false, 'sin conexión no se publica');
-  } finally {
-    ChatState.set('mcp', previousState);
-  }
-});
-
-test('MCP - syncPlaywright publica el estado de Playwright del latido y browser_action lo sigue sin volver a listar', async () => {
-  const previousState = ChatState.get('mcp');
-  const manager = new MCP.McpManager();
-  try {
-    ChatState.set('mcp', { ...previousState, status: 'connected', playwright: null });
-    const provider = new MCP.McpToolProvider({ id: 'mcp_proxy', name: 'ZeroChat', initialize: async () => ({ success: true }), listTools: async () => [{ name: 'browser_action' }] });
-    const [tool] = await provider.discoverTools();
-    assert.equal(tool.isAvailable(), false, 'Sin latido no se sabe si hay Playwright');
-    assert.equal(MCP.playwrightInstalled(), null);
-
-    const writes = [];
-    const unsubscribe = ChatState.subscribe('mcp', value => writes.push(value.playwright));
-    assert.equal(manager.syncPlaywright({ installed: true, browserAction: { available: true, extra: 1 } }), true);
-    assert.deepEqual(ChatState.get('mcp').playwright, { installed: true, browserAction: { available: true } });
-    assert.equal(tool.isAvailable(), true);
-    assert.equal(manager.syncPlaywright({ installed: true, browserAction: { available: true } }), false, 'El mismo estado no vuelve a escribir');
-    assert.equal(writes.length, 1);
+    assert.equal(ChatState.get('mcp').exitOnClose, true);
     // Sin Chromium, o con el servicio quitado durante la sesión, browser_action deja de estar disponible.
-    assert.equal(manager.syncPlaywright({ installed: true, browserAction: { available: false, error: 'Playwright Chromium is not installed.' } }), true);
-    assert.equal(tool.isAvailable(), false);
-    assert.equal(manager.syncPlaywright({ installed: false, browserAction: { available: false } }), true);
+    assert.equal(manager.applyLiveState({ playwright: { installed: true, browserAction: { available: false, error: 'Playwright Chromium is not installed.' } } }), true);
+    assert.equal(browserAction.isAvailable(), false);
+    assert.equal(manager.applyLiveState({ playwright: { installed: false, browserAction: { available: false } } }), true);
     assert.equal(MCP.playwrightInstalled(), false);
+    assert.equal(manager.applyLiveState({ playwright: { browserAction: { available: true } } }), false, 'Playwright sin installed no se publica');
     unsubscribe?.();
 
-    assert.equal(manager.syncPlaywright({ browserAction: { available: true } }), false, 'Un latido sin installed no se publica');
     ChatState.set('mcp', { ...ChatState.get('mcp'), status: 'disconnected' });
-    assert.equal(manager.syncPlaywright({ installed: true, browserAction: { available: true } }), false, 'sin conexión no se publica');
+    assert.equal(manager.applyLiveState(heartbeat), false, 'sin conexión no se publica');
   } finally {
     ChatState.set('mcp', previousState);
   }

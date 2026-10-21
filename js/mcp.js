@@ -57,6 +57,8 @@
   // y la espera de la autorización OAuth.
   const EXTERNAL_LONG_START_POLL_ATTEMPTS = 80;
   const HEARTBEAT_INTERVAL_MS = 10000;
+  // Lo que el servidor local informa en vivo, vacío mientras no hay conexión.
+  const LIVE_RESET = Object.freeze({ serverInfo: null, tools: [], externalServers: [], externalTools: [], commandJobs: [], exitOnClose: false, playwright: null });
   const MAX_OUTPUT_LENGTH = 60000;
   const MAX_IMAGE_BASE64_LENGTH = 8 * 1024 * 1024;
   const TOOL_AUTH_VERSION = 'zerochat-tool-auth-v1';
@@ -867,16 +869,39 @@
     }
 
     /**
-     * Publica el directorio del proyecto que informa el servidor local (al cambiarlo o en el
-     * heartbeat) para que el modo proyecto y la regla de lectura por defecto lo sigan.
+     * Publica en ChatState el estado vivo que informa el servidor local, en el latido o en la respuesta
+     * de un control: el directorio del proyecto (que siguen el modo proyecto y la regla de lectura por
+     * defecto), los comandos en segundo plano en marcha (los esperados ya se ven en su tarjeta), si el
+     * servidor se detiene al cerrar el navegador y Playwright (instalado y browser_action disponible).
+     * Solo lee los campos presentes y solo escribe los que cambian, no en cada latido.
      */
-    syncProjectDirectory(cwd) {
+    applyLiveState(payload) {
       const State = getState();
       const current = State.get('mcp');
-      const next = typeof cwd === 'string' ? cwd.trim() : '';
-      if (!next || current.status !== 'connected' || !current.serverInfo || current.serverInfo.cwd === next) return false;
-      getSecurity().manager.setStartupDirectory(next);
-      State.set('mcp', { serverInfo: { ...current.serverInfo, cwd: next } });
+      if (current.status !== 'connected' || !payload) return false;
+      const next = {};
+      const cwd = typeof payload.cwd === 'string' ? payload.cwd.trim() : '';
+      if (cwd && current.serverInfo && current.serverInfo.cwd !== cwd) {
+        getSecurity().manager.setStartupDirectory(cwd);
+        next.serverInfo = { ...current.serverInfo, cwd };
+      }
+      if (Array.isArray(payload.jobs)) {
+        const jobs = payload.jobs
+          .filter(job => job && Number.isInteger(job.id) && job.status === 'running' && job.background === true)
+          .map(job => ({
+            id: job.id,
+            command: typeof job.command === 'string' ? job.command : '',
+            startedAt: Number.isFinite(job.started_at) ? job.started_at : Date.now()
+          }));
+        if (JSON.stringify(jobs) !== JSON.stringify(current.commandJobs)) next.commandJobs = jobs;
+      }
+      if (typeof payload.exit_on_close === 'boolean' && payload.exit_on_close !== current.exitOnClose) next.exitOnClose = payload.exit_on_close;
+      if (typeof payload.playwright?.installed === 'boolean') {
+        const playwright = { installed: payload.playwright.installed, browserAction: { available: payload.playwright.browserAction?.available === true } };
+        if (JSON.stringify(playwright) !== JSON.stringify(current.playwright)) next.playwright = playwright;
+      }
+      if (Object.keys(next).length === 0) return false;
+      State.set('mcp', next);
       return true;
     }
 
@@ -931,7 +956,7 @@
           host, port, endpoint,
           error: silentOnFailure ? null : probe.error,
           latencyMs: silentOnFailure ? null : probe.latencyMs,
-          serverInfo: null, tools: [], commandJobs: [], playwright: null
+          ...LIVE_RESET
         });
         return { success: false, available: false, probe, error: probe.error };
       }
@@ -978,13 +1003,13 @@
     async disconnectProxy() {
       this.dropClient(PROXY_ID);
       this.dropClient(EXTERNAL_ID);
-      getState().set('mcp', { status: 'disconnected', serverInfo: null, tools: [], latencyMs: null, error: null, externalServers: [], externalTools: [], commandJobs: [], playwright: null });
+      getState().set('mcp', { status: 'disconnected', latencyMs: null, error: null, ...LIVE_RESET });
       return { success: true };
     }
 
     /**
-     * Latido periódico al servidor local: publica su directorio de trabajo y sus comandos en
-     * segundo plano y, si no responde, comprueba la conexión.
+     * Latido periódico al servidor local: publica su estado vivo (applyLiveState) y, si no responde,
+     * comprueba la conexión.
      */
     startHeartbeat(host, port) {
       const target = { host, port, token: this.sessionToken };
@@ -1011,10 +1036,8 @@
         });
         const payload = await response.json().catch(() => null);
         if (!response.ok || payload?.ok !== true) throw new Error(`Heartbeat HTTP ${response.status}`);
-        // Otra pestaña o el modelo pueden haber cambiado el directorio del proyecto.
-        this.syncProjectDirectory(payload.cwd);
-        this.syncCommandJobs(payload.jobs, { exitOnClose: payload.exit_on_close === true });
-        this.syncPlaywright(payload.playwright);
+        // Otra pestaña, el modelo o una instalación pueden haber cambiado el estado del servidor.
+        this.applyLiveState(payload);
       } catch (_) {
         if (this.heartbeatCheckInFlight) return;
         this.heartbeatCheckInFlight = true;
@@ -1053,48 +1076,11 @@
       }, { timeoutMs: timeoutMs + WEB_FETCH_CONTROL_MARGIN_MS });
     }
 
-    /**
-     * Publica en ChatState los comandos en segundo plano que siguen en marcha en el servidor
-     * local. Los esperados ya se ven en su tarjeta mientras el turno los espera. Solo escribe
-     * si cambia el conjunto, no en cada latido.
-     */
-    syncCommandJobs(jobs, { exitOnClose } = {}) {
-      const State = getState();
-      const current = State.get('mcp');
-      if (current.status !== 'connected') return false;
-      const next = (Array.isArray(jobs) ? jobs : [])
-        .filter(job => job && Number.isInteger(job.id) && job.status === 'running' && job.background === true)
-        .map(job => ({
-          id: job.id,
-          command: typeof job.command === 'string' ? job.command : '',
-          startedAt: Number.isFinite(job.started_at) ? job.started_at : Date.now()
-        }));
-      const signature = list => JSON.stringify(list.map(job => [job.id, job.command, job.startedAt]));
-      const exit = typeof exitOnClose === 'boolean' ? exitOnClose : current.exitOnClose === true;
-      if (signature(next) === signature(current.commandJobs) && exit === (current.exitOnClose === true)) return false;
-      State.set('mcp', { commandJobs: next, exitOnClose: exit });
-      return true;
-    }
-
-    /**
-     * Publica en ChatState el estado de Playwright que trae el latido (instalado y disponibilidad de
-     * browser_action), que cambia al instalar o quitar el servicio. Solo escribe si cambia.
-     */
-    syncPlaywright(status) {
-      const State = getState();
-      const current = State.get('mcp');
-      if (current.status !== 'connected' || typeof status?.installed !== 'boolean') return false;
-      const next = { installed: status.installed, browserAction: { available: status.browserAction?.available === true } };
-      if (JSON.stringify(next) === JSON.stringify(current.playwright)) return false;
-      State.set('mcp', { playwright: next });
-      return true;
-    }
-
     /** Vuelve a leer del servidor los comandos en marcha, tras lanzar o detener alguno. */
     async refreshCommandJobs() {
       try {
         const result = await this.requestExternalControl('zerochat/jobs/list', {});
-        return this.syncCommandJobs(result?.jobs);
+        return this.applyLiveState({ jobs: result?.jobs });
       } catch (_) {
         return false;
       }
@@ -1137,7 +1123,7 @@
     /** Cambia el directorio del proyecto en el servidor local a petición del usuario. */
     async setProjectDirectory(path) {
       const result = await this.requestExternalControl('zerochat/project/set_directory', { path });
-      this.syncProjectDirectory(result?.cwd);
+      this.applyLiveState({ cwd: result?.cwd });
       return result;
     }
 

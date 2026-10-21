@@ -804,7 +804,7 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
       const job = window.__job;
       Object.assign(job, { id: 11, key: 'inv-tarjeta-3', status: 'running', exit_code: null, log: 'vigilando\n' });
       window.ChatState.set('mcp', { status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/tmp' }, tools: [] });
-      window.ChatMCP.manager.syncCommandJobs([{ id: 11, command: 'npm run watch', status: 'running', started_at: Date.now(), background: true }]);
+      window.ChatMCP.manager.applyLiveState({ jobs: [{ id: 11, command: 'npm run watch', status: 'running', started_at: Date.now(), background: true }] });
       const args = { command: 'npm run watch', background: true };
       const card = window.ChatToolCards.createLiveToolCard('run_command', args);
       card.dataset.invocationId = job.key;
@@ -819,7 +819,7 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
       card.querySelector('.tool-execution-card').classList.add('collapsed');
       Object.assign(job, { status: 'exited', exit_code: 0, elapsed_s: 42 });
       const before = window.__jobCalls.length;
-      window.ChatMCP.manager.syncCommandJobs([]);
+      window.ChatMCP.manager.applyLiveState({ jobs: [] });
       await new Promise(resolve => {
         const deadline = Date.now() + 2000;
         const check = () => (card.querySelector('.tool-card-badge').textContent.trim() === 'Terminado · 42 s' || Date.now() > deadline) ? resolve() : requestAnimationFrame(check);
