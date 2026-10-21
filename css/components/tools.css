@@ -325,6 +325,12 @@
   font-weight: 600;
 }
 
+.mcp-servers-create-help {
+  color: var(--primary);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
 .mcp-status-header {
   display: flex;
   align-items: center;
