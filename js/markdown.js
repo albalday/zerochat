@@ -57,16 +57,25 @@
     return `\n<figure class="chat-image-figure">${img}${caption}</figure>\n`;
   }
 
+  // Las imágenes y la etiqueta de apertura de los enlaces se apartan mientras se aplican
+  // negrita y cursiva, para que *, _ o __ de una URL no inserten etiquetas en sus atributos.
+  const MARKUP_PLACEHOLDER = /\u0001(\d+)\u0001/g;
+
   function parseInlineMarkdown(text, { inlineImages = true } = {}) {
     if (!text) return '';
+    const markup = [];
+    const keep = html => {
+      markup.push(html);
+      return `\u0001${markup.length - 1}\u0001`;
+    };
     let p = text;
     // Imágenes: ![alt](url)
-    p = p.replace(/!\[([^\]]*)\]\(([^)]+)\)/gi, (match, altText, url) => renderImage(altText, url, inlineImages));
-    // Enlaces: [texto](url)
+    p = p.replace(/!\[([^\]]*)\]\(([^)]+)\)/gi, (match, altText, url) => keep(renderImage(altText, url, inlineImages)));
+    // Enlaces: [texto](url); el texto del enlace sí recibe negrita y cursiva.
     p = p.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (match, linkText, url) => {
       const safeHref = sanitizeUrl(url);
       if (safeHref === '#') return linkText;
-      return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer">${linkText}</a>`;
+      return `${keep(`<a href="${safeHref}" target="_blank" rel="noopener noreferrer">`)}${linkText}</a>`;
     });
     // Negrita y cursiva
     p = p.replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>');
@@ -74,7 +83,7 @@
     p = p.replace(/__(.*?)__/g, '<strong>$1</strong>');
     p = p.replace(/\*([^\*\n]+)\*/g, '<em>$1</em>');
     p = p.replace(/(^|\s)_([^_<>\n]+)_(?=\s|$|[.,;:!?\)])/g, '$1<em>$2</em>');
-    return p;
+    return markup.length ? p.replace(MARKUP_PLACEHOLDER, (match, index) => markup[Number(index)] || '') : p;
   }
 
   function splitTableRow(rowStr) {
@@ -186,7 +195,11 @@
     return html;
   }
 
-  function parseMarkdownTables(text) {
+  // Las tablas ya llevan su formato inline; se apartan hasta los párrafos para que las reglas
+  // del bloque no vuelvan a aplicarse sobre su HTML.
+  const TABLE_PLACEHOLDER = /\u0002(\d+)\u0002/g;
+
+  function parseMarkdownTables(text, tables) {
     const lines = text.split('\n');
     const result = [];
     let i = 0;
@@ -206,7 +219,8 @@
           i++;
         }
 
-        result.push('\n' + renderTableHtml(headerRow, delimiterRow, bodyRows) + '\n');
+        tables.push(renderTableHtml(headerRow, delimiterRow, bodyRows));
+        result.push(`\n\u0002${tables.length - 1}\u0002\n`);
         continue;
       }
 
@@ -487,7 +501,8 @@
     p = normalizeMathNotation(p);
 
     // 3. Tablas Markdown (GFM Tables)
-    p = parseMarkdownTables(p);
+    const tables = [];
+    p = parseMarkdownTables(p, tables);
 
     // 4. Encabezados (# Titulo)
     p = p.replace(/^### (.*$)/gm, '<h3>$1</h3>');
@@ -519,6 +534,7 @@
 
     // 8. Imágenes Markdown, enlaces, negrita y cursiva
     p = parseInlineMarkdown(p, { inlineImages: false });
+    if (tables.length) p = p.replace(TABLE_PLACEHOLDER, (match, index) => tables[Number(index)] || '');
 
     // 12. Párrafos y saltos de línea
     const chunks = p.split(/\n{2,}/);
