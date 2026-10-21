@@ -3576,13 +3576,15 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             mark_browser_active()
             # cwd permite a cada pestaña notar que otra ha cambiado el directorio del proyecto;
             # jobs, mostrar los comandos que siguen en marcha y avisar antes de cerrar si se detendrían;
-            # playwright, si se puede navegar aunque se haya instalado o quitado durante la sesión.
+            # playwright, si se puede navegar aunque se haya instalado o quitado durante la sesión;
+            # servers, los servicios MCP externos aunque otra pestaña los cambie o su proceso muera.
             self._send_json_response(200, {
                 "ok": True,
                 "cwd": str(Path.cwd().resolve()),
                 "jobs": [job.summary() for job in JOBS.running()],
                 "exit_on_close": EXIT_ON_CLOSE,
-                "playwright": playwright_status()
+                "playwright": playwright_status(),
+                "servers": GLOBAL_MCP_MANAGER.list_servers()
             })
             return
 
@@ -3786,8 +3788,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return self._dispatch_jobs(method, params)
         if method.startswith("zerochat/run/"):
             return dispatch_run(method, params)
-        if method == "zerochat/external/status":
-            return {"host": "running", "version": VERSION, "servers": GLOBAL_MCP_MANAGER.list_servers()}, None, ""
         if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):
             return self._dispatch_server_control(method, params)
         if method.startswith("zerochat/browser/"):

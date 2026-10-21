@@ -28,7 +28,7 @@ async function routeBackend(page, prompt, { profile, exportFormat, keepPage = fa
   await page.route(`http://127.0.0.1:${BACKEND_PORT}/**`, async route => {
     const request = route.request();
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: CORS });
-    if (request.method() === 'GET') return json(route, { ok: true, cwd: '/tmp/run', jobs: [] });
+    if (request.method() === 'GET') return json(route, { ok: true, cwd: '/tmp/run', jobs: [], servers: externalServers });
     const { id, method, params } = JSON.parse(request.postData());
     const reply = result => json(route, { jsonrpc: '2.0', id, result });
     if (method === 'initialize') {
@@ -37,7 +37,6 @@ async function routeBackend(page, prompt, { profile, exportFormat, keepPage = fa
     if (method === 'tools/list') {
       return reply({ tools: ['demo_action', 'write_file', 'run_command'].map(name => ({ name, description: name, inputSchema: { type: 'object', properties: {} } })) });
     }
-    if (method === 'zerochat/external/status') return reply({ host: 'running', servers: externalServers });
     if (method === 'zerochat/external/servers/start') {
       started.push({ id: params.serverId, remember: params.remember, ...(params.browser ? { browser: params.browser } : {}) });
       externalServers.find(server => server.id === params.serverId).status = 'running';

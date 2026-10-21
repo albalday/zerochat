@@ -711,25 +711,20 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(sseRes.headers.get('content-type'), 'text/event-stream');
     assert.equal(sseRes.headers.get('cache-control'), 'no-store');
 
-    // 8. Comprobar servicios MCP externos arrancables individualmente
-    const statusRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 6, method: 'zerochat/external/status', params: {} })
-    });
+    // 8. Comprobar servicios MCP externos arrancables individualmente: el latido los publica.
+    const statusRes = await fetch(`${baseUrl}/zerochat/heartbeat`, { headers: { 'X-ZeroChat-Token': testToken } });
     assert.equal(statusRes.status, 200);
-    const statusJson = await statusRes.json();
-    assert.equal(statusJson.result?.host, 'running');
-    const serverIds = (statusJson.result?.servers || []).map(s => s.id);
+    const listedServers = (await statusRes.json()).servers;
+    const serverIds = listedServers.map(s => s.id);
     assert.ok(serverIds.includes('ejemplo'), 'ejemplo debe estar provisto');
     assert.ok(serverIds.includes('composio'), 'composio debe estar provisto');
     assert.ok(serverIds.includes('playwright'), 'playwright debe estar provisto');
     assert.ok(serverIds.includes('memory'), 'memory debe estar provisto');
     assert.equal(serverIds.includes('lsp'), false, 'lsp no debe ofrecerse como servicio integrado');
-    const exampleServer = (statusJson.result?.servers || []).find(s => s.id === 'ejemplo');
+    const exampleServer = listedServers.find(s => s.id === 'ejemplo');
     assert.equal(exampleServer?.status, 'stopped');
     assert.equal(exampleServer?.help?.url, 'help/mcp.html#crear-mcp-con-agente');
-    const composioServer = (statusJson.result?.servers || []).find(s => s.id === 'composio');
+    const composioServer = listedServers.find(s => s.id === 'composio');
     assert.deepEqual(composioServer?.remote, {
       type: 'mcp-remote',
       transport: 'streamable-http',
@@ -1096,8 +1091,8 @@ test('Servidor local zerochat.py: --keep-server desactiva el watchdog', async ()
     }
     const invalidOptions = await rpc('zerochat/external/servers/configure', { serverId: 'ejemplo', options: 'x' });
     assert.equal(invalidOptions.error?.code, -32602);
-    const status = await rpc('zerochat/external/status', {});
-    assert.equal(status.result.servers.some(server => server.id === 'no-existe'), false);
+    const heartbeat = await (await fetch(`${baseUrl}/zerochat/heartbeat`, { headers: { 'X-ZeroChat-Token': testToken } })).json();
+    assert.equal(heartbeat.servers.some(server => server.id === 'no-existe'), false);
   } finally {
     serverProc.kill('SIGTERM');
   }

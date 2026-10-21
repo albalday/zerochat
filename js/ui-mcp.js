@@ -274,14 +274,12 @@
     }
   }
 
-  /** Cambio de una opción booleana de un servidor: se guarda y se recarga la lista de servidores. */
+  /** Cambio de una opción booleana de un servidor: se guarda y la respuesta trae la lista de servidores. */
   async function handleServerOptionChange(checkbox) {
     if (!checkbox.matches('.mcp-server-option-checkbox')) return;
-    const manager = getMCP().manager;
     checkbox.disabled = true;
     try {
-      await manager.configureExternalServer(checkbox.getAttribute('data-server-id'), { [checkbox.getAttribute('data-option-id')]: checkbox.checked });
-      getState().set('mcp', { externalServers: (await manager.fetchExternalServers()).servers });
+      await getMCP().manager.configureExternalServer(checkbox.getAttribute('data-server-id'), { [checkbox.getAttribute('data-option-id')]: checkbox.checked });
     } catch (error) {
       console.error('[MCP UI] Error configuring server option:', error);
       checkbox.checked = !checkbox.checked;
@@ -585,9 +583,6 @@
     const unsubscribeLanguage = I18n.onChange(() => {
       render();
       renderSavedAuthorizations(elements);
-      if (State.get('mcp').status === 'connected') {
-        getMCP().manager.syncExternalServers().catch(error => console.warn('[MCP UI] syncExternalServers failed:', error));
-      }
     });
 
     return {
