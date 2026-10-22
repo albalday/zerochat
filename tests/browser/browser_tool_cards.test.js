@@ -244,7 +244,9 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
         const mcpManager = window.ChatMCP.manager;
         const diffCalls = [];
         const confirmCalls = [];
+        const configureCalls = [];
         const origOpenDiff = mcpManager.openFileDiff;
+        const origConfigureDiff = mcpManager.configureDiffTool;
         const origIsProxy = mcpManager.isProxyConnected;
         const origConfirm = window.ChatDialogs.confirm;
 
@@ -253,8 +255,13 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
           confirmCalls.push(msg);
           return true;
         };
+        // Sin visor configurado el backend propone uno; tras confirmarlo y configurarlo se reabre el diff.
+        mcpManager.configureDiffTool = async (tool) => { configureCalls.push(tool); };
         mcpManager.openFileDiff = async (path, commitFallback) => {
           diffCalls.push({ path, commitFallback });
+          if (!configureCalls.length) {
+            return { success: false, setup: { tool: 'meld', install: false, commands: ['git config --global diff.guitool meld'] } };
+          }
           if (commitFallback) {
             return { success: true, has_diff: true, mode: 'commit' };
           }
@@ -279,6 +286,7 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
         await new Promise(resolve => setTimeout(resolve, 10));
 
         mcpManager.openFileDiff = origOpenDiff;
+        mcpManager.configureDiffTool = origConfigureDiff;
         mcpManager.isProxyConnected = origIsProxy;
         window.ChatDialogs.confirm = origConfirm;
         registry.unregisterProvider('mcp_prov_diff_test');
@@ -289,7 +297,9 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
           hasEditDiff: Boolean(editCard.querySelector('.btn-file-diff')),
           hasReadDiff: Boolean(readCard.querySelector('.btn-file-diff')),
           hasOtherServerDiff: Boolean(otherCard.querySelector('.btn-file-diff')),
+          setupConfirmShowsCommand: confirmCalls[0]?.includes('git config --global diff.guitool meld'),
           confirmCallsCount: confirmCalls.length,
+          configureCalls,
           diffCalls
         };
       });
@@ -298,9 +308,12 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
         hasEditDiff: true,
         hasReadDiff: false,
         hasOtherServerDiff: false,
-        confirmCallsCount: 1,
+        setupConfirmShowsCommand: true,
+        confirmCallsCount: 2,
+        configureCalls: ['meld'],
         diffCalls: [
-          { path: '/home/user/project/file.js', commitFallback: undefined },
+          { path: '/home/user/project/file.js', commitFallback: false },
+          { path: '/home/user/project/file.js', commitFallback: false },
           { path: '/home/user/project/file.js', commitFallback: true }
         ]
       });

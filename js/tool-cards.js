@@ -230,6 +230,29 @@
   }
 
   /**
+   * Abre el visor de diffs de `path`. Sin visor gráfico en Git ofrece configurar el que propone el
+   * backend, mostrando sus órdenes git config exactas; sin cambios pendientes ofrece el último commit.
+   */
+  async function openFileDiff(manager, path, t, commitFallback = false) {
+    const res = await manager.openFileDiff(path, commitFallback);
+    if (res?.setup) {
+      const { tool, install, commands } = res.setup;
+      const key = install ? 'tool_diff_file_ask_install_webdiff' : 'tool_diff_file_ask_configure_detected';
+      if (await getDialogs().confirm(t(key, { tool, cmd: commands.join(' && ') }))) {
+        await manager.configureDiffTool(tool);
+        await openFileDiff(manager, path, t, commitFallback);
+      }
+      return;
+    }
+    if (res?.has_diff !== false) return;
+    if (!res.has_commit_history) {
+      await getDialogs().alert(t('tool_diff_file_no_changes'));
+    } else if (await getDialogs().confirm(t('tool_diff_file_no_changes_ask_commit'))) {
+      await openFileDiff(manager, path, t, true);
+    }
+  }
+
+  /**
    * Botón Diff de las escrituras del servidor local: abre el visor de git del sistema sobre la ruta
    * absoluta del resultado, que no depende del directorio de proyecto activo al pulsarlo.
    */
@@ -254,17 +277,7 @@
         return;
       }
       try {
-        const res = await manager.openFileDiff(path);
-        if (res && res.has_diff === false) {
-          if (res.has_commit_history) {
-            const confirmed = await getDialogs().confirm(t('tool_diff_file_no_changes_ask_commit'));
-            if (confirmed) {
-              await manager.openFileDiff(path, true);
-            }
-          } else {
-            await getDialogs().alert(t('tool_diff_file_no_changes'));
-          }
-        }
+        await openFileDiff(manager, path, t);
       } catch (err) {
         await getDialogs().alert(err?.message || String(err));
       }

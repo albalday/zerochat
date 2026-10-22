@@ -97,6 +97,85 @@ with tempfile.TemporaryDirectory() as temp_dir:
     assert zerochat.get_daily_token() == token
     assert stat.S_IMODE(token_file.stat().st_mode) == 0o600
 `;
+const diffSetupBody = `
+import os
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
+import zerochat
+
+# Sin visor gráfico en Git se propone el primero instalado y, si no hay, webdiff (instalándolo si falta);
+# las órdenes propuestas son las que configure_gui_diff_tool aplica después.
+with tempfile.TemporaryDirectory() as data_dir:
+    git_config = Path(data_dir) / 'gitconfig'
+    env = {'ZEROCHAT_DATA_DIR': data_dir, 'GIT_CONFIG_GLOBAL': str(git_config), 'GIT_CONFIG_NOSYSTEM': '1'}
+    real_which = shutil.which
+    real_run = subprocess.run
+
+    def which_only(*names):
+        return lambda cmd: real_which(cmd) if cmd == 'git' else (f'/usr/bin/{cmd}' if cmd in names else None)
+
+    def git_get(key):
+        return real_run(['git', 'config', '--global', '--get', key], capture_output=True, text=True).stdout.strip()
+
+    with patch.dict(os.environ, env):
+        venv_python = zerochat.get_venv_python(zerochat.get_venv_dir())
+        venv_webdiff = zerochat._venv_webdiff()
+        with patch('shutil.which', which_only('gvim', 'meld', 'webdiff')):
+            assert zerochat.detect_gui_diff_tool() == {'tool': 'meld', 'install': False, 'commands': ['git config --global diff.guitool meld']}
+        with patch('shutil.which', which_only('code', 'meld')):
+            assert zerochat.detect_gui_diff_tool()['tool'] == 'vscode'
+        with patch('shutil.which', which_only('webdiff')):
+            assert zerochat.detect_gui_diff_tool() == {'tool': 'webdiff', 'install': False, 'commands': [
+                'git config --global difftool.webdiff.cmd \\'"/usr/bin/webdiff" "$LOCAL" "$REMOTE"\\'',
+                'git config --global diff.guitool webdiff',
+            ]}
+
+        pip_result = subprocess.CompletedProcess([], 1, '', 'boom')
+        def fake_run(cmd, **kwargs):
+            if cmd[1:4] != ['-m', 'pip', 'install']:
+                return real_run(cmd, **kwargs)
+            assert cmd[0] == str(venv_python) and cmd[4] == zerochat.WEBDIFF_REQUIREMENT, cmd
+            if pip_result.returncode == 0:
+                venv_webdiff.touch()
+            return pip_result
+        def fake_venv():
+            venv_python.parent.mkdir(parents=True, exist_ok=True)
+            venv_python.touch()
+
+        with patch('shutil.which', which_only()), patch('subprocess.run', side_effect=fake_run), \\
+                patch.object(zerochat, 'ensure_virtual_environment', side_effect=fake_venv):
+            proposal = zerochat.detect_gui_diff_tool()
+            assert proposal['tool'] == 'webdiff' and proposal['install'] is True, proposal
+            try:
+                zerochat.configure_gui_diff_tool('webdiff')
+                raise AssertionError('Debió fallar la instalación')
+            except RuntimeError as exc:
+                assert 'boom' in str(exc)
+            assert git_get('diff.guitool') == ''
+            pip_result.returncode = 0
+            assert zerochat.configure_gui_diff_tool('webdiff') == {'tool': 'webdiff'}
+            assert git_get('diff.guitool') == 'webdiff'
+            assert git_get('difftool.webdiff.cmd') == f'"{venv_webdiff}" "$LOCAL" "$REMOTE"'
+            assert zerochat.detect_gui_diff_tool() == {**proposal, 'install': False}
+        # El webdiff del entorno de ZeroChat tiene prioridad sobre el del PATH.
+        with patch('shutil.which', which_only('webdiff')):
+            assert str(venv_webdiff) in zerochat.detect_gui_diff_tool()['commands'][0]
+
+        with patch('shutil.which', which_only('meld')):
+            assert zerochat.configure_gui_diff_tool('meld') == {'tool': 'meld'}
+            assert git_get('diff.guitool') == 'meld'
+            for bad in ('nano', None, ['meld'], 'kompare'):
+                try:
+                    zerochat.configure_gui_diff_tool(bad)
+                    raise AssertionError(f'Debió rechazar {bad!r}')
+                except ValueError:
+                    pass
+            assert git_get('diff.guitool') == 'meld'
+`;
+
 const openBrowserBody = `
 import sys
 import os
@@ -609,7 +688,7 @@ with tempfile.TemporaryDirectory() as temp_dir:
     assert content.startswith("1\\n2\\n") and "bytes of output discarded" in content and content.endswith("20000\\n")
 `;
 
-test('zerochat.py: token, open_browser, check_version, loopback, simbólicos y red en un proceso compartido', () => {
+test('zerochat.py: token, open_browser, check_version, loopback, simbólicos, red y visor de diffs en un proceso compartido', () => {
   assert.doesNotThrow(() =>
     runPython(groupScript([
       stripImports(tokenPermsBody),
@@ -618,6 +697,7 @@ test('zerochat.py: token, open_browser, check_version, loopback, simbólicos y r
       stripImports(loopbackBody),
       stripImports(symlinksBody),
       stripImports(ssrfBody),
+      stripImports(diffSetupBody),
     ])));
 });
 

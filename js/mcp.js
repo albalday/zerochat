@@ -75,6 +75,8 @@
   // Escrituras del servidor local cuyo resultado lleva la ruta absoluta del fichero (botón Diff).
   const FILE_WRITE_TOOLS = new Set(['write_file', 'edit_file']);
   const WEB_FETCH_CONTROL_MARGIN_MS = 5000;
+  // Plazo de la instalación de webdiff en el backend (120 s) más margen para recibir su error.
+  const DIFF_TOOL_SETUP_TIMEOUT_MS = 130000;
 
   /** Imagen base64 segura (tipo permitido y tamaño acotado) como data URL; null si no lo es. */
   function toSafeImageDataUrl(base64, mimeType) {
@@ -1012,6 +1014,11 @@
      */
     async openFileDiff(path, commitFallback = false) {
       return this.requestExternalControl('zerochat/diff/open', { path, commit_fallback: commitFallback });
+    }
+
+    /** Deja `tool` como visor gráfico global de Git; con webdiff puede instalarlo antes, de ahí el plazo amplio. */
+    async configureDiffTool(tool) {
+      return this.requestExternalControl('zerochat/diff/configure', { tool }, { timeoutMs: DIFF_TOOL_SETUP_TIMEOUT_MS });
     }
 
     /** Vuelve a registrar las herramientas de los servicios externos, o las retira si no hay ninguno en marcha. */

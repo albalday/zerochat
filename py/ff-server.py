@@ -633,6 +633,13 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 return None, {"code": -32602, "message": str(exc)}, ""
             except Exception as exc:
                 return None, {"code": -32603, "message": f"Error al abrir el visor de diffs: {exc}"}, str(exc)
+        if method == "zerochat/diff/configure":
+            try:
+                return configure_gui_diff_tool(params.get("tool")), None, ""
+            except (ValueError, RuntimeError) as exc:
+                return None, {"code": -32602, "message": str(exc)}, ""
+            except Exception as exc:
+                return None, {"code": -32603, "message": f"Error configurando el visor de diffs: {exc}"}, str(exc)
         if method == "zerochat/web/fetch":
             try:
                 return fetch_web_resource(params), None, ""

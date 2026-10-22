@@ -1344,6 +1344,92 @@ def set_project_directory(path) -> dict:
     return {"cwd": str(target), "previous_cwd": previous}
 
 
+# Visores gráficos que `git difftool` ya sabe lanzar, en orden de preferencia, con el ejecutable que los delata.
+GUI_DIFF_TOOLS = {"vscode": "code", "meld": "meld", "kdiff3": "kdiff3", "kompare": "kompare", "gvimdiff": "gvim"}
+# Respaldo cuando no hay ninguno: visor web que se instala en el entorno aislado de ZeroChat.
+WEBDIFF_REQUIREMENT = "webdiff==1.4.0"
+WEBDIFF_INSTALL_TIMEOUT_SECONDS = 120
+
+
+def _venv_webdiff() -> Path:
+    """Ruta de webdiff dentro de ~/zerochat/.venv, junto al intérprete del entorno."""
+    venv_python = get_venv_python(get_venv_dir())
+    return venv_python.with_name("webdiff" + venv_python.suffix)
+
+
+def _find_webdiff() -> str:
+    """webdiff del entorno de ZeroChat o, si no, del PATH; '' si no hay ninguno."""
+    venv_webdiff = _venv_webdiff()
+    if venv_webdiff.exists():
+        return str(venv_webdiff)
+    return shutil.which("webdiff") or ""
+
+
+def _diff_tool_settings(tool: str, webdiff_bin: str) -> list:
+    """Pares (clave, valor) de git config que deja `tool` como visor gráfico; webdiff no es un visor integrado de git."""
+    settings = [("diff.guitool", tool)]
+    if tool == "webdiff":
+        settings.insert(0, ("difftool.webdiff.cmd", f'"{webdiff_bin}" "$LOCAL" "$REMOTE"'))
+    return settings
+
+
+def detect_gui_diff_tool() -> dict:
+    """Visor que proponer cuando Git no tiene ninguno: el primero instalado o, si no hay, webdiff.
+
+    Incluye las órdenes exactas que aplicará configure_gui_diff_tool, para mostrarlas antes de confirmar.
+    """
+    tool = next((name for name, binary in GUI_DIFF_TOOLS.items() if shutil.which(binary)), "webdiff")
+    webdiff_bin = _find_webdiff()
+    return {
+        "tool": tool,
+        "install": tool == "webdiff" and not webdiff_bin,
+        "commands": [
+            shlex.join(["git", "config", "--global", key, value])
+            for key, value in _diff_tool_settings(tool, webdiff_bin or str(_venv_webdiff()))
+        ],
+    }
+
+
+def _install_webdiff() -> str:
+    """Instala webdiff en ~/zerochat/.venv y devuelve la ruta del ejecutable."""
+    ensure_virtual_environment()
+    venv_python = get_venv_python(get_venv_dir())
+    if not venv_python.exists():
+        raise RuntimeError(f"No se pudo preparar el entorno virtual de ZeroChat: falta {venv_python}")
+    res = subprocess.run(
+        [str(venv_python), "-m", "pip", "install", WEBDIFF_REQUIREMENT],
+        capture_output=True,
+        text=True,
+        timeout=WEBDIFF_INSTALL_TIMEOUT_SECONDS,
+        check=False
+    )
+    if res.returncode != 0:
+        raise RuntimeError(f"Error instalando webdiff: {(res.stderr or res.stdout).strip()[-500:]}")
+    webdiff = _venv_webdiff()
+    if not webdiff.exists():
+        raise RuntimeError(f"webdiff se instaló pero no aparece en {webdiff}")
+    return str(webdiff)
+
+
+def configure_gui_diff_tool(tool) -> dict:
+    """Deja `tool` como visor gráfico global de Git, instalando antes webdiff si es el elegido y falta."""
+    if not isinstance(tool, str) or (tool != "webdiff" and tool not in GUI_DIFF_TOOLS):
+        raise ValueError(f"Visor de diffs '{tool}' no reconocido.")
+    git_bin = shutil.which("git")
+    if not git_bin:
+        raise RuntimeError("Git no está instalado o no se encuentra en el PATH del sistema.")
+
+    webdiff_bin = ""
+    if tool == "webdiff":
+        webdiff_bin = _find_webdiff() or _install_webdiff()
+    elif not shutil.which(GUI_DIFF_TOOLS[tool]):
+        raise ValueError(f"'{GUI_DIFF_TOOLS[tool]}' no está en el PATH del sistema.")
+
+    for key, value in _diff_tool_settings(tool, webdiff_bin):
+        subprocess.run([git_bin, "config", "--global", key, value], capture_output=True, timeout=5, check=True)
+    return {"tool": tool}
+
+
 def _configured_gui_diff_tool(git_bin: str, repo_root: Path) -> str:
     """Herramienta gráfica que usaría `git difftool --gui`, o '' si no hay ninguna configurada.
 
@@ -1365,7 +1451,10 @@ def _configured_gui_diff_tool(git_bin: str, repo_root: Path) -> str:
 
 
 def open_file_diff(path: str, commit_fallback: bool = False) -> dict:
-    """Abre un visor externo de diffs (git difftool) para comparar el fichero actual frente a Git HEAD, su último commit o fichero vacío."""
+    """Abre un visor externo de diffs (git difftool) para comparar el fichero actual frente a Git HEAD, su último commit o fichero vacío.
+
+    Sin visor gráfico configurado no lanza nada y devuelve en `setup` el que propone configurar.
+    """
     if not isinstance(path, str) or not path.strip():
         raise ValueError("La ruta del archivo está vacía.")
     if len(path) > MAX_PATH_LENGTH:
@@ -1398,10 +1487,7 @@ def open_file_diff(path: str, commit_fallback: bool = False) -> dict:
 
     repo_root = Path(res.stdout.strip()).resolve()
     if not _configured_gui_diff_tool(git_bin, repo_root):
-        raise ValueError(
-            "No hay un visor gráfico de diffs configurado en Git. Configura uno, por ejemplo: "
-            "git config --global diff.guitool meld"
-        )
+        return {"success": False, "setup": detect_gui_diff_tool()}
 
     has_head = subprocess.run(
         [git_bin, "rev-parse", "--verify", "HEAD"],
@@ -3774,6 +3860,13 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 return None, {"code": -32602, "message": str(exc)}, ""
             except Exception as exc:
                 return None, {"code": -32603, "message": f"Error al abrir el visor de diffs: {exc}"}, str(exc)
+        if method == "zerochat/diff/configure":
+            try:
+                return configure_gui_diff_tool(params.get("tool")), None, ""
+            except (ValueError, RuntimeError) as exc:
+                return None, {"code": -32602, "message": str(exc)}, ""
+            except Exception as exc:
+                return None, {"code": -32603, "message": f"Error configurando el visor de diffs: {exc}"}, str(exc)
         if method == "zerochat/web/fetch":
             try:
                 return fetch_web_resource(params), None, ""
