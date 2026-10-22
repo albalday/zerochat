@@ -121,18 +121,22 @@ def playwright_launch_env(config: dict) -> dict[str, str]:
 
 
 def validate_profile_browser(raw) -> dict:
-    """Navegador que exige un perfil: el propio con un motor o el del usuario con uno de sus navegadores."""
-    if isinstance(raw, dict) and raw.get("mode") == "own" and set(raw) == {"mode", "engine"} and raw["engine"] in OWN_BROWSER_ENGINES:
-        return {"mode": "own", "engine": raw["engine"]}
+    """Navegador que exige un perfil: el propio con un motor, y headless False si exige la ventana
+    visible, o el del usuario con uno de sus navegadores."""
+    if isinstance(raw, dict) and raw.get("mode") == "own" and raw.get("engine") in OWN_BROWSER_ENGINES:
+        if set(raw) == {"mode", "engine"}:
+            return {"mode": "own", "engine": raw["engine"]}
+        if set(raw) == {"mode", "engine", "headless"} and raw["headless"] is False:
+            return {"mode": "own", "engine": raw["engine"], "headless": False}
     if isinstance(raw, dict) and raw.get("mode") == "user" and set(raw) == {"mode", "userBrowser"} and raw["userBrowser"] in USER_BROWSERS:
         return {"mode": "user", "userBrowser": raw["userBrowser"]}
-    raise ValueError("browser debe ser {mode: own, engine} o {mode: user, userBrowser} con un motor o navegador admitido")
+    raise ValueError("browser debe ser {mode: own, engine[, headless: false]} o {mode: user, userBrowser} con un motor o navegador admitido")
 
 
 def browser_choice(config: dict) -> dict:
     """Modo y navegador con los que arranca Playwright MCP, en la forma de validate_profile_browser."""
     if config["mode"] == "own":
-        return {"mode": "own", "engine": config["engine"]}
+        return {"mode": "own", "engine": config["engine"], **({} if config["headless"] else {"headless": False})}
     return {"mode": "user", "userBrowser": config["userBrowser"]}
 
 

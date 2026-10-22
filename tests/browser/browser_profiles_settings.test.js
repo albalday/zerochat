@@ -500,6 +500,11 @@ test('Browser UI - el capítulo Navegador del perfil exige Playwright MCP con un
     await page.check('input[name="profile-browser-required"]');
     const options = () => page.locator('#profile-browser-name option').evaluateAll(items => items.map(item => item.textContent));
     assert.deepEqual(await options(), ['Chromium', 'WebKit'], 'Solo los motores instalados');
+    // Con el navegador propio puede pedir la ventana visible, que se conserva al cambiar de motor.
+    await page.check('input[name="profile-browser-show-window"]');
+    await page.selectOption('#profile-browser-name', 'webkit');
+    assert.equal(await page.isChecked('input[name="profile-browser-show-window"]'), true);
+    assert.equal(await page.textContent('#profile-summary-browser'), 'Playwright MCP · WebKit propio con ventana');
     await page.check('input[name="profile-browser-mode"][value="user"]');
     assert.deepEqual(await options(), ['Microsoft Edge', 'Chromium'], 'Solo los navegadores detectados');
     await page.selectOption('#profile-browser-name', 'chromium');
@@ -518,7 +523,7 @@ test('Browser UI - el capítulo Navegador del perfil exige Playwright MCP con un
     if (await page.locator('#sidebar-view-settings').isHidden()) await page.click('#btn-open-settings');
     await page.locator('#sidebar-settings-nav [data-section="browser"]').evaluate(item => item.click());
     await page.waitForFunction(() => document.getElementById('settings-dialog').open);
-    assert.match(await page.textContent('#settings-browser .browser-notice'), /El perfil activo «Web» exige Playwright MCP con tu Chromium/);
+    assert.match(await page.textContent('#settings-browser .browser-notice'), /El perfil activo «Web» necesita Playwright MCP con tu Chromium/);
   } finally {
     await browser.close();
   }

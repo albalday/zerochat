@@ -170,16 +170,22 @@ with tempfile.TemporaryDirectory() as temp_dir:
         else:
             raise AssertionError("arrancó sin Chromium")
 
-    # El navegador que exige el perfil sustituye solo al modo y al navegador de Ajustes, en ese arranque.
+    # El navegador que exige el perfil sustituye solo al modo, al navegador y, si la pide, a la ventana de Ajustes, en ese arranque.
     settings = {"mode": "own", "engine": "firefox", "headless": False, "extensionToken": "abc"}
     assert launch_args(settings, {"mode": "user", "userBrowser": "msedge"}) == ["--extension", "--browser=msedge"]
     assert launched_env["PLAYWRIGHT_MCP_EXTENSION_TOKEN"] == "abc"
     assert manager.browsers["playwright"] == {"mode": "user", "userBrowser": "msedge"}
     assert launch_args({**settings, "mode": "user"}, {"mode": "own", "engine": "webkit"}) == ["--browser=webkit", f"--user-data-dir={own / 'webkit'}"]
     assert launch_args(settings) == ["--browser=firefox", f"--user-data-dir={own / 'firefox'}"]
-    assert manager.browsers["playwright"] == {"mode": "own", "engine": "firefox"}
+    assert manager.browsers["playwright"] == {"mode": "own", "engine": "firefox", "headless": False}
+    headless = {**settings, "headless": True}
+    assert launch_args(headless, {"mode": "own", "engine": "webkit", "headless": False}) == ["--browser=webkit", f"--user-data-dir={own / 'webkit'}"]
+    assert manager.browsers["playwright"] == {"mode": "own", "engine": "webkit", "headless": False}
+    assert launch_args(headless, {"mode": "own", "engine": "webkit"})[-1] == "--headless"
+    assert manager.browsers["playwright"] == {"mode": "own", "engine": "webkit"}
     for invalid in [None, [], {"mode": "own"}, {"mode": "own", "engine": "opera"}, {"mode": "user", "userBrowser": "firefox"},
-                    {"mode": "own", "engine": "chromium", "headless": False}, {"mode": "user", "engine": "chromium"}]:
+                    {"mode": "own", "engine": "chromium", "headless": True}, {"mode": "user", "userBrowser": "chrome", "headless": False},
+                    {"mode": "user", "engine": "chromium"}]:
         try:
             module.validate_profile_browser(invalid)
         except ValueError as err:

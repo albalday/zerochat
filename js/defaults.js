@@ -42,13 +42,16 @@
   const USER_BROWSERS = Object.freeze(['chrome', 'msedge', 'chromium']);
 
   /**
-   * Navegador que exige un perfil para Playwright MCP: el propio con un motor o el del usuario
-   * con uno de sus navegadores. El resto de la configuración es la de Ajustes › Navegador.
+   * Navegador que exige un perfil para Playwright MCP: el propio con un motor, y `headless: false`
+   * si exige la ventana visible, o el del usuario con uno de sus navegadores. El resto de la
+   * configuración es la de Ajustes › Navegador.
    */
   function isPlaywrightBrowser(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
     const keys = Object.keys(value).sort().join(',');
-    if (value.mode === 'own') return keys === 'engine,mode' && PLAYWRIGHT_ENGINES.includes(value.engine);
+    if (value.mode === 'own') {
+      return (keys === 'engine,mode' || (keys === 'engine,headless,mode' && value.headless === false)) && PLAYWRIGHT_ENGINES.includes(value.engine);
+    }
     if (value.mode === 'user') return keys === 'mode,userBrowser' && USER_BROWSERS.includes(value.userBrowser);
     return false;
   }
