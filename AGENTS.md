@@ -108,5 +108,6 @@ Antes de cerrar una tarea (`task.py done`), revisar el `git diff` frente a esta 
 - comprobaciones y límites simétricos entre variantes hermanas de un mismo módulo;
 - topes cubiertos en el borde exacto; sin pruebas triviales, duplicadas, cosméticas o de ausencia de algo retirado;
 - español e inglés sincronizados si afecta a la interfaz o a `help/`;
+- `sitemap.xml` regenerado (`npm run build:sitemap`) si se añade o retira una página pública;
 - backend recompilado (`npm run build:backend`) si se modificó `py/`;
 - documentación y memoria de proyecto (`.zerochat/`) actualizadas.
