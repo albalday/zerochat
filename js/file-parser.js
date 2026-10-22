@@ -121,6 +121,19 @@
     let dataStart = streamIdx + 6;
     if (text.charCodeAt(dataStart) === 13) dataStart++;
     if (text.charCodeAt(dataStart) === 10) dataStart++;
+    // /Length directo del diccionario (no /Length1 ni referencia indirecta "N G R");
+    // solo se acepta si cae justo antes de EOL + endstream.
+    const dictStart = text.lastIndexOf('obj', streamIdx);
+    const lengthMatch = dictStart === -1
+      ? null
+      : text.substring(dictStart + 3, streamIdx).match(/\/Length\s+(\d+)\b(?!\s+\d+\s+R)/);
+    if (lengthMatch) {
+      const lengthEnd = dataStart + Number(lengthMatch[1]);
+      if (lengthEnd <= endStreamIdx && /^[\r\n ]*$/.test(text.substring(lengthEnd, endStreamIdx))) {
+        return { dataStart, dataEnd: lengthEnd };
+      }
+    }
+    // Último recurso: recortar EOL finales, que puede cortar un byte legítimo de datos.
     let dataEnd = endStreamIdx;
     while (dataEnd > dataStart) {
       const code = text.charCodeAt(dataEnd - 1);
@@ -1482,6 +1495,7 @@
     convertCmykDataUrlToRgb,
     decodePdfShiftedText,
     collapseVerticallySplitGlyphs,
-    parsePdfStreamText
+    parsePdfStreamText,
+    findPdfStreamBounds
   };
 });

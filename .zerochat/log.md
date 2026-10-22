@@ -178,3 +178,4 @@
 - 2026-10-21 M35-D1 Unificar el parseo de formato inline (imagenes, enlaces, negritas, cursivas) en parseInlineMarkdown para bloques y tablas (M35-T5)
 - 2026-10-21 M28-D1 M28 simplified to quiet discoverability: short descriptive landing, per-page title/description, generated sitemap; dropped hreflang/OG/JSON-LD, favicon/OG image work, docs/seo.md and Search Console follow-up (M28-T1..T3)
 - 2026-10-21 M37-D1 New milestone M37: diff button auto-detects installed GUI diff tools and offers to configure diff.guitool with one confirmation, after the kompare config loss incident (M37-T1, M37-T2)
+- 2026-10-22 M36-D1 PDF stream bounds take the direct /Length only when it lands on optional EOL + endstream; EOL trimming stays as fallback for indirect, missing or inconsistent /Length, so a wrong /Length never cuts or extends data (M36-T1)

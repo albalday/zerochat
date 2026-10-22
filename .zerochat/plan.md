@@ -77,8 +77,8 @@ Done when: the site root serves a short static bilingual landing page (descripti
 ## M36 Native PDF stream bounds from /Length
 Goal: Stop the native PDF reader (js/file-parser.js, findPdfStreamBounds) from guessing stream data bounds by trimming trailing EOL bytes, which can cut a legitimate final byte of compressed data (~1.2% per FlateDecode stream since M35-T1, ~0.8% before).
 Done when: stream data is sliced using the direct /Length integer of the stream dictionary when present and consistent (data followed by optional EOL and `endstream`), with EOL trimming kept only as fallback for indirect or inconsistent /Length; unit tests cover a stream whose compressed data ends in 0x0A/0x0D, a direct /Length, an indirect /Length (fallback) and a wrong /Length (fallback).
-- [ ] M36-T1 Read the direct /Length of the stream dictionary in findPdfStreamBounds and use it when it lands on EOL+`endstream`; keep EOL trimming as last-resort fallback
-- [ ] M36-T2 Unit tests in tests/unit for /Length-based bounds, data ending in 0x0A/0x0D, indirect /Length and inconsistent /Length fallbacks
+- [x] M36-T1 Read the direct /Length of the stream dictionary in findPdfStreamBounds and use it when it lands on EOL+`endstream`; keep EOL trimming as last-resort fallback (2026-10-22)
+- [x] M36-T2 Unit tests in tests/unit for /Length-based bounds, data ending in 0x0A/0x0D, indirect /Length and inconsistent /Length fallbacks (2026-10-22)
 
 ## M37 Diff tool configuration onboarding
 Goal: When the diff button fails because no GUI diff tool is configured, the system detects the available GUI diff tools on the machine and offers to configure one with a single confirmation, so the button works out of the box.
