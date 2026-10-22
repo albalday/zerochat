@@ -71,8 +71,8 @@ Este documento contiene las especificaciones técnicas y normas de desarrollo pa
 
 ## 7. Pruebas sin navegador
 
-* **DOM solo en navegador:** Las pruebas en Node no tienen DOM. Los módulos de dominio no reciben elementos: el motor pinta a través de vistas (`ChatUIConversation.createTurnView`, `ChatToolCards.createCardView`) y los servicios reciben referencias y callbacks de presentación. Lo que pinta o lee elementos se prueba en `tests/browser/` sobre la aplicación real. Está prohibido simular elementos con objetos planos.
-* **Exportaciones limpias:** No se exportan funciones ni variables privadas exclusivamente para ser testeadas; las pruebas consumen la API pública y el contexto real.
+* **DOM solo en navegador:** Las pruebas en Node no tienen DOM. Los módulos de dominio no reciben elementos: el motor pinta a través de vistas (`ChatUIConversation.createTurnView`, `ChatToolCards.createCardView`) y los servicios reciben referencias y callbacks de presentación. Lo que pinta o lee elementos se prueba en `tests/browser/` sobre la aplicación real. Está prohibido simular elementos con objetos planos, y el código que solo corre en el navegador no lleva ramas ni guardas para Node.
+* **Exportaciones limpias:** Solo se exporta para probarla aislada una pieza que la aplicación ejecuta; nunca código, parámetros o inyecciones que solo usan las pruebas (criterios en `tests/README.md`).
 
 ---
 

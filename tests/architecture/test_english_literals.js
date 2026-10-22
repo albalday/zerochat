@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { listSourceFiles } = require('../helpers/source-files');
 
-// AGENTS.md §3: los mensajes que el código inyecta en la conversación se redactan en inglés, y el
+// js/README.md §5: los mensajes que el código inyecta en la conversación se redactan en inglés, y el
 // texto de la interfaz sale de ChatI18n. Fuera de js/i18n.js ningún literal de cadena lleva
 // caracteres propios del español. El marcado HTML queda fuera: su texto se traduce con data-i18n.
 

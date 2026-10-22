@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-// AGENTS.md §2: los módulos de interfaz enlazan sus eventos una sola vez en mount(), con listeners
+// js/README.md §2: los módulos de interfaz enlazan sus eventos una sola vez en mount(), con listeners
 // delegados; repintar una lista no vuelve a enlazar eventos. En js/ui-*.js, addEventListener solo
 // aparece en código que se ejecuta una vez: mount*/initMcpUI, las funciones que solo se llaman desde
 // ellas o al cargar el módulo, y elementos que la propia función crea (mueren con el repintado).

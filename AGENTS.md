@@ -38,55 +38,45 @@ When the user confirms a milestone is closed: move its section from .zerochat/pl
 Other agent instruction files (CLAUDE.md, .cursorrules) only point here. Add rules to this file, not to them.
 
 
-## 1. Fuente de verdad y arquitectura
+## 1. Estructura y documentación
 
-El código fuente del proyecto se organiza en:
-- `zerochat.html`: interfaz web servida estáticamente (GitHub Pages), sin proceso de empaquetado (bundle).
-- `js/`: módulos del cliente web. Sus normas técnicas detalladas residen en [`js/README.md`](./js/README.md).
-- `css/`: estilos y tokens semánticos de diseño.
-- `py/`: módulos del backend local modularizado. Sus especificaciones y empaquetado residen en [`py/README.md`](./py/README.md).
-- `zerochat.py`: ejecutable unificado del backend, generado con `npm run build:backend`.
-- `tests/`: suite de pruebas descrita en [`tests/README.md`](./tests/README.md).
-- `scripts/`: herramientas de automatización, validación y control de versiones.
+Los cambios son pequeños, coherentes con la arquitectura y limitados a lo solicitado. Cada subsistema tiene normas técnicas propias, de obligado cumplimiento al tocarlo:
 
-Los cambios deben ser pequeños, coherentes con la arquitectura y limitarse a lo solicitado. Se permite y exige el refactor local mínimo para reutilizar una fuente de verdad existente (constantes, tipos, predicados o convenciones) en lugar de duplicarla. Las dependencias y opciones se justifican únicamente por su consumo en la tarea actual, nunca por hitos futuros no confirmados.
+| Ruta | Contenido | Normas |
+|---|---|---|
+| `zerochat.html`, `js/`, `css/` | Interfaz web estática (GitHub Pages), sin bundle | [`js/README.md`](./js/README.md) |
+| `js/tools/` | Herramientas agénticas nativas | [`js/tools/README.md`](./js/tools/README.md) |
+| `py/`, `zerochat.py` | Backend local; `zerochat.py` se genera con `npm run build:backend` | [`py/README.md`](./py/README.md) |
+| `tests/` | Suite de pruebas | [`tests/README.md`](./tests/README.md) |
+| `scripts/` | Automatización, validación y versiones | — |
+| `help/` | Ayuda de usuario bilingüe (español e inglés) | — |
+| `docs/` | Auditorías y propuestas en borrador | — |
+
+Este fichero solo contiene normas globales; los contratos de cada subsistema van en su README.
 
 
 ## 2. Calidad del código
 
 El código nuevo debe:
-- buscar antes de escribir: antes de crear una constante, tabla de tipos/formatos, predicado o utilidad, comprobar si ya existe en el código e importarla;
-- mantener una única fuente por decisión: tablas de formatos, predicados de dominio y convenciones de nombres residen en un solo sitio, y las pruebas importan esa fuente real en lugar de reimplementarla;
-- respetar los patrones ya utilizados en el módulo y mantener las interfaces públicas;
+- buscar antes de escribir: antes de crear una constante, tabla de tipos/formatos, predicado o utilidad, comprobar si ya existe e importarla, con el refactor local mínimo que haga falta;
+- mantener una única fuente por decisión: tablas de formatos, predicados de dominio y convenciones de nombres residen en un solo sitio, y las pruebas importan esa fuente real;
+- respetar los patrones del módulo y mantener las interfaces públicas;
 - separar lógica de dominio, persistencia, adaptadores y presentación;
 - gestionar errores de forma explícita y validar entradas externas y de configuración;
-- no añadir código especulativo (ramas, opciones o parámetros sin consumidor actual) ni de compatibilidad hacia atrás (alias, migraciones de datos, formatos antiguos) salvo petición expresa;
+- no añadir código especulativo (ramas, opciones, parámetros o dependencias sin consumidor en la tarea actual) ni de compatibilidad hacia atrás (alias, migraciones, formatos antiguos) salvo petición expresa;
 - eliminar todo lo que quede huérfano tras una retirada (funciones, estilos CSS, claves i18n, pruebas);
-- en Node no hay DOM ni se simula: lo que pinta o lee elementos no se prueba en Node, y en navegador solo si cumple los criterios de §5; el código que solo corre en el navegador no lleva ramas ni guardas para Node;
-- no añadir a producción código que la aplicación no ejecuta y solo usan las pruebas: funciones, parámetros u opciones que nadie pasa, inyecciones de dependencias, guardas o ramas para objetos falsos; las pruebas usan los módulos reales, sustituyen métodos de sus objetos (`mock.method`) y la plataforma en memoria (`storage-env.js`), y si algo no se puede probar así, se prueba en navegador o no se prueba; se puede exportar una pieza que la aplicación ejecuta (función, clase o constante) para probarla aislada.
+- no añadir a producción código que solo usan las pruebas (parámetros, inyecciones, guardas para objetos falsos o para Node en código de navegador); cómo se prueba sin él, en [`tests/README.md`](./tests/README.md#qué-merece-una-prueba).
 
 
-## 3. Arquitectura y límites del sistema
-
-* **Estado compartido:** Reside exclusivamente en `ChatState` con mutadores de dominio atómicos (`appendMessage`, `replaceMessages`, `removeTurn`, etc.). Prohibidas variables globales mutables de módulo.
-* **Persistencia:** Canalizada únicamente por `ChatStorage` y `ChatRagStorage` a través de `ZeroChatDB`. Ningún otro módulo toca almacenamiento web ni cookies.
-* **Texto e i18n:** Todo texto visible pasa por `ChatI18n` (simultáneo en español e inglés). Los mensajes inyectados programáticamente en el chat van exclusivamente en inglés.
-* **Diálogos:** Avisos y confirmaciones usan exclusivamente `ChatDialogs` (`alert`, `confirm`, `prompt`) con `await`. Prohibidos los diálogos nativos del navegador.
-* **Estilos e iconos:** Colores y radios provienen de `css/tokens.css` (sin respaldo en `var()`). Los elementos se ocultan con el atributo `hidden`, nunca con `style.display`. Controles interactivos usan iconos vectoriales SVG (`ChatIcons`), sin emojis crudos.
-* **Proveedores y herramientas:** Los adaptadores de IA extienden `BaseProviderAdapter`. Las herramientas nativas usan solo claves documentadas en [`js/tools/README.md`](./js/tools/README.md).
-
-> Para especificaciones detalladas de frontend, UMD, eventos y estilos, consulta [`js/README.md`](./js/README.md).
-
-
-## 4. Seguridad
+## 3. Seguridad
 
 Las entradas de usuario, respuestas de modelos y datos externos no son confiables:
-- Inserción segura: pintar texto plano o escapar con `escapeHtml`. `innerHTML` queda restringido a la lista cerrada revisada en `tests/architecture/test_html_sinks.js`.
-- Cambios que afecten a ejecución de comandos, sandbox o datos sensibles deben incluir pruebas específicas de límites y autorización.
-- El backend requiere el token diario de sesión (`~/zerochat/config/token.json`, permisos `0600`) y escucha por defecto en `127.0.0.1`.
+- Inserción segura: pintar texto plano o escapar con `escapeHtml`. `innerHTML` queda restringido a la lista cerrada de `tests/architecture/test_html_sinks.js`.
+- Los cambios que afecten a ejecución de comandos, sandbox o datos sensibles incluyen pruebas de límites y autorización.
+- El backend exige token de sesión y escucha por defecto en `127.0.0.1` (detalles en [`py/README.md`](./py/README.md#3-seguridad-y-red)).
 
 
-## 5. Pruebas y validación
+## 4. Pruebas y validación
 
 Validaciones según el nivel afectado:
 - Lógica sin interfaz: `npm run test:unit`
@@ -95,58 +85,28 @@ Validaciones según el nivel afectado:
 - Integración de componentes: `npm run test:integration`
 - Cambios de HTML, CSS o DOM: `npm run test:browser`
 
-Los comportamientos que comparten la misma configuración de arranque de un proceso (misma CLI, mismo entorno) se prueban en un único arranque compartido, nunca con un spawn por comprobación; cada proceso se arranca solo cuando la configuración (flags, entorno, ciclo de vida) difiere.
-
 Antes de considerar terminado un cambio:
-1. deben pasar todas las pruebas aplicables;
-2. llevan prueba los cambios de seguridad, de lógica no trivial, de integridad de datos y de contratos externos, y la corrección de fallos reales; no llevan prueba nueva los cambios de textos, maquetación, estilos o valores por defecto, ni el código que se ejecuta en cada arranque, que cubre la prueba de humo de navegador (criterios en [`tests/README.md`](./tests/README.md));
-3. cada comportamiento se prueba una sola vez, en el nivel más bajo que lo observa, y un caso nuevo de una función ya probada se añade como fila de su prueba existente;
-4. todo tope que protege memoria, contexto o seguridad (filas, bytes, elementos, tiempo) se prueba en el borde exacto (`N` y `N+1`) con su aviso o marcador de truncado.
+1. pasan todas las pruebas aplicables;
+2. llevan prueba los cambios de seguridad, lógica no trivial, integridad de datos, contratos externos y corrección de fallos reales; no la llevan textos, maquetación, estilos, valores por defecto ni lo que cubre la prueba de humo de arranque (criterios en [`tests/README.md`](./tests/README.md#qué-merece-una-prueba));
+3. cada comportamiento se prueba una sola vez, en el nivel más bajo que lo observa;
+4. todo tope que protege memoria, contexto o seguridad se prueba en el borde exacto (`N` y `N+1`) con su aviso de truncado.
 
 
-## 6. Control de versiones y Git
+## 5. Git y versiones
 
-- **Rama de trabajo:** Todo desarrollo se realiza sobre `dev`.
-- **Commits:** Convención Conventional Commits (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`).
-- **Gestión de versiones:** Se actualizan exclusivamente con `npm run bump <patch | minor | major>`.
-  - `patch`: actualiza solo la versión de la interfaz web.
-  - `minor` / `major`: actualizan también la versión del backend y PyPI.
-  - Durante el trabajo iterativo en `dev` no se incrementa versión en cada commit; `bump` se ejecuta solo al consolidar para release o pase a `master`. Prohibido modificar números de versión manualmente.
-  - El empaquetado y release a PyPI se describe en [`py/README.md`](./py/README.md).
+- Todo desarrollo se hace en `dev`, con Conventional Commits (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`).
+- Las versiones cambian solo con `npm run bump <patch | minor | major>`, nunca a mano: `patch` sube la interfaz web; `minor`/`major` también el backend y PyPI. No se ejecuta en cada commit, solo al consolidar para pasar a `master` (release PyPI en [`py/README.md`](./py/README.md#4-distribución-y-publicación-en-pypi)).
+- Se promueve a `master` solo desde `dev`, tras `npm run bump` con versión superior a la de `master` y con todos los niveles de §4 en verde.
+- **Excepción:** los cambios exclusivos de `help/`, `docs/`, `.zerochat/` y `AGENTS.md` no necesitan bump ni la suite completa y pueden sincronizarse directamente con `master`.
 
 
-## 7. Regla de promoción a `master`
-
-Todo cambio destinado a `master` debe prepararse primero en `dev`. La promoción queda prohibida si:
-- no se ha ejecutado `npm run bump` previo en `dev`;
-- la versión de `dev` coincide con la de `master` o no hay avance de versión;
-- falla cualquier comprobación de la validación automática (`test:unit`, `test:infrastructure`, `test:architecture`, `test:integration`, y `test:browser` si afecta a UI).
-
-**Excepción:** Los cambios que afecten exclusivamente a `/help/`, `/docs/`, `.zerochat/` y `AGENTS.md` están exentos de bump y de la suite completa, pudiendo sincronizarse directamente con `master`.
-
-
-## 8. Finalización
+## 6. Finalización
 
 Antes de cerrar una tarea (`task.py done`), revisar el `git diff` frente a esta lista:
-- sin ramas muertas, opciones especulativas ni código de compatibilidad previa;
+- sin ramas muertas, opciones especulativas, código de compatibilidad previa ni código que solo usan las pruebas;
 - ninguna decisión, lista de formatos o convención duplicada en 2 o más sitios;
 - comprobaciones y límites simétricos entre variantes hermanas de un mismo módulo;
-- topes de memoria, contexto o seguridad cubiertos con prueba en el borde exacto y su aviso de truncado;
-- sin pruebas triviales, duplicadas, cosméticas o de ausencia de algo retirado, ni código de producción que la aplicación no ejecute (parámetros, opciones, inyecciones o ramas que solo usan las pruebas);
-- español e inglés sincronizados si afecta a la interfaz o a `/help/`;
+- topes cubiertos en el borde exacto; sin pruebas triviales, duplicadas, cosméticas o de ausencia de algo retirado;
+- español e inglés sincronizados si afecta a la interfaz o a `help/`;
 - backend recompilado (`npm run build:backend`) si se modificó `py/`;
 - documentación y memoria de proyecto (`.zerochat/`) actualizadas.
-
-
-## 9. Política de documentación y colocación (colocation)
-
-La documentación se organiza canónicamente en:
-- **`AGENTS.md` (Gobernanza y normas globales):** Normas universales de obligado cumplimiento, límites de seguridad y flujo de trabajo. No se infla con contratos detallados de subsistemas.
-- **Documentación técnica colocada (`<subsistema>/README.md`):**
-  - Frontend y UI: [`js/README.md`](./js/README.md).
-  - Backend y distribución: [`py/README.md`](./py/README.md).
-  - Herramientas agénticas: [`js/tools/README.md`](./js/tools/README.md).
-  - Pruebas y validación: [`tests/README.md`](./tests/README.md).
-- **Memoria del proyecto (`.zerochat/`):** Plan, estado y registro de decisiones.
-- **Documentación de usuario (`help/`):** Ayuda web estática bilingüe (español e inglés) servida por GitHub Pages.
-- **Histórico y archivo (`docs/`):** Procedimientos de auditoría y propuestas técnicas en borrador.

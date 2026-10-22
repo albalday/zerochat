@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-// Ayuda bilingüe (AGENTS.md §8 y §9): cada página de help/ tiene su traducción en help/en/, las dos se
+// Ayuda bilingüe (AGENTS.md §1 y §6): cada página de help/ tiene su traducción en help/en/, las dos se
 // enlazan entre sí y citan la misma serie major.x que package.json.
 
 const ROOT = path.resolve(__dirname, '../..');
