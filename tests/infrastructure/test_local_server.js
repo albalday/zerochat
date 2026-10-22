@@ -170,7 +170,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
       assert.equal((await signedClient.initialize()).success, true);
       assert.equal((await signedClient.callTool('list_directory', { path: '.' }, { toolAuthorization: true })).success, true);
       // Con el navegador en otro equipo, su reloj puede ir adelantado o atrasado respecto al del servidor.
-      for (const skewMs of [10_000, -10_000]) {
+      for (const skewMs of [25_000, -25_000]) {
         Date.now = () => realDateNow() + skewMs;
         try {
           assert.equal((await signedClient.callTool('list_directory', { path: '.' }, { toolAuthorization: true })).success, true, `Desfase de reloj ${skewMs} ms`);
@@ -1054,7 +1054,7 @@ test('Servidor local zerochat.py: heartbeat y apagado automático por inactivida
   }
 });
 
-test('Servidor local zerochat.py: --keep-server desactiva el watchdog', async () => {
+test('Servidor local zerochat.py: --keep-server desactiva el watchdog y --print-url muestra la URL', async () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const serverPath = path.resolve(repoRoot, 'zerochat.py');
   const port = await freePort();
@@ -1062,7 +1062,7 @@ test('Servidor local zerochat.py: --keep-server desactiva el watchdog', async ()
   const testToken = 'no-exit-token-99999';
 
   const serverProc = spawn('python3', [
-    serverPath, '--port', String(port), '--no-browser', '--keep-server', '--no-venv'
+    serverPath, '--port', String(port), '--print-url', '--keep-server', '--no-venv'
   ], {
     env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken) },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -1086,6 +1086,8 @@ test('Servidor local zerochat.py: --keep-server desactiva el watchdog', async ()
     const checkRes = await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });
     assert.equal(checkRes.status, 200, 'El servidor debe seguir respondiendo con --keep-server');
     assert.match(serverOutput, /Auto-cierre\s*:\s*Desactivado/, 'El banner debe indicar auto-cierre desactivado');
+    // --print-url: la URL con el token, rodeada de cinco líneas en blanco para copiarla.
+    assert.match(serverOutput, new RegExp(`={64}\\n{6}https?://\\S+#token=${testToken}&host=127\\.0\\.0\\.1&port=${port}\\n{6}(?!\\n)`));
 
     // Métodos de control MCP: error JSON-RPC ante entradas inválidas
     const rpc = async (method, params) => {
