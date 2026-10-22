@@ -46,7 +46,7 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE_BACKEND_VERSION = "9.8.0"
+SOURCE_BACKEND_VERSION = "9.9.0"
 
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""
