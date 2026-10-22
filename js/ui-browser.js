@@ -134,10 +134,11 @@
       <p class="label-hint">${escapeHtml(t('browser_save_note'))}</p>`;
   }
 
-  /** Nombre de un navegador de Playwright MCP: «Chromium propio» o «tu Chrome». */
+  /** Nombre de un navegador de Playwright MCP: «Chromium propio», «Chromium propio con ventana» o «tu Chrome». */
   function describeBrowser(choice) {
-    return choice.mode === 'own' ? t('browser_choice_own', { name: ENGINE_NAMES[choice.engine] })
-      : t('browser_choice_user', { name: t(`browser_user_${choice.userBrowser}`) });
+    if (choice.mode === 'user') return t('browser_choice_user', { name: t(`browser_user_${choice.userBrowser}`) });
+    const own = t('browser_choice_own', { name: ENGINE_NAMES[choice.engine] });
+    return choice.headless === false ? t('browser_choice_visible', { browser: own }) : own;
   }
 
   /** Aviso de que el perfil activo exige Playwright MCP, que manda sobre la herramienta elegida aquí. */
@@ -312,8 +313,8 @@
     I18n.onChange(render);
   }
 
-  // Capítulo Navegador del editor de perfiles: el perfil puede exigir Playwright MCP con un navegador
-  // instalado; sin exigirlo usa lo de Ajustes › Navegador.
+  // Capítulo Navegador del editor de perfiles: el perfil puede necesitar Playwright MCP con un navegador
+  // instalado y, con el propio, su ventana visible; sin necesitarlo usa lo de Ajustes › Navegador.
   let profileContainer = null;
   let profileView = { value: null, engines: null, disabled: false };
 
@@ -349,6 +350,7 @@
             <label for="profile-browser-name"><strong>${escapeHtml(t('profile_browser_name'))}</strong></label>
             <select id="profile-browser-name" name="profile-browser-name"${disabled}>${options}</select>
           </div>
+          ${value.mode === 'own' ? `<label class="browser-check"><input type="checkbox" name="profile-browser-show-window"${value.headless === false ? ' checked' : ''}${disabled}>${escapeHtml(t('browser_show_window'))}</label>` : ''}
           ${installed === null ? `<p class="label-hint">${escapeHtml(t('profile_browser_disconnected'))}</p>` : ''}
           ${missing ? `<p class="browser-warning">${Icons.get('alert-triangle', { size: 14 })}<span>${escapeHtml(t('profile_browser_missing'))}</span></p>` : ''}
         </div>`;
@@ -368,7 +370,15 @@
   function handleProfileBrowserChange(target) {
     if (target.name === 'profile-browser-required') profileView.value = target.checked ? defaultChoice('own') : null;
     else if (target.name === 'profile-browser-mode') profileView.value = defaultChoice(target.value);
-    else if (target.name === 'profile-browser-name') profileView.value = choiceOf(profileView.value.mode, target.value);
+    else if (target.name === 'profile-browser-name') {
+      // Al cambiar de motor se conserva la ventana visible.
+      const visible = profileView.value.headless === false ? { headless: false } : {};
+      profileView.value = { ...choiceOf(profileView.value.mode, target.value), ...visible };
+    }
+    else if (target.name === 'profile-browser-show-window') {
+      const { headless, ...rest } = profileView.value;
+      profileView.value = target.checked ? { ...rest, headless: false } : rest;
+    }
     else return;
     renderProfileBrowser();
   }

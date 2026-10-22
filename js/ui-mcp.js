@@ -363,7 +363,7 @@
   /**
    * Arranca los servicios externos de un perfil (los suyos y Playwright MCP si es la herramienta de
    * navegación activa) que no estén ya en marcha, sin parar los demás ni guardarlos como activos para
-   * la siguiente sesión. Si el perfil exige otro navegador del que usa Playwright MCP, lo reinicia.
+   * la siguiente sesión. Si el perfil exige otro navegador del que usa Playwright MCP, o su ventana visible, lo reinicia.
    * Devuelve { started, unavailable }: los nombres de los que ha arrancado y de los que no están
    * configurados en el servidor local o no han arrancado. Sin conexión no arranca nada.
    */
@@ -375,7 +375,8 @@
     const ids = getAgentCore().activeBrowserTool(appConfig) === 'playwright' ? [...appConfig.mcpServers, 'playwright'] : appConfig.mcpServers;
     const required = appConfig.playwrightBrowser;
     const otherBrowser = server => server.id === 'playwright' && required && server.status === 'running'
-      && (server.browser?.mode !== required.mode || server.browser.engine !== required.engine || server.browser.userBrowser !== required.userBrowser);
+      && (server.browser?.mode !== required.mode || server.browser.engine !== required.engine || server.browser.userBrowser !== required.userBrowser
+        || (required.headless === false && server.browser.headless !== false));
     const language = I18n.getLanguage();
     for (const id of ids) {
       const server = State.get('mcp').externalServers.find(item => item.id === id);

@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { listSourceFiles } = require('../helpers/source-files');
 
-// Frontera de persistencia (AGENTS.md §3): solo ChatStorage, ChatRagStorage y ZeroChatDB tocan
+// Frontera de persistencia (js/README.md §4): solo ChatStorage, ChatRagStorage y ZeroChatDB tocan
 // localStorage, sessionStorage, IndexedDB y cookies. sandbox.js solo nombra esas APIs como texto,
 // en la lista de globales que bloquea dentro del iframe.
 

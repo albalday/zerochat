@@ -127,3 +127,21 @@ test('FileParser.parseFile - un documento ofimático se adjunta como Markdown co
   await assert.rejects(FileParser.parseFile(new File([new Uint8Array([0xD0, 0xCF, 0x11, 0xE0])], 'acta.doc')),
     /Word 97-2003 files \(\.doc\) are not supported/);
 });
+
+test('FileParser.findPdfStreamBounds - usa /Length directo y recorta EOL solo como último recurso', () => {
+  const rows = [
+    ['/Length directo con datos terminados en 0x0A', '1 0 obj\n<< /Length 3 >>\nstream\nAB\n\nendstream', 'AB\n'],
+    ['/Length directo con datos terminados en 0x0D', '1 0 obj\n<< /Length 3 >>\nstream\r\nAB\r\r\nendstream', 'AB\r'],
+    ['/Length directo sin EOL antes de endstream', '1 0 obj\n<< /Length 2 >>\nstream\nABendstream', 'AB'],
+    ['/Length1 no es /Length', '1 0 obj\n<< /Length1 3 >>\nstream\nAB\n\nendstream', 'AB'],
+    ['/Length indirecto: recorte de EOL', '1 0 obj\n<< /Length 3 0 R >>\nstream\nAB\n\nendstream', 'AB'],
+    ['/Length corto que no cae en endstream: recorte de EOL', '1 0 obj\n<< /Length 1 >>\nstream\nAB\nendstream', 'AB'],
+    ['/Length que rebasa endstream: recorte de EOL', '1 0 obj\n<< /Length 9 >>\nstream\nAB\nendstream', 'AB'],
+    ['Sin cabecera obj: recorte de EOL', '<< /Length 3 >>\nstream\nAB\n\nendstream', 'AB']
+  ];
+  for (const [name, text, expected] of rows) {
+    const streamIdx = text.indexOf('stream');
+    const { dataStart, dataEnd } = FileParser.findPdfStreamBounds(text, streamIdx, text.indexOf('endstream', streamIdx));
+    assert.equal(text.substring(dataStart, dataEnd), expected, name);
+  }
+});
