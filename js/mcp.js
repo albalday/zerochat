@@ -486,7 +486,7 @@
       this.serverInfo = result?.serverInfo || { name: this.name, version: 'unknown' };
       const auth = result?.toolAuthorization;
       if (this.isLocalServer && auth?.version === TOOL_AUTH_VERSION && typeof auth.sessionId === 'string' &&
-          typeof auth.key === 'string' && Number.isInteger(auth.ttlMs) && auth.ttlMs > 0 && auth.ttlMs <= 30_000) {
+          typeof auth.key === 'string' && Number.isInteger(auth.ttlMs) && auth.ttlMs > 0 && auth.ttlMs <= 60_000) {
         this.toolAuthorization = { sessionId: auth.sessionId, key: auth.key, ttlMs: auth.ttlMs };
       }
       await this.notify('notifications/initialized', {});

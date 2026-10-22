@@ -106,7 +106,7 @@ ACTIVE_HOST = DEFAULT_HOST
 # Kept only for this Python process: binds an approved browser tool call to
 # the exact JSON-RPC bytes sent to the local host.
 TOOL_AUTH_VERSION = "zerochat-tool-auth-v1"
-TOOL_AUTH_TTL_MS = 30_000
+TOOL_AUTH_TTL_MS = 60_000
 TOOL_AUTH_MAX_NONCES = 10_000
 TOOL_AUTH_KEY = secrets.token_bytes(32)
 TOOL_AUTH_SESSION_ID = secrets.token_urlsafe(18)

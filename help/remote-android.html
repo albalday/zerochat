@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Servidor de casa desde Android · Ayuda de ZeroChat · 9.x</title>
-  <meta name="description" content="Usar desde una tablet o un móvil Android el servidor local de ZeroChat de otro equipo a través de un túnel SSH con ConnectBot o Termux: sshd, clave restringida, script de arranque y URL con el token diario.">
+  <meta name="description" content="Usar desde una tablet o un móvil Android el servidor local de ZeroChat de otro equipo a través de un túnel SSH con ConnectBot o Termux: sshd, zerochat --print-url, clave restringida y URL con el token diario.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -36,91 +36,26 @@
 
     <div class="card" id="casa">
       <h2>2. Preparar el equipo de casa</h2>
-      <h3>Endurecer sshd</h3>
+      <h3>Endurecer sshd (recomendado)</h3>
       <p>En <code>/etc/ssh/sshd_config</code> (o un fichero en <code>/etc/ssh/sshd_config.d/</code>), solo claves y solo tu usuario; después reinicia el servicio (<code>sudo systemctl restart sshd</code>):</p>
       <div class="code-wrapper"><pre><code>PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin no
 AllowUsers usuario
 AllowTcpForwarding local</code></pre></div>
-      <h3>Script de arranque</h3>
-      <p>Guárdalo como <code>~/bin/zerochat-tablet.sh</code> y dale permisos con <code>chmod 700 ~/bin/zerochat-tablet.sh</code>. Arranca ZeroChat sin navegador (o reutiliza el que ya corre), lee el token diario de <code>~/zerochat/config/token.json</code> e imprime la URL que hay que abrir en la tablet.</p>
-      <div class="code-wrapper"><pre><code>#!/usr/bin/env bash
-# Levanta ZeroChat sin navegador en casa (o reutiliza el que ya corre) e imprime
-# la URL con el token diario para abrirla en el navegador de la tablet.
-# Pensado para ejecutarse desde ConnectBot por SSH (también vale como command= forzado).
-set -euo pipefail
-
-PORT="${ZEROCHAT_PORT:-6883}"            # debe coincidir con el puerto redirigido en ConnectBot
-DATA_DIR="${ZEROCHAT_DATA_DIR:-$HOME/zerochat}"
-TOKEN_FILE="$DATA_DIR/config/token.json"
-LOG="$DATA_DIR/tablet-server.log"
-ZEROCHAT="${ZEROCHAT_BIN:-zerochat}"
-UI_URL="https://albalday.github.io/zerochat/zerochat.html"
-
-read_token() {
-    python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "$TOKEN_FILE" 2&gt;/dev/null
-}
-
-# 200 = servidor ZeroChat con este token; 401 = otro token; 000 = nada escuchando.
-probe() {
-    curl -s -o /dev/null -w '%{http_code}' --max-time 3 \
-        -H "Authorization: Bearer ${1:-x}" "http://127.0.0.1:$PORT/zerochat/heartbeat" || true
-}
-
-start_server() {
-    echo "Arrancando ZeroChat en 127.0.0.1:$PORT..."
-    # --keep-server: el navegador móvil deja de emitir latidos en segundo plano y,
-    # sin él, el servidor se cerraría a los 60 s de cambiar de app.
-    # setsid + nohup: sobrevive al cierre de la sesión SSH.
-    cd "$HOME"
-    setsid nohup "$ZEROCHAT" --no-browser --keep-server --port "$PORT" \
-        &lt;/dev/null &gt;&gt;"$LOG" 2&gt;&amp;1 &amp;
-    for _ in $(seq 1 60); do
-        sleep 0.5
-        token="$(read_token || true)"
-        [ -n "$token" ] &amp;&amp; [ "$(probe "$token")" = 200 ] &amp;&amp; return 0
-    done
-    echo "ZeroChat no respondió en 30 s. Últimas líneas de $LOG:" &gt;&amp;2
-    tail -n 20 "$LOG" &gt;&amp;2
-    exit 1
-}
-
-token="$(read_token || true)"
-case "$(probe "$token")" in
-    200) echo "ZeroChat ya estaba en marcha en el puerto $PORT." ;;
-    000) start_server ;;
-    401)
-        # Hay un ZeroChat con un token distinto (p. ej. de ayer y otro proceso renovó token.json).
-        echo "El ZeroChat del puerto $PORT usa otro token: lo reinicio."
-        pkill -f -- "/zerochat --no-browser --keep-server --port $PORT\$" || true
-        sleep 2
-        start_server ;;
-    *)  echo "El puerto $PORT está ocupado por otro programa." &gt;&amp;2; exit 1 ;;
-esac
-
-token="$(read_token)"
-url="$UI_URL#token=$token&amp;host=127.0.0.1&amp;port=$PORT"
-echo
-echo "Abre en la tablet:"
-echo "$url"
-echo
-# Mantiene la sesión abierta (el túnel vive mientras viva la sesión de ConnectBot).
-if [ -t 0 ]; then
-    echo "Túnel activo. Pulsa Ctrl+C o cierra la sesión para cortarlo (ZeroChat sigue en casa)."
-    trap 'exit 0' INT
-    while sleep 3600; do :; done
-else
-    exec sleep infinity
-fi</code></pre></div>
+      <h3>Orden de arranque</h3>
+      <p>Desde la versión 9.10, <code>zerochat --print-url</code> arranca el servidor sin abrir el navegador e imprime la URL con el token del día entre cinco líneas en blanco, para copiarla con facilidad. Se lanza en la propia sesión SSH, desde el directorio del proyecto:</p>
+      <div class="code-wrapper"><pre><code>cd ~/proyectos/mi-proyecto &amp;&amp; zerochat --print-url --keep-server --port 6883</code></pre></div>
       <ul>
-        <li><strong>Ruta de <code>zerochat</code>:</strong> una sesión SSH con orden forzada no carga tu <code>PATH</code> completo. Si <code>zerochat</code> no está en <code>/usr/bin</code>, pon al principio del script su ruta completa, la que muestra <code>command -v zerochat</code>, en <code>ZEROCHAT_BIN</code>.</li>
+        <li><strong>Directorio de trabajo:</strong> el <code>cd</code> elige el directorio del proyecto, que aparece en la cabecera del servidor. Después puedes cambiarlo desde la interfaz, en el <a href="project-mode.html">modo proyecto</a>.</li>
         <li><strong><code>--keep-server</code>:</strong> el navegador de Android deja de enviar latidos cuando la pestaña pasa a segundo plano; sin esta opción el servidor se cerraría al minuto de cambiar de aplicación.</li>
-        <li><strong>Registro:</strong> la salida del servidor va a <code>~/zerochat/tablet-server.log</code>.</li>
+        <li><strong>Vive con la sesión:</strong> al cerrar la sesión SSH, ZeroChat se detiene junto con los comandos que tenga en marcha. Al reconectar arranca de nuevo con el mismo token del día; recarga la página.</li>
+        <li><strong>Ruta de <code>zerochat</code>:</strong> una sesión SSH con orden forzada o automatizada no carga tu <code>PATH</code> completo. Si <code>zerochat</code> no está en <code>/usr/bin</code>, usa la ruta completa que muestra <code>command -v zerochat</code>.</li>
       </ul>
-      <h3>Clave restringida</h3>
-      <p>Crea un par de claves solo para la tablet y añade la pública a <code>~/.ssh/authorized_keys</code> con estas restricciones, en una sola línea. Con ella solo se puede abrir el túnel a esos dos puertos y lanzar el script, sin consola ni otras órdenes:</p>
-      <div class="code-wrapper"><pre><code>restrict,port-forwarding,permitopen="127.0.0.1:6883",permitopen="127.0.0.1:1234",command="/home/usuario/bin/zerochat-tablet.sh" ssh-ed25519 AAAA… tablet</code></pre></div>
+      <h3>Clave restringida (opcional)</h3>
+      <p>Para que la tablet no tenga consola en casa, crea un par de claves solo para ella y añade la pública a <code>~/.ssh/authorized_keys</code> con estas restricciones, en una sola línea. Con ella solo se puede abrir el túnel a esos dos puertos y lanzar ZeroChat:</p>
+      <div class="code-wrapper"><pre><code>restrict,pty,port-forwarding,permitopen="127.0.0.1:6883",permitopen="127.0.0.1:1234",command="cd ~/proyectos/mi-proyecto &amp;&amp; /home/usuario/venv/bin/zerochat --print-url --keep-server --port 6883" ssh-ed25519 AAAA… tablet</code></pre></div>
+      <p><code>pty</code> es necesario: con terminal, al cerrar la sesión ZeroChat recibe la señal de cierre y se detiene; sin ella seguiría en marcha ocupando el puerto.</p>
     </div>
 
     <div class="card" id="android">
@@ -130,12 +65,14 @@ fi</code></pre></div>
         <li>En las claves públicas de ConnectBot, genera una clave Ed25519 y copia su parte pública al <code>authorized_keys</code> de casa (sección 2).</li>
         <li>Crea el host <code>usuario@casa</code> con esa clave.</li>
         <li>En las redirecciones de puertos (<em>Port forwards</em>) del host, añade dos de tipo <strong>Local</strong>: <code>6883</code> → <code>127.0.0.1:6883</code> y <code>1234</code> → <code>127.0.0.1:1234</code>.</li>
-        <li>Conecta. La consola muestra la URL; cópiala y ábrela en el navegador. La sesión no admite órdenes: solo mantiene el túnel.</li>
+        <li>Conecta. La consola muestra la URL; cópiala y ábrela en el navegador. Con la clave restringida, la sesión no admite órdenes: solo mantiene el túnel y ZeroChat.</li>
       </ol>
-      <p>Sin la clave restringida, puedes poner <code>~/bin/zerochat-tablet.sh</code> en la automatización tras el inicio de sesión (<em>Post-login automation</em>) del host para lanzarlo al conectar.</p>
+      <p>Sin la clave restringida, escribe la orden de arranque en la consola o ponla en la automatización tras el inicio de sesión (<em>Post-login automation</em>) del host para lanzarla al conectar.</p>
       <h3>Termux</h3>
-      <p>Sin <code>-N</code>, para que se ejecute el script y muestre la URL:</p>
+      <p>Con la clave restringida basta con abrir la sesión, sin <code>-N</code>, para que arranque ZeroChat y muestre la URL:</p>
       <div class="code-wrapper"><pre><code>ssh -i ~/.ssh/tablet -L 6883:127.0.0.1:6883 -L 1234:127.0.0.1:1234 usuario@casa</code></pre></div>
+      <p>Sin ella, pasa la orden de arranque con <code>-t</code>, para que la sesión tenga terminal y ZeroChat se detenga al cerrarla:</p>
+      <div class="code-wrapper"><pre><code>ssh -t -L 6883:127.0.0.1:6883 -L 1234:127.0.0.1:1234 usuario@casa 'cd ~/proyectos/mi-proyecto &amp;&amp; zerochat --print-url --keep-server --port 6883'</code></pre></div>
       <h3>En el navegador</h3>
       <ul>
         <li><strong>Acceso a la red local:</strong> si el navegador pide permiso para que la página acceda a dispositivos de la red local, acéptalo; sin él no llega a <code>127.0.0.1</code>.</li>
@@ -149,11 +86,9 @@ fi</code></pre></div>
       <div class="table-responsive"><table>
         <thead><tr><th>Situación</th><th>Qué pasa</th></tr></thead>
         <tbody>
-          <tr><td>ZeroChat ya está en marcha en el 6883</td><td>El script lo reutiliza y vuelve a imprimir su URL.</td></tr>
-          <tr><td>El servidor en marcha usa el token de otro día</td><td>El script lo detiene, lo arranca de nuevo con el token del día e imprime la URL nueva. Recarga la página con ella.</td></tr>
-          <tr><td>Otro programa ocupa el 6883</td><td>El script termina con error: <em>El puerto 6883 está ocupado por otro programa</em>.</td></tr>
-          <tr><td>Se corta la conexión SSH</td><td>ZeroChat sigue en marcha en casa. Reconecta y recarga la página. Para pararlo: <code>pkill -f -- '--keep-server --port 6883'</code>.</td></tr>
-          <tr><td>Las herramientas fallan con <em>403 Expired or invalid tool authorization</em></td><td>Los relojes de la tablet y de casa difieren en más de 15 s. Activa la fecha y hora automáticas en los dos.</td></tr>
+          <tr><td>Se corta la conexión SSH</td><td>ZeroChat se detiene en casa cuando sshd cierra la sesión. Reconecta y recarga la página: el token del día no cambia.</td></tr>
+          <tr><td>Al reconectar, ZeroChat no arranca: <em>Address already in use</em></td><td>Sigue en marcha el de la sesión anterior, porque sshd aún no ha detectado el corte o la sesión no tenía terminal. Espera a que la cierre o detenlo: <code>pkill -f -- '--port 6883'</code>.</td></tr>
+          <tr><td>Las herramientas fallan con <em>403 Expired or invalid tool authorization</em></td><td>Los relojes de la tablet y de casa difieren en más de 30 s. Activa la fecha y hora automáticas en los dos.</td></tr>
         </tbody>
       </table></div>
     </div>

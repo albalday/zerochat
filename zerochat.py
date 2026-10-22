@@ -316,7 +316,7 @@ ACTIVE_HOST = DEFAULT_HOST
 # Kept only for this Python process: binds an approved browser tool call to
 # the exact JSON-RPC bytes sent to the local host.
 TOOL_AUTH_VERSION = "zerochat-tool-auth-v1"
-TOOL_AUTH_TTL_MS = 30_000
+TOOL_AUTH_TTL_MS = 60_000
 TOOL_AUTH_MAX_NONCES = 10_000
 TOOL_AUTH_KEY = secrets.token_bytes(32)
 TOOL_AUTH_SESSION_ID = secrets.token_urlsafe(18)
@@ -4464,6 +4464,7 @@ def main():
     parser.add_argument("--host", default=os.environ.get("ZEROCHAT_HOST", DEFAULT_HOST), help=f"Host de escucha (default: {DEFAULT_HOST})")
     parser.add_argument("--ui-url", default=None, help="URL de la interfaz web a abrir (por defecto: interfaz local en desarrollo o GitHub Pages)")
     parser.add_argument("--no-browser", action="store_true", help="No abrir automáticamente el navegador")
+    parser.add_argument("--print-url", action="store_true", help="Imprimir la URL de la interfaz con el token, entre líneas en blanco para copiarla (implica --no-browser)")
     parser.add_argument("--keep-server", action="store_true", help="Servidor: seguir en marcha al cerrar el navegador (no se combina con --prompt)")
     parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación de ~/zerochat/.venv")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
@@ -4479,6 +4480,9 @@ def main():
 
     # Los avisos no persisten entre ejecuciones del servidor.
     reset_notices()
+    # Quien pide la URL la abrirá en otro sitio (otro equipo, un túnel SSH): no se abre el navegador local.
+    if args.print_url and args.prompt is None:
+        args.no_browser = True
 
     # Modo ejecución: stdout queda solo para la respuesta final; todo el registro va a stderr.
     result_out = sys.stdout
@@ -4487,8 +4491,8 @@ def main():
     if args.prompt is not None:
         if not args.prompt.strip():
             parser.error("el prompt está vacío")
-        if args.no_browser:
-            parser.error("--prompt necesita abrir el navegador: no se combina con --no-browser")
+        if args.no_browser or args.print_url:
+            parser.error("--prompt necesita abrir el navegador: no se combina con --no-browser ni con --print-url")
         if args.keep_server:
             parser.error("--prompt termina al devolver el resultado: no se combina con --keep-server (para no cerrar la página, --keep-page)")
         if args.profile is not None and not args.profile.strip():
@@ -4612,6 +4616,9 @@ def main():
     else:
         print("  Auto-cierre           : Desactivado")
     print("=" * 64, flush=True)
+    if args.print_url:
+        # Líneas en blanco alrededor para seleccionarla y copiarla con facilidad (p. ej. en una consola SSH del móvil).
+        print("\n" * 5 + target_url + "\n" * 5, flush=True)
 
     headless_browser = None
     if RUN_SESSION:

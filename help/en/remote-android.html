@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Home server from Android · ZeroChat Help · 9.x</title>
-  <meta name="description" content="Use the ZeroChat local server of another computer from an Android tablet or phone through an SSH tunnel with ConnectBot or Termux: sshd, restricted key, launch script and URL with the daily token.">
+  <meta name="description" content="Use the ZeroChat local server of another computer from an Android tablet or phone through an SSH tunnel with ConnectBot or Termux: sshd, zerochat --print-url, restricted key and URL with the daily token.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -36,91 +36,26 @@
 
     <div class="card" id="home">
       <h2>2. Prepare the home computer</h2>
-      <h3>Harden sshd</h3>
+      <h3>Harden sshd (recommended)</h3>
       <p>In <code>/etc/ssh/sshd_config</code> (or a file in <code>/etc/ssh/sshd_config.d/</code>), keys only and your user only; then restart the service (<code>sudo systemctl restart sshd</code>):</p>
       <div class="code-wrapper"><pre><code>PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin no
 AllowUsers user
 AllowTcpForwarding local</code></pre></div>
-      <h3>Launch script</h3>
-      <p>Save it as <code>~/bin/zerochat-tablet.sh</code> and make it executable with <code>chmod 700 ~/bin/zerochat-tablet.sh</code>. It starts ZeroChat without a browser (or reuses the one already running), reads the daily token from <code>~/zerochat/config/token.json</code> and prints the URL to open on the tablet.</p>
-      <div class="code-wrapper"><pre><code>#!/usr/bin/env bash
-# Starts ZeroChat at home without a browser (or reuses the running one) and prints
-# the URL with the daily token to open in the tablet browser.
-# Meant to run from ConnectBot over SSH (also works as a forced command=).
-set -euo pipefail
-
-PORT="${ZEROCHAT_PORT:-6883}"            # must match the port forwarded in ConnectBot
-DATA_DIR="${ZEROCHAT_DATA_DIR:-$HOME/zerochat}"
-TOKEN_FILE="$DATA_DIR/config/token.json"
-LOG="$DATA_DIR/tablet-server.log"
-ZEROCHAT="${ZEROCHAT_BIN:-zerochat}"
-UI_URL="https://albalday.github.io/zerochat/zerochat.html"
-
-read_token() {
-    python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "$TOKEN_FILE" 2&gt;/dev/null
-}
-
-# 200 = ZeroChat server with this token; 401 = another token; 000 = nothing listening.
-probe() {
-    curl -s -o /dev/null -w '%{http_code}' --max-time 3 \
-        -H "Authorization: Bearer ${1:-x}" "http://127.0.0.1:$PORT/zerochat/heartbeat" || true
-}
-
-start_server() {
-    echo "Starting ZeroChat on 127.0.0.1:$PORT..."
-    # --keep-server: the mobile browser stops sending heartbeats in the background and,
-    # without it, the server would shut down 60 s after switching apps.
-    # setsid + nohup: survives the end of the SSH session.
-    cd "$HOME"
-    setsid nohup "$ZEROCHAT" --no-browser --keep-server --port "$PORT" \
-        &lt;/dev/null &gt;&gt;"$LOG" 2&gt;&amp;1 &amp;
-    for _ in $(seq 1 60); do
-        sleep 0.5
-        token="$(read_token || true)"
-        [ -n "$token" ] &amp;&amp; [ "$(probe "$token")" = 200 ] &amp;&amp; return 0
-    done
-    echo "ZeroChat did not respond within 30 s. Last lines of $LOG:" &gt;&amp;2
-    tail -n 20 "$LOG" &gt;&amp;2
-    exit 1
-}
-
-token="$(read_token || true)"
-case "$(probe "$token")" in
-    200) echo "ZeroChat was already running on port $PORT." ;;
-    000) start_server ;;
-    401)
-        # A ZeroChat with a different token (e.g. yesterday's, and another process renewed token.json).
-        echo "The ZeroChat on port $PORT uses another token: restarting it."
-        pkill -f -- "/zerochat --no-browser --keep-server --port $PORT\$" || true
-        sleep 2
-        start_server ;;
-    *)  echo "Port $PORT is in use by another program." &gt;&amp;2; exit 1 ;;
-esac
-
-token="$(read_token)"
-url="$UI_URL#token=$token&amp;host=127.0.0.1&amp;port=$PORT"
-echo
-echo "Open on the tablet:"
-echo "$url"
-echo
-# Keeps the session open (the tunnel lives as long as the ConnectBot session).
-if [ -t 0 ]; then
-    echo "Tunnel active. Press Ctrl+C or close the session to stop it (ZeroChat keeps running at home)."
-    trap 'exit 0' INT
-    while sleep 3600; do :; done
-else
-    exec sleep infinity
-fi</code></pre></div>
+      <h3>Launch command</h3>
+      <p>Since version 9.10, <code>zerochat --print-url</code> starts the server without opening the browser and prints the URL with today's token between five blank lines, so it is easy to copy. Run it in the SSH session itself, from the project directory:</p>
+      <div class="code-wrapper"><pre><code>cd ~/projects/my-project &amp;&amp; zerochat --print-url --keep-server --port 6883</code></pre></div>
       <ul>
-        <li><strong>Path to <code>zerochat</code>:</strong> an SSH session with a forced command does not load your full <code>PATH</code>. If <code>zerochat</code> is not in <code>/usr/bin</code>, set its full path, as shown by <code>command -v zerochat</code>, in <code>ZEROCHAT_BIN</code> at the top of the script.</li>
+        <li><strong>Working directory:</strong> the <code>cd</code> picks the project directory, shown in the server header. You can change it later from the interface, in <a href="project-mode.html">project mode</a>.</li>
         <li><strong><code>--keep-server</code>:</strong> the Android browser stops sending heartbeats when the tab goes to the background; without this option the server would shut down a minute after switching apps.</li>
-        <li><strong>Log:</strong> the server output goes to <code>~/zerochat/tablet-server.log</code>.</li>
+        <li><strong>Lives with the session:</strong> closing the SSH session stops ZeroChat along with any commands it is running. On reconnect it starts again with the same daily token; reload the page.</li>
+        <li><strong>Path to <code>zerochat</code>:</strong> an SSH session with a forced or automated command does not load your full <code>PATH</code>. If <code>zerochat</code> is not in <code>/usr/bin</code>, use the full path shown by <code>command -v zerochat</code>.</li>
       </ul>
-      <h3>Restricted key</h3>
-      <p>Create a key pair just for the tablet and add the public key to <code>~/.ssh/authorized_keys</code> with these restrictions, on a single line. It can only open the tunnel to those two ports and launch the script, with no console or other commands:</p>
-      <div class="code-wrapper"><pre><code>restrict,port-forwarding,permitopen="127.0.0.1:6883",permitopen="127.0.0.1:1234",command="/home/user/bin/zerochat-tablet.sh" ssh-ed25519 AAAA… tablet</code></pre></div>
+      <h3>Restricted key (optional)</h3>
+      <p>To keep the tablet without a console at home, create a key pair just for it and add the public key to <code>~/.ssh/authorized_keys</code> with these restrictions, on a single line. It can only open the tunnel to those two ports and launch ZeroChat:</p>
+      <div class="code-wrapper"><pre><code>restrict,pty,port-forwarding,permitopen="127.0.0.1:6883",permitopen="127.0.0.1:1234",command="cd ~/projects/my-project &amp;&amp; /home/user/venv/bin/zerochat --print-url --keep-server --port 6883" ssh-ed25519 AAAA… tablet</code></pre></div>
+      <p><code>pty</code> is required: with a terminal, closing the session sends ZeroChat the hang-up signal and it stops; without one it would keep running and holding the port.</p>
     </div>
 
     <div class="card" id="android">
@@ -130,12 +65,14 @@ fi</code></pre></div>
         <li>In ConnectBot's public keys, generate an Ed25519 key and copy its public part to the home <code>authorized_keys</code> (section 2).</li>
         <li>Create the host <code>user@home</code> with that key.</li>
         <li>In the host's port forwards, add two of type <strong>Local</strong>: <code>6883</code> → <code>127.0.0.1:6883</code> and <code>1234</code> → <code>127.0.0.1:1234</code>.</li>
-        <li>Connect. The console shows the URL; copy it and open it in the browser. The session accepts no commands: it only keeps the tunnel open.</li>
+        <li>Connect. The console shows the URL; copy it and open it in the browser. With the restricted key, the session accepts no commands: it only keeps the tunnel and ZeroChat running.</li>
       </ol>
-      <p>Without the restricted key, you can put <code>~/bin/zerochat-tablet.sh</code> in the host's post-login automation to launch it on connect.</p>
+      <p>Without the restricted key, type the launch command in the console or put it in the host's post-login automation to run it on connect.</p>
       <h3>Termux</h3>
-      <p>Without <code>-N</code>, so the script runs and prints the URL:</p>
+      <p>With the restricted key, just open the session, without <code>-N</code>, so ZeroChat starts and prints the URL:</p>
       <div class="code-wrapper"><pre><code>ssh -i ~/.ssh/tablet -L 6883:127.0.0.1:6883 -L 1234:127.0.0.1:1234 user@home</code></pre></div>
+      <p>Without it, pass the launch command with <code>-t</code>, so the session has a terminal and ZeroChat stops when it closes:</p>
+      <div class="code-wrapper"><pre><code>ssh -t -L 6883:127.0.0.1:6883 -L 1234:127.0.0.1:1234 user@home 'cd ~/projects/my-project &amp;&amp; zerochat --print-url --keep-server --port 6883'</code></pre></div>
       <h3>In the browser</h3>
       <ul>
         <li><strong>Local network access:</strong> if the browser asks to let the page access devices on the local network, allow it; without it the page cannot reach <code>127.0.0.1</code>.</li>
@@ -149,11 +86,9 @@ fi</code></pre></div>
       <div class="table-responsive"><table>
         <thead><tr><th>Situation</th><th>What happens</th></tr></thead>
         <tbody>
-          <tr><td>ZeroChat is already running on 6883</td><td>The script reuses it and prints its URL again.</td></tr>
-          <tr><td>The running server uses another day's token</td><td>The script stops it, starts it again with today's token and prints the new URL. Reload the page with it.</td></tr>
-          <tr><td>Another program is using 6883</td><td>The script exits with an error: <em>Port 6883 is in use by another program</em>.</td></tr>
-          <tr><td>The SSH connection drops</td><td>ZeroChat keeps running at home. Reconnect and reload the page. To stop it: <code>pkill -f -- '--keep-server --port 6883'</code>.</td></tr>
-          <tr><td>Tools fail with <em>403 Expired or invalid tool authorization</em></td><td>The tablet and home clocks differ by more than 15 s. Turn on automatic date and time on both.</td></tr>
+          <tr><td>The SSH connection drops</td><td>ZeroChat stops at home when sshd closes the session. Reconnect and reload the page: the daily token does not change.</td></tr>
+          <tr><td>On reconnect, ZeroChat does not start: <em>Address already in use</em></td><td>The one from the previous session is still running, because sshd has not noticed the drop yet or the session had no terminal. Wait for sshd to close it or stop it: <code>pkill -f -- '--port 6883'</code>.</td></tr>
+          <tr><td>Tools fail with <em>403 Expired or invalid tool authorization</em></td><td>The tablet and home clocks differ by more than 30 s. Turn on automatic date and time on both.</td></tr>
         </tbody>
       </table></div>
     </div>
