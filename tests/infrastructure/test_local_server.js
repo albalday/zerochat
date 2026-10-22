@@ -165,9 +165,19 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     const { McpClient: SignedMcpClient } = require('../../js/mcp.js');
     global.fetch = nativeFetch;
     const signedClient = new SignedMcpClient({ id: 'mcp_proxy', url: baseUrl, token: testToken });
+    const realDateNow = Date.now;
     try {
       assert.equal((await signedClient.initialize()).success, true);
       assert.equal((await signedClient.callTool('list_directory', { path: '.' }, { toolAuthorization: true })).success, true);
+      // Con el navegador en otro equipo, su reloj puede ir adelantado o atrasado respecto al del servidor.
+      for (const skewMs of [10_000, -10_000]) {
+        Date.now = () => realDateNow() + skewMs;
+        try {
+          assert.equal((await signedClient.callTool('list_directory', { path: '.' }, { toolAuthorization: true })).success, true, `Desfase de reloj ${skewMs} ms`);
+        } finally {
+          Date.now = realDateNow;
+        }
+      }
     } finally {
       signedClient.disconnect();
       global.fetch = signedFetch;

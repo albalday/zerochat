@@ -241,7 +241,9 @@
     async buildToolAuthorizationHeaders(targetUrl, body) {
       const credentials = this.toolAuthorization;
       if (!credentials) throw new Error('Local tool authorization is unavailable. Reconnect to ZeroChat.');
-      const expiresAt = Date.now() + credentials.ttlMs;
+      // El servidor acepta caducidades entre su hora y su hora + ttlMs: el centro tolera
+      // un desfase de reloj de ±ttlMs/2 (navegador en otro equipo, p. ej. por un túnel SSH).
+      const expiresAt = Date.now() + Math.floor(credentials.ttlMs / 2);
       const nonceBytes = new Uint8Array(16);
       crypto.getRandomValues(nonceBytes);
       const nonce = base64Url(nonceBytes);
