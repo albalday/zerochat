@@ -162,7 +162,7 @@
     const projectDirectory = mcpState.status === 'connected' ? String(mcpState.serverInfo?.cwd || '') : '';
 
     try {
-      const activeProfile = await resolveDep('ChatUIProfiles', './ui-profiles.js').loadProfileUnlocked(config.activeProfile?.id);
+      const activeProfile = await resolveDep('ChatProfileRepository', './profile-repository.js').loadUnlocked(config.activeProfile?.id);
       const loopResult = await getEngine().executeAgentTurnLoop({
         apiKey: activeProfile?.settings?.apiKey || '',
         chatHistory: State.get('messages'),

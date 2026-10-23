@@ -799,9 +799,7 @@ test('MCP - nombres inválidos, duplicados y demasiado largos fallan explícitam
 test('MCP - connectProxy registra las herramientas de los servicios externos en marcha que trae el primer latido', async () => {
   const originalFetch = global.fetch;
   const manager = new MCP.McpManager();
-  let startupNotices = 0;
   let heartbeats = 0;
-  manager.notifyStoppedExternalServices = () => { startupNotices += 1; };
   // La URL del latido depende de la página; aquí se sustituye su lectura por lo que publicaría.
   manager.readLiveState = async () => {
     heartbeats += 1;
@@ -851,10 +849,9 @@ test('MCP - connectProxy registra las herramientas de los servicios externos en 
       return { ok: true, status: 200, json: async () => ({}) };
     };
 
-    const connResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388, token: 'tok', notifyStartup: false });
+    const connResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388, token: 'tok' });
     assert.equal(connResult.success, true);
     assert.equal(heartbeats, 1);
-    assert.equal(startupNotices, 0);
     assert.deepEqual(ChatState.get('mcp').externalServers.map(server => server.id), ['sqlite']);
     assert.deepEqual(ChatState.get('mcp').externalTools.map(tool => tool.name), ['sqlite_query']);
 
@@ -866,7 +863,6 @@ test('MCP - connectProxy registra las herramientas de los servicios externos en 
     const reconnectResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388 });
     assert.equal(reconnectResult.success, true);
     assert.equal(heartbeats, 2);
-    assert.equal(startupNotices, 1);
     assert.ok(AgentCore.registry.getTool('sqlite_query'), 'sqlite_query debe seguir registrada tras reconectar');
 
     await manager.disconnectProxy();

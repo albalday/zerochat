@@ -107,8 +107,8 @@ test('ContextManager - Truncamiento y Poda de resultados gigantescos de herramie
 });
 
 test('ContextManager - usa metadatos explícitos y no heurísticas por nombre', () => {
-  assert.equal(ChatContextManager.getModelContextLimit('', '', 90112), 90112);
-  assert.equal(ChatContextManager.getModelContextLimit(), 1000000);
+  // Sin límite publicado, el presupuesto parte del general (1.000.000) sea cual sea el nombre del modelo.
+  assert.equal(ChatContextManager.calculateInputBudget({ model: 'gpt-4o-mini' }), 1000000 - 4096 - 100000);
 
   const budget = ChatContextManager.calculateInputBudget({
     totalContextLimit: 90112

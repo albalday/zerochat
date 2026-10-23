@@ -12,7 +12,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, Defaults) {
   'use strict';
 
-  const { resolveDep, createId, escapeHtml, EPHEMERAL_ID_PATTERN, readLaunchFragment } = Utils;
+  const { resolveDep, createId, escapeHtml, EPHEMERAL_ID_PATTERN, readLaunchFragment, showTimedStatus } = Utils;
   const { t } = I18n;
 
   const getProfiles = () => resolveDep('ChatProfileRepository', './profile-repository.js');
@@ -24,6 +24,7 @@
   const getExport = () => resolveDep('ChatExport', './export.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getUIBrowser = () => resolveDep('ChatUIBrowser', './ui-browser.js');
+  const getMCP = () => resolveDep('ChatMCP', './mcp.js');
   const getUIMcp = () => resolveDep('ChatUIMcp', './ui-mcp.js');
   const getState = () => resolveDep('ChatState', './state.js');
 
@@ -32,25 +33,15 @@
   // Elementos y callbacks de la aplicación, fijados en mount().
   let els = null;
   let options = {};
-  let cleanups = [];
+  const listeners = Utils.createListenerGroup();
+  const { listen } = listeners;
 
   const runtimeConfig = () => options.getRuntimeConfig();
   const selectedProfileId = () => els.profileSelectHelper.value;
   const getAdapter = () => getProviders().registry.get(els.settingApiType.value || 'openai');
   const isProfileLocked = () => els.profilesDialog.dataset.profileLocked === 'true';
 
-  function showProfileFeedback(message, type = 'success') {
-    const feedback = els.profileActionFeedback;
-    feedback.hidden = false;
-    feedback.className = `server-query-status status-${type}`;
-    feedback.textContent = message;
-    setTimeout(() => { feedback.hidden = true; }, 4000);
-  }
-
-  function listen(target, type, handler) {
-    target.addEventListener(type, handler);
-    cleanups.push(() => target.removeEventListener(type, handler));
-  }
+  const showProfileFeedback = (message, type) => showTimedStatus(els.profileActionFeedback, message, type);
 
   /** Muestra en el editor el perfil indicado: su id, nombre y descripción. */
   function populateProfileSelector(profileId) {
@@ -196,7 +187,7 @@
     fillProfileForm(profileData);
     syncProfileSaveState();
     try {
-      const profile = await loadProfileUnlocked(profileId);
+      const profile = await getProfiles().loadUnlocked(profileId);
       if (selectedProfileId() !== profileId) return;
       const apiKey = profile?.settings?.apiKey || '';
       keyInput.value = apiKey;
@@ -208,26 +199,53 @@
     syncProfileSaveState();
   }
 
+  /** Nombres en el idioma de la interfaz de los servicios MCP externos; su id si el servidor local no lo conoce. */
+  function serviceNames(ids) {
+    const servers = getState().get('mcp').externalServers;
+    const language = I18n.getLanguage();
+    return ids.map(id => getUIMcp().getServiceName(servers.find(server => server.id === id) || { id }, language));
+  }
+
+  /**
+   * Arranca los servicios MCP del perfil activo y Playwright MCP si es la herramienta de navegación.
+   * Devuelve { started, unavailable } con sus nombres y, en `browser`, el de Playwright MCP cuando lo
+   * pide Ajustes › Navegador y no el perfil, para no atribuírselo al avisar.
+   */
+  async function startProfileServers() {
+    const config = runtimeConfig();
+    const { started, unavailable } = await getMCP().manager.startProfileServers(config);
+    const bySettings = [...started, ...unavailable].includes('playwright') && !config.playwrightBrowser;
+    return {
+      started: serviceNames(started),
+      unavailable: serviceNames(unavailable),
+      browser: bySettings ? serviceNames(['playwright'])[0] : null
+    };
+  }
+
   /**
    * Activa un perfil y arranca sus servicios MCP externos y, si es la herramienta de navegación, Playwright MCP.
-   * Devuelve una promesa con { started, unavailable }, para que cada llamada decida cómo avisar.
+   * Devuelve una promesa con { started, unavailable, browser }, para que cada llamada decida cómo avisar.
    */
   function activateConnectionProfile(profileId, activationOptions) {
     getWebLLM().adapter.disposeActiveEngine().catch(() => {});
     getConfig().activateProfile(profileId, activationOptions);
     options.loadCachedModels();
     options.resetTelemetryDisplay();
-    return getUIMcp().startProfileServers(runtimeConfig());
+    return startProfileServers();
   }
 
   /**
    * Avisa de los servicios MCP que ha arrancado el perfil, que siguen en marcha hasta que el usuario
-   * los detenga, y de los que no ha podido arrancar.
+   * los detenga, y de los que no ha podido arrancar; Playwright MCP pedido por Ajustes › Navegador
+   * se avisa aparte.
    */
-  async function reportProfileServers({ started, unavailable }) {
+  async function reportProfileServers({ started, unavailable, browser }) {
+    const ofProfile = names => names.filter(name => name !== browser);
     const lines = [];
-    if (started.length > 0) lines.push(t('profile_mcp_started', { names: started.join(', ') }));
-    if (unavailable.length > 0) lines.push(t('profile_mcp_unavailable', { names: unavailable.join(', ') }));
+    if (ofProfile(started).length > 0) lines.push(t('profile_mcp_started', { names: ofProfile(started).join(', ') }));
+    if (ofProfile(unavailable).length > 0) lines.push(t('profile_mcp_unavailable', { names: ofProfile(unavailable).join(', ') }));
+    if (browser && started.includes(browser)) lines.push(t('browser_mcp_started', { name: browser }));
+    if (browser && unavailable.includes(browser)) lines.push(t('browser_mcp_unavailable', { name: browser }));
     if (lines.length === 0) return;
     await getDialogs().alert(lines.join('\n\n'), { type: unavailable.length > 0 ? 'warning' : 'info' });
   }
@@ -240,7 +258,7 @@
 
   /** Arranca los servicios MCP del perfil activo al conectar con el servidor local. */
   function startActiveProfileServers() {
-    return getUIMcp().startProfileServers(runtimeConfig()).then(reportProfileServers);
+    return startProfileServers().then(reportProfileServers);
   }
 
   /** Menú del perfil activo: cada perfil con inspeccionar, editar y, salvo Espejo, borrar. */
@@ -363,7 +381,7 @@
         ${profileChapter('profile-chapter-connection', 'profile-summary-connection', 'profile_chapter_connection', `
             <div class="form-field"><label for="setting-api-type"><strong data-i18n="field_api_type">Tipo de Interfaz / Protocolo</strong></label><select id="setting-api-type" class="combobox-select-helper setting-api-type"><option value="openai" selected>OpenAI / LM Studio / LocalAI / vLLM (/v1)</option><option value="ollama">Ollama (/api/tags)</option><option value="openrouter">OpenRouter (/api/v1)</option><option value="claude">Anthropic Claude (/v1)</option><option value="gemini">Google Gemini (OpenAI compat)</option><option value="webllm">WebLLM (WebGPU local)</option><option value="mirror" data-i18n="profile_mirror_type">Espejo (sin red)</option></select></div>
             <div class="form-field"><label for="setting-api-url"><strong data-i18n="field_api_url">URL del Servidor / Endpoint de Chat</strong></label><div class="input-with-button-wrapper"><input type="url" id="setting-api-url" placeholder="http://localhost:1234/v1" required><button type="button" id="btn-query-server" class="btn-query-server" data-i18n-title="btn_query_title" title="Consultar modelos disponibles y capacidades de la API en el servidor"><svg class="ui-icon query-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg><span class="query-btn-text" data-i18n="btn_query_text">Query</span></button></div><div class="webllm-info-bar"><span id="webllm-local-hint" class="label-hint webllm-local-hint" hidden data-i18n="webllm_local_hint">Ejecución local en este navegador.</span><a id="webllm-help-link" class="webllm-help-link" href="help/webllm.html" target="_blank" rel="noopener noreferrer" hidden><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg><span data-i18n="webllm_help_link">Guía de configuración WebLLM</span><svg class="ui-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-external-link"></use></svg></a></div><div id="server-query-status" class="server-query-status" hidden></div><span id="profile-save-query-hint" class="label-hint" data-i18n="profile_save_changes_required">Realiza algún cambio en el perfil para habilitar el guardado.</span></div>
-            <div class="form-field api-key-field"><label for="setting-api-key"><strong data-i18n="field_api_key">Clave de API (API Key)</strong><span class="label-hint"><span id="api-key-hint-text" data-i18n="field_api_key_hint">Opcional si usas un servidor local (LM Studio / Ollama / LocalAI).</span> <a id="api-key-free-help-link" href="" target="_blank" rel="noopener noreferrer" data-i18n="field_api_key_free_help" hidden>Cómo obtener una API key gratuita</a></span></label><div class="input-password-wrapper"><input type="password" id="setting-api-key" placeholder="sk-..." autocomplete="off"><button type="button" id="btn-toggle-key" class="btn-toggle-visibility" data-i18n-title="btn_toggle_key_title" title="Mostrar/Ocultar clave"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-eye"></use></svg></button></div></div>
+            <div class="form-field api-key-field"><label for="setting-api-key"><strong data-i18n="field_api_key">Clave de API (API Key)</strong><span class="label-hint"><span id="api-key-hint-text" data-i18n="field_api_key_hint">Opcional si usas un servidor local (LM Studio / Ollama / LocalAI).</span> <a id="api-key-free-help-link" href="" target="_blank" rel="noopener noreferrer" data-i18n="field_api_key_free_help" hidden>Cómo obtener una API key gratuita</a></span></label><div class="input-password-wrapper"><input type="password" id="setting-api-key" placeholder="sk-..." autocomplete="new-password"><button type="button" id="btn-toggle-key" class="btn-toggle-visibility" data-i18n-title="btn_toggle_key_title" title="Mostrar/Ocultar clave"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-eye"></use></svg></button></div></div>
             <div class="form-field"><label for="setting-model"><strong data-i18n="field_model">Nombre del Modelo</strong><span class="label-hint" data-i18n="field_model_hint">Selecciona de la lista del servidor o escribe cualquier nombre personalizado.</span></label><div class="combobox-wrapper"><input type="text" id="setting-model" list="model-datalist" data-i18n-placeholder="field_model_placeholder" placeholder="Escribe o pulsa Query para consultar modelos..." autocomplete="off"><select id="model-select-helper" class="combobox-select-helper" title="Seleccionar modelo de la lista"><option value="" disabled selected data-i18n="model_select_default">▾ Elegir modelo detectado...</option></select><datalist id="model-datalist"></datalist></div></div>
         `)}
         ${profileChapter('webllm-params-panel', 'profile-summary-webllm', 'webllm_params_title', `
@@ -497,7 +515,7 @@
 
   async function handleInspectProfile(profileId) {
     try {
-      const profile = await loadProfileUnlocked(profileId);
+      const profile = await getProfiles().loadUnlocked(profileId);
       if (!profile) return;
       closeProfileMenu();
       await options.inspectProfile(profile);
@@ -528,15 +546,6 @@
     } catch (error) {
       showProfileFeedback(t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
     }
-  }
-
-  /** Perfil con su API key descifrada; pide la contraseña si está cifrada. Los fallos se propagan. */
-  async function loadProfileUnlocked(profileId) {
-    if (!profileId) return null;
-    return getProfileBackup().withPassword(
-      keyMaterial => getProfiles().load(profileId, keyMaterial),
-      () => requestEncryptionPassword(t('crypto_current_password_prompt'))
-    );
   }
 
   /**
@@ -573,7 +582,7 @@
         const Backup = getProfileBackup();
         const imported = await Backup.withPassword(
           keyMaterial => Backup.decryptProfiles(data.payload, keyMaterial),
-          () => requestEncryptionPassword(t('crypto_current_password_prompt'))
+          requestCurrentPassword
         );
         if (!Array.isArray(imported) || imported.length === 0) throw new Error('No valid profiles found in payload');
         if (!await getDialogs().confirm(t('confirm_auto_import_profiles', { count: imported.length }))) {
@@ -609,6 +618,10 @@
     });
   }
 
+  function requestCurrentPassword() {
+    return requestEncryptionPassword(t('crypto_current_password_prompt'));
+  }
+
   /** Clave actual de las API keys: la guardada en la sesión o la de la contraseña; undefined si se cancela. */
   async function resolveCurrentKeyForRecipher() {
     const Profiles = getProfiles();
@@ -620,7 +633,7 @@
     } catch (error) {
       if (error?.code !== 'PASSWORD_REQUIRED') throw error;
     }
-    const password = await requestEncryptionPassword(t('crypto_current_password_prompt'));
+    const password = await requestCurrentPassword();
     if (password === null) return undefined;
     const keyMaterial = await Backup.keyMaterialFromPassword(password);
     await Profiles.verifyApiKeyMaterial(keyMaterial);
@@ -867,10 +880,10 @@
    * loadCachedModels, resetTelemetryDisplay, closeSettingsModal e inspectProfile.
    */
   function mount({ elements, ...callbacks }) {
-    cleanups.forEach(cleanup => cleanup());
-    cleanups = [];
+    listeners.dispose();
     els = elements;
     options = callbacks;
+    getProfiles().setPasswordPrompt(requestCurrentPassword);
     bindEditor();
     bindMenu();
   }
@@ -886,7 +899,6 @@
     startActiveProfileServers,
     handleEncryptionPassword,
     handleUseDefaultEncryptionKey,
-    loadProfileUnlocked,
     startImportMode
   };
 }));

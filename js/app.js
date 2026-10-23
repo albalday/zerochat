@@ -27,6 +27,7 @@
     ChatGenerationController: GenerationController,
     ChatUIReasoning: UIReasoning,
     ChatUIInspector: UIInspector,
+    ChatModelCatalog: ModelCatalog,
     ChatUISidebar: UISidebar,
     ChatUISettings: UISettings,
     ChatUIShell: UIShell,
@@ -357,7 +358,7 @@
     const config = getRuntimeConfig();
     const publishedLimit = config.apiType === 'webllm'
       ? Number(config.webllmConfig.context_window_size) || Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE
-      : UIInspector.getModelContextLimit(config.model);
+      : ModelCatalog.getContextLimit(config.model);
     if (!publishedLimit || config.modelContextLimit === publishedLimit) return;
     Config.updateRuntime({ modelContextLimit: publishedLimit });
   }
@@ -831,8 +832,7 @@
       host: backendSession?.host || config.mcpHost,
       port: backendSession?.port || config.mcpPort,
       token,
-      silentOnFailure: !token,
-      notifyStartup: false
+      silentOnFailure: !token
     }).catch(error => {
       console.warn('[App] Could not connect to the local server on startup:', error);
       return { success: false };
@@ -895,7 +895,7 @@
         const connection = await startupMcpConnection;
         if (!connection.success) return;
         await UIProfiles.startActiveProfileServers();
-        MCP.manager.notifyStoppedExternalServices(State.get('mcp').externalServers);
+        await UIMcp.offerStoppedExternalServices(State.get('mcp').externalServers);
       }).catch(error => console.warn('[App] Could not check MCP services on startup:', error));
     }
 

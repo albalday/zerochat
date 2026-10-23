@@ -151,6 +151,21 @@
     return profile;
   }
 
+  // La interfaz de perfiles fija al montarse cómo pedir la contraseña de cifrado actual; sin ella,
+  // cargar un perfil con la API key cifrada por contraseña falla con PASSWORD_REQUIRED.
+  let requestPassword = null;
+
+  /** `request()` pide la contraseña de cifrado actual y resuelve null si el usuario cancela. */
+  function setPasswordPrompt(request) {
+    requestPassword = request;
+  }
+
+  /** Perfil con su API key descifrada; pide la contraseña si está cifrada con ella. Los fallos se propagan. */
+  async function loadUnlocked(id) {
+    if (!id) return null;
+    return Backup.withPassword(keyMaterial => load(id, keyMaterial), requestPassword);
+  }
+
   function findByName(name) {
     const cleanName = String(name || '').trim();
     return list().find(profile => profile.name === cleanName) || null;
@@ -247,6 +262,6 @@
 
   return {
     STORAGE_KEY, SCHEMA_VERSION, PROFILE_FIELDS, MAX_PROFILE_MCP_SERVERS, STORAGE_PROFILE_FIELDS, READONLY_PROFILE_ID, MIRROR_PROFILE: clone(MIRROR_PROFILE), NEW_PROFILE_SETTINGS: clone(NEW_PROFILE_SETTINGS),
-    initialize, list, get, load, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported
+    initialize, list, get, load, setPasswordPrompt, loadUnlocked, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported
   };
 }));

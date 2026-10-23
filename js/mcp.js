@@ -69,6 +69,7 @@
   const getCommandCard = () => resolveDep('ChatCommandCard', './command-card.js');
   const getToolCards = () => resolveDep('ChatToolCards', './tool-cards.js');
   const getSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
+  const getConfig = () => resolveDep('ChatConfig', './config-store.js');
 
   const proxyEndpoint = (host, port) => `http://${host}:${port}/sse`;
 
@@ -688,6 +689,21 @@
     return samePage ? '/zerochat/heartbeat' : `http://${host}:${port}/zerochat/heartbeat`;
   }
 
+  /** Cambia en ChatState los campos de un servicio externo; su tarjeta en Ajustes › MCP los pinta. */
+  function updateExternalServerState(serverId, changes) {
+    getState().set('mcp', current => ({
+      ...current,
+      externalServers: current.externalServers.map(server => (server.id === serverId ? { ...server, ...changes } : server))
+    }));
+  }
+
+  /** El Playwright MCP en marcha usa otro navegador del que exige el perfil, o no muestra la ventana que pide. */
+  function usesOtherBrowser(server, required) {
+    return server.id === 'playwright' && Boolean(required) && server.status === 'running'
+      && (server.browser?.mode !== required.mode || server.browser.engine !== required.engine || server.browser.userBrowser !== required.userBrowser
+        || (required.headless === false && server.browser.headless !== false));
+  }
+
   /**
    * Conexión con el servidor local: sus herramientas, las de los servicios MCP externos que gestiona,
    * los comandos en segundo plano y el directorio del proyecto.
@@ -697,7 +713,6 @@
       this.clients = new Map();
       this.sessionToken = null;
       this.healthCheckPromise = null;
-      this.externalStartupNoticeShown = false;
       this.heartbeatTarget = null;
       this.heartbeatTimer = null;
       this.heartbeatCheckInFlight = false;
@@ -817,7 +832,7 @@
      * silentOnFailure (la comprobación del arranque) un servidor apagado deja el estado en
      * 'disconnected' en lugar de 'error'.
      */
-    async connectProxy({ host, port, timeoutMs = 1500, silentOnFailure = false, token = null, notifyStartup = true }) {
+    async connectProxy({ host, port, timeoutMs = 1500, silentOnFailure = false, token = null }) {
       if (token) this.setSessionToken(token);
       const endpoint = proxyEndpoint(host, port);
       const State = getState();
@@ -861,17 +876,7 @@
       this.liveServers = null;
       this.liveRunning = null;
       if (this.sessionToken) await this.startHeartbeat(host, port);
-      if (notifyStartup) this.notifyStoppedExternalServices(State.get('mcp').externalServers);
       return { success: true, available: true, probe, tools };
-    }
-
-    notifyStoppedExternalServices(servers) {
-      if (this.externalStartupNoticeShown || !Array.isArray(servers)) return false;
-      if (!servers.some(server => server?.enabled === true && server?.status === 'stopped')) return false;
-      this.externalStartupNoticeShown = true;
-      resolveDep('ChatUIMcp', './ui-mcp.js').offerStoppedExternalServices(servers)
-        .catch(error => console.warn('[MCP] Could not restore previous MCP services:', error));
-      return true;
     }
 
     /**
@@ -1110,6 +1115,89 @@
       const result = await this.requestExternalControl('zerochat/external/servers/configure', { serverId, options });
       await this.applyLiveState(result);
       return result;
+    }
+
+    /**
+     * Inicia o detiene un servicio externo y refleja el progreso en ChatState. Playwright MCP arranca
+     * con el navegador que exija el perfil activo, y la autorización OAuth que pida el arranque se abre
+     * una vez en otra pestaña. Devuelve true si la acción terminó correctamente.
+     */
+    async runExternalServerAction(serverId, action, { remember = true } = {}) {
+      updateExternalServerState(serverId, { status: action === 'start' ? 'starting' : 'stopped', error: null, startWait: null, oauthUrl: null });
+      let didAutoOpenOAuth = false;
+      const reportStartWait = (attempt, total, status = 'starting', serverData = null) => {
+        const oauthUrl = serverData?.oauthUrl || null;
+        if (oauthUrl && !didAutoOpenOAuth) {
+          didAutoOpenOAuth = true;
+          window.open(oauthUrl, '_blank');
+        }
+        updateExternalServerState(serverId, { status, ...(oauthUrl ? { oauthUrl } : {}), error: null, startWait: { attempt, total } });
+      };
+      try {
+        const browser = serverId === 'playwright' ? getConfig().getActive().playwrightBrowser : null;
+        if (action === 'start') await this.startExternalServer(serverId, reportStartWait, { remember, ...(browser ? { browser } : {}) });
+        else await this.stopExternalServer(serverId);
+        return true;
+      } catch (error) {
+        const stillPending = action === 'start' && (error.code === 'EXTERNAL_START_WAIT_TIMEOUT' ||
+          (error.code === 'EXTERNAL_START_STATUS_UNAVAILABLE' && !error.externalServer));
+        if (!error.code?.startsWith('EXTERNAL_START_')) console.error(`[MCP] Error trying to ${action} external server:`, error);
+        updateExternalServerState(serverId, {
+          status: error.externalServer?.status || (stillPending ? 'starting' : (action === 'start' ? 'stopped' : 'running')),
+          startWait: null,
+          error: I18n.t(stillPending ? 'mcp_external_start_wait_timeout' : 'mcp_external_action_error'),
+          ...(error.externalServer?.oauthUrl ? { oauthUrl: error.externalServer.oauthUrl } : {})
+        });
+        return false;
+      }
+    }
+
+    /**
+     * Ejecuta `action` con el servicio detenido y lo vuelve a arrancar si estaba en marcha, sin cambiar
+     * si queda recordado para la siguiente sesión (detenerlo lo desmarca). Devuelve false si no se pudo
+     * detener o volver a arrancar.
+     */
+    async withExternalServerStopped(serverId, action = async () => {}) {
+      const server = getState().get('mcp').externalServers.find(item => item.id === serverId);
+      const wasRunning = server?.status === 'running';
+      const remember = server?.enabled === true;
+      if (wasRunning && !await this.runExternalServerAction(serverId, 'stop')) return false;
+      let restarted = true;
+      try {
+        await action();
+      } finally {
+        if (wasRunning) restarted = await this.runExternalServerAction(serverId, 'start', { remember });
+      }
+      return restarted;
+    }
+
+    /**
+     * Arranca los servicios externos de un perfil (los suyos y Playwright MCP si es la herramienta de
+     * navegación activa) que no estén ya en marcha, sin parar los demás ni guardarlos como activos para
+     * la siguiente sesión. Si el perfil exige otro navegador del que usa Playwright MCP, o su ventana
+     * visible, lo reinicia. Devuelve { started, unavailable }: los ids de los que ha arrancado y de los
+     * que no están configurados en el servidor local o no han arrancado. Sin conexión no arranca nada.
+     */
+    async startProfileServers(appConfig) {
+      const State = getState();
+      const started = [];
+      const unavailable = [];
+      if (State.get('mcp').status !== 'connected') return { started, unavailable };
+      const ids = getAgentCore().activeBrowserTool(appConfig) === 'playwright' ? [...appConfig.mcpServers, 'playwright'] : appConfig.mcpServers;
+      for (const id of ids) {
+        const server = State.get('mcp').externalServers.find(item => item.id === id);
+        if (!server) {
+          unavailable.push(id);
+          continue;
+        }
+        if (usesOtherBrowser(server, appConfig.playwrightBrowser)) {
+          (await this.withExternalServerStopped(id) ? started : unavailable).push(id);
+          continue;
+        }
+        if (['running', 'starting', 'installing'].includes(server.status)) continue;
+        (await this.runExternalServerAction(id, 'start', { remember: false }) ? started : unavailable).push(id);
+      }
+      return { started, unavailable };
     }
   }
 

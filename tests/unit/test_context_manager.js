@@ -1,8 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const UIInspector = require('../../js/ui-inspector.js');
+const ChatContextManager = require('../../js/context-manager.js');
 
-test('UIInspector - getModelContextLimit reconoce los formatos de contexto sin recortar por max_tokens', () => {
+test('ContextManager - getModelContextLimit reconoce los formatos de contexto sin recortar por max_tokens', () => {
   const catalog = [
     { id: 'model-openrouter', details: { context_length: 128000 } },
     { id: 'model-vllm', details: { max_model_len: 65536 } },
@@ -19,11 +19,11 @@ test('UIInspector - getModelContextLimit reconoce los formatos de contexto sin r
     ambos: 128000, 'con-max-tokens': 131072, 'solo-max-tokens': 8192, 'Llama-3.2-1B-Instruct-q4f16_1-MLC': 4096, 'Other-Model-MLC': 4096, unknown: null
   };
   for (const [model, limit] of Object.entries(expected)) {
-    assert.equal(UIInspector.getModelContextLimit(model, catalog), limit, model);
+    assert.equal(ChatContextManager.getModelContextLimit(model, catalog), limit, model);
   }
 });
 
-test('UIInspector - findModelInCatalog localiza el modelo por id, sin prefijo models/ ni :latest, por ruta y sin distinguir mayúsculas', () => {
+test('ContextManager - findModelInCatalog localiza el modelo por id, sin prefijo models/ ni :latest, por ruta y sin distinguir mayúsculas', () => {
   const catalog = [{ id: 'google/gemma-4-26b-a4b-qat' }, { id: 'llama3.2:latest' }, { id: 'models/gemini-2.5-flash' }, { id: 'Qwen/Qwen2.5-Coder-7B' }, 'texto-plano'];
   const rows = [
     ['llama3.2', 'llama3.2:latest'],
@@ -36,7 +36,7 @@ test('UIInspector - findModelInCatalog localiza el modelo por id, sin prefijo mo
     ['', null]
   ];
   for (const [requested, expected] of rows) {
-    const found = UIInspector.findModelInCatalog(catalog, requested);
+    const found = ChatContextManager.findModelInCatalog(catalog, requested);
     assert.equal(found === null ? null : (found.id || found), expected, requested);
   }
 });

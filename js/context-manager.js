@@ -19,13 +19,52 @@
 
   // Only a fallback. The authoritative value must come from the provider.
   const DEFAULT_CONTEXT_LIMIT = 1000000;
+  // Contexto que se asume para un modelo WebLLM sin dato propio.
+  const WEBLLM_DEFAULT_CONTEXT = 4096;
+
+  /** Id de una entrada del catálogo de modelos: la cadena misma o su id o nombre. */
+  const catalogModelId = model => (typeof model === 'string' ? model : (model?.id || model?.name || '')).trim();
+
+  /** Entrada del catálogo para un modelo: por id exacto, sin `models/` ni `:latest`, o por sufijo de ruta. */
+  function findModelInCatalog(models, targetModel) {
+    const target = String(targetModel || '').trim().toLowerCase();
+    if (!target) return null;
+    const idOf = model => catalogModelId(model).toLowerCase();
+    const base = id => id.replace(/^models\//, '').replace(/:latest$/, '');
+    return models.find(model => idOf(model) === target)
+      || models.find(model => base(idOf(model)) === base(target))
+      || models.find(model => idOf(model).endsWith(`/${target}`) || target.endsWith(`/${idOf(model)}`))
+      || null;
+  }
 
   /**
-   * Obtiene el límite de contexto publicado por el proveedor o el fallback general.
+   * Contexto de un modelo según su entrada del catálogo del proveedor: primero el cargado en el
+   * servidor, luego el nominal y por último los tokens máximos declarados; null si no lo publica.
    */
-  function getModelContextLimit(model = '', providerType = 'openai', configuredLimit) {
-    const limit = Number(configuredLimit);
-    return Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : DEFAULT_CONTEXT_LIMIT;
+  function getModelContextLimit(model, catalog) {
+    const selected = String(model || '').trim();
+    if (!selected) return null;
+    const entry = findModelInCatalog(catalog, selected);
+    const details = entry?.details || entry || {};
+    const meta = details.meta || entry?.meta || {};
+    const smallest = values => {
+      const valid = values.map(Number).filter(value => Number.isFinite(value) && value > 0);
+      return valid.length ? Math.floor(Math.min(...valid)) : null;
+    };
+
+    const active = smallest([details.loaded_context_length, meta.n_ctx]);
+    if (active) return active;
+    const nominal = smallest([
+      details.max_context_length,
+      meta.n_ctx_train,
+      details.context_length ?? entry?.context_length,
+      details.context_window ?? entry?.context_window,
+      details.max_model_len ?? entry?.max_model_len
+    ]);
+    if (nominal) return nominal;
+    const declared = smallest([details.max_context_tokens ?? details.max_tokens]);
+    if (declared) return declared;
+    return details.webllmCache || selected.includes('-MLC') ? WEBLLM_DEFAULT_CONTEXT : null;
   }
 
   /**
@@ -36,7 +75,7 @@
       return options.maxInputTokens;
     }
 
-    const totalLimit = options.totalContextLimit || getModelContextLimit(options.model, options.providerType);
+    const totalLimit = options.totalContextLimit || DEFAULT_CONTEXT_LIMIT;
     const maxOutput = options.maxOutputTokens || 4096;
     const safetyMargin = Math.ceil(totalLimit * (options.safetyMarginRatio || 0.10));
 
@@ -594,7 +633,7 @@
   function getContextDiagnostics(messages = [], options = {}) {
     const model = options.model || '';
     const providerType = options.providerType || 'openai';
-    const totalLimit = options.totalContextLimit || getModelContextLimit(model, providerType);
+    const totalLimit = options.totalContextLimit || DEFAULT_CONTEXT_LIMIT;
     const budget = calculateInputBudget({ ...options, totalContextLimit: totalLimit });
 
     const isEstimated = options.usedTokens === undefined || options.usedTokens === null;
@@ -618,6 +657,9 @@
   }
 
   return {
+    WEBLLM_DEFAULT_CONTEXT,
+    catalogModelId,
+    findModelInCatalog,
     getModelContextLimit,
     calculateInputBudget,
     estimateTextTokens,

@@ -6,14 +6,14 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'), require('./i18n.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
   } else {
-    root.ChatUIComposer = factory(root.ChatUtils, root.ChatI18n);
+    root.ChatUIComposer = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
   }
-}(typeof self !== 'undefined' ? self : this, function (Utils, I18n) {
+}(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
-  const { resolveDep, formatBytes } = Utils;
+  const { resolveDep, formatBytes, setTrustedHtml } = Utils;
   const { t } = I18n;
 
   const getAttachments = () => resolveDep('ChatAttachments', './attachments.js');
@@ -21,7 +21,8 @@
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getGenerationStatus = () => resolveDep('ChatUIGenerationStatus', './ui-generation-status.js');
 
-  let activeCleanupFns = [];
+  const listeners = Utils.createListenerGroup();
+  const { listen } = listeners;
 
   // field-sizing:content ajusta la altura en CSS; esto cubre los navegadores que aún no lo admiten.
   function autoResizeTextarea(elements) {
@@ -42,8 +43,47 @@
     elements.userInput.focus();
   }
 
+  /** Chip de un adjunto; su botón de quitar lleva el índice que lee el listener delegado de mount(). */
+  function createFileChip(file, index) {
+    const chip = document.createElement('div');
+    chip.className = 'file-chip';
+
+    // Los SVG proceden exclusivamente de Icons.
+    const icon = document.createElement('span');
+    icon.className = 'file-chip-icon';
+    setTrustedHtml(icon, Icons.get(file.type === 'image' ? 'image' : 'file-text', { size: 14 }));
+
+    const name = document.createElement('span');
+    name.className = 'file-chip-name';
+    name.textContent = file.name;
+    name.title = file.name;
+
+    const size = document.createElement('span');
+    size.className = 'file-chip-size';
+    size.textContent = `(${formatBytes(file.size)})`;
+
+    const removeButton = document.createElement('button');
+    removeButton.type = 'button';
+    removeButton.className = 'file-chip-remove';
+    removeButton.dataset.index = String(index);
+    removeButton.title = t('btn_delete');
+    removeButton.setAttribute('aria-label', t('btn_delete'));
+    setTrustedHtml(removeButton, Icons.get('close', { size: 12 }));
+
+    chip.append(icon, name, size, removeButton);
+    return chip;
+  }
+
   function renderAttachedFiles(elements) {
-    getAttachments().renderChips(elements.attachmentsContainer, () => autoResizeTextarea(elements));
+    const files = getAttachments().getFiles();
+    elements.attachmentsContainer.replaceChildren(...files.map(createFileChip));
+    elements.attachmentsContainer.hidden = files.length === 0;
+  }
+
+  function removeAttachedFile(elements, index) {
+    getAttachments().removeFileAt(index);
+    renderAttachedFiles(elements);
+    autoResizeTextarea(elements);
   }
 
   function clearAttachedFiles(elements) {
@@ -88,13 +128,8 @@
     if (!isGenerating) getGenerationStatus().clearStatus(elements.generationStatus);
   }
 
-  function listen(target, type, handler) {
-    target.addEventListener(type, handler);
-    activeCleanupFns.push(() => target.removeEventListener(type, handler));
-  }
-
   function mount(elements, { onSendMessage, onStopGeneration, getLastPrompt }) {
-    dispose();
+    listeners.dispose();
     const { chatForm, userInput } = elements;
 
     listen(chatForm, 'submit', event => {
@@ -129,16 +164,15 @@
     listen(userInput, 'input', () => autoResizeTextarea(elements));
     listen(userInput, 'paste', event => handlePasteEvent(event, elements));
 
+    listen(elements.attachmentsContainer, 'click', event => {
+      const removeButton = event.target.closest('.file-chip-remove');
+      if (removeButton) removeAttachedFile(elements, Number(removeButton.dataset.index));
+    });
     listen(elements.btnStopStream, 'click', () => onStopGeneration());
     listen(elements.btnAttachFile, 'click', () => elements.fileInput.click());
     listen(elements.fileInput, 'change', event => {
       if (event.target.files.length) processFiles(elements, Array.from(event.target.files));
     });
-  }
-
-  function dispose() {
-    activeCleanupFns.forEach(fn => fn());
-    activeCleanupFns = [];
   }
 
   return {

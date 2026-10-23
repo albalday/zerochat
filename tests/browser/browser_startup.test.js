@@ -223,8 +223,7 @@ for (const outcome of ['later', 'reload', 'none', 'offline']) {
       await page.route('**/js/app.js', async route => {
         const source = fs.readFileSync(path.resolve(__dirname, '../../js/app.js'), 'utf8');
         await route.fulfill({ contentType: 'application/javascript', body: `
-          window.ChatMCP.manager.connectProxy = async options => {
-            if (options.notifyStartup !== false) throw new Error('MCP notice must be deferred');
+          window.ChatMCP.manager.connectProxy = async () => {
             window.ChatState.set('mcp', { status: 'connected', externalServers: [
               { id: 'memory', enabled: true, status: 'stopped' }
             ] });

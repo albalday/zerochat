@@ -134,7 +134,7 @@
 
     let settings;
     try {
-      const profile = await context.services.profilesUI.loadProfileUnlocked(match.id);
+      const profile = await context.services.profiles.loadUnlocked(match.id);
       if (!profile) throw new Error('the profile no longer exists.');
       settings = profile.settings || {};
     } catch (error) {

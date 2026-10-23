@@ -221,7 +221,6 @@
     const storage = getRagStorage();
     if (!branchId) throw new Error('A target branch is required.');
     const result = { total: queue.length, processed: 0, replaced: 0, skipped: 0, cancelled: 0, failed: 0, documents: [], errors: [] };
-    const maxFileSize = Number(options.maxFileSize) || MAX_DOCUMENT_SIZE;
     const isAborted = () => options.signal?.aborted === true;
     let rememberedDuplicatePolicy = null;
     const processedInSession = new Map();
@@ -259,8 +258,8 @@
       const fileType = detectFileType(file);
 
       try {
-        if (file.size > maxFileSize) {
-          throw new Error(`The file exceeds the maximum allowed size (${Math.round(maxFileSize / 1024 / 1024)} MB).`);
+        if (file.size > MAX_DOCUMENT_SIZE) {
+          throw new Error(`The file exceeds the maximum allowed size (${Math.round(MAX_DOCUMENT_SIZE / 1024 / 1024)} MB).`);
         }
         if (!fileType) throw new Error('The file does not seem to contain readable text.');
 

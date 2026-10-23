@@ -181,8 +181,10 @@ test('delegate_task - un perfil «Subagente» da al subagente su propio modelo',
     name: ' subAGENTE ',
     settings: { apiUrl: 'http://sub/v1', apiType: 'openai', apiKey: 'sub-key', model: 'sub-model', temperature: '0.2', reasoningEffort: 'low', contextLimitOverride: 32000 }
   };
-  services.profiles = { list: () => [{ id: 'profile:Main', name: 'Main', settings: {} }, { id: profile.id, name: profile.name, settings: {} }] };
-  services.profilesUI = { loadProfileUnlocked: async id => { loaded.push(id); return structuredClone(profile); } };
+  services.profiles = {
+    list: () => [{ id: 'profile:Main', name: 'Main', settings: {} }, { id: profile.id, name: profile.name, settings: {} }],
+    loadUnlocked: async id => { loaded.push(id); return structuredClone(profile); }
+  };
   services.engine = { createHistorySummarizer: options => { summarizers.push(options); return async () => 'summary'; } };
   const requests = [];
   stubApi(t, async params => { requests.push(params); return { accumulatedText: 'Informe', toolCalls: [] }; });
@@ -210,19 +212,18 @@ test('delegate_task - sin perfil «Subagente» usa el modelo principal; uno ileg
   stubApi(t, async params => { requests.push(params); return { accumulatedText: 'Informe', toolCalls: [] }; });
   const mainContext = { ...context, apiUrl: 'http://main/v1', apiType: 'openai', apiKey: 'main-key', model: 'main-model' };
 
-  services.profiles = { list: () => [{ id: 'profile:Main', name: 'Main', settings: {} }] };
-  services.profilesUI = { loadProfileUnlocked: async () => assert.fail('No debe cargar perfiles') };
+  services.profiles = { list: () => [{ id: 'profile:Main', name: 'Main', settings: {} }], loadUnlocked: async () => assert.fail('No debe cargar perfiles') };
   assert.equal((await delegateTask.execute({ task: 'Investigate' }, mainContext)).success, true);
   assert.equal(requests[0].model, 'main-model');
   assert.equal(requests[0].apiKey, 'main-key');
 
-  services.profiles = { list: () => [{ id: 'profile:Subagent', name: 'Subagent', settings: {} }] };
-  services.profilesUI = { loadProfileUnlocked: async () => { throw new Error('Password required'); } };
+  const subagentList = () => [{ id: 'profile:Subagent', name: 'Subagent', settings: {} }];
+  services.profiles = { list: subagentList, loadUnlocked: async () => { throw new Error('Password required'); } };
   const failed = await delegateTask.execute({ task: 'Investigate' }, mainContext);
   assert.equal(failed.success, false);
   assert.match(failed.error, /"Subagent" profile could not be loaded: Password required/);
 
-  services.profilesUI = { loadProfileUnlocked: async () => ({ settings: { apiUrl: 'http://sub/v1', apiType: 'openai', model: '' } }) };
+  services.profiles = { list: subagentList, loadUnlocked: async () => ({ settings: { apiUrl: 'http://sub/v1', apiType: 'openai', model: '' } }) };
   assert.match((await delegateTask.execute({ task: 'Investigate' }, mainContext)).error, /"Subagent" profile is incomplete: missing model\./);
 
   services.profiles = { list: () => { throw new Error('corrupt storage'); } };

@@ -114,6 +114,14 @@ describe('Browser - documents', () => {
       ]);
       assert.match(payload.displayText, /\[📄 informe\.docx, 📄 ventas\.xlsx, 📄 charla\.odp\]$/);
       assert.deepEqual(payload.vendors, ['js/vendor/fflate.browser.js', 'js/vendor/mammoth.browser.js', 'js/vendor/orama.browser.js']);
+
+      // Quitar un chip lo retira de los adjuntos; sin adjuntos, el contenedor se oculta.
+      await page.locator('.file-chip-remove').nth(1).click();
+      assert.deepEqual(await page.locator('.file-chip-name').allTextContents(), ['informe.docx', 'charla.odp']);
+      await page.locator('.file-chip-remove').first().click();
+      await page.locator('.file-chip-remove').first().click();
+      assert.equal(await page.evaluate(() => ChatAttachments.getFiles().length), 0);
+      assert.equal(await page.locator('#attachments-container').isHidden(), true);
       assert.deepEqual(errors, []);
     });
   });
@@ -224,7 +232,7 @@ describe('Browser - documents', () => {
     });
   });
 
-  test('Browser - crear una rama la deja seleccionada y cerrar con cambios pide confirmación', async () => {
+  test('Browser - crear una rama la deja seleccionada, indexa y borra sus documentos y cerrar con cambios pide confirmación', async () => {
     await withTestApp(async page => {
       await page.evaluate(() => ChatRagUI.openManageModal());
       await page.waitForFunction(() => document.getElementById('rag-manage-branch-select').options.length === 1);
@@ -234,6 +242,15 @@ describe('Browser - documents', () => {
       const branchId = await page.evaluate(async () => (await ChatRagStorage.getBranches())[0].id);
       assert.equal(await page.inputValue('#rag-manage-branch-select'), branchId, 'La rama nueva queda seleccionada');
       assert.equal(await page.locator('#btn-rag-save-branch').isDisabled(), true);
+
+      // El área de trabajo se repinta tras indexar: sus eventos siguen atendiéndose.
+      await page.locator('#rag-file-input').setInputFiles({ name: 'clausulas.txt', mimeType: 'text/plain', buffer: Buffer.from('Cláusula de rescisión con preaviso de treinta días.') });
+      await page.locator('.rag-document-card', { hasText: 'clausulas.txt' }).waitFor();
+      assert.deepEqual(await page.evaluate(async id => (await ChatRagStorage.getDocumentsByBranch(id)).map(document => document.title), branchId), ['clausulas.txt']);
+      await page.click('[data-delete-document]');
+      await page.click('#notice-accept');
+      await page.locator('.rag-document-card').waitFor({ state: 'detached' });
+      assert.deepEqual(await page.evaluate(async id => (await ChatRagStorage.getDocumentsByBranch(id)).length, branchId), 0);
 
       await page.fill('#rag-branch-desc-input', 'Pendiente');
       await page.click('#btn-close-rag-manage');
