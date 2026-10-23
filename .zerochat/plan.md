@@ -76,3 +76,10 @@
 ## M38 MVC separation between presentation and domain processes: closed 2026-10-23
 
 ## M39 UI logic testable without a browser: closed 2026-10-23
+
+## M40 Automatic reconnection to the local backend
+
+Goal: the frontend reconnects to the local server by itself when the backend is restarted, without the user reloading the page.
+
+Done when: after stopping and restarting the backend, the MCP status returns to connected within one heartbeat (~10 s) without a page reload; the "reload the page" hint is gone; unit tests cover the reconnect.
+- [x] M40-T1 Auto-reconnect: heartbeat probes the last target while the proxy is disconnected and reconnects when the backend answers (2026-10-23)

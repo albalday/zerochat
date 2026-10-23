@@ -799,7 +799,6 @@
       const message = error?.message || String(error || 'MCP connection unavailable');
       await this.disconnectProxy();
       getState().set('mcp', { status: 'error', error: message });
-      this.stopHeartbeat();
       return { success: false, error: message };
     }
 
@@ -901,12 +900,6 @@
       return this.sendHeartbeat();
     }
 
-    stopHeartbeat() {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
-      this.heartbeatCheckInFlight = false;
-    }
-
     /** Lee el latido y publica su estado vivo; devuelve lo leído o falla si el servidor no responde. */
     async readLiveState() {
       const { host, port, token } = this.heartbeatTarget;
@@ -923,17 +916,24 @@
       return payload;
     }
 
+    /** Latido cada 10 s: comprueba la conexión y, si el servidor local no está conectado, reintenta conectarlo. */
     async sendHeartbeat() {
+      if (this.heartbeatCheckInFlight) return;
+      this.heartbeatCheckInFlight = true;
       try {
-        await this.readLiveState();
-      } catch (_) {
-        if (this.heartbeatCheckInFlight) return;
-        this.heartbeatCheckInFlight = true;
-        try {
-          await this.verifyProxyConnection({ timeoutMs: 1500 });
-        } finally {
-          this.heartbeatCheckInFlight = false;
+        if (this.isProxyConnected()) {
+          try {
+            await this.readLiveState();
+          } catch (_) {
+            await this.verifyProxyConnection({ timeoutMs: 1500 });
+          }
+        } else if (this.heartbeatTarget) {
+          const { host, port, token } = this.heartbeatTarget;
+          const probe = await probeConnection(proxyEndpoint(host, port), { timeoutMs: 1500, token });
+          if (probe.success) await this.connectProxy({ host, port, timeoutMs: 1500, silentOnFailure: true, token });
         }
+      } finally {
+        this.heartbeatCheckInFlight = false;
       }
     }
 

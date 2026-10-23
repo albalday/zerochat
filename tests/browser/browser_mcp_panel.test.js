@@ -17,7 +17,6 @@ async function withMcpPanel(mcp, fn) {
           statusBadge: byId('mcp-status-badge'),
           statusText: byId('mcp-status-text'),
           serverDetails: byId('mcp-server-details'),
-          reconnectHint: byId('mcp-reconnect-hint'),
           commandSnippet: byId('mcp-terminal-command'),
           btnCopyCmd: byId('btn-mcp-copy-cmd'),
           bootstrapCard: byId('mcp-bootstrap-card'),
@@ -54,8 +53,6 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
           detailsTitle: elements.serverDetails.title,
           details: elements.serverDetails.textContent,
           bootstrapHidden: elements.bootstrapCard.hidden,
-          hintHidden: elements.reconnectHint.hidden,
-          hint: elements.reconnectHint.textContent,
           commandMatches: elements.commandSnippet.textContent === window.ChatUIMcp.generateTerminalCommand()
         };
       }, state);
@@ -66,13 +63,10 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
       assert.equal(disconnected.i18n, 'mcp_status_disconnected');
       assert.equal(disconnected.detailsHidden, true);
       assert.equal(disconnected.bootstrapHidden, false);
-      assert.equal(disconnected.hintHidden, false);
-      assert.equal(disconnected.hint, 'Si el servidor se ha reiniciado, recarga esta página (F5) para volver a conectar.');
       assert.equal(disconnected.commandMatches, true, 'initMcpUI publica el comando de arranque');
 
       const connecting = await render({ status: 'connecting' });
       assert.equal(connecting.text, 'Conectando...');
-      assert.equal(connecting.hintHidden, true);
 
       const connected = await render({ status: 'connected', serverInfo: { name: 'zerochat', version: '0.4.0' }, latencyMs: 15, tools: [{ id: 't1', name: 't1', metadata: {} }, { id: 't2', name: 't2', metadata: {} }] });
       assert.equal(connected.text, 'Conectado');

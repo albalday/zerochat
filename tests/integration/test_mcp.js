@@ -867,7 +867,63 @@ test('MCP - connectProxy registra las herramientas de los servicios externos en 
 
     await manager.disconnectProxy();
   } finally {
-    manager.stopHeartbeat();
+    clearInterval(manager.heartbeatTimer);
+    global.fetch = originalFetch;
+  }
+});
+
+test('MCP - el latido reconecta cuando el servidor local vuelve tras un reinicio', async () => {
+  const originalFetch = global.fetch;
+  const manager = new MCP.McpManager();
+  let serverUp = true;
+
+  try {
+    global.fetch = async (url, options) => {
+      if (!serverUp) throw new TypeError('Failed to fetch');
+      const body = JSON.parse(options.body || '{}');
+      if (body.method === 'initialize') {
+        return {
+          ok: true, status: 200,
+          json: async () => ({ jsonrpc: '2.0', id: body.id, result: { protocolVersion: '2024-11-05', serverInfo: { name: 'zerochat' }, capabilities: {} } })
+        };
+      }
+      if (body.method === 'tools/list') {
+        return {
+          ok: true, status: 200,
+          json: async () => ({ jsonrpc: '2.0', id: body.id, result: { tools: [{ name: 'heartbeat_reconnect_tool' }] } })
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    };
+    // La URL del latido depende de la página; aquí se sustituye su lectura por el estado del servidor.
+    manager.readLiveState = async () => {
+      if (!serverUp) throw new Error('Heartbeat HTTP 0');
+      return { ok: true };
+    };
+
+    const connected = await manager.connectProxy({ host: '127.0.0.1', port: 6388, token: 'tok' });
+    assert.equal(connected.success, true);
+    assert.equal(ChatState.get('mcp').status, 'connected');
+
+    // El servidor cae: el latido lo detecta, pero conserva el destino y el temporizador para reconectar.
+    serverUp = false;
+    await manager.sendHeartbeat();
+    assert.equal(ChatState.get('mcp').status, 'error');
+    assert.equal(manager.isProxyConnected(), false);
+    assert.deepEqual(manager.heartbeatTarget, { host: '127.0.0.1', port: 6388, token: 'tok' });
+    assert.ok(manager.heartbeatTimer, 'el latido sigue en marcha para reconectar');
+
+    // Mientras sigue caído, el latido no cambia el estado.
+    await manager.sendHeartbeat();
+    assert.equal(ChatState.get('mcp').status, 'error');
+
+    // El servidor vuelve: el siguiente latido reconecta sin recargar la página.
+    serverUp = true;
+    await manager.sendHeartbeat();
+    assert.equal(ChatState.get('mcp').status, 'connected');
+    assert.equal(manager.isProxyConnected(), true);
+  } finally {
+    clearInterval(manager.heartbeatTimer);
     global.fetch = originalFetch;
   }
 });
