@@ -92,4 +92,4 @@ Done when: browser waits on no real poll or timeout timers, Python unittest file
 - [x] M41-T6 Sandbox browser suite merged into one probe case and one timeout case; drop cases that never reach CSP or the parent (2026-10-23)
 - [x] M41-T7 Drop duplicate browser cases: legacy 6.7.0 profiles, office RAG ingestion, hasOldLifecycle assertion (2026-10-23)
 - [x] M41-T8 test_local_server.js keeps only HTTP contract; tool logic moves to py unittest; drop removed-feature assertions (2026-10-23)
-- [ ] M41-T9 Move the zerochat.html/precache library check from test_vendor_build.js to architecture
+- [x] M41-T9 Move the zerochat.html/precache library check from test_vendor_build.js to architecture (2026-10-23)

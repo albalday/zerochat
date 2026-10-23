@@ -75,7 +75,8 @@ export const GROUPS = {
   ],
   bundle: [
     'tests/browser/browser_startup.test.js',
-    'tests/infrastructure/test_vendor_build.js'
+    'tests/infrastructure/test_vendor_build.js',
+    'tests/architecture/test_vendor_loading.js'
   ]
 };
 
