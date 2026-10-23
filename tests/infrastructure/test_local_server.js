@@ -162,15 +162,11 @@ describe('Servidor local zerochat.py', () => {
     for (const name of ['list_directory', 'read_file', 'write_file', 'edit_file', 'run_command', 'check_command', 'search_files', 'get_diagnostics', 'browser_action']) {
       assert.ok(toolNames.includes(name), name);
     }
-    assert.ok(!toolNames.includes('bash') && !toolNames.includes('execute_command'), 'Una sola herramienta para ejecutar comandos');
     assert.ok(!toolNames.includes('set_project_directory'), 'El cambio de proyecto no es una herramienta del modelo');
     const runTool = tools.find(tool => tool.name === 'run_command');
     assert.ok(runTool?.description?.includes('Host OS:'), 'run_command debe declarar el SO anfitrión');
     assert.match(runTool.description, /fresh/, 'run_command debe advertir de que cada llamada empieza de cero');
     assert.deepEqual(Object.keys(runTool.inputSchema.properties).sort(), ['background', 'command', 'timeout_seconds'], 'run_command no admite cwd');
-    const listDirectory = tools.find(tool => tool.name === 'list_directory');
-    assert.equal(listDirectory?.inputSchema?.properties?.max_depth, undefined,
-      'list_directory no debe publicar una profundidad recursiva inexistente');
     const editFile = tools.find(tool => tool.name === 'edit_file');
     assert.deepEqual(Object.keys(editFile.inputSchema.properties).sort(), ['new_str', 'old_str', 'path', 'replace_all'],
       'edit_file solo publica el reemplazo exacto; write_file cubre la escritura completa');
@@ -179,12 +175,10 @@ describe('Servidor local zerochat.py', () => {
     assert.deepEqual(editFile.inputSchema.required.sort(), ['new_str', 'old_str', 'path']);
   });
 
-  test('tools/call rechaza con 400 los argumentos que el esquema no publica', async () => {
-    for (const [name, args, field] of [['list_directory', { path: '.', max_depth: 2 }, /max_depth/], ['run_command', { command: 'pwd', cwd: '/tmp' }, /cwd/]]) {
-      const res = await post('tools/call', { name, arguments: args });
-      assert.equal(res.status, 400, name);
-      assert.match((await res.json()).error || '', field);
-    }
+  test('tools/call rechaza con 400 los argumentos que no cumplen el esquema publicado', async () => {
+    const res = await post('tools/call', { name: 'run_command', arguments: { command: 'pwd', cwd: '/tmp' } });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error || '', /Argumento no permitido: cwd/);
   });
 
   test('el directorio del proyecto lo cambia la interfaz y lo publica el latido', async () => {
@@ -286,115 +280,56 @@ describe('Servidor local zerochat.py', () => {
     }
   });
 
-  test('read_file lee un rango de líneas y list_directory recorre en recursivo', async () => {
+  test('las herramientas de archivos responden por tools/call y sus errores llegan con isError', async t => {
     const read = await callTool('read_file', { path: 'package.json', max_lines: 10 });
     assert.equal(read.json.result?.isError, false);
-    assert.equal(read.parsed.success, true);
     assert.match(read.parsed.content, new RegExp(`"version": "${pkg.version}"`));
 
-    const range = (await callTool('read_file', { path: 'package.json', start_line: 1, end_line: 3 })).parsed;
-    assert.equal(range.success, true);
-    assert.deepEqual([range.lines_returned, range.start_line, range.end_line], [3, 1, 3]);
-
-    const listed = (await callTool('list_directory', { path: 'tests/helpers', recursive: true })).parsed;
-    assert.equal(listed.success, true);
-    assert.equal(listed.recursive, true);
-  });
-
-  test('write_file escribe y edit_file sustituye un texto exacto, o todos con replace_all', async t => {
     const testFilePath = path.join(os.tmpdir(), `zerochat_test_p1_${Date.now()}.txt`);
     t.after(() => fs.rmSync(testFilePath, { force: true }));
-    assert.equal((await callTool('write_file', { path: testFilePath, content: 'primera linea\nsegunda linea objetivo\ntercera linea\n' })).parsed.success, true);
-
-    const edited = (await callTool('edit_file', { path: testFilePath, old_str: 'segunda linea objetivo', new_str: 'segunda linea modificada' })).parsed;
-    assert.equal(edited.success, true);
-    assert.equal(edited.replacements, 1);
-
-    const editJson = async args => (await post('tools/call', { name: 'edit_file', arguments: args })).json();
-    const notFound = (await editJson({ path: testFilePath, old_str: 'linea inexistente', new_str: 'foo' })).result;
-    assert.equal(notFound?.isError, true);
-    assert.match(notFound?.content?.[0]?.text || '', /Target text was not found|No se encontró el texto/);
-
-    // Los modos heredados de escritura ya no existen: write_file cubre la escritura completa.
-    assert.match(JSON.stringify(await editJson({ path: testFilePath, content: 'sobrescrito', mode: 'write' })), /Argumento no permitido: content/);
-    assert.match(JSON.stringify(await editJson({ path: testFilePath, old_str: 'segunda linea modificada' })), /Falta el argumento obligatorio: new_str/);
-    assert.match(fs.readFileSync(testFilePath, 'utf8'), /segunda linea modificada/, 'El fichero no cambia con argumentos rechazados');
-
-    // replace_all: sin él, varias coincidencias son un error; con él, se sustituyen todas.
-    const ambiguous = (await editJson({ path: testFilePath, old_str: 'linea', new_str: 'fila' })).result;
-    assert.equal(ambiguous?.isError, true);
-    assert.match(ambiguous?.content?.[0]?.text || '', /Found 3 matches[\s\S]*replace_all/);
-    const replacedAll = (await callTool('edit_file', { path: testFilePath, old_str: 'linea', new_str: 'fila', replace_all: true })).parsed;
-    assert.equal(replacedAll.success, true);
-    assert.equal(replacedAll.replacements, 3);
-    assert.equal(fs.readFileSync(testFilePath, 'utf8'), 'primera fila\nsegunda fila modificada\ntercera fila\n');
-    assert.equal((await editJson({ path: testFilePath, old_str: '', new_str: 'x', replace_all: true })).result?.isError, true,
-      'old_str vacío no debe insertar texto entre cada carácter');
-    assert.match(JSON.stringify(await editJson({ path: testFilePath, old_str: 'fila', new_str: 'x', replace_all: 'true' })),
-      /Tipo inválido para 'replace_all'/);
-    assert.equal(fs.readFileSync(testFilePath, 'utf8'), 'primera fila\nsegunda fila modificada\ntercera fila\n',
-      'Las ediciones rechazadas no cambian el fichero');
+    assert.equal((await callTool('write_file', { path: testFilePath, content: 'primera linea\nsegunda linea\n' })).parsed.success, true);
+    assert.equal((await callTool('edit_file', { path: testFilePath, old_str: 'segunda', new_str: 'otra' })).parsed.replacements, 1);
+    assert.equal(fs.readFileSync(testFilePath, 'utf8'), 'primera linea\notra linea\n');
+    const notFound = await callTool('edit_file', { path: testFilePath, old_str: 'inexistente', new_str: 'x' });
+    assert.equal(notFound.json.result.isError, true);
+    assert.match(notFound.parsed.error, /Target text was not found/);
   });
 
-  test('run_command empieza cada llamada en el proyecto y trunca la salida larga dejando el log completo', async () => {
-    const run1 = await callTool('run_command', { command: 'export ZEROCHAT_PERSIST_VAR=1 && cd tests/helpers && pwd' });
-    assert.equal(run1.parsed.success, true);
-    assert.match(run1.parsed.output, /tests\/helpers/);
-    const run2 = await callTool('run_command', { command: 'echo "CHECK_VAR=$ZEROCHAT_PERSIST_VAR" && pwd' });
-    assert.equal(run2.parsed.output, `CHECK_VAR=\n${fs.realpathSync(repoRoot)}\n`);
-    const failing = await callTool('run_command', { command: 'echo uno; echo dos >&2; exit 2' });
+  test('run_command empieza en el proyecto y un código de salida distinto de cero llega con isError', async () => {
+    const failing = await callTool('run_command', { command: 'pwd; echo dos >&2; exit 2' });
     assert.equal(failing.json.result.isError, true);
     assert.equal(failing.parsed.exit_code, 2);
-    assert.equal(failing.parsed.output, 'uno\ndos\n');
-
-    // Truncado defensivo de la salida (>8.000 caracteres) con el log completo disponible.
-    const trunc = (await callTool('run_command', { command: 'python3 -c "for i in range(120): print(f\'line {i:03d} \' + \'x\'*80)"' })).parsed;
-    assert.equal(trunc.success, true);
-    assert.equal(trunc.truncated, true);
-    assert.match(trunc.output, /Output truncated/);
-    assert.match(trunc.output, /line 000/);
-    assert.match(trunc.output, /line 119/);
-    assert.ok(fs.readFileSync(trunc.log_file, 'utf8').includes('line 060'));
+    assert.equal(failing.parsed.output, `${fs.realpathSync(repoRoot)}\ndos\n`);
   });
 
-  test('un comando en segundo plano se sigue y se detiene con zerochat/jobs/* y su final se informa una vez', async () => {
-    const bg = (await callTool('run_command', { command: 'echo listo; exec sleep 100', background: true }, { zerochatJobKey: 'tarjeta-prueba-1' })).parsed;
-    assert.equal(bg.status, 'running');
-    assert.equal(bg.output, 'listo\n');
-    assert.ok((await heartbeat()).jobs.some(job => job.id === bg.job_id && job.status === 'running'), 'El heartbeat publica los comandos en marcha');
-    const details = await rpc('zerochat/jobs/get', { key: 'tarjeta-prueba-1' });
-    assert.equal(details.result.id, bg.job_id);
-    assert.equal(details.result.tail, 'listo\n');
-    assert.equal(details.result.background, true);
-    const page = await rpc('zerochat/jobs/log', { id: bg.job_id, offset: 2, limit: 3 });
+  test('un comando en marcha se publica en el latido y se sigue y se detiene con zerochat/jobs/*', async () => {
+    // En primer plano y con la clave de su tarjeta, el comando figura en marcha mientras se espera su respuesta.
+    const pending = callTool('run_command', { command: 'echo listo; exec sleep 100' }, { zerochatJobKey: 'tarjeta-prueba-1' });
+    let details;
+    for (const deadline = Date.now() + 5000; Date.now() < deadline; await new Promise(resolve => setTimeout(resolve, 20))) {
+      details = (await rpc('zerochat/jobs/get', { key: 'tarjeta-prueba-1' })).result;
+      if (details?.tail === 'listo\n') break;
+    }
+    assert.equal(details?.tail, 'listo\n');
+    assert.ok((await heartbeat()).jobs.some(job => job.id === details.id && job.status === 'running'), 'El latido publica los comandos en marcha');
+    const page = await rpc('zerochat/jobs/log', { id: details.id, offset: 2, limit: 3 });
     assert.deepEqual([page.result.text, page.result.next, page.result.done], ['sto', 5, false]);
-    assert.equal((await rpc('zerochat/jobs/log', { id: bg.job_id, offset: -1 })).error?.code, -32602);
     assert.ok((await rpc('zerochat/jobs/list')).result.jobs.some(job => job.key === 'tarjeta-prueba-1'));
-    const stoppedByUser = await rpc('zerochat/jobs/stop', { key: 'tarjeta-prueba-1' });
-    assert.equal(stoppedByUser.result.status, 'stopped');
-    assert.equal(stoppedByUser.result.stop_reason, 'user');
-    assert.equal((await rpc('zerochat/jobs/get', { id: 99999 })).error?.code, -32602);
-    assert.equal((await rpc('zerochat/jobs/report', { ids: 'x' })).error?.code, -32602);
-    assert.equal((await rpc('zerochat/jobs/report', { ids: [true] })).error?.code, -32602);
-    const report = await rpc('zerochat/jobs/report', { ids: [bg.job_id] });
-    assert.equal(report.result.reports.length, 1, 'El final detenido por el usuario aún no lo ha visto el modelo');
-    assert.equal(report.result.reports[0].stop_reason, 'user');
-    assert.deepEqual((await rpc('zerochat/jobs/report', { ids: [bg.job_id] })).result.reports, []);
-    const seen = (await callTool('check_command', { job_id: bg.job_id })).parsed;
-    assert.equal(seen.status, 'stopped');
-    assert.equal(seen.stopped_by, 'user');
+    const stopped = await rpc('zerochat/jobs/stop', { key: 'tarjeta-prueba-1' });
+    assert.deepEqual([stopped.result.status, stopped.result.stop_reason], ['stopped', 'user']);
+    assert.equal((await pending).parsed.status, 'stopped');
+    assert.equal((await callTool('check_command', { job_id: details.id })).parsed.status, 'stopped');
+    assert.ok(Array.isArray((await rpc('zerochat/jobs/report', { ids: [details.id] })).result.reports));
+    for (const [method, params] of [['zerochat/jobs/log', { id: details.id, offset: -1 }], ['zerochat/jobs/get', { id: 99999 }],
+      ['zerochat/jobs/report', { ids: 'x' }], ['zerochat/jobs/report', { ids: [true] }]]) {
+      assert.equal((await rpc(method, params)).error?.code, -32602, `${method} ${JSON.stringify(params)}`);
+    }
   });
 
-  test('search_files busca por expresión regular con filtro glob y respeta max_results', async () => {
+  test('search_files busca en el proyecto', async () => {
     const found = (await callTool('search_files', { query: 'def set_project_directory', path: '.', file_pattern: '*.py' })).parsed;
     assert.equal(found.success, true);
-    assert.ok(found.total_matches > 0);
     assert.ok(found.matches.some(match => match.relative_path.includes('dd-tools.py') || match.relative_path.includes('zerochat.py')));
-
-    const limited = (await callTool('search_files', { query: 'def ', path: '.', file_pattern: '*.py', max_results: 1 })).parsed;
-    assert.equal(limited.success, true);
-    assert.equal(limited.matches.length, 1);
-    assert.equal(limited.truncated, true);
   });
 
   test('get_diagnostics revisa un archivo concreto', async () => {

@@ -256,6 +256,16 @@ class McpToolsTest(unittest.TestCase):
         self.assertEqual(joined.count("tool discarded"), 3)
 
 
+class LocalToolArgumentsTest(unittest.TestCase):
+    def test_los_argumentos_se_validan_contra_el_esquema_publicado(self):
+        validate = zerochat.validate_local_tool_arguments
+        self.assertIsNone(validate("edit_file", {"path": "a", "old_str": "x", "new_str": "y", "replace_all": True}))
+        self.assertEqual(validate("run_command", {"command": "pwd", "cwd": "/tmp"}), "Argumento no permitido: cwd")
+        self.assertEqual(validate("edit_file", {"path": "a", "old_str": "x"}), "Falta el argumento obligatorio: new_str")
+        self.assertEqual(validate("edit_file", {"path": "a", "old_str": "x", "new_str": "y", "replace_all": "true"}), "Tipo inválido para 'replace_all'")
+        self.assertEqual(validate("run_command", {"command": "pwd", "timeout_seconds": True}), "Tipo inválido para 'timeout_seconds'")
+
+
 class StdioClientTest(unittest.TestCase):
     def test_detener_en_windows_elimina_el_arbol_de_procesos_sin_senales_posix(self):
         client = zerochat.StdioMcpClient(sys.executable, [], str(use_data_dir(self)), dict(os.environ))

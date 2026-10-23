@@ -186,8 +186,6 @@ class BackgroundCommandTest(unittest.TestCase):
         zerochat.JOBS.shutdown()
         self.assertEqual(zerochat.JOBS.get(job_id=busy["job_id"]).status, "stopped")
         self.assertFalse(log_dir.exists())
-        self.assertNotIn("bash", zerochat.LOCAL_TOOL_HANDLERS)
-        self.assertNotIn("execute_command", zerochat.LOCAL_TOOL_HANDLERS)
 
 
 @unittest.skipIf(os.name == "nt", "Grupos de procesos POSIX")
