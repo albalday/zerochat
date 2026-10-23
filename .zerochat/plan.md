@@ -80,3 +80,15 @@
 ## M40 Automatic reconnection to the local backend: closed 2026-10-23
 
 ## M41 Faster test suite without duplicates: closed 2026-10-23
+
+## M42 MCP service state and JS–Python contract
+
+Goal: an MCP service's state (stopped, installing, starting, running, error, remembered) has one model on the server and one reading on the client, and the browser constants duplicated in JS and Python are checked against each other, so the lifecycle bugs of 2026-10-19..21 (dead process shown running, restart or profile start changing remembered) cannot come back unnoticed.
+
+Done when: ee-mcp.py keeps one record per service and derives the public status in a pure function tested with unittest transition tables; enabled/remembered is written in a single place; the client reads status only through one predicates module; a shared fixture (engines, user browsers, extension token pattern, service statuses) is checked by both the JS and the Python tests; every level passes. Start it together with the next backend change in py/ (user decision, 2026-10-23).
+- [ ] M42-T1 Shared fixture in tests/fixtures/ with Playwright engines, user browsers and the extension token pattern (js/defaults.js, js/ui-browser.js, py/ee-browser-config.py), checked by test_ui_browser.js and test_browser_config.py
+- [ ] M42-T2 ee-mcp.py: one record per service instead of the parallel states/errors/clients/browsers dicts, with the public status derived by a pure function from the record and process liveness, tested with unittest tables
+- [ ] M42-T3 ee-mcp.py: enabled/remembered written in a single place for start, stop and restart, with unittest cases for remember true/false, profile start and withExternalServerStopped restart (M29-T8, M31-D4)
+- [ ] M42-T4 Client status predicates module (isActive, canStart, canStop, isBusy) used by mcp.js, ui-mcp.js, ui-profiles.js and ui-browser.js instead of inline status string comparisons, with the status list added to the M42-T1 fixture and unit tests
+
+## M43 Dark theme link contrast: closed 2026-10-23
