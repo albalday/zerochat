@@ -9,6 +9,8 @@ from unittest.mock import Mock, patch
 
 from backend import ZEROCHAT_PY, use_data_dir, zerochat
 
+PUBLIC_TOOL_NAMES = ZEROCHAT_PY.parent / "tests" / "fixtures" / "mcp" / "public-tool-names.json"
+
 HEALTHY_MCP = '''import json, sys
 for line in sys.stdin:
     request = json.loads(line)
@@ -217,6 +219,16 @@ class McpToolsTest(unittest.TestCase):
     def setUp(self):
         self.manager = zerochat.McpServiceManager(use_data_dir(self) / "services")
         self.traces = capture_console(self)
+
+    def test_public_tool_name_codifica_igual_que_el_navegador_la_tabla_compartida(self):
+        # test_mcp.js comprueba la misma tabla contra publicToolName de js/mcp.js.
+        for case in json.loads(PUBLIC_TOOL_NAMES.read_text(encoding="utf-8")):
+            with self.subTest(server=case["server"], tool=case["tool"]):
+                if case["expected"] is None:
+                    with self.assertRaises(ValueError):
+                        zerochat.public_tool_name(case["server"], case["tool"])
+                else:
+                    self.assertEqual(zerochat.public_tool_name(case["server"], case["tool"]), case["expected"])
 
     def test_una_llamada_a_herramienta_externa_no_bloquea_al_gestor_mientras_se_ejecuta(self):
         client = Mock(tools=[{"name": "lookup"}])

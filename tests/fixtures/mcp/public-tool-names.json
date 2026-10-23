@@ -1,0 +1,47 @@
+[
+  {
+    "server": "_",
+    "tool": "x",
+    "expected": "z5fz_x"
+  },
+  {
+    "server": "z5fz",
+    "tool": "x",
+    "expected": "z7az5fz7az_x"
+  },
+  {
+    "server": "composio",
+    "tool": "COMPOSIO_SEARCH_TOOLS",
+    "expected": "composio_COMPOSIO_SEARCH_TOOLS"
+  },
+  {
+    "server": "Z",
+    "tool": "zip",
+    "expected": "Z_z7azip"
+  },
+  {
+    "server": "a-b",
+    "tool": "read_file",
+    "expected": "az2dzb_read_file"
+  },
+  {
+    "server": "srv",
+    "tool": "ñ",
+    "expected": "srv_zf1z"
+  },
+  {
+    "server": "s",
+    "tool": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "expected": "s_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "server": "s",
+    "tool": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "expected": null
+  },
+  {
+    "server": "",
+    "tool": "x",
+    "expected": null
+  }
+]
