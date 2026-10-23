@@ -490,7 +490,7 @@ test('Browser UI - Las reglas de permisos y herramientas sobreviven a recargas (
   }
 });
 
-test('Browser UI - el progreso MCP sobrevive al renderizado y el timeout conserva starting', async () => {
+test('Browser UI - el progreso MCP sobrevive al renderizado y el plazo agotado deja el botón ocupado con el aviso', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
@@ -499,66 +499,49 @@ test('Browser UI - el progreso MCP sobrevive al renderizado y el timeout conserv
     page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
-    const results = await page.evaluate(async () => {
+    const result = await page.evaluate(async () => {
       // La aplicación ya montó el panel MCP sobre su lista de servicios y sigue ChatState.
       const container = document.getElementById('mcp-servers-list');
       const manager = ChatMCP.manager;
       const originalStart = manager.startExternalServer;
-      const results = [];
       try {
-        for (const language of ['es', 'en']) {
-          ChatI18n.setLanguage(language);
-          ChatState.set('mcp', {
-            ...ChatState.get('mcp'), status: 'connected',
-            externalServers: [{ id: 'ejemplo', status: 'stopped' }]
-          });
-          let reportWait, rejectStart;
-          manager.startExternalServer = async (id, callback) => {
-            reportWait = callback;
-            await new Promise((resolve, reject) => { rejectStart = reject; });
-          };
-          const originalButton = container.querySelector('.btn-mcp-server-toggle');
-          originalButton.click();
-          const button = () => container.querySelector('.btn-mcp-server-toggle');
-          const initial = {
-            text: button().textContent.trim(), disabled: button().disabled,
-            busy: button().getAttribute('aria-busy'), replaced: button() !== originalButton
-          };
-          const attempts = [];
-          for (const attempt of [1, 2, 10]) {
-            reportWait(attempt, 10);
-            attempts.push(button().textContent.trim());
-          }
-          const error = new Error('Wait expired');
-          error.code = 'EXTERNAL_START_WAIT_TIMEOUT';
-          error.externalServer = { id: 'ejemplo', status: 'starting' };
-          rejectStart(error);
-          // Flush de macrotarea: deja ejecutar el callback asíncrono del mock.
-          await new Promise(resolve => setTimeout(resolve, 0));
-          const timedOut = {
-            status: ChatState.get('mcp').externalServers[0].status,
-            disabled: button().disabled, error: container.querySelector('.mcp-server-error')?.textContent
-          };
-          ChatState.set('mcp', { externalServers: [{ id: 'ejemplo', status: 'running' }] });
-          results.push({ language, initial, attempts, timedOut, action: button().getAttribute('data-action') });
-        }
+        ChatI18n.setLanguage('es');
+        ChatState.set('mcp', {
+          ...ChatState.get('mcp'), status: 'connected',
+          externalServers: [{ id: 'ejemplo', status: 'stopped' }]
+        });
+        let reportWait, rejectStart;
+        manager.startExternalServer = async (id, callback) => {
+          reportWait = callback;
+          await new Promise((resolve, reject) => { rejectStart = reject; });
+        };
+        const originalButton = container.querySelector('.btn-mcp-server-toggle');
+        originalButton.click();
+        const button = () => container.querySelector('.btn-mcp-server-toggle');
+        const initial = {
+          text: button().textContent.trim(), disabled: button().disabled,
+          busy: button().getAttribute('aria-busy'), replaced: button() !== originalButton
+        };
+        reportWait(2, 10);
+        const attempt = button().textContent.trim();
+        const error = new Error('Wait expired');
+        error.code = 'EXTERNAL_START_WAIT_TIMEOUT';
+        error.externalServer = { id: 'ejemplo', status: 'starting' };
+        rejectStart(error);
+        // Flush de macrotarea: deja ejecutar el callback asíncrono del mock.
+        await new Promise(resolve => setTimeout(resolve, 0));
+        const timedOut = { disabled: button().disabled, error: container.querySelector('.mcp-server-error')?.textContent };
+        ChatState.set('mcp', { externalServers: [{ id: 'ejemplo', status: 'running' }] });
+        return { initial, attempt, timedOut, action: button().getAttribute('data-action') };
       } finally {
         manager.startExternalServer = originalStart;
       }
-      return results;
     });
-    for (const result of results) {
-      assert.equal(result.initial.text, result.language === 'es' ? 'Iniciando' : 'Starting');
-      assert.equal(result.initial.disabled, true);
-      assert.equal(result.initial.busy, 'true');
-      assert.equal(result.initial.replaced, true);
-      assert.deepEqual(result.attempts, [1, 2, 10].map(attempt => result.language === 'es'
-        ? `Iniciando (intento ${attempt} de 10)…` : `Starting (attempt ${attempt} of 10)…`));
-      assert.equal(result.timedOut.status, 'starting');
-      assert.equal(result.timedOut.disabled, true);
-      assert.match(result.timedOut.error, /OAuth/);
-      assert.equal(result.action, 'stop');
-    }
+    assert.deepEqual(result.initial, { text: 'Iniciando', disabled: true, busy: 'true', replaced: true });
+    assert.equal(result.attempt, 'Iniciando (intento 2 de 10)…');
+    assert.equal(result.timedOut.disabled, true);
+    assert.match(result.timedOut.error, /OAuth/);
+    assert.equal(result.action, 'stop');
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });

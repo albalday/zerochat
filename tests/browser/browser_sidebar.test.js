@@ -168,9 +168,8 @@ test('Browser UI - importar asigna un id nuevo y rechaza JSON inválidos y archi
     await importFile(page, { name: 'mal.json', content: '{"invalido":true}' });
     assert.match(await noticeText(page), /valid chat history/);
 
+    // El tope exacto se prueba en tests/unit/test_attachments.js; aquí basta un archivo que lo supera.
     const maxBytes = await page.evaluate(() => window.ChatAttachments.MAX_FILE_SIZE);
-    await importFile(page, { name: 'borde.json', size: maxBytes });
-    assert.doesNotMatch(await noticeText(page), /supera el tamaño máximo/, 'En el tope exacto se lee el archivo');
     await importFile(page, { name: 'enorme.json', size: maxBytes + 1 });
     assert.match(await noticeText(page), /"enorme\.json" supera el tamaño máximo permitido \(50(?:\.0)? MB\)/);
     assert.equal((await sessionIds()).length, 1, 'Los archivos rechazados no crean conversaciones');

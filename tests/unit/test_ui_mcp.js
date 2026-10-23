@@ -224,3 +224,17 @@ test('ChatMCP - start: propaga el objeto servidor con oauthUrl durante el arranq
   assert.equal(receivedServers[0].oauthUrl, 'https://example.com/oauth');
 });
 
+
+test('ChatMCP - runExternalServerAction: el plazo de espera agotado deja el servicio en starting con el aviso de OAuth', async t => {
+  setup(t, { externalServers: [{ id: 'ejemplo', status: 'stopped' }] });
+  const manager = ChatMCP.manager;
+  t.mock.method(manager, 'startExternalServer', async (id, onWait) => {
+    onWait(3, 10);
+    assert.deepEqual(ChatState.get('mcp').externalServers[0].startWait, { attempt: 3, total: 10 });
+    throw Object.assign(new Error('Wait expired'), { code: 'EXTERNAL_START_WAIT_TIMEOUT', externalServer: { id: 'ejemplo', status: 'starting' } });
+  });
+  assert.equal(await manager.runExternalServerAction('ejemplo', 'start'), false);
+  const [server] = ChatState.get('mcp').externalServers;
+  assert.deepEqual({ status: server.status, startWait: server.startWait }, { status: 'starting', startWait: null });
+  assert.match(server.error, /OAuth/);
+});
