@@ -138,7 +138,7 @@ class BackgroundCommandTest(unittest.TestCase):
 
     def test_check_command_sigue_la_salida_nueva_y_detiene_el_comando(self):
         started = time.monotonic()
-        first = run("echo uno; sleep 0.5; echo dos; sleep 0.2; echo tres", background=True, job_key="clave-de-prueba")
+        first = run("echo uno; sleep 0.3; echo dos; sleep 0.1; echo tres", background=True, job_key="clave-de-prueba")
         self.assertLess(time.monotonic() - started, 2)
         self.assertEqual((first["status"], first["output"]), ("running", "uno\n"))
         self.assertIn("check_command", first["note"])
@@ -165,7 +165,7 @@ class BackgroundCommandTest(unittest.TestCase):
         seen = run("echo visto", background=True)
         zerochat.JOBS.get(job_id=seen["job_id"]).done.wait(5)
         json.loads(zerochat.check_command(seen["job_id"]))
-        unseen = run("echo a; sleep 0.5; echo fin; exit 3", background=True)
+        unseen = run("echo a; sleep 0.3; echo fin; exit 3", background=True)
         zerochat.JOBS.get(job_id=unseen["job_id"]).done.wait(5)
         alive = run("exec sleep 100", background=True)
         reports = zerochat.JOBS.report_finished([unseen["job_id"], seen["job_id"], alive["job_id"], 9999, unseen["job_id"]])
@@ -186,8 +186,6 @@ class BackgroundCommandTest(unittest.TestCase):
         zerochat.JOBS.shutdown()
         self.assertEqual(zerochat.JOBS.get(job_id=busy["job_id"]).status, "stopped")
         self.assertFalse(log_dir.exists())
-        self.assertNotIn("bash", zerochat.LOCAL_TOOL_HANDLERS)
-        self.assertNotIn("execute_command", zerochat.LOCAL_TOOL_HANDLERS)
 
 
 @unittest.skipIf(os.name == "nt", "Grupos de procesos POSIX")

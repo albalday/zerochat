@@ -9,6 +9,8 @@ from unittest.mock import Mock, patch
 
 from backend import ZEROCHAT_PY, use_data_dir, zerochat
 
+PUBLIC_TOOL_NAMES = ZEROCHAT_PY.parent / "tests" / "fixtures" / "mcp" / "public-tool-names.json"
+
 HEALTHY_MCP = '''import json, sys
 for line in sys.stdin:
     request = json.loads(line)
@@ -218,6 +220,16 @@ class McpToolsTest(unittest.TestCase):
         self.manager = zerochat.McpServiceManager(use_data_dir(self) / "services")
         self.traces = capture_console(self)
 
+    def test_public_tool_name_codifica_igual_que_el_navegador_la_tabla_compartida(self):
+        # test_mcp.js comprueba la misma tabla contra publicToolName de js/mcp.js.
+        for case in json.loads(PUBLIC_TOOL_NAMES.read_text(encoding="utf-8")):
+            with self.subTest(server=case["server"], tool=case["tool"]):
+                if case["expected"] is None:
+                    with self.assertRaises(ValueError):
+                        zerochat.public_tool_name(case["server"], case["tool"])
+                else:
+                    self.assertEqual(zerochat.public_tool_name(case["server"], case["tool"]), case["expected"])
+
     def test_una_llamada_a_herramienta_externa_no_bloquea_al_gestor_mientras_se_ejecuta(self):
         client = Mock(tools=[{"name": "lookup"}])
         client.running.return_value = True
@@ -242,6 +254,16 @@ class McpToolsTest(unittest.TestCase):
         joined = "\n".join(self.traces)
         self.assertIn("duplicate public name demo_lookup", joined)
         self.assertEqual(joined.count("tool discarded"), 3)
+
+
+class LocalToolArgumentsTest(unittest.TestCase):
+    def test_los_argumentos_se_validan_contra_el_esquema_publicado(self):
+        validate = zerochat.validate_local_tool_arguments
+        self.assertIsNone(validate("edit_file", {"path": "a", "old_str": "x", "new_str": "y", "replace_all": True}))
+        self.assertEqual(validate("run_command", {"command": "pwd", "cwd": "/tmp"}), "Argumento no permitido: cwd")
+        self.assertEqual(validate("edit_file", {"path": "a", "old_str": "x"}), "Falta el argumento obligatorio: new_str")
+        self.assertEqual(validate("edit_file", {"path": "a", "old_str": "x", "new_str": "y", "replace_all": "true"}), "Tipo inválido para 'replace_all'")
+        self.assertEqual(validate("run_command", {"command": "pwd", "timeout_seconds": True}), "Tipo inválido para 'timeout_seconds'")
 
 
 class StdioClientTest(unittest.TestCase):

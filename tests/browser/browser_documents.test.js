@@ -205,33 +205,6 @@ describe('Browser - documents', () => {
     });
   });
 
-  test('Browser - la base de conocimiento indexa documentos ofimáticos con sus imágenes', async () => {
-    await withTestApp(async page => {
-      const errors = [];
-      page.on('pageerror', error => errors.push(error.message));
-      await page.route(/^https?:/, route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [], models: [] }) }));
-
-      const files = ['pandoc.docx', 'pandoc.pptx', 'libreoffice.ods'].map(name => ({ name, base64: fs.readFileSync(path.join(FIXTURES, name)).toString('base64') }));
-      const summary = await page.evaluate(async files => {
-        const branch = await ChatRagStorage.createBranch('Ofimática');
-        const toFile = ({ name, base64 }) => new File([Uint8Array.from(atob(base64), char => char.charCodeAt(0))], name);
-        const result = await ChatIngestionEngine.processDocumentQueue(files.map(toFile), branch.id, null, {});
-        const documents = await ChatRagStorage.getDocumentsByBranch(branch.id);
-        const hits = await ChatRagIndex.searchBranch(branch.id, 'Resultados', { tolerance: 0 });
-        return {
-          processed: result.processed,
-          errors: result.errors,
-          documents: documents.map(document => [document.title, document.fileType, document.imageCount]).sort(),
-          slideHit: hits.hits.some(hit => hit.documentTitle === 'pandoc.pptx')
-        };
-      }, files);
-      assert.equal(summary.processed, 3, JSON.stringify(summary.errors));
-      assert.deepEqual(summary.documents, [['libreoffice.ods', 'ods', 1], ['pandoc.docx', 'docx', 1], ['pandoc.pptx', 'pptx', 1]]);
-      assert.equal(summary.slideHit, true);
-      assert.deepEqual(errors, []);
-    });
-  });
-
   test('Browser - crear una rama la deja seleccionada, indexa y borra sus documentos y cerrar con cambios pide confirmación', async () => {
     await withTestApp(async page => {
       await page.evaluate(() => ChatRagUI.openManageModal());

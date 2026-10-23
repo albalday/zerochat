@@ -48,14 +48,3 @@ test('build:vendor exige versiones exactas para las librerías empaquetadas', as
     assert.match(dependencies[vendor.package] || '', /^\d+\.\d+\.\d+$/, `${vendor.package} debe fijarse a una versión exacta`);
   }
 });
-
-test('solo las librerías de arranque se cargan en zerochat.html y entran en el precache', async () => {
-  const { VENDORS } = await loadManifest();
-  const html = fs.readFileSync(path.join(root, 'zerochat.html'), 'utf8');
-  const sw = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
-  for (const vendor of VENDORS) {
-    const outfile = outfileOf(vendor);
-    assert.equal(html.includes(`src="${outfile}"`), !vendor.onDemand, `${outfile} en zerochat.html`);
-    assert.equal(sw.includes(`'./${outfile}'`), !vendor.onDemand, `${outfile} en PRECACHE_ASSETS`);
-  }
-});

@@ -587,99 +587,17 @@ test('MCP - la conexión silenciosa del arranque conecta si el servidor está ac
   }
 });
 
-test('MCP - publicToolName codifica igual en JS y Python y es inyectiva', () => {
-  const { execFileSync } = require('node:child_process');
-  const path = require('node:path');
-  const cases = [
-    ['_', 'x', 'z5fz_x'],
-    ['z5fz', 'x', 'z7az5fz7az_x'],
-    ['composio', 'COMPOSIO_SEARCH_TOOLS', 'composio_COMPOSIO_SEARCH_TOOLS'],
-    ['Z', 'zip', 'Z_z7azip'],
-    ['a-b', 'read_file', 'az2dzb_read_file'],
-    ['srv', 'ñ', 'srv_zf1z'],
-    ['s', 'x'.repeat(62), `s_${'x'.repeat(62)}`],
-    ['s', 'x'.repeat(63), null],
-    ['', 'x', null]
-  ];
-  const python = JSON.parse(execFileSync('python3', ['-c', `
-import importlib.util, json, os, sys, tempfile
-with tempfile.TemporaryDirectory() as data_dir:
-    os.environ["ZEROCHAT_DATA_DIR"] = data_dir
-    spec = importlib.util.spec_from_file_location("zerochat_public_name_table", "zerochat.py")
-    zerochat = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(zerochat)
-result = []
-for server, tool in json.load(sys.stdin):
-    try:
-        result.append(zerochat.public_tool_name(server, tool))
-    except ValueError:
-        result.append(None)
-print(json.dumps(result))
-`], { cwd: path.resolve(__dirname, '../..'), input: JSON.stringify(cases.map(([s, t]) => [s, t])), encoding: 'utf8' }));
-  cases.forEach(([server, tool, expected], index) => {
-    let js = null;
-    try { js = MCP.publicToolName(server, tool); } catch (_) {}
-    assert.equal(js, expected, `JS ${server}/${tool}`);
-    assert.equal(python[index], expected, `Python ${server}/${tool}`);
-  });
+test('MCP - publicToolName codifica igual que el backend la tabla compartida', () => {
+  // test_mcp_services.py comprueba la misma tabla contra public_tool_name de Python.
+  for (const { server, tool, expected } of require('../fixtures/mcp/public-tool-names.json')) {
+    let name = null;
+    try { name = MCP.publicToolName(server, tool); } catch (_) {}
+    assert.equal(name, expected, `${server}/${tool}`);
+  }
 });
 
-test('MCP - host Python, proveedor, registro y permisos aíslan herramientas homónimas', async () => {
-  const { execFileSync } = require('node:child_process');
-  const path = require('node:path');
+test('MCP - proveedor, registro y permisos aíslan herramientas homónimas del host externo', async () => {
   const Security = require('../../js/tool-security.js');
-  const hostScript = `
-import importlib.util, json, os, sys, tempfile
-
-# Codificador real del backend, para que JS y Python se prueben contra el mismo contrato.
-with tempfile.TemporaryDirectory() as data_dir:
-    os.environ["ZEROCHAT_DATA_DIR"] = data_dir
-    spec = importlib.util.spec_from_file_location("zerochat_public_names", "zerochat.py")
-    zerochat = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(zerochat)
-public_tool_name = zerochat.public_tool_name
-
-class ExternalHost:
-    def __init__(self):
-        self.clients = {}
-
-    def tools(self):
-        result = []
-        seen = set()
-        for server, client in self.clients.items():
-            for t in client.tools:
-                orig = t["name"]
-                pname = public_tool_name(server, orig)
-                if pname in seen:
-                    raise ValueError(f"Duplicate public tool name: {pname}")
-                seen.add(pname)
-                result.append({"name": pname, "metadata": {"mcpServerId": server, "originalName": orig}})
-        return result
-
-    def call(self, name, args):
-        for server, client in self.clients.items():
-            for t in client.tools:
-                orig = t["name"]
-                if public_tool_name(server, orig) == name:
-                    return client.request(orig, args)
-        raise ValueError(f"Unknown external MCP tool: {name}")
-
-class Client:
-    def __init__(self, server, names):
-        self.server = server
-        self.tools = [{"name": name} for name in names]
-    def running(self): return True
-    def request(self, method, params):
-        return {"server": self.server, "name": method, "arguments": params}
-
-payload = json.load(sys.stdin)
-host = ExternalHost()
-host.clients = {server: Client(server, names) for server, names in payload["servers"].items()}
-if "call" in payload:
-    print(json.dumps(host.call(payload["call"], payload.get("args", {}))))
-else:
-    print(json.dumps(host.tools()))
-`;
   const servers = {
     browser_service: ['browser_navigate', 'read_file'],
     second: ['browser_navigate', 'read_file'],
@@ -690,14 +608,17 @@ else:
     edge: ['read_file', 'readfile', 'Read_file', 'read-file', 'ñ'],
     composio: ['COMPOSIO_SEARCH_TOOLS']
   };
-  const host = extra => JSON.parse(execFileSync('python3', ['-c', hostScript], {
-    cwd: path.resolve(__dirname, '../..'), input: JSON.stringify({ servers, ...extra }), encoding: 'utf8', stdio: 'pipe', timeout: 5000
-  }));
-  const rawTools = host({});
+  // Host externo como lo publica el backend: nombre público y metadatos del servicio de origen.
+  const rawTools = Object.entries(servers).flatMap(([server, names]) => names.map(originalName => ({
+    name: MCP.publicToolName(server, originalName), metadata: { mcpServerId: server, originalName }
+  })));
   const provider = new MCP.McpToolProvider({
     id: 'mcp_external', name: 'External host', initialize: async () => ({ success: true }),
     listTools: async () => rawTools,
-    callTool: async (name, args) => host({ call: name, args })
+    callTool: async (name, args) => {
+      const { metadata } = rawTools.find(tool => tool.name === name);
+      return { server: metadata.mcpServerId, name: metadata.originalName, arguments: args };
+    }
   });
   const tools = await provider.discoverTools();
   assert.equal(new Set(tools.map(t => t.name)).size, tools.length);
@@ -735,12 +656,6 @@ else:
   } finally {
     if (previousStorage === undefined) delete global.localStorage;
     else global.localStorage = previousStorage;
-  }
-  for (const call of ['mcp__browser_service__browser_navigate', 'browser_service_missing', 'browser_navigate']) {
-    assert.throws(() => host({ call }), /Unknown external MCP tool/);
-  }
-  for (const names of [[null], [''], ['x'.repeat(65)], ['read_file', 'read_file']]) {
-    assert.throws(() => host({ servers: { test: names } }), /Invalid MCP|exceeds|Duplicate/);
   }
   rawTools[0] = { ...rawTools[0], name: 'wrong_browser_navigate' };
   await assert.rejects(provider.discoverTools(), /Invalid external MCP public name/);

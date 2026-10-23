@@ -78,3 +78,5 @@
 ## M39 UI logic testable without a browser: closed 2026-10-23
 
 ## M40 Automatic reconnection to the local backend: closed 2026-10-23
+
+## M41 Faster test suite without duplicates: closed 2026-10-23

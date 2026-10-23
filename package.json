@@ -1,7 +1,7 @@
 {
   "name": "zerochat",
   "private": true,
-  "version": "9.10.6",
+  "version": "9.10.7",
   "description": "ZeroChat - Cliente Web Universal de Chat con soporte multimodelo, razonamiento autónomo y RAG local",
   "scripts": {
     "build:vendor": "node scripts/build-vendor.mjs",
@@ -15,7 +15,7 @@
     "test:changed": "node scripts/test-runner.mjs --changed",
     "test:unit": "node scripts/test-runner.mjs --level=unit",
     "test:integration": "node scripts/test-runner.mjs --level=integration",
-    "test:browser": "node scripts/test-runner.mjs --level=browser --concurrency=2",
+    "test:browser": "node scripts/test-runner.mjs --level=browser",
     "test:architecture": "node scripts/test-runner.mjs --level=architecture",
     "test:infrastructure": "node scripts/test-runner.mjs --level=infrastructure",
     "test:group": "node scripts/test-runner.mjs --group"
