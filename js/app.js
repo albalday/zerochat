@@ -357,7 +357,7 @@
     const config = getRuntimeConfig();
     const publishedLimit = config.apiType === 'webllm'
       ? Number(config.webllmConfig.context_window_size) || Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE
-      : UIInspector.getModelContextLimit(config.model);
+      : UIInspector.getDiscoveredContextLimit(config.model);
     if (!publishedLimit || config.modelContextLimit === publishedLimit) return;
     Config.updateRuntime({ modelContextLimit: publishedLimit });
   }

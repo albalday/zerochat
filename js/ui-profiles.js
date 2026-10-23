@@ -24,6 +24,7 @@
   const getExport = () => resolveDep('ChatExport', './export.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getUIBrowser = () => resolveDep('ChatUIBrowser', './ui-browser.js');
+  const getMCP = () => resolveDep('ChatMCP', './mcp.js');
   const getUIMcp = () => resolveDep('ChatUIMcp', './ui-mcp.js');
   const getState = () => resolveDep('ChatState', './state.js');
 
@@ -196,7 +197,7 @@
     fillProfileForm(profileData);
     syncProfileSaveState();
     try {
-      const profile = await loadProfileUnlocked(profileId);
+      const profile = await getProfiles().loadUnlocked(profileId);
       if (selectedProfileId() !== profileId) return;
       const apiKey = profile?.settings?.apiKey || '';
       keyInput.value = apiKey;
@@ -208,6 +209,19 @@
     syncProfileSaveState();
   }
 
+  /** Nombres en el idioma de la interfaz de los servicios MCP externos; su id si el servidor local no lo conoce. */
+  function serviceNames(ids) {
+    const servers = getState().get('mcp').externalServers;
+    const language = I18n.getLanguage();
+    return ids.map(id => getUIMcp().getServiceName(servers.find(server => server.id === id) || { id }, language));
+  }
+
+  /** Arranca los servicios MCP del perfil activo; devuelve { started, unavailable } con sus nombres. */
+  async function startProfileServers() {
+    const { started, unavailable } = await getMCP().manager.startProfileServers(runtimeConfig());
+    return { started: serviceNames(started), unavailable: serviceNames(unavailable) };
+  }
+
   /**
    * Activa un perfil y arranca sus servicios MCP externos y, si es la herramienta de navegación, Playwright MCP.
    * Devuelve una promesa con { started, unavailable }, para que cada llamada decida cómo avisar.
@@ -217,7 +231,7 @@
     getConfig().activateProfile(profileId, activationOptions);
     options.loadCachedModels();
     options.resetTelemetryDisplay();
-    return getUIMcp().startProfileServers(runtimeConfig());
+    return startProfileServers();
   }
 
   /**
@@ -240,7 +254,7 @@
 
   /** Arranca los servicios MCP del perfil activo al conectar con el servidor local. */
   function startActiveProfileServers() {
-    return getUIMcp().startProfileServers(runtimeConfig()).then(reportProfileServers);
+    return startProfileServers().then(reportProfileServers);
   }
 
   /** Menú del perfil activo: cada perfil con inspeccionar, editar y, salvo Espejo, borrar. */
@@ -497,7 +511,7 @@
 
   async function handleInspectProfile(profileId) {
     try {
-      const profile = await loadProfileUnlocked(profileId);
+      const profile = await getProfiles().loadUnlocked(profileId);
       if (!profile) return;
       closeProfileMenu();
       await options.inspectProfile(profile);
@@ -528,15 +542,6 @@
     } catch (error) {
       showProfileFeedback(t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
     }
-  }
-
-  /** Perfil con su API key descifrada; pide la contraseña si está cifrada. Los fallos se propagan. */
-  async function loadProfileUnlocked(profileId) {
-    if (!profileId) return null;
-    return getProfileBackup().withPassword(
-      keyMaterial => getProfiles().load(profileId, keyMaterial),
-      () => requestEncryptionPassword(t('crypto_current_password_prompt'))
-    );
   }
 
   /**
@@ -573,7 +578,7 @@
         const Backup = getProfileBackup();
         const imported = await Backup.withPassword(
           keyMaterial => Backup.decryptProfiles(data.payload, keyMaterial),
-          () => requestEncryptionPassword(t('crypto_current_password_prompt'))
+          requestCurrentPassword
         );
         if (!Array.isArray(imported) || imported.length === 0) throw new Error('No valid profiles found in payload');
         if (!await getDialogs().confirm(t('confirm_auto_import_profiles', { count: imported.length }))) {
@@ -609,6 +614,10 @@
     });
   }
 
+  function requestCurrentPassword() {
+    return requestEncryptionPassword(t('crypto_current_password_prompt'));
+  }
+
   /** Clave actual de las API keys: la guardada en la sesión o la de la contraseña; undefined si se cancela. */
   async function resolveCurrentKeyForRecipher() {
     const Profiles = getProfiles();
@@ -620,7 +629,7 @@
     } catch (error) {
       if (error?.code !== 'PASSWORD_REQUIRED') throw error;
     }
-    const password = await requestEncryptionPassword(t('crypto_current_password_prompt'));
+    const password = await requestCurrentPassword();
     if (password === null) return undefined;
     const keyMaterial = await Backup.keyMaterialFromPassword(password);
     await Profiles.verifyApiKeyMaterial(keyMaterial);
@@ -871,6 +880,7 @@
     cleanups = [];
     els = elements;
     options = callbacks;
+    getProfiles().setPasswordPrompt(requestCurrentPassword);
     bindEditor();
     bindMenu();
   }
@@ -886,7 +896,6 @@
     startActiveProfileServers,
     handleEncryptionPassword,
     handleUseDefaultEncryptionKey,
-    loadProfileUnlocked,
     startImportMode
   };
 }));

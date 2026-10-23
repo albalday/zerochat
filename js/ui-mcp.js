@@ -269,9 +269,7 @@
       return;
     }
     const toggle = target.closest('.btn-mcp-server-toggle');
-    if (toggle) {
-      runExternalServerAction(toggle.getAttribute('data-server-id'), toggle.getAttribute('data-action'), { button: toggle });
-    }
+    if (toggle) getMCP().manager.runExternalServerAction(toggle.getAttribute('data-server-id'), toggle.getAttribute('data-action'));
   }
 
   /** Cambio de una opción booleana de un servidor: se guarda y la respuesta trae la lista de servidores. */
@@ -286,113 +284,6 @@
     } finally {
       checkbox.disabled = false;
     }
-  }
-
-  function updateExternalServerState(serverId, changes) {
-    getState().set('mcp', current => ({
-      ...current,
-      externalServers: current.externalServers.map(server => (server.id === serverId ? { ...server, ...changes } : server))
-    }));
-  }
-
-  /**
-   * Inicia o detiene un servicio MCP gestionado reflejando el progreso en su tarjeta. Playwright MCP
-   * arranca con el navegador que exija el perfil activo. Devuelve true si la acción terminó correctamente.
-   */
-  async function runExternalServerAction(serverId, action, { button = null, remember = true } = {}) {
-    const pendingStatus = action === 'start' ? 'starting' : 'stopped';
-    if (button) {
-      button.disabled = true;
-      button.setAttribute('aria-busy', 'true');
-      button.textContent = t(`mcp_external_status_${pendingStatus}`);
-    }
-    updateExternalServerState(serverId, { status: pendingStatus, error: null, startWait: null, oauthUrl: null });
-    let didAutoOpenOAuth = false;
-    const reportStartWait = (attempt, total, status = 'starting', serverData = null) => {
-      const oauthUrl = serverData?.oauthUrl || null;
-      if (oauthUrl && !didAutoOpenOAuth) {
-        didAutoOpenOAuth = true;
-        window.open(oauthUrl, '_blank');
-      }
-      updateExternalServerState(serverId, { status, ...(oauthUrl ? { oauthUrl } : {}), error: null, startWait: { attempt, total } });
-    };
-    const manager = getMCP().manager;
-    try {
-      const browser = serverId === 'playwright' ? getConfig().getActive().playwrightBrowser : null;
-      if (action === 'start') await manager.startExternalServer(serverId, reportStartWait, { remember, ...(browser ? { browser } : {}) });
-      else await manager.stopExternalServer(serverId);
-      return true;
-    } catch (error) {
-      const stillPending = action === 'start' && (error.code === 'EXTERNAL_START_WAIT_TIMEOUT' ||
-        (error.code === 'EXTERNAL_START_STATUS_UNAVAILABLE' && !error.externalServer));
-      if (!error.code?.startsWith('EXTERNAL_START_')) console.error(`[MCP UI] Error trying to ${action} external server:`, error);
-      updateExternalServerState(serverId, {
-        status: error.externalServer?.status || (stillPending ? 'starting' : (action === 'start' ? 'stopped' : 'running')),
-        startWait: null,
-        error: t(stillPending ? 'mcp_external_start_wait_timeout' : 'mcp_external_action_error'),
-        ...(error.externalServer?.oauthUrl ? { oauthUrl: error.externalServer.oauthUrl } : {})
-      });
-      return false;
-    } finally {
-      if (button) {
-        button.disabled = false;
-        button.removeAttribute('aria-busy');
-      }
-    }
-  }
-
-  /**
-   * Ejecuta `action` con el servicio detenido y lo vuelve a arrancar si estaba en marcha, sin cambiar
-   * si queda recordado para la siguiente sesión (detenerlo lo desmarca). Devuelve false si no se pudo
-   * detener o volver a arrancar.
-   */
-  async function withExternalServerStopped(serverId, action = async () => {}) {
-    const server = getState().get('mcp').externalServers.find(item => item.id === serverId);
-    const wasRunning = server?.status === 'running';
-    const remember = server?.enabled === true;
-    if (wasRunning && !await runExternalServerAction(serverId, 'stop')) return false;
-    let restarted = true;
-    try {
-      await action();
-    } finally {
-      if (wasRunning) restarted = await runExternalServerAction(serverId, 'start', { remember });
-    }
-    return restarted;
-  }
-
-  /**
-   * Arranca los servicios externos de un perfil (los suyos y Playwright MCP si es la herramienta de
-   * navegación activa) que no estén ya en marcha, sin parar los demás ni guardarlos como activos para
-   * la siguiente sesión. Si el perfil exige otro navegador del que usa Playwright MCP, o su ventana visible, lo reinicia.
-   * Devuelve { started, unavailable }: los nombres de los que ha arrancado y de los que no están
-   * configurados en el servidor local o no han arrancado. Sin conexión no arranca nada.
-   */
-  async function startProfileServers(appConfig) {
-    const State = getState();
-    const started = [];
-    const unavailable = [];
-    if (State.get('mcp').status !== 'connected') return { started, unavailable };
-    const ids = getAgentCore().activeBrowserTool(appConfig) === 'playwright' ? [...appConfig.mcpServers, 'playwright'] : appConfig.mcpServers;
-    const required = appConfig.playwrightBrowser;
-    const otherBrowser = server => server.id === 'playwright' && required && server.status === 'running'
-      && (server.browser?.mode !== required.mode || server.browser.engine !== required.engine || server.browser.userBrowser !== required.userBrowser
-        || (required.headless === false && server.browser.headless !== false));
-    const language = I18n.getLanguage();
-    for (const id of ids) {
-      const server = State.get('mcp').externalServers.find(item => item.id === id);
-      if (!server) {
-        unavailable.push(id);
-        continue;
-      }
-      if (otherBrowser(server)) {
-        (await withExternalServerStopped(id) ? started : unavailable).push(getServiceName(server, language));
-        continue;
-      }
-      if (['running', 'starting', 'installing'].includes(server.status)) continue;
-      const ok = await runExternalServerAction(id, 'start', { remember: false });
-      (ok ? started : unavailable).push(getServiceName(server, language));
-    }
-    return { started, unavailable };
   }
 
   /**
@@ -437,7 +328,7 @@
     for (const id of chosen) {
       // El usuario pudo iniciarlo desde Ajustes mientras el diálogo seguía abierto.
       if (!isStopped(id)) continue;
-      const ok = await runExternalServerAction(id, 'start');
+      const ok = await getMCP().manager.runExternalServerAction(id, 'start');
       if (!ok) failed.push(items.find(item => item.id === id).label);
     }
     if (failed.length > 0) {
@@ -605,9 +496,6 @@
     generateTerminalCommand,
     getServiceHelp,
     getServiceName,
-    startProfileServers,
-    runExternalServerAction,
-    withExternalServerStopped,
     renderConnectionStatus,
     renderToolsList,
     renderExternalServers,

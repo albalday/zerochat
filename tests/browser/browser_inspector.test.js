@@ -90,9 +90,9 @@ describe('Browser UI - consulta de modelos e inspector', { concurrency: 2 }, () 
         const elements = window.appElements();
         await window.ChatUIInspector.handleQueryServer(elements, {});
         window.ChatUIInspector.loadCachedModels(elements, { apiType: 'openai', apiUrl: 'https://api.example.test/v1' });
-        const remote = window.ChatUIInspector.getModelContextLimit('same-model');
+        const remote = window.ChatUIInspector.getDiscoveredContextLimit('same-model');
         window.ChatUIInspector.loadCachedModels(elements, { apiType: 'openai', apiUrl: 'http://localhost:1234/v1' });
-        return { remote, local: window.ChatUIInspector.getModelContextLimit('same-model') };
+        return { remote, local: window.ChatUIInspector.getDiscoveredContextLimit('same-model') };
       });
       assert.deepEqual(limits, { remote: null, local: 90112 }, 'El contexto cargado manda sobre el nominal');
     });

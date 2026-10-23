@@ -17,7 +17,6 @@
   const getState = () => resolveDep('ChatState', './state.js');
   const getMCP = () => resolveDep('ChatMCP', './mcp.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
-  const getUIMcp = () => resolveDep('ChatUIMcp', './ui-mcp.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
 
   const ENGINE_NAMES = { chromium: 'Chromium', firefox: 'Firefox', webkit: 'WebKit' };
@@ -224,7 +223,7 @@
         await refreshEngines();
       } else if (action === 'remove') {
         if (!await getDialogs().confirm(t('browser_engine_remove_confirm', { name }), { type: 'warning', acceptText: t('browser_engine_remove') })) return;
-        await getUIMcp().withExternalServerStopped('playwright', async () => {
+        await getMCP().manager.withExternalServerStopped('playwright', async () => {
           view.engines = await request('zerochat/browser/engines/remove', { engine });
           // El servidor pasa la configuración guardada a otro motor instalado.
           view.savedConfig = await request('zerochat/browser/config/get');
@@ -233,7 +232,7 @@
         render();
       } else if (action === 'clear') {
         if (!await getDialogs().confirm(t('browser_data_clear_confirm', { name }), { type: 'warning', acceptText: t('browser_data_clear') })) return;
-        await getUIMcp().withExternalServerStopped('playwright', () => request('zerochat/browser/data/clear', { engine }));
+        await getMCP().manager.withExternalServerStopped('playwright', () => request('zerochat/browser/data/clear', { engine }));
         view.notice = { type: 'success', text: t('browser_data_cleared', { name }) };
         render();
       }
@@ -264,7 +263,7 @@
       container.querySelector('#browser-extension-token')?.focus();
       return false;
     }
-    const UIMcp = getUIMcp();
+    const manager = getMCP().manager;
     const status = isConnected() ? playwrightStatus() : null;
     if (view.config && view.savedConfig && !sameConfig(view.config, view.savedConfig)) {
       try {
@@ -276,12 +275,12 @@
       if (status === 'running' && await getDialogs().confirm(t('browser_restart_confirm'), {
         type: 'info', acceptText: t('browser_restart'), cancelText: t('browser_restart_later')
       })) {
-        UIMcp.withExternalServerStopped('playwright');
+        manager.withExternalServerStopped('playwright');
       }
     }
     // Al elegir Playwright MCP se arranca si está detenido; queda recordado para la siguiente sesión.
     if (view.tool === 'playwright' && view.savedTool !== 'playwright' && ['stopped', 'error'].includes(status)) {
-      UIMcp.runExternalServerAction('playwright', 'start');
+      manager.runExternalServerAction('playwright', 'start');
     }
     view.savedTool = view.tool;
     return true;

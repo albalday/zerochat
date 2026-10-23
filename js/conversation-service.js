@@ -175,7 +175,7 @@
 
   async function summarizeHistory(params) {
     const config = getConfig().getActive();
-    const activeProfile = await resolveDep('ChatUIProfiles', './ui-profiles.js').loadProfileUnlocked(config.activeProfile?.id);
+    const activeProfile = await resolveDep('ChatProfileRepository', './profile-repository.js').loadUnlocked(config.activeProfile?.id);
     const summarize = getEngine().createHistorySummarizer({
       apiUrl: config.apiUrl,
       apiType: config.apiType,

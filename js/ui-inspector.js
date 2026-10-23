@@ -24,17 +24,16 @@
   const getUITelemetry = () => resolveDep('ChatUITelemetry', './ui-telemetry.js');
   const getUIReasoning = () => resolveDep('ChatUIReasoning', './ui-reasoning.js');
   const getWebLLM = () => resolveDep('ChatWebLLM', './providers-webllm.js');
+  const getContextManager = () => resolveDep('ChatContextManager', './context-manager.js');
 
   const MODEL_CACHE_KEY = 'cached_models';
   const MODEL_CACHE_VERSION = 1;
-  // Contexto que se asume para un modelo WebLLM sin dato propio.
-  const WEBLLM_DEFAULT_CONTEXT = 4096;
 
   // Modelos de la última consulta o de la caché de la conexión del editor.
   let discoveredModels = [];
 
   const addDebugLog = (type, text) => getDebug().addLog(type, text);
-  const modelId = model => (typeof model === 'string' ? model : (model?.id || model?.name || '')).trim();
+  const modelId = model => getContextManager().catalogModelId(model);
   const spinner = size => Icons.get('spinner', { size, className: 'ui-icon-spin' });
   const statusHtml = (message, className = 'status-error') => `<div class="server-query-status inspector-status ${className}">${message}</div>`;
 
@@ -105,6 +104,7 @@
 
     if (apiType === 'webllm') {
       const known = new Set(discoveredModels.map(modelId));
+      const { WEBLLM_DEFAULT_CONTEXT } = getContextManager();
       for (const id of getWebLLM().getCompletedModelIds()) {
         if (known.has(id)) continue;
         discoveredModels.push({ id, name: id, details: { webllmCache: 'cached', loaded_context_length: WEBLLM_DEFAULT_CONTEXT, max_context_length: WEBLLM_DEFAULT_CONTEXT } });
@@ -125,53 +125,16 @@
     getStorage().setStorageItem(MODEL_CACHE_KEY, JSON.stringify(document));
   }
 
-  /** Entrada del catálogo para un modelo: por id exacto, sin `models/` ni `:latest`, o por sufijo de ruta. */
-  function findModelInCatalog(models, targetModel) {
-    const target = String(targetModel || '').trim().toLowerCase();
-    if (!target) return null;
-    const idOf = model => modelId(model).toLowerCase();
-    const base = id => id.replace(/^models\//, '').replace(/:latest$/, '');
-    return models.find(model => idOf(model) === target)
-      || models.find(model => base(idOf(model)) === base(target))
-      || models.find(model => idOf(model).endsWith(`/${target}`) || target.endsWith(`/${idOf(model)}`))
-      || null;
-  }
-
-  /**
-   * Contexto de un modelo según su entrada del catálogo: primero el cargado en el servidor, luego el
-   * nominal y por último los tokens máximos declarados.
-   */
-  function getModelContextLimit(model, catalog = discoveredModels) {
-    const selected = String(model || '').trim();
-    if (!selected) return null;
-    const entry = findModelInCatalog(catalog, selected);
-    const details = entry?.details || entry || {};
-    const meta = details.meta || entry?.meta || {};
-    const smallest = values => {
-      const valid = values.map(Number).filter(value => Number.isFinite(value) && value > 0);
-      return valid.length ? Math.floor(Math.min(...valid)) : null;
-    };
-
-    const active = smallest([details.loaded_context_length, meta.n_ctx]);
-    if (active) return active;
-    const nominal = smallest([
-      details.max_context_length,
-      meta.n_ctx_train,
-      details.context_length ?? entry?.context_length,
-      details.context_window ?? entry?.context_window,
-      details.max_model_len ?? entry?.max_model_len
-    ]);
-    if (nominal) return nominal;
-    const declared = smallest([details.max_context_tokens ?? details.max_tokens]);
-    if (declared) return declared;
-    return details.webllmCache || selected.includes('-MLC') ? WEBLLM_DEFAULT_CONTEXT : null;
+  /** Contexto de un modelo según el catálogo de la conexión del editor; null si no lo publica. */
+  function getDiscoveredContextLimit(model) {
+    return getContextManager().getModelContextLimit(model, discoveredModels);
   }
 
   function createModelOption(id, label = '') {
     const option = document.createElement('option');
     option.value = id;
     if (label) option.textContent = label;
-    const contextLimit = getModelContextLimit(id);
+    const contextLimit = getDiscoveredContextLimit(id);
     if (contextLimit) option.dataset.contextLength = String(contextLimit);
     return option;
   }
@@ -592,14 +555,15 @@
       const models = Array.isArray(queryRes.models) ? queryRes.models : [];
       const sortedModels = isLocallyManaged(apiType) ? sortWebLLMModels(models) : models;
       saveCachedModels(sortedModels, { apiUrl, apiType });
-      const foundModel = findModelInCatalog(sortedModels, model);
+      const ContextManager = getContextManager();
+      const foundModel = ContextManager.findModelInCatalog(sortedModels, model);
       if (!foundModel) {
         results.innerHTML = statusHtml(escapeHtml(t('inspector_err_model_not_found', { model })));
         return false;
       }
 
       // El contexto del modelo activo se publica para el presupuesto de la conversación.
-      const contextLimit = getModelContextLimit(model, sortedModels);
+      const contextLimit = ContextManager.getModelContextLimit(model, sortedModels);
       const Config = getConfig();
       const runtimeConfig = Config.getActive();
       if (contextLimit && runtimeConfig.apiUrl === apiUrl && runtimeConfig.model === model) {
@@ -630,9 +594,8 @@
   }
 
   return {
-    findModelInCatalog,
     loadCachedModels,
-    getModelContextLimit,
+    getDiscoveredContextLimit,
     handleQueryServer,
     handleRunInspector
   };

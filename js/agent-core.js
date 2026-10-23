@@ -42,8 +42,7 @@
     ragService: ['ChatRagService', './rag-service.js'],
     agent: ['ChatAgentCore', './agent-core.js'],
     engine: ['ChatEngine', './chat-engine.js'],
-    profiles: ['ChatProfileRepository', './profile-repository.js'],
-    profilesUI: ['ChatUIProfiles', './ui-profiles.js']
+    profiles: ['ChatProfileRepository', './profile-repository.js']
   };
 
   /** Servicios resueltos al usarlos. */
