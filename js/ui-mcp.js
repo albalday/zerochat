@@ -486,7 +486,7 @@
   }
 
   function verifyActiveConnection() {
-    return getMCP().manager.verifyProxyConnection({ timeoutMs: 1500 });
+    return getMCP().manager.verifyProxyConnection();
   }
 
   return {

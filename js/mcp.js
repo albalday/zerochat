@@ -57,6 +57,8 @@
   // y la espera de la autorización OAuth.
   const EXTERNAL_LONG_START_POLL_ATTEMPTS = 80;
   const HEARTBEAT_INTERVAL_MS = 10000;
+  // Plazo de los sondeos al servidor local (conexión, comprobación y reconexión del latido).
+  const PROBE_TIMEOUT_MS = 1500;
   // Lo que el servidor local informa en vivo, vacío mientras no hay conexión.
   const LIVE_RESET = Object.freeze({ serverInfo: null, tools: [], externalServers: [], externalTools: [], commandJobs: [], exitOnClose: false, playwright: null });
   const MAX_OUTPUT_LENGTH = 60000;
@@ -802,7 +804,7 @@
       return { success: false, error: message };
     }
 
-    async verifyProxyConnection({ timeoutMs = 1500 } = {}) {
+    async verifyProxyConnection({ timeoutMs = PROBE_TIMEOUT_MS } = {}) {
       if (this.healthCheckPromise) return this.healthCheckPromise;
       const State = getState();
       const current = State.get('mcp');
@@ -829,10 +831,15 @@
     /**
      * Conecta con zerochat.py en el host y puerto indicados y registra sus herramientas. Con
      * silentOnFailure (la comprobación del arranque) un servidor apagado deja el estado en
-     * 'disconnected' en lugar de 'error'.
+     * 'disconnected' en lugar de 'error'. Con sesión, el latido vigila este destino aunque falle:
+     * conecta en cuanto el servidor arranca o vuelve tras un reinicio.
      */
-    async connectProxy({ host, port, timeoutMs = 1500, silentOnFailure = false, token = null }) {
+    async connectProxy({ host, port, timeoutMs = PROBE_TIMEOUT_MS, silentOnFailure = false, token = null }) {
       if (token) this.setSessionToken(token);
+      if (this.sessionToken) {
+        this.heartbeatTarget = { host, port, token: this.sessionToken };
+        if (!this.heartbeatTimer) this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), HEARTBEAT_INTERVAL_MS);
+      }
       const endpoint = proxyEndpoint(host, port);
       const State = getState();
       if (!silentOnFailure) State.set('mcp', { status: 'connecting', host, port, endpoint, error: null });
@@ -874,7 +881,7 @@
       // El primer latido trae los servicios externos y el resto del estado vivo.
       this.liveServers = null;
       this.liveRunning = null;
-      if (this.sessionToken) await this.startHeartbeat(host, port);
+      if (this.sessionToken) await this.sendHeartbeat();
       return { success: true, available: true, probe, tools };
     }
 
@@ -889,26 +896,17 @@
     }
 
     /**
-     * Latido periódico al servidor local: publica su estado vivo (applyLiveState) y, si no responde,
-     * comprueba la conexión.
+     * Lee el latido y publica su estado vivo; devuelve lo leído o falla si el servidor no responde.
+     * La lectura no dura más que el intervalo: una colgada (un túnel SSH sin red) bloquearía los latidos siguientes.
      */
-    startHeartbeat(host, port) {
-      const target = { host, port, token: this.sessionToken };
-      this.heartbeatTarget = target;
-      if (!this.heartbeatTimer) this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), HEARTBEAT_INTERVAL_MS);
-      // El primero va al conectar.
-      return this.sendHeartbeat();
-    }
-
-    /** Lee el latido y publica su estado vivo; devuelve lo leído o falla si el servidor no responde. */
     async readLiveState() {
       const { host, port, token } = this.heartbeatTarget;
-      const response = await fetch(getHeartbeatUrl(host, port), {
+      const response = await fetchWithTimeout(getHeartbeatUrl(host, port), {
         method: 'GET',
         cache: 'no-store',
         mode: 'cors',
         headers: { 'X-ZeroChat-Token': token }
-      });
+      }, HEARTBEAT_INTERVAL_MS);
       const payload = await response.json().catch(() => null);
       if (!response.ok || payload?.ok !== true) throw new Error(`Heartbeat HTTP ${response.status}`);
       // Otra pestaña, el modelo o una instalación pueden haber cambiado el estado del servidor.
@@ -916,24 +914,36 @@
       return payload;
     }
 
-    /** Latido cada 10 s: comprueba la conexión y, si el servidor local no está conectado, reintenta conectarlo. */
+    /**
+     * Latido cada 10 s al servidor local. Conectado, publica su estado vivo (applyLiveState) y, si no
+     * responde, comprueba la conexión. Sin conexión, sondea el destino y reconecta si responde; el
+     * sondeo previo evita que cada intento fallido de connectProxy reescriba el estado.
+     */
     async sendHeartbeat() {
       if (this.heartbeatCheckInFlight) return;
       this.heartbeatCheckInFlight = true;
+      let reconnect = false;
       try {
         if (this.isProxyConnected()) {
           try {
             await this.readLiveState();
           } catch (_) {
-            await this.verifyProxyConnection({ timeoutMs: 1500 });
+            await this.verifyProxyConnection();
           }
         } else if (this.heartbeatTarget) {
           const { host, port, token } = this.heartbeatTarget;
-          const probe = await probeConnection(proxyEndpoint(host, port), { timeoutMs: 1500, token });
-          if (probe.success) await this.connectProxy({ host, port, timeoutMs: 1500, silentOnFailure: true, token });
+          const probe = await probeConnection(proxyEndpoint(host, port), { timeoutMs: PROBE_TIMEOUT_MS, token });
+          reconnect = probe.success;
+          // Muestra la causa actual: tras un reinicio otro día, el 401 del nuevo token diario y no el fallo de red anterior.
+          if (!probe.success && probe.error !== getState().get('mcp').error) getState().set('mcp', { status: 'error', error: probe.error });
         }
       } finally {
         this.heartbeatCheckInFlight = false;
+      }
+      // Fuera del bloqueo, para que connectProxy envíe el primer latido de la nueva conexión.
+      if (reconnect) {
+        const { host, port, token } = this.heartbeatTarget;
+        await this.connectProxy({ host, port, silentOnFailure: true, token });
       }
     }
 
