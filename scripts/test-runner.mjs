@@ -370,9 +370,10 @@ export async function run() {
 
   // unittest importa cada test_*.py por su nombre de módulo desde su carpeta,
   // donde también están los helpers compartidos; -v informa de cada caso y -b
-  // muestra lo que imprime el backend solo en los casos que fallan.
+  // muestra lo que imprime el backend solo en los casos que fallan. Cada fichero
+  // corre en su propio proceso para que los lentos no se esperen unos a otros.
   const pyDirs = [...new Set(pyFiles.map(f => path.resolve(ROOT_DIR, path.dirname(f))))];
-  const pyArgs = ['-m', 'unittest', '-v', '-b', ...pyFiles.map(f => path.basename(f, '.py'))];
+  const pyArgs = file => ['-m', 'unittest', '-v', '-b', path.basename(file, '.py')];
   const pyEnv = { ...process.env, PYTHONPATH: [...pyDirs, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter) };
 
   // Con buffered, la salida se guarda en orden y se devuelve para escribirla
@@ -395,15 +396,18 @@ export async function run() {
     child.on('close', code => resolve({ code: code ?? 0, output }));
   });
 
-  // Python corre a la vez que node --test y su informe se escribe al terminar este.
+  // Python corre a la vez que node --test y sus informes se escriben, en el orden
+  // de los ficheros, al terminar este.
   const runOnce = async () => {
-    const py = pyFiles.length
-      ? spawnTests(process.platform === 'win32' ? 'python' : 'python3', pyArgs, pyEnv, { buffered: true })
-      : Promise.resolve({ code: 0, output: [] });
+    const python = process.platform === 'win32' ? 'python' : 'python3';
+    const py = Promise.all(pyFiles.map(file => spawnTests(python, pyArgs(file), pyEnv, { buffered: true })));
     const js = jsFiles.length ? await spawnTests(process.execPath, testArgs, process.env) : { code: 0 };
-    const { code: pyCode, output } = await py;
-    for (const [stream, chunk] of output) stream.write(chunk);
-    return js.code || pyCode;
+    let code = js.code;
+    for (const result of await py) {
+      for (const [stream, chunk] of result.output) stream.write(chunk);
+      code ||= result.code;
+    }
+    return code;
   };
 
   const exitCode = await runOnce();

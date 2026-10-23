@@ -88,7 +88,7 @@ Done when: browser waits on no real poll or timeout timers, Python unittest file
 - [x] M41-T2 run_command card browser test drives its poll and clock timers with page.clock instead of real waits (2026-10-23)
 - [x] M41-T3 Sandbox timeoutMs fallback test uses page.clock instead of waiting the real 2500 ms default (2026-10-23)
 - [x] M41-T4 MCP homonymous-tools integration test uses a JS fake host instead of embedded Python spawned per call (2026-10-23)
-- [ ] M41-T5 Runner runs each test_*.py in its own parallel unittest process; shorter sleeps in test_run_command.py
+- [x] M41-T5 Runner runs each test_*.py in its own parallel unittest process; shorter sleeps in test_run_command.py (2026-10-23)
 - [ ] M41-T6 Sandbox browser suite merged into one probe case and one timeout case; drop cases that never reach CSP or the parent
 - [ ] M41-T7 Drop duplicate browser cases: legacy 6.7.0 profiles, office RAG ingestion, hasOldLifecycle assertion
 - [ ] M41-T8 test_local_server.js keeps only HTTP contract; tool logic moves to py unittest; drop removed-feature assertions
