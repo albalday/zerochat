@@ -2,8 +2,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
-const fs = require('node:fs');
-const os = require('node:os');
 
 const repoRoot = path.resolve(__dirname, '../..');
 const backendPath = path.join(repoRoot, 'zerochat.py');
@@ -761,24 +759,6 @@ finally:
   const env = { ...process.env, NO_COLOR: '1' };
   delete env.FORCE_COLOR;
   assert.doesNotThrow(() => runPython(script, { env }));
-});
-
-test('Generación y persistencia de token diario en zerochat.py', () => {
-  const code = `
-import zerochat
-token1 = zerochat.get_daily_token()
-token2 = zerochat.get_daily_token()
-assert token1 == token2, "El token diario debe ser idempotente en el mismo día"
-assert len(token1) > 20, "El token debe ser de longitud segura"
-print("DAILY_TOKEN_OK")
-`;
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-daily-token-'));
-  try {
-    const output = runPython(code, { env: { ...process.env, ZEROCHAT_DATA_DIR: dataDir } });
-    assert.match(output, /DAILY_TOKEN_OK/);
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
 });
 
 test('zerochat.py: run_command en segundo plano se sigue y se detiene con check_command', { skip: process.platform === 'win32' }, () => {

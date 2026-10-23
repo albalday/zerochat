@@ -1,6 +1,6 @@
 # Guía y arquitectura de pruebas de ZeroChat
 
-ZeroChat utiliza el ejecutor nativo `node:test` y Playwright para las pruebas de navegador. La suite se organiza por nivel de responsabilidad y se ejecuta mediante `scripts/test-runner.mjs`.
+ZeroChat utiliza el ejecutor nativo `node:test`, Playwright para las pruebas de navegador y `unittest` para la lógica Python del backend. La suite se organiza por nivel de responsabilidad y se ejecuta mediante `scripts/test-runner.mjs`.
 
 El runner es la fuente de verdad para los archivos descubiertos y para los grupos funcionales. Para consultar el inventario actual sin depender de esta guía, usa sus opciones `--list`.
 
@@ -13,6 +13,7 @@ tests/
 ├── browser/          # Pruebas de interfaz en Chromium con Playwright
 ├── architecture/     # Contratos estáticos y de arquitectura
 ├── infrastructure/   # Runner, servidor local, empaquetado de dependencias y versión
+│   └── py/           # Lógica de zerochat.py con unittest (test_*.py)
 └── helpers/          # Utilidades compartidas, no descubiertas como tests
 ```
 
@@ -22,7 +23,7 @@ tests/
 - **`integration/`**: interacción entre varios módulos, estado compartido, servicios o flujos completos que no requieran un navegador real.
 - **`browser/`**: flujos de usuario en Chromium headless que cumplen los criterios de la sección 6, no cada render. `browser_startup.test.js` contiene la prueba de humo que cubre el arranque.
 - **`architecture/`**: restricciones estáticas y contratos transversales que deben mantenerse independientemente de un flujo de usuario concreto.
-- **`infrastructure/`**: el backend `zerochat.py` (servidor local, procesos, MCP), el cambio de versión y los recursos de proveedor construidos.
+- **`infrastructure/`**: el backend `zerochat.py` (servidor local, procesos, MCP), el cambio de versión y los recursos de proveedor construidos. Lo que arranca `zerochat.py` y lo usa por HTTP va en `node:test`; las funciones de `zerochat.py` se prueban en `infrastructure/py/test_*.py` con `unittest`, nunca con Python embebido en cadenas de JavaScript.
 - **`helpers/`**: código reutilizable de apoyo. No se ejecuta directamente como parte de la suite.
 
 ## 2. Comandos de ejecución
@@ -55,6 +56,8 @@ node scripts/test-runner.mjs --group=composer --list
 # Ejecutar una suite concreta
 node scripts/test-runner.mjs tests/unit/test_icons.js
 ```
+
+Los `test_*.py` seleccionados se ejecutan después con `python3 -m unittest -v` (`python` en Windows) en un único proceso, que informa de cada caso y de cada fallo con su traza; el código de salida falla si falla cualquiera de los dos ejecutores.
 
 El runner carga `tests/helpers/storage-env.js` en cada proceso de prueba: IndexedDB simulado con `fake-indexeddb` y `localStorage`/`sessionStorage` en memoria. Los módulos usan así las mismas APIs que en el navegador, sin respaldos propios; para lanzar una suite con `node --test` directamente, añade `--require ./tests/helpers/storage-env.js`.
 
@@ -91,7 +94,7 @@ La responsabilidad de cada nivel está definida en la sección 1. Cada archivo d
 
 ## 5. Mantenimiento de la suite
 
-Al crear, mover o eliminar una suite, el runner la descubre si el archivo está bajo uno de los niveles anteriores y usa el patrón `test_*.js` o `*.test.js`. Después de cualquier cambio de estructura, confirma el resultado con `--list`.
+Al crear, mover o eliminar una suite, el runner la descubre si el archivo está bajo uno de los niveles anteriores y usa el patrón `test_*.js`, `*.test.js` o, en `infrastructure/py/`, `test_*.py`. Después de cualquier cambio de estructura, confirma el resultado con `--list`.
 
 Los grupos funcionales son una selección explícita, no un descubrimiento automático. Si un nuevo test representa un flujo clave de uno de ellos, actualiza `GROUPS` en `scripts/test-runner.mjs`. Evita incluir rutas inexistentes: el listado del grupo debe ser la comprobación final.
 
@@ -104,9 +107,10 @@ Los cambios en el runner requieren actualizar esta guía solo si cambian sus com
 3. Aísla efectos compartidos en `beforeEach` y `afterEach`; restaura mocks, temporizadores y estado global al terminar cada caso.
 4. Para pruebas de navegador, usa los helpers de `tests/helpers/browser-env.js` (como `withTestApp`, que gestiona contexto, arranque y cierre automático) y garantiza el cierre de páginas y contextos en `finally`. Espera a la aplicación con `waitForAppReady(page)` (no solo a `zerochat-ready`, que se marca antes de cargar la sesión) y nunca con esperas fijas.
 5. Para pruebas que arrancan `zerochat.py`, usa `tests/helpers/backend-env.js`: `freePort()` para el puerto, `tokenDataDir()` para el token y `waitForServer()` para el arranque. Los comportamientos que comparten la misma configuración de arranque (misma CLI, mismo entorno) se prueban en un único proceso compartido, nunca con un spawn por comprobación; solo se arranca otro proceso cuando difieren los flags, el entorno o el ciclo de vida.
-6. Para topes que protegen memoria, contexto o seguridad (filas, tamaño, elementos, tiempo), incluye en la prueba de tabla del módulo el borde exacto (`N` y `N+1`) y comprueba el aviso o marcador de truncado. Importa las listas de formatos, constantes o convenciones desde el módulo o manifiesto de origen en lugar de reimplementarlas en el test.
-7. Añade la suite a un grupo funcional solo cuando forme parte de su flujo representativo.
-8. Ejecuta primero el nivel afectado y, cuando proceda, el grupo funcional y las validaciones exigidas por `AGENTS.md`.
+6. Para la lógica Python del backend, crea `tests/infrastructure/py/test_<área>.py` con clases `unittest.TestCase` e importa el módulo con `from backend import zerochat`: `backend.py` carga `zerochat.py` una sola vez por proceso. Aísla el directorio de datos y las variables de entorno con `tempfile` y `unittest.mock.patch.dict(os.environ, …)`.
+7. Para topes que protegen memoria, contexto o seguridad (filas, tamaño, elementos, tiempo), incluye en la prueba de tabla del módulo el borde exacto (`N` y `N+1`) y comprueba el aviso o marcador de truncado. Importa las listas de formatos, constantes o convenciones desde el módulo o manifiesto de origen en lugar de reimplementarlas en el test.
+8. Añade la suite a un grupo funcional solo cuando forme parte de su flujo representativo.
+9. Ejecuta primero el nivel afectado y, cuando proceda, el grupo funcional y las validaciones exigidas por `AGENTS.md`.
 
 ### Qué merece una prueba
 
