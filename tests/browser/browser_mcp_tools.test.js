@@ -635,6 +635,9 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+    // Reloj simulado: los sondeos del log (700 ms y luego cada 2 s) y el reloj de la tarjeta avanzan
+    // con runFor en lugar de esperarse.
+    await page.clock.install();
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
 
@@ -679,6 +682,7 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
     const card = page.locator('#command-card-test .command-card-wrapper');
     await page.waitForFunction(() => window.__commandCard.parentElement?.classList.contains('tool-call-group-active-cards'));
     // Desplegada, la tarjeta muestra el log y lo va completando.
+    await page.clock.runFor(3000);
     await page.waitForFunction(() => /linea 1\n[\s\S]*linea 8\n/.test(window.__commandCard.querySelector('.command-card-log').textContent));
     const running = await card.evaluate(el => ({
       badge: el.querySelector('.tool-card-badge').textContent.trim(),
@@ -699,23 +703,17 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
 
     // Plegada no hace peticiones, aunque el reloj siga avanzando; al desplegarla de nuevo, el log
     // vuelve a estar al día.
-    const collapsed = await page.evaluate(async () => {
+    const collapsed = await page.evaluate(() => {
       window.__commandCard.querySelector('.tool-execution-card').classList.add('collapsed');
-      const before = window.__jobCalls.length;
-      const badgeBefore = window.__commandCard.querySelector('.tool-card-badge').textContent;
-      await new Promise(resolve => {
-        const check = setInterval(() => {
-          if (window.__commandCard.querySelector('.tool-card-badge').textContent !== badgeBefore) {
-            clearInterval(check);
-            resolve();
-          }
-        }, 50);
-        setTimeout(() => { clearInterval(check); resolve(); }, 1200);
-      });
-      return { calls: window.__jobCalls.slice(before).map(call => call.method), clockMoved: window.__commandCard.querySelector('.tool-card-badge').textContent !== badgeBefore };
+      return { calls: window.__jobCalls.length, badge: window.__commandCard.querySelector('.tool-card-badge').textContent };
     });
-    assert.deepEqual(collapsed, { calls: [], clockMoved: true });
+    await page.clock.runFor(5000);
+    assert.deepEqual(await page.evaluate(({ calls, badge }) => ({
+      calls: window.__jobCalls.slice(calls).map(call => call.method),
+      clockMoved: window.__commandCard.querySelector('.tool-card-badge').textContent !== badge
+    }), collapsed), { calls: [], clockMoved: true });
     await page.evaluate(() => window.__commandCard.querySelector('.tool-execution-card').classList.remove('collapsed'));
+    await page.clock.runFor(2000);
     await page.waitForFunction(() => {
       const log = window.__commandCard.querySelector('.command-card-log').textContent;
       return log.endsWith(window.__job.log.split('\n').slice(-2).join('\n'));
@@ -731,13 +729,12 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
     assert.deepEqual(stopped, { stopHidden: true, archived: true, status: 'success' });
     assert.ok((await page.evaluate(() => window.__jobCalls)).some(call => call.method === 'zerochat/jobs/stop' && call.params.id === 7));
     const callsAfterStop = await page.evaluate(() => window.__jobCalls.length);
-    // Aserción negativa: la espera fija es a propósito para confirmar que el contador no cambia.
-    await page.waitForTimeout(300);
+    await page.clock.runFor(5000);
     assert.equal(await page.evaluate(() => window.__jobCalls.length), callsAfterStop, 'Un comando terminado deja de consultarse');
 
     // El final de un comando en segundo plano llega con el latido: al dejar de figurar entre los
     // que siguen en marcha, su tarjeta pregunta una vez cómo acabó.
-    const viaHeartbeat = await page.evaluate(async () => {
+    await page.evaluate(() => {
       const job = window.__job;
       Object.assign(job, { id: 11, key: 'inv-tarjeta-3', status: 'running', exit_code: null, log: 'vigilando\n' });
       window.ChatState.set('mcp', { status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/tmp' }, tools: [] });
@@ -747,28 +744,21 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
       card.dataset.invocationId = job.key;
       window.ChatToolCards.appendToolCard(document.getElementById('command-card-test'), card);
       window.ChatToolCards.updateLiveToolCard(card, 'run_command', args, { content: JSON.stringify({ success: true, status: 'running', job_id: 11, elapsed_s: 2.5, output: 'vigilando\n' }) }, 2500);
-      await new Promise(resolve => {
-        const deadline = Date.now() + 2000;
-        const check = () => (/^Ejecutándose · /.test(card.querySelector('.tool-card-badge').textContent.trim()) || Date.now() > deadline) ? resolve() : requestAnimationFrame(check);
-        check();
-      });
-      // Plegada (tras volver a la vista), solo pregunta por el final.
-      card.querySelector('.tool-execution-card').classList.add('collapsed');
-      Object.assign(job, { status: 'exited', exit_code: 0, elapsed_s: 42 });
+      window.__commandCard = card;
+    });
+    await page.waitForFunction(() => /^En segundo plano · /.test(window.__commandCard.querySelector('.tool-card-badge').textContent.trim()));
+    // Plegada (tras volver a la vista), solo pregunta por el final.
+    const before = await page.evaluate(() => {
+      window.__commandCard.querySelector('.tool-execution-card').classList.add('collapsed');
+      Object.assign(window.__job, { status: 'exited', exit_code: 0, elapsed_s: 42 });
       const before = window.__jobCalls.length;
       window.ChatMCP.manager.applyLiveState({ jobs: [] });
-      await new Promise(resolve => {
-        const deadline = Date.now() + 2000;
-        const check = () => (card.querySelector('.tool-card-badge').textContent.trim() === 'Terminado · 42 s' || Date.now() > deadline) ? resolve() : requestAnimationFrame(check);
-        check();
-      });
-      return {
-        badge: card.querySelector('.tool-card-badge').textContent.trim(),
-        calls: window.__jobCalls.slice(before).map(call => [call.method, call.params.id])
-      };
+      return before;
     });
+    await page.waitForFunction(() => window.__commandCard.querySelector('.tool-card-badge').textContent.trim() === 'Terminado · 42 s');
+    const viaHeartbeat = await page.evaluate(before => window.__jobCalls.slice(before).map(call => [call.method, call.params.id]), before);
     // Después vuelve a leer la lista de comandos en marcha, ya sin este.
-    assert.deepEqual(viaHeartbeat, { badge: 'Terminado · 42 s', calls: [['zerochat/jobs/get', 11], ['zerochat/jobs/list', undefined]] });
+    assert.deepEqual(viaHeartbeat, [['zerochat/jobs/get', 11], ['zerochat/jobs/list', undefined]]);
 
     assert.deepEqual(errors, []);
   } finally {
