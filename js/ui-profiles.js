@@ -39,9 +39,80 @@
   const runtimeConfig = () => options.getRuntimeConfig();
   const selectedProfileId = () => els.profileSelectHelper.value;
   const getAdapter = () => getProviders().registry.get(els.settingApiType.value || 'openai');
-  const isProfileLocked = () => els.profilesDialog.dataset.profileLocked === 'true';
 
   const showProfileFeedback = (message, type) => showTimedStatus(els.profileActionFeedback, message, type);
+
+  /**
+   * Estado del editor de perfiles que no está en sus campos: un cambio sin guardar (`dirty`), una
+   * consulta al servidor lista para guardar (`queryReady`), el bloqueo del perfil cargado (`locked`)
+   * y su API key descifrada (`loadedApiKey`), undefined mientras se descifra.
+   */
+  const initialEditorState = () => ({ dirty: false, queryReady: false, locked: false, loadedApiKey: undefined });
+
+  // Un cambio en el formulario o una consulta lista quedan pendientes hasta guardar, descartar o cambiar de perfil.
+  const hasPendingChanges = editor => editor.dirty || editor.queryReady;
+
+  /**
+   * Aviso del editor sobre el guardado. `form` aporta el nombre escrito, si el perfil es de solo
+   * lectura y si el modelo de WebLLM elegido ya está descargado.
+   */
+  function getSaveHint(editor, { name, readOnly, webllmModelReady }) {
+    if (readOnly) return t('err_profile_read_only');
+    if (!name) return t('field_profile_placeholder');
+    if (!hasPendingChanges(editor)) return t('profile_save_changes_required');
+    return t(webllmModelReady ? 'webllm_query_optional' : 'profile_save_pending');
+  }
+
+  /**
+   * Qué hace Guardar: 'none' mientras se descifra la API key o con el perfil bloqueado, 'close' sin
+   * nada pendiente, 'error' con su `message` o 'save'. `selected` es el perfil editado y `sameName`,
+   * el guardado con el nombre escrito.
+   */
+  function getSaveDecision(editor, { name, selected, sameName }) {
+    if (editor.loadedApiKey === undefined) return { action: 'none' };
+    if (!hasPendingChanges(editor)) return { action: 'close' };
+    if (editor.locked) return { action: 'none' };
+    const error = message => ({ action: 'error', message });
+    if (!name) return error(t('field_profile_placeholder'));
+    const { READONLY_PROFILE_ID } = getProfiles();
+    if (selected?.id === READONLY_PROFILE_ID || sameName?.id === READONLY_PROFILE_ID) return error(t('err_profile_read_only'));
+    if (sameName && sameName.id !== selected?.id) return error(t('err_profile_name_exists', { name }));
+    return { action: 'save' };
+  }
+
+  /** Pregunta antes de cerrar el editor con algo pendiente; null si se cierra sin preguntar. */
+  function getCloseConfirmation(editor) {
+    if (editor.queryReady) return t('confirm_profile_query_not_saved');
+    return editor.dirty ? t('confirm_profile_unsaved_changes') : null;
+  }
+
+  /**
+   * Ajustes que guarda el editor: los del perfil editado (`base`) con los valores del formulario. Una
+   * URL vacía conserva la guardada o toma la del proveedor; un selector de WebLLM vacío, el guardado o 'default'.
+   */
+  function buildProfileSettings(base, form) {
+    const apiType = form.apiType || base.apiType;
+    const selectOr = (value, fallback) => value.trim() || fallback || 'default';
+    return {
+      ...base,
+      apiType,
+      apiUrl: form.apiUrl.trim() || base.apiUrl || getProviders().registry.get(apiType).getConnectionConfig().endpoint,
+      model: form.model.trim(),
+      systemPrompt: form.systemPrompt.trim(),
+      temperature: form.temperature || base.temperature,
+      webllmConfig: {
+        context_window_size: selectOr(form.webllmContextWindow, base.webllmConfig?.context_window_size),
+        prefill_chunk_size: selectOr(form.webllmPrefillChunk, base.webllmConfig?.prefill_chunk_size)
+      },
+      apiKey: form.apiKey.trim(),
+      apiKeyLocked: form.apiKeyLocked,
+      mcpServers: form.mcpServers,
+      playwrightBrowser: form.playwrightBrowser
+    };
+  }
+
+  let editor = initialEditorState();
+  const updateEditor = changes => { editor = { ...editor, ...changes }; };
 
   /** Muestra en el editor el perfil indicado: su id, nombre y descripción. */
   function populateProfileSelector(profileId) {
@@ -51,44 +122,27 @@
     els.settingProfileDescription.value = profile?.description || '';
   }
 
-  // Un cambio en el formulario lo marca como modificado hasta guardar, descartar o cambiar de perfil.
-  const isProfileFormDirty = () => els.profilesDialog.dataset.profileDirty === 'true';
-  const isProfileQueryReady = () => els.profilesDialog.dataset.queryReady === 'true';
-
-  function setProfileDirty(dirty) {
-    els.profilesDialog.dataset.profileDirty = String(Boolean(dirty));
-  }
-
   function setProfileQueryState(ready) {
-    els.profilesDialog.dataset.queryReady = String(Boolean(ready));
+    updateEditor({ queryReady: Boolean(ready) });
     syncProfileSaveState();
   }
 
-  function canSaveProfile() {
-    if (!els.settingProfileName.value.trim()) return false;
-    return isProfileFormDirty() || isProfileQueryReady();
-  }
-
+  /** Pinta el estado del editor: resúmenes, campos activos, botón de guardar y su aviso. */
   function syncProfileSaveState() {
-    const canSave = canSaveProfile();
-    const isReadOnly = selectedProfileId() === getProfiles().READONLY_PROFILE_ID;
-    syncProfileEditor(isReadOnly);
+    const readOnly = selectedProfileId() === getProfiles().READONLY_PROFILE_ID;
+    syncProfileChapterSummaries();
+    syncApiKeyLock(readOnly);
 
     // Mientras se descifra la API key del perfil no se puede editar ni guardar.
-    const keyUnavailable = els.settingApiKey._loadedApiKey === undefined;
+    const keyUnavailable = editor.loadedApiKey === undefined;
     if (keyUnavailable) els.settingApiKey.disabled = true;
     els.btnSaveProfile.disabled = keyUnavailable;
-    if (isReadOnly) return;
     const selectedModel = (els.settingModel.value || els.modelSelectHelper.value).trim();
-    if (!els.settingProfileName.value.trim()) {
-      els.profileSaveQueryHint.textContent = t('field_profile_placeholder');
-    } else if (!canSave) {
-      els.profileSaveQueryHint.textContent = t('profile_save_changes_required');
-    } else if (els.settingApiType.value === 'webllm' && selectedModel && getWebLLM().isModelCompleted(selectedModel)) {
-      els.profileSaveQueryHint.textContent = t('webllm_query_optional');
-    } else {
-      els.profileSaveQueryHint.textContent = t('profile_save_pending');
-    }
+    els.profileSaveQueryHint.textContent = getSaveHint(editor, {
+      name: els.settingProfileName.value.trim(),
+      readOnly,
+      webllmModelReady: els.settingApiType.value === 'webllm' && Boolean(selectedModel) && getWebLLM().isModelCompleted(selectedModel)
+    });
   }
 
   /** Carga en el editor de perfiles los ajustes de conexión de un perfil. */
@@ -96,11 +150,9 @@
     if (profileData.apiType !== undefined) els.settingApiType.value = profileData.apiType;
     const defaultEndpoint = getAdapter().getConnectionConfig().endpoint || '';
     els.settingApiUrl.value = profileData.apiUrl || defaultEndpoint;
-    const locked = profileData.apiKeyLocked === true;
-    els.settingApiKeyLocked.checked = locked;
-    els.profilesDialog.dataset.profileLocked = String(locked);
-    els.apiKeyLockControl.hidden = locked;
-    els.apiKeyLockedStatus.hidden = !locked;
+    els.settingApiKeyLocked.checked = editor.locked;
+    els.apiKeyLockControl.hidden = editor.locked;
+    els.apiKeyLockedStatus.hidden = !editor.locked;
     if (profileData.model !== undefined) {
       els.settingModel.value = profileData.model;
       els.modelSelectHelper.value = profileData.model;
@@ -130,7 +182,7 @@
    * se edita nada; la clave oculta y la temperatura no admitida quedan siempre desactivadas.
    */
   function syncApiKeyLock(readOnly = false) {
-    const disabled = readOnly || isProfileLocked();
+    const disabled = readOnly || editor.locked;
     els.profilesDialog.querySelectorAll('.modal-body input, .modal-body textarea, .modal-body select, .modal-body button').forEach(control => {
       if (control === els.profileSelectHelper) return;
       control.disabled = disabled
@@ -154,7 +206,7 @@
     urlInput.required = connection.endpointReadOnly !== true;
 
     const supportsTemperature = providerSupportsTemperature();
-    els.settingTemperature.disabled = isProfileLocked() || !supportsTemperature;
+    els.settingTemperature.disabled = editor.locked || !supportsTemperature;
     const temperatureHintKey = supportsTemperature ? 'field_temperature_hint' : 'field_temperature_unsupported_hint';
     els.temperatureHint.dataset.i18n = temperatureHintKey;
     els.temperatureHint.textContent = t(temperatureHintKey);
@@ -180,18 +232,16 @@
    * contraseña) y solo se escribe si el usuario sigue en el mismo perfil.
    */
   async function applyProfileToForm(profileData, profileId) {
-    const keyInput = els.settingApiKey;
-    keyInput._loadedApiKey = undefined;
-    keyInput.value = '';
-    setProfileDirty(false);
+    updateEditor({ dirty: false, locked: profileData.apiKeyLocked === true, loadedApiKey: undefined });
+    els.settingApiKey.value = '';
     fillProfileForm(profileData);
     syncProfileSaveState();
     try {
       const profile = await getProfiles().loadUnlocked(profileId);
       if (selectedProfileId() !== profileId) return;
       const apiKey = profile?.settings?.apiKey || '';
-      keyInput.value = apiKey;
-      keyInput._loadedApiKey = apiKey;
+      els.settingApiKey.value = apiKey;
+      updateEditor({ loadedApiKey: apiKey });
     } catch (error) {
       if (selectedProfileId() !== profileId) return;
       showProfileFeedback(t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
@@ -341,13 +391,6 @@
     });
   }
 
-  /** Estado del botón de guardar y de los campos del editor de perfiles. */
-  function syncProfileEditor(readOnly) {
-    syncProfileChapterSummaries();
-    syncApiKeyLock(readOnly);
-    if (readOnly) els.profileSaveQueryHint.textContent = t('err_profile_read_only');
-  }
-
   /** Capítulo plegable del editor de perfiles; su cabecera resume el contenido aunque esté cerrado. */
   const profileChapter = (id, summaryId, titleKey, body, warningId = '') => `<details id="${id}" class="profile-chapter">
           <summary class="profile-chapter-summary"><svg class="ui-icon profile-chapter-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><use href="#icon-chevron-right"></use></svg><span class="profile-chapter-title" data-i18n="${titleKey}">${t(titleKey)}</span><span id="${summaryId}" class="profile-chapter-detail"></span>${warningId ? `<span class="profile-chapter-warning" hidden>${Icons.get('alert-triangle', { size: 12 })}<span id="${warningId}"></span></span>` : ''}</summary>
@@ -428,64 +471,45 @@
 
   const closeProfileMenu = () => setProfileMenuOpen(false);
 
-  /** Conexión y modelo del editor de perfiles sobre los ajustes del perfil editado. */
-  function gatherProfileFormSettings(baseSettings) {
-    const apiType = els.settingApiType.value || baseSettings.apiType;
-    const selectOr = (select, fallback) => select.value.trim() || fallback || 'default';
+  /** Valores del formulario del editor tal como están en sus campos. */
+  function readProfileForm() {
     return {
-      apiType,
-      apiUrl: els.settingApiUrl.value.trim() || baseSettings.apiUrl || getProviders().registry.get(apiType).getConnectionConfig().endpoint,
-      model: els.settingModel.value.trim(),
-      systemPrompt: els.settingSystemPrompt.value.trim(),
-      temperature: els.settingTemperature.value || baseSettings.temperature,
-      webllmConfig: {
-        context_window_size: selectOr(els.settingWebllmContextWindow, baseSettings.webllmConfig?.context_window_size),
-        prefill_chunk_size: selectOr(els.settingWebllmPrefillChunk, baseSettings.webllmConfig?.prefill_chunk_size)
-      }
+      apiType: els.settingApiType.value,
+      apiUrl: els.settingApiUrl.value,
+      apiKey: els.settingApiKey.value,
+      apiKeyLocked: els.settingApiKeyLocked.checked,
+      model: els.settingModel.value,
+      systemPrompt: els.settingSystemPrompt.value,
+      temperature: els.settingTemperature.value,
+      webllmContextWindow: els.settingWebllmContextWindow.value,
+      webllmPrefillChunk: els.settingWebllmPrefillChunk.value,
+      mcpServers: gatherProfileMcpServers(),
+      playwrightBrowser: getUIBrowser().getProfileBrowser()
     };
   }
 
+  /** Guarda el perfil editado; devuelve true si el editor puede cerrarse. */
   async function handleSaveProfile() {
     const Profiles = getProfiles();
-    if (els.settingApiKey._loadedApiKey === undefined) return false;
-    // Sin nada que guardar, Guardar cierra el panel como en el resto de paneles.
-    if (!isProfileFormDirty() && !isProfileQueryReady()) return true;
-    if (els.profilesDialog.dataset.profileLocked === 'true') return false;
-    if (!canSaveProfile()) {
-      showProfileFeedback(t('field_profile_placeholder'), 'error');
-      return false;
-    }
     const name = els.settingProfileName.value.trim();
     const selected = Profiles.get(selectedProfileId());
-    const sameName = Profiles.findByName(name);
-    if (selected?.id === Profiles.READONLY_PROFILE_ID || sameName?.id === Profiles.READONLY_PROFILE_ID) {
-      showProfileFeedback(t('err_profile_read_only'), 'error');
-      return false;
-    }
-    if (sameName && sameName.id !== selected?.id) {
-      showProfileFeedback(t('err_profile_name_exists', { name }), 'error');
-      return false;
+    const decision = getSaveDecision(editor, { name, selected, sameName: Profiles.findByName(name) });
+    // Sin nada que guardar, Guardar cierra el panel como en el resto de paneles.
+    if (decision.action !== 'save') {
+      if (decision.action === 'error') showProfileFeedback(decision.message, 'error');
+      return decision.action === 'close';
     }
 
-    const baseSettings = selected?.settings || Profiles.NEW_PROFILE_SETTINGS;
-    const apiKey = els.settingApiKey.value.trim();
+    const settings = buildProfileSettings(selected?.settings || Profiles.NEW_PROFILE_SETTINGS, readProfileForm());
     const saved = await Profiles.saveEditable({
       id: selected?.id || createId('profile'),
       name,
       description: els.settingProfileDescription.value.trim(),
-      settings: {
-        ...baseSettings,
-        ...gatherProfileFormSettings(baseSettings),
-        apiKey,
-        apiKeyLocked: els.settingApiKeyLocked.checked,
-        mcpServers: gatherProfileMcpServers(),
-        playwrightBrowser: getUIBrowser().getProfileBrowser()
-      }
+      settings
     });
 
     populateProfileSelector(saved.id);
-    els.settingApiKey._loadedApiKey = apiKey;
-    setProfileDirty(false);
+    updateEditor({ dirty: false, loadedApiKey: settings.apiKey });
     setProfileQueryState(false);
     activateProfileFromUI(saved.id);
     showProfileFeedback(t('msg_profile_saved', { name }), 'success');
@@ -696,8 +720,8 @@
   function showProfilesDialog() {
     hideEditorStatus();
     resetProfileChapters();
+    updateEditor({ dirty: false });
     setProfileQueryState(false);
-    setProfileDirty(false);
     options.loadCachedModels();
     syncProfileSaveState();
     if (!els.profilesDialog.open) els.profilesDialog.showModal();
@@ -707,13 +731,10 @@
   function openNewProfileModal() {
     closeProfileMenu();
     options.closeSettingsModal();
-    els.profilesDialog.dataset.profileLocked = 'false';
     populateProfileSelector('');
     applyProfileToForm(getProfiles().NEW_PROFILE_SETTINGS, '');
-    els.settingApiKey._loadedApiKey = '';
-    els.settingApiKeyLocked.checked = false;
-    syncProviderFields();
-    syncApiKeyLock(false);
+    // Un perfil nuevo no tiene clave que descifrar.
+    updateEditor({ loadedApiKey: '' });
     showProfilesDialog();
     els.settingProfileName.focus();
   }
@@ -732,11 +753,11 @@
   /** Cierra el editor; con cambios o una consulta sin guardar pide confirmación salvo con `force`. */
   async function closeProfilesModal(force = false) {
     if (!els.profilesDialog.open || isClosingProfilesModal) return false;
-    const hasUnsavedQuery = isProfileQueryReady();
-    if (!force && (hasUnsavedQuery || isProfileFormDirty())) {
+    const confirmation = getCloseConfirmation(editor);
+    if (!force && confirmation) {
       isClosingProfilesModal = true;
       try {
-        const discard = await getDialogs().confirm(t(hasUnsavedQuery ? 'confirm_profile_query_not_saved' : 'confirm_profile_unsaved_changes'));
+        const discard = await getDialogs().confirm(confirmation);
         if (!discard) {
           els.btnSaveProfile.focus();
           return false;
@@ -745,7 +766,7 @@
         isClosingProfilesModal = false;
       }
     }
-    setProfileDirty(false);
+    updateEditor({ dirty: false });
     resetProfileFormToSelected();
     els.profilesDialog.close();
     return true;
@@ -757,13 +778,13 @@
     applyProfileToForm(profile.settings, profile.id);
     els.settingProfileDescription.value = profile.description || '';
     activateProfileFromUI(profile.id);
+    updateEditor({ dirty: false });
     setProfileQueryState(false);
-    setProfileDirty(false);
   }
 
   function bindEditor() {
     listen(els.profilesDialog, 'cancel', event => {
-      if (!isProfileQueryReady() && !isProfileFormDirty()) {
+      if (!hasPendingChanges(editor)) {
         resetProfileFormToSelected();
         return;
       }
@@ -771,7 +792,7 @@
       closeProfilesModal(false);
     });
     const onModify = () => {
-      setProfileDirty(true);
+      updateEditor({ dirty: true });
       syncProfileSaveState();
     };
     listen(els.profilesDialog, 'input', onModify);
@@ -883,6 +904,7 @@
     listeners.dispose();
     els = elements;
     options = callbacks;
+    editor = initialEditorState();
     getProfiles().setPasswordPrompt(requestCurrentPassword);
     bindEditor();
     bindMenu();
@@ -899,6 +921,11 @@
     startActiveProfileServers,
     handleEncryptionPassword,
     handleUseDefaultEncryptionKey,
-    startImportMode
+    startImportMode,
+    initialEditorState,
+    getSaveHint,
+    getSaveDecision,
+    getCloseConfirmation,
+    buildProfileSettings
   };
 }));

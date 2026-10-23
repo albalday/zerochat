@@ -42,6 +42,7 @@ export const GROUPS = {
     'tests/browser/browser_generation.test.js'
   ],
   profiles: [
+    'tests/unit/test_ui_profiles.js',
     'tests/integration/test_profiles.js',
     'tests/browser/browser_profiles_settings.test.js',
     'tests/browser/browser_inspector.test.js'
