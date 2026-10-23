@@ -62,6 +62,18 @@
   word-break: break-word;
 }
 
+/* Enlaces del cuerpo del mensaje: usan el acento primario, legible en ambos temas */
+.message-content a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+
+.message-content a:hover {
+  color: var(--primary-hover);
+}
+
 /* Mensaje del Usuario: Tarjeta limpia y sutil alineada a la derecha */
 .message-row.user .message-content {
   background-color: var(--bg-surface-subtle);

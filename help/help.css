@@ -202,6 +202,17 @@ p:last-child {
   margin-bottom: 0;
 }
 
+/* Enlaces del cuerpo: usan el acento primario, legible en ambos temas */
+a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+a:hover {
+  color: var(--primary-hover);
+}
+
 ul, ol {
   margin-left: 1.4rem;
   margin-bottom: 1rem;
