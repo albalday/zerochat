@@ -1,5 +1,5 @@
 # Current state
-- Milestone: none (M38 closed 2026-10-23)
-- Next task: none
+- Milestone: M39 UI logic testable without a browser
+- Next task: M39-T1 Move WebLLM progress/error parsing to providers-webllm.js and the sidebar date category out of rendering, with unit tables
 - Pending milestones: none
 - Last updated: 2026-10-23
