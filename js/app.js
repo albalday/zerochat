@@ -27,6 +27,7 @@
     ChatGenerationController: GenerationController,
     ChatUIReasoning: UIReasoning,
     ChatUIInspector: UIInspector,
+    ChatModelCatalog: ModelCatalog,
     ChatUISidebar: UISidebar,
     ChatUISettings: UISettings,
     ChatUIShell: UIShell,
@@ -357,7 +358,7 @@
     const config = getRuntimeConfig();
     const publishedLimit = config.apiType === 'webllm'
       ? Number(config.webllmConfig.context_window_size) || Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE
-      : UIInspector.getDiscoveredContextLimit(config.model);
+      : ModelCatalog.getContextLimit(config.model);
     if (!publishedLimit || config.modelContextLimit === publishedLimit) return;
     Config.updateRuntime({ modelContextLimit: publishedLimit });
   }

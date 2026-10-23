@@ -15,7 +15,6 @@
   const { t } = I18n;
 
   const getApi = () => resolveDep('ChatAPI', './api.js');
-  const getStorage = () => resolveDep('ChatStorage', './storage.js');
   const getDebug = () => resolveDep('ChatDebug', './debug.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getState = () => resolveDep('ChatState', './state.js');
@@ -23,17 +22,11 @@
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
   const getUITelemetry = () => resolveDep('ChatUITelemetry', './ui-telemetry.js');
   const getUIReasoning = () => resolveDep('ChatUIReasoning', './ui-reasoning.js');
-  const getWebLLM = () => resolveDep('ChatWebLLM', './providers-webllm.js');
   const getContextManager = () => resolveDep('ChatContextManager', './context-manager.js');
-
-  const MODEL_CACHE_KEY = 'cached_models';
-  const MODEL_CACHE_VERSION = 1;
-
-  // Modelos de la última consulta o de la caché de la conexión del editor.
-  let discoveredModels = [];
+  const getModelCatalog = () => resolveDep('ChatModelCatalog', './model-catalog.js');
 
   const addDebugLog = (type, text) => getDebug().addLog(type, text);
-  const modelId = model => getContextManager().catalogModelId(model);
+  const modelId = model => getModelCatalog().modelId(model);
   const spinner = size => Icons.get('spinner', { size, className: 'ui-icon-spin' });
   const statusHtml = (message, className = 'status-error') => `<div class="server-query-status inspector-status ${className}">${message}</div>`;
 
@@ -61,80 +54,24 @@
     return String(apiType).trim().toLowerCase() === 'ollama' && isBrowserNetworkError ? t('err_ollama_origins') : '';
   }
 
-  function getConnectionCacheKey({ apiType, apiUrl }) {
-    const type = String(apiType || 'openai').trim().toLowerCase();
-    const url = String(apiUrl || '').trim().replace(/\/+$/, '').toLowerCase();
-    return url ? `${type}:${url}` : '';
-  }
-
   const isLocallyManaged = apiType => getProviders().registry.get(apiType).getConnectionConfig().localModelManagement === true;
-
-  function isDownloaded(model, completed) {
-    return model?.details?.webllmCache === 'cached' || completed.has(modelId(model));
-  }
-
-  /** Modelos WebLLM con los descargados primero, en el orden del catálogo. */
-  function sortWebLLMModels(models) {
-    const completed = new Set(getWebLLM().getCompletedModelIds());
-    return [...models].sort((a, b) => getWebLLM().compareCatalogModels(a, b, model => isDownloaded(model, completed)));
-  }
-
-  /** Caché de modelos por conexión; una ilegible o de otra versión se borra. */
-  function readModelCache() {
-    const Storage = getStorage();
-    const raw = Storage.getStorageItem(MODEL_CACHE_KEY);
-    if (raw) {
-      try {
-        const document = JSON.parse(raw);
-        if (document?.version === MODEL_CACHE_VERSION && document.connections && typeof document.connections === 'object') return document;
-      } catch (_) { /* caché ilegible */ }
-      Storage.deleteStorageItem(MODEL_CACHE_KEY);
-    }
-    return { version: MODEL_CACHE_VERSION, connections: {} };
-  }
 
   /**
    * Carga en el editor los modelos guardados para la conexión. En WebLLM añade los descargados
    * aunque no estén en la caché.
    */
   function loadCachedModels(elements, appConfig) {
-    const apiType = String(appConfig.apiType || elements.settingApiType.value || 'openai').trim().toLowerCase();
-    const cacheKey = getConnectionCacheKey(appConfig);
-    discoveredModels = cacheKey ? [...(readModelCache().connections[cacheKey] || [])] : [];
-
-    if (apiType === 'webllm') {
-      const known = new Set(discoveredModels.map(modelId));
-      const { WEBLLM_DEFAULT_CONTEXT } = getContextManager();
-      for (const id of getWebLLM().getCompletedModelIds()) {
-        if (known.has(id)) continue;
-        discoveredModels.push({ id, name: id, details: { webllmCache: 'cached', loaded_context_length: WEBLLM_DEFAULT_CONTEXT, max_context_length: WEBLLM_DEFAULT_CONTEXT } });
-        known.add(id);
-      }
-      discoveredModels = sortWebLLMModels(discoveredModels);
-    }
-    if (discoveredModels.length > 0) populateModelList(elements, appConfig, discoveredModels, false);
-    return discoveredModels;
-  }
-
-  function saveCachedModels(models, connection) {
-    discoveredModels = models;
-    const cacheKey = getConnectionCacheKey(connection);
-    if (!cacheKey) return;
-    const document = readModelCache();
-    document.connections[cacheKey] = models;
-    getStorage().setStorageItem(MODEL_CACHE_KEY, JSON.stringify(document));
-  }
-
-  /** Contexto de un modelo según el catálogo de la conexión del editor; null si no lo publica. */
-  function getDiscoveredContextLimit(model) {
-    return getContextManager().getModelContextLimit(model, discoveredModels);
+    const apiType = appConfig.apiType || elements.settingApiType.value;
+    const models = getModelCatalog().load({ apiType, apiUrl: appConfig.apiUrl });
+    if (models.length > 0) populateModelList(elements, appConfig, models, false);
+    return models;
   }
 
   function createModelOption(id, label = '') {
     const option = document.createElement('option');
     option.value = id;
     if (label) option.textContent = label;
-    const contextLimit = getDiscoveredContextLimit(id);
+    const contextLimit = getModelCatalog().getContextLimit(id);
     if (contextLimit) option.dataset.contextLength = String(contextLimit);
     return option;
   }
@@ -143,10 +80,7 @@
   function populateModelList(elements, appConfig, models, selectFirstIfEmpty) {
     const apiType = String(elements.settingApiType.value || appConfig?.apiType || '').trim().toLowerCase();
     let ids = models.map(modelId).filter(Boolean);
-    if (apiType === 'webllm') {
-      const completed = new Set(getWebLLM().getCompletedModelIds());
-      ids = models.filter(model => isDownloaded(model, completed)).map(modelId).filter(Boolean);
-    }
+    if (apiType === 'webllm') ids = getModelCatalog().downloadedWebLLMModels(models).map(modelId).filter(Boolean);
 
     elements.modelDatalist.replaceChildren(...ids.map(id => createModelOption(id)));
 
@@ -168,8 +102,7 @@
 
   /** Tras descargar o borrar un modelo WebLLM, el modelo elegido debe seguir entre los descargados. */
   function refreshSelectableModels(elements, models) {
-    const completed = new Set(getWebLLM().getCompletedModelIds());
-    const downloaded = sortWebLLMModels(models).filter(model => isDownloaded(model, completed));
+    const downloaded = getModelCatalog().downloadedWebLLMModels(models);
     if (!downloaded.some(model => modelId(model) === elements.settingModel.value.trim())) {
       elements.settingModel.value = downloaded.length > 0 ? modelId(downloaded[0]) : '';
     }
@@ -222,7 +155,7 @@
   /** Lista de modelos WebLLM con su estado y las acciones de descargar, cancelar y borrar. */
   function renderWebLLMModels(elements, rawModels = getWebLLMState().catalog) {
     const status = elements.serverQueryStatus;
-    const models = sortWebLLMModels(rawModels);
+    const models = getModelCatalog().sortWebLLMModels(rawModels);
     const operation = getWebLLMState().operation;
     status.querySelector('.webllm-model-list')?.remove();
     const list = document.createElement('div');
@@ -397,8 +330,8 @@
       if (!res.success || !res.models?.length) throw new Error(res.error || 'The server did not return a valid model list.');
 
       const locallyManaged = isLocallyManaged(apiType);
-      const models = locallyManaged ? sortWebLLMModels(res.models) : res.models;
-      saveCachedModels(models, { apiUrl, apiType });
+      const models = locallyManaged ? getModelCatalog().sortWebLLMModels(res.models) : res.models;
+      getModelCatalog().save(models, { apiUrl, apiType });
       if (locallyManaged) refreshSelectableModels(elements, models);
       else populateModelList(elements, appConfig, models, true);
 
@@ -553,8 +486,8 @@
       }
 
       const models = Array.isArray(queryRes.models) ? queryRes.models : [];
-      const sortedModels = isLocallyManaged(apiType) ? sortWebLLMModels(models) : models;
-      saveCachedModels(sortedModels, { apiUrl, apiType });
+      const sortedModels = isLocallyManaged(apiType) ? getModelCatalog().sortWebLLMModels(models) : models;
+      getModelCatalog().save(sortedModels, { apiUrl, apiType });
       const ContextManager = getContextManager();
       const foundModel = ContextManager.findModelInCatalog(sortedModels, model);
       if (!foundModel) {
@@ -595,7 +528,6 @@
 
   return {
     loadCachedModels,
-    getDiscoveredContextLimit,
     handleQueryServer,
     handleRunInspector
   };
