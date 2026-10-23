@@ -64,12 +64,11 @@ python tests/packaging_smoke_test.py dist
 2. **Incrementar versión:** Ejecutar `npm run bump minor` o `major` (nunca editar versiones a mano).
 3. **Validación completa:** Pasar la suite completa (`npm test` o `npm run test:all`).
 4. **Promoción:** Promover el commit a la rama `master`.
-5. **Etiquetado:** Crear y subir la etiqueta Git:
+5. **Release:** Publicar la release en GitHub, que crea también la etiqueta. Subir solo la etiqueta no publica nada: `release.yml` se lanza al publicarse la release.
    ```bash
-   git tag v<version>
-   git push origin v<version>
+   gh release create v<version> --target master --generate-notes
    ```
-6. **Publicación automatizada:** El flujo de GitHub Actions (`release.yml`) valida la etiqueta, ejecuta los tests, genera el wheel y publica en PyPI mediante Trusted Publishing (sin credenciales manuales).
+6. **Publicación automatizada:** El flujo de GitHub Actions (`release.yml`) comprueba que la etiqueta coincide con la versión de `pyproject.toml`, ejecuta los tests, genera el wheel y publica en PyPI mediante Trusted Publishing (sin credenciales manuales).
 
 ---
 

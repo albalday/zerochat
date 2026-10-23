@@ -98,6 +98,7 @@ Antes de considerar terminado un cambio:
 - Las versiones cambian solo con `npm run bump <patch | minor | major>`, nunca a mano: `patch` sube la interfaz web; `minor`/`major` también el backend y PyPI. No se ejecuta en cada commit, solo al consolidar para pasar a `master` (release PyPI en [`py/README.md`](./py/README.md#4-distribución-y-publicación-en-pypi)).
 - Se promueve a `master` solo desde `dev`, tras `npm run bump` con versión superior a la de `master` y con todos los niveles de §4 en verde.
 - **Excepción:** los cambios exclusivos de `help/`, `docs/`, `.zerochat/` y `AGENTS.md` no necesitan bump ni la suite completa y pueden sincronizarse directamente con `master`.
+- Los cambios que no modifican lo publicado (ni la interfaz web ni el paquete de PyPI), como `tests/`, `.github/` o los scripts y README de desarrollo, se promueven sin bump, pero con todos los niveles de §4 en verde.
 
 
 ## 6. Finalización
