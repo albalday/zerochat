@@ -114,6 +114,33 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
     });
   });
 
+  // Firefox rellenaba el token (campo de contraseña) con una contraseña guardada y, al elegir browser_action,
+  // se enviaba esa configuración oculta y el servidor la rechazaba.
+  test('Browser UI - con otra herramienta, Navegador no envía ni valida la configuración de Playwright', async () => {
+    await withTestApp({ viewport: { width: 1280, height: 800 } }, async page => {
+      page.setDefaultTimeout(5000);
+      await page.evaluate(() => {
+        window.ChatConfig.updateRuntime({ browser: 'playwright' });
+        window.ChatState.set('mcp', { status: 'connected', externalServers: [{ id: 'playwright', status: 'stopped', enabled: false }],
+          playwright: { installed: true, browserAction: { available: true } } });
+        window.__requests = [];
+        window.ChatMCP.manager.requestExternalControl = async (method, params) => {
+          window.__requests.push(method);
+          if (method === 'zerochat/browser/config/get') return { mode: 'own', engine: 'chromium', userBrowser: 'chrome', headless: true, extensionToken: '' };
+          return { systemBrowsers: { chrome: true }, extensions: {}, engines: [{ id: 'chromium', title: 'Chrome for Testing 1', installed: true }] };
+        };
+      });
+      await openSettings(page, 'browser');
+      await page.fill('#browser-extension-token', 'contraseña guardada!');
+      await page.locator('#browser-extension-token').blur();
+      await page.check('input[name="browser-tool"][value="browser_action"]');
+      await page.click('#btn-save-settings');
+      await page.waitForFunction(() => !document.getElementById('settings-dialog').open);
+      assert.equal(await page.evaluate(() => window.ChatConfig.getActive().browser), 'browser_action');
+      assert.deepEqual(await page.evaluate(() => window.__requests.filter(method => method === 'zerochat/browser/config/set')), []);
+    });
+  });
+
   test('Browser UI - Navegador guarda la herramienta y la configuración de Playwright y lo reinicia tras confirmar', async () => {
     await withTestApp({ viewport: { width: 1280, height: 800 } }, async page => {
       page.setDefaultTimeout(5000);

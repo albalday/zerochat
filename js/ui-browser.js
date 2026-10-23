@@ -156,7 +156,7 @@
         </div>
         <div class="form-field">
           <label for="browser-extension-token"><strong>${escapeHtml(t('browser_extension_token'))}</strong><span class="label-hint">${escapeHtml(t('browser_extension_token_hint'))}</span></label>
-          <input type="password" id="browser-extension-token" name="browser-extension-token" value="${escapeHtml(section.config.extensionToken)}" autocomplete="off" spellcheck="false"${tokenValid() ? '' : ' aria-invalid="true" aria-describedby="browser-extension-token-error"'}>
+          <input type="password" id="browser-extension-token" name="browser-extension-token" value="${escapeHtml(section.config.extensionToken)}" autocomplete="new-password" spellcheck="false"${tokenValid() ? '' : ' aria-invalid="true" aria-describedby="browser-extension-token-error"'}>
           ${tokenError}
         </div>
         <p class="browser-warning">${Icons.get('alert-triangle', { size: 14 })}<span>${escapeHtml(t('browser_user_warning'))}</span></p>
@@ -333,14 +333,16 @@
    * configuración del cliente. Devuelve false si el token no es válido o el servidor rechaza la configuración.
    */
   async function save() {
-    if (section.tool === 'playwright' && section.config && !tokenValid()) {
+    // La configuración del navegador solo se ve, se valida y se guarda con Playwright MCP elegido.
+    const playwrightChosen = section.tool === 'playwright';
+    if (playwrightChosen && section.config && !tokenValid()) {
       render();
       container.querySelector('#browser-extension-token')?.focus();
       return false;
     }
     const manager = getMCP().manager;
     const status = isConnected() ? playwrightStatus() : null;
-    if (section.config && section.savedConfig && !sameConfig(section.config, section.savedConfig)) {
+    if (playwrightChosen && section.config && section.savedConfig && !sameConfig(section.config, section.savedConfig)) {
       try {
         section.savedConfig = await request('zerochat/browser/config/set', { config: section.config });
       } catch (error) {
@@ -354,7 +356,7 @@
       }
     }
     // Al elegir Playwright MCP se arranca si está detenido; queda recordado para la siguiente sesión.
-    if (section.tool === 'playwright' && section.savedTool !== 'playwright' && ['stopped', 'error'].includes(status)) {
+    if (playwrightChosen && section.savedTool !== 'playwright' && ['stopped', 'error'].includes(status)) {
       manager.runExternalServerAction('playwright', 'start');
     }
     section.savedTool = section.tool;
