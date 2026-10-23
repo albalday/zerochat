@@ -67,8 +67,27 @@
   // Si no se puede elegir se muestra «Ninguna», pero se conserva la elección guardada para cuando se pueda.
   const shownTool = () => (selectable(section.tool) ? section.tool : 'none');
   const sameConfig = (a, b) => CONFIG_KEYS.every(key => a[key] === b[key]);
-  const tokenValid = () => TOKEN_PATTERN.test(section.config.extensionToken);
-  const extensionToken = value => value.trim().replace(TOKEN_ENV_PREFIX, '').replace(/^(["'])(.*)\1$/, '$2').trim();
+  const tokenValid = config => TOKEN_PATTERN.test(config.extensionToken);
+  const normalizeExtensionToken = value => value.trim().replace(TOKEN_ENV_PREFIX, '').replace(/^(["'])(.*)\1$/, '$2').trim();
+
+  /**
+   * Qué hace Guardar en la sección según lo elegido y el estado de Playwright MCP en el servidor
+   * (`status`, null sin conexión). La configuración del navegador solo se valida y se envía con
+   * Playwright MCP elegido; un cambio con el servidor en marcha ofrece reiniciarlo y elegirlo de nuevo
+   * lo arranca si está detenido.
+   */
+  function getSavePlan({ tool, savedTool, config, savedConfig }, status) {
+    const plan = { tokenInvalid: false, setConfig: false, offerRestart: false, start: false };
+    if (tool !== 'playwright') return plan;
+    if (config && !tokenValid(config)) return { ...plan, tokenInvalid: true };
+    const setConfig = Boolean(config && savedConfig) && !sameConfig(config, savedConfig);
+    return {
+      ...plan,
+      setConfig,
+      offerRestart: setConfig && status === 'running',
+      start: savedTool !== 'playwright' && ['stopped', 'error'].includes(status)
+    };
+  }
 
   function getTool() {
     return section.tool ?? getConfig().getActive().browser;
@@ -142,7 +161,7 @@
     const extensionInstalled = section.engines.extensions[section.config.userBrowser] === true;
     const extensionHelp = extensionInstalled ? ''
       : `<a href="${escapeHtml(t('browser_extension_help_href'))}" target="_blank" rel="noopener noreferrer">${escapeHtml(t('browser_extension_help'))}</a>`;
-    const tokenError = tokenValid() ? ''
+    const tokenError = tokenValid(section.config) ? ''
       : `<p id="browser-extension-token-error" class="server-query-status status-error" role="alert">${escapeHtml(t('browser_extension_token_invalid'))}</p>`;
     return `${choice('browser-mode', 'user', section.config.mode === 'user', t('browser_mode_user'), t('browser_mode_user_hint'))}
       <div class="browser-card-body">
@@ -156,7 +175,7 @@
         </div>
         <div class="form-field">
           <label for="browser-extension-token"><strong>${escapeHtml(t('browser_extension_token'))}</strong><span class="label-hint">${escapeHtml(t('browser_extension_token_hint'))}</span></label>
-          <input type="password" id="browser-extension-token" name="browser-extension-token" value="${escapeHtml(section.config.extensionToken)}" autocomplete="new-password" spellcheck="false"${tokenValid() ? '' : ' aria-invalid="true" aria-describedby="browser-extension-token-error"'}>
+          <input type="password" id="browser-extension-token" name="browser-extension-token" value="${escapeHtml(section.config.extensionToken)}" autocomplete="new-password" spellcheck="false"${tokenValid(section.config) ? '' : ' aria-invalid="true" aria-describedby="browser-extension-token-error"'}>
           ${tokenError}
         </div>
         <p class="browser-warning">${Icons.get('alert-triangle', { size: 14 })}<span>${escapeHtml(t('browser_user_warning'))}</span></p>
@@ -323,7 +342,7 @@
     else if (target.name === 'browser-engine') section.config.engine = target.value;
     else if (target.name === 'browser-user-browser') section.config.userBrowser = target.value;
     else if (target.name === 'browser-show-window') section.config.headless = !target.checked;
-    else if (target.name === 'browser-extension-token') section.config.extensionToken = extensionToken(target.value);
+    else if (target.name === 'browser-extension-token') section.config.extensionToken = normalizeExtensionToken(target.value);
     else return;
     render();
   }
@@ -333,32 +352,28 @@
    * configuración del cliente. Devuelve false si el token no es válido o el servidor rechaza la configuración.
    */
   async function save() {
-    // La configuración del navegador solo se ve, se valida y se guarda con Playwright MCP elegido.
-    const playwrightChosen = section.tool === 'playwright';
-    if (playwrightChosen && section.config && !tokenValid()) {
+    const manager = getMCP().manager;
+    const plan = getSavePlan(section, isConnected() ? playwrightStatus() : null);
+    if (plan.tokenInvalid) {
       render();
       container.querySelector('#browser-extension-token')?.focus();
       return false;
     }
-    const manager = getMCP().manager;
-    const status = isConnected() ? playwrightStatus() : null;
-    if (playwrightChosen && section.config && section.savedConfig && !sameConfig(section.config, section.savedConfig)) {
+    if (plan.setConfig) {
       try {
         section.savedConfig = await request('zerochat/browser/config/set', { config: section.config });
       } catch (error) {
         showError(new Error(t('browser_save_error', { err: error?.message || String(error) })));
         return false;
       }
-      if (status === 'running' && await getDialogs().confirm(t('browser_restart_confirm'), {
-        type: 'info', acceptText: t('browser_restart'), cancelText: t('browser_restart_later')
-      })) {
-        manager.withExternalServerStopped('playwright');
-      }
     }
-    // Al elegir Playwright MCP se arranca si está detenido; queda recordado para la siguiente sesión.
-    if (playwrightChosen && section.savedTool !== 'playwright' && ['stopped', 'error'].includes(status)) {
-      manager.runExternalServerAction('playwright', 'start');
+    if (plan.offerRestart && await getDialogs().confirm(t('browser_restart_confirm'), {
+      type: 'info', acceptText: t('browser_restart'), cancelText: t('browser_restart_later')
+    })) {
+      manager.withExternalServerStopped('playwright');
     }
+    // Arrancado al elegirlo, queda recordado para la siguiente sesión.
+    if (plan.start) manager.runExternalServerAction('playwright', 'start');
     section.savedTool = section.tool;
     return true;
   }
@@ -430,6 +445,7 @@
   }
 
   return {
+    getSavePlan, normalizeExtensionToken,
     load, getTool, save, mountBrowserUI,
     loadProfileBrowser, getProfileBrowser, profileBrowserSummary, setProfileBrowserDisabled, mountProfileBrowser
   };

@@ -42,6 +42,7 @@ export const GROUPS = {
     'tests/browser/browser_generation.test.js'
   ],
   profiles: [
+    'tests/unit/test_ui_profiles.js',
     'tests/integration/test_profiles.js',
     'tests/browser/browser_profiles_settings.test.js',
     'tests/browser/browser_inspector.test.js'
@@ -80,8 +81,12 @@ export const GROUPS = {
 
 /**
  * Encuentra todos los archivos de test en un directorio de forma recursiva o plana,
- * excluyendo helpers y carpetas auxiliares.
+ * excluyendo helpers y carpetas auxiliares. Los test_*.py se ejecutan con unittest.
  */
+function isTestFile(name) {
+  return (name.startsWith('test_') && (name.endsWith('.js') || name.endsWith('.py'))) || name.endsWith('.test.js');
+}
+
 export function getTestsInDir(dirPath) {
   if (!fs.existsSync(dirPath)) return [];
   const entries = fs.readdirSync(dirPath, { withFileTypes: true });
@@ -92,7 +97,7 @@ export function getTestsInDir(dirPath) {
     const fullPath = path.join(dirPath, entry.name);
     if (entry.isDirectory()) {
       files.push(...getTestsInDir(fullPath));
-    } else if (entry.isFile() && (entry.name.startsWith('test_') || entry.name.endsWith('.test.js')) && entry.name.endsWith('.js')) {
+    } else if (entry.isFile() && isTestFile(entry.name)) {
       files.push(fullPath);
     }
   }
@@ -187,7 +192,7 @@ export function resolveChangedFiles() {
 
   for (const f of changed) {
     if (f.startsWith('tests/')) {
-      if (f.endsWith('.js')) {
+      if (isTestFile(path.basename(f))) {
         directTestFiles.add(f);
       }
       for (const lvl of VALID_LEVELS) {
@@ -353,24 +358,41 @@ export async function run() {
     process.exit(0);
   }
 
+  const jsFiles = filesToRun.filter(f => !f.endsWith('.py'));
+  const pyFiles = filesToRun.filter(f => f.endsWith('.py'));
+
   // Ejecutar node --test pasando los archivos directamente (sin shell interpolation)
   const testArgs = [...process.execArgv, '--require', './tests/helpers/storage-env.js', '--test'];
   if (args.concurrency) {
     testArgs.push(`--test-concurrency=${args.concurrency}`);
   }
-  testArgs.push(...filesToRun);
+  testArgs.push(...jsFiles);
 
-  const runOnce = () => new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, testArgs, {
+  // unittest importa cada test_*.py por su nombre de módulo desde su carpeta,
+  // donde también están los helpers compartidos; -v informa de cada caso y -b
+  // muestra lo que imprime el backend solo en los casos que fallan.
+  const pyDirs = [...new Set(pyFiles.map(f => path.resolve(ROOT_DIR, path.dirname(f))))];
+  const pyArgs = ['-m', 'unittest', '-v', '-b', ...pyFiles.map(f => path.basename(f, '.py'))];
+  const pyEnv = { ...process.env, PYTHONPATH: [...pyDirs, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter) };
+
+  const spawnTests = (command, commandArgs, env) => new Promise((resolve, reject) => {
+    const child = spawn(command, commandArgs, {
       cwd: ROOT_DIR,
+      env,
       stdio: 'inherit'
     });
     child.on('error', (err) => {
-      console.error('Error al invocar node --test:', err);
+      console.error(`Error al invocar ${command}:`, err);
       reject(err);
     });
     child.on('close', code => resolve(code ?? 0));
   });
+
+  const runOnce = async () => {
+    const jsCode = jsFiles.length ? await spawnTests(process.execPath, testArgs, process.env) : 0;
+    const pyCode = pyFiles.length ? await spawnTests(process.platform === 'win32' ? 'python' : 'python3', pyArgs, pyEnv) : 0;
+    return jsCode || pyCode;
+  };
 
   const exitCode = await runOnce();
   if (args.retryOnFailure && exitCode !== 0) {

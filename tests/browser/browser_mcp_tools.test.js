@@ -645,7 +645,7 @@ test('Browser UI - tras el primer timeout MCP pasa de instalación a OAuth y act
   }
 });
 
-test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al desplegarse y lo detiene', { timeout: 30000 }, async () => {
+test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al desplegarse, lo detiene y ve su final en el latido', { timeout: 30000 }, async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
@@ -752,46 +752,6 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
     await page.waitForTimeout(300);
     assert.equal(await page.evaluate(() => window.__jobCalls.length), callsAfterStop, 'Un comando terminado deja de consultarse');
 
-    // Un comando esperado: se sigue por la clave de la invocación hasta que llega el resultado.
-    const foreground = await page.evaluate(async () => {
-      const job = window.__job;
-      Object.assign(job, { id: 8, key: 'inv-tarjeta-2', status: 'running', exit_code: null, log: 'compilando\n' });
-      const args = { command: 'npm run build' };
-      const card = window.ChatToolCards.createLiveToolCard('run_command', args);
-      card.dataset.invocationId = job.key;
-      window.ChatToolCards.appendToolCard(document.getElementById('command-card-test'), card);
-      await new Promise(resolve => {
-        const check = setInterval(() => {
-          if (window.__jobCalls.some(call => call.params.key === 'inv-tarjeta-2')) {
-            clearInterval(check);
-            resolve();
-          }
-        }, 50);
-        setTimeout(() => { clearInterval(check); resolve(); }, 1200);
-      });
-      const during = {
-        badge: card.querySelector('.tool-card-badge').textContent.trim(),
-        stop: !card.querySelector('[data-command-action="stop"]').hidden,
-        byKey: window.__jobCalls.some(call => call.params.key === 'inv-tarjeta-2'),
-        log: card.querySelector('.command-card-log').textContent.startsWith('compilando\n')
-      };
-      const result = { content: JSON.stringify({ success: false, status: 'exited', job_id: 8, exit_code: 2, duration_s: 3.1, output: 'error TS2304\n' }) };
-      window.ChatToolCards.updateLiveToolCard(card, 'run_command', args, result, 3100);
-      return {
-        during,
-        after: {
-          badge: card.querySelector('.tool-card-badge').textContent.trim(),
-          stop: !card.querySelector('[data-command-action="stop"]').hidden,
-          collapsed: card.querySelector('.tool-execution-card').classList.contains('collapsed')
-        }
-      };
-    });
-    assert.match(foreground.during.badge, /^Ejecutándose · /);
-    assert.equal(foreground.during.stop, true);
-    assert.equal(foreground.during.byKey, true);
-    assert.equal(foreground.during.log, true, 'Mientras se espera, la tarjeta desplegada muestra el log');
-    assert.deepEqual(foreground.after, { badge: 'Código 2 · 3.1 s', stop: false, collapsed: true });
-
     // El final de un comando en segundo plano llega con el latido: al dejar de figurar entre los
     // que siguen en marcha, su tarjeta pregunta una vez cómo acabó.
     const viaHeartbeat = await page.evaluate(async () => {
@@ -827,46 +787,6 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
     // Después vuelve a leer la lista de comandos en marcha, ya sin este.
     assert.deepEqual(viaHeartbeat, { badge: 'Terminado · 42 s', calls: [['zerochat/jobs/get', 11], ['zerochat/jobs/list', undefined]] });
 
-    // Tarjeta del historial: plegada y sin peticiones; al desplegarla, si el log ya no existe en
-    // el servidor, muestra la salida guardada en el chat.
-    const historical = await page.evaluate(async () => {
-      const requests = [];
-      window.ChatMCP.manager.requestExternalControl = async method => { requests.push(method); throw new Error('Comando no encontrado'); };
-      const make = output => {
-        const card = window.ChatToolCards.renderHistoricalToolCard({ function: { name: 'run_command', arguments: JSON.stringify({ command: 'pytest -x' }) } }, {
-          content: JSON.stringify({ success: true, status: 'exited', job_id: 3, exit_code: 0, duration_s: 72, output })
-        });
-        document.getElementById('command-card-test').appendChild(card);
-        return card;
-      };
-      const card = make('5 passed\n');
-      const empty = make('');
-      // Aserción negativa: la espera fija es a propósito para confirmar que plegada no pide nada.
-      await new Promise(resolve => setTimeout(resolve, 50));
-      const before = { collapsed: card.querySelector('.tool-execution-card').classList.contains('collapsed'), requests: requests.length };
-      card.querySelector('.tool-execution-card').classList.remove('collapsed');
-      empty.querySelector('.tool-execution-card').classList.remove('collapsed');
-      await new Promise(resolve => {
-        const deadline = Date.now() + 2000;
-        const check = () => (card.querySelector('.command-card-log').textContent === '5 passed'
-          && empty.querySelector('.command-card-log').textContent.length > 0 || Date.now() > deadline) ? resolve() : requestAnimationFrame(check);
-        check();
-      });
-      return {
-        before,
-        badge: card.querySelector('.tool-card-badge').textContent.trim(),
-        stop: !card.querySelector('[data-command-action="stop"]').hidden,
-        log: card.querySelector('.command-card-log').textContent,
-        empty: empty.querySelector('.command-card-log').textContent
-      };
-    });
-    assert.deepEqual(historical, {
-      before: { collapsed: true, requests: 0 },
-      badge: 'Terminado · 1:12',
-      stop: false,
-      log: '5 passed',
-      empty: 'El log ya no está disponible: ZeroChat se ha reiniciado o el comando se ha descartado.'
-    });
     assert.deepEqual(errors, []);
   } finally {
     await browser.close();

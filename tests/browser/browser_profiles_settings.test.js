@@ -67,7 +67,7 @@ test('Browser UI - perfiles: teclado, alineación, solo lectura y borrado', asyn
       };
     });
     await page.click('#btn-query-server');
-    await page.waitForFunction(() => document.getElementById('profiles-dialog')?.dataset.queryReady === 'true');
+    await page.waitForSelector('#server-query-status.status-success');
     assert.equal(await page.inputValue('#setting-api-type'), 'webllm', 'Query no debe reaplicar el perfil activo sobre el editor');
     assert.equal(await page.inputValue('#setting-api-url'), 'webllm://local');
     assert.equal(await page.inputValue('#setting-model'), 'model-cached');
@@ -108,7 +108,7 @@ test('Browser UI - cualquier cambio del perfil queda pendiente de guardar, inclu
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.click('#active-profile-trigger');
     await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
-    await page.waitForFunction(() => document.getElementById('setting-api-key')._loadedApiKey !== undefined);
+    await page.waitForFunction(() => !document.getElementById('btn-save-profile').disabled);
     assert.equal(await page.textContent('#profile-save-query-hint'), 'No hay cambios pendientes: Guardar cierra el panel.');
     const initialModel = await page.locator('#setting-model').inputValue();
     await page.fill('#setting-model', 'modelo-personalizado');
@@ -121,142 +121,6 @@ test('Browser UI - cualquier cambio del perfil queda pendiente de guardar, inclu
     assert.equal(await page.locator('#btn-save-profile').isDisabled(), false);
     await page.click('#profile-chapter-behavior summary');
     assert.match(await page.textContent('#profile-summary-behavior'), /^Prompt propio · temperatura /, 'El resumen del capítulo plegado refleja el cambio');
-  } finally {
-    await browser.close();
-  }
-});
-
-test('Browser UI - una consulta de perfil debe guardarse antes de cerrar y confirmar descarte', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage();
-    await seedConnectionProfiles(page);
-    await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
-    await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await page.click('#active-profile-trigger');
-    await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
-    await page.evaluate(() => {
-      window.ChatUIInspector.handleQueryServer = async () => true;
-    });
-    await page.click('#btn-query-server');
-    await page.waitForFunction(() => document.getElementById('profiles-dialog').dataset.queryReady === 'true');
-
-    // 1. Pulsar botón Cerrar con consulta pendiente abre diálogo de confirmación (con Cancelar y Aceptar)
-    await page.click('#btn-close-profiles');
-    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
-
-    const stateNotice = await page.evaluate(() => ({
-      profilesOpen: document.getElementById('profiles-dialog').open,
-      notice: document.getElementById('notice-message').textContent,
-      cancelVisible: !document.getElementById('notice-cancel').hidden
-    }));
-    assert.equal(stateNotice.profilesOpen, true, 'El modal de perfiles no debe cerrarse al mostrar la confirmación');
-    assert.match(stateNotice.notice, /no se ha guardado/);
-    assert.equal(stateNotice.cancelVisible, true, 'La confirmación debe ofrecer botón Cancelar');
-
-    // 2. Pulsar Cancelar en el diálogo mantiene el modal de perfiles abierto y el estado queryReady
-    await page.click('#notice-cancel');
-    await page.waitForFunction(() => !document.getElementById('notice-dialog').open);
-    const stateAfterCancel = await page.evaluate(() => ({
-      profilesOpen: document.getElementById('profiles-dialog').open,
-      queryReady: document.getElementById('profiles-dialog').dataset.queryReady
-    }));
-    assert.equal(stateAfterCancel.profilesOpen, true, 'Pulsar Cancelar debe mantener el modal de perfiles abierto');
-    assert.equal(stateAfterCancel.queryReady, 'true', 'queryReady debe conservarse para permitir guardar');
-
-    // 3. Pulsar Cerrar y luego Aceptar descarta la consulta y cierra el modal
-    await page.click('#btn-close-profiles');
-    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
-    await page.click('#notice-accept');
-    await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
-    const stateAfterAccept = await page.evaluate(() => ({
-      profilesOpen: document.getElementById('profiles-dialog').open,
-      queryReady: document.getElementById('profiles-dialog').dataset.queryReady
-    }));
-    assert.equal(stateAfterAccept.profilesOpen, false, 'Pulsar Aceptar debe cerrar el modal de perfiles');
-    assert.equal(stateAfterAccept.queryReady, 'false', 'queryReady debe resetearse a false al descartar');
-
-    // 4. Probar clic fuera (backdrop) con consulta pendiente: no debe cerrar prematuramente
-    await page.click('#active-profile-trigger');
-    await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
-    await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
-    await page.click('#btn-query-server');
-    await page.waitForFunction(() => document.getElementById('profiles-dialog').dataset.queryReady === 'true');
-
-    // Clic en el backdrop
-    await page.mouse.click(10, 10);
-    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
-    assert.equal(await page.$eval('#profiles-dialog', el => el.open), true, 'Clic en el backdrop no debe cerrar profiles-dialog antes de confirmar');
-
-    // Cancelar en backdrop confirm
-    await page.click('#notice-cancel');
-    await page.waitForFunction(() => !document.getElementById('notice-dialog').open);
-    assert.equal(await page.$eval('#profiles-dialog', el => el.open), true, 'Cancelar confirmación de backdrop debe mantener abierto el modal');
-
-    // Clic en backdrop de nuevo y Aceptar descarte
-    await page.mouse.click(10, 10);
-    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
-    await page.click('#notice-accept');
-    await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
-    assert.equal(await page.$eval('#profiles-dialog', el => el.open), false, 'Aceptar confirmación de backdrop debe cerrar el modal');
-  } finally {
-    await browser.close();
-  }
-});
-
-test('Browser UI - cambios sin guardar en el perfil deben solicitar confirmación antes de cerrar', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage();
-    await seedConnectionProfiles(page);
-    await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
-    await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await page.click('#active-profile-trigger');
-    await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
-    await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
-
-    // 1. Sin cambios: cerrar con botón X cierra de inmediato sin confirmación
-    await page.click('#btn-close-profiles');
-    await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
-    assert.equal(await page.$eval('#profiles-dialog', el => el.open), false, 'Sin cambios debe cerrar sin confirmar');
-    assert.equal(await page.$eval('#notice-dialog', el => el.open), false, 'No debe abrir notice-dialog sin cambios');
-
-    // 2. Modificar un campo y pulsar Cerrar: debe pedir confirmación
-    await page.click('#active-profile-trigger');
-    await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
-    await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
-    await page.fill('#setting-profile-description', 'Modificación de prueba sin guardar');
-
-    await page.click('#btn-close-profiles');
-    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
-
-    const stateNotice = await page.evaluate(() => ({
-      profilesOpen: document.getElementById('profiles-dialog').open,
-      notice: document.getElementById('notice-message').textContent,
-      cancelVisible: !document.getElementById('notice-cancel').hidden
-    }));
-    assert.equal(stateNotice.profilesOpen, true, 'El modal de perfiles debe seguir abierto mientras se confirma');
-    assert.match(stateNotice.notice, /cambios sin guardar/i, 'El mensaje debe advertir de cambios sin guardar');
-    assert.equal(stateNotice.cancelVisible, true, 'Debe mostrar botón Cancelar');
-
-    // 3. Cancelar en el diálogo: el modal de perfiles permanece abierto
-    await page.click('#notice-cancel');
-    await page.waitForFunction(() => !document.getElementById('notice-dialog').open);
-    assert.equal(await page.$eval('#profiles-dialog', el => el.open), true, 'Cancelar confirmación debe mantener el modal abierto');
-
-    // 4. Probar con el botón X de cabecera (#btn-close-profiles) y aceptar descarte
-    await page.click('#btn-close-profiles');
-    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
-    await page.click('#notice-accept');
-    await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
-    assert.equal(await page.$eval('#profiles-dialog', el => el.open), false, 'Aceptar confirmación debe cerrar el modal de perfiles');
-
-    // 5. Reabrir y verificar que los cambios no guardados fueron descartados
-    await page.click('#active-profile-trigger');
-    await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
-    await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
-    const reloadedDesc = await page.$eval('#setting-profile-description', el => el.value);
-    assert.notEqual(reloadedDesc, 'Modificación de prueba sin guardar', 'Los cambios descartados no deben persistir');
   } finally {
     await browser.close();
   }
@@ -294,70 +158,6 @@ test('Browser UI - al volver a LM Studio recupera el límite publicado', async (
   }
 });
 
-test('Browser UI - carga una copia cifrada de perfiles con el nuevo sistema HTML postMessage', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage();
-    await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await waitForAppReady(page);
-
-    // Verificar que NO existe el botón de importación manual (fue eliminado)
-    const importButtonExists = await page.evaluate(() => {
-      return !!document.getElementById('btn-menu-import-profiles');
-    });
-    assert.equal(importButtonExists, false, 'El botón de importación manual debe haber sido eliminado');
-
-    // Verificar que NO existe el input file (fue eliminado)
-    const importInputExists = await page.evaluate(() => {
-      return !!document.getElementById('profiles-import-input');
-    });
-    assert.equal(importInputExists, false, 'El input file de importación debe haber sido eliminado');
-
-    // Verificar que el sistema de postMessage está configurado
-    const hasPostMessageListener = await page.evaluate(() => {
-      // Simular que estamos en modo importación
-      return typeof window !== 'undefined';
-    });
-    assert.ok(hasPostMessageListener, 'El sistema debe soportar postMessage');
-
-    // Probar que la exportación genera HTML correcto
-    await page.click('#active-profile-trigger');
-    await page.waitForSelector('.btn-profile-item-edit');
-    await page.click('.btn-profile-item-edit');
-    await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
-
-    // Crear un perfil de prueba
-    await page.evaluate(async () => {
-      await window.ChatProfileRepository.saveEditable({
-        id: 'profile:export-test',
-        name: 'Export test profile',
-        description: 'Test profile for export',
-        settings: {
-          apiType: 'openai',
-          apiUrl: 'https://example.test/v1',
-          apiKey: 'sk-test-key',
-          model: 'test-model'
-        }
-      });
-    });
-
-    // Verificar que el módulo de exportación está disponible
-    const exportBundleAvailable = await page.evaluate(() => {
-      return typeof window.ChatProfileExportBundle !== 'undefined' &&
-             typeof window.ChatProfileExportBundle.generateExportHTML === 'function';
-    });
-    assert.ok(exportBundleAvailable, 'El módulo ChatProfileExportBundle debe estar disponible');
-
-    // Limpiar
-    await page.evaluate(() => {
-      window.ChatProfileRepository.remove('profile:export-test');
-    });
-
-  } finally {
-    await browser.close();
-  }
-});
-
 test('Browser UI - el bloqueo cargado afecta a todas las pestañas y el borrador no bloquea', async () => {
   const browser = await createTestBrowser();
   try {
@@ -371,7 +171,7 @@ test('Browser UI - el bloqueo cargado afecta a todas las pestañas y el borrador
     });
     await page.click('#active-profile-trigger');
     await page.click('.header-profile-item:has([data-profile-id="profile:unlocked-test"]) [data-profile-action="edit"]');
-    await page.waitForFunction(() => document.getElementById('setting-api-key')._loadedApiKey !== undefined);
+    await page.waitForFunction(() => !document.getElementById('btn-save-profile').disabled);
     await page.check('#setting-api-key-locked');
     assert.equal(await page.locator('#setting-profile-name').isDisabled(), false, 'Marcar el borrador no bloquea de inmediato');
     await page.click('#btn-close-profiles');
@@ -381,7 +181,7 @@ test('Browser UI - el bloqueo cargado afecta a todas las pestañas y el borrador
 
     await page.click('#active-profile-trigger');
     await page.click('.header-profile-item:has([data-profile-id="profile:locked-test"]) [data-profile-action="edit"]');
-    await page.waitForFunction(() => document.getElementById('setting-api-key')._loadedApiKey !== undefined);
+    await page.waitForFunction(() => !document.getElementById('btn-save-profile').disabled);
     assert.equal(await page.locator('#api-key-locked-status').isVisible(), true);
     assert.equal(await page.locator('#api-key-lock-control').isVisible(), false);
     for (const selector of ['#setting-profile-name', '#setting-api-url', '#setting-api-key', '#setting-model', '#setting-system-prompt', '#setting-temperature']) {
@@ -464,7 +264,7 @@ async function openProfilesPage(browser, profiles = []) {
 async function openProfileEditor(page, profileId) {
   await page.click('#active-profile-trigger');
   await page.click(`.header-profile-item:has([data-profile-id="${profileId}"]) [data-profile-action="edit"]`);
-  await page.waitForFunction(() => document.getElementById('profiles-dialog').open && document.getElementById('setting-api-key')._loadedApiKey !== undefined);
+  await page.waitForFunction(() => document.getElementById('profiles-dialog').open && !document.getElementById('btn-save-profile').disabled);
 }
 
 async function closeProfileEditor(page, { discard = false } = {}) {
@@ -574,13 +374,22 @@ test('Browser UI - guardar Ajustes tras editar otro perfil no cambia la conexió
   }
 });
 
-test('Browser UI - reabrir el editor no conserva cambios descartados y una consulta lista permite guardar', async () => {
+test('Browser UI - cerrar el editor con cambios o una consulta sin guardar pide confirmación y descartarlos no los conserva', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await openProfilesPage(browser);
     await openProfileEditor(page, 'profile:local');
+    await closeProfileEditor(page);
+    assert.equal(await page.$eval('#notice-dialog', dialog => dialog.open), false, 'Sin nada pendiente se cierra sin preguntar');
+
+    await openProfileEditor(page, 'profile:local');
     await page.fill('#setting-model', 'otro-modelo');
-    assert.equal(await page.locator('#btn-save-profile').isDisabled(), false);
+    await page.click('#btn-close-profiles');
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    assert.match(await page.textContent('#notice-message'), /cambios sin guardar/);
+    await page.click('#notice-cancel');
+    await page.waitForFunction(() => !document.getElementById('notice-dialog').open);
+    assert.equal(await page.$eval('#profiles-dialog', dialog => dialog.open), true, 'Cancelar mantiene el editor abierto');
     await closeProfileEditor(page, { discard: true });
 
     await openProfileEditor(page, 'profile:local');
@@ -590,8 +399,14 @@ test('Browser UI - reabrir el editor no conserva cambios descartados y una consu
       window.ChatAPI.fetchServerModels = async () => ({ success: true, count: 1, endpoint: 'http://localhost:1234/v1', models: [{ id: 'google/gemma-4-26b-a4b-qat' }] });
     });
     await page.click('#btn-query-server');
-    await page.waitForFunction(() => document.getElementById('profiles-dialog').dataset.queryReady === 'true');
-    assert.equal(await page.textContent('#profile-save-query-hint'), 'Hay cambios pendientes. Guarda el perfil para conservarlos.', 'Una consulta al servidor lista queda pendiente de guardar');
+    await page.waitForFunction(() => document.getElementById('profile-save-query-hint').textContent === 'Hay cambios pendientes. Guarda el perfil para conservarlos.');
+    // Un clic fuera del editor también pregunta antes de descartar la consulta.
+    await page.mouse.click(10, 10);
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    assert.match(await page.textContent('#notice-message'), /no se ha guardado/);
+    assert.equal(await page.$eval('#profiles-dialog', dialog => dialog.open), true);
+    await page.click('#notice-accept');
+    await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
   } finally {
     await browser.close();
   }
