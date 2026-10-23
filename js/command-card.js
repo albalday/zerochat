@@ -61,6 +61,92 @@
     return state.status === 'timeout' || state.status === 'error' || (state.status === 'exited' && state.exitCode !== 0);
   }
 
+  /** Estado de una tarjeta nueva: el comando en marcha desde ahora, aún sin confirmar por el servidor. */
+  function initialState() {
+    return {
+      status: 'running',
+      exitCode: null,
+      elapsed: 0,
+      startedAt: Date.now(),
+      id: null,
+      toolReturned: false,
+      // El servidor ya conoce el comando: hasta entonces no se toca la insignia, que puede
+      // estar pidiendo permiso al usuario.
+      confirmed: false,
+      output: '',
+      reactivated: false
+    };
+  }
+
+  /** Estado tras los detalles que da el servidor del comando (zerochat/jobs/get o stop). */
+  function withDetails(state, details) {
+    if (!details || typeof details !== 'object') return state;
+    return {
+      ...state,
+      confirmed: true,
+      id: Number.isInteger(details.id) ? details.id : state.id,
+      status: typeof details.status === 'string' ? details.status : state.status,
+      exitCode: details.exit_code !== undefined ? details.exit_code : state.exitCode,
+      startedAt: Number.isFinite(details.started_at) ? details.started_at : state.startedAt,
+      elapsed: Number.isFinite(details.elapsed_s) ? details.elapsed_s : state.elapsed
+    };
+  }
+
+  /**
+   * Estado tras el resultado de la herramienta (`data`, ya interpretado con parseResult): final, o
+   * el comando sigue en segundo plano. Sin resultado legible el comando no llegó a ejecutarse y su
+   * salida es `fallbackError`.
+   */
+  function withResult(state, data, fallbackError = '') {
+    const returned = { ...state, toolReturned: true, confirmed: true };
+    if (!data) return { ...returned, status: 'error', output: fallbackError };
+    return {
+      ...returned,
+      id: Number.isInteger(data.job_id) ? data.job_id : state.id,
+      status: data.status,
+      exitCode: data.exit_code ?? null,
+      elapsed: Number.isFinite(data.duration_s) ? data.duration_s : state.elapsed,
+      startedAt: Number.isFinite(data.elapsed_s) ? Date.now() - data.elapsed_s * 1000 : state.startedAt,
+      output: [data.output ?? data.new_output ?? '', data.error ? `\n${data.error}` : ''].join('').trim()
+    };
+  }
+
+  /** Cómo localiza el servidor al comando: por su id y, antes de conocerlo, por la clave de la invocación. */
+  function jobRef(state, invocationId) {
+    if (Number.isInteger(state.id)) return { id: state.id };
+    return invocationId ? { key: invocationId } : null;
+  }
+
+  /** Solo se puede detener un comando en marcha que el servidor sepa localizar. */
+  function canStop(state, invocationId) {
+    return state.status === 'running' && jobRef(state, invocationId) !== null;
+  }
+
+  /** Un comando en segundo plano que ya no figura entre los que siguen en marcha ha terminado. */
+  function hasLeftRunning(state, runningIds) {
+    return state.toolReturned && Number.isInteger(state.id) && !runningIds.has(state.id);
+  }
+
+  /** Primera página del log: desde donde empiezan sus últimos LOG_PAGE_BYTES, con un aviso de lo omitido. */
+  function firstLogPage(outputBytes) {
+    const offset = Math.max(0, (Number(outputBytes) || 0) - LOG_PAGE_BYTES);
+    return { offset, text: offset > 0 ? `${t('command_log_earlier', { size: formatBytes(offset) })}\n` : '' };
+  }
+
+  /** Log mostrado tras añadirle una página: solo sus últimos MAX_LOG_CHARS caracteres. */
+  function appendLog(text, page) {
+    const log = text + page;
+    return log.length > MAX_LOG_CHARS ? log.slice(-MAX_LOG_CHARS) : log;
+  }
+
+  /**
+   * Log cuando el servidor no lo tiene: la salida guardada en el chat, la misma que vio el modelo.
+   * Null mientras la herramienta no ha devuelto nada.
+   */
+  function fallbackLog(state) {
+    return state.toolReturned ? state.output || t('command_log_unavailable') : null;
+  }
+
   /** Estado visible de la insignia según el estado del comando. */
   function getBadgeView(state) {
     const elapsed = state.status === 'running' && state.startedAt
@@ -138,7 +224,7 @@
       getState().subscribe(state => ({ ids: JSON.stringify(state.mcp.commandJobs.map(job => job.id)) }), ({ ids }) => {
         const running = new Set(JSON.parse(ids));
         for (const item of tracked) {
-          if (item.state.toolReturned && Number.isInteger(item.state.id) && !running.has(item.state.id)) item.refreshStatus();
+          if (hasLeftRunning(item.state, running)) item.refreshStatus();
         }
       });
     }
@@ -154,22 +240,9 @@
   }
 
   class CommandCardController {
-    constructor(card, state) {
+    constructor(card) {
       this.card = card;
-      this.state = {
-        status: 'running',
-        exitCode: null,
-        elapsed: 0,
-        startedAt: Date.now(),
-        id: null,
-        toolReturned: false,
-        // El servidor ya conoce el comando: hasta entonces no se toca la insignia, que puede
-        // estar pidiendo permiso al usuario.
-        confirmed: false,
-        output: '',
-        reactivated: false,
-        ...state
-      };
+      this.state = initialState();
       this.logTimer = null;
       this.log = { loaded: false, next: 0, loading: false };
       controllers.set(card, this);
@@ -185,9 +258,7 @@
     }
 
     ref() {
-      if (Number.isInteger(this.state.id)) return { id: this.state.id };
-      const key = this.card.dataset.invocationId;
-      return key ? { key } : null;
+      return jobRef(this.state, this.card.dataset.invocationId);
     }
 
     isFinal() {
@@ -206,40 +277,23 @@
       const { state, card } = this;
       if (Number.isInteger(state.id)) card.dataset.jobId = String(state.id);
       this.renderBadge();
-      card.querySelector('[data-command-action="stop"]').hidden = state.status !== 'running' || !this.ref();
+      card.querySelector('[data-command-action="stop"]').hidden = !canStop(state, card.dataset.invocationId);
     }
 
     applyDetails(details) {
-      if (!details || typeof details !== 'object') return;
-      const { state } = this;
-      state.confirmed = true;
-      if (Number.isInteger(details.id)) state.id = details.id;
-      if (typeof details.status === 'string') state.status = details.status;
-      if (details.exit_code !== undefined) state.exitCode = details.exit_code;
-      if (Number.isFinite(details.started_at)) state.startedAt = details.started_at;
-      if (Number.isFinite(details.elapsed_s)) state.elapsed = details.elapsed_s;
+      this.state = withDetails(this.state, details);
     }
 
     /** Aplica el resultado de la herramienta: final, o el comando sigue en segundo plano. */
     applyResult(data, fallbackError = '') {
-      const { state } = this;
-      state.toolReturned = true;
-      state.confirmed = true;
+      this.state = withResult(this.state, data, fallbackError);
       if (!data) {
-        state.status = 'error';
-        state.output = fallbackError;
         untrack(this);
         this.render();
-        this.showText(state.output);
+        this.showText(this.state.output);
         return;
       }
-      if (Number.isInteger(data.job_id)) state.id = data.job_id;
-      state.status = data.status;
-      state.exitCode = data.exit_code ?? null;
-      if (Number.isFinite(data.duration_s)) state.elapsed = data.duration_s;
-      if (Number.isFinite(data.elapsed_s)) state.startedAt = Date.now() - data.elapsed_s * 1000;
-      state.output = [data.output ?? data.new_output ?? '', data.error ? `\n${data.error}` : ''].join('').trim();
-      if (state.status === 'running') {
+      if (this.state.status === 'running') {
         track(this);
         this.scheduleLog();
         // El aviso de fin de turno y el latido lo cuentan sin esperar al siguiente latido.
@@ -347,9 +401,9 @@
       logEl.hidden = !text;
     }
 
-    /** Sin log en el servidor queda la salida guardada en el chat, la misma que vio el modelo. */
     showFallback() {
-      if (this.state.toolReturned) this.showText(this.state.output || t('command_log_unavailable'));
+      const text = fallbackLog(this.state);
+      if (text !== null) this.showText(text);
     }
 
     /**
@@ -372,22 +426,20 @@
       this.log.loading = true;
       const initial = !this.log.loaded;
       try {
-        let prefix = '';
-        let text = initial ? '' : logEl.querySelector('code').textContent;
+        let text = logEl.querySelector('code').textContent;
         if (initial) {
           const details = await mcp.requestExternalControl('zerochat/jobs/get', ref);
           this.applyDetails(details);
-          this.log.next = Math.max(0, (Number(details?.output_bytes) || 0) - LOG_PAGE_BYTES);
-          if (this.log.next > 0) prefix = `${t('command_log_earlier', { size: formatBytes(this.log.next) })}\n`;
+          const first = firstLogPage(details?.output_bytes);
+          this.log.next = first.offset;
+          text = first.text;
         }
         const atBottom = logEl.hidden || logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 24;
         const page = await mcp.requestExternalControl('zerochat/jobs/log', { ...ref, offset: this.log.next, limit: LOG_PAGE_BYTES });
         this.state.confirmed = true;
         this.log.next = Number(page?.next) || this.log.next;
         this.log.loaded = true;
-        text += prefix + String(page?.text || '');
-        if (text.length > MAX_LOG_CHARS) text = text.slice(text.length - MAX_LOG_CHARS);
-        this.showText(text);
+        this.showText(appendLog(text, String(page?.text || '')));
         if (atBottom) logEl.scrollTop = logEl.scrollHeight;
         return page?.done === true;
       } catch (_) {
@@ -404,7 +456,7 @@
     return {
       createLiveCard: (args, ui) => {
         const card = buildCard(args, ui);
-        const controller = new CommandCardController(card, {});
+        const controller = new CommandCardController(card);
         controller.render();
         track(controller);
         // La primera consulta llega antes para que el reloj y el log arranquen enseguida.
@@ -412,7 +464,7 @@
         return card;
       },
       updateLiveCard: (card, args, result) => {
-        const controller = controllers.get(card) || new CommandCardController(card, {});
+        const controller = controllers.get(card) || new CommandCardController(card);
         controller.applyResult(parseResult(result), result.error || result.content || '');
         // La tarjeta de un comando que sigue en marcha permanece abierta y a la vista, también
         // después de que el turno la archive con el resto de herramientas terminadas.
@@ -424,12 +476,11 @@
         const data = parseResult(message?.content);
         const running = data?.status === 'running';
         const card = buildCard(args, ui, { collapsed: true });
-        const controller = new CommandCardController(card, {});
+        const controller = new CommandCardController(card);
         controller.applyResult(data, typeof message?.content === 'string' ? message.content : '');
         if (running) {
           // La duración real y el estado actual llegan con la primera consulta al servidor.
-          controller.state.startedAt = null;
-          controller.state.elapsed = Number(data.elapsed_s) || 0;
+          controller.state = { ...controller.state, startedAt: null, elapsed: Number(data.elapsed_s) || 0 };
           controller.render();
           setTimeout(() => {
             controller.reactivate();
@@ -444,6 +495,16 @@
   return {
     createView,
     parseResult,
-    formatDuration
+    formatDuration,
+    initialState,
+    withDetails,
+    withResult,
+    jobRef,
+    canStop,
+    hasLeftRunning,
+    getBadgeView,
+    firstLogPage,
+    appendLog,
+    fallbackLog
   };
 }));
