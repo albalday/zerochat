@@ -590,6 +590,8 @@ select.form-input:focus-visible {
   border-radius: var(--radius-md);
   background: var(--bg-surface);
   overflow: hidden;
+  /* Holgura con el borde del panel cuando se desplaza para mostrar el capítulo recién abierto */
+  scroll-margin: 0.75rem;
 }
 
 .profile-chapter-summary {
