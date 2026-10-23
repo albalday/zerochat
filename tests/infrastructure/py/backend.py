@@ -19,6 +19,10 @@ def load_zerochat(name: str):
     return module
 
 
+# Al importarse, zerochat.py crea el gestor MCP, que copia los servicios gestionados en el
+# directorio de datos: el proceso de pruebas usa uno temporal, nunca el del usuario.
+_PROCESS_DATA_DIR = tempfile.TemporaryDirectory(prefix="zerochat-py-tests-")
+os.environ["ZEROCHAT_DATA_DIR"] = _PROCESS_DATA_DIR.name
 zerochat = load_zerochat("zerochat")
 
 
