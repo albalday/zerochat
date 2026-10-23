@@ -24,6 +24,7 @@
   const getUIReasoning = () => resolveDep('ChatUIReasoning', './ui-reasoning.js');
   const getContextManager = () => resolveDep('ChatContextManager', './context-manager.js');
   const getModelCatalog = () => resolveDep('ChatModelCatalog', './model-catalog.js');
+  const getWebLLM = () => resolveDep('ChatWebLLM', './providers-webllm.js');
 
   const addDebugLog = (type, text) => getDebug().addLog(type, text);
   const modelId = model => getModelCatalog().modelId(model);
@@ -109,29 +110,18 @@
     populateModelList(elements, null, downloaded, !elements.settingModel.value);
   }
 
-  function parseWebLLMProgress(progress) {
-    const rawText = String(progress?.detail || progress?.text || '').trim();
-    const percentMatch = rawText.match(/(\d+(?:\.\d+)?)%\s+completed/i);
-    const shaderMatch = rawText.match(/Loading GPU shader modules\s*\[(\d+)\/(\d+)\]/i);
-    const loadingMatch = rawText.match(/Loading model from cache\[(\d+)\/(\d+)\]/i);
-    const elapsedMatch = rawText.match(/(\d+(?:\.\d+)?)\s+secs?\s+elapsed/i);
-    const explicitPercent = progress?.percent === null || progress?.percent === undefined ? NaN : Number(progress.percent);
-    const rawPercent = Number.isFinite(explicitPercent) ? explicitPercent : (percentMatch ? Number(percentMatch[1]) : null);
-    const percent = rawPercent === null ? null : Math.min(100, Math.max(0, rawPercent));
-    const elapsed = elapsedMatch ? t('webllm_elapsed_seconds', { seconds: Math.round(Number(elapsedMatch[1])) }) : '';
-    const counters = match => ({
-      current: match[1],
-      total: match[2],
+  /** Texto y porcentaje de un progreso de WebLLM ya normalizado por su adaptador. */
+  function describeWebLLMProgress({ phase, percent, detail }) {
+    const { step, elapsedSeconds } = getWebLLM().parseProgressDetail(detail);
+    if (phase === 'starting') return { text: t('webllm_starting'), percent };
+    if (phase === 'ready') return { text: t('webllm_ready'), percent };
+    if (!step) return { text: t(phase === 'loading' ? 'webllm_loading_parameters' : 'webllm_preparing'), percent };
+    const text = t(step.kind === 'shaders' ? 'webllm_gpu_shaders' : 'webllm_loading_model', {
+      current: step.current,
+      total: step.total,
       percent: percent === null ? '' : ` · ${Math.round(percent)} %`,
-      elapsed: elapsed ? ` · ${elapsed}` : ''
+      elapsed: elapsedSeconds === null ? '' : ` · ${t('webllm_elapsed_seconds', { seconds: elapsedSeconds })}`
     });
-    const phase = progress?.phase || '';
-    let text;
-    if (phase === 'starting') text = t('webllm_starting');
-    else if (phase === 'ready') text = t('webllm_ready');
-    else if (shaderMatch) text = t('webllm_gpu_shaders', counters(shaderMatch));
-    else if (loadingMatch) text = t('webllm_loading_model', counters(loadingMatch));
-    else text = t(phase === 'loading' ? 'webllm_loading_parameters' : 'webllm_preparing');
     return { text, percent };
   }
 
@@ -142,15 +132,7 @@
     return ` · ${t('webllm_vram_required', { size })}`;
   }
 
-  /** Mensaje legible de un error de WebLLM, que a veces llega como objeto o en su causa. */
-  function formatWebLLMErrorMessage(error, fallbackKey) {
-    if (!error) return fallbackKey ? t(fallbackKey) : '';
-    const raw = typeof error === 'string' ? error : (error.message || error.error?.message || error.error || '');
-    const message = typeof raw === 'string' ? raw.trim().replace(/^Error:\s*/i, '').trim() : '';
-    if (message && message !== '[object Object]') return message;
-    const cause = typeof error === 'object' && error.cause ? formatWebLLMErrorMessage(error.cause, '') : '';
-    return cause || (fallbackKey ? t(fallbackKey) : '');
-  }
+  const formatWebLLMErrorMessage = (error, fallbackKey) => getWebLLM().errorMessage(error) || t(fallbackKey);
 
   /** Lista de modelos WebLLM con su estado y las acciones de descargar, cancelar y borrar. */
   function renderWebLLMModels(elements, rawModels = getWebLLMState().catalog) {
@@ -230,7 +212,7 @@
         addDebugLog('system', `[WebLLM] Preparing model ${id}`);
         const update = progress => {
           if (!op.isCurrent()) return;
-          const feedback = parseWebLLMProgress(progress);
+          const feedback = describeWebLLMProgress(progress);
           label.textContent = stateLabel(feedback.text);
           if (feedback.percent === null) progressBar.removeAttribute('value');
           else progressBar.value = feedback.percent;

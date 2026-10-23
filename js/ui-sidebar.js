@@ -14,7 +14,6 @@
   const { escapeHtml } = Utils;
   const { t } = I18n;
 
-  const DAY_MS = 86400000;
   const GROUP_LABEL_KEYS = {
     today: 'sidebar_group_today',
     yesterday: 'sidebar_group_yesterday',
@@ -68,14 +67,16 @@
     elements.sidebarSettingsItems.forEach(item => item.classList.toggle('active', item.dataset.section === sectionId));
   }
 
+  /** Grupo de la barra para una fecha: hoy, ayer, últimos 7 o 30 días naturales, o anterior. */
   function getChronologicalCategory(date) {
     const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    // Inicio del día natural de hace `days` días: con cambio de hora un día no dura 24 h.
+    const dayStart = days => new Date(now.getFullYear(), now.getMonth(), now.getDate() - days).getTime();
     const time = new Date(date).getTime();
-    if (time >= today) return 'today';
-    if (time >= today - DAY_MS) return 'yesterday';
-    if (time >= today - 7 * DAY_MS) return 'last7days';
-    if (time >= today - 30 * DAY_MS) return 'last30days';
+    if (time >= dayStart(0)) return 'today';
+    if (time >= dayStart(1)) return 'yesterday';
+    if (time >= dayStart(7)) return 'last7days';
+    if (time >= dayStart(30)) return 'last30days';
     return 'older';
   }
 
@@ -206,6 +207,7 @@
     openSidebar,
     closeSidebar,
     renderSidebarChats,
+    getChronologicalCategory,
     mount
   };
 });

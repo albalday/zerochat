@@ -113,9 +113,40 @@
       : (match ? Math.max(0, Math.min(100, Number(match[1]))) : null);
     let phase = 'preparing';
     if (/shader modules/i.test(detail)) phase = 'compiling';
-    else if (/fetch params|loading model/i.test(detail)) phase = 'loading';
+    else if (/fetch(ing)? param|loading model/i.test(detail)) phase = 'loading';
     else if (/finish loading/i.test(detail)) phase = 'ready';
     return { phase, percent, detail };
+  }
+
+  // Pasos con contador de los textos de progreso de WebLLM: «Loading GPU shader modules[3/10]» y
+  // «Loading model from cache[2/40]»; ambos pueden terminar en «… 12 secs elapsed».
+  const PROGRESS_STEPS = [
+    ['shaders', /Loading GPU shader modules\s*\[(\d+)\/(\d+)\]/i],
+    ['cache', /Loading model from cache\[(\d+)\/(\d+)\]/i]
+  ];
+
+  /** Paso con contador y segundos transcurridos que anuncia el texto de un progreso de WebLLM. */
+  function parseProgressDetail(detail) {
+    const text = String(detail || '');
+    const elapsed = text.match(/(\d+(?:\.\d+)?)\s+secs?\s+elapsed/i);
+    let step = null;
+    for (const [kind, pattern] of PROGRESS_STEPS) {
+      const match = text.match(pattern);
+      if (match) {
+        step = { kind, current: Number(match[1]), total: Number(match[2]) };
+        break;
+      }
+    }
+    return { step, elapsedSeconds: elapsed ? Math.round(Number(elapsed[1])) : null };
+  }
+
+  /** Mensaje de un error de WebLLM, que llega como texto, como objeto o solo en su causa; '' si no trae ninguno. */
+  function errorMessage(error) {
+    if (!error) return '';
+    const raw = typeof error === 'string' ? error : (error.message || error.error?.message || error.error || '');
+    const message = typeof raw === 'string' ? raw.trim().replace(/^Error:\s*/i, '').trim() : '';
+    if (message && message !== '[object Object]') return message;
+    return typeof error === 'object' && error.cause ? errorMessage(error.cause) : '';
   }
 
   function emitProgress(onProgress, progress) {
@@ -473,6 +504,9 @@
   return {
     COMPLETED_MODELS_STORAGE_KEY,
     compareCatalogModels,
+    normalizeProgress,
+    parseProgressDetail,
+    errorMessage,
     WebLLMEngineManager,
     WebLLMProviderAdapter,
     adapter,
