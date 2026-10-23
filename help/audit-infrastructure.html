@@ -97,10 +97,10 @@
         <h2>3. Seguridad del servidor local</h2>
         <ul>
           <li><strong>Token de sesión obligatorio</strong> en todas las peticiones al backend. [test] <code>test_local_server.js</code></li>
-          <li><strong>Token diario</strong> en <code>~/zerochat/config/token.json</code> con permisos <code>0600</code> y directorio <code>0700</code>. [test] <code>test_backend_runtime.js</code> (omitida en Windows)</li>
-          <li><strong>Escucha en bucle local</strong> por defecto, con aviso al usar un host que no lo es. [test] <code>test_backend_runtime.js</code></li>
+          <li><strong>Token diario</strong> en <code>~/zerochat/config/token.json</code> con permisos <code>0600</code> y directorio <code>0700</code>. [test] <code>py/test_token.py</code> (omitida en Windows)</li>
+          <li><strong>Escucha en bucle local</strong> por defecto, con aviso al usar un host que no lo es. [test] <code>py/test_network.py</code></li>
           <li><strong>Firma de cada llamada a herramienta</strong> con HMAC y nonce de un solo uso. [test] <code>test_local_server.js</code></li>
-          <li><strong>Comandos acotados</strong>: 30 s por defecto, 600 s como máximo, y terminación del grupo de procesos; en Windows, Job Object. [test] <code>test_backend_runtime.js</code>; la prueba del Job Object solo se ejecuta en Windows y aquí se omitió</li>
+          <li><strong>Comandos acotados</strong>: 30 s por defecto, 600 s como máximo, y terminación del grupo de procesos; en Windows, Job Object. [test] <code>py/test_run_command.py</code>; la prueba del Job Object solo se ejecuta en Windows y aquí se omitió</li>
           <li><strong>Sandbox de JavaScript</strong>: <code>iframe</code> con origen opaco y CSP <code>connect-src 'none'</code>; no es una barrera de seguridad, y así lo advierte la ayuda. [test] <code>test_sandbox.js</code> y <code>browser_sandbox_security.test.js</code></li>
           <li><strong>Permisos de herramientas</strong>: políticas <code>ask</code>, <code>allow_all</code> y <code>workspace_trust</code>, reglas de directorio y comandos autorizados con comprobación de traversal. [test] <code>test_tool_security.js</code></li>
           <li><strong>Protección anti-SSRF y validación de URLs y formatos</strong>: en descargas web de documentos (<code>download_doc</code>) e imágenes (<code>download_image</code>). [test] <code>test_fetch_page.js</code> y <code>test_image_fetcher.js</code></li>

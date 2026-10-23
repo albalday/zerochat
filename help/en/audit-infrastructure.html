@@ -97,10 +97,10 @@
         <h2>3. Local server security</h2>
         <ul>
           <li><strong>Mandatory session token</strong> on all backend requests. [test] <code>test_local_server.js</code></li>
-          <li><strong>Daily token</strong> in <code>~/zerochat/config/token.json</code> with <code>0600</code> permissions and <code>0700</code> directory. [test] <code>test_backend_runtime.js</code> (skipped on Windows)</li>
-          <li><strong>Loopback listening</strong> by default, with an alert when configured for a non-local host. [test] <code>test_backend_runtime.js</code></li>
+          <li><strong>Daily token</strong> in <code>~/zerochat/config/token.json</code> with <code>0600</code> permissions and <code>0700</code> directory. [test] <code>py/test_token.py</code> (skipped on Windows)</li>
+          <li><strong>Loopback listening</strong> by default, with an alert when configured for a non-local host. [test] <code>py/test_network.py</code></li>
           <li><strong>HMAC signature for each tool call</strong> with a single-use nonce. [test] <code>test_local_server.js</code></li>
-          <li><strong>Bounded commands</strong>: 30 s default, 600 s maximum, and process tree termination; Job Object on Windows. [test] <code>test_backend_runtime.js</code>; the Job Object test only runs on Windows and was skipped here</li>
+          <li><strong>Bounded commands</strong>: 30 s default, 600 s maximum, and process tree termination; Job Object on Windows. [test] <code>py/test_run_command.py</code>; the Job Object test only runs on Windows and was skipped here</li>
           <li><strong>JavaScript sandbox</strong>: opaque-origin <code>iframe</code> with CSP <code>connect-src 'none'</code>; not a security barrier, as stated in help docs. [test] <code>test_sandbox.js</code> and <code>browser_sandbox_security.test.js</code></li>
           <li><strong>Tool permissions</strong>: <code>ask</code>, <code>allow_all</code>, and <code>workspace_trust</code> policies, directory rules and authorized commands with path traversal blocking. [test] <code>test_tool_security.js</code></li>
           <li><strong>SSRF protection and URL/MIME validation</strong>: in web downloads of documents (<code>download_doc</code>) and images (<code>download_image</code>). [test] <code>test_fetch_page.js</code> and <code>test_image_fetcher.js</code></li>

@@ -57,7 +57,7 @@ node scripts/test-runner.mjs --group=composer --list
 node scripts/test-runner.mjs tests/unit/test_icons.js
 ```
 
-Los `test_*.py` seleccionados se ejecutan después con `python3 -m unittest -v` (`python` en Windows) en un único proceso, que informa de cada caso y de cada fallo con su traza; el código de salida falla si falla cualquiera de los dos ejecutores.
+Los `test_*.py` seleccionados se ejecutan después con `python3 -m unittest -v -b` (`python` en Windows) en un único proceso, que informa de cada caso y de cada fallo con su traza y con lo que imprimió el backend durante ese caso; el código de salida falla si falla cualquiera de los dos ejecutores.
 
 El runner carga `tests/helpers/storage-env.js` en cada proceso de prueba: IndexedDB simulado con `fake-indexeddb` y `localStorage`/`sessionStorage` en memoria. Los módulos usan así las mismas APIs que en el navegador, sin respaldos propios; para lanzar una suite con `node --test` directamente, añade `--require ./tests/helpers/storage-env.js`.
 

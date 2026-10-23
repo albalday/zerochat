@@ -369,9 +369,10 @@ export async function run() {
   testArgs.push(...jsFiles);
 
   // unittest importa cada test_*.py por su nombre de módulo desde su carpeta,
-  // donde también están los helpers compartidos; -v informa de cada caso.
+  // donde también están los helpers compartidos; -v informa de cada caso y -b
+  // muestra lo que imprime el backend solo en los casos que fallan.
   const pyDirs = [...new Set(pyFiles.map(f => path.resolve(ROOT_DIR, path.dirname(f))))];
-  const pyArgs = ['-m', 'unittest', '-v', ...pyFiles.map(f => path.basename(f, '.py'))];
+  const pyArgs = ['-m', 'unittest', '-v', '-b', ...pyFiles.map(f => path.basename(f, '.py'))];
   const pyEnv = { ...process.env, PYTHONPATH: [...pyDirs, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter) };
 
   const spawnTests = (command, commandArgs, env) => new Promise((resolve, reject) => {
