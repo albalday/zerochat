@@ -15,7 +15,7 @@
     "test:changed": "node scripts/test-runner.mjs --changed",
     "test:unit": "node scripts/test-runner.mjs --level=unit",
     "test:integration": "node scripts/test-runner.mjs --level=integration",
-    "test:browser": "node scripts/test-runner.mjs --level=browser --concurrency=2",
+    "test:browser": "node scripts/test-runner.mjs --level=browser",
     "test:architecture": "node scripts/test-runner.mjs --level=architecture",
     "test:infrastructure": "node scripts/test-runner.mjs --level=infrastructure",
     "test:group": "node scripts/test-runner.mjs --group"
