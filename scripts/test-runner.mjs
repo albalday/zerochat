@@ -375,23 +375,35 @@ export async function run() {
   const pyArgs = ['-m', 'unittest', '-v', '-b', ...pyFiles.map(f => path.basename(f, '.py'))];
   const pyEnv = { ...process.env, PYTHONPATH: [...pyDirs, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter) };
 
-  const spawnTests = (command, commandArgs, env) => new Promise((resolve, reject) => {
+  // Con buffered, la salida se guarda en orden y se devuelve para escribirla
+  // después, de modo que dos ejecuciones simultáneas no mezclan sus líneas.
+  const spawnTests = (command, commandArgs, env, { buffered = false } = {}) => new Promise((resolve, reject) => {
     const child = spawn(command, commandArgs, {
       cwd: ROOT_DIR,
       env,
-      stdio: 'inherit'
+      stdio: buffered ? ['ignore', 'pipe', 'pipe'] : 'inherit'
     });
+    const output = [];
+    if (buffered) {
+      child.stdout.on('data', chunk => output.push([process.stdout, chunk]));
+      child.stderr.on('data', chunk => output.push([process.stderr, chunk]));
+    }
     child.on('error', (err) => {
       console.error(`Error al invocar ${command}:`, err);
       reject(err);
     });
-    child.on('close', code => resolve(code ?? 0));
+    child.on('close', code => resolve({ code: code ?? 0, output }));
   });
 
+  // Python corre a la vez que node --test y su informe se escribe al terminar este.
   const runOnce = async () => {
-    const jsCode = jsFiles.length ? await spawnTests(process.execPath, testArgs, process.env) : 0;
-    const pyCode = pyFiles.length ? await spawnTests(process.platform === 'win32' ? 'python' : 'python3', pyArgs, pyEnv) : 0;
-    return jsCode || pyCode;
+    const py = pyFiles.length
+      ? spawnTests(process.platform === 'win32' ? 'python' : 'python3', pyArgs, pyEnv, { buffered: true })
+      : Promise.resolve({ code: 0, output: [] });
+    const js = jsFiles.length ? await spawnTests(process.execPath, testArgs, process.env) : { code: 0 };
+    const { code: pyCode, output } = await py;
+    for (const [stream, chunk] of output) stream.write(chunk);
+    return js.code || pyCode;
   };
 
   const exitCode = await runOnce();
