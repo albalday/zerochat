@@ -713,7 +713,6 @@
       this.clients = new Map();
       this.sessionToken = null;
       this.healthCheckPromise = null;
-      this.externalStartupNoticeShown = false;
       this.heartbeatTarget = null;
       this.heartbeatTimer = null;
       this.heartbeatCheckInFlight = false;
@@ -833,7 +832,7 @@
      * silentOnFailure (la comprobación del arranque) un servidor apagado deja el estado en
      * 'disconnected' en lugar de 'error'.
      */
-    async connectProxy({ host, port, timeoutMs = 1500, silentOnFailure = false, token = null, notifyStartup = true }) {
+    async connectProxy({ host, port, timeoutMs = 1500, silentOnFailure = false, token = null }) {
       if (token) this.setSessionToken(token);
       const endpoint = proxyEndpoint(host, port);
       const State = getState();
@@ -877,17 +876,7 @@
       this.liveServers = null;
       this.liveRunning = null;
       if (this.sessionToken) await this.startHeartbeat(host, port);
-      if (notifyStartup) this.notifyStoppedExternalServices(State.get('mcp').externalServers);
       return { success: true, available: true, probe, tools };
-    }
-
-    notifyStoppedExternalServices(servers) {
-      if (this.externalStartupNoticeShown || !Array.isArray(servers)) return false;
-      if (!servers.some(server => server?.enabled === true && server?.status === 'stopped')) return false;
-      this.externalStartupNoticeShown = true;
-      resolveDep('ChatUIMcp', './ui-mcp.js').offerStoppedExternalServices(servers)
-        .catch(error => console.warn('[MCP] Could not restore previous MCP services:', error));
-      return true;
     }
 
     /**

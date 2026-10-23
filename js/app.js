@@ -831,8 +831,7 @@
       host: backendSession?.host || config.mcpHost,
       port: backendSession?.port || config.mcpPort,
       token,
-      silentOnFailure: !token,
-      notifyStartup: false
+      silentOnFailure: !token
     }).catch(error => {
       console.warn('[App] Could not connect to the local server on startup:', error);
       return { success: false };
@@ -895,7 +894,7 @@
         const connection = await startupMcpConnection;
         if (!connection.success) return;
         await UIProfiles.startActiveProfileServers();
-        MCP.manager.notifyStoppedExternalServices(State.get('mcp').externalServers);
+        await UIMcp.offerStoppedExternalServices(State.get('mcp').externalServers);
       }).catch(error => console.warn('[App] Could not check MCP services on startup:', error));
     }
 
