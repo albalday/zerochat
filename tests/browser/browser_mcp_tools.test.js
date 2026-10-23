@@ -18,7 +18,7 @@ test('Browser UI - los metadatos MCP externos se renderizan como texto', async (
       const serverDetails = byId('mcp-server-details');
       const elements = {
         statusBadge: byId('mcp-status-badge'), statusText: byId('mcp-status-text'), serverDetails,
-        reconnectHint: byId('mcp-reconnect-hint'), commandSnippet: byId('mcp-terminal-command'), bootstrapCard: byId('mcp-bootstrap-card'),
+        commandSnippet: byId('mcp-terminal-command'), bootstrapCard: byId('mcp-bootstrap-card'),
         toolsContainer: byId('mcp-tools-container'), serversList: byId('mcp-servers-list')
       };
       const payload = '<img data-xss-probe="mcp" src=x onerror="window.__mcpXss=true">';

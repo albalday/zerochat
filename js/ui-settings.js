@@ -294,7 +294,6 @@
               <strong data-i18n="mcp_bootstrap_title">MCP requiere el servidor local</strong>
             </div>
             <p class="label-hint mcp-section-hint" data-i18n="mcp_bootstrap_desc">Instala ZeroChat desde PyPI y ejecútalo en un terminal. La aplicación se conectará automáticamente cuando el servidor esté disponible.</p>
-            <p id="mcp-reconnect-hint" class="label-hint mcp-section-hint" data-i18n="mcp_reconnect_after_restart">Si el servidor se ha reiniciado, recarga esta página (F5) para volver a conectar.</p>
             <div class="mcp-cmd-row">
               <pre class="mcp-command-box mcp-cmd-box-flex"><code id="mcp-terminal-command">pip install zerochat
 zerochat</code></pre>

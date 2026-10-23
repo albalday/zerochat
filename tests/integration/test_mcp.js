@@ -867,9 +867,101 @@ test('MCP - connectProxy registra las herramientas de los servicios externos en 
 
     await manager.disconnectProxy();
   } finally {
-    manager.stopHeartbeat();
+    clearInterval(manager.heartbeatTimer);
     global.fetch = originalFetch;
   }
+});
+
+test('MCP - con sesión, el latido conecta cuando el servidor local arranca o vuelve tras un reinicio', async () => {
+  const originalFetch = global.fetch;
+  const manager = new MCP.McpManager();
+  let server = 'down';
+  let liveReads = 0;
+
+  try {
+    global.fetch = async (url, options) => {
+      if (server === 'down') throw new TypeError('Failed to fetch');
+      if (server === 'newToken') return { ok: false, status: 401, text: async () => 'Unauthorized' };
+      const body = JSON.parse(options.body || '{}');
+      if (body.method === 'initialize') {
+        return {
+          ok: true, status: 200,
+          json: async () => ({ jsonrpc: '2.0', id: body.id, result: { protocolVersion: '2024-11-05', serverInfo: { name: 'zerochat' }, capabilities: {} } })
+        };
+      }
+      if (body.method === 'tools/list') {
+        return {
+          ok: true, status: 200,
+          json: async () => ({ jsonrpc: '2.0', id: body.id, result: { tools: [{ name: 'heartbeat_reconnect_tool' }] } })
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    };
+    // La URL del latido depende de la página; aquí se sustituye su lectura por el estado del servidor.
+    manager.readLiveState = async () => {
+      liveReads += 1;
+      if (server !== 'up') throw new Error('Heartbeat HTTP 0');
+      return { ok: true };
+    };
+
+    // La página abre con la sesión guardada y el servidor apagado: el latido queda vigilando.
+    const failed = await manager.connectProxy({ host: '127.0.0.1', port: 6388, token: 'tok' });
+    assert.equal(failed.success, false);
+    assert.equal(ChatState.get('mcp').status, 'error');
+    assert.ok(manager.heartbeatTimer, 'el latido vigila el destino aunque la conexión falle');
+
+    // Mientras sigue caído, el latido no cambia el estado.
+    const downState = ChatState.get('mcp');
+    await manager.sendHeartbeat();
+    assert.deepEqual(ChatState.get('mcp'), downState);
+
+    // El servidor arranca: el latido conecta y envía el primer latido de la conexión.
+    server = 'up';
+    await manager.sendHeartbeat();
+    assert.equal(ChatState.get('mcp').status, 'connected');
+    assert.equal(liveReads, 1, 'la conexión del latido lee el estado vivo sin esperar al siguiente');
+
+    // El servidor cae: el latido lo detecta y sigue en marcha.
+    server = 'down';
+    await manager.sendHeartbeat();
+    assert.equal(ChatState.get('mcp').status, 'error');
+    assert.equal(manager.isProxyConnected(), false);
+
+    // Vuelve con otro token diario: se muestra el rechazo y no el fallo de red anterior.
+    server = 'newToken';
+    await manager.sendHeartbeat();
+    assert.equal(ChatState.get('mcp').status, 'error');
+    assert.match(ChatState.get('mcp').error, /HTTP 401/);
+
+    // Vuelve aceptando la sesión: el siguiente latido reconecta sin recargar la página.
+    server = 'up';
+    await manager.sendHeartbeat();
+    assert.equal(ChatState.get('mcp').status, 'connected');
+    assert.equal(manager.isProxyConnected(), true);
+    assert.equal(liveReads, 3);
+  } finally {
+    clearInterval(manager.heartbeatTimer);
+    global.fetch = originalFetch;
+  }
+});
+
+test('MCP - una lectura del latido colgada se corta al cumplirse su intervalo para no bloquear los siguientes', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  globalThis.location = { protocol: 'file:', port: '', hostname: '' };
+  t.after(() => { delete globalThis.location; });
+  t.mock.method(global, 'fetch', (url, options) => new Promise((_, reject) => {
+    options.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+  }));
+  const manager = new MCP.McpManager();
+  manager.heartbeatTarget = { host: '127.0.0.1', port: 6388, token: 'tok' };
+
+  let settled = false;
+  const read = manager.readLiveState().finally(() => { settled = true; });
+  t.mock.timers.tick(9999);
+  await Promise.resolve();
+  assert.equal(settled, false);
+  t.mock.timers.tick(1);
+  await assert.rejects(read, { name: 'AbortError' });
 });
 
 test('MCP - SSE autenticado usa cabeceras en navegador y procesa CRLF fragmentado', async () => {

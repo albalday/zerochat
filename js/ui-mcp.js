@@ -356,9 +356,6 @@
     }
 
     elements.bootstrapCard.hidden = isConnected;
-    elements.reconnectHint.hidden = status !== 'disconnected';
-    elements.reconnectHint.setAttribute('data-i18n', 'mcp_reconnect_after_restart');
-    elements.reconnectHint.textContent = t('mcp_reconnect_after_restart');
     elements.commandSnippet.textContent = generateTerminalCommand();
     renderCurrentToolsList(elements);
     renderExternalServers(elements.serversList, isConnected ? state.externalServers : []);
@@ -489,7 +486,7 @@
   }
 
   function verifyActiveConnection() {
-    return getMCP().manager.verifyProxyConnection({ timeoutMs: 1500 });
+    return getMCP().manager.verifyProxyConnection();
   }
 
   return {

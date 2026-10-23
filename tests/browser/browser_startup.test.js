@@ -159,11 +159,6 @@ test('Browser UI - el fragmento inicial persiste la sesión en cookie, limpia la
     await page.reload({ waitUntil: 'load' });
     await waitForAppReady(page);
     assert.deepEqual(await page.evaluate(() => window.ChatStorage.getBackendSession()), expectedSession, 'F5 debe recuperar la sesión desde la cookie');
-    await page.evaluate(() => {
-      window.ChatMCP.manager.stopHeartbeat();
-      window.ChatMCP.manager.startHeartbeat('127.0.0.1', 6388);
-      window.ChatMCP.manager.stopHeartbeat();
-    });
 
     const [newPage] = await Promise.all([context.waitForEvent('page'), page.click('#btn-sidebar-new-tab')]);
     await newPage.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
