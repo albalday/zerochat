@@ -25,7 +25,10 @@
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
-  padding: 0.25rem 1rem 0.5rem 1rem;
+  padding: 0.25rem max(var(--chat-gutter), env(safe-area-inset-right)) 0.5rem max(var(--chat-gutter), env(safe-area-inset-left));
+  /* El hueco de la barra es fijo y se descuenta del margen derecho (--scrollbar-width, de ui-shell.js) */
+  scrollbar-gutter: stable;
+  padding-right: max(0px, calc(max(var(--chat-gutter), env(safe-area-inset-right)) - var(--scrollbar-width, 0px)));
   display: flex;
   flex-direction: column;
   gap: var(--space-block);
@@ -126,7 +129,7 @@
 @media (max-width: 640px) {
 
   .messages-list {
-    padding: 0.25rem 0.5rem;
+    padding-bottom: 0.25rem;
   }
 
   .message-content-wrapper {
