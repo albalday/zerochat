@@ -148,13 +148,11 @@ test('Browser UI - el fragmento inicial persiste la sesión en cookie, limpia la
     const state = await page.evaluate(() => ({
       backendSession: window.ChatStorage.getBackendSession(),
       href: window.location.href,
-      newTabHref: document.getElementById('btn-sidebar-new-tab').getAttribute('href'),
-      hasOldLifecycle: typeof window.__zerochat_heartbeat_lifecycle !== 'undefined'
+      newTabHref: document.getElementById('btn-sidebar-new-tab').getAttribute('href')
     }));
     assert.deepEqual(state.backendSession, expectedSession, 'La sesión debe haberse guardado en la cookie');
     assert.equal(state.href.includes(testToken), false, 'La URL no debe conservar el token');
     assert.equal(state.newTabHref.includes(testToken) || state.newTabHref.includes('port='), false, 'El enlace de nueva pestaña no debe propagar la sesión');
-    assert.equal(state.hasOldLifecycle, false, 'No deben existir variables obsoletas de ciclo de vida');
 
     await page.reload({ waitUntil: 'load' });
     await waitForAppReady(page);

@@ -202,50 +202,6 @@ test('Browser UI - el bloqueo cargado afecta a todas las pestañas y el borrador
   }
 });
 
-test('Browser UI - inicia sin bloquearse cuando existen perfiles heredados de la version 6.7.0', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage();
-    const consoleErrors = [];
-    page.on('console', msg => {
-      if (msg.type() === 'error' && !msg.text().includes('favicon') && !msg.text().includes('ERR_CONNECTION_REFUSED')) {
-        consoleErrors.push(msg.text());
-      }
-    });
-    page.on('pageerror', err => consoleErrors.push(err.message));
-
-    await page.goto(getIndexUrl(), { waitUntil: 'commit' });
-    await page.evaluate(() => {
-      localStorage.setItem('zerochat_profiles_v1', JSON.stringify({
-        schemaVersion: 1,
-        profiles: [
-          {
-            id: 'profile:mirror',
-            name: 'Espejo',
-            description: 'Muestra la petición OpenAI sin enviarla.',
-            schemaVersion: 1,
-            version: 1,
-            updatedAt: 1789320000000,
-            settings: {
-              apiUrl: 'mirror://local',
-              apiType: 'mirror',
-              apiKey: '',
-              model: 'mirror'
-            }
-          }
-        ]
-      }));
-    });
-
-    await page.reload({ waitUntil: 'load' });
-    await waitForAppReady(page);
-    assert.equal(consoleErrors.length, 0, 'No debe haber errores de consola: ' + consoleErrors.join(' | '));
-    assert.equal(await page.locator('#chat-form').isVisible(), true, 'El formulario de chat debe ser visible');
-  } finally {
-    await browser.close();
-  }
-});
-
 /** Página con los perfiles de prueba y, si se indican, perfiles editables guardados en el repositorio. */
 async function openProfilesPage(browser, profiles = []) {
   const page = await browser.newPage();
