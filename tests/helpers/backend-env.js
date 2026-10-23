@@ -6,8 +6,8 @@ const os = require('node:os');
 const path = require('node:path');
 
 // El backend no admite fijar el token por argumentos: las pruebas lo dejan
-// preparado como token diario en un directorio de datos temporal.
-const tokenDataDirs = [];
+// preparado como token diario en un directorio de datos temporal, que se borra
+// al terminar la prueba o el describe desde el que se pide.
 function tokenDataDir(token) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-token-'));
   const now = new Date();
@@ -15,12 +15,7 @@ function tokenDataDir(token) {
     .map((part, index) => String(part).padStart(index ? 2 : 4, '0')).join('-');
   fs.mkdirSync(path.join(dataDir, 'config'), { mode: 0o700 });
   fs.writeFileSync(path.join(dataDir, 'config', 'token.json'), JSON.stringify({ token, date: today }), { mode: 0o600 });
-  if (tokenDataDirs.length === 0) {
-    test.after(() => {
-      for (const dir of tokenDataDirs) fs.rmSync(dir, { recursive: true, force: true });
-    });
-  }
-  tokenDataDirs.push(dataDir);
+  test.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   return dataDir;
 }
 

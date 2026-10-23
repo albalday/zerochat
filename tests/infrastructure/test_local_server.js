@@ -1,277 +1,230 @@
-const test = require('node:test');
+const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { spawn } = require('node:child_process');
+const { spawn, execSync } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const pkg = require('../../package.json');
+const { McpClient } = require('../../js/mcp.js');
 const { tokenDataDir, waitForServer, freePort } = require('../helpers/backend-env.js');
 
-test('Servidor local zerochat.py: token de sesión, herramientas core y aislamiento', async () => {
+// Un solo proceso para todos los comportamientos que comparten la misma CLI y el mismo entorno.
+describe('Servidor local zerochat.py', () => {
   const repoRoot = path.resolve(__dirname, '../..');
-  const serverPath = path.resolve(repoRoot, 'zerochat.py');
-  const port = await freePort();
-  const baseUrl = `http://127.0.0.1:${port}`;
   const testToken = 'test-token-secret-12345';
-  const nativeFetch = global.fetch;
-  let toolAuthorization = null;
-  const signedFetch = async (url, options = {}) => {
-    const body = typeof options.body === 'string' ? options.body : '';
-    let request;
-    try { request = JSON.parse(body); } catch (_) {}
-    if (toolAuthorization && request?.method === 'tools/call' && String(url).startsWith(baseUrl)) {
-      const expiresAt = Date.now() + toolAuthorization.ttlMs;
-      const nonce = crypto.randomBytes(16).toString('base64url');
-      const pathName = new URL(url).pathname.replace(/\/$/, '') || '/';
-      const bodyHash = crypto.createHash('sha256').update(body).digest('hex');
-      const signatureBase = JSON.stringify(['zerochat-tool-auth-v1', toolAuthorization.sessionId, 'POST', pathName, expiresAt, nonce, bodyHash]);
-      const signature = crypto.createHmac('sha256', Buffer.from(toolAuthorization.key, 'base64url')).update(signatureBase).digest('base64url');
-      options = { ...options, headers: { ...(options.headers || {}),
-        'X-ZeroChat-Tool-Session': toolAuthorization.sessionId,
-        'X-ZeroChat-Tool-Expires': String(expiresAt),
-        'X-ZeroChat-Tool-Nonce': nonce,
-        'X-ZeroChat-Tool-Signature': signature } };
-    }
-    return nativeFetch(url, options);
-  };
-  global.fetch = signedFetch;
-
-  // browser_action usa solo el Playwright del servicio: se enlaza el de las pruebas en su lugar.
+  const ORIGIN = 'https://albalday.github.io';
   const dataDir = tokenDataDir(testToken);
-  const servicePlaywright = path.join(dataDir, 'services', 'playwright', 'node_modules', 'playwright');
-  fs.mkdirSync(path.dirname(servicePlaywright), { recursive: true });
-  fs.symlinkSync(path.join(repoRoot, 'node_modules', 'playwright'), servicePlaywright, 'junction');
-  const serverProc = spawn('python3', [
-    serverPath, '--port', String(port), '--no-browser', '--no-venv'
-  ], {
-    cwd: repoRoot,
-    // Sin la configuración de Git del usuario: el visor de diffs solo ve la del repositorio de prueba.
-    env: { ...process.env, ZEROCHAT_DATA_DIR: dataDir, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1' },
-    stdio: ['ignore', 'pipe', 'pipe']
+  let baseUrl = '';
+  let serverProc = null;
+  let serverOutput = '';
+  let initResult = null;
+  let nextId = 1;
+
+  /** Cabeceras del sello de tools/call, como las calcula el cliente con la autorización de initialize. */
+  function toolSeal(url, body) {
+    const { sessionId, key, ttlMs } = initResult.toolAuthorization;
+    const expiresAt = Date.now() + ttlMs;
+    const nonce = crypto.randomBytes(16).toString('base64url');
+    const pathName = new URL(url).pathname.replace(/\/$/, '') || '/';
+    const bodyHash = crypto.createHash('sha256').update(body).digest('hex');
+    const signatureBase = JSON.stringify(['zerochat-tool-auth-v1', sessionId, 'POST', pathName, expiresAt, nonce, bodyHash]);
+    return {
+      'X-ZeroChat-Tool-Session': sessionId,
+      'X-ZeroChat-Tool-Expires': String(expiresAt),
+      'X-ZeroChat-Tool-Nonce': nonce,
+      'X-ZeroChat-Tool-Signature': crypto.createHmac('sha256', Buffer.from(key, 'base64url')).update(signatureBase).digest('base64url')
+    };
+  }
+
+  /** POST JSON-RPC con el token de sesión; tools/call va sellado salvo `seal: false`. */
+  function post(method, params = {}, { endpoint = '', seal = method === 'tools/call', headers = {} } = {}) {
+    const url = `${baseUrl}/${endpoint}`;
+    const body = JSON.stringify({ jsonrpc: '2.0', id: nextId++, method, params });
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: ORIGIN, Authorization: `Bearer ${testToken}`, ...(seal ? toolSeal(url, body) : {}), ...headers },
+      body
+    });
+  }
+  const rpc = async (method, params, options) => (await post(method, params, options)).json();
+  async function callTool(name, args, meta) {
+    const res = await post('tools/call', { name, arguments: args, ...(meta ? { _meta: meta } : {}) });
+    assert.equal(res.status, 200);
+    const json = await res.json();
+    return { json, parsed: JSON.parse(json.result?.content?.[0]?.text) };
+  }
+  const heartbeat = async () => (await fetch(`${baseUrl}/zerochat/heartbeat`, { headers: { 'X-ZeroChat-Token': testToken } })).json();
+
+  before(async () => {
+    // browser_action usa solo el Playwright del servicio: se enlaza el de las pruebas en su lugar.
+    const servicePlaywright = path.join(dataDir, 'services', 'playwright', 'node_modules', 'playwright');
+    fs.mkdirSync(path.dirname(servicePlaywright), { recursive: true });
+    fs.symlinkSync(path.join(repoRoot, 'node_modules', 'playwright'), servicePlaywright, 'junction');
+    const port = await freePort();
+    baseUrl = `http://127.0.0.1:${port}`;
+    serverProc = spawn('python3', [path.resolve(repoRoot, 'zerochat.py'), '--port', String(port), '--no-browser', '--no-venv'], {
+      cwd: repoRoot,
+      // Sin la configuración de Git del usuario: el visor de diffs solo ve la del repositorio de prueba.
+      env: { ...process.env, ZEROCHAT_DATA_DIR: dataDir, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1' },
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    serverProc.stdout.on('data', chunk => { serverOutput += chunk; });
+    await waitForServer(baseUrl, testToken, serverProc);
+    initResult = (await rpc('initialize')).result;
   });
 
-  let serverError = '';
-  let serverOutput = '';
-  serverProc.stderr.on('data', chunk => { serverError += chunk; });
-  serverProc.stdout.on('data', chunk => { serverOutput += chunk; });
+  after(() => serverProc?.kill('SIGTERM'));
 
-  try {
-    // 1. Esperar arranque
-    await waitForServer(baseUrl, testToken, serverProc);
-
-    // 1.1 Detección de entorno de desarrollo en el arranque
+  test('el arranque detecta el entorno de desarrollo y muestra la URL', () => {
     assert.match(serverOutput, /Desarrollo local/, 'Debe detectar el entorno de desarrollo');
-    assert.match(serverOutput, new RegExp(`http://127\\.0\\.0\\.1:${port}`), 'Debe mostrar la URL destino en el arranque');
+    assert.match(serverOutput, new RegExp(baseUrl.replace(/\./g, '\\.')), 'Debe mostrar la URL destino en el arranque');
+  });
 
-    // 2. Comprobar rechazo sin token (HTTP 401)
-    const unauthGet = await fetch(`${baseUrl}/`);
-    assert.equal(unauthGet.status, 401, 'Petición GET sin token debe ser rechazada con 401');
+  test('solo el token de sesión en cabecera autoriza, nunca en la URL', async () => {
+    assert.equal((await fetch(`${baseUrl}/`)).status, 401, 'Petición GET sin token debe ser rechazada con 401');
+    assert.equal((await post('initialize', {}, { headers: { Authorization: '' } })).status, 401, 'Petición POST sin token debe ser rechazada con 401');
+    assert.equal((await post('initialize', {}, { headers: { Authorization: 'Bearer wrong-token' } })).status, 401, 'Petición con token erróneo debe ser 401');
+    assert.equal((await fetch(`${baseUrl}/?token=${testToken}`)).status, 401, 'El token en query string debe ser rechazado');
+    assert.equal((await fetch(`${baseUrl}/sse?token=${testToken}`)).status, 401);
+    const byHeader = await post('tools/list', {}, { headers: { Authorization: '', 'X-ZeroChat-Token': testToken } });
+    assert.equal(byHeader.status, 200, 'X-ZeroChat-Token también autoriza');
+    await byHeader.text();
+  });
 
-    const unauthPost = await fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })
-    });
-    assert.equal(unauthPost.status, 401, 'Petición POST sin token debe ser rechazada con 401');
-
+  test('favicon.ico responde vacío sin token, salvo a un origen ajeno', async () => {
     const favicon = await fetch(`${baseUrl}/favicon.ico`);
     assert.equal(favicon.status, 204);
     assert.equal(await favicon.text(), '');
-    const forbiddenFavicon = await fetch(`${baseUrl}/favicon.ico`, {
-      headers: { Origin: 'https://untrusted.example' }
-    });
-    assert.equal(forbiddenFavicon.status, 403);
+    assert.equal((await fetch(`${baseUrl}/favicon.ico`, { headers: { Origin: 'https://untrusted.example' } })).status, 403);
+  });
 
-    const querySse = await fetch(`${baseUrl}/sse?token=${testToken}`);
-    assert.equal(querySse.status, 401);
-    const { McpClient } = require('../../js/mcp.js');
+  test('el cuerpo de una petición es un objeto JSON de hasta 1 MiB', async () => {
+    const send = body => fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: ORIGIN, Authorization: `Bearer ${testToken}` },
+      body
+    });
+    assert.equal((await send(JSON.stringify([]))).status, 400, 'Una petición JSON que no sea un objeto debe rechazarse');
+    try {
+      assert.equal((await send('x'.repeat(1024 * 1024 + 1))).status, 413, 'Un cuerpo superior al límite debe rechazarse');
+    } catch (err) {
+      if (err?.cause?.code !== 'EPIPE' && err?.cause?.code !== 'ECONNRESET') throw err;
+    }
+  });
+
+  test('el flujo SSE abre con el token en cabecera y el cliente MCP lo usa', async () => {
+    const sseRes = await fetch(`${baseUrl}/sse`, { headers: { Accept: 'text/event-stream', 'X-ZeroChat-Token': testToken } });
+    assert.equal(sseRes.status, 200);
+    assert.equal(sseRes.headers.get('content-type'), 'text/event-stream');
+    assert.equal(sseRes.headers.get('cache-control'), 'no-store');
+    await sseRes.body.cancel();
     const client = new McpClient({ url: `${baseUrl}/sse`, token: testToken });
     try {
       assert.equal(await client.connectSseStream({ timeoutMs: 2000 }), `${baseUrl}/`);
       assert.equal(client.isSseActive, true);
-      const tools = await client.request('tools/list');
-      assert.ok(Array.isArray(tools.tools));
+      assert.ok(Array.isArray((await client.request('tools/list')).tools));
     } finally {
       client.disconnect();
     }
+  });
 
-    // 3. Comprobar rechazo con token inválido
-    const invalidPost = await fetch(baseUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://albalday.github.io',
-        'Authorization': 'Bearer wrong-token'
-      },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'initialize', params: {} })
-    });
-    assert.equal(invalidPost.status, 401, 'Petición con token erróneo debe ser 401');
+  test('initialize publica el servidor, su versión, el SO y la autorización de herramientas', () => {
+    assert.equal(initResult.serverInfo?.name, 'ZeroChat Local Server');
+    assert.equal(initResult.serverInfo?.version, pkg.version.split('.').slice(0, 2).join('.'));
+    assert.ok(typeof initResult.serverInfo?.os === 'string', 'serverInfo debe publicar el SO detectado');
+    assert.equal(initResult.toolAuthorization?.version, 'zerochat-tool-auth-v1');
+  });
 
-    // El token en la URL ya no autoriza peticiones.
-    const queryTokenGet = await fetch(`${baseUrl}/?token=${testToken}`);
-    assert.equal(queryTokenGet.status, 401, 'El token en query string debe ser rechazado');
-
-    const invalidShapeRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://albalday.github.io',
-        'Authorization': `Bearer ${testToken}`
-      },
-      body: JSON.stringify([])
-    });
-    assert.equal(invalidShapeRes.status, 400, 'Una petición JSON que no sea un objeto debe rechazarse');
-
+  test('tools/call exige el sello del cliente, que admite un desfase de reloj de 25 s', async t => {
+    const unsigned = await post('tools/call', { name: 'list_directory', arguments: { path: '.' } }, { seal: false });
+    assert.equal(unsigned.status, 403, 'Una llamada tools/call sin sello debe rechazarse');
+    await unsigned.text();
+    const client = new McpClient({ id: 'mcp_proxy', url: baseUrl, token: testToken });
     try {
-      const oversizedRes = await fetch(baseUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Origin': 'https://albalday.github.io',
-          'Authorization': `Bearer ${testToken}`
-        },
-        body: 'x'.repeat(1024 * 1024 + 1)
-      });
-      assert.equal(oversizedRes.status, 413, 'Un cuerpo superior al límite debe rechazarse');
-    } catch (err) {
-      if (err?.cause?.code !== 'EPIPE' && err?.cause?.code !== 'ECONNRESET') {
-        throw err;
-      }
-    }
-
-    // 4. Comprobar autorización con cabecera Authorization: Bearer <token>
-    const initRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://albalday.github.io',
-        'Authorization': `Bearer ${testToken}`
-      },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'initialize', params: {} })
-    });
-    assert.equal(initRes.status, 200);
-    const initJson = await initRes.json();
-    assert.equal(initJson.result?.serverInfo?.name, 'ZeroChat Local Server');
-    assert.equal(initJson.result?.serverInfo?.version, pkg.version.split('.').slice(0, 2).join('.'));
-    toolAuthorization = initJson.result?.toolAuthorization;
-    assert.equal(toolAuthorization?.version, 'zerochat-tool-auth-v1');
-    const unsignedToolRes = await nativeFetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 301, method: 'tools/call', params: { name: 'list_directory', arguments: { path: '.' } } })
-    });
-    assert.equal(unsignedToolRes.status, 403, 'Una llamada tools/call sin sello debe rechazarse');
-    const { McpClient: SignedMcpClient } = require('../../js/mcp.js');
-    global.fetch = nativeFetch;
-    const signedClient = new SignedMcpClient({ id: 'mcp_proxy', url: baseUrl, token: testToken });
-    const realDateNow = Date.now;
-    try {
-      assert.equal((await signedClient.initialize()).success, true);
-      assert.equal((await signedClient.callTool('list_directory', { path: '.' }, { toolAuthorization: true })).success, true);
+      assert.equal((await client.initialize()).success, true);
+      assert.equal((await client.callTool('list_directory', { path: '.' }, { toolAuthorization: true })).success, true);
       // Con el navegador en otro equipo, su reloj puede ir adelantado o atrasado respecto al del servidor.
+      const now = Date.now();
+      t.mock.timers.enable({ apis: ['Date'], now });
       for (const skewMs of [25_000, -25_000]) {
-        Date.now = () => realDateNow() + skewMs;
-        try {
-          assert.equal((await signedClient.callTool('list_directory', { path: '.' }, { toolAuthorization: true })).success, true, `Desfase de reloj ${skewMs} ms`);
-        } finally {
-          Date.now = realDateNow;
-        }
+        t.mock.timers.setTime(now + skewMs);
+        assert.equal((await client.callTool('list_directory', { path: '.' }, { toolAuthorization: true })).success, true, `Desfase de reloj ${skewMs} ms`);
       }
     } finally {
-      signedClient.disconnect();
-      global.fetch = signedFetch;
+      client.disconnect();
     }
+  });
 
-    // 5. Comprobar tools/list
-    const toolsRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://albalday.github.io',
-        'X-ZeroChat-Token': testToken
-      },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'tools/list', params: {} })
-    });
-    assert.equal(toolsRes.status, 200);
-    const toolsJson = await toolsRes.json();
-    const tools = toolsJson.result?.tools || [];
-    const toolNames = tools.map(t => t.name);
-    assert.ok(toolNames.includes('list_directory'));
-    assert.ok(toolNames.includes('read_file'));
-    assert.ok(toolNames.includes('write_file'));
-    assert.ok(toolNames.includes('edit_file'));
-    assert.ok(toolNames.includes('run_command'));
-    assert.ok(toolNames.includes('check_command'));
-    assert.ok(toolNames.includes('search_files'));
+  test('tools/list publica las herramientas core con sus esquemas estrictos', async () => {
+    const tools = (await rpc('tools/list')).result?.tools || [];
+    const toolNames = tools.map(tool => tool.name);
+    for (const name of ['list_directory', 'read_file', 'write_file', 'edit_file', 'run_command', 'check_command', 'search_files', 'get_diagnostics', 'browser_action']) {
+      assert.ok(toolNames.includes(name), name);
+    }
     assert.ok(!toolNames.includes('bash') && !toolNames.includes('execute_command'), 'Una sola herramienta para ejecutar comandos');
-    assert.ok(typeof initJson.result?.serverInfo?.os === 'string', 'serverInfo debe publicar el SO detectado');
-    const runTool = tools.find(t => t.name === 'run_command');
+    assert.ok(!toolNames.includes('set_project_directory'), 'El cambio de proyecto no es una herramienta del modelo');
+    const runTool = tools.find(tool => tool.name === 'run_command');
     assert.ok(runTool?.description?.includes('Host OS:'), 'run_command debe declarar el SO anfitrión');
     assert.match(runTool.description, /fresh/, 'run_command debe advertir de que cada llamada empieza de cero');
-    assert.equal(runTool.inputSchema.properties.cwd, undefined, 'run_command no admite cwd');
-    assert.deepEqual(Object.keys(runTool.inputSchema.properties).sort(), ['background', 'command', 'timeout_seconds']);
-    assert.ok(!toolNames.includes('set_project_directory'), 'El cambio de proyecto no es una herramienta del modelo');
-    assert.ok(toolNames.includes('get_diagnostics'));
-    assert.ok(toolNames.includes('browser_action'));
-    const listDirectory = tools.find(t => t.name === 'list_directory');
+    assert.deepEqual(Object.keys(runTool.inputSchema.properties).sort(), ['background', 'command', 'timeout_seconds'], 'run_command no admite cwd');
+    const listDirectory = tools.find(tool => tool.name === 'list_directory');
     assert.equal(listDirectory?.inputSchema?.properties?.max_depth, undefined,
       'list_directory no debe publicar una profundidad recursiva inexistente');
-    const editFile = tools.find(t => t.name === 'edit_file');
+    const editFile = tools.find(tool => tool.name === 'edit_file');
     assert.deepEqual(Object.keys(editFile.inputSchema.properties).sort(), ['new_str', 'old_str', 'path', 'replace_all'],
       'edit_file solo publica el reemplazo exacto; write_file cubre la escritura completa');
     assert.match(editFile.description, /several edit_file calls in the same response/,
       'edit_file indica al modelo que varias ediciones van en varias llamadas de la misma respuesta');
     assert.deepEqual(editFile.inputSchema.required.sort(), ['new_str', 'old_str', 'path']);
+  });
 
-    // El cambio de directorio del proyecto es un método de control de la interfaz.
-    const projectRpc = async (id, params) => (await fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'X-ZeroChat-Token': testToken },
-      body: JSON.stringify({ jsonrpc: '2.0', id, method: 'zerochat/project/set_directory', params })
-    })).json();
-    const startCwd = initJson.result.serverInfo.cwd;
+  test('tools/call rechaza con 400 los argumentos que el esquema no publica', async () => {
+    for (const [name, args, field] of [['list_directory', { path: '.', max_depth: 2 }, /max_depth/], ['run_command', { command: 'pwd', cwd: '/tmp' }, /cwd/]]) {
+      const res = await post('tools/call', { name, arguments: args });
+      assert.equal(res.status, 400, name);
+      assert.match((await res.json()).error || '', field);
+    }
+  });
+
+  test('el directorio del proyecto lo cambia la interfaz y lo publica el latido', async () => {
+    const startCwd = initResult.serverInfo.cwd;
     const projectDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-project-')));
+    const setDirectory = params => rpc('zerochat/project/set_directory', params);
     try {
-      const moved = await projectRpc(42, { path: projectDir });
+      const moved = await setDirectory({ path: projectDir });
       assert.equal(moved.result?.cwd, projectDir);
       assert.equal(moved.result?.previous_cwd, startCwd);
-      const movedHb = await (await fetch(`${baseUrl}/zerochat/heartbeat`, { headers: { 'X-ZeroChat-Token': testToken } })).json();
+      const movedHb = await heartbeat();
       assert.equal(movedHb.cwd, projectDir, 'El heartbeat publica el nuevo directorio');
       assert.deepEqual(movedHb.playwright, { installed: true, browserAction: { available: true } }, 'El heartbeat publica el estado de Playwright');
-      assert.equal((await projectRpc(43, { path: path.join(projectDir, 'missing') })).error?.code, -32602);
-      assert.equal((await projectRpc(44, { path: 7 })).error?.code, -32602);
-      assert.equal((await projectRpc(45, {})).error?.code, -32602);
+      for (const params of [{ path: path.join(projectDir, 'missing') }, { path: 7 }, {}]) {
+        assert.equal((await setDirectory(params)).error?.code, -32602, JSON.stringify(params));
+      }
     } finally {
-      assert.equal((await projectRpc(46, { path: startCwd })).result?.cwd, startCwd);
+      assert.equal((await setDirectory({ path: startCwd })).result?.cwd, startCwd);
       fs.rmSync(projectDir, { recursive: true, force: true });
     }
+  });
 
-    // Apertura de visor de diffs (git difftool)
-    const diffRpc = async (id, params) => (await fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'X-ZeroChat-Token': testToken },
-      body: JSON.stringify({ jsonrpc: '2.0', id, method: 'zerochat/diff/open', params })
-    })).json();
-
+  test('el visor de diffs exige un visor gráfico y abre el del árbol de trabajo o el del último commit', async () => {
+    const openDiff = params => rpc('zerochat/diff/open', params);
     const nonGitDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-nongit-')));
     const nonGitFile = path.join(nonGitDir, 'test.txt');
     fs.writeFileSync(nonGitFile, 'hello');
-
     const gitTestDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-git-')));
     const trackedFile = path.join(gitTestDir, 'tracked.txt');
     const untrackedFile = path.join(gitTestDir, 'untracked.txt');
     fs.writeFileSync(trackedFile, 'initial\n');
     fs.writeFileSync(untrackedFile, 'new\n');
-    const { execSync } = require('node:child_process');
     execSync('git init && git config user.name test && git config user.email test@test.com && git add tracked.txt && git commit -m "init"', { cwd: gitTestDir, stdio: 'ignore' });
     fs.appendFileSync(trackedFile, 'change\n');
 
-    const killPid = (pid) => {
+    const killPid = pid => {
       if (!pid) return;
       try {
         if (process.platform === 'win32') {
-          require('node:child_process').execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore' });
+          execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore' });
         } else {
           process.kill(-pid, 'SIGKILL');
         }
@@ -281,30 +234,23 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     };
 
     try {
-      assert.equal((await diffRpc(50, {})).error?.code, -32602);
-      assert.equal((await diffRpc(51, { path: 123 })).error?.code, -32602);
-      assert.equal((await diffRpc(52, { path: '' })).error?.code, -32602);
-      assert.equal((await diffRpc(53, { path: 'nonexistent/file.txt' })).error?.code, -32602);
-      assert.equal((await diffRpc(54, { path: gitTestDir })).error?.code, -32602, 'Debe rechazar un directorio');
+      for (const params of [{}, { path: 123 }, { path: '' }, { path: 'nonexistent/file.txt' }, { path: gitTestDir }]) {
+        assert.equal((await openDiff(params)).error?.code, -32602, JSON.stringify(params));
+      }
 
       // Sin visor gráfico configurado no se lanza nada (git recurriría a uno de terminal invisible): se propone uno.
-      const noGuiToolRes = await diffRpc(55, { path: trackedFile });
+      const noGuiToolRes = await openDiff({ path: trackedFile });
       assert.equal(noGuiToolRes.result?.success, false);
       assert.ok(noGuiToolRes.result.setup.commands.includes(`git config --global diff.guitool ${noGuiToolRes.result.setup.tool}`));
-      const configureRes = await (await fetch(baseUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'X-ZeroChat-Token': testToken },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 61, method: 'zerochat/diff/configure', params: { tool: 'nano' } })
-      })).json();
-      assert.equal(configureRes.error?.code, -32602);
+      assert.equal((await rpc('zerochat/diff/configure', { tool: 'nano' })).error?.code, -32602);
       // Visor gráfico de prueba que termina sin abrir ventana.
       execSync('git config diff.guitool zcfake && git config difftool.zcfake.cmd true', { cwd: gitTestDir, stdio: 'ignore' });
 
-      const nonGitRes = await diffRpc(56, { path: nonGitFile });
+      const nonGitRes = await openDiff({ path: nonGitFile });
       assert.equal(nonGitRes.error?.code, -32602);
       assert.match(nonGitRes.error?.message, /repositorio Git/);
 
-      const trackedRes = await diffRpc(57, { path: trackedFile });
+      const trackedRes = await openDiff({ path: trackedFile });
       assert.equal(trackedRes.result?.success, true);
       assert.equal(trackedRes.result?.has_diff, true);
       assert.equal(trackedRes.result?.mode, 'working_tree');
@@ -312,7 +258,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
       assert.equal(typeof trackedRes.result?.pid, 'number');
       killPid(trackedRes.result?.pid);
 
-      const untrackedRes = await diffRpc(58, { path: untrackedFile });
+      const untrackedRes = await openDiff({ path: untrackedFile });
       assert.equal(untrackedRes.result?.success, true);
       assert.equal(untrackedRes.result?.has_diff, true);
       assert.equal(untrackedRes.result?.in_head, false);
@@ -321,14 +267,14 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
 
       // Tras hacer commit del fichero, no hay diffs en working tree
       execSync('git commit -am "second commit"', { cwd: gitTestDir, stdio: 'ignore' });
-      const cleanRes = await diffRpc(59, { path: trackedFile });
+      const cleanRes = await openDiff({ path: trackedFile });
       assert.equal(cleanRes.result?.success, true);
       assert.equal(cleanRes.result?.has_diff, false);
       assert.equal(cleanRes.result?.has_commit_history, true);
       assert.equal(cleanRes.result?.pid, undefined);
 
       // Con commit_fallback: true, lanza el diff del último commit
-      const fallbackRes = await diffRpc(60, { path: trackedFile, commit_fallback: true });
+      const fallbackRes = await openDiff({ path: trackedFile, commit_fallback: true });
       assert.equal(fallbackRes.result?.success, true);
       assert.equal(fallbackRes.result?.has_diff, true);
       assert.equal(fallbackRes.result?.mode, 'commit');
@@ -338,517 +284,189 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
       fs.rmSync(nonGitDir, { recursive: true, force: true });
       fs.rmSync(gitTestDir, { recursive: true, force: true });
     }
+  });
 
-    // El contrato estricto rechaza parámetros que ya no existen.
-    const obsoleteArgumentRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://albalday.github.io',
-        'Authorization': `Bearer ${testToken}`
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 41,
-        method: 'tools/call',
-        params: {
-          name: 'list_directory',
-          arguments: { path: '.', max_depth: 2 }
-        }
-      })
-    });
-    assert.equal(obsoleteArgumentRes.status, 400);
-    const obsoleteArgumentJson = await obsoleteArgumentRes.json();
-    assert.match(obsoleteArgumentJson.error || '', /max_depth/);
+  test('read_file lee un rango de líneas y list_directory recorre en recursivo', async () => {
+    const read = await callTool('read_file', { path: 'package.json', max_lines: 10 });
+    assert.equal(read.json.result?.isError, false);
+    assert.equal(read.parsed.success, true);
+    assert.match(read.parsed.content, new RegExp(`"version": "${pkg.version}"`));
 
-    // 6. Comprobar ejecución de herramienta read_file
-    const callRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://albalday.github.io',
-        'Authorization': `Bearer ${testToken}`
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 5,
-        method: 'tools/call',
-        params: {
-          name: 'read_file',
-          arguments: { path: 'package.json', max_lines: 10 }
-        }
-      })
-    });
-    assert.equal(callRes.status, 200);
-    const callJson = await callRes.json();
-    assert.equal(callJson.result?.isError, false);
-    const parsedContent = JSON.parse(callJson.result?.content?.[0]?.text);
-    assert.equal(parsedContent.success, true);
-    assert.match(parsedContent.content, new RegExp(`"version": "${pkg.version}"`));
+    const range = (await callTool('read_file', { path: 'package.json', start_line: 1, end_line: 3 })).parsed;
+    assert.equal(range.success, true);
+    assert.deepEqual([range.lines_returned, range.start_line, range.end_line], [3, 1, 3]);
 
-    // 6.1. Comprobar read_file con rangos start_line y end_line
-    const rangeRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://albalday.github.io',
-        'Authorization': `Bearer ${testToken}`
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 51,
-        method: 'tools/call',
-        params: {
-          name: 'read_file',
-          arguments: { path: 'package.json', start_line: 1, end_line: 3 }
-        }
-      })
-    });
-    assert.equal(rangeRes.status, 200);
-    const rangeJson = await rangeRes.json();
-    const parsedRange = JSON.parse(rangeJson.result?.content?.[0]?.text);
-    assert.equal(parsedRange.success, true);
-    assert.equal(parsedRange.lines_returned, 3);
-    assert.equal(parsedRange.start_line, 1);
-    assert.equal(parsedRange.end_line, 3);
+    const listed = (await callTool('list_directory', { path: 'tests/helpers', recursive: true })).parsed;
+    assert.equal(listed.success, true);
+    assert.equal(listed.recursive, true);
+  });
 
-    // 6.2. Comprobar list_directory recursivo acotado
-    const listRecRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://albalday.github.io',
-        'Authorization': `Bearer ${testToken}`
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 52,
-        method: 'tools/call',
-        params: {
-          name: 'list_directory',
-          arguments: { path: 'tests/helpers', recursive: true }
-        }
-      })
-    });
-    assert.equal(listRecRes.status, 200);
-    const listRecJson = await listRecRes.json();
-    const parsedListRec = JSON.parse(listRecJson.result?.content?.[0]?.text);
-    assert.equal(parsedListRec.success, true);
-    assert.equal(parsedListRec.recursive, true);
-
-    // 6.3. Comprobar write_file y edit_file quirúrgico (old_str -> new_str)
+  test('write_file escribe y edit_file sustituye un texto exacto, o todos con replace_all', async t => {
     const testFilePath = path.join(os.tmpdir(), `zerochat_test_p1_${Date.now()}.txt`);
-    const writeRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://albalday.github.io',
-        'Authorization': `Bearer ${testToken}`
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 53,
-        method: 'tools/call',
-        params: {
-          name: 'write_file',
-          arguments: { path: testFilePath, content: 'primera linea\nsegunda linea objetivo\ntercera linea\n' }
-        }
-      })
-    });
-    assert.equal(writeRes.status, 200);
-    const writeJson = await writeRes.json();
-    const parsedWrite = JSON.parse(writeJson.result?.content?.[0]?.text);
-    assert.equal(parsedWrite.success, true);
+    t.after(() => fs.rmSync(testFilePath, { force: true }));
+    assert.equal((await callTool('write_file', { path: testFilePath, content: 'primera linea\nsegunda linea objetivo\ntercera linea\n' })).parsed.success, true);
 
-    const editSurgicalRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://albalday.github.io',
-        'Authorization': `Bearer ${testToken}`
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 54,
-        method: 'tools/call',
-        params: {
-          name: 'edit_file',
-          arguments: { path: testFilePath, old_str: 'segunda linea objetivo', new_str: 'segunda linea modificada' }
-        }
-      })
-    });
-    assert.equal(editSurgicalRes.status, 200);
-    const editSurgicalJson = await editSurgicalRes.json();
-    const parsedEditSurgical = JSON.parse(editSurgicalJson.result?.content?.[0]?.text);
-    assert.equal(parsedEditSurgical.success, true);
-    assert.equal(parsedEditSurgical.replacements, 1);
+    const edited = (await callTool('edit_file', { path: testFilePath, old_str: 'segunda linea objetivo', new_str: 'segunda linea modificada' })).parsed;
+    assert.equal(edited.success, true);
+    assert.equal(edited.replacements, 1);
 
-    // Error con 0 coincidencias
-    const edit0Res = await fetch(baseUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://albalday.github.io',
-        'Authorization': `Bearer ${testToken}`
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 55,
-        method: 'tools/call',
-        params: {
-          name: 'edit_file',
-          arguments: { path: testFilePath, old_str: 'linea inexistente', new_str: 'foo' }
-        }
-      })
-    });
-    assert.equal(edit0Res.status, 200);
-    const edit0Json = await edit0Res.json();
-    assert.equal(edit0Json.result?.isError, true);
-    assert.match(edit0Json.result?.content?.[0]?.text || '', /Target text was not found|No se encontró el texto/);
+    const editJson = async args => (await post('tools/call', { name: 'edit_file', arguments: args })).json();
+    const notFound = (await editJson({ path: testFilePath, old_str: 'linea inexistente', new_str: 'foo' })).result;
+    assert.equal(notFound?.isError, true);
+    assert.match(notFound?.content?.[0]?.text || '', /Target text was not found|No se encontró el texto/);
 
     // Los modos heredados de escritura ya no existen: write_file cubre la escritura completa.
-    for (const [id, args, expected] of [
-      [56, { path: testFilePath, content: 'sobrescrito', mode: 'write' }, /Argumento no permitido: content/],
-      [57, { path: testFilePath, old_str: 'segunda linea modificada' }, /Falta el argumento obligatorio: new_str/]
-    ]) {
-      const res = await fetch(baseUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-        body: JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'edit_file', arguments: args } })
-      });
-      const json = await res.json();
-      assert.match(JSON.stringify(json), expected);
-    }
+    assert.match(JSON.stringify(await editJson({ path: testFilePath, content: 'sobrescrito', mode: 'write' })), /Argumento no permitido: content/);
+    assert.match(JSON.stringify(await editJson({ path: testFilePath, old_str: 'segunda linea modificada' })), /Falta el argumento obligatorio: new_str/);
     assert.match(fs.readFileSync(testFilePath, 'utf8'), /segunda linea modificada/, 'El fichero no cambia con argumentos rechazados');
 
     // replace_all: sin él, varias coincidencias son un error; con él, se sustituyen todas.
-    const callEdit = async (id, args) => {
-      const res = await fetch(baseUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-        body: JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'edit_file', arguments: args } })
-      });
-      return res.json();
-    };
-    const ambiguous = (await callEdit(64, { path: testFilePath, old_str: 'linea', new_str: 'fila' })).result;
+    const ambiguous = (await editJson({ path: testFilePath, old_str: 'linea', new_str: 'fila' })).result;
     assert.equal(ambiguous?.isError, true);
     assert.match(ambiguous?.content?.[0]?.text || '', /Found 3 matches[\s\S]*replace_all/);
-    const replacedAll = JSON.parse((await callEdit(65, { path: testFilePath, old_str: 'linea', new_str: 'fila', replace_all: true })).result?.content?.[0]?.text);
+    const replacedAll = (await callTool('edit_file', { path: testFilePath, old_str: 'linea', new_str: 'fila', replace_all: true })).parsed;
     assert.equal(replacedAll.success, true);
     assert.equal(replacedAll.replacements, 3);
     assert.equal(fs.readFileSync(testFilePath, 'utf8'), 'primera fila\nsegunda fila modificada\ntercera fila\n');
-    const emptyOld = (await callEdit(66, { path: testFilePath, old_str: '', new_str: 'x', replace_all: true })).result;
-    assert.equal(emptyOld?.isError, true, 'old_str vacío no debe insertar texto entre cada carácter');
-    assert.match(JSON.stringify(await callEdit(67, { path: testFilePath, old_str: 'fila', new_str: 'x', replace_all: 'true' })),
+    assert.equal((await editJson({ path: testFilePath, old_str: '', new_str: 'x', replace_all: true })).result?.isError, true,
+      'old_str vacío no debe insertar texto entre cada carácter');
+    assert.match(JSON.stringify(await editJson({ path: testFilePath, old_str: 'fila', new_str: 'x', replace_all: 'true' })),
       /Tipo inválido para 'replace_all'/);
     assert.equal(fs.readFileSync(testFilePath, 'utf8'), 'primera fila\nsegunda fila modificada\ntercera fila\n',
       'Las ediciones rechazadas no cambian el fichero');
+  });
 
-    try { fs.unlinkSync(testFilePath); } catch (_) {}
-
-    // 6.4. run_command: cada llamada empieza en el proyecto, sin heredar cd ni variables.
-    const callTool = async (id, name, args, meta) => {
-      const res = await fetch(baseUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-        body: JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args, ...(meta ? { _meta: meta } : {}) } })
-      });
-      assert.equal(res.status, 200);
-      const json = await res.json();
-      return { json, parsed: JSON.parse(json.result?.content?.[0]?.text) };
-    };
-    const jobsRpc = async (id, method, params = {}) => (await fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'X-ZeroChat-Token': testToken },
-      body: JSON.stringify({ jsonrpc: '2.0', id, method, params })
-    })).json();
-
-    const run1 = await callTool(56, 'run_command', { command: 'export ZEROCHAT_PERSIST_VAR=1 && cd tests/helpers && pwd' });
+  test('run_command empieza cada llamada en el proyecto y trunca la salida larga dejando el log completo', async () => {
+    const run1 = await callTool('run_command', { command: 'export ZEROCHAT_PERSIST_VAR=1 && cd tests/helpers && pwd' });
     assert.equal(run1.parsed.success, true);
     assert.match(run1.parsed.output, /tests\/helpers/);
-    const run2 = await callTool(57, 'run_command', { command: 'echo "CHECK_VAR=$ZEROCHAT_PERSIST_VAR" && pwd' });
+    const run2 = await callTool('run_command', { command: 'echo "CHECK_VAR=$ZEROCHAT_PERSIST_VAR" && pwd' });
     assert.equal(run2.parsed.output, `CHECK_VAR=\n${fs.realpathSync(repoRoot)}\n`);
-    const failing = await callTool(58, 'run_command', { command: 'echo uno; echo dos >&2; exit 2' });
+    const failing = await callTool('run_command', { command: 'echo uno; echo dos >&2; exit 2' });
     assert.equal(failing.json.result.isError, true);
     assert.equal(failing.parsed.exit_code, 2);
     assert.equal(failing.parsed.output, 'uno\ndos\n');
-    const cwdRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 59, method: 'tools/call', params: { name: 'run_command', arguments: { command: 'pwd', cwd: '/tmp' } } })
-    });
-    assert.equal(cwdRes.status, 400, 'run_command rechaza el argumento cwd');
-    assert.match((await cwdRes.json()).error || '', /cwd/);
 
-    // 6.5. Truncado defensivo de la salida (>8.000 caracteres) con el log completo disponible.
-    const trunc = await callTool(60, 'run_command', { command: 'python3 -c "for i in range(120): print(f\'line {i:03d} \' + \'x\'*80)"' });
-    assert.equal(trunc.parsed.success, true);
-    assert.equal(trunc.parsed.truncated, true);
-    assert.match(trunc.parsed.output, /Output truncated/);
-    assert.match(trunc.parsed.output, /line 000/);
-    assert.match(trunc.parsed.output, /line 119/);
-    assert.ok(fs.readFileSync(trunc.parsed.log_file, 'utf8').includes('line 060'));
+    // Truncado defensivo de la salida (>8.000 caracteres) con el log completo disponible.
+    const trunc = (await callTool('run_command', { command: 'python3 -c "for i in range(120): print(f\'line {i:03d} \' + \'x\'*80)"' })).parsed;
+    assert.equal(trunc.success, true);
+    assert.equal(trunc.truncated, true);
+    assert.match(trunc.output, /Output truncated/);
+    assert.match(trunc.output, /line 000/);
+    assert.match(trunc.output, /line 119/);
+    assert.ok(fs.readFileSync(trunc.log_file, 'utf8').includes('line 060'));
+  });
 
-    // 6.5b. Segundo plano: la tarjeta lo sigue con zerochat/jobs/* y el cliente lo detiene con su clave.
-    const bg = await callTool(61, 'run_command', { command: 'echo listo; exec sleep 100', background: true }, { zerochatJobKey: 'tarjeta-prueba-1' });
-    assert.equal(bg.parsed.status, 'running');
-    assert.equal(bg.parsed.output, 'listo\n');
-    const runningHb = await (await fetch(`${baseUrl}/zerochat/heartbeat`, { headers: { 'X-ZeroChat-Token': testToken } })).json();
-    assert.ok(runningHb.jobs.some(job => job.id === bg.parsed.job_id && job.status === 'running'), 'El heartbeat publica los comandos en marcha');
-    const details = await jobsRpc(62, 'zerochat/jobs/get', { key: 'tarjeta-prueba-1' });
-    assert.equal(details.result.id, bg.parsed.job_id);
+  test('un comando en segundo plano se sigue y se detiene con zerochat/jobs/* y su final se informa una vez', async () => {
+    const bg = (await callTool('run_command', { command: 'echo listo; exec sleep 100', background: true }, { zerochatJobKey: 'tarjeta-prueba-1' })).parsed;
+    assert.equal(bg.status, 'running');
+    assert.equal(bg.output, 'listo\n');
+    assert.ok((await heartbeat()).jobs.some(job => job.id === bg.job_id && job.status === 'running'), 'El heartbeat publica los comandos en marcha');
+    const details = await rpc('zerochat/jobs/get', { key: 'tarjeta-prueba-1' });
+    assert.equal(details.result.id, bg.job_id);
     assert.equal(details.result.tail, 'listo\n');
     assert.equal(details.result.background, true);
-    const page = await jobsRpc(63, 'zerochat/jobs/log', { id: bg.parsed.job_id, offset: 2, limit: 3 });
+    const page = await rpc('zerochat/jobs/log', { id: bg.job_id, offset: 2, limit: 3 });
     assert.deepEqual([page.result.text, page.result.next, page.result.done], ['sto', 5, false]);
-    assert.equal((await jobsRpc(64, 'zerochat/jobs/log', { id: bg.parsed.job_id, offset: -1 })).error?.code, -32602);
-    assert.ok((await jobsRpc(65, 'zerochat/jobs/list')).result.jobs.some(job => job.key === 'tarjeta-prueba-1'));
-    const stoppedByUser = await jobsRpc(66, 'zerochat/jobs/stop', { key: 'tarjeta-prueba-1' });
+    assert.equal((await rpc('zerochat/jobs/log', { id: bg.job_id, offset: -1 })).error?.code, -32602);
+    assert.ok((await rpc('zerochat/jobs/list')).result.jobs.some(job => job.key === 'tarjeta-prueba-1'));
+    const stoppedByUser = await rpc('zerochat/jobs/stop', { key: 'tarjeta-prueba-1' });
     assert.equal(stoppedByUser.result.status, 'stopped');
     assert.equal(stoppedByUser.result.stop_reason, 'user');
-    assert.equal((await jobsRpc(67, 'zerochat/jobs/get', { id: 99999 })).error?.code, -32602);
-    assert.equal((await jobsRpc(69, 'zerochat/jobs/report', { ids: 'x' })).error?.code, -32602);
-    assert.equal((await jobsRpc(70, 'zerochat/jobs/report', { ids: [true] })).error?.code, -32602);
-    const report = await jobsRpc(71, 'zerochat/jobs/report', { ids: [bg.parsed.job_id] });
+    assert.equal((await rpc('zerochat/jobs/get', { id: 99999 })).error?.code, -32602);
+    assert.equal((await rpc('zerochat/jobs/report', { ids: 'x' })).error?.code, -32602);
+    assert.equal((await rpc('zerochat/jobs/report', { ids: [true] })).error?.code, -32602);
+    const report = await rpc('zerochat/jobs/report', { ids: [bg.job_id] });
     assert.equal(report.result.reports.length, 1, 'El final detenido por el usuario aún no lo ha visto el modelo');
     assert.equal(report.result.reports[0].stop_reason, 'user');
-    assert.deepEqual((await jobsRpc(72, 'zerochat/jobs/report', { ids: [bg.parsed.job_id] })).result.reports, []);
-    const seen = await callTool(68, 'check_command', { job_id: bg.parsed.job_id });
-    assert.equal(seen.parsed.status, 'stopped');
-    assert.equal(seen.parsed.stopped_by, 'user');
+    assert.deepEqual((await rpc('zerochat/jobs/report', { ids: [bg.job_id] })).result.reports, []);
+    const seen = (await callTool('check_command', { job_id: bg.job_id })).parsed;
+    assert.equal(seen.status, 'stopped');
+    assert.equal(seen.stopped_by, 'user');
+  });
 
-    // 6.6. Comprobar search_files con regex y filtro glob
-    const searchRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 60,
-        method: 'tools/call',
-        params: {
-          name: 'search_files',
-          arguments: { query: 'def set_project_directory', path: '.', file_pattern: '*.py' }
-        }
-      })
-    });
-    assert.equal(searchRes.status, 200);
-    const searchJson = await searchRes.json();
-    const parsedSearch = JSON.parse(searchJson.result?.content?.[0]?.text);
-    assert.equal(parsedSearch.success, true);
-    assert.ok(parsedSearch.total_matches > 0);
-    assert.ok(parsedSearch.matches.some(m => m.relative_path.includes('dd-tools.py') || m.relative_path.includes('zerochat.py')));
+  test('search_files busca por expresión regular con filtro glob y respeta max_results', async () => {
+    const found = (await callTool('search_files', { query: 'def set_project_directory', path: '.', file_pattern: '*.py' })).parsed;
+    assert.equal(found.success, true);
+    assert.ok(found.total_matches > 0);
+    assert.ok(found.matches.some(match => match.relative_path.includes('dd-tools.py') || match.relative_path.includes('zerochat.py')));
 
-    // 6.6b. Comprobar search_files con max_results
-    const searchLimitedRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 601,
-        method: 'tools/call',
-        params: {
-          name: 'search_files',
-          arguments: { query: 'def ', path: '.', file_pattern: '*.py', max_results: 1 }
-        }
-      })
-    });
-    assert.equal(searchLimitedRes.status, 200);
-    const searchLimitedJson = await searchLimitedRes.json();
-    const parsedLimited = JSON.parse(searchLimitedJson.result?.content?.[0]?.text);
-    assert.equal(parsedLimited.success, true);
-    assert.equal(parsedLimited.matches.length, 1);
-    assert.equal(parsedLimited.truncated, true);
+    const limited = (await callTool('search_files', { query: 'def ', path: '.', file_pattern: '*.py', max_results: 1 })).parsed;
+    assert.equal(limited.success, true);
+    assert.equal(limited.matches.length, 1);
+    assert.equal(limited.truncated, true);
+  });
 
-    // 6.7. Comprobar get_diagnostics en archivo específico
-    const diagRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 61,
-        method: 'tools/call',
-        params: {
-          name: 'get_diagnostics',
-          arguments: { path: 'package.json' }
-        }
-      })
-    });
-    assert.equal(diagRes.status, 200);
-    const diagJson = await diagRes.json();
-    const parsedDiag = JSON.parse(diagJson.result?.content?.[0]?.text);
-    assert.equal(parsedDiag.success, true);
-    assert.equal(parsedDiag.error_count, 0);
+  test('get_diagnostics revisa un archivo concreto', async () => {
+    const diagnostics = (await callTool('get_diagnostics', { path: 'package.json' })).parsed;
+    assert.equal(diagnostics.success, true);
+    assert.equal(diagnostics.error_count, 0);
+  });
 
-    // 6.8. Comprobar browser_action (navigate y screenshot)
-    const navRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 62,
-        method: 'tools/call',
-        params: {
-          name: 'browser_action',
-          arguments: { action: 'navigate', url: 'about:blank' }
-        }
-      })
-    });
-    assert.equal(navRes.status, 200);
-    const navJson = await navRes.json();
-    const parsedNav = JSON.parse(navJson.result?.content?.[0]?.text);
-    assert.equal(parsedNav.success, true);
-    assert.equal(parsedNav.action, 'navigate');
+  test('browser_action navega y hace una captura', async () => {
+    const navigated = (await callTool('browser_action', { action: 'navigate', url: 'about:blank' })).parsed;
+    assert.equal(navigated.success, true);
+    assert.equal(navigated.action, 'navigate');
+    const screenshot = (await callTool('browser_action', { action: 'screenshot' })).parsed;
+    assert.equal(screenshot.success, true);
+    assert.equal(screenshot.action, 'screenshot');
+    assert.ok(typeof screenshot.image_base64 === 'string' && screenshot.image_base64.length > 50);
+  });
 
-    const screenshotRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 63,
-        method: 'tools/call',
-        params: {
-          name: 'browser_action',
-          arguments: { action: 'screenshot' }
-        }
-      })
-    });
-    assert.equal(screenshotRes.status, 200);
-    const screenshotJson = await screenshotRes.json();
-    const parsedScreenshot = JSON.parse(screenshotJson.result?.content?.[0]?.text);
-    assert.equal(parsedScreenshot.success, true);
-    assert.equal(parsedScreenshot.action, 'screenshot');
-    assert.ok(typeof parsedScreenshot.image_base64 === 'string' && parsedScreenshot.image_base64.length > 50);
-
-    // 7. Comprobar flujo SSE con token en cabecera
-    const sseRes = await fetch(`${baseUrl}/sse`, {
-      headers: { 'Accept': 'text/event-stream', 'X-ZeroChat-Token': testToken }
-    });
-    assert.equal(sseRes.status, 200);
-    assert.equal(sseRes.headers.get('content-type'), 'text/event-stream');
-    assert.equal(sseRes.headers.get('cache-control'), 'no-store');
-
-    // 8. Comprobar servicios MCP externos arrancables individualmente: el latido los publica.
-    const statusRes = await fetch(`${baseUrl}/zerochat/heartbeat`, { headers: { 'X-ZeroChat-Token': testToken } });
-    assert.equal(statusRes.status, 200);
-    const listedServers = (await statusRes.json()).servers;
-    const serverIds = listedServers.map(s => s.id);
-    assert.ok(serverIds.includes('ejemplo'), 'ejemplo debe estar provisto');
-    assert.ok(serverIds.includes('composio'), 'composio debe estar provisto');
-    assert.ok(serverIds.includes('playwright'), 'playwright debe estar provisto');
-    assert.ok(serverIds.includes('memory'), 'memory debe estar provisto');
+  test('los servicios MCP integrados se publican en el latido y se arrancan, usan y detienen uno a uno', async () => {
+    const listedServers = (await heartbeat()).servers;
+    const serverIds = listedServers.map(server => server.id);
+    for (const id of ['ejemplo', 'composio', 'playwright', 'memory']) assert.ok(serverIds.includes(id), `${id} debe estar provisto`);
     assert.equal(serverIds.includes('lsp'), false, 'lsp no debe ofrecerse como servicio integrado');
-    const exampleServer = listedServers.find(s => s.id === 'ejemplo');
+    const exampleServer = listedServers.find(server => server.id === 'ejemplo');
     assert.equal(exampleServer?.status, 'stopped');
     assert.equal(exampleServer?.help?.url, 'help/mcp.html#crear-mcp-con-agente');
-    const composioServer = listedServers.find(s => s.id === 'composio');
-    assert.deepEqual(composioServer?.remote, {
+    assert.deepEqual(listedServers.find(server => server.id === 'composio')?.remote, {
       type: 'mcp-remote',
       transport: 'streamable-http',
       url: 'https://connect.composio.dev/mcp',
       authentication: 'composio-connect'
     });
 
+    const start = params => rpc('zerochat/external/servers/start', { serverId: 'ejemplo', ...params });
     // Solo Playwright MCP admite el navegador que exige un perfil.
-    const browserRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 70, method: 'zerochat/external/servers/start', params: { serverId: 'ejemplo', remember: false, browser: { mode: 'own', engine: 'chromium' } } })
-    });
-    assert.deepEqual((await browserRes.json()).error, { code: -32602, message: 'ejemplo no admite elegir navegador.' });
-
+    assert.deepEqual((await start({ remember: false, browser: { mode: 'own', engine: 'chromium' } })).error,
+      { code: -32602, message: 'ejemplo no admite elegir navegador.' });
     // Arrancar sin decir si se recuerda es un error del cliente.
-    const noRememberRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 71, method: 'zerochat/external/servers/start', params: { serverId: 'ejemplo' } })
-    });
-    assert.deepEqual((await noRememberRes.json()).error, { code: -32602, message: 'remember es obligatorio al arrancar y debe ser un booleano.' });
+    assert.deepEqual((await start({})).error, { code: -32602, message: 'remember es obligatorio al arrancar y debe ser un booleano.' });
 
-    // Iniciar individualmente el ejemplo
-    const startRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'zerochat/external/servers/start', params: { serverId: 'ejemplo', remember: true } })
-    });
-    assert.equal(startRes.status, 200);
-    const startJson = await startRes.json();
-    const runningExample = (startJson.result?.servers || []).find(s => s.id === 'ejemplo');
+    const runningExample = ((await start({ remember: true })).result?.servers || []).find(server => server.id === 'ejemplo');
     assert.equal(runningExample?.status, 'running');
     assert.equal(runningExample?.toolCount, 1);
     assert.equal(runningExample?.browser, null);
 
-    // tools/list en /mcp/external
-    const extToolsRes = await fetch(`${baseUrl}/mcp/external`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 8, method: 'tools/list', params: {} })
-    });
-    assert.equal(extToolsRes.status, 200);
-    const extToolsJson = await extToolsRes.json();
-    const extToolNames = (extToolsJson.result?.tools || []).map(t => t.name);
+    const extToolNames = ((await rpc('tools/list', {}, { endpoint: 'mcp/external' })).result?.tools || []).map(tool => tool.name);
     assert.ok(extToolNames.includes('ejemplo_echo'));
+    const extCall = await rpc('tools/call', { name: 'ejemplo_echo', arguments: { message: 'probando mcp' } }, { endpoint: 'mcp/external' });
+    assert.equal(extCall.result?.isError, false);
+    assert.equal(extCall.result?.content?.[0]?.text, 'echo: probando mcp');
 
-    // tools/call ejecutando el echo del ejemplo
-    const extCallRes = await fetch(`${baseUrl}/mcp/external`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 9,
-        method: 'tools/call',
-        params: { name: 'ejemplo_echo', arguments: { message: 'probando mcp' } }
-      })
-    });
-    assert.equal(extCallRes.status, 200);
-    const extCallJson = await extCallRes.json();
-    assert.equal(extCallJson.result?.isError, false);
-    assert.equal(extCallJson.result?.content?.[0]?.text, 'echo: probando mcp');
-
-    // Detener individualmente el ejemplo
-    const stopRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 10, method: 'zerochat/external/servers/stop', params: { serverId: 'ejemplo' } })
-    });
-    assert.equal(stopRes.status, 200);
-    const stopJson = await stopRes.json();
-    const stoppedExample = (stopJson.result?.servers || []).find(s => s.id === 'ejemplo');
+    const stoppedExample = ((await rpc('zerochat/external/servers/stop', { serverId: 'ejemplo' })).result?.servers || []).find(server => server.id === 'ejemplo');
     assert.equal(stoppedExample?.status, 'stopped');
     assert.equal(stoppedExample?.toolCount, 0);
+  });
 
-    // 10. Servicio de zerochat.html y estáticos en desarrollo local (sin token, con fetch nativo)
-    global.fetch = nativeFetch;
+  test('en desarrollo local sirve zerochat.html y sus estáticos sin token, sin salir de la raíz', async () => {
     const htmlRes = await fetch(`${baseUrl}/zerochat.html`);
     assert.equal(htmlRes.status, 200, 'Debe servir zerochat.html con 200 OK');
     assert.match(htmlRes.headers.get('content-type') || '', /text\/html/);
-    const htmlText = await htmlRes.text();
-    assert.ok(htmlText.includes('ZeroChat'), 'El contenido debe ser el HTML de ZeroChat');
-
-    const jsRes = await fetch(`${baseUrl}/js/app.js`);
-    assert.equal(jsRes.status, 200);
-    assert.match(jsRes.headers.get('content-type') || '', /javascript/);
-    await jsRes.text();
-
-    const cssRes = await fetch(`${baseUrl}/css/tokens.css`);
-    assert.equal(cssRes.status, 200);
-    assert.match(cssRes.headers.get('content-type') || '', /text\/css/);
-    await cssRes.text();
-
-    const manifestRes = await fetch(`${baseUrl}/manifest.webmanifest`);
-    assert.equal(manifestRes.status, 200);
-    assert.match(manifestRes.headers.get('content-type') || '', /manifest/);
-    await manifestRes.text();
-
+    assert.ok((await htmlRes.text()).includes('ZeroChat'), 'El contenido debe ser el HTML de ZeroChat');
+    for (const [file, type] of [['js/app.js', /javascript/], ['css/tokens.css', /text\/css/], ['manifest.webmanifest', /manifest/]]) {
+      const res = await fetch(`${baseUrl}/${file}`);
+      assert.equal(res.status, 200, file);
+      assert.match(res.headers.get('content-type') || '', type, file);
+      await res.text();
+    }
     const traversalRes = await fetch(`${baseUrl}/../package.json`);
     assert.notEqual(traversalRes.status, 200, 'No debe permitir acceso fuera de la raíz');
     await traversalRes.text();
-
-  } finally {
-    global.fetch = nativeFetch;
-    serverProc.kill('SIGTERM');
-  }
+  });
 });
-
 
 
 test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos comprometidos y con detalle de errores', async () => {
