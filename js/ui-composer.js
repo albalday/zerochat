@@ -21,7 +21,8 @@
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getGenerationStatus = () => resolveDep('ChatUIGenerationStatus', './ui-generation-status.js');
 
-  let activeCleanupFns = [];
+  const listeners = Utils.createListenerGroup();
+  const { listen } = listeners;
 
   // field-sizing:content ajusta la altura en CSS; esto cubre los navegadores que aún no lo admiten.
   function autoResizeTextarea(elements) {
@@ -127,13 +128,8 @@
     if (!isGenerating) getGenerationStatus().clearStatus(elements.generationStatus);
   }
 
-  function listen(target, type, handler) {
-    target.addEventListener(type, handler);
-    activeCleanupFns.push(() => target.removeEventListener(type, handler));
-  }
-
   function mount(elements, { onSendMessage, onStopGeneration, getLastPrompt }) {
-    dispose();
+    listeners.dispose();
     const { chatForm, userInput } = elements;
 
     listen(chatForm, 'submit', event => {
@@ -177,11 +173,6 @@
     listen(elements.fileInput, 'change', event => {
       if (event.target.files.length) processFiles(elements, Array.from(event.target.files));
     });
-  }
-
-  function dispose() {
-    activeCleanupFns.forEach(fn => fn());
-    activeCleanupFns = [];
   }
 
   return {

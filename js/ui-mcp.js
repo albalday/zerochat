@@ -450,8 +450,8 @@
     cachedElements = elements;
     const State = getState();
     const security = getSecurity();
-    const listeners = new AbortController();
-    const on = (target, type, handler) => target.addEventListener(type, handler, { signal: listeners.signal });
+    const listeners = Utils.createListenerGroup();
+    const on = listeners.listen;
     const render = () => renderConnectionStatus(elements, State.get('mcp'));
 
     on(elements.btnCopyCmd, 'click', () => copyCommandToClipboard(generateTerminalCommand(), elements.btnCopyCmd));
@@ -480,7 +480,7 @@
     return {
       destroy: () => {
         cachedElements = null;
-        listeners.abort();
+        listeners.dispose();
         unsubscribeState();
         unsubscribeSecurity();
         unsubscribeLanguage();

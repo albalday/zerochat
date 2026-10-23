@@ -12,7 +12,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, Defaults) {
   'use strict';
 
-  const { resolveDep, createId, escapeHtml, EPHEMERAL_ID_PATTERN, readLaunchFragment } = Utils;
+  const { resolveDep, createId, escapeHtml, EPHEMERAL_ID_PATTERN, readLaunchFragment, showTimedStatus } = Utils;
   const { t } = I18n;
 
   const getProfiles = () => resolveDep('ChatProfileRepository', './profile-repository.js');
@@ -33,25 +33,15 @@
   // Elementos y callbacks de la aplicación, fijados en mount().
   let els = null;
   let options = {};
-  let cleanups = [];
+  const listeners = Utils.createListenerGroup();
+  const { listen } = listeners;
 
   const runtimeConfig = () => options.getRuntimeConfig();
   const selectedProfileId = () => els.profileSelectHelper.value;
   const getAdapter = () => getProviders().registry.get(els.settingApiType.value || 'openai');
   const isProfileLocked = () => els.profilesDialog.dataset.profileLocked === 'true';
 
-  function showProfileFeedback(message, type = 'success') {
-    const feedback = els.profileActionFeedback;
-    feedback.hidden = false;
-    feedback.className = `server-query-status status-${type}`;
-    feedback.textContent = message;
-    setTimeout(() => { feedback.hidden = true; }, 4000);
-  }
-
-  function listen(target, type, handler) {
-    target.addEventListener(type, handler);
-    cleanups.push(() => target.removeEventListener(type, handler));
-  }
+  const showProfileFeedback = (message, type) => showTimedStatus(els.profileActionFeedback, message, type);
 
   /** Muestra en el editor el perfil indicado: su id, nombre y descripción. */
   function populateProfileSelector(profileId) {
@@ -890,8 +880,7 @@
    * loadCachedModels, resetTelemetryDisplay, closeSettingsModal e inspectProfile.
    */
   function mount({ elements, ...callbacks }) {
-    cleanups.forEach(cleanup => cleanup());
-    cleanups = [];
+    listeners.dispose();
     els = elements;
     options = callbacks;
     getProfiles().setPasswordPrompt(requestCurrentPassword);

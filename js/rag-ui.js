@@ -11,7 +11,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
-  const { escapeHtml, formatBytes, resolveDep } = Utils;
+  const { escapeHtml, formatBytes, resolveDep, showTimedStatus } = Utils;
   const { t } = I18n;
   const storage = () => resolveDep('ChatRagStorage', './ragStorage.js');
   const ingestion = () => resolveDep('ChatIngestionEngine', './ingestionEngine.js');
@@ -27,7 +27,6 @@
 
   const NEW_BRANCH = '__new__';
   const DEFAULT_LANGUAGE = 'spanish';
-  const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
   // Rama cargada en el editor, para detectar cambios sin guardar.
   let editor = { creating: false, id: '', name: '', description: '', language: DEFAULT_LANGUAGE };
@@ -290,13 +289,7 @@
     $('btn-rag-save-branch').disabled = !enabled;
   }
 
-  function showBranchFeedback(message, type = 'success') {
-    const feedback = $('rag-branch-feedback');
-    feedback.hidden = false;
-    feedback.className = `server-query-status status-${type}`;
-    feedback.textContent = message;
-    setTimeout(() => { feedback.hidden = true; }, 4000);
-  }
+  const showBranchFeedback = (message, type) => showTimedStatus($('rag-branch-feedback'), message, type);
 
   /** Muestra el progreso en el texto del botón y restaura su contenido al terminar. */
   async function withButtonProgress(button, operation) {
@@ -555,11 +548,12 @@
   /** Indexa los archivos en la rama mostrando el progreso; solo hay una ingesta a la vez. */
   async function ingestFiles(files, branchId) {
     if (!files.length || currentIngestionController) return;
-    const oversized = files.filter(file => file.size > MAX_FILE_BYTES);
+    const { MAX_DOCUMENT_SIZE } = ingestion();
+    const oversized = files.filter(file => file.size > MAX_DOCUMENT_SIZE);
     if (oversized.length > 0) {
-      await getDialogs().alert(t('err_file_too_large', { name: oversized.map(file => file.name).join(', '), max: '50 MB' }), { type: 'error' });
+      await getDialogs().alert(t('err_file_too_large', { name: oversized.map(file => file.name).join(', '), max: formatBytes(MAX_DOCUMENT_SIZE) }), { type: 'error' });
     }
-    const validFiles = files.filter(file => file.size <= MAX_FILE_BYTES);
+    const validFiles = files.filter(file => file.size <= MAX_DOCUMENT_SIZE);
     if (!validFiles.length) return;
 
     const paintProgress = createIngestionProgressView();
@@ -591,9 +585,9 @@
     }
     setSaveEnabled(false);
     try {
-      const selectedId = selectedBranchId();
-      const creating = editor.creating || !selectedId || selectedId === NEW_BRANCH;
-      let branchId = selectedId;
+      // El editor está en modo creación justo cuando el selector muestra «Nueva rama».
+      const creating = editor.creating;
+      let branchId = editor.id;
       if (creating) {
         branchId = (await storage().createBranch(fields)).id;
       } else {

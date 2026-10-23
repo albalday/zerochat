@@ -4,19 +4,15 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./utils.js'));
   } else {
-    root.ChatUIShell = factory();
+    root.ChatUIShell = factory(root.ChatUtils);
   }
-}(typeof self !== 'undefined' ? self : this, function () {
+}(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  let activeCleanupFns = [];
-
-  function listen(target, type, handler) {
-    target.addEventListener(type, handler);
-    activeCleanupFns.push(() => target.removeEventListener(type, handler));
-  }
+  const listeners = Utils.createListenerGroup();
+  const { listen, onDispose } = listeners;
 
   function updateViewportHeight() {
     const height = window.visualViewport ? window.visualViewport.height : window.innerHeight;
@@ -37,7 +33,7 @@
     listen(window, 'resize', triggerChange);
     listen(window, 'orientationchange', () => {
       const timers = [setTimeout(triggerChange, 100), setTimeout(triggerChange, 300)];
-      activeCleanupFns.push(() => timers.forEach(clearTimeout));
+      onDispose(() => timers.forEach(clearTimeout));
     });
 
     let focusTimeout = null;
@@ -47,7 +43,7 @@
         elements.userInput.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }, 150);
     });
-    activeCleanupFns.push(() => clearTimeout(focusTimeout));
+    onDispose(() => clearTimeout(focusTimeout));
   }
 
   function setupLightDismissDialogs(onDismissProfiles) {
@@ -62,14 +58,9 @@
   }
 
   function mount({ elements, onViewportChange, onDismissProfiles }) {
-    dispose();
+    listeners.dispose();
     setupViewportListeners(elements, onViewportChange);
     setupLightDismissDialogs(onDismissProfiles);
-  }
-
-  function dispose() {
-    activeCleanupFns.forEach(fn => fn());
-    activeCleanupFns = [];
   }
 
   return { mount };

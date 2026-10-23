@@ -176,19 +176,15 @@
     return true;
   }
 
-  let cleanups = [];
+  const listeners = Utils.createListenerGroup();
 
   /**
    * Conecta el diálogo de ajustes.
    * `callbacks` aporta loadCachedModels, onConfigSaved y populateProfileSelector.
    */
   function mount({ elements, getRuntimeConfig, callbacks }) {
-    cleanups.forEach(cleanup => cleanup());
-    cleanups = [];
-    const listen = (target, type, handler) => {
-      target.addEventListener(type, handler);
-      cleanups.push(() => target.removeEventListener(type, handler));
-    };
+    listeners.dispose();
+    const { listen } = listeners;
     const dialog = elements.settingsDialog;
     const markModified = () => setSettingsFormDirty(elements, true);
     // Los controles de la sección MCP se aplican al momento y no dejan cambios pendientes. Se mira la

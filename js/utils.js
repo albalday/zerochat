@@ -252,6 +252,39 @@
     return element;
   }
 
+  // Temporizador de ocultación de cada aviso, para que uno nuevo no lo oculte el anterior.
+  const statusTimers = new WeakMap();
+
+  /** Muestra un aviso de estado (`server-query-status`) en el elemento y lo oculta a los 4 s. */
+  function showTimedStatus(element, message, type = 'success') {
+    clearTimeout(statusTimers.get(element));
+    element.hidden = false;
+    element.className = `server-query-status status-${type}`;
+    element.textContent = message;
+    statusTimers.set(element, setTimeout(() => { element.hidden = true; }, 4000));
+  }
+
+  /**
+   * Listeners de un montaje que se retiran juntos: `listen(target, type, handler)` enlaza uno,
+   * `onDispose(cleanup)` añade otra limpieza (temporizadores) y `dispose()` lo retira todo y deja
+   * el grupo listo para el siguiente montaje.
+   */
+  function createListenerGroup() {
+    let controller = new AbortController();
+    return {
+      listen(target, type, handler) {
+        target.addEventListener(type, handler, { signal: controller.signal });
+      },
+      onDispose(cleanup) {
+        controller.signal.addEventListener('abort', cleanup, { once: true });
+      },
+      dispose() {
+        controller.abort();
+        controller = new AbortController();
+      }
+    };
+  }
+
   /**
    * Inserta HTML generado exclusivamente por código propio (por ejemplo SVGs).
    * Nunca debe recibir datos de red, proveedores, herramientas o usuarios.
@@ -407,6 +440,8 @@
     clearElement,
     appendTextElement,
     setTrustedHtml,
+    showTimedStatus,
+    createListenerGroup,
     fetchWithTimeout,
     serializeContent,
     clone,

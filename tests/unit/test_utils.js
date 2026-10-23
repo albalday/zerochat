@@ -50,3 +50,21 @@ test('ChatUtils - fetchWithTimeout combina la señal de quien llama con el plazo
 });
 
 
+
+test('ChatUtils.createListenerGroup - dispose retira listeners y limpiezas, y el grupo admite un nuevo montaje', () => {
+  const group = ChatUtils.createListenerGroup();
+  const target = new EventTarget();
+  const calls = [];
+  group.listen(target, 'ping', () => calls.push('first'));
+  group.onDispose(() => calls.push('cleanup'));
+  target.dispatchEvent(new Event('ping'));
+  group.dispose();
+  target.dispatchEvent(new Event('ping'));
+  assert.deepStrictEqual(calls, ['first', 'cleanup']);
+
+  group.listen(target, 'ping', () => calls.push('second'));
+  target.dispatchEvent(new Event('ping'));
+  group.dispose();
+  group.dispose();
+  assert.deepStrictEqual(calls, ['first', 'cleanup', 'second'], 'Cada limpieza corre una sola vez');
+});
