@@ -797,6 +797,10 @@
     };
     listen(els.profilesDialog, 'input', onModify);
     listen(els.profilesDialog, 'change', onModify);
+    // Un capítulo abierto al fondo del panel queda a la vista: entero si cabe y, si no, desde su cabecera.
+    els.profilesDialog.querySelectorAll('.profile-chapter').forEach(chapter => listen(chapter, 'toggle', () => {
+      if (chapter.open) chapter.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }));
 
     listen(els.settingProfileName, 'change', () => {
       const profile = getProfiles().findByName(els.settingProfileName.value.trim());

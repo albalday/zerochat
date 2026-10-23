@@ -10,7 +10,6 @@
   max-width: var(--max-content-width);
   margin-left: auto;
   margin-right: auto;
-  padding: 0 0.5rem;
   min-width: 0;
   /* Sin animación en carga de historial — solo mensajes nuevos se animan */
 }

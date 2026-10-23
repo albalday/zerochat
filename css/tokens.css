@@ -114,6 +114,8 @@
   /* Viewport y Layout */
   --header-height: 3.5rem;
   --max-content-width: 68rem;
+  /* Margen lateral común del chat y del compositor: los mensajes ocupan el mismo ancho que el compositor */
+  --chat-gutter: 1rem;
   /* Separación vertical entre turnos del chat y entre los bloques de un turno */
   --space-block: 0.4rem;
   --app-height: 100dvh;
@@ -220,4 +222,10 @@
   --teal-border: color-mix(in srgb, var(--teal) var(--tint-border), transparent);
   --neutral-soft: color-mix(in srgb, var(--text-muted) var(--tint-soft), transparent);
   --neutral-border: color-mix(in srgb, var(--text-muted) var(--tint-border), transparent);
+}
+
+@media (max-width: 640px) {
+  :root {
+    --chat-gutter: 0.25rem;
+  }
 }

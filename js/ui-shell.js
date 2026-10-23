@@ -1,6 +1,7 @@
 /**
  * Módulo UI Shell para ZeroChat: altura de viewport adaptativa (teclado virtual, orientación y
- * redimensionamiento) y cierre de diálogos al pulsar fuera en navegadores sin `closedby`.
+ * redimensionamiento), hueco de la barra de desplazamiento del chat y cierre de diálogos al pulsar
+ * fuera en navegadores sin `closedby`.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -19,12 +20,20 @@
     document.documentElement.style.setProperty('--app-height', `${height}px`);
   }
 
+  // El hueco de la barra (fijo por scrollbar-gutter, 0 si la barra flota) se descuenta del margen derecho
+  // del chat para que los mensajes acaben en el mismo borde que el compositor; con el zoom puede cambiar.
+  function updateScrollbarWidth(messagesList) {
+    messagesList.style.setProperty('--scrollbar-width', `${messagesList.offsetWidth - messagesList.clientWidth}px`);
+  }
+
   function setupViewportListeners(elements, onViewportChange) {
     const triggerChange = () => {
       updateViewportHeight();
+      updateScrollbarWidth(elements.messagesList);
       onViewportChange();
     };
     updateViewportHeight();
+    updateScrollbarWidth(elements.messagesList);
 
     if (window.visualViewport) {
       listen(window.visualViewport, 'resize', triggerChange);
