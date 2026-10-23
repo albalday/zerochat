@@ -114,6 +114,14 @@ describe('Browser - documents', () => {
       ]);
       assert.match(payload.displayText, /\[📄 informe\.docx, 📄 ventas\.xlsx, 📄 charla\.odp\]$/);
       assert.deepEqual(payload.vendors, ['js/vendor/fflate.browser.js', 'js/vendor/mammoth.browser.js', 'js/vendor/orama.browser.js']);
+
+      // Quitar un chip lo retira de los adjuntos; sin adjuntos, el contenedor se oculta.
+      await page.locator('.file-chip-remove').nth(1).click();
+      assert.deepEqual(await page.locator('.file-chip-name').allTextContents(), ['informe.docx', 'charla.odp']);
+      await page.locator('.file-chip-remove').first().click();
+      await page.locator('.file-chip-remove').first().click();
+      assert.equal(await page.evaluate(() => ChatAttachments.getFiles().length), 0);
+      assert.equal(await page.locator('#attachments-container').isHidden(), true);
       assert.deepEqual(errors, []);
     });
   });

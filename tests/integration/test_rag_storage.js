@@ -69,7 +69,7 @@ test('RagStorage - exporta e importa únicamente el formato actual', async () =>
   const { blob, compressed, filename } = await RagStorage.exportBranchBlob(branch.id, { compress: false });
   assert.equal(compressed, false);
   assert.match(filename, /^Respaldo\.zerochat-knowledge\.json$/);
-  const backup = JSON.parse(await blob.text());
+  const backup = JSON.parse(await RagStorage.readBackupText(new File([blob], filename)));
   assert.equal(backup.schema, 'zerochat-knowledge');
   assert.equal(backup.version, 2);
   assert.equal(backup.documents[0].source, undefined);
@@ -87,7 +87,7 @@ test('RagStorage - exporta e importa únicamente el formato actual', async () =>
   );
 });
 
-test('RagStorage - exportBranchBlob genera un respaldo comprimido gzip en streaming', async () => {
+test('RagStorage - exportBranchBlob genera un respaldo gzip que readBackupText lee por extensión o por firma', async () => {
   const branch = await RagStorage.createBranch('GzipTest');
   await RagStorage.saveDocument({
     branchId: branch.id,
@@ -103,9 +103,8 @@ test('RagStorage - exportBranchBlob genera un respaldo comprimido gzip en stream
   assert.ok(filename.endsWith('.zerochat-knowledge.json.gz'));
   assert.ok(blob.size > 0);
 
-  // Descomprimir el blob para verificar su estructura
-  const ds = new DecompressionStream('gzip');
-  const decompressedText = await new Response(blob.stream().pipeThrough(ds)).text();
+  const decompressedText = await RagStorage.readBackupText(new File([blob], filename));
+  assert.equal(await RagStorage.readBackupText(new File([blob], 'renombrada.json')), decompressedText);
   const parsed = JSON.parse(decompressedText);
   assert.equal(parsed.schema, 'zerochat-knowledge');
   assert.equal(parsed.documents.length, 1);
@@ -134,7 +133,7 @@ test('RagStorage - exporta e importa información de imágenes y reasigna refere
   ]);
 
   let progressCalled = false;
-  const { blob } = await RagStorage.exportBranchBlob(branch.id, {
+  const { blob, filename } = await RagStorage.exportBranchBlob(branch.id, {
     compress: true,
     onProgress: (p) => {
       if (p.percent === 100) progressCalled = true;
@@ -142,8 +141,7 @@ test('RagStorage - exporta e importa información de imágenes y reasigna refere
   });
   assert.ok(progressCalled);
 
-  const ds = new DecompressionStream('gzip');
-  const decompressedText = await new Response(blob.stream().pipeThrough(ds)).text();
+  const decompressedText = await RagStorage.readBackupText(new File([blob], filename));
   const parsed = JSON.parse(decompressedText);
   assert.equal(parsed.documents[0].imageCount, 1);
   assert.equal(parsed.documents[0].images.length, 1);

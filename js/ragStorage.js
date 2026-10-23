@@ -332,6 +332,22 @@
     };
   }
 
+  async function isGzipBlob(blob) {
+    const bytes = new Uint8Array(await blob.slice(0, 2).arrayBuffer());
+    return bytes[0] === 0x1F && bytes[1] === 0x8B;
+  }
+
+  /**
+   * Texto de un fichero de copia de seguridad de exportBranchBlob. Se descomprime si es gzip por su
+   * extensión o, aunque lo hayan renombrado, por su firma.
+   */
+  async function readBackupText(file) {
+    if (file.name.toLowerCase().endsWith('.gz') || await isGzipBlob(file)) {
+      return new Response(file.stream().pipeThrough(new DecompressionStream('gzip'))).text();
+    }
+    return file.text();
+  }
+
   /** Cambia las referencias rag-image:// de los fragmentos al nuevo id del documento. */
   function remapImageReferences(chunks, oldDocId, newDocId) {
     if (!oldDocId || oldDocId === newDocId) return chunks;
@@ -383,6 +399,6 @@
     saveDocument, replaceDocument, findDocumentByPath, getDocumentsByBranch, getDocumentById,
     getChunksByBranch, getChunksByDocument, getChunkById, deleteDocument,
     getDocumentImages, getDocumentImage,
-    exportBranchBlob, importBranch
+    exportBranchBlob, readBackupText, importBranch
   };
 });

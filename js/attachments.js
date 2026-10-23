@@ -1,15 +1,16 @@
 /**
  * Módulo de Gestión de Adjuntos (ChatAttachments) para ZeroChat.
  * Gestiona la lista de archivos adjuntos (texto, código, imágenes, PDF, documentos ofimáticos),
- * su renderizado visual en chips y el ensamblado del prompt enriquecido con adjuntos.
+ * su validación de tamaño y el ensamblado del prompt enriquecido con adjuntos. Sus chips los pinta
+ * ChatUIComposer.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
+    module.exports = factory(require('./utils.js'));
   } else {
-    root.ChatAttachments = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
+    root.ChatAttachments = factory(root.ChatUtils);
   }
-}(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
+}(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
   const { resolveDep } = Utils;
@@ -34,60 +35,6 @@
       files.push(fileObj);
       setFiles(files);
     }
-  }
-
-  function renderChips(container, onRemoveCallback) {
-
-    const files = getFiles();
-    if (files.length === 0) {
-      container.innerHTML = '';
-      container.hidden = true;
-      return;
-    }
-
-    container.hidden = false;
-    container.innerHTML = '';
-
-    files.forEach((file, index) => {
-      const chip = document.createElement('div');
-      chip.className = 'file-chip';
-
-      const iconName = file.type === 'image' ? 'image' : 'file-text';
-      const removeTitle = I18n.t('btn_delete');
-      const icon = document.createElement('span');
-      icon.className = 'file-chip-icon';
-      // Los SVG proceden exclusivamente de Icons.
-      Utils.setTrustedHtml(icon, Icons.get(iconName, { size: 14 }));
-
-      const name = document.createElement('span');
-      name.className = 'file-chip-name';
-      name.textContent = String(file.name || '');
-      name.title = String(file.name || '');
-
-      const size = document.createElement('span');
-      size.className = 'file-chip-size';
-      size.textContent = `(${Utils.formatBytes(file.size)})`;
-
-      const removeButton = document.createElement('button');
-      removeButton.type = 'button';
-      removeButton.className = 'btn-remove-chip file-chip-remove';
-      removeButton.setAttribute('data-index', String(index));
-      removeButton.title = String(removeTitle);
-      removeButton.setAttribute('aria-label', String(removeTitle));
-      Utils.setTrustedHtml(removeButton, Icons.get('close', { size: 12 }));
-
-      removeButton.addEventListener('click', () => {
-        removeFileAt(index);
-        renderChips(container, onRemoveCallback);
-        onRemoveCallback(index);
-      });
-
-      chip.appendChild(icon);
-      chip.appendChild(name);
-      chip.appendChild(size);
-      chip.appendChild(removeButton);
-      container.appendChild(chip);
-    });
   }
 
   /**
@@ -148,7 +95,6 @@
     clearFiles,
     removeFileAt,
     addFile,
-    renderChips,
     buildAttachmentsPayload
   };
 }));

@@ -421,19 +421,6 @@
     await syncActivationIfOpen();
   }
 
-  async function isGzipBlob(blob) {
-    if (blob.size < 2) return false;
-    const bytes = new Uint8Array(await blob.slice(0, 2).arrayBuffer());
-    return bytes[0] === 0x1F && bytes[1] === 0x8B;
-  }
-
-  async function readBackupText(file) {
-    if (file.name.toLowerCase().endsWith('.gz') || await isGzipBlob(file)) {
-      return new Response(file.stream().pipeThrough(new DecompressionStream('gzip'))).text();
-    }
-    return file.text();
-  }
-
   /** Muestra el progreso en el texto del botón y restaura su contenido al terminar. */
   async function withButtonProgress(button, operation) {
     const previousHtml = button.innerHTML;
@@ -471,7 +458,7 @@
       setText(t('rag_import_decompressing'));
       let text;
       try {
-        text = await readBackupText(file);
+        text = await storage().readBackupText(file);
       } catch (error) {
         if (error.name === 'RangeError' || error.code === 'ERR_STRING_TOO_LONG') throw new Error(t('rag_import_too_large'));
         throw error;
