@@ -12,6 +12,8 @@ describe('Browser UI - Sandbox Security & Iframe Isolation', () => {
     server = await startStaticServer();
     browser = await createTestBrowser();
     page = await browser.newPage();
+    // El tiempo corre con normalidad salvo cuando un caso lo adelanta con runFor.
+    await page.clock.install();
     await page.goto(`http://127.0.0.1:${server.address().port}/zerochat.html`, { waitUntil: 'load' });
     await page.waitForFunction(() => !!window.ChatSandbox);
   });
@@ -196,11 +198,17 @@ describe('Browser UI - Sandbox Security & Iframe Isolation', () => {
   });
 
   test('Sandbox - un plazo vencido termina la ejecución; timeoutMs solo admite números finitos positivos', async () => {
-    const results = await page.evaluate(async () => {
+    await page.evaluate(() => {
       const neverEnds = 'return new Promise(() => {});';
       const invalid = [{ timeoutMs: 50 }, NaN, -1, 0, Infinity, '50'];
-      const fallback = await Promise.all(invalid.map(value => window.ChatSandbox.execute(neverEnds, value)));
-      const custom = await window.ChatSandbox.execute(neverEnds, 75);
+      window.__timeouts = Promise.all([
+        Promise.all(invalid.map(value => window.ChatSandbox.execute(neverEnds, value))),
+        window.ChatSandbox.execute(neverEnds, 75)
+      ]);
+    });
+    await page.clock.runFor(2500);
+    const results = await page.evaluate(async () => {
+      const [fallback, custom] = await window.__timeouts;
       return { fallback: fallback.map(result => [result.success, result.error]), custom: custom.error };
     });
     for (const [success, error] of results.fallback) {

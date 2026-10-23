@@ -86,7 +86,7 @@ Goal: the full suite runs in about half the time (~25 s → ~11 s locally) and k
 Done when: browser waits on no real poll or timeout timers, Python unittest files run in parallel, the duplicate, obsolete and misplaced cases from the 2026-10-23 test review are removed or moved, and every level passes.
 - [x] M41-T1 test:browser uses node --test default concurrency locally; CI and release pass --concurrency=2 explicitly (2026-10-23)
 - [x] M41-T2 run_command card browser test drives its poll and clock timers with page.clock instead of real waits (2026-10-23)
-- [ ] M41-T3 Sandbox timeoutMs fallback test uses page.clock instead of waiting the real 2500 ms default
+- [x] M41-T3 Sandbox timeoutMs fallback test uses page.clock instead of waiting the real 2500 ms default (2026-10-23)
 - [ ] M41-T4 MCP homonymous-tools integration test uses a JS fake host instead of embedded Python spawned per call
 - [ ] M41-T5 Runner runs each test_*.py in its own parallel unittest process; shorter sleeps in test_run_command.py
 - [ ] M41-T6 Sandbox browser suite merged into one probe case and one timeout case; drop cases that never reach CSP or the parent
