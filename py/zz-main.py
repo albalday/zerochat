@@ -184,7 +184,7 @@ def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_cl
         print("  Modo de ejecución     : Paquete PyPI (GitHub Pages)")
     else:
         print("  Modo de ejecución     : Producción (Web universal)")
-    print(f"  Servidor HTTP/SSE     : http://{ACTIVE_HOST}:{ACTIVE_PORT}")
+    print(f"  Servidor HTTP         : http://{ACTIVE_HOST}:{ACTIVE_PORT}")
     if exposure_warning:
         print(f"  AVISO                 : {exposure_warning}")
     print("  Token de sesión (diario): configurado")
