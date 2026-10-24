@@ -19,8 +19,7 @@ sí sola refactorizaciones amplias ni cambios no relacionados.
 Antes de analizar código, registrar el estado de partida:
 
 ```bash
-npm test
-npm run test:browser
+npm run test:all
 npm run build
 git status --short
 ```
@@ -62,7 +61,7 @@ comprobaciones y límites.
 
 ### Fronteras de arquitectura y seguridad
 
-Comprobar las fronteras de `AGENTS.md` §3 y §4, y además que las operaciones
+Comprobar las fronteras de `AGENTS.md` §2 y §3 y de los README de subsistema, y además que las operaciones
 cancelables usen `AbortSignal`, limpieza explícita y pruebas. Cuando sea posible,
 convertir los hallazgos recurrentes en pruebas de `tests/architecture/`.
 
@@ -80,7 +79,7 @@ que el payload se conserva como texto y no crea nodos ni ejecuta atributos.
 Revisar límites de tamaño y tiempo, errores explícitos, validación de entradas,
 aislamiento de secretos, concurrencia, almacenamiento y recuperación tras
 cancelación. Todo tope debe tener prueba en el borde exacto (`N` y `N+1`) y en su
-aviso de truncado (`AGENTS.md` §5). Localizar dependencias implícitas entre módulos.
+aviso de truncado (`AGENTS.md` §4). Localizar dependencias implícitas entre módulos.
 
 ### Normas y pruebas
 
@@ -118,8 +117,7 @@ Antes de aprobar una versión mayor, deben estar resueltos o aceptados explícit
 los hallazgos críticos y altos. Ejecutar de nuevo:
 
 ```bash
-npm test
-npm run test:browser
+npm run test:all
 npm run build
 ```
 
@@ -131,7 +129,7 @@ de `AGENTS.md` y requiere el incremento de versión validado previamente en `dev
 ## Auditoría acotada de cambios (entre versiones menores o hitos)
 
 Cuando se audite un rango de commits o un hito en lugar del proyecto completo, se
-revisa su `git diff` con las áreas anteriores y la lista de `AGENTS.md` §8. Los
+revisa su `git diff` con las áreas anteriores y la lista de `AGENTS.md` §6. Los
 hallazgos se registran como tareas en `.zerochat/plan.md`, no en la ayuda.
 
 1. **Umbral (máx. ~10 hallazgos accionables):** un hallazgo solo se numera (`F-XX`)

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Review 2: Features · ZeroChat 9.x Docs</title>
-  <meta name="description" content="Review of ZeroChat 9.2.3 as the single frontend for local models: capabilities, tests protecting them, limits and consistency with help docs.">
+  <meta name="description" content="Feature review of ZeroChat 9.11.0 as the single frontend for local models: agent, documents, browsing, profiles, unattended runs and remote connection.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -21,92 +21,97 @@
         </div>
       </div>
       <h1>Review 2: Features</h1>
-      <p class="subtitle">ZeroChat 9.2.3 as the single frontend for local models. Updated on 16 October 2026.</p>
+      <p class="subtitle">ZeroChat 9.11.0 as the single frontend for local models. Updated on 24 October 2026.</p>
     </header>
 
     <main>
       <div class="card">
-        <h2>1. Objective and method</h2>
-        <p>The project's objective is to establish ZeroChat as the <strong>single frontend for local models</strong>, served via standard OpenAI-compatible APIs (vLLM, llama.cpp, LM Studio, SGLang) or Ollama. This review analyzes the capabilities of version <strong>9.2.3</strong> (commit <code>924aef6</code>), incorporating features introduced since 9.1.0: office document ingestion (Word, native Excel without heavy bundles, PowerPoint, OpenDocument), multimodal web image vision (<code>download_image</code>), in-chat document generation and preview, and project memory via <code>task.py</code>.</p>
-        <p>Following the <a href="learning.html#rules-lesson">9.0.0 lesson</a>, each capability indicates what protects it: <strong>[test]</strong> automated test, <strong>[reading]</strong> code review without a direct static test.</p>
+        <h2>1. Goal and method</h2>
+        <p>The project's goal is for ZeroChat to be the <strong>single frontend for local models</strong> served separately through OpenAI-compatible APIs (vLLM, llama.cpp, LM Studio, SGLang) or Ollama. This review goes through the capabilities of version <strong>9.11.0</strong> (commit <code>170ee03</code>) in the code, not in the documentation.</p>
+        <p>The most relevant additions since 9.2.3 are unattended runs (<code>zerochat --prompt</code>), configuration profiles with their MCP services and browser, Playwright MCP with its own engines or the user's browser, the diff viewer, live local server state with automatic reconnection, and remote connection with sign-in through the system account.</p>
+        <p>Each capability shows what protects it: <strong>[test]</strong> an automated test or <strong>[reading]</strong> code review.</p>
       </div>
 
       <div class="card">
         <h2>2. Capabilities</h2>
         <div class="table-responsive">
           <table>
-            <thead><tr><th>Area</th><th>What it provides</th><th>Protection</th><th>Limit</th></tr></thead>
+            <thead><tr><th>Area</th><th>What it offers</th><th>Protection</th><th>Limit</th></tr></thead>
             <tbody>
-              <tr><td><strong>Local connection</strong></td><td>"OpenAI / LM Studio / LocalAI / vLLM" and Ollama profiles; dynamic model discovery via <code>/models</code> or <code>/api/tags</code> with streaming and tool probes.</td><td>[test] <code>test_providers.js</code>, <code>test_inspector.js</code></td><td>Vision detected from server declarations; reasoning inferred from adapter or model name.</td></tr>
-              <tr><td><strong>Context capacity</strong></td><td>Reads advertised context sizes (<code>n_ctx</code>, <code>max_model_len</code>, <code>context_length</code>, <code>loaded_context_length</code>); marks assumed values with <code>*</code>. Manual per-profile adjustment.</td><td>[test] <code>test_inspector.js</code>, <code>test_ui_telemetry.js</code></td><td>Assumed capacities adjust the visual gauge and 70% compaction thresholds.</td></tr>
-              <tr><td><strong>Reasoning</strong></td><td>Dedicated collapsible section; levels from None to Maximum; <code>&lt;think&gt;</code> tag support and passing <code>reasoning_content</code> between tool steps in a multi-step turn.</td><td>[test] <code>test_providers.js</code>, <code>test_agent_runtime.js</code>, <code>test_api_utils.js</code></td><td>Requires the server to expose structured reasoning fields in its responses to preserve plans across steps.</td></tr>
-              <tr><td><strong>Tool calls</strong></td><td>Native tool calling with SSE chunk assembly during streaming; transparent fallback for models emitting <code>&lt;tool_call&gt;</code> (Hermes format) in plain text.</td><td>[test] <code>test_text_tool_calls.js</code>, <code>test_builtin_tools.js</code></td><td>Depends on server chat template parsers.</td></tr>
-              <tr><td><strong>Agent execution</strong></td><td>No artificial step limits; loop detection halts infinite repetitive calls or alternating calls between two tools (5 iterations).</td><td>[test] <code>test_agent_core.js</code>, <code>test_agent_runtime.js</code></td><td>Loops with constantly mutating arguments require manual cancellation via the Stop button.</td></tr>
-              <tr><td><strong>Subagents</strong></td><td>Read-only <code>delegate_task</code> tool with dedicated isolated context; uses the "Subagent" profile if configured.</td><td>[test] <code>test_delegate_task.js</code></td><td>In a single local model environment, subagents contend for the same GPU resources.</td></tr>
-              <tr><td><strong>Office documents</strong></td><td>Direct parsing to Markdown and images for Word (.docx), PowerPoint (.pptx), Excel (.xlsx via native lightweight parser), and OpenDocument (.ods) for attachments and RAG.</td><td>[test] <code>test_office_parser.js</code>, <code>browser_documents.test.js</code></td><td>Caps of 500 rows per sheet in tables and 20 MB per file, with clear truncation notices.</td></tr>
-              <tr><td><strong>Generation and export</strong></td><td>In-chat generation of documents (HTML, SVG, CSV), CSV export of rendered markdown tables, and safe previewing in an isolated modal or new tab.</td><td>[test] <code>test_export.js</code>, <code>test_utils.js</code></td><td>Blob document opening with automatic revocation and <code>noopener</code> policy.</td></tr>
-              <tr><td><strong>Vision and web images</strong></td><td>Integrated image display, opening in an isolated Blob viewer, and builtin <code>download_image</code> tool for multimodal image fetching from the web.</td><td>[test] <code>test_image_fetcher.js</code>, <code>test_builtin_tools.js</code>, <code>test_images.js</code></td><td>Standard raster formats (JPEG, PNG, WebP, GIF), anti-SSRF validation and 10 MB limit.</td></tr>
-              <tr><td><strong>Local server</strong></td><td>File inspection, command execution with live interactive card and background tracking (<code>run_command</code> / <code>check_command</code>), managed MCP and stdio services.</td><td>[test] <code>py/test_run_command.py</code>, <code>py/test_file_tools.py</code>, <code>test_local_server.js</code>, <code>py/test_mcp_services.py</code></td><td>No Playwright in Android/Termux environments.</td></tr>
-              <tr><td><strong>Project mode and memory</strong></td><td>Structured maintenance of plans, milestones, and decisions (<code>.zerochat/</code>), with sentinel checks and atomic updates via <code>task.py</code>.</td><td>[test] <code>test_project_context.js</code>, <code>test_project_memory.js</code></td><td>Relies on the model adhering to the project protocol during tool turns.</td></tr>
-              <tr><td><strong>Lexical RAG</strong></td><td>Local Orama index in IndexedDB with multi-branch support, filtering, and search across office documents, PDFs, and plain text.</td><td>[test] <code>test_rag_*.js</code>, <code>test_ingestion_*.js</code></td><td>Fast lexical search; does not use vector embeddings or semantic models.</td></tr>
-              <tr><td><strong>Debugging and inspection</strong></td><td>Interceptor panel that pauses outgoing requests, allowing inspection and editing of the JSON payload before sending to the model.</td><td>[test] <code>test_debug.js</code>, <code>browser_debug_panel.test.js</code></td><td>Intercepts LLM HTTP/SSE traffic; MCP JSON-RPC traffic is logged in console.</td></tr>
-              <tr><td><strong>WebLLM</strong></td><td>Optional in-browser inference via WebGPU and dedicated Web Workers.</td><td>[test] <code>test_webllm.js</code>, <code>browser_webllm.test.js</code></td><td>Aimed at compact in-browser models; complementary to external backend servers.</td></tr>
+              <tr><td><strong>Model connection</strong></td><td>OpenAI-compatible, Ollama, OpenRouter, Claude, Gemini, WebLLM and Mirror adapters; model discovery and capability diagnosis with the inspector.</td><td>[test] <code>test_providers.js</code>, <code>test_inspector.js</code>, <code>browser_inspector.test.js</code></td><td>Vision and reasoning are inferred from what the server publishes or from the adapter.</td></tr>
+              <tr><td><strong>Context and cache</strong></td><td>Reads the published capacity (<code>n_ctx</code>, <code>max_model_len</code>…) or a manual setting; history compaction and a stable prefix for the context cache.</td><td>[test] <code>test_context_manager.js</code>, <code>test_token_telemetry.js</code>, <code>test_context_cache_architecture.js</code></td><td>An assumed capacity is marked with <code>*</code> and adjusts the thresholds.</td></tr>
+              <tr><td><strong>Reasoning</strong></td><td>Collapsible block, levels from None to Maximum, <code>&lt;think&gt;</code> tags and reasoning forwarded between agent steps.</td><td>[test] <code>test_providers.js</code>, <code>test_agent_runtime.js</code>, <code>test_api_utils.js</code></td><td>The server must separate reasoning in its response for it to be forwarded.</td></tr>
+              <tr><td><strong>Tools and agent</strong></td><td>12 built-in tools, native or text tool calls (<code>&lt;tool_call&gt;</code>), an agent with no step cap and loop detection, and read-only subagents (<code>delegate_task</code>).</td><td>[test] <code>test_builtin_tools.js</code>, <code>test_text_tool_calls.js</code>, <code>test_agent_core.js</code>, <code>test_delegate_task.js</code></td><td>A loop with ever-changing arguments needs the Stop button.</td></tr>
+              <tr><td><strong>Documents</strong></td><td>Word, PowerPoint, Excel (native XLSX reader), OpenDocument, legacy binary <code>.doc</code> and <code>.xls</code>, and PDF with its own extractor, as attachments and in RAG.</td><td>[test] <code>test_office_parser.js</code>, <code>test_office_documents.js</code>, <code>test_file_parser.js</code>, <code>browser_documents.test.js</code></td><td>Caps per sheet and per file, with a truncation notice.</td></tr>
+              <tr><td><strong>Generation and export</strong></td><td>HTML, SVG and CSV documents in the chat with an isolated viewer; conversation export (also as HTML, as shown).</td><td>[test] <code>test_export.js</code>, <code>browser_conversation.test.js</code></td><td>Documents open in a Blob with <code>noopener</code>.</td></tr>
+              <tr><td><strong>Web</strong></td><td>DuckDuckGo search and page reading through the local server or, without it, Jina Reader; downloads of web documents and images for vision models.</td><td>[test] <code>test_web_tools.js</code>, <code>py/test_network.py</code></td><td>Without the local server, reading depends on an external service.</td></tr>
+              <tr><td><strong>Local server</strong></td><td>Files, <code>run_command</code> and <code>check_command</code> with a live card and background runs, a graphical diff viewer with guided setup, and managed external MCP services.</td><td>[test] <code>py/test_run_command.py</code>, <code>py/test_file_tools.py</code>, <code>py/test_diff_tool.py</code>, <code>py/test_mcp_services.py</code>, <code>test_local_server.js</code></td><td>No Playwright on Android (Termux).</td></tr>
+              <tr><td><strong>Live state and reconnection</strong></td><td>The server reports the directory, running commands, Playwright and external services; the page reconnects by itself when the server returns, without reloading.</td><td>[test] <code>test_mcp.js</code>, <code>test_ui_mcp.js</code>, <code>browser_mcp_panel.test.js</code></td><td>With <code>--keep-server</code> the state is reread when returning to the tab, not every 10 s.</td></tr>
+              <tr><td><strong>Model browsing</strong></td><td><code>browser_action</code> or Playwright MCP, with its own engines (Chromium, Firefox, WebKit) installed and removed from Settings, or the user's Chrome, Edge or Chromium through the extension.</td><td>[test] <code>py/test_browser.py</code>, <code>py/test_browser_config.py</code>, <code>test_ui_browser.js</code></td><td>The extension asks to accept each connection unless its token is set.</td></tr>
+              <tr><td><strong>Configuration profiles</strong></td><td>Provider, model and behavior per profile, with the MCP services it starts and the browser it requires; encrypted API keys and profile export.</td><td>[test] <code>test_profiles.js</code>, <code>test_ui_profiles.js</code>, <code>browser_profiles_settings.test.js</code></td><td>API keys are protected by the encryption password when it is enabled.</td></tr>
+              <tr><td><strong>Unattended runs</strong></td><td><code>zerochat --prompt</code> runs a prompt in the interface and returns the answer on stdout, with profile, export, hidden window and exit codes.</td><td>[test] <code>test_backend_run_mode.js</code>, <code>browser_run_mode.test.js</code>, <code>test_run_mode.js</code></td><td>Needs a desktop browser; the hidden window is best effort.</td></tr>
+              <tr><td><strong>Remote connection</strong></td><td>Settings › Connection with the server URL, SSH tunnel or reverse proxy with its key, and sign-in with the system account when the token is missing or expires.</td><td>[test] <code>test_mcp.js</code>, <code>browser_connection.test.js</code>, <code>py/test_login.py</code>, <code>test_local_server.js</code></td><td>A single system account: the one running zerochat.</td></tr>
+              <tr><td><strong>Project mode</strong></td><td>Memory in <code>.zerochat/</code> (plan, decisions and state) that the model keeps with <code>task.py</code>.</td><td>[test] <code>test_project_context.js</code>, <code>test_task_helper.js</code></td><td>Depends on the model following the protocol.</td></tr>
+              <tr><td><strong>Lexical RAG</strong></td><td>Orama index in IndexedDB with branches, document images and filtered search.</td><td>[test] <code>test_rag_index.js</code>, <code>test_rag_service.js</code>, <code>test_ingestion_engine.js</code></td><td>Lexical search, no embeddings.</td></tr>
+              <tr><td><strong>Debugging</strong></td><td>An interceptor that pauses every request to the model to review or edit the JSON before sending it.</td><td>[test] <code>browser_debug_panel.test.js</code></td><td>It does not intercept traffic with the local server.</td></tr>
+              <tr><td><strong>WebLLM</strong></td><td>In-browser inference with WebGPU in a Web Worker.</td><td>[test] <code>test_webllm.js</code>, <code>browser_webllm.test.js</code></td><td>For compact models.</td></tr>
             </tbody>
           </table>
         </div>
       </div>
 
       <div class="card">
-        <h2>3. Best practices with a local server</h2>
-        <p>ZeroChat is built to integrate seamlessly with any OpenAI-compatible local server. To get the best experience, the following practices are recommended:</p>
+        <h2>3. Good practices with a local model server</h2>
         <div class="table-responsive">
           <table>
-            <thead><tr><th>Aspect</th><th>Technical recommendation</th><th>Benefit in ZeroChat</th></tr></thead>
+            <thead><tr><th>Aspect</th><th>Recommendation</th><th>Benefit in ZeroChat</th></tr></thead>
             <tbody>
-              <tr><td><strong>Context capacity</strong></td><td>Start the server advertising its context metadata (e.g. <code>meta.n_ctx</code> in llama.cpp or <code>max_model_len</code> in vLLM).</td><td>ZeroChat detects the actual limit without assuming values with <code>*</code>, calibrating auto-compaction triggers at 70%.</td></tr>
-              <tr><td><strong>Reasoning</strong></td><td>Enable the server's reasoning parser to output <code>reasoning_content</code> separately from response text.</td><td>Reasoning is displayed in a dedicated collapsible block and preserved intact across multi-step tool calls.</td></tr>
-              <tr><td><strong>Tool calling</strong></td><td>Enable server-side tool call formatting (e.g. Hermes template or <code>--jinja</code>).</td><td>Tool calls are returned as structured objects with validated parameters; otherwise, ZeroChat falls back to extracting <code>&lt;tool_call&gt;</code> blocks.</td></tr>
-              <tr><td><strong>Streaming</strong></td><td>Configure endpoints with Server-Sent Events (SSE) support enabled.</td><td>Immediate token-by-token output, progressive rendering, and instant cancellation with <code>AbortController</code>.</td></tr>
+              <tr><td><strong>Context capacity</strong></td><td>Publish the real context (<code>meta.n_ctx</code> in llama.cpp, <code>max_model_len</code> in vLLM).</td><td>Compaction thresholds are computed on the real limit, not an assumed one.</td></tr>
+              <tr><td><strong>Reasoning</strong></td><td>Turn on the server's reasoning parser.</td><td>Reasoning goes to its own block and is forwarded between steps without mixing into the answer.</td></tr>
+              <tr><td><strong>Tool calls</strong></td><td>Turn on the server's tool template (for example, <code>--jinja</code>).</td><td>Structured calls; without it, ZeroChat extracts <code>&lt;tool_call&gt;</code> blocks from the text.</td></tr>
+              <tr><td><strong>Streaming</strong></td><td>Streamed responses.</td><td>Token-by-token text and immediate cancellation.</td></tr>
+              <tr><td><strong>Remote access</strong></td><td>SSH tunnel or HTTPS reverse proxy, never a public <code>--host</code>.</td><td>The server keeps listening only on its own computer and requires sign-in.</td></tr>
             </tbody>
           </table>
         </div>
       </div>
 
       <div class="card">
-        <h2>4. Consistency with help documentation</h2>
-        <p>User documentation was checked against codebase behavior:</p>
+        <h2>4. Consistency with the help</h2>
+        <p>The help was checked against the code:</p>
         <ul>
-          <li><a href="tools-agent.html">Tools and agent</a>: documents the twelve builtin tools (including <code>download_doc</code> and <code>download_image</code>), unbounded agent execution, loop detection, and read-only subagents.</li>
-          <li><a href="mcp.html">Local server and MCP</a>: filesystem tools, <code>run_command</code> with 30 s to 10 min timeouts, live card and granular permission policies.</li>
-          <li><a href="composer.html">Composer and documents</a>: text, image, and office document attachments (Word, Excel, PowerPoint, OpenDocument), with clear notices for legacy binary formats (.doc, .xls).</li>
-          <li><a href="reasoning-telemetry.html">Reasoning and telemetry</a>: visual gauges, token telemetry, and reasoning preservation.</li>
-          <li><a href="learning.html">Learning and architecture</a>: quality lessons, single source of truth rules, and task scoping.</li>
+          <li><a href="tools-agent.html">Tools and agent</a>: the 12 built-in tools, the agent with no step cap and subagents.</li>
+          <li><a href="mcp.html">Local server and MCP</a>: startup, connection, commands, external services and permissions.</li>
+          <li><a href="browser-action.html">Model browsing</a>, <a href="profiles.html">profiles</a> and <a href="run-mode.html">unattended runs</a>: they match the 9.11.0 options, without <code>--print-url</code>.</li>
+          <li><a href="remote-android.html">SSH tunnel from Android</a> and <a href="remote-proxy.html">reverse proxy</a>: Settings › Connection and sign-in with the system account.</li>
+          <li><a href="composer.html">Composer and documents</a> and <a href="reasoning-telemetry.html">reasoning and telemetry</a>.</li>
         </ul>
-        <p>All help pages are validated by <code>test_help_pages.js</code>, ensuring matching series (9.x), bidirectional cross-linking, and no orphaned pages.</p>
+        <p><code>test_help_pages.js</code> checks that every page has its linked translation, the 9.x version series, a unique title and description, and an up-to-date sitemap.</p>
       </div>
 
       <div class="card">
-        <h2>5. Limitations</h2>
+        <h2>5. Limits</h2>
         <ul>
-          <li><strong>Single-user:</strong> designed for personal use, without shared authentication or multi-tenant roles.</li>
-          <li><strong>Browser storage:</strong> chats and RAG knowledge bases reside in local IndexedDB; exporting backups periodically is recommended.</li>
-          <li><strong>Shared origin</strong> on GitHub Pages (accepted and documented risk).</li>
-          <li><strong>Lexical RAG:</strong> fast indexing with Orama; no vector similarity or semantic embeddings.</li>
-          <li><strong>Browsers:</strong> fully supported on Chromium and Firefox; WebKit (Safari) is not supported.</li>
-          <li><strong>Web tool privacy:</strong> with a local LLM, chat messages never leave the machine; tools querying the web (search, page fetching, web images) contact external services.</li>
+          <li><strong>Single user:</strong> one system account, the one running zerochat; no roles.</li>
+          <li><strong>Data in the browser:</strong> conversations, profiles and RAG live in IndexedDB and <code>localStorage</code>; exporting them is advisable.</li>
+          <li><strong>Shared origin</strong> on GitHub Pages, an accepted risk.</li>
+          <li><strong>Lexical RAG</strong>, without vector similarity.</li>
+          <li><strong>Browsers:</strong> Chromium and Firefox; WebKit (Safari and every browser on iPhone and iPad) is not supported.</li>
+          <li><strong>Windows:</strong> it works, but its own code paths are not tested automatically.</li>
+          <li><strong>Web privacy:</strong> with a local LLM the chat stays on the computer, but the web tools query external services.</li>
         </ul>
       </div>
 
       <div class="card">
-        <h2>6. Assessment</h2>
-        <p><strong>Exceptional functional maturity as a local model frontend</strong>. ZeroChat 9.2.3 provides a full-featured workspace for pair programming and technical tasks: secure local command execution, stdio and HTTP MCP clients, native office document parsing, multimodal web vision, secure generated document previews, and interactive request inspection, all served from a static web client with zero heavy server dependencies.</p>
+        <h2>6. Verdict</h2>
+        <p><strong>A mature frontend for local models, now also for a remote server.</strong> ZeroChat 9.11.0 covers daily technical work with a local model: an agent with the computer's tools, documents and PDF, browsing with Playwright, profiles that prepare each environment, and unattended runs from the terminal. The unified remote connection, by tunnel or reverse proxy, lets you use it from a phone or another computer without exposing the local server.</p>
       </div>
 
-      <div class="card" id="autoria">
+      <div class="card" id="authorship">
         <h2>Authorship</h2>
         <div class="alert alert-info">
           <ul>
-            <li><strong>Review and drafting:</strong> Antigravity (Gemini 3.8 Flash), based on project specifications and code verification at commit <code>924aef6</code>.</li>
+            <li><strong>Review and writing:</strong> Claude Opus 5.5 in Claude Code, from the code at commit <code>170ee03</code> and the test suite.</li>
           </ul>
         </div>
       </div>
@@ -124,7 +129,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat 9.x · Review 2 (Features) · 16 October 2026</p>
+      <p>ZeroChat 9.x · Review 2 (Features) · 24 October 2026</p>
     </footer>
   </div>
 </body>

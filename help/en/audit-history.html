@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Review 4: Evolution from Git · ZeroChat 9.x Docs</title>
-  <meta name="description" content="Evolution of ZeroChat across 1,006 commits, from ChatCLI v0.9 to 9.2.3, and how long each AGENTS.md rule took to gain automated test coverage.">
+  <meta name="description" content="Evolution of ZeroChat across 1,244 commits, from ChatCLI v0.9 to 9.11.0, and how long each AGENTS.md rule took to gain automated test coverage.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -21,7 +21,7 @@
         </div>
       </div>
       <h1>Review 4: Evolution from Git</h1>
-      <p class="subtitle">1,006 commits across 52 days, from ChatCLI v0.9 to 9.2.3, and how long each rule took to get its test.</p>
+      <p class="subtitle">1,244 commits across 60 days, from ChatCLI v0.9 to 9.11.0, and how long each rule took to get its test. Updated on 24 October 2026.</p>
     </header>
 
     <main>
@@ -34,9 +34,10 @@
       <div class="card">
         <h2>1. Figures</h2>
         <ul>
-          <li>1,006 commits between 26 August and 16 October 2026, with recorded activity on 50 of those 52 days: averaging nearly 20 commits daily, peaking at 74 (02/09) and 65 (29/08).</li>
-          <li>95 commits since the start of the 9.1.0 audit baseline (<code>a0393c3</code>), and 74 commits since the closure of its findings (<code>14a7fab</code>, 13/10).</li>
-          <li>Commits cite AI coding agents as co-authors (Claude Opus 5, Opus 5.5, Fable 5.1, Antigravity / Gemini 3.8 Flash), demonstrating a fast-paced pair-programming cadence driven by strict technical specifications.</li>
+          <li>1,244 commits between 26 August and 24 October 2026, with activity on 57 of those 60 days; the peaks are still the early ones: 74 (02/09) and 65 (29/08).</li>
+          <li>238 commits since the 9.2.3 review (<code>924aef6</code>, 16/10), over 9 consecutive days, peaking at 51 on 23/10; in that time 39 milestones closed (M5 to M43) and nine minor versions shipped, from 9.3.0 to 9.11.0.</li>
+          <li>Of those 238 commits, 212 list Claude Opus 5.5 as co-author; earlier, Claude Opus 5, Fable 5.1 and Antigravity (Gemini 3.8 Flash) also took part.</li>
+          <li>The suite went from 864 cases in 9.2.3 to 702 in 9.11.0 while covering more features: milestones M24, M32 and M41 pruned trivial, duplicate or absence tests.</li>
         </ul>
       </div>
 
@@ -74,6 +75,26 @@
             <li><strong>Documentation colocation and rules:</strong> Slimmed down <code>AGENTS.md</code> (<code>93766e5</code>) by relocating subsystem contracts into colocated <code>README.md</code> files and capping tasks at ~300 lines.</li>
           </ul>
         </div>
+        <div class="subsection">
+          <h3>9.3 to 9.5 series: own web transport and test pruning (16 – 17 October)</h3>
+          <p>Public proxies are removed and web transport becomes the local server or, without it, Jina Reader, with DuckDuckGo search (M21, M23, M27; <code>b15e953</code>, <code>029b4c8</code>). The external diff viewer arrives in the file-write cards (9.4.0, M20, <code>7541dca</code>). happy-dom is removed and trivial or duplicate tests are pruned, with written criteria for keeping or deleting them (M24, <code>62682d7</code>). The post-9.2.3 review is fixed in M26 (<code>ca8ce1d</code>).</p>
+        </div>
+        <div class="subsection">
+          <h3>9.6 series: unattended runs, profiles and Playwright (17 – 19 October)</h3>
+          <p><code>zerochat --prompt</code> runs a prompt in the interface and returns the answer in the terminal, with profile, export and hidden window (M18, from <code>a4b9bbd</code>). Connection profiles become configuration profiles, with the MCP services they start and the model's browser (M29). Playwright MCP gains its own engines, installed from Settings, and a mode with the user's browser (M3, <code>94ed197</code>, <code>5b6a5b6</code>).</p>
+        </div>
+        <div class="subsection">
+          <h3>9.7 and 9.8 series: scoped audits and live state (20 – 21 October)</h3>
+          <p>Two scoped audits between minor versions close with their tasks (M30, M31) and the tests added since 9.2.0 are reviewed (M32). The local server becomes the single source of state that changes during a session: external services, commands and Playwright arrive in the heartbeat (M33, <code>b92e9d7</code>). The most complex frontend hotspots are simplified (M34, M35).</p>
+        </div>
+        <div class="subsection">
+          <h3>9.9 and 9.10 series: structure and reconnection (22 – 23 October)</h3>
+          <p>PDF reader bounded by each stream (M36), guided diff viewer setup (M37), bilingual home page with a generated sitemap (M28, <code>ba04ab0</code>), model-view-controller separation in the dialogs (M38), interface logic tested without a browser (M39), automatic reconnection to the local server (M40, <code>7120ce7</code>) and a suite that runs in half the time (M41). For using the home server from Android through an SSH tunnel, <code>zerochat --print-url</code> arrives; 9.11 replaces it with sign-in.</p>
+        </div>
+        <div class="subsection">
+          <h3>9.11 series: one way to connect (24 October)</h3>
+          <p>Transport with the local server becomes POST-only, without an SSE channel (<code>4e39189</code>). The daily token also expires while the server runs (<code>2476077</code>) and, when it is missing or expired, the page asks for the user name and password of the system account (<code>fb8dd4b</code>). Settings › Connection unifies the local server, the SSH tunnel and the reverse proxy (<code>6407dc1</code>, <code>3f12d81</code>). The design decisions were recorded before starting (M42-D10 to D17).</p>
+        </div>
       </div>
 
       <div class="card">
@@ -95,10 +116,13 @@
               <tr><td>Bilingual synchronized help pages</td><td>13/10 (<code>975a723</code>)</td><td>13/10 (<code>975a723</code>)</td><td>0 days</td><td>API key help pages missing language switcher</td></tr>
               <tr><td>Memory automation and sentinel (<code>task.py</code>)</td><td>14/10 (<code>37ba6a0</code>)</td><td>14/10 (<code>cca1c87</code>)</td><td>0 days</td><td>Prevents desynchronization in milestone plans</td></tr>
               <tr><td>Single source of truth and exact <code>N</code>/<code>N+1</code> limits</td><td>15/10 (<code>b4aad8a</code>)</td><td>15/10 (<code>976ab59</code>)</td><td>0 days</td><td>Row loss at the 500-row cap in ODS tables</td></tr>
+              <tr><td>No production code used only by tests</td><td>17/10 (<code>2b663f0</code>)</td><td>17/10 (<code>2b663f0</code>)</td><td>0 days</td><td>Parameters and injections that only existed for tests</td></tr>
+              <tr><td>Sitemap and unique titles and descriptions</td><td>22/10 (<code>ba04ab0</code>)</td><td>22/10 (<code>ba04ab0</code>)</td><td>0 days</td><td>Born with the bilingual home page and the generated sitemap</td></tr>
+              <tr><td>One source also between JavaScript and Python</td><td>15/10 (<code>b4aad8a</code>)</td><td>24/10 (<code>f2e7224</code>)</td><td>9 days</td><td>Engines, browsers and the extension token, now in a fixture both suites check</td></tr>
             </tbody>
           </table>
         </div>
-        <p><em>Interpretation:</em> The time lag between defining a rule and writing its automated test was historically the main source of technical debt. Since the 9.x series, rules and their accompanying tests are introduced together in the exact same commit (0 days lag), preventing architectural erosion.</p>
+        <p><em>Interpretation:</em> the lag between writing a rule and having its test was historically the main source of technical debt. Since the 9.x series almost every rule arrives with its test in the same commit; the recent exception, one source between JavaScript and Python, took 9 days because until M42 there was no fixture shared by both suites.</p>
       </div>
 
       <div class="card">
@@ -107,8 +131,10 @@
           <li><strong>Code improves by trimming dependencies:</strong> Replacing ExcelJS with a focused, native XLSX parser showed that simplifying architecture yields better maintainability than piling on vendor libraries.</li>
           <li><strong>Tests must consolidate around domains:</strong> Reorganizing test suites in milestone M5 demonstrated that consolidating suites and removing synthetic delays increases test coverage (from 756 to 864 tests) while speeding up execution.</li>
           <li><strong>Scoping tasks preserves control:</strong> Capping tasks at ~300 lines and creating shared bases before rolling out multiple format variants stops sister implementations from diverging.</li>
+          <li><strong>Fewer tests can cover more:</strong> from 9.2.3 to 9.11.0 the suite dropped from 864 to 702 cases while features grew, because each behavior is now tested once, at the lowest level that observes it.</li>
+          <li><strong>Decide before coding:</strong> in M42 the remote connection design was discussed and recorded as decisions before the first line of code; the seven tasks were then completed without redoing any.</li>
         </ul>
-        <p>Conclusion: Version 9.2.3 marks the highest point of stability and architectural coherence in the project's history. All critical invariants are actively guarded by automated tests, while technical progress remains fast and predictable.</p>
+        <p><em>Interpretation:</em> 9.11.0 changes the local server's network surface more than any earlier version, and does so with the same discipline: every decision recorded and every new behavior with its test.</p>
       </div>
 
       <div class="card">
@@ -132,7 +158,16 @@
               <tr><td>15/10</td><td>v9.2.0</td><td><code>02710d7</code></td><td>Bump to 9.2.0 with unified backend and office support</td></tr>
               <tr><td>16/10</td><td>v9.2.1</td><td><code>2df3888</code></td><td>In-chat document generation and table CSV export (M13)</td></tr>
               <tr><td>16/10</td><td>v9.2.2</td><td><code>233ae57</code></td><td>download_image tool and multimodal web vision (M19)</td></tr>
-              <tr><td>16/10</td><td>v9.2.3</td><td><code>924aef6</code></td><td>Test suite consolidation (M5) and current audited release</td></tr>
+              <tr><td>16/10</td><td>v9.2.3</td><td><code>924aef6</code></td><td>Test suite consolidation (M5) and previous review</td></tr>
+              <tr><td>17/10</td><td>v9.3.0</td><td><code>b15e953</code></td><td>No public proxies; unified web transport</td></tr>
+              <tr><td>17/10</td><td>v9.4.0</td><td><code>8ce5e82</code></td><td>External diff viewer</td></tr>
+              <tr><td>17/10</td><td>v9.5.0</td><td><code>09e2fcf</code></td><td>Web transport hardened after the 9.2.3 review</td></tr>
+              <tr><td>19/10</td><td>v9.6.0</td><td><code>07fc781</code></td><td>Unattended runs, configuration profiles and Playwright engines</td></tr>
+              <tr><td>20/10</td><td>v9.7.0</td><td><code>957220a</code></td><td>Fixes from the scoped audits</td></tr>
+              <tr><td>21/10</td><td>v9.8.0</td><td><code>d93491a</code></td><td>Live local server state in the heartbeat</td></tr>
+              <tr><td>22/10</td><td>v9.9.0</td><td><code>4de3d1f</code></td><td>Bilingual home page, PDF stream bounds and visible Playwright browser window</td></tr>
+              <tr><td>22/10</td><td>v9.10.0</td><td><code>b8dea66</code></td><td><code>zerochat --print-url</code> for the tablet (removed in 9.11) and tool signatures with ±30 s clock skew</td></tr>
+              <tr><td>24/10</td><td>v9.11.0</td><td><code>170ee03</code></td><td>Sign-in with the system account and Settings › Connection; reviewed version</td></tr>
             </tbody>
           </table>
         </div>
@@ -142,7 +177,7 @@
         <h2>Authorship</h2>
         <div class="alert alert-info">
           <ul>
-            <li><strong>Review and drafting:</strong> Antigravity (Gemini 3.8 Flash), based on Git history and codebase state at commit <code>924aef6</code>.</li>
+            <li><strong>Review and drafting:</strong> Claude Opus 5.5 in Claude Code, from the Git history up to commit <code>170ee03</code>; the phases up to 9.2.3 come from the previous review, by Antigravity (Gemini 3.8 Flash).</li>
           </ul>
         </div>
       </div>
@@ -160,7 +195,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat 9.x · Review 4 (History) · 16 October 2026</p>
+      <p>ZeroChat 9.x · Review 4 (History) · 24 October 2026</p>
     </footer>
   </div>
 </body>

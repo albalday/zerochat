@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Review 1: Infrastructure and rules · ZeroChat 9.x Docs</title>
-  <meta name="description" content="Review of ZeroChat 9.2.3: each AGENTS.md rule matched with the test that protects it, security, accepted risks and verification state.">
+  <meta name="description" content="Review of ZeroChat 9.11.0: each AGENTS.md rule against the test that protects it, local server security, accepted risks and findings.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -21,14 +21,14 @@
         </div>
       </div>
       <h1>Review 1: Infrastructure and rules</h1>
-      <p class="subtitle">Which AGENTS.md rules are protected by a test, and which depend only on someone reading them? Updated on 16 October 2026.</p>
+      <p class="subtitle">Which AGENTS.md rule is protected by a test, and which depends only on someone reading it? Updated on 24 October 2026.</p>
     </header>
 
     <main>
       <div class="card">
         <h2>Scope and method</h2>
-        <p>Review of version <strong>9.2.3</strong> on the <code>dev</code> branch (commit <code>924aef6</code>), examining all changes accumulated since the 9.1.0 audit to date. Follows the <code>docs/audits/AuditFull.md</code> procedure.</p>
-        <p>The criterion follows the <a href="learning.html#rules-lesson">9.0.0 lesson</a>: <strong>a rule only counts as met if a test fails when it is broken</strong>. Each claim states its source:</p>
+        <p>Review of version <strong>9.11.0</strong> on the <code>dev</code> branch (commit <code>170ee03</code>), written from scratch against the current code. Since the previous review (9.2.3, commit <code>924aef6</code>) there are 238 commits and 39 closed milestones (M5 to M43). It follows the <code>docs/audits/AuditFull.md</code> procedure.</p>
+        <p>The criterion is the <a href="learning.html#rules-lesson">9.0.0 lesson</a>: <strong>a rule only counts as met if a test fails when it is broken</strong>. Each statement shows where it comes from:</p>
         <ul>
           <li><strong>[test]</strong> an automated test protects it;</li>
           <li><strong>[cmd]</strong> a reproducible command checks it today, but nothing stops it from breaking;</li>
@@ -43,67 +43,82 @@
           <table>
             <thead><tr><th>Command</th><th>Result</th></tr></thead>
             <tbody>
-              <tr><td><code>npm test</code> (all levels)</td><td>864 tests in 13 suites: 863 passed and 1 skipped</td></tr>
-              <tr><td><code>npm run test:unit</code></td><td>305/305</td></tr>
-              <tr><td><code>npm run test:integration</code></td><td>368/368</td></tr>
-              <tr><td><code>npm run test:infrastructure</code></td><td>41/42; the Windows-only Job Object test is skipped</td></tr>
-              <tr><td><code>npm run test:architecture</code></td><td>46/46 in 14 files</td></tr>
+              <tr><td><code>npm run test:all</code></td><td>702 cases: 623 from <code>node --test</code> and 79 from <code>unittest</code>; all passing and 1 skipped (Job Object, Windows only)</td></tr>
+              <tr><td><code>npm run test:unit</code></td><td>180/180</td></tr>
+              <tr><td><code>npm run test:integration</code></td><td>273/273</td></tr>
+              <tr><td><code>npm run test:infrastructure</code></td><td>28/28 in Node and 79 in Python across 12 files (1 skipped)</td></tr>
+              <tr><td><code>npm run test:architecture</code></td><td>39/39 across 14 files</td></tr>
               <tr><td><code>npm run test:browser</code></td><td>103/103 in headless Chromium</td></tr>
-              <tr><td><code>npm run build</code></td><td>No differences in <code>zerochat.py</code>, <code>py/dd-managed-services.py</code> or bundles in <code>js/vendor/</code></td></tr>
+              <tr><td><code>npm run build</code></td><td>No differences in <code>zerochat.py</code>, <code>py/dd-managed-services.py</code> or the <code>js/vendor/</code> bundles</td></tr>
             </tbody>
           </table>
         </div>
-        <p>Size: 59 main JavaScript modules in <code>js/</code> (74 JS files total with submodules and vendor packages, about 27,600 lines), 10 Python modules in <code>py/</code> (3,549 lines), 14 stylesheets in <code>css/</code> (8,095 lines) and 717 translation keys per language in <code>js/i18n.js</code>. [cmd]</p>
+        <p>Size: 64 JavaScript modules in <code>js/</code> (27,963 lines) and 12 built-in tools in <code>js/tools/builtin/</code> (970 lines); 13 Python modules in <code>py/</code> (4,909 lines); 14 style sheets (8,367 lines); 834 translation keys per language; 3 third-party bundles in <code>js/vendor/</code>. [cmd]</p>
+        <p>The suite has fewer cases than in 9.2.3 (864) while covering more features: milestones M24, M32 and M41 removed trivial, duplicate or absence tests and left each behavior tested once, at the lowest level that observes it.</p>
       </div>
 
       <div class="card">
         <h2>2. Rules and tests</h2>
-        <p>Each row represents an <code>AGENTS.md</code> rule and its presence in subsystems. The central column indicates the automated test protecting it continuously.</p>
+        <p>Each row is a rule from <code>AGENTS.md</code> (by section) or from a subsystem README, with the test that protects it continuously.</p>
         <div class="table-responsive">
           <table>
-            <thead><tr><th>Rule</th><th>Protection</th><th>Current state</th></tr></thead>
+            <thead><tr><th>Rule</th><th>Protection</th><th>State today</th></tr></thead>
             <tbody>
-              <tr><td>Dependencies with <code>resolveDep</code> or the UMD factory, no <code>window.X || require</code></td><td>[test] <code>test_code_hygiene.js</code></td><td>Passes</td></tr>
-              <tr><td>No unused functions or functions exported solely for tests; no unread variables</td><td>[test] <code>test_code_hygiene.js</code></td><td>Passes</td></tr>
-              <tr><td>No fallbacks for always-loaded modules or guards on always-present elements</td><td>[test] <code>test_code_hygiene.js</code></td><td>Passes</td></tr>
-              <tr><td>Events bound once in <code>mount()</code>, with delegated listeners</td><td>[test] <code>test_ui_listeners.js</code> and <code>test_ui_mcp.js</code></td><td>Passes</td></tr>
-              <tr><td>No backwards compatibility code or dead branches</td><td>[no test]; not generally verifiable</td><td>Manual review on each change</td></tr>
-              <tr><td>Tests with real DOM (<code>installDom</code>, <code>withTestApp</code>), no simulated element objects</td><td>[reading]</td><td>Passes across the consolidated suite</td></tr>
-              <tr><td>Visible text with <code>ChatI18n</code>, keys in Spanish and English, no fallback text after <code>t()</code>, all keys used</td><td>[test] <code>test_i18n.js</code> and <code>test_i18n_literals.js</code></td><td>Passes: 717/717 synchronized keys</td></tr>
-              <tr><td><code>ChatState</code> only via atomic domain mutators</td><td>[test] <code>test_state_contract.js</code> (<code>ui</code> and <code>project</code> slices, immutability in <code>app.js</code>)</td><td>Passes</td></tr>
-              <tr><td>UMD pattern in reusable modules</td><td>Implicit: Node tests load modules with <code>require</code></td><td>Passes</td></tr>
-              <tr><td>Providers extending <code>BaseProviderAdapter</code></td><td>[test] <code>test_providers.js</code></td><td>Passes: every registered adapter is <code>instanceof BaseProviderAdapter</code></td></tr>
-              <tr><td>Persistence only in <code>ChatStorage</code>, <code>ChatRagStorage</code>, and <code>ZeroChatDB</code></td><td>[test] <code>test_persistence_boundary.js</code></td><td>Passes: outside them, only <code>js/sandbox.js</code> references these APIs to block them</td></tr>
-              <tr><td>Dialogs exclusively with <code>ChatDialogs</code> (<code>alert</code>, <code>confirm</code>, <code>prompt</code>) using <code>await</code></td><td>[test] <code>test_dialogs.js</code></td><td>Passes</td></tr>
-              <tr><td>Programmatically injected chat messages exclusively in English</td><td>[test] <code>test_english_literals.js</code></td><td>Passes: no literals outside <code>i18n.js</code> in Spanish</td></tr>
-              <tr><td>No raw emojis in controls or icon catalog; SVG icons from <code>ChatIcons</code></td><td>[test] <code>test_ui_modernization.js</code> and <code>test_icon_sprite.js</code></td><td>Passes</td></tr>
-              <tr><td>Colors, radiuses, and shadows in <code>tokens.css</code>; no fallback in <code>var()</code>; toggle with <code>hidden</code></td><td>[test] <code>test_style_hygiene.js</code></td><td>Passes</td></tr>
-              <tr><td>Deferred rendering during streaming</td><td>[no test]</td><td>Not statically verifiable</td></tr>
-              <tr><td>Tool contract: only keys documented in <code>js/tools/README.md</code></td><td>[test] <code>test_builtin_tools.js</code></td><td>Passes</td></tr>
-              <tr><td>Explicit error handling, no empty <code>catch</code> blocks</td><td>[test] <code>test_error_handling.js</code></td><td>Passes</td></tr>
-              <tr><td>Backend: no <code>except Exception: pass</code>, <code>zz-main.py</code> last, <code>zerochat.py</code> identical to sorted concatenation of <code>py/</code>, paired tool definitions and handlers</td><td>[test] <code>test_backend_hygiene.js</code></td><td>Passes</td></tr>
-              <tr><td>Versions bumped exclusively with <code>npm run bump</code></td><td>[test] <code>test_versioning.js</code></td><td>Passes</td></tr>
-              <tr><td>The wheel package contains only the executable</td><td>[test] <code>tests/packaging_smoke_test.py</code> in CI</td><td>Passes</td></tr>
-              <tr><td>Bilingual help, with cross-links and series matching <code>package.json</code></td><td>[test] <code>test_help_pages.js</code></td><td>Passes: all pages cross-linked and on series 9.x</td></tr>
-              <tr><td>External data kept out of <code>innerHTML</code>: reviewed closed list and injection tests</td><td>[test] <code>test_html_sinks.js</code> (91 uses in 24 files) and injection tests (<code>test_charts.js</code>, <code>test_tool_cards.js</code>)</td><td>Passes</td></tr>
-              <tr><td>Single source of truth per decision and exact boundary limits (<code>N</code> and <code>N+1</code>) with truncation notices</td><td>[test] subsystem tests (<code>test_office_parser.js</code>, <code>test_image_fetcher.js</code>, <code>test_tool_security.js</code>)</td><td>Passes</td></tr>
+              <tr><td colspan="3"><strong>§2 Code quality</strong></td></tr>
+              <tr><td>One source per decision, and tests that import that source</td><td>[test] for the JS–Python contracts: <code>tests/fixtures/mcp/</code> (service statuses, engines, browsers, public tool names) is checked by both the Node and the Python tests; elsewhere, [reading]</td><td>Met</td></tr>
+              <tr><td>Dependencies through <code>resolveDep</code> or the UMD factory</td><td>[test] <code>test_code_hygiene.js</code></td><td>Met</td></tr>
+              <tr><td>Separate domain, persistence, adapters and presentation</td><td>[test] <code>test_persistence_boundary.js</code> and <code>test_state_contract.js</code>; model, view and controller zones in the dialogs (M38), [reading]</td><td>Met</td></tr>
+              <tr><td>Explicit errors</td><td>[test] <code>test_error_handling.js</code> (no empty <code>catch</code>) and <code>test_backend_hygiene.js</code> (no silent catch-alls in <code>py/</code>)</td><td>Met</td></tr>
+              <tr><td>No speculative or backward-compatibility code</td><td>[no test] in general; partial [test]: <code>test_code_hygiene.js</code> catches functions the app never runs</td><td>Manual review of each diff</td></tr>
+              <tr><td>Remove what becomes orphaned after a removal</td><td>[test] <code>test_code_hygiene.js</code> (functions and variables), <code>test_i18n_literals.js</code> (unused keys), <code>test_icon_sprite.js</code> (symbols and glyphs), <code>test_style_hygiene.js</code> (selectors and tokens)</td><td>Met</td></tr>
+              <tr><td>No production code used only by tests</td><td>[test] <code>test_code_hygiene.js</code></td><td>Met</td></tr>
+              <tr><td colspan="3"><strong>§3 Security</strong></td></tr>
+              <tr><td>External data kept out of <code>innerHTML</code>, closed list of uses</td><td>[test] <code>test_html_sinks.js</code> (93 uses in 24 files) and injection tests (<code>browser_tool_cards.test.js</code>)</td><td>Met</td></tr>
+              <tr><td>Commands, sandbox and sensitive data with boundary and authorization tests</td><td>[test] <code>py/test_run_command.py</code>, <code>test_tool_security.js</code>, <code>browser_sandbox_security.test.js</code>, <code>py/test_login.py</code></td><td>Met</td></tr>
+              <tr><td>Mandatory session token and listening on <code>127.0.0.1</code></td><td>[test] <code>test_local_server.js</code>, <code>py/test_token.py</code>, <code>py/test_network.py</code></td><td>Met</td></tr>
+              <tr><td colspan="3"><strong>§4 Tests</strong></td></tr>
+              <tr><td>Each behavior tested once, at the lowest level</td><td>[reading] reviews in M32 and M41</td><td>Met after the M41 pruning</td></tr>
+              <tr><td>Every cap tested at <code>N</code> and <code>N+1</code> with its notice</td><td>[test] cap by cap (<code>test_office_parser.js</code>, <code>test_local_server.js</code> with the 1 MiB body and the 4096-byte body without a token, <code>py/test_login.py</code> with the attempts); [no test] that every new cap gets one</td><td>Met for the reviewed caps</td></tr>
+              <tr><td colspan="3"><strong>§5 Git and versions</strong></td></tr>
+              <tr><td>Versions only through <code>npm run bump</code></td><td>[test] <code>test_versioning.js</code></td><td>Met</td></tr>
+              <tr><td>Promotion to <code>master</code> only from <code>dev</code>, with a bump and a green suite</td><td>[no test]: it is a procedure</td><td>Followed for every version since 9.2.3</td></tr>
+              <tr><td colspan="3"><strong>§6 Completion</strong></td></tr>
+              <tr><td>Spanish and English in sync in the interface and help</td><td>[test] <code>test_i18n.js</code> (same keys in both languages) and <code>test_help_pages.js</code> (translation, language and cross link of every page)</td><td>Met: 834/834 keys</td></tr>
+              <tr><td><code>sitemap.xml</code> regenerated when pages are added or removed</td><td>[test] <code>test_help_pages.js</code></td><td>Met: 50 pages</td></tr>
+              <tr><td>Backend rebuilt after changing <code>py/</code></td><td>[test] <code>test_backend_hygiene.js</code> (<code>zerochat.py</code> equals the concatenation of <code>py/</code>)</td><td>Met</td></tr>
+              <tr><td>Project memory (<code>.zerochat/</code>) up to date</td><td>[no test]; <code>task.py</code> updates it atomically</td><td>Met in M42</td></tr>
+              <tr><td colspan="3"><strong>Subsystem READMEs</strong></td></tr>
+              <tr><td>Events bound once in <code>mount()</code> and <code>ChatDialogs</code> dialogs always awaited</td><td>[test] <code>test_ui_listeners.js</code> and <code>test_code_hygiene.js</code></td><td>Met</td></tr>
+              <tr><td>Messages injected for the model in English and visible text through <code>ChatI18n</code></td><td>[test] <code>test_english_literals.js</code> and <code>test_i18n_literals.js</code></td><td>Met</td></tr>
+              <tr><td>Colors in <code>tokens.css</code>, no fallback in <code>var()</code>, hide with <code>hidden</code></td><td>[test] <code>test_style_hygiene.js</code></td><td>Met</td></tr>
+              <tr><td>No emojis; icons from the sprite and <code>ChatIcons</code></td><td>[test] <code>test_icon_sprite.js</code></td><td>Met</td></tr>
+              <tr><td><code>ChatState</code> only through its mutators</td><td>[test] <code>test_state_contract.js</code></td><td>Met</td></tr>
+              <tr><td>Only startup libraries load with the page and go into the precache</td><td>[test] <code>test_vendor_loading.js</code></td><td>Met</td></tr>
+              <tr><td>System prompt order for the context cache</td><td>[test] <code>test_context_cache_architecture.js</code></td><td>Met</td></tr>
+              <tr><td>Providers extend <code>BaseProviderAdapter</code></td><td>[test] <code>test_providers.js</code></td><td>Met</td></tr>
+              <tr><td>Public pages with a unique title and description</td><td>[test] <code>test_help_pages.js</code></td><td>Met</td></tr>
+              <tr><td>Backend: <code>zz-main.py</code> last and tool definitions paired with handlers</td><td>[test] <code>test_backend_hygiene.js</code></td><td>Met</td></tr>
+              <tr><td>The wheel only contains the executable</td><td>[test] <code>tests/packaging_smoke_test.py</code> in the release</td><td>Met in 9.11.0</td></tr>
             </tbody>
           </table>
         </div>
-        <p>Tally in version 9.2.3: <strong>21 rules protected by direct automated tests</strong>, 1 implicit (UMD), 1 verified by reading actual tests, and <strong>2 without general automated tests</strong> (the absence of backwards-compatibility code, checked via diff review, and deferred rendering during streaming).</p>
+        <p>Count: of 29 rules, <strong>23 are protected by tests</strong>, 2 partly (one source per decision, caps at the boundary), 1 relies on reading the test reviews, and <strong>3 have no automated test</strong>: the absence of speculative or compatibility code, promotion to <code>master</code>, and project memory. The last two are procedures; the first is only watched by reviewing diffs.</p>
       </div>
 
       <div class="card">
         <h2>3. Local server security</h2>
         <ul>
-          <li><strong>Mandatory session token</strong> on all backend requests. [test] <code>test_local_server.js</code></li>
-          <li><strong>Daily token</strong> in <code>~/zerochat/config/token.json</code> with <code>0600</code> permissions and <code>0700</code> directory. [test] <code>py/test_token.py</code> (skipped on Windows)</li>
-          <li><strong>Loopback listening</strong> by default, with an alert when configured for a non-local host. [test] <code>py/test_network.py</code></li>
-          <li><strong>HMAC signature for each tool call</strong> with a single-use nonce. [test] <code>test_local_server.js</code></li>
-          <li><strong>Bounded commands</strong>: 30 s default, 600 s maximum, and process tree termination; Job Object on Windows. [test] <code>py/test_run_command.py</code>; the Job Object test only runs on Windows and was skipped here</li>
-          <li><strong>JavaScript sandbox</strong>: opaque-origin <code>iframe</code> with CSP <code>connect-src 'none'</code>; not a security barrier, as stated in help docs. [test] <code>test_sandbox.js</code> and <code>browser_sandbox_security.test.js</code></li>
-          <li><strong>Tool permissions</strong>: <code>ask</code>, <code>allow_all</code>, and <code>workspace_trust</code> policies, directory rules and authorized commands with path traversal blocking. [test] <code>test_tool_security.js</code></li>
-          <li><strong>SSRF protection and URL/MIME validation</strong>: in web downloads of documents (<code>download_doc</code>) and images (<code>download_image</code>). [test] <code>test_fetch_page.js</code> and <code>test_image_fetcher.js</code></li>
+          <li><strong>Mandatory daily token</strong> on every request, in headers only. It expires at the day change even with the server running: the old one gets a 401 and a new one is generated. [test] <code>test_local_server.js</code>, <code>py/test_token.py</code></li>
+          <li><strong>Sign-in with the system account</strong>: without a token only sign-in is served, with a body of at most 4096 bytes. The password is checked with PAM (Linux and macOS) or <code>LogonUserW</code> (Windows) and never stored. After 5 failures in a row, attempts are rejected for 15 minutes without checking them. [test] <code>py/test_login.py</code>, <code>test_local_server.js</code></li>
+          <li><strong>No trust in the reverse proxy</strong>: the header the proxy routes by grants no access; behind it the token and sign-in are still required. [test] <code>test_local_server.js</code> and <code>browser_connection.test.js</code></li>
+          <li><strong>POST-only API</strong> over JSON-RPC, with CORS origins from a closed list; GET only serves the interface in development. [test] <code>test_local_server.js</code></li>
+          <li><strong>Each tool call signed</strong> with HMAC, a single-use nonce and a 60 s window that tolerates ±30 s of clock skew. [test] <code>test_local_server.js</code></li>
+          <li><strong>Bounded HTTP body</strong> of 1 MiB, except the <code>--prompt --export</code> export (64 MB). [test] <code>test_local_server.js</code></li>
+          <li><strong>Loopback listening</strong> by default, with a warning for any other host. [test] <code>py/test_network.py</code></li>
+          <li><strong>Server web transport</strong> with SSRF protection on the requested URL and on every redirect, and a bounded body. [test] <code>py/test_network.py</code></li>
+          <li><strong>Bounded commands</strong>: timeout, termination of the process group and cleanup of orphans from earlier sessions; on Windows, a Job Object. [test] <code>py/test_run_command.py</code> (the Job Object test only runs on Windows)</li>
+          <li><strong>JavaScript sandbox</strong> in an opaque-origin <code>iframe</code> without network; the help warns that it is not a security barrier. [test] <code>browser_sandbox_security.test.js</code></li>
+          <li><strong>Tool permissions</strong>: <code>ask</code>, <code>workspace_trust</code> and <code>allow_all</code> policies, directory rules and traversal checks. [test] <code>test_tool_security.js</code></li>
         </ul>
       </div>
 
@@ -111,13 +126,15 @@
         <h2>4. Accepted risks</h2>
         <div class="table-responsive">
           <table>
-            <thead><tr><th>Risk</th><th>Status</th></tr></thead>
+            <thead><tr><th>Risk</th><th>Situation</th></tr></thead>
             <tbody>
-              <tr><td>Shared origin <code>albalday.github.io</code></td><td>Other pages on the same origin can read cookies, <code>localStorage</code> and IndexedDB. Accepted in <code>AGENTS.md</code> §4 as long as this origin only hosts own pages.</td></tr>
-              <tr><td>Non-local <code>--host</code></td><td>Exposes command execution to the unencrypted network; startup logs a warning.</td></tr>
-              <tr><td>WebLLM from CDN</td><td>The engine is dynamically imported from <code>cdn.jsdelivr.net</code> if this provider is selected.</td></tr>
-              <tr><td>Web tools</td><td>DuckDuckGo search and external URL reading go through the local server or, without it, Jina Reader; downloads without the local server are direct.</td></tr>
-              <tr><td>Remote providers</td><td>Messages are sent to the configured provider if using cloud APIs. With a local LLM, this risk does not apply to chat.</td></tr>
+              <tr><td>Shared origin <code>albalday.github.io</code></td><td>Other pages on the same origin could read the session cookie, <code>localStorage</code> and IndexedDB. Accepted while the origin only publishes the project's own pages.</td></tr>
+              <tr><td>Proxy key unencrypted in the browser</td><td>Stored in the local configuration (M42-D17): it only opens the proxy door, and the server still requires the daily token and sign-in. It is only sent to the configured URL.</td></tr>
+              <tr><td>System account lockout</td><td>If the computer locks accounts after failed attempts (for example, <code>pam_faillock</code>) with a limit below 5, failures from the web could lock the account. The help explains how to avoid it.</td></tr>
+              <tr><td>Non-local <code>--host</code></td><td>Exposes command execution to the network without encryption; startup warns. For remote access, the SSH tunnel and the HTTPS reverse proxy are documented.</td></tr>
+              <tr><td>WebLLM from a CDN</td><td>The engine is imported from <code>cdn.jsdelivr.net</code> when this provider is used.</td></tr>
+              <tr><td>Web tools</td><td>DuckDuckGo search and page reading go through the local server or, without it, through Jina Reader.</td></tr>
+              <tr><td>Remote providers</td><td>With a cloud API, messages go to the configured provider; with a local LLM they do not.</td></tr>
             </tbody>
           </table>
         </div>
@@ -125,53 +142,31 @@
 
       <div class="card">
         <h2>5. Findings</h2>
-        <p>No active findings or regressions are detected in version 9.2.3. All architecture (46/46), infrastructure (41/42), integration (368/368), unit (305/305), and browser (103/103) test suites pass cleanly.</p>
         <div class="table-responsive">
           <table>
-            <thead><tr><th>Area</th><th>Current state</th><th>Verification</th></tr></thead>
+            <thead><tr><th>Id</th><th>Finding</th><th>Risk and priority</th><th>Proposal</th></tr></thead>
             <tbody>
-              <tr><td><strong>Code hygiene</strong></td><td>No orphaned functions or variables, no redundant guards over loaded modules.</td><td>[test] <code>test_code_hygiene.js</code></td></tr>
-              <tr><td><strong>Persistence boundary</strong></td><td>No module outside <code>storage.js</code>, <code>storage-db.js</code>, and <code>ragStorage.js</code> touches web storage or cookies.</td><td>[test] <code>test_persistence_boundary.js</code></td></tr>
-              <tr><td><strong>Injection and HTML sinks</strong></td><td>Closed, audited list of 91 HTML assignments in 24 files, protected with <code>escapeHtml</code> or sanitized Markdown.</td><td>[test] <code>test_html_sinks.js</code></td></tr>
-              <tr><td><strong>Bilingual consistency</strong></td><td>717 keys perfectly synchronized between Spanish and English, with no orphaned interface literals.</td><td>[test] <code>test_i18n.js</code>, <code>test_i18n_literals.js</code></td></tr>
-              <tr><td><strong>Data caps and boundaries</strong></td><td>Row, image size, and byte caps tested at exact <code>N</code> and <code>N+1</code> boundaries with truncation notices checked.</td><td>[test] <code>test_office_parser.js</code>, <code>test_image_fetcher.js</code></td></tr>
+              <tr><td>F-01</td><td>The Windows-only paths (<code>LogonUserW</code> for sign-in and the Job Object for commands) run in no test: CI only uses <code>ubuntu-latest</code> and the Job Object test is skipped.</td><td>Stability; medium</td><td>A CI job on <code>windows-latest</code> for the Python infrastructure tests, with a <code>LogonUserW</code> case that rejects a wrong password.</td></tr>
+              <tr><td>F-02</td><td>A successful PAM sign-in has no automated test: the tests mock the check and, by hand, only the rejection of a nonexistent user and the project owner's real use have been tried.</td><td>Security; low</td><td>In CI, a temporary user with a known password that runs the check on its own account.</td></tr>
+              <tr><td>F-03</td><td><code>js/app.js</code> (1,020 lines) and <code>js/mcp.js</code> (1,058) keep growing with coordination: the backend session (startup fragment, connection and sign-in) lives in <code>app.js</code>.</td><td>Technical debt; low</td><td>Move the backend session to its own domain module the next time it changes.</td></tr>
             </tbody>
           </table>
         </div>
+        <p><strong>Resolved in this version:</strong> a browser startup test assumed no real zerochat was listening on <code>127.0.0.1:6388</code>; with one running, its 401 opened the sign-in dialog. The test now blocks that address.</p>
       </div>
 
       <div class="card">
-        <h2>6. Assessment</h2>
-        <p><strong>Solid and well-protected infrastructure</strong>. Development from 9.1.0 to 9.2.3 has reinforced quality standards: adding office document ingestion, native XLSX parsing, multimodal vision tools, and automated project memory was completed without accumulating technical debt, adhering to the single source of truth rule and introducing boundary tests for every new capacity limit.</p>
+        <h2>6. Verdict</h2>
+        <p><strong>Solid infrastructure, with the network surface redesigned without losing protection.</strong> Since 9.2.3 the local server has moved to a POST-only transport, a daily token that expires while running, sign-in with the system account and remote access by tunnel or reverse proxy; each of those changes arrived with its tests. The suite is smaller and faster than in 9.2.3 and covers more features. What remains is Windows coverage (F-01), which today is only tested by hand.</p>
       </div>
 
-      <div class="card" id="cierre">
-        <h2>7. Current verification state</h2>
-        <p>Verification on 16 October 2026 on <code>dev</code> (commit <code>924aef6</code>), following <code>docs/audits/AuditFull.md</code>:</p>
-        <div class="table-responsive">
-          <table>
-            <thead><tr><th>Command</th><th>Result</th></tr></thead>
-            <tbody>
-              <tr><td><code>npm test</code> (all levels)</td><td>864 tests: 863 passed and 1 skipped (Windows Job Object)</td></tr>
-              <tr><td><code>npm run test:unit</code></td><td>305/305</td></tr>
-              <tr><td><code>npm run test:integration</code></td><td>368/368</td></tr>
-              <tr><td><code>npm run test:infrastructure</code></td><td>41/42</td></tr>
-              <tr><td><code>npm run test:architecture</code></td><td>46/46 in 14 files</td></tr>
-              <tr><td><code>npm run test:browser</code></td><td>103/103 in headless Chromium</td></tr>
-              <tr><td><code>npm run build</code></td><td>No differences in generated files or bundled dependencies</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <p>The entire suite passes cleanly without errors or warnings.</p>
-      </div>
-
-      <div class="card" id="autoria">
+      <div class="card" id="authorship">
         <h2>Authorship and verification environment</h2>
         <div class="alert alert-info">
           <ul>
-            <li><strong>Review and drafting:</strong> Antigravity (Gemini 3.8 Flash), following the project lead's instructions and the canonical procedure in <code>docs/audits/AuditFull.md</code>.</li>
-            <li><strong>Environment:</strong> Linux x86_64, Node.js 24.18.1, Python 3.14.7, Playwright 1.62.1 with headless Chromium.</li>
-            <li><strong>Reproduction:</strong> baseline commands and full test suite.</li>
+            <li><strong>Review and writing:</strong> Claude Opus 5.5 in Claude Code, from the project owner's instructions and the <code>docs/audits/AuditFull.md</code> procedure.</li>
+            <li><strong>Environment:</strong> Linux x86_64, Node.js 24.21.0, Python 3.14.8, Playwright 1.62.1 with headless Chromium.</li>
+            <li><strong>Reproduction:</strong> the baseline commands.</li>
           </ul>
         </div>
       </div>
@@ -189,7 +184,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat 9.x · Review 1 (Infrastructure and rules) · 16 October 2026</p>
+      <p>ZeroChat 9.x · Review 1 (Infrastructure and rules) · 24 October 2026</p>
     </footer>
   </div>
 </body>

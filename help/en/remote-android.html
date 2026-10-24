@@ -26,7 +26,7 @@
 
     <div class="card" id="how-it-works">
       <h2>1. How it works</h2>
-      <p>The interface loads from GitHub Pages in the Android browser and talks to <code>127.0.0.1:6883</code> on the tablet itself. The SSH client (ConnectBot or Termux) forwards that port to <code>127.0.0.1:6883</code> on the home computer, where the <a href="install.html">local server</a> runs. Files, commands and MCP services are therefore the home computer's.</p>
+      <p>The interface loads from GitHub Pages in the Android browser and talks to <code>127.0.0.1:6883</code> on the tablet itself. The SSH client (ConnectBot or Termux) forwards that port to <code>127.0.0.1:6883</code> on the home computer, where the <a href="install.html">local server</a> runs. Files, commands and MCP services are therefore the home computer's. Without a tunnel, the home computer can also be published through a <a href="remote-proxy.html">reverse proxy</a>.</p>
       <ul>
         <li><strong>ZeroChat stays private:</strong> the server still listens only on <code>127.0.0.1</code>; only SSH is reachable from outside.</li>
         <li><strong>Port 6883:</strong> different from the default 6388, so the desktop ZeroChat and the tablet one can run side by side.</li>
