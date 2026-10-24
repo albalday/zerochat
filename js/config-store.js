@@ -56,7 +56,8 @@
     next.enableRawLogs = next.enableRawLogs === true;
     next.enableDebugMessages = next.enableDebugMessages === true;
     next.enableContextCache = next.enableContextCache !== false;
-    next.backendUrl = Utils.normalizeBackendUrl(next.backendUrl) || DEFAULTS.backendUrl;
+    next.localBackend = next.localBackend !== false;
+    next.backendUrl = Utils.normalizeBackendUrl(next.backendUrl) || '';
     next.useProxy = next.useProxy === true;
     next.proxyKey = typeof next.proxyKey === 'string' ? next.proxyKey.trim() : '';
     next.projectMode = next.projectMode !== false;

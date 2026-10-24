@@ -383,6 +383,14 @@
     if (btn) btn.title = t('tool_btn_expand');
   }
 
+  function expandCard(card) {
+    const cardEl = card.querySelector('.tool-execution-card, .chat-chart-card');
+    if (!cardEl) return;
+    cardEl.classList.remove('collapsed');
+    const btn = cardEl.querySelector('.btn-tool-collapse');
+    if (btn) btn.title = t('tool_btn_collapse');
+  }
+
   /** Tarjeta de una herramienta sin vista propia: nombre, argumentos y estado. */
   function createGenericCard(name, args, completed) {
     const card = createCardWrapper();
@@ -402,11 +410,17 @@
 
   function createLiveToolCard(name, args) {
     const view = getView(name);
-    return view ? view.createLiveCard(args, viewContext()) : createGenericCard(name, args, false);
+    const card = view ? view.createLiveCard(args, viewContext()) : createGenericCard(name, args, false);
+    const displayMode = resolveToolDisplayMode(name) || 'collapsed';
+    if (displayMode === 'collapsed') collapseCard(card);
+    return card;
   }
 
-  /** Muestra el resultado; la vista puede devolver true para mantener la tarjeta abierta. */
-  function updateLiveToolCard(card, name, args, result, elapsedMs, options = {}) {
+  /**
+   * Muestra el resultado sin cambiar si la tarjeta está desplegada; la vista puede devolver true para
+   * desplegarla (una captura, un comando que sigue en segundo plano).
+   */
+  function updateLiveToolCard(card, name, args, result, elapsedMs) {
     const view = getView(name);
     let keepExpanded = false;
     if (view) {
@@ -416,8 +430,7 @@
         ? `${t('tool_status_success')} (${elapsedMs}ms)`
         : t('tool_status_error', { ms: elapsedMs }));
     }
-    const displayMode = options.displayMode || resolveToolDisplayMode(name) || 'collapsed';
-    if (displayMode === 'collapsed' && !keepExpanded) collapseCard(card);
+    if (keepExpanded) expandCard(card);
   }
 
   /**
@@ -470,9 +483,11 @@
     const serverId = options.serverId || '';
     const signal = options.signal;
 
-    // La tarjeta se despliega para que la petición quede a la vista.
+    // La tarjeta se despliega para que la petición quede a la vista y, si estaba plegada, vuelve a
+    // plegarse en cuanto se decide: no queda abierta solo por haber preguntado.
     const cardEl = card.querySelector('.tool-execution-card') || card;
     const toolGroup = card.closest('.tool-call-group');
+    const wasCollapsed = cardEl.classList.contains('collapsed');
     cardEl.classList.remove('collapsed');
     cardEl.classList.add('tool-card-auth-active');
     toolGroup?.classList.add('tool-call-group-auth-active');
@@ -543,6 +558,7 @@
       const cleanup = () => {
         authPromptEl.remove();
         cardEl.classList.remove('tool-card-auth-active');
+        if (wasCollapsed) collapseCard(card);
         if (!toolGroup?.querySelector('.tool-card-auth-active')) {
           toolGroup?.classList.remove('tool-call-group-auth-active');
         }
@@ -669,8 +685,8 @@
             scrollToBottom();
             return promptToolAuthorization(element, toolCall, authorization);
           },
-          complete(result, elapsedMs, displayMode) {
-            updateLiveToolCard(element, name, args, result, elapsedMs, { displayMode });
+          complete(result, elapsedMs) {
+            updateLiveToolCard(element, name, args, result, elapsedMs);
             completeToolCard(element, result);
             attachListeners(element);
             scrollToBottom();

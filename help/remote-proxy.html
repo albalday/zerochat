@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Servidor remoto tras un proxy inverso · Ayuda de ZeroChat · 9.x</title>
+  <meta name="description" content="Usar desde cualquier navegador el servidor local de ZeroChat de otro equipo publicado por un proxy inverso con HTTPS y clave propia, identificándose con la cuenta del sistema.">
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat 9.x Docs
+        </a>
+        <div class="header-actions">
+          <a href="en/remote-proxy.html" class="top-nav-link">English</a>
+          <a href="index.html" class="top-nav-link">← Volver al Índice</a>
+        </div>
+      </div>
+      <h1>Servidor remoto tras un proxy inverso</h1>
+      <p class="subtitle">Un proxy inverso con HTTPS publica el servidor local de otro equipo para usarlo desde cualquier navegador, sin túneles.</p>
+    </header>
+
+    <div class="card" id="como-funciona">
+      <h2>1. Cómo funciona</h2>
+      <p>El <a href="install.html">servidor local</a> corre en el equipo remoto como un servicio, escuchando solo en <code>127.0.0.1</code>. Delante, en el mismo equipo, un proxy inverso (por ejemplo, Caddy) es la única puerta de entrada desde fuera: cifra la conexión con HTTPS y exige su propia clave. Las peticiones de ZeroChat las reconoce y las pasa al servidor local; el resto puede seguir yendo a otros servicios, como el servidor de modelos.</p>
+      <p>Hay dos barreras independientes:</p>
+      <ul>
+        <li><strong>La clave del proxy</strong> decide quién llega al equipo. Sin ella, el proxy no deja pasar nada.</li>
+        <li><strong>La cuenta del sistema</strong> decide quién usa ZeroChat. El servidor local no confía en el proxy: cada petición necesita el token del día, y para obtenerlo hay que identificarse con el usuario y la contraseña de la cuenta que ejecuta zerochat.</li>
+      </ul>
+      <p>Frente al <a href="remote-android.html">túnel SSH</a>, no hace falta un cliente SSH ni mantener una sesión abierta, y sirve igual desde el móvil, la tablet u otro ordenador.</p>
+    </div>
+
+    <div class="card" id="servidor">
+      <h2>2. Preparar el equipo remoto</h2>
+      <h3>El servidor local como servicio</h3>
+      <p>Arranca zerochat con tu usuario, desde el directorio del proyecto, sin abrir el navegador y sin cerrarse al cerrar la pestaña:</p>
+      <div class="code-wrapper"><pre><code>zerochat --no-browser --keep-server</code></pre></div>
+      <ul>
+        <li><strong>Escucha solo en el propio equipo:</strong> no uses <code>--host</code> con una dirección pública; la única entrada desde fuera es el proxy.</li>
+        <li><strong>La cuenta importa:</strong> la cuenta con la que arranca zerochat es la que se identifica desde el navegador, y sus permisos son los de las herramientas.</li>
+        <li><strong>Sin latido:</strong> con <code>--keep-server</code> la página no envía latidos periódicos; relee el estado del servidor al volver a la pestaña.</li>
+      </ul>
+      <h3>El proxy inverso</h3>
+      <p>El proxy tiene que hacer tres cosas:</p>
+      <ol>
+        <li>Servir HTTPS con un certificado que el navegador acepte, porque la interfaz se carga desde GitHub Pages por HTTPS y el navegador bloquea las conexiones sin cifrar a otros equipos.</li>
+        <li>Comprobar su clave y pasar las peticiones de ZeroChat al servidor local del propio equipo.</li>
+        <li>Permitir las comprobaciones previas de CORS que el navegador hace antes de cada petición, que no llevan la clave.</li>
+      </ol>
+      <p>El servidor local no necesita la clave del proxy: lo recomendable es que el proxy no se la reenvíe.</p>
+    </div>
+
+    <div class="card" id="navegador">
+      <h2>3. Conectar desde el navegador</h2>
+      <ol>
+        <li>Abre <a href="https://albalday.github.io/zerochat/zerochat.html">ZeroChat</a> y abre el panel de <strong>Conexión</strong> (el icono del enchufe, junto a la rueda de configuración de la barra lateral).</li>
+        <li>Desactiva <strong>Conexión local</strong> y escribe la dirección del proxy como URL del servidor local: solo el protocolo, el nombre y el puerto, por ejemplo <code>https://mi-servidor:12345</code>.</li>
+        <li>Activa <strong>Usar proxy</strong>, escribe su clave y pulsa <strong>Conectar</strong>.</li>
+        <li>Identifícate con el usuario y la contraseña de la cuenta que ejecuta zerochat en el equipo remoto.</li>
+      </ol>
+      <ul>
+        <li><strong>Qué se guarda:</strong> la URL y la clave del proxy quedan en la configuración del navegador; el token del día, en su cookie de sesión. La contraseña nunca se guarda.</li>
+        <li><strong>La clave solo va a su destino:</strong> se envía únicamente a la URL configurada. Si en el mismo navegador abres un zerochat local, esa conexión no la recibe.</li>
+        <li><strong>Configuración global:</strong> la conexión no forma parte de los perfiles; los perfiles siguen eligiendo el modelo, sus servicios MCP y su navegador.</li>
+      </ul>
+    </div>
+
+    <div class="card" id="seguridad">
+      <h2>4. Identificación y seguridad</h2>
+      <ul>
+        <li><strong>Token diario:</strong> caduca a medianoche también con el servidor en marcha. La página vuelve entonces a pedir el usuario y la contraseña; el servidor y sus comandos siguen.</li>
+        <li><strong>Intentos limitados:</strong> tras 5 intentos fallidos seguidos, zerochat rechaza los siguientes durante 15 minutos sin comprobarlos.</li>
+        <li><strong>Bloqueo de cuentas del sistema:</strong> si el equipo bloquea la cuenta tras varios fallos (por ejemplo, con <code>pam_faillock</code>), deja ese límite por encima del de zerochat. Si no, unos intentos fallidos desde la web podrían bloquear también el inicio de sesión local.</li>
+        <li><strong>Herramientas firmadas:</strong> cada llamada a una herramienta va firmada para esa sesión y caduca en segundos, aunque alguien vea pasar la petición.</li>
+      </ul>
+    </div>
+
+    <div class="card" id="problemas">
+      <h2>5. Situaciones habituales</h2>
+      <div class="table-responsive"><table>
+        <thead><tr><th>Situación</th><th>Qué pasa</th></tr></thead>
+        <tbody>
+          <tr><td>Conectar dice que no se puede alcanzar el servidor</td><td>El servidor remoto o el proxy no responden, o la clave del proxy es incorrecta: un proxy que no da pistas a quien no tiene la clave responde igual que si no hubiera nada. Revisa la URL y la clave.</td></tr>
+          <tr><td>La URL no se acepta</td><td>Solo se admite el origen: <code>https://</code>, el nombre y el puerto, sin ruta.</td></tr>
+          <tr><td>La página pide identificarse</td><td>No había sesión guardada en el navegador o el token del día ha caducado. Identifícate de nuevo.</td></tr>
+          <tr><td>Las herramientas fallan por autorización caducada</td><td>Los relojes del navegador y del equipo remoto difieren en más de 30 s. Activa la fecha y hora automáticas en los dos.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <footer>
+      <p>ZeroChat 9.x · Ayuda de uso personal</p>
+    </footer>
+  </div>
+  <script src="help.js"></script>
+</body>
+</html>

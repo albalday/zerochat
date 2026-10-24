@@ -26,7 +26,7 @@
 
     <div class="card" id="como-funciona">
       <h2>1. Cómo funciona</h2>
-      <p>La interfaz se carga desde GitHub Pages en el navegador de Android y habla con <code>127.0.0.1:6883</code> de la propia tablet. El cliente SSH (ConnectBot o Termux) redirige ese puerto al <code>127.0.0.1:6883</code> del equipo de casa, donde corre el <a href="install.html">servidor local</a>. Así, archivos, comandos y servicios MCP son los de casa.</p>
+      <p>La interfaz se carga desde GitHub Pages en el navegador de Android y habla con <code>127.0.0.1:6883</code> de la propia tablet. El cliente SSH (ConnectBot o Termux) redirige ese puerto al <code>127.0.0.1:6883</code> del equipo de casa, donde corre el <a href="install.html">servidor local</a>. Así, archivos, comandos y servicios MCP son los de casa. Sin túnel, el equipo de casa también puede publicarse con un <a href="remote-proxy.html">proxy inverso</a>.</p>
       <ul>
         <li><strong>Sin exponer ZeroChat:</strong> el servidor sigue escuchando solo en <code>127.0.0.1</code>; lo único accesible desde fuera es SSH.</li>
         <li><strong>Puerto 6883:</strong> distinto del 6388 por defecto, para que convivan el ZeroChat del escritorio y el de la tablet.</li>
@@ -75,8 +75,8 @@ AllowTcpForwarding local</code></pre></div>
       <div class="code-wrapper"><pre><code>ssh -t -L 6883:127.0.0.1:6883 -L 1234:127.0.0.1:1234 usuario@casa 'cd ~/proyectos/mi-proyecto &amp;&amp; zerochat --no-browser --keep-server --port 6883'</code></pre></div>
       <h3>En el navegador</h3>
       <ol>
-        <li>Abre <a href="https://albalday.github.io/zerochat/zerochat.html">ZeroChat</a> y ve a <strong>Ajustes › Conexión</strong>.</li>
-        <li>Escribe <code>http://127.0.0.1:6883</code> como URL del servidor local, deja <strong>Usar proxy</strong> desactivado y pulsa <strong>Conectar</strong>.</li>
+        <li>Abre <a href="https://albalday.github.io/zerochat/zerochat.html">ZeroChat</a> y abre el panel de <strong>Conexión</strong> (el icono del enchufe, junto a la rueda de configuración de la barra lateral).</li>
+        <li>Desactiva <strong>Conexión local</strong>, escribe <code>http://127.0.0.1:6883</code> como URL del servidor local, deja <strong>Usar proxy</strong> desactivado y pulsa <strong>Conectar</strong>.</li>
         <li>Identifícate con el usuario y la contraseña de la cuenta que ejecuta ZeroChat en casa. La página guarda el token del día, nunca la contraseña.</li>
       </ol>
       <ul>

@@ -158,6 +158,7 @@
       setSidebarMode(elements, 'settings');
       callbacks.onOpenSettingsMode();
     });
+    listen(elements.btnOpenConnection, 'click', () => callbacks.onOpenConnection());
     listen(elements.btnSidebarBackToChats, 'click', () => {
       setSidebarMode(elements, 'chat');
       callbacks.onBackToChats();

@@ -1,6 +1,7 @@
 /**
- * Ajustes › Conexión y el diálogo de identificación. La sección guarda la URL del backend y, si está
- * detrás de un proxy inverso, «Usar proxy» con su clave; Conectar la aplica y prueba la conexión. El
+ * Panel de Conexión (icono de la cabecera de la barra lateral) y el diálogo de identificación. El panel
+ * usa por defecto el servidor local de este equipo; sin él, guarda la URL de otro servidor y, si está
+ * detrás de un proxy inverso, «Usar proxy» con su clave. Conectar lo aplica y prueba la conexión. El
  * diálogo pide el usuario y la contraseña de la cuenta del sistema que ejecuta zerochat.py cuando el
  * servidor responde 401 (sin token o caducado); la contraseña solo viaja en zerochat/login.
  */
@@ -30,13 +31,16 @@
     return error?.message || String(error);
   }
 
-  /** Valida los campos de la sección: devuelve `{ config }` con los ajustes de conexión o `{ error }`. */
-  function readConnectionForm({ url, useProxy, proxyKey }) {
+  /**
+   * Valida los campos de la sección: devuelve `{ config }` con los ajustes de conexión o `{ error }`.
+   * Con la conexión local los datos del servidor remoto se guardan como estén, para recuperarlos al desactivarla.
+   */
+  function readConnectionForm({ local, url, useProxy, proxyKey }) {
     const backendUrl = normalizeBackendUrl(url);
-    if (!backendUrl) return { error: t('connection_invalid_url') };
     const key = proxyKey.trim();
-    if (useProxy && !key) return { error: t('connection_proxy_key_missing') };
-    return { config: { backendUrl, useProxy, proxyKey: key } };
+    if (!local && !backendUrl) return { error: t('connection_invalid_url') };
+    if (!local && useProxy && !key) return { error: t('connection_proxy_key_missing') };
+    return { config: { localBackend: local, backendUrl: backendUrl || '', useProxy, proxyKey: key } };
   }
 
   /** Estado de la conexión con el servidor local en una línea: estado, destino y detalle. */
@@ -50,18 +54,21 @@
   let els = null;
   let callbacks = null;
 
-  const formValues = () => ({ url: els.url.value, useProxy: els.useProxy.checked, proxyKey: els.proxyKey.value });
+  const formValues = () => ({ local: els.local.checked, url: els.url.value, useProxy: els.useProxy.checked, proxyKey: els.proxyKey.value });
 
-  function syncProxyKey() {
+  /** La conexión local oculta los datos del servidor remoto; sin proxy, su clave. */
+  function syncFields() {
+    els.remoteFields.hidden = els.local.checked;
     els.proxyKeyField.hidden = !els.useProxy.checked;
   }
 
   /** Pinta los ajustes de conexión guardados. */
   function load(config) {
+    els.local.checked = config.localBackend;
     els.url.value = config.backendUrl;
     els.useProxy.checked = config.useProxy;
     els.proxyKey.value = config.proxyKey;
-    syncProxyKey();
+    syncFields();
     setText(els.error, '');
   }
 
@@ -118,13 +125,22 @@
   function mount(elements, mountCallbacks) {
     els = elements;
     callbacks = mountCallbacks;
-    els.useProxy.addEventListener('change', syncProxyKey);
+    els.local.addEventListener('change', syncFields);
+    els.useProxy.addEventListener('change', syncFields);
     els.connect.addEventListener('click', connect);
     els.loginForm.addEventListener('submit', submitLogin);
     els.loginCancel.addEventListener('click', () => els.loginDialog.close());
     const State = getState();
     let lastStatus = State.get('mcp').status;
-    const render = () => setText(els.status, describeConnection(State.get('mcp')));
+    const render = () => {
+      const mcp = State.get('mcp');
+      setText(els.status, describeConnection(mcp));
+      // El punto del icono de la barra lateral muestra el estado sin abrir el panel.
+      const label = t('btn_connection_status', { status: t(`mcp_status_${mcp.status}`) });
+      els.openButton.dataset.status = mcp.status;
+      els.openButton.title = label;
+      els.openButton.setAttribute('aria-label', label);
+    };
     State.subscribe('mcp', mcp => {
       render();
       // Se pide identificarse al pasar a login_required, no en cada latido que lo confirma.

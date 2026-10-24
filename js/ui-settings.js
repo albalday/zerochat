@@ -116,6 +116,7 @@
     elements.settingsDialog.querySelectorAll('.settings-section-pane').forEach(section => {
       section.classList.toggle('active', section.id === `settings-${targetId}`);
     });
+    elements.settingsDialog.dataset.section = targetId;
     elements.settingsSectionTitle.setAttribute('data-i18n', SECTION_TITLES[targetId]);
     elements.settingsSectionTitle.textContent = t(SECTION_TITLES[targetId]);
     getSidebar().setActiveSettingsSection(elements, targetId);
@@ -158,7 +159,8 @@
   async function closeSettingsPanelOnly(elements, force = false) {
     if (!await closeSettingsModal(elements, force)) return false;
     const Sidebar = getSidebar();
-    Sidebar.setSidebarMode(elements, 'settings');
+    // La conexión se abre desde la cabecera de la lista de chats: se vuelve a ella y no a las secciones.
+    Sidebar.setSidebarMode(elements, elements.settingsDialog.dataset.section === 'connection' ? 'chat' : 'settings');
     if (Sidebar.isMobile()) Sidebar.openSidebar(elements);
     return true;
   }
@@ -278,9 +280,20 @@
           <div class="settings-section-intro">
             <p data-i18n="connection_intro">Servidor local de ZeroChat al que se conecta esta página. Si falta el token o ha caducado, se pide el usuario y la contraseña de la cuenta que ejecuta zerochat.</p>
           </div>
+          <div class="setting-toggle-card">
+            <div class="toggle-card-info">
+              <div class="toggle-card-title"><span data-i18n="connection_local">Conexión local (127.0.0.1:6388)</span></div>
+              <p class="toggle-card-desc" data-i18n="connection_local_hint">El servidor local de este equipo en su puerto por defecto. Desactívala para conectar con otro equipo por túnel SSH o proxy inverso.</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="setting-local-backend" data-i18n-aria="connection_local" aria-label="Conexión local (127.0.0.1:6388)">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div id="connection-remote-fields" class="settings-pane-group" hidden>
           <div class="form-field">
-            <label for="setting-backend-url"><strong data-i18n="connection_backend_url">URL del servidor local</strong><span class="label-hint" data-i18n="connection_backend_url_hint">Por defecto http://127.0.0.1:6388. Para otro equipo, la dirección del túnel SSH o la del proxy inverso.</span></label>
-            <input type="url" id="setting-backend-url" placeholder="http://127.0.0.1:6388" autocomplete="off" spellcheck="false">
+            <label for="setting-backend-url"><strong data-i18n="connection_backend_url">URL del servidor local</strong><span class="label-hint" data-i18n="connection_backend_url_hint">La dirección del túnel SSH o la del proxy inverso, por ejemplo http://127.0.0.1:6883 o https://mi-servidor:12345.</span></label>
+            <input type="url" id="setting-backend-url" placeholder="https://mi-servidor:12345" autocomplete="off" spellcheck="false">
           </div>
           <div class="setting-toggle-card">
             <div class="toggle-card-info">
@@ -295,6 +308,7 @@
           <div id="setting-proxy-key-field" class="form-field" hidden>
             <label for="setting-proxy-key"><strong data-i18n="connection_proxy_key">Clave del proxy</strong></label>
             <input type="password" id="setting-proxy-key" autocomplete="new-password" spellcheck="false">
+          </div>
           </div>
           <div class="form-field">
             <button type="button" id="btn-backend-connect" class="btn-secondary" data-i18n="connection_btn_connect">Conectar</button>
@@ -331,7 +345,7 @@
               <svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-terminal"></use></svg>
               <strong data-i18n="mcp_bootstrap_title">MCP requiere el servidor local</strong>
             </div>
-            <p class="label-hint mcp-section-hint" data-i18n="mcp_bootstrap_desc">Instala ZeroChat desde PyPI y ejecútalo en un terminal: abre esta página ya conectada. Para un servidor en otro equipo, usa Ajustes › Conexión.</p>
+            <p class="label-hint mcp-section-hint" data-i18n="mcp_bootstrap_desc">Instala ZeroChat desde PyPI y ejecútalo en un terminal: abre esta página ya conectada. Para un servidor en otro equipo, usa el panel de Conexión (el icono del enchufe de la barra lateral).</p>
             <div class="mcp-cmd-row">
               <pre class="mcp-command-box mcp-cmd-box-flex"><code id="mcp-terminal-command">pip install zerochat
 zerochat</code></pre>

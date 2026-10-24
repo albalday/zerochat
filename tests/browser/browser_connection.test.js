@@ -54,11 +54,20 @@ test('Browser UI - Conectar pide identificarse ante un 401 y guarda el token dia
     await page.goto(`http://127.0.0.1:${server.address().port}/zerochat.html`, { waitUntil: 'load' });
     await waitForAppReady(page);
     assert.deepEqual(requests, [], 'sin sesión guardada no se conecta al arrancar');
+    const iconStatus = () => page.getAttribute('#btn-open-connection', 'data-status');
+    assert.equal(await iconStatus(), 'disconnected');
 
-    await page.click('#btn-open-settings');
-    await page.locator('#sidebar-settings-nav [data-section="connection"]').evaluate(item => item.click());
+    // La conexión se abre con su icono en la cabecera de la lista de chats, no desde las secciones de Ajustes.
+    assert.equal(await page.locator('#sidebar-settings-nav [data-section="connection"]').count(), 0);
+    await page.locator('#btn-open-connection').evaluate(button => button.click());
     await page.waitForSelector('#settings-connection.active');
     const t = key => page.evaluate(name => window.ChatI18n.t(name), key);
+
+    // Sin configuración, la conexión es la local y oculta los datos de un servidor remoto.
+    assert.equal(await page.isChecked('#setting-local-backend'), true);
+    assert.equal(await page.isVisible('#setting-backend-url'), false);
+    await page.locator('#setting-local-backend').evaluate(input => input.click());
+    assert.equal(await page.isVisible('#setting-backend-url'), true);
 
     // Una URL con ruta o el proxy sin clave no se aplican ni se prueban.
     await page.fill('#setting-backend-url', `${BACKEND}/zerochat`);
@@ -76,6 +85,7 @@ test('Browser UI - Conectar pide identificarse ante un 401 y guarda el token dia
     await page.click('#btn-backend-connect');
     await page.waitForFunction(() => document.getElementById('login-dialog').open);
     assert.equal(await page.evaluate(() => window.ChatState.get('mcp').status), 'login_required');
+    assert.equal(await iconStatus(), 'login_required');
     assert.match(await page.textContent('#login-desc'), /zerochat\.example/);
 
     await page.fill('#login-user', 'ana');
@@ -94,7 +104,7 @@ test('Browser UI - Conectar pide identificarse ante un 401 y guarda el token dia
       everything: JSON.stringify({ ...localStorage }) + document.cookie
     }));
     assert.deepEqual(stored.session, { token: 'token-de-hoy', url: BACKEND });
-    assert.deepEqual([stored.config.backendUrl, stored.config.useProxy, stored.config.proxyKey], [BACKEND, true, 'clave-caddy']);
+    assert.deepEqual([stored.config.localBackend, stored.config.backendUrl, stored.config.useProxy, stored.config.proxyKey], [false, BACKEND, true, 'clave-caddy']);
     assert.equal(stored.everything.includes('buena'), false, 'la contraseña no se guarda');
     // Con el proxy, Authorization lleva su clave y X-ZeroChat-Proxy lo enruta; el token va en X-ZeroChat-Token.
     for (const request of requests) {
@@ -102,6 +112,9 @@ test('Browser UI - Conectar pide identificarse ante un 401 y guarda el token dia
       assert.equal(request.headers.authorization, 'Bearer clave-caddy', request.method);
     }
     assert.match(await page.textContent('#backend-connection-status'), /ZeroChat Local Server 9\.10/);
+    // El icono de la barra lateral lo indica sin abrir el panel.
+    assert.equal(await iconStatus(), 'connected');
+    assert.equal(await page.getAttribute('#btn-open-connection', 'aria-label'), await page.evaluate(() => window.ChatI18n.t('btn_connection_status', { status: window.ChatI18n.t('mcp_status_connected') })));
   } finally {
     await browser.close();
     await stopStaticServer(server);

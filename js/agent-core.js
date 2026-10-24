@@ -333,7 +333,7 @@
       // Valor estable: el diálogo de autorización puede esperar al usuario.
       const parsed = this.parseArguments(toolCall.function.arguments);
       const args = parsed && Utils.clone(parsed);
-      const base = { tool, displayMode: tool.displayMode, args };
+      const base = { tool, args };
       if (!args) return failure('Invalid tool arguments: expected a JSON object. The tool was not executed.', base);
 
       const startTime = performance.now();
@@ -380,7 +380,7 @@
           : undefined
       });
       const shownResult = execRes.result || { success: false, error: execRes.error };
-      toolCard?.complete(shownResult, execRes.executionTimeMs, execRes.displayMode);
+      toolCard?.complete(shownResult, execRes.executionTimeMs);
 
       const tool = execRes.tool;
       let resultText;

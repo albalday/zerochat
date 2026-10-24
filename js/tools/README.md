@@ -8,7 +8,7 @@ Cada tool nativa vive en `js/tools/builtin/<nombre>.tool.js` y exporta la especi
 - `category`, `metadata`, `isAvailable(config)` y `settings` (`titleKey`, `descKey`, `defaultEnabled`, `showInSettings`).
 - `promptGuide`: línea de la guía del prompt de sistema para modelos sin firmas de herramientas.
 - `result`: `toModel(args, result)` (contenido del mensaje `tool`) y `toMarkdown(args, result)` (bloque para copiar y exportar).
-- `displayMode`: `collapsed` (por defecto) o `expanded`.
+- `displayMode`: `collapsed` (por defecto) o `expanded`. Una tarjeta `collapsed` nace plegada y no se despliega sola: solo para pedir autorización, tras la que vuelve a plegarse, o cuando su vista lo pide al terminar (una captura, un comando en segundo plano). Lo que despliega el usuario queda desplegado.
 - `view`: tarjeta opcional con `createLiveCard(args, ui)` y `updateLiveCard(card, args, result, elapsedMs, ui)`, que devuelve `true` para mantener la tarjeta abierta. Para el historial, `ChatToolCards` crea la tarjeta y le pasa a `updateLiveCard` el mensaje `tool` guardado: el JSON que recibió el modelo, o `{ content }` si era texto (`content` lleva siempre el texto original). Solo las vistas que necesitan otra cosa definen `renderHistoricalCard(args, message, ui)`.
 
 `context.services` resuelve al usarlos los módulos de `TOOL_SERVICES` (`js/agent-core.js`); el contexto de la llamada puede sustituir cualquiera, y así lo hacen las pruebas. Una dependencia nueva se añade a esa tabla.
