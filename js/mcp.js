@@ -1,7 +1,7 @@
 /**
  * Integración MCP (Model Context Protocol) de ZeroChat con el servidor local zerochat.py.
  *
- * - Transporte JSON-RPC 2.0 sobre HTTP y SSE (EventSource o fetch en streaming).
+ * - Transporte JSON-RPC 2.0 por POST.
  * - El servidor local expone sus herramientas (`mcp_proxy`) y las de los servicios MCP externos que
  *   gestiona por stdio (`mcp_external`); el navegador no lanza procesos.
  * - Las cabeceras y tokens solo viven en el cliente HTTP: nunca llegan al prompt ni al ejecutor de
@@ -73,7 +73,7 @@
   const getSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
 
-  const proxyEndpoint = (host, port) => `http://${host}:${port}/sse`;
+  const proxyEndpoint = (host, port) => `http://${host}:${port}`;
 
   // Escrituras del servidor local cuyo resultado lleva la ruta absoluta del fichero (botón Diff).
   const FILE_WRITE_TOOLS = new Set(['write_file', 'edit_file']);
@@ -148,20 +148,18 @@
     try {
       const initResult = await client.initialize({ timeoutMs });
       if (initResult.success) {
-        return { success: true, latencyMs: latency(), serverInfo: initResult.serverInfo, capabilities: initResult.capabilities };
+        return { success: true, latencyMs: latency(), serverInfo: initResult.serverInfo, capabilities: initResult.capabilities, liveState: initResult.liveState };
       }
       return { success: false, error: describe(initResult.error), latencyMs: latency() };
     } catch (err) {
       return { success: false, error: describe(err.message || 'Connection error'), latencyMs: latency() };
-    } finally {
-      client.disconnect();
     }
   }
 
   function isTransportFailure(error) {
     if (!error || error.name === 'AbortError') return false;
     const message = String(error.message || error).toLowerCase();
-    return /network|fetch|econnrefused|timeout|mcp connection closed|http 5\d\d|http 404/.test(message);
+    return /network|fetch|econnrefused|timeout|http 5\d\d/.test(message);
   }
 
   function base64Url(bytes) {
@@ -189,11 +187,6 @@
       this.id = config.id || `mcp_server_${Date.now()}`;
       this.name = config.name || 'MCP Server';
       this.url = (config.url || '').trim().replace(/\/+$/, '');
-      this.postUrl = null;
-      this.isSseActive = false;
-      this.sseSource = null;
-      this.sseReader = null;
-      this.pendingRequests = new Map();
       this.headers = config.headers || {};
       this.timeoutMs = config.timeoutMs || DEFAULT_TIMEOUT_MS;
       this.token = config.token || null;
@@ -209,29 +202,12 @@
     }
 
     /**
-     * Cierra de forma limpia la conexión SSE activa y resetea las URLs efímeras de sesión.
-     */
-    disconnect() {
-      this.sseSource?.close();
-      this.sseSource = null;
-      this.sseReader?.cancel().catch(() => {});
-      this.sseReader = null;
-      this.isSseActive = false;
-      this.postUrl = null;
-      for (const request of this.pendingRequests.values()) {
-        clearTimeout(request.timer);
-        request.reject(new Error('MCP connection closed'));
-      }
-      this.pendingRequests.clear();
-    }
-
-    /**
      * Construye las cabeceras HTTP necesarias, incluyendo autenticación si está configurada.
      */
     buildHeaders() {
       const headers = {
         'Content-Type': 'application/json',
-        'Accept': 'application/json, text/event-stream, */*',
+        'Accept': 'application/json',
         'X-ZeroChat-Client': '1'
       };
       if (this.token) {
@@ -272,195 +248,19 @@
     }
 
     /**
-     * Inicia o reutiliza la conexión SSE persistente para recibir el endpoint y respuestas asíncronas.
-     */
-    async connectSseStream(options = {}) {
-      if (!options.forceReconnect && this.postUrl && this.isSseActive) return this.postUrl;
-      this.disconnect();
-      const timeoutMs = options.timeoutMs || 4000;
-
-      return new Promise(resolve => {
-        let settled = false;
-        const finish = url => {
-          if (settled) return;
-          settled = true;
-          this.postUrl = url;
-          resolve(url);
-        };
-
-        let source;
-        const timer = setTimeout(() => {
-          source?.close();
-          if (this.sseSource === source) this.isSseActive = false;
-          finish(this.url);
-        }, timeoutMs);
-        // Sin canal SSE, las peticiones se envían directamente a la URL del servidor.
-        const fallBackToPost = () => {
-          clearTimeout(timer);
-          if (source && this.sseSource !== source) return;
-          this.isSseActive = false;
-          finish(this.url);
-        };
-
-        // EventSource cannot send authentication or custom HTTP headers.
-        if (typeof EventSource !== 'undefined' && !this.token && Object.keys(this.headers).length === 0) {
-          const es = new EventSource(this.url);
-          source = es;
-          this.sseSource = es;
-          this.isSseActive = true;
-          es.addEventListener('endpoint', evt => {
-            clearTimeout(timer);
-            finish(new URL((evt.data || '').trim(), this.url).toString());
-          });
-          es.addEventListener('message', evt => this._handleJsonRpcMessage(evt.data));
-          es.onerror = () => {
-            es.close();
-            fallBackToPost();
-          };
-          return;
-        }
-
-        const controller = new AbortController();
-        source = { close: () => {
-          controller.abort();
-          clearTimeout(timer);
-          finish(this.url);
-        } };
-        this.sseSource = source;
-        fetch(this.url, {
-          headers: { ...this.buildHeaders(), 'Accept': 'text/event-stream' },
-          signal: controller.signal,
-          // Firefox retiene otro GET a la misma URL mientras escribe en caché un stream abierto.
-          cache: 'no-store',
-          redirect: 'error'
-        }).then(async res => {
-          if (controller.signal.aborted || this.sseSource !== source) return;
-          if (!res.ok || !res.body) {
-            source.close();
-            fallBackToPost();
-            return;
-          }
-          const reader = res.body.getReader();
-          this.sseReader = reader;
-          this.isSseActive = true;
-          const decoder = new TextDecoder();
-          let buffer = '';
-          while (!controller.signal.aborted && this.sseSource === source) {
-            const { done, value } = await reader.read();
-            if (controller.signal.aborted || this.sseSource !== source) return;
-            if (done) {
-              fallBackToPost();
-              return;
-            }
-            buffer += decoder.decode(value, { stream: true });
-            const chunks = buffer.split(/\r?\n\r?\n/);
-            buffer = chunks.pop() || '';
-            for (const chunk of chunks) {
-              if (chunk.length > MAX_OUTPUT_LENGTH) throw new Error('MCP SSE event too large');
-              const endpointMatch = chunk.match(/event:\s*endpoint\s*\n\s*data:\s*([^\r\n]+)/);
-              if (endpointMatch) {
-                const fullUrl = new URL(endpointMatch[1].trim(), this.url);
-                if (fullUrl.origin !== new URL(this.url).origin) throw new Error('MCP SSE endpoint must have the same origin');
-                clearTimeout(timer);
-                finish(fullUrl.toString());
-                continue;
-              }
-              const msgMatch = chunk.match(/(?:event:\s*message\s*\n\s*)?data:\s*([^\r\n]+)/);
-              if (msgMatch) this._handleJsonRpcMessage(msgMatch[1]);
-            }
-            if (buffer.length > MAX_OUTPUT_LENGTH) throw new Error('MCP SSE event too large');
-          }
-        }).catch(() => {
-          if (this.sseSource !== source) return;
-          source.close();
-          fallBackToPost();
-        });
-      });
-    }
-
-    _handleJsonRpcMessage(raw) {
-      let data;
-      try {
-        data = JSON.parse(String(raw).trim());
-      } catch (e) {
-        console.warn('[MCP] Ignoring malformed JSON-RPC message:', e);
-        return;
-      }
-      const pending = data && this.pendingRequests.get(data.id);
-      if (!pending) return;
-      this.pendingRequests.delete(data.id);
-      clearTimeout(pending.timer);
-      if (data.error) pending.reject(new Error(formatJsonRpcError(data.error)));
-      else pending.resolve(data.result);
-    }
-
-    /**
-     * Resuelve la URL adecuada para enviar peticiones POST al servidor MCP.
-     */
-    async resolvePostUrl(options = {}) {
-      if (!options.forceReconnect && this.postUrl && this.isSseActive) return this.postUrl;
-      if (this.url.endsWith('/sse') || options.isSse) return this.connectSseStream(options);
-      return this.postUrl || this.url;
-    }
-
-    /**
      * Despacha una petición JSON-RPC 2.0 al endpoint del servidor MCP.
      */
     async request(method, params = {}, options = {}) {
       if (!this.url) throw new Error(`MCP server '${this.name}' has no URL.`);
-
-      const isSseEndpoint = this.url.endsWith('/sse') || options.isSse;
-      const targetUrl = await this.resolvePostUrl(options);
       const id = this.requestId++;
       const body = JSON.stringify({ jsonrpc: '2.0', id, method, params });
-      const timeoutMs = options.timeoutMs || this.timeoutMs;
       // Con señal propia (las herramientas) cancela quien llama: un comando puede durar minutos.
-      const fetchTimeoutMs = options.signal ? 0 : timeoutMs;
-      const post = async url => fetchWithTimeout(url, {
+      const res = await fetchWithTimeout(this.url, {
         method: 'POST',
-        headers: await this.buildRequestHeaders(url, body, options),
+        headers: await this.buildRequestHeaders(this.url, body, options),
         body,
         signal: options.signal
-      }, fetchTimeoutMs);
-      const retry = () => {
-        this.disconnect();
-        return this.request(method, params, { ...options, _isRetry: true, forceReconnect: true });
-      };
-
-      let res;
-      try {
-        res = await post(targetUrl);
-      } catch (fetchErr) {
-        // Un timeout no es un fallo de red: reintentar desconectaría el canal y
-        // reenviaría la petición, que no tiene por qué ser idempotente.
-        if (fetchErr.name === 'AbortError') throw fetchErr;
-        // En caso de fallo de red en endpoint SSE, reconectar y reintentar una única vez
-        if (!options.toolAuthorization && !options._isRetry && (isSseEndpoint || this.postUrl)) return retry();
-        throw fetchErr;
-      }
-
-      // Un 404 de la sesión SSE indica que caducó o que el servidor se reinició: se reconecta una vez.
-      if (res.status === 404 && !options._isRetry && (isSseEndpoint || targetUrl.includes('session_id') || this.postUrl)) return retry();
-
-      // Si targetUrl devolvió 405 y no habíamos probado SSE, intentamos SSE
-      if (res.status === 405 && !isSseEndpoint) {
-        const resolved = await this.connectSseStream({ ...options, isSse: true });
-        if (resolved !== targetUrl) res = await post(resolved);
-      }
-
-      // Con 202 Accepted la respuesta llega por el canal SSE.
-      if (res.status === 202) {
-        return new Promise((resolve, reject) => {
-          const timer = setTimeout(() => {
-            if (!this.pendingRequests.delete(id)) return;
-            const error = new Error(`Timed out waiting for request #${id} (${method})`);
-            error.code = 'MCP_REQUEST_TIMEOUT';
-            reject(error);
-          }, timeoutMs);
-          this.pendingRequests.set(id, { resolve, reject, timer });
-        });
-      }
-
+      }, options.signal ? 0 : options.timeoutMs || this.timeoutMs);
       if (!res.ok) {
         const errorText = await res.text().catch(() => '');
         throw new Error(`MCP server responded with HTTP ${res.status}: ${errorText.slice(0, 200)}`);
@@ -493,7 +293,7 @@
         this.toolAuthorization = { sessionId: auth.sessionId, key: auth.key, ttlMs: auth.ttlMs };
       }
       await this.notify('notifications/initialized', {});
-      return { success: true, serverInfo: this.serverInfo, capabilities: this.serverCapabilities };
+      return { success: true, serverInfo: this.serverInfo, capabilities: this.serverCapabilities, liveState: result?.liveState || null };
     }
 
     /**
@@ -501,13 +301,11 @@
      */
     async notify(method, params = {}) {
       try {
-        const targetUrl = await this.resolvePostUrl();
-        const res = await fetch(targetUrl, {
+        await fetch(this.url, {
           method: 'POST',
           headers: this.buildHeaders(),
           body: JSON.stringify({ jsonrpc: '2.0', method, params })
         });
-        if (res.status === 404 && this.postUrl) this.disconnect();
       } catch (e) {
         console.warn(`[MCP] Notification ${method} could not be sent:`, e);
       }
@@ -682,15 +480,6 @@
     }
   }
 
-  // Con la interfaz servida por el propio zerochat.py el latido usa una ruta relativa.
-  function getHeartbeatUrl(host, port) {
-    const local = ['127.0.0.1', 'localhost'];
-    const pagePort = location.port || (location.protocol === 'https:' ? '443' : '80');
-    const samePage = location.protocol.startsWith('http') && String(port) === pagePort &&
-      (location.hostname === host || (local.includes(location.hostname) && local.includes(host)));
-    return samePage ? '/zerochat/heartbeat' : `http://${host}:${port}/zerochat/heartbeat`;
-  }
-
   /** Cambia en ChatState los campos de un servicio externo; su tarjeta en Ajustes › MCP los pinta. */
   function updateExternalServerState(serverId, changes) {
     getState().set('mcp', current => ({
@@ -718,6 +507,8 @@
       this.heartbeatTarget = null;
       this.heartbeatTimer = null;
       this.heartbeatCheckInFlight = false;
+      // Si el último servidor conectado se detiene al cerrar el navegador; null mientras no se sabe.
+      this.serverExitsOnClose = null;
       // Últimos servicios externos que informó el servidor, para no pisar en cada latido lo que la
       // interfaz muestra de una acción en curso, y cuáles estaban en marcha.
       this.liveServers = null;
@@ -736,7 +527,6 @@
     /** Cierra el cliente y retira del registro las herramientas de su proveedor. */
     dropClient(clientId) {
       getAgentCore().registry.unregisterProvider(`mcp_prov_${clientId}`);
-      this.clients.get(clientId)?.disconnect();
       this.clients.delete(clientId);
     }
 
@@ -750,8 +540,8 @@
     }
 
     /**
-     * Publica en ChatState el estado vivo que informa el servidor local, en el latido o en la respuesta
-     * de un control: el directorio del proyecto (que siguen el modo proyecto y la regla de lectura por
+     * Publica en ChatState el estado vivo que informa el servidor local, en initialize, en el latido o
+     * en la respuesta de un control: el directorio del proyecto (que siguen el modo proyecto y la regla de lectura por
      * defecto), los comandos en segundo plano en marcha (los esperados ya se ven en su tarjeta), si el
      * servidor se detiene al cerrar el navegador, Playwright (instalado y browser_action disponible)
      * y los servicios externos, cuyas herramientas se vuelven a registrar si cambian los que están en
@@ -761,6 +551,10 @@
       const State = getState();
       const current = State.get('mcp');
       if (current.status !== 'connected' || !payload) return false;
+      if (typeof payload.exit_on_close === 'boolean') {
+        this.serverExitsOnClose = payload.exit_on_close;
+        this.setHeartbeatTimer(payload.exit_on_close && Boolean(this.heartbeatTarget));
+      }
       const next = {};
       const cwd = typeof payload.cwd === 'string' ? payload.cwd.trim() : '';
       if (cwd && current.serverInfo && current.serverInfo.cwd !== cwd) {
@@ -818,6 +612,7 @@
         }
         if (probe.serverInfo.cwd) getSecurity().manager.setStartupDirectory(probe.serverInfo.cwd);
         State.set('mcp', { status: 'connected', serverInfo: probe.serverInfo, latencyMs: probe.latencyMs, error: null });
+        await this.applyLiveState(probe.liveState);
         return { success: true, probe };
       })();
       this.healthCheckPromise = run;
@@ -829,16 +624,33 @@
     }
 
     /**
-     * Conecta con zerochat.py en el host y puerto indicados y registra sus herramientas. Con
-     * silentOnFailure (la comprobación del arranque) un servidor apagado deja el estado en
-     * 'disconnected' en lugar de 'error'. Con sesión, el latido vigila este destino aunque falle:
-     * conecta en cuanto el servidor arranca o vuelve tras un reinicio.
+     * Con auto-cierre, o mientras no se sabe, el latido de 10 s mantiene vivo el servidor, lee su
+     * estado y reconecta en cuanto vuelve; sin auto-cierre no hay temporizador (onPageVisible).
+     */
+    setHeartbeatTimer(enabled) {
+      if (enabled && !this.heartbeatTimer) this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), HEARTBEAT_INTERVAL_MS);
+      if (!enabled && this.heartbeatTimer) {
+        clearInterval(this.heartbeatTimer);
+        this.heartbeatTimer = null;
+      }
+    }
+
+    /** Sin latido periódico, al volver a la pestaña se relee el estado vivo o se reconecta. */
+    async onPageVisible() {
+      if (!this.heartbeatTimer) await this.sendHeartbeat();
+    }
+
+    /**
+     * Conecta con zerochat.py en el host y puerto indicados, registra sus herramientas y publica el
+     * estado vivo de initialize. Con silentOnFailure (la comprobación del arranque) un servidor apagado
+     * deja el estado en 'disconnected' en lugar de 'error'. Con sesión, el latido (o la vuelta a la
+     * pestaña) vigila este destino aunque falle: conecta en cuanto el servidor arranca o vuelve.
      */
     async connectProxy({ host, port, timeoutMs = PROBE_TIMEOUT_MS, silentOnFailure = false, token = null }) {
       if (token) this.setSessionToken(token);
       if (this.sessionToken) {
         this.heartbeatTarget = { host, port, token: this.sessionToken };
-        if (!this.heartbeatTimer) this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), HEARTBEAT_INTERVAL_MS);
+        this.setHeartbeatTimer(this.serverExitsOnClose !== false);
       }
       const endpoint = proxyEndpoint(host, port);
       const State = getState();
@@ -878,10 +690,10 @@
       });
       if (error) return { success: false, available: true, probe, error, tools };
 
-      // El primer latido trae los servicios externos y el resto del estado vivo.
+      // initialize trae los servicios externos y el resto del estado vivo.
       this.liveServers = null;
       this.liveRunning = null;
-      if (this.sessionToken) await this.sendHeartbeat();
+      await this.applyLiveState(probe.liveState);
       return { success: true, available: true, probe, tools };
     }
 
@@ -896,28 +708,22 @@
     }
 
     /**
-     * Lee el latido y publica su estado vivo; devuelve lo leído o falla si el servidor no responde.
-     * La lectura no dura más que el intervalo: una colgada (un túnel SSH sin red) bloquearía los latidos siguientes.
+     * Lee el latido (zerochat/heartbeat) y publica su estado vivo; devuelve lo leído o falla si el
+     * servidor no responde. La lectura no dura más que el intervalo: una colgada (un túnel SSH sin red)
+     * bloquearía los latidos siguientes.
      */
     async readLiveState() {
-      const { host, port, token } = this.heartbeatTarget;
-      const response = await fetchWithTimeout(getHeartbeatUrl(host, port), {
-        method: 'GET',
-        cache: 'no-store',
-        mode: 'cors',
-        headers: { 'X-ZeroChat-Token': token }
-      }, HEARTBEAT_INTERVAL_MS);
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || payload?.ok !== true) throw new Error(`Heartbeat HTTP ${response.status}`);
+      const payload = await this.requestExternalControl('zerochat/heartbeat', {}, { timeoutMs: HEARTBEAT_INTERVAL_MS });
       // Otra pestaña, el modelo o una instalación pueden haber cambiado el estado del servidor.
       await this.applyLiveState(payload);
       return payload;
     }
 
     /**
-     * Latido cada 10 s al servidor local. Conectado, publica su estado vivo (applyLiveState) y, si no
-     * responde, comprueba la conexión. Sin conexión, sondea el destino y reconecta si responde; el
-     * sondeo previo evita que cada intento fallido de connectProxy reescriba el estado.
+     * Latido al servidor local, cada 10 s o al volver a la pestaña. Conectado, publica su estado vivo
+     * (applyLiveState) y, si no responde, comprueba la conexión. Sin conexión, sondea el destino y
+     * reconecta si responde; el sondeo previo evita que cada intento fallido de connectProxy reescriba
+     * el estado.
      */
     async sendHeartbeat() {
       if (this.heartbeatCheckInFlight) return;
@@ -1047,7 +853,7 @@
         const client = new McpClient({
           id: EXTERNAL_ID,
           name: 'ZeroChat External MCP Host',
-          url: `${control.url.replace(/\/sse\/?$/, '')}/mcp/external`,
+          url: `${control.url}/mcp/external`,
           token: this.sessionToken
         });
         try {

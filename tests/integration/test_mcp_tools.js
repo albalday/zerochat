@@ -81,7 +81,7 @@ test('MCP Tools - Contrato declarativo y descubrimiento de herramientas nativas 
     const client = new MCP.McpClient({
       id: 'mcp_proxy',
       name: 'ZeroChat Local Tools',
-      url: 'http://127.0.0.1:6388/sse'
+      url: 'http://127.0.0.1:6388'
     });
 
     const provider = new MCP.McpToolProvider(client, {
@@ -187,7 +187,7 @@ test('MCP Tools - run_command del servidor local envÃ­a la clave de la invocaciÃ
       return { ok: false, status: 404 };
     };
 
-    const client = new MCP.McpClient({ id: 'mcp_proxy', name: 'ZeroChat Local Server', url: 'http://127.0.0.1:6388/sse' });
+    const client = new MCP.McpClient({ id: 'mcp_proxy', name: 'ZeroChat Local Server', url: 'http://127.0.0.1:6388' });
     const tools = await new MCP.McpToolProvider(client).discoverTools();
     const runTool = tools.find(t => t.name === 'run_command');
     const readTool = tools.find(t => t.name === 'read_file');

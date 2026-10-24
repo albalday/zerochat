@@ -78,7 +78,7 @@
         status: 'disconnected', // 'disconnected' | 'connecting' | 'checking' | 'connected' | 'error'
         host: Defaults.CONFIG_DEFAULTS.mcpHost,
         port: Defaults.CONFIG_DEFAULTS.mcpPort,
-        endpoint: `http://${Defaults.CONFIG_DEFAULTS.mcpHost}:${Defaults.CONFIG_DEFAULTS.mcpPort}/sse`,
+        endpoint: `http://${Defaults.CONFIG_DEFAULTS.mcpHost}:${Defaults.CONFIG_DEFAULTS.mcpPort}`,
         serverInfo: null,
         tools: [],
         externalServers: [],

@@ -152,18 +152,14 @@ describe('Servidor local zerochat.py', () => {
     assert.equal(unsigned.status, 403, 'Una llamada tools/call sin sello debe rechazarse');
     await unsigned.text();
     const client = new McpClient({ id: 'mcp_proxy', url: baseUrl, token: testToken });
-    try {
-      assert.equal((await client.initialize()).success, true);
-      assert.equal((await client.callTool('list_directory', { path: '.' }, { toolAuthorization: true })).success, true);
-      // Con el navegador en otro equipo, su reloj puede ir adelantado o atrasado respecto al del servidor.
-      const now = Date.now();
-      t.mock.timers.enable({ apis: ['Date'], now });
-      for (const skewMs of [25_000, -25_000]) {
-        t.mock.timers.setTime(now + skewMs);
-        assert.equal((await client.callTool('list_directory', { path: '.' }, { toolAuthorization: true })).success, true, `Desfase de reloj ${skewMs} ms`);
-      }
-    } finally {
-      client.disconnect();
+    assert.equal((await client.initialize()).success, true);
+    assert.equal((await client.callTool('list_directory', { path: '.' }, { toolAuthorization: true })).success, true);
+    // Con el navegador en otro equipo, su reloj puede ir adelantado o atrasado respecto al del servidor.
+    const now = Date.now();
+    t.mock.timers.enable({ apis: ['Date'], now });
+    for (const skewMs of [25_000, -25_000]) {
+      t.mock.timers.setTime(now + skewMs);
+      assert.equal((await client.callTool('list_directory', { path: '.' }, { toolAuthorization: true })).success, true, `Desfase de reloj ${skewMs} ms`);
     }
   });
 

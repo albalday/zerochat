@@ -140,9 +140,7 @@ self.addEventListener('fetch', event => {
   // Ignorar endpoints de API, túneles o llamadas dinámicas del backend local
   if (url.pathname.startsWith('/api') ||
       url.pathname.startsWith('/mcp') ||
-      url.pathname.startsWith('/zerochat/heartbeat') ||
       url.pathname.startsWith('/zerochat/external') ||
-      url.pathname.startsWith('/sse') ||
       url.pathname.startsWith('/v1') ||
       url.pathname.startsWith('/ws')) {
     return;

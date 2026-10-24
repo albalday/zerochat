@@ -874,6 +874,10 @@
     // connectBackend quita el fragmento de arranque: el modo ejecución se lee antes.
     const runId = RunMode.readRunId(location.hash);
     const startupMcpConnection = connectBackend();
+    // Sin latido periódico (servidor sin auto-cierre), volver a la pestaña relee el servidor local.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') MCP.manager.onPageVisible();
+    });
     updateNewTabLink();
     if (runId) {
       RunMode.start(runId, {
