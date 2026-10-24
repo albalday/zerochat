@@ -27,6 +27,7 @@ const PRECACHE_ASSETS = [
   './js/utils.js',
   './js/vendor-loader.js',
   './js/defaults.js',
+  './js/mcp-status.js',
   './js/i18n.js',
   './js/icons.js',
   './js/storage-db.js',

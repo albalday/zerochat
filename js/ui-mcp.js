@@ -4,9 +4,9 @@
  * process implementation.
  */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
-  else root.ChatUIMcp = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
-})(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'), require('./mcp-status.js'));
+  else root.ChatUIMcp = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons, root.ChatMcpStatus);
+})(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, McpStatus) {
   'use strict';
 
   const { resolveDep, escapeHtml, clearElement, appendTextElement, copyToClipboard } = Utils;
@@ -201,11 +201,13 @@
   }
 
   function renderServer(server, language) {
-    const isRunning = server.status === 'running';
-    const isBusy = server.status === 'starting' || server.status === 'installing';
-    const statusClass = isRunning ? 'status-running' : (isBusy ? 'status-starting' : (server.status === 'error' ? 'status-error' : 'status-stopped'));
-    const statusLabel = t(`mcp_external_status_${server.status || 'stopped'}`);
-    const startLabel = server.status === 'starting' && server.startWait
+    const status = server.status || 'stopped';
+    const isRunning = McpStatus.isRunning(status);
+    const isBusy = McpStatus.isBusy(status);
+    const statusClass = `status-${isBusy ? 'starting' : status}`;
+    const statusLabel = t(`mcp_external_status_${status}`);
+    // Durante la instalación no se cuentan intentos.
+    const startLabel = status === 'starting' && server.startWait
       ? t('mcp_external_start_wait_attempt', server.startWait)
       : (isBusy ? statusLabel : t('mcp_btn_start_server'));
     const description = localized(server.description, language) || '';
@@ -308,7 +310,7 @@
   async function offerStoppedExternalServices(servers) {
     const language = I18n.getLanguage();
     const items = servers
-      .filter(server => server?.enabled === true && server.status === 'stopped' && typeof server.id === 'string' && server.id)
+      .filter(server => server?.enabled === true && McpStatus.canStart(server.status) && typeof server.id === 'string' && server.id)
       .slice(0, 50)
       .map(server => ({ id: server.id, label: getServiceName(server, language) }));
     if (items.length === 0) return [];

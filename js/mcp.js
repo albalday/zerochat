@@ -12,11 +12,11 @@
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'), require('./defaults.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'), require('./defaults.js'), require('./mcp-status.js'));
   } else {
-    root.ChatMCP = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons, root.ChatDefaults);
+    root.ChatMCP = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons, root.ChatDefaults, root.ChatMcpStatus);
   }
-})(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, Defaults) {
+})(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, Defaults, McpStatus) {
   'use strict';
 
   const { fetchWithTimeout, resolveDep, SAFE_IMAGE_MIME_TYPES } = Utils;
@@ -701,7 +701,7 @@
 
   /** El Playwright MCP en marcha usa otro navegador del que exige el perfil, o no muestra la ventana que pide. */
   function usesOtherBrowser(server, required) {
-    return server.id === 'playwright' && Boolean(required) && server.status === 'running'
+    return server.id === 'playwright' && Boolean(required) && McpStatus.isRunning(server.status)
       && (server.browser?.mode !== required.mode || server.browser.engine !== required.engine || server.browser.userBrowser !== required.userBrowser
         || (required.headless === false && server.browser.headless !== false));
   }
@@ -786,7 +786,7 @@
       if (Array.isArray(payload.servers) && JSON.stringify(payload.servers) !== this.liveServers) {
         this.liveServers = JSON.stringify(payload.servers);
         next.externalServers = payload.servers;
-        running = payload.servers.filter(server => server?.status === 'running').map(server => `${server.id}:${server.toolCount}`).join();
+        running = payload.servers.filter(server => McpStatus.isRunning(server?.status)).map(server => `${server.id}:${server.toolCount}`).join();
       }
       if (Object.keys(next).length === 0) return false;
       State.set('mcp', next);
@@ -1089,8 +1089,8 @@
           throw error;
         }
         const server = (status?.servers || []).find(item => item?.id === serverId);
-        if (server?.status === 'running') return status;
-        if (server?.status !== 'starting' && server?.status !== 'installing') {
+        if (McpStatus.isRunning(server?.status)) return status;
+        if (!McpStatus.isBusy(server?.status)) {
           const error = new Error(`MCP server '${serverId}' did not start: ${server?.status || 'unknown'}`);
           error.code = 'EXTERNAL_START_STATUS_UNAVAILABLE';
           error.externalServer = server;
@@ -1169,7 +1169,7 @@
      */
     async withExternalServerStopped(serverId, action = async () => {}) {
       const server = getState().get('mcp').externalServers.find(item => item.id === serverId);
-      const wasRunning = server?.status === 'running';
+      const wasRunning = McpStatus.isRunning(server?.status);
       const remember = server?.enabled === true;
       if (wasRunning && !await this.runExternalServerAction(serverId, 'stop')) return false;
       let restarted = true;
@@ -1204,7 +1204,7 @@
           (await this.withExternalServerStopped(id) ? started : unavailable).push(id);
           continue;
         }
-        if (['running', 'starting', 'installing'].includes(server.status)) continue;
+        if (McpStatus.isActive(server.status)) continue;
         (await this.runExternalServerAction(id, 'start', { remember: false }) ? started : unavailable).push(id);
       }
       return { started, unavailable };

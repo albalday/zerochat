@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 from backend import ZEROCHAT_PY, use_data_dir, zerochat
 
 PUBLIC_TOOL_NAMES = ZEROCHAT_PY.parent / "tests" / "fixtures" / "mcp" / "public-tool-names.json"
+CONTRACT = json.loads((ZEROCHAT_PY.parent / "tests" / "fixtures" / "mcp" / "contract.json").read_text(encoding="utf-8"))
 
 HEALTHY_MCP = '''import json, sys
 for line in sys.stdin:
@@ -155,7 +156,7 @@ class ServiceStatusTest(unittest.TestCase):
     def test_el_estado_publico_sale_del_registro_y_de_si_el_proceso_sigue_vivo(self):
         Record = zerochat.McpServiceRecord
         # (registro, proceso vivo, código de salida) -> (estado, error)
-        for record, alive, exit_code, expected in (
+        table = (
             (Record(), False, None, ("stopped", None)),
             (Record(phase="installing"), False, None, ("installing", None)),
             (Record(phase="starting"), True, None, ("starting", None)),
@@ -164,9 +165,12 @@ class ServiceStatusTest(unittest.TestCase):
             (Record(phase="running"), False, 3, ("error", "MCP process exited with code 3")),
             (Record(phase="running"), False, 0, ("error", "MCP process exited with code 0")),
             (Record(phase="running"), False, None, ("error", "MCP process is not responding")),
-        ):
+        )
+        for record, alive, exit_code, expected in table:
             with self.subTest(phase=record.phase, alive=alive, exit_code=exit_code):
                 self.assertEqual(zerochat.service_status(record, alive, exit_code), expected)
+        # Los estados que lee js/mcp-status.js (tests/unit/test_mcp_status.js).
+        self.assertEqual({expected[0] for *_, expected in table}, set(CONTRACT["serviceStatuses"]))
 
     def test_detener_o_cerrar_el_gestor_deja_el_servicio_detenido_y_sin_error(self):
         manager = zerochat.McpServiceManager(use_data_dir(self) / "services")
