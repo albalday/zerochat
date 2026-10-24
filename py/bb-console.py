@@ -1,9 +1,10 @@
 class ConsoleControl:
     """Muestra una sola línea de ayuda tras un periodo de inactividad en consola."""
-    def __init__(self, server: ThreadingHTTPServer, parser: argparse.ArgumentParser, target_url: str | None = None):
+    def __init__(self, server: ThreadingHTTPServer, parser: argparse.ArgumentParser, launch_url=None):
         self.server = server
         self.parser = parser
-        self.target_url = target_url
+        # Función que da la URL de la interfaz con el token vigente al pulsar n, no el del arranque.
+        self.launch_url = launch_url
         self.last_activity = time.monotonic()
         self.lock = threading.Lock()
         self.enabled = bool(getattr(sys.stdout, "isatty", lambda: False)())
@@ -72,8 +73,8 @@ class ConsoleControl:
         key = command.strip().lower()
         if key == "h":
             self.show_help()
-        elif key == "n" and self.target_url:
-            launch_browser(self.target_url)
+        elif key == "n" and self.launch_url:
+            launch_browser(self.launch_url())
         elif key == "i":
             self.show_notices()
         elif key == "x":

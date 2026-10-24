@@ -105,10 +105,11 @@ NOTICES: list[str] = []
 NOTICES_LOCK = threading.Lock()
 class ConsoleControl:
     """Muestra una sola línea de ayuda tras un periodo de inactividad en consola."""
-    def __init__(self, server: ThreadingHTTPServer, parser: argparse.ArgumentParser, target_url: str | None = None):
+    def __init__(self, server: ThreadingHTTPServer, parser: argparse.ArgumentParser, launch_url=None):
         self.server = server
         self.parser = parser
-        self.target_url = target_url
+        # Función que da la URL de la interfaz con el token vigente al pulsar n, no el del arranque.
+        self.launch_url = launch_url
         self.last_activity = time.monotonic()
         self.lock = threading.Lock()
         self.enabled = bool(getattr(sys.stdout, "isatty", lambda: False)())
@@ -177,8 +178,8 @@ class ConsoleControl:
         key = command.strip().lower()
         if key == "h":
             self.show_help()
-        elif key == "n" and self.target_url:
-            launch_browser(self.target_url)
+        elif key == "n" and self.launch_url:
+            launch_browser(self.launch_url())
         elif key == "i":
             self.show_notices()
         elif key == "x":
@@ -309,8 +310,21 @@ def get_daily_token() -> str:
     return token
 
 
-# Token de sesión en memoria; main() lo carga o genera al arrancar el servidor.
+# Token de sesión en memoria y su día; main() lo carga al arrancar y current_session_token() lo renueva.
 SESSION_TOKEN = ""
+SESSION_TOKEN_DATE = ""
+SESSION_TOKEN_LOCK = threading.Lock()
+
+
+def current_session_token() -> str:
+    """Token diario vigente: al cambiar el día carga o genera el nuevo, también con el servidor en marcha."""
+    global SESSION_TOKEN, SESSION_TOKEN_DATE
+    today = datetime.date.today().isoformat()
+    with SESSION_TOKEN_LOCK:
+        if SESSION_TOKEN_DATE != today:
+            SESSION_TOKEN = get_daily_token()
+            SESSION_TOKEN_DATE = today
+        return SESSION_TOKEN
 ACTIVE_PORT = DEFAULT_PORT
 ACTIVE_HOST = DEFAULT_HOST
 
@@ -3254,7 +3268,8 @@ QUIET_RPC_METHODS = frozenset({"zerochat/heartbeat", "zerochat/jobs/get", "zeroc
 
 
 def mark_browser_active():
-    """Registra la presencia activa del navegador ante cualquier petición válida."""
+    """Registra la presencia del navegador ante cualquier petición de un origen permitido, aunque su
+    token haya caducado: el auto-cierre no detiene el servidor ni sus comandos al cambiar el día."""
     global HEARTBEAT_LAST_SEEN, HEARTBEAT_INITIALIZED
     HEARTBEAT_LAST_SEEN = time.monotonic()
     HEARTBEAT_INITIALIZED = True
@@ -3567,20 +3582,16 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Private-Network", "true")
 
     def verify_token(self) -> bool:
-        """Comprueba el token de sesión exclusivamente en cabeceras HTTP."""
-        auth_header = self.headers.get("Authorization", "")
-        token_candidate = None
-        if auth_header.startswith("Bearer "):
-            token_candidate = auth_header[7:].strip()
-        elif "X-ZeroChat-Token" in self.headers:
-            token_candidate = self.headers.get("X-ZeroChat-Token", "").strip()
-
+        """
+        Comprueba el token diario vigente, solo en cabeceras HTTP: el de un día anterior se rechaza.
+        X-ZeroChat-Token va antes que Authorization, que tras el proxy inverso lleva la clave del proxy.
+        """
+        token_candidate = self.headers.get("X-ZeroChat-Token", "").strip()
         if not token_candidate:
-            return False
-        is_valid = hmac.compare_digest(token_candidate, SESSION_TOKEN)
-        if is_valid:
-            mark_browser_active()
-        return is_valid
+            auth_header = self.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token_candidate = auth_header[7:].strip()
+        return bool(token_candidate) and hmac.compare_digest(token_candidate.encode(), current_session_token().encode())
 
     def verify_tool_authorization(self, body: bytes, request_path: str) -> str | None:
         """Validate and atomically consume an authorization for one tool call."""
@@ -3959,6 +3970,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_res(403, safe_path, (time.monotonic() - t0) * 1000, f"Origen no permitido: '{origin}'")
             return
 
+        mark_browser_active()
         if not self.verify_token():
             self._log_req("POST", safe_path)
             self._reject(401, {
@@ -4441,7 +4453,6 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--host", default=os.environ.get("ZEROCHAT_HOST", DEFAULT_HOST), help=f"Host de escucha (default: {DEFAULT_HOST})")
     parser.add_argument("--ui-url", default=None, help="URL de la interfaz web a abrir (por defecto: interfaz local en desarrollo o GitHub Pages)")
     parser.add_argument("--no-browser", action="store_true", help="No abrir automáticamente el navegador")
-    parser.add_argument("--print-url", action="store_true", help="Imprimir la URL de la interfaz con el token, entre líneas en blanco para copiarla (implica --no-browser)")
     parser.add_argument("--keep-server", action="store_true", help="Servidor: seguir en marcha al cerrar el navegador (no se combina con --prompt)")
     parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación de ~/zerochat/.venv")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
@@ -4458,17 +4469,14 @@ def build_parser() -> ZeroChatArgumentParser:
 
 def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | None:
     """Valida las combinaciones de opciones y devuelve la sesión de --prompt, si la hay."""
-    # Quien pide la URL la abrirá en otro sitio (otro equipo, un túnel SSH): no se abre el navegador local.
-    if args.print_url and args.prompt is None:
-        args.no_browser = True
     if args.prompt is None:
         if args.headless or args.keep_page or args.allow_dangerous_tools or args.profile is not None or args.export is not None:
             parser.error("--headless, --keep-page, --allow-dangerous-tools, --profile y --export solo se usan con --prompt")
         return None
     if not args.prompt.strip():
         parser.error("el prompt está vacío")
-    if args.no_browser or args.print_url:
-        parser.error("--prompt necesita abrir el navegador: no se combina con --no-browser ni con --print-url")
+    if args.no_browser:
+        parser.error("--prompt necesita abrir el navegador: no se combina con --no-browser")
     if args.keep_server:
         parser.error("--prompt termina al devolver el resultado: no se combina con --keep-server (para no cerrar la página, --keep-page)")
     if args.profile is not None and not args.profile.strip():
@@ -4525,8 +4533,8 @@ def prepare_environment(args, is_dev: bool):
 
 def reset_session_credentials():
     """Carga el token diario y renueva la clave de firma de herramientas."""
-    global SESSION_TOKEN, TOOL_AUTH_KEY, TOOL_AUTH_SESSION_ID, TOOL_AUTH_NONCES
-    SESSION_TOKEN = get_daily_token()
+    global TOOL_AUTH_KEY, TOOL_AUTH_SESSION_ID, TOOL_AUTH_NONCES
+    current_session_token()
     # A restart deliberately invalidates every browser-side signing credential.
     TOOL_AUTH_KEY = secrets.token_bytes(32)
     TOOL_AUTH_SESSION_ID = secrets.token_urlsafe(18)
@@ -4559,19 +4567,22 @@ def open_server(args, local_ui: bool) -> ThreadingHTTPServer:
     return server
 
 
-def interface_urls(args, static_root) -> tuple[str, str]:
-    """Devuelve la URL de la interfaz y la de destino, con el token y el servidor en el fragmento."""
+def interface_url(args, static_root) -> str:
+    """URL de la interfaz: la indicada, la local de desarrollo o la de GitHub Pages."""
     if args.ui_url:
-        ui_url = args.ui_url
-    elif static_root:
-        ui_url = f"http://{ACTIVE_HOST}:{ACTIVE_PORT}/zerochat.html"
-    else:
-        ui_url = DEFAULT_UI_URL
+        return args.ui_url
+    if static_root:
+        return f"http://{ACTIVE_HOST}:{ACTIVE_PORT}/zerochat.html"
+    return DEFAULT_UI_URL
+
+
+def launch_url(ui_url: str) -> str:
+    """URL con que zerochat abre el navegador: el token vigente y el servidor van en el fragmento."""
     browser_host = ACTIVE_HOST if ACTIVE_HOST in {"127.0.0.1", "localhost"} else "127.0.0.1"
-    fragment = {'token': SESSION_TOKEN, 'host': browser_host, 'port': ACTIVE_PORT}
+    fragment = {'token': current_session_token(), 'host': browser_host, 'port': ACTIVE_PORT}
     if RUN_SESSION:
         fragment['run'] = RUN_SESSION.run_id
-    return ui_url, f"{ui_url}#{urlencode(fragment)}"
+    return f"{ui_url}#{urlencode(fragment)}"
 
 
 def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_close: bool):
@@ -4599,19 +4610,17 @@ def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_cl
     print("=" * 64, flush=True)
 
 
-def start_interface(args, parser, server: ThreadingHTTPServer, target_url: str, result_out):
+def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, result_out):
     """Abre la interfaz: en modo ejecución, con su supervisor; si no, con el control de consola.
     Devuelve el navegador sin ventana de --headless, si se lanzó."""
     global CONSOLE_CONTROL
-    if args.print_url:
-        # Líneas en blanco alrededor para seleccionarla y copiarla con facilidad (p. ej. en una consola SSH del móvil).
-        print("\n" * 5 + target_url + "\n" * 5, flush=True)
     if not RUN_SESSION:
-        CONSOLE_CONTROL = ConsoleControl(server, parser, target_url=target_url)
+        CONSOLE_CONTROL = ConsoleControl(server, parser, launch_url=lambda: launch_url(ui_url))
         CONSOLE_CONTROL.start()
         if not args.no_browser:
-            launch_browser(target_url)
+            launch_browser(launch_url(ui_url))
         return None
+    target_url = launch_url(ui_url)
     headless_browser = launch_headless_browser(target_url) if args.headless else None
     if headless_browser is None and not launch_browser(target_url):
         run_error("No se pudo abrir el navegador.")
@@ -4697,12 +4706,12 @@ def main():
     if exposure_warning:
         add_notice(exposure_warning)
 
-    ui_url, target_url = interface_urls(args, static_root)
+    ui_url = interface_url(args, static_root)
     # El modo ejecución (que rechaza --keep-server) detecta con el latido que el navegador se cerró sin devolver resultado.
     EXIT_ON_CLOSE = not args.keep_server
     print_header(dev_root, ui_url, exposure_warning, EXIT_ON_CLOSE)
 
-    headless_browser = start_interface(args, parser, server, target_url, result_out)
+    headless_browser = start_interface(args, parser, server, ui_url, result_out)
     if EXIT_ON_CLOSE:
         start_heartbeat_watchdog(server, require_initial=not args.no_browser)
     install_signal_handlers(server)

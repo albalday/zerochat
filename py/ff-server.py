@@ -12,7 +12,8 @@ QUIET_RPC_METHODS = frozenset({"zerochat/heartbeat", "zerochat/jobs/get", "zeroc
 
 
 def mark_browser_active():
-    """Registra la presencia activa del navegador ante cualquier petición válida."""
+    """Registra la presencia del navegador ante cualquier petición de un origen permitido, aunque su
+    token haya caducado: el auto-cierre no detiene el servidor ni sus comandos al cambiar el día."""
     global HEARTBEAT_LAST_SEEN, HEARTBEAT_INITIALIZED
     HEARTBEAT_LAST_SEEN = time.monotonic()
     HEARTBEAT_INITIALIZED = True
@@ -325,20 +326,16 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Private-Network", "true")
 
     def verify_token(self) -> bool:
-        """Comprueba el token de sesión exclusivamente en cabeceras HTTP."""
-        auth_header = self.headers.get("Authorization", "")
-        token_candidate = None
-        if auth_header.startswith("Bearer "):
-            token_candidate = auth_header[7:].strip()
-        elif "X-ZeroChat-Token" in self.headers:
-            token_candidate = self.headers.get("X-ZeroChat-Token", "").strip()
-
+        """
+        Comprueba el token diario vigente, solo en cabeceras HTTP: el de un día anterior se rechaza.
+        X-ZeroChat-Token va antes que Authorization, que tras el proxy inverso lleva la clave del proxy.
+        """
+        token_candidate = self.headers.get("X-ZeroChat-Token", "").strip()
         if not token_candidate:
-            return False
-        is_valid = hmac.compare_digest(token_candidate, SESSION_TOKEN)
-        if is_valid:
-            mark_browser_active()
-        return is_valid
+            auth_header = self.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token_candidate = auth_header[7:].strip()
+        return bool(token_candidate) and hmac.compare_digest(token_candidate.encode(), current_session_token().encode())
 
     def verify_tool_authorization(self, body: bytes, request_path: str) -> str | None:
         """Validate and atomically consume an authorization for one tool call."""
@@ -717,6 +714,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_res(403, safe_path, (time.monotonic() - t0) * 1000, f"Origen no permitido: '{origin}'")
             return
 
+        mark_browser_active()
         if not self.verify_token():
             self._log_req("POST", safe_path)
             self._reject(401, {

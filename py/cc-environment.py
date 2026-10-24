@@ -98,8 +98,21 @@ def get_daily_token() -> str:
     return token
 
 
-# Token de sesión en memoria; main() lo carga o genera al arrancar el servidor.
+# Token de sesión en memoria y su día; main() lo carga al arrancar y current_session_token() lo renueva.
 SESSION_TOKEN = ""
+SESSION_TOKEN_DATE = ""
+SESSION_TOKEN_LOCK = threading.Lock()
+
+
+def current_session_token() -> str:
+    """Token diario vigente: al cambiar el día carga o genera el nuevo, también con el servidor en marcha."""
+    global SESSION_TOKEN, SESSION_TOKEN_DATE
+    today = datetime.date.today().isoformat()
+    with SESSION_TOKEN_LOCK:
+        if SESSION_TOKEN_DATE != today:
+            SESSION_TOKEN = get_daily_token()
+            SESSION_TOKEN_DATE = today
+        return SESSION_TOKEN
 ACTIVE_PORT = DEFAULT_PORT
 ACTIVE_HOST = DEFAULT_HOST
 

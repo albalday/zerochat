@@ -39,7 +39,6 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--host", default=os.environ.get("ZEROCHAT_HOST", DEFAULT_HOST), help=f"Host de escucha (default: {DEFAULT_HOST})")
     parser.add_argument("--ui-url", default=None, help="URL de la interfaz web a abrir (por defecto: interfaz local en desarrollo o GitHub Pages)")
     parser.add_argument("--no-browser", action="store_true", help="No abrir automáticamente el navegador")
-    parser.add_argument("--print-url", action="store_true", help="Imprimir la URL de la interfaz con el token, entre líneas en blanco para copiarla (implica --no-browser)")
     parser.add_argument("--keep-server", action="store_true", help="Servidor: seguir en marcha al cerrar el navegador (no se combina con --prompt)")
     parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación de ~/zerochat/.venv")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
@@ -56,17 +55,14 @@ def build_parser() -> ZeroChatArgumentParser:
 
 def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | None:
     """Valida las combinaciones de opciones y devuelve la sesión de --prompt, si la hay."""
-    # Quien pide la URL la abrirá en otro sitio (otro equipo, un túnel SSH): no se abre el navegador local.
-    if args.print_url and args.prompt is None:
-        args.no_browser = True
     if args.prompt is None:
         if args.headless or args.keep_page or args.allow_dangerous_tools or args.profile is not None or args.export is not None:
             parser.error("--headless, --keep-page, --allow-dangerous-tools, --profile y --export solo se usan con --prompt")
         return None
     if not args.prompt.strip():
         parser.error("el prompt está vacío")
-    if args.no_browser or args.print_url:
-        parser.error("--prompt necesita abrir el navegador: no se combina con --no-browser ni con --print-url")
+    if args.no_browser:
+        parser.error("--prompt necesita abrir el navegador: no se combina con --no-browser")
     if args.keep_server:
         parser.error("--prompt termina al devolver el resultado: no se combina con --keep-server (para no cerrar la página, --keep-page)")
     if args.profile is not None and not args.profile.strip():
@@ -123,8 +119,8 @@ def prepare_environment(args, is_dev: bool):
 
 def reset_session_credentials():
     """Carga el token diario y renueva la clave de firma de herramientas."""
-    global SESSION_TOKEN, TOOL_AUTH_KEY, TOOL_AUTH_SESSION_ID, TOOL_AUTH_NONCES
-    SESSION_TOKEN = get_daily_token()
+    global TOOL_AUTH_KEY, TOOL_AUTH_SESSION_ID, TOOL_AUTH_NONCES
+    current_session_token()
     # A restart deliberately invalidates every browser-side signing credential.
     TOOL_AUTH_KEY = secrets.token_bytes(32)
     TOOL_AUTH_SESSION_ID = secrets.token_urlsafe(18)
@@ -157,19 +153,22 @@ def open_server(args, local_ui: bool) -> ThreadingHTTPServer:
     return server
 
 
-def interface_urls(args, static_root) -> tuple[str, str]:
-    """Devuelve la URL de la interfaz y la de destino, con el token y el servidor en el fragmento."""
+def interface_url(args, static_root) -> str:
+    """URL de la interfaz: la indicada, la local de desarrollo o la de GitHub Pages."""
     if args.ui_url:
-        ui_url = args.ui_url
-    elif static_root:
-        ui_url = f"http://{ACTIVE_HOST}:{ACTIVE_PORT}/zerochat.html"
-    else:
-        ui_url = DEFAULT_UI_URL
+        return args.ui_url
+    if static_root:
+        return f"http://{ACTIVE_HOST}:{ACTIVE_PORT}/zerochat.html"
+    return DEFAULT_UI_URL
+
+
+def launch_url(ui_url: str) -> str:
+    """URL con que zerochat abre el navegador: el token vigente y el servidor van en el fragmento."""
     browser_host = ACTIVE_HOST if ACTIVE_HOST in {"127.0.0.1", "localhost"} else "127.0.0.1"
-    fragment = {'token': SESSION_TOKEN, 'host': browser_host, 'port': ACTIVE_PORT}
+    fragment = {'token': current_session_token(), 'host': browser_host, 'port': ACTIVE_PORT}
     if RUN_SESSION:
         fragment['run'] = RUN_SESSION.run_id
-    return ui_url, f"{ui_url}#{urlencode(fragment)}"
+    return f"{ui_url}#{urlencode(fragment)}"
 
 
 def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_close: bool):
@@ -197,19 +196,17 @@ def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_cl
     print("=" * 64, flush=True)
 
 
-def start_interface(args, parser, server: ThreadingHTTPServer, target_url: str, result_out):
+def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, result_out):
     """Abre la interfaz: en modo ejecución, con su supervisor; si no, con el control de consola.
     Devuelve el navegador sin ventana de --headless, si se lanzó."""
     global CONSOLE_CONTROL
-    if args.print_url:
-        # Líneas en blanco alrededor para seleccionarla y copiarla con facilidad (p. ej. en una consola SSH del móvil).
-        print("\n" * 5 + target_url + "\n" * 5, flush=True)
     if not RUN_SESSION:
-        CONSOLE_CONTROL = ConsoleControl(server, parser, target_url=target_url)
+        CONSOLE_CONTROL = ConsoleControl(server, parser, launch_url=lambda: launch_url(ui_url))
         CONSOLE_CONTROL.start()
         if not args.no_browser:
-            launch_browser(target_url)
+            launch_browser(launch_url(ui_url))
         return None
+    target_url = launch_url(ui_url)
     headless_browser = launch_headless_browser(target_url) if args.headless else None
     if headless_browser is None and not launch_browser(target_url):
         run_error("No se pudo abrir el navegador.")
@@ -295,12 +292,12 @@ def main():
     if exposure_warning:
         add_notice(exposure_warning)
 
-    ui_url, target_url = interface_urls(args, static_root)
+    ui_url = interface_url(args, static_root)
     # El modo ejecución (que rechaza --keep-server) detecta con el latido que el navegador se cerró sin devolver resultado.
     EXIT_ON_CLOSE = not args.keep_server
     print_header(dev_root, ui_url, exposure_warning, EXIT_ON_CLOSE)
 
-    headless_browser = start_interface(args, parser, server, target_url, result_out)
+    headless_browser = start_interface(args, parser, server, ui_url, result_out)
     if EXIT_ON_CLOSE:
         start_heartbeat_watchdog(server, require_initial=not args.no_browser)
     install_signal_handlers(server)
