@@ -163,6 +163,40 @@ class ManagedServicesTest(unittest.TestCase):
         self.assertIs(status_of(manager, "custom-key")["enabled"], False)
 
 
+class ServiceStatusTest(unittest.TestCase):
+    def test_el_estado_publico_sale_del_registro_y_de_si_el_proceso_sigue_vivo(self):
+        Record = zerochat.McpServiceRecord
+        # (registro, proceso vivo, código de salida) -> (estado, error)
+        for record, alive, exit_code, expected in (
+            (Record(), False, None, ("stopped", None)),
+            (Record(phase="installing"), False, None, ("installing", None)),
+            (Record(phase="starting"), True, None, ("starting", None)),
+            (Record(phase="error", error="OAuth failed"), False, 1, ("error", "OAuth failed")),
+            (Record(phase="running"), True, None, ("running", None)),
+            (Record(phase="running"), False, 3, ("error", "MCP process exited with code 3")),
+            (Record(phase="running"), False, 0, ("error", "MCP process exited with code 0")),
+            (Record(phase="running"), False, None, ("error", "MCP process is not responding")),
+        ):
+            with self.subTest(phase=record.phase, alive=alive, exit_code=exit_code):
+                self.assertEqual(zerochat.service_status(record, alive, exit_code), expected)
+
+    def test_detener_o_cerrar_el_gestor_deja_el_servicio_detenido_y_sin_error(self):
+        manager = zerochat.McpServiceManager(use_data_dir(self) / "services")
+        self.addCleanup(manager.close)
+        client = Mock(tools=[{"name": "lookup"}], oauth_url=None, process=None)
+        client.running.return_value = True
+        for action in (lambda: manager.stop("playwright"), manager.close):
+            with self.subTest(action=action):
+                manager.records["playwright"] = zerochat.McpServiceRecord(phase="running", client=client, browser={"mode": "user", "userBrowser": "chrome"})
+                self.assertEqual((status_of(manager, "playwright")["status"], status_of(manager, "playwright")["toolCount"]), ("running", 1))
+                client.stop.reset_mock()
+                action()
+                client.stop.assert_called_once()
+                status = status_of(manager, "playwright")
+                self.assertEqual((status["status"], status["error"], status["toolCount"], status["browser"]), ("stopped", None, 0, None))
+                self.assertEqual(manager.tools(), [])
+
+
 class McpStartTest(unittest.TestCase):
     def setUp(self):
         self.root = use_data_dir(self) / "services"
@@ -192,13 +226,13 @@ class McpStartTest(unittest.TestCase):
 
         def prepare(server_id, server):
             self.assertEqual((status_of(manager, server_id)["status"], status_of(manager, server_id)["error"]), ("starting", None))
-            manager.states[server_id] = "installing"
+            manager.records[server_id].phase = "installing"
             self.assertEqual(status_of(manager, server_id)["status"], "installing")
             return {}
 
         for fail in (True, False):
             with self.subTest(fail=fail):
-                manager.errors["oauth-fixture"] = "Previous failure"
+                manager.records["oauth-fixture"] = zerochat.McpServiceRecord(phase="error", error="Previous failure")
                 client = Mock(tools=[])
 
                 def handshake(timeout):
@@ -241,7 +275,7 @@ class McpToolsTest(unittest.TestCase):
             return {"content": []}
 
         client.request.side_effect = request
-        self.manager.clients["demo"] = client
+        self.manager.records["demo"] = zerochat.McpServiceRecord(phase="running", client=client)
         self.assertEqual(self.manager.call(zerochat.public_tool_name("demo", "lookup"), {"q": 1}), {"content": []})
         with self.assertRaises(ValueError):
             self.manager.call("demo_missing", {})
@@ -249,7 +283,7 @@ class McpToolsTest(unittest.TestCase):
     def test_se_descartan_y_registran_nombres_publicos_invalidos_o_duplicados(self):
         client = Mock(tools=[{"name": "lookup"}, {"name": "lookup"}, {"name": "x" * 80}, {"name": ""}])
         client.running.return_value = True
-        self.manager.clients["demo"] = client
+        self.manager.records["demo"] = zerochat.McpServiceRecord(phase="running", client=client)
         self.assertEqual([tool["name"] for tool in self.manager.tools()], ["demo_lookup"])
         joined = "\n".join(self.traces)
         self.assertIn("duplicate public name demo_lookup", joined)
@@ -305,7 +339,7 @@ class StdioClientTest(unittest.TestCase):
         manager = zerochat.McpServiceManager(root)
         self.addCleanup(manager.close)
         self.assertEqual(next(item for item in manager.start("limits", remember=True) if item["id"] == "limits")["status"], "running")
-        client = manager.clients["limits"]
+        client = manager.records["limits"].client
         self.assertEqual(client.call_timeout, 0.5)
 
         original_write = client._write

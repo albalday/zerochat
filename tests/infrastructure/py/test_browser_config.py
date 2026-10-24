@@ -87,15 +87,15 @@ class PlaywrightLaunchTest(unittest.TestCase):
         settings = {"mode": "own", "engine": "firefox", "headless": False, "extensionToken": "abc"}
         self.assertEqual(self.launch_args(settings, {"mode": "user", "userBrowser": "msedge"}), ["--extension", "--browser=msedge"])
         self.assertEqual(self.launched_env["PLAYWRIGHT_MCP_EXTENSION_TOKEN"], "abc")
-        self.assertEqual(self.manager.browsers["playwright"], {"mode": "user", "userBrowser": "msedge"})
+        self.assertEqual(self.manager.records["playwright"].browser, {"mode": "user", "userBrowser": "msedge"})
         self.assertEqual(self.launch_args({**settings, "mode": "user"}, {"mode": "own", "engine": "webkit"}), self.own_args("webkit"))
         self.assertEqual(self.launch_args(settings), self.own_args("firefox"))
-        self.assertEqual(self.manager.browsers["playwright"], {"mode": "own", "engine": "firefox", "headless": False})
+        self.assertEqual(self.manager.records["playwright"].browser, {"mode": "own", "engine": "firefox", "headless": False})
         headless = {**settings, "headless": True}
         self.assertEqual(self.launch_args(headless, {"mode": "own", "engine": "webkit", "headless": False}), self.own_args("webkit"))
-        self.assertEqual(self.manager.browsers["playwright"], {"mode": "own", "engine": "webkit", "headless": False})
+        self.assertEqual(self.manager.records["playwright"].browser, {"mode": "own", "engine": "webkit", "headless": False})
         self.assertEqual(self.launch_args(headless, {"mode": "own", "engine": "webkit"})[-1], "--headless")
-        self.assertEqual(self.manager.browsers["playwright"], {"mode": "own", "engine": "webkit"})
+        self.assertEqual(self.manager.records["playwright"].browser, {"mode": "own", "engine": "webkit"})
 
     def test_el_navegador_de_un_perfil_se_valida(self):
         for invalid in (None, [], {"mode": "own"}, {"mode": "own", "engine": "opera"}, {"mode": "user", "userBrowser": "firefox"},
