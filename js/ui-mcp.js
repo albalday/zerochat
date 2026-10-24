@@ -120,8 +120,6 @@
     const AgentCore = getAgentCore();
     const items = tools.map(tool => {
       const browser = AgentCore.browserOfTool(tool);
-      const available = browser !== 'browser_action' || getMCP().browserActionAvailable();
-      const isChecked = available && (browser ? browser === AgentCore.activeBrowserTool(appConfig) : AgentCore.isToolEnabled(appConfig.enabledTools, tool.name));
       const schema = tool.inputSchema || {};
       const required = Array.isArray(schema.required) ? schema.required : [];
       const paramsHint = Object.entries(schema.properties || {})
@@ -141,12 +139,12 @@
             ${paramsHint ? `<div class="mcp-tool-params"><code>${escapeHtml(paramsHint)}</code></div>` : ''}
             ${browser ? `<p class="label-hint">${escapeHtml(t('mcp_tool_browser_setting'))}</p>` : ''}
           </div>
-          <div class="mcp-tool-action">
+          ${browser ? '' : `<div class="mcp-tool-action">
             <label class="switch">
-              <input type="checkbox" class="agent-tool-checkbox mcp-tool-checkbox" data-tool-id="${escapeHtml(tool.name)}" ${isChecked ? 'checked' : ''}${browser ? ' disabled' : ''}>
+              <input type="checkbox" class="agent-tool-checkbox mcp-tool-checkbox" data-tool-id="${escapeHtml(tool.name)}" ${AgentCore.isToolEnabled(appConfig.enabledTools, tool.name) ? 'checked' : ''}>
               <span class="slider"></span>
             </label>
-          </div>
+          </div>`}
         </div>`;
     }).join('');
 

@@ -95,5 +95,6 @@ Done when: ee-mcp.py keeps one record per service and derives the public status 
 - [ ] M42-T7 js/profile-repository.js, js/config-store.js, js/defaults.js and js/mcp.js: add mcpProxy boolean profile setting and connectProxy support using the active profile's apiUrl origin and apiKey (Authorization: Bearer) on startup and profile activation
 - [ ] M42-T8 js/ui-profiles.js, js/ui-mcp.js and js/i18n.js: profile editor control to enable mcpProxy, reverse-proxy connection status in Settings › MCP, and unit/browser tests
 - [ ] M42-T9 Rebuild zerochat.py (npm run build:backend) and update py/README.md, help/mcp.html (ES/EN) and ../llama/zero-caddy.md
+- [x] M42-T10 Settings › MCP: browser tools (browser_action, Playwright MCP) list their authorization without the disabled on/off switch, since they are chosen in Settings › Browser (2026-10-24)
 
 ## M43 Dark theme link contrast: closed 2026-10-23
