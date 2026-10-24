@@ -41,8 +41,10 @@ async function waitForServer(baseUrl, testToken, serverProc, maxWaitMs = 15000) 
   }
   while (Date.now() - start < maxWaitMs) {
     try {
-      const probeRes = await fetch(`${baseUrl}/`, {
-        headers: testToken ? { 'X-ZeroChat-Token': testToken } : {}
+      const probeRes = await fetch(baseUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(testToken ? { 'X-ZeroChat-Token': testToken } : {}) },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'zerochat/heartbeat', params: {} })
       });
       if (probeRes.ok) return;
     } catch (_) {}
