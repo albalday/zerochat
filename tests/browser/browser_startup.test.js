@@ -137,6 +137,8 @@ test('Browser UI - el fragmento inicial persiste la sesión en cookie, limpia la
   const browser = await createTestBrowser();
   const context = await browser.newContext();
   try {
+    // Sin servidor local: un zerochat real en el 6388 respondería 401 al token de la prueba y abriría la identificación.
+    await context.route('http://127.0.0.1:6388/**', route => route.abort());
     const page = await context.newPage();
     const pageErrors = [];
     page.on('pageerror', err => pageErrors.push(err.message));
