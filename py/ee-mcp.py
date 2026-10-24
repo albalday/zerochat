@@ -428,6 +428,13 @@ class McpServiceManager:
         except OSError as err:
             log_event(f"[zerochat] Advertencia al guardar preferencias MCP en {self.config_file}: {err}")
 
+    def _remember(self, server_id: str, enabled: bool):
+        """Único sitio que guarda si un servicio queda activo para ofrecerlo en la siguiente sesión: lo
+        marca un arranque con remember y lo desmarca detenerlo. Un reinicio (detener y arrancar con el
+        valor previo) lo conserva, y un arranque sin remember, como el de un perfil, no lo cambia."""
+        self.preferences.setdefault(server_id, {})["enabled"] = enabled
+        self._save_preferences()
+
     def list_servers(self) -> list[dict]:
         self.services = self._load_services()
         result = []
@@ -608,9 +615,7 @@ class McpServiceManager:
                 client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
                 record.phase = "running"
                 if remember:
-                    entry = self.preferences.setdefault(server_id, {})
-                    entry["enabled"] = True
-                    self._save_preferences()
+                    self._remember(server_id, True)
                 self._trace(server_id, "started successfully")
             except Exception as exc:
                 record.phase, record.error = "error", str(exc)
@@ -628,9 +633,7 @@ class McpServiceManager:
                 raise KeyError(f"Servidor MCP desconocido: {server_id}")
             if record.client:
                 record.client.stop()
-            entry = self.preferences.setdefault(server_id, {})
-            entry["enabled"] = False
-            self._save_preferences()
+            self._remember(server_id, False)
             return self.list_servers()
 
     def configure(self, server_id: str, options: dict | None = None) -> list[dict]:

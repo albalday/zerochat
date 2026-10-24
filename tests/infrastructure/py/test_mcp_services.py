@@ -149,18 +149,6 @@ class ManagedServicesTest(unittest.TestCase):
             client.start.assert_called_once()
         self.assertNotIn("fixture-key", "".join(traces))
         self.assertEqual(status_of(manager, "custom-key")["status"], "running")
-        manager.close()
-
-        # Solo un arranque recordado se guarda como activo para la siguiente sesión.
-        preferences = self.data_dir / "config" / "services.json"
-        self.assertIs(json.loads(preferences.read_text())["custom-key"]["enabled"], True)
-        preferences.unlink()
-        with patch.object(zerochat, "StdioMcpClient", return_value=client):
-            manager = zerochat.McpServiceManager(self.root)
-            self.addCleanup(manager.close)
-            manager.start("custom-key", remember=False)
-        self.assertFalse(preferences.exists())
-        self.assertIs(status_of(manager, "custom-key")["enabled"], False)
 
 
 class ServiceStatusTest(unittest.TestCase):
@@ -195,6 +183,57 @@ class ServiceStatusTest(unittest.TestCase):
                 status = status_of(manager, "playwright")
                 self.assertEqual((status["status"], status["error"], status["toolCount"], status["browser"]), ("stopped", None, 0, None))
                 self.assertEqual(manager.tools(), [])
+
+
+class RememberTest(unittest.TestCase):
+    def setUp(self):
+        data_dir = use_data_dir(self)
+        self.root = data_dir / "services"
+        self.preferences = data_dir / "config" / "services.json"
+        (self.root / "demo").mkdir(parents=True)
+        (self.root / "demo" / "service.json").write_text(json.dumps({"id": "demo", "launch": {"args": []}}), encoding="utf-8")
+
+    def run_actions(self, remembered, actions, fails=False):
+        """Aplica las acciones a un servicio con ese estado recordado de la sesión anterior y devuelve
+        si queda recordado para la siguiente."""
+        if remembered is not None:
+            self.preferences.write_text(json.dumps({"demo": {"enabled": remembered}}), encoding="utf-8")
+        client = Mock(tools=[], oauth_url=None, process=None)
+        client.running.return_value = True
+        if fails:
+            client.start.side_effect = RuntimeError("handshake failed")
+        manager = zerochat.McpServiceManager(self.root)
+        self.addCleanup(manager.close)
+        with patch.object(zerochat, "StdioMcpClient", return_value=client):
+            for action, *remember in actions:
+                if action == "start":
+                    manager.start("demo", remember=remember[0])
+                elif action == "stop":
+                    manager.stop("demo")
+                else:
+                    # Reinicio de McpManager.withExternalServerStopped (js/mcp.js): arranca con el valor previo.
+                    before = status_of(manager, "demo")["enabled"]
+                    manager.stop("demo")
+                    manager.start("demo", remember=before)
+        return status_of(zerochat.McpServiceManager(self.root), "demo")["enabled"]
+
+    def test_solo_un_arranque_con_remember_lo_recuerda_y_detenerlo_lo_olvida(self):
+        # (descripción, recordado antes, acciones, recordado después)
+        for name, remembered, actions, expected in (
+            ("arranque desde Ajustes › MCP", None, [("start", True)], True),
+            ("arranque sin remember", None, [("start", False)], False),
+            ("arranque de un perfil sobre uno recordado", True, [("start", False)], True),
+            ("arranque de un perfil sobre uno olvidado", False, [("start", False)], False),
+            ("detener", True, [("start", False), ("stop",)], False),
+            ("reinicio de uno recordado", True, [("start", False), ("restart",)], True),
+            ("reinicio de uno arrancado por un perfil", None, [("start", False), ("restart",)], False),
+            ("reinicio tras arrancarlo desde Ajustes", None, [("start", True), ("restart",)], True),
+        ):
+            with self.subTest(name):
+                self.preferences.unlink(missing_ok=True)
+                self.assertIs(self.run_actions(remembered, actions), expected)
+        self.preferences.unlink()
+        self.assertIs(self.run_actions(None, [("start", True)], fails=True), False, "un arranque fallido no se recuerda")
 
 
 class McpStartTest(unittest.TestCase):
