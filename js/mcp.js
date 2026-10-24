@@ -73,7 +73,10 @@
   const getSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
 
-  const proxyEndpoint = (host, port) => `http://${host}:${port}`;
+  /** Cabeceras del proxy inverso: X-ZeroChat-Proxy enruta hacia zerochat.py y Authorization lleva su clave. */
+  const proxyHeaders = proxyKey => (proxyKey === null ? {} : { 'X-ZeroChat-Proxy': '1', Authorization: `Bearer ${proxyKey}` });
+  // Un 401 (sin token, caducado o de otro día) pide identificarse con la cuenta del sistema.
+  const failureStatus = error => (error?.status === 401 ? 'login_required' : 'error');
 
   // Escrituras del servidor local cuyo resultado lleva la ruta absoluta del fichero (botón Diff).
   const FILE_WRITE_TOOLS = new Set(['write_file', 'edit_file']);
@@ -142,7 +145,7 @@
     const normalizedUrl = (url || '').trim();
     if (!normalizedUrl) return { success: false, error: 'Invalid or empty URL', latencyMs: 0 };
 
-    const client = new McpClient({ url: normalizedUrl, timeoutMs, token: options.token });
+    const client = new McpClient({ url: normalizedUrl, timeoutMs, token: options.token, headers: options.headers });
     const latency = () => Math.max(1, Math.round(performance.now() - startTime));
     const describe = message => (/Failed to fetch|NetworkError|ECONNREFUSED/.test(message) ? UNREACHABLE_SERVER_ERROR : message);
     try {
@@ -150,14 +153,16 @@
       if (initResult.success) {
         return { success: true, latencyMs: latency(), serverInfo: initResult.serverInfo, capabilities: initResult.capabilities, liveState: initResult.liveState };
       }
-      return { success: false, error: describe(initResult.error), latencyMs: latency() };
+      return { success: false, error: describe(initResult.error), status: initResult.status, latencyMs: latency() };
     } catch (err) {
       return { success: false, error: describe(err.message || 'Connection error'), latencyMs: latency() };
     }
   }
 
+  /** La conexión con el servidor local se ha perdido: fallo de red o de servidor, o 401 (el token caducó). */
   function isTransportFailure(error) {
     if (!error || error.name === 'AbortError') return false;
+    if (error.status === 401) return true;
     const message = String(error.message || error).toLowerCase();
     return /network|fetch|econnrefused|timeout|http 5\d\d/.test(message);
   }
@@ -263,10 +268,10 @@
       }, options.signal ? 0 : options.timeoutMs || this.timeoutMs);
       if (!res.ok) {
         const errorText = await res.text().catch(() => '');
-        throw new Error(`MCP server responded with HTTP ${res.status}: ${errorText.slice(0, 200)}`);
+        throw Object.assign(new Error(`MCP server responded with HTTP ${res.status}: ${errorText.slice(0, 200)}`), { status: res.status });
       }
       const data = await res.json();
-      if (data.error) throw new Error(formatJsonRpcError(data.error));
+      if (data.error) throw Object.assign(new Error(formatJsonRpcError(data.error)), { rpcError: data.error });
       return data.result;
     }
 
@@ -282,7 +287,7 @@
           clientInfo: { name: 'ZeroChat', version: Defaults.APP_VERSION }
         }, options);
       } catch (err) {
-        return { success: false, error: err.message };
+        return { success: false, error: err.message, status: err.status };
       }
 
       this.serverCapabilities = result?.capabilities || {};
@@ -504,7 +509,8 @@
       this.clients = new Map();
       this.sessionToken = null;
       this.healthCheckPromise = null;
-      this.heartbeatTarget = null;
+      // Destino de la conexión ({ url, proxyKey }), que el latido vigila aunque la conexión falle.
+      this.target = null;
       this.heartbeatTimer = null;
       this.heartbeatCheckInFlight = false;
       // Si el último servidor conectado se detiene al cerrar el navegador; null mientras no se sabe.
@@ -518,10 +524,6 @@
     setSessionToken(token) {
       this.sessionToken = token ? String(token).trim() : null;
       for (const client of this.clients.values()) client.token = this.sessionToken;
-    }
-
-    getSessionToken() {
-      return this.sessionToken;
     }
 
     /** Cierra el cliente y retira del registro las herramientas de su proveedor. */
@@ -553,7 +555,7 @@
       if (current.status !== 'connected' || !payload) return false;
       if (typeof payload.exit_on_close === 'boolean') {
         this.serverExitsOnClose = payload.exit_on_close;
-        this.setHeartbeatTimer(payload.exit_on_close && Boolean(this.heartbeatTarget));
+        this.setHeartbeatTimer(payload.exit_on_close && Boolean(this.target));
       }
       const next = {};
       const cwd = typeof payload.cwd === 'string' ? payload.cwd.trim() : '';
@@ -594,7 +596,7 @@
     async markProxyUnavailable(error) {
       const message = error?.message || String(error || 'MCP connection unavailable');
       await this.disconnectProxy();
-      getState().set('mcp', { status: 'error', error: message });
+      getState().set('mcp', { status: failureStatus(error), error: message });
       return { success: false, error: message };
     }
 
@@ -605,9 +607,9 @@
       if (current.status !== 'connected') return { success: false, skipped: true };
       const run = (async () => {
         State.set('mcp', { status: 'checking', error: null });
-        const probe = await probeConnection(current.endpoint, { timeoutMs, token: this.sessionToken });
+        const probe = await this.probeTarget(timeoutMs);
         if (!probe.success) {
-          await this.markProxyUnavailable(new Error(probe.error));
+          await this.markProxyUnavailable(Object.assign(new Error(probe.error), { status: probe.status }));
           return { success: false, probe };
         }
         if (probe.serverInfo.cwd) getSecurity().manager.setStartupDirectory(probe.serverInfo.cwd);
@@ -646,24 +648,34 @@
      * deja el estado en 'disconnected' en lugar de 'error'. Con sesión, el latido (o la vuelta a la
      * pestaña) vigila este destino aunque falle: conecta en cuanto el servidor arranca o vuelve.
      */
-    async connectProxy({ host, port, timeoutMs = PROBE_TIMEOUT_MS, silentOnFailure = false, token = null }) {
-      if (token) this.setSessionToken(token);
-      if (this.sessionToken) {
-        this.heartbeatTarget = { host, port, token: this.sessionToken };
-        this.setHeartbeatTimer(this.serverExitsOnClose !== false);
-      }
-      const endpoint = proxyEndpoint(host, port);
-      const State = getState();
-      if (!silentOnFailure) State.set('mcp', { status: 'connecting', host, port, endpoint, error: null });
+    /** Sondea el destino de la conexión con el token de la sesión. */
+    probeTarget(timeoutMs = PROBE_TIMEOUT_MS) {
+      return probeConnection(this.target.url, { timeoutMs, token: this.sessionToken, headers: proxyHeaders(this.target.proxyKey) });
+    }
 
-      const probe = await probeConnection(endpoint, { timeoutMs, token: this.sessionToken });
+    /**
+     * Conecta con zerochat.py en `url` (con `proxyKey`, a través del proxy inverso), registra sus
+     * herramientas y publica el estado vivo de initialize. Un 401 deja el estado en 'login_required'.
+     * Con silentOnFailure (la conexión del arranque) un servidor apagado deja el estado en
+     * 'disconnected' en lugar de 'error'. El latido (o la vuelta a la pestaña) vigila este destino
+     * aunque falle: conecta en cuanto el servidor arranca o vuelve.
+     */
+    async connectProxy({ url, proxyKey = null, timeoutMs = PROBE_TIMEOUT_MS, silentOnFailure = false, token = null }) {
+      if (token) this.setSessionToken(token);
+      this.target = { url, proxyKey };
+      this.setHeartbeatTimer(this.serverExitsOnClose !== false);
+      const State = getState();
+      if (!silentOnFailure) State.set('mcp', { status: 'connecting', endpoint: url, error: null });
+
+      const probe = await this.probeTarget(timeoutMs);
       if (!probe.success) {
         if (this.clients.has(PROXY_ID)) await this.disconnectProxy();
+        const status = probe.status === 401 ? 'login_required' : silentOnFailure ? 'disconnected' : 'error';
         State.set('mcp', {
-          status: silentOnFailure ? 'disconnected' : 'error',
-          host, port, endpoint,
-          error: silentOnFailure ? null : probe.error,
-          latencyMs: silentOnFailure ? null : probe.latencyMs,
+          status,
+          endpoint: url,
+          error: status === 'disconnected' ? null : probe.error,
+          latencyMs: status === 'disconnected' ? null : probe.latencyMs,
           ...LIVE_RESET
         });
         return { success: false, available: false, probe, error: probe.error };
@@ -671,7 +683,7 @@
 
       this.dropClient(PROXY_ID);
       if (probe.serverInfo.cwd) getSecurity().manager.setStartupDirectory(probe.serverInfo.cwd);
-      const client = new McpClient({ id: PROXY_ID, name: probe.serverInfo.name || 'zerochat', url: endpoint, token: this.sessionToken });
+      const client = new McpClient({ id: PROXY_ID, name: probe.serverInfo.name || 'zerochat', url, token: this.sessionToken, headers: proxyHeaders(proxyKey) });
       let tools = [];
       let error = null;
       try {
@@ -682,7 +694,7 @@
 
       State.set('mcp', {
         status: error ? 'error' : 'connected',
-        host, port, endpoint,
+        endpoint: url,
         serverInfo: probe.serverInfo,
         tools,
         latencyMs: probe.latencyMs,
@@ -736,21 +748,31 @@
           } catch (_) {
             await this.verifyProxyConnection();
           }
-        } else if (this.heartbeatTarget) {
-          const { host, port, token } = this.heartbeatTarget;
-          const probe = await probeConnection(proxyEndpoint(host, port), { timeoutMs: PROBE_TIMEOUT_MS, token });
+        } else if (this.target) {
+          const probe = await this.probeTarget();
           reconnect = probe.success;
-          // Muestra la causa actual: tras un reinicio otro día, el 401 del nuevo token diario y no el fallo de red anterior.
-          if (!probe.success && probe.error !== getState().get('mcp').error) getState().set('mcp', { status: 'error', error: probe.error });
+          // Muestra la causa actual: tras un reinicio otro día, el 401 del token caducado y no el fallo de red anterior.
+          const status = failureStatus(probe);
+          const current = getState().get('mcp');
+          if (!probe.success && (probe.error !== current.error || status !== current.status)) getState().set('mcp', { status, error: probe.error });
         }
       } finally {
         this.heartbeatCheckInFlight = false;
       }
-      // Fuera del bloqueo, para que connectProxy envíe el primer latido de la nueva conexión.
-      if (reconnect) {
-        const { host, port, token } = this.heartbeatTarget;
-        await this.connectProxy({ host, port, silentOnFailure: true, token });
-      }
+      // Fuera del bloqueo, para que connectProxy publique el estado vivo de la nueva conexión.
+      if (reconnect) await this.connectProxy({ ...this.target, silentOnFailure: true });
+    }
+
+    /**
+     * Se identifica en el destino de la conexión con el usuario y la contraseña de la cuenta del
+     * sistema que ejecuta zerochat.py (zerochat/login) y devuelve el token diario. La contraseña no se
+     * guarda. Un error de identificación lleva en `rpcError` su código (-32001 fallo, -32002 bloqueo).
+     */
+    async login(user, password) {
+      const client = new McpClient({ url: this.target.url, headers: proxyHeaders(this.target.proxyKey) });
+      const result = await client.request('zerochat/login', { user, password });
+      if (typeof result?.token !== 'string' || !result.token) throw new Error('The local server did not return a session token.');
+      return result.token;
     }
 
     /** Petición de control al servidor local (comandos, servicios externos, proyecto). */
@@ -854,7 +876,8 @@
           id: EXTERNAL_ID,
           name: 'ZeroChat External MCP Host',
           url: `${control.url}/mcp/external`,
-          token: this.sessionToken
+          token: this.sessionToken,
+          headers: control.headers
         });
         try {
           tools = await this.registerClient(client);

@@ -56,10 +56,9 @@
     next.enableRawLogs = next.enableRawLogs === true;
     next.enableDebugMessages = next.enableDebugMessages === true;
     next.enableContextCache = next.enableContextCache !== false;
-    next.mcpHost = String(next.mcpHost || DEFAULTS.mcpHost).trim() || DEFAULTS.mcpHost;
-    const parsedMcpPort = Number(next.mcpPort);
-    next.mcpPort = Number.isInteger(parsedMcpPort) && parsedMcpPort >= 1024 && parsedMcpPort <= 65535 ? parsedMcpPort : DEFAULTS.mcpPort;
-    next.mcpAutoConnect = next.mcpAutoConnect === true;
+    next.backendUrl = Utils.normalizeBackendUrl(next.backendUrl) || DEFAULTS.backendUrl;
+    next.useProxy = next.useProxy === true;
+    next.proxyKey = typeof next.proxyKey === 'string' ? next.proxyKey.trim() : '';
     next.projectMode = next.projectMode !== false;
     next.projectDeclined = normalizeDeclinedProjects(next.projectDeclined);
     next.activeRagBranchIds = normalizeBranchIds(next.activeRagBranchIds);

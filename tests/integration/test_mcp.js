@@ -371,11 +371,10 @@ test('MCP - una comprobación de salud fallida degrada una conexión previamente
     ChatState.set('mcp', {
       ...previousState,
       status: 'connected',
-      host: '127.0.0.1',
-      port: 6388,
       endpoint: 'http://127.0.0.1:6388',
       tools: [{ id: 'mcp_test_tool' }]
     });
+    manager.target = { url: 'http://127.0.0.1:6388', proxyKey: null };
     global.fetch = async () => { throw new Error('ECONNREFUSED'); };
 
     const result = await manager.verifyProxyConnection({ timeoutMs: 500 });
@@ -400,8 +399,7 @@ test('MCP - la conexión silenciosa del arranque conecta si el servidor está ac
     };
 
     const resInactive = await MCP.manager.connectProxy({
-      host: '127.0.0.1',
-      port: 6388,
+      url: 'http://127.0.0.1:6388',
       timeoutMs: 500,
       silentOnFailure: true
     });
@@ -450,8 +448,7 @@ test('MCP - la conexión silenciosa del arranque conecta si el servidor está ac
     };
 
     const resActive = await MCP.manager.connectProxy({
-      host: '127.0.0.1',
-      port: 6388,
+      url: 'http://127.0.0.1:6388',
       timeoutMs: 1000,
       silentOnFailure: true
     });
@@ -462,6 +459,7 @@ test('MCP - la conexión silenciosa del arranque conecta si el servidor está ac
     assert.equal(resActive.tools[0].metadata.originalName, 'auto_tool');
   } finally {
     global.fetch = originalFetch;
+    MCP.manager.setHeartbeatTimer(false);
     await MCP.manager.disconnectProxy();
   }
 });
@@ -619,7 +617,7 @@ test('MCP - connectProxy publica el estado vivo de initialize y registra las her
   t.mock.method(global, 'fetch', fakeLocalServer(state));
   const manager = new MCP.McpManager();
   try {
-    const connResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388, token: 'tok' });
+    const connResult = await manager.connectProxy({ url: 'http://127.0.0.1:6388', token: 'tok' });
     assert.equal(connResult.success, true);
     assert.equal(state.beats, undefined, 'sin esperar al latido');
     assert.equal(ChatState.get('mcp').exitOnClose, true);
@@ -628,7 +626,7 @@ test('MCP - connectProxy publica el estado vivo de initialize y registra las her
     assert.ok(AgentCore.registry.getTool('sqlite_query'), 'sqlite_query debe estar registrada en el registry');
 
     // Reconectar connectProxy no debe destruir las herramientas externas
-    const reconnectResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388 });
+    const reconnectResult = await manager.connectProxy({ url: 'http://127.0.0.1:6388' });
     assert.equal(reconnectResult.success, true);
     assert.ok(AgentCore.registry.getTool('sqlite_query'), 'sqlite_query debe seguir registrada tras reconectar');
 
@@ -647,7 +645,7 @@ test('MCP - con sesión, el latido conecta cuando el servidor local arranca o vu
   const manager = new MCP.McpManager();
   try {
     // La página abre con la sesión guardada y el servidor apagado: el latido queda vigilando.
-    const failed = await manager.connectProxy({ host: '127.0.0.1', port: 6388, token: 'tok' });
+    const failed = await manager.connectProxy({ url: 'http://127.0.0.1:6388', token: 'tok' });
     assert.equal(failed.success, false);
     assert.equal(ChatState.get('mcp').status, 'error');
     assert.ok(manager.heartbeatTimer, 'el latido vigila el destino aunque la conexión falle');
@@ -669,10 +667,10 @@ test('MCP - con sesión, el latido conecta cuando el servidor local arranca o vu
     assert.equal(manager.isProxyConnected(), false);
     assert.ok(manager.heartbeatTimer);
 
-    // Vuelve con otro token diario: se muestra el rechazo y no el fallo de red anterior.
+    // Vuelve con otro token diario: se pide identificarse en lugar de mostrar el fallo de red anterior.
     state.server = 'newToken';
     await manager.sendHeartbeat();
-    assert.equal(ChatState.get('mcp').status, 'error');
+    assert.equal(ChatState.get('mcp').status, 'login_required');
     assert.match(ChatState.get('mcp').error, /HTTP 401/);
 
     // Vuelve aceptando la sesión: el siguiente latido reconecta sin recargar la página.
@@ -685,12 +683,67 @@ test('MCP - con sesión, el latido conecta cuando el servidor local arranca o vu
   }
 });
 
+test('MCP - un 401 pide identificarse y zerochat/login da el token con el que se conecta, a través del proxy si se usa', async t => {
+  const requests = [];
+  let validToken = 'hoy';
+  t.mock.method(global, 'fetch', async (url, options) => {
+    const body = JSON.parse(options.body);
+    requests.push({ url, method: body.method, headers: options.headers, params: body.params });
+    const reply = result => ({ ok: true, status: 200, json: async () => ({ jsonrpc: '2.0', id: body.id, result }) });
+    if (body.method === 'zerochat/login') {
+      return body.params.password === 'buena'
+        ? reply({ token: validToken })
+        : { ok: true, status: 200, json: async () => ({ jsonrpc: '2.0', id: body.id, error: { code: -32001, message: 'Usuario o contraseña incorrectos.' } }) };
+    }
+    if (options.headers['X-ZeroChat-Token'] !== validToken) return { ok: false, status: 401, text: async () => 'Unauthorized' };
+    if (body.method === 'initialize') return reply({ protocolVersion: '2024-11-05', serverInfo: { name: 'zerochat' }, capabilities: {}, liveState: { exit_on_close: false, servers: [] } });
+    return reply(body.method === 'tools/list' ? { tools: [] } : {});
+  });
+  const manager = new MCP.McpManager();
+  const url = 'https://zerochat.example';
+  try {
+    // Sesión de ayer: también en la conexión silenciosa del arranque se pide identificarse.
+    const expired = await manager.connectProxy({ url, proxyKey: 'clave-caddy', token: 'ayer', silentOnFailure: true });
+    assert.equal(expired.success, false);
+    assert.equal(ChatState.get('mcp').status, 'login_required');
+
+    await assert.rejects(manager.login('ana', 'mala'), error => error.rpcError?.code === -32001);
+    assert.equal(await manager.login('ana', 'buena'), 'hoy');
+    const login = requests.filter(request => request.method === 'zerochat/login').at(-1);
+    assert.equal(login.url, url);
+    assert.deepEqual(login.params, { user: 'ana', password: 'buena' });
+
+    assert.equal((await manager.connectProxy({ url, proxyKey: 'clave-caddy', token: 'hoy' })).success, true);
+    assert.equal(ChatState.get('mcp').status, 'connected');
+    // Con el proxy, Authorization lleva su clave y X-ZeroChat-Proxy lo enruta; el token va en X-ZeroChat-Token.
+    for (const request of requests) {
+      assert.equal(request.headers['X-ZeroChat-Proxy'], '1', request.method);
+      assert.equal(request.headers.Authorization, 'Bearer clave-caddy', request.method);
+    }
+    assert.equal(requests.at(-1).headers['X-ZeroChat-Token'], 'hoy');
+
+    // El token caduca con la conexión abierta: el latido lo detecta y pide identificarse de nuevo.
+    validToken = 'mañana';
+    await manager.onPageVisible();
+    assert.equal(ChatState.get('mcp').status, 'login_required');
+    assert.equal(manager.isProxyConnected(), false);
+
+    // Sin proxy no se envía su cabecera.
+    requests.length = 0;
+    await manager.connectProxy({ url: 'http://127.0.0.1:6388', token: 'mañana' });
+    assert.equal(requests[0].headers['X-ZeroChat-Proxy'], undefined);
+  } finally {
+    manager.setHeartbeatTimer(false);
+    await manager.disconnectProxy();
+  }
+});
+
 test('MCP - sin auto-cierre no hay temporizador de latido: el estado se relee y se reconecta al volver a la pestaña', async t => {
   const state = { server: 'up', live: { cwd: '/repo', jobs: [], exit_on_close: false, servers: [] } };
   t.mock.method(global, 'fetch', fakeLocalServer(state));
   const manager = new MCP.McpManager();
   try {
-    assert.equal((await manager.connectProxy({ host: '127.0.0.1', port: 6388, token: 'tok' })).success, true);
+    assert.equal((await manager.connectProxy({ url: 'http://127.0.0.1:6388', token: 'tok' })).success, true);
     assert.equal(manager.heartbeatTimer, null);
 
     // Otra pestaña cambia el directorio: se ve al volver a esta.
@@ -704,7 +757,7 @@ test('MCP - sin auto-cierre no hay temporizador de latido: el estado se relee y 
     await manager.onPageVisible();
     assert.equal(ChatState.get('mcp').status, 'error');
     // Ya desconectado, la conexión fallida no arranca el latido periódico.
-    await manager.connectProxy({ host: '127.0.0.1', port: 6388 });
+    await manager.connectProxy({ url: 'http://127.0.0.1:6388' });
     assert.equal(manager.heartbeatTimer, null);
     state.server = 'up';
     await manager.onPageVisible();
@@ -712,7 +765,7 @@ test('MCP - sin auto-cierre no hay temporizador de latido: el estado se relee y 
 
     // Con un servidor con auto-cierre vuelve el temporizador y la vuelta a la pestaña no añade lecturas.
     state.live = { ...state.live, exit_on_close: true };
-    await manager.connectProxy({ host: '127.0.0.1', port: 6388 });
+    await manager.connectProxy({ url: 'http://127.0.0.1:6388' });
     assert.ok(manager.heartbeatTimer);
     const beats = state.beats;
     await manager.onPageVisible();

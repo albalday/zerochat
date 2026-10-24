@@ -801,11 +801,11 @@
     const hashParams = Utils.readLaunchFragment(location.hash);
     const token = hashParams.get('token');
     if (!token) return;
-    const session = Storage.normalizeBackendSession({
-      token,
-      host: hashParams.get('host') || Defaults.CONFIG_DEFAULTS.mcpHost,
-      port: hashParams.get('port') || Defaults.CONFIG_DEFAULTS.mcpPort
-    });
+    // zerochat.py abre la página con un servidor de este equipo: el fragmento no admite otro.
+    const host = hashParams.get('host');
+    const port = Number(hashParams.get('port'));
+    const local = ['127.0.0.1', 'localhost'].includes(host) && Number.isInteger(port) && port > 0 && port < 65536;
+    const session = local ? Storage.normalizeBackendSession({ token, url: `http://${host}:${port}` }) : null;
     // El servidor de --prompt puede estar en otro puerto y termina con la ejecución: su conexión
     // queda en esta página y la cookie sigue apuntando las demás pestañas al servidor normal.
     if (hashParams.has('run')) {
@@ -816,23 +816,22 @@
     history.replaceState(null, '', location.pathname + location.search);
   }
 
-  /** Conecta con zerochat.py si hay sesión o autoconexión; devuelve el resultado de la conexión. */
+  /** Clave del proxy para `url`: solo si es la URL de Ajustes › Conexión y usa el proxy; si no, null. */
+  function proxyKeyFor(url) {
+    const config = getRuntimeConfig();
+    return config.useProxy && url === config.backendUrl ? config.proxyKey : null;
+  }
+
+  /**
+   * Conecta con zerochat.py si hay sesión guardada (sin ella no sondea el equipo, para no disparar el
+   * aviso de acceso a la red local del navegador); devuelve el resultado de la conexión.
+   */
   function connectBackend() {
     persistBackendSessionFromLaunchFragment();
-    const backendSession = runBackendSession || Storage.getBackendSession();
-    const token = backendSession?.token || MCP.manager.getSessionToken();
-    if (token) {
-      MCP.manager.setSessionToken(token);
-      ToolSecurity.manager.setSessionToken(token);
-    }
-    const config = getRuntimeConfig();
-    if (!token && !config.mcpAutoConnect) return Promise.resolve({ success: false });
-    return MCP.manager.connectProxy({
-      host: backendSession?.host || config.mcpHost,
-      port: backendSession?.port || config.mcpPort,
-      token,
-      silentOnFailure: !token
-    }).catch(error => {
+    const session = runBackendSession || Storage.getBackendSession();
+    if (!session) return Promise.resolve({ success: false });
+    ToolSecurity.manager.setSessionToken(session.token);
+    return MCP.manager.connectProxy({ url: session.url, proxyKey: proxyKeyFor(session.url), token: session.token }).catch(error => {
       console.warn('[App] Could not connect to the local server on startup:', error);
       return { success: false };
     });
