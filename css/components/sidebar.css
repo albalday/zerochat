@@ -321,6 +321,33 @@
   transition: all 0.15s ease;
 }
 
+/* Icono de conexión: un punto en su esquina indica el estado del servidor local. */
+.connection-icon {
+  position: relative;
+  display: inline-flex;
+}
+
+.connection-status-dot {
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 2px var(--bg-surface);
+}
+
+#btn-open-connection[data-status="connected"] .connection-status-dot {
+  background: var(--success);
+}
+
+#btn-open-connection[data-status="connecting"] .connection-status-dot,
+#btn-open-connection[data-status="checking"] .connection-status-dot,
+#btn-open-connection[data-status="login_required"] .connection-status-dot {
+  background: var(--warning);
+}
+
 .btn-sidebar-icon .ui-icon,
 .btn-sidebar-close .ui-icon,
 .btn-sidebar-footer .ui-icon {

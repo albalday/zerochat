@@ -54,6 +54,8 @@ test('Browser UI - Conectar pide identificarse ante un 401 y guarda el token dia
     await page.goto(`http://127.0.0.1:${server.address().port}/zerochat.html`, { waitUntil: 'load' });
     await waitForAppReady(page);
     assert.deepEqual(requests, [], 'sin sesión guardada no se conecta al arrancar');
+    const iconStatus = () => page.getAttribute('#btn-open-connection', 'data-status');
+    assert.equal(await iconStatus(), 'disconnected');
 
     // La conexión se abre con su icono en la cabecera de la lista de chats, no desde las secciones de Ajustes.
     assert.equal(await page.locator('#sidebar-settings-nav [data-section="connection"]').count(), 0);
@@ -83,6 +85,7 @@ test('Browser UI - Conectar pide identificarse ante un 401 y guarda el token dia
     await page.click('#btn-backend-connect');
     await page.waitForFunction(() => document.getElementById('login-dialog').open);
     assert.equal(await page.evaluate(() => window.ChatState.get('mcp').status), 'login_required');
+    assert.equal(await iconStatus(), 'login_required');
     assert.match(await page.textContent('#login-desc'), /zerochat\.example/);
 
     await page.fill('#login-user', 'ana');
@@ -109,6 +112,9 @@ test('Browser UI - Conectar pide identificarse ante un 401 y guarda el token dia
       assert.equal(request.headers.authorization, 'Bearer clave-caddy', request.method);
     }
     assert.match(await page.textContent('#backend-connection-status'), /ZeroChat Local Server 9\.10/);
+    // El icono de la barra lateral lo indica sin abrir el panel.
+    assert.equal(await iconStatus(), 'connected');
+    assert.equal(await page.getAttribute('#btn-open-connection', 'aria-label'), await page.evaluate(() => window.ChatI18n.t('btn_connection_status', { status: window.ChatI18n.t('mcp_status_connected') })));
   } finally {
     await browser.close();
     await stopStaticServer(server);

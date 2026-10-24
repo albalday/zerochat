@@ -910,6 +910,7 @@
     RagUI.initRagUI();
     UIBrowser.mountBrowserUI(elements.settingsBrowser, openSettingsSection);
     UIConnection.mount({
+      openButton: elements.btnOpenConnection,
       local: elements.settingLocalBackend,
       remoteFields: elements.connectionRemoteFields,
       url: elements.settingBackendUrl,

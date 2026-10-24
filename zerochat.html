@@ -103,8 +103,11 @@
             <button type="button" id="btn-open-settings" class="btn-sidebar-icon" data-i18n-title="btn_settings_title" title="Abrir configuración de API y Modelo" aria-label="Configuración">
               <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg>
             </button>
-            <button type="button" id="btn-open-connection" class="btn-sidebar-icon" data-i18n-title="btn_connection_title" data-i18n-aria="btn_connection_title" title="Conexión con el servidor local" aria-label="Conexión con el servidor local">
-              <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-plug"></use></svg>
+            <button type="button" id="btn-open-connection" class="btn-sidebar-icon" data-status="disconnected" title="Conexión con el servidor local: Desconectado" aria-label="Conexión con el servidor local: Desconectado">
+              <span class="connection-icon">
+                <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-plug"></use></svg>
+                <span class="connection-status-dot" aria-hidden="true"></span>
+              </span>
             </button>
             <a id="btn-sidebar-new-tab" class="btn-sidebar-icon" href="" target="_blank" rel="noopener" data-i18n-title="btn_open_new_tab_title" data-i18n-aria="btn_open_new_tab_title" title="Abrir ZeroChat en una nueva pestaña" aria-label="Abrir ZeroChat en una nueva pestaña">
               <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-external-link"></use></svg>

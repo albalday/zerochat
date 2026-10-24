@@ -132,7 +132,15 @@
     els.loginCancel.addEventListener('click', () => els.loginDialog.close());
     const State = getState();
     let lastStatus = State.get('mcp').status;
-    const render = () => setText(els.status, describeConnection(State.get('mcp')));
+    const render = () => {
+      const mcp = State.get('mcp');
+      setText(els.status, describeConnection(mcp));
+      // El punto del icono de la barra lateral muestra el estado sin abrir el panel.
+      const label = t('btn_connection_status', { status: t(`mcp_status_${mcp.status}`) });
+      els.openButton.dataset.status = mcp.status;
+      els.openButton.title = label;
+      els.openButton.setAttribute('aria-label', label);
+    };
     State.subscribe('mcp', mcp => {
       render();
       // Se pide identificarse al pasar a login_required, no en cada latido que lo confirma.
