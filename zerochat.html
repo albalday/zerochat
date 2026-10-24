@@ -201,6 +201,15 @@
             <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
           </span>
         </button>
+        <button type="button" class="sidebar-settings-item" data-section="connection">
+          <span class="settings-item-icon">
+            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-zap"></use></svg>
+          </span>
+          <span class="settings-item-label" data-i18n="settings_connection">Conexión</span>
+          <span class="settings-item-chevron">
+            <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
+          </span>
+        </button>
         <button type="button" class="sidebar-settings-item" data-section="mcp">
           <span class="settings-item-icon">
             <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-server"></use></svg>
@@ -640,6 +649,19 @@
     <div class="modal-footer"><button type="button" id="notice-cancel" class="btn-secondary" data-i18n="notice_cancel" hidden></button><button type="button" id="notice-accept" class="btn-primary" data-i18n="notice_accept"></button></div>
   </dialog>
 
+  <dialog id="login-dialog" class="settings-modal notice-dialog" aria-labelledby="login-title" aria-describedby="login-desc">
+    <form id="login-form">
+      <div class="modal-header"><h3 id="login-title" data-i18n="login_title">Identificación en el servidor local</h3></div>
+      <div class="modal-body">
+        <p id="login-desc"></p>
+        <div class="form-field"><label for="login-user"><strong data-i18n="login_user">Usuario</strong></label><input type="text" id="login-user" class="form-input" autocomplete="username" maxlength="512" spellcheck="false" required></div>
+        <div class="form-field"><label for="login-password"><strong data-i18n="login_password">Contraseña</strong></label><input type="password" id="login-password" class="form-input" autocomplete="current-password" maxlength="512" required></div>
+        <p id="login-error" class="label-hint" role="alert"></p>
+      </div>
+      <div class="modal-footer"><button type="button" id="login-cancel" class="btn-secondary" data-i18n="notice_cancel">Cancelar</button><button type="submit" id="login-submit" class="btn-primary" data-i18n="login_submit">Identificarse</button></div>
+    </form>
+  </dialog>
+
   <!-- Scripts de la aplicación con carga diferida (compatibles con file:// y http://) -->
   <script defer src="js/vendor/orama.browser.js"></script>
   <script defer src="js/utils.js"></script>
@@ -707,6 +729,7 @@
   <script defer src="js/ui-telemetry.js"></script>
   <script defer src="js/ui-mcp.js"></script>
   <script defer src="js/ui-browser.js"></script>
+  <script defer src="js/ui-connection.js"></script>
   <script defer src="js/ui-shell.js"></script>
   <script defer src="js/data-reset-service.js"></script>
   <script defer src="js/ui-transfer.js"></script>

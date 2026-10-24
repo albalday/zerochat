@@ -39,6 +39,7 @@
     ChatUITelemetry: UITelemetry,
     ChatUIMcp: UIMcp,
     ChatUIBrowser: UIBrowser,
+    ChatUIConnection: UIConnection,
     ChatRagUI: RagUI,
     ChatRunMode: RunMode,
     ChatExport: Export
@@ -217,6 +218,22 @@
     inspectorResults: 'inspector-results',
     agentToolsContainer: 'agent-tools-container',
     settingsBrowser: 'settings-browser',
+    // Conexión con el servidor local e identificación
+    settingBackendUrl: 'setting-backend-url',
+    settingUseProxy: 'setting-use-proxy',
+    settingProxyKeyField: 'setting-proxy-key-field',
+    settingProxyKey: 'setting-proxy-key',
+    btnBackendConnect: 'btn-backend-connect',
+    backendConnectionStatus: 'backend-connection-status',
+    backendConnectionError: 'backend-connection-error',
+    loginDialog: 'login-dialog',
+    loginForm: 'login-form',
+    loginDesc: 'login-desc',
+    loginUser: 'login-user',
+    loginPassword: 'login-password',
+    loginError: 'login-error',
+    loginCancel: 'login-cancel',
+    loginSubmit: 'login-submit',
     // MCP
     mcpToolsContainer: 'mcp-tools-container',
     mcpServersList: 'mcp-servers-list',
@@ -822,6 +839,31 @@
     return config.useProxy && url === config.backendUrl ? config.proxyKey : null;
   }
 
+  /** Guarda la sesión: en la pestaña de una ejecución solo en memoria, para no pisar la cookie de las demás. */
+  function saveBackendSession(session) {
+    if (runBackendSession) runBackendSession = session;
+    else if (!Storage.setBackendSession(session)) console.warn('[App] Could not persist the backend session.');
+  }
+
+  /** Conecta con el backend de Ajustes › Conexión, con el token de la sesión si es de esa URL; un 401 pide identificarse. */
+  function connectConfiguredBackend() {
+    const { backendUrl } = getRuntimeConfig();
+    const session = Storage.getBackendSession();
+    const token = session?.url === backendUrl ? session.token : null;
+    MCP.manager.setSessionToken(token);
+    if (token) ToolSecurity.manager.setSessionToken(token);
+    return MCP.manager.connectProxy({ url: backendUrl, proxyKey: proxyKeyFor(backendUrl), token });
+  }
+
+  /** Se identifica en el destino de la conexión, guarda el token diario en la sesión y conecta con él. */
+  async function loginBackend(user, password) {
+    const { url, proxyKey } = MCP.manager.target;
+    const token = await MCP.manager.login(user, password);
+    saveBackendSession({ token, url });
+    ToolSecurity.manager.setSessionToken(token);
+    return MCP.manager.connectProxy({ url, proxyKey, token });
+  }
+
   /**
    * Conecta con zerochat.py si hay sesión guardada (sin ella no sondea el equipo, para no disparar el
    * aviso de acceso a la red local del navegador); devuelve el resultado de la conexión.
@@ -853,6 +895,23 @@
 
     RagUI.initRagUI();
     UIBrowser.mountBrowserUI(elements.settingsBrowser, openSettingsSection);
+    UIConnection.mount({
+      url: elements.settingBackendUrl,
+      useProxy: elements.settingUseProxy,
+      proxyKeyField: elements.settingProxyKeyField,
+      proxyKey: elements.settingProxyKey,
+      connect: elements.btnBackendConnect,
+      status: elements.backendConnectionStatus,
+      error: elements.backendConnectionError,
+      loginDialog: elements.loginDialog,
+      loginForm: elements.loginForm,
+      loginDesc: elements.loginDesc,
+      loginUser: elements.loginUser,
+      loginPassword: elements.loginPassword,
+      loginError: elements.loginError,
+      loginCancel: elements.loginCancel,
+      loginSubmit: elements.loginSubmit
+    }, { connect: connectConfiguredBackend, login: loginBackend });
     UIBrowser.mountProfileBrowser(elements.profileBrowser);
     UIMcp.initMcpUI({
       statusBadge: elements.mcpStatusBadge,
