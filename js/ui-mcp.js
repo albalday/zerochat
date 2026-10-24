@@ -4,9 +4,9 @@
  * process implementation.
  */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
-  else root.ChatUIMcp = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
-})(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'), require('./mcp-status.js'));
+  else root.ChatUIMcp = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons, root.ChatMcpStatus);
+})(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, McpStatus) {
   'use strict';
 
   const { resolveDep, escapeHtml, clearElement, appendTextElement, copyToClipboard } = Utils;
@@ -120,8 +120,6 @@
     const AgentCore = getAgentCore();
     const items = tools.map(tool => {
       const browser = AgentCore.browserOfTool(tool);
-      const available = browser !== 'browser_action' || getMCP().browserActionAvailable();
-      const isChecked = available && (browser ? browser === AgentCore.activeBrowserTool(appConfig) : AgentCore.isToolEnabled(appConfig.enabledTools, tool.name));
       const schema = tool.inputSchema || {};
       const required = Array.isArray(schema.required) ? schema.required : [];
       const paramsHint = Object.entries(schema.properties || {})
@@ -141,12 +139,12 @@
             ${paramsHint ? `<div class="mcp-tool-params"><code>${escapeHtml(paramsHint)}</code></div>` : ''}
             ${browser ? `<p class="label-hint">${escapeHtml(t('mcp_tool_browser_setting'))}</p>` : ''}
           </div>
-          <div class="mcp-tool-action">
+          ${browser ? '' : `<div class="mcp-tool-action">
             <label class="switch">
-              <input type="checkbox" class="agent-tool-checkbox mcp-tool-checkbox" data-tool-id="${escapeHtml(tool.name)}" ${isChecked ? 'checked' : ''}${browser ? ' disabled' : ''}>
+              <input type="checkbox" class="agent-tool-checkbox mcp-tool-checkbox" data-tool-id="${escapeHtml(tool.name)}" ${AgentCore.isToolEnabled(appConfig.enabledTools, tool.name) ? 'checked' : ''}>
               <span class="slider"></span>
             </label>
-          </div>
+          </div>`}
         </div>`;
     }).join('');
 
@@ -201,11 +199,13 @@
   }
 
   function renderServer(server, language) {
-    const isRunning = server.status === 'running';
-    const isBusy = server.status === 'starting' || server.status === 'installing';
-    const statusClass = isRunning ? 'status-running' : (isBusy ? 'status-starting' : (server.status === 'error' ? 'status-error' : 'status-stopped'));
-    const statusLabel = t(`mcp_external_status_${server.status || 'stopped'}`);
-    const startLabel = server.status === 'starting' && server.startWait
+    const status = server.status || 'stopped';
+    const isRunning = McpStatus.isRunning(status);
+    const isBusy = McpStatus.isBusy(status);
+    const statusClass = `status-${isBusy ? 'starting' : status}`;
+    const statusLabel = t(`mcp_external_status_${status}`);
+    // Durante la instalación no se cuentan intentos.
+    const startLabel = status === 'starting' && server.startWait
       ? t('mcp_external_start_wait_attempt', server.startWait)
       : (isBusy ? statusLabel : t('mcp_btn_start_server'));
     const description = localized(server.description, language) || '';
@@ -308,7 +308,7 @@
   async function offerStoppedExternalServices(servers) {
     const language = I18n.getLanguage();
     const items = servers
-      .filter(server => server?.enabled === true && server.status === 'stopped' && typeof server.id === 'string' && server.id)
+      .filter(server => server?.enabled === true && McpStatus.canStart(server.status) && typeof server.id === 'string' && server.id)
       .slice(0, 50)
       .map(server => ({ id: server.id, label: getServiceName(server, language) }));
     if (items.length === 0) return [];

@@ -8,11 +8,11 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'), require('./defaults.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'), require('./defaults.js'), require('./mcp-status.js'));
   } else {
-    root.ChatUIBrowser = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons, root.ChatDefaults);
+    root.ChatUIBrowser = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons, root.ChatDefaults, root.ChatMcpStatus);
   }
-})(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, Defaults) {
+})(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, Defaults, McpStatus) {
   'use strict';
 
   const { resolveDep, escapeHtml } = Utils;
@@ -84,8 +84,8 @@
     return {
       ...plan,
       setConfig,
-      offerRestart: setConfig && status === 'running',
-      start: savedTool !== 'playwright' && ['stopped', 'error'].includes(status)
+      offerRestart: setConfig && McpStatus.isRunning(status),
+      start: savedTool !== 'playwright' && McpStatus.canStart(status)
     };
   }
 

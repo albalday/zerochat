@@ -5,7 +5,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from backend import use_data_dir, zerochat
+from backend import ZEROCHAT_PY, use_data_dir, zerochat
+
+CONTRACT = json.loads((ZEROCHAT_PY.parent / "tests" / "fixtures" / "mcp" / "contract.json").read_text(encoding="utf-8"))
 
 # CLI simulado de Playwright: --dry-run da las rutas de esta versión; install escribe el progreso
 # como sin terminal, espera a que exista "go" y falla con webkit.
@@ -85,15 +87,15 @@ class PlaywrightLaunchTest(unittest.TestCase):
         settings = {"mode": "own", "engine": "firefox", "headless": False, "extensionToken": "abc"}
         self.assertEqual(self.launch_args(settings, {"mode": "user", "userBrowser": "msedge"}), ["--extension", "--browser=msedge"])
         self.assertEqual(self.launched_env["PLAYWRIGHT_MCP_EXTENSION_TOKEN"], "abc")
-        self.assertEqual(self.manager.browsers["playwright"], {"mode": "user", "userBrowser": "msedge"})
+        self.assertEqual(self.manager.records["playwright"].browser, {"mode": "user", "userBrowser": "msedge"})
         self.assertEqual(self.launch_args({**settings, "mode": "user"}, {"mode": "own", "engine": "webkit"}), self.own_args("webkit"))
         self.assertEqual(self.launch_args(settings), self.own_args("firefox"))
-        self.assertEqual(self.manager.browsers["playwright"], {"mode": "own", "engine": "firefox", "headless": False})
+        self.assertEqual(self.manager.records["playwright"].browser, {"mode": "own", "engine": "firefox", "headless": False})
         headless = {**settings, "headless": True}
         self.assertEqual(self.launch_args(headless, {"mode": "own", "engine": "webkit", "headless": False}), self.own_args("webkit"))
-        self.assertEqual(self.manager.browsers["playwright"], {"mode": "own", "engine": "webkit", "headless": False})
+        self.assertEqual(self.manager.records["playwright"].browser, {"mode": "own", "engine": "webkit", "headless": False})
         self.assertEqual(self.launch_args(headless, {"mode": "own", "engine": "webkit"})[-1], "--headless")
-        self.assertEqual(self.manager.browsers["playwright"], {"mode": "own", "engine": "webkit"})
+        self.assertEqual(self.manager.records["playwright"].browser, {"mode": "own", "engine": "webkit"})
 
     def test_el_navegador_de_un_perfil_se_valida(self):
         for invalid in (None, [], {"mode": "own"}, {"mode": "own", "engine": "opera"}, {"mode": "user", "userBrowser": "firefox"},
@@ -113,7 +115,6 @@ class PlaywrightLaunchTest(unittest.TestCase):
         saved = zerochat.save_browser_config({"engine": "webkit", "headless": False})
         self.assertEqual(saved, {"mode": "own", "engine": "webkit", "userBrowser": "chrome", "headless": False, "extensionToken": ""})
         self.assertEqual(self.config_file.stat().st_mode & 0o777, 0o600)
-        self.assertEqual(zerochat.validate_browser_config({"extensionToken": "a" * 256})["extensionToken"], "a" * 256)
         self.assertEqual(self.launch_args(saved), self.own_args("webkit"))
         for raw, message in (
             ([], "objeto"),
@@ -121,12 +122,22 @@ class PlaywrightLaunchTest(unittest.TestCase):
             ({"mode": "remote"}, "mode"),
             ({"userBrowser": "firefox"}, "userBrowser"),
             ({"headless": "no"}, "headless"),
-            ({"extensionToken": "a b"}, "extensionToken"),
-            ({"extensionToken": "a" * 257}, "extensionToken"),
         ):
             with self.subTest(raw=raw), self.assertRaisesRegex(ValueError, message):
                 zerochat.save_browser_config(raw)
         self.assertEqual(zerochat.load_browser_config(), saved, "un valor rechazado no cambia lo guardado")
+
+    def test_motores_navegadores_y_tokens_coinciden_con_el_cliente(self):
+        # Fixture compartido con tests/unit/test_ui_browser.js.
+        self.assertEqual(list(zerochat.OWN_BROWSER_ENGINES), CONTRACT["playwrightEngines"])
+        self.assertEqual(list(zerochat.ENGINE_CACHE_ENTRIES), CONTRACT["playwrightEngines"])
+        self.assertEqual(list(zerochat.USER_BROWSERS), CONTRACT["userBrowsers"])
+        for token in CONTRACT["extensionTokens"]["valid"]:
+            with self.subTest(token=token):
+                self.assertEqual(zerochat.validate_browser_config({"extensionToken": token})["extensionToken"], token)
+        for token in CONTRACT["extensionTokens"]["invalid"]:
+            with self.subTest(token=token), self.assertRaisesRegex(ValueError, "extensionToken"):
+                zerochat.validate_browser_config({"extensionToken": token})
 
     def test_borrar_los_datos_quita_solo_el_perfil_de_ese_motor_con_playwright_detenido(self):
         for engine in ("chromium", "firefox", "webkit"):

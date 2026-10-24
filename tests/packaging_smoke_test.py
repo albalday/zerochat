@@ -69,8 +69,9 @@ def main() -> None:
             while time.monotonic() < deadline:
                 try:
                     request = urllib.request.Request(
-                        f"http://127.0.0.1:{port}/zerochat/heartbeat",
-                        headers={"X-ZeroChat-Token": session_token},
+                        f"http://127.0.0.1:{port}/",
+                        data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "zerochat/heartbeat", "params": {}}).encode(),
+                        headers={"Content-Type": "application/json", "X-ZeroChat-Token": session_token},
                     )
                     with urllib.request.urlopen(request, timeout=1) as response:
                         if response.status == 200:

@@ -83,11 +83,6 @@ test('Service Worker - el handler de fetch intercepta la ruta publicada de GitHu
     'Debe interceptar CSS en subdirectorio de producción'
   );
   assert.equal(
-    simulateFetch(ghWorker, 'https://albalday.github.io/zerochat/heartbeat'),
-    false,
-    'Debe excluir heartbeat'
-  );
-  assert.equal(
     simulateFetch(ghWorker, 'https://albalday.github.io/zerochat/external/servers'),
     false,
     'Debe excluir llamadas a servidores externos'
@@ -111,11 +106,6 @@ test('Service Worker - el handler de fetch intercepta la ruta publicada de GitHu
     'Debe interceptar js/app.js en el servidor local'
   );
   assert.equal(
-    simulateFetch(localWorker, 'http://127.0.0.1:8000/zerochat/heartbeat'),
-    false,
-    'Debe excluir /zerochat/heartbeat local'
-  );
-  assert.equal(
     simulateFetch(localWorker, 'http://127.0.0.1:8000/mcp/external'),
     false,
     'Debe excluir /mcp local'
@@ -124,11 +114,6 @@ test('Service Worker - el handler de fetch intercepta la ruta publicada de GitHu
     simulateFetch(localWorker, 'http://127.0.0.1:8000/api/tools'),
     false,
     'Debe excluir /api local'
-  );
-  assert.equal(
-    simulateFetch(localWorker, 'http://127.0.0.1:8000/sse'),
-    false,
-    'Debe excluir /sse local'
   );
   assert.equal(
     simulateFetch(localWorker, 'http://127.0.0.1:8000/zerochat.html', 'POST'),

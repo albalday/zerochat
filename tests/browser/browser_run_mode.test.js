@@ -10,7 +10,7 @@ const BACKEND_PORT = 6391;
 const CORS = {
   'access-control-allow-origin': '*',
   'access-control-allow-headers': '*',
-  'access-control-allow-methods': 'GET, POST, OPTIONS'
+  'access-control-allow-methods': 'POST, OPTIONS'
 };
 
 /**
@@ -24,16 +24,22 @@ async function routeBackend(page, prompt, { profile, exportFormat, keepPage = fa
   const released = new Promise(resolve => { release = resolve; });
   let receiveResult;
   const resultReceived = new Promise(resolve => { receiveResult = resolve; });
+  const liveState = () => ({ cwd: '/tmp/run', jobs: [], exit_on_close: true, servers: externalServers });
   const json = (route, body) => route.fulfill({ status: 200, headers: CORS, contentType: 'application/json', body: JSON.stringify(body) });
   await page.route(`http://127.0.0.1:${BACKEND_PORT}/**`, async route => {
     const request = route.request();
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: CORS });
-    if (request.method() === 'GET') return json(route, { ok: true, cwd: '/tmp/run', jobs: [], servers: externalServers });
     const { id, method, params } = JSON.parse(request.postData());
     const reply = result => json(route, { jsonrpc: '2.0', id, result });
     if (method === 'initialize') {
-      return reply({ protocolVersion: '2024-11-05', serverInfo: { name: 'ZeroChat Local Server', version: '9.5', cwd: '/tmp/run', os: 'linux' }, capabilities: { tools: {} } });
+      return reply({
+        protocolVersion: '2024-11-05',
+        serverInfo: { name: 'ZeroChat Local Server', version: '9.5', cwd: '/tmp/run', os: 'linux' },
+        capabilities: { tools: {} },
+        liveState: liveState()
+      });
     }
+    if (method === 'zerochat/heartbeat') return reply(liveState());
     if (method === 'tools/list') {
       return reply({ tools: ['demo_action', 'write_file', 'run_command'].map(name => ({ name, description: name, inputSchema: { type: 'object', properties: {} } })) });
     }

@@ -158,7 +158,6 @@ class _WindowsKillOnCloseJob:
         self._handle = None
         self._kernel32 = None
         try:
-            import ctypes
             from ctypes import wintypes
 
             class BasicLimits(ctypes.Structure):

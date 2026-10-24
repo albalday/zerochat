@@ -75,10 +75,9 @@
 
       // 7. Estado de Integración MCP (mcp-proxy)
       mcp: {
-        status: 'disconnected', // 'disconnected' | 'connecting' | 'checking' | 'connected' | 'error'
-        host: Defaults.CONFIG_DEFAULTS.mcpHost,
-        port: Defaults.CONFIG_DEFAULTS.mcpPort,
-        endpoint: `http://${Defaults.CONFIG_DEFAULTS.mcpHost}:${Defaults.CONFIG_DEFAULTS.mcpPort}/sse`,
+        // 'disconnected' | 'connecting' | 'checking' | 'connected' | 'error' | 'login_required' (401: falta el token o caducó)
+        status: 'disconnected',
+        endpoint: Defaults.CONFIG_DEFAULTS.backendUrl,
         serverInfo: null,
         tools: [],
         externalServers: [],

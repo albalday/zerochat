@@ -70,6 +70,22 @@
   /** Identificadores efímeros que viajan en el fragmento de arranque (ejecución, transferencia de perfiles). */
   const EPHEMERAL_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 
+  /**
+   * URL del backend (zerochat.py o el proxy inverso que lo publica): solo un origen http(s), sin ruta,
+   * credenciales ni consulta, porque el cliente añade las rutas y firma la de cada herramienta. Null si no es válida.
+   */
+  function normalizeBackendUrl(value) {
+    if (typeof value !== 'string' || value.length > 2048) return null;
+    let url;
+    try {
+      url = new URL(value.trim());
+    } catch (_) {
+      return null;
+    }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.pathname !== '/' || url.search || url.hash) return null;
+    return url.origin;
+  }
+
   /** Parámetros del fragmento de arranque (`#clave=valor&...`). */
   function readLaunchFragment(hash) {
     return new URLSearchParams(String(hash || '').replace(/^#/, ''));
@@ -431,6 +447,7 @@
     SAFE_IMAGE_MIME_TYPES,
     EPHEMERAL_ID_PATTERN,
     readLaunchFragment,
+    normalizeBackendUrl,
     openImageInNewTab,
     isPreviewable,
     openDocumentInNewTab,

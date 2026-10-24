@@ -4,7 +4,7 @@ ZeroChat - Backend Local Unificado y Gestor de Entorno
 
 Proporciona:
 1. Auto-creación del entorno MCP local `~/zerochat/.venv`.
-2. Servidor local HTTP y Server-Sent Events (SSE) con autenticación estricta por token efímero.
+2. Servidor local HTTP JSON-RPC con autenticación estricta por token diario e identificación con la cuenta del sistema.
 3. Herramientas locales seguras: read_file, edit_file, list_directory, run_command.
 4. Apertura automática del navegador apuntando a zerochat.html con token en el fragmento hash.
 """
@@ -14,14 +14,19 @@ from __future__ import annotations
 import argparse
 import atexit
 import base64
+import ctypes
+import ctypes.util
+import dataclasses
 import datetime
 import fnmatch
 import functools
+import getpass
 import hashlib
 import hmac
 import importlib.metadata
 import ipaddress
 import json
+import math
 import os
 import queue
 import re
@@ -46,7 +51,7 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE_BACKEND_VERSION = "9.10.0"
+SOURCE_BACKEND_VERSION = "9.11.0"
 
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""
@@ -104,10 +109,11 @@ NOTICES: list[str] = []
 NOTICES_LOCK = threading.Lock()
 class ConsoleControl:
     """Muestra una sola línea de ayuda tras un periodo de inactividad en consola."""
-    def __init__(self, server: ThreadingHTTPServer, parser: argparse.ArgumentParser, target_url: str | None = None):
+    def __init__(self, server: ThreadingHTTPServer, parser: argparse.ArgumentParser, launch_url=None):
         self.server = server
         self.parser = parser
-        self.target_url = target_url
+        # Función que da la URL de la interfaz con el token vigente al pulsar n, no el del arranque.
+        self.launch_url = launch_url
         self.last_activity = time.monotonic()
         self.lock = threading.Lock()
         self.enabled = bool(getattr(sys.stdout, "isatty", lambda: False)())
@@ -176,8 +182,8 @@ class ConsoleControl:
         key = command.strip().lower()
         if key == "h":
             self.show_help()
-        elif key == "n" and self.target_url:
-            launch_browser(self.target_url)
+        elif key == "n" and self.launch_url:
+            launch_browser(self.launch_url())
         elif key == "i":
             self.show_notices()
         elif key == "x":
@@ -308,8 +314,21 @@ def get_daily_token() -> str:
     return token
 
 
-# Token de sesión en memoria; main() lo carga o genera al arrancar el servidor.
+# Token de sesión en memoria y su día; main() lo carga al arrancar y current_session_token() lo renueva.
 SESSION_TOKEN = ""
+SESSION_TOKEN_DATE = ""
+SESSION_TOKEN_LOCK = threading.Lock()
+
+
+def current_session_token() -> str:
+    """Token diario vigente: al cambiar el día carga o genera el nuevo, también con el servidor en marcha."""
+    global SESSION_TOKEN, SESSION_TOKEN_DATE
+    today = datetime.date.today().isoformat()
+    with SESSION_TOKEN_LOCK:
+        if SESSION_TOKEN_DATE != today:
+            SESSION_TOKEN = get_daily_token()
+            SESSION_TOKEN_DATE = today
+        return SESSION_TOKEN
 ACTIVE_PORT = DEFAULT_PORT
 ACTIVE_HOST = DEFAULT_HOST
 
@@ -569,7 +588,6 @@ class _WindowsKillOnCloseJob:
         self._handle = None
         self._kernel32 = None
         try:
-            import ctypes
             from ctypes import wintypes
 
             class BasicLimits(ctypes.Structure):
@@ -2532,6 +2550,150 @@ class BrowserEngines:
 
 BROWSER_ENGINES = BrowserEngines()
 # ==============================================================================
+# Identificación con el usuario y la contraseña del sistema (zerochat/login)
+# ==============================================================================
+
+# Tras LOGIN_MAX_FAILURES fallos seguidos, los intentos se rechazan sin comprobarlos durante el bloqueo.
+LOGIN_MAX_FAILURES = 5
+LOGIN_LOCKOUT_SECONDS = 900.0
+LOGIN_MAX_FIELD_LENGTH = 512
+# Sin token solo se lee un cuerpo de este tamaño, el justo para zerochat/login.
+LOGIN_MAX_BODY_BYTES = 4096
+LOGIN_FAILED_CODE = -32001
+LOGIN_LOCKED_CODE = -32002
+LOGIN_PAM_SERVICE = "login"
+LOGIN_LOCK = threading.Lock()
+LOGIN_FAILURES = 0
+LOGIN_LOCKED_UNTIL = 0.0
+
+
+class LoginError(Exception):
+    """Identificación rechazada: `code` es el error JSON-RPC y `data`, lo que necesita la interfaz."""
+    def __init__(self, code: int, message: str, data: dict | None = None):
+        super().__init__(message)
+        self.code = code
+        self.data = data
+
+
+def system_account() -> str:
+    """Cuenta que ejecuta zerochat.py, la única que puede identificarse."""
+    if os.name == "nt":
+        return getpass.getuser()
+    import pwd
+    return pwd.getpwuid(os.getuid()).pw_name
+
+
+def _pam_authenticate(user: str, password: str) -> bool:
+    """PAM en Linux y macOS: un proceso sin privilegios comprueba su propia cuenta (unix_chkpwd en Linux)."""
+    libpam_path = ctypes.util.find_library("pam")
+    if not libpam_path:
+        raise RuntimeError("PAM no está disponible en este sistema.")
+    libpam = ctypes.CDLL(libpam_path)
+    libc = ctypes.CDLL(ctypes.util.find_library("c"))
+    libc.calloc.restype = ctypes.c_void_p
+    libc.calloc.argtypes = [ctypes.c_size_t, ctypes.c_size_t]
+    libc.strdup.restype = ctypes.c_void_p
+    libc.strdup.argtypes = [ctypes.c_char_p]
+
+    class PamMessage(ctypes.Structure):
+        _fields_ = [("msg_style", ctypes.c_int), ("msg", ctypes.c_char_p)]
+
+    class PamResponse(ctypes.Structure):
+        _fields_ = [("resp", ctypes.c_void_p), ("resp_retcode", ctypes.c_int)]
+
+    conv_func = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.POINTER(PamMessage)),
+                                 ctypes.POINTER(ctypes.POINTER(PamResponse)), ctypes.c_void_p)
+
+    class PamConv(ctypes.Structure):
+        _fields_ = [("conv", conv_func), ("appdata_ptr", ctypes.c_void_p)]
+
+    login_name = user.encode("utf-8")
+    secret = password.encode("utf-8")
+
+    def conversation(count, messages, response, _appdata):
+        # PAM libera las respuestas: se reservan con la libc, no con Python.
+        replies = libc.calloc(count, ctypes.sizeof(PamResponse))
+        if not replies:
+            return 5  # PAM_BUF_ERR
+        array = ctypes.cast(replies, ctypes.POINTER(PamResponse))
+        for index in range(count):
+            style = messages[index].contents.msg_style
+            if style == 1:  # PAM_PROMPT_ECHO_OFF: la contraseña
+                array[index].resp = libc.strdup(secret)
+            elif style == 2:  # PAM_PROMPT_ECHO_ON: el usuario
+                array[index].resp = libc.strdup(login_name)
+        response[0] = array
+        return 0
+
+    libpam.pam_start.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(PamConv), ctypes.POINTER(ctypes.c_void_p)]
+    libpam.pam_authenticate.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    libpam.pam_acct_mgmt.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    libpam.pam_end.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    callback = conv_func(conversation)
+    conv = PamConv(callback, None)
+    handle = ctypes.c_void_p()
+    status = libpam.pam_start(LOGIN_PAM_SERVICE.encode("ascii"), login_name, ctypes.byref(conv), ctypes.byref(handle))
+    if status != 0:
+        raise RuntimeError(f"PAM no pudo iniciarse (código {status}).")
+    try:
+        status = libpam.pam_authenticate(handle, 0)
+        if status == 0:
+            # Una cuenta caducada o bloqueada no se identifica aunque la contraseña sea correcta.
+            status = libpam.pam_acct_mgmt(handle, 0)
+    finally:
+        libpam.pam_end(handle, status)
+    return status == 0
+
+
+def _windows_logon(user: str, password: str) -> bool:
+    """LogonUserW de advapi32 con un inicio de sesión de red, que comprueba la contraseña sin cargar el perfil."""
+    from ctypes import wintypes
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    advapi32.LogonUserW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
+    advapi32.LogonUserW.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    token = wintypes.HANDLE()
+    # LOGON32_LOGON_NETWORK (3) y LOGON32_PROVIDER_DEFAULT (0).
+    if not advapi32.LogonUserW(user, None, password, 3, 0, ctypes.byref(token)):
+        return False
+    kernel32.CloseHandle(token)
+    return True
+
+
+def check_system_password(user: str, password: str) -> bool:
+    """Comprueba la contraseña de una cuenta del sistema."""
+    return _windows_logon(user, password) if os.name == "nt" else _pam_authenticate(user, password)
+
+
+def login(params: dict) -> dict:
+    """
+    zerochat/login: con la cuenta que ejecuta zerochat.py y su contraseña devuelve el token diario.
+    Tras LOGIN_MAX_FAILURES fallos seguidos rechaza los intentos sin comprobarlos durante
+    LOGIN_LOCKOUT_SECONDS; los intentos van de uno en uno.
+    """
+    global LOGIN_FAILURES, LOGIN_LOCKED_UNTIL
+    user = params.get("user")
+    password = params.get("password")
+    if not all(isinstance(value, str) and 0 < len(value) <= LOGIN_MAX_FIELD_LENGTH for value in (user, password)):
+        raise LoginError(-32602, f"user y password deben ser textos de 1 a {LOGIN_MAX_FIELD_LENGTH} caracteres.")
+    with LOGIN_LOCK:
+        remaining = LOGIN_LOCKED_UNTIL - time.monotonic()
+        if remaining > 0:
+            raise LoginError(LOGIN_LOCKED_CODE, "Demasiados intentos fallidos: espera para volver a intentarlo.", {"retryAfter": math.ceil(remaining)})
+        account = system_account()
+        same_account = user.casefold() == account.casefold() if os.name == "nt" else user == account
+        # La contraseña se comprueba también con otro usuario, para que la respuesta no delate la cuenta.
+        valid = check_system_password(account, password)
+        if not (valid and same_account):
+            LOGIN_FAILURES += 1
+            if LOGIN_FAILURES >= LOGIN_MAX_FAILURES:
+                LOGIN_FAILURES = 0
+                LOGIN_LOCKED_UNTIL = time.monotonic() + LOGIN_LOCKOUT_SECONDS
+            raise LoginError(LOGIN_FAILED_CODE, "Usuario o contraseña incorrectos.")
+        LOGIN_FAILURES = 0
+    return {"token": current_session_token()}
+# ==============================================================================
 # Servidor HTTP JSON-RPC 2.0 y SSE con Autenticación por Token
 # ==============================================================================
 
@@ -2888,6 +3050,26 @@ class StdioMcpClient:
         self.tools = []
 
 
+@dataclasses.dataclass
+class McpServiceRecord:
+    """Estado de un servicio MCP en este proceso: fase del ciclo de vida, cliente, último error y
+    modo y navegador con los que arrancó (solo los servicios de SERVICE_LAUNCH)."""
+    phase: str = "stopped"  # stopped, installing, starting, running o error
+    client: StdioMcpClient | None = None
+    error: str | None = None
+    browser: dict | None = None
+
+
+def service_status(record: McpServiceRecord, alive: bool, exit_code: int | None) -> tuple[str, str | None]:
+    """Estado público y error de un servicio a partir de su registro y de si su proceso sigue vivo:
+    el proceso de un servicio en marcha puede morir sin que nadie lo detenga."""
+    if record.phase != "running" or alive:
+        return record.phase, record.error
+    if exit_code is not None:
+        return "error", f"MCP process exited with code {exit_code}"
+    return "error", "MCP process is not responding"
+
+
 class McpServiceManager:
     def __init__(self, services_root: Path | None = None):
         if services_root:
@@ -2897,11 +3079,7 @@ class McpServiceManager:
         self.services_root.mkdir(parents=True, exist_ok=True)
         self.config_file = get_data_dir() / "config" / "services.json"
         self.config_file.parent.mkdir(parents=True, exist_ok=True)
-        self.clients: dict[str, StdioMcpClient] = {}
-        self.states: dict[str, str] = {}
-        self.errors: dict[str, str] = {}
-        # Modo y navegador con los que arrancó cada servicio de SERVICE_LAUNCH.
-        self.browsers: dict[str, dict] = {}
+        self.records: dict[str, McpServiceRecord] = {}
         self._lock = threading.Lock()
         materialize_managed_services(self.services_root)
         self.services = self._load_services()
@@ -2945,19 +3123,22 @@ class McpServiceManager:
         except OSError as err:
             log_event(f"[zerochat] Advertencia al guardar preferencias MCP en {self.config_file}: {err}")
 
+    def _remember(self, server_id: str, enabled: bool):
+        """Único sitio que guarda si un servicio queda activo para ofrecerlo en la siguiente sesión: lo
+        marca un arranque con remember y lo desmarca detenerlo. Un reinicio (detener y arrancar con el
+        valor previo) lo conserva, y un arranque sin remember, como el de un perfil, no lo cambia."""
+        self.preferences.setdefault(server_id, {})["enabled"] = enabled
+        self._save_preferences()
+
     def list_servers(self) -> list[dict]:
         self.services = self._load_services()
         result = []
         for server_id, server in self.services.items():
-            client = self.clients.get(server_id)
-            state = self.states.get(server_id, "stopped")
-            running = bool(client and client.running() and state == "running")
-            error = self.errors.get(server_id)
-            # El proceso de un servicio en marcha puede morir sin que nadie lo detenga.
-            if state == "running" and client and not running:
-                code = client.process.poll() if client.process else None
-                state = "error"
-                error = f"MCP process exited with code {code}" if code is not None else "MCP process is not responding"
+            record = self.records.get(server_id) or McpServiceRecord()
+            client = record.client
+            exit_code = client.process.poll() if client and client.process else None
+            status, error = service_status(record, bool(client and client.running()), exit_code)
+            running = status == "running"
             pref = self.preferences.get(server_id, {})
             result.append({
                 "id": server_id,
@@ -2966,13 +3147,13 @@ class McpServiceManager:
                 "help": server.get("help"),
                 "remote": server.get("remote"),
                 "enabled": pref.get("enabled", server.get("enabledByDefault", False)),
-                "status": "running" if running else state,
+                "status": status,
                 "toolCount": len(client.tools) if running else 0,
                 "error": error,
                 "options": server.get("options", []),
                 "userOptions": pref.get("options", {}),
                 "oauthUrl": client.oauth_url if client else None,
-                "browser": self.browsers.get(server_id) if running else None,
+                "browser": record.browser if running else None,
             })
 
         return result
@@ -3021,7 +3202,7 @@ class McpServiceManager:
                         needs_install = True
 
                 if needs_install:
-                    self.states[server_id] = "installing"
+                    self.records[server_id].phase = "installing"
                     self._trace(server_id, f"installing npm package: {package}@{version}")
                     manifest = service_dir / "package.json"
                     manifest.write_text(json.dumps({"private": True, "dependencies": {package: version}}, indent=2), encoding="utf-8")
@@ -3087,11 +3268,10 @@ class McpServiceManager:
             server = self.services.get(server_id)
             if not server:
                 raise KeyError(f"Servidor MCP desconocido: {server_id}")
-            current = self.clients.get(server_id)
-            if current and current.running():
+            record = self.records.setdefault(server_id, McpServiceRecord())
+            if record.client and record.client.running():
                 return self.list_servers()
-            self.states[server_id] = "starting"
-            self.errors.pop(server_id, None)
+            record.phase, record.error = "starting", None
             client = None
             self._trace(server_id, "start requested")
             try:
@@ -3114,9 +3294,9 @@ class McpServiceManager:
                 env = os.environ.copy()
                 for k, v in launch.get("env", {}).items():
                     env[k] = self._expand(v, values)
-                self.browsers.pop(server_id, None)
+                record.browser = None
                 if server_id in SERVICE_LAUNCH:
-                    extra_args, extra_env, self.browsers[server_id] = SERVICE_LAUNCH[server_id](browser)
+                    extra_args, extra_env, record.browser = SERVICE_LAUNCH[server_id](browser)
                     args += extra_args
                     env.update(extra_env)
 
@@ -3126,38 +3306,29 @@ class McpServiceManager:
                     call_timeout=_positive_seconds(launch.get("callTimeoutSeconds"), DEFAULT_MCP_CALL_TIMEOUT_SECONDS)
                 )
                 # _prepare_service puede haber dejado el estado en "installing".
-                self.states[server_id] = "starting"
-                self.clients[server_id] = client
+                record.phase, record.client = "starting", client
                 client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
-                self.states[server_id] = "running"
+                record.phase = "running"
                 if remember:
-                    entry = self.preferences.setdefault(server_id, {})
-                    entry["enabled"] = True
-                    self._save_preferences()
+                    self._remember(server_id, True)
                 self._trace(server_id, "started successfully")
             except Exception as exc:
-                self.states[server_id] = "error"
-                self.errors[server_id] = str(exc)
+                record.phase, record.error = "error", str(exc)
                 self._trace(server_id, f"start failed: {exc}")
-                if server_id in self.clients:
-                    self.clients.pop(server_id).stop()
-                elif client:
-                    client.stop()
+                stale, record.client = record.client or client, None
+                if stale:
+                    stale.stop()
             return self.list_servers()
 
     def stop(self, server_id: str) -> list[dict]:
         with self._lock:
             self.services = self._load_services()
-            if server_id not in self.services and server_id not in self.clients:
+            record = self.records.pop(server_id, McpServiceRecord())
+            if server_id not in self.services and not record.client:
                 raise KeyError(f"Servidor MCP desconocido: {server_id}")
-            client = self.clients.pop(server_id, None)
-            if client:
-                client.stop()
-            self.states[server_id] = "stopped"
-            self.errors.pop(server_id, None)
-            entry = self.preferences.setdefault(server_id, {})
-            entry["enabled"] = False
-            self._save_preferences()
+            if record.client:
+                record.client.stop()
+            self._remember(server_id, False)
             return self.list_servers()
 
     def configure(self, server_id: str, options: dict | None = None) -> list[dict]:
@@ -3172,13 +3343,15 @@ class McpServiceManager:
             self._save_preferences()
             return self.list_servers()
 
+    def _running_clients(self) -> list[tuple[str, StdioMcpClient]]:
+        return [(server_id, record.client) for server_id, record in self.records.items()
+                if record.client and record.client.running()]
+
     def tools(self) -> list[dict]:
         aggregated = []
         seen: set[str] = set()
         with self._lock:
-            for server_id, client in self.clients.items():
-                if not client.running():
-                    continue
+            for server_id, client in self._running_clients():
                 for t in client.tools:
                     original = t.get("name") if isinstance(t, dict) else None
                     try:
@@ -3202,9 +3375,7 @@ class McpServiceManager:
     def call(self, public_name: str, arguments: dict) -> dict:
         target = None
         with self._lock:
-            for server_id, client in self.clients.items():
-                if not client.running():
-                    continue
+            for server_id, client in self._running_clients():
                 for t in client.tools:
                     try:
                         matches = public_tool_name(server_id, t.get("name")) == public_name
@@ -3223,9 +3394,10 @@ class McpServiceManager:
 
     def close(self):
         with self._lock:
-            for client in list(self.clients.values()):
-                client.stop()
-            self.clients.clear()
+            for record in self.records.values():
+                if record.client:
+                    record.client.stop()
+                record.phase, record.client, record.error = "stopped", None, None
 
 
 GLOBAL_MCP_MANAGER = McpServiceManager()
@@ -3239,14 +3411,32 @@ _SERVER_SHUTTING_DOWN = threading.Event()
 # Si el servidor se detiene al cerrar el navegador, cerrar la pestaña detiene también los comandos.
 EXIT_ON_CLOSE = False
 # zerochat/run/progress ya se registra con su propio texto en dispatch_run.
-QUIET_RPC_METHODS = frozenset({"zerochat/jobs/get", "zerochat/jobs/log", "zerochat/jobs/list", "zerochat/run/progress"})
+QUIET_RPC_METHODS = frozenset({"zerochat/heartbeat", "zerochat/jobs/get", "zerochat/jobs/log", "zerochat/jobs/list", "zerochat/run/progress"})
 
 
 def mark_browser_active():
-    """Registra la presencia activa del navegador ante cualquier petición válida."""
+    """Registra la presencia del navegador ante cualquier petición de un origen permitido, aunque su
+    token haya caducado: el auto-cierre no detiene el servidor ni sus comandos al cambiar el día."""
     global HEARTBEAT_LAST_SEEN, HEARTBEAT_INITIALIZED
     HEARTBEAT_LAST_SEEN = time.monotonic()
     HEARTBEAT_INITIALIZED = True
+
+
+def live_state() -> dict:
+    """
+    Estado del servidor que la interfaz sigue en vivo, en initialize y en cada zerochat/heartbeat:
+    cwd, para notar que otra pestaña ha cambiado el directorio del proyecto; jobs, los comandos en
+    marcha, para mostrarlos y avisar antes de cerrar si se detendrían; exit_on_close; playwright, si
+    se puede navegar aunque se haya instalado o quitado durante la sesión; y servers, los servicios
+    MCP externos aunque otra pestaña los cambie o su proceso muera.
+    """
+    return {
+        "cwd": str(Path.cwd().resolve()),
+        "jobs": [job.summary() for job in JOBS.running()],
+        "exit_on_close": EXIT_ON_CLOSE,
+        "playwright": playwright_status(),
+        "servers": GLOBAL_MCP_MANAGER.list_servers()
+    }
 
 
 def stop_zerochat_server(server: ThreadingHTTPServer):
@@ -3535,24 +3725,20 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return
         self.send_header("Access-Control-Allow-Origin", origin if origin else "*")
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, X-ZeroChat-Token, X-ZeroChat-Client, X-ZeroChat-Tool-Session, X-ZeroChat-Tool-Expires, X-ZeroChat-Tool-Nonce, X-ZeroChat-Tool-Signature")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, X-ZeroChat-Token, X-ZeroChat-Client, X-ZeroChat-Proxy, X-ZeroChat-Tool-Session, X-ZeroChat-Tool-Expires, X-ZeroChat-Tool-Nonce, X-ZeroChat-Tool-Signature")
         self.send_header("Access-Control-Allow-Private-Network", "true")
 
     def verify_token(self) -> bool:
-        """Comprueba el token de sesión exclusivamente en cabeceras HTTP."""
-        auth_header = self.headers.get("Authorization", "")
-        token_candidate = None
-        if auth_header.startswith("Bearer "):
-            token_candidate = auth_header[7:].strip()
-        elif "X-ZeroChat-Token" in self.headers:
-            token_candidate = self.headers.get("X-ZeroChat-Token", "").strip()
-
+        """
+        Comprueba el token diario vigente, solo en cabeceras HTTP: el de un día anterior se rechaza.
+        X-ZeroChat-Token va antes que Authorization, que tras el proxy inverso lleva la clave del proxy.
+        """
+        token_candidate = self.headers.get("X-ZeroChat-Token", "").strip()
         if not token_candidate:
-            return False
-        is_valid = hmac.compare_digest(token_candidate, SESSION_TOKEN)
-        if is_valid:
-            mark_browser_active()
-        return is_valid
+            auth_header = self.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token_candidate = auth_header[7:].strip()
+        return bool(token_candidate) and hmac.compare_digest(token_candidate.encode(), current_session_token().encode())
 
     def verify_tool_authorization(self, body: bytes, request_path: str) -> str | None:
         """Validate and atomically consume an authorization for one tool call."""
@@ -3593,21 +3779,17 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         t0 = time.monotonic()
         safe_path = sanitize_log_path(self.path)
-        path_clean = self.path.split("?", 1)[0].rstrip("/")
-        is_heartbeat = path_clean == "/zerochat/heartbeat"
-        if not is_heartbeat:
-            self._log_req("OPTIONS", safe_path)
         origin = self.headers.get("Origin")
         if not is_allowed_origin(origin, require_origin=True):
+            self._log_req("OPTIONS", safe_path)
             self.send_response(403)
             self.end_headers()
             self._log_res(403, safe_path, (time.monotonic() - t0) * 1000, f"Origen no permitido: '{origin}'")
             return
+        # La comprobación previa precede a cada POST con cabeceras propias, también al latido: no se registra.
         self.send_response(204)
         self.send_cors_headers()
         self.end_headers()
-        if not is_heartbeat:
-            self._log_res(204, safe_path, (time.monotonic() - t0) * 1000)
 
     def _send_json_response(self, status: int, data: dict) -> bool:
         """Envía JSON con cabeceras CORS; devuelve False si el cliente ya cerró la conexión."""
@@ -3625,15 +3807,14 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return False
 
     def do_GET(self):
+        """Solo la interfaz servida en desarrollo y el favicon: la API va por POST."""
         t0 = time.monotonic()
         safe_path = sanitize_log_path(self.path)
         path_clean = self.path.split("?", 1)[0].rstrip("/")
-        is_heartbeat = path_clean == "/zerochat/heartbeat"
+        self._log_req("GET", safe_path)
 
         origin = self.headers.get("Origin")
         if not is_allowed_origin(origin):
-            if not is_heartbeat:
-                self._log_req("GET", safe_path)
             self.send_response(403)
             self.end_headers()
             self._log_res(403, safe_path, (time.monotonic() - t0) * 1000, f"Origen no permitido: '{origin}'")
@@ -3641,7 +3822,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
         # Servir archivos estáticos del repositorio si estamos en entorno de desarrollo
         if path_clean and self.serve_static_file(path_clean):
-            self._log_req("GET", safe_path)
             self._log_res(200, safe_path, (time.monotonic() - t0) * 1000)
             return
 
@@ -3652,52 +3832,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        if not is_heartbeat:
-            self._log_req("GET", safe_path)
-
-        if not self.verify_token():
-            self._reject(401, {"error": "Unauthorized: invalid or missing session token"}, safe_path, t0, "Token de sesión ausente o inválido")
-            return
-
-        if is_heartbeat:
-            mark_browser_active()
-            # cwd permite a cada pestaña notar que otra ha cambiado el directorio del proyecto;
-            # jobs, mostrar los comandos que siguen en marcha y avisar antes de cerrar si se detendrían;
-            # playwright, si se puede navegar aunque se haya instalado o quitado durante la sesión;
-            # servers, los servicios MCP externos aunque otra pestaña los cambie o su proceso muera.
-            self._send_json_response(200, {
-                "ok": True,
-                "cwd": str(Path.cwd().resolve()),
-                "jobs": [job.summary() for job in JOBS.running()],
-                "exit_on_close": EXIT_ON_CLOSE,
-                "playwright": playwright_status(),
-                "servers": GLOBAL_MCP_MANAGER.list_servers()
-            })
-            return
-
-        accept = self.headers.get("Accept", "")
-        if "/sse" in self.path or "text/event-stream" in accept:
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Connection", "keep-alive")
-            self.send_cors_headers()
-            self.end_headers()
-            endpoint_data = b"/mcp/external" if "/mcp/external" in self.path else b"/"
-            self.wfile.write(b"event: endpoint\r\ndata: " + endpoint_data + b"\r\n\r\n")
-            self.wfile.flush()
-            self._log_res(200, f"{safe_path} [SSE canal activo]", (time.monotonic() - t0) * 1000)
-            return
-
-        self._send_json_response(200, {
-            "status": "active",
-            "server": "ZeroChat Local Server",
-            "version": VERSION,
-            "cwd": str(Path.cwd().resolve()),
-            "tools_count": len(LOCAL_TOOLS_DEFINITIONS),
-            "os": DETECTED_OS
-        })
-        self._log_res(200, safe_path, (time.monotonic() - t0) * 1000)
+        self._reject(404, {"error": "Not found"}, safe_path, t0, "Ruta GET inexistente")
 
     def _reject(self, status: int, data: dict, safe_path: str, t0: float, log_message: str):
         self._send_json_response(status, data)
@@ -3826,7 +3961,11 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 "cwd": str(Path.cwd().resolve()),
                 "os": DETECTED_OS
             }
-            return self._initialize_result(server_info), None, ""
+            return {**self._initialize_result(server_info), "liveState": live_state()}, None, ""
+        if method == "zerochat/heartbeat":
+            return live_state(), None, ""
+        if method == "zerochat/login":
+            return self._login(params)
         if method == "tools/list":
             return {"tools": [dict(definition) for definition in LOCAL_TOOLS_DEFINITIONS]}, None, ""
         if method == "tools/call":
@@ -3887,6 +4026,49 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if method.startswith("zerochat/browser/"):
             return self._dispatch_browser(method, params)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
+
+    @staticmethod
+    def _login(params: dict) -> tuple[dict | None, dict | None, str]:
+        try:
+            return login(params), None, ""
+        except LoginError as exc:
+            error = {"code": exc.code, "message": str(exc)}
+            if exc.data:
+                error["data"] = exc.data
+            return None, error, ""
+        except (RuntimeError, OSError) as exc:
+            return None, {"code": -32603, "message": f"No se pudo comprobar la contraseña: {exc}"}, str(exc)
+
+    def _serve_login(self, safe_path: str, t0: float) -> bool:
+        """Sin token solo se atiende zerochat/login, con un cuerpo pequeño; devuelve False si la petición es otra."""
+        try:
+            content_len = int(self.headers.get("Content-Length"))
+        except (TypeError, ValueError):
+            return False
+        if not 0 <= content_len <= LOGIN_MAX_BODY_BYTES:
+            return False
+        try:
+            req = json.loads(self.rfile.read(content_len).decode("utf-8"))
+        except ValueError:
+            return False
+        if self._validate_rpc(req) or req["method"] != "zerochat/login":
+            return False
+        log_detail = f"{safe_path} [rpc: zerochat/login]"
+        self._log_req("POST", log_detail)
+        self._send_rpc_response(req.get("id"), self._login(req.get("params", {})), log_detail, t0)
+        return True
+
+    def _send_rpc_response(self, req_id, outcome: tuple[dict | None, dict | None, str], log_detail: str, t0: float, quiet: bool = False):
+        result, error, tool_error_info = outcome
+        response_payload = {"jsonrpc": "2.0", "id": req_id}
+        if error:
+            response_payload["error"] = error
+            error_info = f"[{error.get('code')}] {error.get('message')}"
+        else:
+            response_payload["result"] = result
+            error_info = tool_error_info
+        if self._send_json_response(200, response_payload) and not quiet:
+            self._log_res(200, log_detail, (time.monotonic() - t0) * 1000, error_info=error_info)
 
     @staticmethod
     def _dispatch_jobs(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
@@ -3980,7 +4162,11 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_res(403, safe_path, (time.monotonic() - t0) * 1000, f"Origen no permitido: '{origin}'")
             return
 
+        mark_browser_active()
         if not self.verify_token():
+            # Sin token válido solo cabe identificarse para obtenerlo.
+            if self._serve_login(safe_path, t0):
+                return
             self._log_req("POST", safe_path)
             self._reject(401, {
                 "jsonrpc": "2.0",
@@ -4022,23 +4208,12 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
         try:
             if "/mcp/external" in req_path:
-                result, error, tool_error_info = self._dispatch_external(method, params)
+                outcome = self._dispatch_external(method, params)
             else:
-                result, error, tool_error_info = self._dispatch_local(method, params)
+                outcome = self._dispatch_local(method, params)
         except Exception as ex:
-            result, tool_error_info = None, ""
-            error = {"code": -32603, "message": f"Error interno: {ex}"}
-
-        response_payload = {"jsonrpc": "2.0", "id": req_id}
-        if error:
-            response_payload["error"] = error
-            error_info = f"[{error.get('code')}] {error.get('message')}"
-        else:
-            response_payload["result"] = result
-            error_info = tool_error_info
-
-        if self._send_json_response(200, response_payload) and not quiet:
-            self._log_res(200, log_detail, (time.monotonic() - t0) * 1000, error_info=error_info)
+            outcome = None, {"code": -32603, "message": f"Error interno: {ex}"}, ""
+        self._send_rpc_response(req_id, outcome, log_detail, t0, quiet)
 
     def log_message(self, format, *args):
         # Silenciar logs ruidosos por defecto
@@ -4462,7 +4637,6 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--host", default=os.environ.get("ZEROCHAT_HOST", DEFAULT_HOST), help=f"Host de escucha (default: {DEFAULT_HOST})")
     parser.add_argument("--ui-url", default=None, help="URL de la interfaz web a abrir (por defecto: interfaz local en desarrollo o GitHub Pages)")
     parser.add_argument("--no-browser", action="store_true", help="No abrir automáticamente el navegador")
-    parser.add_argument("--print-url", action="store_true", help="Imprimir la URL de la interfaz con el token, entre líneas en blanco para copiarla (implica --no-browser)")
     parser.add_argument("--keep-server", action="store_true", help="Servidor: seguir en marcha al cerrar el navegador (no se combina con --prompt)")
     parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación de ~/zerochat/.venv")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
@@ -4479,17 +4653,14 @@ def build_parser() -> ZeroChatArgumentParser:
 
 def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | None:
     """Valida las combinaciones de opciones y devuelve la sesión de --prompt, si la hay."""
-    # Quien pide la URL la abrirá en otro sitio (otro equipo, un túnel SSH): no se abre el navegador local.
-    if args.print_url and args.prompt is None:
-        args.no_browser = True
     if args.prompt is None:
         if args.headless or args.keep_page or args.allow_dangerous_tools or args.profile is not None or args.export is not None:
             parser.error("--headless, --keep-page, --allow-dangerous-tools, --profile y --export solo se usan con --prompt")
         return None
     if not args.prompt.strip():
         parser.error("el prompt está vacío")
-    if args.no_browser or args.print_url:
-        parser.error("--prompt necesita abrir el navegador: no se combina con --no-browser ni con --print-url")
+    if args.no_browser:
+        parser.error("--prompt necesita abrir el navegador: no se combina con --no-browser")
     if args.keep_server:
         parser.error("--prompt termina al devolver el resultado: no se combina con --keep-server (para no cerrar la página, --keep-page)")
     if args.profile is not None and not args.profile.strip():
@@ -4546,8 +4717,8 @@ def prepare_environment(args, is_dev: bool):
 
 def reset_session_credentials():
     """Carga el token diario y renueva la clave de firma de herramientas."""
-    global SESSION_TOKEN, TOOL_AUTH_KEY, TOOL_AUTH_SESSION_ID, TOOL_AUTH_NONCES
-    SESSION_TOKEN = get_daily_token()
+    global TOOL_AUTH_KEY, TOOL_AUTH_SESSION_ID, TOOL_AUTH_NONCES
+    current_session_token()
     # A restart deliberately invalidates every browser-side signing credential.
     TOOL_AUTH_KEY = secrets.token_bytes(32)
     TOOL_AUTH_SESSION_ID = secrets.token_urlsafe(18)
@@ -4580,19 +4751,22 @@ def open_server(args, local_ui: bool) -> ThreadingHTTPServer:
     return server
 
 
-def interface_urls(args, static_root) -> tuple[str, str]:
-    """Devuelve la URL de la interfaz y la de destino, con el token y el servidor en el fragmento."""
+def interface_url(args, static_root) -> str:
+    """URL de la interfaz: la indicada, la local de desarrollo o la de GitHub Pages."""
     if args.ui_url:
-        ui_url = args.ui_url
-    elif static_root:
-        ui_url = f"http://{ACTIVE_HOST}:{ACTIVE_PORT}/zerochat.html"
-    else:
-        ui_url = DEFAULT_UI_URL
+        return args.ui_url
+    if static_root:
+        return f"http://{ACTIVE_HOST}:{ACTIVE_PORT}/zerochat.html"
+    return DEFAULT_UI_URL
+
+
+def launch_url(ui_url: str) -> str:
+    """URL con que zerochat abre el navegador: el token vigente y el servidor van en el fragmento."""
     browser_host = ACTIVE_HOST if ACTIVE_HOST in {"127.0.0.1", "localhost"} else "127.0.0.1"
-    fragment = {'token': SESSION_TOKEN, 'host': browser_host, 'port': ACTIVE_PORT}
+    fragment = {'token': current_session_token(), 'host': browser_host, 'port': ACTIVE_PORT}
     if RUN_SESSION:
         fragment['run'] = RUN_SESSION.run_id
-    return ui_url, f"{ui_url}#{urlencode(fragment)}"
+    return f"{ui_url}#{urlencode(fragment)}"
 
 
 def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_close: bool):
@@ -4608,7 +4782,7 @@ def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_cl
         print("  Modo de ejecución     : Paquete PyPI (GitHub Pages)")
     else:
         print("  Modo de ejecución     : Producción (Web universal)")
-    print(f"  Servidor HTTP/SSE     : http://{ACTIVE_HOST}:{ACTIVE_PORT}")
+    print(f"  Servidor HTTP         : http://{ACTIVE_HOST}:{ACTIVE_PORT}")
     if exposure_warning:
         print(f"  AVISO                 : {exposure_warning}")
     print("  Token de sesión (diario): configurado")
@@ -4620,19 +4794,17 @@ def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_cl
     print("=" * 64, flush=True)
 
 
-def start_interface(args, parser, server: ThreadingHTTPServer, target_url: str, result_out):
+def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, result_out):
     """Abre la interfaz: en modo ejecución, con su supervisor; si no, con el control de consola.
     Devuelve el navegador sin ventana de --headless, si se lanzó."""
     global CONSOLE_CONTROL
-    if args.print_url:
-        # Líneas en blanco alrededor para seleccionarla y copiarla con facilidad (p. ej. en una consola SSH del móvil).
-        print("\n" * 5 + target_url + "\n" * 5, flush=True)
     if not RUN_SESSION:
-        CONSOLE_CONTROL = ConsoleControl(server, parser, target_url=target_url)
+        CONSOLE_CONTROL = ConsoleControl(server, parser, launch_url=lambda: launch_url(ui_url))
         CONSOLE_CONTROL.start()
         if not args.no_browser:
-            launch_browser(target_url)
+            launch_browser(launch_url(ui_url))
         return None
+    target_url = launch_url(ui_url)
     headless_browser = launch_headless_browser(target_url) if args.headless else None
     if headless_browser is None and not launch_browser(target_url):
         run_error("No se pudo abrir el navegador.")
@@ -4718,12 +4890,12 @@ def main():
     if exposure_warning:
         add_notice(exposure_warning)
 
-    ui_url, target_url = interface_urls(args, static_root)
+    ui_url = interface_url(args, static_root)
     # El modo ejecución (que rechaza --keep-server) detecta con el latido que el navegador se cerró sin devolver resultado.
     EXIT_ON_CLOSE = not args.keep_server
     print_header(dev_root, ui_url, exposure_warning, EXIT_ON_CLOSE)
 
-    headless_browser = start_interface(args, parser, server, target_url, result_out)
+    headless_browser = start_interface(args, parser, server, ui_url, result_out)
     if EXIT_ON_CLOSE:
         start_heartbeat_watchdog(server, require_initial=not args.no_browser)
     install_signal_handlers(server)

@@ -2,16 +2,21 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Storage = require('../../js/storage.js');
 
-test('Storage - valida el contrato restrictivo de la sesión del backend local', () => {
+test('Storage - la sesión del backend guarda un token válido y solo el origen http(s) de su URL', () => {
   assert.deepEqual(
-    Storage.normalizeBackendSession({ token: 'token_seguro-123', host: 'LOCALHOST', port: '6388' }),
-    { token: 'token_seguro-123', host: 'localhost', port: 6388 }
+    Storage.normalizeBackendSession({ token: 'token_seguro-123', url: 'HTTP://LOCALHOST:6388/' }),
+    { token: 'token_seguro-123', url: 'http://localhost:6388' }
   );
-  assert.equal(Storage.normalizeBackendSession({ token: '', host: '127.0.0.1', port: 6388 }), null);
-  assert.equal(Storage.normalizeBackendSession({ token: ' token ', host: '127.0.0.1', port: 6388 }), null);
-  assert.equal(Storage.normalizeBackendSession({ token: 'token', host: 'example.test', port: 6388 }), null);
-  assert.equal(Storage.normalizeBackendSession({ token: 'token', host: '127.0.0.1', port: 0 }), null);
-  assert.equal(Storage.normalizeBackendSession({ token: 'token', host: '127.0.0.1', port: 65536 }), null);
+  assert.deepEqual(Storage.normalizeBackendSession({ token: 'token', url: 'https://zerochat.example' }), { token: 'token', url: 'https://zerochat.example' });
+  for (const token of ['', ' token ', 'to\nken', 'x'.repeat(513)]) {
+    assert.equal(Storage.normalizeBackendSession({ token, url: 'http://127.0.0.1:6388' }), null, JSON.stringify(token));
+  }
+  assert.ok(Storage.normalizeBackendSession({ token: 'x'.repeat(512), url: 'http://127.0.0.1:6388' }));
+  // El cliente añade las rutas (/mcp/external) y firma la de cada herramienta: la URL es solo un origen.
+  for (const url of ['ftp://127.0.0.1', 'javascript:alert(1)', 'http://user:pass@127.0.0.1:6388', 'http://127.0.0.1:6388/api',
+    'http://127.0.0.1:6388/?a=1', 'http://127.0.0.1:6388/#x', 'no es una url', undefined]) {
+    assert.equal(Storage.normalizeBackendSession({ token: 'token', url }), null, String(url));
+  }
 });
 
 test('Storage - el borrado completo solo elimina claves y cookies propias de ZeroChat', async () => {

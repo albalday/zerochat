@@ -355,6 +355,26 @@ class StdioMcpClient:
         self.tools = []
 
 
+@dataclasses.dataclass
+class McpServiceRecord:
+    """Estado de un servicio MCP en este proceso: fase del ciclo de vida, cliente, último error y
+    modo y navegador con los que arrancó (solo los servicios de SERVICE_LAUNCH)."""
+    phase: str = "stopped"  # stopped, installing, starting, running o error
+    client: StdioMcpClient | None = None
+    error: str | None = None
+    browser: dict | None = None
+
+
+def service_status(record: McpServiceRecord, alive: bool, exit_code: int | None) -> tuple[str, str | None]:
+    """Estado público y error de un servicio a partir de su registro y de si su proceso sigue vivo:
+    el proceso de un servicio en marcha puede morir sin que nadie lo detenga."""
+    if record.phase != "running" or alive:
+        return record.phase, record.error
+    if exit_code is not None:
+        return "error", f"MCP process exited with code {exit_code}"
+    return "error", "MCP process is not responding"
+
+
 class McpServiceManager:
     def __init__(self, services_root: Path | None = None):
         if services_root:
@@ -364,11 +384,7 @@ class McpServiceManager:
         self.services_root.mkdir(parents=True, exist_ok=True)
         self.config_file = get_data_dir() / "config" / "services.json"
         self.config_file.parent.mkdir(parents=True, exist_ok=True)
-        self.clients: dict[str, StdioMcpClient] = {}
-        self.states: dict[str, str] = {}
-        self.errors: dict[str, str] = {}
-        # Modo y navegador con los que arrancó cada servicio de SERVICE_LAUNCH.
-        self.browsers: dict[str, dict] = {}
+        self.records: dict[str, McpServiceRecord] = {}
         self._lock = threading.Lock()
         materialize_managed_services(self.services_root)
         self.services = self._load_services()
@@ -412,19 +428,22 @@ class McpServiceManager:
         except OSError as err:
             log_event(f"[zerochat] Advertencia al guardar preferencias MCP en {self.config_file}: {err}")
 
+    def _remember(self, server_id: str, enabled: bool):
+        """Único sitio que guarda si un servicio queda activo para ofrecerlo en la siguiente sesión: lo
+        marca un arranque con remember y lo desmarca detenerlo. Un reinicio (detener y arrancar con el
+        valor previo) lo conserva, y un arranque sin remember, como el de un perfil, no lo cambia."""
+        self.preferences.setdefault(server_id, {})["enabled"] = enabled
+        self._save_preferences()
+
     def list_servers(self) -> list[dict]:
         self.services = self._load_services()
         result = []
         for server_id, server in self.services.items():
-            client = self.clients.get(server_id)
-            state = self.states.get(server_id, "stopped")
-            running = bool(client and client.running() and state == "running")
-            error = self.errors.get(server_id)
-            # El proceso de un servicio en marcha puede morir sin que nadie lo detenga.
-            if state == "running" and client and not running:
-                code = client.process.poll() if client.process else None
-                state = "error"
-                error = f"MCP process exited with code {code}" if code is not None else "MCP process is not responding"
+            record = self.records.get(server_id) or McpServiceRecord()
+            client = record.client
+            exit_code = client.process.poll() if client and client.process else None
+            status, error = service_status(record, bool(client and client.running()), exit_code)
+            running = status == "running"
             pref = self.preferences.get(server_id, {})
             result.append({
                 "id": server_id,
@@ -433,13 +452,13 @@ class McpServiceManager:
                 "help": server.get("help"),
                 "remote": server.get("remote"),
                 "enabled": pref.get("enabled", server.get("enabledByDefault", False)),
-                "status": "running" if running else state,
+                "status": status,
                 "toolCount": len(client.tools) if running else 0,
                 "error": error,
                 "options": server.get("options", []),
                 "userOptions": pref.get("options", {}),
                 "oauthUrl": client.oauth_url if client else None,
-                "browser": self.browsers.get(server_id) if running else None,
+                "browser": record.browser if running else None,
             })
 
         return result
@@ -488,7 +507,7 @@ class McpServiceManager:
                         needs_install = True
 
                 if needs_install:
-                    self.states[server_id] = "installing"
+                    self.records[server_id].phase = "installing"
                     self._trace(server_id, f"installing npm package: {package}@{version}")
                     manifest = service_dir / "package.json"
                     manifest.write_text(json.dumps({"private": True, "dependencies": {package: version}}, indent=2), encoding="utf-8")
@@ -554,11 +573,10 @@ class McpServiceManager:
             server = self.services.get(server_id)
             if not server:
                 raise KeyError(f"Servidor MCP desconocido: {server_id}")
-            current = self.clients.get(server_id)
-            if current and current.running():
+            record = self.records.setdefault(server_id, McpServiceRecord())
+            if record.client and record.client.running():
                 return self.list_servers()
-            self.states[server_id] = "starting"
-            self.errors.pop(server_id, None)
+            record.phase, record.error = "starting", None
             client = None
             self._trace(server_id, "start requested")
             try:
@@ -581,9 +599,9 @@ class McpServiceManager:
                 env = os.environ.copy()
                 for k, v in launch.get("env", {}).items():
                     env[k] = self._expand(v, values)
-                self.browsers.pop(server_id, None)
+                record.browser = None
                 if server_id in SERVICE_LAUNCH:
-                    extra_args, extra_env, self.browsers[server_id] = SERVICE_LAUNCH[server_id](browser)
+                    extra_args, extra_env, record.browser = SERVICE_LAUNCH[server_id](browser)
                     args += extra_args
                     env.update(extra_env)
 
@@ -593,38 +611,29 @@ class McpServiceManager:
                     call_timeout=_positive_seconds(launch.get("callTimeoutSeconds"), DEFAULT_MCP_CALL_TIMEOUT_SECONDS)
                 )
                 # _prepare_service puede haber dejado el estado en "installing".
-                self.states[server_id] = "starting"
-                self.clients[server_id] = client
+                record.phase, record.client = "starting", client
                 client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
-                self.states[server_id] = "running"
+                record.phase = "running"
                 if remember:
-                    entry = self.preferences.setdefault(server_id, {})
-                    entry["enabled"] = True
-                    self._save_preferences()
+                    self._remember(server_id, True)
                 self._trace(server_id, "started successfully")
             except Exception as exc:
-                self.states[server_id] = "error"
-                self.errors[server_id] = str(exc)
+                record.phase, record.error = "error", str(exc)
                 self._trace(server_id, f"start failed: {exc}")
-                if server_id in self.clients:
-                    self.clients.pop(server_id).stop()
-                elif client:
-                    client.stop()
+                stale, record.client = record.client or client, None
+                if stale:
+                    stale.stop()
             return self.list_servers()
 
     def stop(self, server_id: str) -> list[dict]:
         with self._lock:
             self.services = self._load_services()
-            if server_id not in self.services and server_id not in self.clients:
+            record = self.records.pop(server_id, McpServiceRecord())
+            if server_id not in self.services and not record.client:
                 raise KeyError(f"Servidor MCP desconocido: {server_id}")
-            client = self.clients.pop(server_id, None)
-            if client:
-                client.stop()
-            self.states[server_id] = "stopped"
-            self.errors.pop(server_id, None)
-            entry = self.preferences.setdefault(server_id, {})
-            entry["enabled"] = False
-            self._save_preferences()
+            if record.client:
+                record.client.stop()
+            self._remember(server_id, False)
             return self.list_servers()
 
     def configure(self, server_id: str, options: dict | None = None) -> list[dict]:
@@ -639,13 +648,15 @@ class McpServiceManager:
             self._save_preferences()
             return self.list_servers()
 
+    def _running_clients(self) -> list[tuple[str, StdioMcpClient]]:
+        return [(server_id, record.client) for server_id, record in self.records.items()
+                if record.client and record.client.running()]
+
     def tools(self) -> list[dict]:
         aggregated = []
         seen: set[str] = set()
         with self._lock:
-            for server_id, client in self.clients.items():
-                if not client.running():
-                    continue
+            for server_id, client in self._running_clients():
                 for t in client.tools:
                     original = t.get("name") if isinstance(t, dict) else None
                     try:
@@ -669,9 +680,7 @@ class McpServiceManager:
     def call(self, public_name: str, arguments: dict) -> dict:
         target = None
         with self._lock:
-            for server_id, client in self.clients.items():
-                if not client.running():
-                    continue
+            for server_id, client in self._running_clients():
                 for t in client.tools:
                     try:
                         matches = public_tool_name(server_id, t.get("name")) == public_name
@@ -690,9 +699,10 @@ class McpServiceManager:
 
     def close(self):
         with self._lock:
-            for client in list(self.clients.values()):
-                client.stop()
-            self.clients.clear()
+            for record in self.records.values():
+                if record.client:
+                    record.client.stop()
+                record.phase, record.client, record.error = "stopped", None, None
 
 
 GLOBAL_MCP_MANAGER = McpServiceManager()

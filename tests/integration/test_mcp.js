@@ -313,7 +313,7 @@ test('MCP - probeConnection acepta un endpoint activo y rechaza fallos de conexi
         return { ok: false, status: 404 };
       };
 
-      const res = await MCP.probeConnection('http://127.0.0.1:6388/sse', { timeoutMs: 1000 });
+      const res = await MCP.probeConnection('http://127.0.0.1:6388', { timeoutMs: 1000 });
       assert.equal(res.success, true);
       assert.equal(res.serverInfo.name, 'mcp-proxy');
       assert.equal(res.serverInfo.version, '0.4.0');
@@ -334,7 +334,7 @@ test('MCP - probeConnection acepta un endpoint activo y rechaza fallos de conexi
         throw new Error('connect ECONNREFUSED 127.0.0.1:6388');
       };
 
-      const failRes = await MCP.probeConnection('http://127.0.0.1:6388/sse', { timeoutMs: 500 });
+      const failRes = await MCP.probeConnection('http://127.0.0.1:6388', { timeoutMs: 500 });
       assert.equal(failRes.success, false);
       assert.match(failRes.error, /Cannot reach the local server/);
     } finally {
@@ -355,7 +355,7 @@ test('MCP - probeConnection acepta un endpoint activo y rechaza fallos de conexi
         }
         return { ok: false, status: 503, text: async () => 'Service unavailable' };
       };
-      const result = await MCP.probeConnection('http://127.0.0.1:6388/sse', { timeoutMs: 500 });
+      const result = await MCP.probeConnection('http://127.0.0.1:6388', { timeoutMs: 500 });
       assert.equal(result.success, false);
     } finally {
       global.fetch = originalFetch;
@@ -371,11 +371,10 @@ test('MCP - una comprobación de salud fallida degrada una conexión previamente
     ChatState.set('mcp', {
       ...previousState,
       status: 'connected',
-      host: '127.0.0.1',
-      port: 6388,
-      endpoint: 'http://127.0.0.1:6388/sse',
+      endpoint: 'http://127.0.0.1:6388',
       tools: [{ id: 'mcp_test_tool' }]
     });
+    manager.target = { url: 'http://127.0.0.1:6388', proxyKey: null };
     global.fetch = async () => { throw new Error('ECONNREFUSED'); };
 
     const result = await manager.verifyProxyConnection({ timeoutMs: 500 });
@@ -390,112 +389,6 @@ test('MCP - una comprobación de salud fallida degrada una conexión previamente
   }
 });
 
-test('MCP - McpClient disconnect() limpia recursos y cancela peticiones pendientes', async () => {
-  const client = new MCP.McpClient({
-    id: 'test_server',
-    name: 'Test Server',
-    url: 'http://127.0.0.1:6388/sse'
-  });
-
-  client.isSseActive = true;
-  client.postUrl = 'http://127.0.0.1:6388/messages/?session_id=fake-uuid';
-
-  // Simular una petición pendiente esperando SSE
-  let rejectedError = null;
-  client.pendingRequests.set(1, {
-    reject: (err) => { rejectedError = err; },
-    resolve: () => {},
-    timer: setTimeout(() => {}, 10000)
-  });
-
-  client.disconnect();
-
-  assert.equal(client.isSseActive, false);
-  assert.equal(client.postUrl, null);
-  assert.equal(client.pendingRequests.size, 0);
-  assert.ok(rejectedError);
-  assert.match(rejectedError.message, /connection closed/);
-});
-
-test('MCP - McpClient se auto-recupera de HTTP 404 por sesión SSE expirada o reiniciada', async () => {
-  const originalFetch = global.fetch;
-  let sseConnectCount = 0;
-  let requestsMade = [];
-
-  try {
-    global.fetch = async (url, options = {}) => {
-      requestsMade.push({ url, method: options.method || 'GET' });
-
-      // GET a /sse para negociar endpoint
-      if (url === 'http://127.0.0.1:6388/sse') {
-        sseConnectCount++;
-        const encoder = new TextEncoder();
-        const stream = new ReadableStream({
-          start(controller) {
-            controller.enqueue(encoder.encode('event: endpoint\ndata: /messages/?session_id=new-session-uuid-123\n\n'));
-            controller.close();
-          }
-        });
-        return {
-          ok: true,
-          status: 200,
-          body: stream
-        };
-      }
-
-      // POST con ID caducado devuelto por proxy reiniciado
-      if (url.includes('session_id=old-stale-uuid')) {
-        return {
-          ok: false,
-          status: 404,
-          text: async () => 'Could not find session for ID: old-stale-uuid'
-        };
-      }
-
-      // POST con nuevo session_id tras recuperación
-      if (url.includes('session_id=new-session-uuid-123')) {
-        const body = JSON.parse(options.body || '{}');
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            jsonrpc: '2.0',
-            id: body.id,
-            result: { recovered: true, ping: 'pong' }
-          })
-        };
-      }
-
-      return { ok: false, status: 500, text: async () => 'Error no esperado' };
-    };
-
-    const client = new MCP.McpClient({
-      id: 'mcp_proxy',
-      name: 'mcp-proxy',
-      url: 'http://127.0.0.1:6388/sse'
-    });
-
-    // Simulamos que el cliente tenía en memoria una sesión previa antes del reinicio del servidor
-    client.isSseActive = true;
-    client.postUrl = 'http://127.0.0.1:6388/messages/?session_id=old-stale-uuid';
-
-    // Ejecutamos la petición: debe fallar con 404, detectar sesión muerta, reconectar y reintentar con éxito
-    const result = await client.request('ping', {});
-
-    assert.equal(result.recovered, true);
-    assert.equal(result.ping, 'pong');
-    assert.equal(sseConnectCount, 1);
-    assert.ok(client.postUrl.includes('session_id=new-session-uuid-123'));
-
-    // Validar secuencia de llamadas: primero POST a old-stale, luego GET a /sse, luego POST a new-session
-    assert.equal(requestsMade[0].url, 'http://127.0.0.1:6388/messages/?session_id=old-stale-uuid');
-    assert.equal(requestsMade[1].url, 'http://127.0.0.1:6388/sse');
-    assert.equal(requestsMade[2].url, 'http://127.0.0.1:6388/messages/?session_id=new-session-uuid-123');
-  } finally {
-    global.fetch = originalFetch;
-  }
-});
-
 test('MCP - la conexión silenciosa del arranque conecta si el servidor está activo y queda desconectada si no', async () => {
   const originalFetch = global.fetch;
 
@@ -506,8 +399,7 @@ test('MCP - la conexión silenciosa del arranque conecta si el servidor está ac
     };
 
     const resInactive = await MCP.manager.connectProxy({
-      host: '127.0.0.1',
-      port: 6388,
+      url: 'http://127.0.0.1:6388',
       timeoutMs: 500,
       silentOnFailure: true
     });
@@ -517,21 +409,6 @@ test('MCP - la conexión silenciosa del arranque conecta si el servidor está ac
 
     // 2. Caso Servidor Activo
     global.fetch = async (url, options) => {
-      if (options?.method === 'GET' && url.includes('/sse')) {
-        const stream = new ReadableStream({
-          start(controller) {
-            controller.enqueue(new TextEncoder().encode('event: endpoint\ndata: /messages/?session_id=test-auto-conn\n\n'));
-            controller.close();
-          }
-        });
-        return {
-          ok: true,
-          status: 200,
-          headers: new Headers({ 'Content-Type': 'text/event-stream' }),
-          body: stream
-        };
-      }
-
       const body = JSON.parse(options?.body || '{}');
       if (body.method === 'initialize') {
         return {
@@ -571,8 +448,7 @@ test('MCP - la conexión silenciosa del arranque conecta si el servidor está ac
     };
 
     const resActive = await MCP.manager.connectProxy({
-      host: '127.0.0.1',
-      port: 6388,
+      url: 'http://127.0.0.1:6388',
       timeoutMs: 1000,
       silentOnFailure: true
     });
@@ -583,6 +459,7 @@ test('MCP - la conexión silenciosa del arranque conecta si el servidor está ac
     assert.equal(resActive.tools[0].metadata.originalName, 'auto_tool');
   } finally {
     global.fetch = originalFetch;
+    MCP.manager.setHeartbeatTimer(false);
     await MCP.manager.disconnectProxy();
   }
 });
@@ -711,116 +588,64 @@ test('MCP - nombres inválidos, duplicados y demasiado largos fallan explícitam
   assert.equal((await provider.discoverTools())[0].name, 'read_file');
 });
 
-test('MCP - connectProxy registra las herramientas de los servicios externos en marcha que trae el primer latido', async () => {
-  const originalFetch = global.fetch;
-  const manager = new MCP.McpManager();
-  let heartbeats = 0;
-  // La URL del latido depende de la página; aquí se sustituye su lectura por lo que publicaría.
-  manager.readLiveState = async () => {
-    heartbeats += 1;
-    await manager.applyLiveState({ ok: true, jobs: [], servers: [{ id: 'sqlite', status: 'running', toolCount: 1, enabled: true }] });
+/** Servidor local falso: responde initialize (con `liveState`), tools/list y el latido; `state.server` lo apaga o cambia su token. */
+function fakeLocalServer(state) {
+  return async (url, options) => {
+    if (state.server === 'down') throw new TypeError('Failed to fetch');
+    if (state.server === 'newToken') return { ok: false, status: 401, text: async () => 'Unauthorized' };
+    const body = options?.body ? JSON.parse(options.body) : {};
+    const reply = result => ({ ok: true, status: 200, json: async () => ({ jsonrpc: '2.0', id: body.id, result }) });
+    const external = String(url).endsWith('/mcp/external');
+    if (body.method === 'initialize') {
+      return reply({ protocolVersion: '2024-11-05', serverInfo: { name: external ? 'External MCP' : 'zerochat' }, capabilities: {}, ...(external ? {} : { liveState: state.live }) });
+    }
+    if (body.method === 'tools/list') {
+      return reply({ tools: external
+        ? [{ name: 'sqlite_query', description: 'Query SQLite', metadata: { mcpServerId: 'sqlite', originalName: 'query' } }]
+        : [{ name: 'edit_file' }] });
+    }
+    if (body.method === 'zerochat/heartbeat') {
+      state.beats = (state.beats || 0) + 1;
+      return reply(state.live);
+    }
+    return reply({});
   };
+}
 
+test('MCP - connectProxy publica el estado vivo de initialize y registra las herramientas de los servicios externos en marcha', async t => {
+  const state = { server: 'up', live: { cwd: '/repo', jobs: [], exit_on_close: true, servers: [{ id: 'sqlite', status: 'running', toolCount: 1, enabled: true }] } };
+  t.mock.method(global, 'fetch', fakeLocalServer(state));
+  const manager = new MCP.McpManager();
   try {
-    global.fetch = async (url, options) => {
-      const urlStr = String(url);
-      const body = options?.body ? JSON.parse(options.body) : {};
-
-      if (urlStr.includes('/sse')) {
-        if (body.method === 'initialize') {
-          return {
-            ok: true, status: 200,
-            json: async () => ({ jsonrpc: '2.0', id: body.id, result: { protocolVersion: '2024-11-05', serverInfo: { name: 'mcp-proxy' }, capabilities: {} } })
-          };
-        }
-        if (body.method === 'tools/list') {
-          return {
-            ok: true, status: 200,
-            json: async () => ({ jsonrpc: '2.0', id: body.id, result: { tools: [{ name: 'edit_file' }] } })
-          };
-        }
-      }
-
-      if (urlStr.includes('/mcp/external')) {
-        if (body.method === 'initialize') {
-          return {
-            ok: true, status: 200,
-            json: async () => ({ jsonrpc: '2.0', id: body.id, result: { protocolVersion: '2024-11-05', serverInfo: { name: 'External MCP' }, capabilities: {} } })
-          };
-        }
-        if (body.method === 'tools/list') {
-          return {
-            ok: true, status: 200,
-            json: async () => ({
-              jsonrpc: '2.0', id: body.id,
-              result: {
-                tools: [{ name: 'sqlite_query', description: 'Query SQLite', metadata: { mcpServerId: 'sqlite', originalName: 'query' } }]
-              }
-            })
-          };
-        }
-      }
-
-      return { ok: true, status: 200, json: async () => ({}) };
-    };
-
-    const connResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388, token: 'tok' });
+    const connResult = await manager.connectProxy({ url: 'http://127.0.0.1:6388', token: 'tok' });
     assert.equal(connResult.success, true);
-    assert.equal(heartbeats, 1);
+    assert.equal(state.beats, undefined, 'sin esperar al latido');
+    assert.equal(ChatState.get('mcp').exitOnClose, true);
     assert.deepEqual(ChatState.get('mcp').externalServers.map(server => server.id), ['sqlite']);
     assert.deepEqual(ChatState.get('mcp').externalTools.map(tool => tool.name), ['sqlite_query']);
-
-    // La herramienta externa debe estar en el registry
-    const tool = AgentCore.registry.getTool('sqlite_query');
-    assert.ok(tool, 'sqlite_query debe estar registrada en el registry');
+    assert.ok(AgentCore.registry.getTool('sqlite_query'), 'sqlite_query debe estar registrada en el registry');
 
     // Reconectar connectProxy no debe destruir las herramientas externas
-    const reconnectResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388 });
+    const reconnectResult = await manager.connectProxy({ url: 'http://127.0.0.1:6388' });
     assert.equal(reconnectResult.success, true);
-    assert.equal(heartbeats, 2);
     assert.ok(AgentCore.registry.getTool('sqlite_query'), 'sqlite_query debe seguir registrada tras reconectar');
 
+    // El latido es el método zerochat/heartbeat del servidor local.
+    await manager.sendHeartbeat();
+    assert.equal(state.beats, 1);
     await manager.disconnectProxy();
   } finally {
-    clearInterval(manager.heartbeatTimer);
-    global.fetch = originalFetch;
+    manager.setHeartbeatTimer(false);
   }
 });
 
-test('MCP - con sesión, el latido conecta cuando el servidor local arranca o vuelve tras un reinicio', async () => {
-  const originalFetch = global.fetch;
+test('MCP - con sesión, el latido conecta cuando el servidor local arranca o vuelve tras un reinicio', async t => {
+  const state = { server: 'down', live: { cwd: '/repo', jobs: [], exit_on_close: true, servers: [] } };
+  t.mock.method(global, 'fetch', fakeLocalServer(state));
   const manager = new MCP.McpManager();
-  let server = 'down';
-  let liveReads = 0;
-
   try {
-    global.fetch = async (url, options) => {
-      if (server === 'down') throw new TypeError('Failed to fetch');
-      if (server === 'newToken') return { ok: false, status: 401, text: async () => 'Unauthorized' };
-      const body = JSON.parse(options.body || '{}');
-      if (body.method === 'initialize') {
-        return {
-          ok: true, status: 200,
-          json: async () => ({ jsonrpc: '2.0', id: body.id, result: { protocolVersion: '2024-11-05', serverInfo: { name: 'zerochat' }, capabilities: {} } })
-        };
-      }
-      if (body.method === 'tools/list') {
-        return {
-          ok: true, status: 200,
-          json: async () => ({ jsonrpc: '2.0', id: body.id, result: { tools: [{ name: 'heartbeat_reconnect_tool' }] } })
-        };
-      }
-      return { ok: true, status: 200, json: async () => ({}) };
-    };
-    // La URL del latido depende de la página; aquí se sustituye su lectura por el estado del servidor.
-    manager.readLiveState = async () => {
-      liveReads += 1;
-      if (server !== 'up') throw new Error('Heartbeat HTTP 0');
-      return { ok: true };
-    };
-
     // La página abre con la sesión guardada y el servidor apagado: el latido queda vigilando.
-    const failed = await manager.connectProxy({ host: '127.0.0.1', port: 6388, token: 'tok' });
+    const failed = await manager.connectProxy({ url: 'http://127.0.0.1:6388', token: 'tok' });
     assert.equal(failed.success, false);
     assert.equal(ChatState.get('mcp').status, 'error');
     assert.ok(manager.heartbeatTimer, 'el latido vigila el destino aunque la conexión falle');
@@ -830,167 +655,143 @@ test('MCP - con sesión, el latido conecta cuando el servidor local arranca o vu
     await manager.sendHeartbeat();
     assert.deepEqual(ChatState.get('mcp'), downState);
 
-    // El servidor arranca: el latido conecta y envía el primer latido de la conexión.
-    server = 'up';
+    // El servidor arranca: el latido conecta.
+    state.server = 'up';
     await manager.sendHeartbeat();
     assert.equal(ChatState.get('mcp').status, 'connected');
-    assert.equal(liveReads, 1, 'la conexión del latido lee el estado vivo sin esperar al siguiente');
 
     // El servidor cae: el latido lo detecta y sigue en marcha.
-    server = 'down';
+    state.server = 'down';
     await manager.sendHeartbeat();
     assert.equal(ChatState.get('mcp').status, 'error');
     assert.equal(manager.isProxyConnected(), false);
+    assert.ok(manager.heartbeatTimer);
 
-    // Vuelve con otro token diario: se muestra el rechazo y no el fallo de red anterior.
-    server = 'newToken';
+    // Vuelve con otro token diario: se pide identificarse en lugar de mostrar el fallo de red anterior.
+    state.server = 'newToken';
     await manager.sendHeartbeat();
-    assert.equal(ChatState.get('mcp').status, 'error');
+    assert.equal(ChatState.get('mcp').status, 'login_required');
     assert.match(ChatState.get('mcp').error, /HTTP 401/);
 
     // Vuelve aceptando la sesión: el siguiente latido reconecta sin recargar la página.
-    server = 'up';
+    state.server = 'up';
     await manager.sendHeartbeat();
     assert.equal(ChatState.get('mcp').status, 'connected');
     assert.equal(manager.isProxyConnected(), true);
-    assert.equal(liveReads, 3);
   } finally {
-    clearInterval(manager.heartbeatTimer);
-    global.fetch = originalFetch;
+    manager.setHeartbeatTimer(false);
+  }
+});
+
+test('MCP - un 401 pide identificarse y zerochat/login da el token con el que se conecta, a través del proxy si se usa', async t => {
+  const requests = [];
+  let validToken = 'hoy';
+  t.mock.method(global, 'fetch', async (url, options) => {
+    const body = JSON.parse(options.body);
+    requests.push({ url, method: body.method, headers: options.headers, params: body.params });
+    const reply = result => ({ ok: true, status: 200, json: async () => ({ jsonrpc: '2.0', id: body.id, result }) });
+    if (body.method === 'zerochat/login') {
+      return body.params.password === 'buena'
+        ? reply({ token: validToken })
+        : { ok: true, status: 200, json: async () => ({ jsonrpc: '2.0', id: body.id, error: { code: -32001, message: 'Usuario o contraseña incorrectos.' } }) };
+    }
+    if (options.headers['X-ZeroChat-Token'] !== validToken) return { ok: false, status: 401, text: async () => 'Unauthorized' };
+    if (body.method === 'initialize') return reply({ protocolVersion: '2024-11-05', serverInfo: { name: 'zerochat' }, capabilities: {}, liveState: { exit_on_close: false, servers: [] } });
+    return reply(body.method === 'tools/list' ? { tools: [] } : {});
+  });
+  const manager = new MCP.McpManager();
+  const url = 'https://zerochat.example';
+  try {
+    // Sesión de ayer: también en la conexión silenciosa del arranque se pide identificarse.
+    const expired = await manager.connectProxy({ url, proxyKey: 'clave-caddy', token: 'ayer', silentOnFailure: true });
+    assert.equal(expired.success, false);
+    assert.equal(ChatState.get('mcp').status, 'login_required');
+
+    await assert.rejects(manager.login('ana', 'mala'), error => error.rpcError?.code === -32001);
+    assert.equal(await manager.login('ana', 'buena'), 'hoy');
+    const login = requests.filter(request => request.method === 'zerochat/login').at(-1);
+    assert.equal(login.url, url);
+    assert.deepEqual(login.params, { user: 'ana', password: 'buena' });
+
+    assert.equal((await manager.connectProxy({ url, proxyKey: 'clave-caddy', token: 'hoy' })).success, true);
+    assert.equal(ChatState.get('mcp').status, 'connected');
+    // Con el proxy, Authorization lleva su clave y X-ZeroChat-Proxy lo enruta; el token va en X-ZeroChat-Token.
+    for (const request of requests) {
+      assert.equal(request.headers['X-ZeroChat-Proxy'], '1', request.method);
+      assert.equal(request.headers.Authorization, 'Bearer clave-caddy', request.method);
+    }
+    assert.equal(requests.at(-1).headers['X-ZeroChat-Token'], 'hoy');
+
+    // El token caduca con la conexión abierta: el latido lo detecta y pide identificarse de nuevo.
+    validToken = 'mañana';
+    await manager.onPageVisible();
+    assert.equal(ChatState.get('mcp').status, 'login_required');
+    assert.equal(manager.isProxyConnected(), false);
+
+    // Sin proxy no se envía su cabecera.
+    requests.length = 0;
+    await manager.connectProxy({ url: 'http://127.0.0.1:6388', token: 'mañana' });
+    assert.equal(requests[0].headers['X-ZeroChat-Proxy'], undefined);
+  } finally {
+    manager.setHeartbeatTimer(false);
+    await manager.disconnectProxy();
+  }
+});
+
+test('MCP - sin auto-cierre no hay temporizador de latido: el estado se relee y se reconecta al volver a la pestaña', async t => {
+  const state = { server: 'up', live: { cwd: '/repo', jobs: [], exit_on_close: false, servers: [] } };
+  t.mock.method(global, 'fetch', fakeLocalServer(state));
+  const manager = new MCP.McpManager();
+  try {
+    assert.equal((await manager.connectProxy({ url: 'http://127.0.0.1:6388', token: 'tok' })).success, true);
+    assert.equal(manager.heartbeatTimer, null);
+
+    // Otra pestaña cambia el directorio: se ve al volver a esta.
+    state.live = { ...state.live, cwd: '/otro' };
+    await manager.onPageVisible();
+    assert.equal(state.beats, 1);
+    assert.equal(ChatState.get('mcp').serverInfo.cwd, '/otro');
+
+    // El servidor se reinicia mientras la pestaña está oculta: al volver se reconecta.
+    state.server = 'down';
+    await manager.onPageVisible();
+    assert.equal(ChatState.get('mcp').status, 'error');
+    // Ya desconectado, la conexión fallida no arranca el latido periódico.
+    await manager.connectProxy({ url: 'http://127.0.0.1:6388' });
+    assert.equal(manager.heartbeatTimer, null);
+    state.server = 'up';
+    await manager.onPageVisible();
+    assert.equal(ChatState.get('mcp').status, 'connected');
+
+    // Con un servidor con auto-cierre vuelve el temporizador y la vuelta a la pestaña no añade lecturas.
+    state.live = { ...state.live, exit_on_close: true };
+    await manager.connectProxy({ url: 'http://127.0.0.1:6388' });
+    assert.ok(manager.heartbeatTimer);
+    const beats = state.beats;
+    await manager.onPageVisible();
+    assert.equal(state.beats, beats);
+  } finally {
+    manager.setHeartbeatTimer(false);
+    await manager.disconnectProxy();
   }
 });
 
 test('MCP - una lectura del latido colgada se corta al cumplirse su intervalo para no bloquear los siguientes', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  globalThis.location = { protocol: 'file:', port: '', hostname: '' };
-  t.after(() => { delete globalThis.location; });
   t.mock.method(global, 'fetch', (url, options) => new Promise((_, reject) => {
     options.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
   }));
   const manager = new MCP.McpManager();
-  manager.heartbeatTarget = { host: '127.0.0.1', port: 6388, token: 'tok' };
+  manager.clients.set('mcp_proxy', new MCP.McpClient({ id: 'mcp_proxy', url: 'http://127.0.0.1:6388', token: 'tok' }));
 
   let settled = false;
   const read = manager.readLiveState().finally(() => { settled = true; });
+  await new Promise(resolve => setImmediate(resolve));
   t.mock.timers.tick(9999);
   await Promise.resolve();
   assert.equal(settled, false);
   t.mock.timers.tick(1);
   await assert.rejects(read, { name: 'AbortError' });
-});
-
-test('MCP - SSE autenticado usa cabeceras en navegador y procesa CRLF fragmentado', async () => {
-  const originalFetch = global.fetch;
-  const originalEventSource = global.EventSource;
-  let client;
-  let signal;
-  let stream;
-  try {
-    global.EventSource = class { constructor() { assert.fail('Authenticated SSE must use fetch'); } };
-    global.fetch = async (url, options) => {
-      assert.equal(url, 'http://localhost:6388/sse');
-      assert.equal(options.headers.Authorization, 'Bearer test-session');
-      assert.equal(options.headers['X-ZeroChat-Token'], 'test-session');
-      assert.equal(options.headers.Accept, 'text/event-stream');
-      assert.equal(options.redirect, 'error');
-      assert.equal(options.cache, 'no-store');
-      signal = options.signal;
-      return { ok: true, body: new ReadableStream({ start(controller) { stream = controller; } }) };
-    };
-    client = new MCP.McpClient({ url: 'http://localhost:6388/sse', token: 'test-session' });
-    const connected = client.connectSseStream({ timeoutMs: 500 });
-    await Promise.resolve();
-    stream.enqueue(new TextEncoder().encode('event: endpoint\r\ndata: /\r'));
-    stream.enqueue(new TextEncoder().encode('\n\r\n'));
-    assert.equal(await connected, 'http://localhost:6388/');
-    assert.equal(client.isSseActive, true);
-    const response = new Promise(resolve => client.pendingRequests.set(42, { resolve }));
-    stream.enqueue(new TextEncoder().encode('data: {"id":42,"result":{"ok":true}}\r\n\r\n'));
-    assert.deepEqual(await response, { ok: true });
-    client.disconnect();
-    assert.equal(signal.aborted, true);
-    assert.equal(client.isSseActive, false);
-  } finally {
-    client?.disconnect();
-    global.fetch = originalFetch;
-    global.EventSource = originalEventSource;
-  }
-});
-
-test('MCP - SSE aborta la apertura por timeout o desconexión', async () => {
-  const originalFetch = global.fetch;
-  try {
-    for (const disconnect of [false, true]) {
-      let signal;
-      global.fetch = async (url, options) => {
-        signal = options.signal;
-        return new Promise((resolve, reject) => {
-          signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
-        });
-      };
-      const client = new MCP.McpClient({ url: 'http://localhost:6388/sse', token: 'test-session' });
-      try {
-        const pending = client.connectSseStream({ timeoutMs: 10 });
-        if (disconnect) client.disconnect();
-        assert.equal(await pending, client.url);
-        assert.equal(signal.aborted, true);
-        assert.equal(client.isSseActive, false);
-      } finally { client.disconnect(); }
-    }
-  } finally { global.fetch = originalFetch; }
-});
-
-test('MCP - SSE rechaza endpoints externos, eventos excesivos y errores HTTP', async () => {
-  const originalFetch = global.fetch;
-  try {
-    for (const data of [null, 'event: endpoint\ndata: https://untrusted.example/\n\n', 'x'.repeat(60001)]) {
-      let signal;
-      global.fetch = async (url, options) => {
-        signal = options.signal;
-        return data === null ? { ok: false, status: 401 } : {
-          ok: true,
-          body: new ReadableStream({ start(controller) {
-            controller.enqueue(new TextEncoder().encode(data));
-          } })
-        };
-      };
-      const client = new MCP.McpClient({ url: 'http://localhost:6388/sse', headers: { Authorization: 'Bearer test-session' } });
-      try {
-        assert.equal(await client.connectSseStream({ timeoutMs: 500 }), client.url);
-        assert.equal(signal.aborted, true);
-        assert.equal(client.isSseActive, false);
-      } finally { client.disconnect(); }
-    }
-  } finally { global.fetch = originalFetch; }
-});
-
-test('MCP - el timeout de arranque no reconecta SSE ni reenvía el comando', async (t) => {
-  const client = new MCP.McpClient({ url: 'http://127.0.0.1:6388/sse' });
-  client.postUrl = 'http://127.0.0.1:6388/message';
-  client.isSseActive = true;
-  const aborted = new Error('Request timed out');
-  aborted.name = 'AbortError';
-  const fetch = t.mock.method(global, 'fetch', async () => { throw aborted; });
-  const disconnect = t.mock.method(client, 'disconnect', () => {});
-  await assert.rejects(client.request('zerochat/external/servers/start', { serverId: 'ejemplo' }),
-    error => error === aborted);
-  assert.equal(fetch.mock.callCount(), 1);
-  assert.equal(disconnect.mock.callCount(), 0);
-  assert.equal(client.isSseActive, true);
-});
-
-test('MCP - timeout SSE identifica la expiración y elimina la petición pendiente sin reenviarla', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const fetch = t.mock.method(global, 'fetch', async () => ({ ok: true, status: 202 }));
-  const client = new MCP.McpClient({ url: 'http://127.0.0.1:6388/mcp', timeoutMs: 15000 });
-  const pending = assert.rejects(client.request('zerochat/external/servers/start', { serverId: 'fixture' }),
-    error => error.code === 'MCP_REQUEST_TIMEOUT');
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(client.pendingRequests.size, 1);
-  t.mock.timers.tick(15000);
-  await pending;
-  assert.equal(client.pendingRequests.size, 0);
-  assert.equal(fetch.mock.callCount(), 1);
 });
 
 test('MCP - startExternalServer espera instalaciones largas y limita cada fase', async () => {
@@ -1023,20 +824,6 @@ test('MCP - startExternalServer espera instalaciones largas y limita cada fase',
   } finally {
     global.setTimeout = originalSetTimeout;
   }
-});
-
-test('MCP - avisa de mensajes JSON-RPC malformados sin resolver peticiones pendientes', (t) => {
-  t.mock.method(console, 'warn', () => {});
-  const client = new MCP.McpClient({ url: 'http://localhost:9000' });
-  let settled = false;
-  client.pendingRequests.set(1, { resolve: () => { settled = true; }, reject: () => { settled = true; } });
-
-  client._handleJsonRpcMessage('{not json');
-
-  assert.equal(settled, false);
-  assert.equal(client.pendingRequests.has(1), true);
-  assert.equal(console.warn.mock.callCount(), 1);
-  assert.match(String(console.warn.mock.calls[0].arguments[0]), /malformed JSON-RPC/);
 });
 
 test('MCP - applyLiveState publica el estado vivo del servidor y solo escribe lo que cambia', async t => {

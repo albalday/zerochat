@@ -39,6 +39,7 @@
     ChatUITelemetry: UITelemetry,
     ChatUIMcp: UIMcp,
     ChatUIBrowser: UIBrowser,
+    ChatUIConnection: UIConnection,
     ChatRagUI: RagUI,
     ChatRunMode: RunMode,
     ChatExport: Export
@@ -217,6 +218,22 @@
     inspectorResults: 'inspector-results',
     agentToolsContainer: 'agent-tools-container',
     settingsBrowser: 'settings-browser',
+    // Conexión con el servidor local e identificación
+    settingBackendUrl: 'setting-backend-url',
+    settingUseProxy: 'setting-use-proxy',
+    settingProxyKeyField: 'setting-proxy-key-field',
+    settingProxyKey: 'setting-proxy-key',
+    btnBackendConnect: 'btn-backend-connect',
+    backendConnectionStatus: 'backend-connection-status',
+    backendConnectionError: 'backend-connection-error',
+    loginDialog: 'login-dialog',
+    loginForm: 'login-form',
+    loginDesc: 'login-desc',
+    loginUser: 'login-user',
+    loginPassword: 'login-password',
+    loginError: 'login-error',
+    loginCancel: 'login-cancel',
+    loginSubmit: 'login-submit',
     // MCP
     mcpToolsContainer: 'mcp-tools-container',
     mcpServersList: 'mcp-servers-list',
@@ -801,11 +818,11 @@
     const hashParams = Utils.readLaunchFragment(location.hash);
     const token = hashParams.get('token');
     if (!token) return;
-    const session = Storage.normalizeBackendSession({
-      token,
-      host: hashParams.get('host') || Defaults.CONFIG_DEFAULTS.mcpHost,
-      port: hashParams.get('port') || Defaults.CONFIG_DEFAULTS.mcpPort
-    });
+    // zerochat.py abre la página con un servidor de este equipo: el fragmento no admite otro.
+    const host = hashParams.get('host');
+    const port = Number(hashParams.get('port'));
+    const local = ['127.0.0.1', 'localhost'].includes(host) && Number.isInteger(port) && port > 0 && port < 65536;
+    const session = local ? Storage.normalizeBackendSession({ token, url: `http://${host}:${port}` }) : null;
     // El servidor de --prompt puede estar en otro puerto y termina con la ejecución: su conexión
     // queda en esta página y la cookie sigue apuntando las demás pestañas al servidor normal.
     if (hashParams.has('run')) {
@@ -816,23 +833,47 @@
     history.replaceState(null, '', location.pathname + location.search);
   }
 
-  /** Conecta con zerochat.py si hay sesión o autoconexión; devuelve el resultado de la conexión. */
+  /** Clave del proxy para `url`: solo si es la URL de Ajustes › Conexión y usa el proxy; si no, null. */
+  function proxyKeyFor(url) {
+    const config = getRuntimeConfig();
+    return config.useProxy && url === config.backendUrl ? config.proxyKey : null;
+  }
+
+  /** Guarda la sesión: en la pestaña de una ejecución solo en memoria, para no pisar la cookie de las demás. */
+  function saveBackendSession(session) {
+    if (runBackendSession) runBackendSession = session;
+    else if (!Storage.setBackendSession(session)) console.warn('[App] Could not persist the backend session.');
+  }
+
+  /** Conecta con el backend de Ajustes › Conexión, con el token de la sesión si es de esa URL; un 401 pide identificarse. */
+  function connectConfiguredBackend() {
+    const { backendUrl } = getRuntimeConfig();
+    const session = Storage.getBackendSession();
+    const token = session?.url === backendUrl ? session.token : null;
+    MCP.manager.setSessionToken(token);
+    if (token) ToolSecurity.manager.setSessionToken(token);
+    return MCP.manager.connectProxy({ url: backendUrl, proxyKey: proxyKeyFor(backendUrl), token });
+  }
+
+  /** Se identifica en el destino de la conexión, guarda el token diario en la sesión y conecta con él. */
+  async function loginBackend(user, password) {
+    const { url, proxyKey } = MCP.manager.target;
+    const token = await MCP.manager.login(user, password);
+    saveBackendSession({ token, url });
+    ToolSecurity.manager.setSessionToken(token);
+    return MCP.manager.connectProxy({ url, proxyKey, token });
+  }
+
+  /**
+   * Conecta con zerochat.py si hay sesión guardada (sin ella no sondea el equipo, para no disparar el
+   * aviso de acceso a la red local del navegador); devuelve el resultado de la conexión.
+   */
   function connectBackend() {
     persistBackendSessionFromLaunchFragment();
-    const backendSession = runBackendSession || Storage.getBackendSession();
-    const token = backendSession?.token || MCP.manager.getSessionToken();
-    if (token) {
-      MCP.manager.setSessionToken(token);
-      ToolSecurity.manager.setSessionToken(token);
-    }
-    const config = getRuntimeConfig();
-    if (!token && !config.mcpAutoConnect) return Promise.resolve({ success: false });
-    return MCP.manager.connectProxy({
-      host: backendSession?.host || config.mcpHost,
-      port: backendSession?.port || config.mcpPort,
-      token,
-      silentOnFailure: !token
-    }).catch(error => {
+    const session = runBackendSession || Storage.getBackendSession();
+    if (!session) return Promise.resolve({ success: false });
+    ToolSecurity.manager.setSessionToken(session.token);
+    return MCP.manager.connectProxy({ url: session.url, proxyKey: proxyKeyFor(session.url), token: session.token }).catch(error => {
       console.warn('[App] Could not connect to the local server on startup:', error);
       return { success: false };
     });
@@ -854,6 +895,23 @@
 
     RagUI.initRagUI();
     UIBrowser.mountBrowserUI(elements.settingsBrowser, openSettingsSection);
+    UIConnection.mount({
+      url: elements.settingBackendUrl,
+      useProxy: elements.settingUseProxy,
+      proxyKeyField: elements.settingProxyKeyField,
+      proxyKey: elements.settingProxyKey,
+      connect: elements.btnBackendConnect,
+      status: elements.backendConnectionStatus,
+      error: elements.backendConnectionError,
+      loginDialog: elements.loginDialog,
+      loginForm: elements.loginForm,
+      loginDesc: elements.loginDesc,
+      loginUser: elements.loginUser,
+      loginPassword: elements.loginPassword,
+      loginError: elements.loginError,
+      loginCancel: elements.loginCancel,
+      loginSubmit: elements.loginSubmit
+    }, { connect: connectConfiguredBackend, login: loginBackend });
     UIBrowser.mountProfileBrowser(elements.profileBrowser);
     UIMcp.initMcpUI({
       statusBadge: elements.mcpStatusBadge,
@@ -874,6 +932,10 @@
     // connectBackend quita el fragmento de arranque: el modo ejecución se lee antes.
     const runId = RunMode.readRunId(location.hash);
     const startupMcpConnection = connectBackend();
+    // Sin latido periódico (servidor sin auto-cierre), volver a la pestaña relee el servidor local.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') MCP.manager.onPageVisible();
+    });
     updateNewTabLink();
     if (runId) {
       RunMode.start(runId, {

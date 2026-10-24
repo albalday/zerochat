@@ -68,7 +68,8 @@
     theme: DEFAULT_THEME, language: getBrowserLanguage(), enableDebugMessages: false,
     activeRagBranchIds: Object.freeze([]),
     mcpServers: Object.freeze([]), browser: 'browser_action', playwrightBrowser: null,
-    mcpHost: '127.0.0.1', mcpPort: 6388, mcpAutoConnect: false,
+    // Ajustes › Conexión: el backend y, si está detrás de un proxy inverso, la clave del proxy.
+    backendUrl: 'http://127.0.0.1:6388', useProxy: false, proxyKey: '',
     projectMode: true, projectDeclined: Object.freeze([]),
     webllmConfig: Object.freeze({
       context_window_size: String(getWebllmDefaultContextWindowSize()),

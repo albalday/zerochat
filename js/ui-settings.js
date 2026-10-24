@@ -21,8 +21,9 @@
   const getToolSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
   const getSidebar = () => resolveDep('ChatUISidebar', './ui-sidebar.js');
   const getUIBrowser = () => resolveDep('ChatUIBrowser', './ui-browser.js');
+  const getUIConnection = () => resolveDep('ChatUIConnection', './ui-connection.js');
 
-  const SECTION_TITLES = { model: 'settings_model', agent: 'settings_agent', mcp: 'settings_mcp', browser: 'settings_browser', permissions: 'settings_permissions' };
+  const SECTION_TITLES = { model: 'settings_model', agent: 'settings_agent', connection: 'settings_connection', mcp: 'settings_mcp', browser: 'settings_browser', permissions: 'settings_permissions' };
 
   const markActive = (buttons, attribute, value) => buttons.forEach(button => button.classList.toggle('active', button.getAttribute(attribute) === value));
 
@@ -69,8 +70,9 @@
    * Cambios de los campos propios de Ajustes sobre la configuración en ejecución. La conexión y el
    * modelo pertenecen al editor de perfiles, que puede estar mostrando otro perfil.
    */
-  function gatherSettingsFormConfig(elements, appConfig) {
+  function gatherSettingsFormConfig(elements, appConfig, connection) {
     return {
+      ...connection,
       systemDataPrompt: elements.settingSystemDataPrompt.value.trim(),
       browser: getUIBrowser().getTool(),
       enabledTools: {
@@ -105,6 +107,7 @@
       applyLanguage(elements, appConfig.language);
       renderAgentToolsUI(elements.agentToolsContainer, appConfig.enabledTools);
       getUIBrowser().load(appConfig.browser);
+      getUIConnection().load(appConfig);
       loadPermissionControls(elements);
     }
     getUIMcp().syncSecurityControls();
@@ -162,12 +165,17 @@
 
   async function saveCurrentSettings(elements, appConfig, callbacks) {
     if (!saveDirectoryRulesFromSettings(elements)) return false;
+    const connection = getUIConnection().read();
+    if (!connection) {
+      openSettingsSection(elements, appConfig, 'connection');
+      return false;
+    }
     saveMcpGlobalPolicyFromSettings(elements);
     if (!await getUIBrowser().save()) {
       openSettingsSection(elements, appConfig, 'browser');
       return false;
     }
-    const savedConfig = getConfig().updateRuntime(gatherSettingsFormConfig(elements, appConfig));
+    const savedConfig = getConfig().updateRuntime(gatherSettingsFormConfig(elements, appConfig, connection));
     setSettingsFormDirty(elements, false);
     callbacks.loadCachedModels();
     callbacks.onConfigSaved(savedConfig);
@@ -265,6 +273,36 @@
           <div id="agent-tools-container" class="agent-tools-container"></div>
         </div>
 
+        <!-- Sección: Conexión con el servidor local (la gestiona ChatUIConnection) -->
+        <div id="settings-connection" class="settings-section-pane">
+          <div class="settings-section-intro">
+            <p data-i18n="connection_intro">Servidor local de ZeroChat al que se conecta esta página. Si falta el token o ha caducado, se pide el usuario y la contraseña de la cuenta que ejecuta zerochat.</p>
+          </div>
+          <div class="form-field">
+            <label for="setting-backend-url"><strong data-i18n="connection_backend_url">URL del servidor local</strong><span class="label-hint" data-i18n="connection_backend_url_hint">Por defecto http://127.0.0.1:6388. Para otro equipo, la dirección del túnel SSH o la del proxy inverso.</span></label>
+            <input type="url" id="setting-backend-url" placeholder="http://127.0.0.1:6388" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="setting-toggle-card">
+            <div class="toggle-card-info">
+              <div class="toggle-card-title"><span data-i18n="connection_use_proxy">Usar proxy</span></div>
+              <p class="toggle-card-desc" data-i18n="connection_use_proxy_hint">El servidor está detrás de un proxy inverso (por ejemplo, Caddy) que exige su propia clave.</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="setting-use-proxy" data-i18n-aria="connection_use_proxy" aria-label="Usar proxy">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div id="setting-proxy-key-field" class="form-field" hidden>
+            <label for="setting-proxy-key"><strong data-i18n="connection_proxy_key">Clave del proxy</strong></label>
+            <input type="password" id="setting-proxy-key" autocomplete="new-password" spellcheck="false">
+          </div>
+          <div class="form-field">
+            <button type="button" id="btn-backend-connect" class="btn-secondary" data-i18n="connection_btn_connect">Conectar</button>
+            <p id="backend-connection-status" class="label-hint" role="status" aria-live="polite"></p>
+            <p id="backend-connection-error" class="label-hint" role="alert"></p>
+          </div>
+        </div>
+
         <!-- Sección: Servidor Local (MCP) -->
         <div id="settings-mcp" class="settings-section-pane">
           <!-- Estado del servidor local -->
@@ -293,7 +331,7 @@
               <svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-terminal"></use></svg>
               <strong data-i18n="mcp_bootstrap_title">MCP requiere el servidor local</strong>
             </div>
-            <p class="label-hint mcp-section-hint" data-i18n="mcp_bootstrap_desc">Instala ZeroChat desde PyPI y ejecútalo en un terminal. La aplicación se conectará automáticamente cuando el servidor esté disponible.</p>
+            <p class="label-hint mcp-section-hint" data-i18n="mcp_bootstrap_desc">Instala ZeroChat desde PyPI y ejecútalo en un terminal: abre esta página ya conectada. Para un servidor en otro equipo, usa Ajustes › Conexión.</p>
             <div class="mcp-cmd-row">
               <pre class="mcp-command-box mcp-cmd-box-flex"><code id="mcp-terminal-command">pip install zerochat
 zerochat</code></pre>

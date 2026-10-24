@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 from backend import ZEROCHAT_PY, use_data_dir, zerochat
 
 PUBLIC_TOOL_NAMES = ZEROCHAT_PY.parent / "tests" / "fixtures" / "mcp" / "public-tool-names.json"
+CONTRACT = json.loads((ZEROCHAT_PY.parent / "tests" / "fixtures" / "mcp" / "contract.json").read_text(encoding="utf-8"))
 
 HEALTHY_MCP = '''import json, sys
 for line in sys.stdin:
@@ -149,18 +150,94 @@ class ManagedServicesTest(unittest.TestCase):
             client.start.assert_called_once()
         self.assertNotIn("fixture-key", "".join(traces))
         self.assertEqual(status_of(manager, "custom-key")["status"], "running")
-        manager.close()
 
-        # Solo un arranque recordado se guarda como activo para la siguiente sesión.
-        preferences = self.data_dir / "config" / "services.json"
-        self.assertIs(json.loads(preferences.read_text())["custom-key"]["enabled"], True)
-        preferences.unlink()
+
+class ServiceStatusTest(unittest.TestCase):
+    def test_el_estado_publico_sale_del_registro_y_de_si_el_proceso_sigue_vivo(self):
+        Record = zerochat.McpServiceRecord
+        # (registro, proceso vivo, código de salida) -> (estado, error)
+        table = (
+            (Record(), False, None, ("stopped", None)),
+            (Record(phase="installing"), False, None, ("installing", None)),
+            (Record(phase="starting"), True, None, ("starting", None)),
+            (Record(phase="error", error="OAuth failed"), False, 1, ("error", "OAuth failed")),
+            (Record(phase="running"), True, None, ("running", None)),
+            (Record(phase="running"), False, 3, ("error", "MCP process exited with code 3")),
+            (Record(phase="running"), False, 0, ("error", "MCP process exited with code 0")),
+            (Record(phase="running"), False, None, ("error", "MCP process is not responding")),
+        )
+        for record, alive, exit_code, expected in table:
+            with self.subTest(phase=record.phase, alive=alive, exit_code=exit_code):
+                self.assertEqual(zerochat.service_status(record, alive, exit_code), expected)
+        # Los estados que lee js/mcp-status.js (tests/unit/test_mcp_status.js).
+        self.assertEqual({expected[0] for *_, expected in table}, set(CONTRACT["serviceStatuses"]))
+
+    def test_detener_o_cerrar_el_gestor_deja_el_servicio_detenido_y_sin_error(self):
+        manager = zerochat.McpServiceManager(use_data_dir(self) / "services")
+        self.addCleanup(manager.close)
+        client = Mock(tools=[{"name": "lookup"}], oauth_url=None, process=None)
+        client.running.return_value = True
+        for action in (lambda: manager.stop("playwright"), manager.close):
+            with self.subTest(action=action):
+                manager.records["playwright"] = zerochat.McpServiceRecord(phase="running", client=client, browser={"mode": "user", "userBrowser": "chrome"})
+                self.assertEqual((status_of(manager, "playwright")["status"], status_of(manager, "playwright")["toolCount"]), ("running", 1))
+                client.stop.reset_mock()
+                action()
+                client.stop.assert_called_once()
+                status = status_of(manager, "playwright")
+                self.assertEqual((status["status"], status["error"], status["toolCount"], status["browser"]), ("stopped", None, 0, None))
+                self.assertEqual(manager.tools(), [])
+
+
+class RememberTest(unittest.TestCase):
+    def setUp(self):
+        data_dir = use_data_dir(self)
+        self.root = data_dir / "services"
+        self.preferences = data_dir / "config" / "services.json"
+        (self.root / "demo").mkdir(parents=True)
+        (self.root / "demo" / "service.json").write_text(json.dumps({"id": "demo", "launch": {"args": []}}), encoding="utf-8")
+
+    def run_actions(self, remembered, actions, fails=False):
+        """Aplica las acciones a un servicio con ese estado recordado de la sesión anterior y devuelve
+        si queda recordado para la siguiente."""
+        if remembered is not None:
+            self.preferences.write_text(json.dumps({"demo": {"enabled": remembered}}), encoding="utf-8")
+        client = Mock(tools=[], oauth_url=None, process=None)
+        client.running.return_value = True
+        if fails:
+            client.start.side_effect = RuntimeError("handshake failed")
+        manager = zerochat.McpServiceManager(self.root)
+        self.addCleanup(manager.close)
         with patch.object(zerochat, "StdioMcpClient", return_value=client):
-            manager = zerochat.McpServiceManager(self.root)
-            self.addCleanup(manager.close)
-            manager.start("custom-key", remember=False)
-        self.assertFalse(preferences.exists())
-        self.assertIs(status_of(manager, "custom-key")["enabled"], False)
+            for action, *remember in actions:
+                if action == "start":
+                    manager.start("demo", remember=remember[0])
+                elif action == "stop":
+                    manager.stop("demo")
+                else:
+                    # Reinicio de McpManager.withExternalServerStopped (js/mcp.js): arranca con el valor previo.
+                    before = status_of(manager, "demo")["enabled"]
+                    manager.stop("demo")
+                    manager.start("demo", remember=before)
+        return status_of(zerochat.McpServiceManager(self.root), "demo")["enabled"]
+
+    def test_solo_un_arranque_con_remember_lo_recuerda_y_detenerlo_lo_olvida(self):
+        # (descripción, recordado antes, acciones, recordado después)
+        for name, remembered, actions, expected in (
+            ("arranque desde Ajustes › MCP", None, [("start", True)], True),
+            ("arranque sin remember", None, [("start", False)], False),
+            ("arranque de un perfil sobre uno recordado", True, [("start", False)], True),
+            ("arranque de un perfil sobre uno olvidado", False, [("start", False)], False),
+            ("detener", True, [("start", False), ("stop",)], False),
+            ("reinicio de uno recordado", True, [("start", False), ("restart",)], True),
+            ("reinicio de uno arrancado por un perfil", None, [("start", False), ("restart",)], False),
+            ("reinicio tras arrancarlo desde Ajustes", None, [("start", True), ("restart",)], True),
+        ):
+            with self.subTest(name):
+                self.preferences.unlink(missing_ok=True)
+                self.assertIs(self.run_actions(remembered, actions), expected)
+        self.preferences.unlink()
+        self.assertIs(self.run_actions(None, [("start", True)], fails=True), False, "un arranque fallido no se recuerda")
 
 
 class McpStartTest(unittest.TestCase):
@@ -192,13 +269,13 @@ class McpStartTest(unittest.TestCase):
 
         def prepare(server_id, server):
             self.assertEqual((status_of(manager, server_id)["status"], status_of(manager, server_id)["error"]), ("starting", None))
-            manager.states[server_id] = "installing"
+            manager.records[server_id].phase = "installing"
             self.assertEqual(status_of(manager, server_id)["status"], "installing")
             return {}
 
         for fail in (True, False):
             with self.subTest(fail=fail):
-                manager.errors["oauth-fixture"] = "Previous failure"
+                manager.records["oauth-fixture"] = zerochat.McpServiceRecord(phase="error", error="Previous failure")
                 client = Mock(tools=[])
 
                 def handshake(timeout):
@@ -241,7 +318,7 @@ class McpToolsTest(unittest.TestCase):
             return {"content": []}
 
         client.request.side_effect = request
-        self.manager.clients["demo"] = client
+        self.manager.records["demo"] = zerochat.McpServiceRecord(phase="running", client=client)
         self.assertEqual(self.manager.call(zerochat.public_tool_name("demo", "lookup"), {"q": 1}), {"content": []})
         with self.assertRaises(ValueError):
             self.manager.call("demo_missing", {})
@@ -249,7 +326,7 @@ class McpToolsTest(unittest.TestCase):
     def test_se_descartan_y_registran_nombres_publicos_invalidos_o_duplicados(self):
         client = Mock(tools=[{"name": "lookup"}, {"name": "lookup"}, {"name": "x" * 80}, {"name": ""}])
         client.running.return_value = True
-        self.manager.clients["demo"] = client
+        self.manager.records["demo"] = zerochat.McpServiceRecord(phase="running", client=client)
         self.assertEqual([tool["name"] for tool in self.manager.tools()], ["demo_lookup"])
         joined = "\n".join(self.traces)
         self.assertIn("duplicate public name demo_lookup", joined)
@@ -305,7 +382,7 @@ class StdioClientTest(unittest.TestCase):
         manager = zerochat.McpServiceManager(root)
         self.addCleanup(manager.close)
         self.assertEqual(next(item for item in manager.start("limits", remember=True) if item["id"] == "limits")["status"], "running")
-        client = manager.clients["limits"]
+        client = manager.records["limits"].client
         self.assertEqual(client.call_timeout, 0.5)
 
         original_write = client._write

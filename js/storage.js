@@ -13,7 +13,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, Database) {
   'use strict';
 
-  const { createId } = Utils;
+  const { createId, normalizeBackendUrl } = Utils;
   const { STORES, openDatabase, requestResult, transactionDone, deleteByIndex, getAllByIndex } = Database;
 
   const STORAGE_PREFIX = 'zerochat_';
@@ -34,15 +34,13 @@
   const getStorageItem = name => localStorage.getItem(`${STORAGE_PREFIX}${name}`);
   const deleteStorageItem = name => localStorage.removeItem(`${STORAGE_PREFIX}${name}`);
 
+  /** Sesión con el backend: su URL y el token diario que dio al abrir la página o al identificarse. */
   function normalizeBackendSession(session) {
     if (!session || typeof session !== 'object' || Array.isArray(session)) return null;
     const token = typeof session.token === 'string' ? session.token : '';
-    const host = typeof session.host === 'string' ? session.host.toLowerCase() : '';
-    const port = Number(session.port);
+    const url = normalizeBackendUrl(session.url);
     if (!token || token.length > 512 || token.trim() !== token || /[\u0000-\u001f\u007f]/.test(token)) return null;
-    if (!['127.0.0.1', 'localhost'].includes(host)) return null;
-    if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
-    return { token, host, port };
+    return url ? { token, url } : null;
   }
 
   // Con file:// no hay cookies: el backend local solo existe cuando la página se sirve por HTTP.

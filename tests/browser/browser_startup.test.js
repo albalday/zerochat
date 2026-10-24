@@ -137,11 +137,13 @@ test('Browser UI - el fragmento inicial persiste la sesión en cookie, limpia la
   const browser = await createTestBrowser();
   const context = await browser.newContext();
   try {
+    // Sin servidor local: un zerochat real en el 6388 respondería 401 al token de la prueba y abriría la identificación.
+    await context.route('http://127.0.0.1:6388/**', route => route.abort());
     const page = await context.newPage();
     const pageErrors = [];
     page.on('pageerror', err => pageErrors.push(err.message));
     const testToken = 'startup-token-test-12345';
-    const expectedSession = { token: testToken, host: '127.0.0.1', port: 6388 };
+    const expectedSession = { token: testToken, url: 'http://127.0.0.1:6388' };
 
     await page.goto(`http://127.0.0.1:${server.address().port}/zerochat.html#token=${testToken}&host=127.0.0.1&port=6388`, { waitUntil: 'load' });
     await waitForAppReady(page);
@@ -234,7 +236,7 @@ for (const outcome of ['later', 'reload', 'none', 'offline']) {
           };
         ` + source });
       });
-      await page.goto(`http://127.0.0.1:${server.address().port}/zerochat.html#token=test-startup`, { waitUntil: 'load' });
+      await page.goto(`http://127.0.0.1:${server.address().port}/zerochat.html#token=test-startup&host=127.0.0.1&port=6388`, { waitUntil: 'load' });
       await page.waitForFunction(() => window.__startupEvents.includes('check'));
       if (['later', 'reload'].includes(outcome)) {
         assert.deepEqual(await page.evaluate(() => window.__startupEvents), ['check']);

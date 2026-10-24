@@ -18,7 +18,7 @@ class ConsoleTest(unittest.TestCase):
         output = InteractiveOutput()
         with patch.object(sys, "stdout", output), patch.object(sys, "stdin", sys.stdin), \
                 patch.object(zerochat, "CONSOLE_STATUS_IDLE_SECONDS", 0.02):
-            console = zerochat.ConsoleControl(None, argparse.ArgumentParser(prog="zerochat.py"), target_url="http://127.0.0.1:6388/zerochat.html#token=abc")
+            console = zerochat.ConsoleControl(None, argparse.ArgumentParser(prog="zerochat.py"), launch_url=lambda: "http://127.0.0.1:6388/zerochat.html#token=abc")
             self.assertIs(console.enabled, True)
             console.start()
             try:

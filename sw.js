@@ -4,7 +4,7 @@
  * y actualización en segundo plano (Stale-While-Revalidate).
  */
 
-const CACHE_NAME = 'zerochat-v9.10.10';
+const CACHE_NAME = 'zerochat-v9.11.0';
 
 const PRECACHE_ASSETS = [
   './zerochat.html',
@@ -27,6 +27,7 @@ const PRECACHE_ASSETS = [
   './js/utils.js',
   './js/vendor-loader.js',
   './js/defaults.js',
+  './js/mcp-status.js',
   './js/i18n.js',
   './js/icons.js',
   './js/storage-db.js',
@@ -88,6 +89,7 @@ const PRECACHE_ASSETS = [
   './js/ui-telemetry.js',
   './js/ui-mcp.js',
   './js/ui-browser.js',
+  './js/ui-connection.js',
   './js/ui-shell.js',
   './js/data-reset-service.js',
   './js/ui-transfer.js',
@@ -139,9 +141,7 @@ self.addEventListener('fetch', event => {
   // Ignorar endpoints de API, túneles o llamadas dinámicas del backend local
   if (url.pathname.startsWith('/api') ||
       url.pathname.startsWith('/mcp') ||
-      url.pathname.startsWith('/zerochat/heartbeat') ||
       url.pathname.startsWith('/zerochat/external') ||
-      url.pathname.startsWith('/sse') ||
       url.pathname.startsWith('/v1') ||
       url.pathname.startsWith('/ws')) {
     return;
