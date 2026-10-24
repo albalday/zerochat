@@ -81,14 +81,19 @@
 
 ## M41 Faster test suite without duplicates: closed 2026-10-23
 
-## M42 MCP service state and JS–Python contract
+## M42 MCP service state, JS–Python contract and reverse-proxy transport
 
-Goal: an MCP service's state (stopped, installing, starting, running, error, remembered) has one model on the server and one reading on the client, and the browser constants duplicated in JS and Python are checked against each other, so the lifecycle bugs of 2026-10-19..21 (dead process shown running, restart or profile start changing remembered) cannot come back unnoticed.
+Goal: unify the MCP service state model and JS–Python contract, and simplify the frontend–backend protocol (`X-ZeroChat-Proxy: 1`, direct `POST` without `/sse`, no heartbeat when `exit_on_close` is false, and profile-level reverse-proxy mode reusing the profile's `apiUrl` and `apiKey` behind Caddy without daily tokens) so `zerochat.py` can run as an always-on service behind a reverse proxy.
 
-Done when: ee-mcp.py keeps one record per service and derives the public status in a pure function tested with unittest transition tables; enabled/remembered is written in a single place; the client reads status only through one predicates module; a shared fixture (engines, user browsers, extension token pattern, service statuses) is checked by both the JS and the Python tests; every level passes. Start it together with the next backend change in py/ (user decision, 2026-10-23).
-- [ ] M42-T1 Shared fixture in tests/fixtures/ with Playwright engines, user browsers and the extension token pattern (js/defaults.js, js/ui-browser.js, py/ee-browser-config.py), checked by test_ui_browser.js and test_browser_config.py
+Done when: ee-mcp.py keeps one record per service and derives the public status in a pure function tested with unittest transition tables; enabled/remembered is written in a single place; the client reads status only through one predicates module; a shared fixture (engines, user browsers, extension token pattern, service statuses) is checked by both the JS and the Python tests; `zerochat.py` and `js/mcp.js` communicate over direct `POST` with `X-ZeroChat-Proxy: 1`, return initial live state in `initialize`, skip heartbeat when `exit_on_close` is false, and connect through the active profile's `apiUrl` + `apiKey` when `mcpProxy` is enabled in the profile; `zerochat.py` is rebuilt and every test level passes.
+- [x] M42-T1 Shared fixture in tests/fixtures/ with Playwright engines, user browsers and the extension token pattern (js/defaults.js, js/ui-browser.js, py/ee-browser-config.py), checked by test_ui_browser.js and test_browser_config.py (2026-10-24)
 - [ ] M42-T2 ee-mcp.py: one record per service instead of the parallel states/errors/clients/browsers dicts, with the public status derived by a pure function from the record and process liveness, tested with unittest tables
 - [ ] M42-T3 ee-mcp.py: enabled/remembered written in a single place for start, stop and restart, with unittest cases for remember true/false, profile start and withExternalServerStopped restart (M29-T8, M31-D4)
 - [ ] M42-T4 Client status predicates module (isActive, canStart, canStop, isBusy) used by mcp.js, ui-mcp.js, ui-profiles.js and ui-browser.js instead of inline status string comparisons, with the status list added to the M42-T1 fixture and unit tests
+- [ ] M42-T5 py/ff-server.py and py/zz-main.py: allow X-ZeroChat-Proxy in CORS, include live state (cwd, jobs, exit_on_close, playwright, servers) in initialize, and accept X-ZeroChat-Proxy: 1 without the daily token when running as a persistent loopback service (--keep-server --no-browser) while keeping tools/call HMAC authorization
+- [ ] M42-T6 js/mcp.js: send X-ZeroChat-Proxy: 1 on all requests, use direct POST JSON-RPC to zerochat.py without opening /sse, apply live state from initialize, and disable the 10 s heartbeat timer when exit_on_close is false
+- [ ] M42-T7 js/profile-repository.js, js/config-store.js, js/defaults.js and js/mcp.js: add mcpProxy boolean profile setting and connectProxy support using the active profile's apiUrl origin and apiKey (Authorization: Bearer) on startup and profile activation
+- [ ] M42-T8 js/ui-profiles.js, js/ui-mcp.js and js/i18n.js: profile editor control to enable mcpProxy, reverse-proxy connection status in Settings › MCP, and unit/browser tests
+- [ ] M42-T9 Rebuild zerochat.py (npm run build:backend) and update py/README.md, help/mcp.html (ES/EN) and ../llama/zero-caddy.md
 
 ## M43 Dark theme link contrast: closed 2026-10-23

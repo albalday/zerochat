@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const UIBrowser = require('../../js/ui-browser.js');
+const Defaults = require('../../js/defaults.js');
+const CONTRACT = require('../fixtures/mcp/contract.json');
 
 const SAVED = { mode: 'own', engine: 'chromium', userBrowser: 'chrome', headless: true, extensionToken: '' };
 const NOTHING = { tokenInvalid: false, setConfig: false, offerRestart: false, start: false };
@@ -14,10 +16,15 @@ test('UIBrowser - con otra herramienta Guardar no valida ni envía la configurac
   }
 });
 
-test('UIBrowser - el token de la extensión admite hasta 256 caracteres de su alfabeto', () => {
-  assert.deepEqual(plan({ config: { ...SAVED, extensionToken: 'a'.repeat(256) } }, 'running'), { ...NOTHING, setConfig: true, offerRestart: true });
-  assert.deepEqual(plan({ config: { ...SAVED, extensionToken: 'a'.repeat(257) } }, 'running'), { ...NOTHING, tokenInvalid: true });
-  assert.deepEqual(plan({ config: { ...SAVED, extensionToken: 'tok 1' } }, 'running'), { ...NOTHING, tokenInvalid: true });
+test('UIBrowser - motores, navegadores del usuario y tokens de la extensión coinciden con el backend (tests/fixtures/mcp/contract.json)', () => {
+  assert.deepEqual(Defaults.PLAYWRIGHT_ENGINES, CONTRACT.playwrightEngines);
+  assert.deepEqual(Defaults.USER_BROWSERS, CONTRACT.userBrowsers);
+  for (const extensionToken of CONTRACT.extensionTokens.valid) {
+    assert.deepEqual(plan({ config: { ...SAVED, extensionToken } }, 'running'), { ...NOTHING, setConfig: extensionToken !== '', offerRestart: extensionToken !== '' }, extensionToken);
+  }
+  for (const extensionToken of CONTRACT.extensionTokens.invalid) {
+    assert.deepEqual(plan({ config: { ...SAVED, extensionToken } }, 'running'), { ...NOTHING, tokenInvalid: true }, extensionToken);
+  }
 });
 
 test('UIBrowser - una configuración cambiada se envía y solo con Playwright MCP en marcha se ofrece reiniciarlo', () => {
