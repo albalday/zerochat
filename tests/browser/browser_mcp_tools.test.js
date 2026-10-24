@@ -75,6 +75,36 @@ test('Browser UI - autorización de Composio muestra y devuelve únicamente su s
   } finally { await browser.close(); }
 });
 
+test('Browser UI - la petición de autorización despliega la tarjeta y la deja como estaba al decidir', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+    const result = await page.evaluate(async () => {
+      const collapsed = card => card.querySelector('.tool-execution-card').classList.contains('collapsed');
+      const ask = async (card, button) => {
+        const pending = window.ChatToolCards.promptToolAuthorization(card, { function: { name: 'read_file', arguments: '{}' } }, { args: {} });
+        const open = !collapsed(card);
+        card.querySelector(button).click();
+        await pending;
+        return open;
+      };
+      const card = window.ChatToolCards.createLiveToolCard('read_file', { path: 'a.txt' });
+      document.body.appendChild(card);
+      const states = { created: collapsed(card), whileAsking: await ask(card, '.btn-auth-allow-once'), afterAllow: collapsed(card) };
+      // Abierta por el usuario (fuera del chat el botón no tiene listener), sigue abierta después de decidir.
+      card.querySelector('.tool-execution-card').classList.remove('collapsed');
+      states.userOpened = !collapsed(card);
+      await ask(card, '.btn-auth-deny');
+      states.afterDeny = collapsed(card);
+      card.remove();
+      return states;
+    });
+    assert.deepEqual(result, { created: true, whileAsking: true, afterAllow: true, userOpened: true, afterDeny: false });
+  } finally { await browser.close(); }
+});
+
 test('Browser UI - la autorización de carpeta solo se ofrece para rutas que pueden ser una regla', async () => {
   const browser = await createTestBrowser();
   try {

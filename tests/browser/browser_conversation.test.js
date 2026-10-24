@@ -321,10 +321,10 @@ test('Browser UI - completing one tool preserves user-opened groups and previous
       const userOpened = history.open && !isCollapsed(first) && !isCollapsed(second);
       const third = create('third_execution');
       const fourth = create('fourth_execution');
-      const activeUnaffected = !isCollapsed(fourth);
+      const activeUnaffected = isCollapsed(fourth);
       finish(third, 'third_execution');
       const afterThird = history.open && !isCollapsed(first) && !isCollapsed(second)
-        && isCollapsed(third) && !isCollapsed(fourth);
+        && isCollapsed(third) && isCollapsed(fourth);
       third.querySelector('.btn-tool-collapse').click();
       finish(fourth, 'fourth_execution', false);
       const afterFourth = history.open && !isCollapsed(first) && !isCollapsed(second)
