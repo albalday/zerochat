@@ -77,7 +77,7 @@
       mcp: {
         // 'disconnected' | 'connecting' | 'checking' | 'connected' | 'error' | 'login_required' (401: falta el token o caducó)
         status: 'disconnected',
-        endpoint: Defaults.CONFIG_DEFAULTS.backendUrl,
+        endpoint: Defaults.LOCAL_BACKEND_URL,
         serverInfo: null,
         tools: [],
         externalServers: [],

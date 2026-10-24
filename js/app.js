@@ -123,6 +123,7 @@
     contextMetricTurnLatencyVal: 'context-metric-turn-latency-val',
     // Conversación y compositor
     btnOpenSettings: 'btn-open-settings',
+    btnOpenConnection: 'btn-open-connection',
     messagesList: 'messages-list',
     btnScrollBottom: 'btn-scroll-bottom',
     welcomeBanner: 'welcome-banner',
@@ -219,6 +220,8 @@
     agentToolsContainer: 'agent-tools-container',
     settingsBrowser: 'settings-browser',
     // Conexión con el servidor local e identificación
+    settingLocalBackend: 'setting-local-backend',
+    connectionRemoteFields: 'connection-remote-fields',
     settingBackendUrl: 'setting-backend-url',
     settingUseProxy: 'setting-use-proxy',
     settingProxyKeyField: 'setting-proxy-key-field',
@@ -651,6 +654,10 @@
       onSearchInput: renderSidebarChats,
       onDeleteAllSessions: () => ConversationService.deleteAllSessions(getConversationServiceOptions()),
       onOpenSettingsMode: () => showSidebarNav('settings'),
+      onOpenConnection: () => {
+        openSettingsSection('connection');
+        if (UISidebar.isMobile()) UISidebar.closeSidebar(elements);
+      },
       onBackToChats: () => showSidebarNav('settings'),
       onSelectSettingsSection: sectionId => {
         openSettingsSection(sectionId);
@@ -833,10 +840,17 @@
     history.replaceState(null, '', location.pathname + location.search);
   }
 
-  /** Clave del proxy para `url`: solo si es la URL de Ajustes › Conexión y usa el proxy; si no, null. */
-  function proxyKeyFor(url) {
+  /** Destino de la conexión configurada: el servidor local por defecto o el remoto, con la clave del proxy si lo usa. */
+  function configuredTarget() {
     const config = getRuntimeConfig();
-    return config.useProxy && url === config.backendUrl ? config.proxyKey : null;
+    if (config.localBackend) return { url: Defaults.LOCAL_BACKEND_URL, proxyKey: null };
+    return { url: config.backendUrl, proxyKey: config.useProxy ? config.proxyKey : null };
+  }
+
+  /** Clave del proxy para `url`: solo si es la URL configurada y usa el proxy; si no, null. */
+  function proxyKeyFor(url) {
+    const target = configuredTarget();
+    return url === target.url ? target.proxyKey : null;
   }
 
   /** Guarda la sesión: en la pestaña de una ejecución solo en memoria, para no pisar la cookie de las demás. */
@@ -845,14 +859,14 @@
     else if (!Storage.setBackendSession(session)) console.warn('[App] Could not persist the backend session.');
   }
 
-  /** Conecta con el backend de Ajustes › Conexión, con el token de la sesión si es de esa URL; un 401 pide identificarse. */
+  /** Conecta con el destino configurado, con el token de la sesión si es de esa URL; un 401 pide identificarse. */
   function connectConfiguredBackend() {
-    const { backendUrl } = getRuntimeConfig();
+    const target = configuredTarget();
     const session = Storage.getBackendSession();
-    const token = session?.url === backendUrl ? session.token : null;
+    const token = session?.url === target.url ? session.token : null;
     MCP.manager.setSessionToken(token);
     if (token) ToolSecurity.manager.setSessionToken(token);
-    return MCP.manager.connectProxy({ url: backendUrl, proxyKey: proxyKeyFor(backendUrl), token });
+    return MCP.manager.connectProxy({ ...target, token });
   }
 
   /** Se identifica en el destino de la conexión, guarda el token diario en la sesión y conecta con él. */
@@ -896,6 +910,8 @@
     RagUI.initRagUI();
     UIBrowser.mountBrowserUI(elements.settingsBrowser, openSettingsSection);
     UIConnection.mount({
+      local: elements.settingLocalBackend,
+      remoteFields: elements.connectionRemoteFields,
       url: elements.settingBackendUrl,
       useProxy: elements.settingUseProxy,
       proxyKeyField: elements.settingProxyKeyField,

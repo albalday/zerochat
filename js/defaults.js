@@ -57,6 +57,9 @@
   }
 
   /** Configuración de ejecución por defecto: estado inicial de ChatState y base de ChatConfig.normalize. */
+  // Servidor local de este equipo en su puerto por defecto: la conexión salvo que se elija otra.
+  const LOCAL_BACKEND_URL = 'http://127.0.0.1:6388';
+
   const CONFIG_DEFAULTS = Object.freeze({
     activeProfile: null,
     apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: '', modelContextLimit: null, contextLimitOverride: null,
@@ -68,8 +71,8 @@
     theme: DEFAULT_THEME, language: getBrowserLanguage(), enableDebugMessages: false,
     activeRagBranchIds: Object.freeze([]),
     mcpServers: Object.freeze([]), browser: 'browser_action', playwrightBrowser: null,
-    // Ajustes › Conexión: el backend y, si está detrás de un proxy inverso, la clave del proxy.
-    backendUrl: 'http://127.0.0.1:6388', useProxy: false, proxyKey: '',
+    // Conexión: el servidor local por defecto o uno remoto (su URL y, tras un proxy inverso, la clave del proxy).
+    localBackend: true, backendUrl: '', useProxy: false, proxyKey: '',
     projectMode: true, projectDeclined: Object.freeze([]),
     webllmConfig: Object.freeze({
       context_window_size: String(getWebllmDefaultContextWindowSize()),
@@ -86,6 +89,7 @@
     DEFAULT_THEME,
     DEFAULT_SYSTEM_DATA_PROMPT,
     CONFIG_DEFAULTS,
+    LOCAL_BACKEND_URL,
     WEBLLM_CONTEXT_WINDOW_SIZES: Object.freeze([4096, 8192, 16384, 32768, 65536, 131072]),
     WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE: getWebllmDefaultContextWindowSize(),
     getWebllmDefaultContextWindowSize

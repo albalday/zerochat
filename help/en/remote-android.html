@@ -75,8 +75,8 @@ AllowTcpForwarding local</code></pre></div>
       <div class="code-wrapper"><pre><code>ssh -t -L 6883:127.0.0.1:6883 -L 1234:127.0.0.1:1234 user@home 'cd ~/projects/my-project &amp;&amp; zerochat --no-browser --keep-server --port 6883'</code></pre></div>
       <h3>In the browser</h3>
       <ol>
-        <li>Open <a href="https://albalday.github.io/zerochat/zerochat.html">ZeroChat</a> and go to <strong>Settings › Connection</strong>.</li>
-        <li>Enter <code>http://127.0.0.1:6883</code> as the local server URL, leave <strong>Use proxy</strong> off and press <strong>Connect</strong>.</li>
+        <li>Open <a href="https://albalday.github.io/zerochat/zerochat.html">ZeroChat</a> and open the <strong>Connection</strong> panel (the plug icon next to the settings wheel in the sidebar).</li>
+        <li>Turn off <strong>Local connection</strong>, enter <code>http://127.0.0.1:6883</code> as the local server URL, leave <strong>Use proxy</strong> off and press <strong>Connect</strong>.</li>
         <li>Sign in with the user name and password of the account running ZeroChat at home. The page stores the daily token, never the password.</li>
       </ol>
       <ul>
