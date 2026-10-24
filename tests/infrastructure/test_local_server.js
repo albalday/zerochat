@@ -90,6 +90,19 @@ describe('Servidor local zerochat.py', () => {
     await byHeader.text();
   });
 
+  test('sin token solo se atiende zerochat/login, con un cuerpo de hasta 4096 bytes', async () => {
+    const loginBody = size => {
+      const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'zerochat/login', params: { user: '', password: '' } });
+      return body.slice(0, -1) + ' '.repeat(size - body.length) + '}';
+    };
+    const send = body => fetch(baseUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: ORIGIN }, body });
+    const atLimit = await send(loginBody(4096));
+    assert.equal(atLimit.status, 200);
+    assert.equal((await atLimit.json()).error?.code, -32602, 'la petición llega a zerochat/login, que valida sus parámetros');
+    assert.equal((await send(loginBody(4097))).status, 401);
+    assert.equal((await post('zerochat/heartbeat', {}, { headers: { Authorization: '' } })).status, 401);
+  });
+
   test('favicon.ico responde vacío sin token, salvo a un origen ajeno', async () => {
     const favicon = await fetch(`${baseUrl}/favicon.ico`);
     assert.equal(favicon.status, 204);

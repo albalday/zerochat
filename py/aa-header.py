@@ -4,7 +4,7 @@ ZeroChat - Backend Local Unificado y Gestor de Entorno
 
 Proporciona:
 1. Auto-creación del entorno MCP local `~/zerochat/.venv`.
-2. Servidor local HTTP y Server-Sent Events (SSE) con autenticación estricta por token efímero.
+2. Servidor local HTTP JSON-RPC con autenticación estricta por token diario e identificación con la cuenta del sistema.
 3. Herramientas locales seguras: read_file, edit_file, list_directory, run_command.
 4. Apertura automática del navegador apuntando a zerochat.html con token en el fragmento hash.
 """
@@ -14,15 +14,19 @@ from __future__ import annotations
 import argparse
 import atexit
 import base64
+import ctypes
+import ctypes.util
 import dataclasses
 import datetime
 import fnmatch
 import functools
+import getpass
 import hashlib
 import hmac
 import importlib.metadata
 import ipaddress
 import json
+import math
 import os
 import queue
 import re

@@ -561,6 +561,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return {**self._initialize_result(server_info), "liveState": live_state()}, None, ""
         if method == "zerochat/heartbeat":
             return live_state(), None, ""
+        if method == "zerochat/login":
+            return self._login(params)
         if method == "tools/list":
             return {"tools": [dict(definition) for definition in LOCAL_TOOLS_DEFINITIONS]}, None, ""
         if method == "tools/call":
@@ -621,6 +623,49 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if method.startswith("zerochat/browser/"):
             return self._dispatch_browser(method, params)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
+
+    @staticmethod
+    def _login(params: dict) -> tuple[dict | None, dict | None, str]:
+        try:
+            return login(params), None, ""
+        except LoginError as exc:
+            error = {"code": exc.code, "message": str(exc)}
+            if exc.data:
+                error["data"] = exc.data
+            return None, error, ""
+        except (RuntimeError, OSError) as exc:
+            return None, {"code": -32603, "message": f"No se pudo comprobar la contraseña: {exc}"}, str(exc)
+
+    def _serve_login(self, safe_path: str, t0: float) -> bool:
+        """Sin token solo se atiende zerochat/login, con un cuerpo pequeño; devuelve False si la petición es otra."""
+        try:
+            content_len = int(self.headers.get("Content-Length"))
+        except (TypeError, ValueError):
+            return False
+        if not 0 <= content_len <= LOGIN_MAX_BODY_BYTES:
+            return False
+        try:
+            req = json.loads(self.rfile.read(content_len).decode("utf-8"))
+        except ValueError:
+            return False
+        if self._validate_rpc(req) or req["method"] != "zerochat/login":
+            return False
+        log_detail = f"{safe_path} [rpc: zerochat/login]"
+        self._log_req("POST", log_detail)
+        self._send_rpc_response(req.get("id"), self._login(req.get("params", {})), log_detail, t0)
+        return True
+
+    def _send_rpc_response(self, req_id, outcome: tuple[dict | None, dict | None, str], log_detail: str, t0: float, quiet: bool = False):
+        result, error, tool_error_info = outcome
+        response_payload = {"jsonrpc": "2.0", "id": req_id}
+        if error:
+            response_payload["error"] = error
+            error_info = f"[{error.get('code')}] {error.get('message')}"
+        else:
+            response_payload["result"] = result
+            error_info = tool_error_info
+        if self._send_json_response(200, response_payload) and not quiet:
+            self._log_res(200, log_detail, (time.monotonic() - t0) * 1000, error_info=error_info)
 
     @staticmethod
     def _dispatch_jobs(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
@@ -716,6 +761,9 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
         mark_browser_active()
         if not self.verify_token():
+            # Sin token válido solo cabe identificarse para obtenerlo.
+            if self._serve_login(safe_path, t0):
+                return
             self._log_req("POST", safe_path)
             self._reject(401, {
                 "jsonrpc": "2.0",
@@ -757,23 +805,12 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
         try:
             if "/mcp/external" in req_path:
-                result, error, tool_error_info = self._dispatch_external(method, params)
+                outcome = self._dispatch_external(method, params)
             else:
-                result, error, tool_error_info = self._dispatch_local(method, params)
+                outcome = self._dispatch_local(method, params)
         except Exception as ex:
-            result, tool_error_info = None, ""
-            error = {"code": -32603, "message": f"Error interno: {ex}"}
-
-        response_payload = {"jsonrpc": "2.0", "id": req_id}
-        if error:
-            response_payload["error"] = error
-            error_info = f"[{error.get('code')}] {error.get('message')}"
-        else:
-            response_payload["result"] = result
-            error_info = tool_error_info
-
-        if self._send_json_response(200, response_payload) and not quiet:
-            self._log_res(200, log_detail, (time.monotonic() - t0) * 1000, error_info=error_info)
+            outcome = None, {"code": -32603, "message": f"Error interno: {ex}"}, ""
+        self._send_rpc_response(req_id, outcome, log_detail, t0, quiet)
 
     def log_message(self, format, *args):
         # Silenciar logs ruidosos por defecto

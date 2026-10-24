@@ -97,6 +97,6 @@ Done when: ee-mcp.py keeps one record per service and derives the public status 
 - [ ] M42-T9 Rebuild zerochat.py (npm run build:backend) and update py/README.md, help/mcp.html, help/remote-android.html and help/run-mode.html (ES/EN: login instead of --print-url) and ../llama/zero-caddy.md (preflight routing, login, no trust in X-ZeroChat-Proxy)
 - [x] M42-T10 Settings › MCP: browser tools (browser_action, Playwright MCP) list their authorization without the disabled on/off switch, since they are chosen in Settings › Browser (2026-10-24)
 - [x] M42-T11 py/ff-server.py, py/zz-main.py and py/bb-console.py: verify_token checks the current daily token (expired → 401, new token generated) in every mode, reads X-ZeroChat-Token before Authorization, counts any allowed-origin request as browser presence, opens the console n key URL with the current token, and removes --print-url with its test (2026-10-24)
-- [ ] M42-T12 py/: zerochat/login JSON-RPC method checking the system user and password of the account running zerochat.py through ctypes (PAM on Linux and macOS, LogonUserW on Windows), returning the daily token, with failed attempts capped and tested at N and N+1
+- [x] M42-T12 py/: zerochat/login JSON-RPC method checking the system user and password of the account running zerochat.py through ctypes (PAM on Linux and macOS, LogonUserW on Windows), returning the daily token, with failed attempts capped and tested at N and N+1 (2026-10-24)
 
 ## M43 Dark theme link contrast: closed 2026-10-23
