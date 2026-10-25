@@ -75,7 +75,7 @@ test('Browser UI - autorización de Composio muestra y devuelve únicamente su s
   } finally { await browser.close(); }
 });
 
-test('Browser UI - la petición de autorización despliega la tarjeta y la deja como estaba al decidir', async () => {
+test('Browser UI - la petición de autorización saca la tarjeta del historial plegado y la deja como estaba al decidir', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
@@ -83,25 +83,28 @@ test('Browser UI - la petición de autorización despliega la tarjeta y la deja 
     await waitForAppReady(page);
     const result = await page.evaluate(async () => {
       const collapsed = card => card.querySelector('.tool-execution-card').classList.contains('collapsed');
+      const inHistory = card => card.parentElement.classList.contains('tool-call-group-cards');
       const ask = async (card, button) => {
         const pending = window.ChatToolCards.promptToolAuthorization(card, { function: { name: 'read_file', arguments: '{}' } }, { args: {} });
-        const open = !collapsed(card);
+        const visible = !collapsed(card) && !inHistory(card);
         card.querySelector(button).click();
         await pending;
-        return open;
+        return visible;
       };
+      const container = document.createElement('div');
+      document.body.appendChild(container);
       const card = window.ChatToolCards.createLiveToolCard('read_file', { path: 'a.txt' });
-      document.body.appendChild(card);
-      const states = { created: collapsed(card), whileAsking: await ask(card, '.btn-auth-allow-once'), afterAllow: collapsed(card) };
+      window.ChatToolCards.appendToolCard(container, card);
+      const states = { created: collapsed(card) && inHistory(card), whileAsking: await ask(card, '.btn-auth-allow-once'), afterAllow: collapsed(card) && inHistory(card) };
       // Abierta por el usuario (fuera del chat el botón no tiene listener), sigue abierta después de decidir.
       card.querySelector('.tool-execution-card').classList.remove('collapsed');
       states.userOpened = !collapsed(card);
       await ask(card, '.btn-auth-deny');
-      states.afterDeny = collapsed(card);
-      card.remove();
+      states.afterDeny = !collapsed(card) && inHistory(card);
+      container.remove();
       return states;
     });
-    assert.deepEqual(result, { created: true, whileAsking: true, afterAllow: true, userOpened: true, afterDeny: false });
+    assert.deepEqual(result, { created: true, whileAsking: true, afterAllow: true, userOpened: true, afterDeny: true });
   } finally { await browser.close(); }
 });
 

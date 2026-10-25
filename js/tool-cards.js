@@ -42,13 +42,14 @@
   function updateToolCallGroup(group) {
     if (!group) return;
     const cards = Array.from(group.querySelectorAll(`${GROUP_CARDS} > .tool-card-wrapper, ${GROUP_ACTIVE_CARDS} > .tool-card-wrapper`));
-    const isRunning = cards.some(card => card.dataset.toolCallStatus === 'running');
+    const running = cards.filter(card => card.dataset.toolCallStatus === 'running');
+    const isRunning = running.length > 0;
     const failed = cards.filter(card => card.dataset.toolCallStatus === 'error').length;
     const count = cards.length;
     group.classList.toggle('is-running', isRunning);
     group.classList.toggle('has-error', !isRunning && failed > 0);
     group.querySelector(':scope > .tool-call-group-history > .tool-call-group-summary > .tool-call-group-status').textContent = isRunning
-      ? t('tool_calls_group_running', { count })
+      ? t('tool_calls_group_running', { count, name: running.at(-1).dataset.toolName || '' })
       : t('tool_calls_group_complete', { count, failed });
   }
 
@@ -74,28 +75,31 @@
     if (trailingAssistantBlock?.classList.contains('agentic-turn-block') && !trailingAssistantBlock.textContent.trim()) {
       trailingAssistantBlock.remove();
     }
+    // También la tarjeta en curso entra en el historial plegado: si apareciera a la vista y se
+    // ocultara al terminar, el grupo crecería y encogería con cada llamada. El resumen dice cuál se ejecuta.
     const group = getToolCallGroup(container) || createToolCallGroup(container);
     card.dataset.toolCallStatus = options.completed ? (options.success === false ? 'error' : 'success') : 'running';
-    group.querySelector(options.completed ? GROUP_CARDS : GROUP_ACTIVE_CARDS).appendChild(card);
+    group.querySelector(GROUP_CARDS).appendChild(card);
     updateToolCallGroup(group);
     return group;
   }
 
-  /** Mueve la tarjeta a la zona del grupo que corresponde a su estado. */
-  function moveCardInGroup(card, status) {
-    card.dataset.toolCallStatus = status;
+  /** Lleva la tarjeta a la zona visible de su grupo o a su historial plegado; devuelve el grupo. */
+  function placeCardInGroup(card, visible) {
     const group = card.closest('.tool-call-group');
-    group?.querySelector(status === 'running' ? GROUP_ACTIVE_CARDS : GROUP_CARDS).appendChild(card);
-    updateToolCallGroup(group);
+    group?.querySelector(visible ? GROUP_ACTIVE_CARDS : GROUP_CARDS).appendChild(card);
+    return group;
   }
 
   function completeToolCard(card, result) {
-    moveCardInGroup(card, result.success === false || result.error ? 'error' : 'success');
+    card.dataset.toolCallStatus = result.success === false || result.error ? 'error' : 'success';
+    updateToolCallGroup(placeCardInGroup(card, false));
   }
 
-  /** Devuelve a la zona visible del grupo una tarjeta cuya tarea sigue en marcha tras terminar la llamada. */
+  /** Lleva a la zona visible del grupo una tarjeta cuya tarea sigue en marcha tras terminar la llamada. */
   function reactivateToolCard(card) {
-    moveCardInGroup(card, 'running');
+    card.dataset.toolCallStatus = 'running';
+    updateToolCallGroup(placeCardInGroup(card, true));
   }
 
   function createCardWrapper(extraClass = '') {
@@ -411,6 +415,7 @@
   function createLiveToolCard(name, args) {
     const view = getView(name);
     const card = view ? view.createLiveCard(args, viewContext()) : createGenericCard(name, args, false);
+    card.dataset.toolName = name;
     const displayMode = resolveToolDisplayMode(name) || 'collapsed';
     if (displayMode === 'collapsed') collapseCard(card);
     return card;
@@ -469,6 +474,7 @@
     } else {
       card = createGenericCard(toolName, args, displayMode === 'collapsed');
     }
+    card.dataset.toolName = toolName;
     if (displayMode === 'collapsed' && !keepExpanded) collapseCard(card);
     return card;
   }
@@ -483,11 +489,13 @@
     const serverId = options.serverId || '';
     const signal = options.signal;
 
-    // La tarjeta se despliega para que la petición quede a la vista y, si estaba plegada, vuelve a
-    // plegarse en cuanto se decide: no queda abierta solo por haber preguntado.
+    // La tarjeta sale del historial plegado de su grupo y se despliega para que la petición quede a
+    // la vista; en cuanto se decide, vuelve como estaba: no queda abierta solo por haber preguntado.
     const cardEl = card.querySelector('.tool-execution-card') || card;
     const toolGroup = card.closest('.tool-call-group');
     const wasCollapsed = cardEl.classList.contains('collapsed');
+    const wasInHistory = Boolean(card.parentElement?.matches('.tool-call-group-cards'));
+    if (wasInHistory) placeCardInGroup(card, true);
     cardEl.classList.remove('collapsed');
     cardEl.classList.add('tool-card-auth-active');
     toolGroup?.classList.add('tool-call-group-auth-active');
@@ -559,6 +567,7 @@
         authPromptEl.remove();
         cardEl.classList.remove('tool-card-auth-active');
         if (wasCollapsed) collapseCard(card);
+        if (wasInHistory) placeCardInGroup(card, false);
         if (!toolGroup?.querySelector('.tool-card-auth-active')) {
           toolGroup?.classList.remove('tool-call-group-auth-active');
         }
