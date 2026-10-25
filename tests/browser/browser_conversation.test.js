@@ -254,15 +254,19 @@ test('Browser UI - agrupa llamadas consecutivas de herramientas y conserva su de
       ToolCards.appendToolCard(container, second);
       const group = container.querySelector('.tool-call-group');
       const history = group.querySelector('.tool-call-group-history');
+      const height = () => group.getBoundingClientRect().height;
       const running = {
         groups: container.querySelectorAll('.tool-call-group').length,
         isOpen: history.open,
         hasEmptySeparator: !!container.querySelector('.agentic-turn-block'),
-        activeCards: group.querySelectorAll('.tool-call-group-active-cards .tool-card-wrapper').length,
-        visibleActiveCards: [...group.querySelectorAll('.tool-call-group-active-cards .tool-card-wrapper')].filter(el => el.getClientRects().length > 0).length
+        visibleCards: [...group.querySelectorAll('.tool-card-wrapper')].filter(el => el.checkVisibility()).length,
+        status: group.querySelector('.tool-call-group-status').textContent
       };
-      history.open = true;
+      // Las tarjetas en curso ya están en el historial plegado: terminar no cambia la altura del grupo.
+      const heightRunning = height();
       ToolCards.completeToolCard(first, { success: true });
+      const sameHeight = height() === heightRunning;
+      history.open = true;
       ToolCards.completeToolCard(second, { success: false });
       const completed = {
         isOpen: history.open,
@@ -272,9 +276,10 @@ test('Browser UI - agrupa llamadas consecutivas de herramientas y conserva su de
       };
       const expandedCards = group.querySelectorAll('.tool-call-group-cards .tool-card-wrapper').length;
       container.remove();
-      return { running, completed, expandedCards };
+      return { running, sameHeight, completed, expandedCards };
     });
-    assert.deepEqual(result.running, { groups: 1, isOpen: false, hasEmptySeparator: false, activeCards: 2, visibleActiveCards: 2 });
+    assert.deepEqual(result.running, { groups: 1, isOpen: false, hasEmptySeparator: false, visibleCards: 0, status: '2 · ejecutando generic_two' });
+    assert.equal(result.sameHeight, true);
     assert.equal(result.completed.isOpen, true);
     assert.match(result.completed.status, /2/);
     assert.equal(result.completed.cards, 2);

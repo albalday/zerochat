@@ -115,3 +115,7 @@ herramientas nativas.
 El cierre automático se limita a la tarjeta que termina. Actualizar el estado de
 un grupo o mover una tarjeta al historial no modifica el atributo `open` del
 agrupador ni el plegado de otras tarjetas, respetando la interacción del usuario.
+Las tarjetas en curso también entran en el historial plegado del grupo, cuyo resumen
+nombra la que se ejecuta, así que el grupo no cambia de altura con cada llamada. Solo
+pasan a la zona visible para pedir autorización, hasta que se decide, o mientras un
+comando sigue en segundo plano.

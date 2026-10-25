@@ -357,7 +357,9 @@
   transition: transform 0.15s ease;
 }
 .tool-call-group-history[open] > .tool-call-group-summary::after { transform: rotate(225deg) translate(-2px, -2px); }
-.tool-call-group-status { color: var(--text-muted); font-weight: 500; }
+.tool-call-group-label { flex-shrink: 0; }
+/* Una sola línea: el nombre de la herramienta en curso no debe cambiar la altura del grupo. */
+.tool-call-group-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-weight: 500; }
 .tool-call-group.is-running { border-color: var(--primary); }
 .tool-call-group.is-running .tool-call-group-summary > .ui-icon { color: var(--primary); animation: pulse-tool-badge 1.4s infinite ease-in-out; }
 .tool-call-group.has-error .tool-call-group-summary > .ui-icon { color: var(--danger); }
