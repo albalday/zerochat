@@ -104,6 +104,24 @@ test('Api - Messages API: llamadas tool_use en streaming y razonamiento con firm
   }
 });
 
+test('Api - llamadas paralelas completas sin index (Gemini) se separan por id', async () => {
+  const originalFetch = global.fetch;
+  // Fragmentos tal como los envía el endpoint compatible con OpenAI de Gemini: `index` solo en choices.
+  const calls = [
+    ['call_1', 'read_file', '{"path":"a.md"}'],
+    ['call_2', 'read_file', '{"path":"b.md"}'],
+    ['call_3', 'run_command', '{"command":"git status"}']
+  ];
+  const chunks = calls.map(([id, name, args]) => ({ choices: [{ delta: { role: 'assistant', tool_calls: [{ function: { arguments: args, name }, id, type: 'function' }] }, index: 0 }] }));
+  try {
+    global.fetch = async () => new Response(chunks.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join('') + 'data: [DONE]\n\n');
+    const result = await Api.streamChatCompletion({ apiUrl: 'http://localhost:1234/v1', apiType: 'gemini', model: 'test', messages: [] });
+    assert.deepEqual(result.toolCalls.map(call => [call.id, call.function.name, call.function.arguments]), calls);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('Api - un error dentro del streaming se entrega a onError con el mensaje del servidor', async () => {
   const originalFetch = global.fetch;
   const originalError = console.error;

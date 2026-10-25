@@ -124,6 +124,21 @@ test('AgentCore - el despacho serializa el resultado y el Markdown con el contra
   assert.match(fallback.markdownBlock, /\*\*default_result\*\*/);
 });
 
+test('AgentCore - el despacho de una llamada no ejecutada devuelve su error y registra los argumentos recibidos', async () => {
+  const registry = new ToolRegistry();
+  registry.registerTool(makeTool({
+    name: 'content_result',
+    execute: async () => ({ success: true, content: 'x' }),
+    result: { toModel: (_args, result) => result.content }
+  }));
+  const logs = [];
+
+  const res = await new ToolExecutor(registry).dispatchToolCall(call('content_result', '{"a":1}{"b":2}'), { onLog: (type, text) => logs.push(text) });
+
+  assert.match(res.resultText, /^Invalid tool arguments/);
+  assert.ok(logs.some(text => text.includes('{"a":1}{"b":2}')));
+});
+
 test('AgentCore - la detección de bucles ignora el orden de las claves pero no el de las llamadas', () => {
   const agent = AgentCore.runtime;
   const tc1 = { function: { name: 'search_web', arguments: '{"query":"ceuta"}' } };
