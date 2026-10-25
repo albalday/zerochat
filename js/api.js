@@ -268,7 +268,9 @@
 
   /** Acumula en `calls` (por índice) un delta de llamada a herramienta y devuelve la llamada. */
   function mergeToolCallDelta(calls, delta, thoughtSignature) {
-    const idx = delta.index ?? 0;
+    let idx = delta.index ?? 0;
+    // Gemini (compatibilidad OpenAI) envía cada llamada paralela completa y sin `index`: un id nuevo es otra llamada.
+    if (delta.index === undefined && delta.id && calls[idx] && calls[idx].id !== delta.id) idx = Object.keys(calls).length;
     if (!calls[idx]) {
       calls[idx] = {
         id: delta.id || `call_${Date.now()}_${idx}`,

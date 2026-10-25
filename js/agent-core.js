@@ -363,13 +363,17 @@
     async dispatchToolCall(toolCall, options = {}) {
       const { cards, onLog } = options;
       const rawFuncName = toolCall?.function?.name || '';
-      const parsedArgs = this.parseArguments(toolCall?.function?.arguments) || {};
+      const rawArgs = toolCall?.function?.arguments;
+      const validArgs = this.parseArguments(rawArgs);
+      const parsedArgs = validArgs || {};
       // Identifica esta invocación ante la herramienta y su tarjeta mientras se ejecuta.
       const invocationId = createId();
       const toolCard = cards ? cards.open(rawFuncName, parsedArgs, invocationId) : null;
 
-      onLog?.('tool', `${rawFuncName}:\n${JSON.stringify(parsedArgs, null, 2)}`);
-      onLog?.('raw', `>>> TOOL CALL ${rawFuncName}:\n${JSON.stringify(parsedArgs, null, 2)}`);
+      // Unos argumentos inválidos se registran tal como llegaron, no como el `{}` de la tarjeta.
+      const loggedArgs = validArgs ? JSON.stringify(validArgs, null, 2) : String(rawArgs);
+      onLog?.('tool', `${rawFuncName}:\n${loggedArgs}`);
+      onLog?.('raw', `>>> TOOL CALL ${rawFuncName}:\n${loggedArgs}`);
 
       const execRes = await this.executeToolCall(toolCall, {
         ...options,
@@ -385,7 +389,8 @@
       const tool = execRes.tool;
       let resultText;
       try {
-        resultText = tool ? tool.toModel(parsedArgs, execRes.result) : execRes.error;
+        // Una llamada que no llegó a ejecutarse (argumentos, autorización, excepción) no tiene resultado que serializar.
+        resultText = tool && execRes.result !== null ? tool.toModel(parsedArgs, execRes.result) : execRes.error;
         if (typeof resultText !== 'string') resultText = JSON.stringify(resultText);
       } catch (err) {
         resultText = `Error serializing result of ${rawFuncName}: ${err.message || String(err)}`;
