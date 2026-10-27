@@ -205,6 +205,39 @@ test('ChatEngine - conserva evidencia RAG multimodal entre pasos agénticos', as
   }
 });
 
+test('ChatEngine - al parar devuelve los pasos ejecutados sin las llamadas pendientes del lote', async () => {
+  const originalStream = ChatAPI.streamChatCompletion;
+  const originalDispatch = ChatAgentCore.dispatchToolCall;
+  const controller = new AbortController();
+  const dispatched = [];
+
+  ChatAgentCore.dispatchToolCall = async call => {
+    dispatched.push(call.id);
+    controller.abort();
+    return { success: true, result: { value: 'A' }, resultText: 'A', markdownBlock: '> A' };
+  };
+  ChatAPI.streamChatCompletion = async () => ({
+    accumulatedText: 'Searching.',
+    toolCalls: [
+      { id: 'call_a', type: 'function', function: { name: 'search_web', arguments: '{}' } },
+      { id: 'call_b', type: 'function', function: { name: 'fetch_web_page', arguments: '{}' } }
+    ],
+    stats: null
+  });
+
+  try {
+    const result = await runTurn({ chatHistory: [{ role: 'user', content: 'Search and read.' }], signal: controller.signal });
+    assert.equal(result.cancelled, true);
+    assert.deepEqual(dispatched, ['call_a']);
+    assert.deepEqual(result.chatHistory.map(message => message.role), ['user', 'assistant', 'tool']);
+    assert.deepEqual(result.chatHistory[1].tool_calls.map(call => call.id), ['call_a']);
+    assert.equal(result.chatHistory[2].tool_call_id, 'call_a');
+  } finally {
+    ChatAPI.streamChatCompletion = originalStream;
+    ChatAgentCore.dispatchToolCall = originalDispatch;
+  }
+});
+
 test('ChatEngine - copia el texto intermedio y los bloques de herramientas en orden', async () => {
   const originalStream = ChatAPI.streamChatCompletion;
   const originalDispatch = ChatAgentCore.dispatchToolCall;

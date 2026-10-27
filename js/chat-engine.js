@@ -260,7 +260,7 @@
    * de tarjetas `cards` de AgentCore.dispatchToolCall). En la interfaz la crea
    * ChatUIConversation.createTurnView.
    * @param {Object} params - Parámetros de ejecución.
-   * @returns {Promise<{ success: boolean, finalAssistantText: string, accumulatedMarkdown: string, stats: Object, cancelled?: boolean, error?: any }>}
+   * @returns {Promise<{ success: boolean, finalAssistantText: string, accumulatedMarkdown: string, stats: Object, chatHistory?: Array, cancelled?: boolean, error?: any }>}
    */
   async function executeAgentTurnLoop(params) {
     const {
@@ -390,11 +390,14 @@
       }
     });
 
-    if (Array.isArray(result.history)) {
+    // Al parar se conservan los pasos ya ejecutados, sin las llamadas del lote que no llegaron a correr.
+    const cancelled = result.status === 'cancelled';
+    const history = cancelled ? MessageTurns.sanitizeTurnBoundaries(result.history) : result.history;
+    if (Array.isArray(history)) {
       chatHistory.length = 0;
-      chatHistory.push(...result.history);
+      chatHistory.push(...history);
     }
-    if (result.status === 'cancelled') return { success: false, cancelled: true };
+    if (cancelled) return { success: false, cancelled: true, chatHistory: history };
     if (result.error) return { success: false, error: result.error };
     const turnTexts = [...turnMarkdown.entries()]
       .sort(([left], [right]) => left - right)

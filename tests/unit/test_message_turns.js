@@ -148,3 +148,18 @@ test('Turns.sanitizeTurnBoundaries - sanea resultados huérfanos y llamadas a he
   assert.equal(sanitized[3].content, 'Texto conservado');
   assert.equal(sanitized[3].tool_calls, undefined);
 });
+
+test('Turns.sanitizeTurnBoundaries - cada resultado responde a una sola llamada paralela de la misma herramienta', () => {
+  const calls = [
+    { id: 'call_a', function: { name: 'search_web', arguments: '{"q":"a"}' } },
+    { id: 'call_b', function: { name: 'search_web', arguments: '{"q":"b"}' } },
+    { id: 'call_c', function: { name: 'search_web', arguments: '{"q":"c"}' } }
+  ];
+  const sanitized = Turns.sanitizeTurnBoundaries([
+    { role: 'user', content: 'busca' },
+    { role: 'assistant', content: null, tool_calls: calls },
+    { role: 'tool', tool_call_id: 'call_b', name: 'search_web', content: 'B' },
+    { role: 'tool', tool_call_id: 'generated_id', name: 'search_web', content: 'sin id propio' }
+  ]);
+  assert.deepEqual(sanitized[1].tool_calls.map(c => c.id), ['call_a', 'call_b']);
+});
