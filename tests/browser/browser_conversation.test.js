@@ -144,7 +144,6 @@ test('Browser UI - pintado de mensajes: bloques independientes, acciones, error 
         img: Boolean(parts.content.querySelector('img')),
         escaped: (parts.content.innerHTML.match(/&lt;img/g) || []).length,
         title: Boolean(parts.content.querySelector('.message-error-card strong')),
-        rowError: parts.row.classList.contains('message-error'),
         actionsHidden: parts.actions.hidden
       };
 
@@ -185,7 +184,7 @@ test('Browser UI - pintado de mensajes: bloques independientes, acciones, error 
       imageItems: 3, images: [['data:image/png;base64,iVBORw0KGgo=', 'segura.png']], scripts: 0
     });
     assert.deepEqual(result.placeholder, { msgId: 'test_ast_1', baseId: 'test_ast_1', cursor: true, actionsHidden: true, statsInFooter: true, branched: true });
-    assert.deepEqual(result.error, { img: false, escaped: 2, title: true, rowError: true, actionsHidden: false });
+    assert.deepEqual(result.error, { img: false, escaped: 2, title: true, actionsHidden: false });
     assert.deepEqual(result.session, {
       bannerOpen: false, header: true, markdown: 'previo', img: false, welcomeHidden: true,
       baseId: 'a1', msgIds: 'a1_turn_0_assistant', telemetry: ['update']

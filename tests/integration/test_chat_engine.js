@@ -238,6 +238,34 @@ test('ChatEngine - al parar devuelve los pasos ejecutados sin las llamadas pendi
   }
 });
 
+test('ChatEngine - si el proveedor falla tras un paso con herramientas devuelve ese paso y retira el bloque del que falló', async () => {
+  const originalStream = ChatAPI.streamChatCompletion;
+  const originalDispatch = ChatAgentCore.dispatchToolCall;
+  let calls = 0;
+
+  ChatAgentCore.dispatchToolCall = async () => ({ success: true, result: { value: 'A' }, resultText: 'A', markdownBlock: '> A' });
+  ChatAPI.streamChatCompletion = async params => {
+    calls++;
+    if (calls === 1) {
+      const toolCalls = [{ id: 'call_a', type: 'function', function: { name: 'search_web', arguments: '{}' } }];
+      return { accumulatedText: 'Searching.', toolCalls, stats: null };
+    }
+    params.onChunk('Partial', 'Partial', null);
+    throw new Error('Overloaded');
+  };
+
+  try {
+    const view = createTurnView();
+    const result = await runTurn({ chatHistory: [{ role: 'user', content: 'Search.' }], view });
+    assert.equal(result.error.message, 'Overloaded');
+    assert.deepEqual(result.chatHistory.map(message => message.role), ['user', 'assistant', 'tool']);
+    assert.deepEqual(view.blocks.map(block => block.text), ['Searching.']);
+  } finally {
+    ChatAPI.streamChatCompletion = originalStream;
+    ChatAgentCore.dispatchToolCall = originalDispatch;
+  }
+});
+
 test('ChatEngine - copia el texto intermedio y los bloques de herramientas en orden', async () => {
   const originalStream = ChatAPI.streamChatCompletion;
   const originalDispatch = ChatAgentCore.dispatchToolCall;

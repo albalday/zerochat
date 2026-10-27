@@ -38,18 +38,22 @@
     button.onclick = () => copyToClipboard(getText(), button, Icons.get('check', { size: 14 }));
   }
 
-  /** Tarjeta de error dentro de un mensaje: `detail` es texto; `hintHtml`, HTML propio ya escapado. */
-  function renderErrorCard({ row, content, actions }, { title, detail = '', hintHtml = '' }) {
-    row.classList.add('message-error');
-    content.innerHTML = `
-      <div class="message-error-card">
-        <span class="message-error-card-icon">${Icons.get('alert-triangle', { size: 18 })}</span>
-        <div>
-          <strong>${escapeHtml(title)}</strong>
-          ${detail ? `<p>${escapeHtml(detail)}</p>` : ''}
-          ${hintHtml ? `<p class="message-error-card-hint">${hintHtml}</p>` : ''}
-        </div>
+  /**
+   * Tarjeta de error al final de un mensaje, tras los pasos ya ejecutados del turno, que se guardan
+   * en el historial: `detail` es texto; `hintHtml`, HTML propio ya escapado.
+   */
+  function renderErrorCard({ content, actions }, { title, detail = '', hintHtml = '' }) {
+    content.querySelector('.initial-cursor')?.remove();
+    const card = content.ownerDocument.createElement('div');
+    card.className = 'message-error-card';
+    card.innerHTML = `
+      <span class="message-error-card-icon">${Icons.get('alert-triangle', { size: 18 })}</span>
+      <div>
+        <strong>${escapeHtml(title)}</strong>
+        ${detail ? `<p>${escapeHtml(detail)}</p>` : ''}
+        ${hintHtml ? `<p class="message-error-card-hint">${hintHtml}</p>` : ''}
       </div>`;
+    content.appendChild(card);
     actions.hidden = false;
   }
 
@@ -430,7 +434,7 @@
   function createAssistantMessagePlaceholder(container, existingMsgId, { onBranch, onDelete }) {
     const rawId = existingMsgId || createId('msg_ast');
     const baseId = extractBaseId(rawId) || rawId;
-    const { doc, wrapper, row, content, footerRow, actions } = createMessageSkeleton(container, 'assistant', existingMsgId ? rawId : baseId);
+    const { doc, wrapper, content, footerRow, actions } = createMessageSkeleton(container, 'assistant', existingMsgId ? rawId : baseId);
     wrapper.setAttribute('data-base-id', baseId);
     content.innerHTML = '<span class="streaming-cursor initial-cursor"></span>';
     actions.hidden = true;
@@ -449,7 +453,7 @@
     );
 
     insertMessage(container, wrapper, !existingMsgId);
-    return { wrapper, row, content, footerRow, actions, btnCopy, statsContainer, msgId: wrapper.getAttribute('data-msg-id') };
+    return { wrapper, content, footerRow, actions, btnCopy, statsContainer, msgId: wrapper.getAttribute('data-msg-id') };
   }
 
   function renderContextSummaryBanner(container, summaryBlock) {
