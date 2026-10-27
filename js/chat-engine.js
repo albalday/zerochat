@@ -260,7 +260,7 @@
    * de tarjetas `cards` de AgentCore.dispatchToolCall). En la interfaz la crea
    * ChatUIConversation.createTurnView.
    * @param {Object} params - Parámetros de ejecución.
-   * @returns {Promise<{ success: boolean, finalAssistantText: string, accumulatedMarkdown: string, stats: Object, cancelled?: boolean, error?: any }>}
+   * @returns {Promise<{ success: boolean, finalAssistantText: string, accumulatedMarkdown: string, stats: Object, chatHistory?: Array, cancelled?: boolean, error?: any }>}
    */
   async function executeAgentTurnLoop(params) {
     const {
@@ -390,12 +390,18 @@
       }
     });
 
-    if (Array.isArray(result.history)) {
+    // Al parar o fallar el proveedor se conservan los pasos ya ejecutados, sin las llamadas del lote
+    // que no llegaron a correr; el bloque del paso interrumpido se retira porque no se guarda.
+    const cancelled = result.status === 'cancelled';
+    const interrupted = cancelled || Boolean(result.error);
+    const history = interrupted ? MessageTurns.sanitizeTurnBoundaries(result.history) : result.history;
+    if (Array.isArray(history)) {
       chatHistory.length = 0;
-      chatHistory.push(...result.history);
+      chatHistory.push(...history);
     }
-    if (result.status === 'cancelled') return { success: false, cancelled: true };
-    if (result.error) return { success: false, error: result.error };
+    if (interrupted) turnBlocks.get(result.stepsCount)?.remove();
+    if (cancelled) return { success: false, cancelled: true, chatHistory: history };
+    if (result.error) return { success: false, error: result.error, chatHistory: history };
     const turnTexts = [...turnMarkdown.entries()]
       .sort(([left], [right]) => left - right)
       .flatMap(([, turn]) => [turn.text, ...turn.toolBlocks])

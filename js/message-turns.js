@@ -90,18 +90,19 @@
       if (!current) continue;
 
       if (current.role === 'assistant' && Array.isArray(current.tool_calls) && current.tool_calls.length > 0) {
+        // Cada resultado responde a una sola llamada: la de su id o, si no la hay, la primera
+        // pendiente con su nombre (llamadas paralelas a la misma herramienta).
         const answeredCalls = new Set();
         for (let j = i + 1; j < withValidTools.length; j++) {
           const next = withValidTools[j];
           if (next?.role !== 'tool') break;
-          for (const call of current.tool_calls) {
-            if (call && (call.id === next.tool_call_id || (call.function && call.function.name === next.name))) {
-              answeredCalls.add(call.id || call.function?.name);
-            }
-          }
+          const pending = current.tool_calls.filter(call => call && !answeredCalls.has(call));
+          const answered = pending.find(call => call.id === next.tool_call_id) ||
+            pending.find(call => call.function?.name === next.name);
+          if (answered) answeredCalls.add(answered);
         }
 
-        const validCalls = current.tool_calls.filter(call => answeredCalls.has(call.id || call.function?.name));
+        const validCalls = current.tool_calls.filter(call => answeredCalls.has(call));
         if (validCalls.length === 0) {
           if (typeof current.content === 'string' && current.content.trim()) {
             const { tool_calls: _tc, ...rest } = current;

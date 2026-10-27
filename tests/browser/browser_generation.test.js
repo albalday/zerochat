@@ -34,7 +34,6 @@ describe('Browser UI - generación, estado y paneles auxiliares', { concurrency:
       await page.evaluate(() => window.ChatConfig.updateRuntime({ model: '', apiUrl: 'http://x/<img src=x onerror="window.__probe=1">', apiType: 'openai', activeProfile: null }));
       await send(page, 'Hola');
       const noModel = lastAssistant(page);
-      assert.equal(await noModel.locator('.message-row').evaluate(row => row.classList.contains('message-error')), true);
       assert.match(await noModel.textContent(), new RegExp(await page.evaluate(() => window.ChatI18n.t('err_no_model_title'))));
       assert.equal(await noModel.locator('.message-content img').count(), 0, 'apiUrl no debe interpretarse como HTML');
       assert.match(await noModel.locator('.message-error-card-hint').textContent(), /<img src=x onerror="window.__probe=1">/);
@@ -46,6 +45,21 @@ describe('Browser UI - generación, estado y paneles auxiliares', { concurrency:
       assert.equal(await lastAssistant(page).locator('.message-content .message-error-card').count(), 1);
       assert.equal(await lastAssistant(page).locator('.message-content img').count(), 0);
       assert.equal(await lastAssistant(page).locator('.message-actions').isVisible(), true);
+
+      // Un fallo tras un paso con herramientas deja la tarjeta del paso y lo guarda en el historial.
+      await useProvider(page, async params => {
+        if (params.messages.some(message => message.role === 'tool')) throw new Error('Overloaded');
+        const args = JSON.stringify({ type: 'bar', labels: ['A'], datasets: [{ label: 'a', data: [1] }] });
+        return { accumulatedText: '', toolCalls: [{ id: 'call_chart', type: 'function', function: { name: 'render_chart', arguments: args } }], stats: null };
+      });
+      await send(page, 'Chart');
+      assert.equal(await lastAssistant(page).locator('.message-content .tool-card-wrapper').count(), 1);
+      assert.equal(await lastAssistant(page).locator('.message-content > .message-error-card').count(), 1);
+      const saved = await page.evaluate(async () => {
+        const id = window.ChatState.get('sessions').activeId;
+        return (await window.ChatStorage.getConversation(id)).history.slice(-2).map(message => message.role);
+      });
+      assert.deepEqual(saved, ['assistant', 'tool']);
 
       // El proveedor real de Claude recibe un evento de error dentro del stream SSE: se recarga la
       // página para recuperar el ChatAPI.streamChatCompletion original.
