@@ -262,18 +262,37 @@
     }
   }
 
+  /** Formatos que llama.cpp (stb_image) no decodifica y se envían recodificados en JPEG. */
+  const needsJpegForVision = mimeType => mimeType === 'image/webp';
+
   /**
-   * Imagen lista para un modelo de visión: WebP pasa a JPEG, porque llama.cpp (stb_image) no lo
-   * decodifica; el resto de formatos ráster se envía tal cual.
+   * Imagen lista para un modelo de visión: WebP pasa a JPEG; el resto de formatos ráster se envía
+   * tal cual.
    * @param {Uint8Array} bytes
    * @param {string} mimeType
    * @returns {Promise<{bytes: Uint8Array, mimeType: string, dataUrl: string}>}
    */
   async function toVisionImage(bytes, mimeType) {
-    const output = mimeType === 'image/webp'
+    const output = needsJpegForVision(mimeType)
       ? { bytes: await encodeImageAsJpeg(new Blob([bytes], { type: mimeType })), mimeType: 'image/jpeg' }
       : { bytes, mimeType };
     return { ...output, dataUrl: `data:${output.mimeType};base64,${bytesToBase64(output.bytes)}` };
+  }
+
+  /**
+   * Igual que toVisionImage para las imágenes extraídas de un documento (`{ mimeType, dataUrl, label… }`):
+   * devuelve el mismo objeto si no hay que convertirla.
+   */
+  async function toVisionImageRecord(image) {
+    if (!needsJpegForVision(image.mimeType)) return image;
+    const binary = atob(image.dataUrl.slice(image.dataUrl.indexOf(',') + 1));
+    const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+    try {
+      const { mimeType, dataUrl } = await toVisionImage(bytes, image.mimeType);
+      return { ...image, mimeType, dataUrl };
+    } catch (error) {
+      throw new Error(`The image "${image.label}" could not be decoded.`, { cause: error });
+    }
   }
 
   function setText(element, value) {
@@ -508,6 +527,7 @@
     bytesToBase64,
     encodeImageAsJpeg,
     toVisionImage,
+    toVisionImageRecord,
     resolveDep
   };
 

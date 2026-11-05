@@ -74,7 +74,7 @@ describe('Browser - documents', () => {
     }
   });
 
-  test('Browser - toVisionImage pasa WebP a JPEG RGB sobre blanco y deja el resto intacto', async () => {
+  test('Browser - toVisionImage y toVisionImageRecord pasan WebP a JPEG RGB sobre blanco y dejan el resto intacto', async () => {
     const browser = await createTestBrowser();
     try {
       const page = await browser.newPage();
@@ -107,13 +107,22 @@ describe('Browser - documents', () => {
         const pixel = (x, y) => Array.from(ctx.getImageData(x, y, 1, 1).data.slice(0, 3));
 
         const untouched = await ChatUtils.toVisionImage(png, 'image/png');
+        // Imágenes extraídas de documentos: se convierten conservando sus datos, o se devuelven tal cual
+        const webpRecord = { id: 'img_1', label: 'Logo', mimeType: 'image/webp', dataUrl: `data:image/webp;base64,${ChatUtils.bytesToBase64(webp)}` };
+        const record = await ChatUtils.toVisionImageRecord(webpRecord);
+        const pngRecord = { id: 'img_2', label: 'Chart', mimeType: 'image/png', dataUrl: 'data:image/png;base64,AAAA' };
+        const brokenError = await ChatUtils.toVisionImageRecord({ label: 'Broken', mimeType: 'image/webp', dataUrl: 'data:image/webp;base64,AAAA' })
+          .then(() => '', error => error.message);
         return {
           mimeType: image.mimeType,
           prefix: image.dataUrl.slice(0, 23),
           components,
           opaque: pixel(2, 4),
           transparent: pixel(13, 4),
-          pngSame: untouched.mimeType === 'image/png' && untouched.bytes === png && untouched.dataUrl.startsWith('data:image/png;base64,')
+          pngSame: untouched.mimeType === 'image/png' && untouched.bytes === png && untouched.dataUrl.startsWith('data:image/png;base64,'),
+          record: { id: record.id, label: record.label, mimeType: record.mimeType, prefix: record.dataUrl.slice(0, 23) },
+          pngRecordSame: (await ChatUtils.toVisionImageRecord(pngRecord)) === pngRecord,
+          brokenError
         };
       });
 
@@ -124,6 +133,9 @@ describe('Browser - documents', () => {
       assert.ok(r > 200 && g < 60 && b < 60, `se esperaba rojo, se obtuvo ${result.opaque}`);
       assert.ok(result.transparent.every(channel => channel > 240), `se esperaba blanco, se obtuvo ${result.transparent}`);
       assert.equal(result.pngSame, true);
+      assert.deepEqual(result.record, { id: 'img_1', label: 'Logo', mimeType: 'image/jpeg', prefix: 'data:image/jpeg;base64,' });
+      assert.equal(result.pngRecordSame, true);
+      assert.equal(result.brokenError, 'The image "Broken" could not be decoded.');
     } finally {
       await browser.close();
     }
