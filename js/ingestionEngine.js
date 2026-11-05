@@ -5,7 +5,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { resolveDep, createId } = Utils;
+  const { resolveDep, createId, toVisionImageRecord } = Utils;
 
   function getRagStorage() {
     return resolveDep('ChatRagStorage', './ragStorage.js');
@@ -129,7 +129,7 @@
         });
         return `![${label}](rag-image://__DOC_ID__:${imgId})`;
       });
-      return { text: normalizeExtractedText(rawText), images };
+      return { text: normalizeExtractedText(rawText), images: await Promise.all(images.map(toVisionImageRecord)) };
     }
 
     const rawText = await file.text();

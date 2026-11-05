@@ -17,7 +17,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, VendorLoader) {
   'use strict';
 
-  const { bytesToBase64, IMAGE_MIME_TYPES } = Utils;
+  const { bytesToBase64, toVisionImageRecord, IMAGE_MIME_TYPES } = Utils;
 
   const OFFICE_FORMATS = {
     docx: {
@@ -900,7 +900,8 @@
       if (error?.code === 'VENDOR_UNAVAILABLE') throw error;
       throw new Error(`The ${getOfficeDocumentKind(format)} could not be read. It may be damaged or password protected.`, { cause: error });
     }
-    return { format, text: result.text || '[The document contains no readable text.]', images: result.images };
+    const images = await Promise.all(result.images.map(toVisionImageRecord));
+    return { format, text: result.text || '[The document contains no readable text.]', images };
   }
 
   function isOfficeFormat(format) {

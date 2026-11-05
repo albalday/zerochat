@@ -60,7 +60,7 @@
     return resolveDep('ChatOfficeParser', './office-parser.js');
   }
 
-  const { resolveDep, fetchWithTimeout, bytesToBase64, formatBytes, IMAGE_MIME_TYPES, SAFE_IMAGE_MIME_TYPES } = Utils;
+  const { resolveDep, fetchWithTimeout, toVisionImage, formatBytes, IMAGE_MIME_TYPES, SAFE_IMAGE_MIME_TYPES } = Utils;
 
   const getMcpManager = () => resolveDep('ChatMCP', './mcp.js').manager;
 
@@ -583,7 +583,7 @@
 
   /**
    * Descarga de forma segura una imagen web, valida su tipo MIME (PNG/JPEG/WebP/GIF)
-   * y tamaño máximo, y la devuelve convertida en dataUrl base64 para modelos de visión.
+   * y tamaño máximo, y la devuelve como dataUrl base64 para modelos de visión (WebP pasa a JPEG).
    */
   async function fetchImage(rawUrl, options = {}) {
     const maxBytes = options.maxBytes || MAX_IMAGE_BYTES;
@@ -614,18 +614,27 @@
       };
     }
 
-    const bytes = new Uint8Array(binaryResult.arrayBuffer);
-    const base64 = bytesToBase64(bytes);
-    const dataUrl = `data:${mimeType};base64,${base64}`;
+    let image;
+    try {
+      image = await toVisionImage(new Uint8Array(binaryResult.arrayBuffer), mimeType);
+    } catch (error) {
+      return {
+        success: false,
+        url: binaryResult.url,
+        status: binaryResult.status,
+        error: `The ${mimeType} image could not be decoded: ${error.message}`,
+        elapsedMs: binaryResult.elapsedMs
+      };
+    }
 
     return {
       success: true,
       url: binaryResult.url,
       status: binaryResult.status,
-      mimeType,
-      byteSize: binaryResult.byteSize,
+      mimeType: image.mimeType,
+      byteSize: image.bytes.byteLength,
       fileName: fileName || 'image',
-      dataUrl,
+      dataUrl: image.dataUrl,
       elapsedMs: binaryResult.elapsedMs
     };
   }

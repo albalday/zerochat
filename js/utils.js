@@ -237,6 +237,64 @@
     return btoa(binary);
   }
 
+  /**
+   * Recodifica una imagen en JPEG RGB con el decodificador del navegador. Las zonas transparentes
+   * se pintan sobre blanco, porque JPEG no tiene canal alfa y quedarían negras.
+   * @param {Blob} blob - Imagen en un formato que el navegador sabe decodificar.
+   * @returns {Promise<Uint8Array>} Bytes del JPEG.
+   */
+  async function encodeImageAsJpeg(blob) {
+    const bitmap = await createImageBitmap(blob);
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bitmap, 0, 0);
+      const jpeg = await new Promise((resolve, reject) => {
+        canvas.toBlob(result => (result ? resolve(result) : reject(new Error('The image could not be encoded as JPEG.'))), 'image/jpeg', 0.85);
+      });
+      return new Uint8Array(await jpeg.arrayBuffer());
+    } finally {
+      bitmap.close();
+    }
+  }
+
+  /** Formatos que llama.cpp (stb_image) no decodifica y se envían recodificados en JPEG. */
+  const needsJpegForVision = mimeType => mimeType === 'image/webp';
+
+  /**
+   * Imagen lista para un modelo de visión: WebP pasa a JPEG; el resto de formatos ráster se envía
+   * tal cual.
+   * @param {Uint8Array} bytes
+   * @param {string} mimeType
+   * @returns {Promise<{bytes: Uint8Array, mimeType: string, dataUrl: string}>}
+   */
+  async function toVisionImage(bytes, mimeType) {
+    const output = needsJpegForVision(mimeType)
+      ? { bytes: await encodeImageAsJpeg(new Blob([bytes], { type: mimeType })), mimeType: 'image/jpeg' }
+      : { bytes, mimeType };
+    return { ...output, dataUrl: `data:${output.mimeType};base64,${bytesToBase64(output.bytes)}` };
+  }
+
+  /**
+   * Igual que toVisionImage para las imágenes extraídas de un documento (`{ mimeType, dataUrl, label… }`):
+   * devuelve el mismo objeto si no hay que convertirla.
+   */
+  async function toVisionImageRecord(image) {
+    if (!needsJpegForVision(image.mimeType)) return image;
+    const binary = atob(image.dataUrl.slice(image.dataUrl.indexOf(',') + 1));
+    const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+    try {
+      const { mimeType, dataUrl } = await toVisionImage(bytes, image.mimeType);
+      return { ...image, mimeType, dataUrl };
+    } catch (error) {
+      throw new Error(`The image "${image.label}" could not be decoded.`, { cause: error });
+    }
+  }
+
   function setText(element, value) {
     if (element) element.textContent = value === null || value === undefined ? '' : String(value);
     return element;
@@ -467,6 +525,9 @@
     formatShortValue,
     formatBytes,
     bytesToBase64,
+    encodeImageAsJpeg,
+    toVisionImage,
+    toVisionImageRecord,
     resolveDep
   };
 

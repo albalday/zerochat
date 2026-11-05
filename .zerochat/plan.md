@@ -84,3 +84,5 @@
 ## M42 MCP service state, JS–Python contract and reverse-proxy transport: closed 2026-10-24
 
 ## M43 Dark theme link contrast: closed 2026-10-23
+
+## M44 WebP images readable by every vision model: closed 2026-11-05
