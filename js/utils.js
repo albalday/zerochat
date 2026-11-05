@@ -237,6 +237,45 @@
     return btoa(binary);
   }
 
+  /**
+   * Recodifica una imagen en JPEG RGB con el decodificador del navegador. Las zonas transparentes
+   * se pintan sobre blanco, porque JPEG no tiene canal alfa y quedarían negras.
+   * @param {Blob} blob - Imagen en un formato que el navegador sabe decodificar.
+   * @returns {Promise<Uint8Array>} Bytes del JPEG.
+   */
+  async function encodeImageAsJpeg(blob) {
+    const bitmap = await createImageBitmap(blob);
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bitmap, 0, 0);
+      const jpeg = await new Promise((resolve, reject) => {
+        canvas.toBlob(result => (result ? resolve(result) : reject(new Error('The image could not be encoded as JPEG.'))), 'image/jpeg', 0.85);
+      });
+      return new Uint8Array(await jpeg.arrayBuffer());
+    } finally {
+      bitmap.close();
+    }
+  }
+
+  /**
+   * Imagen lista para un modelo de visión: WebP pasa a JPEG, porque llama.cpp (stb_image) no lo
+   * decodifica; el resto de formatos ráster se envía tal cual.
+   * @param {Uint8Array} bytes
+   * @param {string} mimeType
+   * @returns {Promise<{bytes: Uint8Array, mimeType: string, dataUrl: string}>}
+   */
+  async function toVisionImage(bytes, mimeType) {
+    const output = mimeType === 'image/webp'
+      ? { bytes: await encodeImageAsJpeg(new Blob([bytes], { type: mimeType })), mimeType: 'image/jpeg' }
+      : { bytes, mimeType };
+    return { ...output, dataUrl: `data:${output.mimeType};base64,${bytesToBase64(output.bytes)}` };
+  }
+
   function setText(element, value) {
     if (element) element.textContent = value === null || value === undefined ? '' : String(value);
     return element;
@@ -467,6 +506,8 @@
     formatShortValue,
     formatBytes,
     bytesToBase64,
+    encodeImageAsJpeg,
+    toVisionImage,
     resolveDep
   };
 

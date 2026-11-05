@@ -84,3 +84,9 @@
 ## M42 MCP service state, JS–Python contract and reverse-proxy transport: closed 2026-10-24
 
 ## M43 Dark theme link contrast: closed 2026-10-23
+
+## M44 WebP images readable by every vision model
+
+Goal: web images downloaded by download_image and images attached by the user reach the model as JPEG when they are WebP, which llama.cpp (stb_image) cannot decode.
+Done when: a WebP (with transparency) from either path is sent as an RGB JPEG on white, with one shared canvas encoder also used by the CMYK conversion, passing test:unit and test:browser.
+- [x] M44-T1 Shared JPEG canvas encoder in utils.js (white background, single quality) used by convertCmykDataUrlToRgb, fetchImage and image attachments to normalize WebP, with a browser test on a real transparent WebP (2026-11-05)

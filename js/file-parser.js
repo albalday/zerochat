@@ -16,7 +16,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { formatBytes, bytesToBase64, resolveDep } = Utils;
+  const { formatBytes, bytesToBase64, encodeImageAsJpeg, toVisionImage, resolveDep } = Utils;
 
   // Imágenes de un documento ofimático que se envían al modelo junto al texto (si admite visión).
   const MAX_OFFICE_ATTACHMENT_IMAGES = 4;
@@ -1256,15 +1256,15 @@
     }
 
     if (isImage) {
-      const base64 = await readFileAsDataUrl(file);
-      const mime = file.type || (file.name.toLowerCase().endsWith('.png') ? 'image/png' : file.name.toLowerCase().endsWith('.webp') ? 'image/webp' : file.name.toLowerCase().endsWith('.gif') ? 'image/gif' : file.name.toLowerCase().endsWith('.svg') ? 'image/svg+xml' : 'image/jpeg');
+      const fileMime = file.type || (file.name.toLowerCase().endsWith('.png') ? 'image/png' : file.name.toLowerCase().endsWith('.webp') ? 'image/webp' : file.name.toLowerCase().endsWith('.gif') ? 'image/gif' : file.name.toLowerCase().endsWith('.svg') ? 'image/svg+xml' : 'image/jpeg');
+      const { mimeType, dataUrl } = await toVisionImage(new Uint8Array(await file.arrayBuffer()), fileMime);
       return {
         name: file.name,
         size: file.size,
         type: 'image',
-        mimeType: mime,
+        mimeType,
         content: `[Imagen adjunta: ${file.name} (${formatBytes(file.size)})]`,
-        dataUrl: base64,
+        dataUrl,
         preview: `${file.name} (${formatBytes(file.size)})`
       };
     }
@@ -1286,15 +1286,6 @@
       reader.onload = () => resolve(reader.result);
       reader.onerror = () => reject(reader.error);
       reader.readAsText(file);
-    });
-  }
-
-  function readFileAsDataUrl(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
     });
   }
 
@@ -1457,7 +1448,7 @@
 
   /**
    * Convierte un Data URL JPEG CMYK / YCCK extraído de un PDF a un Data URL JPEG sRGB bajo demanda.
-   * La decodificación la hace el navegador con createImageBitmap y un canvas.
+   * La decodificación la hace el navegador (Utils.encodeImageAsJpeg).
    */
   async function convertCmykDataUrlToRgb(dataUrl) {
     const prefix = 'data:image/jpeg;base64,';
@@ -1470,18 +1461,8 @@
 
       const pdfConvention = invertJpegCmykSamples(bytes);
       if (!pdfConvention) console.warn('Non-baseline CMYK JPEG: shown without correcting the PDF color convention.');
-      const bitmap = await createImageBitmap(new Blob([pdfConvention || bytes], { type: 'image/jpeg' }));
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = bitmap.width;
-        canvas.height = bitmap.height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return dataUrl;
-        ctx.drawImage(bitmap, 0, 0);
-        return canvas.toDataURL('image/jpeg', 0.85);
-      } finally {
-        bitmap.close();
-      }
+      const jpeg = await encodeImageAsJpeg(new Blob([pdfConvention || bytes], { type: 'image/jpeg' }));
+      return `${prefix}${bytesToBase64(jpeg)}`;
     } catch (error) {
       console.warn('No se pudo convertir la imagen CMYK a RGB:', error);
       return dataUrl;

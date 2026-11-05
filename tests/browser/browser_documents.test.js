@@ -74,6 +74,61 @@ describe('Browser - documents', () => {
     }
   });
 
+  test('Browser - toVisionImage pasa WebP a JPEG RGB sobre blanco y deja el resto intacto', async () => {
+    const browser = await createTestBrowser();
+    try {
+      const page = await browser.newPage();
+      await page.setContent('<!doctype html><html><body></body></html>');
+      await page.addScriptTag({ path: path.resolve(__dirname, '../../js/utils.js') });
+
+      const result = await page.evaluate(async () => {
+        // Mitad izquierda roja opaca, mitad derecha transparente
+        const source = document.createElement('canvas');
+        source.width = 16;
+        source.height = 8;
+        const sourceCtx = source.getContext('2d');
+        sourceCtx.fillStyle = '#f00';
+        sourceCtx.fillRect(0, 0, 8, 8);
+        const toBytes = async type => new Uint8Array(await (await new Promise(resolve => source.toBlob(resolve, type))).arrayBuffer());
+        const webp = await toBytes('image/webp');
+        const png = await toBytes('image/png');
+
+        const image = await ChatUtils.toVisionImage(webp, 'image/webp');
+        let components = 0;
+        for (let i = 2; i + 9 < image.bytes.length; i++) {
+          if (image.bytes[i] === 0xFF && image.bytes[i + 1] === 0xC0) { components = image.bytes[i + 9]; break; }
+        }
+        const bitmap = await createImageBitmap(await (await fetch(image.dataUrl)).blob());
+        const canvas = document.createElement('canvas');
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(bitmap, 0, 0);
+        const pixel = (x, y) => Array.from(ctx.getImageData(x, y, 1, 1).data.slice(0, 3));
+
+        const untouched = await ChatUtils.toVisionImage(png, 'image/png');
+        return {
+          mimeType: image.mimeType,
+          prefix: image.dataUrl.slice(0, 23),
+          components,
+          opaque: pixel(2, 4),
+          transparent: pixel(13, 4),
+          pngSame: untouched.mimeType === 'image/png' && untouched.bytes === png && untouched.dataUrl.startsWith('data:image/png;base64,')
+        };
+      });
+
+      assert.equal(result.mimeType, 'image/jpeg');
+      assert.equal(result.prefix, 'data:image/jpeg;base64,');
+      assert.equal(result.components, 3);
+      const [r, g, b] = result.opaque;
+      assert.ok(r > 200 && g < 60 && b < 60, `se esperaba rojo, se obtuvo ${result.opaque}`);
+      assert.ok(result.transparent.every(channel => channel > 240), `se esperaba blanco, se obtuvo ${result.transparent}`);
+      assert.equal(result.pngSame, true);
+    } finally {
+      await browser.close();
+    }
+  });
+
   test('Browser - el compositor adjunta Word, Excel y OpenDocument y explica los formatos antiguos', async () => {
     await withTestApp(async page => {
       const errors = [];
