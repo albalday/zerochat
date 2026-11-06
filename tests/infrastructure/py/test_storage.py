@@ -87,3 +87,44 @@ class StorageEngineTest(unittest.TestCase):
         zerochat.save_general_profile({"name": "Unico", "settings": {}}, self.db_path)
         with self.assertRaises(ValueError):
             zerochat.save_general_profile({"name": "Unico", "id": "profile:distinto", "settings": {}}, self.db_path)
+
+    def test_live_state_incluye_profiles_revision(self):
+        state = zerochat.live_state()
+        self.assertIn("profiles_revision", state)
+        self.assertIsInstance(state["profiles_revision"], int)
+
+    def test_rpc_dispatch_profiles_crud(self):
+        handler = object.__new__(zerochat.ZeroChatServerHandler)
+
+        # 1. Save vía RPC
+        payload = {
+            "name": "Z-Claude Sonnet",
+            "description": "Perfil general via RPC",
+            "settings": {"apiUrl": "https://api.anthropic.com/v1", "model": "claude-3-5-sonnet", "apiKey": "sk-ant-test"}
+        }
+        res, err, _ = handler._dispatch_profiles("zerochat/profiles/save", {"profile": payload})
+        self.assertIsNone(err)
+        self.assertEqual(res["profile"]["name"], "Z-Claude Sonnet")
+        prof_id = res["profile"]["id"]
+
+        # 2. List vía RPC sin secretos por defecto
+        res, err, _ = handler._dispatch_profiles("zerochat/profiles/list", {})
+        self.assertIsNone(err)
+        self.assertEqual(len(res["profiles"]), 1)
+        self.assertIsNone(res["profiles"][0]["settings"]["apiKey"])
+        self.assertTrue(res["profiles"][0]["settings"]["hasApiKey"])
+
+        # 3. Get vía RPC con secretos
+        res, err, _ = handler._dispatch_profiles("zerochat/profiles/get", {"id": prof_id})
+        self.assertIsNone(err)
+        self.assertEqual(res["profile"]["settings"]["apiKey"], "sk-ant-test")
+
+        # 4. Delete vía RPC
+        res, err, _ = handler._dispatch_profiles("zerochat/profiles/delete", {"id": prof_id})
+        self.assertIsNone(err)
+        self.assertTrue(res["deleted"])
+
+        # 5. Get no encontrado
+        _, err, _ = handler._dispatch_profiles("zerochat/profiles/get", {"id": "no-existe"})
+        self.assertIsNotNone(err)
+        self.assertEqual(err["code"], -32602)

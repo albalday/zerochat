@@ -32,7 +32,8 @@ def live_state() -> dict:
         "jobs": [job.summary() for job in JOBS.running()],
         "exit_on_close": EXIT_ON_CLOSE,
         "playwright": playwright_status(),
-        "servers": GLOBAL_MCP_MANAGER.list_servers()
+        "servers": GLOBAL_MCP_MANAGER.list_servers(),
+        "profiles_revision": get_profiles_revision()
     }
 
 
@@ -622,6 +623,41 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return self._dispatch_server_control(method, params)
         if method.startswith("zerochat/browser/"):
             return self._dispatch_browser(method, params)
+        if method.startswith("zerochat/profiles/"):
+            return self._dispatch_profiles(method, params)
+        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
+
+    @staticmethod
+    def _dispatch_profiles(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+        """Gestión de perfiles generales almacenados en SQLite en el backend local."""
+        try:
+            if method == "zerochat/profiles/list":
+                include_secrets = bool(params.get("includeSecrets", False))
+                return {"profiles": list_general_profiles(include_secrets=include_secrets)}, None, ""
+            if method == "zerochat/profiles/get":
+                profile_id = params.get("id")
+                if not isinstance(profile_id, str) or not profile_id.strip():
+                    return None, {"code": -32602, "message": "id debe ser un texto no vacío."}, ""
+                profile = get_general_profile(profile_id, include_secrets=True)
+                if not profile:
+                    return None, {"code": -32602, "message": f"Perfil '{profile_id}' no encontrado."}, ""
+                return {"profile": profile}, None, ""
+            if method == "zerochat/profiles/save":
+                profile_data = params.get("profile")
+                if not isinstance(profile_data, dict):
+                    return None, {"code": -32602, "message": "profile debe ser un objeto."}, ""
+                saved = save_general_profile(profile_data)
+                return {"profile": saved}, None, ""
+            if method == "zerochat/profiles/delete":
+                profile_id = params.get("id")
+                if not isinstance(profile_id, str) or not profile_id.strip():
+                    return None, {"code": -32602, "message": "id debe ser un texto no vacío."}, ""
+                deleted = delete_general_profile(profile_id)
+                return {"deleted": deleted}, None, ""
+        except ValueError as exc:
+            return None, {"code": -32602, "message": str(exc)}, ""
+        except Exception as exc:
+            return None, {"code": -32603, "message": f"Error en gestión de perfiles: {exc}"}, str(exc)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @staticmethod
