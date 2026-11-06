@@ -128,3 +128,26 @@ class StorageEngineTest(unittest.TestCase):
         _, err, _ = handler._dispatch_profiles("zerochat/profiles/get", {"id": "no-existe"})
         self.assertIsNotNone(err)
         self.assertEqual(err["code"], -32602)
+
+    def test_cli_resolucion_perfiles_desde_sqlite(self):
+        # Guardamos un perfil general en SQLite
+        zerochat.save_general_profile({
+            "name": "Z- DeepSeek",
+            "settings": {"apiUrl": "https://api.deepseek.com", "model": "deepseek-chat", "apiKey": "sk-ds-key"}
+        }, self.db_path)
+
+        parser = zerochat.build_parser()
+
+        # Búsqueda tolerante sin Z-
+        args = parser.parse_args(["--prompt", "Hola", "--profile", "DeepSeek"])
+        session = zerochat.run_session_from_args(parser, args)
+        self.assertIsNotNone(session)
+        self.assertEqual(session.profile, "Z- DeepSeek")
+        self.assertIsNotNone(session.profile_record)
+        self.assertEqual(session.profile_record["settings"]["apiKey"], "sk-ds-key")
+
+        # Búsqueda con perfil no existente en backend (fallback como string para el navegador)
+        args_unknown = parser.parse_args(["--prompt", "Hola", "--profile", "Desconocido"])
+        session_unknown = zerochat.run_session_from_args(parser, args_unknown)
+        self.assertEqual(session_unknown.profile, "Desconocido")
+        self.assertIsNone(session_unknown.profile_record)

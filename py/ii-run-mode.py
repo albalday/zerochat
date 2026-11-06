@@ -30,6 +30,7 @@ class RunSession:
         self.prompt = prompt
         # Perfil (nombre o id) que la interfaz usa solo en esta ejecución; None, el activo.
         self.profile = profile
+        self.profile_record = get_general_profile_by_name(profile) or get_general_profile(profile) if profile else None
         # Fichero donde se escribe la conversación exportada (formato por su extensión); None, sin exportar.
         self.export_path = export_path
         self.exported = False
@@ -81,7 +82,7 @@ def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, s
             session.prompt_delivered = True
         session.touch()
         export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
-        return {"prompt": session.prompt, "profile": session.profile, "export": export_format, "keep_page": session.keep_page,
+        return {"prompt": session.prompt, "profile": session.profile, "profile_data": session.profile_record, "export": export_format, "keep_page": session.keep_page,
                 "allow_dangerous_tools": session.allow_dangerous_tools}, None, ""
     if method == "zerochat/run/progress":
         kind = params.get("kind")

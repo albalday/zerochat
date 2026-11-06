@@ -4760,6 +4760,7 @@ class RunSession:
         self.prompt = prompt
         # Perfil (nombre o id) que la interfaz usa solo en esta ejecución; None, el activo.
         self.profile = profile
+        self.profile_record = get_general_profile_by_name(profile) or get_general_profile(profile) if profile else None
         # Fichero donde se escribe la conversación exportada (formato por su extensión); None, sin exportar.
         self.export_path = export_path
         self.exported = False
@@ -4811,7 +4812,7 @@ def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, s
             session.prompt_delivered = True
         session.touch()
         export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
-        return {"prompt": session.prompt, "profile": session.profile, "export": export_format, "keep_page": session.keep_page,
+        return {"prompt": session.prompt, "profile": session.profile, "profile_data": session.profile_record, "export": export_format, "keep_page": session.keep_page,
                 "allow_dangerous_tools": session.allow_dangerous_tools}, None, ""
     if method == "zerochat/run/progress":
         kind = params.get("kind")
@@ -4946,6 +4947,7 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--keep-server", action="store_true", help="Servidor: seguir en marcha al cerrar el navegador (no se combina con --prompt)")
     parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación de ~/zerochat/.venv")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
+    parser.add_argument("--list-profiles", action="store_true", help="Listar los perfiles de conexión generales almacenados en el servidor local")
     parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 plazo agotado o navegador cerrado, 3 fallo de arranque, 4 argumentos no válidos)")
     parser.add_argument("--profile", default=None, help="Con --prompt, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo")
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt)")
@@ -4969,8 +4971,13 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
         parser.error("--prompt necesita abrir el navegador: no se combina con --no-browser")
     if args.keep_server:
         parser.error("--prompt termina al devolver el resultado: no se combina con --keep-server (para no cerrar la página, --keep-page)")
-    if args.profile is not None and not args.profile.strip():
-        parser.error("--profile no puede estar vacío")
+    profile_name = None
+    if args.profile is not None:
+        clean_profile = args.profile.strip()
+        if not clean_profile:
+            parser.error("--profile no puede estar vacío")
+        general_match = get_general_profile_by_name(clean_profile) or get_general_profile(clean_profile)
+        profile_name = general_match["name"] if general_match else clean_profile
     if args.keep_page and args.headless:
         parser.error("--keep-page necesita la ventana del navegador: no se combina con --headless")
     export_path = None
@@ -4980,7 +4987,7 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
             parser.error(f"--export necesita una de estas extensiones: {', '.join(RUN_EXPORT_FORMATS)}")
         if not export_path.parent.is_dir():
             parser.error(f"--export: no existe el directorio {export_path.parent}")
-    return RunSession(args.prompt.strip(), args.profile.strip() if args.profile else None, export_path, args.keep_page, args.allow_dangerous_tools)
+    return RunSession(args.prompt.strip(), profile_name, export_path, args.keep_page, args.allow_dangerous_tools)
 
 
 def redirect_log(args):
@@ -5180,6 +5187,20 @@ def main():
     reset_notices()
     RUN_SESSION = run_session_from_args(parser, args)
     result_out = redirect_log(args)
+
+    if getattr(args, "list_profiles", False):
+        profiles = list_general_profiles(include_secrets=False)
+        if not profiles:
+            print("No hay perfiles de conexión generales almacenados en el servidor local.")
+        else:
+            print("Perfiles de conexión generales (Z-):")
+            for p in profiles:
+                settings = p.get("settings", {})
+                model = settings.get("model") or "sin modelo"
+                api_type = settings.get("apiType") or "openai"
+                api_url = settings.get("apiUrl") or ""
+                print(f"- {p['name']} ({api_type} / {model}) [{api_url}]")
+        return
 
     if args.test:
         run_self_test()
