@@ -16,6 +16,8 @@ class StorageEngineTest(unittest.TestCase):
         self.assertTrue(self.db_path.exists())
         self.assertIn("schema_migrations", tables)
         self.assertIn("profiles", tables)
+        self.assertIn("conversations", tables)
+        self.assertIn("messages", tables)
 
     @unittest.skipIf(os.name == "nt", "Permisos POSIX")
     def test_permisos_directorio_0700_y_fichero_0600(self):
@@ -154,3 +156,110 @@ class StorageEngineTest(unittest.TestCase):
         args_unknown = parser.parse_args(["--prompt", "Hola", "--profile", "Desconocido"])
         session_unknown = zerochat.run_session_from_args(parser, args_unknown)
         self.assertEqual(session_unknown.profile, "Desconocido")
+
+    def test_guardar_listar_recuperar_actualizar_renombrar_y_borrar_conversacion(self):
+        meta = {
+            "id": "session_test_123",
+            "title": "Conversación de prueba",
+            "createdAt": 1700000000000,
+            "updatedAt": 1700000001000
+        }
+        messages = [
+            {"id": "msg_1", "role": "user", "content": "¿Cómo estás?", "createdAt": 1700000000100},
+            {"id": "msg_2", "role": "assistant", "content": "¡Bien! ¿En qué te ayudo?", "tool_calls": [{"id": "call_1", "name": "test"}], "createdAt": 1700000000200}
+        ]
+        saved = zerochat.save_conversation(meta, messages)
+        self.assertEqual(saved["id"], "session_test_123")
+        self.assertEqual(saved["title"], "Conversación de prueba")
+        self.assertEqual(saved["messageCount"], 2)
+
+        retrieved = zerochat.get_conversation("session_test_123")
+        self.assertIsNotNone(retrieved)
+        self.assertEqual(retrieved["id"], "session_test_123")
+        self.assertEqual(retrieved["title"], "Conversación de prueba")
+        self.assertEqual(len(retrieved["history"]), 2)
+        self.assertEqual(retrieved["history"][0]["content"], "¿Cómo estás?")
+        self.assertEqual(retrieved["history"][1]["tool_calls"], [{"id": "call_1", "name": "test"}])
+
+        # Guardar una segunda conversación más reciente para probar list_conversations y filtro
+        meta2 = {
+            "id": "session_test_456",
+            "title": "Otra charla sobre arquitectura",
+            "createdAt": 1700000002000,
+            "updatedAt": 1700000003000
+        }
+        zerochat.save_conversation(meta2, [{"id": "msg_3", "role": "user", "content": "Hola"}])
+
+        listed = zerochat.list_conversations()
+        self.assertEqual(len(listed), 2)
+        self.assertEqual(listed[0]["id"], "session_test_456")  # Más reciente primero
+        self.assertEqual(listed[1]["id"], "session_test_123")
+
+        filtered = zerochat.list_conversations("arquitectura")
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(filtered[0]["id"], "session_test_456")
+
+        # Renombrar conversación
+        self.assertTrue(zerochat.rename_conversation("session_test_123", "Título Renombrado"))
+        renamed = zerochat.get_conversation("session_test_123")
+        self.assertEqual(renamed["title"], "Título Renombrado")
+
+        # Actualizar mensajes de una conversación existente
+        new_messages = [
+            {"id": "msg_1", "role": "user", "content": "¿Cómo estás?"},
+            {"id": "msg_2", "role": "assistant", "content": "¡Bien!"},
+            {"id": "msg_4", "role": "user", "content": "Genial."}
+        ]
+        updated = zerochat.save_conversation(renamed, new_messages)
+        self.assertEqual(updated["messageCount"], 3)
+        self.assertEqual(len(zerochat.get_conversation("session_test_123")["history"]), 3)
+
+        # Borrar conversación y verificar borrado en cascada en la tabla messages
+        with zerochat.open_storage() as conn:
+            self.assertGreater(conn.execute("SELECT COUNT(*) FROM messages WHERE conversation_id = 'session_test_123';").fetchone()[0], 0)
+
+        self.assertTrue(zerochat.delete_conversation("session_test_123"))
+        self.assertIsNone(zerochat.get_conversation("session_test_123"))
+        self.assertFalse(zerochat.delete_conversation("session_test_123"))
+
+        with zerochat.open_storage() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM messages WHERE conversation_id = 'session_test_123';").fetchone()[0], 0)
+
+        # Borrar todo
+        deleted_count = zerochat.delete_all_conversations()
+        self.assertEqual(deleted_count, 1)
+        self.assertEqual(len(zerochat.list_conversations()), 0)
+
+    def test_validacion_bordes_conversaciones(self):
+        max_title = "t" * zerochat.MAX_CONVERSATION_TITLE_LENGTH
+        max_id = "i" * zerochat.MAX_CONVERSATION_ID_LENGTH
+
+        saved_max = zerochat.save_conversation({"id": max_id, "title": max_title}, [])
+        self.assertEqual(len(saved_max["id"]), zerochat.MAX_CONVERSATION_ID_LENGTH)
+        self.assertEqual(len(saved_max["title"]), zerochat.MAX_CONVERSATION_TITLE_LENGTH)
+
+        # Borde N+1 en título (257) e ID (129)
+        with self.assertRaises(ValueError):
+            zerochat.save_conversation({"id": "valid_id", "title": "t" * (zerochat.MAX_CONVERSATION_TITLE_LENGTH + 1)})
+
+        with self.assertRaises(ValueError):
+            zerochat.save_conversation({"id": "i" * (zerochat.MAX_CONVERSATION_ID_LENGTH + 1), "title": "Valido"})
+
+        # ID vacío o no string
+        for bad_id in ("", "   ", None):
+            with self.subTest(bad_id=bad_id):
+                with self.assertRaises(ValueError):
+                    zerochat.save_conversation({"id": bad_id, "title": "Valido"})
+
+        # Título vacío recibe fallback por defecto
+        saved_fallback = zerochat.save_conversation({"id": "fallback_id", "title": "   "})
+        self.assertEqual(saved_fallback["title"], "Conversación sin título")
+
+        # rename con N+1
+        with self.assertRaises(ValueError):
+            zerochat.rename_conversation("fallback_id", "t" * (zerochat.MAX_CONVERSATION_TITLE_LENGTH + 1))
+
+        # Inexistentes devuelven None/False sin lanzar excepción
+        self.assertIsNone(zerochat.get_conversation("no_existe"))
+        self.assertFalse(zerochat.rename_conversation("no_existe", "Nuevo"))
+        self.assertFalse(zerochat.delete_conversation("no_existe"))
