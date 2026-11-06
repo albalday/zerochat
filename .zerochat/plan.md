@@ -87,21 +87,15 @@
 
 ## M44 WebP images readable by every vision model: closed 2026-11-05
 
-## M45 Local backend storage for general connection profiles (Z-)
+## M45 Local backend storage for general connection profiles (Z-): closed 2026-11-06
 
-Goal: zerochat.py stores general connection profiles locally in an extensible SQLite database, exposes them via JSON-RPC, the frontend presents them with the Z- visual prefix and fetches them on connection/profile menu open, --prompt runs headless on Playwright Chromium by default using the Z-local backend profile unless --browser or --profile is specified, and Playwright MCP own browser runs isolated in memory (--isolated) by default with optional named storage per profile.
-Done when: general profiles are persisted in ~/zerochat/storage/zerochat.db (0600), queried/managed by zerochat.py and CLI, fetched by the web client on connection and profile panel open, displayed with Z- prefix, --prompt defaults to headless Playwright Chromium and the Z-local general profile (with --browser and --browser --headless for the user browser), Playwright MCP defaults to --isolated unless a storage name is specified in the profile, and passing test:architecture, test:infrastructure, test:unit, test:integration, and test:browser.
-- [x] M45-T1 Backend SQLite storage engine in py/ee-storage.py for general connection profiles with 0700/0600 permissions, schema migrations and infrastructure tests (2026-11-06)
-- [x] M45-T2 JSON-RPC endpoints for general profile CRUD in py/ff-server.py and profiles_revision in live_state with infrastructure tests (2026-11-06)
-- [x] M45-T3 Frontend repository and sync in js/profile-repository.js and js/mcp.js: load general profiles on backend connection and heartbeat with integration tests (2026-11-06)
-- [x] M45-T4 Unified presentation and maintenance in js/ui-profiles.js: Z- prefix in active profile and selector, Local vs General scope selection in editor with browser tests (2026-11-06)
-- [x] M45-T5 CLI --profile resolution in py/zz-main.py and py/ii-run-mode.py using backend storage directly without browser dependency (2026-11-06)
-- [x] M45-T6 Simplify backend SQLite profile storage: close connections, remove heartbeat revision, dead RPC/params and test-only db_path, enforce lock/Espejo checks and test exact bounds (2026-11-06)
-- [x] M45-T7 Simplify frontend general profiles: fetch on connection and profile panel open, allow copying across Local/General scopes, keep general profiles out of localStorage and preserve active general profile on reload (2026-11-06)
-- [x] M45-T8 Default --prompt profile to backend general profile "Z-local" when --profile is omitted (failing with error if missing) and use the specified profile when --profile is given, in py/zz-main.py and py/ii-run-mode.py with infrastructure tests (2026-11-06)
-- [x] M45-T9 Make --prompt run headless with Playwright Chromium by default and add --browser to use the user browser (visible with --prompt --browser, headless with --prompt --browser --headless) in py/zz-main.py, py/ii-run-mode.py and py/gg-browser.py with infrastructure tests (2026-11-06)
-- [x] M45-T10 Update --prompt documentation in py/README.md, help/run-mode.html and help/en/run-mode.html for default headless Playwright Chromium, --browser, --headless and the default Z-local profile (2026-11-06)
-- [x] M45-T11 Allow --prompt without --browser to fall back to a free port when the default port is busy in local development in py/zz-main.py, help/run-mode.html, help/en/run-mode.html and infrastructure tests (2026-11-06)
-- [x] M45-T12 Default Playwright MCP own browser to --isolated and support optional named persistent storage in py/ee-browser-config.py, js/defaults.js, js/mcp.js, js/ui-browser.js and js/i18n.js with unit, integration, infrastructure and browser tests (2026-11-06)
-- [x] M45-T13 Update documentation in py/README.md, help/browser-action.html, help/en/browser-action.html, help/profiles.html and help/en/profiles.html for isolated Playwright MCP default and named storage (2026-11-06)
-- [x] M45-T14 Establish MCP parallel execution standards in services/ejemplo/README.md and review parallel capabilities of bundled services (2026-11-06)
+## M46 Interactive terminal agent (zerochat --cli) with streaming Markdown interpreter
+
+Goal: zerochat --cli provides an interactive terminal CLI (REPL or single-prompt) running a headless Playwright Chromium slave worker for the full agentic loop, while the Python CLI renders streamed assistant tokens, reasoning blocks, and tool executions with a pure standard-library ANSI Markdown interpreter, and enables interactive terminal prompts for ask_user and tool approvals.
+Done when: zerochat --cli launches the headless slave and presents an interactive terminal REPL (or executes an optional prompt), streams response chunks and thinking blocks with ANSI Markdown formatting without external Python dependencies, formats tool calls and results in terminal cards, handles interactive tool authorizations and user questions via terminal stdin, keeps the browser worker session alive across multi-turn prompts, and passes test:architecture, test:infrastructure, test:unit, test:integration, and test:browser.
+- [ ] M46-T1 Lightweight Python ANSI Markdown streaming interpreter in py/jj-cli.py (formatting headers, lists, bold/italic, code blocks, tool cards, and reasoning blocks with standard library only) with infrastructure tests
+- [ ] M46-T2 Backend CLI session controller and JSON-RPC endpoints in py/ii-run-mode.py and py/ff-server.py supporting streaming chunks, tool events, interactive tool approval requests, and user question answering
+- [ ] M46-T3 Frontend slave agentic loop streaming in js/run-mode.js: emit real-time token/reasoning deltas and tool execution lifecycle events over JSON-RPC
+- [ ] M46-T4 Interactive tool authorization and ask_user delegation from frontend slave to CLI terminal via JSON-RPC request-response cycles
+- [ ] M46-T5 Multi-turn interactive terminal REPL in py/jj-cli.py and py/zz-main.py with --cli flag: command loop, prompt input, Ctrl+C interrupt handling, session persistence across turns, and clean shutdown
+- [ ] M46-T6 Documentation and help updates in py/README.md, help/run-mode.html and help/en/run-mode.html for zerochat --cli interactive terminal usage and options
