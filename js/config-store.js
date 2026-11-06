@@ -83,8 +83,7 @@
       id: profile.id,
       name: profile.name,
       version: profile.version,
-      general: Boolean(profile.general || profile.isGeneral),
-      isGeneral: Boolean(profile.general || profile.isGeneral),
+      general: Boolean(profile.general),
       appliedAt: Date.now()
     };
   }
@@ -117,7 +116,7 @@
     if (stored) {
       const config = { ...stored, modelContextLimit: null };
       try {
-        if (!Profiles.get(config.activeProfile?.id) && fallbackProfile) {
+        if (!Profiles.get(config.activeProfile?.id) && !config.activeProfile?.general && fallbackProfile) {
           return commit(applyProfile(config, fallbackProfile));
         }
       } catch (_) { /* perfiles no disponibles: se conserva la configuración guardada */ }

@@ -30,10 +30,10 @@
 
     <div class="card" id="navegador-propio">
       <h2>Navegador propio de ZeroChat</h2>
-      <p>Playwright MCP abre un navegador aparte con un perfil persistente en <code>~/zerochat/playwright/profile/&lt;motor&gt;</code>: las cookies y sesiones en las que entres se conservan entre usos, separadas de tu navegador.</p>
+      <p>Playwright MCP abre un navegador aparte en memoria (<code>--isolated</code>), separado del tuyo: conserva las cookies y sesiones mientras dura la sesión, no guarda nada en disco al cerrar y admite varias ejecuciones simultáneas de <code>zerochat</code>. Si un perfil indica un nombre de almacenamiento persistente en su capítulo <a href="profiles.html">Navegador</a>, sus cookies y sesiones se guardan entre usos en <code>~/zerochat/playwright/profile/&lt;motor&gt;/&lt;almacenamiento&gt;</code>.</p>
       <ul>
         <li><strong>Motores:</strong> Chromium, Firefox o WebKit, descargados en la caché de Playwright, nunca en el sistema. Chromium se instala con el servicio; <strong>Instalar</strong> descarga los demás y muestra el progreso, y <strong>Quitar</strong> los borra de la caché. Solo se elige un motor instalado; si quitas el elegido, se pasa a otro instalado. WebKit y Firefox pueden necesitar bibliotecas del sistema en Linux.</li>
-        <li><strong>Datos del navegador:</strong> <strong>Limpiar</strong> borra las cookies, sesiones y datos de los sitios del motor elegido. Tendrás que volver a iniciar sesión en esos sitios.</li>
+        <li><strong>Datos del navegador:</strong> <strong>Limpiar</strong> borra todos los almacenamientos persistentes guardados del motor elegido en <code>~/zerochat/playwright/profile/&lt;motor&gt;</code>. Tendrás que volver a iniciar sesión en esos sitios.</li>
         <li><strong>Mostrar la ventana:</strong> por defecto el navegador funciona sin ventana; márcalo para ver lo que hace el modelo.</li>
       </ul>
       <p>Quitar un motor o limpiar sus datos detiene Playwright MCP si está en marcha y lo vuelve a iniciar al terminar.</p>

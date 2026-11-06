@@ -26,12 +26,12 @@
 
     <div class="card" id="como-funciona">
       <h2>1. How it works</h2>
-      <p><code>zerochat --prompt "TEXT"</code> (or <code>python3 zerochat.py --prompt "TEXT"</code>) starts the <a href="install.html">local server</a> as usual and opens the interface in the browser. The page creates a new conversation, sends the prompt with your configuration in that browser (the active profile or the one in <code>--profile</code>, settings, permissions) and, when it finishes, returns the answer and closes. Then the process exits.</p>
+      <p><code>zerochat --prompt "TEXT"</code> (or <code>python3 zerochat.py --prompt "TEXT"</code>) starts the <a href="install.html">local server</a> and, by default, opens the interface without a window in Playwright's Chromium using the <code>Z-local</code> general profile stored on the server (or the one you pass with <code>--profile</code>). When it finishes, it returns the answer and the process exits.</p>
       <div class="code-wrapper"><pre><code>zerochat --prompt "Summarize today's changes in this repository" &gt; summary.txt</code></pre></div>
       <ul>
         <li><strong>Standard output:</strong> only the model's final answer.</li>
         <li><strong>Standard error:</strong> the reason for a run without an answer. The server log is off by default; with <code>--log on</code> it also goes to standard error.</li>
-        <li><strong>Conversation:</strong> it is saved in the browser like any other.</li>
+        <li><strong>Browser:</strong> by default it uses Playwright's Chromium in windowless mode; with <code>--browser</code> it uses your default browser (visible, or windowless if you add <code>--headless</code>).</li>
         <li><strong>Working directory:</strong> file and command tools work in the directory you run the command from, as in a normal session.</li>
       </ul>
     </div>
@@ -41,13 +41,14 @@
       <div class="table-responsive"><table>
         <thead><tr><th>Option</th><th>Effect</th></tr></thead>
         <tbody>
-          <tr><td><code>--profile NAME</code></td><td>Uses that profile (name or id) for this run only, without changing the saved active profile. If it does not exist, the run ends with an error.</td></tr>
+          <tr><td><code>--profile NAME</code></td><td>Uses that profile (name or id) for this run only, without changing the saved active profile. If omitted, uses the server's <code>Z-local</code> general profile; if it does not exist, the run ends with an error.</td></tr>
+          <tr><td><code>--browser</code></td><td>Opens the user's default browser in visible mode instead of Playwright's windowless Chromium.</td></tr>
+          <tr><td><code>--headless</code></td><td>With <code>--browser</code>, opens the user's default browser without a window. See <a href="#sin-ventana">section 5</a>.</td></tr>
           <tr><td><code>--export FILE</code></td><td>Saves the conversation to <code>FILE</code>; the format comes from the extension: <code>.md</code> (Markdown), <code>.json</code> (session) or <code>.html</code> (as shown in the chat). It is also exported after a generation error.</td></tr>
-          <tr><td><code>--keep-page</code></td><td>Does not close the page when it finishes, so you can see the conversation. The process exits anyway and the page is left disconnected from the server. Not combined with <code>--headless</code>.</td></tr>
-          <tr><td><code>--headless</code></td><td>Opens the browser without a window. See <a href="#sin-ventana">section 5</a>.</td></tr>
+          <tr><td><code>--keep-page</code></td><td>With <code>--browser</code> (without <code>--headless</code>), does not close the page when it finishes, so you can see the conversation. The process exits anyway and the page is left disconnected from the server.</td></tr>
           <tr><td><code>--allow-dangerous-tools</code></td><td>Also approves the tools that write or execute. See <a href="#herramientas">section 3</a>.</td></tr>
           <tr><td><code>--log on|off</code></td><td>Shows the startup banner and the server log on standard error. Defaults to <code>off</code> with <code>--prompt</code>.</td></tr>
-          <tr><td><code>--port PORT</code></td><td>Listening port; if it is in use, the run does not start. Without <code>--port</code>, if another open ZeroChat uses the default port, the run listens on a free port and coexists with it (in development, with the local interface, it does not start).</td></tr>
+          <tr><td><code>--port PORT</code></td><td>Listening port; if it is in use, the run does not start. Without <code>--port</code>, if another open ZeroChat uses the default port, the run listens on a free port and coexists with it (in development, with <code>--browser</code> and the local interface, it does not start).</td></tr>
         </tbody>
       </table></div>
       <p><code>--prompt</code> is not combined with <code>--no-browser</code> or <code>--keep-server</code>, because the run needs the browser and ends when it returns the result.</p>
@@ -78,24 +79,23 @@
     </div>
 
     <div class="card" id="sin-ventana">
-      <h2>5. Without a window (<code>--headless</code>)</h2>
-      <p>On Linux, ZeroChat looks up the default browser (<code>xdg-settings</code>) and launches it with <code>--headless</code> on your normal profile, so it has your configuration. Windowless Firefox does not need a graphical session.</p>
+      <h2>5. Windowless mode and user browser (<code>--browser</code> / <code>--headless</code>)</h2>
+      <p>By default, <code>--prompt</code> runs without a window using the Chromium installed in Playwright's cache and the general profiles stored on the local server (<code>~/zerochat/storage/zerochat.db</code>), without needing a graphical session or requiring your browser to be closed.</p>
       <ul>
-        <li><strong>Browser already open:</strong> the profile is in use and the windowless browser cannot use it. The run then opens as a visible tab in the open browser, which closes when it finishes.</li>
-        <li><strong>No identifiable browser:</strong> on Windows, macOS, Termux, or with Flatpak or Snap browsers, it opens the normal way.</li>
+        <li><strong><code>--prompt --browser</code>:</strong> opens your default browser in visible mode (with your local profiles, history and rules saved in it). Supports <code>--keep-page</code>.</li>
+        <li><strong><code>--prompt --browser --headless</code>:</strong> on Linux, looks up the default browser (<code>xdg-settings</code>) and launches it with <code>--headless</code> on your normal profile; if it is already open or cannot be identified, it opens as a tab the normal way.</li>
       </ul>
     </div>
 
     <div class="card" id="cron">
       <h2>6. Scheduled jobs (cron)</h2>
       <ul>
-        <li><strong>User:</strong> the ZeroChat configuration lives in the browser profile of the user who runs the job. If you use a dedicated user, open its browser once with a window and set up ZeroChat there.</li>
-        <li><strong>No graphical session:</strong> use <code>--headless</code>, and keep that user's browser closed in other sessions while the job runs, because the run would try to open there as a tab.</li>
+        <li><strong>Profile and browser:</strong> save the profile as <strong>General (Local server Z-)</strong> (by default <code>Z-local</code>, or the one passed in <code>--profile</code>) and install the Chromium engine in Settings › Browser. That way <code>--prompt</code> runs directly in the background without a graphical session or conflicts with your open browser.</li>
         <li><strong>Environment:</strong> cron starts with a minimal <code>PATH</code> in the home directory. Change to the working directory with <code>cd</code> and add to <code>PATH</code> the commands your MCP services need (<code>node</code>, <code>npx</code>, <code>uvx</code>…).</li>
         <li><strong>Result:</strong> cron mails the output (<code>MAILTO</code>); the exit code tells each case apart. <code>flock</code> keeps two runs from overlapping.</li>
       </ul>
       <div class="code-wrapper"><pre><code>MAILTO=user
-0 7 * * * cd "$HOME/project" &amp;&amp; PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" flock -n /tmp/zerochat-prompt.lock zerochat --prompt "Prepare the daily report" --headless --export "$HOME/reports/daily.html"</code></pre></div>
+0 7 * * * cd "$HOME/project" &amp;&amp; PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" flock -n /tmp/zerochat-prompt.lock zerochat --prompt "Prepare the daily report" --export "$HOME/reports/daily.html"</code></pre></div>
     </div>
 
     <div class="card" id="inventario">

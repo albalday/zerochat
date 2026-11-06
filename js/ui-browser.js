@@ -191,11 +191,12 @@
       <p class="label-hint">${escapeHtml(t('browser_save_note'))}</p>`;
   }
 
-  /** Nombre de un navegador de Playwright MCP: «Chromium propio», «Chromium propio con ventana» o «tu Chrome». */
+  /** Nombre de un navegador de Playwright MCP: «Chromium propio», «Chromium propio (trabajo) con ventana» o «tu Chrome». */
   function describeBrowser(choice) {
     if (choice.mode === 'user') return t('browser_choice_user', { name: t(`browser_user_${choice.userBrowser}`) });
     const own = t('browser_choice_own', { name: ENGINE_NAMES[choice.engine] });
-    return choice.headless === false ? t('browser_choice_visible', { browser: own }) : own;
+    const withStorage = choice.storage ? `${own} (${choice.storage})` : own;
+    return choice.headless === false ? t('browser_choice_visible', { browser: withStorage }) : withStorage;
   }
 
   /** Aviso de que el perfil activo exige Playwright MCP, que manda sobre la herramienta elegida aquí. */
@@ -246,13 +247,21 @@
         return `<option value="${escapeHtml(id)}"${id === idOf(value) ? ' selected' : ''}>${escapeHtml(text)}</option>`;
       }).join('');
       const modes = ['own', 'user'].map(mode => `<label class="browser-check"><input type="radio" name="profile-browser-mode" value="${mode}"${value.mode === mode ? ' checked' : ''}${disabled}>${escapeHtml(t(`browser_mode_${mode}`))}</label>`).join('');
+      const storageOk = value.storage === undefined || Defaults.PLAYWRIGHT_STORAGE_PATTERN.test(value.storage);
+      const storageError = storageOk ? ''
+        : `<p id="profile-browser-storage-error" class="server-query-status status-error" role="alert">${escapeHtml(t('profile_browser_storage_invalid'))}</p>`;
       body = `<div class="browser-card-body">
           <div role="radiogroup" aria-label="${escapeHtml(t('browser_mode_aria'))}">${modes}</div>
           <div class="form-field">
             <label for="profile-browser-name"><strong>${escapeHtml(t('profile_browser_name'))}</strong></label>
             <select id="profile-browser-name" name="profile-browser-name"${disabled}>${options}</select>
           </div>
-          ${value.mode === 'own' ? `<label class="browser-check"><input type="checkbox" name="profile-browser-show-window"${value.headless === false ? ' checked' : ''}${disabled}>${escapeHtml(t('browser_show_window'))}</label>` : ''}
+          ${value.mode === 'own' ? `<div class="form-field">
+            <label for="profile-browser-storage"><strong>${escapeHtml(t('profile_browser_storage'))}</strong><span class="label-hint">${escapeHtml(t('profile_browser_storage_hint'))}</span></label>
+            <input type="text" id="profile-browser-storage" name="profile-browser-storage" value="${escapeHtml(value.storage || '')}" spellcheck="false"${disabled}${storageOk ? '' : ' aria-invalid="true" aria-describedby="profile-browser-storage-error"'}>
+            ${storageError}
+          </div>
+          <label class="browser-check"><input type="checkbox" name="profile-browser-show-window"${value.headless === false ? ' checked' : ''}${disabled}>${escapeHtml(t('browser_show_window'))}</label>` : ''}
           ${installed === null ? `<p class="label-hint">${escapeHtml(t('profile_browser_disconnected'))}</p>` : ''}
           ${missing ? `<p class="browser-warning">${Icons.get('alert-triangle', { size: 14 })}<span>${escapeHtml(t('profile_browser_missing'))}</span></p>` : ''}
         </div>`;
@@ -408,13 +417,18 @@
     if (target.name === 'profile-browser-required') profileChapter.value = target.checked ? defaultChoice('own') : null;
     else if (target.name === 'profile-browser-mode') profileChapter.value = defaultChoice(target.value);
     else if (target.name === 'profile-browser-name') {
-      // Al cambiar de motor se conserva la ventana visible.
-      const visible = profileChapter.value.headless === false ? { headless: false } : {};
-      profileChapter.value = { ...choiceOf(profileChapter.value.mode, target.value), ...visible };
+      // Al cambiar de motor se conservan la ventana visible y el almacenamiento.
+      const { mode, engine, userBrowser, ...ownOptions } = profileChapter.value;
+      profileChapter.value = { ...choiceOf(mode, target.value), ...(mode === 'own' ? ownOptions : {}) };
     }
     else if (target.name === 'profile-browser-show-window') {
       const { headless, ...rest } = profileChapter.value;
       profileChapter.value = target.checked ? { ...rest, headless: false } : rest;
+    }
+    else if (target.name === 'profile-browser-storage') {
+      const { storage, ...rest } = profileChapter.value;
+      const trimmed = target.value.trim();
+      profileChapter.value = trimmed ? { ...rest, storage: trimmed } : rest;
     }
     else return;
     renderProfileBrowser();

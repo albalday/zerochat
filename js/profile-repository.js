@@ -68,7 +68,7 @@
           settings.apiKey = null;
           return;
         }
-        if (typeof source[key] === 'string' && (isGeneral || source.general || source.isGeneral)) {
+        if (typeof source[key] === 'string' && isGeneral) {
           settings.apiKey = source[key];
           return;
         }
@@ -86,20 +86,19 @@
     return settings;
   }
 
-  function normalizeRecord(record = {}) {
+  function normalizeRecord(record = {}, isGeneral = false) {
     const name = String(record.name || '').trim();
     if (!name) throw new Error('The profile name cannot be empty.');
-    const isGeneral = Boolean(record.general || record.isGeneral);
+    const general = Boolean(isGeneral);
     return {
       id: String(record.id || createId(name)),
       name,
       description: String(record.description || '').trim(),
-      general: isGeneral,
-      isGeneral,
+      general,
       schemaVersion: SCHEMA_VERSION,
       version: Number.isInteger(record.version) && record.version > 0 ? record.version : 1,
       updatedAt: Number(record.updatedAt) || Date.now(),
-      settings: normalizeSettings(record.settings || record, isGeneral)
+      settings: normalizeSettings(record.settings || record, general)
     };
   }
 
@@ -115,7 +114,7 @@
     if (!doc || doc.schemaVersion !== SCHEMA_VERSION || !Array.isArray(doc.profiles)) {
       throw new Error('The profile storage has an invalid format.');
     }
-    return { schemaVersion: SCHEMA_VERSION, profiles: doc.profiles.map(normalizeRecord) };
+    return { schemaVersion: SCHEMA_VERSION, profiles: doc.profiles.map(rec => normalizeRecord(rec, false)) };
   }
 
   function writeDocument(document) {
@@ -144,7 +143,7 @@
       generalProfiles = [];
       return;
     }
-    generalProfiles = records.map(rec => normalizeRecord({ ...rec, general: true }));
+    generalProfiles = records.map(rec => normalizeRecord(rec, true));
   }
 
   function clearGeneralProfiles() {
@@ -152,7 +151,7 @@
   }
 
   function upsertGeneralProfile(record) {
-    const normalized = normalizeRecord({ ...record, general: true });
+    const normalized = normalizeRecord(record, true);
     const index = generalProfiles.findIndex(profile => profile.id === normalized.id);
     if (index >= 0) generalProfiles[index] = normalized;
     else generalProfiles.push(normalized);
@@ -220,14 +219,17 @@
     return Backup.withPassword(keyMaterial => load(id, keyMaterial), requestPassword);
   }
 
-  function findByName(name) {
+  function findByName(name, options = {}) {
     const cleanName = String(name || '').trim();
-    return list().find(profile => profile.name === cleanName) || null;
+    if (!cleanName) return null;
+    const stripped = cleanName.startsWith('Z-') ? cleanName.slice(2).trim() : cleanName;
+    const candidates = list().filter(profile => (typeof options?.general === 'boolean' ? Boolean(profile.general) === options.general : true));
+    return candidates.find(profile => profile.name === cleanName || (profile.general && profile.name === stripped)) || null;
   }
 
   function save(record) {
     const current = initialize();
-    const normalized = normalizeRecord(record);
+    const normalized = normalizeRecord(record, false);
     if (normalized.id === READONLY_PROFILE_ID || normalized.name === MIRROR_PROFILE.name) {
       throw new Error('The Mirror profile cannot be modified.');
     }
@@ -290,7 +292,7 @@
   function mergeImported(records) {
     if (!Array.isArray(records) || records.length > 100) throw new Error('The imported profile list is not valid.');
     const current = initialize();
-    const imported = records.map(normalizeRecord).filter(profile => profile.id !== READONLY_PROFILE_ID && profile.name !== MIRROR_PROFILE.name);
+    const imported = records.map(rec => normalizeRecord(rec, false)).filter(profile => profile.id !== READONLY_PROFILE_ID && profile.name !== MIRROR_PROFILE.name);
     if (imported.length !== records.length) throw new Error('La copia no puede modificar el perfil Espejo.');
     const ids = new Set();
     const names = new Set();

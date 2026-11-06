@@ -11,23 +11,21 @@ class StorageEngineTest(unittest.TestCase):
         self.db_path = self.storage_dir / "zerochat.db"
 
     def test_inicializacion_crea_tablas_y_aplica_migraciones(self):
-        zerochat.init_storage(self.db_path)
-        self.assertTrue(self.db_path.exists())
-        with zerochat.connect_storage(self.db_path) as conn:
+        with zerochat.open_storage() as conn:
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall()}
-            self.assertIn("schema_migrations", tables)
-            self.assertIn("profiles", tables)
+        self.assertTrue(self.db_path.exists())
+        self.assertIn("schema_migrations", tables)
+        self.assertIn("profiles", tables)
 
     @unittest.skipIf(os.name == "nt", "Permisos POSIX")
     def test_permisos_directorio_0700_y_fichero_0600(self):
-        zerochat.init_storage(self.db_path)
+        zerochat.list_general_profiles()
         dir_mode = stat.S_IMODE(self.storage_dir.stat().st_mode)
         db_mode = stat.S_IMODE(self.db_path.stat().st_mode)
         self.assertEqual(dir_mode, 0o700)
         self.assertEqual(db_mode, 0o600)
 
-    def test_guardar_listar_recuperar_y_borrar_perfil_general(self):
-        rev_before = zerochat.get_profiles_revision()
+    def test_guardar_listar_recuperar_actualizar_y_borrar_perfil_general(self):
         sample = {
             "name": "OpenAI GPT-4o",
             "description": "Perfil de prueba en backend",
@@ -38,116 +36,121 @@ class StorageEngineTest(unittest.TestCase):
                 "apiKey": "sk-secret-12345678"
             }
         }
-        saved = zerochat.save_general_profile(sample, self.db_path)
+        saved = zerochat.save_general_profile(sample)
         self.assertEqual(saved["name"], "OpenAI GPT-4o")
         self.assertTrue(saved["general"])
         self.assertEqual(saved["settings"]["apiKey"], "sk-secret-12345678")
-        self.assertGreater(zerochat.get_profiles_revision(), rev_before)
 
-        # Listado sin secretos
-        listed = zerochat.list_general_profiles(include_secrets=False, db_path=self.db_path)
+        listed = zerochat.list_general_profiles()
         self.assertEqual(len(listed), 1)
-        self.assertIsNone(listed[0]["settings"]["apiKey"])
-        self.assertTrue(listed[0]["settings"]["hasApiKey"])
+        self.assertEqual(listed[0]["settings"]["apiKey"], "sk-secret-12345678")
 
-        # Recuperación por ID
-        found_by_id = zerochat.get_general_profile(saved["id"], include_secrets=True, db_path=self.db_path)
+        found_by_id = zerochat.get_general_profile(saved["id"])
         self.assertIsNotNone(found_by_id)
         self.assertEqual(found_by_id["settings"]["apiKey"], "sk-secret-12345678")
 
-        # Recuperación por nombre exacto y con prefijo Z-
-        by_exact = zerochat.get_general_profile_by_name("OpenAI GPT-4o", db_path=self.db_path)
-        self.assertIsNotNone(by_exact)
-        self.assertEqual(by_exact["id"], saved["id"])
+        for query in ("OpenAI GPT-4o", "Z- OpenAI GPT-4o", "Z-OpenAI GPT-4o"):
+            with self.subTest(query=query):
+                by_name = zerochat.get_general_profile_by_name(query)
+                self.assertIsNotNone(by_name)
+                self.assertEqual(by_name["id"], saved["id"])
 
-        by_prefix_space = zerochat.get_general_profile_by_name("Z- OpenAI GPT-4o", db_path=self.db_path)
-        self.assertIsNotNone(by_prefix_space)
-        self.assertEqual(by_prefix_space["id"], saved["id"])
-
-        by_prefix_nospace = zerochat.get_general_profile_by_name("Z-OpenAI GPT-4o", db_path=self.db_path)
-        self.assertIsNotNone(by_prefix_nospace)
-        self.assertEqual(by_prefix_nospace["id"], saved["id"])
-
-        # Actualización de perfil
-        updated_sample = {**saved, "description": "Descripción actualizada"}
-        updated = zerochat.save_general_profile(updated_sample, self.db_path)
+        # Actualizar sin enviar apiKey conserva la existente; enviar "" la vacía
+        updated = zerochat.save_general_profile({**saved, "description": "Descripción actualizada", "settings": {"model": "gpt-4.1"}})
         self.assertEqual(updated["version"], 2)
         self.assertEqual(updated["description"], "Descripción actualizada")
+        self.assertEqual(updated["settings"]["apiKey"], "sk-secret-12345678")
 
-        # Borrado de perfil
-        deleted = zerochat.delete_general_profile(saved["id"], self.db_path)
-        self.assertTrue(deleted)
-        self.assertEqual(len(zerochat.list_general_profiles(db_path=self.db_path)), 0)
-        self.assertFalse(zerochat.delete_general_profile("inexistente", self.db_path))
+        cleared_key = zerochat.save_general_profile({**updated, "settings": {"model": "gpt-4.1", "apiKey": ""}})
+        self.assertEqual(cleared_key["settings"]["apiKey"], "")
 
-    def test_validacion_rechaza_nombres_vacios_o_duplicados(self):
+        self.assertTrue(zerochat.delete_general_profile(saved["id"]))
+        self.assertEqual(len(zerochat.list_general_profiles()), 0)
+        self.assertFalse(zerochat.delete_general_profile("inexistente"))
+
+    def test_validacion_bordes_duplicados_espejo_y_bloqueo(self):
+        # Borde exacto N y N+1 en nombre (128/129) y descripción (2048/2049)
+        max_name = "a" * zerochat.MAX_PROFILE_NAME_LENGTH
+        max_desc = "d" * zerochat.MAX_PROFILE_DESCRIPTION_LENGTH
+        saved_max = zerochat.save_general_profile({
+            "id": "profile:limites",
+            "name": max_name,
+            "description": max_desc,
+            "settings": {}
+        })
+        self.assertEqual(len(saved_max["name"]), zerochat.MAX_PROFILE_NAME_LENGTH)
+        self.assertEqual(len(saved_max["description"]), zerochat.MAX_PROFILE_DESCRIPTION_LENGTH)
+
+        for label, bad_payload in (
+            ("empty_name", {"name": "  ", "settings": {}}),
+            ("name_N+1", {"name": "a" * (zerochat.MAX_PROFILE_NAME_LENGTH + 1), "settings": {}}),
+            ("desc_N+1", {"name": "Valido", "description": "d" * (zerochat.MAX_PROFILE_DESCRIPTION_LENGTH + 1), "settings": {}}),
+            ("mirror_name", {"name": "Espejo", "settings": {}}),
+            ("mirror_id", {"id": "profile:mirror", "name": "Otro", "settings": {}}),
+            ("duplicate_name", {"id": "profile:otro", "name": max_name, "settings": {}}),
+        ):
+            with self.subTest(case=label):
+                with self.assertRaises(ValueError):
+                    zerochat.save_general_profile(bad_payload)
+
+        # Un perfil bloqueado no admite cambios pero puede borrarse
+        locked = zerochat.save_general_profile({
+            "id": "profile:locked",
+            "name": "Bloqueado",
+            "settings": {"apiKey": "sk-lock", "apiKeyLocked": True}
+        })
         with self.assertRaises(ValueError):
-            zerochat.save_general_profile({"name": "  "}, self.db_path)
-
-        zerochat.save_general_profile({"name": "Unico", "settings": {}}, self.db_path)
-        with self.assertRaises(ValueError):
-            zerochat.save_general_profile({"name": "Unico", "id": "profile:distinto", "settings": {}}, self.db_path)
-
-    def test_live_state_incluye_profiles_revision(self):
-        state = zerochat.live_state()
-        self.assertIn("profiles_revision", state)
-        self.assertIsInstance(state["profiles_revision"], int)
+            zerochat.save_general_profile({**locked, "description": "Intento de cambio"})
+        self.assertTrue(zerochat.delete_general_profile(locked["id"]))
 
     def test_rpc_dispatch_profiles_crud(self):
         handler = object.__new__(zerochat.ZeroChatServerHandler)
 
-        # 1. Save vía RPC
         payload = {
-            "name": "Z-Claude Sonnet",
+            "name": "Claude Sonnet",
             "description": "Perfil general via RPC",
             "settings": {"apiUrl": "https://api.anthropic.com/v1", "model": "claude-3-5-sonnet", "apiKey": "sk-ant-test"}
         }
         res, err, _ = handler._dispatch_profiles("zerochat/profiles/save", {"profile": payload})
         self.assertIsNone(err)
-        self.assertEqual(res["profile"]["name"], "Z-Claude Sonnet")
+        self.assertEqual(res["profile"]["name"], "Claude Sonnet")
         prof_id = res["profile"]["id"]
 
-        # 2. List vía RPC sin secretos por defecto
         res, err, _ = handler._dispatch_profiles("zerochat/profiles/list", {})
         self.assertIsNone(err)
         self.assertEqual(len(res["profiles"]), 1)
-        self.assertIsNone(res["profiles"][0]["settings"]["apiKey"])
-        self.assertTrue(res["profiles"][0]["settings"]["hasApiKey"])
+        self.assertEqual(res["profiles"][0]["settings"]["apiKey"], "sk-ant-test")
 
-        # 3. Get vía RPC con secretos
-        res, err, _ = handler._dispatch_profiles("zerochat/profiles/get", {"id": prof_id})
-        self.assertIsNone(err)
-        self.assertEqual(res["profile"]["settings"]["apiKey"], "sk-ant-test")
-
-        # 4. Delete vía RPC
         res, err, _ = handler._dispatch_profiles("zerochat/profiles/delete", {"id": prof_id})
         self.assertIsNone(err)
         self.assertTrue(res["deleted"])
 
-        # 5. Get no encontrado
-        _, err, _ = handler._dispatch_profiles("zerochat/profiles/get", {"id": "no-existe"})
-        self.assertIsNotNone(err)
-        self.assertEqual(err["code"], -32602)
-
     def test_cli_resolucion_perfiles_desde_sqlite(self):
-        # Guardamos un perfil general en SQLite
-        zerochat.save_general_profile({
-            "name": "Z- DeepSeek",
-            "settings": {"apiUrl": "https://api.deepseek.com", "model": "deepseek-chat", "apiKey": "sk-ds-key"}
-        }, self.db_path)
-
         parser = zerochat.build_parser()
+        # Sin --profile y sin Z-local guardado en SQLite, falla con RUN_EXIT_ARGS (4).
+        with self.assertRaises(SystemExit) as missing_default:
+            zerochat.run_session_from_args(parser, parser.parse_args(["--prompt", "Hola"]))
+        self.assertEqual(missing_default.exception.code, zerochat.RUN_EXIT_ARGS)
 
-        # Búsqueda tolerante sin Z-
-        args = parser.parse_args(["--prompt", "Hola", "--profile", "DeepSeek"])
-        session = zerochat.run_session_from_args(parser, args)
-        self.assertIsNotNone(session)
-        self.assertEqual(session.profile, "Z- DeepSeek")
-        self.assertIsNotNone(session.profile_record)
-        self.assertEqual(session.profile_record["settings"]["apiKey"], "sk-ds-key")
+        zerochat.save_general_profile({
+            "name": "DeepSeek",
+            "settings": {"apiUrl": "https://api.deepseek.com", "model": "deepseek-chat", "apiKey": "sk-ds-key"}
+        })
+        zerochat.save_general_profile({
+            "name": "Z-local",
+            "settings": {"apiUrl": "http://localhost:1234/v1", "model": "local-model"}
+        })
 
-        # Búsqueda con perfil no existente en backend (fallback como string para el navegador)
+        default_session = zerochat.run_session_from_args(parser, parser.parse_args(["--prompt", "Hola"]))
+        self.assertEqual(default_session.profile, "Z-local")
+
+        for arg in ("DeepSeek", "Z- DeepSeek"):
+            with self.subTest(arg=arg):
+                args = parser.parse_args(["--prompt", "Hola", "--profile", arg])
+                session = zerochat.run_session_from_args(parser, args)
+                self.assertIsNotNone(session)
+                self.assertEqual(session.profile, "DeepSeek")
+
         args_unknown = parser.parse_args(["--prompt", "Hola", "--profile", "Desconocido"])
         session_unknown = zerochat.run_session_from_args(parser, args_unknown)
         self.assertEqual(session_unknown.profile, "Desconocido")
-        self.assertIsNone(session_unknown.profile_record)

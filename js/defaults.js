@@ -40,19 +40,23 @@
   /** Motores propios de Playwright y navegadores del usuario que maneja su extensión. */
   const PLAYWRIGHT_ENGINES = Object.freeze(['chromium', 'firefox', 'webkit']);
   const USER_BROWSERS = Object.freeze(['chrome', 'msedge', 'chromium']);
+  const PLAYWRIGHT_STORAGE_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
   /**
-   * Navegador que exige un perfil para Playwright MCP: el propio con un motor, y `headless: false`
-   * si exige la ventana visible, o el del usuario con uno de sus navegadores. El resto de la
-   * configuración es la de Ajustes › Navegador.
+   * Navegador que exige un perfil para Playwright MCP: el propio con un motor (y opcionalmente
+   * `headless: false` si exige la ventana visible y `storage` para guardar datos en disco), o el del
+   * usuario con uno de sus navegadores. El resto de la configuración es la de Ajustes › Navegador.
    */
   function isPlaywrightBrowser(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-    const keys = Object.keys(value).sort().join(',');
+    const keys = Object.keys(value);
     if (value.mode === 'own') {
-      return (keys === 'engine,mode' || (keys === 'engine,headless,mode' && value.headless === false)) && PLAYWRIGHT_ENGINES.includes(value.engine);
+      return PLAYWRIGHT_ENGINES.includes(value.engine)
+        && keys.every(key => ['mode', 'engine', 'headless', 'storage'].includes(key))
+        && (value.headless === undefined || value.headless === false)
+        && (value.storage === undefined || (typeof value.storage === 'string' && PLAYWRIGHT_STORAGE_PATTERN.test(value.storage)));
     }
-    if (value.mode === 'user') return keys === 'mode,userBrowser' && USER_BROWSERS.includes(value.userBrowser);
+    if (value.mode === 'user') return keys.sort().join(',') === 'mode,userBrowser' && USER_BROWSERS.includes(value.userBrowser);
     return false;
   }
 
@@ -85,6 +89,7 @@
     BROWSER_TOOLS,
     PLAYWRIGHT_ENGINES,
     USER_BROWSERS,
+    PLAYWRIGHT_STORAGE_PATTERN,
     isPlaywrightBrowser,
     DEFAULT_THEME,
     DEFAULT_SYSTEM_DATA_PROMPT,

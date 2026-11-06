@@ -408,7 +408,10 @@
       return;
     }
     try {
-      const savedProfile = Profiles.save({ ...profile, settings: { ...profile.settings, contextLimitOverride } });
+      const nextRecord = { ...profile, settings: { ...profile.settings, contextLimitOverride } };
+      const savedProfile = profile.general
+        ? await MCP.manager.saveGeneralProfile(nextRecord)
+        : Profiles.save(nextRecord);
       UIProfiles.activateConnectionProfile(savedProfile.id);
       updateConnectionTokensBadge(null, { forcePopover: true });
     } catch (error) {

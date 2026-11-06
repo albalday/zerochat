@@ -29,7 +29,7 @@ from pathlib import Path
 url = sys.argv[-1]
 fragment = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).fragment))
 scenario = os.environ["FAKE_UI_SCENARIO"]
-info = {"url": url.split("#", 1)[0], "fragment_keys": sorted(fragment)}
+info = {"url": url.split("#", 1)[0], "fragment_keys": sorted(fragment), "launcher": Path(sys.argv[0]).name, "args": sys.argv[1:-1]}
 
 def rpc(method, run_id=fragment["run"], **params):
     body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": {"run_id": run_id, **params}}).encode()
@@ -111,17 +111,57 @@ async function runZerochat(prompt, options = {}) {
   return portTaken ? launchZerochat(prompt, options) : run;
 }
 
-function launchZerochat(prompt, { scenario = 'ok', env = {}, port, args = [], production = false } = {}) {
+const pythonBin = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim();
+let templateDbPath = null;
+
+function ensureTemplateDb() {
+  if (templateDbPath) return templateDbPath;
+  const dir = tempDir('zerochat-run-template-db-');
+  execFileSync('python3', ['-c', `
+import os, sys, importlib.util
+os.environ["ZEROCHAT_DATA_DIR"] = sys.argv[1]
+spec = importlib.util.spec_from_file_location("zerochat", sys.argv[2])
+mod = importlib.util.module_from_spec(spec)
+sys.modules["zerochat"] = mod
+spec.loader.exec_module(mod)
+mod.save_general_profile({"name": "Z-local", "settings": {"apiType": "openai", "model": "local-default"}})
+`, dir, backendPath]);
+  templateDbPath = path.join(dir, 'storage', 'zerochat.db');
+  return templateDbPath;
+}
+
+function launchZerochat(prompt, { scenario = 'ok', env = {}, port, args = [], production = false, seedDefaultProfile = true, withPlaywright = true } = {}) {
   const work = tempDir('zerochat-run-');
   let script = backendPath;
   if (production) {
     script = path.join(work, 'zerochat.py');
     fs.copyFileSync(backendPath, script);
   }
+  const dataDir = tokenDataDir('run-mode-token-0123456789');
+  if (seedDefaultProfile) {
+    const storageDir = path.join(dataDir, 'storage');
+    fs.mkdirSync(storageDir, { mode: 0o700 });
+    fs.copyFileSync(ensureTemplateDb(), path.join(storageDir, 'zerochat.db'));
+    fs.chmodSync(path.join(storageDir, 'zerochat.db'), 0o600);
+  }
   const binDir = path.join(work, 'bin');
   fs.mkdirSync(binDir);
-  const python = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim();
-  fs.writeFileSync(path.join(binDir, 'xdg-open'), `#!${python}\n${FAKE_BROWSER}`, { mode: 0o755 });
+  for (const name of ['xdg-open', 'user-browser']) {
+    fs.writeFileSync(path.join(binDir, name), `#!${pythonBin}\n${FAKE_BROWSER}`, { mode: 0o755 });
+  }
+  fs.writeFileSync(path.join(binDir, 'xdg-settings'), '#!/bin/sh\necho "user-browser.desktop"\n', { mode: 0o755 });
+  const appsDir = path.join(work, 'share', 'applications');
+  fs.mkdirSync(appsDir, { recursive: true });
+  fs.writeFileSync(path.join(appsDir, 'user-browser.desktop'), '[Desktop Entry]\nExec=user-browser %u\n');
+
+  const pwCache = path.join(work, 'pw-cache');
+  fs.mkdirSync(pwCache);
+  if (withPlaywright) {
+    const shellDir = path.join(pwCache, 'chromium_headless_shell-1', 'chrome-headless-shell-linux64');
+    fs.mkdirSync(shellDir, { recursive: true });
+    fs.writeFileSync(path.join(pwCache, 'chromium_headless_shell-1', 'INSTALLATION_COMPLETE'), '');
+    fs.writeFileSync(path.join(shellDir, 'chrome-headless-shell'), `#!${pythonBin}\n${FAKE_BROWSER}`, { mode: 0o755 });
+  }
   const infoPath = path.join(work, 'info.json');
   return Promise.resolve(port === null ? null : port || freePort()).then(listenPort => new Promise(resolve => {
     const portArgs = listenPort === null ? [] : ['--port', String(listenPort)];
@@ -130,7 +170,9 @@ function launchZerochat(prompt, { scenario = 'ok', env = {}, port, args = [], pr
       env: {
         ...process.env,
         PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
-        ZEROCHAT_DATA_DIR: tokenDataDir('run-mode-token-0123456789'),
+        XDG_DATA_HOME: path.join(work, 'share'),
+        PLAYWRIGHT_BROWSERS_PATH: pwCache,
+        ZEROCHAT_DATA_DIR: dataDir,
         FAKE_UI_SCENARIO: scenario,
         FAKE_UI_INFO: infoPath,
         ...env
@@ -158,27 +200,44 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
   fs.mkdirSync(unwritable);
   try {
     const busyPort = String(busy.address().port);
-    const [ok, failed, unexported, idle, chatty, browserGone, emptyPrompt, portInUse, devDefaultInUse, productionDefaultInUse] = await Promise.all([
-      runZerochat('hola mundo', { args: ['--profile', ' Oficina ', '--log', 'on', '--export', exportPath, '--keep-page', '--allow-dangerous-tools'] }),
+    const [
+      ok, userHeadless, failed, unexported, idle, chatty, browserGone,
+      emptyPrompt, missingDefaultProfile, noPlaywright, portInUse, devDefaultInUse, devBrowserDefaultInUse, productionDefaultInUse
+    ] = await Promise.all([
+      runZerochat('hola mundo', { args: ['--browser', '--profile', ' Oficina ', '--log', 'on', '--export', exportPath, '--keep-page', '--allow-dangerous-tools'] }),
+      runZerochat('hola headless', { args: ['--browser', '--headless'] }),
       runZerochat('hola', { scenario: 'error' }),
       runZerochat('hola', { args: ['--export', unwritable] }),
       runZerochat('hola', { scenario: 'idle', env: { ZEROCHAT_RUN_IDLE_SECONDS: '1' } }),
       runZerochat('hola', { scenario: 'chatty', env: { ZEROCHAT_RUN_IDLE_SECONDS: '1', ZEROCHAT_RUN_TIMEOUT: '2' } }),
       runZerochat('hola', { scenario: 'exit', env: { ZEROCHAT_HEARTBEAT_TIMEOUT: '1' } }),
       runZerochat('   '),
+      runZerochat('hola', { seedDefaultProfile: false }),
+      runZerochat('hola', { withPlaywright: false }),
       runZerochat('hola', { port: busy.address().port }),
-      // Sin --port, el puerto por defecto (aquí ZEROCHAT_PORT) ocupado.
+      // Sin --port, el puerto por defecto (aquí ZEROCHAT_PORT) ocupado: sin --browser usa un puerto libre incluso en desarrollo.
       runZerochat('hola', { port: null, env: { ZEROCHAT_PORT: busyPort } }),
+      runZerochat('hola', { port: null, args: ['--browser'], env: { ZEROCHAT_PORT: busyPort } }),
       runZerochat('hola', { port: null, env: { ZEROCHAT_PORT: busyPort }, production: true })
     ]);
 
     assert.equal(ok.code, 0, ok.stderr);
     assert.equal(ok.stdout, 'Respuesta a: hola mundo\n');
+    // Con --browser sin --headless abre el navegador del usuario en modo visible (xdg-open).
+    assert.equal(ok.info.launcher, 'xdg-open');
+    assert.deepEqual(ok.info.args, []);
+    // Con --browser --headless abre el navegador predeterminado del usuario con --headless.
+    assert.equal(userHeadless.code, 0, userHeadless.stderr);
+    assert.equal(userHeadless.info.launcher, 'user-browser');
+    assert.deepEqual(userHeadless.info.args, ['--headless']);
+    // Por defecto (sin --browser) usa el Chromium de Playwright en modo headless y el perfil Z-local.
+    assert.equal(failed.info.launcher, 'chrome-headless-shell');
+    assert.deepEqual(failed.info.args, ['--headless']);
     // La interfaz es la del arranque normal (la local en desarrollo) con run= en el fragmento.
     assert.equal(ok.info.url, `http://127.0.0.1:${ok.port}/zerochat.html`);
     assert.deepEqual(ok.info.fragment_keys, ['host', 'port', 'run', 'token']);
     assert.equal(ok.info.profile, 'Oficina');
-    assert.equal(failed.info.profile, null, 'sin --profile la interfaz usa el perfil activo');
+    assert.equal(failed.info.profile, 'Z-local', 'sin --profile usa el perfil general Z-local del backend');
     assert.equal(ok.info.wrong_run_id, 'run_id no válido.');
     assert.equal(ok.info.second_prompt, 'El prompt ya se entregó.');
     assert.equal(ok.info.bad_result, 'El resultado lleva text o error.');
@@ -221,13 +280,21 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
 
     assert.equal(emptyPrompt.code, 4, emptyPrompt.stderr);
     assert.match(emptyPrompt.stderr, /error: el prompt está vacío/);
+    assert.equal(missingDefaultProfile.code, 4, missingDefaultProfile.stderr);
+    assert.match(missingDefaultProfile.stderr, /no existe el perfil general por defecto 'Z-local'/);
+    assert.equal(noPlaywright.code, 3, noPlaywright.stderr);
+    assert.match(noPlaywright.stderr, /No se pudo abrir el Chromium de Playwright/);
     assert.equal(portInUse.code, 3, portInUse.stderr);
     assert.match(portInUse.stderr, /No se pudo escuchar/);
     assert.equal(portInUse.info, null);
-    // Sin --port: en desarrollo es un fallo de arranque; en producción la ejecución usa un puerto libre.
-    assert.equal(devDefaultInUse.code, 3, devDefaultInUse.stderr);
-    assert.match(devDefaultInUse.stderr, /en desarrollo la interfaz local necesita ese puerto/);
-    assert.equal(devDefaultInUse.info, null);
+    // Sin --port: sin --browser usa un puerto libre también en desarrollo; con --browser en desarrollo es fallo de arranque.
+    assert.equal(devDefaultInUse.code, 0, devDefaultInUse.stderr);
+    assert.equal(devDefaultInUse.stdout, 'Respuesta a: hola\n');
+    assert.match(devDefaultInUse.info.url, /^http:\/\/127\.0\.0\.1:\d+\/zerochat\.html$/);
+    assert.notEqual(devDefaultInUse.info.url, `http://127.0.0.1:${busyPort}/zerochat.html`);
+    assert.equal(devBrowserDefaultInUse.code, 3, devBrowserDefaultInUse.stderr);
+    assert.match(devBrowserDefaultInUse.stderr, /en desarrollo la interfaz local necesita ese puerto/);
+    assert.equal(devBrowserDefaultInUse.info, null);
     assert.equal(productionDefaultInUse.code, 0, productionDefaultInUse.stderr);
     assert.equal(productionDefaultInUse.stdout, 'Respuesta a: hola\n');
     assert.equal(productionDefaultInUse.info.url, 'https://albalday.github.io/zerochat/zerochat.html');

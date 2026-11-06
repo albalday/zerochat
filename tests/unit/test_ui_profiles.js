@@ -75,5 +75,5 @@ test('UIProfiles - formatProfileDisplayName añade el prefijo Z- solo a perfiles
   assert.equal(UIProfiles.formatProfileDisplayName({ name: 'Mi Local' }), 'Mi Local');
   assert.equal(UIProfiles.formatProfileDisplayName({ name: 'OpenAI General', general: true }), 'Z- OpenAI General');
   assert.equal(UIProfiles.formatProfileDisplayName({ name: 'Z- OpenAI General', general: true }), 'Z- OpenAI General');
-  assert.equal(UIProfiles.formatProfileDisplayName({ name: 'Z-Claude', isGeneral: true }), 'Z-Claude');
+  assert.equal(UIProfiles.formatProfileDisplayName({ name: 'Z-Claude', general: true }), 'Z-Claude');
 });

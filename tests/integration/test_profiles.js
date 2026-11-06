@@ -93,10 +93,11 @@ test('ProfileRepository - el navegador que exige el perfil es el propio con un m
   const save = playwrightBrowser => Profiles.save({ id: 'browser', name: 'Navegador', settings: { playwrightBrowser } }).settings.playwrightBrowser;
   assert.equal(save(null), null);
   assert.deepEqual(save({ mode: 'own', engine: 'webkit' }), { mode: 'own', engine: 'webkit' });
-  assert.deepEqual(save({ mode: 'own', engine: 'webkit', headless: false }), { mode: 'own', engine: 'webkit', headless: false });
+  assert.deepEqual(save({ mode: 'own', engine: 'webkit', headless: false, storage: 'trabajo_1' }), { mode: 'own', engine: 'webkit', headless: false, storage: 'trabajo_1' });
   assert.deepEqual(save({ userBrowser: 'msedge', mode: 'user' }), { userBrowser: 'msedge', mode: 'user' });
   for (const invalid of ['playwright', [], {}, { mode: 'own' }, { mode: 'own', engine: 'opera' }, { mode: 'user', userBrowser: 'firefox' },
-    { mode: 'user', engine: 'chromium' }, { mode: 'own', engine: 'chromium', headless: true }, { mode: 'user', userBrowser: 'chrome', headless: false }]) {
+    { mode: 'user', engine: 'chromium' }, { mode: 'own', engine: 'chromium', headless: true }, { mode: 'own', engine: 'chromium', storage: 'mal nombre' },
+    { mode: 'user', userBrowser: 'chrome', storage: 'trabajo' }, { mode: 'user', userBrowser: 'chrome', headless: false }]) {
     assert.throws(() => save(invalid), /browser the profile requires/, JSON.stringify(invalid));
   }
 });
@@ -265,7 +266,6 @@ test('ProfileRepository - gestiona perfiles generales del backend y los fusiona 
   const generalOnes = merged.filter(p => p.general === true);
   assert.equal(generalOnes.length, 2);
   assert.equal(generalOnes[0].name, 'OpenAI General');
-  assert.equal(generalOnes[0].isGeneral, true);
 
   // Recuperación por ID
   const found = repository.get('profile:general-openai');
@@ -273,10 +273,13 @@ test('ProfileRepository - gestiona perfiles generales del backend y los fusiona 
   assert.equal(found.name, 'OpenAI General');
   assert.equal(found.general, true);
 
-  // Recuperación por nombre
+  // Recuperación por nombre y filtrado por ámbito (permite copiar entre Local y General con igual nombre)
   const foundByName = repository.findByName('Claude General');
   assert.ok(foundByName);
   assert.equal(foundByName.id, 'profile:general-claude');
+  assert.equal(repository.findByName('Z- Claude General')?.id, 'profile:general-claude');
+  assert.equal(repository.findByName('Claude General', { general: true })?.id, 'profile:general-claude');
+  assert.equal(repository.findByName('Claude General', { general: false }), null);
 
   // Carga con load() no requiere contraseña ni descifrado AES
   const loaded = await repository.load('profile:general-openai');

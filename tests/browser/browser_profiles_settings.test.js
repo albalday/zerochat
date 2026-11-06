@@ -256,11 +256,13 @@ test('Browser UI - el capítulo Navegador del perfil exige Playwright MCP con un
     await page.check('input[name="profile-browser-required"]');
     const options = () => page.locator('#profile-browser-name option').evaluateAll(items => items.map(item => item.textContent));
     assert.deepEqual(await options(), ['Chromium', 'WebKit'], 'Solo los motores instalados');
-    // Con el navegador propio puede pedir la ventana visible, que se conserva al cambiar de motor.
+    // Con el navegador propio puede pedir almacenamiento persistente y la ventana visible, que se conservan al cambiar de motor.
+    await page.fill('#profile-browser-storage', '  trabajo_1  ');
     await page.check('input[name="profile-browser-show-window"]');
     await page.selectOption('#profile-browser-name', 'webkit');
     assert.equal(await page.isChecked('input[name="profile-browser-show-window"]'), true);
-    assert.equal(await page.textContent('#profile-summary-browser'), 'Playwright MCP · WebKit propio con ventana');
+    assert.equal(await page.inputValue('#profile-browser-storage'), 'trabajo_1');
+    assert.equal(await page.textContent('#profile-summary-browser'), 'Playwright MCP · WebKit propio (trabajo_1) con ventana');
     await page.check('input[name="profile-browser-mode"][value="user"]');
     assert.deepEqual(await options(), ['Microsoft Edge', 'Chromium'], 'Solo los navegadores detectados');
     await page.selectOption('#profile-browser-name', 'chromium');
@@ -461,12 +463,23 @@ test('Browser UI - los perfiles generales del backend se muestran con prefijo Z-
     await page.click('[data-profile-id="profile:general-gpt"]');
     assert.equal((await page.textContent('#active-profile-name')).trim(), 'Z- GPT 4o Server');
 
-    // En el editor de perfiles, el selector de ámbito refleja general
+    // En el editor de perfiles, el selector de ámbito refleja general y cambiarlo a local copia el perfil
     await page.click('#active-profile-trigger');
     await page.click('.header-profile-item:has([data-profile-id="profile:general-gpt"]) [data-profile-action="edit"]');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
     assert.equal(await page.inputValue('#setting-profile-scope'), 'general');
-    await page.click('#btn-close-profiles');
+    await page.selectOption('#setting-profile-scope', 'local');
+    await page.click('#btn-save-profile');
+    await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
+
+    // El perfil general original se mantiene y existe la copia local activada
+    assert.equal((await page.textContent('#active-profile-name')).trim(), 'GPT 4o Server');
+    const names = await page.evaluate(() => window.ChatProfileRepository.list().map(p => ({ name: p.name, general: Boolean(p.general) })));
+    assert.deepEqual(names, [
+      { name: 'Espejo', general: false },
+      { name: 'GPT 4o Server', general: false },
+      { name: 'GPT 4o Server', general: true }
+    ]);
   } finally {
     await browser.close();
   }

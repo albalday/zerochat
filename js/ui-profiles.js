@@ -117,8 +117,8 @@
   function formatProfileDisplayName(profile) {
     if (!profile) return '';
     const name = String(profile.name || '').trim();
-    if (profile.general || profile.isGeneral) {
-      return (name.startsWith('Z- ') || name.startsWith('Z-')) ? name : `Z- ${name}`;
+    if (profile.general) {
+      return name.startsWith('Z-') ? name : `Z- ${name}`;
     }
     return name;
   }
@@ -129,9 +129,7 @@
     els.profileSelectHelper.value = profileId || '';
     els.settingProfileName.value = profile?.name || '';
     els.settingProfileDescription.value = profile?.description || '';
-    if (els.settingProfileScope) {
-      els.settingProfileScope.value = (profile?.general || profile?.isGeneral) ? 'general' : 'local';
-    }
+    els.settingProfileScope.value = profile?.general ? 'general' : 'local';
   }
 
   function setProfileQueryState(ready) {
@@ -481,6 +479,11 @@
   function openProfileMenu() {
     renderProfileMenu();
     setProfileMenuOpen(true);
+    if (getMCP().manager.isProxyConnected()) {
+      getMCP().manager.syncGeneralProfiles().then(() => {
+        if (!els.activeProfilePopover.hidden) renderProfileMenu();
+      });
+    }
   }
 
   const closeProfileMenu = () => setProfileMenuOpen(false);
@@ -507,7 +510,14 @@
     const Profiles = getProfiles();
     const name = els.settingProfileName.value.trim();
     const selected = Profiles.get(selectedProfileId());
-    const decision = getSaveDecision(editor, { name, selected, sameName: Profiles.findByName(name) });
+    const isGeneral = els.settingProfileScope.value === 'general';
+    // Cambiar el ámbito (Local ↔ General) crea una copia en el destino sin sobreescribir el origen.
+    const targetSelected = Boolean(selected?.general) === isGeneral ? selected : null;
+    const decision = getSaveDecision(editor, {
+      name,
+      selected: targetSelected,
+      sameName: Profiles.findByName(name, { general: isGeneral })
+    });
     // Sin nada que guardar, Guardar cierra el panel como en el resto de paneles.
     if (decision.action !== 'save') {
       if (decision.action === 'error') showProfileFeedback(decision.message, 'error');
@@ -515,23 +525,25 @@
     }
 
     const settings = buildProfileSettings(selected?.settings || Profiles.NEW_PROFILE_SETTINGS, readProfileForm());
-    const isGeneral = els.settingProfileScope ? els.settingProfileScope.value === 'general' : false;
+    const targetId = targetSelected?.id || createId(isGeneral ? 'general' : 'profile');
     let saved;
     if (isGeneral) {
-      const profilePayload = {
-        id: selected?.id || createId('profile'),
+      if (!getMCP().manager.isProxyConnected()) {
+        showProfileFeedback(t('profile_mcp_disconnected'), 'error');
+        return false;
+      }
+      saved = await getMCP().manager.saveGeneralProfile({
+        id: targetId,
         name,
         description: els.settingProfileDescription.value.trim(),
-        general: true,
         settings: {
           ...settings,
           apiKey: settings.apiKey || ''
         }
-      };
-      saved = await getMCP().manager.saveGeneralProfile(profilePayload);
+      });
     } else {
       saved = await Profiles.saveEditable({
-        id: selected?.id || createId('profile'),
+        id: targetId,
         name,
         description: els.settingProfileDescription.value.trim(),
         settings
@@ -557,7 +569,11 @@
     const displayName = formatProfileDisplayName(profile);
     if (!await getDialogs().confirm(t('confirm_delete_profile', { name: displayName }))) return false;
     let ok = false;
-    if (profile.general || profile.isGeneral) {
+    if (profile.general) {
+      if (!getMCP().manager.isProxyConnected()) {
+        showProfileFeedback(t('profile_mcp_disconnected'), 'error');
+        return false;
+      }
       ok = await getMCP().manager.deleteGeneralProfile(profile.id);
     } else {
       ok = Profiles.remove(profile.id);
@@ -590,7 +606,7 @@
     const Profiles = getProfiles();
     const ProfileBackup = getProfileBackup();
     try {
-      const profiles = Profiles.list().filter(profile => profile.id !== Profiles.READONLY_PROFILE_ID);
+      const profiles = Profiles.list().filter(profile => profile.id !== Profiles.READONLY_PROFILE_ID && !profile.general);
       if (profiles.length === 0) {
         showProfileFeedback(t('err_no_profiles_to_export'), 'error');
         return;
@@ -763,6 +779,9 @@
     options.loadCachedModels();
     syncProfileSaveState();
     if (!els.profilesDialog.open) els.profilesDialog.showModal();
+    if (getMCP().manager.isProxyConnected()) {
+      getMCP().manager.syncGeneralProfiles();
+    }
   }
 
   /** Abre el editor vacío para un perfil nuevo: no hereda nombre, clave ni bloqueo del anterior. */

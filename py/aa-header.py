@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import base64
+import contextlib
 import ctypes
 import ctypes.util
 import dataclasses

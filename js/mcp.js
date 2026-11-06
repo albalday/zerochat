@@ -494,10 +494,11 @@
     }));
   }
 
-  /** El Playwright MCP en marcha usa otro navegador del que exige el perfil, o no muestra la ventana que pide. */
+  /** El Playwright MCP en marcha usa otro navegador o almacenamiento del que exige el perfil, o no muestra la ventana que pide. */
   function usesOtherBrowser(server, required) {
     return server.id === 'playwright' && Boolean(required) && McpStatus.isRunning(server.status)
       && (server.browser?.mode !== required.mode || server.browser.engine !== required.engine || server.browser.userBrowser !== required.userBrowser
+        || (server.browser.storage || '') !== (required.storage || '')
         || (required.headless === false && server.browser.headless !== false));
   }
 
@@ -584,14 +585,6 @@
         this.liveServers = JSON.stringify(payload.servers);
         next.externalServers = payload.servers;
         running = payload.servers.filter(server => McpStatus.isRunning(server?.status)).map(server => `${server.id}:${server.toolCount}`).join();
-      }
-      if (Number.isInteger(payload.profiles_revision)) {
-        if (this.liveProfilesRevision !== null && payload.profiles_revision !== this.liveProfilesRevision) {
-          this.liveProfilesRevision = payload.profiles_revision;
-          await this.syncGeneralProfiles();
-        } else {
-          this.liveProfilesRevision = payload.profiles_revision;
-        }
       }
       if (Object.keys(next).length === 0) return false;
       State.set('mcp', next);
@@ -714,7 +707,6 @@
       // initialize trae los servicios externos y el resto del estado vivo.
       this.liveServers = null;
       this.liveRunning = null;
-      this.liveProfilesRevision = null;
       await this.applyLiveState(probe.liveState);
       await this.syncGeneralProfiles();
       return { success: true, available: true, probe, tools };
@@ -726,7 +718,6 @@
     async disconnectProxy() {
       this.dropClient(PROXY_ID);
       this.dropClient(EXTERNAL_ID);
-      this.liveProfilesRevision = null;
       getProfiles().clearGeneralProfiles();
       getState().set('mcp', { status: 'disconnected', latencyMs: null, error: null, ...LIVE_RESET });
       return { success: true };
@@ -871,9 +862,16 @@
       const client = this.clients.get(PROXY_ID);
       if (!client) return [];
       try {
-        const result = await client.request('zerochat/profiles/list', { includeSecrets: true });
+        const result = await client.request('zerochat/profiles/list', {});
         const profiles = Array.isArray(result?.profiles) ? result.profiles : [];
-        getProfiles().setGeneralProfiles(profiles);
+        const Profiles = getProfiles();
+        Profiles.setGeneralProfiles(profiles);
+        const Config = getConfig();
+        const active = Config.getActive().activeProfile;
+        if (active?.general) {
+          if (Profiles.get(active.id)) Config.activateProfile(active.id);
+          else Config.activateFallbackProfile();
+        }
         return profiles;
       } catch (err) {
         console.warn('[ChatMCP] Could not fetch general profiles:', err);

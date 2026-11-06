@@ -16,6 +16,8 @@ RUN_EXIT_TIMEOUT = 2
 RUN_EXIT_SETUP = 3
 # Argumentos no válidos, en cualquier modo: argparse usaría 2, que con --prompt es plazo agotado.
 RUN_EXIT_ARGS = 4
+# Perfil general por defecto de --prompt cuando no se indica --profile.
+DEFAULT_RUN_PROFILE = "Z-local"
 # Formato de --export según la extensión del fichero; la interfaz genera el contenido con ChatExport.
 RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json", ".html": "html"}
 # Cuerpo HTTP admitido mientras se espera la exportación: el JSON y el HTML llevan las imágenes incrustadas.
@@ -28,9 +30,8 @@ class RunSession:
                  allow_dangerous_tools: bool = False):
         self.run_id = secrets.token_urlsafe(24)
         self.prompt = prompt
-        # Perfil (nombre o id) que la interfaz usa solo en esta ejecución; None, el activo.
+        # Perfil (nombre o id) que la interfaz usa solo en esta ejecución; por defecto, Z-local del servidor.
         self.profile = profile
-        self.profile_record = get_general_profile_by_name(profile) or get_general_profile(profile) if profile else None
         # Fichero donde se escribe la conversación exportada (formato por su extensión); None, sin exportar.
         self.export_path = export_path
         self.exported = False
@@ -82,7 +83,7 @@ def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, s
             session.prompt_delivered = True
         session.touch()
         export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
-        return {"prompt": session.prompt, "profile": session.profile, "profile_data": session.profile_record, "export": export_format, "keep_page": session.keep_page,
+        return {"prompt": session.prompt, "profile": session.profile, "export": export_format, "keep_page": session.keep_page,
                 "allow_dangerous_tools": session.allow_dangerous_tools}, None, ""
     if method == "zerochat/run/progress":
         kind = params.get("kind")
@@ -124,13 +125,15 @@ def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, s
     return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
 
-def run_supervisor(server: ThreadingHTTPServer, session: RunSession):
-    """Detiene el servidor al recibir el resultado o al agotar el plazo total o el de inactividad."""
+def run_supervisor(server: ThreadingHTTPServer, session: RunSession, browser_proc: subprocess.Popen | None = None):
+    """Detiene el servidor al recibir el resultado, si termina el navegador propio o al agotar los plazos."""
     deadline = time.monotonic() + RUN_TOTAL_TIMEOUT
     while not session.finished.wait(RUN_POLL_SECONDS):
         # El latido o una señal ya detienen el servidor: el resultado queda vacío.
         if _SERVER_SHUTTING_DOWN.is_set():
             return
+        if browser_proc is not None and browser_proc.poll() is not None and not session.finished.wait(0.2):
+            break
         if time.monotonic() >= deadline:
             session.stop_reason = f"Plazo total agotado ({RUN_TOTAL_TIMEOUT:.0f}s)."
             break

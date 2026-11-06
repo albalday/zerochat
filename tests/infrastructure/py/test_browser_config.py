@@ -61,15 +61,13 @@ class PlaywrightLaunchTest(unittest.TestCase):
         self.launched_env = constructor.call_args.args[3]
         return constructor.call_args.args[1][1:]
 
-    def own_args(self, engine):
-        return [f"--browser={engine}", f"--user-data-dir={self.own / engine}"]
+    def own_args(self, engine, storage=None):
+        return [f"--browser={engine}", f"--user-data-dir={self.own / engine / storage}" if storage else "--isolated"]
 
-    def test_sin_configuracion_valida_se_usa_el_navegador_propio_sin_ventana(self):
+    def test_sin_configuracion_valida_se_usa_el_navegador_propio_aislado_sin_ventana(self):
         default_args = [*self.own_args("chromium"), "--headless"]
         self.assertEqual(self.launch_args(None), default_args)
-        for directory in (self.own.parent, self.own, self.own / "chromium"):
-            with self.subTest(directory=directory):
-                self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
+        self.assertFalse(self.own.exists(), "en modo aislado no se crea carpeta de perfil en disco")
         self.assertEqual(self.launch_args("{roto"), default_args)
         self.assertEqual(self.launch_args({"mode": "own", "engine": "opera"}), default_args)
         self.assertEqual(self.launch_args({"mode": "own", "engine": "firefox", "headless": False}), self.own_args("firefox"))
@@ -83,7 +81,7 @@ class PlaywrightLaunchTest(unittest.TestCase):
         with patch.object(zerochat, "chromium_install", return_value=None), self.assertRaisesRegex(RuntimeError, "Chromium"):
             zerochat.playwright_launch_args({**zerochat.BROWSER_CONFIG_DEFAULTS, "mode": "user", "userBrowser": "chromium"})
 
-    def test_el_navegador_del_perfil_sustituye_en_ese_arranque_solo_modo_navegador_y_ventana_pedida(self):
+    def test_el_navegador_del_perfil_sustituye_en_ese_arranque_modo_navegador_almacenamiento_y_ventana_pedida(self):
         settings = {"mode": "own", "engine": "firefox", "headless": False, "extensionToken": "abc"}
         self.assertEqual(self.launch_args(settings, {"mode": "user", "userBrowser": "msedge"}), ["--extension", "--browser=msedge"])
         self.assertEqual(self.launched_env["PLAYWRIGHT_MCP_EXTENSION_TOKEN"], "abc")
@@ -92,14 +90,18 @@ class PlaywrightLaunchTest(unittest.TestCase):
         self.assertEqual(self.launch_args(settings), self.own_args("firefox"))
         self.assertEqual(self.manager.records["playwright"].browser, {"mode": "own", "engine": "firefox", "headless": False})
         headless = {**settings, "headless": True}
-        self.assertEqual(self.launch_args(headless, {"mode": "own", "engine": "webkit", "headless": False}), self.own_args("webkit"))
-        self.assertEqual(self.manager.records["playwright"].browser, {"mode": "own", "engine": "webkit", "headless": False})
+        self.assertEqual(self.launch_args(headless, {"mode": "own", "engine": "webkit", "headless": False, "storage": "trabajo"}), self.own_args("webkit", "trabajo"))
+        self.assertEqual(self.manager.records["playwright"].browser, {"mode": "own", "engine": "webkit", "headless": False, "storage": "trabajo"})
+        for directory in (self.own.parent, self.own, self.own / "webkit", self.own / "webkit" / "trabajo"):
+            with self.subTest(directory=directory):
+                self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
         self.assertEqual(self.launch_args(headless, {"mode": "own", "engine": "webkit"})[-1], "--headless")
         self.assertEqual(self.manager.records["playwright"].browser, {"mode": "own", "engine": "webkit"})
 
     def test_el_navegador_de_un_perfil_se_valida(self):
         for invalid in (None, [], {"mode": "own"}, {"mode": "own", "engine": "opera"}, {"mode": "user", "userBrowser": "firefox"},
                         {"mode": "own", "engine": "chromium", "headless": True}, {"mode": "user", "userBrowser": "chrome", "headless": False},
+                        {"mode": "user", "userBrowser": "chrome", "storage": "trabajo"}, {"mode": "own", "engine": "chromium", "storage": 123},
                         {"mode": "user", "engine": "chromium"}):
             with self.subTest(browser=invalid), self.assertRaisesRegex(ValueError, "browser debe ser"):
                 zerochat.validate_profile_browser(invalid)
@@ -138,6 +140,12 @@ class PlaywrightLaunchTest(unittest.TestCase):
         for token in CONTRACT["extensionTokens"]["invalid"]:
             with self.subTest(token=token), self.assertRaisesRegex(ValueError, "extensionToken"):
                 zerochat.validate_browser_config({"extensionToken": token})
+        for storage in CONTRACT["storageNames"]["valid"]:
+            with self.subTest(storage=storage):
+                self.assertEqual(zerochat.validate_profile_browser({"mode": "own", "engine": "chromium", "storage": storage})["storage"], storage)
+        for storage in CONTRACT["storageNames"]["invalid"]:
+            with self.subTest(storage=storage), self.assertRaisesRegex(ValueError, "browser debe ser"):
+                zerochat.validate_profile_browser({"mode": "own", "engine": "chromium", "storage": storage})
 
     def test_borrar_los_datos_quita_solo_el_perfil_de_ese_motor_con_playwright_detenido(self):
         for engine in ("chromium", "firefox", "webkit"):
