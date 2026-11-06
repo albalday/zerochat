@@ -104,3 +104,4 @@ Done when: general profiles are persisted in ~/zerochat/storage/zerochat.db (060
 - [x] M45-T11 Allow --prompt without --browser to fall back to a free port when the default port is busy in local development in py/zz-main.py, help/run-mode.html, help/en/run-mode.html and infrastructure tests (2026-11-06)
 - [x] M45-T12 Default Playwright MCP own browser to --isolated and support optional named persistent storage in py/ee-browser-config.py, js/defaults.js, js/mcp.js, js/ui-browser.js and js/i18n.js with unit, integration, infrastructure and browser tests (2026-11-06)
 - [x] M45-T13 Update documentation in py/README.md, help/browser-action.html, help/en/browser-action.html, help/profiles.html and help/en/profiles.html for isolated Playwright MCP default and named storage (2026-11-06)
+- [x] M45-T14 Establish MCP parallel execution standards in services/ejemplo/README.md and review parallel capabilities of bundled services (2026-11-06)
