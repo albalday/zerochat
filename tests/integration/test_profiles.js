@@ -233,3 +233,57 @@ test('ProfileExportBundle - desde file:// abre zerochat.html con una ruta relati
   assert.match(generateBundle(undefined, 'file:///home/user/zerochat/zerochat.html'), /const TARGET_URL = "zerochat\.html"/);
 });
 
+// --- Perfiles generales del backend (Z-) ---
+
+test('ProfileRepository - gestiona perfiles generales del backend y los fusiona en list()', async () => {
+  const repository = Profiles;
+  repository.clearGeneralProfiles();
+
+  // Al inicio solo Espejo
+  assert.equal(repository.list().length, 1);
+
+  // Cargamos perfiles generales traídos del backend
+  const backendProfiles = [
+    {
+      id: 'profile:general-openai',
+      name: 'OpenAI General',
+      description: 'Desde backend',
+      settings: { apiType: 'openai', model: 'gpt-4o', apiKey: 'sk-backend-secret' }
+    },
+    {
+      id: 'profile:general-claude',
+      name: 'Claude General',
+      description: 'Desde backend',
+      settings: { apiType: 'anthropic', model: 'claude-3-5-sonnet', apiKey: 'sk-ant-key' }
+    }
+  ];
+
+  repository.setGeneralProfiles(backendProfiles);
+
+  const merged = repository.list();
+  assert.equal(merged.length, 3);
+  const generalOnes = merged.filter(p => p.general === true);
+  assert.equal(generalOnes.length, 2);
+  assert.equal(generalOnes[0].name, 'OpenAI General');
+  assert.equal(generalOnes[0].isGeneral, true);
+
+  // Recuperación por ID
+  const found = repository.get('profile:general-openai');
+  assert.ok(found);
+  assert.equal(found.name, 'OpenAI General');
+  assert.equal(found.general, true);
+
+  // Recuperación por nombre
+  const foundByName = repository.findByName('Claude General');
+  assert.ok(foundByName);
+  assert.equal(foundByName.id, 'profile:general-claude');
+
+  // Carga con load() no requiere contraseña ni descifrado AES
+  const loaded = await repository.load('profile:general-openai');
+  assert.equal(loaded.settings.apiKey, 'sk-backend-secret');
+
+  // Limpieza al desconectar
+  repository.clearGeneralProfiles();
+  assert.equal(repository.list().length, 1);
+});
+

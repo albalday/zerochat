@@ -93,6 +93,6 @@ Goal: zerochat.py stores general connection profiles locally in an extensible SQ
 Done when: general profiles are persisted in ~/zerochat/storage/zerochat.db (0600), queried/managed by zerochat.py and CLI, fetched by the web client on connection, displayed with Z- prefix in active profile and selector, editable/creatable in the profile dialog, and passing test:infrastructure, test:unit, test:integration, and test:browser.
 - [x] M45-T1 Backend SQLite storage engine in py/ee-storage.py for general connection profiles with 0700/0600 permissions, schema migrations and infrastructure tests (2026-11-06)
 - [x] M45-T2 JSON-RPC endpoints for general profile CRUD in py/ff-server.py and profiles_revision in live_state with infrastructure tests (2026-11-06)
-- [ ] M45-T3 Frontend repository and sync in js/profile-repository.js and js/mcp.js: load general profiles on backend connection and heartbeat with integration tests
+- [x] M45-T3 Frontend repository and sync in js/profile-repository.js and js/mcp.js: load general profiles on backend connection and heartbeat with integration tests (2026-11-06)
 - [ ] M45-T4 Unified presentation and maintenance in js/ui-profiles.js: Z- prefix in active profile and selector, Local vs General scope selection in editor with browser tests
 - [ ] M45-T5 CLI --profile resolution in py/zz-main.py and py/ii-run-mode.py using backend storage directly without browser dependency

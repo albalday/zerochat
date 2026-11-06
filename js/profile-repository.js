@@ -59,13 +59,17 @@
     return ids;
   }
 
-  function normalizeSettings(source = {}) {
+  function normalizeSettings(source = {}, isGeneral = false) {
     if (!source || typeof source !== 'object' || Array.isArray(source)) throw new Error('The profile data is not valid.');
     const settings = {};
     STORAGE_PROFILE_FIELDS.forEach(key => {
       if (key === 'apiKey') {
         if (source[key] === '' || source[key] === null || source[key] === undefined) {
           settings.apiKey = null;
+          return;
+        }
+        if (typeof source[key] === 'string' && (isGeneral || source.general || source.isGeneral)) {
+          settings.apiKey = source[key];
           return;
         }
         Backup.validateApiKeySecret(source[key]);
@@ -85,14 +89,17 @@
   function normalizeRecord(record = {}) {
     const name = String(record.name || '').trim();
     if (!name) throw new Error('The profile name cannot be empty.');
+    const isGeneral = Boolean(record.general || record.isGeneral);
     return {
       id: String(record.id || createId(name)),
       name,
       description: String(record.description || '').trim(),
+      general: isGeneral,
+      isGeneral,
       schemaVersion: SCHEMA_VERSION,
       version: Number.isInteger(record.version) && record.version > 0 ? record.version : 1,
       updatedAt: Number(record.updatedAt) || Date.now(),
-      settings: normalizeSettings(record.settings || record)
+      settings: normalizeSettings(record.settings || record, isGeneral)
     };
   }
 
@@ -130,8 +137,31 @@
     return clone(document);
   }
 
+  let generalProfiles = [];
+
+  function setGeneralProfiles(records) {
+    if (!Array.isArray(records)) {
+      generalProfiles = [];
+      return;
+    }
+    generalProfiles = records.map(rec => normalizeRecord({ ...rec, general: true }));
+  }
+
+  function clearGeneralProfiles() {
+    generalProfiles = [];
+  }
+
   function list() {
-    return initialize().profiles;
+    const locals = initialize().profiles;
+    if (generalProfiles.length === 0) return locals;
+    const localIds = new Set(locals.map(p => p.id));
+    const merged = [...locals];
+    for (const profile of generalProfiles) {
+      if (!localIds.has(profile.id) && profile.id !== READONLY_PROFILE_ID) {
+        merged.push(clone(profile));
+      }
+    }
+    return merged;
   }
 
   function get(id) {
@@ -142,13 +172,21 @@
   async function load(id, keyMaterial = null) {
     const profile = get(id);
     if (!profile) return null;
-    const secret = profile.settings.apiKey;
-    if (secret) {
-      profile.settings.apiKey = await Backup.decryptApiKey(secret, keyMaterial || undefined);
-    } else {
-      profile.settings.apiKey = '';
+    const cloned = clone(profile);
+    if (cloned.general) {
+      cloned.settings = cloned.settings || {};
+      if (typeof cloned.settings.apiKey !== 'string') {
+        cloned.settings.apiKey = '';
+      }
+      return cloned;
     }
-    return profile;
+    const secret = cloned.settings.apiKey;
+    if (secret) {
+      cloned.settings.apiKey = await Backup.decryptApiKey(secret, keyMaterial || undefined);
+    } else {
+      cloned.settings.apiKey = '';
+    }
+    return cloned;
   }
 
   // La interfaz de perfiles fija al montarse cómo pedir la contraseña de cifrado actual; sin ella,
@@ -262,6 +300,7 @@
 
   return {
     STORAGE_KEY, SCHEMA_VERSION, PROFILE_FIELDS, MAX_PROFILE_MCP_SERVERS, STORAGE_PROFILE_FIELDS, READONLY_PROFILE_ID, MIRROR_PROFILE: clone(MIRROR_PROFILE), NEW_PROFILE_SETTINGS: clone(NEW_PROFILE_SETTINGS),
-    initialize, list, get, load, setPasswordPrompt, loadUnlocked, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported
+    initialize, list, get, load, setPasswordPrompt, loadUnlocked, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported,
+    setGeneralProfiles, clearGeneralProfiles
   };
 }));

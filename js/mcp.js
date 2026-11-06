@@ -72,6 +72,7 @@
   const getToolCards = () => resolveDep('ChatToolCards', './tool-cards.js');
   const getSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
+  const getProfiles = () => resolveDep('ChatProfileRepository', './profile-repository.js');
 
   /** Cabeceras del proxy inverso: X-ZeroChat-Proxy enruta hacia zerochat.py y Authorization lleva su clave. */
   const proxyHeaders = proxyKey => (proxyKey === null ? {} : { 'X-ZeroChat-Proxy': '1', Authorization: `Bearer ${proxyKey}` });
@@ -584,6 +585,14 @@
         next.externalServers = payload.servers;
         running = payload.servers.filter(server => McpStatus.isRunning(server?.status)).map(server => `${server.id}:${server.toolCount}`).join();
       }
+      if (Number.isInteger(payload.profiles_revision)) {
+        if (this.liveProfilesRevision !== null && payload.profiles_revision !== this.liveProfilesRevision) {
+          this.liveProfilesRevision = payload.profiles_revision;
+          await this.syncGeneralProfiles();
+        } else {
+          this.liveProfilesRevision = payload.profiles_revision;
+        }
+      }
       if (Object.keys(next).length === 0) return false;
       State.set('mcp', next);
       if (running !== this.liveRunning) {
@@ -705,7 +714,9 @@
       // initialize trae los servicios externos y el resto del estado vivo.
       this.liveServers = null;
       this.liveRunning = null;
+      this.liveProfilesRevision = null;
       await this.applyLiveState(probe.liveState);
+      await this.syncGeneralProfiles();
       return { success: true, available: true, probe, tools };
     }
 
@@ -715,6 +726,8 @@
     async disconnectProxy() {
       this.dropClient(PROXY_ID);
       this.dropClient(EXTERNAL_ID);
+      this.liveProfilesRevision = null;
+      getProfiles().clearGeneralProfiles();
       getState().set('mcp', { status: 'disconnected', latencyMs: null, error: null, ...LIVE_RESET });
       return { success: true };
     }
@@ -851,6 +864,21 @@
       const result = await this.requestExternalControl('zerochat/project/set_directory', { path });
       await this.applyLiveState({ cwd: result?.cwd });
       return result;
+    }
+
+    /** Carga los perfiles de conexión generales almacenados en el backend local. */
+    async syncGeneralProfiles() {
+      const client = this.clients.get(PROXY_ID);
+      if (!client) return [];
+      try {
+        const result = await client.request('zerochat/profiles/list', { includeSecrets: true });
+        const profiles = Array.isArray(result?.profiles) ? result.profiles : [];
+        getProfiles().setGeneralProfiles(profiles);
+        return profiles;
+      } catch (err) {
+        console.warn('[ChatMCP] Could not fetch general profiles:', err);
+        return [];
+      }
     }
 
     /**
