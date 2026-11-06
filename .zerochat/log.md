@@ -230,3 +230,4 @@
 - 2026-11-06 M45-D1 Motor SQLite ~/zerochat/storage/zerochat.db con permisos 0600/0700 y CRUD de perfiles generales (M45-T1)
 - 2026-11-06 M45-D2 Endpoints JSON-RPC zerochat/profiles/* y profiles_revision en live_state (M45-T2)
 - 2026-11-06 M45-D3 Sincronizacion de perfiles generales en ChatProfileRepository y ChatMCP al conectar y por latido (M45-T3)
+- 2026-11-06 M45-D4 Presentacion unificada con prefijo Z- en selector y menu activo, y mantenimiento Local vs General en editor de perfiles (M45-T4)

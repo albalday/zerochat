@@ -881,6 +881,27 @@
       }
     }
 
+    /** Guarda (crea o actualiza) un perfil general en el backend local. */
+    async saveGeneralProfile(profileData) {
+      const client = this.clients.get(PROXY_ID);
+      if (!client) throw new Error('No local server connection.');
+      const result = await client.request('zerochat/profiles/save', { profile: profileData });
+      if (!result?.profile) throw new Error('Invalid profile response from server.');
+      getProfiles().upsertGeneralProfile(result.profile);
+      return result.profile;
+    }
+
+    /** Elimina un perfil general en el backend local. */
+    async deleteGeneralProfile(profileId) {
+      const client = this.clients.get(PROXY_ID);
+      if (!client) throw new Error('No local server connection.');
+      const result = await client.request('zerochat/profiles/delete', { id: profileId });
+      if (result?.deleted) {
+        getProfiles().removeGeneralProfile(profileId);
+      }
+      return result?.deleted === true;
+    }
+
     /**
      * Solicita al backend abrir el visor externo de diffs para un fichero; con `commitFallback`,
      * si no hay cambios pendientes, el del último commit que lo modificó.

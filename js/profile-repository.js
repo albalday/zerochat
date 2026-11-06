@@ -151,6 +151,22 @@
     generalProfiles = [];
   }
 
+  function upsertGeneralProfile(record) {
+    const normalized = normalizeRecord({ ...record, general: true });
+    const index = generalProfiles.findIndex(profile => profile.id === normalized.id);
+    if (index >= 0) generalProfiles[index] = normalized;
+    else generalProfiles.push(normalized);
+    return clone(normalized);
+  }
+
+  function removeGeneralProfile(id) {
+    const cleanId = String(id || '');
+    const index = generalProfiles.findIndex(profile => profile.id === cleanId);
+    if (index < 0) return false;
+    generalProfiles.splice(index, 1);
+    return true;
+  }
+
   function list() {
     const locals = initialize().profiles;
     if (generalProfiles.length === 0) return locals;
@@ -301,6 +317,6 @@
   return {
     STORAGE_KEY, SCHEMA_VERSION, PROFILE_FIELDS, MAX_PROFILE_MCP_SERVERS, STORAGE_PROFILE_FIELDS, READONLY_PROFILE_ID, MIRROR_PROFILE: clone(MIRROR_PROFILE), NEW_PROFILE_SETTINGS: clone(NEW_PROFILE_SETTINGS),
     initialize, list, get, load, setPasswordPrompt, loadUnlocked, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported,
-    setGeneralProfiles, clearGeneralProfiles
+    setGeneralProfiles, clearGeneralProfiles, upsertGeneralProfile, removeGeneralProfile
   };
 }));

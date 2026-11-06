@@ -79,7 +79,14 @@
   }
 
   function profileMetadata(profile) {
-    return { id: profile.id, name: profile.name, version: profile.version, appliedAt: Date.now() };
+    return {
+      id: profile.id,
+      name: profile.name,
+      version: profile.version,
+      general: Boolean(profile.general || profile.isGeneral),
+      isGeneral: Boolean(profile.general || profile.isGeneral),
+      appliedAt: Date.now()
+    };
   }
 
   function persist(next) {

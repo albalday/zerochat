@@ -114,12 +114,24 @@
   let editor = initialEditorState();
   const updateEditor = changes => { editor = { ...editor, ...changes }; };
 
+  function formatProfileDisplayName(profile) {
+    if (!profile) return '';
+    const name = String(profile.name || '').trim();
+    if (profile.general || profile.isGeneral) {
+      return (name.startsWith('Z- ') || name.startsWith('Z-')) ? name : `Z- ${name}`;
+    }
+    return name;
+  }
+
   /** Muestra en el editor el perfil indicado: su id, nombre y descripción. */
   function populateProfileSelector(profileId) {
     const profile = getProfiles().get(profileId);
     els.profileSelectHelper.value = profileId || '';
     els.settingProfileName.value = profile?.name || '';
     els.settingProfileDescription.value = profile?.description || '';
+    if (els.settingProfileScope) {
+      els.settingProfileScope.value = (profile?.general || profile?.isGeneral) ? 'general' : 'local';
+    }
   }
 
   function setProfileQueryState(ready) {
@@ -322,9 +334,10 @@
     els.activeProfileList.innerHTML = getProfiles().list().map(profile => {
       const active = profile.id === activeId;
       const description = profile.id === READONLY_PROFILE_ID ? t('profile_mirror_description') : profile.description;
+      const displayName = formatProfileDisplayName(profile);
       return `<div class="header-profile-item${active ? ' active' : ''}">
-        <button type="button" class="header-profile-option${active ? ' active' : ''}" data-profile-id="${escapeHtml(profile.id)}" role="menuitemradio" aria-checked="${active}" title="${escapeHtml(profile.name)}">
-          <span class="header-profile-option-name">${escapeHtml(profile.name)}</span>
+        <button type="button" class="header-profile-option${active ? ' active' : ''}" data-profile-id="${escapeHtml(profile.id)}" role="menuitemradio" aria-checked="${active}" title="${escapeHtml(displayName)}">
+          <span class="header-profile-option-name">${escapeHtml(displayName)}</span>
           ${description ? `<span class="header-profile-option-description">${escapeHtml(description)}</span>` : ''}
         </button>
         <div class="header-profile-item-actions">
@@ -419,6 +432,7 @@
 
         <div class="form-field"><label for="setting-profile-name"><strong data-i18n="field_profile_name_label">Nombre del Perfil</strong></label><input type="text" id="setting-profile-name" data-i18n-placeholder="field_profile_placeholder" placeholder="Nombre del perfil (ej: LM Studio, Ollama, OpenRouter...)" autocomplete="off"></div>
         <div class="form-field"><label for="setting-profile-description"><strong data-i18n="field_profile_description_label">Descripción</strong></label><textarea id="setting-profile-description" rows="2" data-i18n-placeholder="field_profile_description_placeholder" placeholder="Describe brevemente este perfil..."></textarea></div>
+        <div class="form-field"><label for="setting-profile-scope"><strong data-i18n="field_profile_scope">Ubicación de almacenamiento</strong></label><select id="setting-profile-scope" class="combobox-select-helper"><option value="local" data-i18n="profile_scope_local">Local (este navegador)</option><option value="general" data-i18n="profile_scope_general">General en servidor (Z-)</option></select></div>
 
         <div class="profile-chapters">
         ${profileChapter('profile-chapter-connection', 'profile-summary-connection', 'profile_chapter_connection', `
@@ -501,18 +515,35 @@
     }
 
     const settings = buildProfileSettings(selected?.settings || Profiles.NEW_PROFILE_SETTINGS, readProfileForm());
-    const saved = await Profiles.saveEditable({
-      id: selected?.id || createId('profile'),
-      name,
-      description: els.settingProfileDescription.value.trim(),
-      settings
-    });
+    const isGeneral = els.settingProfileScope ? els.settingProfileScope.value === 'general' : false;
+    let saved;
+    if (isGeneral) {
+      const profilePayload = {
+        id: selected?.id || createId('profile'),
+        name,
+        description: els.settingProfileDescription.value.trim(),
+        general: true,
+        settings: {
+          ...settings,
+          apiKey: settings.apiKey || ''
+        }
+      };
+      saved = await getMCP().manager.saveGeneralProfile(profilePayload);
+    } else {
+      saved = await Profiles.saveEditable({
+        id: selected?.id || createId('profile'),
+        name,
+        description: els.settingProfileDescription.value.trim(),
+        settings
+      });
+    }
 
     populateProfileSelector(saved.id);
     updateEditor({ dirty: false, loadedApiKey: settings.apiKey });
     setProfileQueryState(false);
     activateProfileFromUI(saved.id);
-    showProfileFeedback(t('msg_profile_saved', { name }), 'success');
+    const displayName = formatProfileDisplayName(saved);
+    showProfileFeedback(t('msg_profile_saved', { name: displayName }), 'success');
     return true;
   }
 
@@ -523,8 +554,15 @@
       showProfileFeedback(t('err_profile_read_only'), 'error');
       return false;
     }
-    if (!await getDialogs().confirm(t('confirm_delete_profile', { name: profile.name }))) return false;
-    if (!Profiles.remove(profile.id)) return false;
+    const displayName = formatProfileDisplayName(profile);
+    if (!await getDialogs().confirm(t('confirm_delete_profile', { name: displayName }))) return false;
+    let ok = false;
+    if (profile.general || profile.isGeneral) {
+      ok = await getMCP().manager.deleteGeneralProfile(profile.id);
+    } else {
+      ok = Profiles.remove(profile.id);
+    }
+    if (!ok) return false;
     if (runtimeConfig().activeProfile?.id === profile.id) getConfig().activateFallbackProfile();
     const nextActiveId = runtimeConfig().activeProfile?.id || '';
     populateProfileSelector(nextActiveId);
@@ -533,7 +571,7 @@
     // El control del perfil activo se actualiza también si el borrado no cambió la configuración.
     options.updateUIFromConfig();
     renderProfileMenu();
-    showProfileFeedback(t('msg_profile_deleted', { name: profile.name }), 'success');
+    showProfileFeedback(t('msg_profile_deleted', { name: displayName }), 'success');
     return true;
   }
 
@@ -930,6 +968,7 @@
     getSaveHint,
     getSaveDecision,
     getCloseConfirmation,
-    buildProfileSettings
+    buildProfileSettings,
+    formatProfileDisplayName
   };
 }));

@@ -441,4 +441,35 @@ test('Browser UI - un perfil nuevo abre el editor vacío sin pedir nombre ni her
   }
 });
 
+test('Browser UI - los perfiles generales del backend se muestran con prefijo Z- en el menú y selector', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await page.evaluate(() => {
+      window.ChatProfileRepository.setGeneralProfiles([
+        { id: 'profile:general-gpt', name: 'GPT 4o Server', general: true, settings: { apiType: 'openai', model: 'gpt-4o' } }
+      ]);
+      window.ChatUIProfiles.renderProfileMenu();
+    });
+
+    await page.click('#active-profile-trigger');
+    const optionText = await page.textContent('[data-profile-id="profile:general-gpt"] .header-profile-option-name');
+    assert.equal(optionText.trim(), 'Z- GPT 4o Server');
+
+    // Al activarlo, la barra superior muestra el nombre con Z-
+    await page.click('[data-profile-id="profile:general-gpt"]');
+    assert.equal((await page.textContent('#active-profile-name')).trim(), 'Z- GPT 4o Server');
+
+    // En el editor de perfiles, el selector de ámbito refleja general
+    await page.click('#active-profile-trigger');
+    await page.click('.header-profile-item:has([data-profile-id="profile:general-gpt"]) [data-profile-action="edit"]');
+    await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
+    assert.equal(await page.inputValue('#setting-profile-scope'), 'general');
+    await page.click('#btn-close-profiles');
+  } finally {
+    await browser.close();
+  }
+});
+
 });

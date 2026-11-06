@@ -177,6 +177,7 @@
     btnCloseProfiles: 'btn-close-profiles',
     settingProfileName: 'setting-profile-name',
     settingProfileDescription: 'setting-profile-description',
+    settingProfileScope: 'setting-profile-scope',
     profileSelectHelper: 'profile-select-helper',
     btnSaveProfile: 'btn-save-profile',
     profileActionFeedback: 'profile-action-feedback',
@@ -552,7 +553,7 @@
 
   function updateUIFromConfig() {
     const config = getRuntimeConfig();
-    elements.activeProfileName.textContent = config.activeProfile?.name || '';
+    elements.activeProfileName.textContent = UIProfiles.formatProfileDisplayName(config.activeProfile);
     if (!elements.activeProfilePopover.hidden) {
       UIProfiles.renderProfileMenu();
     }
