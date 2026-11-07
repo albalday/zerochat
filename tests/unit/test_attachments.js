@@ -47,3 +47,35 @@ test('ChatAttachments - un documento ofimático aporta su cabecera, su Markdown 
     ChatAttachments.clearFiles();
   }
 });
+
+test('ChatAttachments - gestión de referencias blobId y borrado de blobs al retirar archivos', async () => {
+  const Storage = require('../../js/storage.js');
+  const fakeBlobId = 'a'.repeat(64);
+  let deletedId = null;
+  const originalDeleteBlob = Storage.deleteBlob;
+  Storage.deleteBlob = async id => { deletedId = id; return true; };
+
+  try {
+    ChatAttachments.clearFiles();
+    ChatAttachments.addFile({
+      name: 'foto.jpg',
+      size: 1024,
+      type: 'image',
+      mimeType: 'image/jpeg',
+      dataUrl: 'data:image/jpeg;base64,123',
+      blobId: fakeBlobId
+    });
+
+    const payload = ChatAttachments.buildAttachmentsPayload('Mira la foto:');
+    assert.equal(payload.imageAttachments.length, 1);
+    assert.equal(payload.imageAttachments[0].blobId, fakeBlobId);
+    assert.equal(payload.imageAttachments[0].name, 'foto.jpg');
+
+    // removeFileAt borra el blob del almacenamiento
+    ChatAttachments.removeFileAt(0);
+    assert.equal(deletedId, fakeBlobId);
+  } finally {
+    Storage.deleteBlob = originalDeleteBlob;
+    ChatAttachments.clearFiles();
+  }
+});
