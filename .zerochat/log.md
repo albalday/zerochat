@@ -239,3 +239,4 @@
 - 2026-11-06 M45-D10 Normas de concurrencia para MCPs en services/ejemplo/README.md: aislamiento y modo efímero por defecto, transporte exclusivo stdio sin puertos fijos, almacenamiento parametrizado o aislado y ejecución desatendida sin dependencias interactivas (M45-T14)
 - 2026-11-06 M46-D1 Esquema SQLite relacional para conversaciones y mensajes con borrado en cascada y campos opcionales serializados en JSON (M46-T1)
 - 2026-11-07 M46-D2 Endpoints JSON-RPC zerochat/conversations/* (list, get, save, rename, delete) en ff-server.py con soporte de sustitucion atomica de mensajes y borrado masivo con all:true (M46-T2)
+- 2026-11-07 M46-D3 Flag CLI --list-conversations en zz-main.py con salida formateada (id, titulo, mensajes, fecha) e informe de vacio (M46-T3)

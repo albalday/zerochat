@@ -5204,6 +5204,7 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación de ~/zerochat/.venv")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
     parser.add_argument("--list-profiles", action="store_true", help="Listar los perfiles de conexión generales almacenados en el servidor local")
+    parser.add_argument("--list-conversations", action="store_true", help="Listar las conversaciones almacenadas en el servidor local")
     parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 plazo agotado o navegador cerrado, 3 fallo de arranque, 4 argumentos no válidos)")
     parser.add_argument("--profile", default=None, help=f"Con --prompt, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo (por defecto: {DEFAULT_RUN_PROFILE} del servidor)")
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt)")
@@ -5472,6 +5473,20 @@ def main():
                 api_type = settings.get("apiType") or "openai"
                 api_url = settings.get("apiUrl") or ""
                 print(f"- {p['name']} ({api_type} / {model}) [{api_url}]")
+        return
+
+    if getattr(args, "list_conversations", False):
+        conversations = list_conversations()
+        if not conversations:
+            print("No hay conversaciones almacenadas en el servidor local.")
+        else:
+            print("Conversaciones almacenadas:")
+            for c in conversations:
+                date_str = datetime.datetime.fromtimestamp(c["updatedAt"] / 1000).strftime("%Y-%m-%d %H:%M") if c.get("updatedAt") else ""
+                count = c.get("messageCount", 0)
+                msg_text = "1 mensaje" if count == 1 else f"{count} mensajes"
+                date_suffix = f", {date_str}" if date_str else ""
+                print(f"- [{c['id']}] {c['title']} ({msg_text}{date_suffix})")
         return
 
     if args.test:

@@ -95,7 +95,7 @@ Goal: zerochat.py stores conversations and messages locally in ~/zerochat/storag
 Done when: conversations and their messages are stored in SQLite (0600) with cascade deletion, JSON-RPC endpoints zerochat/conversations/* handle CRUD operations, CLI flag --list-conversations inspects saved chats, the frontend saves and synchronizes conversations with the backend when connected and falls back to IndexedDB when disconnected, and passing test:architecture, test:infrastructure, test:unit, test:integration, and test:browser.
 - [x] M46-T1 SQLite schema migration 002_create_conversations_tables and CRUD functions for conversations and messages in py/ee-storage.py with infrastructure tests (2026-11-06)
 - [x] M46-T2 JSON-RPC endpoints for conversation list, get, save, rename and delete in py/ff-server.py with infrastructure tests (2026-11-07)
-- [ ] M46-T3 CLI inspection flag --list-conversations in py/zz-main.py reading from backend storage with infrastructure tests
+- [x] M46-T3 CLI inspection flag --list-conversations in py/zz-main.py reading from backend storage with infrastructure tests (2026-11-07)
 - [ ] M46-T4 Frontend conversation synchronization and backend storage adapter in js/storage.js and js/conversation-service.js (backend persistence when connected, IndexedDB fallback offline) with unit and integration tests
 - [ ] M46-T5 UI consistency and seamless offline/online conversation transitions in js/conversation-service.js with browser tests
 - [ ] M46-T6 Documentation in py/README.md, help/ and help/en/ for local conversation storage and CLI listing
