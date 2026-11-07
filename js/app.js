@@ -789,6 +789,14 @@
       refreshProjectContext
     );
     State.subscribe('project', renderProjectPanel);
+    State.subscribe(
+      state => state.mcp.status,
+      (status, prevStatus) => {
+        if (status === 'connected' && prevStatus !== 'connected') {
+          ConversationService.syncConversations(getConversationServiceOptions());
+        }
+      }
+    );
     // Al terminar un turno el agente puede haber creado o actualizado los ficheros del proyecto.
     State.subscribe(state => ({ generating: state.streaming.isGenerating }), ({ generating }) => {
       if (!generating && getRuntimeConfig().projectMode === true) refreshProjectContext();

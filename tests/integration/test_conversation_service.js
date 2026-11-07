@@ -145,3 +145,86 @@ test('ConversationService - una sesión sin mensajes del usuario no se guarda', 
   assert.deepEqual(State.get('sessions').list, []);
   assert.equal(await Storage.getConversation('parent_sess_1'), null);
 });
+
+test('ConversationService - syncConversations sincroniza bidireccionalmente entre IndexedDB y SQLite', async t => {
+  const MCP = require('../../js/mcp.js');
+  let isConnected = false;
+  const backendStore = new Map();
+
+  t.mock.method(MCP.manager, 'isProxyConnected', () => isConnected);
+  t.mock.method(MCP.manager, 'requestExternalControl', async (method, params) => {
+    if (method === 'zerochat/conversations/list') {
+      const list = Array.from(backendStore.values()).map(c => ({
+        id: c.id,
+        title: c.title,
+        createdAt: c.createdAt || 100,
+        updatedAt: c.updatedAt || 200,
+        messageCount: (c.history || []).length
+      }));
+      return { conversations: list };
+    }
+    if (method === 'zerochat/conversations/get') {
+      const c = backendStore.get(params.id);
+      return { conversation: c || null };
+    }
+    if (method === 'zerochat/conversations/save') {
+      const meta = params.conversation;
+      const history = params.messages || meta.history || [];
+      const record = { ...meta, history, messageCount: history.length };
+      backendStore.set(meta.id, record);
+      return { conversation: record };
+    }
+    if (method === 'zerochat/conversations/delete') {
+      if (params.all) backendStore.clear();
+      else backendStore.delete(params.id);
+      return { deleted: true };
+    }
+    throw new Error(`Unexpected method: ${method}`);
+  });
+
+  // 1. Desconectado: omite la sincronización limpiamente
+  const offlineResult = await ConversationService.syncConversations();
+  assert.deepEqual(offlineResult, { synced: false, reason: 'offline' });
+
+  // 2. Conectado: sincroniza chat local con el backend y chat remoto con IndexedDB
+  isConnected = true;
+  await Storage.deleteAllConversations();
+
+  // Guardar un chat local en IndexedDB
+  await Storage.saveIndexedDBConversation(
+    { id: 'local_only', title: 'Local Only Chat', createdAt: 1000, updatedAt: 2000 },
+    [{ role: 'user', content: 'Solo local' }]
+  );
+
+  // Guardar un chat remoto en el backend
+  backendStore.set('remote_only', {
+    id: 'remote_only',
+    title: 'Remote Only Chat',
+    createdAt: 1000,
+    updatedAt: 3000,
+    history: [{ role: 'user', content: 'Solo remoto' }]
+  });
+
+  let sidebarRendered = false;
+  const result = await ConversationService.syncConversations({
+    renderSidebarChats() { sidebarRendered = true; }
+  });
+
+  assert.equal(result.synced, true);
+  assert.equal(sidebarRendered, true);
+
+  // El chat local se ha subido al backend
+  assert.ok(backendStore.has('local_only'));
+  assert.equal(backendStore.get('local_only').title, 'Local Only Chat');
+
+  // El chat remoto se ha guardado en IndexedDB
+  const localRemote = await Storage.getIndexedDBConversation('remote_only');
+  assert.ok(localRemote);
+  assert.equal(localRemote.title, 'Remote Only Chat');
+
+  // La lista unificada en ChatState contiene ambos chats
+  const sessionList = State.get('sessions').list;
+  assert.equal(sessionList.length, 2);
+  assert.ok(sessionList.some(item => item.id === 'local_only'));
+  assert.ok(sessionList.some(item => item.id === 'remote_only'));
+});

@@ -366,6 +366,73 @@
     options.renderSidebarChats();
   }
 
+  let activeSyncPromise = null;
+
+  /**
+   * Sincroniza conversaciones entre el backend local y el almacén IndexedDB del navegador.
+   * - Las conversaciones guardadas localmente sin conexión se suben al backend.
+   * - Las conversaciones creadas o actualizadas en el backend se descargan a IndexedDB.
+   * - Actualiza la lista de sesiones en ChatState y repinta la barra lateral.
+   */
+  async function syncConversations(options = {}) {
+    if (activeSyncPromise) return activeSyncPromise;
+    const Storage = getStorage();
+    if (!Storage.isBackendConnected()) return { synced: false, reason: 'offline' };
+
+    activeSyncPromise = (async () => {
+      try {
+        const [backendList, localList] = await Promise.all([
+          Storage.getBackendConversationsList(),
+          Storage.getIndexedDBConversationsList()
+        ]);
+
+        const localMap = new Map(localList.map(item => [item.id, item]));
+        const backendMap = new Map(backendList.map(item => [item.id, item]));
+
+        for (const local of localList) {
+          const remote = backendMap.get(local.id);
+          if (!remote || (local.updatedAt || 0) > (remote.updatedAt || 0)) {
+            const fullLocal = await Storage.getIndexedDBConversation(local.id);
+            if (fullLocal && Array.isArray(fullLocal.history)) {
+              await Storage.saveBackendConversation(local, fullLocal.history);
+            }
+          }
+        }
+
+        for (const remote of backendList) {
+          const local = localMap.get(remote.id);
+          if (!local || (remote.updatedAt || 0) > (local.updatedAt || 0)) {
+            const fullRemote = await Storage.getBackendConversation(remote.id);
+            if (fullRemote && Array.isArray(fullRemote.history)) {
+              await Storage.saveIndexedDBConversation(remote, fullRemote.history);
+            }
+          }
+        }
+
+        const mergedList = await Storage.getConversationsList();
+        const State = getState();
+        const currentActiveId = getActiveSessionId();
+        State.set('sessions', {
+          activeId: currentActiveId,
+          list: mergedList
+        });
+
+        if (options?.renderSidebarChats) {
+          options.renderSidebarChats();
+        }
+
+        return { synced: true, count: mergedList.length };
+      } catch (err) {
+        console.warn('[ConversationService] Failed to sync conversations with backend:', err);
+        return { synced: false, error: err?.message || String(err) };
+      } finally {
+        activeSyncPromise = null;
+      }
+    })();
+
+    return activeSyncPromise;
+  }
+
   return {
     blockSessionTransitionIfBusy,
     loadSessionsFromStorage,
@@ -375,6 +442,7 @@
     createConversationBranch,
     deleteSession,
     deleteAllSessions,
-    renameSession
+    renameSession,
+    syncConversations
   };
 }));

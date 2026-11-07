@@ -96,7 +96,7 @@ Done when: conversations and their messages are stored in SQLite (0600) with cas
 - [x] M46-T1 SQLite schema migration 002_create_conversations_tables and CRUD functions for conversations and messages in py/ee-storage.py with infrastructure tests (2026-11-06)
 - [x] M46-T2 JSON-RPC endpoints for conversation list, get, save, rename and delete in py/ff-server.py with infrastructure tests (2026-11-07)
 - [x] M46-T3 CLI inspection flag --list-conversations in py/zz-main.py reading from backend storage with infrastructure tests (2026-11-07)
-- [ ] M46-T4 Frontend conversation synchronization and backend storage adapter in js/storage.js and js/conversation-service.js (backend persistence when connected, IndexedDB fallback offline) with unit and integration tests
+- [x] M46-T4 Frontend conversation synchronization and backend storage adapter in js/storage.js and js/conversation-service.js (backend persistence when connected, IndexedDB fallback offline) with unit and integration tests (2026-11-07)
 - [ ] M46-T5 UI consistency and seamless offline/online conversation transitions in js/conversation-service.js with browser tests
 - [ ] M46-T6 Documentation in py/README.md, help/ and help/en/ for local conversation storage and CLI listing
 
