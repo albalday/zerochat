@@ -1,5 +1,6 @@
 # Configuración del navegador de Playwright MCP (sección Navegador de Ajustes).
-# Modo propio: un motor de Playwright con perfil persistente en ~/zerochat/playwright/profile/<motor>.
+# Modo propio: un motor de Playwright en memoria (--isolated), o con almacenamiento persistente con nombre
+# en ~/zerochat/playwright/profile/<motor>/<nombre>.
 # Modo del usuario: su Chrome, Edge o Chromium mediante la extensión de Playwright (--extension).
 BROWSER_MODES = ("own", "user")
 OWN_BROWSER_ENGINES = ("chromium", "firefox", "webkit")
@@ -9,6 +10,7 @@ BROWSER_CONFIG_DEFAULTS = {"mode": "own", "engine": "chromium", "userBrowser": "
 PLAYWRIGHT_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm"
 # Token que muestra la extensión: con él la conexión no pide aceptarla en el navegador.
 _EXTENSION_TOKEN = re.compile(r"^[A-Za-z0-9_-]{0,256}$")
+_STORAGE_NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _BROWSER_CONFIG_CHOICES = {"mode": BROWSER_MODES, "engine": OWN_BROWSER_ENGINES, "userBrowser": USER_BROWSERS}
 
 
@@ -104,10 +106,15 @@ def playwright_launch_args(config: dict) -> list[str]:
             raise RuntimeError("No se encuentra Chromium en el sistema: elige otro navegador en Ajustes › Navegador.")
         executable, data_dir = install
         return ["--extension", "--browser=chrome", f"--executable-path={executable}", f"--user-data-dir={data_dir}"]
-    profile_dir = own_browser_profile_dir(config["engine"])
-    for directory in (profile_dir.parent.parent, profile_dir.parent, profile_dir):
-        directory.mkdir(mode=0o700, exist_ok=True)
-    args = [f"--browser={config['engine']}", f"--user-data-dir={profile_dir}"]
+    args = [f"--browser={config['engine']}"]
+    storage = config.get("storage")
+    if storage:
+        profile_dir = own_browser_profile_dir(config["engine"]) / storage
+        for directory in (profile_dir.parent.parent.parent, profile_dir.parent.parent, profile_dir.parent, profile_dir):
+            directory.mkdir(mode=0o700, exist_ok=True)
+        args.append(f"--user-data-dir={profile_dir}")
+    else:
+        args.append("--isolated")
     if config["headless"]:
         args.append("--headless")
     return args
@@ -121,22 +128,34 @@ def playwright_launch_env(config: dict) -> dict[str, str]:
 
 
 def validate_profile_browser(raw) -> dict:
-    """Navegador que exige un perfil: el propio con un motor, y headless False si exige la ventana
-    visible, o el del usuario con uno de sus navegadores."""
+    """Navegador que exige un perfil: el propio con un motor (y opcionalmente headless False y storage
+    con nombre), o el del usuario con uno de sus navegadores."""
     if isinstance(raw, dict) and raw.get("mode") == "own" and raw.get("engine") in OWN_BROWSER_ENGINES:
-        if set(raw) == {"mode", "engine"}:
-            return {"mode": "own", "engine": raw["engine"]}
-        if set(raw) == {"mode", "engine", "headless"} and raw["headless"] is False:
-            return {"mode": "own", "engine": raw["engine"], "headless": False}
+        if set(raw) <= {"mode", "engine", "headless", "storage"}:
+            headless_ok = "headless" not in raw or raw["headless"] is False
+            storage = raw.get("storage")
+            storage_ok = "storage" not in raw or (isinstance(storage, str) and bool(_STORAGE_NAME.match(storage)))
+            if headless_ok and storage_ok:
+                result = {"mode": "own", "engine": raw["engine"]}
+                if "headless" in raw:
+                    result["headless"] = False
+                if "storage" in raw:
+                    result["storage"] = storage
+                return result
     if isinstance(raw, dict) and raw.get("mode") == "user" and set(raw) == {"mode", "userBrowser"} and raw["userBrowser"] in USER_BROWSERS:
         return {"mode": "user", "userBrowser": raw["userBrowser"]}
-    raise ValueError("browser debe ser {mode: own, engine[, headless: false]} o {mode: user, userBrowser} con un motor o navegador admitido")
+    raise ValueError("browser debe ser {mode: own, engine[, headless: false][, storage]} o {mode: user, userBrowser} con un motor o navegador admitido")
 
 
 def browser_choice(config: dict) -> dict:
     """Modo y navegador con los que arranca Playwright MCP, en la forma de validate_profile_browser."""
     if config["mode"] == "own":
-        return {"mode": "own", "engine": config["engine"], **({} if config["headless"] else {"headless": False})}
+        return {
+            "mode": "own",
+            "engine": config["engine"],
+            **({} if config["headless"] else {"headless": False}),
+            **({"storage": config["storage"]} if config.get("storage") else {}),
+        }
     return {"mode": "user", "userBrowser": config["userBrowser"]}
 
 

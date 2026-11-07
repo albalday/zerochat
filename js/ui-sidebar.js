@@ -80,7 +80,7 @@
     return 'older';
   }
 
-  function renderChatItem(session, date, isActive) {
+  function renderChatItem(session, date, isActive, runStatus = null) {
     const title = escapeHtml(session.title || t('chat_untitled'));
     const time = `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     const action = (className, icon, labelKey) => {
@@ -88,9 +88,15 @@
       return `<button type="button" role="menuitem" class="btn-chat-action ${className}" title="${label}">${Icons.get(icon, { size: 13 })}<span>${label}</span></button>`;
     };
     const optionsLabel = escapeHtml(t('sidebar_chat_options_title'));
-    return `<div class="sidebar-chat-item${isActive ? ' active' : ''}" data-session-id="${escapeHtml(session.id)}">
+    let statusIcon = '';
+    if (runStatus === 'running') {
+      statusIcon = Icons.get('clock', { size: 13, className: 'sidebar-chat-status-icon running', title: t('sidebar_run_running_title') });
+    } else if (runStatus === 'needs_input' || runStatus === 'error') {
+      statusIcon = Icons.get('help-circle', { size: 13, className: 'sidebar-chat-status-icon needs-input', title: t('sidebar_run_needs_input_title') });
+    }
+    return `<div class="sidebar-chat-item${isActive ? ' active' : ''}" data-session-id="${escapeHtml(session.id)}"${runStatus ? ` data-run-status="${escapeHtml(runStatus)}"` : ''}>
         <div class="sidebar-chat-info">
-          <span class="sidebar-chat-title" title="${title}">${title}</span>
+          <span class="sidebar-chat-title" title="${title}">${statusIcon}${title}</span>
           <span class="sidebar-chat-time">${time}</span>
         </div>
         <div class="sidebar-chat-menu">
@@ -105,12 +111,18 @@
   }
 
   /** Lista de conversaciones filtrada por el buscador; sin filtro, agrupada por fecha. */
-  function renderSidebarChats(elements, sessions, currentSessionId) {
+  function renderSidebarChats(elements, sessions, currentSessionId, serverRuns = []) {
     const filter = elements.sidebarSearchInput.value.toLowerCase().trim();
     const matching = filter ? sessions.filter(session => session.title?.toLowerCase().includes(filter)) : sessions;
     if (matching.length === 0) {
       elements.sidebarChatsList.innerHTML = `<div class="sidebar-no-chats">${escapeHtml(t('sidebar_no_chats'))}</div>`;
       return;
+    }
+    const runStatusMap = new Map();
+    if (Array.isArray(serverRuns)) {
+      serverRuns.forEach(run => {
+        if (run?.conversationId && run.status) runStatusMap.set(run.conversationId, run.status);
+      });
     }
     let currentCategory = null;
     elements.sidebarChatsList.innerHTML = matching.map(session => {
@@ -121,7 +133,7 @@
         currentCategory = category;
         header = `<div class="sidebar-group-header">${escapeHtml(t(GROUP_LABEL_KEYS[category]))}</div>`;
       }
-      return header + renderChatItem(session, date, session.id === currentSessionId);
+      return header + renderChatItem(session, date, session.id === currentSessionId, runStatusMap.get(session.id) || null);
     }).join('');
   }
 

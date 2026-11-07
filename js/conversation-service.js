@@ -72,6 +72,11 @@
       console.warn('[ConversationService] Could not load saved conversations:', error);
       await getDialogs().alert(t('chat_storage_read_error'), { type: 'error' });
     }
+    if (getHistory().length > 0) {
+      getState().set('sessions', { activeId: getActiveSessionId(), list: sessions });
+      options.renderSidebarChats();
+      return;
+    }
     getState().replaceConversation({ sessionId: createId('session'), sessions, messages: createInitialChatHistory() });
     options.renderSessionMessages(getHistory());
     options.renderSidebarChats();
@@ -88,6 +93,11 @@
     const Storage = getStorage();
     const history = getHistory();
     const sessionId = getActiveSessionId();
+    const serverRuns = State.get('mcp')?.serverRuns;
+    if (Array.isArray(serverRuns) && serverRuns.some(run => run?.conversationId === sessionId && run.status === 'running')) {
+      options.renderSidebarChats();
+      return;
+    }
 
     if (!history.some(message => message.role === 'user')) {
       State.removeSession(sessionId);

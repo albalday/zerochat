@@ -122,6 +122,8 @@
     contextMetricTurnSpeedVal: 'context-metric-turn-speed-val',
     contextMetricTurnLatencyVal: 'context-metric-turn-latency-val',
     // Conversación y compositor
+    serverRunControl: 'server-run-control',
+    chkServerRun: 'chk-server-run',
     btnOpenSettings: 'btn-open-settings',
     btnOpenConnection: 'btn-open-connection',
     messagesList: 'messages-list',
@@ -177,6 +179,7 @@
     btnCloseProfiles: 'btn-close-profiles',
     settingProfileName: 'setting-profile-name',
     settingProfileDescription: 'setting-profile-description',
+    settingProfileScope: 'setting-profile-scope',
     profileSelectHelper: 'profile-select-helper',
     btnSaveProfile: 'btn-save-profile',
     profileActionFeedback: 'profile-action-feedback',
@@ -304,7 +307,55 @@
   });
 
   function renderSidebarChats() {
-    UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId());
+    UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId(), State.get('mcp').serverRuns);
+  }
+
+  function isServerRunAvailable() {
+    return State.get('mcp').status === 'connected' && getRuntimeConfig().activeProfile?.general === true;
+  }
+
+  function isServerRunEnabled() {
+    return isServerRunAvailable() && Boolean(elements.chkServerRun?.checked);
+  }
+
+  function syncServerRunControl() {
+    const available = isServerRunAvailable();
+    elements.serverRunControl.hidden = !available;
+    if (!available) elements.chkServerRun.checked = false;
+  }
+
+  function getActiveServerRun() {
+    const activeId = getCurrentSessionId();
+    return (State.get('mcp').serverRuns || []).find(
+      run => run.conversationId === activeId && (run.status === 'running' || run.status === 'error')
+    ) || null;
+  }
+
+  function isActiveSessionRunningOnServer() {
+    const activeId = getCurrentSessionId();
+    return (State.get('mcp').serverRuns || []).some(run => run.conversationId === activeId && run.status === 'running');
+  }
+
+  function syncLiveServerRun() {
+    UIConversation.renderLiveServerRun(
+      elements.messagesList,
+      elements.welcomeBanner,
+      getActiveServerRun(),
+      State.get('mcp').focusRun
+    );
+  }
+
+  function syncComposerBusyControls() {
+    const busy = State.get('streaming').isGenerating || isActiveSessionRunningOnServer();
+    UIComposer.syncGenerationControls(elements, busy);
+  }
+
+  function handleStopCurrentGeneration() {
+    if (isActiveSessionRunningOnServer()) {
+      MCP.manager.cancelServerRun(getCurrentSessionId()).catch(error => console.warn('[App] Could not cancel server run:', error));
+      return;
+    }
+    GenerationController.handleStopGeneration();
   }
 
   function removeMessage(wrapper) {
@@ -315,10 +366,48 @@
     });
   }
 
+  async function handleHistoricalToolAuthorization(decision, { toolName, authEval }) {
+    if (isBusy() || isActiveSessionRunningOnServer()) return;
+    const decisionType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;
+    if (decisionType === 'deny') {
+      const updated = getChatHistory().map(msg => {
+        if (msg.role !== 'tool') return msg;
+        try {
+          if (JSON.parse(msg.content || '{}')?.awaitingApproval) {
+            return { ...msg, content: JSON.stringify({ success: false, error: 'Execution denied by the user.' }) };
+          }
+        } catch (_) { /* texto plano */ }
+        return msg;
+      });
+      State.replaceMessages(updated);
+      renderSessionMessages(getChatHistory());
+      await saveCurrentSession();
+      await handleSendMessage({ resume: true });
+      return;
+    }
+
+    if (typeof decision === 'object' && decision !== null && decision.directoryRule) {
+      try {
+        ToolSecurity.manager.addDirectoryRule(decision.directoryRule);
+      } catch (err) {
+        console.warn('[App] Invalid directory rule:', err);
+        return;
+      }
+    }
+    ToolSecurity.manager.recordDecision(decision, authEval, toolName);
+    const cleaned = RunMode.prepareConversationForContinuation(getChatHistory());
+    State.replaceMessages(cleaned);
+    renderSessionMessages(getChatHistory());
+    await saveCurrentSession();
+    const allowOnceTools = decisionType === 'allow_once' ? [toolName] : [];
+    await handleSendMessage({ resume: true, ...(allowOnceTools.length ? { allowOnceTools } : {}) });
+  }
+
   const messageCallbacks = {
     onReuse: text => resetComposerInput(text),
     onDelete: removeMessage,
-    onBranch: createConversationBranch
+    onBranch: createConversationBranch,
+    onToolAuthorization: handleHistoricalToolAuthorization
   };
 
   function renderSessionMessages(history) {
@@ -327,10 +416,12 @@
       resetTelemetry: () => resetTelemetryDisplay(),
       updateTelemetry: () => updateConnectionTokensBadge(null, { forcePopover: true })
     });
+    syncLiveServerRun();
   }
 
   /** Envía el compositor; el modo ejecución pasa onProgress. Devuelve { text } o { error }. */
-  function handleSendMessage({ onProgress } = {}) {
+  function handleSendMessage(sendOptions = {}) {
+    const runOnServer = !sendOptions.onProgress && isServerRunEnabled();
     return GenerationController.handleSendMessage({
       elements,
       appendUserMessage: (text, originalPrompt, attachedImages) => UIConversation.appendUserMessage(
@@ -339,14 +430,24 @@
       updateConnectionTokensBadge,
       openDebugInterceptorModal,
       saveCurrentSession,
-      onProgress
+      runOnServer,
+      startServerRun: ({ conversationId, profile }) => MCP.manager.startServerRun({
+        conversationId,
+        profile,
+        toolSecurity: sendOptions.allowOnceTools?.length
+          ? { ...State.get('toolSecurity'), allow_once: sendOptions.allowOnceTools }
+          : State.get('toolSecurity')
+      }),
+      ...sendOptions
     });
   }
 
   /** Envía un texto como si el usuario lo hubiera escrito en el compositor. */
   function submitComposerText(text, sendOptions) {
-    elements.userInput.value = text;
-    elements.userInput.dispatchEvent(new Event('input', { bubbles: true }));
+    if (text) {
+      elements.userInput.value = text;
+      elements.userInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
     return handleSendMessage(sendOptions);
   }
 
@@ -407,7 +508,10 @@
       return;
     }
     try {
-      const savedProfile = Profiles.save({ ...profile, settings: { ...profile.settings, contextLimitOverride } });
+      const nextRecord = { ...profile, settings: { ...profile.settings, contextLimitOverride } };
+      const savedProfile = profile.general
+        ? await MCP.manager.saveGeneralProfile(nextRecord)
+        : Profiles.save(nextRecord);
       UIProfiles.activateConnectionProfile(savedProfile.id);
       updateConnectionTokensBadge(null, { forcePopover: true });
     } catch (error) {
@@ -502,7 +606,7 @@
   function syncAskUserCards() {
     const messages = getChatHistory();
     const last = messages[messages.length - 1];
-    const pending = last?.role === 'tool' && last.name === 'ask_user' && !isBusy();
+    const pending = last?.role === 'tool' && last.name === 'ask_user' && !isBusy() && !isActiveSessionRunningOnServer();
     const cards = [...elements.messagesList.querySelectorAll('.ask-user-card')];
     cards.forEach((card, index) => {
       const active = pending && index === cards.length - 1;
@@ -512,7 +616,7 @@
   }
 
   async function handleAskUserOption(button) {
-    if (button.disabled || isBusy()) return;
+    if (button.disabled || isBusy() || isActiveSessionRunningOnServer()) return;
     const label = button.getAttribute('data-ask-option');
     if (!label) return;
     // Lo que el usuario ya hubiera escrito acompaña a la opción como aclaración.
@@ -548,11 +652,12 @@
   function applyLanguage(lang) {
     UISettings.applyLanguage(elements, lang);
     UIReasoning.updateReasoningUI(elements, getRuntimeConfig().reasoningEffort);
+    syncLiveServerRun();
   }
 
   function updateUIFromConfig() {
     const config = getRuntimeConfig();
-    elements.activeProfileName.textContent = config.activeProfile?.name || '';
+    elements.activeProfileName.textContent = UIProfiles.formatProfileDisplayName(config.activeProfile);
     if (!elements.activeProfilePopover.hidden) {
       UIProfiles.renderProfileMenu();
     }
@@ -566,6 +671,7 @@
     }
     UIReasoning.updateReasoningUI(elements, config.reasoningEffort);
     UIReasoning.syncProjectIndicator(elements, config, State.get('project'));
+    syncServerRunControl();
     applyTheme(config.theme);
     applyLanguage(config.language);
     syncDebugMessagesState(config.enableDebugMessages, false);
@@ -631,7 +737,7 @@
 
     UIComposer.mount(elements, {
       onSendMessage: handleSendMessage,
-      onStopGeneration: GenerationController.handleStopGeneration,
+      onStopGeneration: handleStopCurrentGeneration,
       getLastPrompt: () => MessageTurns.getLastUserPrompt(getChatHistory())
     });
     UICommandJobs.mount({ messagesList: elements.messagesList });
@@ -775,9 +881,52 @@
   }
 
   function subscribeToState() {
-    const syncGenerationControls = streaming => UIComposer.syncGenerationControls(elements, streaming.isGenerating);
-    State.subscribe('streaming', syncGenerationControls);
-    syncGenerationControls(State.get('streaming'));
+    State.subscribe('streaming', syncComposerBusyControls);
+    State.subscribe(state => state.sessions.activeId, () => {
+      syncComposerBusyControls();
+      syncLiveServerRun();
+      if (MCP.manager.isProxyConnected() && (State.get('mcp').serverRuns || []).length > 0) {
+        MCP.manager.readLiveState().catch(() => {});
+      }
+    });
+    syncComposerBusyControls();
+
+    State.subscribe(state => state.mcp.status, syncServerRunControl);
+    syncServerRunControl();
+
+    State.subscribe(state => state.mcp.focusRun, syncLiveServerRun);
+
+    let previousRunningIds = new Set();
+    State.subscribe(
+      state => state.mcp.serverRuns,
+      serverRuns => {
+        const runs = Array.isArray(serverRuns) ? serverRuns : [];
+        const currentRunningIds = new Set(runs.filter(run => run.status === 'running').map(run => run.conversationId));
+        const finishedIds = [...previousRunningIds].filter(id => !currentRunningIds.has(id));
+        previousRunningIds = currentRunningIds;
+
+        renderSidebarChats();
+        syncComposerBusyControls();
+        syncLiveServerRun();
+        setTimeout(syncAskUserCards, 0);
+
+        if (finishedIds.length === 0) return;
+        const activeId = getCurrentSessionId();
+        if (finishedIds.includes(activeId)) {
+          ConversationService.switchToSession(activeId, {
+            ...getConversationServiceOptions(),
+            force: true,
+            saveCurrent: false
+          }).catch(error => console.warn('[App] Could not reload completed server conversation:', error));
+        }
+        if (finishedIds.some(id => id !== activeId)) {
+          Storage.getConversationsList().then(sessions => {
+            State.set('sessions', { activeId: getCurrentSessionId(), list: sessions });
+            renderSidebarChats();
+          }).catch(error => console.warn('[App] Could not refresh conversations list:', error));
+        }
+      }
+    );
 
     // El proyecto depende del servidor local: se recalcula al conectar, cambiar de cwd o de herramientas.
     State.subscribe(
@@ -860,13 +1009,15 @@
   }
 
   /** Conecta con el destino configurado, con el token de la sesión si es de esa URL; un 401 pide identificarse. */
-  function connectConfiguredBackend() {
+  async function connectConfiguredBackend() {
     const target = configuredTarget();
     const session = Storage.getBackendSession();
     const token = session?.url === target.url ? session.token : null;
     MCP.manager.setSessionToken(token);
     if (token) ToolSecurity.manager.setSessionToken(token);
-    return MCP.manager.connectProxy({ ...target, token });
+    const result = await MCP.manager.connectProxy({ ...target, token });
+    await ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
+    return result;
   }
 
   /** Se identifica en el destino de la conexión, guarda el token diario en la sesión y conecta con él. */
@@ -875,7 +1026,9 @@
     const token = await MCP.manager.login(user, password);
     saveBackendSession({ token, url });
     ToolSecurity.manager.setSessionToken(token);
-    return MCP.manager.connectProxy({ url, proxyKey, token });
+    const result = await MCP.manager.connectProxy({ url, proxyKey, token });
+    await ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
+    return result;
   }
 
   /**
@@ -887,7 +1040,10 @@
     const session = runBackendSession || Storage.getBackendSession();
     if (!session) return Promise.resolve({ success: false });
     ToolSecurity.manager.setSessionToken(session.token);
-    return MCP.manager.connectProxy({ url: session.url, proxyKey: proxyKeyFor(session.url), token: session.token }).catch(error => {
+    return MCP.manager.connectProxy({ url: session.url, proxyKey: proxyKeyFor(session.url), token: session.token }).then(async result => {
+      if (result.success) await ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
+      return result;
+    }).catch(error => {
       console.warn('[App] Could not connect to the local server on startup:', error);
       return { success: false };
     });
@@ -962,7 +1118,8 @@
         activateSessionProfile: profileId => UIProfiles.activateConnectionProfile(profileId, { sessionOnly: true }),
         exportConversation: async format => (await UITransfer.buildConversationExport(format)).content,
         submitComposerText,
-        stopGeneration: GenerationController.handleStopGeneration
+        stopGeneration: GenerationController.handleStopGeneration,
+        switchToSession
       });
     } else {
       // Registro del Service Worker para aceleración de arranque y soporte offline en móvil; el modo

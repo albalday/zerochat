@@ -145,3 +145,87 @@ test('ConversationService - una sesión sin mensajes del usuario no se guarda', 
   assert.deepEqual(State.get('sessions').list, []);
   assert.equal(await Storage.getConversation('parent_sess_1'), null);
 });
+
+test('ConversationService - loadSessionsFromStorage inicializa al arrancar, conserva la sesión activa al reconectar y avisa si falla', async t => {
+  await Storage.deleteAllConversations();
+  await Storage.saveConversation(
+    { id: 'saved_1', title: 'Guardada 1', createdAt: 1000, updatedAt: 2000 },
+    [{ id: 'u1', role: 'user', content: 'Hola' }]
+  );
+
+  // 1. Arranque inicial sin sesión activa: crea conversación inicial y carga sesiones
+  State.set('sessions', { activeId: null, list: [] });
+  State.set('messages', []);
+  let renderedMessages = 0;
+  let renderedSidebar = 0;
+  const options = {
+    renderSessionMessages() { renderedMessages++; },
+    renderSidebarChats() { renderedSidebar++; }
+  };
+
+  await ConversationService.loadSessionsFromStorage(options);
+  const initialActiveId = State.get('sessions').activeId;
+  assert.ok(initialActiveId);
+  assert.equal(State.get('messages')[0].id, 'system_root');
+  assert.deepEqual(State.get('sessions').list.map(s => s.id), ['saved_1']);
+  assert.equal(renderedMessages, 1);
+  assert.equal(renderedSidebar, 1);
+
+  // 2. Reconexión con conversación activa en curso: actualiza la lista sin reiniciar la conversación activa
+  State.replaceMessages([
+    { id: 'system_root', role: 'system', content: 'sys' },
+    { id: 'u_active', role: 'user', content: 'En curso' }
+  ]);
+  await Storage.saveConversation(
+    { id: 'saved_2', title: 'Guardada 2', createdAt: 2000, updatedAt: 3000 },
+    [{ id: 'u2', role: 'user', content: 'Nueva' }]
+  );
+
+  await ConversationService.loadSessionsFromStorage(options);
+  assert.equal(State.get('sessions').activeId, initialActiveId);
+  assert.equal(State.get('messages')[1].content, 'En curso');
+  assert.deepEqual(State.get('sessions').list.map(s => s.id), ['saved_2', 'saved_1']);
+  assert.equal(renderedMessages, 1, 'No debe repintar ni reiniciar los mensajes de la sesión activa');
+  assert.equal(renderedSidebar, 2);
+
+  // 3. Error de lectura o conexión: muestra alerta al usuario
+  const { alerts } = useDialogs(t, []);
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(Storage, 'getConversationsList', async () => { throw new Error('Storage failure'); });
+
+  await ConversationService.loadSessionsFromStorage(options);
+  assert.equal(alerts.length, 1);
+});
+
+test('ConversationService - saveCurrentSession no sobrescribe en almacenamiento una conversación en ejecución en el servidor', async t => {
+  await Storage.deleteAllConversations();
+  const previousMcp = State.get('mcp');
+  t.after(() => State.set('mcp', previousMcp));
+
+  await Storage.saveConversation(
+    { id: 'srv_running_1', title: 'Remota', createdAt: 1000, updatedAt: 2000 },
+    [
+      { id: 'u1', role: 'user', content: 'Pregunta inicial' },
+      { id: 'a1', role: 'assistant', content: 'Respuesta guardada por el servidor en segundo plano' }
+    ]
+  );
+
+  // El navegador aún tiene en memoria solo el primer mensaje y cambia de sesión mientras el servidor sigue ejecutando
+  State.replaceConversation({
+    sessionId: 'srv_running_1',
+    sessions: [{ id: 'srv_running_1', title: 'Remota' }],
+    messages: [{ id: 'u1', role: 'user', content: 'Pregunta inicial' }]
+  });
+  State.set('mcp', {
+    ...previousMcp,
+    serverRuns: [{ conversationId: 'srv_running_1', runId: 'r_1', status: 'running' }]
+  });
+
+  let sidebarRendered = 0;
+  await ConversationService.saveCurrentSession({ renderSidebarChats() { sidebarRendered++; } });
+  assert.equal(sidebarRendered, 1);
+
+  const stored = await Storage.getConversation('srv_running_1');
+  assert.equal(stored.history.length, 2, 'No debe pisar el historial que está escribiendo el servidor');
+  assert.equal(stored.history[1].content, 'Respuesta guardada por el servidor en segundo plano');
+});

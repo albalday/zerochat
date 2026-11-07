@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Model browser · ZeroChat Help · 9.x</title>
+  <title>Model browser · ZeroChat Help · 10.x</title>
   <meta name="description" content="Choosing the browsing tool and the Playwright MCP browser in Settings › Browser.">
   <link rel="stylesheet" href="../help.css">
 </head>
@@ -11,7 +11,7 @@
   <div class="container">
     <header>
       <div class="header-top">
-        <a href="index.html" class="logo-badge">ZeroChat 9.x Docs</a>
+        <a href="index.html" class="logo-badge">ZeroChat 10.x Docs</a>
         <div class="header-actions"><a href="../browser-action.html" class="top-nav-link">Español</a><a href="mcp.html" class="top-nav-link">← MCP</a></div>
       </div>
       <h1>Model browser</h1>
@@ -30,10 +30,10 @@
 
     <div class="card" id="navegador-propio">
       <h2>ZeroChat’s own browser</h2>
-      <p>Playwright MCP opens a separate browser with a persistent profile in <code>~/zerochat/playwright/profile/&lt;engine&gt;</code>: the cookies and sessions you sign in to are kept between uses, apart from your browser.</p>
+      <p>Playwright MCP opens a separate in-memory browser (<code>--isolated</code>), apart from yours: it keeps cookies and sessions while the session lasts, saves nothing to disk on close, and supports concurrent <code>zerochat</code> runs. If a profile specifies a persistent storage name in its <a href="profiles.html">Browser</a> chapter, its cookies and sessions are kept between uses in <code>~/zerochat/playwright/profile/&lt;engine&gt;/&lt;storage&gt;</code>.</p>
       <ul>
         <li><strong>Engines:</strong> Chromium, Firefox or WebKit, downloaded to the Playwright cache, never to the system. Chromium is installed with the service; <strong>Install</strong> downloads the others and shows the progress, and <strong>Remove</strong> deletes them from the cache. Only an installed engine can be chosen; if you remove the chosen one, another installed one is used. WebKit and Firefox may need system libraries on Linux.</li>
-        <li><strong>Browser data:</strong> <strong>Clear</strong> deletes the cookies, sessions and site data of the chosen engine. You will have to sign in to those sites again.</li>
+        <li><strong>Browser data:</strong> <strong>Clear</strong> deletes all saved persistent storages of the chosen engine in <code>~/zerochat/playwright/profile/&lt;engine&gt;</code>. You will have to sign in to those sites again.</li>
         <li><strong>Show the window:</strong> by default the browser runs without a window; check it to watch what the model does.</li>
       </ul>
       <p>Removing an engine or clearing its data stops Playwright MCP if it is running and starts it again when done.</p>

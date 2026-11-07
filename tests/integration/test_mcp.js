@@ -949,3 +949,90 @@ test('MCP - buildCommandNotes redacta en inglés los comandos en segundo plano t
   manager.clients.set('mcp_proxy', { request: async () => { throw new Error('offline'); } });
   assert.equal(await manager.buildCommandNotes(messages), '');
 });
+
+test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversation_id y latido adaptativo 1 s / 10 s', async () => {
+  const previousMcp = ChatState.get('mcp');
+  const previousSessions = ChatState.get('sessions');
+  const manager = new MCP.McpManager();
+  manager.target = { url: 'http://127.0.0.1:6388', proxyKey: null };
+  const calls = [];
+  let heartbeatResponse = {
+    ok: true,
+    exit_on_close: false,
+    runs: [{ conversation_id: 'conv_srv_1', run_id: 'run_srv_1', status: 'running' }],
+    focus_run: { conversation_id: 'conv_srv_1', run_id: 'run_srv_1', status: 'running', assistant_text: 'En curso...' }
+  };
+  manager.clients.set('mcp_proxy', {
+    request: async (method, params) => {
+      calls.push({ method, params });
+      if (method === 'zerochat/run/start') {
+        return { ok: true, run_id: 'run_srv_1', conversation_id: params.conversation_id, status: 'running' };
+      }
+      if (method === 'zerochat/run/cancel') {
+        heartbeatResponse = {
+          ok: true,
+          exit_on_close: false,
+          runs: [],
+          focus_run: null
+        };
+        return { ok: true, cancelled: true };
+      }
+      if (method === 'zerochat/heartbeat') {
+        return heartbeatResponse;
+      }
+      return {};
+    }
+  });
+
+  try {
+    ChatState.set('mcp', { ...previousMcp, status: 'connected', serverRuns: [], focusRun: null });
+    ChatState.set('sessions', { activeId: 'conv_srv_1', list: [] });
+
+    // 1. startServerRun publica el estado 'running' y activa el temporizador rápido de 1 s (1000 ms)
+    const started = await manager.startServerRun({
+      conversationId: 'conv_srv_1',
+      profile: 'Z-Server',
+      toolSecurity: { globalMcpPolicy: 'ask' }
+    });
+    assert.equal(started.run_id, 'run_srv_1');
+    assert.deepEqual(ChatState.get('mcp').serverRuns, [
+      { conversationId: 'conv_srv_1', runId: 'run_srv_1', status: 'running' }
+    ]);
+    assert.equal(manager.heartbeatIntervalMs, 1000);
+    assert.ok(manager.heartbeatTimer);
+
+    // 2. readLiveState envía focus_conversation_id y publica focusRun
+    await manager.readLiveState();
+    assert.deepEqual(calls[1], {
+      method: 'zerochat/heartbeat',
+      params: { focus_conversation_id: 'conv_srv_1' }
+    });
+    assert.equal(ChatState.get('mcp').focusRun?.assistant_text, 'En curso...');
+    assert.equal(manager.heartbeatIntervalMs, 1000, 'Sigue a 1 s mientras haya una tarea running aunque exit_on_close sea false');
+
+    // 3. Cuando la tarea pasa a needs_input y exit_on_close es true, el latido baja a 10 s (10000 ms)
+    heartbeatResponse = {
+      ok: true,
+      exit_on_close: true,
+      runs: [{ conversation_id: 'conv_srv_1', run_id: 'run_srv_1', status: 'needs_input' }],
+      focus_run: { conversation_id: 'conv_srv_1', run_id: 'run_srv_1', status: 'needs_input', pending_reason: 'ask_user' }
+    };
+    await manager.readLiveState();
+    assert.equal(ChatState.get('mcp').serverRuns[0].status, 'needs_input');
+    assert.equal(manager.heartbeatIntervalMs, 10000);
+
+    // 4. cancelServerRun invoca zerochat/run/cancel y relee el estado vivo (sin runs y exit_on_close: false apaga el timer)
+    await manager.cancelServerRun('conv_srv_1');
+    assert.deepEqual(calls[3], {
+      method: 'zerochat/run/cancel',
+      params: { conversation_id: 'conv_srv_1' }
+    });
+    assert.deepEqual(ChatState.get('mcp').serverRuns, []);
+    assert.equal(ChatState.get('mcp').focusRun, null);
+    assert.equal(manager.heartbeatTimer, null);
+  } finally {
+    manager.setHeartbeatTimer(false);
+    ChatState.set('mcp', previousMcp);
+    ChatState.set('sessions', previousSessions);
+  }
+});

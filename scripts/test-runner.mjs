@@ -44,6 +44,7 @@ export const GROUPS = {
   profiles: [
     'tests/unit/test_ui_profiles.js',
     'tests/integration/test_profiles.js',
+    'tests/infrastructure/py/test_storage.py',
     'tests/browser/browser_profiles_settings.test.js',
     'tests/browser/browser_inspector.test.js'
   ],

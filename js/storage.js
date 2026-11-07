@@ -13,7 +13,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, Database) {
   'use strict';
 
-  const { createId, normalizeBackendUrl } = Utils;
+  const { createId, normalizeBackendUrl, resolveDep } = Utils;
   const { STORES, openDatabase, requestResult, transactionDone, deleteByIndex, getAllByIndex } = Database;
 
   const STORAGE_PREFIX = 'zerochat_';
@@ -165,6 +165,10 @@
     }
   }
 
+  const getMCP = () => resolveDep('ChatMCP', './mcp.js');
+  const isBackendConnected = () => getMCP().manager.isProxyConnected();
+  const requestBackend = (method, params = {}) => getMCP().manager.requestExternalControl(method, params);
+
   const conversationRange = id => IDBKeyRange.bound([id, -Infinity], [id, Infinity]);
 
   function toConversationHeader(record) {
@@ -172,32 +176,33 @@
     return { id, title, createdAt, updatedAt, messageCount };
   }
 
-  function toMessageRecord(message, conversationId, position, id) {
-    const record = { id, conversationId, position, role: message.role || 'user', content: message.content !== undefined ? message.content : '' };
+  function toMessageRecord(message, conversationId, position, messageId) {
+    const record = {
+      id: `${conversationId}:${position}`,
+      messageId,
+      conversationId,
+      position,
+      role: message.role || 'user',
+      content: message.content !== undefined ? message.content : ''
+    };
     for (const field of OPTIONAL_MESSAGE_FIELDS) if (message[field]) record[field] = message[field];
     return record;
   }
 
-  const fromMessageRecord = ({ conversationId, position, ...message }) => message;
+  const fromMessageRecord = ({ id, messageId, conversationId, position, ...message }) => ({
+    id: messageId || id,
+    ...message
+  });
 
-  /**
-   * Cabeceras de las conversaciones, de la más reciente a la más antigua, sin sus mensajes.
-   * @param {string} filterText - Filtro opcional por título
-   */
-  function getConversationsList(filterText = '') {
-    const filter = filterText.toLowerCase().trim();
+  function readLocalConversationsList() {
     return attempt('read the conversation list', async db => {
       const store = db.transaction(STORES.conversations, 'readonly').objectStore(STORES.conversations);
       const records = await requestResult(store.index('by_updatedAt').getAll());
-      return records.reverse()
-        .filter(record => !filter || record.title.toLowerCase().includes(filter))
-        .map(toConversationHeader);
+      return records.reverse().map(toConversationHeader);
     });
   }
 
-  /** Conversación completa con sus mensajes en orden; null si no existe. */
-  function getConversation(sessionId) {
-    if (!sessionId) return Promise.resolve(null);
+  function readLocalConversation(sessionId) {
     return attempt('read the conversation', async db => {
       const tx = db.transaction([STORES.conversations, STORES.messages], 'readonly');
       const conversation = await requestResult(tx.objectStore(STORES.conversations).get(sessionId));
@@ -207,9 +212,7 @@
     });
   }
 
-  /** Guarda una conversación y sustituye todos sus mensajes en una sola transacción. */
-  function saveConversation(sessionMeta, messages = []) {
-    if (!sessionMeta?.id) return Promise.resolve(false);
+  function writeLocalConversation(sessionMeta, messages = []) {
     const sessionId = sessionMeta.id;
     const now = Date.now();
     return attempt('save the conversation', async db => {
@@ -225,47 +228,105 @@
       await deleteByIndex(messageStore, 'by_conversation', conversationRange(sessionId));
       const seenIds = new Set();
       messages.forEach((message, position) => {
-        const id = message.id && !seenIds.has(message.id) ? message.id : createId(`msg_${sessionId}`);
-        seenIds.add(id);
-        messageStore.put(toMessageRecord(message, sessionId, position, id));
+        const messageId = message.id && !seenIds.has(message.id) ? message.id : createId(`msg_${sessionId}`);
+        seenIds.add(messageId);
+        messageStore.put(toMessageRecord(message, sessionId, position, messageId));
       });
       await transactionDone(tx);
       return true;
     });
   }
 
+  /**
+   * Cabeceras de las conversaciones, de la más reciente a la más antigua, sin sus mensajes.
+   * Con el backend conectado, descarga las conversaciones remotas a IndexedDB antes de devolver la lista
+   * sin subir las conversaciones locales al servidor.
+   */
+  async function getConversationsList() {
+    const localList = await readLocalConversationsList();
+    if (!isBackendConnected()) return localList;
+
+    const { conversations: remoteList = [] } = await requestBackend('zerochat/conversations/list');
+    const localMap = new Map(localList.map(item => [item.id, item]));
+
+    let downloaded = false;
+    for (const remote of remoteList) {
+      const local = localMap.get(remote.id);
+      if (!local || (remote.updatedAt || 0) > (local.updatedAt || 0)) {
+        const { conversation: fullRemote } = await requestBackend('zerochat/conversations/get', { id: remote.id });
+        if (fullRemote) {
+          await writeLocalConversation(remote, fullRemote.history);
+          downloaded = true;
+        }
+      }
+    }
+
+    return downloaded ? readLocalConversationsList() : localList;
+  }
+
+  /** Conversación completa con sus mensajes en orden; null si no existe. */
+  async function getConversation(sessionId) {
+    if (!sessionId) return null;
+    if (isBackendConnected()) {
+      const result = await requestBackend('zerochat/conversations/get', { id: sessionId });
+      if (result?.conversation) return result.conversation;
+    }
+    return readLocalConversation(sessionId);
+  }
+
+  /** Guarda una conversación y sustituye todos sus mensajes. */
+  async function saveConversation(sessionMeta, messages = []) {
+    if (!sessionMeta?.id) return false;
+    await writeLocalConversation(sessionMeta, messages);
+    if (isBackendConnected()) {
+      await requestBackend('zerochat/conversations/save', { conversation: sessionMeta, messages });
+    }
+    return true;
+  }
+
   /** Elimina una conversación y todos sus mensajes. */
-  function deleteConversation(sessionId) {
-    if (!sessionId) return Promise.resolve(false);
-    return attempt('delete the conversation', async db => {
+  async function deleteConversation(sessionId) {
+    if (!sessionId) return false;
+    await attempt('delete the conversation', async db => {
       const tx = db.transaction([STORES.conversations, STORES.messages], 'readwrite');
       tx.objectStore(STORES.conversations).delete(sessionId);
       await deleteByIndex(tx.objectStore(STORES.messages), 'by_conversation', conversationRange(sessionId));
       await transactionDone(tx);
-      return true;
     });
+    if (isBackendConnected()) {
+      await requestBackend('zerochat/conversations/delete', { id: sessionId });
+    }
+    return true;
   }
 
-  function deleteAllConversations() {
-    return attempt('delete the conversations', async db => {
+  async function deleteAllConversations() {
+    await attempt('delete the conversations', async db => {
       const tx = db.transaction([STORES.conversations, STORES.messages], 'readwrite');
       tx.objectStore(STORES.conversations).clear();
       tx.objectStore(STORES.messages).clear();
       await transactionDone(tx);
-      return true;
     });
+    if (isBackendConnected()) {
+      await requestBackend('zerochat/conversations/delete', { all: true });
+    }
+    return true;
   }
 
-  function renameConversation(sessionId, newTitle) {
-    if (!sessionId || !newTitle) return Promise.resolve(false);
-    return attempt('rename the conversation', async db => {
+  async function renameConversation(sessionId, newTitle) {
+    if (!sessionId || !newTitle) return false;
+    const title = newTitle.trim();
+    const renamed = await attempt('rename the conversation', async db => {
       const tx = db.transaction(STORES.conversations, 'readwrite');
       const store = tx.objectStore(STORES.conversations);
       const conversation = await requestResult(store.get(sessionId));
-      if (conversation) store.put({ ...conversation, title: newTitle.trim(), updatedAt: Date.now() });
+      if (conversation) store.put({ ...conversation, title, updatedAt: Date.now() });
       await transactionDone(tx);
       return Boolean(conversation);
     });
+    if (isBackendConnected()) {
+      await requestBackend('zerochat/conversations/rename', { id: sessionId, title });
+    }
+    return renamed;
   }
 
   return {

@@ -86,3 +86,9 @@
 ## M43 Dark theme link contrast: closed 2026-10-23
 
 ## M44 WebP images readable by every vision model: closed 2026-11-05
+
+## M45 Local backend storage for general connection profiles (Z-): closed 2026-11-06
+
+## M46 Local backend storage and synchronization for conversations (SQLite): closed 2026-11-07
+
+## M47 Server-side background turn execution and conversation continuation (--conversation): closed 2026-11-07

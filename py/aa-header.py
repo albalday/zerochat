@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import base64
+import contextlib
 import ctypes
 import ctypes.util
 import dataclasses
@@ -35,6 +36,7 @@ import shutil
 import shlex
 import signal
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -51,7 +53,7 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE_BACKEND_VERSION = "9.11.0"
+SOURCE_BACKEND_VERSION = "10.0.0"
 
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""

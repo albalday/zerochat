@@ -35,40 +35,75 @@ def build_parser() -> ZeroChatArgumentParser:
     parser = ZeroChatArgumentParser(description=f"ZeroChat Local Server v{VERSION}")
     # Desde Python 3.14 argparse colorea la ayuda con códigos ANSI; la consola la muestra en texto plano.
     parser.color = False
-    parser.add_argument("--port", type=int, default=None, help=f"Puerto de escucha (default: ZEROCHAT_PORT o {DEFAULT_PORT}; con --prompt, si está ocupado se usa otro libre salvo en desarrollo)")
+    parser.add_argument("--port", type=int, default=None, help=f"Puerto de escucha (default: ZEROCHAT_PORT o {DEFAULT_PORT}; con --prompt, si está ocupado se usa otro libre salvo con --browser en desarrollo)")
     parser.add_argument("--host", default=os.environ.get("ZEROCHAT_HOST", DEFAULT_HOST), help=f"Host de escucha (default: {DEFAULT_HOST})")
     parser.add_argument("--ui-url", default=None, help="URL de la interfaz web a abrir (por defecto: interfaz local en desarrollo o GitHub Pages)")
     parser.add_argument("--no-browser", action="store_true", help="No abrir automáticamente el navegador")
     parser.add_argument("--keep-server", action="store_true", help="Servidor: seguir en marcha al cerrar el navegador (no se combina con --prompt)")
     parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación de ~/zerochat/.venv")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
+    parser.add_argument("--list-profiles", action="store_true", help="Listar los perfiles de conexión generales almacenados en el servidor local")
+    parser.add_argument("--list-conversations", action="store_true", help="Listar las conversaciones almacenadas en el servidor local")
     parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 plazo agotado o navegador cerrado, 3 fallo de arranque, 4 argumentos no válidos)")
-    parser.add_argument("--profile", default=None, help="Con --prompt, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo")
-    parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt)")
-    parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
-    parser.add_argument("--keep-page", action="store_true", help="Página: con --prompt, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")
-    parser.add_argument("--allow-dangerous-tools", action="store_true", help="Con --prompt, aprobar también las herramientas que escriben o ejecutan (write_file, edit_file, run_command); las demás se aprueban siempre para la sesión")
-    parser.add_argument("--headless", action="store_true", help="Con --prompt, abrir el navegador predeterminado sin ventana (si ya está abierto puede verse la pestaña)")
+    parser.add_argument("--conversation", default=None, help="Con --prompt o para continuar, id de la conversación almacenada en SQLite")
+    parser.add_argument("--profile", default=None, help=f"Con --prompt o --conversation, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo (por defecto: {DEFAULT_RUN_PROFILE} del servidor)")
+    parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt o --conversation)")
+    parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt o --conversation, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
+    parser.add_argument("--browser", action="store_true", help="Con --prompt o --conversation, abrir el navegador predeterminado del usuario en lugar del Chromium sin ventana de Playwright")
+    parser.add_argument("--keep-page", action="store_true", help="Página: con --browser, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")
+    parser.add_argument("--allow-dangerous-tools", action="store_true", help="Con --prompt o --conversation, aprobar también las herramientas que escriben o ejecutan (write_file, edit_file, run_command); las demás se aprueban siempre para la sesión")
+    parser.add_argument("--headless", action="store_true", help="Con --browser, abrir el navegador predeterminado sin ventana (si ya está abierto puede verse la pestaña)")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     return parser
 
 
 def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | None:
-    """Valida las combinaciones de opciones y devuelve la sesión de --prompt, si la hay."""
-    if args.prompt is None:
-        if args.headless or args.keep_page or args.allow_dangerous_tools or args.profile is not None or args.export is not None:
-            parser.error("--headless, --keep-page, --allow-dangerous-tools, --profile y --export solo se usan con --prompt")
+    """Valida las combinaciones de opciones y devuelve la sesión de --prompt o --conversation, si la hay."""
+    if args.prompt is None and args.conversation is None:
+        if args.browser or args.headless or args.keep_page or args.allow_dangerous_tools or args.profile is not None or args.export is not None:
+            parser.error("--browser, --headless, --keep-page, --allow-dangerous-tools, --profile y --export solo se usan con --prompt o --conversation")
         return None
-    if not args.prompt.strip():
-        parser.error("el prompt está vacío")
+    prompt = None
+    if args.prompt is not None:
+        prompt = args.prompt.strip()
+        if not prompt:
+            parser.error("el prompt está vacío")
+    conversation_id = None
+    if args.conversation is not None:
+        raw_conv = args.conversation.strip()
+        if not raw_conv:
+            parser.error("el identificador de la conversación no puede estar vacío")
+        try:
+            conversation_id = _validate_conversation_id(raw_conv)
+        except ValueError as exc:
+            parser.error(str(exc))
+        conv = get_conversation(conversation_id)
+        if conv is None:
+            parser.error(f"no existe la conversación '{conversation_id}'")
+        if prompt is None:
+            history = conv.get("history") or []
+            has_user_or_tool = any(m.get("role") in ("user", "tool") for m in history)
+            if not has_user_or_tool:
+                parser.error(f"la conversación '{conversation_id}' no tiene turnos para continuar")
     if args.no_browser:
-        parser.error("--prompt necesita abrir el navegador: no se combina con --no-browser")
+        parser.error("--prompt y --conversation necesitan abrir el navegador: no se combina con --no-browser")
     if args.keep_server:
-        parser.error("--prompt termina al devolver el resultado: no se combina con --keep-server (para no cerrar la página, --keep-page)")
-    if args.profile is not None and not args.profile.strip():
-        parser.error("--profile no puede estar vacío")
-    if args.keep_page and args.headless:
-        parser.error("--keep-page necesita la ventana del navegador: no se combina con --headless")
+        parser.error("--prompt y --conversation terminan al devolver el resultado: no se combina con --keep-server (para no cerrar la página, --keep-page)")
+    if args.headless and not args.browser:
+        parser.error("--headless solo se usa con --browser (--prompt y --conversation ya se ejecutan sin ventana con el Chromium de Playwright)")
+    if args.keep_page and (not args.browser or args.headless):
+        parser.error("--keep-page necesita la ventana del navegador del usuario (--browser sin --headless)")
+    if args.profile is not None:
+        clean_profile = args.profile.strip()
+        if not clean_profile:
+            parser.error("--profile no puede estar vacío")
+        general_match = get_general_profile_by_name(clean_profile) or get_general_profile(clean_profile)
+        profile_name = general_match["name"] if general_match else clean_profile
+    else:
+        default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
+        if default_match is None:
+            parser.error(f"no existe el perfil general por defecto '{DEFAULT_RUN_PROFILE}'; créalo o indica uno con --profile")
+        profile_name = default_match["name"]
     export_path = None
     if args.export is not None:
         export_path = Path(args.export).expanduser().absolute()
@@ -76,7 +111,7 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
             parser.error(f"--export necesita una de estas extensiones: {', '.join(RUN_EXPORT_FORMATS)}")
         if not export_path.parent.is_dir():
             parser.error(f"--export: no existe el directorio {export_path.parent}")
-    return RunSession(args.prompt.strip(), args.profile.strip() if args.profile else None, export_path, args.keep_page, args.allow_dangerous_tools)
+    return RunSession(prompt, profile_name, export_path, args.keep_page, args.allow_dangerous_tools, conversation_id=conversation_id)
 
 
 def redirect_log(args):
@@ -198,7 +233,7 @@ def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_cl
 
 def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, result_out):
     """Abre la interfaz: en modo ejecución, con su supervisor; si no, con el control de consola.
-    Devuelve el navegador sin ventana de --headless, si se lanzó."""
+    Devuelve el navegador sin ventana lanzado, si lo hay."""
     global CONSOLE_CONTROL
     if not RUN_SESSION:
         CONSOLE_CONTROL = ConsoleControl(server, parser, launch_url=lambda: launch_url(ui_url))
@@ -207,6 +242,15 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, resu
             launch_browser(launch_url(ui_url))
         return None
     target_url = launch_url(ui_url)
+    if not args.browser:
+        headless_browser = launch_playwright_chromium(target_url)
+        if headless_browser is None:
+            run_error("No se pudo abrir el Chromium de Playwright (instálalo desde Ajustes › Navegador o usa --browser).")
+            server.server_close()
+            sys.stdout = result_out
+            sys.exit(RUN_EXIT_SETUP)
+        threading.Thread(target=run_supervisor, args=(server, RUN_SESSION, headless_browser), daemon=True).start()
+        return headless_browser
     headless_browser = launch_headless_browser(target_url) if args.headless else None
     if headless_browser is None and not launch_browser(target_url):
         run_error("No se pudo abrir el navegador.")
@@ -277,6 +321,34 @@ def main():
     RUN_SESSION = run_session_from_args(parser, args)
     result_out = redirect_log(args)
 
+    if getattr(args, "list_profiles", False):
+        profiles = list_general_profiles()
+        if not profiles:
+            print("No hay perfiles de conexión generales almacenados en el servidor local.")
+        else:
+            print("Perfiles de conexión generales (Z-):")
+            for p in profiles:
+                settings = p.get("settings", {})
+                model = settings.get("model") or "sin modelo"
+                api_type = settings.get("apiType") or "openai"
+                api_url = settings.get("apiUrl") or ""
+                print(f"- {p['name']} ({api_type} / {model}) [{api_url}]")
+        return
+
+    if getattr(args, "list_conversations", False):
+        conversations = list_conversations()
+        if not conversations:
+            print("No hay conversaciones almacenadas en el servidor local.")
+        else:
+            print("Conversaciones almacenadas:")
+            for c in conversations:
+                date_str = datetime.datetime.fromtimestamp(c["updatedAt"] / 1000).strftime("%Y-%m-%d %H:%M") if c.get("updatedAt") else ""
+                count = c.get("messageCount", 0)
+                msg_text = "1 mensaje" if count == 1 else f"{count} mensajes"
+                date_suffix = f", {date_str}" if date_str else ""
+                print(f"- [{c['id']}] {c['title']} ({msg_text}{date_suffix})")
+        return
+
     if args.test:
         run_self_test()
         return
@@ -286,8 +358,8 @@ def main():
     prepare_environment(args, is_dev=dev_root is not None)
     reset_session_credentials()
 
-    # La interfaz local de desarrollo tiene el puerto en su origen: en otro no vería los datos guardados.
-    server = open_server(args, local_ui=static_root is not None and not args.ui_url)
+    # La interfaz local de desarrollo en el navegador del usuario tiene el puerto en su origen: en otro no vería los datos guardados.
+    server = open_server(args, local_ui=static_root is not None and not args.ui_url and args.browser)
     exposure_warning = remote_exposure_warning(ACTIVE_HOST)
     if exposure_warning:
         add_notice(exposure_warning)

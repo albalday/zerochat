@@ -496,7 +496,7 @@
   }
 
   /** Pinta un grupo de mensajes del asistente (turnos y herramientas) en un solo bloque. */
-  function renderAssistantGroup(messagesList, group, callbacks) {
+  function renderAssistantGroup(messagesList, group, callbacks, { isLastGroup = false } = {}) {
     const groupMsgIds = group.map(message => message.id);
     const groupBaseId = group.map(message => extractBaseId(message.id)).find((base, index) => base !== group[index].id)
       || extractBaseId(group[0].id);
@@ -506,15 +506,17 @@
 
     const ToolCards = getToolCards();
     const markdownParts = [];
+    const lastAssistant = isLastGroup ? group.findLast(message => message.role === 'assistant') : null;
     for (const item of group) {
       if (item.role !== 'assistant') continue;
       if (item.content) {
         renderAssistantBlock(createAssistantBlock(content), item.content);
         markdownParts.push(item.content);
       }
+      const onAuthorizationDecision = item === lastAssistant ? callbacks.onToolAuthorization : null;
       for (const toolCall of item.tool_calls || []) {
         const toolMsg = group.find(message => message.role === 'tool' && (message.tool_call_id === toolCall.id || message.name === toolCall.function?.name));
-        const card = ToolCards.renderHistoricalToolCard(toolCall, toolMsg);
+        const card = ToolCards.renderHistoricalToolCard(toolCall, toolMsg, { onAuthorizationDecision });
         const success = !toolMsg?.content || !/"success"\s*:\s*false|"error"\s*:/i.test(toolMsg.content);
         ToolCards.appendToolCard(content, card, { completed: true, success });
       }
@@ -527,6 +529,61 @@
     bindMessageCopy(btnCopy, () => fullAssistantMarkdown || content.innerText);
     actions.hidden = false;
     getMarkdown().attachContentListeners(content);
+  }
+
+  /**
+   * Muestra o actualiza al final de la conversación el bloque en vivo de una tarea ejecutándose
+   * en el servidor local (o que terminó con error), con la cabecera de la tarea, el paso actual,
+   * el razonamiento plegable y el Markdown parcial recibido en `focusRun`.
+   */
+  function renderLiveServerRun(messagesList, welcomeBanner, activeRun, focusRun) {
+    if (!activeRun || (activeRun.status !== 'running' && activeRun.status !== 'error')) {
+      messagesList.querySelector('.server-run-live-wrapper')?.remove();
+      return null;
+    }
+    const isError = activeRun.status === 'error';
+    welcomeBanner.hidden = true;
+    let wrapper = messagesList.querySelector('.server-run-live-wrapper');
+    if (!wrapper) {
+      const doc = messagesList.ownerDocument;
+      wrapper = doc.createElement('div');
+      wrapper.className = 'message-wrapper assistant server-run-live-wrapper';
+      wrapper.innerHTML = `<div class="message-row assistant"><div class="message-content-wrapper"><div class="message-content"><div class="server-run-banner"><span class="server-run-banner-icon">${Icons.get('clock', { size: 14 })}</span><span class="server-run-banner-title"></span><span class="server-run-step" hidden></span></div><details class="thought-block server-run-thought" open hidden><summary class="thought-summary"><span></span></summary><div class="thought-content"></div></details><div class="agentic-turn-block server-run-assistant-block"></div></div></div></div>`;
+      messagesList.appendChild(wrapper);
+    } else if (messagesList.lastElementChild !== wrapper) {
+      messagesList.appendChild(wrapper);
+    }
+
+    const focus = focusRun && focusRun.conversation_id === activeRun.conversationId ? focusRun : null;
+    const bannerEl = wrapper.querySelector('.server-run-banner');
+    bannerEl.classList.toggle('is-error', isError);
+    if (isError) {
+      const errorText = typeof focus?.error === 'string' && focus.error.trim() ? focus.error.trim() : t('notice_error');
+      wrapper.querySelector('.server-run-banner-title').textContent = t('server_run_error_banner', { error: errorText });
+    } else {
+      const runId = focus?.run_id || activeRun.runId || '';
+      wrapper.querySelector('.server-run-banner-title').textContent = t('server_run_active_banner', { id: runId });
+    }
+
+    const stepEl = wrapper.querySelector('.server-run-step');
+    const stepText = !isError && typeof focus?.step_text === 'string' ? focus.step_text.trim() : '';
+    stepEl.textContent = stepText;
+    stepEl.hidden = !stepText;
+
+    const thoughtEl = wrapper.querySelector('.server-run-thought');
+    const reasoningText = !isError && typeof focus?.reasoning_text === 'string' ? focus.reasoning_text.trim() : '';
+    thoughtEl.hidden = !reasoningText;
+    if (reasoningText) {
+      thoughtEl.querySelector('.thought-summary span').textContent = t('md_thought_reasoning');
+      thoughtEl.querySelector('.thought-content').textContent = reasoningText;
+    }
+
+    const assistantBlock = wrapper.querySelector('.server-run-assistant-block');
+    const assistantText = !isError && typeof focus?.assistant_text === 'string' ? focus.assistant_text : '';
+    assistantBlock.hidden = isError && !assistantText;
+    renderAssistantBlock(assistantBlock, assistantText, { streaming: !isError });
+    scrollToBottom(messagesList);
+    return wrapper;
   }
 
   function renderSessionMessages(elements, history, callbacks) {
@@ -559,7 +616,7 @@
       }
       const group = [];
       while (i < messages.length && messages[i].role !== 'user') group.push(messages[i++]);
-      renderAssistantGroup(messagesList, group, callbacks);
+      renderAssistantGroup(messagesList, group, callbacks, { isLastGroup: i === messages.length });
     }
 
     scrollToBottom(messagesList, { force: true });
@@ -584,6 +641,7 @@
     removeMessage,
     appendUserMessage,
     createAssistantMessagePlaceholder,
+    renderLiveServerRun,
     renderSessionMessages,
     showBranchLoadingIndicator,
     hideBranchLoadingIndicator

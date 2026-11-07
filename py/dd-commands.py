@@ -87,6 +87,8 @@ def _process_start_token(pid: int) -> str | None:
 
 
 def _pid_alive(pid: int) -> bool:
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+        return False
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

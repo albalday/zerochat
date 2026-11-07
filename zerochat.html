@@ -23,7 +23,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#0d1117">
   <meta name="description" content="ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación">
-  <title>ZeroChat v9.11.5</title>
+  <title>ZeroChat v10.0.0</title>
   <link rel="manifest" href="manifest.webmanifest">
   <!-- Carga concurrente paralela de hojas de estilo (elimina la cascada bloqueante de @import en móvil) -->
   <link rel="stylesheet" href="css/tokens.css">
@@ -351,6 +351,13 @@
       </div>
 
       <div class="header-right">
+        <div id="server-run-control" class="header-server-run-control" hidden>
+          <label class="switch switch-sm" data-i18n-title="header_run_on_server_title" title="Ejecutar los turnos en segundo plano en el servidor">
+            <input type="checkbox" id="chk-server-run" data-i18n-aria="header_run_on_server" aria-label="Ejecutar en servidor">
+            <span class="slider"></span>
+          </label>
+          <label for="chk-server-run" class="header-server-run-label" data-i18n="header_run_on_server">Ejecutar en servidor</label>
+        </div>
         <button type="button" id="btn-toggle-debug" class="btn-header-icon btn-debug-toggle" data-i18n-title="btn_logs_title" title="Abrir panel lateral de logs y depuración" aria-label="Abrir panel lateral de logs" aria-controls="debug-panel" aria-expanded="false">
           <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg>
         </button>
@@ -373,7 +380,7 @@
         <a id="welcome-help-link" class="welcome-status-badge welcome-help-link" href="help/index.html" target="_blank" rel="noopener noreferrer" data-i18n-title="welcome_help_title" data-i18n-href="welcome_help_href" title="Abrir centro de ayuda y documentación online">
           <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg>
           <span data-i18n="welcome_help_link">Ayuda y Documentación</span>
-          <span id="welcome-version" class="welcome-version">(v9.11.5)</span>
+          <span id="welcome-version" class="welcome-version">(v10.0.0)</span>
           <svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-external-link"></use></svg>
         </a>
       </div>

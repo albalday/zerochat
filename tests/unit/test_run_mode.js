@@ -16,18 +16,26 @@ test('RunMode.readRunId solo acepta un identificador válido del fragmento de ar
   for (const [hash, expected] of rows) assert.equal(RunMode.readRunId(hash), expected, hash);
 });
 
-test('RunMode.createProgressReporter limita el streaming al intervalo y envía siempre el resto', t => {
+test('RunMode.createProgressReporter limita el streaming al intervalo y conserva el texto diferido para el siguiente aviso', t => {
   t.mock.timers.enable({ apis: ['Date'], now: 10_000 });
   const sent = [];
-  const report = RunMode.createProgressReporter(event => sent.push(event.text));
-  report({ kind: 'stream', text: 's1' });
+  const report = RunMode.createProgressReporter(event => sent.push(event));
+  report({ kind: 'stream', text: 's1', assistant_text: 'a1' });
+  t.mock.timers.tick(500);
+  report({ kind: 'stream', text: 's1b', assistant_text: 'a2', reasoning_text: 'r2' });
   report({ kind: 'tool', text: 'tool' });
-  t.mock.timers.tick(1999);
-  report({ kind: 'stream', text: 's2' });
+  t.mock.timers.tick(1499);
+  report({ kind: 'stream', text: 's2r', reasoning_text: 'r3' });
+  report({ kind: 'stream', text: 's2', assistant_text: 'a3' });
   t.mock.timers.tick(1);
-  report({ kind: 'stream', text: 's3' });
+  report({ kind: 'stream', text: 's3', assistant_text: 'a4' });
   report({ kind: 'status', text: 'status' });
-  assert.deepEqual(sent, ['s1', 'tool', 's3', 'status']);
+  assert.deepEqual(sent, [
+    { kind: 'stream', text: 's1', assistant_text: 'a1' },
+    { kind: 'tool', text: 'tool', assistant_text: 'a2', reasoning_text: 'r2' },
+    { kind: 'stream', text: 's3', assistant_text: 'a4', reasoning_text: 'r3' },
+    { kind: 'status', text: 'status' }
+  ]);
 });
 
 test('RunMode.pendingAskUserQuestion toma la pregunta de ask_user de los mensajes tool del final del turno', () => {
@@ -60,5 +68,94 @@ test('RunMode.answerToolApprovals permite para la sesión salvo las herramientas
     RunMode.answerToolApprovals(allowDangerous, event => events.push(event));
     assert.deepEqual(expected.map(([name]) => [name, responder(name)]), expected);
     assert.deepEqual(events, expected.map(([name, decision]) => ({ kind: decision === 'deny' ? 'approval_denied' : 'approval_allowed', text: name })));
+  }
+});
+
+test('RunMode.answerToolApprovals en modo conversación pausa para el usuario salvo con allowDangerous o allowOnce (un solo uso)', t => {
+  const ToolCards = require('../../js/tool-cards.js');
+  let responder = null;
+  t.mock.method(ToolCards, 'setAuthorizationResponder', fn => { responder = fn; });
+
+  const events = [];
+  RunMode.answerToolApprovals(false, event => events.push(event), {
+    pauseOnApproval: true,
+    allowOnce: ['write_file']
+  });
+  assert.equal(responder('write_file'), 'allow_once', 'primera llamada permitida una vez');
+  assert.equal(responder('write_file'), 'pause_for_user', 'segunda llamada vuelve a pausar');
+  assert.equal(responder('run_command'), 'pause_for_user');
+  assert.deepEqual(events, [
+    { kind: 'approval_allowed', text: 'write_file' },
+    { kind: 'user_request', text: 'write_file' },
+    { kind: 'user_request', text: 'run_command' }
+  ]);
+
+  const dangerousEvents = [];
+  RunMode.answerToolApprovals(true, event => dangerousEvents.push(event), { pauseOnApproval: true });
+  assert.equal(responder('write_file'), 'allow_session');
+  assert.deepEqual(dangerousEvents, [
+    { kind: 'approval_allowed', text: 'write_file' }
+  ]);
+});
+
+test('RunMode.pendingToolApproval detecta herramientas pendientes de aprobación en el final del turno', () => {
+  const tool = (name, content) => ({ role: 'tool', name, content });
+  const user = { role: 'user', content: 'hola' };
+  const rows = [
+    [[user, tool('write_file', JSON.stringify({ success: false, awaitingApproval: true }))], 'write_file'],
+    [[user, tool('read_file', '{}'), tool('run_command', JSON.stringify({ awaitingApproval: true }))], 'run_command'],
+    // Un tool anterior con awaitingApproval ya sucedido por otros turnos no cuenta.
+    [[user, tool('write_file', JSON.stringify({ awaitingApproval: true })), user, { role: 'assistant', content: 'ok' }], null],
+    [[user, tool('write_file', JSON.stringify({ success: true }))], null],
+    [[user, tool('write_file', 'not json')], null],
+    [[], null]
+  ];
+  for (const [messages, expected] of rows) {
+    assert.equal(RunMode.pendingToolApproval(messages), expected, JSON.stringify(messages));
+  }
+});
+
+test('RunMode.prepareConversationForContinuation retira el paso incompleto con awaitingApproval', () => {
+  const user = { role: 'user', content: 'haz X' };
+  const assistantCall = { role: 'assistant', tool_calls: [{ id: 'c1', function: { name: 'write_file' } }] };
+  const toolPending = { role: 'tool', tool_call_id: 'c1', name: 'write_file', content: JSON.stringify({ awaitingApproval: true }) };
+
+  const history = [user, assistantCall, toolPending];
+  const cleaned = RunMode.prepareConversationForContinuation(history);
+  assert.deepEqual(cleaned, [user]);
+
+  // Si no está esperando aprobación, conserva el historial intacto
+  const normalHistory = [user, { role: 'assistant', content: 'respuesta' }];
+  assert.deepEqual(RunMode.prepareConversationForContinuation(normalHistory), normalHistory);
+});
+
+test('RunMode.hydrateToolSecurity aplica políticas reales en ToolSecurityManager para evaluación', () => {
+  const ToolSecurity = require('../../js/tool-security.js');
+  const manager = ToolSecurity.manager;
+  manager.clearAllAuthorizations();
+  manager.setGlobalMcpPolicy('ask');
+  try {
+    RunMode.hydrateToolSecurity({
+      globalMcpPolicy: 'workspace_trust',
+      tools: {
+        write_file: 'allow',
+        run_command: {
+          policy: 'allow',
+          constraints: { command: { allowedPrefixes: ['git'], allowChaining: false, allowPipes: false } }
+        }
+      },
+      directoryRules: ['R:/tmp/project'],
+      servers: { memory: 'allow' }
+    });
+
+    assert.equal(manager.getGlobalMcpPolicy(), 'workspace_trust');
+    assert.equal(manager.evaluateAuthorization({ name: 'write_file' }, { path: '/etc/hosts' }).status, 'allow');
+    assert.equal(manager.evaluateAuthorization({ name: 'run_command' }, { command: 'git status' }).status, 'allow');
+    assert.equal(manager.evaluateAuthorization({ name: 'run_command' }, { command: 'rm -rf /' }).requiresApproval, true);
+    assert.equal(manager.evaluateAuthorization({ name: 'read_file' }, { path: '/tmp/project/a.txt' }).status, 'allow');
+    assert.equal(manager.evaluateAuthorization({ name: 'memory_search', metadata: { mcpServerId: 'memory', originalName: 'search' } }, {}).status, 'allow');
+  } finally {
+    manager.clearAllAuthorizations();
+    manager.setGlobalMcpPolicy('ask');
   }
 });

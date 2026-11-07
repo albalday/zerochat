@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Conversations, History & Branching · ZeroChat Help · 9.x</title>
+  <title>Conversations, History & Branching · ZeroChat Help · 10.x</title>
   <meta name="description" content="Local history, branches and conversation backups.">
   <link rel="stylesheet" href="../help.css">
 </head>
@@ -13,7 +13,7 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat 9.x Docs
+          ZeroChat 10.x Docs
         </a>
         <div class="header-actions">
           <a href="../conversations.html" class="top-nav-link">Español</a>
@@ -27,7 +27,7 @@
     <div class="card">
       <h2>1. Sidebar and history</h2>
       <p>The sidebar lets you create, search by title, open, export and delete conversations. On mobile, open it from the top menu. History is grouped by date.</p>
-      <p>A new conversation keeps the selected profile. Messages are stored in the current browser and web origin; they do not automatically sync between devices or between GitHub Pages and localhost.</p>
+      <p>A new conversation keeps the selected profile. When the local server is connected, new conversations are saved in both IndexedDB and local SQLite storage (<code>~/zerochat/storage/zerochat.db</code>). Existing local conversations remain in the browser without being uploaded to the server, and remote conversations from the server are downloaded on initial connection and when changing connection from the Connection panel.</p>
       <p>While a response is being generated, the view follows the end of the conversation. If you scroll up, it stops moving so you can read; it follows the end again when you scroll back down or send a message. While you are not at the end, a button with a down arrow appears above the composer; it takes you to the end and resumes following it.</p>
     </div>
 
@@ -50,7 +50,7 @@
     <div class="card">
       <h2>4. Importing and keeping backups</h2>
       <p>Use <strong>Import conversation</strong> in the sidebar and select JSON exported by ZeroChat. The application validates its structure; it does not import PDF or Markdown as chat history. Import is blocked during generation.</p>
-      <p>Export conversations you want to keep before clearing browser data. Deleting a session or the entire history requires confirmation and has no recovery bin. Deleting <code>~/zerochat/</code> affects the local server, not browser chat history.</p>
+      <p>Export conversations you want to keep before clearing browser data. Deleting a session or the entire history requires confirmation and has no recovery bin. You can inspect conversations saved on the local server from the terminal with <code>zerochat --list-conversations</code> (or <code>python3 zerochat.py --list-conversations</code>). Deleting <code>~/zerochat/</code> resets the server SQLite storage, while preserving the browser IndexedDB copy.</p>
     </div>
 
     <nav class="page-navigation" aria-label="Help navigation">
@@ -69,7 +69,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat 9.x · Personal user guide</p>
+      <p>ZeroChat 10.x · Personal user guide</p>
     </footer>
   </div>
 </body>

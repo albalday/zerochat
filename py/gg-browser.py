@@ -202,3 +202,55 @@ def launch_headless_browser(url: str) -> subprocess.Popen | None:
     except OSError as error:
         log_event(f"No se pudo abrir {executable} sin ventana ({error}); se abrirá de la forma normal.")
         return None
+
+
+_PLAYWRIGHT_CHROMIUM_BINARIES = (
+    ("chromium_headless_shell-", (
+        "chrome-headless-shell-*/chrome-headless-shell",
+        "chrome-headless-shell-*/chrome-headless-shell.exe",
+    )),
+    ("chromium-", (
+        "chrome-*/chrome",
+        "chrome-*/chrome.exe",
+        "chrome-*/*.app/Contents/MacOS/*",
+    )),
+)
+
+
+def playwright_chromium_executable() -> str | None:
+    """Ejecutable de Chromium en la caché de Playwright (headless shell o completo), o None."""
+    try:
+        folders = sorted(
+            (child for child in playwright_engine_cache().iterdir() if (child / "INSTALLATION_COMPLETE").is_file()),
+            key=lambda path: path.name,
+            reverse=True,
+        )
+    except OSError:
+        return None
+    for prefix, patterns in _PLAYWRIGHT_CHROMIUM_BINARIES:
+        for folder in folders:
+            if not folder.name.startswith(prefix):
+                continue
+            for pattern in patterns:
+                for binary in sorted(folder.glob(pattern)):
+                    if binary.is_file():
+                        return str(binary)
+    return None
+
+
+def launch_playwright_chromium(url: str) -> subprocess.Popen | None:
+    """Abre la URL sin ventana con el Chromium instalado en la caché de Playwright."""
+    executable = playwright_chromium_executable()
+    if not executable:
+        log_event("No está instalado el Chromium de Playwright (instálalo desde Ajustes › Navegador o usa --browser).")
+        return None
+    log_event(f"Abriendo {Path(executable).name} de Playwright sin ventana en la interfaz configurada...")
+    try:
+        return subprocess.Popen(
+            [executable, "--headless", url],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as error:
+        log_event(f"No se pudo abrir {executable} de Playwright ({error}).")
+        return None

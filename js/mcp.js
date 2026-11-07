@@ -57,10 +57,11 @@
   // y la espera de la autorización OAuth.
   const EXTERNAL_LONG_START_POLL_ATTEMPTS = 80;
   const HEARTBEAT_INTERVAL_MS = 10000;
+  const HEARTBEAT_FAST_INTERVAL_MS = 1000;
   // Plazo de los sondeos al servidor local (conexión, comprobación y reconexión del latido).
   const PROBE_TIMEOUT_MS = 1500;
   // Lo que el servidor local informa en vivo, vacío mientras no hay conexión.
-  const LIVE_RESET = Object.freeze({ serverInfo: null, tools: [], externalServers: [], externalTools: [], commandJobs: [], exitOnClose: false, playwright: null });
+  const LIVE_RESET = Object.freeze({ serverInfo: null, tools: [], externalServers: [], externalTools: [], commandJobs: [], exitOnClose: false, playwright: null, serverRuns: [], focusRun: null });
   const MAX_OUTPUT_LENGTH = 60000;
   const MAX_IMAGE_BASE64_LENGTH = 8 * 1024 * 1024;
   const TOOL_AUTH_VERSION = 'zerochat-tool-auth-v1';
@@ -72,6 +73,7 @@
   const getToolCards = () => resolveDep('ChatToolCards', './tool-cards.js');
   const getSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
+  const getProfiles = () => resolveDep('ChatProfileRepository', './profile-repository.js');
 
   /** Cabeceras del proxy inverso: X-ZeroChat-Proxy enruta hacia zerochat.py y Authorization lleva su clave. */
   const proxyHeaders = proxyKey => (proxyKey === null ? {} : { 'X-ZeroChat-Proxy': '1', Authorization: `Bearer ${proxyKey}` });
@@ -493,10 +495,11 @@
     }));
   }
 
-  /** El Playwright MCP en marcha usa otro navegador del que exige el perfil, o no muestra la ventana que pide. */
+  /** El Playwright MCP en marcha usa otro navegador o almacenamiento del que exige el perfil, o no muestra la ventana que pide. */
   function usesOtherBrowser(server, required) {
     return server.id === 'playwright' && Boolean(required) && McpStatus.isRunning(server.status)
       && (server.browser?.mode !== required.mode || server.browser.engine !== required.engine || server.browser.userBrowser !== required.userBrowser
+        || (server.browser.storage || '') !== (required.storage || '')
         || (required.headless === false && server.browser.headless !== false));
   }
 
@@ -512,7 +515,9 @@
       // Destino de la conexión ({ url, proxyKey }), que el latido vigila aunque la conexión falle.
       this.target = null;
       this.heartbeatTimer = null;
+      this.heartbeatIntervalMs = null;
       this.heartbeatCheckInFlight = false;
+      this.liveStateSeq = 0;
       // Si el último servidor conectado se detiene al cerrar el navegador; null mientras no se sabe.
       this.serverExitsOnClose = null;
       // Últimos servicios externos que informó el servidor, para no pisar en cada latido lo que la
@@ -555,7 +560,6 @@
       if (current.status !== 'connected' || !payload) return false;
       if (typeof payload.exit_on_close === 'boolean') {
         this.serverExitsOnClose = payload.exit_on_close;
-        this.setHeartbeatTimer(payload.exit_on_close && Boolean(this.target));
       }
       const next = {};
       const cwd = typeof payload.cwd === 'string' ? payload.cwd.trim() : '';
@@ -572,6 +576,27 @@
             startedAt: Number.isFinite(job.started_at) ? job.started_at : Date.now()
           }));
         if (JSON.stringify(jobs) !== JSON.stringify(current.commandJobs)) next.commandJobs = jobs;
+      }
+      let serverRuns = current.serverRuns;
+      if (Array.isArray(payload.runs)) {
+        serverRuns = payload.runs
+          .filter(run => run && typeof run.conversation_id === 'string' && typeof run.status === 'string')
+          .map(run => ({
+            conversationId: run.conversation_id,
+            runId: typeof run.run_id === 'string' ? run.run_id : '',
+            status: run.status
+          }));
+        if (JSON.stringify(serverRuns) !== JSON.stringify(current.serverRuns)) next.serverRuns = serverRuns;
+      }
+      if ('focus_run' in payload) {
+        const focusRun = payload.focus_run && typeof payload.focus_run === 'object' ? payload.focus_run : null;
+        if (JSON.stringify(focusRun) !== JSON.stringify(current.focusRun)) next.focusRun = focusRun;
+      }
+      const hasRunningServerRuns = Array.isArray(serverRuns) && serverRuns.some(run => run.status === 'running');
+      if (hasRunningServerRuns) {
+        this.setHeartbeatTimer(Boolean(this.target), HEARTBEAT_FAST_INTERVAL_MS);
+      } else if (typeof payload.exit_on_close === 'boolean' || Array.isArray(payload.runs)) {
+        this.setHeartbeatTimer(this.serverExitsOnClose !== false && Boolean(this.target), HEARTBEAT_INTERVAL_MS);
       }
       if (typeof payload.exit_on_close === 'boolean' && payload.exit_on_close !== current.exitOnClose) next.exitOnClose = payload.exit_on_close;
       if (typeof payload.playwright?.installed === 'boolean') {
@@ -629,11 +654,16 @@
      * Con auto-cierre, o mientras no se sabe, el latido de 10 s mantiene vivo el servidor, lee su
      * estado y reconecta en cuanto vuelve; sin auto-cierre no hay temporizador (onPageVisible).
      */
-    setHeartbeatTimer(enabled) {
-      if (enabled && !this.heartbeatTimer) this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), HEARTBEAT_INTERVAL_MS);
+    setHeartbeatTimer(enabled, intervalMs = HEARTBEAT_INTERVAL_MS) {
+      if (enabled && (!this.heartbeatTimer || this.heartbeatIntervalMs !== intervalMs)) {
+        if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+        this.heartbeatIntervalMs = intervalMs;
+        this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), intervalMs);
+      }
       if (!enabled && this.heartbeatTimer) {
         clearInterval(this.heartbeatTimer);
         this.heartbeatTimer = null;
+        this.heartbeatIntervalMs = null;
       }
     }
 
@@ -706,6 +736,7 @@
       this.liveServers = null;
       this.liveRunning = null;
       await this.applyLiveState(probe.liveState);
+      await this.syncGeneralProfiles();
       return { success: true, available: true, probe, tools };
     }
 
@@ -715,6 +746,7 @@
     async disconnectProxy() {
       this.dropClient(PROXY_ID);
       this.dropClient(EXTERNAL_ID);
+      getProfiles().clearGeneralProfiles();
       getState().set('mcp', { status: 'disconnected', latencyMs: null, error: null, ...LIVE_RESET });
       return { success: true };
     }
@@ -725,7 +757,11 @@
      * bloquearía los latidos siguientes.
      */
     async readLiveState() {
-      const payload = await this.requestExternalControl('zerochat/heartbeat', {}, { timeoutMs: HEARTBEAT_INTERVAL_MS });
+      const seq = ++this.liveStateSeq;
+      const focusId = getState().get('sessions')?.activeId || null;
+      const params = focusId ? { focus_conversation_id: focusId } : {};
+      const payload = await this.requestExternalControl('zerochat/heartbeat', params, { timeoutMs: HEARTBEAT_INTERVAL_MS });
+      if (seq !== this.liveStateSeq) return payload;
       // Otra pestaña, el modelo o una instalación pueden haber cambiado el estado del servidor.
       await this.applyLiveState(payload);
       return payload;
@@ -851,6 +887,96 @@
       const result = await this.requestExternalControl('zerochat/project/set_directory', { path });
       await this.applyLiveState({ cwd: result?.cwd });
       return result;
+    }
+
+    /**
+     * Lanza en segundo plano en el servidor local un turno de continuación (`zerochat --conversation <id>`).
+     * Actualiza el estado vivo de `serverRuns` y activa el latido rápido (1 s).
+     */
+    async startServerRun({ conversationId, profile, prompt = null, toolSecurity = null }) {
+      const params = {
+        conversation_id: conversationId,
+        profile,
+        ...(prompt ? { prompt } : {}),
+        ...(toolSecurity ? { tool_security: toolSecurity } : {})
+      };
+      const result = await this.requestExternalControl('zerochat/run/start', params);
+      this.liveStateSeq += 1;
+      const State = getState();
+      const current = State.get('mcp');
+      const runEntry = {
+        conversationId: result?.conversation_id || conversationId,
+        runId: result?.run_id || '',
+        status: result?.status || 'running'
+      };
+      const nextRuns = [
+        ...current.serverRuns.filter(item => item.conversationId !== runEntry.conversationId),
+        runEntry
+      ];
+      const nextState = { serverRuns: nextRuns };
+      if (State.get('sessions')?.activeId === runEntry.conversationId) {
+        nextState.focusRun = {
+          conversation_id: runEntry.conversationId,
+          run_id: runEntry.runId,
+          status: runEntry.status,
+          step_text: '',
+          assistant_text: '',
+          reasoning_text: ''
+        };
+      }
+      State.set('mcp', nextState);
+      this.setHeartbeatTimer(Boolean(this.target), HEARTBEAT_FAST_INTERVAL_MS);
+      return result;
+    }
+
+    /** Cancela una ejecución de conversación en marcha en el servidor local (`zerochat/run/cancel`). */
+    async cancelServerRun(conversationId) {
+      const result = await this.requestExternalControl('zerochat/run/cancel', { conversation_id: conversationId });
+      await this.readLiveState().catch(() => {});
+      return result;
+    }
+
+    /** Carga los perfiles de conexión generales almacenados en el backend local. */
+    async syncGeneralProfiles() {
+      const client = this.clients.get(PROXY_ID);
+      if (!client) return [];
+      try {
+        const result = await client.request('zerochat/profiles/list', {});
+        const profiles = Array.isArray(result?.profiles) ? result.profiles : [];
+        const Profiles = getProfiles();
+        Profiles.setGeneralProfiles(profiles);
+        const Config = getConfig();
+        const active = Config.getActive().activeProfile;
+        if (active?.general) {
+          if (Profiles.get(active.id)) Config.activateProfile(active.id);
+          else Config.activateFallbackProfile();
+        }
+        return profiles;
+      } catch (err) {
+        console.warn('[ChatMCP] Could not fetch general profiles:', err);
+        return [];
+      }
+    }
+
+    /** Guarda (crea o actualiza) un perfil general en el backend local. */
+    async saveGeneralProfile(profileData) {
+      const client = this.clients.get(PROXY_ID);
+      if (!client) throw new Error('No local server connection.');
+      const result = await client.request('zerochat/profiles/save', { profile: profileData });
+      if (!result?.profile) throw new Error('Invalid profile response from server.');
+      getProfiles().upsertGeneralProfile(result.profile);
+      return result.profile;
+    }
+
+    /** Elimina un perfil general en el backend local. */
+    async deleteGeneralProfile(profileId) {
+      const client = this.clients.get(PROXY_ID);
+      if (!client) throw new Error('No local server connection.');
+      const result = await client.request('zerochat/profiles/delete', { id: profileId });
+      if (result?.deleted) {
+        getProfiles().removeGeneralProfile(profileId);
+      }
+      return result?.deleted === true;
     }
 
     /**

@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import base64
+import contextlib
 import ctypes
 import ctypes.util
 import dataclasses
@@ -35,6 +36,7 @@ import shutil
 import shlex
 import signal
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -51,7 +53,7 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE_BACKEND_VERSION = "9.11.0"
+SOURCE_BACKEND_VERSION = "10.0.0"
 
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""
@@ -280,7 +282,7 @@ def get_notices() -> tuple[str, ...]:
 
 def _write_private_text(target: Path, text: str):
     """Escribe un secreto con permisos 0o600 desde su creación y lo sustituye de una vez."""
-    tmp_file = target.with_suffix(target.suffix + ".tmp")
+    tmp_file = target.with_name(f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     tmp_file.unlink(missing_ok=True)
     fd = os.open(tmp_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -517,6 +519,8 @@ def _process_start_token(pid: int) -> str | None:
 
 
 def _pid_alive(pid: int) -> bool:
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+        return False
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -1119,7 +1123,7 @@ def job_details(job: CommandJob) -> dict:
 # Generated from services/ by scripts/build-managed-services.mjs. Do not edit.
 # ==============================================================================
 
-MANAGED_SERVICE_FILES: dict[str, str] = json.loads("{\n  \"composio/installer.json\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"type\\\": \\\"npm\\\",\\n  \\\"product\\\": {\\n    \\\"package\\\": \\\"mcp-remote\\\",\\n    \\\"version\\\": \\\"0.13.5\\\"\\n  },\\n  \\\"requirements\\\": {\\n    \\\"node\\\": {\\n      \\\"minimumMajor\\\": 18\\n    }\\n  }\\n}\\n\",\n  \"composio/service.json\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"id\\\": \\\"composio\\\",\\n  \\\"displayName\\\": {\\n    \\\"es\\\": \\\"Composio Connect\\\",\\n    \\\"en\\\": \\\"Composio Connect\\\"\\n  },\\n  \\\"description\\\": {\\n    \\\"es\\\": \\\"MCP remoto para acceder a aplicaciones como Gmail, Google Drive, Slack o GitHub. Composio solicita la autorización de cada aplicación cuando sea necesaria.\\\",\\n    \\\"en\\\": \\\"Remote MCP for apps such as Gmail, Google Drive, Slack, and GitHub. Composio requests authorization for each app when it is needed.\\\"\\n  },\\n  \\\"help\\\": {\\n    \\\"url\\\": \\\"https://docs.composio.dev/docs/composio-connect\\\",\\n    \\\"label\\\": {\\n      \\\"es\\\": \\\"Guía oficial de Composio Connect\\\",\\n      \\\"en\\\": \\\"Composio Connect official guide\\\"\\n    }\\n  },\\n  \\\"enabledByDefault\\\": false,\\n  \\\"transport\\\": \\\"stdio\\\",\\n  \\\"remote\\\": {\\n    \\\"type\\\": \\\"mcp-remote\\\",\\n    \\\"transport\\\": \\\"streamable-http\\\",\\n    \\\"url\\\": \\\"https://connect.composio.dev/mcp\\\",\\n    \\\"authentication\\\": \\\"composio-connect\\\"\\n  },\\n  \\\"launch\\\": {\\n    \\\"executable\\\": \\\"${nodeExecutable}\\\",\\n    \\\"args\\\": [\\n      \\\"${serviceDir}/node_modules/mcp-remote/dist/proxy.js\\\",\\n      \\\"https://connect.composio.dev/mcp\\\",\\n      \\\"--protocol\\\",\\n      \\\"legacy\\\",\\n      \\\"--static-oauth-client-metadata\\\",\\n      \\\"{\\\\\\\"client_name\\\\\\\":\\\\\\\"zerochat-mcp-remote\\\\\\\"}\\\",\\n      \\\"--auth-timeout\\\",\\n      \\\"120\\\"\\n    ],\\n    \\\"cwd\\\": \\\"${serviceDir}\\\",\\n    \\\"env\\\": {\\n      \\\"HOME\\\": \\\"${serviceDir}\\\",\\n      \\\"USERPROFILE\\\": \\\"${serviceDir}\\\"\\n    },\\n    \\\"handshakeTimeoutSeconds\\\": 150\\n  }\\n}\\n\",\n  \"ejemplo/ejemplo_mcp_server.py\": \"#!/usr/bin/env python3\\nimport json\\nimport sys\\n\\ndef reply(req_id, result=None, error=None):\\n    resp = {\\\"jsonrpc\\\": \\\"2.0\\\", \\\"id\\\": req_id}\\n    if error:\\n        resp[\\\"error\\\"] = error\\n    else:\\n        resp[\\\"result\\\"] = result\\n    sys.stdout.write(json.dumps(resp) + \\\"\\\\n\\\")\\n    sys.stdout.flush()\\n\\nfor raw in sys.stdin:\\n    try:\\n        req = json.loads(raw)\\n    except Exception:\\n        continue\\n    req_id = req.get(\\\"id\\\")\\n    method = req.get(\\\"method\\\")\\n    params = req.get(\\\"params\\\", {})\\n    if method == \\\"initialize\\\":\\n        reply(req_id, {\\n            \\\"protocolVersion\\\": \\\"2024-11-05\\\",\\n            \\\"serverInfo\\\": {\\\"name\\\": \\\"ZeroChat MCP Example\\\", \\\"version\\\": \\\"1.0.0\\\"},\\n            \\\"capabilities\\\": {\\\"tools\\\": {}}\\n        })\\n    elif method == \\\"tools/list\\\":\\n        reply(req_id, {\\\"tools\\\": [{\\n            \\\"name\\\": \\\"echo\\\",\\n            \\\"description\\\": \\\"Echo back a message for testing.\\\",\\n            \\\"inputSchema\\\": {\\n                \\\"type\\\": \\\"object\\\",\\n                \\\"properties\\\": {\\\"message\\\": {\\\"type\\\": \\\"string\\\", \\\"description\\\": \\\"Message to echo.\\\"}},\\n                \\\"required\\\": [\\\"message\\\"]\\n            }\\n        }]})\\n    elif method == \\\"tools/call\\\":\\n        if params.get(\\\"name\\\") != \\\"echo\\\":\\n            reply(req_id, error={\\\"code\\\": -32601, \\\"message\\\": \\\"Tool not found\\\"})\\n            continue\\n        msg = params.get(\\\"arguments\\\", {}).get(\\\"message\\\", \\\"\\\")\\n        reply(req_id, {\\n            \\\"content\\\": [{\\\"type\\\": \\\"text\\\", \\\"text\\\": f\\\"echo: {msg}\\\"}],\\n            \\\"isError\\\": False\\n        })\\n\",\n  \"ejemplo/installer.json.example\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"type\\\": \\\"npm\\\",\\n  \\\"product\\\": {\\n    \\\"package\\\": \\\"@scope/mcp-package\\\",\\n    \\\"version\\\": \\\"1.2.3\\\"\\n  },\\n  \\\"requirements\\\": {\\n    \\\"node\\\": {\\n      \\\"minimumMajor\\\": 18\\n    }\\n  }\\n}\\n\",\n  \"ejemplo/README.md\": \"# Crear un MCP gestionado por ZeroChat\\n\\nEsta carpeta es la referencia para crear servicios MCP gestionados. La ubicación de producción es el directorio personal del usuario, seguido de `zerochat/services` (por ejemplo, `/home/usuario/zerochat/services`). No uses `~`, `$HOME` ni una ruta relativa como `services/`: primero identifica la ruta absoluta del directorio personal y úsala para localizar este archivo. El nuevo servicio se crea como carpeta hermana de `ejemplo`, nunca dentro de ella.\\n\\n## Procedimiento obligatorio\\n\\n1. Lee `README.md`, `service.json` y `installer.json.example` de la carpeta `ejemplo` situada en el directorio de datos de ZeroChat.\\n2. Consulta solo la documentación oficial del MCP solicitado.\\n3. Crea una carpeta con un identificador seguro y descriptivo junto a `ejemplo`. Usa un `id` único en `service.json`, también cuando copies otro servicio.\\n4. Crea `service.json` copiando esta estructura y adapta únicamente los valores necesarios.\\n5. Crea `installer.json` solo si el MCP se distribuye como paquete npm. Copia `installer.json.example`, fija la versión exacta y declara la versión mínima de Node.js.\\n6. Añade `help.url` con la página oficial de instalación y etiquetas en español e inglés.\\n7. Si requiere una API key, declara la variable que exige el MCP en el objeto `env` de `launch` dentro de `service.json` con el valor literal `PASTE_API_KEY_HERE`. No pidas la clave al usuario ni la escribas en el chat: indica la ruta absoluta del JSON y el campo que debe editar a mano. El usuario guardará su clave únicamente en el JSON local de su carpeta propia.\\n8. No instales ni inicies el servicio. Al terminar, informa de los archivos creados, fuentes oficiales y requisitos pendientes.\\n\\n## Límites de ZeroChat\\n\\nZeroChat gestiona procesos MCP por `stdio`. Puede instalar paquetes npm mediante `installer.json` y arrancarlos con `${nodeExecutable}`. También puede arrancar un ejecutable o script ya disponible con `launch`.\\n\\nZeroChat también puede usar `mcp-remote` como puente para un MCP remoto HTTP/SSE con OAuth o API key. Decláralo como un servicio `stdio`: el proceso local debe ser `mcp-remote`, mientras que `remote` describe el endpoint remoto para la interfaz. Conserva las credenciales y el almacén OAuth dentro de `${serviceDir}`.\\n\\n## Contratos JSON\\n\\n- `service.json` es obligatorio. Conserva `schemaVersion`, `id`, textos bilingües, `transport: \\\"stdio\\\"` y `launch`.\\n- En `launch`, usa `${serviceDir}`, `${nodeExecutable}` o `${pythonExecutable}`; no uses rutas absolutas de usuario.\\n- `launch.handshakeTimeoutSeconds` (15 s por defecto) limita el arranque y `launch.callTimeoutSeconds` (30 s por defecto) cada llamada a una herramienta; súbelo para MCP lentos, como la automatización de navegador.\\n- `installer.json` es opcional y hoy solo admite `type: \\\"npm\\\"`.\\n- `help` es opcional, pero debe incluirse en todo servicio creado:\\n\\n```json\\n\\\"help\\\": {\\n  \\\"url\\\": \\\"https://documentacion-oficial.example/install\\\",\\n  \\\"label\\\": { \\\"es\\\": \\\"Instalación oficial\\\", \\\"en\\\": \\\"Official installation\\\" }\\n}\\n```\\n\\n## Prompt para el usuario\\n\\nSustituye únicamente `<nombre-del-mcp>`:\\n\\n```text\\nPara instalar el MCP <nombre-del-mcp>, lee primero services/ejemplo/README.md y sigue exactamente sus instrucciones.\\n```\\n\\n## Servicios remotos y claves API\\n\\n`launch.env` es el objeto `env` dentro de `launch` en `service.json`, no un archivo. El agente deja únicamente el marcador; el usuario introduce la clave real a mano en ese JSON. No crees un archivo `launch.env` o `.env`.\\n\\nPara un remoto, lee también `service.json` e `installer.json` de la carpeta hermana `composio`. Crea una carpeta nueva con nombre e `id` propios; usa Composio como ejemplo del puente local, conservando `transport: \\\"stdio\\\"`. Consulta la documentación oficial del proveedor y de [mcp-remote](https://github.com/punkpeye/mcp-remote#custom-headers) para adaptar endpoint, transporte, cabeceras y autenticación. No copies sin verificar las opciones `--protocol`, los metadatos de cliente ni los parámetros OAuth específicos de Composio. Conserva `HOME` y `USERPROFILE` dentro de `${serviceDir}`.\\n\\nPara un MCP local que requiera una variable, deja este campo dentro de `launch`, conservando sus demás campos y usando el nombre de variable documentado por el MCP:\\n\\n```json\\n\\\"env\\\": {\\n  \\\"SERVICE_API_KEY\\\": \\\"PASTE_API_KEY_HERE\\\"\\n}\\n```\\n\\nPara un remoto que acepte `Authorization: Bearer`, los campos dentro de `launch` pueden ser:\\n\\n```json\\n\\\"args\\\": [\\n  \\\"${serviceDir}/node_modules/mcp-remote/dist/proxy.js\\\",\\n  \\\"https://mcp.example.com/mcp\\\",\\n  \\\"--header\\\",\\n  \\\"Authorization: Bearer ${REMOTE_API_KEY}\\\"\\n],\\n\\\"env\\\": {\\n  \\\"HOME\\\": \\\"${serviceDir}\\\",\\n  \\\"USERPROFILE\\\": \\\"${serviceDir}\\\",\\n  \\\"REMOTE_API_KEY\\\": \\\"PASTE_API_KEY_HERE\\\"\\n}\\n```\\n\\nAdapta la cabecera y su formato a lo que exige el proveedor. `remote.authentication` solo describe el servicio; no configura la autenticación. La referencia `${REMOTE_API_KEY}` en la cabecera la resuelve `mcp-remote`. ZeroChat no resuelve variables de entorno genéricas: en `launch.env`, `${SERVICE_API_KEY}` se pasaría como texto literal. Solo sustituye `${serviceDir}`, `${nodeExecutable}`, `${pythonExecutable}` y `${option:...}`. No pongas claves reales en argumentos ni en URLs.\\n\\n### Pasos para el usuario\\n\\n1. Usa una carpeta propia bajo el directorio de servicios, con nombre e `id` únicos. Si copias un servicio incluido, copia sus definiciones, no sus dependencias ni credenciales OAuth. No edites `ejemplo`, `composio`, `playwright` ni `memory`: sus archivos distribuidos se restauran al arrancar.\\n2. Abre el `service.json` de tu carpeta y sustituye `PASTE_API_KEY_HERE` por la clave real en `launch.env`. Mantén el JSON válido y los demás campos. No necesitas `export`, `.env` ni otro JSON de credenciales.\\n3. Restringe el archivo a tu usuario con `chmod 600 /ruta/absoluta/zerochat/services/mi-servicio/service.json` en Linux o Termux. La clave queda en texto plano: no compartas el archivo ni lo subas al repositorio o al chat.\\n4. Inicia el servicio desde Ajustes → MCP. Si la nueva carpeta no aparece, reinicia ZeroChat y conecta de nuevo. Para cambiar una clave, detén primero el servicio, edita el JSON y vuelve a iniciarlo.\\n5. ZeroChat conserva los servicios propios al reiniciar y actualizar. Borrar el directorio de datos elimina también esas claves: guarda una copia privada si la necesitas.\\n\\n## English: creating local and remote services\\n\\n1. Locate the user's absolute home directory and read `README.md`, `service.json` and `installer.json.example` in `zerochat/services/ejemplo`.\\n2. Read the requested MCP's official documentation. Create a sibling folder with its own name and unique JSON `id`; do not modify bundled definitions. Preserve bilingual text, `schemaVersion`, `transport: \\\"stdio\\\"`, `launch` and official `help` links. `launch.handshakeTimeoutSeconds` (default 15 s) bounds startup and `launch.callTimeoutSeconds` (default 30 s) each tool call; raise it for slow MCPs such as browser automation.\\n3. For npm services, add `installer.json` with an exact package version and minimum Node.js major version. Otherwise use an existing executable or script.\\n4. For remote HTTP/SSE MCPs, also read the sibling `composio` JSON files and use its managed `mcp-remote` bridge as the example. Adapt endpoint, transport and authentication to the official provider and bridge documentation. Verify Composio-specific protocol and OAuth options before copying them. Keep `HOME` and `USERPROFILE` isolated inside `${serviceDir}`.\\n5. If an API key is required, put the literal `PASTE_API_KEY_HERE` under the required variable in the `env` object under `launch` inside `service.json`. `launch.env` is a JSON field, not a file. The user enters the actual key manually in that JSON; do not create a `launch.env` or `.env` file. Do not request the user's key or place real secrets in chat, arguments or URLs. Give the absolute JSON path and exact field to edit. For remote header authentication, use `--header` with the provider's required header and a reference to the variable, as shown above; `mcp-remote` resolves that reference. `remote.authentication` is descriptive only.\\n6. Do not install or start the service. Report created files, official sources and outstanding requirements; the user will start it from Settings → MCP.\\n\\nThe user replaces `PASTE_API_KEY_HERE` directly in their own folder's JSON, preserves valid JSON and existing fields, and restricts the file with `chmod 600 /absolute/path/zerochat/services/my-service/service.json` on Linux/Termux. No shell export, `.env` or separate credentials JSON is needed. ZeroChat only expands service/interpreter paths and `${option:...}`, not generic environment placeholders in `launch.env`. The key is stored in plain text: do not share or commit the file or paste it into chat.\\n\\nIf a new folder does not appear, restart ZeroChat and reconnect. Stop an active service before editing its key, then start it again. User-created folders survive restarts and updates. Bundled definitions are restored on startup: copy them into a new folder and change the JSON `id` to customize them, without copying dependencies or OAuth credentials. Deleting the data directory also deletes custom services and their keys; keep a private backup if needed.\\n\",\n  \"ejemplo/service.json\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"id\\\": \\\"ejemplo\\\",\\n  \\\"displayName\\\": {\\n    \\\"es\\\": \\\"Ejemplo de MCP\\\",\\n    \\\"en\\\": \\\"MCP example\\\"\\n  },\\n  \\\"description\\\": {\\n    \\\"es\\\": \\\"Plantilla mínima para crear servicios MCP gestionados por ZeroChat. Muestra el protocolo stdio y la estructura de configuración que debe seguir un nuevo MCP.\\\",\\n    \\\"en\\\": \\\"Minimal template for creating ZeroChat-managed MCP services. It demonstrates the stdio protocol and configuration structure for a new MCP.\\\"\\n  },\\n  \\\"help\\\": {\\n    \\\"url\\\": \\\"help/mcp.html#crear-mcp-con-agente\\\",\\n    \\\"label\\\": {\\n      \\\"es\\\": \\\"Guía para crear un MCP gestionado\\\",\\n      \\\"en\\\": \\\"Guide to creating a managed MCP\\\"\\n    }\\n  },\\n  \\\"enabledByDefault\\\": false,\\n  \\\"transport\\\": \\\"stdio\\\",\\n  \\\"launch\\\": {\\n    \\\"executable\\\": \\\"${pythonExecutable}\\\",\\n    \\\"args\\\": [\\\"${serviceDir}/ejemplo_mcp_server.py\\\"],\\n    \\\"cwd\\\": \\\"${serviceDir}\\\",\\n    \\\"env\\\": {},\\n    \\\"handshakeTimeoutSeconds\\\": 10\\n  }\\n}\\n\",\n  \"memory/installer.json\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"type\\\": \\\"npm\\\",\\n  \\\"product\\\": {\\n    \\\"package\\\": \\\"@modelcontextprotocol/server-memory\\\",\\n    \\\"version\\\": \\\"2026.8.31\\\"\\n  },\\n  \\\"requirements\\\": {\\n    \\\"node\\\": {\\n      \\\"minimumMajor\\\": 18\\n    }\\n  }\\n}\\n\",\n  \"memory/service.json\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"id\\\": \\\"memory\\\",\\n  \\\"displayName\\\": {\\n    \\\"es\\\": \\\"Memoria y Grafos (Knowledge Graph)\\\",\\n    \\\"en\\\": \\\"Memory & Knowledge Graph\\\"\\n  },\\n  \\\"description\\\": {\\n    \\\"es\\\": \\\"Almacenamiento persistente de entidades, preferencias y contexto histórico estructurado en un grafo de conocimiento.\\\",\\n    \\\"en\\\": \\\"Persistent storage of entities, preferences, and historical context structured as a knowledge graph.\\\"\\n  },\\n  \\\"enabledByDefault\\\": false,\\n  \\\"transport\\\": \\\"stdio\\\",\\n  \\\"launch\\\": {\\n    \\\"executable\\\": \\\"${nodeExecutable}\\\",\\n    \\\"args\\\": [\\\"${serviceDir}/node_modules/@modelcontextprotocol/server-memory/dist/index.js\\\"],\\n    \\\"cwd\\\": \\\"${serviceDir}\\\",\\n    \\\"env\\\": {\\n      \\\"MEMORY_FILE_PATH\\\": \\\"${serviceDir}/memory.jsonl\\\"\\n    },\\n    \\\"handshakeTimeoutSeconds\\\": 30\\n  }\\n}\\n\\n\",\n  \"playwright/installer.json\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"type\\\": \\\"npm\\\",\\n  \\\"product\\\": {\\n    \\\"package\\\": \\\"@playwright/mcp\\\",\\n    \\\"version\\\": \\\"0.0.81\\\",\\n    \\\"browser\\\": \\\"chromium\\\"\\n  },\\n  \\\"requirements\\\": {\\n    \\\"node\\\": {\\n      \\\"minimumMajor\\\": 18\\n    }\\n  }\\n}\\n\",\n  \"playwright/service.json\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"id\\\": \\\"playwright\\\",\\n  \\\"displayName\\\": {\\n    \\\"es\\\": \\\"Playwright MCP\\\",\\n    \\\"en\\\": \\\"Playwright MCP\\\"\\n  },\\n  \\\"description\\\": {\\n    \\\"es\\\": \\\"Automatización de navegador mediante el servidor MCP oficial de Playwright.\\\",\\n    \\\"en\\\": \\\"Browser automation through the official Playwright MCP server.\\\"\\n  },\\n  \\\"enabledByDefault\\\": false,\\n  \\\"transport\\\": \\\"stdio\\\",\\n  \\\"launch\\\": {\\n    \\\"executable\\\": \\\"${nodeExecutable}\\\",\\n    \\\"args\\\": [\\\"${serviceDir}/node_modules/@playwright/mcp/cli.js\\\"],\\n    \\\"cwd\\\": \\\"${serviceDir}\\\",\\n    \\\"env\\\": {},\\n    \\\"handshakeTimeoutSeconds\\\": 30,\\n    \\\"callTimeoutSeconds\\\": 120\\n  }\\n}\\n\"\n}")
+MANAGED_SERVICE_FILES: dict[str, str] = json.loads("{\n  \"composio/installer.json\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"type\\\": \\\"npm\\\",\\n  \\\"product\\\": {\\n    \\\"package\\\": \\\"mcp-remote\\\",\\n    \\\"version\\\": \\\"0.13.5\\\"\\n  },\\n  \\\"requirements\\\": {\\n    \\\"node\\\": {\\n      \\\"minimumMajor\\\": 18\\n    }\\n  }\\n}\\n\",\n  \"composio/service.json\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"id\\\": \\\"composio\\\",\\n  \\\"displayName\\\": {\\n    \\\"es\\\": \\\"Composio Connect\\\",\\n    \\\"en\\\": \\\"Composio Connect\\\"\\n  },\\n  \\\"description\\\": {\\n    \\\"es\\\": \\\"MCP remoto para acceder a aplicaciones como Gmail, Google Drive, Slack o GitHub. Composio solicita la autorización de cada aplicación cuando sea necesaria.\\\",\\n    \\\"en\\\": \\\"Remote MCP for apps such as Gmail, Google Drive, Slack, and GitHub. Composio requests authorization for each app when it is needed.\\\"\\n  },\\n  \\\"help\\\": {\\n    \\\"url\\\": \\\"https://docs.composio.dev/docs/composio-connect\\\",\\n    \\\"label\\\": {\\n      \\\"es\\\": \\\"Guía oficial de Composio Connect\\\",\\n      \\\"en\\\": \\\"Composio Connect official guide\\\"\\n    }\\n  },\\n  \\\"enabledByDefault\\\": false,\\n  \\\"transport\\\": \\\"stdio\\\",\\n  \\\"remote\\\": {\\n    \\\"type\\\": \\\"mcp-remote\\\",\\n    \\\"transport\\\": \\\"streamable-http\\\",\\n    \\\"url\\\": \\\"https://connect.composio.dev/mcp\\\",\\n    \\\"authentication\\\": \\\"composio-connect\\\"\\n  },\\n  \\\"launch\\\": {\\n    \\\"executable\\\": \\\"${nodeExecutable}\\\",\\n    \\\"args\\\": [\\n      \\\"${serviceDir}/node_modules/mcp-remote/dist/proxy.js\\\",\\n      \\\"https://connect.composio.dev/mcp\\\",\\n      \\\"--protocol\\\",\\n      \\\"legacy\\\",\\n      \\\"--static-oauth-client-metadata\\\",\\n      \\\"{\\\\\\\"client_name\\\\\\\":\\\\\\\"zerochat-mcp-remote\\\\\\\"}\\\",\\n      \\\"--auth-timeout\\\",\\n      \\\"120\\\"\\n    ],\\n    \\\"cwd\\\": \\\"${serviceDir}\\\",\\n    \\\"env\\\": {\\n      \\\"HOME\\\": \\\"${serviceDir}\\\",\\n      \\\"USERPROFILE\\\": \\\"${serviceDir}\\\"\\n    },\\n    \\\"handshakeTimeoutSeconds\\\": 150\\n  }\\n}\\n\",\n  \"ejemplo/ejemplo_mcp_server.py\": \"#!/usr/bin/env python3\\nimport json\\nimport sys\\n\\ndef reply(req_id, result=None, error=None):\\n    resp = {\\\"jsonrpc\\\": \\\"2.0\\\", \\\"id\\\": req_id}\\n    if error:\\n        resp[\\\"error\\\"] = error\\n    else:\\n        resp[\\\"result\\\"] = result\\n    sys.stdout.write(json.dumps(resp) + \\\"\\\\n\\\")\\n    sys.stdout.flush()\\n\\nfor raw in sys.stdin:\\n    try:\\n        req = json.loads(raw)\\n    except Exception:\\n        continue\\n    req_id = req.get(\\\"id\\\")\\n    method = req.get(\\\"method\\\")\\n    params = req.get(\\\"params\\\", {})\\n    if method == \\\"initialize\\\":\\n        reply(req_id, {\\n            \\\"protocolVersion\\\": \\\"2024-11-05\\\",\\n            \\\"serverInfo\\\": {\\\"name\\\": \\\"ZeroChat MCP Example\\\", \\\"version\\\": \\\"1.0.0\\\"},\\n            \\\"capabilities\\\": {\\\"tools\\\": {}}\\n        })\\n    elif method == \\\"tools/list\\\":\\n        reply(req_id, {\\\"tools\\\": [{\\n            \\\"name\\\": \\\"echo\\\",\\n            \\\"description\\\": \\\"Echo back a message for testing.\\\",\\n            \\\"inputSchema\\\": {\\n                \\\"type\\\": \\\"object\\\",\\n                \\\"properties\\\": {\\\"message\\\": {\\\"type\\\": \\\"string\\\", \\\"description\\\": \\\"Message to echo.\\\"}},\\n                \\\"required\\\": [\\\"message\\\"]\\n            }\\n        }]})\\n    elif method == \\\"tools/call\\\":\\n        if params.get(\\\"name\\\") != \\\"echo\\\":\\n            reply(req_id, error={\\\"code\\\": -32601, \\\"message\\\": \\\"Tool not found\\\"})\\n            continue\\n        msg = params.get(\\\"arguments\\\", {}).get(\\\"message\\\", \\\"\\\")\\n        reply(req_id, {\\n            \\\"content\\\": [{\\\"type\\\": \\\"text\\\", \\\"text\\\": f\\\"echo: {msg}\\\"}],\\n            \\\"isError\\\": False\\n        })\\n\",\n  \"ejemplo/installer.json.example\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"type\\\": \\\"npm\\\",\\n  \\\"product\\\": {\\n    \\\"package\\\": \\\"@scope/mcp-package\\\",\\n    \\\"version\\\": \\\"1.2.3\\\"\\n  },\\n  \\\"requirements\\\": {\\n    \\\"node\\\": {\\n      \\\"minimumMajor\\\": 18\\n    }\\n  }\\n}\\n\",\n  \"ejemplo/README.md\": \"# Crear un MCP gestionado por ZeroChat\\n\\nEsta carpeta es la referencia para crear servicios MCP gestionados. La ubicación de producción es el directorio personal del usuario, seguido de `zerochat/services` (por ejemplo, `/home/usuario/zerochat/services`). No uses `~`, `$HOME` ni una ruta relativa como `services/`: primero identifica la ruta absoluta del directorio personal y úsala para localizar este archivo. El nuevo servicio se crea como carpeta hermana de `ejemplo`, nunca dentro de ella.\\n\\n## Procedimiento obligatorio\\n\\n1. Lee `README.md`, `service.json` y `installer.json.example` de la carpeta `ejemplo` situada en el directorio de datos de ZeroChat.\\n2. Consulta solo la documentación oficial del MCP solicitado.\\n3. Crea una carpeta con un identificador seguro y descriptivo junto a `ejemplo`. Usa un `id` único en `service.json`, también cuando copies otro servicio.\\n4. Crea `service.json` copiando esta estructura y adapta únicamente los valores necesarios.\\n5. Crea `installer.json` solo si el MCP se distribuye como paquete npm. Copia `installer.json.example`, fija la versión exacta y declara la versión mínima de Node.js.\\n6. Añade `help.url` con la página oficial de instalación y etiquetas en español e inglés.\\n7. Si requiere una API key, declara la variable que exige el MCP en el objeto `env` de `launch` dentro de `service.json` con el valor literal `PASTE_API_KEY_HERE`. No pidas la clave al usuario ni la escribas en el chat: indica la ruta absoluta del JSON y el campo que debe editar a mano. El usuario guardará su clave únicamente en el JSON local de su carpeta propia.\\n8. Evalúa la concurrencia y la compatibilidad con ejecuciones paralelas y desatendidas antes de guardar: el servicio no debe usar puertos fijos, debe arrancar en modo efímero o aislado si maneja estado de sesión, y no debe depender de entradas interactivas por consola o ventanas emergentes durante la ejecución.\\n9. No instales ni inicies el servicio. Al terminar, informa de los archivos creados, fuentes oficiales y requisitos pendientes.\\n\\n## Límites de ZeroChat\\n\\nZeroChat gestiona procesos MCP por `stdio`. Puede instalar paquetes npm mediante `installer.json` y arrancarlos con `${nodeExecutable}`. También puede arrancar un ejecutable o script ya disponible con `launch`.\\n\\nZeroChat también puede usar `mcp-remote` como puente para un MCP remoto HTTP/SSE con OAuth o API key. Decláralo como un servicio `stdio`: el proceso local debe ser `mcp-remote`, mientras que `remote` describe el endpoint remoto para la interfaz. Conserva las credenciales y el almacén OAuth dentro de `${serviceDir}`.\\n\\n## Contratos JSON\\n\\n- `service.json` es obligatorio. Conserva `schemaVersion`, `id`, textos bilingües, `transport: \\\"stdio\\\"` y `launch`.\\n- En `launch`, usa `${serviceDir}`, `${nodeExecutable}` o `${pythonExecutable}`; no uses rutas absolutas de usuario.\\n- `launch.handshakeTimeoutSeconds` (15 s por defecto) limita el arranque y `launch.callTimeoutSeconds` (30 s por defecto) cada llamada a una herramienta; súbelo para MCP lentos, como la automatización de navegador.\\n- `installer.json` es opcional y hoy solo admite `type: \\\"npm\\\"`.\\n- `help` es opcional, pero debe incluirse en todo servicio creado:\\n\\n```json\\n\\\"help\\\": {\\n  \\\"url\\\": \\\"https://documentacion-oficial.example/install\\\",\\n  \\\"label\\\": { \\\"es\\\": \\\"Instalación oficial\\\", \\\"en\\\": \\\"Official installation\\\" }\\n}\\n```\\n\\n## Concurrencia y ejecuciones paralelas\\n\\nTodo servicio MCP debe diseñarse para permitir invocaciones simultáneas (varias pestañas, múltiples sesiones o ejecuciones paralelas en línea de comandos como `zerochat --prompt`):\\n\\n1. **Aislamiento y modo efímero por defecto**: los servicios que gestionan navegadores o sesiones de ejecución deben iniciar por defecto en modo volátil en memoria (como `--isolated` en Playwright) o en directorios temporales independientes. No deben depender de un único perfil o carpeta de usuario fija compartida que imponga bloqueos de proceso (`SingletonLock` en Chromium, bloqueos de ficheros de sesión). Si se ofrece persistencia, debe ser opcional y parametrizable por perfil o almacenamiento nombrado.\\n2. **Transporte exclusivo por `stdio`**: los servidores MCP locales se comunican exclusivamente por entrada y salida estándar. Si un ejecutable o biblioteca interna abre un socket o servidor HTTP local auxiliar, nunca debe fijar un puerto estático (como `8080`), pues causará errores `EADDRINUSE` ante dos procesos concurrentes; debe asignar puertos dinámicos (`port: 0` o rango efímero).\\n3. **Persistencia coordinada o aislada**: si el servicio persiste datos en disco (como bases de datos SQLite locales o archivos planos JSON/JSONL), la ruta no debe ser fija y compartida si el motor no gestiona concurrencia multi-proceso. SQLite debe operar con modo WAL y timeout de ocupación (`busy_timeout`); ficheros planos sin bloqueo interproceso como `memory.jsonl` deben reservarse a una única sesión activa o aislarse por perfil/espacio de trabajo.\\n4. **Ejecución desatendida y sin interacción en tiempo de ejecución**: el proceso nunca debe abrir ventanas emergentes, diálogos gráficos ni solicitar confirmación interactiva por consola. Todas las credenciales o parámetros se configuran previamente vía `launch.env` o argumentos. Los flujos de autorización interactiva (como el inicio de sesión OAuth inicial de `mcp-remote`) son incompatibles con sesiones desatendidas y paralelas; deben completarse de forma supervisada antes de iniciar ejecuciones automáticas.\\n\\n### Comportamiento de los servicios incluidos\\n\\n- **`playwright`**: seguro para ejecución paralela. Arranca por defecto con `--isolated` en memoria sin bloquear perfiles de usuario. Permite almacenamiento persistente opcional nombrado por perfil (`storage`).\\n- **`memory`**: persistencia monoproceso en `${serviceDir}/memory.jsonl`. No implementa sincronización atómica entre procesos; no debe compartirse simultáneamente entre varias tareas que escriban entidades a la vez.\\n- **`composio`**: puente remoto vía `mcp-remote`. El flujo OAuth inicial es interactivo y no funciona en segundo plano ni en paralelo; tras autorizarse, las consultas remotas operan concurrentemente.\\n- **`ejemplo`**: servidor de prueba en memoria por `stdio`, 100% seguro para concurrencia.\\n\\n## Prompt para el usuario\\n\\nSustituye únicamente `<nombre-del-mcp>`:\\n\\n```text\\nPara instalar el MCP <nombre-del-mcp>, lee primero services/ejemplo/README.md y sigue exactamente sus instrucciones.\\n```\\n\\n## Servicios remotos y claves API\\n\\n`launch.env` es el objeto `env` dentro de `launch` en `service.json`, no un archivo. El agente deja únicamente el marcador; el usuario introduce la clave real a mano en ese JSON. No crees un archivo `launch.env` o `.env`.\\n\\nPara un remoto, lee también `service.json` e `installer.json` de la carpeta hermana `composio`. Crea una carpeta nueva con nombre e `id` propios; usa Composio como ejemplo del puente local, conservando `transport: \\\"stdio\\\"`. Consulta la documentación oficial del proveedor y de [mcp-remote](https://github.com/punkpeye/mcp-remote#custom-headers) para adaptar endpoint, transporte, cabeceras y autenticación. No copies sin verificar las opciones `--protocol`, los metadatos de cliente ni los parámetros OAuth específicos de Composio. Conserva `HOME` y `USERPROFILE` dentro de `${serviceDir}`.\\n\\nPara un MCP local que requiera una variable, deja este campo dentro de `launch`, conservando sus demás campos y usando el nombre de variable documentado por el MCP:\\n\\n```json\\n\\\"env\\\": {\\n  \\\"SERVICE_API_KEY\\\": \\\"PASTE_API_KEY_HERE\\\"\\n}\\n```\\n\\nPara un remoto que acepte `Authorization: Bearer`, los campos dentro de `launch` pueden ser:\\n\\n```json\\n\\\"args\\\": [\\n  \\\"${serviceDir}/node_modules/mcp-remote/dist/proxy.js\\\",\\n  \\\"https://mcp.example.com/mcp\\\",\\n  \\\"--header\\\",\\n  \\\"Authorization: Bearer ${REMOTE_API_KEY}\\\"\\n],\\n\\\"env\\\": {\\n  \\\"HOME\\\": \\\"${serviceDir}\\\",\\n  \\\"USERPROFILE\\\": \\\"${serviceDir}\\\",\\n  \\\"REMOTE_API_KEY\\\": \\\"PASTE_API_KEY_HERE\\\"\\n}\\n```\\n\\nAdapta la cabecera y su formato a lo que exige el proveedor. `remote.authentication` solo describe el servicio; no configura la autenticación. La referencia `${REMOTE_API_KEY}` en la cabecera la resuelve `mcp-remote`. ZeroChat no resuelve variables de entorno genéricas: en `launch.env`, `${SERVICE_API_KEY}` se pasaría como texto literal. Solo sustituye `${serviceDir}`, `${nodeExecutable}`, `${pythonExecutable}` y `${option:...}`. No pongas claves reales en argumentos ni en URLs.\\n\\n### Pasos para el usuario\\n\\n1. Usa una carpeta propia bajo el directorio de servicios, con nombre e `id` únicos. Si copias un servicio incluido, copia sus definiciones, no sus dependencias ni credenciales OAuth. No edites `ejemplo`, `composio`, `playwright` ni `memory`: sus archivos distribuidos se restauran al arrancar.\\n2. Abre el `service.json` de tu carpeta y sustituye `PASTE_API_KEY_HERE` por la clave real en `launch.env`. Mantén el JSON válido y los demás campos. No necesitas `export`, `.env` ni otro JSON de credenciales.\\n3. Restringe el archivo a tu usuario con `chmod 600 /ruta/absoluta/zerochat/services/mi-servicio/service.json` en Linux o Termux. La clave queda en texto plano: no compartas el archivo ni lo subas al repositorio o al chat.\\n4. Inicia el servicio desde Ajustes → MCP. Si la nueva carpeta no aparece, reinicia ZeroChat y conecta de nuevo. Para cambiar una clave, detén primero el servicio, edita el JSON y vuelve a iniciarlo.\\n5. ZeroChat conserva los servicios propios al reiniciar y actualizar. Borrar el directorio de datos elimina también esas claves: guarda una copia privada si la necesitas.\\n\\n## English: creating local and remote services\\n\\n1. Locate the user's absolute home directory and read `README.md`, `service.json` and `installer.json.example` in `zerochat/services/ejemplo`.\\n2. Read the requested MCP's official documentation. Create a sibling folder with its own name and unique JSON `id`; do not modify bundled definitions. Preserve bilingual text, `schemaVersion`, `transport: \\\"stdio\\\"`, `launch` and official `help` links. `launch.handshakeTimeoutSeconds` (default 15 s) bounds startup and `launch.callTimeoutSeconds` (default 30 s) each tool call; raise it for slow MCPs such as browser automation.\\n3. For npm services, add `installer.json` with an exact package version and minimum Node.js major version. Otherwise use an existing executable or script.\\n4. For remote HTTP/SSE MCPs, also read the sibling `composio` JSON files and use its managed `mcp-remote` bridge as the example. Adapt endpoint, transport and authentication to the official provider and bridge documentation. Verify Composio-specific protocol and OAuth options before copying them. Keep `HOME` and `USERPROFILE` isolated inside `${serviceDir}`.\\n5. If an API key is required, put the literal `PASTE_API_KEY_HERE` under the required variable in the `env` object under `launch` inside `service.json`. `launch.env` is a JSON field, not a file. The user enters the actual key manually in that JSON; do not create a `launch.env` or `.env` file. Do not request the user's key or place real secrets in chat, arguments or URLs. Give the absolute JSON path and exact field to edit. For remote header authentication, use `--header` with the provider's required header and a reference to the variable, as shown above; `mcp-remote` resolves that reference. `remote.authentication` is descriptive only.\\n6. Evaluate concurrency and headless compatibility before finalizing: ensure the service avoids static ports, runs in ephemeral/isolated mode by default if managing session state, and does not require interactive console prompts or graphical windows.\\n7. Do not install or start the service. Report created files, official sources and outstanding requirements; the user will start it from Settings → MCP.\\n\\n### Concurrency and parallel execution\\n\\nAll MCP services must be designed to support simultaneous executions (multiple browser tabs, concurrent sessions, or parallel headless CLI tasks like `zerochat --prompt`):\\n\\n1. **Isolated and ephemeral by default**: execution environments or browser engines must default to in-memory or isolated sessions (such as `--isolated` in Playwright) without locking shared profile directories across processes. Persistent state must be optional and parameterized by profile or named storage.\\n2. **Pure `stdio` transport**: local MCP processes communicate strictly through standard input and output. If a process starts an auxiliary internal HTTP/TCP listener, it must bind dynamic ephemeral ports (`port: 0`), never static ports that collide with `EADDRINUSE`.\\n3. **Safe persistent storage**: if persisting data to disk (e.g., SQLite or flat JSON/JSONL files), ensure the storage engine supports multi-process writes (SQLite with WAL and busy timeout). Flat files without process locking (such as `memory.jsonl`) should be isolated per session/workspace rather than shared across parallel writers.\\n4. **Unattended headless execution**: MCPs must never display GUI popups, interactive prompts, or console confirmation during execution. Secrets and settings must be supplied via `launch.env`. Interactive authorization flows (such as initial browser-based OAuth) must be completed in an interactive session beforehand; they cannot run unattended or in parallel.\\n\\n#### Bundled services concurrency summary\\n\\n- **`playwright`**: parallel-safe; defaults to in-memory `--isolated` mode with optional named profile storage.\\n- **`memory`**: single-process JSONL persistence (`memory.jsonl`); concurrent writes can overwrite data.\\n- **`composio`**: remote bridge via `mcp-remote`; initial OAuth is strictly interactive, while post-auth tool calls support parallel requests.\\n- **`ejemplo`**: stateless in-memory `stdio` echo server, fully parallel-safe.\\n\\nThe user replaces `PASTE_API_KEY_HERE` directly in their own folder's JSON, preserves valid JSON and existing fields, and restricts the file with `chmod 600 /absolute/path/zerochat/services/my-service/service.json` on Linux/Termux. No shell export, `.env` or separate credentials JSON is needed. ZeroChat only expands service/interpreter paths and `${option:...}`, not generic environment placeholders in `launch.env`. The key is stored in plain text: do not share or commit the file or paste it into chat.\\n\\nIf a new folder does not appear, restart ZeroChat and reconnect. Stop an active service before editing its key, then start it again. User-created folders survive restarts and updates. Bundled definitions are restored on startup: copy them into a new folder and change the JSON `id` to customize them, without copying dependencies or OAuth credentials. Deleting the data directory also deletes custom services and their keys; keep a private backup if needed.\\n\",\n  \"ejemplo/service.json\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"id\\\": \\\"ejemplo\\\",\\n  \\\"displayName\\\": {\\n    \\\"es\\\": \\\"Ejemplo de MCP\\\",\\n    \\\"en\\\": \\\"MCP example\\\"\\n  },\\n  \\\"description\\\": {\\n    \\\"es\\\": \\\"Plantilla mínima para crear servicios MCP gestionados por ZeroChat. Muestra el protocolo stdio y la estructura de configuración que debe seguir un nuevo MCP.\\\",\\n    \\\"en\\\": \\\"Minimal template for creating ZeroChat-managed MCP services. It demonstrates the stdio protocol and configuration structure for a new MCP.\\\"\\n  },\\n  \\\"help\\\": {\\n    \\\"url\\\": \\\"help/mcp.html#crear-mcp-con-agente\\\",\\n    \\\"label\\\": {\\n      \\\"es\\\": \\\"Guía para crear un MCP gestionado\\\",\\n      \\\"en\\\": \\\"Guide to creating a managed MCP\\\"\\n    }\\n  },\\n  \\\"enabledByDefault\\\": false,\\n  \\\"transport\\\": \\\"stdio\\\",\\n  \\\"launch\\\": {\\n    \\\"executable\\\": \\\"${pythonExecutable}\\\",\\n    \\\"args\\\": [\\\"${serviceDir}/ejemplo_mcp_server.py\\\"],\\n    \\\"cwd\\\": \\\"${serviceDir}\\\",\\n    \\\"env\\\": {},\\n    \\\"handshakeTimeoutSeconds\\\": 10\\n  }\\n}\\n\",\n  \"memory/installer.json\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"type\\\": \\\"npm\\\",\\n  \\\"product\\\": {\\n    \\\"package\\\": \\\"@modelcontextprotocol/server-memory\\\",\\n    \\\"version\\\": \\\"2026.8.31\\\"\\n  },\\n  \\\"requirements\\\": {\\n    \\\"node\\\": {\\n      \\\"minimumMajor\\\": 18\\n    }\\n  }\\n}\\n\",\n  \"memory/service.json\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"id\\\": \\\"memory\\\",\\n  \\\"displayName\\\": {\\n    \\\"es\\\": \\\"Memoria y Grafos (Knowledge Graph)\\\",\\n    \\\"en\\\": \\\"Memory & Knowledge Graph\\\"\\n  },\\n  \\\"description\\\": {\\n    \\\"es\\\": \\\"Almacenamiento persistente de entidades, preferencias y contexto histórico estructurado en un grafo de conocimiento.\\\",\\n    \\\"en\\\": \\\"Persistent storage of entities, preferences, and historical context structured as a knowledge graph.\\\"\\n  },\\n  \\\"enabledByDefault\\\": false,\\n  \\\"transport\\\": \\\"stdio\\\",\\n  \\\"launch\\\": {\\n    \\\"executable\\\": \\\"${nodeExecutable}\\\",\\n    \\\"args\\\": [\\\"${serviceDir}/node_modules/@modelcontextprotocol/server-memory/dist/index.js\\\"],\\n    \\\"cwd\\\": \\\"${serviceDir}\\\",\\n    \\\"env\\\": {\\n      \\\"MEMORY_FILE_PATH\\\": \\\"${serviceDir}/memory.jsonl\\\"\\n    },\\n    \\\"handshakeTimeoutSeconds\\\": 30\\n  }\\n}\\n\\n\",\n  \"playwright/installer.json\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"type\\\": \\\"npm\\\",\\n  \\\"product\\\": {\\n    \\\"package\\\": \\\"@playwright/mcp\\\",\\n    \\\"version\\\": \\\"0.0.81\\\",\\n    \\\"browser\\\": \\\"chromium\\\"\\n  },\\n  \\\"requirements\\\": {\\n    \\\"node\\\": {\\n      \\\"minimumMajor\\\": 18\\n    }\\n  }\\n}\\n\",\n  \"playwright/service.json\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"id\\\": \\\"playwright\\\",\\n  \\\"displayName\\\": {\\n    \\\"es\\\": \\\"Playwright MCP\\\",\\n    \\\"en\\\": \\\"Playwright MCP\\\"\\n  },\\n  \\\"description\\\": {\\n    \\\"es\\\": \\\"Automatización de navegador mediante el servidor MCP oficial de Playwright.\\\",\\n    \\\"en\\\": \\\"Browser automation through the official Playwright MCP server.\\\"\\n  },\\n  \\\"enabledByDefault\\\": false,\\n  \\\"transport\\\": \\\"stdio\\\",\\n  \\\"launch\\\": {\\n    \\\"executable\\\": \\\"${nodeExecutable}\\\",\\n    \\\"args\\\": [\\\"${serviceDir}/node_modules/@playwright/mcp/cli.js\\\"],\\n    \\\"cwd\\\": \\\"${serviceDir}\\\",\\n    \\\"env\\\": {},\\n    \\\"handshakeTimeoutSeconds\\\": 30,\\n    \\\"callTimeoutSeconds\\\": 120\\n  }\\n}\\n\"\n}")
 
 
 def materialize_managed_services(services_root: Path | None = None) -> None:
@@ -2200,7 +2204,8 @@ LOCAL_TOOL_HANDLERS = {
     "browser_action": browser_action
 }
 # Configuración del navegador de Playwright MCP (sección Navegador de Ajustes).
-# Modo propio: un motor de Playwright con perfil persistente en ~/zerochat/playwright/profile/<motor>.
+# Modo propio: un motor de Playwright en memoria (--isolated), o con almacenamiento persistente con nombre
+# en ~/zerochat/playwright/profile/<motor>/<nombre>.
 # Modo del usuario: su Chrome, Edge o Chromium mediante la extensión de Playwright (--extension).
 BROWSER_MODES = ("own", "user")
 OWN_BROWSER_ENGINES = ("chromium", "firefox", "webkit")
@@ -2210,6 +2215,7 @@ BROWSER_CONFIG_DEFAULTS = {"mode": "own", "engine": "chromium", "userBrowser": "
 PLAYWRIGHT_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm"
 # Token que muestra la extensión: con él la conexión no pide aceptarla en el navegador.
 _EXTENSION_TOKEN = re.compile(r"^[A-Za-z0-9_-]{0,256}$")
+_STORAGE_NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _BROWSER_CONFIG_CHOICES = {"mode": BROWSER_MODES, "engine": OWN_BROWSER_ENGINES, "userBrowser": USER_BROWSERS}
 
 
@@ -2305,10 +2311,15 @@ def playwright_launch_args(config: dict) -> list[str]:
             raise RuntimeError("No se encuentra Chromium en el sistema: elige otro navegador en Ajustes › Navegador.")
         executable, data_dir = install
         return ["--extension", "--browser=chrome", f"--executable-path={executable}", f"--user-data-dir={data_dir}"]
-    profile_dir = own_browser_profile_dir(config["engine"])
-    for directory in (profile_dir.parent.parent, profile_dir.parent, profile_dir):
-        directory.mkdir(mode=0o700, exist_ok=True)
-    args = [f"--browser={config['engine']}", f"--user-data-dir={profile_dir}"]
+    args = [f"--browser={config['engine']}"]
+    storage = config.get("storage")
+    if storage:
+        profile_dir = own_browser_profile_dir(config["engine"]) / storage
+        for directory in (profile_dir.parent.parent.parent, profile_dir.parent.parent, profile_dir.parent, profile_dir):
+            directory.mkdir(mode=0o700, exist_ok=True)
+        args.append(f"--user-data-dir={profile_dir}")
+    else:
+        args.append("--isolated")
     if config["headless"]:
         args.append("--headless")
     return args
@@ -2322,22 +2333,34 @@ def playwright_launch_env(config: dict) -> dict[str, str]:
 
 
 def validate_profile_browser(raw) -> dict:
-    """Navegador que exige un perfil: el propio con un motor, y headless False si exige la ventana
-    visible, o el del usuario con uno de sus navegadores."""
+    """Navegador que exige un perfil: el propio con un motor (y opcionalmente headless False y storage
+    con nombre), o el del usuario con uno de sus navegadores."""
     if isinstance(raw, dict) and raw.get("mode") == "own" and raw.get("engine") in OWN_BROWSER_ENGINES:
-        if set(raw) == {"mode", "engine"}:
-            return {"mode": "own", "engine": raw["engine"]}
-        if set(raw) == {"mode", "engine", "headless"} and raw["headless"] is False:
-            return {"mode": "own", "engine": raw["engine"], "headless": False}
+        if set(raw) <= {"mode", "engine", "headless", "storage"}:
+            headless_ok = "headless" not in raw or raw["headless"] is False
+            storage = raw.get("storage")
+            storage_ok = "storage" not in raw or (isinstance(storage, str) and bool(_STORAGE_NAME.match(storage)))
+            if headless_ok and storage_ok:
+                result = {"mode": "own", "engine": raw["engine"]}
+                if "headless" in raw:
+                    result["headless"] = False
+                if "storage" in raw:
+                    result["storage"] = storage
+                return result
     if isinstance(raw, dict) and raw.get("mode") == "user" and set(raw) == {"mode", "userBrowser"} and raw["userBrowser"] in USER_BROWSERS:
         return {"mode": "user", "userBrowser": raw["userBrowser"]}
-    raise ValueError("browser debe ser {mode: own, engine[, headless: false]} o {mode: user, userBrowser} con un motor o navegador admitido")
+    raise ValueError("browser debe ser {mode: own, engine[, headless: false][, storage]} o {mode: user, userBrowser} con un motor o navegador admitido")
 
 
 def browser_choice(config: dict) -> dict:
     """Modo y navegador con los que arranca Playwright MCP, en la forma de validate_profile_browser."""
     if config["mode"] == "own":
-        return {"mode": "own", "engine": config["engine"], **({} if config["headless"] else {"headless": False})}
+        return {
+            "mode": "own",
+            "engine": config["engine"],
+            **({} if config["headless"] else {"headless": False}),
+            **({"storage": config["storage"]} if config.get("storage") else {}),
+        }
     return {"mode": "user", "userBrowser": config["userBrowser"]}
 
 
@@ -3401,6 +3424,413 @@ class McpServiceManager:
 
 
 GLOBAL_MCP_MANAGER = McpServiceManager()
+# Persistencia local de zerochat.py con SQLite embebido para perfiles de conexión generales y conversaciones.
+_STORAGE_LOCK = threading.RLock()
+_INITIALIZED_DB: Path | None = None
+READONLY_PROFILE_ID = "profile:mirror"
+MIRROR_PROFILE_NAME = "Espejo"
+MAX_PROFILE_NAME_LENGTH = 128
+MAX_PROFILE_DESCRIPTION_LENGTH = 2048
+MAX_CONVERSATION_ID_LENGTH = 128
+MAX_CONVERSATION_TITLE_LENGTH = 256
+
+STORAGE_MIGRATIONS = [
+    (1, "001_create_profiles_table", """
+        CREATE TABLE IF NOT EXISTS profiles (
+            id TEXT PRIMARY KEY,
+            name TEXT UNIQUE NOT NULL,
+            description TEXT DEFAULT '',
+            settings_json TEXT NOT NULL,
+            api_key TEXT DEFAULT '',
+            version INTEGER DEFAULT 1,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_profiles_name ON profiles(name);
+        CREATE INDEX IF NOT EXISTS idx_profiles_updated_at ON profiles(updated_at);
+    """),
+    (2, "002_create_conversations_tables", """
+        CREATE TABLE IF NOT EXISTS conversations (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            message_count INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at);
+
+        CREATE TABLE IF NOT EXISTS messages (
+            conversation_id TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            extra_json TEXT DEFAULT '{}',
+            FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+            PRIMARY KEY (conversation_id, position)
+        );
+    """)
+]
+
+
+def get_storage_dir() -> Path:
+    """Directorio persistente con permisos 0700 para la base de datos local de ZeroChat."""
+    storage_dir = get_data_dir() / "storage"
+    storage_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.name != "nt":
+        storage_dir.chmod(0o700)
+    return storage_dir
+
+
+def get_storage_db_path() -> Path:
+    """Ruta al archivo SQLite principal de ZeroChat."""
+    return get_storage_dir() / "zerochat.db"
+
+
+def _secure_db_files(db_path: Path):
+    """Garantiza permisos 0600 en el archivo SQLite y sus auxiliares de journaling en POSIX."""
+    if os.name == "nt":
+        return
+    if not db_path.exists():
+        fd = os.open(db_path, os.O_WRONLY | os.O_CREAT, 0o600)
+        os.close(fd)
+    for target in (db_path, db_path.with_name(db_path.name + "-wal"), db_path.with_name(db_path.name + "-shm")):
+        if target.exists():
+            target.chmod(0o600)
+
+
+def _apply_migrations(conn: sqlite3.Connection):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            applied_at INTEGER NOT NULL,
+            description TEXT NOT NULL
+        );
+    """)
+    applied = {row["version"] for row in conn.execute("SELECT version FROM schema_migrations;").fetchall()}
+    for version, description, sql in STORAGE_MIGRATIONS:
+        if version not in applied:
+            conn.executescript(sql)
+            conn.execute(
+                "INSERT INTO schema_migrations (version, applied_at, description) VALUES (?, ?, ?);",
+                (version, int(time.time() * 1000), description)
+            )
+    conn.commit()
+
+
+@contextlib.contextmanager
+def open_storage():
+    """Abre una conexión SQLite segura con migraciones aplicadas y la cierra al salir."""
+    global _INITIALIZED_DB
+    with _STORAGE_LOCK:
+        db_path = get_storage_db_path()
+        needs_init = _INITIALIZED_DB != db_path or not db_path.exists()
+        _secure_db_files(db_path)
+        conn = sqlite3.connect(str(db_path), timeout=5.0)
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA foreign_keys=ON;")
+            conn.execute("PRAGMA busy_timeout=5000;")
+            _secure_db_files(db_path)
+            if needs_init:
+                _apply_migrations(conn)
+                _INITIALIZED_DB = db_path
+            yield conn
+        finally:
+            conn.close()
+
+
+def normalize_profile_id(name: str, given_id: str | None = None) -> str:
+    """Genera o normaliza un identificador único para el perfil general."""
+    if given_id and isinstance(given_id, str) and given_id.strip():
+        clean = given_id.strip()
+        return clean if clean.startswith("profile:") else f"profile:{clean}"
+    clean_name = urllib.parse.quote(name.strip())
+    return f"profile:general-{clean_name}"
+
+
+def validate_profile_payload(record: dict) -> tuple[str, str, str, dict, str | None]:
+    """Valida los campos obligatorios del perfil y separa ajustes de la clave secreta."""
+    if not isinstance(record, dict):
+        raise ValueError("El perfil debe ser un objeto")
+    name = str(record.get("name") or "").strip()
+    if not name:
+        raise ValueError("El nombre del perfil no puede estar vacío")
+    if len(name) > MAX_PROFILE_NAME_LENGTH:
+        raise ValueError(f"El nombre del perfil no puede superar {MAX_PROFILE_NAME_LENGTH} caracteres")
+
+    description = str(record.get("description") or "").strip()
+    if len(description) > MAX_PROFILE_DESCRIPTION_LENGTH:
+        raise ValueError(f"La descripción no puede superar {MAX_PROFILE_DESCRIPTION_LENGTH} caracteres")
+
+    profile_id = normalize_profile_id(name, record.get("id"))
+    if profile_id == READONLY_PROFILE_ID or name.lower() == MIRROR_PROFILE_NAME.lower():
+        raise ValueError("El perfil Espejo no se puede modificar")
+
+    settings_source = record.get("settings")
+    if not isinstance(settings_source, dict):
+        raise ValueError("Los ajustes del perfil deben ser un objeto")
+
+    settings = dict(settings_source)
+    has_api_key = "apiKey" in settings or "apiKey" in record
+    raw_key = settings.pop("apiKey", None)
+    if raw_key is None:
+        raw_key = record.get("apiKey")
+    api_key = str(raw_key or "").strip() if has_api_key else None
+    return profile_id, name, description, settings, api_key
+
+
+def _row_to_profile(row: sqlite3.Row) -> dict:
+    """Transforma una fila SQLite en el objeto de perfil general."""
+    try:
+        settings = json.loads(row["settings_json"])
+    except (json.JSONDecodeError, TypeError):
+        settings = {}
+
+    settings["apiKey"] = row["api_key"] or ""
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "description": row["description"] or "",
+        "general": True,
+        "schemaVersion": 1,
+        "version": row["version"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+        "settings": settings
+    }
+
+
+def list_general_profiles() -> list[dict]:
+    """Lista todos los perfiles de conexión generales almacenados en SQLite."""
+    with open_storage() as conn:
+        rows = conn.execute("SELECT * FROM profiles ORDER BY name COLLATE NOCASE ASC;").fetchall()
+        return [_row_to_profile(row) for row in rows]
+
+
+def get_general_profile(profile_id: str) -> dict | None:
+    """Recupera un perfil general por su identificador único."""
+    if not profile_id or not isinstance(profile_id, str) or not profile_id.strip():
+        return None
+    clean_id = normalize_profile_id("", profile_id)
+    with open_storage() as conn:
+        row = conn.execute("SELECT * FROM profiles WHERE id = ?;", (clean_id,)).fetchone()
+        return _row_to_profile(row) if row else None
+
+
+def get_general_profile_by_name(name: str) -> dict | None:
+    """Recupera un perfil general por su nombre, con o sin el indicador visual 'Z-'."""
+    if not name or not isinstance(name, str) or not name.strip():
+        return None
+    clean = name.strip()
+    stripped = clean[2:].strip() if clean[:2].upper() == "Z-" else clean
+    candidates = list(dict.fromkeys([clean, stripped, f"Z-{stripped}", f"Z- {stripped}"]))
+    with open_storage() as conn:
+        for candidate in candidates:
+            row = conn.execute("SELECT * FROM profiles WHERE name = ? COLLATE NOCASE;", (candidate,)).fetchone()
+            if row:
+                return _row_to_profile(row)
+        return None
+
+
+def save_general_profile(record: dict) -> dict:
+    """Guarda (crea o actualiza) un perfil de conexión general en SQLite."""
+    profile_id, name, description, settings, api_key = validate_profile_payload(record)
+    now = int(time.time() * 1000)
+
+    with open_storage() as conn:
+        existing = conn.execute("SELECT * FROM profiles WHERE id = ?;", (profile_id,)).fetchone()
+        if existing:
+            try:
+                existing_settings = json.loads(existing["settings_json"])
+            except (json.JSONDecodeError, TypeError):
+                existing_settings = {}
+            if existing_settings.get("apiKeyLocked") is True:
+                raise ValueError("Los cambios en este perfil están bloqueados")
+
+        same_name = conn.execute(
+            "SELECT id FROM profiles WHERE name = ? COLLATE NOCASE AND id != ?;",
+            (name, profile_id)
+        ).fetchone()
+        if same_name:
+            raise ValueError(f"Ya existe un perfil general con el nombre '{name}'")
+
+        if existing:
+            version = existing["version"] + 1
+            final_api_key = (existing["api_key"] or "") if api_key is None else api_key
+            conn.execute("""
+                UPDATE profiles
+                SET name = ?, description = ?, settings_json = ?, api_key = ?, version = ?, updated_at = ?
+                WHERE id = ?;
+            """, (name, description, json.dumps(settings), final_api_key, version, now, profile_id))
+        else:
+            conn.execute("""
+                INSERT INTO profiles (id, name, description, settings_json, api_key, version, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?);
+            """, (profile_id, name, description, json.dumps(settings), api_key or "", now, now))
+
+        conn.commit()
+        saved_row = conn.execute("SELECT * FROM profiles WHERE id = ?;", (profile_id,)).fetchone()
+        return _row_to_profile(saved_row)
+
+
+def delete_general_profile(profile_id: str) -> bool:
+    """Elimina un perfil de conexión general de SQLite."""
+    if not profile_id or not isinstance(profile_id, str) or not profile_id.strip():
+        return False
+    clean_id = normalize_profile_id("", profile_id)
+    with open_storage() as conn:
+        cursor = conn.execute("DELETE FROM profiles WHERE id = ?;", (clean_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+# ==============================================================================
+# Almacén de conversaciones y mensajes (M46)
+# ==============================================================================
+
+def _validate_conversation_id(session_id) -> str:
+    if not isinstance(session_id, str) or not session_id.strip():
+        raise ValueError("El identificador de la conversación no puede estar vacío")
+    clean = session_id.strip()
+    if len(clean) > MAX_CONVERSATION_ID_LENGTH:
+        raise ValueError(f"El identificador no puede superar {MAX_CONVERSATION_ID_LENGTH} caracteres")
+    return clean
+
+
+def _validate_conversation_title(title, allow_empty: bool = False) -> str:
+    if not isinstance(title, str):
+        raise ValueError("El título de la conversación debe ser un texto")
+    clean = title.strip()
+    if not allow_empty and not clean:
+        raise ValueError("El título de la conversación no puede estar vacío")
+    if len(clean) > MAX_CONVERSATION_TITLE_LENGTH:
+        raise ValueError(f"El título no puede superar {MAX_CONVERSATION_TITLE_LENGTH} caracteres")
+    return clean
+
+
+def _row_to_conversation_header(row: sqlite3.Row) -> dict:
+    """Transforma una fila SQLite en la cabecera de una conversación."""
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+        "messageCount": row["message_count"]
+    }
+
+
+def _row_to_message(row: sqlite3.Row) -> dict:
+    """Transforma una fila SQLite en el objeto de mensaje de la conversación."""
+    extra = json.loads(row["extra_json"]) if row["extra_json"] else {}
+    return {
+        "id": row["id"],
+        "role": row["role"],
+        "content": row["content"],
+        **extra
+    }
+
+
+def list_conversations() -> list[dict]:
+    """Lista las cabeceras de conversaciones ordenadas de más reciente a más antigua."""
+    with open_storage() as conn:
+        rows = conn.execute("SELECT * FROM conversations ORDER BY updated_at DESC;").fetchall()
+        return [_row_to_conversation_header(row) for row in rows]
+
+
+def get_conversation(session_id: str) -> dict | None:
+    """Recupera una conversación completa con sus mensajes ordenados por posición."""
+    clean_id = _validate_conversation_id(session_id)
+    with open_storage() as conn:
+        conv_row = conn.execute("SELECT * FROM conversations WHERE id = ?;", (clean_id,)).fetchone()
+        if not conv_row:
+            return None
+        header = _row_to_conversation_header(conv_row)
+        msg_rows = conn.execute(
+            "SELECT * FROM messages WHERE conversation_id = ? ORDER BY position ASC;",
+            (clean_id,)
+        ).fetchall()
+        return {**header, "history": [_row_to_message(row) for row in msg_rows]}
+
+
+def save_conversation(session_meta: dict, messages: list[dict] | None = None) -> dict:
+    """Guarda o actualiza una conversación y sustituye sus mensajes atómicamente."""
+    if not isinstance(session_meta, dict):
+        raise ValueError("Los metadatos de la conversación deben ser un objeto")
+    if messages is None:
+        messages = []
+    if not isinstance(messages, list):
+        raise ValueError("Los mensajes de la conversación deben ser una lista")
+
+    session_id = _validate_conversation_id(session_meta.get("id"))
+    raw_title = session_meta.get("title")
+    title = _validate_conversation_title("" if raw_title is None else raw_title, allow_empty=True)
+
+    now = int(time.time() * 1000)
+    created_at = int(session_meta.get("createdAt") or now)
+    updated_at = int(session_meta.get("updatedAt") or now)
+
+    with open_storage() as conn:
+        conn.execute("""
+            INSERT INTO conversations (id, title, created_at, updated_at, message_count)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                title = excluded.title,
+                updated_at = excluded.updated_at,
+                message_count = excluded.message_count;
+        """, (session_id, title, created_at, updated_at, len(messages)))
+
+        conn.execute("DELETE FROM messages WHERE conversation_id = ?;", (session_id,))
+
+        for pos, msg in enumerate(messages):
+            if not isinstance(msg, dict):
+                raise ValueError("Cada mensaje debe ser un objeto")
+            msg_id = str(msg.get("id") or "").strip() or f"msg_{session_id}_{pos}"
+            role = str(msg.get("role") or "user").strip()
+            content = "" if msg.get("content") is None else str(msg.get("content"))
+            extra = {k: v for k, v in msg.items() if k not in ("id", "role", "content", "conversationId", "position")}
+            extra_json = json.dumps(extra) if extra else "{}"
+
+            conn.execute("""
+                INSERT INTO messages (conversation_id, position, id, role, content, extra_json)
+                VALUES (?, ?, ?, ?, ?, ?);
+            """, (session_id, pos, msg_id, role, content, extra_json))
+
+        conn.commit()
+        row = conn.execute("SELECT * FROM conversations WHERE id = ?;", (session_id,)).fetchone()
+        return _row_to_conversation_header(row)
+
+
+def rename_conversation(session_id: str, new_title: str) -> bool:
+    """Renombra una conversación existente en SQLite."""
+    clean_id = _validate_conversation_id(session_id)
+    title = _validate_conversation_title(new_title)
+    now = int(time.time() * 1000)
+    with open_storage() as conn:
+        cursor = conn.execute(
+            "UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?;",
+            (title, now, clean_id)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def delete_conversation(session_id: str) -> bool:
+    """Elimina una conversación y sus mensajes en cascada."""
+    clean_id = _validate_conversation_id(session_id)
+    with open_storage() as conn:
+        cursor = conn.execute("DELETE FROM conversations WHERE id = ?;", (clean_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def delete_all_conversations() -> int:
+    """Elimina todas las conversaciones y sus mensajes en cascada."""
+    with open_storage() as conn:
+        cursor = conn.execute("DELETE FROM conversations;")
+        conn.commit()
+        return cursor.rowcount
 DEFAULT_HEARTBEAT_TIMEOUT = float(os.environ.get("ZEROCHAT_HEARTBEAT_TIMEOUT", "60.0"))
 DEFAULT_HEARTBEAT_GRACE = float(os.environ.get("ZEROCHAT_HEARTBEAT_GRACE", "45.0"))
 DEFAULT_HEARTBEAT_POLL = float(os.environ.get("ZEROCHAT_HEARTBEAT_POLL", "5.0"))
@@ -3422,20 +3852,24 @@ def mark_browser_active():
     HEARTBEAT_INITIALIZED = True
 
 
-def live_state() -> dict:
+def live_state(focus_conversation_id: str | None = None) -> dict:
     """
     Estado del servidor que la interfaz sigue en vivo, en initialize y en cada zerochat/heartbeat:
     cwd, para notar que otra pestaña ha cambiado el directorio del proyecto; jobs, los comandos en
     marcha, para mostrarlos y avisar antes de cerrar si se detendrían; exit_on_close; playwright, si
-    se puede navegar aunque se haya instalado o quitado durante la sesión; y servers, los servicios
-    MCP externos aunque otra pestaña los cambie o su proceso muera.
+    se puede navegar aunque se haya instalado o quitado durante la sesión; servers, los servicios
+    MCP externos aunque otra pestaña los cambie o su proceso muera; runs, lista ligera de ejecuciones
+    en segundo plano; y focus_run, estado detallado de la ejecución enfocada por el usuario.
     """
+    runs, focus_run = list_server_runs(focus_conversation_id)
     return {
         "cwd": str(Path.cwd().resolve()),
         "jobs": [job.summary() for job in JOBS.running()],
         "exit_on_close": EXIT_ON_CLOSE,
         "playwright": playwright_status(),
-        "servers": GLOBAL_MCP_MANAGER.list_servers()
+        "servers": GLOBAL_MCP_MANAGER.list_servers(),
+        "runs": runs,
+        "focus_run": focus_run
     }
 
 
@@ -3476,6 +3910,9 @@ def heartbeat_watchdog(server: ThreadingHTTPServer, initial_grace_seconds: float
 
         # 2. Inactividad tras haber recibido latidos
         if now - HEARTBEAT_LAST_SEEN > inactivity_timeout_seconds:
+            runs, _ = list_server_runs()
+            if any(r.get("status") == "running" for r in runs):
+                continue
             log_event("Navegador desconectado (cierre detectado). Deteniendo servidor ZeroChat...")
             stop_zerochat_server(server)
             break
@@ -3963,7 +4400,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             }
             return {**self._initialize_result(server_info), "liveState": live_state()}, None, ""
         if method == "zerochat/heartbeat":
-            return live_state(), None, ""
+            focus_id = params.get("focus_conversation_id") if isinstance(params, dict) else None
+            return live_state(focus_id), None, ""
         if method == "zerochat/login":
             return self._login(params)
         if method == "tools/list":
@@ -4025,6 +4463,66 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return self._dispatch_server_control(method, params)
         if method.startswith("zerochat/browser/"):
             return self._dispatch_browser(method, params)
+        if method.startswith("zerochat/profiles/"):
+            return self._dispatch_profiles(method, params)
+        if method.startswith("zerochat/conversations/"):
+            return self._dispatch_conversations(method, params)
+        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
+
+    @staticmethod
+    def _dispatch_profiles(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+        """Gestión de perfiles generales almacenados en SQLite en el backend local."""
+        params = params if isinstance(params, dict) else {}
+        try:
+            if method == "zerochat/profiles/list":
+                return {"profiles": list_general_profiles()}, None, ""
+            if method == "zerochat/profiles/save":
+                profile_data = params.get("profile")
+                if not isinstance(profile_data, dict):
+                    return None, {"code": -32602, "message": "profile debe ser un objeto."}, ""
+                return {"profile": save_general_profile(profile_data)}, None, ""
+            if method == "zerochat/profiles/delete":
+                profile_id = params.get("id")
+                if not isinstance(profile_id, str) or not profile_id.strip():
+                    return None, {"code": -32602, "message": "id debe ser un texto no vacío."}, ""
+                return {"deleted": delete_general_profile(profile_id)}, None, ""
+        except ValueError as exc:
+            return None, {"code": -32602, "message": str(exc)}, ""
+        except Exception as exc:
+            return None, {"code": -32603, "message": f"Error en gestión de perfiles: {exc}"}, str(exc)
+        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
+
+    @staticmethod
+    def _dispatch_conversations(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+        """Gestión de conversaciones y mensajes almacenados en SQLite en el backend local."""
+        try:
+            if method == "zerochat/conversations/list":
+                return {"conversations": list_conversations()}, None, ""
+            if method == "zerochat/conversations/get":
+                return {"conversation": get_conversation(params.get("id"))}, None, ""
+            if method == "zerochat/conversations/save":
+                return {"conversation": save_conversation(params.get("conversation"), params.get("messages"))}, None, ""
+            if method == "zerochat/conversations/rename":
+                return {"renamed": rename_conversation(params.get("id"), params.get("title"))}, None, ""
+            if method == "zerochat/conversations/delete":
+                if params.get("all") is True:
+                    for run_file in get_runs_dir().glob("*.json"):
+                        try:
+                            cancel_server_run(urllib.parse.unquote(run_file.stem))
+                        except (ValueError, OSError):
+                            pass
+                    return {"deleted": True, "count": delete_all_conversations()}, None, ""
+                conv_id = params.get("id")
+                if isinstance(conv_id, str) and conv_id.strip():
+                    try:
+                        cancel_server_run(conv_id)
+                    except (ValueError, OSError):
+                        pass
+                return {"deleted": delete_conversation(params.get("id"))}, None, ""
+        except ValueError as exc:
+            return None, {"code": -32602, "message": str(exc)}, ""
+        except Exception as exc:
+            return None, {"code": -32603, "message": f"Error en gestión de conversaciones: {exc}"}, str(exc)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @staticmethod
@@ -4422,6 +4920,58 @@ def launch_headless_browser(url: str) -> subprocess.Popen | None:
     except OSError as error:
         log_event(f"No se pudo abrir {executable} sin ventana ({error}); se abrirá de la forma normal.")
         return None
+
+
+_PLAYWRIGHT_CHROMIUM_BINARIES = (
+    ("chromium_headless_shell-", (
+        "chrome-headless-shell-*/chrome-headless-shell",
+        "chrome-headless-shell-*/chrome-headless-shell.exe",
+    )),
+    ("chromium-", (
+        "chrome-*/chrome",
+        "chrome-*/chrome.exe",
+        "chrome-*/*.app/Contents/MacOS/*",
+    )),
+)
+
+
+def playwright_chromium_executable() -> str | None:
+    """Ejecutable de Chromium en la caché de Playwright (headless shell o completo), o None."""
+    try:
+        folders = sorted(
+            (child for child in playwright_engine_cache().iterdir() if (child / "INSTALLATION_COMPLETE").is_file()),
+            key=lambda path: path.name,
+            reverse=True,
+        )
+    except OSError:
+        return None
+    for prefix, patterns in _PLAYWRIGHT_CHROMIUM_BINARIES:
+        for folder in folders:
+            if not folder.name.startswith(prefix):
+                continue
+            for pattern in patterns:
+                for binary in sorted(folder.glob(pattern)):
+                    if binary.is_file():
+                        return str(binary)
+    return None
+
+
+def launch_playwright_chromium(url: str) -> subprocess.Popen | None:
+    """Abre la URL sin ventana con el Chromium instalado en la caché de Playwright."""
+    executable = playwright_chromium_executable()
+    if not executable:
+        log_event("No está instalado el Chromium de Playwright (instálalo desde Ajustes › Navegador o usa --browser).")
+        return None
+    log_event(f"Abriendo {Path(executable).name} de Playwright sin ventana en la interfaz configurada...")
+    try:
+        return subprocess.Popen(
+            [executable, "--headless", url],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as error:
+        log_event(f"No se pudo abrir {executable} de Playwright ({error}).")
+        return None
 # ==============================================================================
 # Modo ejecución desatendida (zerochat.py --prompt)
 # ==============================================================================
@@ -4433,6 +4983,7 @@ RUN_TOTAL_TIMEOUT = float(os.environ.get("ZEROCHAT_RUN_TIMEOUT", "900"))
 RUN_IDLE_SECONDS = float(os.environ.get("ZEROCHAT_RUN_IDLE_SECONDS", "180"))
 RUN_POLL_SECONDS = 0.2
 RUN_PROGRESS_TEXT_MAX = 500
+RUN_STREAM_TEXT_MAX = 8000
 RUN_PROGRESS_KIND_PATTERN = re.compile(r"[a-z_]{1,32}")
 RUN_EXIT_DONE = 0
 RUN_EXIT_ERROR = 1
@@ -4440,19 +4991,275 @@ RUN_EXIT_TIMEOUT = 2
 RUN_EXIT_SETUP = 3
 # Argumentos no válidos, en cualquier modo: argparse usaría 2, que con --prompt es plazo agotado.
 RUN_EXIT_ARGS = 4
+# Perfil general por defecto de --prompt cuando no se indica --profile.
+DEFAULT_RUN_PROFILE = "Z-local"
 # Formato de --export según la extensión del fichero; la interfaz genera el contenido con ChatExport.
 RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json", ".html": "html"}
 # Cuerpo HTTP admitido mientras se espera la exportación: el JSON y el HTML llevan las imágenes incrustadas.
 RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 
 
+def get_runs_dir() -> Path:
+    """Directorio persistente con permisos 0700 para los ficheros de situación de ejecuciones en servidor."""
+    runs_dir = get_data_dir() / "runs"
+    runs_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.name != "nt":
+        runs_dir.chmod(0o700)
+    return runs_dir
+
+
+def get_run_state_path(conversation_id: str) -> Path:
+    """Ruta al fichero de situación de la conversación en ~/zerochat/runs/."""
+    clean_name = urllib.parse.quote(conversation_id.strip(), safe="")
+    return get_runs_dir() / f"{clean_name}.json"
+
+
+def _run_process_alive(data: dict) -> bool:
+    """Comprueba si el proceso de una ejecución sigue activo y corresponde al arranque original."""
+    pid = data.get("pid")
+    if not _pid_alive(pid):
+        return False
+    saved_start = data.get("pid_start")
+    if saved_start:
+        current_start = _process_start_token(pid)
+        if current_start is not None and current_start != saved_start:
+            return False
+    return True
+
+
+def write_run_state(session: RunSession) -> None:
+    """Escribe atómicamente el estado en vivo de la ejecución en ~/zerochat/runs/<conversation_id>.json (0600)."""
+    if not session.conversation_id:
+        return
+    state_path = get_run_state_path(session.conversation_id)
+    now = int(time.time() * 1000)
+    session.updated_at = now
+    payload = {
+        "run_id": session.run_id,
+        "conversation_id": session.conversation_id,
+        "pid": session.pid,
+        "pid_start": session.pid_start,
+        "started_at": session.started_at,
+        "updated_at": session.updated_at,
+        "status": session.status,
+        "step_text": session.step_text,
+        "assistant_text": session.assistant_text,
+        "reasoning_text": session.reasoning_text,
+        "pending": session.pending,
+        "error": session.error
+    }
+    _write_private_text(state_path, json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def remove_run_state(conversation_id: str | None) -> None:
+    """Elimina el fichero de situación de la conversación al completarse con éxito."""
+    if not conversation_id:
+        return
+    try:
+        get_run_state_path(conversation_id).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _kill_pid_tree(pid: int) -> None:
+    """Termina el proceso por su PID y su grupo o árbol de procesos si es líder de su grupo."""
+    if not _pid_alive(pid) or pid == os.getpid():
+        return
+    try:
+        if DETECTED_OS == "windows":
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            )
+        elif hasattr(os, "killpg") and hasattr(os, "getpgid"):
+            try:
+                if os.getpgid(pid) == pid:
+                    os.killpg(pid, signal.SIGTERM)
+                    time.sleep(0.05)
+                    if _pid_alive(pid):
+                        os.killpg(pid, signal.SIGKILL)
+                else:
+                    os.kill(pid, signal.SIGTERM)
+                    time.sleep(0.05)
+                    if _pid_alive(pid):
+                        os.kill(pid, signal.SIGKILL)
+            except OSError:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+        else:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+
+
+def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dict], dict | None]:
+    """
+    Lee las situaciones en ~/zerochat/runs/*.json. Si un proceso 'running' ya murió,
+    lo marca como 'error'. Devuelve (runs, focus_run), donde runs es una lista ligera
+    ordenada por started_at, y focus_run es el detalle completo si coincide con focus_conversation_id.
+    En un servidor de ejecución (--prompt o --conversation) devuelve ([], None) para que el propio
+    worker no se bloquee ni omita el guardado de su conversación.
+    """
+    if RUN_SESSION is not None:
+        return [], None
+    runs_dir = get_runs_dir()
+    entries = []
+    clean_focus_id = focus_conversation_id.strip() if (isinstance(focus_conversation_id, str) and focus_conversation_id.strip()) else None
+
+    for path in sorted(runs_dir.glob("*.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        conv_id = data.get("conversation_id")
+        if not conv_id or not isinstance(conv_id, str):
+            continue
+
+        status = data.get("status")
+        if status == "running" and not _run_process_alive(data):
+            status = "error"
+            data["status"] = "error"
+            data["error"] = "El proceso de ejecución terminó inesperadamente."
+            data["updated_at"] = int(time.time() * 1000)
+            try:
+                _write_private_text(path, json.dumps(data, ensure_ascii=False, indent=2))
+            except OSError:
+                pass
+
+        light = {
+            "conversation_id": conv_id,
+            "run_id": data.get("run_id"),
+            "status": status
+        }
+        started_at = data.get("started_at", 0)
+        entries.append((started_at, light, data))
+
+    entries.sort(key=lambda item: item[0])
+    runs = [item[1] for item in entries]
+
+    focus_run = None
+    if clean_focus_id:
+        for _, _, full_data in entries:
+            if full_data.get("conversation_id") == clean_focus_id:
+                focus_run = full_data
+                break
+
+    return runs, focus_run
+
+
+def start_server_run(params: dict) -> dict:
+    """Inicia una ejecución en segundo plano para una conversación."""
+    if not isinstance(params, dict):
+        raise ValueError("Parámetros no válidos.")
+    conv_id = params.get("conversation_id")
+    if not isinstance(conv_id, str) or not conv_id.strip():
+        raise ValueError("conversation_id requerido.")
+    clean_conv_id = _validate_conversation_id(conv_id)
+    if get_conversation(clean_conv_id) is None:
+        raise ValueError(f"Conversación '{clean_conv_id}' no encontrada.")
+
+    profile = params.get("profile")
+    if not isinstance(profile, str) or not profile.strip():
+        raise ValueError("profile requerido.")
+    profile_entry = get_general_profile(profile) or get_general_profile_by_name(profile)
+    if not profile_entry:
+        raise ValueError(f"Perfil general '{profile}' no encontrado.")
+    profile_name = profile_entry.get("name", profile.strip())
+
+    state_path = get_run_state_path(clean_conv_id)
+    if state_path.exists():
+        try:
+            existing = json.loads(state_path.read_text(encoding="utf-8"))
+            if isinstance(existing, dict) and existing.get("status") == "running" and _run_process_alive(existing):
+                raise ValueError(f"Ya hay una ejecución en marcha para la conversación '{clean_conv_id}'.")
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    prompt = params.get("prompt")
+    if prompt is not None and not isinstance(prompt, str):
+        raise ValueError("prompt debe ser una cadena o null.")
+
+    tool_security = params.get("tool_security")
+    if tool_security is not None and not isinstance(tool_security, dict):
+        raise ValueError("tool_security debe ser un objeto o null.")
+
+    if not playwright_chromium_executable():
+        raise ValueError("No está instalado el Chromium de Playwright (instálalo desde Ajustes › Navegador).")
+
+    run_id = secrets.token_urlsafe(24)
+    cmd = [sys.executable, str(Path(__file__).resolve()), "--conversation", clean_conv_id, "--profile", profile_name]
+    if prompt:
+        cmd.extend(["--prompt", prompt])
+
+    env = dict(os.environ)
+    env["ZEROCHAT_RUN_ID"] = run_id
+    if tool_security:
+        env["ZEROCHAT_RUN_SECURITY"] = json.dumps(tool_security, ensure_ascii=False)
+
+    now = int(time.time() * 1000)
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=DETECTED_OS != "windows" and hasattr(os, "setsid"),
+        env=env
+    )
+
+    payload = {
+        "run_id": run_id,
+        "conversation_id": clean_conv_id,
+        "pid": proc.pid,
+        "pid_start": _process_start_token(proc.pid),
+        "started_at": now,
+        "updated_at": now,
+        "status": "running",
+        "step_text": "",
+        "assistant_text": "",
+        "reasoning_text": "",
+        "pending": None,
+        "error": None
+    }
+    _write_private_text(state_path, json.dumps(payload, ensure_ascii=False, indent=2))
+
+    return {"ok": True, "run_id": run_id, "conversation_id": clean_conv_id, "status": "running"}
+
+
+def cancel_server_run(conversation_id: str) -> dict:
+    """Cancela una ejecución en segundo plano: termina el proceso si sigue en marcha y elimina el fichero."""
+    if not isinstance(conversation_id, str) or not conversation_id.strip():
+        raise ValueError("conversation_id requerido.")
+    clean_conv_id = _validate_conversation_id(conversation_id)
+    state_path = get_run_state_path(clean_conv_id)
+    if state_path.exists():
+        try:
+            data = json.loads(state_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data.get("status") == "running" and _run_process_alive(data):
+                _kill_pid_tree(data.get("pid"))
+        except (json.JSONDecodeError, OSError):
+            pass
+        remove_run_state(clean_conv_id)
+    return {"cancelled": True}
+
+
 class RunSession:
     """Estado de la ejecución: prompt, opciones, último progreso, exportación, resultado y motivo de un final sin él."""
-    def __init__(self, prompt: str, profile: str | None = None, export_path: Path | None = None, keep_page: bool = False,
-                 allow_dangerous_tools: bool = False):
-        self.run_id = secrets.token_urlsafe(24)
+    def __init__(self, prompt: str | None = None, profile: str | None = None, export_path: Path | None = None, keep_page: bool = False,
+                 allow_dangerous_tools: bool = False, conversation_id: str | None = None, run_id: str | None = None,
+                 tool_security: dict | None = None):
+        env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
+        self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
+        self.conversation_id = conversation_id
         self.prompt = prompt
-        # Perfil (nombre o id) que la interfaz usa solo en esta ejecución; None, el activo.
+        # Perfil (nombre o id) que la interfaz usa solo en esta ejecución; por defecto, Z-local del servidor.
         self.profile = profile
         # Fichero donde se escribe la conversación exportada (formato por su extensión); None, sin exportar.
         self.export_path = export_path
@@ -4462,12 +5269,33 @@ class RunSession:
         self.keep_page = keep_page
         # La interfaz aprueba también write_file, edit_file y run_command, que si no deniega.
         self.allow_dangerous_tools = allow_dangerous_tools
+        if tool_security is not None:
+            self.tool_security = tool_security
+        elif os.environ.get("ZEROCHAT_RUN_SECURITY"):
+            try:
+                self.tool_security = json.loads(os.environ["ZEROCHAT_RUN_SECURITY"])
+            except (json.JSONDecodeError, TypeError):
+                self.tool_security = None
+        else:
+            self.tool_security = None
         self.lock = threading.Lock()
         self.last_activity = time.monotonic()
         self.prompt_delivered = False
         self.result: dict | None = None
         self.stop_reason: str | None = None
         self.finished = threading.Event()
+        self.pid = os.getpid()
+        self.pid_start = _process_start_token(self.pid)
+        self.started_at = int(time.time() * 1000)
+        self.updated_at = self.started_at
+        self.status = "running"
+        self.step_text = ""
+        self.assistant_text = ""
+        self.reasoning_text = ""
+        self.pending: dict | None = None
+        self.error: str | None = None
+        if self.conversation_id:
+            write_run_state(self)
 
     def touch(self):
         with self.lock:
@@ -4492,7 +5320,28 @@ def http_body_limit() -> int:
 
 def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
     """Métodos zerochat/run/* que usa la interfaz abierta por el modo ejecución."""
+    params = params if isinstance(params, dict) else {}
     session = RUN_SESSION
+    if method == "zerochat/run/start":
+        if session is not None:
+            return None, {"code": -32601, "message": "No disponible dentro de un proceso de ejecución."}, ""
+        try:
+            return start_server_run(params), None, ""
+        except ValueError as exc:
+            return None, {"code": -32602, "message": str(exc)}, ""
+        except OSError as exc:
+            return None, {"code": -32603, "message": f"Error al iniciar ejecución en servidor: {exc}"}, str(exc)
+    if method == "zerochat/run/cancel":
+        if session is not None:
+            return None, {"code": -32601, "message": "No disponible dentro de un proceso de ejecución."}, ""
+        try:
+            conv_id = params.get("conversation_id")
+            return cancel_server_run(conv_id), None, ""
+        except ValueError as exc:
+            return None, {"code": -32602, "message": str(exc)}, ""
+        except OSError as exc:
+            return None, {"code": -32603, "message": f"Error al cancelar ejecución en servidor: {exc}"}, str(exc)
+
     if session is None:
         return None, {"code": -32601, "message": "El servidor no está en modo ejecución."}, ""
     run_id = params.get("run_id")
@@ -4505,17 +5354,30 @@ def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, s
             session.prompt_delivered = True
         session.touch()
         export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
-        return {"prompt": session.prompt, "profile": session.profile, "export": export_format, "keep_page": session.keep_page,
-                "allow_dangerous_tools": session.allow_dangerous_tools}, None, ""
+        return {"prompt": session.prompt, "conversation_id": session.conversation_id, "profile": session.profile,
+                "export": export_format, "keep_page": session.keep_page,
+                "allow_dangerous_tools": session.allow_dangerous_tools, "tool_security": session.tool_security}, None, ""
     if method == "zerochat/run/progress":
         kind = params.get("kind")
         text = params.get("text", "")
         if not isinstance(kind, str) or not RUN_PROGRESS_KIND_PATTERN.fullmatch(kind) or not isinstance(text, str):
             return None, {"code": -32602, "message": "Progreso no válido."}, ""
+        assistant_text = params.get("assistant_text")
+        reasoning_text = params.get("reasoning_text")
+        if assistant_text is not None and not isinstance(assistant_text, str):
+            return None, {"code": -32602, "message": "assistant_text debe ser una cadena."}, ""
+        if reasoning_text is not None and not isinstance(reasoning_text, str):
+            return None, {"code": -32602, "message": "reasoning_text debe ser una cadena."}, ""
         session.touch()
-        if len(text) > RUN_PROGRESS_TEXT_MAX:
-            text = text[:RUN_PROGRESS_TEXT_MAX] + "…"
-        log_event(f"[run] {kind}{': ' + text if text else ''}")
+        truncated_step = text[:RUN_PROGRESS_TEXT_MAX] + "…" if len(text) > RUN_PROGRESS_TEXT_MAX else text
+        log_event(f"[run] {kind}{': ' + truncated_step if truncated_step else ''}")
+        with session.lock:
+            session.step_text = truncated_step
+            if assistant_text is not None:
+                session.assistant_text = assistant_text[:RUN_STREAM_TEXT_MAX] + ("…" if len(assistant_text) > RUN_STREAM_TEXT_MAX else "")
+            if reasoning_text is not None:
+                session.reasoning_text = reasoning_text[:RUN_STREAM_TEXT_MAX] + ("…" if len(reasoning_text) > RUN_STREAM_TEXT_MAX else "")
+            write_run_state(session)
         return {"ok": True}, None, ""
     if method == "zerochat/run/export":
         content = params.get("content")
@@ -4536,35 +5398,65 @@ def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, s
     if method == "zerochat/run/result":
         text = params.get("text")
         error = params.get("error")
-        if not ((isinstance(text, str) and error is None) or (isinstance(error, str) and error and text is None)):
+        needs_input = params.get("needs_input")
+        is_text = isinstance(text, str) and error is None and needs_input is None
+        is_error = isinstance(error, str) and bool(error) and text is None and needs_input is None
+        is_needs_input = isinstance(needs_input, dict) and text is None and error is None
+        if not (is_text or is_error or is_needs_input):
             return None, {"code": -32602, "message": "El resultado lleva text o error."}, ""
         with session.lock:
             if session.result is not None:
                 return None, {"code": -32602, "message": "El resultado ya se recibió."}, ""
-            session.result = {"text": text} if error is None else {"error": error}
+            if is_text:
+                session.result = {"text": text}
+                session.status = "completed"
+                remove_run_state(session.conversation_id)
+            elif is_needs_input:
+                session.result = {"needs_input": needs_input}
+                session.status = "needs_input"
+                session.pending = needs_input
+                write_run_state(session)
+            else:
+                session.result = {"error": error}
+                session.status = "error"
+                session.error = error
+                write_run_state(session)
         session.finished.set()
         return {"ok": True}, None, ""
     return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
 
-def run_supervisor(server: ThreadingHTTPServer, session: RunSession):
-    """Detiene el servidor al recibir el resultado o al agotar el plazo total o el de inactividad."""
+def run_supervisor(server: ThreadingHTTPServer, session: RunSession, browser_proc: subprocess.Popen | None = None):
+    """Detiene el servidor al recibir el resultado, si termina el navegador propio o al agotar los plazos."""
     deadline = time.monotonic() + RUN_TOTAL_TIMEOUT
     while not session.finished.wait(RUN_POLL_SECONDS):
         # El latido o una señal ya detienen el servidor: el resultado queda vacío.
         if _SERVER_SHUTTING_DOWN.is_set():
             return
+        if browser_proc is not None and browser_proc.poll() is not None and not session.finished.wait(0.2):
+            break
         if time.monotonic() >= deadline:
             session.stop_reason = f"Plazo total agotado ({RUN_TOTAL_TIMEOUT:.0f}s)."
             break
         if session.idle_seconds() > RUN_IDLE_SECONDS:
             session.stop_reason = f"Sin progreso de la interfaz durante {RUN_IDLE_SECONDS:.0f}s."
             break
+    if session.result is None and session.conversation_id:
+        with session.lock:
+            session.status = "error"
+            session.error = session.stop_reason or "El navegador se cerró o la ejecución se interrumpió sin resultado."
+            write_run_state(session)
     stop_zerochat_server(server)
 
 
 def run_error(message: str):
     """Motivo de un final sin respuesta: va a stderr aunque el registro esté desactivado (--log off)."""
+    session = RUN_SESSION
+    if session is not None and session.conversation_id and session.result is None:
+        with session.lock:
+            session.status = "error"
+            session.error = message
+            write_run_state(session)
     print(timestamp_message(f"[run] {message}"), file=sys.stderr, flush=True)
 
 
@@ -4581,6 +5473,9 @@ def run_outcome(session: RunSession) -> tuple[int, str | None]:
     if "error" in session.result:
         run_error(f"Error de generación: {session.result['error']}")
         return RUN_EXIT_ERROR, None
+    if "needs_input" in session.result:
+        log_event("[run] Ejecución pausada a la espera del usuario.")
+        return RUN_EXIT_DONE, json.dumps(session.result["needs_input"], ensure_ascii=False)
     log_event("[run] Ejecución terminada.")
     if session.export_path and not session.exported:
         return RUN_EXIT_ERROR, session.result["text"]
@@ -4633,40 +5528,75 @@ def build_parser() -> ZeroChatArgumentParser:
     parser = ZeroChatArgumentParser(description=f"ZeroChat Local Server v{VERSION}")
     # Desde Python 3.14 argparse colorea la ayuda con códigos ANSI; la consola la muestra en texto plano.
     parser.color = False
-    parser.add_argument("--port", type=int, default=None, help=f"Puerto de escucha (default: ZEROCHAT_PORT o {DEFAULT_PORT}; con --prompt, si está ocupado se usa otro libre salvo en desarrollo)")
+    parser.add_argument("--port", type=int, default=None, help=f"Puerto de escucha (default: ZEROCHAT_PORT o {DEFAULT_PORT}; con --prompt, si está ocupado se usa otro libre salvo con --browser en desarrollo)")
     parser.add_argument("--host", default=os.environ.get("ZEROCHAT_HOST", DEFAULT_HOST), help=f"Host de escucha (default: {DEFAULT_HOST})")
     parser.add_argument("--ui-url", default=None, help="URL de la interfaz web a abrir (por defecto: interfaz local en desarrollo o GitHub Pages)")
     parser.add_argument("--no-browser", action="store_true", help="No abrir automáticamente el navegador")
     parser.add_argument("--keep-server", action="store_true", help="Servidor: seguir en marcha al cerrar el navegador (no se combina con --prompt)")
     parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación de ~/zerochat/.venv")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
+    parser.add_argument("--list-profiles", action="store_true", help="Listar los perfiles de conexión generales almacenados en el servidor local")
+    parser.add_argument("--list-conversations", action="store_true", help="Listar las conversaciones almacenadas en el servidor local")
     parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 plazo agotado o navegador cerrado, 3 fallo de arranque, 4 argumentos no válidos)")
-    parser.add_argument("--profile", default=None, help="Con --prompt, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo")
-    parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt)")
-    parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
-    parser.add_argument("--keep-page", action="store_true", help="Página: con --prompt, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")
-    parser.add_argument("--allow-dangerous-tools", action="store_true", help="Con --prompt, aprobar también las herramientas que escriben o ejecutan (write_file, edit_file, run_command); las demás se aprueban siempre para la sesión")
-    parser.add_argument("--headless", action="store_true", help="Con --prompt, abrir el navegador predeterminado sin ventana (si ya está abierto puede verse la pestaña)")
+    parser.add_argument("--conversation", default=None, help="Con --prompt o para continuar, id de la conversación almacenada en SQLite")
+    parser.add_argument("--profile", default=None, help=f"Con --prompt o --conversation, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo (por defecto: {DEFAULT_RUN_PROFILE} del servidor)")
+    parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt o --conversation)")
+    parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt o --conversation, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
+    parser.add_argument("--browser", action="store_true", help="Con --prompt o --conversation, abrir el navegador predeterminado del usuario en lugar del Chromium sin ventana de Playwright")
+    parser.add_argument("--keep-page", action="store_true", help="Página: con --browser, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")
+    parser.add_argument("--allow-dangerous-tools", action="store_true", help="Con --prompt o --conversation, aprobar también las herramientas que escriben o ejecutan (write_file, edit_file, run_command); las demás se aprueban siempre para la sesión")
+    parser.add_argument("--headless", action="store_true", help="Con --browser, abrir el navegador predeterminado sin ventana (si ya está abierto puede verse la pestaña)")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     return parser
 
 
 def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | None:
-    """Valida las combinaciones de opciones y devuelve la sesión de --prompt, si la hay."""
-    if args.prompt is None:
-        if args.headless or args.keep_page or args.allow_dangerous_tools or args.profile is not None or args.export is not None:
-            parser.error("--headless, --keep-page, --allow-dangerous-tools, --profile y --export solo se usan con --prompt")
+    """Valida las combinaciones de opciones y devuelve la sesión de --prompt o --conversation, si la hay."""
+    if args.prompt is None and args.conversation is None:
+        if args.browser or args.headless or args.keep_page or args.allow_dangerous_tools or args.profile is not None or args.export is not None:
+            parser.error("--browser, --headless, --keep-page, --allow-dangerous-tools, --profile y --export solo se usan con --prompt o --conversation")
         return None
-    if not args.prompt.strip():
-        parser.error("el prompt está vacío")
+    prompt = None
+    if args.prompt is not None:
+        prompt = args.prompt.strip()
+        if not prompt:
+            parser.error("el prompt está vacío")
+    conversation_id = None
+    if args.conversation is not None:
+        raw_conv = args.conversation.strip()
+        if not raw_conv:
+            parser.error("el identificador de la conversación no puede estar vacío")
+        try:
+            conversation_id = _validate_conversation_id(raw_conv)
+        except ValueError as exc:
+            parser.error(str(exc))
+        conv = get_conversation(conversation_id)
+        if conv is None:
+            parser.error(f"no existe la conversación '{conversation_id}'")
+        if prompt is None:
+            history = conv.get("history") or []
+            has_user_or_tool = any(m.get("role") in ("user", "tool") for m in history)
+            if not has_user_or_tool:
+                parser.error(f"la conversación '{conversation_id}' no tiene turnos para continuar")
     if args.no_browser:
-        parser.error("--prompt necesita abrir el navegador: no se combina con --no-browser")
+        parser.error("--prompt y --conversation necesitan abrir el navegador: no se combina con --no-browser")
     if args.keep_server:
-        parser.error("--prompt termina al devolver el resultado: no se combina con --keep-server (para no cerrar la página, --keep-page)")
-    if args.profile is not None and not args.profile.strip():
-        parser.error("--profile no puede estar vacío")
-    if args.keep_page and args.headless:
-        parser.error("--keep-page necesita la ventana del navegador: no se combina con --headless")
+        parser.error("--prompt y --conversation terminan al devolver el resultado: no se combina con --keep-server (para no cerrar la página, --keep-page)")
+    if args.headless and not args.browser:
+        parser.error("--headless solo se usa con --browser (--prompt y --conversation ya se ejecutan sin ventana con el Chromium de Playwright)")
+    if args.keep_page and (not args.browser or args.headless):
+        parser.error("--keep-page necesita la ventana del navegador del usuario (--browser sin --headless)")
+    if args.profile is not None:
+        clean_profile = args.profile.strip()
+        if not clean_profile:
+            parser.error("--profile no puede estar vacío")
+        general_match = get_general_profile_by_name(clean_profile) or get_general_profile(clean_profile)
+        profile_name = general_match["name"] if general_match else clean_profile
+    else:
+        default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
+        if default_match is None:
+            parser.error(f"no existe el perfil general por defecto '{DEFAULT_RUN_PROFILE}'; créalo o indica uno con --profile")
+        profile_name = default_match["name"]
     export_path = None
     if args.export is not None:
         export_path = Path(args.export).expanduser().absolute()
@@ -4674,7 +5604,7 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
             parser.error(f"--export necesita una de estas extensiones: {', '.join(RUN_EXPORT_FORMATS)}")
         if not export_path.parent.is_dir():
             parser.error(f"--export: no existe el directorio {export_path.parent}")
-    return RunSession(args.prompt.strip(), args.profile.strip() if args.profile else None, export_path, args.keep_page, args.allow_dangerous_tools)
+    return RunSession(prompt, profile_name, export_path, args.keep_page, args.allow_dangerous_tools, conversation_id=conversation_id)
 
 
 def redirect_log(args):
@@ -4796,7 +5726,7 @@ def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_cl
 
 def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, result_out):
     """Abre la interfaz: en modo ejecución, con su supervisor; si no, con el control de consola.
-    Devuelve el navegador sin ventana de --headless, si se lanzó."""
+    Devuelve el navegador sin ventana lanzado, si lo hay."""
     global CONSOLE_CONTROL
     if not RUN_SESSION:
         CONSOLE_CONTROL = ConsoleControl(server, parser, launch_url=lambda: launch_url(ui_url))
@@ -4805,6 +5735,15 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, resu
             launch_browser(launch_url(ui_url))
         return None
     target_url = launch_url(ui_url)
+    if not args.browser:
+        headless_browser = launch_playwright_chromium(target_url)
+        if headless_browser is None:
+            run_error("No se pudo abrir el Chromium de Playwright (instálalo desde Ajustes › Navegador o usa --browser).")
+            server.server_close()
+            sys.stdout = result_out
+            sys.exit(RUN_EXIT_SETUP)
+        threading.Thread(target=run_supervisor, args=(server, RUN_SESSION, headless_browser), daemon=True).start()
+        return headless_browser
     headless_browser = launch_headless_browser(target_url) if args.headless else None
     if headless_browser is None and not launch_browser(target_url):
         run_error("No se pudo abrir el navegador.")
@@ -4875,6 +5814,34 @@ def main():
     RUN_SESSION = run_session_from_args(parser, args)
     result_out = redirect_log(args)
 
+    if getattr(args, "list_profiles", False):
+        profiles = list_general_profiles()
+        if not profiles:
+            print("No hay perfiles de conexión generales almacenados en el servidor local.")
+        else:
+            print("Perfiles de conexión generales (Z-):")
+            for p in profiles:
+                settings = p.get("settings", {})
+                model = settings.get("model") or "sin modelo"
+                api_type = settings.get("apiType") or "openai"
+                api_url = settings.get("apiUrl") or ""
+                print(f"- {p['name']} ({api_type} / {model}) [{api_url}]")
+        return
+
+    if getattr(args, "list_conversations", False):
+        conversations = list_conversations()
+        if not conversations:
+            print("No hay conversaciones almacenadas en el servidor local.")
+        else:
+            print("Conversaciones almacenadas:")
+            for c in conversations:
+                date_str = datetime.datetime.fromtimestamp(c["updatedAt"] / 1000).strftime("%Y-%m-%d %H:%M") if c.get("updatedAt") else ""
+                count = c.get("messageCount", 0)
+                msg_text = "1 mensaje" if count == 1 else f"{count} mensajes"
+                date_suffix = f", {date_str}" if date_str else ""
+                print(f"- [{c['id']}] {c['title']} ({msg_text}{date_suffix})")
+        return
+
     if args.test:
         run_self_test()
         return
@@ -4884,8 +5851,8 @@ def main():
     prepare_environment(args, is_dev=dev_root is not None)
     reset_session_credentials()
 
-    # La interfaz local de desarrollo tiene el puerto en su origen: en otro no vería los datos guardados.
-    server = open_server(args, local_ui=static_root is not None and not args.ui_url)
+    # La interfaz local de desarrollo en el navegador del usuario tiene el puerto en su origen: en otro no vería los datos guardados.
+    server = open_server(args, local_ui=static_root is not None and not args.ui_url and args.browser)
     exposure_warning = remote_exposure_warning(ACTIVE_HOST)
     if exposure_warning:
         add_notice(exposure_warning)

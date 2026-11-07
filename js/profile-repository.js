@@ -59,13 +59,17 @@
     return ids;
   }
 
-  function normalizeSettings(source = {}) {
+  function normalizeSettings(source = {}, isGeneral = false) {
     if (!source || typeof source !== 'object' || Array.isArray(source)) throw new Error('The profile data is not valid.');
     const settings = {};
     STORAGE_PROFILE_FIELDS.forEach(key => {
       if (key === 'apiKey') {
         if (source[key] === '' || source[key] === null || source[key] === undefined) {
           settings.apiKey = null;
+          return;
+        }
+        if (typeof source[key] === 'string' && isGeneral) {
+          settings.apiKey = source[key];
           return;
         }
         Backup.validateApiKeySecret(source[key]);
@@ -82,17 +86,19 @@
     return settings;
   }
 
-  function normalizeRecord(record = {}) {
+  function normalizeRecord(record = {}, isGeneral = false) {
     const name = String(record.name || '').trim();
     if (!name) throw new Error('The profile name cannot be empty.');
+    const general = Boolean(isGeneral);
     return {
       id: String(record.id || createId(name)),
       name,
       description: String(record.description || '').trim(),
+      general,
       schemaVersion: SCHEMA_VERSION,
       version: Number.isInteger(record.version) && record.version > 0 ? record.version : 1,
       updatedAt: Number(record.updatedAt) || Date.now(),
-      settings: normalizeSettings(record.settings || record)
+      settings: normalizeSettings(record.settings || record, general)
     };
   }
 
@@ -108,7 +114,7 @@
     if (!doc || doc.schemaVersion !== SCHEMA_VERSION || !Array.isArray(doc.profiles)) {
       throw new Error('The profile storage has an invalid format.');
     }
-    return { schemaVersion: SCHEMA_VERSION, profiles: doc.profiles.map(normalizeRecord) };
+    return { schemaVersion: SCHEMA_VERSION, profiles: doc.profiles.map(rec => normalizeRecord(rec, false)) };
   }
 
   function writeDocument(document) {
@@ -130,8 +136,47 @@
     return clone(document);
   }
 
+  let generalProfiles = [];
+
+  function setGeneralProfiles(records) {
+    if (!Array.isArray(records)) {
+      generalProfiles = [];
+      return;
+    }
+    generalProfiles = records.map(rec => normalizeRecord(rec, true));
+  }
+
+  function clearGeneralProfiles() {
+    generalProfiles = [];
+  }
+
+  function upsertGeneralProfile(record) {
+    const normalized = normalizeRecord(record, true);
+    const index = generalProfiles.findIndex(profile => profile.id === normalized.id);
+    if (index >= 0) generalProfiles[index] = normalized;
+    else generalProfiles.push(normalized);
+    return clone(normalized);
+  }
+
+  function removeGeneralProfile(id) {
+    const cleanId = String(id || '');
+    const index = generalProfiles.findIndex(profile => profile.id === cleanId);
+    if (index < 0) return false;
+    generalProfiles.splice(index, 1);
+    return true;
+  }
+
   function list() {
-    return initialize().profiles;
+    const locals = initialize().profiles;
+    if (generalProfiles.length === 0) return locals;
+    const localIds = new Set(locals.map(p => p.id));
+    const merged = [...locals];
+    for (const profile of generalProfiles) {
+      if (!localIds.has(profile.id) && profile.id !== READONLY_PROFILE_ID) {
+        merged.push(clone(profile));
+      }
+    }
+    return merged;
   }
 
   function get(id) {
@@ -142,13 +187,21 @@
   async function load(id, keyMaterial = null) {
     const profile = get(id);
     if (!profile) return null;
-    const secret = profile.settings.apiKey;
-    if (secret) {
-      profile.settings.apiKey = await Backup.decryptApiKey(secret, keyMaterial || undefined);
-    } else {
-      profile.settings.apiKey = '';
+    const cloned = clone(profile);
+    if (cloned.general) {
+      cloned.settings = cloned.settings || {};
+      if (typeof cloned.settings.apiKey !== 'string') {
+        cloned.settings.apiKey = '';
+      }
+      return cloned;
     }
-    return profile;
+    const secret = cloned.settings.apiKey;
+    if (secret) {
+      cloned.settings.apiKey = await Backup.decryptApiKey(secret, keyMaterial || undefined);
+    } else {
+      cloned.settings.apiKey = '';
+    }
+    return cloned;
   }
 
   // La interfaz de perfiles fija al montarse cómo pedir la contraseña de cifrado actual; sin ella,
@@ -166,14 +219,17 @@
     return Backup.withPassword(keyMaterial => load(id, keyMaterial), requestPassword);
   }
 
-  function findByName(name) {
+  function findByName(name, options = {}) {
     const cleanName = String(name || '').trim();
-    return list().find(profile => profile.name === cleanName) || null;
+    if (!cleanName) return null;
+    const stripped = cleanName.startsWith('Z-') ? cleanName.slice(2).trim() : cleanName;
+    const candidates = list().filter(profile => (typeof options?.general === 'boolean' ? Boolean(profile.general) === options.general : true));
+    return candidates.find(profile => profile.name === cleanName || (profile.general && profile.name === stripped)) || null;
   }
 
   function save(record) {
     const current = initialize();
-    const normalized = normalizeRecord(record);
+    const normalized = normalizeRecord(record, false);
     if (normalized.id === READONLY_PROFILE_ID || normalized.name === MIRROR_PROFILE.name) {
       throw new Error('The Mirror profile cannot be modified.');
     }
@@ -236,7 +292,7 @@
   function mergeImported(records) {
     if (!Array.isArray(records) || records.length > 100) throw new Error('The imported profile list is not valid.');
     const current = initialize();
-    const imported = records.map(normalizeRecord).filter(profile => profile.id !== READONLY_PROFILE_ID && profile.name !== MIRROR_PROFILE.name);
+    const imported = records.map(rec => normalizeRecord(rec, false)).filter(profile => profile.id !== READONLY_PROFILE_ID && profile.name !== MIRROR_PROFILE.name);
     if (imported.length !== records.length) throw new Error('La copia no puede modificar el perfil Espejo.');
     const ids = new Set();
     const names = new Set();
@@ -262,6 +318,7 @@
 
   return {
     STORAGE_KEY, SCHEMA_VERSION, PROFILE_FIELDS, MAX_PROFILE_MCP_SERVERS, STORAGE_PROFILE_FIELDS, READONLY_PROFILE_ID, MIRROR_PROFILE: clone(MIRROR_PROFILE), NEW_PROFILE_SETTINGS: clone(NEW_PROFILE_SETTINGS),
-    initialize, list, get, load, setPasswordPrompt, loadUnlocked, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported
+    initialize, list, get, load, setPasswordPrompt, loadUnlocked, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported,
+    setGeneralProfiles, clearGeneralProfiles, upsertGeneralProfile, removeGeneralProfile
   };
 }));

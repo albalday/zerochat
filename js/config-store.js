@@ -79,7 +79,13 @@
   }
 
   function profileMetadata(profile) {
-    return { id: profile.id, name: profile.name, version: profile.version, appliedAt: Date.now() };
+    return {
+      id: profile.id,
+      name: profile.name,
+      version: profile.version,
+      general: Boolean(profile.general),
+      appliedAt: Date.now()
+    };
   }
 
   function persist(next) {
@@ -110,7 +116,7 @@
     if (stored) {
       const config = { ...stored, modelContextLimit: null };
       try {
-        if (!Profiles.get(config.activeProfile?.id) && fallbackProfile) {
+        if (!Profiles.get(config.activeProfile?.id) && !config.activeProfile?.general && fallbackProfile) {
           return commit(applyProfile(config, fallbackProfile));
         }
       } catch (_) { /* perfiles no disponibles: se conserva la configuración guardada */ }
