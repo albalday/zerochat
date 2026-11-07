@@ -21,6 +21,7 @@ class StorageEngineTest(unittest.TestCase):
         self.assertIn("profiles", tables)
         self.assertIn("conversations", tables)
         self.assertIn("messages", tables)
+        self.assertIn("blobs", tables)
 
     @unittest.skipIf(os.name == "nt", "Permisos POSIX")
     def test_permisos_directorio_0700_y_fichero_0600(self):
