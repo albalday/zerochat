@@ -48,12 +48,8 @@ test('ChatAttachments - un documento ofimático aporta su cabecera, su Markdown 
   }
 });
 
-test('ChatAttachments - gestión de referencias blobId y borrado de blobs al retirar archivos', async () => {
-  const Storage = require('../../js/storage.js');
+test('ChatAttachments - propagación de blobId y size en el payload de adjuntos', () => {
   const fakeBlobId = 'a'.repeat(64);
-  let deletedId = null;
-  const originalDeleteBlob = Storage.deleteBlob;
-  Storage.deleteBlob = async id => { deletedId = id; return true; };
 
   try {
     ChatAttachments.clearFiles();
@@ -69,13 +65,13 @@ test('ChatAttachments - gestión de referencias blobId y borrado de blobs al ret
     const payload = ChatAttachments.buildAttachmentsPayload('Mira la foto:');
     assert.equal(payload.imageAttachments.length, 1);
     assert.equal(payload.imageAttachments[0].blobId, fakeBlobId);
+    assert.equal(payload.imageAttachments[0].size, 1024);
     assert.equal(payload.imageAttachments[0].name, 'foto.jpg');
 
-    // removeFileAt borra el blob del almacenamiento
     ChatAttachments.removeFileAt(0);
-    assert.equal(deletedId, fakeBlobId);
+    const emptyPayload = ChatAttachments.buildAttachmentsPayload('Sin foto:');
+    assert.equal(emptyPayload.imageAttachments.length, 0);
   } finally {
-    Storage.deleteBlob = originalDeleteBlob;
     ChatAttachments.clearFiles();
   }
 });

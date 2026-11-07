@@ -255,3 +255,4 @@
 - 2026-11-07 M49-D3 Propagación de referencias ligeras blobId en js/attachments.js, preguardado de blobs en js/generation-controller.js y renderizado asíncrono seguro en ui-conversation.js (M49-T3)
 - 2026-11-07 M49-D4 Sincronización desacoplada de blobs con consulta zerochat/blobs/has, subida única zerochat/blobs/put, hidratación en lectura de conversaciones e integración probada (M49-T4)
 - 2026-11-07 M49-D5 Pruebas de navegador e integración con conversaciones con imágenes pesadas verificando almacenamiento paralelo de blobs, hidratación y payload bajo el límite de 1 MiB (M49-T5)
+- 2026-11-07 M49-D6 Propagación de cabeceras en MCPClient, autorización CORS para X-ZeroChat-Blob, preservación de metadatos de imágenes en prepareMessagesForStorage y eliminación de deleteBlob especulativo (M49-T6)

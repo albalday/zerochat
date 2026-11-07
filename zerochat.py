@@ -3919,15 +3919,6 @@ def has_blobs(blob_ids: list[str]) -> dict:
             "missing": [bid for bid in unique_ids if bid not in existing_set],
         }
 
-
-def delete_blob(blob_id: str) -> bool:
-    """Elimina un blob por su ID."""
-    clean_id = _validate_blob_id(blob_id)
-    with open_storage() as conn:
-        cursor = conn.execute("DELETE FROM blobs WHERE id = ?;", (clean_id,))
-        conn.commit()
-        return cursor.rowcount > 0
-
 DEFAULT_HEARTBEAT_TIMEOUT = float(os.environ.get("ZEROCHAT_HEARTBEAT_TIMEOUT", "60.0"))
 DEFAULT_HEARTBEAT_GRACE = float(os.environ.get("ZEROCHAT_HEARTBEAT_GRACE", "45.0"))
 DEFAULT_HEARTBEAT_POLL = float(os.environ.get("ZEROCHAT_HEARTBEAT_POLL", "5.0"))
@@ -4259,7 +4250,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return
         self.send_header("Access-Control-Allow-Origin", origin if origin else "*")
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, X-ZeroChat-Token, X-ZeroChat-Client, X-ZeroChat-Proxy, X-ZeroChat-Tool-Session, X-ZeroChat-Tool-Expires, X-ZeroChat-Tool-Nonce, X-ZeroChat-Tool-Signature")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, X-ZeroChat-Token, X-ZeroChat-Client, X-ZeroChat-Proxy, X-ZeroChat-Tool-Session, X-ZeroChat-Tool-Expires, X-ZeroChat-Tool-Nonce, X-ZeroChat-Tool-Signature, X-ZeroChat-Blob")
         self.send_header("Access-Control-Allow-Private-Network", "true")
 
     def verify_token(self) -> bool:

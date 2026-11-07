@@ -303,7 +303,9 @@
             });
             blobId = blobRecord.id;
           }
+          const { dataUrl: _dropDataUrl, ...rest } = img;
           lightweightImages.push({
+            ...rest,
             name: img.name || '',
             blobId: blobId || '',
             mimeType: img.mimeType || 'image/jpeg',
@@ -514,17 +516,6 @@
     });
   }
 
-  /** Elimina un blob de IndexedDB por su id. */
-  async function deleteBlob(id) {
-    if (!id || typeof id !== 'string') return false;
-    return attempt('delete blob', async db => {
-      const tx = db.transaction(STORES.blobs, 'readwrite');
-      tx.objectStore(STORES.blobs).delete(id.trim().toLowerCase());
-      await transactionDone(tx);
-      return true;
-    });
-  }
-
   return {
     setStorageItem,
     getStorageItem,
@@ -544,7 +535,6 @@
     renameConversation,
     saveBlob,
     getBlob,
-    hasBlob,
-    deleteBlob
+    hasBlob
   };
 });

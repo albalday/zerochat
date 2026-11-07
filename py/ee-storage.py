@@ -493,12 +493,3 @@ def has_blobs(blob_ids: list[str]) -> dict:
             "missing": [bid for bid in unique_ids if bid not in existing_set],
         }
 
-
-def delete_blob(blob_id: str) -> bool:
-    """Elimina un blob por su ID."""
-    clean_id = _validate_blob_id(blob_id)
-    with open_storage() as conn:
-        cursor = conn.execute("DELETE FROM blobs WHERE id = ?;", (clean_id,))
-        conn.commit()
-        return cursor.rowcount > 0
-

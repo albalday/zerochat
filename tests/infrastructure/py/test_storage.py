@@ -460,11 +460,6 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(status["existing"], [sha1])
         self.assertEqual(status["missing"], [fake_id])
 
-        # delete_blob
-        self.assertTrue(zerochat.delete_blob(sha1))
-        self.assertIsNone(zerochat.get_blob(sha1))
-        self.assertFalse(zerochat.delete_blob(sha1))
-
     def test_blobs_validaciones_y_limites(self):
         # Vacío o no-bytes
         with self.assertRaises(ValueError):

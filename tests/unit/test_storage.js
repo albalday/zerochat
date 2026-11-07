@@ -346,9 +346,64 @@ test('Storage IndexedDB - gestión y deduplicación de blobs desacoplados', asyn
   await assert.rejects(Storage.saveBlob(null), /Blob data is required/);
   await assert.rejects(Storage.saveBlob({}), /Blob data cannot be empty/);
   await assert.rejects(Storage.saveBlob({ bytes: new Uint8Array(0) }), /Blob data cannot be empty/);
+});
 
-  // 6. Borrado
-  assert.equal(await Storage.deleteBlob(expectedSha), true);
-  assert.equal(await Storage.hasBlob(expectedSha), false);
-  assert.equal(await Storage.getBlob(expectedSha), null);
+test('Storage IndexedDB - preserva metadatos de imágenes (action, imageRef, provenance) en guardado e hidratación', async () => {
+  const sessionId = 'conv_image_meta_preservation';
+  const imgDataUrl = `data:image/png;base64,${Buffer.from('tiny-img').toString('base64')}`;
+  const messages = [
+    {
+      id: 'm_tool',
+      role: 'tool',
+      content: 'Captura realizada',
+      images: [
+        {
+          name: 'screenshot.png',
+          dataUrl: imgDataUrl,
+          mimeType: 'image/png',
+          action: 'screenshot',
+          url: 'http://example.com'
+        }
+      ]
+    },
+    {
+      id: 'm_rag',
+      role: 'tool',
+      content: 'Evidencia RAG',
+      images: [
+        {
+          name: 'grafico.png',
+          dataUrl: imgDataUrl,
+          mimeType: 'image/png',
+          imageRef: 'rag-image://doc1:img1',
+          documentTitle: 'Informe Anual',
+          page: 5
+        }
+      ]
+    }
+  ];
+
+  await Storage.saveConversation({ id: sessionId, title: 'Test Meta' }, messages);
+
+  // Recuperar conversación y comprobar hidratación y preservación de metadatos
+  const loaded = await Storage.getConversation(sessionId);
+  assert.ok(loaded);
+  assert.equal(loaded.history.length, 2);
+
+  const img1 = loaded.history[0].images[0];
+  assert.equal(img1.name, 'screenshot.png');
+  assert.equal(img1.dataUrl, imgDataUrl);
+  assert.equal(img1.action, 'screenshot');
+  assert.equal(img1.url, 'http://example.com');
+  assert.ok(img1.blobId);
+
+  const img2 = loaded.history[1].images[0];
+  assert.equal(img2.name, 'grafico.png');
+  assert.equal(img2.dataUrl, imgDataUrl);
+  assert.equal(img2.imageRef, 'rag-image://doc1:img1');
+  assert.equal(img2.documentTitle, 'Informe Anual');
+  assert.equal(img2.page, 5);
+  assert.ok(img2.blobId);
+
+  await Storage.deleteConversation(sessionId);
 });
