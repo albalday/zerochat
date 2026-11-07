@@ -49,7 +49,9 @@
     if (effectiveFiles.length > 0) {
       imageAttachments = effectiveFiles.flatMap(f => {
         if (f.type === 'office') return f.images || [];
-        return f.type === 'image' && f.dataUrl ? [{ name: f.name, dataUrl: f.dataUrl, mimeType: f.mimeType || 'image/jpeg' }] : [];
+        return f.type === 'image' && f.dataUrl
+          ? [{ name: f.name, dataUrl: f.dataUrl, mimeType: f.mimeType || 'image/jpeg', ...(f.blobId ? { blobId: f.blobId } : {}), ...(typeof f.size === 'number' ? { size: f.size } : {}) }]
+          : [];
       });
 
       const attachmentsText = effectiveFiles.map(file => {

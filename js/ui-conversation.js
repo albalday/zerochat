@@ -402,6 +402,21 @@
         const title = name ? `${name} — ${t('image_open_tab')}` : t('image_open_tab');
         makeImageOpenable(img, safeUrl, title);
         item.appendChild(img);
+      } else if (image.blobId) {
+        const img = doc.createElement('img');
+        img.alt = name;
+        img.className = 'message-image-thumb';
+        resolveDep('ChatStorage', './storage.js').getBlob(image.blobId).then(blob => {
+          if (blob?.dataUrl) {
+            const url = sanitizeImageUrl(blob.dataUrl);
+            if (url) {
+              img.src = url;
+              const title = name ? `${name} — ${t('image_open_tab')}` : t('image_open_tab');
+              makeImageOpenable(img, url, title);
+            }
+          }
+        }).catch(err => console.warn('[UIConversation] Could not load blob thumbnail:', err));
+        item.appendChild(img);
       }
       const caption = doc.createElement('div');
       caption.className = 'message-image-caption';

@@ -1,4 +1,4 @@
 # Current state
-- Milestone: none (M47 closed)
-- Next task: none
+- Milestone: M49 Almacenamiento paralelo de adjuntos e imágenes para sincronización eficiente de conversaciones
+- Next task: none pending
 - Last updated: 2026-11-07

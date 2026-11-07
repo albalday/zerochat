@@ -329,7 +329,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return
         self.send_header("Access-Control-Allow-Origin", origin if origin else "*")
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, X-ZeroChat-Token, X-ZeroChat-Client, X-ZeroChat-Proxy, X-ZeroChat-Tool-Session, X-ZeroChat-Tool-Expires, X-ZeroChat-Tool-Nonce, X-ZeroChat-Tool-Signature")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, X-ZeroChat-Token, X-ZeroChat-Client, X-ZeroChat-Proxy, X-ZeroChat-Tool-Session, X-ZeroChat-Tool-Expires, X-ZeroChat-Tool-Nonce, X-ZeroChat-Tool-Signature, X-ZeroChat-Blob")
         self.send_header("Access-Control-Allow-Private-Network", "true")
 
     def verify_token(self) -> bool:
@@ -454,7 +454,11 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_req("POST", safe_path)
             self._reject(400, {"error": "Invalid Content-Length"}, safe_path, t0, "Content-Length negativo")
             return None
-        body_limit = http_body_limit()
+        is_blob_upload = (
+            self.headers.get("X-ZeroChat-Blob") == "1"
+            or safe_path in ("/zerochat/blobs", "/zerochat/blobs/put")
+        )
+        body_limit = MAX_BLOB_HTTP_BYTES if is_blob_upload else http_body_limit()
         if content_len > body_limit:
             self._log_req("POST", safe_path)
             if content_len <= body_limit * 2:
@@ -474,8 +478,10 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._reject(400, {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": f"Parse error: {err}"}},
                          safe_path, t0, f"Error parseando JSON: {err}")
             return None
-        # El tope ampliado de http_body_limit es solo para la exportación de --prompt --export.
-        if content_len > MAX_HTTP_BODY_BYTES and not (isinstance(req, dict) and req.get("method") == "zerochat/run/export"):
+        # El tope ampliado de http_body_limit es solo para la exportación de --prompt --export y la subida de blobs.
+        if content_len > MAX_HTTP_BODY_BYTES and not (
+            isinstance(req, dict) and req.get("method") in ("zerochat/run/export", "zerochat/blobs/put")
+        ):
             self._log_req("POST", safe_path)
             self._reject(413, {"error": "Request body too large"}, safe_path, t0, "Cuerpo HTTP excede el límite")
             return None
@@ -634,6 +640,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return self._dispatch_profiles(method, params)
         if method.startswith("zerochat/conversations/"):
             return self._dispatch_conversations(method, params)
+        if method.startswith("zerochat/blobs/"):
+            return self._dispatch_blobs(method, params)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @staticmethod
@@ -690,6 +698,51 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return None, {"code": -32602, "message": str(exc)}, ""
         except Exception as exc:
             return None, {"code": -32603, "message": f"Error en gestión de conversaciones: {exc}"}, str(exc)
+        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
+
+    @staticmethod
+    def _dispatch_blobs(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+        """Gestión de blobs desacoplados de mensajes (imágenes y adjuntos) en SQLite."""
+        params = params if isinstance(params, dict) else {}
+        try:
+            if method == "zerochat/blobs/has":
+                ids = params.get("ids")
+                if ids is None:
+                    ids = []
+                return has_blobs(ids), None, ""
+            if method == "zerochat/blobs/put":
+                raw_data = params.get("data")
+                if not raw_data or not isinstance(raw_data, str):
+                    raise ValueError("El parámetro 'data' debe ser una cadena en base64 no vacía")
+                mime_type = params.get("mimeType") or "application/octet-stream"
+                if raw_data.startswith("data:") and ";base64," in raw_data:
+                    header, b64_part = raw_data.split(";base64,", 1)
+                    if not params.get("mimeType"):
+                        mime_type = header[5:]
+                    raw_data = b64_part
+                try:
+                    data_bytes = base64.b64decode(raw_data)
+                except Exception as decode_err:
+                    raise ValueError(f"Error decodificando base64: {decode_err}")
+                saved = put_blob(data_bytes, mime_type=mime_type, blob_id=params.get("id"))
+                return {"id": saved["id"], "mimeType": saved["mime_type"], "size": saved["size"]}, None, ""
+            if method == "zerochat/blobs/get":
+                blob = get_blob(params.get("id"))
+                if not blob:
+                    return {"blob": None}, None, ""
+                return {
+                    "blob": {
+                        "id": blob["id"],
+                        "mimeType": blob["mime_type"],
+                        "size": blob["size"],
+                        "data": base64.b64encode(blob["data"]).decode("ascii"),
+                        "createdAt": blob["created_at"],
+                    }
+                }, None, ""
+        except ValueError as exc:
+            return None, {"code": -32602, "message": str(exc)}, ""
+        except Exception as exc:
+            return None, {"code": -32603, "message": f"Error en gestión de blobs: {exc}"}, str(exc)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @staticmethod

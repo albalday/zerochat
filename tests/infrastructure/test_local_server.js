@@ -130,12 +130,42 @@ describe('Servidor local zerochat.py', () => {
     await api.text();
     const preflight = await fetch(baseUrl, {
       method: 'OPTIONS',
-      headers: { Origin: ORIGIN, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'x-zerochat-proxy' }
+      headers: { Origin: ORIGIN, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'x-zerochat-proxy, x-zerochat-blob' }
     });
     assert.equal(preflight.status, 204);
     assert.match(preflight.headers.get('access-control-allow-headers'), /X-ZeroChat-Proxy/);
+    assert.match(preflight.headers.get('access-control-allow-headers'), /X-ZeroChat-Blob/);
     const client = new McpClient({ url: baseUrl, token: testToken });
     assert.ok(Array.isArray((await client.request('tools/list')).tools));
+  });
+
+  test('la subida de blobs por zerochat/blobs/put con X-ZeroChat-Blob admite más de 1 MiB', async () => {
+    const rawData = 'B'.repeat(1024 * 1024 + 100);
+    const b64Data = Buffer.from(rawData).toString('base64');
+    const client = new McpClient({ url: baseUrl, token: testToken });
+    const res = await client.request('zerochat/blobs/put', {
+      mimeType: 'text/plain',
+      data: `data:text/plain;base64,${b64Data}`
+    }, { headers: { 'X-ZeroChat-Blob': '1' } });
+    assert.ok(res?.id);
+    assert.equal(res.size, rawData.length);
+
+    // Sin la cabecera X-ZeroChat-Blob, el cuerpo > 1 MiB es rechazado con 413
+    try {
+      const rejected = await fetch(baseUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: ORIGIN, Authorization: `Bearer ${testToken}` },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 998,
+          method: 'zerochat/blobs/put',
+          params: { mimeType: 'text/plain', data: `data:text/plain;base64,${b64Data}` }
+        })
+      });
+      assert.equal(rejected.status, 413);
+    } catch (err) {
+      if (err?.cause?.code !== 'EPIPE' && err?.cause?.code !== 'ECONNRESET') throw err;
+    }
   });
 
   test('initialize publica el servidor, su versión, el SO, la autorización de herramientas y el estado vivo del latido', async () => {

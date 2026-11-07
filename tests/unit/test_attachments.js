@@ -47,3 +47,31 @@ test('ChatAttachments - un documento ofimático aporta su cabecera, su Markdown 
     ChatAttachments.clearFiles();
   }
 });
+
+test('ChatAttachments - propagación de blobId y size en el payload de adjuntos', () => {
+  const fakeBlobId = 'a'.repeat(64);
+
+  try {
+    ChatAttachments.clearFiles();
+    ChatAttachments.addFile({
+      name: 'foto.jpg',
+      size: 1024,
+      type: 'image',
+      mimeType: 'image/jpeg',
+      dataUrl: 'data:image/jpeg;base64,123',
+      blobId: fakeBlobId
+    });
+
+    const payload = ChatAttachments.buildAttachmentsPayload('Mira la foto:');
+    assert.equal(payload.imageAttachments.length, 1);
+    assert.equal(payload.imageAttachments[0].blobId, fakeBlobId);
+    assert.equal(payload.imageAttachments[0].size, 1024);
+    assert.equal(payload.imageAttachments[0].name, 'foto.jpg');
+
+    ChatAttachments.removeFileAt(0);
+    const emptyPayload = ChatAttachments.buildAttachmentsPayload('Sin foto:');
+    assert.equal(emptyPayload.imageAttachments.length, 0);
+  } finally {
+    ChatAttachments.clearFiles();
+  }
+});

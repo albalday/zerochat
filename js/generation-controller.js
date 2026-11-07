@@ -28,6 +28,7 @@
   const getUIComposer = () => resolveDep('ChatUIComposer', './ui-composer.js');
   const getGenerationStatus = () => resolveDep('ChatUIGenerationStatus', './ui-generation-status.js');
   const getDebug = () => resolveDep('ChatDebug', './debug.js');
+  const getStorage = () => resolveDep('ChatStorage', './storage.js');
 
   let currentAbortController = null;
 
@@ -125,6 +126,23 @@
     let userMsgId = null;
     if (!resume) {
       const { fullPrompt, displayText, imageAttachments } = Attachments.buildAttachmentsPayload(rawText, currentFiles);
+      if (imageAttachments.length > 0) {
+        const Storage = getStorage();
+        for (const img of imageAttachments) {
+          if (!img.blobId && img.dataUrl) {
+            try {
+              const record = await Storage.saveBlob({
+                dataUrl: img.dataUrl,
+                mimeType: img.mimeType,
+                size: img.size
+              });
+              img.blobId = record.id;
+            } catch (err) {
+              console.warn('[GenerationController] Could not pre-save image blob:', err);
+            }
+          }
+        }
+      }
       userMsgId = options.appendUserMessage(displayText, rawText, imageAttachments);
       State.appendMessage({ id: userMsgId, role: 'user', content: fullPrompt, ...(imageAttachments.length > 0 ? { images: imageAttachments } : {}) });
     }

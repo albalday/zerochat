@@ -248,7 +248,10 @@
 
     async buildRequestHeaders(targetUrl, body, options) {
       const headers = this.buildHeaders();
-      if (options.toolAuthorization && this.isLocalServer) {
+      if (options?.headers) {
+        Object.assign(headers, options.headers);
+      }
+      if (options?.toolAuthorization && this.isLocalServer) {
         Object.assign(headers, await this.buildToolAuthorizationHeaders(targetUrl, body));
       }
       return headers;

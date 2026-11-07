@@ -195,7 +195,12 @@ def launch_headless_browser(url: str) -> subprocess.Popen | None:
     log_event(f"Abriendo {Path(executable).name} sin ventana en la interfaz configurada...")
     try:
         return subprocess.Popen(
-            [executable, "--headless", url],
+            [
+                executable,
+                "--headless",
+                "--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests",
+                url,
+            ],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
@@ -247,7 +252,12 @@ def launch_playwright_chromium(url: str) -> subprocess.Popen | None:
     log_event(f"Abriendo {Path(executable).name} de Playwright sin ventana en la interfaz configurada...")
     try:
         return subprocess.Popen(
-            [executable, "--headless", url],
+            [
+                executable,
+                "--headless",
+                "--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests",
+                url,
+            ],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
