@@ -46,6 +46,10 @@
       welcome_help_href: 'help/index.html',
 
       // Barra de herramientas superior
+      header_run_on_server: 'Ejecutar en servidor',
+      header_run_on_server_title: 'Ejecutar los turnos en segundo plano en el servidor',
+      server_run_active_banner: 'Ejecutándose en el servidor: tarea {id}',
+      server_run_error_banner: 'Error en la ejecución en el servidor: {error}',
       profile_badge_title: 'Perfil activo',
       profile_menu_title: 'Perfiles',
       profile_mirror_description: 'Muestra la petición OpenAI sin enviarla.',
@@ -859,6 +863,8 @@
       sidebar_export_chat_title: 'Exportar chat',
       sidebar_delete_chat_title: 'Eliminar chat',
       sidebar_chat_options_title: 'Más opciones de conversación',
+      sidebar_run_running_title: 'Ejecutándose en el servidor',
+      sidebar_run_needs_input_title: 'Esperando respuesta o permiso',
       chat_delete_confirm: '¿Seguro que deseas eliminar esta conversación?',
       chat_delete_all_confirm: '¿Estás seguro de que deseas eliminar todas las conversaciones guardadas? Esta acción no se puede deshacer.',
       chat_delete_history_err: 'No se pudo borrar el historial persistente. Revisa la consola para más detalles.',
@@ -926,6 +932,10 @@
       welcome_help_href: 'help/en/index.html',
 
       // Barra de herramientas superior
+      header_run_on_server: 'Run on server',
+      header_run_on_server_title: 'Run turns in the background on the server',
+      server_run_active_banner: 'Running on server: task {id}',
+      server_run_error_banner: 'Server run error: {error}',
       profile_badge_title: 'Active profile',
       profile_menu_title: 'Profiles',
       profile_mirror_description: 'Shows the OpenAI request without sending it.',
@@ -1739,6 +1749,8 @@
       sidebar_export_chat_title: 'Export chat',
       sidebar_delete_chat_title: 'Delete chat',
       sidebar_chat_options_title: 'More conversation options',
+      sidebar_run_running_title: 'Running on server',
+      sidebar_run_needs_input_title: 'Waiting for response or permission',
       chat_delete_confirm: 'Are you sure you want to delete this conversation?',
       chat_delete_all_confirm: 'Are you sure you want to delete all saved conversations? This action cannot be undone.',
       chat_delete_history_err: 'Could not delete persistent history. Check the console for details.',

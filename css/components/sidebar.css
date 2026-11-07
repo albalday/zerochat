@@ -472,6 +472,21 @@
   line-height: 1.35;
 }
 
+.sidebar-chat-status-icon {
+  display: inline-flex;
+  vertical-align: -2px;
+  margin-right: 0.35rem;
+  flex-shrink: 0;
+}
+
+.sidebar-chat-status-icon.running {
+  color: var(--primary);
+}
+
+.sidebar-chat-status-icon.needs-input {
+  color: var(--warning);
+}
+
 .sidebar-chat-time {
   font-size: 0.685rem;
   color: var(--text-muted);

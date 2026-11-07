@@ -57,7 +57,7 @@
     }
   }
 
-  function finishGeneration(elements, { skipSave, saveCurrentSession }) {
+  async function finishGeneration(elements, { skipSave, saveCurrentSession }) {
     getUIConversation().removeTypingIndicator();
     getGenerationStatus().clearStatus(elements.generationStatus);
     getState().set('streaming', { isGenerating: false });
@@ -65,7 +65,7 @@
 
     // En táctiles, enfocar el composer despliega el teclado virtual sin que el usuario lo pida.
     if (!window.matchMedia('(pointer: coarse)').matches) elements.userInput.focus();
-    if (!skipSave) saveCurrentSession();
+    if (!skipSave) await saveCurrentSession();
     getUIConversation().scrollToBottom(elements.messagesList);
   }
 
@@ -100,7 +100,7 @@
   }
 
   async function handleSendMessage(options) {
-    const { elements } = options;
+    const { elements, resume = false } = options;
     const State = getState();
     const Attachments = getAttachments();
     const UIConversation = getUIConversation();
@@ -109,23 +109,66 @@
 
     const rawText = elements.userInput.value.trim();
     const currentFiles = Attachments.getFiles();
-    if ((!rawText && currentFiles.length === 0) || State.isConversationBusy()) {
+    const getSessionId = () => State.get('sessions').activeId;
+    const generationSessionId = getSessionId();
+    const isServerRunning = (State.get('mcp')?.serverRuns || []).some(
+      run => run?.conversationId === generationSessionId && run.status === 'running'
+    );
+    if (!resume && ((!rawText && currentFiles.length === 0) || State.isConversationBusy() || isServerRunning)) {
       return { error: 'There is nothing to send or a generation is already running.' };
+    }
+    if (resume && (State.isConversationBusy() || isServerRunning)) {
+      return { error: 'A generation is already running.' };
     }
 
     const config = getConfig().getActive();
-    const { fullPrompt, displayText, imageAttachments } = Attachments.buildAttachmentsPayload(rawText, currentFiles);
-    const userMsgId = options.appendUserMessage(displayText, rawText, imageAttachments);
-    State.appendMessage({ id: userMsgId, role: 'user', content: fullPrompt, ...(imageAttachments.length > 0 ? { images: imageAttachments } : {}) });
+    let userMsgId = null;
+    if (!resume) {
+      const { fullPrompt, displayText, imageAttachments } = Attachments.buildAttachmentsPayload(rawText, currentFiles);
+      userMsgId = options.appendUserMessage(displayText, rawText, imageAttachments);
+      State.appendMessage({ id: userMsgId, role: 'user', content: fullPrompt, ...(imageAttachments.length > 0 ? { images: imageAttachments } : {}) });
+    }
 
-    const getSessionId = () => State.get('sessions').activeId;
-    const generationSessionId = getSessionId();
     const isCurrentSession = () => getSessionId() === generationSessionId;
 
     elements.userInput.value = '';
     getUIComposer().clearAttachedFiles(elements);
     getUIComposer().autoResizeTextarea(elements);
     resolveDep('ChatUIReasoning', './ui-reasoning.js').closeReasoningMenu(elements);
+
+    if (options.runOnServer) {
+      await options.saveCurrentSession();
+      try {
+        const result = await options.startServerRun({
+          conversationId: generationSessionId,
+          profile: config.activeProfile?.name || config.activeProfile?.id || ''
+        });
+        return { serverRun: true, conversationId: generationSessionId, runId: result?.run_id || '' };
+      } catch (err) {
+        const errorMessage = err?.message || String(err);
+        Debug.addLog('error', `[ServerRun] ${errorMessage}`);
+        UIConversation.renderErrorCard(options.createAssistantMessagePlaceholder(), {
+          title: t('notice_error'),
+          detail: errorMessage
+        });
+        return { error: errorMessage };
+      }
+    }
+
+    if ((State.get('mcp')?.serverRuns || []).some(run => run?.conversationId === generationSessionId)) {
+      resolveDep('ChatMCP', './mcp.js').manager.cancelServerRun(generationSessionId).catch(() => {});
+    }
+
+    const allowOnceSet = new Set(Array.isArray(options.allowOnceTools) ? options.allowOnceTools : []);
+    if (allowOnceSet.size > 0) {
+      const ToolCards = resolveDep('ChatToolCards', './tool-cards.js');
+      ToolCards.setAuthorizationResponder(toolName => {
+        if (!allowOnceSet.has(toolName)) return null;
+        allowOnceSet.delete(toolName);
+        if (allowOnceSet.size === 0) ToolCards.setAuthorizationResponder(null);
+        return 'allow_once';
+      });
+    }
 
     State.set('streaming', { isGenerating: true });
     status.setStatus(elements.generationStatus, { phase: 'generating' });
@@ -142,7 +185,7 @@
         title: t('err_no_model_title'),
         hintHtml: t('err_no_model_desc', { url: escapeHtml(config.apiUrl) })
       });
-      finishGeneration(elements, { skipSave: false, saveCurrentSession: options.saveCurrentSession });
+      await finishGeneration(elements, { skipSave: false, saveCurrentSession: options.saveCurrentSession });
       return { error: 'No model is configured.' };
     }
 
@@ -152,7 +195,10 @@
     // con este mensaje; la nota queda guardada en él para que el historial no cambie en otros turnos.
     const commandNotes = await resolveDep('ChatMCP', './mcp.js').manager.buildCommandNotes(State.get('messages'));
     if (commandNotes) {
-      State.replaceMessages(State.get('messages').map(message => (message.id === userMsgId ? { ...message, commandNotes } : message)));
+      const targetId = userMsgId || State.get('messages').findLast(message => message.role === 'user')?.id;
+      if (targetId) {
+        State.replaceMessages(State.get('messages').map(message => (message.id === targetId ? { ...message, commandNotes } : message)));
+      }
     }
 
     // Instantánea del proyecto para todo el turno, como el resto de la configuración capturada.
@@ -247,7 +293,8 @@
       UIConversation.renderConnectionError(parts, generationError, config.apiUrl);
       return { error: generationError };
     } finally {
-      finishGeneration(elements, { skipSave: !isCurrentSession(), saveCurrentSession: options.saveCurrentSession });
+      if (options.allowOnceTools?.length) resolveDep('ChatToolCards', './tool-cards.js').setAuthorizationResponder(null);
+      await finishGeneration(elements, { skipSave: !isCurrentSession(), saveCurrentSession: options.saveCurrentSession });
     }
   }
 

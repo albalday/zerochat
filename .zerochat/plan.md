@@ -89,26 +89,6 @@
 
 ## M45 Local backend storage for general connection profiles (Z-): closed 2026-11-06
 
-## M46 Local backend storage and synchronization for conversations (SQLite)
+## M46 Local backend storage and synchronization for conversations (SQLite): closed 2026-11-07
 
-Goal: zerochat.py stores conversations and messages locally in ~/zerochat/storage/zerochat.db via SQLite schema migration, exposes JSON-RPC endpoints for conversation list, get, save, rename and delete, and the frontend persists and synchronizes conversations with the backend when connected while preserving IndexedDB for offline operation.
-Done when: conversations and their messages are stored in SQLite (0600) with cascade deletion, JSON-RPC endpoints zerochat/conversations/* handle CRUD operations, CLI flag --list-conversations inspects saved chats, the frontend saves and synchronizes conversations with the backend when connected and falls back to IndexedDB when disconnected, and passing test:architecture, test:infrastructure, test:unit, test:integration, and test:browser.
-- [x] M46-T1 SQLite schema migration 002_create_conversations_tables and CRUD functions for conversations and messages in py/ee-storage.py with infrastructure tests (2026-11-06)
-- [x] M46-T2 JSON-RPC endpoints for conversation list, get, save, rename and delete in py/ff-server.py with infrastructure tests (2026-11-07)
-- [x] M46-T3 CLI inspection flag --list-conversations in py/zz-main.py reading from backend storage with infrastructure tests (2026-11-07)
-- [x] M46-T4 Frontend conversation synchronization and backend storage adapter in js/storage.js and js/conversation-service.js (backend persistence when connected, IndexedDB fallback offline) with unit and integration tests (2026-11-07)
-- [x] M46-T5 UI consistency and seamless offline/online conversation transitions in js/conversation-service.js with browser tests (2026-11-07)
-- [x] M46-T6 Documentation in py/README.md, help/ and help/en/ for local conversation storage and CLI listing (2026-11-07)
-- [x] M46-T7 Simplify conversation sync to initial connection and connection panel changes, normalize storage validation and remove fallbacks (2026-11-07)
-- [x] M46-T8 Remove automatic upload of local IndexedDB conversations to backend (2026-11-07)
-
-## M47 Interactive terminal agent (zerochat --cli) with streaming Markdown interpreter
-
-Goal: zerochat --cli provides an interactive terminal CLI (REPL or single-prompt) running a headless Playwright Chromium slave worker for the full agentic loop, while the Python CLI renders streamed assistant tokens, reasoning blocks, and tool executions with a pure standard-library ANSI Markdown interpreter, enables interactive terminal prompts for ask_user and tool approvals, and stores conversations in the backend SQLite database.
-Done when: zerochat --cli launches the headless slave and presents an interactive terminal REPL (or executes an optional prompt), streams response chunks and thinking blocks with ANSI Markdown formatting without external Python dependencies, formats tool calls and results in terminal cards, handles interactive tool authorizations and user questions via terminal stdin, keeps the browser worker session alive across multi-turn prompts, persists sessions in backend storage, and passes test:architecture, test:infrastructure, test:unit, test:integration, and test:browser.
-- [ ] M47-T1 Lightweight Python ANSI Markdown streaming interpreter in py/jj-cli.py (formatting headers, lists, bold/italic, code blocks, tool cards, and reasoning blocks with standard library only) with infrastructure tests
-- [ ] M47-T2 Backend CLI session controller and JSON-RPC endpoints in py/ii-run-mode.py and py/ff-server.py supporting streaming chunks, tool events, interactive tool approval requests, and user question answering
-- [ ] M47-T3 Frontend slave agentic loop streaming in js/run-mode.js: emit real-time token/reasoning deltas and tool execution lifecycle events over JSON-RPC
-- [ ] M47-T4 Interactive tool authorization and ask_user delegation from frontend slave to CLI terminal via JSON-RPC request-response cycles
-- [ ] M47-T5 Multi-turn interactive terminal REPL in py/jj-cli.py and py/zz-main.py with --cli flag: command loop, prompt input, Ctrl+C interrupt handling, session persistence across turns, and clean shutdown
-- [ ] M47-T6 Documentation and help updates in py/README.md, help/run-mode.html and help/en/run-mode.html for zerochat --cli interactive terminal usage and options
+## M47 Server-side background turn execution and conversation continuation (--conversation): closed 2026-11-07

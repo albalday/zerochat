@@ -621,3 +621,67 @@
   flex-shrink: 0;
 }
 
+/* ==========================================================================
+   Burbuja en vivo de ejecución en el servidor
+   ========================================================================== */
+.server-run-live-wrapper {
+  margin-top: var(--space-block);
+}
+
+.server-run-banner {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  padding: 0.35rem 0.75rem;
+  margin-bottom: var(--space-block);
+  background-color: var(--primary-soft);
+  border: 1px solid var(--primary-border);
+  border-radius: var(--radius-md);
+  color: var(--primary-text);
+  font-size: 0.825rem;
+  font-weight: 600;
+}
+
+.server-run-banner.is-error {
+  background-color: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.server-run-banner.is-error .server-run-banner-icon,
+.server-run-banner.is-error .server-run-banner-title {
+  color: var(--danger);
+}
+
+.server-run-banner-icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--primary);
+}
+
+.server-run-banner-title {
+  color: var(--text-main);
+}
+
+.server-run-step {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.server-run-thought .thought-content {
+  white-space: pre-wrap;
+}
+
+.server-run-assistant-block {
+  min-height: 1.5rem;
+}
+
+

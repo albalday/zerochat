@@ -296,6 +296,10 @@
         return { allowed: false, error: 'Tool blocked by security policy.' };
       }
 
+      if (decisionType === 'pause_for_user') {
+        return { allowed: false, awaitingApproval: true, error: 'Execution paused waiting for user authorization.' };
+      }
+
       const allowedDecisions = new Set([
         'allow_once',
         'allow_session',
@@ -340,7 +344,12 @@
       const elapsed = () => parseFloat((performance.now() - startTime).toFixed(2));
       try {
         const authorization = await this._authorizeToolCall(tool, args, toolCall, context);
-        if (!authorization.allowed) return failure(authorization.error, base);
+        if (!authorization.allowed) {
+          if (authorization.awaitingApproval) {
+            return failure(authorization.error, { ...base, awaitingApproval: true, endTurn: true, result: { endTurn: true, awaitingApproval: true } });
+          }
+          return failure(authorization.error, base);
+        }
         if (context.signal?.aborted) throw new Error('Tool execution cancelled by the user.');
 
         const result = await tool.execute(args, {
@@ -429,7 +438,9 @@
   function toToolMessageContent(execResult) {
     const { success, result, resultText, tool, args } = execResult;
     if (!success || result === undefined) {
-      return { content: JSON.stringify({ success: false, error: execResult.error || 'Unknown error executing tool.' }), images: null };
+      const payload = { success: false, error: execResult.error || 'Unknown error executing tool.' };
+      if (execResult.awaitingApproval) payload.awaitingApproval = true;
+      return { content: JSON.stringify(payload), images: null };
     }
     const content = resultText ?? tool.toModel(args, result);
     if (result?.dataUrl && result.mimeType) {
@@ -758,9 +769,9 @@
 
           stepIndex++;
 
-          // Una herramienta puede ceder el turno al usuario (ask_user): el bucle termina
-          // y la respuesta del usuario llega como el siguiente mensaje.
-          if (batch.results.some(r => r.success && r.result?.endTurn === true)) {
+          // Una herramienta puede ceder el turno al usuario (ask_user) o requerir aprobación interactiva:
+          // el bucle termina y la respuesta del usuario llega como el siguiente mensaje.
+          if (batch.results.some(r => r.endTurn === true || (r.success && r.result?.endTurn === true))) {
             yieldedToUser = true;
             status = 'completed';
             break;

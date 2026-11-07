@@ -93,6 +93,11 @@
     const Storage = getStorage();
     const history = getHistory();
     const sessionId = getActiveSessionId();
+    const serverRuns = State.get('mcp')?.serverRuns;
+    if (Array.isArray(serverRuns) && serverRuns.some(run => run?.conversationId === sessionId && run.status === 'running')) {
+      options.renderSidebarChats();
+      return;
+    }
 
     if (!history.some(message => message.role === 'user')) {
       State.removeSession(sessionId);

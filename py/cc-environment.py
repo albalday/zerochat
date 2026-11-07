@@ -64,7 +64,7 @@ def get_notices() -> tuple[str, ...]:
 
 def _write_private_text(target: Path, text: str):
     """Escribe un secreto con permisos 0o600 desde su creación y lo sustituye de una vez."""
-    tmp_file = target.with_suffix(target.suffix + ".tmp")
+    tmp_file = target.with_name(f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     tmp_file.unlink(missing_ok=True)
     fd = os.open(tmp_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:

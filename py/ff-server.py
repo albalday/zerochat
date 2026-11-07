@@ -19,20 +19,24 @@ def mark_browser_active():
     HEARTBEAT_INITIALIZED = True
 
 
-def live_state() -> dict:
+def live_state(focus_conversation_id: str | None = None) -> dict:
     """
     Estado del servidor que la interfaz sigue en vivo, en initialize y en cada zerochat/heartbeat:
     cwd, para notar que otra pestaña ha cambiado el directorio del proyecto; jobs, los comandos en
     marcha, para mostrarlos y avisar antes de cerrar si se detendrían; exit_on_close; playwright, si
-    se puede navegar aunque se haya instalado o quitado durante la sesión; y servers, los servicios
-    MCP externos aunque otra pestaña los cambie o su proceso muera.
+    se puede navegar aunque se haya instalado o quitado durante la sesión; servers, los servicios
+    MCP externos aunque otra pestaña los cambie o su proceso muera; runs, lista ligera de ejecuciones
+    en segundo plano; y focus_run, estado detallado de la ejecución enfocada por el usuario.
     """
+    runs, focus_run = list_server_runs(focus_conversation_id)
     return {
         "cwd": str(Path.cwd().resolve()),
         "jobs": [job.summary() for job in JOBS.running()],
         "exit_on_close": EXIT_ON_CLOSE,
         "playwright": playwright_status(),
-        "servers": GLOBAL_MCP_MANAGER.list_servers()
+        "servers": GLOBAL_MCP_MANAGER.list_servers(),
+        "runs": runs,
+        "focus_run": focus_run
     }
 
 
@@ -73,6 +77,9 @@ def heartbeat_watchdog(server: ThreadingHTTPServer, initial_grace_seconds: float
 
         # 2. Inactividad tras haber recibido latidos
         if now - HEARTBEAT_LAST_SEEN > inactivity_timeout_seconds:
+            runs, _ = list_server_runs()
+            if any(r.get("status") == "running" for r in runs):
+                continue
             log_event("Navegador desconectado (cierre detectado). Deteniendo servidor ZeroChat...")
             stop_zerochat_server(server)
             break
@@ -560,7 +567,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             }
             return {**self._initialize_result(server_info), "liveState": live_state()}, None, ""
         if method == "zerochat/heartbeat":
-            return live_state(), None, ""
+            focus_id = params.get("focus_conversation_id") if isinstance(params, dict) else None
+            return live_state(focus_id), None, ""
         if method == "zerochat/login":
             return self._login(params)
         if method == "tools/list":
@@ -665,7 +673,18 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 return {"renamed": rename_conversation(params.get("id"), params.get("title"))}, None, ""
             if method == "zerochat/conversations/delete":
                 if params.get("all") is True:
+                    for run_file in get_runs_dir().glob("*.json"):
+                        try:
+                            cancel_server_run(urllib.parse.unquote(run_file.stem))
+                        except (ValueError, OSError):
+                            pass
                     return {"deleted": True, "count": delete_all_conversations()}, None, ""
+                conv_id = params.get("id")
+                if isinstance(conv_id, str) and conv_id.strip():
+                    try:
+                        cancel_server_run(conv_id)
+                    except (ValueError, OSError):
+                        pass
                 return {"deleted": delete_conversation(params.get("id"))}, None, ""
         except ValueError as exc:
             return None, {"code": -32602, "message": str(exc)}, ""

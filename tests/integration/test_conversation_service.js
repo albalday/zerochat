@@ -196,3 +196,36 @@ test('ConversationService - loadSessionsFromStorage inicializa al arrancar, cons
   await ConversationService.loadSessionsFromStorage(options);
   assert.equal(alerts.length, 1);
 });
+
+test('ConversationService - saveCurrentSession no sobrescribe en almacenamiento una conversación en ejecución en el servidor', async t => {
+  await Storage.deleteAllConversations();
+  const previousMcp = State.get('mcp');
+  t.after(() => State.set('mcp', previousMcp));
+
+  await Storage.saveConversation(
+    { id: 'srv_running_1', title: 'Remota', createdAt: 1000, updatedAt: 2000 },
+    [
+      { id: 'u1', role: 'user', content: 'Pregunta inicial' },
+      { id: 'a1', role: 'assistant', content: 'Respuesta guardada por el servidor en segundo plano' }
+    ]
+  );
+
+  // El navegador aún tiene en memoria solo el primer mensaje y cambia de sesión mientras el servidor sigue ejecutando
+  State.replaceConversation({
+    sessionId: 'srv_running_1',
+    sessions: [{ id: 'srv_running_1', title: 'Remota' }],
+    messages: [{ id: 'u1', role: 'user', content: 'Pregunta inicial' }]
+  });
+  State.set('mcp', {
+    ...previousMcp,
+    serverRuns: [{ conversationId: 'srv_running_1', runId: 'r_1', status: 'running' }]
+  });
+
+  let sidebarRendered = 0;
+  await ConversationService.saveCurrentSession({ renderSidebarChats() { sidebarRendered++; } });
+  assert.equal(sidebarRendered, 1);
+
+  const stored = await Storage.getConversation('srv_running_1');
+  assert.equal(stored.history.length, 2, 'No debe pisar el historial que está escribiendo el servidor');
+  assert.equal(stored.history[1].content, 'Respuesta guardada por el servidor en segundo plano');
+});

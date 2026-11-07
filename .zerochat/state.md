@@ -1,5 +1,4 @@
 # Current state
-- Milestone: M46 Local backend storage and synchronization for conversations (SQLite)
-- Next task: none pending
-- Pending milestones: M47 Interactive terminal agent (zerochat --cli) with streaming Markdown interpreter
+- Milestone: none (M47 closed)
+- Next task: none
 - Last updated: 2026-11-07

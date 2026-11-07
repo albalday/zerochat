@@ -28,7 +28,7 @@ const REVIEWED_USES = {
   'js/tools/builtin/search-web.tool.js': 4,
   'js/ui-browser.js': 2,
   'js/ui-command-jobs.js': 1,
-  'js/ui-conversation.js': 10,
+  'js/ui-conversation.js': 11,
   'js/ui-dialogs.js': 1,
   'js/ui-inspector.js': 12,
   'js/ui-mcp.js': 6,

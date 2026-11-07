@@ -89,7 +89,10 @@
         // Playwright del servicio según el latido: { installed, browserAction: { available } }; null sin saberlo.
         playwright: null,
         // El servidor se detiene (y con él los comandos) al cerrar el navegador.
-        exitOnClose: false
+        exitOnClose: false,
+        // Ejecuciones agénticas de conversación en el servidor (zerochat --conversation <id>).
+        serverRuns: [],
+        focusRun: null
       },
 
       // 8. Políticas de Seguridad de Herramientas (MCP y Built-in)

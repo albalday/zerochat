@@ -58,6 +58,38 @@ test('AgentRuntime - cancelar mientras se autoriza no guarda un permiso permanen
   } finally { security.manager.setToolPolicy = previous; }
 });
 
+test('AgentRuntime - pause_for_user detiene el bucle y conserva assistant y tool en el historial', async t => {
+  const registry = new ToolRegistry();
+  registry.registerTool(makeTool({
+    name: 'mcp_test_pause_action',
+    category: 'mcp',
+    execute: async () => assert.fail('Should not execute when paused')
+  }));
+
+  const result = await runAgent(t, registry, {
+    api: {
+      streamChatCompletion: async () => ({
+        accumulatedText: 'Voy a ejecutar la herramienta.',
+        toolCalls: [{ id: 'call_p1', function: { name: 'mcp_test_pause_action', arguments: '{}' } }]
+      })
+    },
+    messages: [{ role: 'user', content: 'Ejecuta.' }],
+    requestToolAuthorization: async () => 'pause_for_user'
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(result.awaitingUser, true);
+  assert.equal(result.toolExecutions.length, 1);
+  assert.equal(result.toolExecutions[0].success, false);
+  assert.equal(result.history.length, 3); // user, assistant, tool
+  assert.equal(result.history[1].role, 'assistant');
+  assert.equal(result.history[1].tool_calls[0].function.name, 'mcp_test_pause_action');
+  assert.equal(result.history[2].role, 'tool');
+  const toolPayload = JSON.parse(result.history[2].content);
+  assert.equal(toolPayload.awaitingApproval, true);
+  assert.equal(toolPayload.success, false);
+});
+
 test('AgentRuntime - compacta con el límite de contexto configurado y conserva el checkpoint', async t => {
   const history = [];
   for (let index = 0; index < 4; index++) {

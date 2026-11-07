@@ -45,31 +45,52 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--list-profiles", action="store_true", help="Listar los perfiles de conexión generales almacenados en el servidor local")
     parser.add_argument("--list-conversations", action="store_true", help="Listar las conversaciones almacenadas en el servidor local")
     parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 plazo agotado o navegador cerrado, 3 fallo de arranque, 4 argumentos no válidos)")
-    parser.add_argument("--profile", default=None, help=f"Con --prompt, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo (por defecto: {DEFAULT_RUN_PROFILE} del servidor)")
-    parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt)")
-    parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
-    parser.add_argument("--browser", action="store_true", help="Con --prompt, abrir el navegador predeterminado del usuario en lugar del Chromium sin ventana de Playwright")
-    parser.add_argument("--keep-page", action="store_true", help="Página: con --prompt --browser, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")
-    parser.add_argument("--allow-dangerous-tools", action="store_true", help="Con --prompt, aprobar también las herramientas que escriben o ejecutan (write_file, edit_file, run_command); las demás se aprueban siempre para la sesión")
-    parser.add_argument("--headless", action="store_true", help="Con --prompt --browser, abrir el navegador predeterminado sin ventana (si ya está abierto puede verse la pestaña)")
+    parser.add_argument("--conversation", default=None, help="Con --prompt o para continuar, id de la conversación almacenada en SQLite")
+    parser.add_argument("--profile", default=None, help=f"Con --prompt o --conversation, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo (por defecto: {DEFAULT_RUN_PROFILE} del servidor)")
+    parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt o --conversation)")
+    parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt o --conversation, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
+    parser.add_argument("--browser", action="store_true", help="Con --prompt o --conversation, abrir el navegador predeterminado del usuario en lugar del Chromium sin ventana de Playwright")
+    parser.add_argument("--keep-page", action="store_true", help="Página: con --browser, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")
+    parser.add_argument("--allow-dangerous-tools", action="store_true", help="Con --prompt o --conversation, aprobar también las herramientas que escriben o ejecutan (write_file, edit_file, run_command); las demás se aprueban siempre para la sesión")
+    parser.add_argument("--headless", action="store_true", help="Con --browser, abrir el navegador predeterminado sin ventana (si ya está abierto puede verse la pestaña)")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     return parser
 
 
 def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | None:
-    """Valida las combinaciones de opciones y devuelve la sesión de --prompt, si la hay."""
-    if args.prompt is None:
+    """Valida las combinaciones de opciones y devuelve la sesión de --prompt o --conversation, si la hay."""
+    if args.prompt is None and args.conversation is None:
         if args.browser or args.headless or args.keep_page or args.allow_dangerous_tools or args.profile is not None or args.export is not None:
-            parser.error("--browser, --headless, --keep-page, --allow-dangerous-tools, --profile y --export solo se usan con --prompt")
+            parser.error("--browser, --headless, --keep-page, --allow-dangerous-tools, --profile y --export solo se usan con --prompt o --conversation")
         return None
-    if not args.prompt.strip():
-        parser.error("el prompt está vacío")
+    prompt = None
+    if args.prompt is not None:
+        prompt = args.prompt.strip()
+        if not prompt:
+            parser.error("el prompt está vacío")
+    conversation_id = None
+    if args.conversation is not None:
+        raw_conv = args.conversation.strip()
+        if not raw_conv:
+            parser.error("el identificador de la conversación no puede estar vacío")
+        try:
+            conversation_id = _validate_conversation_id(raw_conv)
+        except ValueError as exc:
+            parser.error(str(exc))
+        conv = get_conversation(conversation_id)
+        if conv is None:
+            parser.error(f"no existe la conversación '{conversation_id}'")
+        if prompt is None:
+            history = conv.get("history") or []
+            has_user_or_tool = any(m.get("role") in ("user", "tool") for m in history)
+            if not has_user_or_tool:
+                parser.error(f"la conversación '{conversation_id}' no tiene turnos para continuar")
     if args.no_browser:
-        parser.error("--prompt necesita abrir el navegador: no se combina con --no-browser")
+        parser.error("--prompt y --conversation necesitan abrir el navegador: no se combina con --no-browser")
     if args.keep_server:
-        parser.error("--prompt termina al devolver el resultado: no se combina con --keep-server (para no cerrar la página, --keep-page)")
+        parser.error("--prompt y --conversation terminan al devolver el resultado: no se combina con --keep-server (para no cerrar la página, --keep-page)")
     if args.headless and not args.browser:
-        parser.error("--headless solo se usa con --browser (--prompt ya se ejecuta sin ventana con el Chromium de Playwright)")
+        parser.error("--headless solo se usa con --browser (--prompt y --conversation ya se ejecutan sin ventana con el Chromium de Playwright)")
     if args.keep_page and (not args.browser or args.headless):
         parser.error("--keep-page necesita la ventana del navegador del usuario (--browser sin --headless)")
     if args.profile is not None:
@@ -90,7 +111,7 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
             parser.error(f"--export necesita una de estas extensiones: {', '.join(RUN_EXPORT_FORMATS)}")
         if not export_path.parent.is_dir():
             parser.error(f"--export: no existe el directorio {export_path.parent}")
-    return RunSession(args.prompt.strip(), profile_name, export_path, args.keep_page, args.allow_dangerous_tools)
+    return RunSession(prompt, profile_name, export_path, args.keep_page, args.allow_dangerous_tools, conversation_id=conversation_id)
 
 
 def redirect_log(args):

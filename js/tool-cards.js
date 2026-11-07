@@ -78,8 +78,12 @@
     // También la tarjeta en curso entra en el historial plegado: si apareciera a la vista y se
     // ocultara al terminar, el grupo crecería y encogería con cada llamada. El resumen dice cuál se ejecuta.
     const group = getToolCallGroup(container) || createToolCallGroup(container);
-    card.dataset.toolCallStatus = options.completed ? (options.success === false ? 'error' : 'success') : 'running';
-    group.querySelector(GROUP_CARDS).appendChild(card);
+    const pendingAuth = card.dataset.toolCallStatus === 'pending_auth';
+    if (!pendingAuth) {
+      card.dataset.toolCallStatus = options.completed ? (options.success === false ? 'error' : 'success') : 'running';
+    }
+    group.querySelector(pendingAuth ? GROUP_ACTIVE_CARDS : GROUP_CARDS).appendChild(card);
+    if (pendingAuth) group.classList.add('tool-call-group-auth-active');
     updateToolCallGroup(group);
     return group;
   }
@@ -92,7 +96,7 @@
   }
 
   function completeToolCard(card, result) {
-    card.dataset.toolCallStatus = result.success === false || result.error ? 'error' : 'success';
+    card.dataset.toolCallStatus = result?.awaitingApproval ? 'pending_auth' : (result?.success === false || result?.error ? 'error' : 'success');
     updateToolCallGroup(placeCardInGroup(card, false));
   }
 
@@ -120,6 +124,12 @@
   function renderStatusBadge(badge, success, label) {
     badge.className = `tool-card-badge ${success ? 'status-success' : 'status-error'}`;
     badge.innerHTML = `${success ? CHECK_SVG : ERROR_SVG} <span>${escapeHtml(label)}</span>`;
+  }
+
+  function renderPendingAuthBadge(badge) {
+    if (!badge) return;
+    badge.className = 'tool-card-badge status-pending-auth';
+    badge.innerHTML = `${SHIELD_SVG} <span>${t('tool_auth_badge')}</span>`;
   }
 
   const isSuccessResult = result => result.success !== false && !result.error;
@@ -430,6 +440,8 @@
     let keepExpanded = false;
     if (view) {
       keepExpanded = view.updateLiveCard(card, args, result, elapsedMs, viewContext()) === true;
+    } else if (result?.awaitingApproval) {
+      renderPendingAuthBadge(card.querySelector('.tool-card-badge'));
     } else {
       renderStatusBadge(card.querySelector('.tool-card-badge'), isSuccessResult(result), isSuccessResult(result)
         ? `${t('tool_status_success')} (${elapsedMs}ms)`
@@ -452,7 +464,7 @@
   }
 
   /** Tarjeta de una llamada del historial: la vista la reconstruye con el mensaje `tool` guardado. */
-  function renderHistoricalToolCard(call, message) {
+  function renderHistoricalToolCard(call, message, options = {}) {
     let args;
     try {
       args = typeof call.function.arguments === 'object' ? call.function.arguments : JSON.parse(call.function.arguments || '{}');
@@ -465,17 +477,50 @@
     const displayMode = resolveToolDisplayMode(toolName) || 'collapsed';
     let card;
     let keepExpanded = message?.images?.some(image => image.action === 'screenshot') || false;
+    const parsedMessage = parseToolMessage(message);
+    const awaitingApproval = Boolean(parsedMessage?.awaitingApproval);
     if (view?.renderHistoricalCard) {
-      card = view.renderHistoricalCard(args, message, viewContext());
+      card = view.renderHistoricalCard(args, awaitingApproval ? null : message, viewContext());
     } else if (view) {
       const ui = viewContext();
       card = view.createLiveCard(args, ui);
-      keepExpanded = view.updateLiveCard(card, args, parseToolMessage(message), 0, ui) === true || keepExpanded;
+      if (!awaitingApproval) {
+        keepExpanded = view.updateLiveCard(card, args, parsedMessage, 0, ui) === true || keepExpanded;
+      }
     } else {
-      card = createGenericCard(toolName, args, displayMode === 'collapsed');
+      card = createGenericCard(toolName, args, displayMode === 'collapsed' && !awaitingApproval);
     }
     card.dataset.toolName = toolName;
-    if (displayMode === 'collapsed' && !keepExpanded) collapseCard(card);
+    if (awaitingApproval) {
+      renderPendingAuthBadge(card.querySelector('.tool-card-badge'));
+      card.dataset.toolCallStatus = 'pending_auth';
+      expandCard(card);
+      if (typeof options.onAuthorizationDecision === 'function') {
+        const tool = getRegistry().getTool(toolName);
+        const authEval = tool
+          ? getToolSecurity().manager.evaluateAuthorization(tool, args, {})
+          : { serverName: '', serverId: '', directoryAccess: '', directoryPath: '' };
+        promptToolAuthorization(card, call, {
+          args,
+          serverName: authEval.serverName,
+          serverId: authEval.serverId,
+          toolName,
+          directoryAccess: authEval.directoryAccess,
+          directoryPath: authEval.directoryPath,
+          interactive: true
+        }).then(decision => {
+          options.onAuthorizationDecision?.(decision, {
+            toolCall: call,
+            toolMessage: message,
+            toolName,
+            args,
+            authEval
+          });
+        });
+      }
+    } else if (displayMode === 'collapsed' && !keepExpanded) {
+      collapseCard(card);
+    }
     return card;
   }
 
@@ -501,10 +546,7 @@
     toolGroup?.classList.add('tool-call-group-auth-active');
 
     const badge = card.querySelector('.tool-card-badge');
-    if (badge) {
-      badge.className = 'tool-card-badge status-pending-auth';
-      badge.innerHTML = `${SHIELD_SVG} <span>${t('tool_auth_badge')}</span>`;
-    }
+    renderPendingAuthBadge(badge);
 
     let authPromptEl = card.querySelector('.tool-card-auth-prompt');
     if (!authPromptEl) {
@@ -567,9 +609,13 @@
         authPromptEl.remove();
         cardEl.classList.remove('tool-card-auth-active');
         if (wasCollapsed) collapseCard(card);
-        if (wasInHistory) placeCardInGroup(card, false);
-        if (!toolGroup?.querySelector('.tool-card-auth-active')) {
-          toolGroup?.classList.remove('tool-call-group-auth-active');
+        const activeGroup = toolGroup || card.closest('.tool-call-group');
+        if (wasInHistory || options.interactive) {
+          placeCardInGroup(card, false);
+          updateToolCallGroup(activeGroup);
+        }
+        if (!activeGroup?.querySelector('.tool-card-auth-active')) {
+          activeGroup?.classList.remove('tool-call-group-auth-active');
         }
         if (signal && abortHandler) {
           signal.removeEventListener('abort', abortHandler);
@@ -592,6 +638,8 @@
           if (resEl) {
             resEl.innerHTML = `<div class="tool-auth-denied-notice">${escapeHtml(t('tool_auth_denied_msg'))}</div>`;
           }
+        } else if (decisionType === 'pause_for_user') {
+          renderPendingAuthBadge(badge);
         } else {
           // Permitido: restaurar badge a ejecutando
           if (badge) {
@@ -669,7 +717,10 @@
           signal.addEventListener('abort', abortHandler, { once: true });
         }
       }
-      if (authorizationResponder) handleDecision(authorizationResponder(toolName));
+      if (authorizationResponder && !options.interactive) {
+        const autoDecision = authorizationResponder(toolName);
+        if (autoDecision) handleDecision(autoDecision);
+      }
     });
   }
 

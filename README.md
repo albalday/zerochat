@@ -7,7 +7,7 @@
 <a name="english"></a>
 ## English
 
-ZeroChat is a personal, private web client for chatting with AI models, consulting documents and running tools. This documentation covers the **9.x** series. Free and open source under the MIT licence.
+ZeroChat is a personal, private web client for chatting with AI models, consulting documents and running tools. This documentation covers the **10.x** series. Free and open source under the MIT licence.
 
 The interface runs entirely in the browser as static files: history and settings remain in local browser storage without automatic cloud synchronization.
 
@@ -37,8 +37,8 @@ python3 zerochat.py
 ### Documentation & Help
 
 Comprehensive guides covering configuration, supported environments (Linux, Windows, macOS, Android/Termux), MCP services, and security:
-- [ZeroChat 9.x Help — English](https://albalday.github.io/zerochat/help/en/index.html)
-- [Ayuda de ZeroChat 9.x — Español](https://albalday.github.io/zerochat/help/index.html)
+- [ZeroChat 10.x Help — English](https://albalday.github.io/zerochat/help/en/index.html)
+- [Ayuda de ZeroChat 10.x — Español](https://albalday.github.io/zerochat/help/index.html)
 
 ### Development
 
@@ -57,7 +57,7 @@ For development rules, architecture and test suites, see [`AGENTS.md`](./AGENTS.
 <a name="español"></a>
 ## Español
 
-ZeroChat es un cliente web de uso personal para conversar con modelos de IA, consultar documentos y ejecutar herramientas. Esta documentación corresponde a la serie **9.x**. Proyecto de libre uso bajo licencia MIT.
+ZeroChat es un cliente web de uso personal para conversar con modelos de IA, consultar documentos y ejecutar herramientas. Esta documentación corresponde a la serie **10.x**. Proyecto de libre uso bajo licencia MIT.
 
 La interfaz se ejecuta íntegramente en el navegador como archivos estáticos: el historial y la configuración se conservan en el almacenamiento local del navegador, sin sincronización automática en la nube.
 
@@ -87,8 +87,8 @@ python3 zerochat.py
 ### Documentación y ayuda
 
 Guías completas de configuración, soporte de entornos (Linux, Windows, macOS, Android/Termux), servicios MCP y seguridad:
-- [Ayuda de ZeroChat 9.x — Español](https://albalday.github.io/zerochat/help/index.html)
-- [ZeroChat 9.x Help — English](https://albalday.github.io/zerochat/help/en/index.html)
+- [Ayuda de ZeroChat 10.x — Español](https://albalday.github.io/zerochat/help/index.html)
+- [ZeroChat 10.x Help — English](https://albalday.github.io/zerochat/help/en/index.html)
 
 ### Desarrollo
 
