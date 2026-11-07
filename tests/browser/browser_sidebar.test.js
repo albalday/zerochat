@@ -239,10 +239,10 @@ test('Browser UI - sincroniza conversaciones locales y remotas al conectar desde
     await page.click('#btn-open-connection');
     await page.click('#btn-backend-connect');
 
-    // En la interfaz deben verse ambas conversaciones en la barra lateral sin perder la activa
+    // En la interfaz deben verse ambas conversaciones en la barra lateral sin perder la activa y sin subir las locales
     await page.waitForSelector('.sidebar-chat-item[data-session-id="chat_remote_1"]');
     await page.waitForSelector('.sidebar-chat-item[data-session-id="chat_local_1"].active');
-    assert.deepEqual(await page.evaluate(() => window.__savedToBackend), ['chat_local_1']);
+    assert.deepEqual(await page.evaluate(() => window.__savedToBackend), []);
 
     // Cerrar el diálogo de Conexión y cambiar entre conversaciones en la barra lateral
     await page.click('#btn-close-settings');

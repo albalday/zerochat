@@ -239,7 +239,8 @@
 
   /**
    * Cabeceras de las conversaciones, de la más reciente a la más antigua, sin sus mensajes.
-   * Con el backend conectado, sincroniza las conversaciones locales y remotas antes de devolver la lista.
+   * Con el backend conectado, descarga las conversaciones remotas a IndexedDB antes de devolver la lista
+   * sin subir las conversaciones locales al servidor.
    */
   async function getConversationsList() {
     const localList = await readLocalConversationsList();
@@ -247,17 +248,6 @@
 
     const { conversations: remoteList = [] } = await requestBackend('zerochat/conversations/list');
     const localMap = new Map(localList.map(item => [item.id, item]));
-    const remoteMap = new Map(remoteList.map(item => [item.id, item]));
-
-    for (const local of localList) {
-      const remote = remoteMap.get(local.id);
-      if (!remote || (local.updatedAt || 0) > (remote.updatedAt || 0)) {
-        const fullLocal = await readLocalConversation(local.id);
-        if (fullLocal) {
-          await requestBackend('zerochat/conversations/save', { conversation: local, messages: fullLocal.history });
-        }
-      }
-    }
 
     let downloaded = false;
     for (const remote of remoteList) {
@@ -279,7 +269,7 @@
     if (!sessionId) return null;
     if (isBackendConnected()) {
       const result = await requestBackend('zerochat/conversations/get', { id: sessionId });
-      return result?.conversation || null;
+      if (result?.conversation) return result.conversation;
     }
     return readLocalConversation(sessionId);
   }

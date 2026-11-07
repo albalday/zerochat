@@ -262,17 +262,23 @@ test('Storage Backend - sincroniza conversaciones locales y remotas en getConver
     [{ id: 'm_l1', role: 'user', content: 'Desde local' }]
   );
 
-  // 1. Al conectar y pedir getConversationsList, sincroniza local -> backend y backend -> IndexedDB
+  // 1. Al conectar y pedir getConversationsList, no sube las locales al backend y descarga remotas a IndexedDB
   connected = true;
   const list = await Storage.getConversationsList();
   assert.deepEqual(list.map(c => c.id), ['l_conv', 'b_conv']);
-  assert.ok(backendStore.has('l_conv'), 'La conversación local se subió al backend');
+  assert.equal(backendStore.has('l_conv'), false, 'Las conversaciones locales no se suben al backend');
 
   // Al desconectar, b_conv ya quedó guardada en IndexedDB tras la sincronización inicial
   connected = false;
   const cachedRemote = await Storage.getConversation('b_conv');
   assert.ok(cachedRemote);
   assert.equal(cachedRemote.history[0].content, 'Desde backend');
+
+  // Estando conectado, una conversación que solo existe en local se abre sin problemas desde IndexedDB
+  connected = true;
+  const cachedLocal = await Storage.getConversation('l_conv');
+  assert.ok(cachedLocal);
+  assert.equal(cachedLocal.history[0].content, 'Desde local');
 
   // 2. Conectado: save, rename, get y delete operan sobre el backend
   connected = true;

@@ -100,6 +100,7 @@ Done when: conversations and their messages are stored in SQLite (0600) with cas
 - [x] M46-T5 UI consistency and seamless offline/online conversation transitions in js/conversation-service.js with browser tests (2026-11-07)
 - [x] M46-T6 Documentation in py/README.md, help/ and help/en/ for local conversation storage and CLI listing (2026-11-07)
 - [x] M46-T7 Simplify conversation sync to initial connection and connection panel changes, normalize storage validation and remove fallbacks (2026-11-07)
+- [x] M46-T8 Remove automatic upload of local IndexedDB conversations to backend (2026-11-07)
 
 ## M47 Interactive terminal agent (zerochat --cli) with streaming Markdown interpreter
 

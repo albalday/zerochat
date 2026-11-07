@@ -27,7 +27,7 @@
     <div class="card">
       <h2>1. Barra lateral e historial</h2>
       <p>La barra lateral permite crear, buscar por título, abrir, exportar y borrar conversaciones. En móvil se abre desde el menú superior. El historial se agrupa por fechas.</p>
-      <p>Una conversación nueva conserva el perfil seleccionado. Cuando el servidor local está conectado, las conversaciones se guardan tanto en IndexedDB como en el almacenamiento SQLite local (<code>~/zerochat/storage/zerochat.db</code>), y las conversaciones locales y remotas se cargan y reconcilian en la conexión inicial y al cambiar de conexión desde el panel de Conexión.</p>
+      <p>Una conversación nueva conserva el perfil seleccionado. Cuando el servidor local está conectado, las nuevas conversaciones se guardan tanto en IndexedDB como en el almacenamiento SQLite local (<code>~/zerochat/storage/zerochat.db</code>). Las conversaciones locales previas permanecen en el navegador sin subirse al servidor, y las conversaciones remotas del servidor se descargan en la conexión inicial y al cambiar de conexión desde el panel de Conexión.</p>
       <p>Mientras se genera una respuesta, la vista sigue el final de la conversación. Si te desplazas hacia arriba, deja de moverse para que puedas leer; vuelve a seguir el final cuando regresas abajo o envías un mensaje. Mientras no estás al final, sobre el compositor aparece un botón con una flecha hacia abajo que te lleva al final y vuelve a seguirlo.</p>
     </div>
 
