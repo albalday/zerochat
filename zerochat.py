@@ -3433,6 +3433,8 @@ MAX_PROFILE_NAME_LENGTH = 128
 MAX_PROFILE_DESCRIPTION_LENGTH = 2048
 MAX_CONVERSATION_ID_LENGTH = 128
 MAX_CONVERSATION_TITLE_LENGTH = 256
+MAX_BLOB_SIZE = 50 * 1024 * 1024
+MAX_BLOB_HTTP_BYTES = 72 * 1024 * 1024
 
 STORAGE_MIGRATIONS = [
     (1, "001_create_profiles_table", """
@@ -3469,6 +3471,16 @@ STORAGE_MIGRATIONS = [
             FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
             PRIMARY KEY (conversation_id, position)
         );
+    """),
+    (3, "003_create_blobs_table", """
+        CREATE TABLE IF NOT EXISTS blobs (
+            id TEXT PRIMARY KEY,
+            mime_type TEXT NOT NULL,
+            size INTEGER NOT NULL,
+            data BLOB NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_blobs_created_at ON blobs(created_at);
     """)
 ]
 
@@ -3831,6 +3843,91 @@ def delete_all_conversations() -> int:
         cursor = conn.execute("DELETE FROM conversations;")
         conn.commit()
         return cursor.rowcount
+
+
+def _validate_blob_id(blob_id: str) -> str:
+    """Valida que el identificador del blob sea un hash SHA-256 en hexadecimal (64 caracteres)."""
+    if not isinstance(blob_id, str) or not re.match(r"^[0-9a-f]{64}$", blob_id.strip().lower()):
+        raise ValueError(f"ID de blob inválido (debe ser un hash SHA-256 hexadecimal de 64 caracteres): {blob_id}")
+    return blob_id.strip().lower()
+
+
+def put_blob(data_bytes: bytes, mime_type: str = "application/octet-stream", blob_id: str | None = None) -> dict:
+    """Almacena un blob binario indexado por su hash SHA-256."""
+    if not isinstance(data_bytes, (bytes, bytearray)):
+        raise ValueError("Los datos del blob deben ser bytes")
+    if len(data_bytes) == 0:
+        raise ValueError("El blob no puede estar vacío")
+    if len(data_bytes) > MAX_BLOB_SIZE:
+        raise ValueError(f"El tamaño del blob ({len(data_bytes)} bytes) excede el máximo permitido ({MAX_BLOB_SIZE} bytes)")
+
+    calc_id = hashlib.sha256(data_bytes).hexdigest()
+    if blob_id is not None:
+        clean_id = _validate_blob_id(blob_id)
+        if clean_id != calc_id:
+            raise ValueError(f"El ID del blob ({clean_id}) no coincide con el hash SHA-256 de los datos ({calc_id})")
+    else:
+        clean_id = calc_id
+
+    mime = (mime_type or "application/octet-stream").strip()
+    now = int(time.time() * 1000)
+    with open_storage() as conn:
+        conn.execute("""
+            INSERT INTO blobs (id, mime_type, size, data, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                mime_type = excluded.mime_type,
+                size = excluded.size,
+                data = excluded.data;
+        """, (clean_id, mime, len(data_bytes), sqlite3.Binary(data_bytes), now))
+        conn.commit()
+    return {"id": clean_id, "mime_type": mime, "size": len(data_bytes), "created_at": now}
+
+
+def get_blob(blob_id: str) -> dict | None:
+    """Recupera un blob por su hash SHA-256."""
+    clean_id = _validate_blob_id(blob_id)
+    with open_storage() as conn:
+        row = conn.execute("SELECT id, mime_type, size, data, created_at FROM blobs WHERE id = ?;", (clean_id,)).fetchone()
+        if not row:
+            return None
+        return {
+            "id": row["id"],
+            "mime_type": row["mime_type"],
+            "size": row["size"],
+            "data": bytes(row["data"]),
+            "created_at": row["created_at"],
+        }
+
+
+def has_blobs(blob_ids: list[str]) -> dict:
+    """Comprueba la existencia de una lista de IDs de blobs, devolviendo los existentes y los faltantes."""
+    if not isinstance(blob_ids, list):
+        raise ValueError("La lista de IDs de blobs debe ser una lista")
+    if len(blob_ids) > 1000:
+        raise ValueError("No se pueden consultar más de 1000 IDs de blobs a la vez")
+    clean_ids = [_validate_blob_id(bid) for bid in blob_ids]
+    if not clean_ids:
+        return {"existing": [], "missing": []}
+    unique_ids = list(dict.fromkeys(clean_ids))
+    with open_storage() as conn:
+        placeholders = ",".join("?" for _ in unique_ids)
+        rows = conn.execute(f"SELECT id FROM blobs WHERE id IN ({placeholders});", unique_ids).fetchall()
+        existing_set = {row["id"] for row in rows}
+        return {
+            "existing": [bid for bid in unique_ids if bid in existing_set],
+            "missing": [bid for bid in unique_ids if bid not in existing_set],
+        }
+
+
+def delete_blob(blob_id: str) -> bool:
+    """Elimina un blob por su ID."""
+    clean_id = _validate_blob_id(blob_id)
+    with open_storage() as conn:
+        cursor = conn.execute("DELETE FROM blobs WHERE id = ?;", (clean_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
 DEFAULT_HEARTBEAT_TIMEOUT = float(os.environ.get("ZEROCHAT_HEARTBEAT_TIMEOUT", "60.0"))
 DEFAULT_HEARTBEAT_GRACE = float(os.environ.get("ZEROCHAT_HEARTBEAT_GRACE", "45.0"))
 DEFAULT_HEARTBEAT_POLL = float(os.environ.get("ZEROCHAT_HEARTBEAT_POLL", "5.0"))
@@ -4287,7 +4384,11 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_req("POST", safe_path)
             self._reject(400, {"error": "Invalid Content-Length"}, safe_path, t0, "Content-Length negativo")
             return None
-        body_limit = http_body_limit()
+        is_blob_upload = (
+            self.headers.get("X-ZeroChat-Blob") == "1"
+            or safe_path in ("/zerochat/blobs", "/zerochat/blobs/put")
+        )
+        body_limit = MAX_BLOB_HTTP_BYTES if is_blob_upload else http_body_limit()
         if content_len > body_limit:
             self._log_req("POST", safe_path)
             if content_len <= body_limit * 2:
@@ -4307,8 +4408,10 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._reject(400, {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": f"Parse error: {err}"}},
                          safe_path, t0, f"Error parseando JSON: {err}")
             return None
-        # El tope ampliado de http_body_limit es solo para la exportación de --prompt --export.
-        if content_len > MAX_HTTP_BODY_BYTES and not (isinstance(req, dict) and req.get("method") == "zerochat/run/export"):
+        # El tope ampliado de http_body_limit es solo para la exportación de --prompt --export y la subida de blobs.
+        if content_len > MAX_HTTP_BODY_BYTES and not (
+            isinstance(req, dict) and req.get("method") in ("zerochat/run/export", "zerochat/blobs/put")
+        ):
             self._log_req("POST", safe_path)
             self._reject(413, {"error": "Request body too large"}, safe_path, t0, "Cuerpo HTTP excede el límite")
             return None
@@ -4467,6 +4570,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return self._dispatch_profiles(method, params)
         if method.startswith("zerochat/conversations/"):
             return self._dispatch_conversations(method, params)
+        if method.startswith("zerochat/blobs/"):
+            return self._dispatch_blobs(method, params)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @staticmethod
@@ -4523,6 +4628,51 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return None, {"code": -32602, "message": str(exc)}, ""
         except Exception as exc:
             return None, {"code": -32603, "message": f"Error en gestión de conversaciones: {exc}"}, str(exc)
+        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
+
+    @staticmethod
+    def _dispatch_blobs(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+        """Gestión de blobs desacoplados de mensajes (imágenes y adjuntos) en SQLite."""
+        params = params if isinstance(params, dict) else {}
+        try:
+            if method == "zerochat/blobs/has":
+                ids = params.get("ids")
+                if ids is None:
+                    ids = []
+                return has_blobs(ids), None, ""
+            if method == "zerochat/blobs/put":
+                raw_data = params.get("data")
+                if not raw_data or not isinstance(raw_data, str):
+                    raise ValueError("El parámetro 'data' debe ser una cadena en base64 no vacía")
+                mime_type = params.get("mimeType") or "application/octet-stream"
+                if raw_data.startswith("data:") and ";base64," in raw_data:
+                    header, b64_part = raw_data.split(";base64,", 1)
+                    if not params.get("mimeType"):
+                        mime_type = header[5:]
+                    raw_data = b64_part
+                try:
+                    data_bytes = base64.b64decode(raw_data)
+                except Exception as decode_err:
+                    raise ValueError(f"Error decodificando base64: {decode_err}")
+                saved = put_blob(data_bytes, mime_type=mime_type, blob_id=params.get("id"))
+                return {"id": saved["id"], "mimeType": saved["mime_type"], "size": saved["size"]}, None, ""
+            if method == "zerochat/blobs/get":
+                blob = get_blob(params.get("id"))
+                if not blob:
+                    return {"blob": None}, None, ""
+                return {
+                    "blob": {
+                        "id": blob["id"],
+                        "mimeType": blob["mime_type"],
+                        "size": blob["size"],
+                        "data": base64.b64encode(blob["data"]).decode("ascii"),
+                        "createdAt": blob["created_at"],
+                    }
+                }, None, ""
+        except ValueError as exc:
+            return None, {"code": -32602, "message": str(exc)}, ""
+        except Exception as exc:
+            return None, {"code": -32603, "message": f"Error en gestión de blobs: {exc}"}, str(exc)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @staticmethod

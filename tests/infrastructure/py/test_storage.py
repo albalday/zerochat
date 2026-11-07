@@ -431,3 +431,110 @@ class StorageEngineTest(unittest.TestCase):
         self.assertIsNone(zerochat.get_conversation("no_existe"))
         self.assertFalse(zerochat.rename_conversation("no_existe", "Nuevo"))
         self.assertFalse(zerochat.delete_conversation("no_existe"))
+
+    def test_blobs_crud_y_deduplicacion(self):
+        data1 = b"Hello, ZeroChat Blob Storage!"
+        sha1 = zerochat.hashlib.sha256(data1).hexdigest()
+
+        # put_blob calcula el hash SHA-256
+        saved1 = zerochat.put_blob(data1, mime_type="text/plain")
+        self.assertEqual(saved1["id"], sha1)
+        self.assertEqual(saved1["mime_type"], "text/plain")
+        self.assertEqual(saved1["size"], len(data1))
+
+        # Re-guardar mismos datos es idempotente
+        saved2 = zerochat.put_blob(data1, mime_type="text/plain", blob_id=sha1)
+        self.assertEqual(saved2["id"], sha1)
+
+        # get_blob recupera los bytes exactos
+        retrieved = zerochat.get_blob(sha1)
+        self.assertIsNotNone(retrieved)
+        self.assertEqual(retrieved["id"], sha1)
+        self.assertEqual(retrieved["mime_type"], "text/plain")
+        self.assertEqual(retrieved["size"], len(data1))
+        self.assertEqual(retrieved["data"], data1)
+
+        # has_blobs consulta existentes y faltantes
+        fake_id = "0" * 64
+        status = zerochat.has_blobs([sha1, fake_id])
+        self.assertEqual(status["existing"], [sha1])
+        self.assertEqual(status["missing"], [fake_id])
+
+        # delete_blob
+        self.assertTrue(zerochat.delete_blob(sha1))
+        self.assertIsNone(zerochat.get_blob(sha1))
+        self.assertFalse(zerochat.delete_blob(sha1))
+
+    def test_blobs_validaciones_y_limites(self):
+        # Vacío o no-bytes
+        with self.assertRaises(ValueError):
+            zerochat.put_blob(b"")
+        with self.assertRaises(ValueError):
+            zerochat.put_blob("no es bytes")
+
+        # ID inválido
+        with self.assertRaises(ValueError):
+            zerochat.put_blob(b"datos", blob_id="invalido")
+        with self.assertRaises(ValueError):
+            zerochat.put_blob(b"datos", blob_id="1" * 63)
+        with self.assertRaises(ValueError):
+            zerochat.put_blob(b"datos", blob_id="1" * 65)
+
+        # ID no coincide con el hash
+        with self.assertRaises(ValueError):
+            zerochat.put_blob(b"datos", blob_id="a" * 64)
+
+        # Borde exacto N y N+1 en MAX_BLOB_SIZE
+        data_limit = b"x" * zerochat.MAX_BLOB_SIZE
+        # N: se acepta con mock en memoria sin escribir a disco para no agotar espacio
+        with mock.patch("zerochat.open_storage") as mock_open:
+            mock_conn = mock.MagicMock()
+            mock_open.return_value.__enter__.return_value = mock_conn
+            res = zerochat.put_blob(data_limit)
+            self.assertEqual(res["size"], zerochat.MAX_BLOB_SIZE)
+
+        # N+1: se rechaza con ValueError
+        class BigBytes(bytes):
+            def __len__(self):
+                return zerochat.MAX_BLOB_SIZE + 1
+
+        with self.assertRaises(ValueError):
+            zerochat.put_blob(BigBytes())
+
+        # has_blobs límite de 1000 IDs
+        valid_id = "f" * 64
+        with self.assertRaises(ValueError):
+            zerochat.has_blobs([valid_id] * 1001)
+
+    def test_rpc_dispatch_blobs(self):
+        import base64
+        handler = object.__new__(zerochat.ZeroChatServerHandler)
+        raw = b"png-binary-content-test"
+        b64 = base64.b64encode(raw).decode("ascii")
+        expected_id = zerochat.hashlib.sha256(raw).hexdigest()
+
+        # zerochat/blobs/put
+        res, err, _ = handler._dispatch_local("zerochat/blobs/put", {
+            "mimeType": "image/png",
+            "data": f"data:image/png;base64,{b64}"
+        })
+        self.assertIsNone(err)
+        self.assertEqual(res["id"], expected_id)
+        self.assertEqual(res["mimeType"], "image/png")
+        self.assertEqual(res["size"], len(raw))
+
+        # zerochat/blobs/get
+        res, err, _ = handler._dispatch_local("zerochat/blobs/get", {"id": expected_id})
+        self.assertIsNone(err)
+        self.assertEqual(res["blob"]["id"], expected_id)
+        self.assertEqual(res["blob"]["data"], b64)
+
+        # zerochat/blobs/has
+        res, err, _ = handler._dispatch_local("zerochat/blobs/has", {"ids": [expected_id, "0" * 64]})
+        self.assertIsNone(err)
+        self.assertEqual(res["existing"], [expected_id])
+        self.assertEqual(res["missing"], ["0" * 64])
+
+        # Error en put sin data
+        res, err, _ = handler._dispatch_local("zerochat/blobs/put", {})
+        self.assertEqual(err["code"], -32602)
