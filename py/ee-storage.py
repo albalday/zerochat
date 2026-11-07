@@ -29,22 +29,20 @@ STORAGE_MIGRATIONS = [
             title TEXT NOT NULL,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL,
-            message_count INTEGER NOT NULL DEFAULT 0,
-            metadata_json TEXT DEFAULT '{}'
+            message_count INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at);
 
         CREATE TABLE IF NOT EXISTS messages (
-            id TEXT PRIMARY KEY,
             conversation_id TEXT NOT NULL,
             position INTEGER NOT NULL,
+            id TEXT NOT NULL,
             role TEXT NOT NULL,
             content TEXT NOT NULL,
             extra_json TEXT DEFAULT '{}',
-            created_at INTEGER NOT NULL,
-            FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+            FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+            PRIMARY KEY (conversation_id, position)
         );
-        CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, position);
     """)
 ]
 
@@ -266,6 +264,26 @@ def delete_general_profile(profile_id: str) -> bool:
 # Almacén de conversaciones y mensajes (M46)
 # ==============================================================================
 
+def _validate_conversation_id(session_id) -> str:
+    if not isinstance(session_id, str) or not session_id.strip():
+        raise ValueError("El identificador de la conversación no puede estar vacío")
+    clean = session_id.strip()
+    if len(clean) > MAX_CONVERSATION_ID_LENGTH:
+        raise ValueError(f"El identificador no puede superar {MAX_CONVERSATION_ID_LENGTH} caracteres")
+    return clean
+
+
+def _validate_conversation_title(title, allow_empty: bool = False) -> str:
+    if not isinstance(title, str):
+        raise ValueError("El título de la conversación debe ser un texto")
+    clean = title.strip()
+    if not allow_empty and not clean:
+        raise ValueError("El título de la conversación no puede estar vacío")
+    if len(clean) > MAX_CONVERSATION_TITLE_LENGTH:
+        raise ValueError(f"El título no puede superar {MAX_CONVERSATION_TITLE_LENGTH} caracteres")
+    return clean
+
+
 def _row_to_conversation_header(row: sqlite3.Row) -> dict:
     """Transforma una fila SQLite en la cabecera de una conversación."""
     return {
@@ -279,12 +297,7 @@ def _row_to_conversation_header(row: sqlite3.Row) -> dict:
 
 def _row_to_message(row: sqlite3.Row) -> dict:
     """Transforma una fila SQLite en el objeto de mensaje de la conversación."""
-    extra = {}
-    if row["extra_json"]:
-        try:
-            extra = json.loads(row["extra_json"])
-        except (json.JSONDecodeError, TypeError):
-            extra = {}
+    extra = json.loads(row["extra_json"]) if row["extra_json"] else {}
     return {
         "id": row["id"],
         "role": row["role"],
@@ -293,32 +306,24 @@ def _row_to_message(row: sqlite3.Row) -> dict:
     }
 
 
-def list_conversations(filter_text: str = "") -> list[dict]:
+def list_conversations() -> list[dict]:
     """Lista las cabeceras de conversaciones ordenadas de más reciente a más antigua."""
-    filter_val = (filter_text or "").strip().lower()
     with open_storage() as conn:
-        if filter_val:
-            rows = conn.execute(
-                "SELECT * FROM conversations WHERE LOWER(title) LIKE ? ORDER BY updated_at DESC;",
-                (f"%{filter_val}%",)
-            ).fetchall()
-        else:
-            rows = conn.execute("SELECT * FROM conversations ORDER BY updated_at DESC;").fetchall()
+        rows = conn.execute("SELECT * FROM conversations ORDER BY updated_at DESC;").fetchall()
         return [_row_to_conversation_header(row) for row in rows]
 
 
 def get_conversation(session_id: str) -> dict | None:
     """Recupera una conversación completa con sus mensajes ordenados por posición."""
-    if not session_id or not isinstance(session_id, str) or not session_id.strip():
-        return None
+    clean_id = _validate_conversation_id(session_id)
     with open_storage() as conn:
-        conv_row = conn.execute("SELECT * FROM conversations WHERE id = ?;", (session_id.strip(),)).fetchone()
+        conv_row = conn.execute("SELECT * FROM conversations WHERE id = ?;", (clean_id,)).fetchone()
         if not conv_row:
             return None
         header = _row_to_conversation_header(conv_row)
         msg_rows = conn.execute(
             "SELECT * FROM messages WHERE conversation_id = ? ORDER BY position ASC;",
-            (session_id.strip(),)
+            (clean_id,)
         ).fetchall()
         return {**header, "history": [_row_to_message(row) for row in msg_rows]}
 
@@ -327,20 +332,15 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
     """Guarda o actualiza una conversación y sustituye sus mensajes atómicamente."""
     if not isinstance(session_meta, dict):
         raise ValueError("Los metadatos de la conversación deben ser un objeto")
-    raw_id = session_meta.get("id")
-    if not isinstance(raw_id, str) or not raw_id.strip():
-        raise ValueError("El identificador de la conversación no puede estar vacío")
-    session_id = raw_id.strip()
-    if len(session_id) > MAX_CONVERSATION_ID_LENGTH:
-        raise ValueError(f"El identificador no puede superar {MAX_CONVERSATION_ID_LENGTH} caracteres")
+    if messages is None:
+        messages = []
+    if not isinstance(messages, list):
+        raise ValueError("Los mensajes de la conversación deben ser una lista")
 
-    title = str(session_meta.get("title") or "").strip()
-    if len(title) > MAX_CONVERSATION_TITLE_LENGTH:
-        raise ValueError(f"El título no puede superar {MAX_CONVERSATION_TITLE_LENGTH} caracteres")
-    if not title:
-        title = "Conversación sin título"
+    session_id = _validate_conversation_id(session_meta.get("id"))
+    raw_title = session_meta.get("title")
+    title = _validate_conversation_title("" if raw_title is None else raw_title, allow_empty=True)
 
-    msg_list = messages if isinstance(messages, list) else []
     now = int(time.time() * 1000)
     created_at = int(session_meta.get("createdAt") or now)
     updated_at = int(session_meta.get("updatedAt") or now)
@@ -353,25 +353,23 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
                 title = excluded.title,
                 updated_at = excluded.updated_at,
                 message_count = excluded.message_count;
-        """, (session_id, title, created_at, updated_at, len(msg_list)))
+        """, (session_id, title, created_at, updated_at, len(messages)))
 
         conn.execute("DELETE FROM messages WHERE conversation_id = ?;", (session_id,))
 
-        for pos, msg in enumerate(msg_list):
+        for pos, msg in enumerate(messages):
             if not isinstance(msg, dict):
-                continue
-            msg_id = str(msg.get("id") or "").strip() or f"msg_{session_id}_{pos}_{secrets.token_hex(4)}"
+                raise ValueError("Cada mensaje debe ser un objeto")
+            msg_id = str(msg.get("id") or "").strip() or f"msg_{session_id}_{pos}"
             role = str(msg.get("role") or "user").strip()
-            content = str(msg.get("content") or "") if msg.get("content") is not None else ""
-            msg_created_at = int(msg.get("createdAt") or (created_at + pos))
-
-            extra = {k: v for k, v in msg.items() if k not in ("id", "role", "content", "conversationId", "position", "createdAt")}
+            content = "" if msg.get("content") is None else str(msg.get("content"))
+            extra = {k: v for k, v in msg.items() if k not in ("id", "role", "content", "conversationId", "position")}
             extra_json = json.dumps(extra) if extra else "{}"
 
             conn.execute("""
-                INSERT INTO messages (id, conversation_id, position, role, content, extra_json, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?);
-            """, (msg_id, session_id, pos, role, content, extra_json, msg_created_at))
+                INSERT INTO messages (conversation_id, position, id, role, content, extra_json)
+                VALUES (?, ?, ?, ?, ?, ?);
+            """, (session_id, pos, msg_id, role, content, extra_json))
 
         conn.commit()
         row = conn.execute("SELECT * FROM conversations WHERE id = ?;", (session_id,)).fetchone()
@@ -380,18 +378,13 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
 
 def rename_conversation(session_id: str, new_title: str) -> bool:
     """Renombra una conversación existente en SQLite."""
-    if not session_id or not isinstance(session_id, str) or not session_id.strip():
-        return False
-    title = str(new_title or "").strip()
-    if not title:
-        return False
-    if len(title) > MAX_CONVERSATION_TITLE_LENGTH:
-        raise ValueError(f"El título no puede superar {MAX_CONVERSATION_TITLE_LENGTH} caracteres")
+    clean_id = _validate_conversation_id(session_id)
+    title = _validate_conversation_title(new_title)
     now = int(time.time() * 1000)
     with open_storage() as conn:
         cursor = conn.execute(
             "UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?;",
-            (title, now, session_id.strip())
+            (title, now, clean_id)
         )
         conn.commit()
         return cursor.rowcount > 0
@@ -399,10 +392,9 @@ def rename_conversation(session_id: str, new_title: str) -> bool:
 
 def delete_conversation(session_id: str) -> bool:
     """Elimina una conversación y sus mensajes en cascada."""
-    if not session_id or not isinstance(session_id, str) or not session_id.strip():
-        return False
+    clean_id = _validate_conversation_id(session_id)
     with open_storage() as conn:
-        cursor = conn.execute("DELETE FROM conversations WHERE id = ?;", (session_id.strip(),))
+        cursor = conn.execute("DELETE FROM conversations WHERE id = ?;", (clean_id,))
         conn.commit()
         return cursor.rowcount > 0
 

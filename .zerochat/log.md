@@ -241,3 +241,4 @@
 - 2026-11-07 M46-D2 Endpoints JSON-RPC zerochat/conversations/* (list, get, save, rename, delete) en ff-server.py con soporte de sustitucion atomica de mensajes y borrado masivo con all:true (M46-T2)
 - 2026-11-07 M46-D3 Flag CLI --list-conversations en zz-main.py con salida formateada (id, titulo, mensajes, fecha) e informe de vacio (M46-T3)
 - 2026-11-07 M46-D4 Adaptador de persistencia backend en ChatStorage y sincronizacion bidireccional en ChatConversationService con respaldo continuo en IndexedDB (M46-T4)
+- 2026-11-07 M46-D5 Conversations load and reconcile between IndexedDB and SQLite only on initial connection and Connection panel changes, without silent fallbacks (M46-T7) (M46-T7)

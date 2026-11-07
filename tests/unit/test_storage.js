@@ -174,8 +174,11 @@ test('Storage IndexedDB - conserva el orden de la conversación aunque los ids n
   const history = ['z', 'a', 'm', 'b'].map((id, index) => ({ id, role: index % 2 ? 'assistant' : 'user', content: `mensaje ${index}` }));
   await Storage.saveConversation({ id: 'conv_order' }, history);
   await Storage.saveConversation({ id: 'conv_order' }, [...history, { id: 'c', role: 'user', content: 'mensaje 4' }]);
+  // Otra conversación con un mismo id de mensaje (como system_root) no pisa los mensajes de la primera.
+  await Storage.saveConversation({ id: 'conv_other' }, [{ id: 'z', role: 'system', content: 'otro sistema' }]);
   const loaded = await Storage.getConversation('conv_order');
   assert.deepEqual(loaded.history.map(message => message.id), ['z', 'a', 'm', 'b', 'c']);
+  assert.equal(loaded.history[0].content, 'mensaje 0');
   assert.deepEqual(Object.keys(loaded.history[0]).sort(), ['content', 'id', 'role']);
 });
 
@@ -207,78 +210,92 @@ test('Storage IndexedDB - propaga errores estructurados en lugar de silenciosos 
   }
 });
 
-test('Storage Backend - delega en el backend local cuando está conectado y recurre a IndexedDB ante fallo', async t => {
+test('Storage Backend - sincroniza conversaciones locales y remotas en getConversationsList, replica CRUD y propaga errores del servidor', async t => {
   const MCP = require('../../js/mcp.js');
+  let connected = false;
+  const backendStore = new Map([
+    ['b_conv', {
+      id: 'b_conv',
+      title: 'Backend Chat',
+      createdAt: 100,
+      updatedAt: 200,
+      messageCount: 1,
+      history: [{ id: 'm_b1', role: 'user', content: 'Desde backend' }]
+    }]
+  ]);
   const backendCalls = [];
 
-  t.mock.method(MCP.manager, 'isProxyConnected', () => true);
+  t.mock.method(MCP.manager, 'isProxyConnected', () => connected);
   t.mock.method(MCP.manager, 'requestExternalControl', async (method, params) => {
     backendCalls.push({ method, params });
     if (method === 'zerochat/conversations/list') {
-      return { conversations: [{ id: 'b_conv', title: 'Backend Chat', messageCount: 1, createdAt: 100, updatedAt: 200 }] };
+      return {
+        conversations: Array.from(backendStore.values()).map(({ history, ...header }) => header)
+      };
     }
     if (method === 'zerochat/conversations/get') {
-      if (params.id === 'b_conv') {
-        return { conversation: { id: 'b_conv', title: 'Backend Chat', history: [{ role: 'user', content: 'Desde backend' }] } };
-      }
-      return { conversation: null };
+      return { conversation: backendStore.get(params.id) || null };
     }
     if (method === 'zerochat/conversations/save') {
-      return { conversation: { ...params.conversation, messageCount: (params.messages || []).length } };
+      const history = params.messages || [];
+      const record = { ...params.conversation, messageCount: history.length, history };
+      backendStore.set(record.id, record);
+      return { conversation: record };
     }
     if (method === 'zerochat/conversations/rename') {
-      return { renamed: true };
+      const existing = backendStore.get(params.id);
+      if (existing) existing.title = params.title;
+      return { renamed: Boolean(existing) };
     }
     if (method === 'zerochat/conversations/delete') {
+      if (params.all) backendStore.clear();
+      else backendStore.delete(params.id);
       return { deleted: true };
     }
     throw new Error(`Unexpected method: ${method}`);
   });
 
-  // 1. Con backend conectado, getConversationsList devuelve las del backend
+  await Storage.deleteAllConversations();
+  // Guardar conversación local sin conexión
+  await Storage.saveConversation(
+    { id: 'l_conv', title: 'Local Chat', createdAt: 150, updatedAt: 300 },
+    [{ id: 'm_l1', role: 'user', content: 'Desde local' }]
+  );
+
+  // 1. Al conectar y pedir getConversationsList, sincroniza local -> backend y backend -> IndexedDB
+  connected = true;
   const list = await Storage.getConversationsList();
-  assert.equal(list.length, 1);
-  assert.equal(list[0].id, 'b_conv');
-  assert.equal(backendCalls.pop().method, 'zerochat/conversations/list');
+  assert.deepEqual(list.map(c => c.id), ['l_conv', 'b_conv']);
+  assert.ok(backendStore.has('l_conv'), 'La conversación local se subió al backend');
 
-  // 2. getConversation recupera del backend
-  const conv = await Storage.getConversation('b_conv');
-  assert.ok(conv);
-  assert.equal(conv.title, 'Backend Chat');
-  assert.equal(conv.history[0].content, 'Desde backend');
-  assert.equal(backendCalls.pop().method, 'zerochat/conversations/get');
+  // Al desconectar, b_conv ya quedó guardada en IndexedDB tras la sincronización inicial
+  connected = false;
+  const cachedRemote = await Storage.getConversation('b_conv');
+  assert.ok(cachedRemote);
+  assert.equal(cachedRemote.history[0].content, 'Desde backend');
 
-  // 3. saveConversation persiste en backend y en IndexedDB
-  await Storage.saveConversation({ id: 'dual_conv', title: 'Dual Chat' }, [{ role: 'user', content: 'Hola dual' }]);
+  // 2. Conectado: save, rename, get y delete operan sobre el backend
+  connected = true;
+  backendCalls.length = 0;
+  await Storage.saveConversation({ id: 'dual_conv', title: 'Dual Chat' }, [{ id: 'm1', role: 'user', content: 'Hola dual' }]);
   assert.equal(backendCalls.pop().method, 'zerochat/conversations/save');
-  const indexedConv = await Storage.getIndexedDBConversation('dual_conv');
-  assert.ok(indexedConv);
-  assert.equal(indexedConv.title, 'Dual Chat');
 
-  // 4. rename y delete se replican al backend
   await Storage.renameConversation('dual_conv', 'Nuevo Titulo');
   assert.equal(backendCalls.pop().method, 'zerochat/conversations/rename');
+  assert.equal((await Storage.getConversation('dual_conv')).title, 'Nuevo Titulo');
 
   await Storage.deleteConversation('dual_conv');
   assert.equal(backendCalls.pop().method, 'zerochat/conversations/delete');
-  assert.equal(await Storage.getIndexedDBConversation('dual_conv'), null);
+  assert.equal(await Storage.getConversation('dual_conv'), null);
 
   await Storage.deleteAllConversations();
-  const delAllCall = backendCalls.pop();
-  assert.equal(delAllCall.method, 'zerochat/conversations/delete');
-  assert.equal(delAllCall.params.all, true);
+  assert.deepEqual(backendCalls.pop(), { method: 'zerochat/conversations/delete', params: { all: true } });
 
-  // 5. Fallback: si el backend falla, getConversationsList y getConversation recurren a IndexedDB
-  await Storage.saveIndexedDBConversation({ id: 'offline_chat', title: 'Offline Chat' }, [{ role: 'user', content: 'Local' }]);
-  t.mock.method(console, 'warn', () => {});
+  // 3. Sin fallbacks silenciosos: un fallo del servidor conectado se propaga al llamador
   t.mock.method(MCP.manager, 'requestExternalControl', async () => {
     throw new Error('Backend network error');
   });
-
-  const fallbackList = await Storage.getConversationsList();
-  assert.ok(fallbackList.some(item => item.id === 'offline_chat'));
-
-  const fallbackConv = await Storage.getConversation('offline_chat');
-  assert.ok(fallbackConv);
-  assert.equal(fallbackConv.title, 'Offline Chat');
+  await assert.rejects(Storage.getConversationsList(), /Backend network error/);
+  await assert.rejects(Storage.getConversation('l_conv'), /Backend network error/);
+  await assert.rejects(Storage.saveConversation({ id: 'err_conv', title: 'Err' }, []), /Backend network error/);
 });

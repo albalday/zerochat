@@ -144,31 +144,26 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(res["conversation"]["title"], "Conversación RPC")
         self.assertEqual(res["conversation"]["messageCount"], 1)
 
-        # 2. Guardar conversación pasando los mensajes en conversation.history
+        # 2. Guardar segunda conversación
         payload2 = {
             "conversation": {
                 "id": "rpc_conv_2",
                 "title": "Segunda conversación de prueba",
                 "createdAt": 1700000002000,
-                "updatedAt": 1700000003000,
-                "history": [{"id": "m2", "role": "user", "content": "Otro mensaje"}]
-            }
+                "updatedAt": 1700000003000
+            },
+            "messages": [{"id": "m2", "role": "user", "content": "Otro mensaje"}]
         }
         res, err, _ = handler._dispatch_conversations("zerochat/conversations/save", payload2)
         self.assertIsNone(err)
         self.assertEqual(res["conversation"]["id"], "rpc_conv_2")
         self.assertEqual(res["conversation"]["messageCount"], 1)
 
-        # 3. Listar conversaciones y filtrar por título
+        # 3. Listar conversaciones
         res, err, _ = handler._dispatch_local("zerochat/conversations/list", {})
         self.assertIsNone(err)
         self.assertEqual(len(res["conversations"]), 2)
         self.assertEqual(res["conversations"][0]["id"], "rpc_conv_2")
-
-        res_filt, err_filt, _ = handler._dispatch_conversations("zerochat/conversations/list", {"filter": "Segunda"})
-        self.assertIsNone(err_filt)
-        self.assertEqual(len(res_filt["conversations"]), 1)
-        self.assertEqual(res_filt["conversations"][0]["id"], "rpc_conv_2")
 
         # 4. Obtener conversación completa por id
         res, err, _ = handler._dispatch_local("zerochat/conversations/get", {"id": "rpc_conv_1"})
@@ -209,7 +204,7 @@ class StorageEngineTest(unittest.TestCase):
         self.assertTrue(res["deleted"])
         self.assertEqual(res["count"], 1)
 
-        res_empty, _, _ = handler._dispatch_conversations("zerochat/conversations/list", None)
+        res_empty, _, _ = handler._dispatch_conversations("zerochat/conversations/list", {})
         self.assertEqual(len(res_empty["conversations"]), 0)
 
     def test_rpc_dispatch_conversations_validaciones(self):
@@ -335,39 +330,42 @@ class StorageEngineTest(unittest.TestCase):
             "updatedAt": 1700000001000
         }
         messages = [
-            {"id": "msg_1", "role": "user", "content": "¿Cómo estás?", "createdAt": 1700000000100},
-            {"id": "msg_2", "role": "assistant", "content": "¡Bien! ¿En qué te ayudo?", "tool_calls": [{"id": "call_1", "name": "test"}], "createdAt": 1700000000200}
+            {"id": "system_root", "role": "system", "content": "Prompt del sistema"},
+            {"id": "msg_1", "role": "user", "content": "¿Cómo estás?"},
+            {"id": "msg_2", "role": "assistant", "content": "¡Bien! ¿En qué te ayudo?", "tool_calls": [{"id": "call_1", "name": "test"}]}
         ]
         saved = zerochat.save_conversation(meta, messages)
         self.assertEqual(saved["id"], "session_test_123")
         self.assertEqual(saved["title"], "Conversación de prueba")
-        self.assertEqual(saved["messageCount"], 2)
+        self.assertEqual(saved["messageCount"], 3)
 
         retrieved = zerochat.get_conversation("session_test_123")
         self.assertIsNotNone(retrieved)
         self.assertEqual(retrieved["id"], "session_test_123")
         self.assertEqual(retrieved["title"], "Conversación de prueba")
-        self.assertEqual(len(retrieved["history"]), 2)
-        self.assertEqual(retrieved["history"][0]["content"], "¿Cómo estás?")
-        self.assertEqual(retrieved["history"][1]["tool_calls"], [{"id": "call_1", "name": "test"}])
+        self.assertEqual(len(retrieved["history"]), 3)
+        self.assertEqual(retrieved["history"][0]["id"], "system_root")
+        self.assertEqual(retrieved["history"][1]["content"], "¿Cómo estás?")
+        self.assertEqual(retrieved["history"][2]["tool_calls"], [{"id": "call_1", "name": "test"}])
 
-        # Guardar una segunda conversación más reciente para probar list_conversations y filtro
+        # Guardar una segunda conversación más reciente con el mismo id de mensaje inicial ('system_root')
         meta2 = {
             "id": "session_test_456",
             "title": "Otra charla sobre arquitectura",
             "createdAt": 1700000002000,
             "updatedAt": 1700000003000
         }
-        zerochat.save_conversation(meta2, [{"id": "msg_3", "role": "user", "content": "Hola"}])
+        zerochat.save_conversation(meta2, [
+            {"id": "system_root", "role": "system", "content": "Otro sistema"},
+            {"id": "msg_1", "role": "user", "content": "Hola"}
+        ])
+        self.assertEqual(len(zerochat.get_conversation("session_test_123")["history"]), 3)
+        self.assertEqual(len(zerochat.get_conversation("session_test_456")["history"]), 2)
 
         listed = zerochat.list_conversations()
         self.assertEqual(len(listed), 2)
         self.assertEqual(listed[0]["id"], "session_test_456")  # Más reciente primero
         self.assertEqual(listed[1]["id"], "session_test_123")
-
-        filtered = zerochat.list_conversations("arquitectura")
-        self.assertEqual(len(filtered), 1)
-        self.assertEqual(filtered[0]["id"], "session_test_456")
 
         # Renombrar conversación
         self.assertTrue(zerochat.rename_conversation("session_test_123", "Título Renombrado"))
@@ -421,13 +419,13 @@ class StorageEngineTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     zerochat.save_conversation({"id": bad_id, "title": "Valido"})
 
-        # Título vacío recibe fallback por defecto
-        saved_fallback = zerochat.save_conversation({"id": "fallback_id", "title": "   "})
-        self.assertEqual(saved_fallback["title"], "Conversación sin título")
+        # Título vacío se conserva vacío como en IndexedDB
+        saved_empty = zerochat.save_conversation({"id": "empty_title_id", "title": "   "})
+        self.assertEqual(saved_empty["title"], "")
 
         # rename con N+1
         with self.assertRaises(ValueError):
-            zerochat.rename_conversation("fallback_id", "t" * (zerochat.MAX_CONVERSATION_TITLE_LENGTH + 1))
+            zerochat.rename_conversation("empty_title_id", "t" * (zerochat.MAX_CONVERSATION_TITLE_LENGTH + 1))
 
         # Inexistentes devuelven None/False sin lanzar excepción
         self.assertIsNone(zerochat.get_conversation("no_existe"))

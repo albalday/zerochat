@@ -40,6 +40,8 @@ async function routeBackend(page, prompt, { profile, exportFormat, keepPage = fa
       });
     }
     if (method === 'zerochat/heartbeat') return reply(liveState());
+    if (method === 'zerochat/conversations/list') return reply({ conversations: [] });
+    if (method === 'zerochat/conversations/save') return reply({ conversation: params.conversation });
     if (method === 'tools/list') {
       return reply({ tools: ['demo_action', 'write_file', 'run_command'].map(name => ({ name, description: name, inputSchema: { type: 'object', properties: {} } })) });
     }

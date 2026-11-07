@@ -789,14 +789,6 @@
       refreshProjectContext
     );
     State.subscribe('project', renderProjectPanel);
-    State.subscribe(
-      state => state.mcp.status,
-      (status, prevStatus) => {
-        if (status === 'connected' && prevStatus !== 'connected') {
-          ConversationService.syncConversations(getConversationServiceOptions());
-        }
-      }
-    );
     // Al terminar un turno el agente puede haber creado o actualizado los ficheros del proyecto.
     State.subscribe(state => ({ generating: state.streaming.isGenerating }), ({ generating }) => {
       if (!generating && getRuntimeConfig().projectMode === true) refreshProjectContext();
@@ -872,13 +864,15 @@
   }
 
   /** Conecta con el destino configurado, con el token de la sesión si es de esa URL; un 401 pide identificarse. */
-  function connectConfiguredBackend() {
+  async function connectConfiguredBackend() {
     const target = configuredTarget();
     const session = Storage.getBackendSession();
     const token = session?.url === target.url ? session.token : null;
     MCP.manager.setSessionToken(token);
     if (token) ToolSecurity.manager.setSessionToken(token);
-    return MCP.manager.connectProxy({ ...target, token });
+    const result = await MCP.manager.connectProxy({ ...target, token });
+    await ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
+    return result;
   }
 
   /** Se identifica en el destino de la conexión, guarda el token diario en la sesión y conecta con él. */
@@ -887,7 +881,9 @@
     const token = await MCP.manager.login(user, password);
     saveBackendSession({ token, url });
     ToolSecurity.manager.setSessionToken(token);
-    return MCP.manager.connectProxy({ url, proxyKey, token });
+    const result = await MCP.manager.connectProxy({ url, proxyKey, token });
+    await ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
+    return result;
   }
 
   /**
@@ -899,7 +895,10 @@
     const session = runBackendSession || Storage.getBackendSession();
     if (!session) return Promise.resolve({ success: false });
     ToolSecurity.manager.setSessionToken(session.token);
-    return MCP.manager.connectProxy({ url: session.url, proxyKey: proxyKeyFor(session.url), token: session.token }).catch(error => {
+    return MCP.manager.connectProxy({ url: session.url, proxyKey: proxyKeyFor(session.url), token: session.token }).then(async result => {
+      if (result.success) await ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
+      return result;
+    }).catch(error => {
       console.warn('[App] Could not connect to the local server on startup:', error);
       return { success: false };
     });
