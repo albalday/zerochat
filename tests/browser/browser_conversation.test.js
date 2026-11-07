@@ -781,4 +781,91 @@ test('Browser UI - el subagente de delegate_task muestra sus herramientas en su 
   } finally { await browser.close(); }
 });
 
+test('Browser UI - conversación con múltiples imágenes pesadas persiste blobs en store paralelo y mantiene payload ligero', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+
+    const sessionId = 'test_heavy_blobs_session';
+    const testResult = await page.evaluate(async (sessionId) => {
+      // 3 imágenes pesadas sintéticas de ~400 KiB cada una (total > 1.2 MiB)
+      const chunk = 'A'.repeat(400 * 1024);
+      const b64_1 = btoa(chunk);
+      const b64_2 = btoa('B'.repeat(400 * 1024));
+      const b64_3 = btoa('C'.repeat(400 * 1024));
+
+      const img1 = { name: 'heavy_1.png', dataUrl: `data:image/png;base64,${b64_1}`, mimeType: 'image/png' };
+      const img2 = { name: 'heavy_2.png', dataUrl: `data:image/png;base64,${b64_2}`, mimeType: 'image/png' };
+      const img3 = { name: 'heavy_3.png', dataUrl: `data:image/png;base64,${b64_3}`, mimeType: 'image/png' };
+
+      const history = [
+        { id: 'msg_h1', role: 'user', content: 'Mensaje con imagen 1 y 2', images: [img1, img2] },
+        { id: 'msg_h2', role: 'assistant', content: 'Recibidas las imágenes.' },
+        { id: 'msg_h3', role: 'user', content: 'Mensaje con imagen 3', images: [img3] }
+      ];
+
+      // Guardar conversación mediante Storage
+      await window.ChatStorage.saveConversation({ id: sessionId, title: 'Chat Pesado' }, history);
+
+      // Inspeccionar directamente la base IndexedDB para verificar que messages es ligero y blobs contiene los datos
+      const db = await window.ZeroChatDB.openDatabase();
+      const messagesTx = db.transaction('messages', 'readonly');
+      const storedMsgs = await new Promise((res, rej) => {
+        const req = messagesTx.objectStore('messages').getAll();
+        req.onsuccess = () => res(req.result);
+        req.onerror = rej;
+      });
+
+      const sessionMsgs = storedMsgs.filter(m => m.conversationId === sessionId);
+      const storedPayloadSize = JSON.stringify(sessionMsgs).length;
+
+      // Verificar blobs en el store 'blobs'
+      const blobsTx = db.transaction('blobs', 'readonly');
+      const blobCount = await new Promise((res, rej) => {
+        const req = blobsTx.objectStore('blobs').count();
+        req.onsuccess = () => res(req.result);
+        req.onerror = rej;
+      });
+
+      // Recuperar la conversación y verificar que las imágenes se hidratan
+      const retrieved = await window.ChatStorage.getConversation(sessionId);
+
+      return {
+        storedPayloadSize,
+        blobCount,
+        firstMsgImages: sessionMsgs[0]?.images,
+        retrievedImage1DataUrlLength: retrieved?.history?.[0]?.images?.[0]?.dataUrl?.length || 0,
+        retrievedImage2DataUrlLength: retrieved?.history?.[0]?.images?.[1]?.dataUrl?.length || 0
+      };
+    }, sessionId);
+
+    // Verificaciones:
+    // 1. El payload guardado en messages debe ser diminuto (menor a 2 KiB), NUNCA los > 1.2 MiB de las imágenes
+    assert.ok(testResult.storedPayloadSize < 2048, `El tamaño guardado (${testResult.storedPayloadSize}) debe ser menor a 2 KiB`);
+    // 2. En el store messages, los items de images solo tienen blobId y carecen de dataUrl
+    assert.equal(testResult.firstMsgImages.length, 2);
+    assert.equal(testResult.firstMsgImages[0].dataUrl, undefined);
+    assert.ok(testResult.firstMsgImages[0].blobId && testResult.firstMsgImages[0].blobId.length === 64);
+    assert.equal(testResult.firstMsgImages[1].dataUrl, undefined);
+    assert.ok(testResult.firstMsgImages[1].blobId && testResult.firstMsgImages[1].blobId.length === 64);
+    // 3. El store de blobs tiene los 3 registros guardados
+    assert.ok(testResult.blobCount >= 3);
+    // 4. Al recuperar la conversación, dataUrl está completamente hidratado
+    assert.ok(testResult.retrievedImage1DataUrlLength > 500000);
+    assert.ok(testResult.retrievedImage2DataUrlLength > 500000);
+
+    // 5. Recargar y verificar que en la interfaz la conversación se restaura y pinta las miniaturas
+    await page.reload({ waitUntil: 'load' });
+    await waitForAppReady(page);
+    await page.locator(`.sidebar-chat-item[data-session-id="${sessionId}"]`).evaluate(item => item.click());
+    await page.waitForSelector('.message-image-thumb');
+    const thumbCount = await page.locator('.message-image-thumb').count();
+    assert.ok(thumbCount >= 2, 'Las miniaturas deben pintarse en el chat');
+  } finally {
+    await browser.close();
+  }
+});
+
 });

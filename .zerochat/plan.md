@@ -103,4 +103,4 @@ Done when: Las imágenes y adjuntos pesados se gestionan en un almacén paralelo
 - [x] M49-T2 Almacén paralelo de blobs en IndexedDB (store blobs) y métodos de acceso y deduplicación en js/storage-db.js y js/storage.js con pruebas unitarias (2026-11-07)
 - [x] M49-T3 Extracción y reemplazo de imágenes y adjuntos embebidos por referencias ligeras en js/attachments.js y js/generation-controller.js (2026-11-07)
 - [x] M49-T4 Sincronización en js/conversation-service.js con subida previa de blobs pendientes antes de guardar la conversación y resolución al cargar/exportar (2026-11-07)
-- [ ] M49-T5 Pruebas de integración y navegador con conversaciones con múltiples adjuntos pesados verificando que el payload de guardado se mantiene bajo el límite de 1 MiB
+- [x] M49-T5 Pruebas de integración y navegador con conversaciones con múltiples adjuntos pesados verificando que el payload de guardado se mantiene bajo el límite de 1 MiB (2026-11-07)
