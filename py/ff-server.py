@@ -624,11 +624,14 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return self._dispatch_browser(method, params)
         if method.startswith("zerochat/profiles/"):
             return self._dispatch_profiles(method, params)
+        if method.startswith("zerochat/conversations/"):
+            return self._dispatch_conversations(method, params)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @staticmethod
     def _dispatch_profiles(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
         """Gestión de perfiles generales almacenados en SQLite en el backend local."""
+        params = params if isinstance(params, dict) else {}
         try:
             if method == "zerochat/profiles/list":
                 return {"profiles": list_general_profiles()}, None, ""
@@ -646,6 +649,50 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return None, {"code": -32602, "message": str(exc)}, ""
         except Exception as exc:
             return None, {"code": -32603, "message": f"Error en gestión de perfiles: {exc}"}, str(exc)
+        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
+
+    @staticmethod
+    def _dispatch_conversations(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+        """Gestión de conversaciones y mensajes almacenados en SQLite en el backend local."""
+        params = params if isinstance(params, dict) else {}
+        try:
+            if method == "zerochat/conversations/list":
+                filter_text = params.get("filter") or ""
+                return {"conversations": list_conversations(str(filter_text))}, None, ""
+            if method == "zerochat/conversations/get":
+                session_id = params.get("id")
+                if not isinstance(session_id, str) or not session_id.strip():
+                    return None, {"code": -32602, "message": "id debe ser un texto no vacío."}, ""
+                return {"conversation": get_conversation(session_id)}, None, ""
+            if method == "zerochat/conversations/save":
+                conv_data = params.get("conversation")
+                if not isinstance(conv_data, dict):
+                    return None, {"code": -32602, "message": "conversation debe ser un objeto."}, ""
+                messages = params.get("messages")
+                if messages is None:
+                    messages = conv_data.get("history") or conv_data.get("messages")
+                if messages is not None and not isinstance(messages, list):
+                    return None, {"code": -32602, "message": "messages debe ser una lista."}, ""
+                return {"conversation": save_conversation(conv_data, messages)}, None, ""
+            if method == "zerochat/conversations/rename":
+                session_id = params.get("id")
+                if not isinstance(session_id, str) or not session_id.strip():
+                    return None, {"code": -32602, "message": "id debe ser un texto no vacío."}, ""
+                title = params.get("title")
+                if not isinstance(title, str) or not title.strip():
+                    return None, {"code": -32602, "message": "title debe ser un texto no vacío."}, ""
+                return {"renamed": rename_conversation(session_id, title)}, None, ""
+            if method == "zerochat/conversations/delete":
+                if params.get("all") is True:
+                    return {"deleted": True, "count": delete_all_conversations()}, None, ""
+                session_id = params.get("id")
+                if not isinstance(session_id, str) or not session_id.strip():
+                    return None, {"code": -32602, "message": "id debe ser un texto no vacío."}, ""
+                return {"deleted": delete_conversation(session_id)}, None, ""
+        except ValueError as exc:
+            return None, {"code": -32602, "message": str(exc)}, ""
+        except Exception as exc:
+            return None, {"code": -32603, "message": f"Error en gestión de conversaciones: {exc}"}, str(exc)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @staticmethod
