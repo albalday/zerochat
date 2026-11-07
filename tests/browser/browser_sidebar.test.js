@@ -176,4 +176,112 @@ test('Browser UI - importar asigna un id nuevo y rechaza JSON inválidos y archi
   });
 });
 
+test('Browser UI - sincronización y transiciones fluidas de conversaciones online/offline con el backend', async () => {
+  await withTestApp(async page => {
+    // 1. Fase offline: guardar conversación local con mensajes en IndexedDB y cargarla como activa
+    await page.evaluate(async () => {
+      const session = { id: 'chat_local_1', title: 'Conversación Local', createdAt: Date.now() - 5000, updatedAt: Date.now() - 5000, messageCount: 1 };
+      const messages = [{ id: 'msg_loc_1', role: 'user', content: 'Mensaje creado sin conexión' }];
+      await window.ChatStorage.saveIndexedDBConversation(session, messages);
+      const elements = {
+        sidebarChatsList: document.getElementById('sidebar-chats-list'),
+        sidebarSearchInput: document.getElementById('sidebar-search-input')
+      };
+      const list = await window.ChatStorage.getIndexedDBConversationsList();
+      window.ChatState.replaceConversation({ sessionId: 'chat_local_1', messages, sessions: list });
+      window.ChatUISidebar.renderSidebarChats(elements, list, 'chat_local_1');
+    });
+
+    await page.waitForSelector('.sidebar-chat-item[data-session-id="chat_local_1"].active');
+    assert.equal(await page.locator('.sidebar-chat-item[data-session-id="chat_local_1"] .sidebar-chat-title').textContent(), 'Conversación Local');
+
+    // 2. Fase online: simular servidor local conectado con una conversación remota
+    const syncResult = await page.evaluate(async () => {
+      const backendStore = new Map([
+        ['chat_remote_1', {
+          id: 'chat_remote_1',
+          title: 'Conversación Remota',
+          createdAt: Date.now() - 1000,
+          updatedAt: Date.now() - 1000,
+          history: [{ id: 'msg_rem_1', role: 'user', content: 'Mensaje traído desde SQLite' }]
+        }]
+      ]);
+      const savedToBackend = [];
+
+      const mcpManager = window.ChatMCP.manager;
+      const origIsProxy = mcpManager.isProxyConnected;
+      const origRequest = mcpManager.requestExternalControl;
+
+      mcpManager.isProxyConnected = () => true;
+      mcpManager.requestExternalControl = async (method, params) => {
+        if (method === 'zerochat/conversations/list') {
+          return {
+            conversations: Array.from(backendStore.values()).map(c => ({
+              id: c.id,
+              title: c.title,
+              createdAt: c.createdAt,
+              updatedAt: c.updatedAt,
+              messageCount: c.history.length
+            }))
+          };
+        }
+        if (method === 'zerochat/conversations/get') {
+          return { conversation: backendStore.get(params.id) || null };
+        }
+        if (method === 'zerochat/conversations/save') {
+          savedToBackend.push(params.conversation.id);
+          backendStore.set(params.conversation.id, {
+            ...params.conversation,
+            history: params.messages || []
+          });
+          return { conversation: params.conversation };
+        }
+        return {};
+      };
+
+      try {
+        const elements = {
+          sidebarChatsList: document.getElementById('sidebar-chats-list'),
+          sidebarSearchInput: document.getElementById('sidebar-search-input')
+        };
+        const res = await window.ChatConversationService.syncConversations({
+          renderSidebarChats: () => {
+            window.ChatUISidebar.renderSidebarChats(elements, window.ChatState.get('sessions').list, window.ChatState.get('sessions').activeId);
+          }
+        });
+        return {
+          res,
+          savedToBackend,
+          sessionsInState: window.ChatState.get('sessions').list.map(s => s.id),
+          inIndexedDb: await window.ChatStorage.getIndexedDBConversation('chat_remote_1')
+        };
+      } finally {
+        mcpManager.isProxyConnected = origIsProxy;
+        mcpManager.requestExternalControl = origRequest;
+      }
+    });
+
+    // Validar que la sincronización subió el chat local y descargó el chat remoto
+    assert.equal(syncResult.res.synced, true);
+    assert.ok(syncResult.savedToBackend.includes('chat_local_1'), 'El chat local se subió al backend');
+    assert.ok(syncResult.inIndexedDb, 'El chat remoto se respaldó en IndexedDB');
+    assert.ok(syncResult.sessionsInState.includes('chat_local_1'));
+    assert.ok(syncResult.sessionsInState.includes('chat_remote_1'));
+
+    // En la interfaz deben verse ambas conversaciones en la barra lateral
+    await page.waitForSelector('.sidebar-chat-item[data-session-id="chat_remote_1"]');
+    await page.waitForSelector('.sidebar-chat-item[data-session-id="chat_local_1"]');
+
+    // 3. Cambiar a la conversación remota
+    await page.locator('.sidebar-chat-item[data-session-id="chat_remote_1"]').click();
+    await page.waitForSelector('.sidebar-chat-item[data-session-id="chat_remote_1"].active');
+    assert.equal(await page.locator('#messages-list').textContent(), 'Mensaje traído desde SQLite');
+
+    // 4. Volver a offline y cambiar fluidamente de conversación desde el caché IndexedDB
+    await page.locator('.sidebar-chat-item[data-session-id="chat_local_1"]').click();
+    await page.waitForSelector('.sidebar-chat-item[data-session-id="chat_local_1"].active');
+    assert.equal(await page.locator('#messages-list').textContent(), 'Mensaje creado sin conexión');
+  });
+});
+
 });
