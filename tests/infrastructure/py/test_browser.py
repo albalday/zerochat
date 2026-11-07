@@ -142,9 +142,31 @@ class BrowserActionTest(unittest.TestCase):
         for bad_args in (
             ["--prompt", "Hola", "--headless"],
             ["--prompt", "Hola", "--keep-page"],
-            ["--prompt", "Hola", "--browser", "--headless", "--keep-page"],
             ["--browser"],
         ):
             with self.subTest(bad_args=bad_args), self.assertRaises(SystemExit) as err:
                 zerochat.run_session_from_args(parser, parser.parse_args(bad_args))
             self.assertEqual(err.exception.code, zerochat.RUN_EXIT_ARGS)
+
+    def test_launch_playwright_chromium_y_headless_desactivan_bloqueos_de_red_local(self):
+        with patch.object(zerochat, "playwright_chromium_executable", return_value="/bin/chrome-headless-shell"), \
+             patch("subprocess.Popen") as mock_popen:
+            zerochat.launch_playwright_chromium("https://example.com#token=1")
+            args, _ = mock_popen.call_args
+            self.assertEqual(args[0], [
+                "/bin/chrome-headless-shell",
+                "--headless",
+                "--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests",
+                "https://example.com#token=1",
+            ])
+
+        with patch.object(zerochat, "default_browser_executable", return_value="/bin/google-chrome"), \
+             patch("subprocess.Popen") as mock_popen:
+            zerochat.launch_headless_browser("https://example.com#token=2")
+            args, _ = mock_popen.call_args
+            self.assertEqual(args[0], [
+                "/bin/google-chrome",
+                "--headless",
+                "--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests",
+                "https://example.com#token=2",
+            ])

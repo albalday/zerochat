@@ -1,9 +1,14 @@
 fichero de uso del programador como recordatorio. no analizar
 
-planificador
-
-sub agente (mismo-otro)
 
 webllm lista de modelos mejorar para movil
 
-descargar pdf no extrae imagenes
+gestion de adjuntos en historial para que se puedan sicronizar chats largos
+
+planificacion de tareas
+
+uso de subagentes de servidor
+
+normalizacion nombres de perfiles del sistema y sus usos
+
+compatibilidad hacia atras quitar

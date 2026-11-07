@@ -229,10 +229,10 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     // Con --browser --headless abre el navegador predeterminado del usuario con --headless.
     assert.equal(userHeadless.code, 0, userHeadless.stderr);
     assert.equal(userHeadless.info.launcher, 'user-browser');
-    assert.deepEqual(userHeadless.info.args, ['--headless']);
+    assert.deepEqual(userHeadless.info.args, ['--headless', '--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests']);
     // Por defecto (sin --browser) usa el Chromium de Playwright en modo headless y el perfil Z-local.
     assert.equal(failed.info.launcher, 'chrome-headless-shell');
-    assert.deepEqual(failed.info.args, ['--headless']);
+    assert.deepEqual(failed.info.args, ['--headless', '--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests']);
     // La interfaz es la del arranque normal (la local en desarrollo) con run= en el fragmento.
     assert.equal(ok.info.url, `http://127.0.0.1:${ok.port}/zerochat.html`);
     assert.deepEqual(ok.info.fragment_keys, ['host', 'port', 'run', 'token']);
