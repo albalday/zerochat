@@ -167,7 +167,7 @@
 
   const getMCP = () => resolveDep('ChatMCP', './mcp.js');
   const isBackendConnected = () => getMCP().manager.isProxyConnected();
-  const requestBackend = (method, params = {}) => getMCP().manager.requestExternalControl(method, params);
+  const requestBackend = (method, params = {}, options = {}) => getMCP().manager.requestExternalControl(method, params, options);
 
   const conversationRange = id => IDBKeyRange.bound([id, -Infinity], [id, Infinity]);
 
