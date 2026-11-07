@@ -16,16 +16,27 @@
   const { resolveDep } = Utils;
 
   const getState = () => resolveDep('ChatState', './state.js');
+  const getStorage = () => resolveDep('ChatStorage', './storage.js');
 
   const getFiles = () => getState().get('ui').attachedFiles;
   const setFiles = files => getState().setAttachments([...files]);
-  const clearFiles = () => getState().clearAttachments();
+
+  function clearFiles() {
+    const files = getFiles();
+    files.forEach(f => {
+      if (f?.blobId) getStorage().deleteBlob(f.blobId).catch(err => console.warn('[ChatAttachments] Could not delete blob:', err));
+    });
+    getState().clearAttachments();
+  }
 
   function removeFileAt(index) {
     const files = getFiles();
     if (index >= 0 && index < files.length) {
-      files.splice(index, 1);
+      const [removed] = files.splice(index, 1);
       setFiles(files);
+      if (removed?.blobId) {
+        getStorage().deleteBlob(removed.blobId).catch(err => console.warn('[ChatAttachments] Could not delete blob:', err));
+      }
     }
   }
 

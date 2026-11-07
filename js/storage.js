@@ -202,14 +202,18 @@
     });
   }
 
-  function readLocalConversation(sessionId) {
-    return attempt('read the conversation', async db => {
+  async function readLocalConversation(sessionId) {
+    const conversation = await attempt('read the conversation', async db => {
       const tx = db.transaction([STORES.conversations, STORES.messages], 'readonly');
       const conversation = await requestResult(tx.objectStore(STORES.conversations).get(sessionId));
       if (!conversation) return null;
       const messages = await getAllByIndex(tx.objectStore(STORES.messages), 'by_conversation', conversationRange(sessionId));
       return { ...toConversationHeader(conversation), history: messages.map(fromMessageRecord) };
     });
+    if (conversation?.history) {
+      await hydrateMessageImages(conversation.history);
+    }
+    return conversation;
   }
 
   function writeLocalConversation(sessionMeta, messages = []) {
@@ -269,17 +273,120 @@
     if (!sessionId) return null;
     if (isBackendConnected()) {
       const result = await requestBackend('zerochat/conversations/get', { id: sessionId });
-      if (result?.conversation) return result.conversation;
+      if (result?.conversation) {
+        if (result.conversation.history) {
+          await hydrateMessageImages(result.conversation.history);
+        }
+        return result.conversation;
+      }
     }
     return readLocalConversation(sessionId);
+  }
+
+  /**
+   * Extrae los blobs de imágenes para guardarlos en el store blobs y deja solo referencias ligeras en messages.
+   */
+  async function prepareMessagesForStorage(messages) {
+    if (!Array.isArray(messages)) return [];
+    const prepared = [];
+    for (const msg of messages) {
+      if (Array.isArray(msg?.images) && msg.images.length > 0) {
+        const lightweightImages = [];
+        for (const img of msg.images) {
+          if (!img || typeof img !== 'object') continue;
+          let blobId = img.blobId;
+          if (!blobId && img.dataUrl) {
+            const blobRecord = await saveBlob({
+              dataUrl: img.dataUrl,
+              mimeType: img.mimeType,
+              size: img.size
+            });
+            blobId = blobRecord.id;
+          }
+          lightweightImages.push({
+            name: img.name || '',
+            blobId: blobId || '',
+            mimeType: img.mimeType || 'image/jpeg',
+            size: typeof img.size === 'number' ? img.size : (img.dataUrl ? img.dataUrl.length : 0)
+          });
+        }
+        prepared.push({ ...msg, images: lightweightImages });
+      } else {
+        prepared.push(msg);
+      }
+    }
+    return prepared;
+  }
+
+  /** Hidrata las imágenes de los mensajes recuperando su dataUrl desde el store de blobs o el backend. */
+  async function hydrateMessageImages(messages) {
+    if (!Array.isArray(messages)) return messages;
+    for (const msg of messages) {
+      if (Array.isArray(msg?.images)) {
+        for (const img of msg.images) {
+          if (img?.blobId && !img.dataUrl) {
+            let blob = null;
+            if (await hasBlob(img.blobId)) {
+              blob = await getBlob(img.blobId);
+            } else if (isBackendConnected()) {
+              try {
+                const res = await requestBackend('zerochat/blobs/get', { id: img.blobId });
+                if (res?.blob?.data) {
+                  blob = await saveBlob({
+                    id: res.blob.id,
+                    mimeType: res.blob.mimeType,
+                    size: res.blob.size,
+                    dataUrl: `data:${res.blob.mimeType};base64,${res.blob.data}`
+                  });
+                }
+              } catch (error) {
+                // Si el servidor falla o no tiene el blob, se continúa sin interrumpir la carga del mensaje.
+                console.warn('[ChatStorage] Could not fetch remote blob:', error);
+              }
+            }
+            if (blob?.dataUrl) {
+              img.dataUrl = blob.dataUrl;
+            }
+          }
+        }
+      }
+    }
+    return messages;
+  }
+
+  /** Sube al backend los blobs pendientes antes de guardar la conversación. */
+  async function syncPendingBlobs(messages) {
+    const blobIds = [];
+    for (const msg of messages) {
+      if (Array.isArray(msg?.images)) {
+        for (const img of msg.images) {
+          if (img?.blobId) blobIds.push(img.blobId);
+        }
+      }
+    }
+    if (blobIds.length === 0) return;
+    const uniqueIds = Array.from(new Set(blobIds));
+    const { missing = [] } = await requestBackend('zerochat/blobs/has', { ids: uniqueIds });
+    for (const blobId of missing) {
+      const blob = await getBlob(blobId);
+      if (blob?.dataUrl) {
+        await requestBackend('zerochat/blobs/put', {
+          id: blob.id,
+          mimeType: blob.mimeType,
+          data: blob.dataUrl
+        }, { headers: { 'X-ZeroChat-Blob': '1' } });
+      }
+    }
   }
 
   /** Guarda una conversación y sustituye todos sus mensajes. */
   async function saveConversation(sessionMeta, messages = []) {
     if (!sessionMeta?.id) return false;
-    await writeLocalConversation(sessionMeta, messages);
+    const preparedMessages = await prepareMessagesForStorage(messages);
+    await writeLocalConversation(sessionMeta, preparedMessages);
     if (isBackendConnected()) {
-      await requestBackend('zerochat/conversations/save', { conversation: sessionMeta, messages });
+      await syncPendingBlobs(preparedMessages);
+      await requestBackend('zerochat/conversations/save', { conversation: sessionMeta, messages: preparedMessages });
     }
     return true;
   }
@@ -329,6 +436,95 @@
     return renamed;
   }
 
+  function dataUrlToBytes(dataUrl) {
+    const commaIdx = dataUrl.indexOf(',');
+    const b64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  async function computeBlobId(bytes) {
+    const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(hashBuffer))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  /**
+   * Guarda un blob en IndexedDB indexado por su hash SHA-256 (deduplicado automáticamente).
+   * Admite { dataUrl, mimeType, size?, id? } o { bytes, mimeType, size?, id? }.
+   */
+  async function saveBlob(blob) {
+    if (!blob || typeof blob !== 'object') throw new Error('Blob data is required');
+    let bytes = blob.bytes;
+    let dataUrl = blob.dataUrl;
+    let mimeType = blob.mimeType || 'application/octet-stream';
+
+    if (!bytes && dataUrl) {
+      bytes = dataUrlToBytes(dataUrl);
+      if (!blob.mimeType && dataUrl.startsWith('data:')) {
+        const scIdx = dataUrl.indexOf(';');
+        if (scIdx > 5) mimeType = dataUrl.slice(5, scIdx);
+      }
+    } else if (bytes && !dataUrl) {
+      dataUrl = `data:${mimeType};base64,${Utils.bytesToBase64(bytes)}`;
+    }
+
+    if (!bytes || bytes.length === 0) throw new Error('Blob data cannot be empty');
+
+    const id = (blob.id || (await computeBlobId(bytes))).trim().toLowerCase();
+    const size = typeof blob.size === 'number' ? blob.size : bytes.length;
+    const now = Date.now();
+    const record = {
+      id,
+      mimeType,
+      size,
+      dataUrl,
+      createdAt: blob.createdAt || now
+    };
+
+    await attempt('save blob', async db => {
+      const tx = db.transaction(STORES.blobs, 'readwrite');
+      tx.objectStore(STORES.blobs).put(record);
+      await transactionDone(tx);
+    });
+
+    return record;
+  }
+
+  /** Recupera un blob de IndexedDB por su id (hash SHA-256). */
+  async function getBlob(id) {
+    if (!id || typeof id !== 'string') return null;
+    return attempt('get blob', async db => {
+      const tx = db.transaction(STORES.blobs, 'readonly');
+      const record = await requestResult(tx.objectStore(STORES.blobs).get(id.trim().toLowerCase()));
+      return record || null;
+    });
+  }
+
+  /** Comprueba si existe un blob en IndexedDB por su id. */
+  async function hasBlob(id) {
+    if (!id || typeof id !== 'string') return false;
+    return attempt('check blob existence', async db => {
+      const tx = db.transaction(STORES.blobs, 'readonly');
+      const count = await requestResult(tx.objectStore(STORES.blobs).count(id.trim().toLowerCase()));
+      return count > 0;
+    });
+  }
+
+  /** Elimina un blob de IndexedDB por su id. */
+  async function deleteBlob(id) {
+    if (!id || typeof id !== 'string') return false;
+    return attempt('delete blob', async db => {
+      const tx = db.transaction(STORES.blobs, 'readwrite');
+      tx.objectStore(STORES.blobs).delete(id.trim().toLowerCase());
+      await transactionDone(tx);
+      return true;
+    });
+  }
+
   return {
     setStorageItem,
     getStorageItem,
@@ -345,6 +541,10 @@
     saveConversation,
     deleteConversation,
     deleteAllConversations,
-    renameConversation
+    renameConversation,
+    saveBlob,
+    getBlob,
+    hasBlob,
+    deleteBlob
   };
 });

@@ -305,3 +305,50 @@ test('Storage Backend - sincroniza conversaciones locales y remotas en getConver
   await assert.rejects(Storage.getConversation('l_conv'), /Backend network error/);
   await assert.rejects(Storage.saveConversation({ id: 'err_conv', title: 'Err' }, []), /Backend network error/);
 });
+
+test('Storage IndexedDB - gestión y deduplicación de blobs desacoplados', async () => {
+  const text = 'Hello ZeroChat Blob!';
+  const base64Data = Buffer.from(text).toString('base64');
+  const dataUrl = `data:text/plain;base64,${base64Data}`;
+  const crypto = require('node:crypto');
+  const expectedSha = crypto.createHash('sha256').update(Buffer.from(text)).digest('hex');
+
+  // 1. Guardar blob a partir de dataUrl
+  const saved = await Storage.saveBlob({ dataUrl, mimeType: 'text/plain' });
+  assert.equal(saved.id, expectedSha);
+  assert.equal(saved.mimeType, 'text/plain');
+  assert.equal(saved.size, Buffer.from(text).length);
+  assert.equal(saved.dataUrl, dataUrl);
+
+  // 2. Comprobar existencia y lectura
+  assert.equal(await Storage.hasBlob(expectedSha), true);
+  assert.equal(await Storage.hasBlob('0'.repeat(64)), false);
+
+  const retrieved = await Storage.getBlob(expectedSha);
+  assert.ok(retrieved);
+  assert.equal(retrieved.id, expectedSha);
+  assert.equal(retrieved.dataUrl, dataUrl);
+  assert.equal(await Storage.getBlob('0'.repeat(64)), null);
+
+  // 3. Deduplicación: guardar el mismo contenido devuelve el mismo ID
+  const savedAgain = await Storage.saveBlob({ dataUrl });
+  assert.equal(savedAgain.id, expectedSha);
+
+  // 4. Guardar a partir de bytes
+  const bytes = new Uint8Array(Buffer.from('binary-content'));
+  const binarySha = crypto.createHash('sha256').update(Buffer.from('binary-content')).digest('hex');
+  const savedBinary = await Storage.saveBlob({ bytes, mimeType: 'application/octet-stream' });
+  assert.equal(savedBinary.id, binarySha);
+  assert.equal(savedBinary.size, bytes.length);
+  assert.match(savedBinary.dataUrl, /^data:application\/octet-stream;base64,/);
+
+  // 5. Validaciones de bordes
+  await assert.rejects(Storage.saveBlob(null), /Blob data is required/);
+  await assert.rejects(Storage.saveBlob({}), /Blob data cannot be empty/);
+  await assert.rejects(Storage.saveBlob({ bytes: new Uint8Array(0) }), /Blob data cannot be empty/);
+
+  // 6. Borrado
+  assert.equal(await Storage.deleteBlob(expectedSha), true);
+  assert.equal(await Storage.hasBlob(expectedSha), false);
+  assert.equal(await Storage.getBlob(expectedSha), null);
+});
