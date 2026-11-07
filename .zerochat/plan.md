@@ -98,7 +98,7 @@ Done when: conversations and their messages are stored in SQLite (0600) with cas
 - [x] M46-T3 CLI inspection flag --list-conversations in py/zz-main.py reading from backend storage with infrastructure tests (2026-11-07)
 - [x] M46-T4 Frontend conversation synchronization and backend storage adapter in js/storage.js and js/conversation-service.js (backend persistence when connected, IndexedDB fallback offline) with unit and integration tests (2026-11-07)
 - [x] M46-T5 UI consistency and seamless offline/online conversation transitions in js/conversation-service.js with browser tests (2026-11-07)
-- [ ] M46-T6 Documentation in py/README.md, help/ and help/en/ for local conversation storage and CLI listing
+- [x] M46-T6 Documentation in py/README.md, help/ and help/en/ for local conversation storage and CLI listing (2026-11-07)
 
 ## M47 Interactive terminal agent (zerochat --cli) with streaming Markdown interpreter
 

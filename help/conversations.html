@@ -27,7 +27,7 @@
     <div class="card">
       <h2>1. Barra lateral e historial</h2>
       <p>La barra lateral permite crear, buscar por título, abrir, exportar y borrar conversaciones. En móvil se abre desde el menú superior. El historial se agrupa por fechas.</p>
-      <p>Una conversación nueva conserva el perfil seleccionado. Los mensajes se guardan en el navegador y origen web actuales; no se sincronizan automáticamente entre dispositivos ni entre GitHub Pages y localhost.</p>
+      <p>Una conversación nueva conserva el perfil seleccionado. Cuando el servidor local está conectado, las conversaciones se sincronizan automáticamente con el almacenamiento SQLite local (<code>~/zerochat/storage/zerochat.db</code>); sin conexión con el backend, los mensajes se conservan y se gestionan íntegramente en IndexedDB del navegador, reconciliándose de forma fluida y bidireccional al restablecer la conexión.</p>
       <p>Mientras se genera una respuesta, la vista sigue el final de la conversación. Si te desplazas hacia arriba, deja de moverse para que puedas leer; vuelve a seguir el final cuando regresas abajo o envías un mensaje. Mientras no estás al final, sobre el compositor aparece un botón con una flecha hacia abajo que te lleva al final y vuelve a seguirlo.</p>
     </div>
 
@@ -50,7 +50,7 @@
     <div class="card">
       <h2>4. Importar y conservar copias</h2>
       <p>Usa <strong>Importar conversación</strong> en la barra lateral y selecciona un JSON exportado por ZeroChat. La aplicación valida su estructura; no importa un PDF o Markdown como historial. La importación está bloqueada durante la generación.</p>
-      <p>Exporta las conversaciones que quieras conservar antes de borrar datos del navegador. El borrado de una sesión o de todo el historial pide confirmación y no tiene papelera de recuperación. Borrar <code>~/zerochat/</code> afecta al servidor local, no al historial guardado por el navegador.</p>
+      <p>Exporta las conversaciones que quieras conservar antes de borrar datos del navegador. El borrado de una sesión o de todo el historial pide confirmación y no tiene papelera de recuperación. Puedes inspeccionar las conversaciones guardadas en el servidor local desde la terminal con <code>zerochat --list-conversations</code> (o <code>python3 zerochat.py --list-conversations</code>). Borrar <code>~/zerochat/</code> restablece el almacenamiento SQLite del servidor, conservando la copia en IndexedDB del navegador.</p>
     </div>
 
     <nav class="page-navigation" aria-label="Navegación de ayuda">
