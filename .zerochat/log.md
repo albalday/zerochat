@@ -263,3 +263,5 @@
 - 2026-11-08 M50-D5 Migración incremental v4 para extra_json en SQLite, precedencia del perfil activo en generación web, reutilización de consulta de conversación y prueba de actualización (M50-T5)
 - 2026-11-08 M51-D1 Desacoplo del prefijo Z- en backend: DEFAULT_RUN_PROFILE pasa a 'local' con fallback a 'Z-local', mensajes limpios en CLI y pruebas de infraestructura (M51-T1)
 - 2026-11-08 M51-D2 Desacoplar perfiles de servidor en frontend: ChatProfileRepository administra exclusivamente perfiles locales (más Espejo) y ChatMCP expone listServerProfiles e importServerProfile sin sincronización automática en arranque (M51-T2)
+- 2026-11-08 M51-D3 Editor de perfiles con botones independientes «Guardar» (local) y «Guardar en servidor» (SQLite), eliminando el selector de ámbito (M51-T3)
+- 2026-11-08 M51-D4 Panel selector de perfiles a pantalla completa en móvil (< 640px) y subvista para importar del servidor y seleccionar perfil para ejecución en servidor (M51-T4)

@@ -94,6 +94,15 @@
     activeProfileName: 'active-profile-name',
     activeProfilePopover: 'active-profile-popover',
     activeProfileList: 'active-profile-list',
+    profileMenuViewLocal: 'profile-menu-view-local',
+    profileMenuViewServer: 'profile-menu-view-server',
+    btnMenuServerRun: 'btn-menu-server-run',
+    btnMenuServerImport: 'btn-menu-server-import',
+    btnProfileSubviewBack: 'btn-profile-subview-back',
+    btnProfileSubviewClose: 'btn-profile-subview-close',
+    profileSubviewTitle: 'profile-subview-title',
+    profileSubviewHint: 'profile-subview-hint',
+    serverProfileList: 'server-profile-list',
     inspectorDialog: 'inspector-dialog',
     inspectorProfileName: 'inspector-profile-name',
     btnCloseInspector: 'btn-close-inspector',
@@ -179,8 +188,8 @@
     btnCloseProfiles: 'btn-close-profiles',
     settingProfileName: 'setting-profile-name',
     settingProfileDescription: 'setting-profile-description',
-    settingProfileScope: 'setting-profile-scope',
     profileSelectHelper: 'profile-select-helper',
+    btnSaveServerProfile: 'btn-save-server-profile',
     btnSaveProfile: 'btn-save-profile',
     profileActionFeedback: 'profile-action-feedback',
     profileSaveQueryHint: 'profile-save-query-hint',
@@ -431,9 +440,10 @@
       openDebugInterceptorModal,
       saveCurrentSession,
       runOnServer,
+      getServerRunProfile: () => UIProfiles.getSelectedServerProfile(),
       startServerRun: ({ conversationId, profile }) => MCP.manager.startServerRun({
         conversationId,
-        profile,
+        profile: profile || UIProfiles.getSelectedServerProfile(),
         toolSecurity: sendOptions.allowOnceTools?.length
           ? { ...State.get('toolSecurity'), allow_once: sendOptions.allowOnceTools }
           : State.get('toolSecurity')
@@ -848,6 +858,9 @@
       resetTelemetryDisplay,
       updateUIFromConfig,
       inspectProfile,
+      onSelectServerRunProfile: () => {
+        elements.chkServerRun.checked = true;
+      },
       closeSettingsModal: () => UISettings.closeSettingsModal(elements)
     });
 

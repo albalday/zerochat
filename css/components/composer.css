@@ -1300,8 +1300,131 @@
   color: var(--danger);
 }
 
+.header-profile-menu-view {
+  display: flex;
+  flex-direction: column;
+}
+
+.header-profile-section-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 0.45rem 0.2rem 0.4rem;
+}
+
+.header-profile-server-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.header-profile-server-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.1rem 0.2rem 0.2rem;
+}
+
+.btn-profile-server-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  color: var(--text-main);
+  font-size: 0.8rem;
+  font-weight: 550;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.btn-profile-server-action:hover,
+.btn-profile-server-action:focus-visible {
+  background: var(--bg-surface);
+  border-color: var(--primary);
+  color: var(--primary);
+  outline: none;
+}
+
+.header-profile-subview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.2rem 0.2rem;
+}
+
+.header-profile-subview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  padding: 0.2rem 0;
+}
+
+.header-profile-subview-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0 0.2rem 0.35rem;
+  line-height: 1.35;
+}
+
 @media (max-width: 640px) {
   .header-profile-popover {
-    width: min(320px, calc(100vw - 1.5rem));
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+    transform: none;
+    border: none;
+    border-radius: 0;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    padding: 1rem;
+    background: var(--bg-surface);
+    box-shadow: none;
+  }
+
+  .header-profile-popover[hidden] {
+    display: none;
+  }
+
+  .header-profile-menu-view,
+  .header-profile-subview {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .header-profile-popover-header,
+  .header-profile-subview-header {
+    padding: 0.4rem 0.2rem 0.8rem;
+  }
+
+  .header-profile-popover-title {
+    font-size: 0.95rem;
+  }
+
+  .header-profile-list {
+    flex: 1;
+    max-height: none;
+    overflow-y: auto;
+  }
+
+  .btn-profile-header-icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .btn-profile-server-action {
+    padding: 0.6rem 0.8rem;
+    font-size: 0.9rem;
   }
 }

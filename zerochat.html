@@ -331,21 +331,49 @@
             <span class="profile-chevron"><svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-up"></use></svg></span>
           </button>
           <div id="active-profile-popover" class="header-profile-popover" hidden>
-            <div class="header-profile-popover-header">
-              <span id="profile-menu-title" class="header-profile-popover-title" data-i18n="profile_menu_title">Perfiles</span>
-              <div class="header-profile-header-actions">
-                <button type="button" id="btn-menu-new-profile" class="btn-profile-header-icon" data-i18n-title="btn_new_profile_title" title="Crear un perfil nuevo" aria-label="Crear un perfil nuevo">
-                  <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-plus"></use></svg>
+            <div id="profile-menu-view-local" class="header-profile-menu-view">
+              <div class="header-profile-popover-header">
+                <span id="profile-menu-title" class="header-profile-popover-title" data-i18n="profile_menu_title">Perfiles</span>
+                <div class="header-profile-header-actions">
+                  <button type="button" id="btn-menu-new-profile" class="btn-profile-header-icon" data-i18n-title="btn_new_profile_title" title="Crear un perfil nuevo" aria-label="Crear un perfil nuevo">
+                    <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-plus"></use></svg>
+                  </button>
+                  <button type="button" id="btn-menu-export-profiles" class="btn-profile-header-icon" data-i18n-title="btn_export_profiles_title" title="Exportar todos los perfiles a un archivo cifrado" aria-label="Exportar todos los perfiles">
+                    <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-download"></use></svg>
+                  </button>
+                  <button type="button" id="btn-menu-close-profiles" class="btn-profile-header-icon" data-i18n-title="btn_close_profiles_menu" title="Cerrar selector" aria-label="Cerrar selector">
+                    <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
+                  </button>
+                </div>
+              </div>
+              <div id="active-profile-list" class="header-profile-list" role="menu" aria-labelledby="profile-menu-title"></div>
+              <div id="profile-menu-server-section" class="header-profile-server-section">
+                <div class="header-profile-section-divider"></div>
+                <div class="header-profile-server-actions">
+                  <button type="button" id="btn-menu-server-run" class="btn-profile-server-action" data-i18n-title="btn_menu_server_run_title" title="Seleccionar un perfil del servidor para ejecutar en segundo plano">
+                    <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-server"></use></svg>
+                    <span data-i18n="btn_menu_server_run">Ejecutar en servidor...</span>
+                  </button>
+                  <button type="button" id="btn-menu-server-import" class="btn-profile-server-action" data-i18n-title="btn_menu_server_import_title" title="Importar perfiles desde el servidor local a este navegador">
+                    <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-download"></use></svg>
+                    <span data-i18n="btn_menu_server_import">Importar del servidor...</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div id="profile-menu-view-server" class="header-profile-subview" hidden>
+              <div class="header-profile-subview-header">
+                <button type="button" id="btn-profile-subview-back" class="btn-profile-header-icon" data-i18n-title="btn_back_to_profiles" title="Volver a perfiles locales" aria-label="Volver">
+                  <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-arrow-left"></use></svg>
                 </button>
-                <button type="button" id="btn-menu-export-profiles" class="btn-profile-header-icon" data-i18n-title="btn_export_profiles_title" title="Exportar todos los perfiles a un archivo cifrado" aria-label="Exportar todos los perfiles">
-                  <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-download"></use></svg>
-                </button>
-                <button type="button" id="btn-menu-close-profiles" class="btn-profile-header-icon" data-i18n-title="btn_close_profiles_menu" title="Cerrar selector" aria-label="Cerrar selector">
+                <span id="profile-subview-title" class="header-profile-popover-title"></span>
+                <button type="button" id="btn-profile-subview-close" class="btn-profile-header-icon" data-i18n-title="btn_close_profiles_menu" title="Cerrar selector" aria-label="Cerrar selector">
                   <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
                 </button>
               </div>
+              <p id="profile-subview-hint" class="header-profile-subview-hint"></p>
+              <div id="server-profile-list" class="header-profile-list" role="menu"></div>
             </div>
-            <div id="active-profile-list" class="header-profile-list" role="menu" aria-labelledby="profile-menu-title"></div>
           </div>
         </div>
         <div id="server-run-control" class="header-server-run-control" hidden>

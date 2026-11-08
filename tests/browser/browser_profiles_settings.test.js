@@ -443,43 +443,136 @@ test('Browser UI - un perfil nuevo abre el editor vacío sin pedir nombre ni her
   }
 });
 
-test('Browser UI - los perfiles generales del backend se muestran con prefijo Z- en el menú y selector', async () => {
+test('Browser UI - el editor de perfiles cuenta con botones independientes para Guardar en local y Guardar en servidor', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
+
+    // Abrir modal de nuevo perfil
+    await page.click('#active-profile-trigger');
+    await page.click('#btn-menu-new-profile');
+    await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
+
+    // El selector antiguo de ámbito ya no existe
+    assert.equal(await page.$('#setting-profile-scope'), null);
+
+    // Existen los dos botones independientes de guardado
+    assert.notEqual(await page.$('#btn-save-profile'), null);
+    assert.notEqual(await page.$('#btn-save-server-profile'), null);
+
+    // Escribir nombre del perfil
+    await page.fill('#setting-profile-name', 'Mi Perfil Dual');
+    await page.fill('#setting-api-url', 'http://localhost:11434/v1');
+    await page.fill('#setting-model', 'llama3');
+
+    // Mockear saveServerProfile en el cliente MCP
     await page.evaluate(() => {
-      window.ChatProfileRepository.setGeneralProfiles([
-        { id: 'profile:general-gpt', name: 'GPT 4o Server', general: true, settings: { apiType: 'openai', model: 'gpt-4o' } }
-      ]);
-      window.ChatUIProfiles.renderProfileMenu();
+      window._savedServerProfiles = [];
+      const mcp = window.ChatMCP.manager;
+      mcp.isProxyConnected = () => true;
+      mcp.listServerProfiles = async () => [];
+      mcp.saveServerProfile = async record => {
+        window._savedServerProfiles.push(record);
+        return record;
+      };
     });
 
-    await page.click('#active-profile-trigger');
-    const optionText = await page.textContent('[data-profile-id="profile:general-gpt"] .header-profile-option-name');
-    assert.equal(optionText.trim(), 'Z- GPT 4o Server');
+    // Guardar en servidor
+    await page.click('#btn-save-server-profile');
+    await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
 
-    // Al activarlo, la barra superior muestra el nombre con Z-
-    await page.click('[data-profile-id="profile:general-gpt"]');
-    assert.equal((await page.textContent('#active-profile-name')).trim(), 'Z- GPT 4o Server');
+    // Verificar que se invocó saveServerProfile con el perfil
+    const serverCalls = await page.evaluate(() => window._savedServerProfiles);
+    assert.equal(serverCalls.length, 1);
+    assert.equal(serverCalls[0].name, 'Mi Perfil Dual');
+    assert.equal(serverCalls[0].settings.model, 'llama3');
 
-    // En el editor de perfiles, el selector de ámbito refleja general y cambiarlo a local copia el perfil
+    // Ahora guardarlo en local
     await page.click('#active-profile-trigger');
-    await page.click('.header-profile-item:has([data-profile-id="profile:general-gpt"]) [data-profile-action="edit"]');
+    await page.click('#btn-menu-new-profile');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
-    assert.equal(await page.inputValue('#setting-profile-scope'), 'general');
-    await page.selectOption('#setting-profile-scope', 'local');
+    await page.fill('#setting-profile-name', 'Mi Perfil Local');
+    await page.fill('#setting-model', 'mistral');
     await page.click('#btn-save-profile');
     await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
 
-    // El perfil general original se mantiene y existe la copia local activada
-    assert.equal((await page.textContent('#active-profile-name')).trim(), 'GPT 4o Server');
-    const names = await page.evaluate(() => window.ChatProfileRepository.list().map(p => ({ name: p.name, general: Boolean(p.general) })));
-    assert.deepEqual(names, [
-      { name: 'Espejo', general: false },
-      { name: 'GPT 4o Server', general: false },
-      { name: 'GPT 4o Server', general: true }
-    ]);
+    // Comprobar que en local se guardó y activó Mi Perfil Local
+    assert.equal((await page.textContent('#active-profile-name')).trim(), 'Mi Perfil Local');
+    const localProfiles = await page.evaluate(() => window.ChatProfileRepository.list().map(p => p.name));
+    assert.ok(localProfiles.includes('Mi Perfil Local'));
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - el selector de perfiles en móvil (< 640px) se muestra a pantalla completa y se cierra correctamente', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+
+    // Abrir menú de perfiles
+    await page.click('#active-profile-trigger');
+    await page.waitForFunction(() => !document.getElementById('active-profile-popover').hidden);
+
+    // En móvil el popover pasa a position: fixed (pantalla completa)
+    const position = await page.$eval('#active-profile-popover', el => window.getComputedStyle(el).position);
+    assert.equal(position, 'fixed');
+
+    // Cerrar menú con el botón de cierre
+    await page.click('#btn-menu-close-profiles');
+    await page.waitForFunction(() => document.getElementById('active-profile-popover').hidden);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - el selector de perfiles permite importar del servidor y seleccionar perfil para ejecución en servidor', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+
+    const serverProfiles = [
+      { id: 'srv:claude', name: 'Servidor Claude', description: 'Claude 3.5 Sonnet', settings: { apiType: 'claude', model: 'claude-3-5-sonnet' } }
+    ];
+
+    await page.evaluate(profiles => {
+      const mcp = window.ChatMCP.manager;
+      mcp.isProxyConnected = () => true;
+      mcp.listServerProfiles = async () => profiles;
+    }, serverProfiles);
+
+    // 1. Probar acción Ejecutar en servidor...
+    await page.click('#active-profile-trigger');
+    await page.waitForFunction(() => !document.getElementById('active-profile-popover').hidden);
+
+    await page.click('#btn-menu-server-run');
+    await page.waitForFunction(() => !document.getElementById('profile-menu-view-server').hidden);
+    await page.waitForSelector('[data-server-profile-id="srv:claude"]');
+
+    // Seleccionar 'Servidor Claude'
+    await page.click('[data-server-profile-id="srv:claude"]');
+
+    // Se activa el modo ejecución en servidor y se fija el perfil
+    assert.equal(await page.$eval('#chk-server-run', el => el.checked), true);
+    const selected = await page.evaluate(() => window.ChatUIProfiles.getSelectedServerProfile());
+    assert.equal(selected, 'Servidor Claude');
+
+    // 2. Probar acción Importar del servidor...
+    await page.click('#active-profile-trigger');
+    await page.click('#btn-menu-server-import');
+    await page.waitForFunction(() => !document.getElementById('profile-menu-view-server').hidden);
+    await page.waitForSelector('[data-server-profile-action="import"]');
+
+    // Click en el botón de importar de Servidor Claude
+    await page.click('[data-server-profile-action="import"]');
+
+    // El perfil debe haberse importado a los perfiles locales
+    const localNames = await page.evaluate(() => window.ChatProfileRepository.list().map(p => p.name));
+    assert.ok(localNames.includes('Servidor Claude'));
   } finally {
     await browser.close();
   }

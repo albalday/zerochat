@@ -80,6 +80,24 @@
     return { action: 'save' };
   }
 
+  /**
+   * Qué hace Guardar en servidor: 'none' mientras se descifra la API key o con el perfil bloqueado,
+   * 'error' con su `message` si el servidor no está conectado o faltan datos válidos, o 'save'.
+   */
+  function getServerSaveDecision(editor, { name, selected, isConnected = true }) {
+    if (editor.loadedApiKey === undefined) return { action: 'none' };
+    if (editor.locked) return { action: 'none' };
+    const error = message => ({ action: 'error', message });
+    if (!isConnected) return error(t('profile_mcp_disconnected'));
+    if (!name) return error(t('field_profile_placeholder'));
+    const { READONLY_PROFILE_ID } = getProfiles();
+    const readonlyName = getProfiles().get(READONLY_PROFILE_ID)?.name || 'Espejo';
+    if (selected?.id === READONLY_PROFILE_ID || name === READONLY_PROFILE_ID || name.toLowerCase() === readonlyName.toLowerCase()) {
+      return error(t('err_profile_read_only'));
+    }
+    return { action: 'save' };
+  }
+
   /** Pregunta antes de cerrar el editor con algo pendiente; null si se cierra sin preguntar. */
   function getCloseConfirmation(editor) {
     if (editor.queryReady) return t('confirm_profile_query_not_saved');
@@ -125,7 +143,6 @@
     els.profileSelectHelper.value = profileId || '';
     els.settingProfileName.value = profile?.name || '';
     els.settingProfileDescription.value = profile?.description || '';
-    els.settingProfileScope.value = profile?.general ? 'general' : 'local';
   }
 
   function setProfileQueryState(ready) {
@@ -143,6 +160,7 @@
     const keyUnavailable = editor.loadedApiKey === undefined;
     if (keyUnavailable) els.settingApiKey.disabled = true;
     els.btnSaveProfile.disabled = keyUnavailable;
+    els.btnSaveServerProfile.disabled = keyUnavailable || readOnly;
     const selectedModel = (els.settingModel.value || els.modelSelectHelper.value).trim();
     els.profileSaveQueryHint.textContent = getSaveHint(editor, {
       name: els.settingProfileName.value.trim(),
@@ -412,6 +430,10 @@
       <div class="settings-header-actions">
         <label id="api-key-lock-control" class="profile-lock-control" for="setting-api-key-locked"><input type="checkbox" id="setting-api-key-locked"><span data-i18n="profile_api_key_lock">Bloquear cambios</span></label>
         <span id="api-key-locked-status" class="profile-lock-status" hidden data-i18n="profile_api_key_locked">Cambios bloqueados</span>
+        <button type="button" id="btn-save-server-profile" class="btn-secondary btn-save-header" data-i18n-title="btn_save_server_profile_title" title="Guardar este perfil en el servidor local" disabled>
+          <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-server"></use></svg>
+          <span data-i18n="btn_save_server_short">Guardar en servidor</span>
+        </button>
         <button type="button" id="btn-save-profile" class="btn-primary btn-save-header" data-i18n-title="btn_save_profile_title" title="Guardar todos los valores actuales en este perfil" disabled>
           <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-save"></use></svg>
           <span data-i18n="btn_save_short">Guardar</span>
@@ -426,7 +448,6 @@
 
         <div class="form-field"><label for="setting-profile-name"><strong data-i18n="field_profile_name_label">Nombre del Perfil</strong></label><input type="text" id="setting-profile-name" data-i18n-placeholder="field_profile_placeholder" placeholder="Nombre del perfil (ej: LM Studio, Ollama, OpenRouter...)" autocomplete="off"></div>
         <div class="form-field"><label for="setting-profile-description"><strong data-i18n="field_profile_description_label">Descripción</strong></label><textarea id="setting-profile-description" rows="2" data-i18n-placeholder="field_profile_description_placeholder" placeholder="Describe brevemente este perfil..."></textarea></div>
-        <div class="form-field"><label for="setting-profile-scope"><strong data-i18n="field_profile_scope">Ubicación de almacenamiento</strong></label><select id="setting-profile-scope" class="combobox-select-helper"><option value="local" data-i18n="profile_scope_local">Local (este navegador)</option><option value="general" data-i18n="profile_scope_general">General en servidor (Z-)</option></select></div>
 
         <div class="profile-chapters">
         ${profileChapter('profile-chapter-connection', 'profile-summary-connection', 'profile_chapter_connection', `
@@ -467,12 +488,23 @@
     if (!profilesDialog.firstElementChild) profilesDialog.innerHTML = getProfilesDialogHTML();
   }
 
+  let selectedServerProfile = 'local';
+  const getSelectedServerProfile = () => selectedServerProfile;
+  const setSelectedServerProfile = name => { selectedServerProfile = name || 'local'; };
+
   function setProfileMenuOpen(open) {
     els.activeProfileTrigger.setAttribute('aria-expanded', String(open));
     els.activeProfilePopover.hidden = !open;
   }
 
+  function showLocalProfilesView() {
+    if (els.profileMenuViewServer) els.profileMenuViewServer.hidden = true;
+    if (els.profileMenuViewLocal) els.profileMenuViewLocal.hidden = false;
+    els.btnMenuCloseProfiles?.focus();
+  }
+
   function openProfileMenu() {
+    showLocalProfilesView();
     renderProfileMenu();
     setProfileMenuOpen(true);
     if (getMCP().manager.isProxyConnected()) {
@@ -480,7 +512,60 @@
     }
   }
 
-  const closeProfileMenu = () => setProfileMenuOpen(false);
+  function closeProfileMenu() {
+    setProfileMenuOpen(false);
+    showLocalProfilesView();
+  }
+
+  function setListHint(container, message) {
+    container.textContent = '';
+    const p = document.createElement('p');
+    p.className = 'label-hint';
+    p.textContent = message;
+    container.appendChild(p);
+  }
+
+  async function openServerProfilesView(mode) {
+    if (els.profileMenuViewLocal) els.profileMenuViewLocal.hidden = true;
+    if (els.profileMenuViewServer) els.profileMenuViewServer.hidden = false;
+    els.btnProfileSubviewBack?.focus();
+
+    const isRunMode = mode === 'run';
+    els.profileSubviewTitle.textContent = t(isRunMode ? 'profile_server_run_title' : 'profile_server_import_title');
+    els.profileSubviewHint.textContent = t(isRunMode ? 'profile_server_run_hint' : 'profile_server_import_hint');
+
+    if (!getMCP().manager.isProxyConnected()) {
+      setListHint(els.serverProfileList, t('profile_mcp_disconnected'));
+      return;
+    }
+
+    setListHint(els.serverProfileList, t('profile_import_waiting_title'));
+    try {
+      const profiles = await getMCP().manager.listServerProfiles();
+      if (!profiles || profiles.length === 0) {
+        setListHint(els.serverProfileList, t('profile_server_empty'));
+        return;
+      }
+      els.serverProfileList.innerHTML = profiles.map(profile => {
+        const displayName = formatProfileDisplayName(profile);
+        const active = isRunMode && (selectedServerProfile === profile.name || selectedServerProfile === profile.id);
+        const description = profile.description || profile.settings?.model || '';
+        const importAction = isRunMode ? '' : `
+          <div class="header-profile-item-actions">
+            <button type="button" class="btn-profile-item-action" data-server-profile-action="import" data-target-id="${escapeHtml(profile.id)}" title="${escapeHtml(t('btn_import_profile_action'))}" aria-label="${escapeHtml(`${t('btn_import_profile_action')}: ${displayName}`)}">${Icons.get('download', { size: 14 })}</button>
+          </div>`;
+        return `<div class="header-profile-item${active ? ' active' : ''}">
+          <button type="button" class="header-profile-option${active ? ' active' : ''}" data-server-profile-id="${escapeHtml(profile.id)}" data-server-profile-mode="${mode}" role="menuitemradio" aria-checked="${active}" title="${escapeHtml(displayName)}">
+            <span class="header-profile-option-name">${escapeHtml(displayName)}</span>
+            ${description ? `<span class="header-profile-option-description">${escapeHtml(description)}</span>` : ''}
+          </button>
+          ${importAction}
+        </div>`;
+      }).join('');
+    } catch (err) {
+      setListHint(els.serverProfileList, err?.message || String(err));
+    }
+  }
 
   /** Valores del formulario del editor tal como están en sus campos. */
   function readProfileForm() {
@@ -499,18 +584,15 @@
     };
   }
 
-  /** Guarda el perfil editado; devuelve true si el editor puede cerrarse. */
+  /** Guarda el perfil editado en el almacenamiento local del navegador; devuelve true si el editor puede cerrarse. */
   async function handleSaveProfile() {
     const Profiles = getProfiles();
     const name = els.settingProfileName.value.trim();
     const selected = Profiles.get(selectedProfileId());
-    const isGeneral = els.settingProfileScope.value === 'general';
-    // Cambiar el ámbito (Local ↔ General) crea una copia en el destino sin sobreescribir el origen.
-    const targetSelected = Boolean(selected?.general) === isGeneral ? selected : null;
     const decision = getSaveDecision(editor, {
       name,
-      selected: targetSelected,
-      sameName: Profiles.findByName(name, { general: isGeneral })
+      selected,
+      sameName: Profiles.findByName(name)
     });
     // Sin nada que guardar, Guardar cierra el panel como en el resto de paneles.
     if (decision.action !== 'save') {
@@ -519,30 +601,13 @@
     }
 
     const settings = buildProfileSettings(selected?.settings || Profiles.NEW_PROFILE_SETTINGS, readProfileForm());
-    const targetId = targetSelected?.id || createId(isGeneral ? 'general' : 'profile');
-    let saved;
-    if (isGeneral) {
-      if (!getMCP().manager.isProxyConnected()) {
-        showProfileFeedback(t('profile_mcp_disconnected'), 'error');
-        return false;
-      }
-      saved = await getMCP().manager.saveServerProfile({
-        id: targetId,
-        name,
-        description: els.settingProfileDescription.value.trim(),
-        settings: {
-          ...settings,
-          apiKey: settings.apiKey || ''
-        }
-      });
-    } else {
-      saved = await Profiles.saveEditable({
-        id: targetId,
-        name,
-        description: els.settingProfileDescription.value.trim(),
-        settings
-      });
-    }
+    const targetId = selected?.id || createId('profile');
+    const saved = await Profiles.saveEditable({
+      id: targetId,
+      name,
+      description: els.settingProfileDescription.value.trim(),
+      settings
+    });
 
     populateProfileSelector(saved.id);
     updateEditor({ dirty: false, loadedApiKey: settings.apiKey });
@@ -550,6 +615,47 @@
     activateProfileFromUI(saved.id);
     const displayName = formatProfileDisplayName(saved);
     showProfileFeedback(t('msg_profile_saved', { name: displayName }), 'success');
+    return true;
+  }
+
+  /** Publica o actualiza el perfil en el servidor local (SQLite); devuelve true si se guardó con éxito. */
+  async function handleSaveServerProfile() {
+    const Profiles = getProfiles();
+    const name = els.settingProfileName.value.trim();
+    const selected = Profiles.get(selectedProfileId());
+    const isConnected = getMCP().manager.isProxyConnected();
+    const decision = getServerSaveDecision(editor, {
+      name,
+      selected,
+      isConnected
+    });
+    if (decision.action !== 'save') {
+      if (decision.action === 'error') showProfileFeedback(decision.message, 'error');
+      return false;
+    }
+
+    const settings = buildProfileSettings(selected?.settings || Profiles.NEW_PROFILE_SETTINGS, readProfileForm());
+    let targetId = '';
+    try {
+      const serverProfiles = await getMCP().manager.listServerProfiles();
+      const existing = serverProfiles.find(p => p.name.toLowerCase() === name.toLowerCase());
+      targetId = existing?.id || createId('profile');
+    } catch (_) {
+      targetId = createId('profile');
+    }
+
+    const saved = await getMCP().manager.saveServerProfile({
+      id: targetId,
+      name,
+      description: els.settingProfileDescription.value.trim(),
+      settings: {
+        ...settings,
+        apiKey: settings.apiKey || ''
+      }
+    });
+
+    const displayName = formatProfileDisplayName(saved || { name });
+    showProfileFeedback(t('msg_profile_saved_server', { name: displayName }), 'success');
     return true;
   }
 
@@ -879,6 +985,12 @@
     listen(els.settingModel, 'input', syncModelHelper);
     listen(els.settingModel, 'change', syncModelHelper);
 
+    listen(els.btnSaveServerProfile, 'click', event => {
+      event.preventDefault();
+      handleSaveServerProfile()
+        .then(saved => { if (saved) closeProfilesModal(true); })
+        .catch(error => showProfileFeedback(error?.message || String(error), 'error'));
+    });
     listen(els.btnSaveProfile, 'click', event => {
       event.preventDefault();
       handleSaveProfile()
@@ -905,6 +1017,48 @@
     listen(els.btnMenuCloseProfiles, 'click', () => {
       closeProfileMenu();
       els.activeProfileTrigger.focus();
+    });
+    listen(els.btnMenuServerRun, 'click', () => openServerProfilesView('run'));
+    listen(els.btnMenuServerImport, 'click', () => openServerProfilesView('import'));
+    listen(els.btnProfileSubviewBack, 'click', showLocalProfilesView);
+    listen(els.btnProfileSubviewClose, 'click', () => {
+      closeProfileMenu();
+      els.activeProfileTrigger.focus();
+    });
+
+    listen(els.serverProfileList, 'click', async event => {
+      const importBtn = event.target.closest('[data-server-profile-action="import"]');
+      const option = event.target.closest('[data-server-profile-id]');
+      if (!importBtn && !option) return;
+
+      const targetId = importBtn ? importBtn.dataset.targetId : option.dataset.serverProfileId;
+      const mode = option?.dataset.serverProfileMode || (importBtn ? 'import' : 'run');
+
+      let serverProfiles = [];
+      try {
+        serverProfiles = await getMCP().manager.listServerProfiles();
+      } catch (_err) {
+        // Si el servidor local no responde, se conserva la lista vacía para no bloquear la interfaz.
+      }
+      const targetProfile = serverProfiles.find(p => p.id === targetId);
+      if (!targetProfile) return;
+
+      const displayName = formatProfileDisplayName(targetProfile);
+      if (mode === 'run') {
+        setSelectedServerProfile(targetProfile.name || targetProfile.id);
+        if (typeof options.onSelectServerRunProfile === 'function') {
+          options.onSelectServerRunProfile(targetProfile.name || targetProfile.id);
+        }
+        closeProfileMenu();
+      } else {
+        try {
+          await getMCP().manager.importServerProfile(targetProfile);
+          renderProfileMenu();
+          showLocalProfilesView();
+        } catch (err) {
+          await getDialogs().alert(err?.message || String(err), { type: 'error' });
+        }
+      }
     });
 
     listen(els.activeProfileList, 'click', async event => {
@@ -936,7 +1090,7 @@
       buttons[next]?.focus();
     });
     listen(els.activeProfileMenu, 'focusout', event => {
-      if (!els.activeProfileMenu.contains(event.relatedTarget)) closeProfileMenu();
+      if (event.relatedTarget && !els.activeProfileMenu.contains(event.relatedTarget)) closeProfileMenu();
     });
     listen(document, 'click', event => {
       if (!els.activeProfileMenu.contains(event.target)) closeProfileMenu();
@@ -977,8 +1131,13 @@
     initialEditorState,
     getSaveHint,
     getSaveDecision,
+    getServerSaveDecision,
     getCloseConfirmation,
     buildProfileSettings,
-    formatProfileDisplayName
+    formatProfileDisplayName,
+    getSelectedServerProfile,
+    setSelectedServerProfile,
+    openServerProfilesView,
+    showLocalProfilesView
   };
 }));
