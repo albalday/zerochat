@@ -17,4 +17,8 @@ proj_mejoras.md
 
 diff remoto
 
+multiusuario 
+
+revisar test- todavia hay Z-*
+
 

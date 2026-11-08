@@ -30,6 +30,7 @@ import json
 import math
 import os
 import queue
+import random
 import re
 import secrets
 import shutil
@@ -53,7 +54,7 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE_BACKEND_VERSION = "10.3.0"
+SOURCE_BACKEND_VERSION = "10.4.0"
 
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""
@@ -4083,6 +4084,13 @@ WEB_FETCH_READ_CHUNK = 64 * 1024
 TEXT_CONTENT_TYPE_RE = re.compile(
     r"^(text/|application/(json|xml|xhtml\+xml|javascript|x-javascript|ecmascript)$|[a-z]+/[^;]*\+(json|xml)$)"
 )
+# Control de cadencia entre peticiones consecutivas al mismo host (mitigación de retos anti-bot).
+_WEB_FETCH_LOCK = threading.Lock()
+_LAST_WEB_FETCH_AT: dict[str, float] = {}
+WEB_FETCH_HOST_PACING_DOMAINS = ("duckduckgo.com",)
+WEB_FETCH_MIN_DELAY_S = 0.6
+WEB_FETCH_MAX_DELAY_S = 1.2
+
 
 
 def _is_public_ip(address: str) -> bool:
@@ -4163,15 +4171,40 @@ def fetch_web_resource(params: dict) -> dict:
         raise ValueError("URL no válida o ausente.")
     url = _validate_web_url(url.strip())
 
+    parsed = urllib.parse.urlsplit(url)
+    hostname = (parsed.hostname or "").lower()
+
+    # Si se repite una consulta a un host sensible (ej. DuckDuckGo), aplicar un retardo mínimo aleatorio.
+    if any(hostname == domain or hostname.endswith("." + domain) for domain in WEB_FETCH_HOST_PACING_DOMAINS):
+        with _WEB_FETCH_LOCK:
+            now = time.monotonic()
+            last_call = _LAST_WEB_FETCH_AT.get(hostname, 0.0)
+            required_gap = random.uniform(WEB_FETCH_MIN_DELAY_S, WEB_FETCH_MAX_DELAY_S)
+            sleep_needed = max(0.0, (last_call + required_gap) - now)
+            _LAST_WEB_FETCH_AT[hostname] = now + sleep_needed
+        if sleep_needed > 0:
+            time.sleep(sleep_needed)
+
     timeout_s = max(0.5, min(float(params.get("timeout_s", 10.0)), 30.0))
     max_bytes = max(1024, min(int(params.get("max_bytes", 2 * 1024 * 1024)), WEB_FETCH_MAX_BYTES))
     as_binary = bool(params.get("binary", False))
     accept = params.get("accept")
     req_headers = {
         "User-Agent": DEFAULT_USER_AGENT,
-        "Accept": accept if isinstance(accept, str) and accept else "*/*",
+        "Accept": accept if isinstance(accept, str) and accept else "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
         "Accept-Encoding": "gzip, deflate",
+        "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
     }
+    if hostname.endswith("duckduckgo.com"):
+        req_headers["Referer"] = f"{parsed.scheme}://{parsed.netloc}/"
 
     req = urllib.request.Request(url, headers=req_headers)
     try:
@@ -4180,6 +4213,14 @@ def fetch_web_resource(params: dict) -> dict:
             raw_data, truncated = _read_limited_body(resp, resp.headers.get("Content-Encoding", ""), max_bytes)
             # Las cabeceras de transporte ya no describen el cuerpo descomprimido.
             resp_headers = {k: v for k, v in resp.getheaders() if k.lower() not in ("content-encoding", "content-length")}
+            # Respuestas 202 u otros retos anti-bot se marcan como error no exitoso.
+            if resp.status == 202:
+                return {
+                    "ok": False,
+                    "status": resp.status,
+                    "error": "HTTP 202: Reto anti-bot o verificación de anomalía detectada por el servidor remoto.",
+                    "text": raw_data.decode("utf-8", errors="replace")
+                }
             result = {
                 "ok": True,
                 "status": resp.status,

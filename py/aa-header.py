@@ -30,6 +30,7 @@ import json
 import math
 import os
 import queue
+import random
 import re
 import secrets
 import shutil
@@ -53,7 +54,7 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE_BACKEND_VERSION = "10.3.0"
+SOURCE_BACKEND_VERSION = "10.4.0"
 
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""

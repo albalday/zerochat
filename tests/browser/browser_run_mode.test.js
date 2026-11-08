@@ -591,9 +591,15 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     await page.evaluate(() => window.ChatMCP.manager.readLiveState());
     await page.waitForFunction(() => document.querySelector('.server-run-live-wrapper') === null);
 
-    // Crear una nueva conversación local: desactiva el modo servidor
+    // Crear una nueva conversación: conserva el modo y perfil de servidor activo
     await page.locator('#btn-sidebar-new-chat').click();
     await page.waitForFunction(id => window.ChatState.get('sessions').activeId !== id, activeConvId);
+    assert.equal(await page.evaluate(() => window.ChatUIProfiles.isServerMode()), true);
+    assert.equal(await page.locator('#active-profile-trigger.server-mode').count(), 1);
+    assert.equal(await page.evaluate(() => window.ChatUIProfiles.getSelectedServerProfile()), 'server');
+
+    // Desactivar modo servidor en el borrador para probar la recuperación desde el historial
+    await page.evaluate(() => window.ChatUIProfiles.setServerMode(false));
     assert.equal(await page.evaluate(() => window.ChatUIProfiles.isServerMode()), false);
     assert.equal(await page.locator('#active-profile-trigger.server-mode').count(), 0);
 
@@ -604,22 +610,12 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     const restoredServerProfile = await page.evaluate(() => window.ChatUIProfiles.getSelectedServerProfile());
     assert.equal(restoredServerProfile, 'server');
 
-    // Crear un nuevo chat y elegir perfil de servidor no debe sobrescribir el chat previo
+    // Crear un nuevo chat conserva el modo y perfil de servidor elegido y no sobrescribe el chat previo
     await page.locator('#btn-sidebar-new-chat').click();
     await page.waitForFunction(id => window.ChatState.get('sessions').activeId !== id, activeConvId);
-    const newConvId = await page.evaluate(() => window.ChatState.get('sessions').activeId);
-
-    // Seleccionar perfil de servidor en el nuevo borrador vacío
-    await page.click('#active-profile-trigger');
-    await page.waitForFunction(() => !document.getElementById('active-profile-popover').hidden);
-    await page.click('#btn-menu-server-run');
-    await page.waitForFunction(() => !document.getElementById('profile-menu-view-server').hidden);
-    await page.waitForSelector('[data-server-profile-id="general:z-server"]');
-    await page.click('[data-server-profile-id="general:z-server"]');
-    await page.waitForFunction(() => window.ChatUIProfiles.isServerMode());
     assert.equal(await page.evaluate(() => window.ChatUIProfiles.isServerMode()), true);
-    // El activeId debe conservarse en newConvId y no saltar a activeConvId
-    assert.equal(await page.evaluate(() => window.ChatState.get('sessions').activeId), newConvId);
+    assert.equal(await page.locator('#active-profile-trigger.server-mode').count(), 1);
+    const newConvId = await page.evaluate(() => window.ChatState.get('sessions').activeId);
 
     // Enviar mensaje en modo servidor
     await page.locator('#user-input').fill('Prompt en chat nuevo');

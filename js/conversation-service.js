@@ -117,9 +117,12 @@
     const existing = getSavedSessions().find(session => session.id === sessionId);
     const activeProfile = getConfig().getActive()?.activeProfile;
     const defaultProfileId = activeProfile?.name || activeProfile?.id || '';
-    const isServerRun = overrides.serverRun !== undefined ? Boolean(overrides.serverRun) : Boolean(existing?.serverRun);
+    const isServerRun = overrides.serverRun !== undefined
+      ? Boolean(overrides.serverRun)
+      : (typeof options.isServerMode === 'function' ? options.isServerMode() : Boolean(existing?.serverRun));
+    const currentServerProfile = typeof options.getServerProfile === 'function' ? options.getServerProfile() : '';
     const resolvedProfileId = overrides.profileId
-      || (isServerRun ? (existing?.profileId || defaultProfileId) : defaultProfileId)
+      || (isServerRun ? (currentServerProfile || existing?.profileId || 'local') : defaultProfileId)
       || existing?.profileId
       || '';
     const session = {
@@ -305,9 +308,15 @@
 
     const now = Date.now();
     const parentSession = getSavedSessions().find(s => s.id === parentSessionId);
+    const isServerRun = typeof options.isServerMode === 'function'
+      ? options.isServerMode()
+      : Boolean(parentSession?.serverRun);
     const activeProfile = getConfig().getActive()?.activeProfile;
-    const currentProfileId = activeProfile?.name || activeProfile?.id || '';
-    const branchProfileId = currentProfileId || parentSession?.profileId || '';
+    const defaultProfileId = activeProfile?.name || activeProfile?.id || '';
+    const currentServerProfile = typeof options.getServerProfile === 'function' ? options.getServerProfile() : '';
+    const branchProfileId = isServerRun
+      ? (currentServerProfile || parentSession?.profileId || 'local')
+      : (defaultProfileId || parentSession?.profileId || '');
     const branchSession = {
       id: branchSessionId,
       title: t('chat_branch_title', { title: parentTitle }),
@@ -315,7 +324,7 @@
       updatedAt: now,
       messageCount: branchHistory.length,
       profileId: branchProfileId,
-      serverRun: Boolean(parentSession?.serverRun)
+      serverRun: isServerRun
     };
 
     const Storage = getStorage();
@@ -334,6 +343,9 @@
     }
     getState().saveSessionMetadata(branchSession);
     showActiveSession(options, { resetComposer: true });
+    if (typeof options.onSessionSwitched === 'function') {
+      options.onSessionSwitched(branchSession);
+    }
     return true;
   }
 
