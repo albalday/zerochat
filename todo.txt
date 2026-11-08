@@ -13,4 +13,8 @@ uso de subagentes de servidor
 
 normalizacion nombres de perfiles del sistema y sus usos
 
+proj_mejoras.md
+
+diff remoto
+
 
