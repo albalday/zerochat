@@ -3,6 +3,10 @@ fichero de uso del programador como recordatorio. no analizar
 
 webllm lista de modelos mejorar para movil
 
+perfl origen en conversaciones server.
+
+en el movillanzar en servidor no se ve
+
 planificacion de tareas
 
 uso de subagentes de servidor

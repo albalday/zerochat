@@ -95,13 +95,6 @@
 
 ## M48 Revisar modo servidor y robustez de ejecución: closed 2026-11-07
 
-## M49 Almacenamiento paralelo de adjuntos e imágenes para sincronización eficiente de conversaciones
+## M49 Almacenamiento paralelo de adjuntos e imágenes para sincronización eficiente de conversaciones: closed 2026-11-08
 
-Goal: Separar el contenido pesado (imágenes y adjuntos voluminosos) del historial de mensajes en un almacén paralelo de blobs desacoplado tanto en el frontend (IndexedDB) como en el backend local (SQLite / almacenamiento seguro), enviando los blobs al servidor una sola vez cuando se generan y referenciándolos de forma ligera en los mensajes para evitar superar el límite de 1 MiB por POST en zerochat/conversations/save durante conversaciones largas.
-Done when: Las imágenes y adjuntos pesados se gestionan en un almacén paralelo de blobs por ID/hash; los mensajes guardados y sincronizados contienen solo referencias ligeras; zerochat/conversations/save no transfiere duplicados de blobs existentes; los mensajes se reconstruyen y muestran fielmente en la interfaz; y pasan las pruebas de arquitectura, infraestructura, unidad, integración y navegador.
-- [x] M49-T1 Almacenamiento de blobs en backend (tabla SQLite de blobs con hash SHA-256) y endpoints zerochat/blobs/put, zerochat/blobs/get y zerochat/blobs/has con pruebas de infraestructura (2026-11-07)
-- [x] M49-T2 Almacén paralelo de blobs en IndexedDB (store blobs) y métodos de acceso y deduplicación en js/storage-db.js y js/storage.js con pruebas unitarias (2026-11-07)
-- [x] M49-T3 Extracción y reemplazo de imágenes y adjuntos embebidos por referencias ligeras en js/attachments.js y js/generation-controller.js (2026-11-07)
-- [x] M49-T4 Sincronización en js/storage.js con subida previa de blobs pendientes antes de guardar la conversación y resolución al cargar/exportar (2026-11-07)
-- [x] M49-T5 Pruebas de integración y navegador con conversaciones con múltiples adjuntos pesados verificando que el payload de guardado se mantiene bajo el límite de 1 MiB (2026-11-07)
-- [x] M49-T6 Corrección de calidad: propagación de cabeceras en MCPClient, CORS y límite HTTP de blobs, preservación de metadatos de imágenes y retirada de código especulativo (2026-11-07)
+## M50 Ajustes del modo servidor: perfil de conversación y control responsive en móvil: closed 2026-11-08

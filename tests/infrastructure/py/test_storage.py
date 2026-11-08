@@ -1,5 +1,6 @@
 import io
 import os
+import sqlite3
 import stat
 import sys
 import unittest
@@ -16,12 +17,77 @@ class StorageEngineTest(unittest.TestCase):
     def test_inicializacion_crea_tablas_y_aplica_migraciones(self):
         with zerochat.open_storage() as conn:
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall()}
+            migrations = {row["version"] for row in conn.execute("SELECT version FROM schema_migrations;").fetchall()}
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(conversations);").fetchall()}
         self.assertTrue(self.db_path.exists())
         self.assertIn("schema_migrations", tables)
         self.assertIn("profiles", tables)
         self.assertIn("conversations", tables)
         self.assertIn("messages", tables)
         self.assertIn("blobs", tables)
+        self.assertEqual(migrations, {1, 2, 3, 4})
+        self.assertIn("extra_json", columns)
+
+    def test_migracion_v4_aplica_a_base_existente(self):
+        # Simula una base existente con migraciones 1, 2 y 3 aplicadas (sin extra_json en conversations)
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(self.db_path))
+        conn.execute("""
+            CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL,
+                description TEXT NOT NULL
+            );
+        """)
+        conn.execute("INSERT INTO schema_migrations VALUES (1, 1000, '001_create_profiles_table');")
+        conn.execute("""
+            CREATE TABLE profiles (
+                id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, description TEXT DEFAULT '',
+                settings_json TEXT NOT NULL, api_key TEXT DEFAULT '', version INTEGER DEFAULT 1,
+                created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+            );
+        """)
+        conn.execute("INSERT INTO schema_migrations VALUES (2, 2000, '002_create_conversations_tables');")
+        conn.execute("""
+            CREATE TABLE conversations (
+                id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL, message_count INTEGER NOT NULL DEFAULT 0
+            );
+        """)
+        conn.execute("""
+            CREATE TABLE messages (
+                conversation_id TEXT NOT NULL, position INTEGER NOT NULL, id TEXT NOT NULL,
+                role TEXT NOT NULL, content TEXT NOT NULL, extra_json TEXT DEFAULT '{}',
+                FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+                PRIMARY KEY (conversation_id, position)
+            );
+        """)
+        conn.execute("INSERT INTO schema_migrations VALUES (3, 3000, '003_create_blobs_table');")
+        conn.execute("""
+            CREATE TABLE blobs (
+                id TEXT PRIMARY KEY, mime_type TEXT NOT NULL, size INTEGER NOT NULL,
+                data BLOB NOT NULL, created_at INTEGER NOT NULL
+            );
+        """)
+        conn.commit()
+        conn.close()
+
+        # Al abrir con zerochat.open_storage, se debe aplicar la migración 4 sin errores
+        with zerochat.open_storage() as conn:
+            migrations = {row["version"] for row in conn.execute("SELECT version FROM schema_migrations;").fetchall()}
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(conversations);").fetchall()}
+        self.assertEqual(migrations, {1, 2, 3, 4})
+        self.assertIn("extra_json", columns)
+
+        # list_conversations y save_conversation funcionan correctamente tras la migración
+        saved = zerochat.save_conversation({
+            "id": "migrated_conv_1",
+            "title": "Migrada con éxito",
+            "profileId": "Z-deepseek"
+        }, [{"id": "m1", "role": "user", "content": "hola"}])
+        self.assertEqual(saved["profileId"], "Z-deepseek")
+        listed = zerochat.list_conversations()
+        self.assertTrue(any(c["id"] == "migrated_conv_1" and c["profileId"] == "Z-deepseek" for c in listed))
 
     @unittest.skipIf(os.name == "nt", "Permisos POSIX")
     def test_permisos_directorio_0700_y_fichero_0600(self):
@@ -328,7 +394,9 @@ class StorageEngineTest(unittest.TestCase):
             "id": "session_test_123",
             "title": "Conversación de prueba",
             "createdAt": 1700000000000,
-            "updatedAt": 1700000001000
+            "updatedAt": 1700000001000,
+            "profileId": "Z-deepseek",
+            "extra": {"cron": {"enabled": True}, "tags": ["prod"]}
         }
         messages = [
             {"id": "system_root", "role": "system", "content": "Prompt del sistema"},
@@ -339,11 +407,16 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(saved["id"], "session_test_123")
         self.assertEqual(saved["title"], "Conversación de prueba")
         self.assertEqual(saved["messageCount"], 3)
+        self.assertEqual(saved["profileId"], "Z-deepseek")
+        self.assertEqual(saved["extra"]["cron"], {"enabled": True})
+        self.assertEqual(saved["extra"]["tags"], ["prod"])
 
         retrieved = zerochat.get_conversation("session_test_123")
         self.assertIsNotNone(retrieved)
         self.assertEqual(retrieved["id"], "session_test_123")
         self.assertEqual(retrieved["title"], "Conversación de prueba")
+        self.assertEqual(retrieved["profileId"], "Z-deepseek")
+        self.assertEqual(retrieved["extra"]["cron"], {"enabled": True})
         self.assertEqual(len(retrieved["history"]), 3)
         self.assertEqual(retrieved["history"][0]["id"], "system_root")
         self.assertEqual(retrieved["history"][1]["content"], "¿Cómo estás?")

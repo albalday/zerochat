@@ -172,8 +172,16 @@
   const conversationRange = id => IDBKeyRange.bound([id, -Infinity], [id, Infinity]);
 
   function toConversationHeader(record) {
-    const { id, title, createdAt, updatedAt, messageCount } = record;
-    return { id, title, createdAt, updatedAt, messageCount };
+    const { id, title, createdAt, updatedAt, messageCount, profileId, extra } = record;
+    return {
+      id,
+      title,
+      createdAt,
+      updatedAt,
+      messageCount,
+      ...(profileId ? { profileId } : {}),
+      ...(extra ? { extra } : {})
+    };
   }
 
   function toMessageRecord(message, conversationId, position, messageId) {
@@ -226,7 +234,9 @@
         title: sessionMeta.title || '',
         createdAt: sessionMeta.createdAt || now,
         updatedAt: sessionMeta.updatedAt || now,
-        messageCount: messages.length
+        messageCount: messages.length,
+        ...(sessionMeta.profileId ? { profileId: sessionMeta.profileId } : {}),
+        ...(sessionMeta.extra ? { extra: sessionMeta.extra } : {})
       });
       const messageStore = tx.objectStore(STORES.messages);
       await deleteByIndex(messageStore, 'by_conversation', conversationRange(sessionId));

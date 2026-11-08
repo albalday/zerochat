@@ -256,3 +256,8 @@
 - 2026-11-07 M49-D4 Sincronización desacoplada de blobs con consulta zerochat/blobs/has, subida única zerochat/blobs/put, hidratación en lectura de conversaciones e integración probada (M49-T4)
 - 2026-11-07 M49-D5 Pruebas de navegador e integración con conversaciones con imágenes pesadas verificando almacenamiento paralelo de blobs, hidratación y payload bajo el límite de 1 MiB (M49-T5)
 - 2026-11-07 M49-D6 Propagación de cabeceras en MCPClient, autorización CORS para X-ZeroChat-Blob, preservación de metadatos de imágenes en prepareMessagesForStorage y eliminación de deleteBlob especulativo (M49-T6)
+- 2026-11-08 M50-D1 Almacenamiento de extra_json en la tabla conversations de SQLite y resolucion del perfil de conversacion en ejecuciones de servidor (--conversation) sin necesidad de argumento --profile explicito (M50-T1)
+- 2026-11-08 M50-D2 Persistencia y propagacion de profileId y extra_json en IndexedDB y servicios de conversacion del frontend (M50-T2)
+- 2026-11-08 M50-D3 Reubicacion de server-run-control junto al selector de perfil central en header-center y presentacion responsive compacta sin etiqueta en movil (M50-T3)
+- 2026-11-08 M50-D4 Validacion integral en todas las suites de pruebas y actualizacion de documentacion en py/README.md y ayuda bilingue (M50-T4)
+- 2026-11-08 M50-D5 Migración incremental v4 para extra_json en SQLite, precedencia del perfil activo en generación web, reutilización de consulta de conversación y prueba de actualización (M50-T5)

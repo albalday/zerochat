@@ -229,3 +229,26 @@ test('ConversationService - saveCurrentSession no sobrescribe en almacenamiento 
   assert.equal(stored.history.length, 2, 'No debe pisar el historial que está escribiendo el servidor');
   assert.equal(stored.history[1].content, 'Respuesta guardada por el servidor en segundo plano');
 });
+
+test('ConversationService - saveCurrentSession actualiza profileId con el perfil activo actual', async t => {
+  await Storage.deleteAllConversations();
+  const Config = require('../../js/config-store.js');
+  const Profiles = require('../../js/profile-repository.js');
+  Profiles.save({ id: 'prof_deepseek', name: 'Z-deepseek', general: true, settings: { apiType: 'openai' } });
+  t.after(() => Config.activateFallbackProfile());
+
+  State.replaceConversation({
+    sessionId: 'sess_profile_test',
+    sessions: [{ id: 'sess_profile_test', title: 'Inicial', profileId: 'profile:mirror' }],
+    messages: [{ id: 'u1', role: 'user', content: 'test' }]
+  });
+
+  Config.activateProfile('prof_deepseek');
+  await ConversationService.saveCurrentSession({ renderSidebarChats() {} });
+
+  const sessionMeta = State.get('sessions').list.find(s => s.id === 'sess_profile_test');
+  assert.equal(sessionMeta.profileId, 'Z-deepseek');
+
+  const stored = await Storage.getConversation('sess_profile_test');
+  assert.equal(stored.profileId, 'Z-deepseek');
+});

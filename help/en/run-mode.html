@@ -43,7 +43,7 @@
         <thead><tr><th>Option</th><th>Effect</th></tr></thead>
         <tbody>
           <tr><td><code>--conversation ID</code></td><td>Continues the conversation with that ID stored on the local server (see <code>--list-conversations</code>). Can be combined with <code>--prompt TEXT</code> to append a new user turn or used on its own to resume the last pending message or answer.</td></tr>
-          <tr><td><code>--profile NAME</code></td><td>Uses that profile (name or id) for this run only, without changing the saved active profile. If omitted, uses the server's <code>Z-local</code> general profile; if it does not exist, the run ends with an error.</td></tr>
+          <tr><td><code>--profile NAME</code></td><td>Uses that profile (name or id) for this run only, without changing the saved active profile. If omitted, uses the conversation's original profile (if present) or the server's <code>Z-local</code> general profile; if it does not exist, the run ends with an error.</td></tr>
           <tr><td><code>--browser</code></td><td>Opens the user's default browser in visible mode instead of Playwright's windowless Chromium.</td></tr>
           <tr><td><code>--headless</code></td><td>With <code>--browser</code>, opens the user's default browser without a window. See <a href="#sin-ventana">section 5</a>.</td></tr>
           <tr><td><code>--export FILE</code></td><td>Saves the conversation to <code>FILE</code>; the format comes from the extension: <code>.md</code> (Markdown), <code>.json</code> (session) or <code>.html</code> (as shown in the chat). It is also exported after a generation error.</td></tr>

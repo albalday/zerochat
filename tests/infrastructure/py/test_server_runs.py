@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import stat
@@ -196,6 +197,24 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertIsNone(session.prompt)
         self.assertEqual(session.conversation_id, "conv_con_user")
         self.assertEqual(session.profile, "Z-local")
+
+        # Conversación con profileId resuelve su propio perfil general sin --profile explícito
+        zerochat.save_general_profile({"name": "Z-test-cron-profile", "settings": {}})
+        zerochat.save_conversation({"id": "conv_con_perfil", "title": "Con perfil propio", "profileId": "Z-test-cron-profile"}, [
+            {"id": "sys_1", "role": "system", "content": "Prompt base"},
+            {"id": "usr_2", "role": "user", "content": "¿Cuál es mi perfil?"}
+        ])
+        session_perfil = zerochat.run_session_from_args(parser, parser.parse_args(["--conversation", "conv_con_perfil"]))
+        self.assertIsNotNone(session_perfil)
+        self.assertEqual(session_perfil.profile, "Z-test-cron-profile")
+
+        # Conversación cuyo perfil asociado no existe termina con error de argumentos
+        zerochat.save_conversation({"id": "conv_con_perfil_inexistente", "title": "Perfil roto", "profileId": "Z-fantasma"}, [
+            {"id": "usr_1", "role": "user", "content": "test"}
+        ])
+        with self.assertRaises(SystemExit):
+            with mock.patch("sys.stderr", io.StringIO()):
+                zerochat.run_session_from_args(parser, parser.parse_args(["--conversation", "conv_con_perfil_inexistente"]))
 
         # Conversación con --prompt se acepta
         session_with_prompt = zerochat.run_session_from_args(parser, parser.parse_args([
