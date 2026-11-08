@@ -731,17 +731,7 @@
     }
     const displayName = formatProfileDisplayName(profile);
     if (!await getDialogs().confirm(t('confirm_delete_profile', { name: displayName }))) return false;
-    let ok = false;
-    if (profile.general) {
-      if (!getMCP().manager.isProxyConnected()) {
-        showProfileFeedback(t('profile_mcp_disconnected'), 'error');
-        return false;
-      }
-      ok = await getMCP().manager.deleteServerProfile(profile.id);
-    } else {
-      ok = Profiles.remove(profile.id);
-    }
-    if (!ok) return false;
+    if (!Profiles.remove(profile.id)) return false;
     if (runtimeConfig().activeProfile?.id === profile.id) getConfig().activateFallbackProfile();
     const nextActiveId = runtimeConfig().activeProfile?.id || '';
     populateProfileSelector(nextActiveId);

@@ -122,9 +122,13 @@
       || (isServerRun ? (existing?.profileId || defaultProfileId) : defaultProfileId)
       || existing?.profileId
       || '';
-    const session = existing
-      ? { ...existing, updatedAt: now, messageCount: history.length, profileId: resolvedProfileId, serverRun: isServerRun }
-      : { id: sessionId, title: '', createdAt: now, updatedAt: now, messageCount: history.length, profileId: resolvedProfileId, serverRun: isServerRun };
+    const session = {
+      ...(existing || { id: sessionId, title: '', createdAt: now }),
+      updatedAt: now,
+      messageCount: history.length,
+      profileId: resolvedProfileId,
+      serverRun: isServerRun
+    };
     if (!session.title) session.title = deriveTitle(history) || t('chat_untitled');
 
     State.saveSessionMetadata(session);

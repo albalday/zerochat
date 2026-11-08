@@ -353,10 +353,7 @@
     }
     const activeId = getCurrentSessionId();
     const session = State.get('sessions')?.list?.find(s => s.id === activeId);
-    if (session && isServerConversation(session)) {
-      const profile = session.profileId || session.extra?.profile_id || 'local';
-      UIProfiles.setServerMode(true, profile);
-    }
+    if (session) applySessionModeAndProfile(session);
   }
 
   function getActiveServerRun() {

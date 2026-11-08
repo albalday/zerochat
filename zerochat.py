@@ -5812,13 +5812,13 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
             profile_name = match["name"]
             profile_data = match
         else:
-            default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE) or get_general_profile_by_name("Z-local")
+            default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
             if default_match is None:
                 parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
             profile_name = default_match["name"]
             profile_data = default_match
     else:
-        default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE) or get_general_profile_by_name("Z-local")
+        default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
         if default_match is None:
             parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
         profile_name = default_match["name"]
