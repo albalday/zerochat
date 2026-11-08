@@ -157,9 +157,11 @@
     if (options.runOnServer) {
       await options.saveCurrentSession();
       try {
+        const savedSession = State.get('sessions')?.list?.find(s => s.id === generationSessionId);
+        const targetProfile = savedSession?.profileId || config.activeProfile?.name || config.activeProfile?.id || '';
         const result = await options.startServerRun({
           conversationId: generationSessionId,
-          profile: config.activeProfile?.name || config.activeProfile?.id || ''
+          profile: targetProfile
         });
         return { serverRun: true, conversationId: generationSessionId, runId: result?.run_id || '' };
       } catch (err) {

@@ -112,9 +112,11 @@
 
     const now = Date.now();
     const existing = getSavedSessions().find(session => session.id === sessionId);
+    const activeProfile = getConfig().getActive()?.activeProfile;
+    const currentProfileId = activeProfile?.name || activeProfile?.id || '';
     const session = existing
-      ? { ...existing, updatedAt: now, messageCount: history.length }
-      : { id: sessionId, title: '', createdAt: now, updatedAt: now, messageCount: history.length };
+      ? { ...existing, updatedAt: now, messageCount: history.length, profileId: existing.profileId || currentProfileId }
+      : { id: sessionId, title: '', createdAt: now, updatedAt: now, messageCount: history.length, profileId: currentProfileId };
     if (!session.title) session.title = deriveTitle(history) || t('chat_untitled');
 
     State.saveSessionMetadata(session);
@@ -287,12 +289,15 @@
     if (!branchHistory) return false;
 
     const now = Date.now();
+    const parentSession = getSavedSessions().find(s => s.id === parentSessionId);
+    const branchProfileId = parentSession?.profileId || getConfig().getActive()?.activeProfile?.name || getConfig().getActive()?.activeProfile?.id || '';
     const branchSession = {
       id: branchSessionId,
       title: t('chat_branch_title', { title: parentTitle }),
       createdAt: now,
       updatedAt: now,
-      messageCount: branchHistory.length
+      messageCount: branchHistory.length,
+      profileId: branchProfileId
     };
 
     const Storage = getStorage();

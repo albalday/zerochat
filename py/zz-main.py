@@ -99,6 +99,17 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
             parser.error("--profile no puede estar vacío")
         general_match = get_general_profile_by_name(clean_profile) or get_general_profile(clean_profile)
         profile_name = general_match["name"] if general_match else clean_profile
+    elif conversation_id:
+        conv = get_conversation(conversation_id)
+        conv_profile = (conv.get("profileId") or conv.get("extra", {}).get("profile_id")) if conv else None
+        if conv_profile:
+            match = get_general_profile_by_name(conv_profile) or get_general_profile(conv_profile)
+            profile_name = match["name"] if match else conv_profile
+        else:
+            default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
+            if default_match is None:
+                parser.error(f"no existe el perfil general por defecto '{DEFAULT_RUN_PROFILE}'; créalo o indica uno con --profile")
+            profile_name = default_match["name"]
     else:
         default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
         if default_match is None:

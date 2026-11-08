@@ -1,4 +1,4 @@
 # Current state
-- Milestone: M49 Almacenamiento paralelo de adjuntos e imágenes para sincronización eficiente de conversaciones
+- Milestone: M50 Ajustes del modo servidor: perfil de conversación y control responsive en móvil
 - Next task: none pending
-- Last updated: 2026-11-07
+- Last updated: 2026-11-08

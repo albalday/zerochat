@@ -31,7 +31,8 @@ STORAGE_MIGRATIONS = [
             title TEXT NOT NULL,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL,
-            message_count INTEGER NOT NULL DEFAULT 0
+            message_count INTEGER NOT NULL DEFAULT 0,
+            extra_json TEXT DEFAULT '{}'
         );
         CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at);
 
@@ -298,13 +299,20 @@ def _validate_conversation_title(title, allow_empty: bool = False) -> str:
 
 def _row_to_conversation_header(row: sqlite3.Row) -> dict:
     """Transforma una fila SQLite en la cabecera de una conversación."""
-    return {
+    header = {
         "id": row["id"],
         "title": row["title"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
         "messageCount": row["message_count"]
     }
+    raw_extra = row["extra_json"] if "extra_json" in row.keys() else None
+    extra = json.loads(raw_extra) if raw_extra else {}
+    if extra:
+        header["extra"] = extra
+        if "profile_id" in extra:
+            header["profileId"] = extra["profile_id"]
+    return header
 
 
 def _row_to_message(row: sqlite3.Row) -> dict:
@@ -357,15 +365,27 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
     created_at = int(session_meta.get("createdAt") or now)
     updated_at = int(session_meta.get("updatedAt") or now)
 
+    extra = session_meta.get("extra")
+    if not isinstance(extra, dict):
+        extra = {}
+    else:
+        extra = dict(extra)
+    profile_id = session_meta.get("profileId") or session_meta.get("profile_id")
+    if profile_id and isinstance(profile_id, str) and profile_id.strip():
+        extra["profile_id"] = profile_id.strip()
+
+    extra_json = json.dumps(extra, ensure_ascii=False) if extra else "{}"
+
     with open_storage() as conn:
         conn.execute("""
-            INSERT INTO conversations (id, title, created_at, updated_at, message_count)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO conversations (id, title, created_at, updated_at, message_count, extra_json)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
                 updated_at = excluded.updated_at,
-                message_count = excluded.message_count;
-        """, (session_id, title, created_at, updated_at, len(messages)))
+                message_count = excluded.message_count,
+                extra_json = excluded.extra_json;
+        """, (session_id, title, created_at, updated_at, len(messages), extra_json))
 
         conn.execute("DELETE FROM messages WHERE conversation_id = ?;", (session_id,))
 

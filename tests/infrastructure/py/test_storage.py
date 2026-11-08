@@ -328,7 +328,9 @@ class StorageEngineTest(unittest.TestCase):
             "id": "session_test_123",
             "title": "Conversación de prueba",
             "createdAt": 1700000000000,
-            "updatedAt": 1700000001000
+            "updatedAt": 1700000001000,
+            "profileId": "Z-deepseek",
+            "extra": {"cron": {"enabled": True}, "tags": ["prod"]}
         }
         messages = [
             {"id": "system_root", "role": "system", "content": "Prompt del sistema"},
@@ -339,11 +341,16 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(saved["id"], "session_test_123")
         self.assertEqual(saved["title"], "Conversación de prueba")
         self.assertEqual(saved["messageCount"], 3)
+        self.assertEqual(saved["profileId"], "Z-deepseek")
+        self.assertEqual(saved["extra"]["cron"], {"enabled": True})
+        self.assertEqual(saved["extra"]["tags"], ["prod"])
 
         retrieved = zerochat.get_conversation("session_test_123")
         self.assertIsNotNone(retrieved)
         self.assertEqual(retrieved["id"], "session_test_123")
         self.assertEqual(retrieved["title"], "Conversación de prueba")
+        self.assertEqual(retrieved["profileId"], "Z-deepseek")
+        self.assertEqual(retrieved["extra"]["cron"], {"enabled": True})
         self.assertEqual(len(retrieved["history"]), 3)
         self.assertEqual(retrieved["history"][0]["id"], "system_root")
         self.assertEqual(retrieved["history"][1]["content"], "¿Cómo estás?")

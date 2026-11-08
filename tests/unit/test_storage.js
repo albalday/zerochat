@@ -157,6 +157,26 @@ test('Storage IndexedDB - preserva íntegros turnos del asistente, herramientas,
     assert.equal(loaded.history[1].role, 'user');
     assert.equal(loaded.history[4].content, 'Hoy es 2 de septiembre de 2026.');
   }
+
+  {
+    const sessionId = 'session_test_profile_' + Date.now();
+    const sessionMeta = {
+      id: sessionId,
+      title: 'Chat con perfil',
+      profileId: 'Z-deepseek',
+      extra: { cron: { enabled: true } }
+    };
+    await Storage.saveConversation(sessionMeta, [{ id: 'u1', role: 'user', content: 'test' }]);
+    const loaded = await Storage.getConversation(sessionId);
+    assert.equal(loaded.profileId, 'Z-deepseek');
+    assert.deepEqual(loaded.extra, { cron: { enabled: true } });
+
+    const list = await Storage.getConversationsList();
+    const item = list.find(c => c.id === sessionId);
+    assert.ok(item);
+    assert.equal(item.profileId, 'Z-deepseek');
+    assert.deepEqual(item.extra, { cron: { enabled: true } });
+  }
 });
 
 test('Storage IndexedDB - conserva la nota de comandos terminados del mensaje del usuario', async () => {

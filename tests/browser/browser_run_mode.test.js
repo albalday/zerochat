@@ -441,6 +441,16 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     assert.equal(await page.locator('#server-run-control').isHidden(), true);
     await page.evaluate(() => window.ChatUIProfiles.activateConnectionProfile('general:z-server'));
     assert.equal(await page.locator('#server-run-control').isHidden(), false);
+    // Verificación de ubicación junto al selector de perfil y comportamiento responsive
+    assert.equal(await page.locator('.header-center #server-run-control').count(), 1);
+    assert.equal(await page.locator('.header-server-run-label').isVisible(), true);
+
+    await page.setViewportSize({ width: 375, height: 667 });
+    assert.equal(await page.locator('#server-run-control').isVisible(), true);
+    assert.equal(await page.locator('.header-server-run-label').isHidden(), true);
+
+    await page.setViewportSize({ width: 1280, height: 720 });
+    assert.equal(await page.locator('.header-server-run-label').isVisible(), true);
 
     await page.locator('#server-run-control').click();
     assert.equal(await page.locator('#chk-server-run').isChecked(), true);

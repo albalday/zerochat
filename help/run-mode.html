@@ -43,7 +43,7 @@
         <thead><tr><th>Opción</th><th>Efecto</th></tr></thead>
         <tbody>
           <tr><td><code>--conversation ID</code></td><td>Continúa la conversación con ese ID guardada en el servidor local (ver <code>--list-conversations</code>). Puede combinarse con <code>--prompt TEXTO</code> para añadir un nuevo turno de usuario o usarse sola para reanudar el último mensaje o respuesta pendiente.</td></tr>
-          <tr><td><code>--profile NOMBRE</code></td><td>Usa ese perfil (nombre o id) solo en esta ejecución, sin cambiar el perfil activo guardado. Si no se indica, usa el perfil general <code>Z-local</code> del servidor; si no existe, la ejecución termina con error.</td></tr>
+          <tr><td><code>--profile NOMBRE</code></td><td>Usa ese perfil (nombre o id) solo en esta ejecución, sin cambiar el perfil activo guardado. Si no se indica, usa el perfil de origen de la conversación (si existe) o el perfil general <code>Z-local</code> del servidor; si no existe, la ejecución termina con error.</td></tr>
           <tr><td><code>--browser</code></td><td>Abre el navegador predeterminado del usuario en modo visible en lugar del Chromium sin ventana de Playwright.</td></tr>
           <tr><td><code>--headless</code></td><td>Con <code>--browser</code>, abre el navegador predeterminado del usuario sin ventana. Ver <a href="#sin-ventana">sección 5</a>.</td></tr>
           <tr><td><code>--export FICHERO</code></td><td>Guarda la conversación en <code>FICHERO</code>; el formato sale de la extensión: <code>.md</code> (Markdown), <code>.json</code> (sesión) o <code>.html</code> (como se ve en el chat). Se exporta también tras un error de generación.</td></tr>
