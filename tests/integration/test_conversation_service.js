@@ -252,3 +252,64 @@ test('ConversationService - saveCurrentSession actualiza profileId con el perfil
   const stored = await Storage.getConversation('sess_profile_test');
   assert.equal(stored.profileId, 'Z-deepseek');
 });
+
+test('ConversationService - saveCurrentSession con overrides persiste serverRun y profileId y se preservan', async t => {
+  await Storage.deleteAllConversations();
+  State.replaceConversation({
+    sessionId: 'sess_srv_run_1',
+    sessions: [{ id: 'sess_srv_run_1', title: 'Inicial' }],
+    messages: [{ id: 'u1', role: 'user', content: 'test server run' }]
+  });
+
+  await ConversationService.saveCurrentSession({ renderSidebarChats() {} }, { serverRun: true, profileId: 'claude' });
+
+  const sessionMeta = State.get('sessions').list.find(s => s.id === 'sess_srv_run_1');
+  assert.equal(sessionMeta.serverRun, true);
+  assert.equal(sessionMeta.profileId, 'claude');
+
+  const stored = await Storage.getConversation('sess_srv_run_1');
+  assert.equal(stored.serverRun, true);
+  assert.equal(stored.profileId, 'claude');
+
+  // Guardar de nuevo sin overrides preserva serverRun y profileId de servidor
+  await ConversationService.saveCurrentSession({ renderSidebarChats() {} });
+  const updatedMeta = State.get('sessions').list.find(s => s.id === 'sess_srv_run_1');
+  assert.equal(updatedMeta.serverRun, true);
+  assert.equal(updatedMeta.profileId, 'claude');
+});
+
+test('ConversationService - switchToSession notifica onSessionSwitched con los metadatos de la conversación recuperada', async t => {
+  await Storage.deleteAllConversations();
+  const session = {
+    id: 'sess_history_server',
+    title: 'Chat en servidor',
+    createdAt: Date.now() - 5000,
+    updatedAt: Date.now() - 1000,
+    profileId: 'claude',
+    serverRun: true
+  };
+  await Storage.saveConversation(session, [{ id: 'm1', role: 'user', content: 'hola servidor' }]);
+
+  State.replaceConversation({
+    sessionId: 'sess_other',
+    sessions: [{ id: 'sess_other', title: 'Local Chat' }, session],
+    messages: [{ id: 'm_other', role: 'user', content: 'local' }]
+  });
+
+  let switchedConversation = null;
+  const options = {
+    renderSessionMessages() {},
+    renderSidebarChats() {},
+    onSessionReset() {},
+    resetComposerInput() {},
+    closeMobileSidebar() {},
+    onSessionSwitched: conv => { switchedConversation = conv; }
+  };
+
+  const switched = await ConversationService.switchToSession('sess_history_server', options);
+  assert.equal(switched, true);
+  assert.ok(switchedConversation);
+  assert.equal(switchedConversation.id, 'sess_history_server');
+  assert.equal(switchedConversation.serverRun, true);
+  assert.equal(switchedConversation.profileId, 'claude');
+});

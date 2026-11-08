@@ -314,6 +314,8 @@ def _row_to_conversation_header(row: sqlite3.Row) -> dict:
         header["extra"] = extra
         if "profile_id" in extra:
             header["profileId"] = extra["profile_id"]
+        if "server_run" in extra:
+            header["serverRun"] = bool(extra["server_run"])
     return header
 
 
@@ -375,6 +377,8 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
     profile_id = session_meta.get("profileId")
     if profile_id and isinstance(profile_id, str) and profile_id.strip():
         extra["profile_id"] = profile_id.strip()
+    if session_meta.get("serverRun") is not None:
+        extra["server_run"] = bool(session_meta.get("serverRun"))
 
     extra_json = json.dumps(extra, ensure_ascii=False) if extra else "{}"
 

@@ -299,7 +299,10 @@
         Debug.setStatus('idle');
         Debug.togglePanel(false);
         resetTelemetryDisplay({ syncState: false });
+        if (elements.chkServerRun) elements.chkServerRun.checked = false;
+        UIProfiles.setSelectedServerProfile('local');
       },
+      onSessionSwitched: conversation => applySessionModeAndProfile(conversation),
       resetComposerInput: () => resetComposerInput(),
       closeMobileSidebar: () => {
         if (UISidebar.isMobile()) UISidebar.closeSidebar(elements);
@@ -307,7 +310,7 @@
     };
   }
 
-  const saveCurrentSession = () => ConversationService.saveCurrentSession(getConversationServiceOptions());
+  const saveCurrentSession = overrides => ConversationService.saveCurrentSession(getConversationServiceOptions(), overrides);
   const switchToSession = sessionId => ConversationService.switchToSession(sessionId, getConversationServiceOptions());
   const createNewSession = () => ConversationService.createNewSession(getConversationServiceOptions());
   const createConversationBranch = wrapper => ConversationService.createConversationBranch(UIConversation.getMessageRef(wrapper), {
@@ -317,6 +320,25 @@
 
   function renderSidebarChats() {
     UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId(), State.get('mcp').serverRuns);
+  }
+
+  function isServerConversation(conversation) {
+    if (!conversation) return false;
+    if (conversation.serverRun || conversation.extra?.server_run) return true;
+    const mcpRuns = State.get('mcp')?.serverRuns;
+    return Array.isArray(mcpRuns) && mcpRuns.some(run => run?.conversationId === conversation.id);
+  }
+
+  function applySessionModeAndProfile(conversation) {
+    if (!conversation) return;
+    const serverMode = isServerConversation(conversation);
+    if (serverMode) {
+      if (isServerRunAvailable()) elements.chkServerRun.checked = true;
+      const profile = conversation.profileId || conversation.extra?.profile_id || 'local';
+      UIProfiles.setSelectedServerProfile(profile);
+    } else {
+      elements.chkServerRun.checked = false;
+    }
   }
 
   function isServerRunAvailable() {
@@ -330,7 +352,15 @@
   function syncServerRunControl() {
     const available = isServerRunAvailable();
     elements.serverRunControl.hidden = !available;
-    if (!available) elements.chkServerRun.checked = false;
+    if (!available) {
+      elements.chkServerRun.checked = false;
+    } else {
+      const activeId = getCurrentSessionId();
+      const session = State.get('sessions')?.list?.find(s => s.id === activeId);
+      if (session && isServerConversation(session)) {
+        elements.chkServerRun.checked = true;
+      }
+    }
   }
 
   function getActiveServerRun() {
@@ -465,6 +495,7 @@
     Engine.ensureConversationDate(newSession.history, newSession.createdAt);
     const result = State.importConversation(newSession, newSession.history);
     if (!result.ok) throw new Error(result.reason);
+    applySessionModeAndProfile(newSession);
     renderSessionMessages(getChatHistory());
     await saveCurrentSession();
     await Dialogs.alert(t('chat_imported_success'), { type: 'success' });

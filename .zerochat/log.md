@@ -265,3 +265,4 @@
 - 2026-11-08 M51-D2 Desacoplar perfiles de servidor en frontend: ChatProfileRepository administra exclusivamente perfiles locales (más Espejo) y ChatMCP expone listServerProfiles e importServerProfile sin sincronización automática en arranque (M51-T2)
 - 2026-11-08 M51-D3 Editor de perfiles con botones independientes «Guardar» (local) y «Guardar en servidor» (SQLite), eliminando el selector de ámbito (M51-T3)
 - 2026-11-08 M51-D4 Panel selector de perfiles a pantalla completa en móvil (< 640px) y subvista para importar del servidor y seleccionar perfil para ejecución en servidor (M51-T4)
+- 2026-11-08 M51-D5 Restauración de perfil de servidor y modo servidor automático al recuperar del historial (M51-T5)

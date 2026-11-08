@@ -236,6 +236,18 @@ def start_server_run(params: dict) -> dict:
         env["ZEROCHAT_RUN_SECURITY"] = json.dumps(tool_security, ensure_ascii=False)
 
     now = int(time.time() * 1000)
+    try:
+        with open_storage() as conn:
+            row = conn.execute("SELECT extra_json FROM conversations WHERE id = ?;", (clean_conv_id,)).fetchone()
+            if row:
+                cur_extra = json.loads(row["extra_json"]) if row["extra_json"] else {}
+                cur_extra["server_run"] = True
+                cur_extra["profile_id"] = profile_name
+                conn.execute("UPDATE conversations SET extra_json = ? WHERE id = ?;", (json.dumps(cur_extra, ensure_ascii=False), clean_conv_id))
+                conn.commit()
+    except (sqlite3.Error, OSError, json.JSONDecodeError):
+        pass
+
     proc = subprocess.Popen(
         cmd,
         stdin=subprocess.DEVNULL,

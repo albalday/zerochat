@@ -107,6 +107,6 @@ Done when: El menú de perfiles solo muestra perfiles locales sin prefijo Z-; el
 - [x] M51-T2 Desacoplo de perfiles de servidor en frontend (eliminación de mezcla automática en profile-repository y mcp) y API de consulta/importación con pruebas unitarias e integración (2026-11-08)
 - [x] M51-T3 Editor de perfiles: sustitución del selector de ámbito por botones independientes «Guardar» y «Guardar en servidor» con pruebas unitarias (2026-11-08)
 - [x] M51-T4 Panel selector de perfiles: diseño responsive a pantalla completa en móvil (< 640px), acción de importación desde servidor y selección de perfil para ejecución en servidor (2026-11-08)
-- [ ] M51-T5 Restauración de conversación en servidor: recuperación del perfil asociado y activación automática del modo servidor al cargar del historial con pruebas
+- [x] M51-T5 Restauración de conversación en servidor: recuperación del perfil asociado y activación automática del modo servidor al cargar del historial con pruebas (2026-11-08)
 - [ ] M51-T6 Validación integral de la suite completa, pruebas de navegador y actualización de documentación
 

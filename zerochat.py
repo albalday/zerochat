@@ -3740,6 +3740,8 @@ def _row_to_conversation_header(row: sqlite3.Row) -> dict:
         header["extra"] = extra
         if "profile_id" in extra:
             header["profileId"] = extra["profile_id"]
+        if "server_run" in extra:
+            header["serverRun"] = bool(extra["server_run"])
     return header
 
 
@@ -3801,6 +3803,8 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
     profile_id = session_meta.get("profileId")
     if profile_id and isinstance(profile_id, str) and profile_id.strip():
         extra["profile_id"] = profile_id.strip()
+    if session_meta.get("serverRun") is not None:
+        extra["server_run"] = bool(session_meta.get("serverRun"))
 
     extra_json = json.dumps(extra, ensure_ascii=False) if extra else "{}"
 
@@ -5383,6 +5387,18 @@ def start_server_run(params: dict) -> dict:
         env["ZEROCHAT_RUN_SECURITY"] = json.dumps(tool_security, ensure_ascii=False)
 
     now = int(time.time() * 1000)
+    try:
+        with open_storage() as conn:
+            row = conn.execute("SELECT extra_json FROM conversations WHERE id = ?;", (clean_conv_id,)).fetchone()
+            if row:
+                cur_extra = json.loads(row["extra_json"]) if row["extra_json"] else {}
+                cur_extra["server_run"] = True
+                cur_extra["profile_id"] = profile_name
+                conn.execute("UPDATE conversations SET extra_json = ? WHERE id = ?;", (json.dumps(cur_extra, ensure_ascii=False), clean_conv_id))
+                conn.commit()
+    except (sqlite3.Error, OSError, json.JSONDecodeError):
+        pass
+
     proc = subprocess.Popen(
         cmd,
         stdin=subprocess.DEVNULL,
@@ -5795,6 +5811,18 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
             parser.error(f"--export necesita una de estas extensiones: {', '.join(RUN_EXPORT_FORMATS)}")
         if not export_path.parent.is_dir():
             parser.error(f"--export: no existe el directorio {export_path.parent}")
+    if conversation_id:
+        try:
+            with open_storage() as conn:
+                row = conn.execute("SELECT extra_json FROM conversations WHERE id = ?;", (conversation_id,)).fetchone()
+                if row:
+                    cur_extra = json.loads(row["extra_json"]) if row["extra_json"] else {}
+                    cur_extra["server_run"] = True
+                    cur_extra["profile_id"] = profile_name
+                    conn.execute("UPDATE conversations SET extra_json = ? WHERE id = ?;", (json.dumps(cur_extra, ensure_ascii=False), conversation_id))
+                    conn.commit()
+        except (sqlite3.Error, OSError, json.JSONDecodeError):
+            pass
     return RunSession(prompt, profile_name, export_path, args.keep_page, args.allow_dangerous_tools, conversation_id=conversation_id)
 
 
