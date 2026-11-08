@@ -270,3 +270,6 @@
 - 2026-11-08 M51-D7 Retirada del switch en cabecera, indicador visual de modo servidor en el selector y gestión de perfiles de servidor (edición/borrado) con botón Guardar en local (M51-T7)
 - 2026-11-08 M51-D8 Aislamiento de borradores vacíos en State y ConversationService para evitar sobreescritura de conversaciones previas y resolución de perfiles en headless (M51-T8)
 - 2026-11-08 M51-D9 Migración del selector de perfiles al estándar de diálogo modal (settings-modal) con posicionamiento alineado en desktop y pantalla completa en móvil (M51-T9)
+- 2026-11-08 M52-D1 Cabeceras de navegación completas, cadencia entre peticiones y detección de reto HTTP 202 en fetch_web_resource (M52-T1)
+- 2026-11-08 M52-D2 Detección de reto anomaly-modal en ChatWebSearch para reportar bloqueo en lugar de resultado vacío (M52-T2)
+- 2026-11-08 M52-D3 Recompilación de zerochat.py, actualización de py/README.md y verificación de la suite completa en verde (M52-T3)

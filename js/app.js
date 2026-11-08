@@ -297,10 +297,10 @@
         Debug.setStatus('idle');
         Debug.togglePanel(false);
         resetTelemetryDisplay({ syncState: false });
-        UIProfiles.setServerMode(false);
-        UIProfiles.setSelectedServerProfile('local');
       },
       onSessionSwitched: conversation => applySessionModeAndProfile(conversation),
+      isServerMode: () => isServerRunEnabled(),
+      getServerProfile: () => UIProfiles.getSelectedServerProfile(),
       resetComposerInput: () => resetComposerInput(),
       closeMobileSidebar: () => {
         if (UISidebar.isMobile()) UISidebar.closeSidebar(elements);

@@ -97,7 +97,12 @@
     }
     if (!res.ok) return failure(res.error || `HTTP ${res.status}`);
 
-    const results = parseHtmlResults(await res.text());
+    const htmlText = await res.text();
+    if (htmlText.includes('anomaly-modal') || htmlText.includes('anomaly.js')) {
+      return failure('DuckDuckGo anti-bot verification or anomaly challenge detected. Try again later or search directly with specific URLs.');
+    }
+
+    const results = parseHtmlResults(htmlText);
     return {
       success: true,
       query: cleanQuery,

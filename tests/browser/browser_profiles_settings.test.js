@@ -584,6 +584,12 @@ test('Browser UI - el selector de perfiles permite gestionar perfiles del servid
     const selected = await page.evaluate(() => window.ChatUIProfiles.getSelectedServerProfile());
     assert.equal(selected, 'Servidor Claude');
 
+    // Al abrir un nuevo chat debe respetarse el modo y perfil de servidor elegido
+    await page.click('#btn-sidebar-new-chat');
+    assert.equal(await page.evaluate(() => window.ChatUIProfiles.isServerMode()), true);
+    assert.equal(await page.locator('#active-profile-trigger.server-mode').count(), 1);
+    assert.equal((await page.textContent('#active-profile-name')).trim(), 'Servidor Claude');
+
     // 2. Probar acción Perfiles del servidor... -> Editar y Guardar en local
     await page.click('#active-profile-trigger');
     await page.click('#btn-menu-server-manage');

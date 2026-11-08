@@ -1,3 +1,4 @@
+import email.message
 import gzip
 import io
 import unittest
@@ -70,3 +71,68 @@ class WebFetchTest(unittest.TestCase):
         for url in ("ftp://example.com/file", ""):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 zerochat.fetch_web_resource({"url": url})
+
+    def test_fetch_web_resource_cabeceras_cadencia_y_respuesta_202(self):
+        class MockResponse:
+            def __init__(self, status=200, headers=None, body=b"<html>OK</html>"):
+                self.status = status
+                self._headers = headers or {"Content-Type": "text/html"}
+                self.headers = email.message.EmailMessage()
+                for k, v in self._headers.items():
+                    self.headers[k] = v
+                self._body = io.BytesIO(body)
+
+            def read(self, amt=None):
+                return self._body.read(amt)
+
+            def getheaders(self):
+                return list(self._headers.items())
+
+            def geturl(self):
+                return "https://html.duckduckgo.com/html/?q=test"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+        captured_requests = []
+        original_open = zerochat._WEB_OPENER.open
+        try:
+            def mock_open(req, timeout=10.0):
+                captured_requests.append(req)
+                status = 202 if "anomaly" in req.full_url else 200
+                return MockResponse(status=status)
+
+            zerochat._WEB_OPENER.open = mock_open
+
+            # 1. Petición a DuckDuckGo lleva cabeceras de navegación y Referer
+            res = zerochat.fetch_web_resource({"url": "https://html.duckduckgo.com/html/?q=test"})
+            self.assertTrue(res["ok"])
+            req = captured_requests[0]
+            self.assertEqual(req.headers.get("User-agent"), zerochat.DEFAULT_USER_AGENT)
+            self.assertEqual(req.headers.get("Referer"), "https://html.duckduckgo.com/")
+            self.assertEqual(req.headers.get("Sec-fetch-dest"), "document")
+            self.assertEqual(req.headers.get("Sec-fetch-mode"), "navigate")
+            self.assertIn("Chromium", req.headers.get("Sec-ch-ua"))
+
+            # 2. Petición con respuesta 202 se detecta como reto/anomalía y devuelve ok: False
+            res_202 = zerochat.fetch_web_resource({"url": "https://html.duckduckgo.com/anomaly"})
+            self.assertFalse(res_202["ok"])
+            self.assertEqual(res_202["status"], 202)
+            self.assertIn("Reto anti-bot", res_202["error"])
+
+            # 3. Cadencia: dos peticiones consecutivas al mismo dominio sensible aplican retardo
+            zerochat.WEB_FETCH_MIN_DELAY_S = 0.05
+            zerochat.WEB_FETCH_MAX_DELAY_S = 0.05
+            t0 = zerochat.time.monotonic()
+            zerochat.fetch_web_resource({"url": "https://html.duckduckgo.com/html/?q=test1"})
+            zerochat.fetch_web_resource({"url": "https://html.duckduckgo.com/html/?q=test2"})
+            elapsed = zerochat.time.monotonic() - t0
+            self.assertGreaterEqual(elapsed, 0.04)
+        finally:
+            zerochat._WEB_OPENER.open = original_open
+            zerochat.WEB_FETCH_MIN_DELAY_S = 0.6
+            zerochat.WEB_FETCH_MAX_DELAY_S = 1.2
+

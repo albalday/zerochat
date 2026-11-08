@@ -356,3 +356,44 @@ test('ConversationService - saveCurrentSession en un borrador vacío no altera a
   assert.equal(storedPrev.history[0].content, 'Pregunta anterior');
   assert.equal(storedPrev.title, 'Chat previo guardado');
 });
+
+test('ConversationService - createConversationBranch respeta el modo servidor y perfil activo en ese momento', async t => {
+  await Storage.deleteAllConversations();
+
+  const history = [
+    { id: 'm1', role: 'system', content: 'sys' },
+    { id: 'm2', role: 'user', content: 'user 1' },
+    { id: 'm3', role: 'assistant', content: 'asst 1' }
+  ];
+  State.replaceConversation({
+    sessionId: 'parent_sess_server',
+    sessions: [{ id: 'parent_sess_server', title: 'Parent Server Chat' }],
+    messages: structuredClone(history)
+  });
+
+  const anchor = { msgId: 'm3', baseId: 'm3', explicitIds: [] };
+  let switchedConversation = null;
+  const options = {
+    renderSessionMessages() {},
+    renderSidebarChats() {},
+    onSessionReset() {},
+    resetComposerInput() {},
+    closeMobileSidebar() {},
+    onSummarizing() {},
+    isServerMode: () => true,
+    getServerProfile: () => 'deepseek-coder',
+    onSessionSwitched: conv => { switchedConversation = conv; }
+  };
+
+  const branched = await ConversationService.createConversationBranch(anchor, options);
+  assert.equal(branched, true);
+  assert.ok(switchedConversation);
+  assert.equal(switchedConversation.serverRun, true);
+  assert.equal(switchedConversation.profileId, 'deepseek-coder');
+
+  const branchId = State.get('sessions').activeId;
+  const stored = await Storage.getConversation(branchId);
+  assert.ok(stored);
+  assert.equal(stored.serverRun, true);
+  assert.equal(stored.profileId, 'deepseek-coder');
+});

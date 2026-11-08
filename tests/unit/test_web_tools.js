@@ -32,6 +32,12 @@ test('WebSearch - DuckDuckGo HTML: resultados con la URL real, sin repetidos, y 
   const blocked = await WebSearch.search('gasolina');
   assert.equal(blocked.success, false);
   assert.equal(blocked.error, 'Jina Reader answered HTTP 403: Anonymous access to domain blocked');
+
+  // Detección explícita de reto anti-bot / anomaly-modal de DuckDuckGo en el cuerpo
+  reply = () => new Response('<div class="anomaly-modal">Challenge</div>', { status: 200 });
+  const challenge = await WebSearch.search('gasolina');
+  assert.equal(challenge.success, false);
+  assert.match(challenge.error, /anti-bot verification or anomaly challenge/i);
 });
 
 test('PageFetcher - Validación de URLs y protección anti-SSRF', () => {
