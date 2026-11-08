@@ -108,7 +108,7 @@
     if (!doc || doc.schemaVersion !== SCHEMA_VERSION || !Array.isArray(doc.profiles)) {
       throw new Error('The profile storage has an invalid format.');
     }
-    return { schemaVersion: SCHEMA_VERSION, profiles: doc.profiles.map(rec => normalizeRecord(rec, false)) };
+    return { schemaVersion: SCHEMA_VERSION, profiles: doc.profiles.map(rec => normalizeRecord(rec)) };
   }
 
   function writeDocument(document) {

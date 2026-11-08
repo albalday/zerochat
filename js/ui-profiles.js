@@ -706,7 +706,7 @@
     const Profiles = getProfiles();
     const ProfileBackup = getProfileBackup();
     try {
-      const profiles = Profiles.list().filter(profile => profile.id !== Profiles.READONLY_PROFILE_ID && !profile.general);
+      const profiles = Profiles.list().filter(profile => profile.id !== Profiles.READONLY_PROFILE_ID);
       if (profiles.length === 0) {
         showProfileFeedback(t('err_no_profiles_to_export'), 'error');
         return;
@@ -1043,7 +1043,6 @@
       const targetProfile = serverProfiles.find(p => p.id === targetId);
       if (!targetProfile) return;
 
-      const displayName = formatProfileDisplayName(targetProfile);
       if (mode === 'run') {
         setSelectedServerProfile(targetProfile.name || targetProfile.id);
         if (typeof options.onSelectServerRunProfile === 'function') {

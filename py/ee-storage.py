@@ -414,6 +414,28 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
         return _row_to_conversation_header(row)
 
 
+def mark_conversation_server_run(session_id: str, profile_name: str | None = None) -> bool:
+    """Marca la conversación en SQLite como ejecutada en servidor asociándole el perfil."""
+    try:
+        clean_id = _validate_conversation_id(session_id)
+    except (ValueError, TypeError):
+        return False
+    try:
+        with open_storage() as conn:
+            row = conn.execute("SELECT extra_json FROM conversations WHERE id = ?;", (clean_id,)).fetchone()
+            if not row:
+                return False
+            cur_extra = json.loads(row["extra_json"]) if row["extra_json"] else {}
+            cur_extra["server_run"] = True
+            if profile_name:
+                cur_extra["profile_id"] = str(profile_name).strip()
+            conn.execute("UPDATE conversations SET extra_json = ? WHERE id = ?;", (json.dumps(cur_extra, ensure_ascii=False), clean_id))
+            conn.commit()
+            return True
+    except (sqlite3.Error, OSError, json.JSONDecodeError):
+        return False
+
+
 def rename_conversation(session_id: str, new_title: str) -> bool:
     """Renombra una conversación existente en SQLite."""
     clean_id = _validate_conversation_id(session_id)

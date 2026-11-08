@@ -308,7 +308,7 @@
       updatedAt: now,
       messageCount: branchHistory.length,
       profileId: branchProfileId,
-      ...(parentSession?.serverRun ? { serverRun: true } : {})
+      serverRun: Boolean(parentSession?.serverRun)
     };
 
     const Storage = getStorage();
