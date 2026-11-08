@@ -26,7 +26,7 @@
 
     <div class="card" id="como-funciona">
       <h2>1. How it works</h2>
-      <p><code>zerochat --prompt "TEXT"</code> (or <code>python3 zerochat.py --prompt "TEXT"</code>) starts the <a href="install.html">local server</a> and, by default, opens the interface without a window in Playwright's Chromium using the <code>Z-local</code> general profile stored on the server (or the one you pass with <code>--profile</code>). When it finishes, it returns the answer and the process exits.</p>
+      <p><code>zerochat --prompt "TEXT"</code> (or <code>python3 zerochat.py --prompt "TEXT"</code>) starts the <a href="install.html">local server</a> and, by default, opens the interface without a window in Playwright's Chromium using the <code>local</code> profile stored on the server (or the one you pass with <code>--profile</code>). When it finishes, it returns the answer and the process exits.</p>
       <p>With <code>--conversation ID</code> you can continue a conversation already stored on the local server (either adding a new <code>--prompt</code> or resuming its last pending message), or turn on the <strong>Run on server</strong> switch in the chat header so turns run in the background even if you close the tab.</p>
       <div class="code-wrapper"><pre><code>zerochat --prompt "Summarize today's changes in this repository" &gt; summary.txt</code></pre></div>
       <ul>
@@ -43,7 +43,7 @@
         <thead><tr><th>Option</th><th>Effect</th></tr></thead>
         <tbody>
           <tr><td><code>--conversation ID</code></td><td>Continues the conversation with that ID stored on the local server (see <code>--list-conversations</code>). Can be combined with <code>--prompt TEXT</code> to append a new user turn or used on its own to resume the last pending message or answer.</td></tr>
-          <tr><td><code>--profile NAME</code></td><td>Uses that profile (name or id) for this run only, without changing the saved active profile. If omitted, uses the conversation's original profile (if present) or the server's <code>Z-local</code> general profile; if it does not exist, the run ends with an error.</td></tr>
+          <tr><td><code>--profile NAME</code></td><td>Uses that profile (name or id) for this run only, without changing the saved active profile. If omitted, uses the conversation's original profile (if present) or the server's <code>local</code> profile; if it does not exist, the run ends with an error.</td></tr>
           <tr><td><code>--browser</code></td><td>Opens the user's default browser in visible mode instead of Playwright's windowless Chromium.</td></tr>
           <tr><td><code>--headless</code></td><td>With <code>--browser</code>, opens the user's default browser without a window. See <a href="#sin-ventana">section 5</a>.</td></tr>
           <tr><td><code>--export FILE</code></td><td>Saves the conversation to <code>FILE</code>; the format comes from the extension: <code>.md</code> (Markdown), <code>.json</code> (session) or <code>.html</code> (as shown in the chat). It is also exported after a generation error.</td></tr>
@@ -61,7 +61,7 @@
       <ul>
         <li><strong>Approvals and questions with <code>--prompt</code> (without <code>--conversation</code>):</strong> every read tool that asks for permission is allowed for that page's session; <code>write_file</code>, <code>edit_file</code> and <code>run_command</code> are denied unless you pass <code>--allow-dangerous-tools</code>. If the model asks with <code>ask_user</code>, the run ends with an error (exit code <code>1</code>, <em>The run needs the user</em>).</li>
         <li><strong>Clean pause with <code>--conversation</code>:</strong> when a run with <code>--conversation</code> needs tool confirmation or an <code>ask_user</code> answer, it saves the conversation in SQLite with the pending card, prints a JSON object on standard output with <code>{"status": "needs_input", "conversation_id": "...", "pending": {...}}</code> and exits with code <code>0</code> so you can reply from the web interface or in a follow-up call.</li>
-        <li><strong>“Run on server” switch in the chat:</strong> when connected to the local server with a general profile (<code>Z-</code>), the header shows the <strong>Run on server</strong> switch. When enabled, each turn runs as an independent background process (<code>~/zerochat/runs/</code>): the sidebar marks the conversation with a clock while running and with <code>?</code> when waiting for your reply or permission; opening it shows live progress and lets you stop it at any time or approve the tool / answer <code>ask_user</code> to resume.</li>
+        <li><strong>“Run on server” switch in the chat:</strong> when connected to the local server, the header shows the <strong>Run on server</strong> switch (and lets you choose the server profile from the profiles menu). When enabled, each turn runs as an independent background process (<code>~/zerochat/runs/</code>): the sidebar marks the conversation with a clock while running and with <code>?</code> when waiting for your reply or permission; opening it shows live progress and lets you stop it at any time or approve the tool / answer <code>ask_user</code> to resume.</li>
         <li><strong>MCP services:</strong> the run starts its own local server, with no external MCP services running. With <code>--profile</code> it starts the ones the profile ticks in its MCP servers chapter, and Playwright MCP if it is the browsing tool or the profile requires it, with the profile’s browser; if one is not configured or does not start, the run ends with an error. Without <code>--profile</code> none is started. All of them stop when the run ends and leave no trace for the next session.</li>
       </ul>
     </div>
@@ -83,7 +83,7 @@
 
     <div class="card" id="sin-ventana">
       <h2>5. Windowless mode and user browser (<code>--browser</code> / <code>--headless</code>)</h2>
-      <p>By default, <code>--prompt</code> runs without a window using the Chromium installed in Playwright's cache and the general profiles stored on the local server (<code>~/zerochat/storage/zerochat.db</code>), without needing a graphical session or requiring your browser to be closed.</p>
+      <p>By default, <code>--prompt</code> runs without a window using the Chromium installed in Playwright's cache and the profiles stored on the local server (<code>~/zerochat/storage/zerochat.db</code>), without needing a graphical session or requiring your browser to be closed.</p>
       <ul>
         <li><strong><code>--prompt --browser</code>:</strong> opens your default browser in visible mode (with your local profiles, history and rules saved in it). Supports <code>--keep-page</code>.</li>
         <li><strong><code>--prompt --browser --headless</code>:</strong> on Linux, looks up the default browser (<code>xdg-settings</code>) and launches it with <code>--headless</code> on your normal profile; if it is already open or cannot be identified, it opens as a tab the normal way.</li>
@@ -93,7 +93,7 @@
     <div class="card" id="cron">
       <h2>6. Scheduled jobs (cron)</h2>
       <ul>
-        <li><strong>Profile and browser:</strong> save the profile as <strong>General (Local server Z-)</strong> (by default <code>Z-local</code>, or the one passed in <code>--profile</code>) and install the Chromium engine in Settings › Browser. That way <code>--prompt</code> runs directly in the background without a graphical session or conflicts with your open browser.</li>
+        <li><strong>Profile and browser:</strong> save the profile to the server with the <strong>Save to server</strong> button (by default <code>local</code>, or the one passed in <code>--profile</code>) and install the Chromium engine in Settings › Browser. That way <code>--prompt</code> runs directly in the background without a graphical session or conflicts with your open browser.</li>
         <li><strong>Environment:</strong> cron starts with a minimal <code>PATH</code> in the home directory. Change to the working directory with <code>cd</code> and add to <code>PATH</code> the commands your MCP services need (<code>node</code>, <code>npx</code>, <code>uvx</code>…).</li>
         <li><strong>Result:</strong> cron mails the output (<code>MAILTO</code>); the exit code tells each case apart. <code>flock</code> keeps two runs from overlapping.</li>
       </ul>

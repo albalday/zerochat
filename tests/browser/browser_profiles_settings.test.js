@@ -512,6 +512,7 @@ test('Browser UI - el selector de perfiles en móvil (< 640px) se muestra a pant
     const page = await browser.newPage();
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
 
     // Abrir menú de perfiles
     await page.click('#active-profile-trigger');
@@ -534,6 +535,7 @@ test('Browser UI - el selector de perfiles permite importar del servidor y selec
   try {
     const page = await browser.newPage();
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
 
     const serverProfiles = [
       { id: 'srv:claude', name: 'Servidor Claude', description: 'Claude 3.5 Sonnet', settings: { apiType: 'claude', model: 'claude-3-5-sonnet' } }
