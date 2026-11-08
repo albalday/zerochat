@@ -105,17 +105,17 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
         if conv_profile:
             match = get_general_profile_by_name(conv_profile) or get_general_profile(conv_profile)
             if not match:
-                parser.error(f"no existe el perfil general '{conv_profile}' de la conversación; créalo o indica uno con --profile")
+                parser.error(f"no existe el perfil '{conv_profile}' en el servidor; créalo o indica uno con --profile")
             profile_name = match["name"]
         else:
-            default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
+            default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE) or get_general_profile_by_name("Z-local")
             if default_match is None:
-                parser.error(f"no existe el perfil general por defecto '{DEFAULT_RUN_PROFILE}'; créalo o indica uno con --profile")
+                parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
             profile_name = default_match["name"]
     else:
-        default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
+        default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE) or get_general_profile_by_name("Z-local")
         if default_match is None:
-            parser.error(f"no existe el perfil general por defecto '{DEFAULT_RUN_PROFILE}'; créalo o indica uno con --profile")
+            parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
         profile_name = default_match["name"]
     export_path = None
     if args.export is not None:
@@ -337,9 +337,9 @@ def main():
     if getattr(args, "list_profiles", False):
         profiles = list_general_profiles()
         if not profiles:
-            print("No hay perfiles de conexión generales almacenados en el servidor local.")
+            print("No hay perfiles de conexión almacenados en el servidor local.")
         else:
-            print("Perfiles de conexión generales (Z-):")
+            print("Perfiles de conexión del servidor local:")
             for p in profiles:
                 settings = p.get("settings", {})
                 model = settings.get("model") or "sin modelo"

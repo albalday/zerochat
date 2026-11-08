@@ -17,8 +17,8 @@ RUN_EXIT_TIMEOUT = 2
 RUN_EXIT_SETUP = 3
 # Argumentos no válidos, en cualquier modo: argparse usaría 2, que con --prompt es plazo agotado.
 RUN_EXIT_ARGS = 4
-# Perfil general por defecto de --prompt cuando no se indica --profile.
-DEFAULT_RUN_PROFILE = "Z-local"
+# Perfil por defecto de --prompt cuando no se indica --profile.
+DEFAULT_RUN_PROFILE = "local"
 # Formato de --export según la extensión del fichero; la interfaz genera el contenido con ChatExport.
 RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json", ".html": "html"}
 # Cuerpo HTTP admitido mientras se espera la exportación: el JSON y el HTML llevan las imágenes incrustadas.
@@ -202,7 +202,7 @@ def start_server_run(params: dict) -> dict:
             raise ValueError("profile requerido.")
     profile_entry = get_general_profile(profile) or get_general_profile_by_name(profile)
     if not profile_entry:
-        raise ValueError(f"Perfil general '{profile}' no encontrado.")
+        raise ValueError(f"Perfil del servidor '{profile}' no encontrado.")
     profile_name = profile_entry.get("name", profile.strip())
 
     state_path = get_run_state_path(clean_conv_id)
@@ -290,7 +290,7 @@ class RunSession:
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
         self.conversation_id = conversation_id
         self.prompt = prompt
-        # Perfil (nombre o id) que la interfaz usa solo en esta ejecución; por defecto, Z-local del servidor.
+        # Perfil (nombre o id) que la interfaz usa solo en esta ejecución; por defecto, local del servidor.
         self.profile = profile
         # Fichero donde se escribe la conversación exportada (formato por su extensión); None, sin exportar.
         self.export_path = export_path

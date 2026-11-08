@@ -261,3 +261,4 @@
 - 2026-11-08 M50-D3 Reubicacion de server-run-control junto al selector de perfil central en header-center y presentacion responsive compacta sin etiqueta en movil (M50-T3)
 - 2026-11-08 M50-D4 Validacion integral en todas las suites de pruebas y actualizacion de documentacion en py/README.md y ayuda bilingue (M50-T4)
 - 2026-11-08 M50-D5 Migración incremental v4 para extra_json en SQLite, precedencia del perfil activo en generación web, reutilización de consulta de conversación y prueba de actualización (M50-T5)
+- 2026-11-08 M51-D1 Desacoplo del prefijo Z- en backend: DEFAULT_RUN_PROFILE pasa a 'local' con fallback a 'Z-local', mensajes limpios en CLI y pruebas de infraestructura (M51-T1)

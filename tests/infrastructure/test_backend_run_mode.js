@@ -124,7 +124,7 @@ spec = importlib.util.spec_from_file_location("zerochat", sys.argv[2])
 mod = importlib.util.module_from_spec(spec)
 sys.modules["zerochat"] = mod
 spec.loader.exec_module(mod)
-mod.save_general_profile({"name": "Z-local", "settings": {"apiType": "openai", "model": "local-default"}})
+mod.save_general_profile({"name": "local", "settings": {"apiType": "openai", "model": "local-default"}})
 `, dir, backendPath]);
   templateDbPath = path.join(dir, 'storage', 'zerochat.db');
   return templateDbPath;
@@ -237,7 +237,7 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(ok.info.url, `http://127.0.0.1:${ok.port}/zerochat.html`);
     assert.deepEqual(ok.info.fragment_keys, ['host', 'port', 'run', 'token']);
     assert.equal(ok.info.profile, 'Oficina');
-    assert.equal(failed.info.profile, 'Z-local', 'sin --profile usa el perfil general Z-local del backend');
+    assert.equal(failed.info.profile, 'local', 'sin --profile usa el perfil por defecto local del servidor');
     assert.equal(ok.info.wrong_run_id, 'run_id no válido.');
     assert.equal(ok.info.second_prompt, 'El prompt ya se entregó.');
     assert.equal(ok.info.bad_result, 'El resultado lleva text o error.');
@@ -281,7 +281,7 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(emptyPrompt.code, 4, emptyPrompt.stderr);
     assert.match(emptyPrompt.stderr, /error: el prompt está vacío/);
     assert.equal(missingDefaultProfile.code, 4, missingDefaultProfile.stderr);
-    assert.match(missingDefaultProfile.stderr, /no existe el perfil general por defecto 'Z-local'/);
+    assert.match(missingDefaultProfile.stderr, /no existe el perfil por defecto 'local'/);
     assert.equal(noPlaywright.code, 3, noPlaywright.stderr);
     assert.match(noPlaywright.stderr, /No se pudo abrir el Chromium de Playwright/);
     assert.equal(portInUse.code, 3, portInUse.stderr);

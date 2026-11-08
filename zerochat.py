@@ -3597,7 +3597,7 @@ def validate_profile_payload(record: dict) -> tuple[str, str, str, dict, str | N
 
 
 def _row_to_profile(row: sqlite3.Row) -> dict:
-    """Transforma una fila SQLite en el objeto de perfil general."""
+    """Transforma una fila SQLite en el objeto de perfil del servidor."""
     try:
         settings = json.loads(row["settings_json"])
     except (json.JSONDecodeError, TypeError):
@@ -3618,14 +3618,14 @@ def _row_to_profile(row: sqlite3.Row) -> dict:
 
 
 def list_general_profiles() -> list[dict]:
-    """Lista todos los perfiles de conexión generales almacenados en SQLite."""
+    """Lista todos los perfiles de conexión del servidor almacenados en SQLite."""
     with open_storage() as conn:
         rows = conn.execute("SELECT * FROM profiles ORDER BY name COLLATE NOCASE ASC;").fetchall()
         return [_row_to_profile(row) for row in rows]
 
 
 def get_general_profile(profile_id: str) -> dict | None:
-    """Recupera un perfil general por su identificador único."""
+    """Recupera un perfil de servidor por su identificador único."""
     if not profile_id or not isinstance(profile_id, str) or not profile_id.strip():
         return None
     clean_id = normalize_profile_id("", profile_id)
@@ -3635,7 +3635,7 @@ def get_general_profile(profile_id: str) -> dict | None:
 
 
 def get_general_profile_by_name(name: str) -> dict | None:
-    """Recupera un perfil general por su nombre, con o sin el indicador visual 'Z-'."""
+    """Recupera un perfil de servidor por su nombre."""
     if not name or not isinstance(name, str) or not name.strip():
         return None
     clean = name.strip()
@@ -3650,7 +3650,7 @@ def get_general_profile_by_name(name: str) -> dict | None:
 
 
 def save_general_profile(record: dict) -> dict:
-    """Guarda (crea o actualiza) un perfil de conexión general en SQLite."""
+    """Guarda (crea o actualiza) un perfil de conexión del servidor en SQLite."""
     profile_id, name, description, settings, api_key = validate_profile_payload(record)
     now = int(time.time() * 1000)
 
@@ -3669,7 +3669,7 @@ def save_general_profile(record: dict) -> dict:
             (name, profile_id)
         ).fetchone()
         if same_name:
-            raise ValueError(f"Ya existe un perfil general con el nombre '{name}'")
+            raise ValueError(f"Ya existe un perfil con el nombre '{name}' en el servidor")
 
         if existing:
             version = existing["version"] + 1
@@ -5164,8 +5164,8 @@ RUN_EXIT_TIMEOUT = 2
 RUN_EXIT_SETUP = 3
 # Argumentos no válidos, en cualquier modo: argparse usaría 2, que con --prompt es plazo agotado.
 RUN_EXIT_ARGS = 4
-# Perfil general por defecto de --prompt cuando no se indica --profile.
-DEFAULT_RUN_PROFILE = "Z-local"
+# Perfil por defecto de --prompt cuando no se indica --profile.
+DEFAULT_RUN_PROFILE = "local"
 # Formato de --export según la extensión del fichero; la interfaz genera el contenido con ChatExport.
 RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json", ".html": "html"}
 # Cuerpo HTTP admitido mientras se espera la exportación: el JSON y el HTML llevan las imágenes incrustadas.
@@ -5349,7 +5349,7 @@ def start_server_run(params: dict) -> dict:
             raise ValueError("profile requerido.")
     profile_entry = get_general_profile(profile) or get_general_profile_by_name(profile)
     if not profile_entry:
-        raise ValueError(f"Perfil general '{profile}' no encontrado.")
+        raise ValueError(f"Perfil del servidor '{profile}' no encontrado.")
     profile_name = profile_entry.get("name", profile.strip())
 
     state_path = get_run_state_path(clean_conv_id)
@@ -5437,7 +5437,7 @@ class RunSession:
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
         self.conversation_id = conversation_id
         self.prompt = prompt
-        # Perfil (nombre o id) que la interfaz usa solo en esta ejecución; por defecto, Z-local del servidor.
+        # Perfil (nombre o id) que la interfaz usa solo en esta ejecución; por defecto, local del servidor.
         self.profile = profile
         # Fichero donde se escribe la conversación exportada (formato por su extensión); None, sin exportar.
         self.export_path = export_path
@@ -5776,17 +5776,17 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
         if conv_profile:
             match = get_general_profile_by_name(conv_profile) or get_general_profile(conv_profile)
             if not match:
-                parser.error(f"no existe el perfil general '{conv_profile}' de la conversación; créalo o indica uno con --profile")
+                parser.error(f"no existe el perfil '{conv_profile}' en el servidor; créalo o indica uno con --profile")
             profile_name = match["name"]
         else:
-            default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
+            default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE) or get_general_profile_by_name("Z-local")
             if default_match is None:
-                parser.error(f"no existe el perfil general por defecto '{DEFAULT_RUN_PROFILE}'; créalo o indica uno con --profile")
+                parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
             profile_name = default_match["name"]
     else:
-        default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
+        default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE) or get_general_profile_by_name("Z-local")
         if default_match is None:
-            parser.error(f"no existe el perfil general por defecto '{DEFAULT_RUN_PROFILE}'; créalo o indica uno con --profile")
+            parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
         profile_name = default_match["name"]
     export_path = None
     if args.export is not None:
@@ -6008,9 +6008,9 @@ def main():
     if getattr(args, "list_profiles", False):
         profiles = list_general_profiles()
         if not profiles:
-            print("No hay perfiles de conexión generales almacenados en el servidor local.")
+            print("No hay perfiles de conexión almacenados en el servidor local.")
         else:
-            print("Perfiles de conexión generales (Z-):")
+            print("Perfiles de conexión del servidor local:")
             for p in profiles:
                 settings = p.get("settings", {})
                 model = settings.get("model") or "sin modelo"
