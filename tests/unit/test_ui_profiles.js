@@ -70,10 +70,9 @@ test('UIProfiles - los ajustes guardados parten del perfil editado y completan l
     { apiType: 'ollama', apiUrl: 'http://localhost:11434', temperature: '1.2', prefill: '1024' });
 });
 
-test('UIProfiles - formatProfileDisplayName añade el prefijo Z- solo a perfiles generales', () => {
+test('UIProfiles - formatProfileDisplayName formatea y limpia el nombre del perfil', () => {
   assert.equal(UIProfiles.formatProfileDisplayName(null), '');
   assert.equal(UIProfiles.formatProfileDisplayName({ name: 'Mi Local' }), 'Mi Local');
-  assert.equal(UIProfiles.formatProfileDisplayName({ name: 'OpenAI General', general: true }), 'Z- OpenAI General');
-  assert.equal(UIProfiles.formatProfileDisplayName({ name: 'Z- OpenAI General', general: true }), 'Z- OpenAI General');
-  assert.equal(UIProfiles.formatProfileDisplayName({ name: 'Z-Claude', general: true }), 'Z-Claude');
+  assert.equal(UIProfiles.formatProfileDisplayName({ name: '  Espacios  ' }), 'Espacios');
+  assert.equal(UIProfiles.formatProfileDisplayName({ name: 'OpenAI Server' }), 'OpenAI Server');
 });

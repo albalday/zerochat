@@ -739,7 +739,6 @@
       this.liveServers = null;
       this.liveRunning = null;
       await this.applyLiveState(probe.liveState);
-      await this.syncGeneralProfiles();
       return { success: true, available: true, probe, tools };
     }
 
@@ -749,7 +748,6 @@
     async disconnectProxy() {
       this.dropClient(PROXY_ID);
       this.dropClient(EXTERNAL_ID);
-      getProfiles().clearGeneralProfiles();
       getState().set('mcp', { status: 'disconnected', latencyMs: null, error: null, ...LIVE_RESET });
       return { success: true };
     }
@@ -939,47 +937,39 @@
       return result;
     }
 
-    /** Carga los perfiles de conexión generales almacenados en el backend local. */
-    async syncGeneralProfiles() {
+    /** Carga los perfiles de conexión almacenados en el backend local (SQLite). */
+    async listServerProfiles() {
       const client = this.clients.get(PROXY_ID);
       if (!client) return [];
       try {
         const result = await client.request('zerochat/profiles/list', {});
-        const profiles = Array.isArray(result?.profiles) ? result.profiles : [];
-        const Profiles = getProfiles();
-        Profiles.setGeneralProfiles(profiles);
-        const Config = getConfig();
-        const active = Config.getActive().activeProfile;
-        if (active?.general) {
-          if (Profiles.get(active.id)) Config.activateProfile(active.id);
-          else Config.activateFallbackProfile();
-        }
-        return profiles;
+        return Array.isArray(result?.profiles) ? result.profiles : [];
       } catch (err) {
-        console.warn('[ChatMCP] Could not fetch general profiles:', err);
+        console.warn('[ChatMCP] Could not fetch server profiles:', err);
         return [];
       }
     }
 
-    /** Guarda (crea o actualiza) un perfil general en el backend local. */
-    async saveGeneralProfile(profileData) {
+    /** Guarda (crea o actualiza) un perfil en el backend local. */
+    async saveServerProfile(profileData) {
       const client = this.clients.get(PROXY_ID);
       if (!client) throw new Error('No local server connection.');
       const result = await client.request('zerochat/profiles/save', { profile: profileData });
       if (!result?.profile) throw new Error('Invalid profile response from server.');
-      getProfiles().upsertGeneralProfile(result.profile);
       return result.profile;
     }
 
-    /** Elimina un perfil general en el backend local. */
-    async deleteGeneralProfile(profileId) {
+    /** Elimina un perfil en el backend local. */
+    async deleteServerProfile(profileId) {
       const client = this.clients.get(PROXY_ID);
       if (!client) throw new Error('No local server connection.');
       const result = await client.request('zerochat/profiles/delete', { id: profileId });
-      if (result?.deleted) {
-        getProfiles().removeGeneralProfile(profileId);
-      }
       return result?.deleted === true;
+    }
+
+    /** Importa un perfil del servidor al repositorio local del cliente. */
+    async importServerProfile(serverProfile, options = {}) {
+      return getProfiles().importServerProfile(serverProfile, options);
     }
 
     /**

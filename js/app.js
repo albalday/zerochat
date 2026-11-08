@@ -311,7 +311,7 @@
   }
 
   function isServerRunAvailable() {
-    return State.get('mcp').status === 'connected' && getRuntimeConfig().activeProfile?.general === true;
+    return State.get('mcp').status === 'connected';
   }
 
   function isServerRunEnabled() {
@@ -510,7 +510,7 @@
     try {
       const nextRecord = { ...profile, settings: { ...profile.settings, contextLimitOverride } };
       const savedProfile = profile.general
-        ? await MCP.manager.saveGeneralProfile(nextRecord)
+        ? await MCP.manager.saveServerProfile(nextRecord)
         : Profiles.save(nextRecord);
       UIProfiles.activateConnectionProfile(savedProfile.id);
       updateConnectionTokensBadge(null, { forcePopover: true });

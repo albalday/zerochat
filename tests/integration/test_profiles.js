@@ -234,59 +234,72 @@ test('ProfileExportBundle - desde file:// abre zerochat.html con una ruta relati
   assert.match(generateBundle(undefined, 'file:///home/user/zerochat/zerochat.html'), /const TARGET_URL = "zerochat\.html"/);
 });
 
-// --- Perfiles generales del backend (Z-) ---
+// --- Perfiles del backend e importación a local ---
 
-test('ProfileRepository - gestiona perfiles generales del backend y los fusiona en list()', async () => {
+test('ProfileRepository - los perfiles locales no mezclan automáticamente perfiles del backend', () => {
   const repository = Profiles;
-  repository.clearGeneralProfiles();
+  const list = repository.list();
+  assert.ok(list.length >= 1);
+  assert.equal(list[0].id, repository.READONLY_PROFILE_ID);
+  assert.ok(!list.some(p => p.general === true));
+});
 
-  // Al inicio solo Espejo
-  assert.equal(repository.list().length, 1);
-
-  // Cargamos perfiles generales traídos del backend
-  const backendProfiles = [
-    {
-      id: 'profile:general-openai',
-      name: 'OpenAI General',
-      description: 'Desde backend',
-      settings: { apiType: 'openai', model: 'gpt-4o', apiKey: 'sk-backend-secret' }
+test('ProfileRepository - importServerProfile importa perfil del servidor, cifra la clave y lo hace editable en local', async () => {
+  const repository = Profiles;
+  const serverProfile = {
+    id: 'profile:general-gemini',
+    name: 'Gemini Servidor',
+    description: 'Perfil traído del backend',
+    settings: {
+      apiType: 'gemini',
+      model: 'gemini-2.5-pro',
+      temperature: '0.4'
     },
-    {
-      id: 'profile:general-claude',
-      name: 'Claude General',
-      description: 'Desde backend',
-      settings: { apiType: 'anthropic', model: 'claude-3-5-sonnet', apiKey: 'sk-ant-key' }
-    }
-  ];
+    apiKey: 'sk-plain-gemini-key'
+  };
 
-  repository.setGeneralProfiles(backendProfiles);
+  const imported = await repository.importServerProfile(serverProfile);
+  assert.equal(imported.name, 'Gemini Servidor');
+  assert.equal(imported.description, 'Perfil traído del backend');
+  assert.equal(imported.settings.apiType, 'gemini');
+  assert.equal(imported.settings.model, 'gemini-2.5-pro');
+  // La API key se ha cifrado en el almacén local
+  assert.ok(imported.settings.apiKey);
+  assert.notEqual(imported.settings.apiKey, 'sk-plain-gemini-key');
 
-  const merged = repository.list();
-  assert.equal(merged.length, 3);
-  const generalOnes = merged.filter(p => p.general === true);
-  assert.equal(generalOnes.length, 2);
-  assert.equal(generalOnes[0].name, 'OpenAI General');
-
-  // Recuperación por ID
-  const found = repository.get('profile:general-openai');
+  // Ahora figura en list()
+  const found = repository.list().find(p => p.id === imported.id);
   assert.ok(found);
-  assert.equal(found.name, 'OpenAI General');
-  assert.equal(found.general, true);
+  assert.equal(found.name, 'Gemini Servidor');
 
-  // Recuperación por nombre y filtrado por ámbito (permite copiar entre Local y General con igual nombre)
-  const foundByName = repository.findByName('Claude General');
-  assert.ok(foundByName);
-  assert.equal(foundByName.id, 'profile:general-claude');
-  assert.equal(repository.findByName('Z- Claude General')?.id, 'profile:general-claude');
-  assert.equal(repository.findByName('Claude General', { general: true })?.id, 'profile:general-claude');
-  assert.equal(repository.findByName('Claude General', { general: false }), null);
+  // get(id) y findByName(name) lo encuentran
+  assert.ok(repository.get(imported.id));
+  assert.ok(repository.findByName('Gemini Servidor'));
 
-  // Carga con load() no requiere contraseña ni descifrado AES
-  const loaded = await repository.load('profile:general-openai');
-  assert.equal(loaded.settings.apiKey, 'sk-backend-secret');
+  // load() descifra la API key
+  const loaded = await repository.load(imported.id);
+  assert.equal(loaded.settings.apiKey, 'sk-plain-gemini-key');
 
-  // Limpieza al desconectar
-  repository.clearGeneralProfiles();
-  assert.equal(repository.list().length, 1);
+  // Importar permitiendo renombrar con options.name
+  const renamed = await repository.importServerProfile(serverProfile, { name: 'Gemini Copia', description: 'Copia personalizada' });
+  assert.equal(renamed.name, 'Gemini Copia');
+  assert.equal(renamed.description, 'Copia personalizada');
+  assert.ok(repository.findByName('Gemini Copia'));
+
+  // Limpieza
+  repository.remove(imported.id);
+  repository.remove(renamed.id);
+});
+
+test('ProfileRepository - importServerProfile valida datos de entrada', async () => {
+  const repository = Profiles;
+  await assert.rejects(
+    async () => repository.importServerProfile(null),
+    /The server profile is not valid/
+  );
+  await assert.rejects(
+    async () => repository.importServerProfile({ name: '' }),
+    /The profile name cannot be empty/
+  );
 });
 

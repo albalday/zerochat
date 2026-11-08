@@ -99,15 +99,14 @@ test('ChatConfig - migración y borrado vuelven a Espejo sin conservar credencia
   assert.equal(fallback.apiKey, undefined);
   assert.equal(fallback.language, 'en');
 
-  // Un perfil general activo se conserva al recargar hasta que conecte el backend.
+  // Si el perfil activo guardado no existe en el repositorio local, vuelve al perfil de respaldo.
   Storage.saveRuntimeConfigV2({
-    activeProfile: { id: 'profile:general-1', name: 'OpenAI General', general: true },
+    activeProfile: { id: 'profile:inexistente', name: 'Perfil Borrado' },
     apiType: 'openai', model: 'gpt-4o', language: 'en'
   });
-  const preserved = ChatConfig.initialize();
-  assert.equal(preserved.activeProfile.id, 'profile:general-1');
-  assert.equal(preserved.activeProfile.general, true);
-  assert.equal(preserved.model, 'gpt-4o');
+  const fallbackRestored = ChatConfig.initialize();
+  assert.equal(fallbackRestored.activeProfile.id, Profiles.READONLY_PROFILE_ID);
+  assert.equal(fallbackRestored.model, 'mirror');
 });
 
 test('ChatConfig - el modo proyecto es global: se normaliza y no cambia al activar un perfil', () => {

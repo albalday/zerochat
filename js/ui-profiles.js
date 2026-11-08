@@ -116,11 +116,7 @@
 
   function formatProfileDisplayName(profile) {
     if (!profile) return '';
-    const name = String(profile.name || '').trim();
-    if (profile.general) {
-      return name.startsWith('Z-') ? name : `Z- ${name}`;
-    }
-    return name;
+    return String(profile.name || '').trim();
   }
 
   /** Muestra en el editor el perfil indicado: su id, nombre y descripción. */
@@ -480,9 +476,7 @@
     renderProfileMenu();
     setProfileMenuOpen(true);
     if (getMCP().manager.isProxyConnected()) {
-      getMCP().manager.syncGeneralProfiles().then(() => {
-        if (!els.activeProfilePopover.hidden) renderProfileMenu();
-      });
+      getMCP().manager.listServerProfiles().catch(() => {});
     }
   }
 
@@ -532,7 +526,7 @@
         showProfileFeedback(t('profile_mcp_disconnected'), 'error');
         return false;
       }
-      saved = await getMCP().manager.saveGeneralProfile({
+      saved = await getMCP().manager.saveServerProfile({
         id: targetId,
         name,
         description: els.settingProfileDescription.value.trim(),
@@ -574,7 +568,7 @@
         showProfileFeedback(t('profile_mcp_disconnected'), 'error');
         return false;
       }
-      ok = await getMCP().manager.deleteGeneralProfile(profile.id);
+      ok = await getMCP().manager.deleteServerProfile(profile.id);
     } else {
       ok = Profiles.remove(profile.id);
     }
@@ -779,9 +773,6 @@
     options.loadCachedModels();
     syncProfileSaveState();
     if (!els.profilesDialog.open) els.profilesDialog.showModal();
-    if (getMCP().manager.isProxyConnected()) {
-      getMCP().manager.syncGeneralProfiles();
-    }
   }
 
   /** Abre el editor vacío para un perfil nuevo: no hereda nombre, clave ni bloqueo del anterior. */
