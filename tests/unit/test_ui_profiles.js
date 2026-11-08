@@ -37,6 +37,18 @@ test('UIProfiles - Guardar espera a la API key y al desbloqueo, cierra sin nada 
   assert.deepEqual(save(editorWith({ queryReady: true }), 'Nuevo', undefined, null), { action: 'save' });
 });
 
+test('UIProfiles - Guardar en servidor valida conexión, desbloqueo, clave, nombre y perfil protegido sin requerir cambios pendientes', () => {
+  const saveServer = (editor, name, selected, isConnected) => UIProfiles.getServerSaveDecision(editor, { name, selected, isConnected });
+  assert.deepEqual(saveServer(UIProfiles.initialEditorState(), 'Local chat', LOCAL, true), { action: 'none' }, 'API key aún descifrándose');
+  assert.deepEqual(saveServer(editorWith({ locked: true }), 'Local chat', LOCAL, true), { action: 'none' }, 'Perfil bloqueado');
+  assert.deepEqual(saveServer(editorWith(), 'Local chat', LOCAL, false), { action: 'error', message: 'Sin conexión con el servidor local: conéctalo para ver y elegir sus servicios MCP.' });
+  assert.deepEqual(saveServer(editorWith(), '', LOCAL, true), { action: 'error', message: 'Nombre del perfil (ej: LM Studio, Ollama, OpenRouter...)' });
+  assert.deepEqual(saveServer(editorWith(), 'Espejo', MIRROR, true), { action: 'error', message: 'El perfil Espejo no se puede modificar ni eliminar.' });
+  assert.deepEqual(saveServer(editorWith(), 'Espejo', LOCAL, true), { action: 'error', message: 'El perfil Espejo no se puede modificar ni eliminar.' });
+  assert.deepEqual(saveServer(editorWith(), 'Local chat', LOCAL, true), { action: 'save' }, 'Permite guardar en servidor sin cambios pendientes');
+  assert.deepEqual(saveServer(editorWith({ dirty: true }), 'Nuevo perfil', null, true), { action: 'save' });
+});
+
 test('UIProfiles - cerrar el editor pregunta por la consulta sin guardar antes que por los cambios', () => {
   assert.equal(UIProfiles.getCloseConfirmation(editorWith()), null);
   assert.match(UIProfiles.getCloseConfirmation(editorWith({ dirty: true })), /^Hay cambios sin guardar en el perfil/);
@@ -70,10 +82,21 @@ test('UIProfiles - los ajustes guardados parten del perfil editado y completan l
     { apiType: 'ollama', apiUrl: 'http://localhost:11434', temperature: '1.2', prefill: '1024' });
 });
 
-test('UIProfiles - formatProfileDisplayName añade el prefijo Z- solo a perfiles generales', () => {
+test('UIProfiles - formatProfileDisplayName formatea y limpia el nombre del perfil', () => {
   assert.equal(UIProfiles.formatProfileDisplayName(null), '');
   assert.equal(UIProfiles.formatProfileDisplayName({ name: 'Mi Local' }), 'Mi Local');
-  assert.equal(UIProfiles.formatProfileDisplayName({ name: 'OpenAI General', general: true }), 'Z- OpenAI General');
-  assert.equal(UIProfiles.formatProfileDisplayName({ name: 'Z- OpenAI General', general: true }), 'Z- OpenAI General');
-  assert.equal(UIProfiles.formatProfileDisplayName({ name: 'Z-Claude', general: true }), 'Z-Claude');
+  assert.equal(UIProfiles.formatProfileDisplayName({ name: '  Espacios  ' }), 'Espacios');
+  assert.equal(UIProfiles.formatProfileDisplayName({ name: 'OpenAI Server' }), 'OpenAI Server');
+});
+
+test('UIProfiles - get/set de modo servidor y perfil seleccionado', () => {
+  assert.equal(UIProfiles.isServerMode(), false);
+  UIProfiles.setSelectedServerProfile('srv-custom');
+  assert.equal(UIProfiles.getSelectedServerProfile(), 'srv-custom');
+  UIProfiles.setServerMode(true, 'srv-active');
+  assert.equal(UIProfiles.isServerMode(), true);
+  assert.equal(UIProfiles.getSelectedServerProfile(), 'srv-active');
+  UIProfiles.setServerMode(false);
+  assert.equal(UIProfiles.isServerMode(), false);
+  assert.equal(UIProfiles.getSelectedServerProfile(), 'srv-active');
 });

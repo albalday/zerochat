@@ -17,7 +17,7 @@ const CORS = {
  * Servidor local falso: registra las llamadas zerochat/run/* y los servicios MCP externos que se
  * arrancan, y retiene el prompt hasta `release`.
  */
-async function routeBackend(page, prompt, { profile, exportFormat, keepPage = false, allowDangerous = false, externalServers = [], conversationId = null, toolSecurity = null, initialConversation = null } = {}) {
+async function routeBackend(page, prompt, { profile, profileData = null, serverProfiles = [], exportFormat, keepPage = false, allowDangerous = false, externalServers = [], conversationId = null, toolSecurity = null, initialConversation = null } = {}) {
   const calls = [];
   const started = [];
   const saved = [];
@@ -41,6 +41,7 @@ async function routeBackend(page, prompt, { profile, exportFormat, keepPage = fa
       });
     }
     if (method === 'zerochat/heartbeat') return reply(liveState());
+    if (method === 'zerochat/profiles/list') return reply({ profiles: serverProfiles });
     if (method === 'zerochat/conversations/list') {
       return reply({ conversations: initialConversation ? [{ id: initialConversation.id, title: initialConversation.title, updatedAt: Date.now(), messageCount: initialConversation.history.length }] : [] });
     }
@@ -67,6 +68,7 @@ async function routeBackend(page, prompt, { profile, exportFormat, keepPage = fa
           prompt,
           conversation_id: conversationId,
           profile: profile ?? null,
+          profile_data: profileData ?? null,
           export: exportFormat ?? null,
           keep_page: keepPage,
           allow_dangerous_tools: allowDangerous,
@@ -187,6 +189,27 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     missing.backend.release();
     await missing.page.waitForFunction(() => window.__closed === true);
     assert.deepEqual(resultOf(missing.backend), { run_id: RUN_ID, error: 'Profile not found: No existe' });
+
+    // Perfil del servidor (no está en localStorage del navegador y se resuelve desde el backend)
+    const serverRun = await openRun(browser, server, 'Hola desde servidor', {
+      profile: 'local',
+      seedProfiles: false,
+      serverProfiles: [{
+        id: 'profile:server-local',
+        name: 'local',
+        settings: { apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', model: 'server-llama', apiKey: 'sk-server-key' }
+      }]
+    });
+    await serverRun.page.evaluate(() => {
+      window.ChatAPI.streamChatCompletion = async params => {
+        window.__model = params.model;
+        return { accumulatedText: 'servidor ok', toolCalls: null, stats: null };
+      };
+    });
+    serverRun.backend.release();
+    await serverRun.page.waitForFunction(() => window.__closed === true);
+    assert.deepEqual(resultOf(serverRun.backend), { run_id: RUN_ID, text: 'servidor ok' });
+    assert.equal(await serverRun.page.evaluate(() => window.__model), 'server-llama');
   });
 
   test('Browser UI - el modo ejecución arranca solo los servicios MCP del perfil y Playwright MCP si es la herramienta de navegación o el perfil lo exige, y falla si alguno no está configurado', async () => {
@@ -436,24 +459,13 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready') &&
       window.ChatState.get('mcp').status === 'connected');
 
-    // Con un perfil local el switch "Ejecutar en servidor" permanece oculto; al activar Z-server se muestra.
-    await page.evaluate(() => window.ChatUIProfiles.activateConnectionProfile('profile:local'));
-    assert.equal(await page.locator('#server-run-control').isHidden(), true);
-    await page.evaluate(() => window.ChatUIProfiles.activateConnectionProfile('general:z-server'));
-    assert.equal(await page.locator('#server-run-control').isHidden(), false);
-    // Verificación de ubicación junto al selector de perfil y comportamiento responsive
-    assert.equal(await page.locator('.header-center #server-run-control').count(), 1);
-    assert.equal(await page.locator('.header-server-run-label').isVisible(), true);
+    // Con backend conectado no hay slider independiente en cabecera; todo se gestiona en perfiles
+    assert.equal(await page.locator('#server-run-control').count(), 0);
 
-    await page.setViewportSize({ width: 375, height: 667 });
-    assert.equal(await page.locator('#server-run-control').isVisible(), true);
-    assert.equal(await page.locator('.header-server-run-label').isHidden(), true);
-
-    await page.setViewportSize({ width: 1280, height: 720 });
-    assert.equal(await page.locator('.header-server-run-label').isVisible(), true);
-
-    await page.locator('#server-run-control').click();
-    assert.equal(await page.locator('#chk-server-run').isChecked(), true);
+    await page.evaluate(() => window.ChatUIProfiles.setServerMode(true, 'server'));
+    assert.equal(await page.locator('#active-profile-trigger.server-mode').count(), 1);
+    assert.equal(await page.locator('#active-profile-trigger .profile-icon use').getAttribute('href'), '#icon-zap');
+    assert.equal((await page.locator('#active-profile-name').textContent()).trim(), 'server');
     await page.locator('#user-input').fill('Analiza el repositorio');
     await page.locator('#btn-send').click();
 
@@ -571,6 +583,56 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     await page.locator('.ask-user-option[data-ask-option="Staging"]').click();
     await page.waitForFunction(() => document.querySelector('.server-run-live-wrapper') !== null);
     assert.equal(startCalls.length, 3);
+    assert.equal(savedConversations.get(activeConvId).history.at(-1).content, 'Staging');
+
+    // Completar la ejecución en el servidor
+    currentRuns = [];
+    currentFocusRun = null;
+    await page.evaluate(() => window.ChatMCP.manager.readLiveState());
+    await page.waitForFunction(() => document.querySelector('.server-run-live-wrapper') === null);
+
+    // Crear una nueva conversación local: desactiva el modo servidor
+    await page.locator('#btn-sidebar-new-chat').click();
+    await page.waitForFunction(id => window.ChatState.get('sessions').activeId !== id, activeConvId);
+    assert.equal(await page.evaluate(() => window.ChatUIProfiles.isServerMode()), false);
+    assert.equal(await page.locator('#active-profile-trigger.server-mode').count(), 0);
+
+    // Recuperar la conversación lanzada al servidor desde el historial: activa modo servidor y recupera su perfil
+    await page.locator(`.sidebar-chat-item[data-session-id="${activeConvId}"]`).click();
+    await page.waitForFunction(() => window.ChatUIProfiles.isServerMode());
+    assert.equal(await page.locator('#active-profile-trigger.server-mode').count(), 1);
+    const restoredServerProfile = await page.evaluate(() => window.ChatUIProfiles.getSelectedServerProfile());
+    assert.equal(restoredServerProfile, 'server');
+
+    // Crear un nuevo chat y elegir perfil de servidor no debe sobrescribir el chat previo
+    await page.locator('#btn-sidebar-new-chat').click();
+    await page.waitForFunction(id => window.ChatState.get('sessions').activeId !== id, activeConvId);
+    const newConvId = await page.evaluate(() => window.ChatState.get('sessions').activeId);
+
+    // Seleccionar perfil de servidor en el nuevo borrador vacío
+    await page.click('#active-profile-trigger');
+    await page.waitForFunction(() => !document.getElementById('active-profile-popover').hidden);
+    await page.click('#btn-menu-server-run');
+    await page.waitForFunction(() => !document.getElementById('profile-menu-view-server').hidden);
+    await page.waitForSelector('[data-server-profile-id="general:z-server"]');
+    await page.click('[data-server-profile-id="general:z-server"]');
+    await page.waitForFunction(() => window.ChatUIProfiles.isServerMode());
+    assert.equal(await page.evaluate(() => window.ChatUIProfiles.isServerMode()), true);
+    // El activeId debe conservarse en newConvId y no saltar a activeConvId
+    assert.equal(await page.evaluate(() => window.ChatState.get('sessions').activeId), newConvId);
+
+    // Enviar mensaje en modo servidor
+    await page.locator('#user-input').fill('Prompt en chat nuevo');
+    await page.locator('#btn-send').click();
+    await page.waitForFunction(() => document.querySelector('.server-run-live-wrapper') !== null);
+
+    // Comprobar que la ejecución en servidor se lanzó con newConvId, no con activeConvId
+    assert.equal(startCalls.length, 4);
+    const lastStartCall = startCalls.at(-1);
+    assert.equal(lastStartCall?.conversation_id, newConvId);
+    assert.notEqual(lastStartCall?.conversation_id, activeConvId);
+
+    // Comprobar que activeConvId sigue intacta en el almacenamiento
     assert.equal(savedConversations.get(activeConvId).history.at(-1).content, 'Staging');
   });
 });

@@ -94,29 +94,34 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
         parser.error("--headless solo se usa con --browser (--prompt y --conversation ya se ejecutan sin ventana con el Chromium de Playwright)")
     if args.keep_page and (not args.browser or args.headless):
         parser.error("--keep-page necesita la ventana del navegador del usuario (--browser sin --headless)")
+    profile_data = None
     if args.profile is not None:
         clean_profile = args.profile.strip()
         if not clean_profile:
             parser.error("--profile no puede estar vacío")
         general_match = get_general_profile_by_name(clean_profile) or get_general_profile(clean_profile)
         profile_name = general_match["name"] if general_match else clean_profile
+        profile_data = general_match
     elif conversation_id:
         conv_profile = conv.get("profileId") if conv else None
         if conv_profile:
             match = get_general_profile_by_name(conv_profile) or get_general_profile(conv_profile)
             if not match:
-                parser.error(f"no existe el perfil general '{conv_profile}' de la conversación; créalo o indica uno con --profile")
+                parser.error(f"no existe el perfil '{conv_profile}' en el servidor; créalo o indica uno con --profile")
             profile_name = match["name"]
+            profile_data = match
         else:
             default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
             if default_match is None:
-                parser.error(f"no existe el perfil general por defecto '{DEFAULT_RUN_PROFILE}'; créalo o indica uno con --profile")
+                parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
             profile_name = default_match["name"]
+            profile_data = default_match
     else:
         default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
         if default_match is None:
-            parser.error(f"no existe el perfil general por defecto '{DEFAULT_RUN_PROFILE}'; créalo o indica uno con --profile")
+            parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
         profile_name = default_match["name"]
+        profile_data = default_match
     export_path = None
     if args.export is not None:
         export_path = Path(args.export).expanduser().absolute()
@@ -124,7 +129,9 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
             parser.error(f"--export necesita una de estas extensiones: {', '.join(RUN_EXPORT_FORMATS)}")
         if not export_path.parent.is_dir():
             parser.error(f"--export: no existe el directorio {export_path.parent}")
-    return RunSession(prompt, profile_name, export_path, args.keep_page, args.allow_dangerous_tools, conversation_id=conversation_id)
+    if conversation_id:
+        mark_conversation_server_run(conversation_id, profile_name)
+    return RunSession(prompt, profile_name, export_path, args.keep_page, args.allow_dangerous_tools, conversation_id=conversation_id, profile_data=profile_data)
 
 
 def redirect_log(args):
@@ -337,9 +344,9 @@ def main():
     if getattr(args, "list_profiles", False):
         profiles = list_general_profiles()
         if not profiles:
-            print("No hay perfiles de conexión generales almacenados en el servidor local.")
+            print("No hay perfiles de conexión almacenados en el servidor local.")
         else:
-            print("Perfiles de conexión generales (Z-):")
+            print("Perfiles de conexión del servidor local:")
             for p in profiles:
                 settings = p.get("settings", {})
                 model = settings.get("model") or "sin modelo"

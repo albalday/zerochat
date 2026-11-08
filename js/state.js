@@ -405,6 +405,10 @@
       if (isConversationBusy() && state.sessions.activeId === sessionId) {
         return { ok: false, reason: 'generation-active' };
       }
+      const inList = state.sessions.list.some(s => s.id === sessionId);
+      if (!inList) {
+        return { ok: true, activeId: state.sessions.activeId, list: state.sessions.list };
+      }
       const list = state.sessions.list.filter(s => s.id !== sessionId);
       let nextActiveId = state.sessions.activeId;
       if (nextActiveId === sessionId) {

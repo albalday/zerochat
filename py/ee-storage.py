@@ -171,7 +171,7 @@ def validate_profile_payload(record: dict) -> tuple[str, str, str, dict, str | N
 
 
 def _row_to_profile(row: sqlite3.Row) -> dict:
-    """Transforma una fila SQLite en el objeto de perfil general."""
+    """Transforma una fila SQLite en el objeto de perfil del servidor."""
     try:
         settings = json.loads(row["settings_json"])
     except (json.JSONDecodeError, TypeError):
@@ -192,14 +192,14 @@ def _row_to_profile(row: sqlite3.Row) -> dict:
 
 
 def list_general_profiles() -> list[dict]:
-    """Lista todos los perfiles de conexión generales almacenados en SQLite."""
+    """Lista todos los perfiles de conexión del servidor almacenados en SQLite."""
     with open_storage() as conn:
         rows = conn.execute("SELECT * FROM profiles ORDER BY name COLLATE NOCASE ASC;").fetchall()
         return [_row_to_profile(row) for row in rows]
 
 
 def get_general_profile(profile_id: str) -> dict | None:
-    """Recupera un perfil general por su identificador único."""
+    """Recupera un perfil de servidor por su identificador único."""
     if not profile_id or not isinstance(profile_id, str) or not profile_id.strip():
         return None
     clean_id = normalize_profile_id("", profile_id)
@@ -209,7 +209,7 @@ def get_general_profile(profile_id: str) -> dict | None:
 
 
 def get_general_profile_by_name(name: str) -> dict | None:
-    """Recupera un perfil general por su nombre, con o sin el indicador visual 'Z-'."""
+    """Recupera un perfil de servidor por su nombre."""
     if not name or not isinstance(name, str) or not name.strip():
         return None
     clean = name.strip()
@@ -224,7 +224,7 @@ def get_general_profile_by_name(name: str) -> dict | None:
 
 
 def save_general_profile(record: dict) -> dict:
-    """Guarda (crea o actualiza) un perfil de conexión general en SQLite."""
+    """Guarda (crea o actualiza) un perfil de conexión del servidor en SQLite."""
     profile_id, name, description, settings, api_key = validate_profile_payload(record)
     now = int(time.time() * 1000)
 
@@ -243,7 +243,7 @@ def save_general_profile(record: dict) -> dict:
             (name, profile_id)
         ).fetchone()
         if same_name:
-            raise ValueError(f"Ya existe un perfil general con el nombre '{name}'")
+            raise ValueError(f"Ya existe un perfil con el nombre '{name}' en el servidor")
 
         if existing:
             version = existing["version"] + 1
@@ -314,6 +314,8 @@ def _row_to_conversation_header(row: sqlite3.Row) -> dict:
         header["extra"] = extra
         if "profile_id" in extra:
             header["profileId"] = extra["profile_id"]
+        if "server_run" in extra:
+            header["serverRun"] = bool(extra["server_run"])
     return header
 
 
@@ -375,6 +377,8 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
     profile_id = session_meta.get("profileId")
     if profile_id and isinstance(profile_id, str) and profile_id.strip():
         extra["profile_id"] = profile_id.strip()
+    if session_meta.get("serverRun") is not None:
+        extra["server_run"] = bool(session_meta.get("serverRun"))
 
     extra_json = json.dumps(extra, ensure_ascii=False) if extra else "{}"
 
@@ -408,6 +412,28 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
         conn.commit()
         row = conn.execute("SELECT * FROM conversations WHERE id = ?;", (session_id,)).fetchone()
         return _row_to_conversation_header(row)
+
+
+def mark_conversation_server_run(session_id: str, profile_name: str | None = None) -> bool:
+    """Marca la conversación en SQLite como ejecutada en servidor asociándole el perfil."""
+    try:
+        clean_id = _validate_conversation_id(session_id)
+    except (ValueError, TypeError):
+        return False
+    try:
+        with open_storage() as conn:
+            row = conn.execute("SELECT extra_json FROM conversations WHERE id = ?;", (clean_id,)).fetchone()
+            if not row:
+                return False
+            cur_extra = json.loads(row["extra_json"]) if row["extra_json"] else {}
+            cur_extra["server_run"] = True
+            if profile_name:
+                cur_extra["profile_id"] = str(profile_name).strip()
+            conn.execute("UPDATE conversations SET extra_json = ? WHERE id = ?;", (json.dumps(cur_extra, ensure_ascii=False), clean_id))
+            conn.commit()
+            return True
+    except (sqlite3.Error, OSError, json.JSONDecodeError):
+        return False
 
 
 def rename_conversation(session_id: str, new_title: str) -> bool:

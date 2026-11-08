@@ -98,3 +98,18 @@
 ## M49 Almacenamiento paralelo de adjuntos e imágenes para sincronización eficiente de conversaciones: closed 2026-11-08
 
 ## M50 Ajustes del modo servidor: perfil de conversación y control responsive en móvil: closed 2026-11-08
+
+## M51 Desacoplo de perfiles de servidor, panel responsive en móvil y acciones de guardado e importación
+
+Goal: Separar los perfiles del servidor de la lista local del cliente eliminando el prefijo y lógica Z-, dotar al editor de perfiles de opciones independientes para «Guardar» (local) y «Guardar en servidor», enriquecer el panel selector de perfiles con pantalla completa en móvil y acciones para importar perfiles del servidor y seleccionar perfil para ejecuciones en segundo plano, y actualizar el backend y las pruebas.
+Done when: El menú de perfiles solo muestra perfiles locales sin prefijo Z-; el editor de perfiles cuenta con botones independientes para guardar en local y guardar en el servidor; el panel selector de perfiles se muestra a pantalla completa en móvil (< 640px) y permite importar perfiles del servidor y seleccionar el perfil para ejecución en servidor; el backend maneja los perfiles sin prefijos Z- de forma limpia; y pasan todas las suites de pruebas (unit, infrastructure, architecture, integration, browser).
+- [x] M51-T1 Limpieza del prefijo Z- en backend (SQLite, CLI, ejecuciones desatendidas) y perfiles de servidor limpios con pruebas de infraestructura (2026-11-08)
+- [x] M51-T2 Desacoplo de perfiles de servidor en frontend (eliminación de mezcla automática en profile-repository y mcp) y API de consulta/importación con pruebas unitarias e integración (2026-11-08)
+- [x] M51-T3 Editor de perfiles: sustitución del selector de ámbito por botones independientes «Guardar» y «Guardar en servidor» con pruebas unitarias (2026-11-08)
+- [x] M51-T4 Panel selector de perfiles: diseño responsive a pantalla completa en móvil (< 640px), acción de importación desde servidor y selección de perfil para ejecución en servidor (2026-11-08)
+- [x] M51-T5 Restauración de conversación en servidor: recuperación del perfil asociado y activación automática del modo servidor al cargar del historial con pruebas (2026-11-08)
+- [x] M51-T6 Validación integral de la suite completa, pruebas de navegador y actualización de documentación (2026-11-08)
+- [x] M51-T7 Retirada del switch en cabecera, indicador visual de modo servidor en el selector y gestión de perfiles de servidor (edición/borrado) con botón Guardar en local (2026-11-08)
+- [x] M51-T8 Validación integral, actualización de pruebas de navegador y sincronización documental (2026-11-08)
+- [x] M51-T9 Migración del selector de perfiles al estándar de diálogo modal (settings-modal) para responsive en móvil y coherencia con el editor de perfiles y RAG (2026-11-08)
+

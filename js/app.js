@@ -94,6 +94,15 @@
     activeProfileName: 'active-profile-name',
     activeProfilePopover: 'active-profile-popover',
     activeProfileList: 'active-profile-list',
+    profileMenuViewLocal: 'profile-menu-view-local',
+    profileMenuViewServer: 'profile-menu-view-server',
+    btnMenuServerRun: 'btn-menu-server-run',
+    btnMenuServerManage: 'btn-menu-server-manage',
+    btnProfileSubviewBack: 'btn-profile-subview-back',
+    btnProfileSubviewClose: 'btn-profile-subview-close',
+    profileSubviewTitle: 'profile-subview-title',
+    profileSubviewHint: 'profile-subview-hint',
+    serverProfileList: 'server-profile-list',
     inspectorDialog: 'inspector-dialog',
     inspectorProfileName: 'inspector-profile-name',
     btnCloseInspector: 'btn-close-inspector',
@@ -122,8 +131,6 @@
     contextMetricTurnSpeedVal: 'context-metric-turn-speed-val',
     contextMetricTurnLatencyVal: 'context-metric-turn-latency-val',
     // Conversación y compositor
-    serverRunControl: 'server-run-control',
-    chkServerRun: 'chk-server-run',
     btnOpenSettings: 'btn-open-settings',
     btnOpenConnection: 'btn-open-connection',
     messagesList: 'messages-list',
@@ -179,8 +186,8 @@
     btnCloseProfiles: 'btn-close-profiles',
     settingProfileName: 'setting-profile-name',
     settingProfileDescription: 'setting-profile-description',
-    settingProfileScope: 'setting-profile-scope',
     profileSelectHelper: 'profile-select-helper',
+    btnSaveServerProfile: 'btn-save-server-profile',
     btnSaveProfile: 'btn-save-profile',
     profileActionFeedback: 'profile-action-feedback',
     profileSaveQueryHint: 'profile-save-query-hint',
@@ -290,7 +297,10 @@
         Debug.setStatus('idle');
         Debug.togglePanel(false);
         resetTelemetryDisplay({ syncState: false });
+        UIProfiles.setServerMode(false);
+        UIProfiles.setSelectedServerProfile('local');
       },
+      onSessionSwitched: conversation => applySessionModeAndProfile(conversation),
       resetComposerInput: () => resetComposerInput(),
       closeMobileSidebar: () => {
         if (UISidebar.isMobile()) UISidebar.closeSidebar(elements);
@@ -298,7 +308,7 @@
     };
   }
 
-  const saveCurrentSession = () => ConversationService.saveCurrentSession(getConversationServiceOptions());
+  const saveCurrentSession = overrides => ConversationService.saveCurrentSession(getConversationServiceOptions(), overrides);
   const switchToSession = sessionId => ConversationService.switchToSession(sessionId, getConversationServiceOptions());
   const createNewSession = () => ConversationService.createNewSession(getConversationServiceOptions());
   const createConversationBranch = wrapper => ConversationService.createConversationBranch(UIConversation.getMessageRef(wrapper), {
@@ -310,18 +320,40 @@
     UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId(), State.get('mcp').serverRuns);
   }
 
+  function isServerConversation(conversation) {
+    if (!conversation) return false;
+    if (conversation.serverRun || conversation.extra?.server_run) return true;
+    const mcpRuns = State.get('mcp')?.serverRuns;
+    return Array.isArray(mcpRuns) && mcpRuns.some(run => run?.conversationId === conversation.id);
+  }
+
+  function applySessionModeAndProfile(conversation) {
+    if (!conversation) return;
+    const serverMode = isServerConversation(conversation) && isServerRunAvailable();
+    if (serverMode) {
+      const profile = conversation.profileId || conversation.extra?.profile_id || 'local';
+      UIProfiles.setServerMode(true, profile);
+    } else {
+      UIProfiles.setServerMode(false);
+    }
+  }
+
   function isServerRunAvailable() {
-    return State.get('mcp').status === 'connected' && getRuntimeConfig().activeProfile?.general === true;
+    return State.get('mcp').status === 'connected';
   }
 
   function isServerRunEnabled() {
-    return isServerRunAvailable() && Boolean(elements.chkServerRun?.checked);
+    return isServerRunAvailable() && UIProfiles.isServerMode();
   }
 
   function syncServerRunControl() {
-    const available = isServerRunAvailable();
-    elements.serverRunControl.hidden = !available;
-    if (!available) elements.chkServerRun.checked = false;
+    if (!isServerRunAvailable()) {
+      if (UIProfiles.isServerMode()) UIProfiles.setServerMode(false);
+      return;
+    }
+    const activeId = getCurrentSessionId();
+    const session = State.get('sessions')?.list?.find(s => s.id === activeId);
+    if (session) applySessionModeAndProfile(session);
   }
 
   function getActiveServerRun() {
@@ -431,9 +463,10 @@
       openDebugInterceptorModal,
       saveCurrentSession,
       runOnServer,
+      getServerRunProfile: () => UIProfiles.getSelectedServerProfile(),
       startServerRun: ({ conversationId, profile }) => MCP.manager.startServerRun({
         conversationId,
-        profile,
+        profile: profile || UIProfiles.getSelectedServerProfile(),
         toolSecurity: sendOptions.allowOnceTools?.length
           ? { ...State.get('toolSecurity'), allow_once: sendOptions.allowOnceTools }
           : State.get('toolSecurity')
@@ -455,6 +488,7 @@
     Engine.ensureConversationDate(newSession.history, newSession.createdAt);
     const result = State.importConversation(newSession, newSession.history);
     if (!result.ok) throw new Error(result.reason);
+    applySessionModeAndProfile(newSession);
     renderSessionMessages(getChatHistory());
     await saveCurrentSession();
     await Dialogs.alert(t('chat_imported_success'), { type: 'success' });
@@ -509,9 +543,7 @@
     }
     try {
       const nextRecord = { ...profile, settings: { ...profile.settings, contextLimitOverride } };
-      const savedProfile = profile.general
-        ? await MCP.manager.saveGeneralProfile(nextRecord)
-        : Profiles.save(nextRecord);
+      const savedProfile = Profiles.save(nextRecord);
       UIProfiles.activateConnectionProfile(savedProfile.id);
       updateConnectionTokensBadge(null, { forcePopover: true });
     } catch (error) {
@@ -657,8 +689,8 @@
 
   function updateUIFromConfig() {
     const config = getRuntimeConfig();
-    elements.activeProfileName.textContent = UIProfiles.formatProfileDisplayName(config.activeProfile);
-    if (!elements.activeProfilePopover.hidden) {
+    UIProfiles.syncActiveProfileTrigger();
+    if (elements.activeProfilePopover.open && !elements.activeProfilePopover.hidden) {
       UIProfiles.renderProfileMenu();
     }
     // El diálogo contiene un borrador de perfil. Las notificaciones de la
@@ -848,6 +880,13 @@
       resetTelemetryDisplay,
       updateUIFromConfig,
       inspectProfile,
+      onServerModeChanged: (active, profile) => {
+        const activeId = getCurrentSessionId();
+        const existing = State.get('sessions')?.list?.find(s => s.id === activeId);
+        if (existing) {
+          saveCurrentSession({ serverRun: active, profileId: profile || UIProfiles.getSelectedServerProfile() });
+        }
+      },
       closeSettingsModal: () => UISettings.closeSettingsModal(elements)
     });
 

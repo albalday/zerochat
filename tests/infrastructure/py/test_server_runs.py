@@ -207,6 +207,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         session_perfil = zerochat.run_session_from_args(parser, parser.parse_args(["--conversation", "conv_con_perfil"]))
         self.assertIsNotNone(session_perfil)
         self.assertEqual(session_perfil.profile, "Z-test-cron-profile")
+        conv_updated = zerochat.get_conversation("conv_con_perfil")
+        self.assertEqual(conv_updated.get("serverRun"), True)
 
         # Conversación cuyo perfil asociado no existe termina con error de argumentos
         zerochat.save_conversation({"id": "conv_con_perfil_inexistente", "title": "Perfil roto", "profileId": "Z-fantasma"}, [
@@ -363,6 +365,9 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             self.assertTrue(state_path.exists())
             if os.name != "nt":
                 self.assertEqual(stat.S_IMODE(state_path.stat().st_mode), 0o600)
+            conv_data = zerochat.get_conversation("conv_val")
+            self.assertEqual(conv_data.get("serverRun"), True)
+            self.assertEqual(conv_data.get("profileId"), "Z-valid")
 
             # Conflicto mientras la ejecución sigue en marcha
             with self.assertRaises(ValueError) as cm:

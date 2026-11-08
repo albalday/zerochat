@@ -155,11 +155,11 @@
     resolveDep('ChatUIReasoning', './ui-reasoning.js').closeReasoningMenu(elements);
 
     if (options.runOnServer) {
-      await options.saveCurrentSession();
+      const serverProfile = typeof options.getServerRunProfile === 'function' ? options.getServerRunProfile() : '';
+      const savedSession = State.get('sessions')?.list?.find(s => s.id === generationSessionId);
+      const targetProfile = serverProfile || savedSession?.profileId || 'local';
+      await options.saveCurrentSession({ serverRun: true, profileId: targetProfile });
       try {
-        const activeProfile = config.activeProfile?.name || config.activeProfile?.id || '';
-        const savedSession = State.get('sessions')?.list?.find(s => s.id === generationSessionId);
-        const targetProfile = activeProfile || savedSession?.profileId || '';
         const result = await options.startServerRun({
           conversationId: generationSessionId,
           profile: targetProfile

@@ -26,7 +26,7 @@
 
     <div class="card" id="como-funciona">
       <h2>1. Cómo funciona</h2>
-      <p><code>zerochat --prompt "TEXTO"</code> (o <code>python3 zerochat.py --prompt "TEXTO"</code>) arranca el <a href="install.html">servidor local</a> y, por defecto, abre la interfaz sin ventana en el Chromium de Playwright con el perfil general <code>Z-local</code> guardado en el servidor (o el que indiques con <code>--profile</code>). Al terminar, devuelve la respuesta y el proceso finaliza.</p>
+      <p><code>zerochat --prompt "TEXTO"</code> (o <code>python3 zerochat.py --prompt "TEXTO"</code>) arranca el <a href="install.html">servidor local</a> y, por defecto, abre la interfaz sin ventana en el Chromium de Playwright con el perfil <code>local</code> guardado en el servidor (o el que indiques con <code>--profile</code>). Al terminar, devuelve la respuesta y el proceso finaliza.</p>
       <p>Con <code>--conversation ID</code> puedes continuar una conversación ya guardada en el servidor local (con un nuevo <code>--prompt</code> o reanudando su último mensaje pendiente), o bien activar el interruptor <strong>Ejecutar en servidor</strong> de la cabecera del chat para que los turnos se ejecuten en segundo plano aunque cierres la pestaña.</p>
       <div class="code-wrapper"><pre><code>zerochat --prompt "Resume los cambios de hoy en este repositorio" &gt; resumen.txt</code></pre></div>
       <ul>
@@ -43,7 +43,7 @@
         <thead><tr><th>Opción</th><th>Efecto</th></tr></thead>
         <tbody>
           <tr><td><code>--conversation ID</code></td><td>Continúa la conversación con ese ID guardada en el servidor local (ver <code>--list-conversations</code>). Puede combinarse con <code>--prompt TEXTO</code> para añadir un nuevo turno de usuario o usarse sola para reanudar el último mensaje o respuesta pendiente.</td></tr>
-          <tr><td><code>--profile NOMBRE</code></td><td>Usa ese perfil (nombre o id) solo en esta ejecución, sin cambiar el perfil activo guardado. Si no se indica, usa el perfil de origen de la conversación (si existe) o el perfil general <code>Z-local</code> del servidor; si no existe, la ejecución termina con error.</td></tr>
+          <tr><td><code>--profile NOMBRE</code></td><td>Usa ese perfil (nombre o id) solo en esta ejecución, sin cambiar el perfil activo guardado. Si no se indica, usa el perfil de origen de la conversación (si existe) o el perfil <code>local</code> del servidor; si no existe, la ejecución termina con error.</td></tr>
           <tr><td><code>--browser</code></td><td>Abre el navegador predeterminado del usuario en modo visible en lugar del Chromium sin ventana de Playwright.</td></tr>
           <tr><td><code>--headless</code></td><td>Con <code>--browser</code>, abre el navegador predeterminado del usuario sin ventana. Ver <a href="#sin-ventana">sección 5</a>.</td></tr>
           <tr><td><code>--export FICHERO</code></td><td>Guarda la conversación en <code>FICHERO</code>; el formato sale de la extensión: <code>.md</code> (Markdown), <code>.json</code> (sesión) o <code>.html</code> (como se ve en el chat). Se exporta también tras un error de generación.</td></tr>
@@ -61,7 +61,7 @@
       <ul>
         <li><strong>Aprobaciones y preguntas con <code>--prompt</code> (sin <code>--conversation</code>):</strong> cada herramienta de lectura que pide permiso se permite para la sesión de esa página; <code>write_file</code>, <code>edit_file</code> y <code>run_command</code> se deniegan salvo con <code>--allow-dangerous-tools</code>. Si el modelo pregunta con <code>ask_user</code>, la ejecución termina con error (código <code>1</code>, <em>The run needs the user</em>).</li>
         <li><strong>Pausa limpia con <code>--conversation</code>:</strong> cuando una ejecución con <code>--conversation</code> necesita confirmación para una herramienta o una respuesta en <code>ask_user</code>, guarda la conversación en SQLite con la tarjeta pendiente, devuelve en la salida estándar un JSON con <code>{"status": "needs_input", "conversation_id": "...", "pending": {...}}</code> y termina con código <code>0</code> para que puedas responder desde la interfaz web o en una llamada posterior.</li>
-        <li><strong>Interruptor «Ejecutar en servidor» en el chat:</strong> al conectar el servidor local y elegir un perfil general (<code>Z-</code>), la cabecera muestra el interruptor <strong>Ejecutar en servidor</strong>. Al activarlo, cada turno se lanza como proceso independiente en segundo plano (<code>~/zerochat/runs/</code>): la barra lateral marca la conversación con un reloj mientras se ejecuta y con <code>?</code> si espera tu respuesta o permiso; al abrirla ves el progreso en vivo, puedes detenerla en cualquier momento o aprobar la herramienta / responder a <code>ask_user</code> para que continúe.</li>
+        <li><strong>Interruptor «Ejecutar en servidor» en el chat:</strong> al conectar el servidor local, la cabecera muestra el interruptor <strong>Ejecutar en servidor</strong> (pudiendo seleccionar el perfil de servidor deseado desde el menú de perfiles). Al activarlo, cada turno se lanza como proceso independiente en segundo plano (<code>~/zerochat/runs/</code>): la barra lateral marca la conversación con un reloj mientras se ejecuta y con <code>?</code> si espera tu respuesta o permiso; al abrirla ves el progreso en vivo, puedes detenerla en cualquier momento o aprobar la herramienta / responder a <code>ask_user</code> para que continúe.</li>
         <li><strong>Servicios MCP:</strong> la ejecución arranca su propio servidor local, sin servicios MCP externos en marcha. Con <code>--profile</code> se arrancan los que marque el perfil en su capítulo Servidores MCP, y Playwright MCP si es la herramienta de navegación o el perfil lo exige, con el navegador del perfil; si alguno no está configurado o no arranca, la ejecución termina con error. Sin <code>--profile</code> no se arranca ninguno. Todos se detienen al terminar y no dejan rastro para la siguiente sesión.</li>
       </ul>
     </div>
@@ -83,7 +83,7 @@
 
     <div class="card" id="sin-ventana">
       <h2>5. Sin ventana y navegador del usuario (<code>--browser</code> / <code>--headless</code>)</h2>
-      <p>Por defecto, <code>--prompt</code> corre sin ventana con el Chromium instalado en la caché de Playwright y los perfiles generales guardados en el servidor local (<code>~/zerochat/storage/zerochat.db</code>), sin depender de una sesión gráfica ni de que tu navegador esté cerrado.</p>
+      <p>Por defecto, <code>--prompt</code> corre sin ventana con el Chromium instalado en la caché de Playwright y los perfiles guardados en el servidor local (<code>~/zerochat/storage/zerochat.db</code>), sin depender de una sesión gráfica ni de que tu navegador esté cerrado.</p>
       <ul>
         <li><strong><code>--prompt --browser</code>:</strong> abre tu navegador predeterminado en modo visible (con tus perfiles locales, historial y reglas guardadas en él). Admite <code>--keep-page</code>.</li>
         <li><strong><code>--prompt --browser --headless</code>:</strong> en Linux, busca el navegador predeterminado (<code>xdg-settings</code>) y lo lanza con <code>--headless</code> sobre tu perfil normal; si ya está abierto o no es identificable, se abre como pestaña de la forma normal.</li>
@@ -93,7 +93,7 @@
     <div class="card" id="cron">
       <h2>6. Tareas programadas (cron)</h2>
       <ul>
-        <li><strong>Perfil y navegador:</strong> guarda el perfil como <strong>General (Servidor local Z-)</strong> (por defecto <code>Z-local</code>, o el que pases en <code>--profile</code>) e instala el motor Chromium en Ajustes › Navegador. Así <code>--prompt</code> corre directamente en segundo plano sin sesión gráfica ni conflictos con tu navegador abierto.</li>
+        <li><strong>Perfil y navegador:</strong> guarda el perfil en el servidor con el botón <strong>Guardar en servidor</strong> (por defecto <code>local</code>, o el que pases en <code>--profile</code>) e instala el motor Chromium en Ajustes › Navegador. Así <code>--prompt</code> corre directamente en segundo plano sin sesión gráfica ni conflictos con tu navegador abierto.</li>
         <li><strong>Entorno:</strong> cron arranca con un <code>PATH</code> mínimo y en el directorio personal. Entra en el directorio de trabajo con <code>cd</code> y añade al <code>PATH</code> los comandos que necesitan tus servicios MCP (<code>node</code>, <code>npx</code>, <code>uvx</code>…).</li>
         <li><strong>Resultado:</strong> cron envía por correo la salida (<code>MAILTO</code>); el código de salida distingue cada caso. Con <code>flock</code> evitas que dos ejecuciones se solapen.</li>
       </ul>

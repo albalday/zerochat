@@ -1036,3 +1036,51 @@ test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversatio
     ChatState.set('sessions', previousSessions);
   }
 });
+
+test('MCP - gestión de perfiles de servidor (listServerProfiles, saveServerProfile, deleteServerProfile, importServerProfile)', async () => {
+  const manager = new MCP.McpManager();
+  manager.target = { url: 'http://127.0.0.1:6388', proxyKey: null };
+  const calls = [];
+  const profilesDb = [
+    { id: 'profile:server-1', name: 'Servidor Local', settings: { apiType: 'ollama', model: 'llama3' }, apiKey: '' },
+    { id: 'profile:server-2', name: 'OpenAI Servidor', settings: { apiType: 'openai', model: 'gpt-4o' }, apiKey: 'sk-serv-key' }
+  ];
+
+  manager.clients.set('mcp_proxy', {
+    request: async (method, params) => {
+      calls.push({ method, params });
+      if (method === 'zerochat/profiles/list') {
+        return { profiles: profilesDb };
+      }
+      if (method === 'zerochat/profiles/save') {
+        return { profile: { id: 'profile:saved', ...params.profile } };
+      }
+      if (method === 'zerochat/profiles/delete') {
+        return { deleted: true };
+      }
+      return {};
+    }
+  });
+
+  // listServerProfiles
+  const list = await manager.listServerProfiles();
+  assert.equal(list.length, 2);
+  assert.equal(list[0].name, 'Servidor Local');
+
+  // saveServerProfile
+  const saved = await manager.saveServerProfile({ name: 'Nuevo', settings: { apiType: 'openai' } });
+  assert.equal(saved.id, 'profile:saved');
+  assert.equal(saved.name, 'Nuevo');
+
+  // deleteServerProfile
+  const deleted = await manager.deleteServerProfile('profile:saved');
+  assert.equal(deleted, true);
+
+  // importServerProfile delega en ChatProfileRepository
+  const imported = await manager.importServerProfile(list[1]);
+  assert.equal(imported.name, 'OpenAI Servidor');
+  const Profiles = require('../../js/profile-repository.js');
+  const loaded = await Profiles.load(imported.id);
+  assert.equal(loaded.settings.apiKey, 'sk-serv-key');
+  Profiles.remove(imported.id);
+});

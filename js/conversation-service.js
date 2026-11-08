@@ -88,7 +88,7 @@
     return candidate.length > 35 ? `${candidate.substring(0, 32)}…` : candidate;
   }
 
-  async function saveCurrentSession(options) {
+  async function saveCurrentSession(options, overrides = {}) {
     const State = getState();
     const Storage = getStorage();
     const history = getHistory();
@@ -100,23 +100,35 @@
     }
 
     if (!history.some(message => message.role === 'user')) {
-      State.removeSession(sessionId);
-      try {
-        await Storage.deleteConversation(sessionId);
-      } catch (error) {
-        console.warn('[ConversationService] Could not delete empty conversation:', error);
+      const existing = getSavedSessions().find(session => session.id === sessionId);
+      if (existing) {
+        State.removeSession(sessionId);
+        try {
+          await Storage.deleteConversation(sessionId);
+        } catch (error) {
+          console.warn('[ConversationService] Could not delete empty conversation:', error);
+        }
+        options.renderSidebarChats();
       }
-      options.renderSidebarChats();
       return;
     }
 
     const now = Date.now();
     const existing = getSavedSessions().find(session => session.id === sessionId);
     const activeProfile = getConfig().getActive()?.activeProfile;
-    const currentProfileId = activeProfile?.name || activeProfile?.id || '';
-    const session = existing
-      ? { ...existing, updatedAt: now, messageCount: history.length, profileId: currentProfileId || existing.profileId || '' }
-      : { id: sessionId, title: '', createdAt: now, updatedAt: now, messageCount: history.length, profileId: currentProfileId };
+    const defaultProfileId = activeProfile?.name || activeProfile?.id || '';
+    const isServerRun = overrides.serverRun !== undefined ? Boolean(overrides.serverRun) : Boolean(existing?.serverRun);
+    const resolvedProfileId = overrides.profileId
+      || (isServerRun ? (existing?.profileId || defaultProfileId) : defaultProfileId)
+      || existing?.profileId
+      || '';
+    const session = {
+      ...(existing || { id: sessionId, title: '', createdAt: now }),
+      updatedAt: now,
+      messageCount: history.length,
+      profileId: resolvedProfileId,
+      serverRun: isServerRun
+    };
     if (!session.title) session.title = deriveTitle(history) || t('chat_untitled');
 
     State.saveSessionMetadata(session);
@@ -149,6 +161,9 @@
 
     if (!await activateConversation(conversation.id, history, 'chat_switch_blocked_generating', options)) return false;
     showActiveSession(options, { resetComposer: false });
+    if (typeof options.onSessionSwitched === 'function') {
+      options.onSessionSwitched(conversation);
+    }
     return true;
   }
 
@@ -299,7 +314,8 @@
       createdAt: now,
       updatedAt: now,
       messageCount: branchHistory.length,
-      profileId: branchProfileId
+      profileId: branchProfileId,
+      serverRun: Boolean(parentSession?.serverRun)
     };
 
     const Storage = getStorage();

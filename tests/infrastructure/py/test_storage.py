@@ -396,6 +396,7 @@ class StorageEngineTest(unittest.TestCase):
             "createdAt": 1700000000000,
             "updatedAt": 1700000001000,
             "profileId": "Z-deepseek",
+            "serverRun": True,
             "extra": {"cron": {"enabled": True}, "tags": ["prod"]}
         }
         messages = [
@@ -408,6 +409,7 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(saved["title"], "Conversación de prueba")
         self.assertEqual(saved["messageCount"], 3)
         self.assertEqual(saved["profileId"], "Z-deepseek")
+        self.assertEqual(saved["serverRun"], True)
         self.assertEqual(saved["extra"]["cron"], {"enabled": True})
         self.assertEqual(saved["extra"]["tags"], ["prod"])
 
@@ -416,6 +418,7 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(retrieved["id"], "session_test_123")
         self.assertEqual(retrieved["title"], "Conversación de prueba")
         self.assertEqual(retrieved["profileId"], "Z-deepseek")
+        self.assertEqual(retrieved["serverRun"], True)
         self.assertEqual(retrieved["extra"]["cron"], {"enabled": True})
         self.assertEqual(len(retrieved["history"]), 3)
         self.assertEqual(retrieved["history"][0]["id"], "system_root")

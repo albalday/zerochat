@@ -226,3 +226,23 @@ test('ChatState - setProjectContext valida el estado y el cambio de conversació
   assert.equal(store.get('project').status, 'ready');
   assert.equal(store.get('project').cwd, '/repo');
 });
+
+test('ChatState - removeSession con un id que no está en la lista no altera activeId ni desincroniza mensajes', () => {
+  const store = ChatState.createStore();
+  store.setState({
+    sessions: { activeId: 'draft_unsaved', list: [{ id: 'saved_1', title: 'Previo' }] },
+    messages: [{ id: 'm_sys', role: 'system', content: 'sys' }]
+  });
+
+  const res = store.removeSession('draft_unsaved');
+  assert.equal(res.ok, true);
+  assert.equal(store.get('sessions').activeId, 'draft_unsaved', 'No debe cambiar activeId al primer chat si el id eliminado no estaba en list');
+  assert.equal(store.get('sessions').list.length, 1);
+  assert.equal(store.get('sessions').list[0].id, 'saved_1');
+
+  // Si el id sí está en list, eliminarlo sí reasigna activeId
+  const resSaved = store.removeSession('saved_1');
+  assert.equal(resSaved.ok, true);
+  assert.equal(store.get('sessions').list.length, 0);
+  assert.equal(store.get('sessions').activeId, 'draft_unsaved');
+});

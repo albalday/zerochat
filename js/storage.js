@@ -172,7 +172,8 @@
   const conversationRange = id => IDBKeyRange.bound([id, -Infinity], [id, Infinity]);
 
   function toConversationHeader(record) {
-    const { id, title, createdAt, updatedAt, messageCount, profileId, extra } = record;
+    const { id, title, createdAt, updatedAt, messageCount, profileId, serverRun, extra } = record;
+    const isServerRun = serverRun !== undefined ? Boolean(serverRun) : (extra?.server_run !== undefined ? Boolean(extra.server_run) : undefined);
     return {
       id,
       title,
@@ -180,6 +181,7 @@
       updatedAt,
       messageCount,
       ...(profileId ? { profileId } : {}),
+      ...(isServerRun !== undefined ? { serverRun: isServerRun } : {}),
       ...(extra ? { extra } : {})
     };
   }
@@ -236,6 +238,7 @@
         updatedAt: sessionMeta.updatedAt || now,
         messageCount: messages.length,
         ...(sessionMeta.profileId ? { profileId: sessionMeta.profileId } : {}),
+        ...(sessionMeta.serverRun !== undefined ? { serverRun: Boolean(sessionMeta.serverRun) } : {}),
         ...(sessionMeta.extra ? { extra: sessionMeta.extra } : {})
       });
       const messageStore = tx.objectStore(STORES.messages);
