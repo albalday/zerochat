@@ -1106,6 +1106,24 @@
   outline: none;
 }
 
+.header-profile-trigger.server-mode {
+  background-color: var(--success-soft);
+  border-color: var(--success-border);
+  color: var(--success-text);
+}
+
+.header-profile-trigger.server-mode:hover,
+.header-profile-trigger.server-mode:focus-visible,
+.header-profile-trigger.server-mode[aria-expanded="true"] {
+  background-color: var(--success-soft-hover);
+  border-color: var(--success);
+  color: var(--success-text);
+}
+
+.header-profile-trigger.server-mode .profile-icon {
+  color: var(--success);
+}
+
 .header-profile-trigger .profile-icon {
   display: inline-flex;
   align-items: center;

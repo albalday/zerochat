@@ -88,3 +88,15 @@ test('UIProfiles - formatProfileDisplayName formatea y limpia el nombre del perf
   assert.equal(UIProfiles.formatProfileDisplayName({ name: '  Espacios  ' }), 'Espacios');
   assert.equal(UIProfiles.formatProfileDisplayName({ name: 'OpenAI Server' }), 'OpenAI Server');
 });
+
+test('UIProfiles - get/set de modo servidor y perfil seleccionado', () => {
+  assert.equal(UIProfiles.isServerMode(), false);
+  UIProfiles.setSelectedServerProfile('srv-custom');
+  assert.equal(UIProfiles.getSelectedServerProfile(), 'srv-custom');
+  UIProfiles.setServerMode(true, 'srv-active');
+  assert.equal(UIProfiles.isServerMode(), true);
+  assert.equal(UIProfiles.getSelectedServerProfile(), 'srv-active');
+  UIProfiles.setServerMode(false);
+  assert.equal(UIProfiles.isServerMode(), false);
+  assert.equal(UIProfiles.getSelectedServerProfile(), 'srv-active');
+});

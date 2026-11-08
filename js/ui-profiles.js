@@ -434,9 +434,9 @@
           <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-server"></use></svg>
           <span data-i18n="btn_save_server_short">Guardar en servidor</span>
         </button>
-        <button type="button" id="btn-save-profile" class="btn-primary btn-save-header" data-i18n-title="btn_save_profile_title" title="Guardar todos los valores actuales en este perfil" disabled>
+        <button type="button" id="btn-save-profile" class="btn-primary btn-save-header" data-i18n-title="btn_save_local_title" title="Guardar todos los valores actuales en este navegador" disabled>
           <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-save"></use></svg>
-          <span data-i18n="btn_save_short">Guardar</span>
+          <span data-i18n="btn_save_local_short">Guardar en local</span>
         </button>
         <button id="btn-close-profiles" type="button" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal"><svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg></button>
       </div>
@@ -489,8 +489,32 @@
   }
 
   let selectedServerProfile = 'local';
+  let serverModeActive = false;
   const getSelectedServerProfile = () => selectedServerProfile;
   const setSelectedServerProfile = name => { selectedServerProfile = name || 'local'; };
+  const isServerMode = () => serverModeActive;
+
+  function setServerMode(active, profileName = null) {
+    serverModeActive = Boolean(active);
+    if (profileName) selectedServerProfile = profileName;
+    syncActiveProfileTrigger();
+  }
+
+  function syncActiveProfileTrigger() {
+    if (!els?.activeProfileTrigger || !els?.activeProfileName) return;
+    els.activeProfileTrigger.classList.toggle('server-mode', serverModeActive);
+    const icon = els.activeProfileTrigger.querySelector('.profile-icon use');
+    if (serverModeActive) {
+      if (icon) icon.setAttribute('href', '#icon-zap');
+      els.activeProfileName.textContent = selectedServerProfile;
+      els.activeProfileTrigger.title = t('profile_server_mode_active', { name: selectedServerProfile });
+    } else {
+      if (icon) icon.setAttribute('href', '#icon-cpu');
+      const cfg = runtimeConfig?.();
+      els.activeProfileName.textContent = formatProfileDisplayName(cfg?.activeProfile);
+      els.activeProfileTrigger.title = t('profile_badge_title');
+    }
+  }
 
   function setProfileMenuOpen(open) {
     els.activeProfileTrigger.setAttribute('aria-expanded', String(open));
@@ -531,8 +555,8 @@
     els.btnProfileSubviewBack?.focus();
 
     const isRunMode = mode === 'run';
-    els.profileSubviewTitle.textContent = t(isRunMode ? 'profile_server_run_title' : 'profile_server_import_title');
-    els.profileSubviewHint.textContent = t(isRunMode ? 'profile_server_run_hint' : 'profile_server_import_hint');
+    els.profileSubviewTitle.textContent = t(isRunMode ? 'profile_server_run_title' : 'profile_server_manage_title');
+    els.profileSubviewHint.textContent = t(isRunMode ? 'profile_server_run_hint' : 'profile_server_manage_hint');
 
     if (!getMCP().manager.isProxyConnected()) {
       setListHint(els.serverProfileList, t('profile_mcp_disconnected'));
@@ -542,26 +566,38 @@
     setListHint(els.serverProfileList, t('profile_import_waiting_title'));
     try {
       const profiles = await getMCP().manager.listServerProfiles();
-      if (!profiles || profiles.length === 0) {
+      const localRunOption = isRunMode ? `
+        <div class="header-profile-item${!serverModeActive ? ' active' : ''}">
+          <button type="button" class="header-profile-option${!serverModeActive ? ' active' : ''}" data-server-profile-action="disable-server-mode" role="menuitemradio" aria-checked="${!serverModeActive}" title="${escapeHtml(t('profile_run_local_opt'))}">
+            <span class="header-profile-option-name">${escapeHtml(t('profile_run_local_opt'))}</span>
+            <span class="header-profile-option-description">${escapeHtml(t('profile_run_local_desc'))}</span>
+          </button>
+        </div>` : '';
+
+      if (!isRunMode && (!profiles || profiles.length === 0)) {
         setListHint(els.serverProfileList, t('profile_server_empty'));
         return;
       }
-      els.serverProfileList.innerHTML = profiles.map(profile => {
+
+      const emptyHint = (!profiles || profiles.length === 0) ? `<p class="label-hint">${escapeHtml(t('profile_server_empty'))}</p>` : '';
+      const items = (profiles || []).map(profile => {
         const displayName = formatProfileDisplayName(profile);
-        const active = isRunMode && (selectedServerProfile === profile.name || selectedServerProfile === profile.id);
+        const active = isRunMode && serverModeActive && (selectedServerProfile === profile.name || selectedServerProfile === profile.id);
         const description = profile.description || profile.settings?.model || '';
-        const importAction = isRunMode ? '' : `
+        const actions = isRunMode ? '' : `
           <div class="header-profile-item-actions">
-            <button type="button" class="btn-profile-item-action" data-server-profile-action="import" data-target-id="${escapeHtml(profile.id)}" title="${escapeHtml(t('btn_import_profile_action'))}" aria-label="${escapeHtml(`${t('btn_import_profile_action')}: ${displayName}`)}">${Icons.get('download', { size: 14 })}</button>
+            <button type="button" class="btn-profile-item-action btn-profile-item-edit" data-server-profile-action="edit" data-target-id="${escapeHtml(profile.id)}" title="${escapeHtml(t('btn_edit_profile_title'))}" aria-label="${escapeHtml(`${t('btn_edit_profile_title')}: ${displayName}`)}">${Icons.get('edit', { size: 14 })}</button>
+            <button type="button" class="btn-profile-item-action btn-profile-item-delete" data-server-profile-action="delete" data-target-id="${escapeHtml(profile.id)}" title="${escapeHtml(t('btn_delete_profile_item_title'))}" aria-label="${escapeHtml(`${t('btn_delete_profile_item_title')}: ${displayName}`)}">${Icons.get('trash', { size: 14 })}</button>
           </div>`;
         return `<div class="header-profile-item${active ? ' active' : ''}">
           <button type="button" class="header-profile-option${active ? ' active' : ''}" data-server-profile-id="${escapeHtml(profile.id)}" data-server-profile-mode="${mode}" role="menuitemradio" aria-checked="${active}" title="${escapeHtml(displayName)}">
             <span class="header-profile-option-name">${escapeHtml(displayName)}</span>
             ${description ? `<span class="header-profile-option-description">${escapeHtml(description)}</span>` : ''}
           </button>
-          ${importAction}
+          ${actions}
         </div>`;
       }).join('');
+      els.serverProfileList.innerHTML = localRunOption + emptyHint + items;
     } catch (err) {
       setListHint(els.serverProfileList, err?.message || String(err));
     }
@@ -902,6 +938,27 @@
     showProfilesDialog();
   }
 
+  function openServerProfileInEditor(serverProfile) {
+    closeProfileMenu();
+    options.closeSettingsModal();
+    const localExisting = getProfiles().findByName(serverProfile.name);
+    const profileId = localExisting ? localExisting.id : '';
+    populateProfileSelector(profileId);
+    showProfilesDialog();
+    els.settingProfileName.value = serverProfile.name || '';
+    els.settingProfileDescription.value = serverProfile.description || '';
+    const settings = serverProfile.settings || {};
+    updateEditor({
+      dirty: true,
+      locked: settings.apiKeyLocked === true,
+      loadedApiKey: settings.apiKey || ''
+    });
+    fillProfileForm(settings);
+    els.settingApiKey.value = settings.apiKey || '';
+    syncProfileSaveState();
+    els.settingProfileName.focus();
+  }
+
   let isClosingProfilesModal = false;
 
   /** Cierra el editor; con cambios o una consulta sin guardar pide confirmación salvo con `force`. */
@@ -1019,7 +1076,7 @@
       els.activeProfileTrigger.focus();
     });
     listen(els.btnMenuServerRun, 'click', () => openServerProfilesView('run'));
-    listen(els.btnMenuServerImport, 'click', () => openServerProfilesView('import'));
+    listen(els.btnMenuServerManage, 'click', () => openServerProfilesView('manage'));
     listen(els.btnProfileSubviewBack, 'click', showLocalProfilesView);
     listen(els.btnProfileSubviewClose, 'click', () => {
       closeProfileMenu();
@@ -1027,12 +1084,24 @@
     });
 
     listen(els.serverProfileList, 'click', async event => {
-      const importBtn = event.target.closest('[data-server-profile-action="import"]');
-      const option = event.target.closest('[data-server-profile-id]');
-      if (!importBtn && !option) return;
+      const disableLocalBtn = event.target.closest('[data-server-profile-action="disable-server-mode"]');
+      if (disableLocalBtn) {
+        setServerMode(false);
+        if (typeof options.onServerModeChanged === 'function') {
+          options.onServerModeChanged(false);
+        }
+        closeProfileMenu();
+        els.activeProfileTrigger.focus();
+        return;
+      }
 
-      const targetId = importBtn ? importBtn.dataset.targetId : option.dataset.serverProfileId;
-      const mode = option?.dataset.serverProfileMode || (importBtn ? 'import' : 'run');
+      const editBtn = event.target.closest('[data-server-profile-action="edit"]');
+      const deleteBtn = event.target.closest('[data-server-profile-action="delete"]');
+      const option = event.target.closest('[data-server-profile-id]');
+      if (!editBtn && !deleteBtn && !option) return;
+
+      const targetId = editBtn?.dataset.targetId || deleteBtn?.dataset.targetId || option?.dataset.serverProfileId;
+      const mode = option?.dataset.serverProfileMode || (deleteBtn || editBtn ? 'manage' : 'run');
 
       let serverProfiles = [];
       try {
@@ -1043,20 +1112,41 @@
       const targetProfile = serverProfiles.find(p => p.id === targetId);
       if (!targetProfile) return;
 
-      if (mode === 'run') {
-        setSelectedServerProfile(targetProfile.name || targetProfile.id);
-        if (typeof options.onSelectServerRunProfile === 'function') {
-          options.onSelectServerRunProfile(targetProfile.name || targetProfile.id);
-        }
-        closeProfileMenu();
-      } else {
+      if (deleteBtn) {
+        event.stopPropagation();
+        const displayName = formatProfileDisplayName(targetProfile);
+        const confirmed = await getDialogs().confirm(t('confirm_delete_profile', { name: displayName }));
+        if (!confirmed) return;
         try {
-          await getMCP().manager.importServerProfile(targetProfile);
-          renderProfileMenu();
-          showLocalProfilesView();
+          await getMCP().manager.deleteServerProfile(targetId);
+          if (selectedServerProfile === targetProfile.name || selectedServerProfile === targetProfile.id) {
+            setSelectedServerProfile('local');
+            setServerMode(false);
+            if (typeof options.onServerModeChanged === 'function') {
+              options.onServerModeChanged(false);
+            }
+          }
+          await openServerProfilesView('manage');
         } catch (err) {
           await getDialogs().alert(err?.message || String(err), { type: 'error' });
         }
+        return;
+      }
+
+      if (editBtn || mode === 'manage') {
+        openServerProfileInEditor(targetProfile);
+        return;
+      }
+
+      if (mode === 'run') {
+        const profileName = targetProfile.name || targetProfile.id;
+        setSelectedServerProfile(profileName);
+        setServerMode(true, profileName);
+        if (typeof options.onServerModeChanged === 'function') {
+          options.onServerModeChanged(true, profileName);
+        }
+        closeProfileMenu();
+        els.activeProfileTrigger.focus();
       }
     });
 
@@ -1073,6 +1163,10 @@
       const option = event.target.closest('[data-profile-id]');
       if (!option || !getProfiles().get(option.dataset.profileId)) return;
       activateProfileFromUI(option.dataset.profileId);
+      setServerMode(false);
+      if (typeof options.onServerModeChanged === 'function') {
+        options.onServerModeChanged(false);
+      }
       options.updateUIFromConfig();
       closeProfileMenu();
       els.activeProfileTrigger.focus();
@@ -1113,6 +1207,7 @@
     getProfiles().setPasswordPrompt(requestCurrentPassword);
     bindEditor();
     bindMenu();
+    syncActiveProfileTrigger();
   }
 
   return {
@@ -1136,7 +1231,11 @@
     formatProfileDisplayName,
     getSelectedServerProfile,
     setSelectedServerProfile,
+    isServerMode,
+    setServerMode,
+    syncActiveProfileTrigger,
     openServerProfilesView,
+    openServerProfileInEditor,
     showLocalProfilesView
   };
 }));

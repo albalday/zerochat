@@ -436,22 +436,13 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready') &&
       window.ChatState.get('mcp').status === 'connected');
 
-    // Con backend conectado el control "Ejecutar en servidor" está disponible en la cabecera
-    assert.equal(await page.locator('#server-run-control').isHidden(), false);
-    // Verificación de ubicación junto al selector de perfil y comportamiento responsive
-    assert.equal(await page.locator('.header-center #server-run-control').count(), 1);
-    assert.equal(await page.locator('.header-server-run-label').isVisible(), true);
+    // Con backend conectado no hay slider independiente en cabecera; todo se gestiona en perfiles
+    assert.equal(await page.locator('#server-run-control').count(), 0);
 
-    await page.setViewportSize({ width: 375, height: 667 });
-    assert.equal(await page.locator('#server-run-control').isVisible(), true);
-    assert.equal(await page.locator('.header-server-run-label').isHidden(), true);
-
-    await page.setViewportSize({ width: 1280, height: 720 });
-    assert.equal(await page.locator('.header-server-run-label').isVisible(), true);
-
-    await page.evaluate(() => window.ChatUIProfiles.setSelectedServerProfile('server'));
-    await page.locator('#server-run-control').click();
-    assert.equal(await page.locator('#chk-server-run').isChecked(), true);
+    await page.evaluate(() => window.ChatUIProfiles.setServerMode(true, 'server'));
+    assert.equal(await page.locator('#active-profile-trigger.server-mode').count(), 1);
+    assert.equal(await page.locator('#active-profile-trigger .profile-icon use').getAttribute('href'), '#icon-zap');
+    assert.equal((await page.locator('#active-profile-name').textContent()).trim(), 'server');
     await page.locator('#user-input').fill('Analiza el repositorio');
     await page.locator('#btn-send').click();
 
@@ -580,12 +571,13 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     // Crear una nueva conversación local: desactiva el modo servidor
     await page.locator('#btn-sidebar-new-chat').click();
     await page.waitForFunction(id => window.ChatState.get('sessions').activeId !== id, activeConvId);
-    assert.equal(await page.locator('#chk-server-run').isChecked(), false);
+    assert.equal(await page.evaluate(() => window.ChatUIProfiles.isServerMode()), false);
+    assert.equal(await page.locator('#active-profile-trigger.server-mode').count(), 0);
 
     // Recuperar la conversación lanzada al servidor desde el historial: activa modo servidor y recupera su perfil
     await page.locator(`.sidebar-chat-item[data-session-id="${activeConvId}"]`).click();
-    await page.waitForFunction(() => document.getElementById('chk-server-run')?.checked);
-    assert.equal(await page.locator('#chk-server-run').isChecked(), true);
+    await page.waitForFunction(() => window.ChatUIProfiles.isServerMode());
+    assert.equal(await page.locator('#active-profile-trigger.server-mode').count(), 1);
     const restoredServerProfile = await page.evaluate(() => window.ChatUIProfiles.getSelectedServerProfile());
     assert.equal(restoredServerProfile, 'server');
   });

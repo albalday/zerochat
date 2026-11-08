@@ -267,3 +267,4 @@
 - 2026-11-08 M51-D4 Panel selector de perfiles a pantalla completa en móvil (< 640px) y subvista para importar del servidor y seleccionar perfil para ejecución en servidor (M51-T4)
 - 2026-11-08 M51-D5 Restauración de perfil de servidor y modo servidor automático al recuperar del historial (M51-T5)
 - 2026-11-08 M51-D6 Validación integral de la suite completa y actualización de documentación de perfiles de servidor (M51-T6)
+- 2026-11-08 M51-D7 Retirada del switch en cabecera, indicador visual de modo servidor en el selector y gestión de perfiles de servidor (edición/borrado) con botón Guardar en local (M51-T7)

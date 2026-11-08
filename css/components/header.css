@@ -101,38 +101,3 @@
   font-weight: 600;
 }
 
-.header-server-run-control {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.25rem 0.55rem;
-  border-radius: var(--radius-md);
-  background-color: var(--bg-surface-subtle);
-  border: 1px solid var(--border-color);
-  flex-shrink: 0;
-}
-
-.header-server-run-icon {
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.header-server-run-label {
-  font-size: 0.78rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-@media (max-width: 640px) {
-  .header-server-run-label {
-    display: none;
-  }
-
-  .header-server-run-control {
-    padding: 0.2rem 0.4rem;
-    gap: 0.3rem;
-  }
-}
-

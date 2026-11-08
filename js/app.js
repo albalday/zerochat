@@ -97,7 +97,7 @@
     profileMenuViewLocal: 'profile-menu-view-local',
     profileMenuViewServer: 'profile-menu-view-server',
     btnMenuServerRun: 'btn-menu-server-run',
-    btnMenuServerImport: 'btn-menu-server-import',
+    btnMenuServerManage: 'btn-menu-server-manage',
     btnProfileSubviewBack: 'btn-profile-subview-back',
     btnProfileSubviewClose: 'btn-profile-subview-close',
     profileSubviewTitle: 'profile-subview-title',
@@ -131,8 +131,6 @@
     contextMetricTurnSpeedVal: 'context-metric-turn-speed-val',
     contextMetricTurnLatencyVal: 'context-metric-turn-latency-val',
     // Conversación y compositor
-    serverRunControl: 'server-run-control',
-    chkServerRun: 'chk-server-run',
     btnOpenSettings: 'btn-open-settings',
     btnOpenConnection: 'btn-open-connection',
     messagesList: 'messages-list',
@@ -299,7 +297,7 @@
         Debug.setStatus('idle');
         Debug.togglePanel(false);
         resetTelemetryDisplay({ syncState: false });
-        if (elements.chkServerRun) elements.chkServerRun.checked = false;
+        UIProfiles.setServerMode(false);
         UIProfiles.setSelectedServerProfile('local');
       },
       onSessionSwitched: conversation => applySessionModeAndProfile(conversation),
@@ -331,13 +329,12 @@
 
   function applySessionModeAndProfile(conversation) {
     if (!conversation) return;
-    const serverMode = isServerConversation(conversation);
+    const serverMode = isServerConversation(conversation) && isServerRunAvailable();
     if (serverMode) {
-      if (isServerRunAvailable()) elements.chkServerRun.checked = true;
       const profile = conversation.profileId || conversation.extra?.profile_id || 'local';
-      UIProfiles.setSelectedServerProfile(profile);
+      UIProfiles.setServerMode(true, profile);
     } else {
-      elements.chkServerRun.checked = false;
+      UIProfiles.setServerMode(false);
     }
   }
 
@@ -346,20 +343,19 @@
   }
 
   function isServerRunEnabled() {
-    return isServerRunAvailable() && Boolean(elements.chkServerRun?.checked);
+    return isServerRunAvailable() && UIProfiles.isServerMode();
   }
 
   function syncServerRunControl() {
-    const available = isServerRunAvailable();
-    elements.serverRunControl.hidden = !available;
-    if (!available) {
-      elements.chkServerRun.checked = false;
-    } else {
-      const activeId = getCurrentSessionId();
-      const session = State.get('sessions')?.list?.find(s => s.id === activeId);
-      if (session && isServerConversation(session)) {
-        elements.chkServerRun.checked = true;
-      }
+    if (!isServerRunAvailable()) {
+      if (UIProfiles.isServerMode()) UIProfiles.setServerMode(false);
+      return;
+    }
+    const activeId = getCurrentSessionId();
+    const session = State.get('sessions')?.list?.find(s => s.id === activeId);
+    if (session && isServerConversation(session)) {
+      const profile = session.profileId || session.extra?.profile_id || 'local';
+      UIProfiles.setServerMode(true, profile);
     }
   }
 
@@ -696,7 +692,7 @@
 
   function updateUIFromConfig() {
     const config = getRuntimeConfig();
-    elements.activeProfileName.textContent = UIProfiles.formatProfileDisplayName(config.activeProfile);
+    UIProfiles.syncActiveProfileTrigger();
     if (!elements.activeProfilePopover.hidden) {
       UIProfiles.renderProfileMenu();
     }
@@ -887,8 +883,8 @@
       resetTelemetryDisplay,
       updateUIFromConfig,
       inspectProfile,
-      onSelectServerRunProfile: () => {
-        elements.chkServerRun.checked = true;
+      onServerModeChanged: (active, profile) => {
+        saveCurrentSession({ serverRun: active, profileId: profile || UIProfiles.getSelectedServerProfile() });
       },
       closeSettingsModal: () => UISettings.closeSettingsModal(elements)
     });

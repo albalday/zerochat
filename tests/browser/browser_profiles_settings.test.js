@@ -530,7 +530,7 @@ test('Browser UI - el selector de perfiles en móvil (< 640px) se muestra a pant
   }
 });
 
-test('Browser UI - el selector de perfiles permite importar del servidor y seleccionar perfil para ejecución en servidor', async () => {
+test('Browser UI - el selector de perfiles permite gestionar perfiles del servidor (editar, guardar en local y borrar) y ejecutar en servidor', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
@@ -545,6 +545,11 @@ test('Browser UI - el selector de perfiles permite importar del servidor y selec
       const mcp = window.ChatMCP.manager;
       mcp.isProxyConnected = () => true;
       mcp.listServerProfiles = async () => profiles;
+      mcp.deleteServerProfile = async id => {
+        window.deletedServerProfileId = id;
+        return true;
+      };
+      window.ChatDialogs.confirm = async () => true;
     }, serverProfiles);
 
     // 1. Probar acción Ejecutar en servidor...
@@ -554,27 +559,48 @@ test('Browser UI - el selector de perfiles permite importar del servidor y selec
     await page.click('#btn-menu-server-run');
     await page.waitForFunction(() => !document.getElementById('profile-menu-view-server').hidden);
     await page.waitForSelector('[data-server-profile-id="srv:claude"]');
+    assert.equal(await page.locator('[data-server-profile-action="disable-server-mode"]').count(), 1);
 
     // Seleccionar 'Servidor Claude'
     await page.click('[data-server-profile-id="srv:claude"]');
 
-    // Se activa el modo ejecución en servidor y se fija el perfil
-    assert.equal(await page.$eval('#chk-server-run', el => el.checked), true);
+    // Se activa el modo ejecución en servidor, resaltando el trigger con fondo verde y rayo
+    assert.equal(await page.evaluate(() => window.ChatUIProfiles.isServerMode()), true);
+    assert.equal(await page.locator('#active-profile-trigger.server-mode').count(), 1);
+    assert.equal(await page.locator('#active-profile-trigger .profile-icon use').getAttribute('href'), '#icon-zap');
+    assert.equal((await page.textContent('#active-profile-name')).trim(), 'Servidor Claude');
     const selected = await page.evaluate(() => window.ChatUIProfiles.getSelectedServerProfile());
     assert.equal(selected, 'Servidor Claude');
 
-    // 2. Probar acción Importar del servidor...
+    // 2. Probar acción Perfiles del servidor... -> Editar y Guardar en local
     await page.click('#active-profile-trigger');
-    await page.click('#btn-menu-server-import');
+    await page.click('#btn-menu-server-manage');
     await page.waitForFunction(() => !document.getElementById('profile-menu-view-server').hidden);
-    await page.waitForSelector('[data-server-profile-action="import"]');
+    await page.waitForSelector('[data-server-profile-action="edit"]');
+    await page.waitForSelector('[data-server-profile-action="delete"]');
 
-    // Click en el botón de importar de Servidor Claude
-    await page.click('[data-server-profile-action="import"]');
+    // Clic en editar Servidor Claude
+    await page.click('[data-server-profile-action="edit"]');
+    await page.waitForFunction(() => document.getElementById('profiles-dialog').open && !document.getElementById('btn-save-profile').disabled);
+    assert.equal(await page.$eval('#setting-profile-name', el => el.value), 'Servidor Claude');
+    assert.equal((await page.textContent('#btn-save-profile')).trim(), 'Guardar en local');
 
-    // El perfil debe haberse importado a los perfiles locales
+    // Guardar en local desde el editor
+    await page.click('#btn-save-profile');
+
+    // El perfil debe haberse guardado en los perfiles locales
     const localNames = await page.evaluate(() => window.ChatProfileRepository.list().map(p => p.name));
     assert.ok(localNames.includes('Servidor Claude'));
+
+    // 3. Probar borrar perfil del servidor
+    await page.click('#active-profile-trigger');
+    await page.click('#btn-menu-server-manage');
+    await page.waitForFunction(() => !document.getElementById('profile-menu-view-server').hidden);
+    await page.waitForSelector('[data-server-profile-action="delete"]');
+
+    await page.click('[data-server-profile-action="delete"]');
+    await page.waitForFunction(() => window.deletedServerProfileId === 'srv:claude');
+    assert.equal(await page.evaluate(() => window.deletedServerProfileId), 'srv:claude');
   } finally {
     await browser.close();
   }
