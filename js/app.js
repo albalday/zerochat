@@ -693,7 +693,7 @@
   function updateUIFromConfig() {
     const config = getRuntimeConfig();
     UIProfiles.syncActiveProfileTrigger();
-    if (!elements.activeProfilePopover.hidden) {
+    if (elements.activeProfilePopover.open && !elements.activeProfilePopover.hidden) {
       UIProfiles.renderProfileMenu();
     }
     // El diálogo contiene un borrador de perfil. Las notificaciones de la

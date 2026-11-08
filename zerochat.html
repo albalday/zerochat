@@ -325,56 +325,11 @@
       <div class="header-center">
         <!-- Selector de Perfil Activo (movido desde el compositor) -->
         <div id="active-profile-menu" class="header-profile-menu">
-          <button type="button" id="active-profile-trigger" class="header-profile-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls="active-profile-list" data-i18n-title="profile_badge_title" title="Perfil activo">
+          <button type="button" id="active-profile-trigger" class="header-profile-trigger" aria-haspopup="dialog" aria-expanded="false" aria-controls="active-profile-popover" data-i18n-title="profile_badge_title" title="Perfil activo">
             <span class="profile-icon"><svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-zap"></use></svg></span>
             <span id="active-profile-name" class="header-profile-name">Espejo</span>
             <span class="profile-chevron"><svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-up"></use></svg></span>
           </button>
-          <div id="active-profile-popover" class="header-profile-popover" hidden>
-            <div id="profile-menu-view-local" class="header-profile-menu-view">
-              <div class="header-profile-popover-header">
-                <span id="profile-menu-title" class="header-profile-popover-title" data-i18n="profile_menu_title">Perfiles</span>
-                <div class="header-profile-header-actions">
-                  <button type="button" id="btn-menu-new-profile" class="btn-profile-header-icon" data-i18n-title="btn_new_profile_title" title="Crear un perfil nuevo" aria-label="Crear un perfil nuevo">
-                    <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-plus"></use></svg>
-                  </button>
-                  <button type="button" id="btn-menu-export-profiles" class="btn-profile-header-icon" data-i18n-title="btn_export_profiles_title" title="Exportar todos los perfiles a un archivo cifrado" aria-label="Exportar todos los perfiles">
-                    <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-download"></use></svg>
-                  </button>
-                  <button type="button" id="btn-menu-close-profiles" class="btn-profile-header-icon" data-i18n-title="btn_close_profiles_menu" title="Cerrar selector" aria-label="Cerrar selector">
-                    <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
-                  </button>
-                </div>
-              </div>
-              <div id="active-profile-list" class="header-profile-list" role="menu" aria-labelledby="profile-menu-title"></div>
-              <div id="profile-menu-server-section" class="header-profile-server-section">
-                <div class="header-profile-section-divider"></div>
-                <div class="header-profile-server-actions">
-                  <button type="button" id="btn-menu-server-run" class="btn-profile-server-action" data-i18n-title="btn_menu_server_run_title" title="Seleccionar un perfil del servidor para ejecutar en segundo plano">
-                    <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-server"></use></svg>
-                    <span data-i18n="btn_menu_server_run">Ejecutar en servidor...</span>
-                  </button>
-                  <button type="button" id="btn-menu-server-manage" class="btn-profile-server-action" data-i18n-title="btn_menu_server_manage_title" title="Ver, editar o eliminar los perfiles guardados en el servidor local">
-                    <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg>
-                    <span data-i18n="btn_menu_server_manage">Perfiles del servidor...</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div id="profile-menu-view-server" class="header-profile-subview" hidden>
-              <div class="header-profile-subview-header">
-                <button type="button" id="btn-profile-subview-back" class="btn-profile-header-icon" data-i18n-title="btn_back_to_profiles" title="Volver a perfiles locales" aria-label="Volver">
-                  <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-arrow-left"></use></svg>
-                </button>
-                <span id="profile-subview-title" class="header-profile-popover-title"></span>
-                <button type="button" id="btn-profile-subview-close" class="btn-profile-header-icon" data-i18n-title="btn_close_profiles_menu" title="Cerrar selector" aria-label="Cerrar selector">
-                  <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
-                </button>
-              </div>
-              <p id="profile-subview-hint" class="header-profile-subview-hint"></p>
-              <div id="server-profile-list" class="header-profile-list" role="menu"></div>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -642,6 +597,63 @@
   <!-- Modales de la aplicación (renderizados dinámicamente desde sus módulos UI) -->
   <dialog id="settings-dialog" class="settings-modal" closedby="any"></dialog>
   <dialog id="profiles-dialog" class="settings-modal" closedby="any"></dialog>
+  <dialog id="active-profile-popover" class="settings-modal profile-selector-modal" closedby="any" hidden>
+    <div id="profile-menu-view-local" class="header-profile-menu-view">
+      <div class="modal-header settings-section-header">
+        <div class="modal-title">
+          <h3 id="profile-menu-title" data-i18n="profile_menu_title">Perfiles</h3>
+        </div>
+        <div class="settings-header-actions">
+          <button type="button" id="btn-menu-new-profile" class="btn-secondary" data-i18n-title="btn_new_profile_title" title="Crear un perfil nuevo" aria-label="Crear un perfil nuevo">
+            <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-plus"></use></svg>
+            <span class="btn-text-responsive" data-i18n="btn_new_profile_short">Nuevo</span>
+          </button>
+          <button type="button" id="btn-menu-export-profiles" class="btn-secondary" data-i18n-title="btn_export_profiles_title" title="Exportar todos los perfiles a un archivo cifrado" aria-label="Exportar todos los perfiles">
+            <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-download"></use></svg>
+            <span class="btn-text-responsive" data-i18n="btn_export_profiles_short">Exportar</span>
+          </button>
+          <button type="button" id="btn-menu-close-profiles" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal">
+            <svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
+          </button>
+        </div>
+      </div>
+      <div class="modal-body profile-selector-modal-body">
+        <div id="active-profile-list" class="header-profile-list" role="menu" aria-labelledby="profile-menu-title"></div>
+        <div id="profile-menu-server-section" class="header-profile-server-section">
+          <div class="header-profile-section-divider"></div>
+          <div class="header-profile-server-actions">
+            <button type="button" id="btn-menu-server-run" class="btn-profile-server-action" data-i18n-title="btn_menu_server_run_title" title="Seleccionar un perfil del servidor para ejecutar en segundo plano">
+              <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-server"></use></svg>
+              <span data-i18n="btn_menu_server_run">Ejecutar en servidor...</span>
+            </button>
+            <button type="button" id="btn-menu-server-manage" class="btn-profile-server-action" data-i18n-title="btn_menu_server_manage_title" title="Ver, editar o eliminar los perfiles guardados en el servidor local">
+              <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg>
+              <span data-i18n="btn_menu_server_manage">Perfiles del servidor...</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="profile-menu-view-server" class="header-profile-subview" hidden>
+      <div class="modal-header settings-section-header">
+        <div class="modal-title profile-subview-modal-title">
+          <button type="button" id="btn-profile-subview-back" class="btn-close" data-i18n-title="btn_back_to_profiles" title="Volver a perfiles locales" aria-label="Volver">
+            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-arrow-left"></use></svg>
+          </button>
+          <h3 id="profile-subview-title"></h3>
+        </div>
+        <div class="settings-header-actions">
+          <button type="button" id="btn-profile-subview-close" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal">
+            <svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
+          </button>
+        </div>
+      </div>
+      <div class="modal-body profile-selector-modal-body">
+        <p id="profile-subview-hint" class="header-profile-subview-hint"></p>
+        <div id="server-profile-list" class="header-profile-list" role="menu"></div>
+      </div>
+    </div>
+  </dialog>
   <dialog id="inspector-dialog" class="settings-modal" closedby="any" aria-labelledby="inspector-dialog-title">
     <div class="modal-header">
       <div class="modal-title">

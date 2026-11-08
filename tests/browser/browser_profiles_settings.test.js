@@ -521,6 +521,18 @@ test('Browser UI - el selector de perfiles en móvil (< 640px) se muestra a pant
     // En móvil el popover pasa a position: fixed (pantalla completa)
     const position = await page.$eval('#active-profile-popover', el => window.getComputedStyle(el).position);
     assert.equal(position, 'fixed');
+    const dimensions = await page.evaluate(() => {
+      const rect = document.getElementById('active-profile-popover').getBoundingClientRect();
+      return {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        windowWidth: window.innerWidth
+      };
+    });
+    assert.equal(dimensions.left, 0);
+    assert.equal(dimensions.top, 0);
+    assert.ok(Math.abs(dimensions.width - dimensions.windowWidth) <= 1, 'El panel debe ocupar el 100% del ancho de la pantalla');
 
     // Cerrar menú con el botón de cierre
     await page.click('#btn-menu-close-profiles');

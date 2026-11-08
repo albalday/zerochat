@@ -36,7 +36,7 @@
   const listeners = Utils.createListenerGroup();
   const { listen } = listeners;
 
-  const runtimeConfig = () => options.getRuntimeConfig();
+  const runtimeConfig = () => (typeof options.getRuntimeConfig === 'function' ? options.getRuntimeConfig() : {});
   const selectedProfileId = () => els.profileSelectHelper.value;
   const getAdapter = () => getProviders().registry.get(els.settingApiType.value || 'openai');
 
@@ -516,9 +516,34 @@
     }
   }
 
+  function syncPopoverPosition() {
+    if (!els.activeProfilePopover || !els.activeProfileTrigger) return;
+    if (window.innerWidth <= 640) {
+      els.activeProfilePopover.style.left = '';
+      els.activeProfilePopover.style.transform = '';
+      return;
+    }
+    const trigger = els.activeProfileTrigger.getBoundingClientRect();
+    const triggerCenter = trigger.left + trigger.width / 2;
+    els.activeProfilePopover.style.left = `${triggerCenter}px`;
+    els.activeProfilePopover.style.transform = 'translateX(-50%)';
+  }
+
   function setProfileMenuOpen(open) {
     els.activeProfileTrigger.setAttribute('aria-expanded', String(open));
     els.activeProfilePopover.hidden = !open;
+    if (open) {
+      if (typeof els.activeProfilePopover.showModal === 'function' && !els.activeProfilePopover.open) {
+        els.activeProfilePopover.showModal();
+      }
+      syncPopoverPosition();
+    } else {
+      if (typeof els.activeProfilePopover.close === 'function' && els.activeProfilePopover.open) {
+        els.activeProfilePopover.close();
+      }
+      els.activeProfilePopover.style.left = '';
+      els.activeProfilePopover.style.transform = '';
+    }
   }
 
   function showLocalProfilesView() {
@@ -534,6 +559,8 @@
     if (getMCP().manager.isProxyConnected()) {
       getMCP().manager.listServerProfiles().catch(() => {});
     }
+    const firstOption = els.activeProfileList?.querySelector('button');
+    if (firstOption) firstOption.focus();
   }
 
   function closeProfileMenu() {
@@ -1066,10 +1093,37 @@
   function bindMenu() {
     listen(els.activeProfileTrigger, 'click', event => {
       event.stopPropagation();
-      if (els.activeProfilePopover.hidden) openProfileMenu();
+      if (!els.activeProfilePopover.open || els.activeProfilePopover.hidden) openProfileMenu();
       else closeProfileMenu();
     });
-    listen(els.btnMenuNewProfile, 'click', openNewProfileModal);
+    listen(els.activeProfileTrigger, 'keydown', event => {
+      if (['ArrowDown', 'ArrowUp'].includes(event.key)) {
+        event.preventDefault();
+        openProfileMenu();
+      }
+    });
+    listen(window, 'resize', () => {
+      if (els.activeProfilePopover.open && !els.activeProfilePopover.hidden) syncPopoverPosition();
+    });
+    listen(els.activeProfilePopover, 'cancel', event => {
+      event.preventDefault();
+      closeProfileMenu();
+      els.activeProfileTrigger.focus();
+    });
+    listen(els.activeProfilePopover, 'close', () => {
+      setProfileMenuOpen(false);
+      showLocalProfilesView();
+    });
+    listen(els.activeProfilePopover, 'click', event => {
+      if (event.target === els.activeProfilePopover) {
+        closeProfileMenu();
+        els.activeProfileTrigger.focus();
+      }
+    });
+    listen(els.btnMenuNewProfile, 'click', () => {
+      closeProfileMenu();
+      openNewProfileModal();
+    });
     listen(els.btnMenuExportProfiles, 'click', handleExportProfiles);
     listen(els.btnMenuCloseProfiles, 'click', () => {
       closeProfileMenu();
@@ -1172,26 +1226,25 @@
       els.activeProfileTrigger.focus();
     });
 
-    listen(els.activeProfileMenu, 'keydown', event => {
+    listen(els.activeProfilePopover, 'keydown', event => {
       if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+      const activeList = els.profileMenuViewServer && !els.profileMenuViewServer.hidden
+        ? els.serverProfileList
+        : els.activeProfileList;
+      const buttons = [...activeList.querySelectorAll('button')];
+      if (!buttons.length) return;
       event.preventDefault();
-      if (els.activeProfilePopover.hidden) openProfileMenu();
-      const buttons = [...els.activeProfileList.querySelectorAll('button')];
       const index = buttons.indexOf(document.activeElement);
       const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
         : (index + (event.key === 'ArrowUp' ? -1 : 1) + buttons.length) % buttons.length;
       buttons[next]?.focus();
     });
-    listen(els.activeProfileMenu, 'focusout', event => {
-      if (event.relatedTarget && !els.activeProfileMenu.contains(event.relatedTarget)) closeProfileMenu();
-    });
-    listen(document, 'click', event => {
-      if (!els.activeProfileMenu.contains(event.target)) closeProfileMenu();
-    });
     listen(document, 'keydown', event => {
-      if (event.key !== 'Escape' || els.activeProfileTrigger.getAttribute('aria-expanded') !== 'true') return;
-      closeProfileMenu();
-      els.activeProfileTrigger.focus();
+      if (event.key !== 'Escape') return;
+      if (els.activeProfilePopover.open || els.activeProfileTrigger.getAttribute('aria-expanded') === 'true') {
+        closeProfileMenu();
+        els.activeProfileTrigger.focus();
+      }
     });
   }
 

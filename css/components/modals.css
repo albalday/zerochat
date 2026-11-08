@@ -1099,6 +1099,38 @@ input.form-input:focus-visible,
 }
 
 /* ==========================================================================
+   Selector de Perfil Activo (<dialog class="settings-modal profile-selector-modal">)
+   ========================================================================== */
+.profile-selector-modal {
+  max-width: 460px;
+  width: min(460px, 94vw);
+}
+
+@media (min-width: 641px) {
+  .profile-selector-modal {
+    position: fixed;
+    margin: 0;
+    top: calc(var(--header-height) + 0.5rem);
+    max-height: calc(100vh - var(--header-height) - 2rem);
+  }
+}
+
+.profile-selector-modal-body {
+  padding: 0.75rem 1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  overflow-y: auto;
+  max-height: min(460px, 65vh);
+}
+
+.profile-subview-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* ==========================================================================
    Conocimiento local (IndexedDB + Orama)
    ========================================================================== */
 
@@ -1439,6 +1471,12 @@ input.form-input:focus-visible,
     top: 0;
     z-index: 10;
     padding-top: max(0.75rem, env(safe-area-inset-top, 0.75rem));
+  }
+
+  .profile-selector-modal-body {
+    flex: 1;
+    max-height: none;
+    padding: 1rem;
   }
 
   .debug-interceptor-modal {
