@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import stat
@@ -206,6 +207,14 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         session_perfil = zerochat.run_session_from_args(parser, parser.parse_args(["--conversation", "conv_con_perfil"]))
         self.assertIsNotNone(session_perfil)
         self.assertEqual(session_perfil.profile, "Z-test-cron-profile")
+
+        # Conversación cuyo perfil asociado no existe termina con error de argumentos
+        zerochat.save_conversation({"id": "conv_con_perfil_inexistente", "title": "Perfil roto", "profileId": "Z-fantasma"}, [
+            {"id": "usr_1", "role": "user", "content": "test"}
+        ])
+        with self.assertRaises(SystemExit):
+            with mock.patch("sys.stderr", io.StringIO()):
+                zerochat.run_session_from_args(parser, parser.parse_args(["--conversation", "conv_con_perfil_inexistente"]))
 
         # Conversación con --prompt se acepta
         session_with_prompt = zerochat.run_session_from_args(parser, parser.parse_args([

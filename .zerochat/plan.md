@@ -97,11 +97,4 @@
 
 ## M49 Almacenamiento paralelo de adjuntos e imágenes para sincronización eficiente de conversaciones: closed 2026-11-08
 
-## M50 Ajustes del modo servidor: perfil de conversación y control responsive en móvil
-
-Goal: Permitir que las conversaciones almacenen y reutilicen de forma transparente su perfil de conexión de origen en el backend SQLite y frontend IndexedDB tanto en ejecuciones desatendidas (--conversation) como en la interfaz web, reubicar el control «Ejecutar en servidor» junto al selector de perfiles en escritorio y adaptar su presentación visual en dispositivos móviles (< 640px) evitando colisiones.
-Done when: La metadata de las conversaciones incluye el perfil (profile_id), conservándose al guardar y sincronizar; las ejecuciones en servidor (zerochat/run/start y CLI --conversation <id>) usan el perfil asociado a la conversación por defecto; el control «Ejecutar en servidor» se sitúa integrado junto al selector de perfil en escritorio y se muestra compacto y accesible en móvil; y pasan todas las suites de pruebas (arquitectura, infraestructura, unitarias, integración y navegador).
-- [x] M50-T1 Almacenamiento de profile_id en SQLite y resolución del perfil de conversación en ejecuciones de servidor (--conversation) con pruebas de infraestructura (2026-11-08)
-- [x] M50-T2 Persistencia y propagación de profile_id en IndexedDB y servicios de conversación en frontend con pruebas unitarias (2026-11-08)
-- [x] M50-T3 Reubicación del control «Ejecutar en servidor» junto al selector de perfiles en escritorio y presentación compacta en pantallas móviles con pruebas de estilos y navegador (2026-11-08)
-- [x] M50-T4 Validación integral, pruebas de integración y navegador en viewport móvil y actualización de documentación (2026-11-08)
+## M50 Ajustes del modo servidor: perfil de conversación y control responsive en móvil: closed 2026-11-08

@@ -189,13 +189,13 @@ def start_server_run(params: dict) -> dict:
     if not isinstance(conv_id, str) or not conv_id.strip():
         raise ValueError("conversation_id requerido.")
     clean_conv_id = _validate_conversation_id(conv_id)
-    if get_conversation(clean_conv_id) is None:
+    conv = get_conversation(clean_conv_id)
+    if conv is None:
         raise ValueError(f"Conversación '{clean_conv_id}' no encontrada.")
 
     profile = params.get("profile")
     if not isinstance(profile, str) or not profile.strip():
-        conv = get_conversation(clean_conv_id)
-        conv_profile = (conv.get("profileId") or conv.get("extra", {}).get("profile_id")) if conv else None
+        conv_profile = conv.get("profileId")
         if isinstance(conv_profile, str) and conv_profile.strip():
             profile = conv_profile.strip()
         else:

@@ -115,7 +115,7 @@
     const activeProfile = getConfig().getActive()?.activeProfile;
     const currentProfileId = activeProfile?.name || activeProfile?.id || '';
     const session = existing
-      ? { ...existing, updatedAt: now, messageCount: history.length, profileId: existing.profileId || currentProfileId }
+      ? { ...existing, updatedAt: now, messageCount: history.length, profileId: currentProfileId || existing.profileId || '' }
       : { id: sessionId, title: '', createdAt: now, updatedAt: now, messageCount: history.length, profileId: currentProfileId };
     if (!session.title) session.title = deriveTitle(history) || t('chat_untitled');
 
@@ -290,7 +290,9 @@
 
     const now = Date.now();
     const parentSession = getSavedSessions().find(s => s.id === parentSessionId);
-    const branchProfileId = parentSession?.profileId || getConfig().getActive()?.activeProfile?.name || getConfig().getActive()?.activeProfile?.id || '';
+    const activeProfile = getConfig().getActive()?.activeProfile;
+    const currentProfileId = activeProfile?.name || activeProfile?.id || '';
+    const branchProfileId = currentProfileId || parentSession?.profileId || '';
     const branchSession = {
       id: branchSessionId,
       title: t('chat_branch_title', { title: parentTitle }),

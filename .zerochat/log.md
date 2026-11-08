@@ -260,3 +260,4 @@
 - 2026-11-08 M50-D2 Persistencia y propagacion de profileId y extra_json en IndexedDB y servicios de conversacion del frontend (M50-T2)
 - 2026-11-08 M50-D3 Reubicacion de server-run-control junto al selector de perfil central en header-center y presentacion responsive compacta sin etiqueta en movil (M50-T3)
 - 2026-11-08 M50-D4 Validacion integral en todas las suites de pruebas y actualizacion de documentacion en py/README.md y ayuda bilingue (M50-T4)
+- 2026-11-08 M50-D5 Migración incremental v4 para extra_json en SQLite, precedencia del perfil activo en generación web, reutilización de consulta de conversación y prueba de actualización (M50-T5)

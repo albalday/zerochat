@@ -31,8 +31,7 @@ STORAGE_MIGRATIONS = [
             title TEXT NOT NULL,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL,
-            message_count INTEGER NOT NULL DEFAULT 0,
-            extra_json TEXT DEFAULT '{}'
+            message_count INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at);
 
@@ -56,6 +55,9 @@ STORAGE_MIGRATIONS = [
             created_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_blobs_created_at ON blobs(created_at);
+    """),
+    (4, "004_add_extra_json_to_conversations", """
+        ALTER TABLE conversations ADD COLUMN extra_json TEXT DEFAULT '{}';
     """)
 ]
 
@@ -306,7 +308,7 @@ def _row_to_conversation_header(row: sqlite3.Row) -> dict:
         "updatedAt": row["updated_at"],
         "messageCount": row["message_count"]
     }
-    raw_extra = row["extra_json"] if "extra_json" in row.keys() else None
+    raw_extra = row["extra_json"]
     extra = json.loads(raw_extra) if raw_extra else {}
     if extra:
         header["extra"] = extra
@@ -370,7 +372,7 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
         extra = {}
     else:
         extra = dict(extra)
-    profile_id = session_meta.get("profileId") or session_meta.get("profile_id")
+    profile_id = session_meta.get("profileId")
     if profile_id and isinstance(profile_id, str) and profile_id.strip():
         extra["profile_id"] = profile_id.strip()
 

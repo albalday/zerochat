@@ -7,8 +7,6 @@ perfl origen en conversaciones server.
 
 en el movillanzar en servidor no se ve
 
-multipeticion web server  (blobls y resto)
-
 planificacion de tareas
 
 uso de subagentes de servidor

@@ -157,8 +157,9 @@
     if (options.runOnServer) {
       await options.saveCurrentSession();
       try {
+        const activeProfile = config.activeProfile?.name || config.activeProfile?.id || '';
         const savedSession = State.get('sessions')?.list?.find(s => s.id === generationSessionId);
-        const targetProfile = savedSession?.profileId || config.activeProfile?.name || config.activeProfile?.id || '';
+        const targetProfile = activeProfile || savedSession?.profileId || '';
         const result = await options.startServerRun({
           conversationId: generationSessionId,
           profile: targetProfile
