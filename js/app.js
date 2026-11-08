@@ -884,7 +884,11 @@
       updateUIFromConfig,
       inspectProfile,
       onServerModeChanged: (active, profile) => {
-        saveCurrentSession({ serverRun: active, profileId: profile || UIProfiles.getSelectedServerProfile() });
+        const activeId = getCurrentSessionId();
+        const existing = State.get('sessions')?.list?.find(s => s.id === activeId);
+        if (existing) {
+          saveCurrentSession({ serverRun: active, profileId: profile || UIProfiles.getSelectedServerProfile() });
+        }
       },
       closeSettingsModal: () => UISettings.closeSettingsModal(elements)
     });

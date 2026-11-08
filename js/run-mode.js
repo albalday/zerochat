@@ -243,6 +243,7 @@
       const {
         prompt,
         profile,
+        profile_data: profileData,
         export: exportFormat,
         keep_page: keepPageRequested,
         allow_dangerous_tools: allowDangerous,
@@ -257,7 +258,18 @@
       }
 
       if (profile) {
-        const match = getProfiles().findByName(profile) || getProfiles().get(profile);
+        let match = getProfiles().findByName(profile) || getProfiles().get(profile);
+        if (!match && profileData && (profileData.name === profile || profileData.id === profile)) {
+          match = getProfiles().registerSessionProfile(profileData);
+        }
+        if (!match) {
+          const serverProfiles = await getMcpManager().listServerProfiles();
+          const target = String(profile).trim().toLowerCase();
+          const serverMatch = serverProfiles.find(item => item.id === profile || String(item.name || '').trim().toLowerCase() === target);
+          if (serverMatch) {
+            match = getProfiles().registerSessionProfile(serverMatch);
+          }
+        }
         if (!match) throw new Error(`Profile not found: ${profile}`);
         const { unavailable } = await activateSessionProfile(match.id);
         if (unavailable.length > 0) throw new Error(`MCP servers of the profile are not available: ${unavailable.join(', ')}`);
@@ -333,6 +345,7 @@
       await send('zerochat/run/result', { error: error?.message || String(error) })
         .catch(sendError => console.error('[RunMode] Could not send the result:', sendError));
     } finally {
+      getProfiles().clearSessionProfile();
       if (!keepPage) window.close();
     }
   }

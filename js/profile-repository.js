@@ -59,13 +59,17 @@
     return ids;
   }
 
-  function normalizeSettings(source = {}) {
+  function normalizeSettings(source = {}, isGeneral = false) {
     if (!source || typeof source !== 'object' || Array.isArray(source)) throw new Error('The profile data is not valid.');
     const settings = {};
     STORAGE_PROFILE_FIELDS.forEach(key => {
       if (key === 'apiKey') {
         if (source[key] === '' || source[key] === null || source[key] === undefined) {
           settings.apiKey = null;
+          return;
+        }
+        if (isGeneral && typeof source[key] === 'string') {
+          settings.apiKey = source[key];
           return;
         }
         Backup.validateApiKeySecret(source[key]);
@@ -82,17 +86,19 @@
     return settings;
   }
 
-  function normalizeRecord(record = {}) {
+  function normalizeRecord(record = {}, isGeneral = false) {
     const name = String(record.name || '').trim();
     if (!name) throw new Error('The profile name cannot be empty.');
+    const general = Boolean(isGeneral);
     return {
       id: String(record.id || createId(name)),
       name,
       description: String(record.description || '').trim(),
+      general,
       schemaVersion: SCHEMA_VERSION,
       version: Number.isInteger(record.version) && record.version > 0 ? record.version : 1,
       updatedAt: Number(record.updatedAt) || Date.now(),
-      settings: normalizeSettings(record.settings || record)
+      settings: normalizeSettings(record.settings || record, general)
     };
   }
 
@@ -130,12 +136,37 @@
     return clone(document);
   }
 
+  let sessionProfile = null;
+
+  function registerSessionProfile(profile) {
+    if (!profile || typeof profile !== 'object') {
+      sessionProfile = null;
+      return null;
+    }
+    const name = String(profile.name || '').trim();
+    if (!name) throw new Error('The profile name cannot be empty.');
+    const rawApiKey = typeof profile.apiKey === 'string'
+      ? profile.apiKey
+      : (typeof profile.settings?.apiKey === 'string' ? profile.settings.apiKey : '');
+    const sourceSettings = profile.settings || {};
+    const settings = { ...sourceSettings, apiKey: rawApiKey };
+    sessionProfile = normalizeRecord({ ...profile, settings }, true);
+    return clone(sessionProfile);
+  }
+
+  function clearSessionProfile() {
+    sessionProfile = null;
+  }
+
   function list() {
     return initialize().profiles;
   }
 
   function get(id) {
     const cleanId = String(id || '');
+    if (sessionProfile && (sessionProfile.id === cleanId || sessionProfile.name === cleanId)) {
+      return clone(sessionProfile);
+    }
     return list().find(profile => profile.id === cleanId) || null;
   }
 
@@ -143,6 +174,13 @@
     const profile = get(id);
     if (!profile) return null;
     const cloned = clone(profile);
+    if (cloned.general) {
+      cloned.settings = cloned.settings || {};
+      if (typeof cloned.settings.apiKey !== 'string') {
+        cloned.settings.apiKey = '';
+      }
+      return cloned;
+    }
     const secret = cloned.settings.apiKey;
     if (secret) {
       cloned.settings.apiKey = await Backup.decryptApiKey(secret, keyMaterial || undefined);
@@ -170,6 +208,9 @@
   function findByName(name) {
     const cleanName = String(name || '').trim();
     if (!cleanName) return null;
+    if (sessionProfile && sessionProfile.name === cleanName) {
+      return clone(sessionProfile);
+    }
     return list().find(profile => profile.name === cleanName) || null;
   }
 
@@ -289,6 +330,6 @@
   return {
     STORAGE_KEY, SCHEMA_VERSION, PROFILE_FIELDS, MAX_PROFILE_MCP_SERVERS, STORAGE_PROFILE_FIELDS, READONLY_PROFILE_ID, MIRROR_PROFILE: clone(MIRROR_PROFILE), NEW_PROFILE_SETTINGS: clone(NEW_PROFILE_SETTINGS),
     initialize, list, get, load, setPasswordPrompt, loadUnlocked, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported,
-    importServerProfile
+    importServerProfile, registerSessionProfile, clearSessionProfile
   };
 }));

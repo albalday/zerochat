@@ -100,13 +100,16 @@
     }
 
     if (!history.some(message => message.role === 'user')) {
-      State.removeSession(sessionId);
-      try {
-        await Storage.deleteConversation(sessionId);
-      } catch (error) {
-        console.warn('[ConversationService] Could not delete empty conversation:', error);
+      const existing = getSavedSessions().find(session => session.id === sessionId);
+      if (existing) {
+        State.removeSession(sessionId);
+        try {
+          await Storage.deleteConversation(sessionId);
+        } catch (error) {
+          console.warn('[ConversationService] Could not delete empty conversation:', error);
+        }
+        options.renderSidebarChats();
       }
-      options.renderSidebarChats();
       return;
     }
 

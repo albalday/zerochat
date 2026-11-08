@@ -110,5 +110,5 @@ Done when: El menú de perfiles solo muestra perfiles locales sin prefijo Z-; el
 - [x] M51-T5 Restauración de conversación en servidor: recuperación del perfil asociado y activación automática del modo servidor al cargar del historial con pruebas (2026-11-08)
 - [x] M51-T6 Validación integral de la suite completa, pruebas de navegador y actualización de documentación (2026-11-08)
 - [x] M51-T7 Retirada del switch en cabecera, indicador visual de modo servidor en el selector y gestión de perfiles de servidor (edición/borrado) con botón Guardar en local (2026-11-08)
-- [ ] M51-T8 Validación integral, actualización de pruebas de navegador y sincronización documental
+- [x] M51-T8 Validación integral, actualización de pruebas de navegador y sincronización documental (2026-11-08)
 

@@ -94,12 +94,14 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
         parser.error("--headless solo se usa con --browser (--prompt y --conversation ya se ejecutan sin ventana con el Chromium de Playwright)")
     if args.keep_page and (not args.browser or args.headless):
         parser.error("--keep-page necesita la ventana del navegador del usuario (--browser sin --headless)")
+    profile_data = None
     if args.profile is not None:
         clean_profile = args.profile.strip()
         if not clean_profile:
             parser.error("--profile no puede estar vacío")
         general_match = get_general_profile_by_name(clean_profile) or get_general_profile(clean_profile)
         profile_name = general_match["name"] if general_match else clean_profile
+        profile_data = general_match
     elif conversation_id:
         conv_profile = conv.get("profileId") if conv else None
         if conv_profile:
@@ -107,16 +109,19 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
             if not match:
                 parser.error(f"no existe el perfil '{conv_profile}' en el servidor; créalo o indica uno con --profile")
             profile_name = match["name"]
+            profile_data = match
         else:
             default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE) or get_general_profile_by_name("Z-local")
             if default_match is None:
                 parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
             profile_name = default_match["name"]
+            profile_data = default_match
     else:
         default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE) or get_general_profile_by_name("Z-local")
         if default_match is None:
             parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
         profile_name = default_match["name"]
+        profile_data = default_match
     export_path = None
     if args.export is not None:
         export_path = Path(args.export).expanduser().absolute()
@@ -126,7 +131,7 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
             parser.error(f"--export: no existe el directorio {export_path.parent}")
     if conversation_id:
         mark_conversation_server_run(conversation_id, profile_name)
-    return RunSession(prompt, profile_name, export_path, args.keep_page, args.allow_dangerous_tools, conversation_id=conversation_id)
+    return RunSession(prompt, profile_name, export_path, args.keep_page, args.allow_dangerous_tools, conversation_id=conversation_id, profile_data=profile_data)
 
 
 def redirect_log(args):

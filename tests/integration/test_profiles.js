@@ -303,3 +303,47 @@ test('ProfileRepository - importServerProfile valida datos de entrada', async ()
   );
 });
 
+test('ProfileRepository - registerSessionProfile registra perfil volátil para ejecución sin alterar list() ni requerir cifrado', async () => {
+  const repository = Profiles;
+  const initialCount = repository.list().length;
+  const serverProfile = {
+    id: 'profile:server-run-test',
+    name: 'local',
+    description: 'Perfil de ejecución en servidor',
+    settings: {
+      apiType: 'openai',
+      model: 'gpt-4o',
+      apiKey: 'sk-direct-server-secret'
+    }
+  };
+
+  const registered = repository.registerSessionProfile(serverProfile);
+  assert.ok(registered);
+  assert.equal(registered.name, 'local');
+  assert.equal(registered.general, true);
+  assert.equal(registered.settings.apiKey, 'sk-direct-server-secret');
+
+  // No aparece en list() (el menú local no se altera)
+  assert.equal(repository.list().length, initialCount);
+  assert.ok(!repository.list().some(p => p.id === 'profile:server-run-test'));
+
+  // get(id) y findByName(name) lo resuelven
+  assert.ok(repository.get('profile:server-run-test'));
+  assert.ok(repository.findByName('local'));
+  assert.equal(repository.findByName('local').id, 'profile:server-run-test');
+
+  // loadUnlocked devuelve la apiKey en texto plano sin pedir contraseña
+  const loaded = await repository.loadUnlocked('profile:server-run-test');
+  assert.equal(loaded.settings.apiKey, 'sk-direct-server-secret');
+
+  // clearSessionProfile lo retira
+  repository.clearSessionProfile();
+  assert.equal(repository.get('profile:server-run-test'), null);
+  assert.equal(repository.findByName('local'), null);
+
+  // Validación de entradas
+  assert.equal(repository.registerSessionProfile(null), null);
+  assert.throws(() => repository.registerSessionProfile({ name: '' }), /The profile name cannot be empty/);
+});
+
+

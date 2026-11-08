@@ -287,13 +287,14 @@ class RunSession:
     """Estado de la ejecución: prompt, opciones, último progreso, exportación, resultado y motivo de un final sin él."""
     def __init__(self, prompt: str | None = None, profile: str | None = None, export_path: Path | None = None, keep_page: bool = False,
                  allow_dangerous_tools: bool = False, conversation_id: str | None = None, run_id: str | None = None,
-                 tool_security: dict | None = None):
+                 tool_security: dict | None = None, profile_data: dict | None = None):
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
         self.conversation_id = conversation_id
         self.prompt = prompt
         # Perfil (nombre o id) que la interfaz usa solo en esta ejecución; por defecto, local del servidor.
         self.profile = profile
+        self.profile_data = profile_data
         # Fichero donde se escribe la conversación exportada (formato por su extensión); None, sin exportar.
         self.export_path = export_path
         self.exported = False
@@ -388,6 +389,7 @@ def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, s
         session.touch()
         export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
         return {"prompt": session.prompt, "conversation_id": session.conversation_id, "profile": session.profile,
+                "profile_data": session.profile_data,
                 "export": export_format, "keep_page": session.keep_page,
                 "allow_dangerous_tools": session.allow_dangerous_tools, "tool_security": session.tool_security}, None, ""
     if method == "zerochat/run/progress":
