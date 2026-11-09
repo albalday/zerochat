@@ -590,8 +590,12 @@ test('Browser UI - el selector de perfiles permite gestionar perfiles del servid
     assert.equal(await page.locator('#active-profile-trigger.server-mode').count(), 1);
     assert.equal((await page.textContent('#active-profile-name')).trim(), 'Servidor Claude');
 
-    // 2. Probar acción Perfiles del servidor... -> Editar y Guardar en local
+    // 2. Al abrir el panel en modo de ejecución con servidor se muestra la vista de perfiles de servidor
     await page.click('#active-profile-trigger');
+    await page.waitForFunction(() => !document.getElementById('profile-menu-view-server').hidden);
+    assert.equal(await page.evaluate(() => document.getElementById('profile-menu-view-local').hidden), true);
+    // Volver a la vista local para pasar a gestionar perfiles del servidor
+    await page.evaluate(() => window.ChatUIProfiles.showLocalProfilesView());
     await page.click('#btn-menu-server-manage');
     await page.waitForFunction(() => !document.getElementById('profile-menu-view-server').hidden);
     await page.waitForSelector('[data-server-profile-action="edit"]');
@@ -612,6 +616,7 @@ test('Browser UI - el selector de perfiles permite gestionar perfiles del servid
 
     // 3. Probar borrar perfil del servidor
     await page.click('#active-profile-trigger');
+    await page.evaluate(() => window.ChatUIProfiles.showLocalProfilesView());
     await page.click('#btn-menu-server-manage');
     await page.waitForFunction(() => !document.getElementById('profile-menu-view-server').hidden);
     await page.waitForSelector('[data-server-profile-action="delete"]');
