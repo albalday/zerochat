@@ -686,7 +686,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 return None, {"code": -32602, "message": str(exc)}, ""
         if method == "zerochat/diff/open":
             try:
-                return open_file_diff(params.get("path"), bool(params.get("commit_fallback"))), None, ""
+                return open_file_diff(params.get("path"), bool(params.get("commit_fallback")), bool(params.get("gui"))), None, ""
             except (ValueError, RuntimeError) as exc:
                 return None, {"code": -32602, "message": str(exc)}, ""
             except Exception as exc:

@@ -258,6 +258,12 @@
       }
       return;
     }
+    if (res?.html) {
+      const blob = new Blob([res.html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      return;
+    }
     if (res?.has_diff !== false) return;
     if (!res.has_commit_history) {
       await getDialogs().alert(t('tool_diff_file_no_changes'));

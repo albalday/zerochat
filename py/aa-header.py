@@ -24,6 +24,7 @@ import functools
 import getpass
 import hashlib
 import hmac
+import html
 import importlib.metadata
 import ipaddress
 import json
@@ -53,7 +54,7 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE_BACKEND_VERSION = "10.5.0"
+SOURCE_BACKEND_VERSION = "10.6.0"
 
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""
