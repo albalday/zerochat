@@ -53,8 +53,8 @@
               <tr><td><strong>Remote connection</strong></td><td>Settings › Connection with the server URL, SSH tunnel or reverse proxy with its key, and sign-in with the system account when the token is missing or expires.</td><td>[test] <code>test_mcp.js</code>, <code>browser_connection.test.js</code>, <code>py/test_login.py</code>, <code>test_local_server.js</code></td><td>A single system account: the one running zerochat.</td></tr>
               <tr><td><strong>Project mode</strong></td><td>Memory in <code>.zerochat/</code> (plan, decisions and state) that the model keeps with <code>task.py</code>.</td><td>[test] <code>test_project_context.js</code>, <code>test_task_helper.js</code></td><td>Depends on the model following the protocol.</td></tr>
               <tr><td><strong>Lexical RAG</strong></td><td>Orama index in IndexedDB with branches, document images and filtered search.</td><td>[test] <code>test_rag_index.js</code>, <code>test_rag_service.js</code>, <code>test_ingestion_engine.js</code></td><td>Lexical search, no embeddings.</td></tr>
-              <tr><td><strong>Debugging</strong></td><td>An interceptor that pauses every request to the model to review or edit the JSON before sending it.</td><td>[test] <code>browser_debug_panel.test.js</code></td><td>It does not intercept traffic with the local server.</td></tr>
-              <tr><td><strong>WebLLM</strong></td><td>In-browser inference with WebGPU in a Web Worker.</td><td>[test] <code>test_webllm.js</code>, <code>browser_webllm.test.js</code></td><td>For compact models.</td></tr>
+              <tr><td><strong>Debugging</strong></td><td>An interceptor that pauses every request to the model to review or edit the JSON before sending it.</td><td>[test] <code>test_api_utils.js</code></td><td>It does not intercept traffic with the local server.</td></tr>
+              <tr><td><strong>WebLLM</strong></td><td>In-browser inference with WebGPU in a Web Worker.</td><td>[test] <code>test_webllm.js</code></td><td>For compact models.</td></tr>
             </tbody>
           </table>
         </div>

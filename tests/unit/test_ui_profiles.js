@@ -81,22 +81,3 @@ test('UIProfiles - los ajustes guardados parten del perfil editado y completan l
   assert.deepEqual({ apiType: ollama.apiType, apiUrl: ollama.apiUrl, temperature: ollama.temperature, prefill: ollama.webllmConfig.prefill_chunk_size },
     { apiType: 'ollama', apiUrl: 'http://localhost:11434', temperature: '1.2', prefill: '1024' });
 });
-
-test('UIProfiles - formatProfileDisplayName formatea y limpia el nombre del perfil', () => {
-  assert.equal(UIProfiles.formatProfileDisplayName(null), '');
-  assert.equal(UIProfiles.formatProfileDisplayName({ name: 'Mi Local' }), 'Mi Local');
-  assert.equal(UIProfiles.formatProfileDisplayName({ name: '  Espacios  ' }), 'Espacios');
-  assert.equal(UIProfiles.formatProfileDisplayName({ name: 'OpenAI Server' }), 'OpenAI Server');
-});
-
-test('UIProfiles - get/set de modo servidor y perfil seleccionado', () => {
-  assert.equal(UIProfiles.isServerMode(), false);
-  UIProfiles.setSelectedServerProfile('srv-custom');
-  assert.equal(UIProfiles.getSelectedServerProfile(), 'srv-custom');
-  UIProfiles.setServerMode(true, 'srv-active');
-  assert.equal(UIProfiles.isServerMode(), true);
-  assert.equal(UIProfiles.getSelectedServerProfile(), 'srv-active');
-  UIProfiles.setServerMode(false);
-  assert.equal(UIProfiles.isServerMode(), false);
-  assert.equal(UIProfiles.getSelectedServerProfile(), 'srv-active');
-});

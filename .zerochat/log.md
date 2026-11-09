@@ -273,3 +273,8 @@
 - 2026-11-08 M52-D1 Cabeceras de navegación completas, cadencia entre peticiones y detección de reto HTTP 202 en fetch_web_resource (M52-T1)
 - 2026-11-08 M52-D2 Detección de reto anomaly-modal en ChatWebSearch para reportar bloqueo en lugar de resultado vacío (M52-T2)
 - 2026-11-08 M52-D3 Recompilación de zerochat.py, actualización de py/README.md y verificación de la suite completa en verde (M52-T3)
+- 2026-11-09 M53-D1 Poda de browser_a11y_theme.test.js, browser_debug_panel.test.js, test_ui_connection.js y aserciones cosméticas y duplicadas en browser_sidebar, browser_composer, browser_mcp_tools y browser_settings_navigation (M53-T1)
+- 2026-11-09 M53-D2 Limpieza de referencias residuales a perfiles Z-* en tests de browser_run_mode, test_backend_run_mode, test_browser.py, test_server_runs.py, test_storage.py, test_conversation_service.js, test_mcp.js y test_storage.js (M53-T2)
+- 2026-11-09 M53-D3 Retirada de browser_webllm.test.js, actualización de GROUPS.providers en runner y documentación, y silenciado de trazas esperadas de console.error en test_webllm.js (M53-T3)
+- 2026-11-09 M53-D4 Poda de 5 pruebas redundantes o triviales en infraestructura (favicon.ico, test_console.py, avisos de versión vacíos, visor diffs en Node y unificación de 6 micro-tests de Termux en subtests) y reducción de plazos de prueba en el watchdog de latido y modo ejecución de zerochat.py, recortando esperas artificiales (M53-T4)
+- 2026-11-09 M53-D5 Poda de 5 pruebas prescindibles adicionales: transiciones CSS en notices de dialogs, aviso de idiomas RAG en browser, aserción de texto en metadatos MCP, llamadas duplicadas a get_diagnostics/search_files en local_server, y getters/formateadores triviales en ui_profiles (M53-T5)

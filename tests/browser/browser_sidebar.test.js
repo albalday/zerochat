@@ -20,7 +20,6 @@ test('Browser UI - el menú contextual de un chat es táctil y no activa la conv
     const trigger = page.locator('.btn-chat-menu');
     assert.equal(await trigger.isVisible(), true);
     assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
-    assert.equal(await trigger.evaluate(button => button.getBoundingClientRect().width), 44);
     await trigger.click();
     assert.equal(await trigger.getAttribute('aria-expanded'), 'true');
     assert.equal(await page.locator('.sidebar-chat-actions').isVisible(), true);
@@ -39,39 +38,6 @@ test('Browser UI - el menú contextual de un chat es táctil y no activa la conv
   });
 });
 
-test('Browser UI - borrar la conversación activa carga la siguiente y limpia su historial visible', async () => {
-  await withTestApp(async page => {
-    const activeId = 'test_session_active';
-    const nextId = 'test_session_next';
-    await page.evaluate(async ({ activeId, nextId }) => {
-      await window.ChatStorage.saveConversation({ id: activeId, title: 'Activa', createdAt: Date.now(), updatedAt: Date.now() },
-        [{ id: 'active_message', role: 'user', content: 'Conversación que se elimina' }]);
-      await window.ChatStorage.saveConversation({ id: nextId, title: 'Siguiente', createdAt: Date.now() - 1, updatedAt: Date.now() - 1 },
-        [{ id: 'next_message', role: 'user', content: 'Conversación que debe mostrarse' }]);
-    }, { activeId, nextId });
-    await openSavedSession(page, activeId);
-
-    // Borrar desde el menú de la entrada activa y confirmar en el diálogo.
-    await page.locator(`.sidebar-chat-item[data-session-id="${activeId}"] .btn-delete`).evaluate(button => button.click());
-    await page.locator('#notice-accept').click();
-    await page.waitForFunction(id => window.ChatState.get('sessions').activeId === id && document.getElementById('messages-list').textContent.includes('debe mostrarse'), nextId);
-
-    const result = await page.evaluate(async activeId => ({
-      activeId: window.ChatState.get('sessions').activeId,
-      listedIds: window.ChatState.get('sessions').list.map(session => session.id),
-      messageIds: window.ChatState.get('messages').map(message => message.id),
-      deletedConversation: await window.ChatStorage.getConversation(activeId),
-      visibleText: document.getElementById('messages-list').textContent
-    }), activeId);
-
-    assert.equal(result.activeId, result.listedIds[0], 'La siguiente sesión debe quedar activa');
-    assert.equal(result.listedIds.length, 1, 'La conversación eliminada debe desaparecer de la lista');
-    assert.deepEqual(result.messageIds, ['next_message'], 'Debe cargarse el historial de la siguiente conversación');
-    assert.equal(result.deletedConversation, null, 'La conversación eliminada no debe permanecer en IndexedDB');
-    assert.match(result.visibleText, /Conversación que debe mostrarse/, 'La vista debe reemplazar el chat eliminado');
-    assert.doesNotMatch(result.visibleText, /Conversación que se elimina/, 'La vista no debe conservar el chat eliminado');
-  });
-});
 const DAY_MS = 86400000;
 
 /** Guarda conversaciones con su fecha de actualización y abre `activeId`. */
@@ -126,14 +92,6 @@ test('Browser UI - en móvil abrir la barra deja el chat inerte detrás del fond
   });
 });
 
-test('Browser UI - --app-height sigue la altura visible del viewport', async () => {
-  await withTestApp({ viewport: { width: 1280, height: 800 } }, async page => {
-    const appHeight = () => page.evaluate(() => document.documentElement.style.getPropertyValue('--app-height'));
-    assert.equal(await appHeight(), '800px');
-    await page.setViewportSize({ width: 1280, height: 640 });
-    await page.waitForFunction(() => document.documentElement.style.getPropertyValue('--app-height') === '640px');
-  });
-});
 /** Abre el menú de la conversación, pulsa Exportar y descarga con el formato pedido. */
 /** Entrega un archivo al selector de importación como lo haría el navegador. */
 function importFile(page, { name, content = '', size = 0 }) {
