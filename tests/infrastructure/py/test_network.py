@@ -153,6 +153,7 @@ class WebFetchTest(unittest.TestCase):
 
         original_open = zerochat._WEB_OPENER.open
         original_sleep = time.sleep
+        original_monotonic = time.monotonic
         slept = []
         try:
             zerochat._WEB_OPENER.open = lambda req, timeout=10.0: MockResponse()
@@ -179,7 +180,9 @@ class WebFetchTest(unittest.TestCase):
             self.assertAlmostEqual(slept[0], 0.1, delta=0.05)
 
             # Tres peticiones en paralelo: escalonadas de 5 en 5 para que no coincidan.
-            zerochat._LAST_WEB_FETCH_AT["duckduckgo.com"] = time.monotonic()
+            now = original_monotonic()
+            time.monotonic = lambda: now
+            zerochat._LAST_WEB_FETCH_AT["duckduckgo.com"] = now
             zerochat._WEB_FETCH_PENDING["duckduckgo.com"] = 0
             slept.clear()
             barrier = threading.Barrier(3)
@@ -201,6 +204,7 @@ class WebFetchTest(unittest.TestCase):
         finally:
             zerochat._WEB_OPENER.open = original_open
             time.sleep = original_sleep
+            time.monotonic = original_monotonic
             zerochat._WEB_FETCH_PENDING["duckduckgo.com"] = 0
 
     def test_capture_frontend_user_agent(self):
