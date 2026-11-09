@@ -11,12 +11,17 @@
   const INTENSITY_LEVELS = Object.freeze(['none', 'low', 'medium', 'high', 'xhigh']);
   const LEVEL_LABEL_KEYS = { none: 'reasoning_intensity_none', low: 'reasoning_level_low', medium: 'reasoning_level_medium', high: 'reasoning_level_high', xhigh: 'reasoning_intensity_max' };
   // Acciones cuyo nombre no basta para saber qué hacen.
-  const PROJECT_ACTION_TITLES = Object.freeze({ reload: 'project_action_reload_title' });
+  const PROJECT_ACTION_TITLES = Object.freeze({
+    reload: 'project_action_reload_title',
+    compact: 'project_action_compact_title'
+  });
   // Carpeta personal en Linux, macOS, Termux y Windows: se muestra como ~ para acortar la ruta.
   const HOME_PREFIX = /^(?:\/home\/[^/]+|\/Users\/[^/]+|\/data\/data\/com\.termux\/files\/home|[A-Za-z]:\\Users\\[^\\]+)(?=$|[\\/])/;
 
   // Manejadores del modo proyecto, fijados en mount().
   let projectHandlers = {};
+
+  const getModal = elements => elements?.reasoningModal;
 
   function getReasoningIntensity(level) {
     const index = INTENSITY_LEVELS.indexOf(String(level || 'none').toLowerCase().trim());
@@ -40,38 +45,33 @@
     elements.reasoningIntensityValue.textContent = label;
   }
 
-  /** Sitúa el menú encima del botón, dentro de la ventana. */
-  function positionReasoningMenu(elements) {
-    const menu = elements.reasoningMenu;
-    if (menu.hidden) return;
-    const rect = elements.btnReasoning.getBoundingClientRect();
-    const width = Math.min(290, window.innerWidth - 16);
-    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
-    const viewportHeight = window.visualViewport?.height || window.innerHeight;
-    Object.assign(menu.style, {
-      position: 'fixed',
-      left: `${Math.round(left)}px`,
-      width: `${Math.round(width)}px`,
-      bottom: `${Math.round(Math.max(8, viewportHeight - rect.top + 8))}px`,
-      top: 'auto'
-    });
-  }
-
   function closeReasoningMenu(elements) {
-    elements.reasoningMenu.hidden = true;
+    const modal = getModal(elements);
+    if (modal) {
+      if (typeof modal.close === 'function' && modal.open) {
+        modal.close();
+      }
+      modal.hidden = true;
+    }
     elements.btnReasoning.setAttribute('aria-expanded', 'false');
   }
 
   function openReasoningMenu(elements, appConfig) {
-    elements.reasoningMenu.hidden = false;
+    const modal = getModal(elements);
+    if (!modal) return;
+    modal.hidden = false;
+    if (typeof modal.showModal === 'function' && !modal.open) {
+      modal.showModal();
+    }
     elements.btnReasoning.setAttribute('aria-expanded', 'true');
     syncReasoningIntensity(elements, appConfig.reasoningEffort || 'medium');
-    positionReasoningMenu(elements);
     elements.reasoningIntensity.focus();
   }
 
   function toggleReasoningMenu(elements, appConfig) {
-    if (!elements.reasoningMenu.hidden) closeReasoningMenu(elements);
+    const modal = getModal(elements);
+    const isOpen = modal && (modal.open || !modal.hidden);
+    if (isOpen) closeReasoningMenu(elements);
     else openReasoningMenu(elements, appConfig);
   }
 
@@ -82,12 +82,12 @@
     return parts[parts.length - 1] || String(cwd || '');
   }
 
-  /** Acciones disponibles para cada estado del modo proyecto (initialize solo si se puede escribir). */
-  function getProjectActions(project, canInitialize) {
+  /** Acciones disponibles para cada estado del modo proyecto (initialize y compact solo si se puede escribir). */
+  function getProjectActions(project, { canInitialize = false, canCompact = false } = {}) {
     switch (project.status) {
       case 'missing': return [...(canInitialize ? ['initialize'] : []), 'decline'];
       case 'declined': return ['reactivate'];
-      case 'ready':
+      case 'ready': return ['reload', ...(canCompact ? ['compact'] : [])];
       case 'error':
       case 'no_access': return ['reload'];
       default: return [];
@@ -118,10 +118,10 @@
     button.setAttribute('title', text ? `${baseTitle} · ${text}` : baseTitle);
   }
 
-  /** Pie del menú: interruptor del modo proyecto, su estado, el directorio y las acciones del estado. */
-  function renderProjectPanel(elements, { config, project, canInitialize, canChangeDirectory, busy }) {
+  /** Pie del modal: interruptor del modo proyecto, su estado, el directorio y las acciones del estado. */
+  function renderProjectPanel(elements, { config, project, canInitialize, canCompact, canChangeDirectory, busy }) {
     const enabled = config.projectMode === true;
-    const actions = enabled ? getProjectActions(project, canInitialize) : [];
+    const actions = enabled ? getProjectActions(project, { canInitialize, canCompact }) : [];
     // El directorio es la base de todas las herramientas locales: se muestra aunque el modo esté apagado.
     const cwd = String(project.cwd || '');
     const changeLabel = escapeHtml(t('project_action_change_directory'));
@@ -160,36 +160,50 @@
   }
 
   /**
-   * Conecta el menú: el control deslizante llama a `onSelectLevel` con el nivel elegido y el panel
-   * del proyecto a `handlers` (toggle, initialize, decline, reactivate, reload, changeDirectory).
+   * Conecta el panel modal: el control deslizante llama a `onSelectLevel` con el nivel elegido y el panel
+   * del proyecto a `handlers` (toggle, initialize, compact, decline, reactivate, reload, changeDirectory).
    */
   function mount(elements, { onSelectLevel, handlers }) {
     projectHandlers = handlers;
+    const modal = getModal(elements);
     elements.reasoningIntensity.addEventListener('input', event => {
       const level = getReasoningLevelFromIntensity(event.target.value);
       updateReasoningUI(elements, level);
       onSelectLevel(level);
     });
     elements.btnCloseReasoning.addEventListener('click', () => closeReasoningMenu(elements));
-    elements.reasoningMenu.addEventListener('keydown', event => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      closeReasoningMenu(elements);
-      elements.btnReasoning.focus();
-    });
+    if (modal) {
+      modal.addEventListener('cancel', event => {
+        event.preventDefault();
+        closeReasoningMenu(elements);
+        elements.btnReasoning.focus();
+      });
+      modal.addEventListener('close', () => {
+        closeReasoningMenu(elements);
+      });
+      modal.addEventListener('click', event => {
+        if (event.target === modal) {
+          closeReasoningMenu(elements);
+          elements.btnReasoning.focus();
+        }
+      });
+    }
     elements.projectModePanel.addEventListener('change', event => {
       if (event.target.id === 'chk-project-mode') projectHandlers.toggle(event.target.checked);
     });
     elements.projectModePanel.addEventListener('click', event => {
       const action = event.target.closest('[data-project-action]')?.dataset.projectAction;
-      if (action) projectHandlers[action]();
+      if (!action) return;
+      if (['decline', 'changeDirectory', 'initialize', 'compact'].includes(action)) {
+        closeReasoningMenu(elements);
+      }
+      projectHandlers[action]?.();
     });
   }
 
   return {
     mount,
     getReasoningLevelLabel,
-    positionReasoningMenu,
     closeReasoningMenu,
     toggleReasoningMenu,
     updateReasoningUI,

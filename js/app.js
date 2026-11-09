@@ -148,7 +148,7 @@
     btnReasoning: 'btn-reasoning',
     reasoningLabel: 'reasoning-label',
     reasoningProjectLabel: 'reasoning-project-label',
-    reasoningMenu: 'reasoning-menu',
+    reasoningModal: 'reasoning-modal',
     reasoningIntensity: 'reasoning-intensity',
     reasoningIntensityValue: 'reasoning-intensity-value',
     btnCloseReasoning: 'btn-close-reasoning',
@@ -608,6 +608,24 @@
         console.error('[App] Project initialization failed:', error);
         await Dialogs.alert(error?.message || String(error), { type: 'error' });
       }
+    },
+    async compact() {
+      try {
+        await ProjectContext.compact({
+          askConfirmation: ({ name }) => Dialogs.confirm(t('project_compact_confirm', { name })),
+          isBusy,
+          startConversation: async () => {
+            if (getChatHistory().some(message => message.role !== 'system')) await createNewSession();
+          },
+          sendPrompt: async prompt => {
+            UIReasoning.closeReasoningMenu(elements);
+            await submitComposerText(prompt);
+          }
+        });
+      } catch (error) {
+        console.error('[App] Project compaction failed:', error);
+        await Dialogs.alert(error?.message || String(error), { type: 'error' });
+      }
     }
   };
 
@@ -615,16 +633,17 @@
     ProjectContext.refresh().catch(error => console.warn('[App] Could not refresh project context:', error));
   }
 
-  /** El indicador del botón siempre; el panel solo con el menú abierto (renderizado bajo demanda). */
+  /** El indicador del botón siempre; el panel solo con el modal abierto (renderizado bajo demanda). */
   function renderProjectPanel() {
     const config = getRuntimeConfig();
     const project = State.get('project');
     UIReasoning.syncProjectIndicator(elements, config, project);
-    if (elements.reasoningMenu.hidden) return;
+    if (!elements.reasoningModal || elements.reasoningModal.hidden) return;
     UIReasoning.renderProjectPanel(elements, {
       config,
       project,
       canInitialize: ProjectContext.canInitialize(),
+      canCompact: ProjectContext.canCompact(),
       canChangeDirectory: ProjectContext.canChangeDirectory(),
       busy: isBusy()
     });
@@ -763,7 +782,6 @@
   function setupEventListeners() {
     UIShell.mount({
       elements,
-      onViewportChange: () => UIReasoning.positionReasoningMenu(elements),
       onDismissProfiles: () => UIProfiles.closeProfilesModal(false)
     });
 
@@ -836,8 +854,9 @@
       renderProjectPanel();
     });
     document.addEventListener('click', event => {
-      if (elements.reasoningMenu.hidden) return;
-      if (!elements.reasoningMenu.contains(event.target) && !elements.btnReasoning.contains(event.target)) {
+      const modal = elements.reasoningModal;
+      if (!modal || modal.hidden) return;
+      if (!modal.contains(event.target) && !elements.btnReasoning.contains(event.target)) {
         UIReasoning.closeReasoningMenu(elements);
       }
     });

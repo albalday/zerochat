@@ -358,66 +358,9 @@
   color: var(--accent-text);
 }
 
-/* Menú desplegable de niveles de razonamiento */
-.reasoning-menu {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  z-index: var(--z-modal);
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  min-width: 270px;
-  max-width: 340px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.reasoning-menu-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.65rem 0.7rem 0.65rem 0.85rem;
-  border-bottom: 1px solid var(--border-color);
-  background-color: var(--bg-surface-subtle);
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.btn-reasoning-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.btn-reasoning-close:hover {
-  color: var(--text-main);
-  background: var(--bg-hover);
-  border-color: var(--border-color);
-}
-
-.btn-reasoning-close:focus-visible,
 .reasoning-intensity-slider:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
-}
-
-.reasoning-menu-title-wrapper {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  min-width: 0;
 }
 
 .reasoning-intensity-control {
@@ -479,15 +422,6 @@
   margin-top: 0.5rem;
   color: var(--text-muted);
   font-size: 0.75rem;
-}
-
-.reasoning-menu-footer {
-  padding: 0.5rem 0.85rem;
-  border-top: 1px solid var(--border-color);
-  background-color: var(--bg-surface-subtle);
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  line-height: 1.4;
 }
 
 .reasoning-agent-toggle-wrapper {
@@ -589,10 +523,6 @@
 }
 
 @media (max-width: 640px) {
-  .reasoning-menu {
-    min-width: min(290px, calc(100vw - 16px));
-  }
-
   .reasoning-intensity-control {
     padding: 1rem;
   }

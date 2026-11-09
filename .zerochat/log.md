@@ -278,3 +278,7 @@
 - 2026-11-09 M53-D3 Retirada de browser_webllm.test.js, actualización de GROUPS.providers en runner y documentación, y silenciado de trazas esperadas de console.error en test_webllm.js (M53-T3)
 - 2026-11-09 M53-D4 Poda de 5 pruebas redundantes o triviales en infraestructura (favicon.ico, test_console.py, avisos de versión vacíos, visor diffs en Node y unificación de 6 micro-tests de Termux en subtests) y reducción de plazos de prueba en el watchdog de latido y modo ejecución de zerochat.py, recortando esperas artificiales (M53-T4)
 - 2026-11-09 M53-D5 Poda de 5 pruebas prescindibles adicionales: transiciones CSS en notices de dialogs, aviso de idiomas RAG en browser, aserción de texto en metadatos MCP, llamadas duplicadas a get_diagnostics/search_files en local_server, y getters/formateadores triviales en ui_profiles (M53-T5)
+- 2026-11-09 M54-D1 Migración del panel de razonamiento y modo proyecto a diálogo modal nativo <dialog class="settings-modal reasoning-modal"> con cabecera y cierre estándar (M54-T1)
+- 2026-11-09 M54-D2 Adaptación de ui-reasoning.js y app.js a showModal/close nativo y retirada de positionReasoningMenu y cálculos de coordenadas manuales (M54-T2)
+- 2026-11-09 M54-D3 Incorporación de acción y prompt de saneamiento/compactación de memoria (plan.md y log.md) en project-context.js y botón en panel de proyecto (M54-T3)
+- 2026-11-09 M54-D4 Validación integral de las 5 suites de pruebas (unit, integration, architecture, infrastructure, browser) con soporte de modal nativo y compactación (M54-T4)

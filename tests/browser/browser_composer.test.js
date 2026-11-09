@@ -46,11 +46,17 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
     await waitForAppReady(page);
 
     await page.click('#btn-reasoning');
+    assert.equal(await page.locator('#reasoning-modal').evaluate(el => el.open), true, 'El diálogo modal se abre con showModal');
     assert.equal(await page.locator('#chk-project-mode').isChecked(), true, 'Activo por defecto');
     await page.waitForFunction(() => window.ChatState.get('project').status === 'unavailable');
     assert.equal(await page.locator('.project-mode-status').getAttribute('data-project-status'), 'unavailable');
     assert.equal(await page.locator('[data-project-action]').count(), 0);
     assert.equal(await page.locator('#btn-reasoning').getAttribute('data-project-indicator'), null, 'Sin servidor no hay indicador');
+
+    await page.click('#btn-close-reasoning');
+    assert.equal(await page.locator('#reasoning-modal').evaluate(el => el.open), false, 'Cerrar modal oculta el diálogo');
+    await page.click('#btn-reasoning');
+    assert.equal(await page.locator('#reasoning-modal').evaluate(el => el.open), true);
 
     await page.evaluate(() => window.ChatState.setProjectContext({ status: 'ready', cwd: '/home/u/zerochat', rules: { content: 'r' } }));
     const indicator = await page.evaluate(() => {
@@ -126,6 +132,21 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       assert.equal((await changeButton.textContent()).trim(), '');
       await page.evaluate(() => window.ChatState.setProjectContext({ status: 'ready', cwd: '/home/u/repo', rules: { content: 'r' } }));
       assert.match(await page.locator('[data-project-action="reload"]').getAttribute('title'), /AGENTS\.md/);
+      await page.evaluate(() => {
+        const { Tool, registry } = window.ChatAgentCore;
+        ['read_file', 'write_file'].forEach(name => {
+          registry.registerTool(new Tool({
+            definition: { name, description: name },
+            category: 'native',
+            isAvailable: () => true,
+            execute: async () => ({ success: true })
+          }));
+        });
+      });
+      await page.click('#btn-close-reasoning');
+      await page.click('#btn-reasoning');
+      assert.equal(await page.locator('[data-project-action="compact"]').count(), 1, 'Ofrece compactar memoria cuando hay herramientas de escritura');
+      assert.match(await page.locator('[data-project-action="compact"]').getAttribute('title'), /plan\.md/);
 
       // Con el modo proyecto apagado el directorio sigue visible.
       await page.locator('#project-mode-panel .switch').click();

@@ -390,6 +390,19 @@ Helper script template (${TASK_HELPER_FILE}):
 ${TASK_SCRIPT_TEMPLATE}\`\`\``;
   }
 
+  function buildCompactPrompt(cwd) {
+    return `Perform project memory housekeeping for the repository at ${cwd}.
+Work in this order:
+1. Inspect without modifying anything: ${PLAN_FILE}, ${LOG_FILE}, ${ARCHIVE_DIR}/, and ${STATE_FILE}.
+2. Check how many closed milestones exist in ${PLAN_FILE} and how many decisions exist in ${LOG_FILE}.
+3. Propose the following optimizations with exact text and wait for explicit user approval before modifying any files (use the ask_user tool when available):
+   - In ${PLAN_FILE}: Keep only the last 3 to 5 closed milestone headers (and any active/pending milestones). Condense earlier closed milestones into a single comment line: \`<!-- Hitos M1 a M<last_archived> archivados en ${ARCHIVE_DIR}/ -->\`.
+   - In ${LOG_FILE}: If there are decisions from older closed milestones (prior to the last 5-10 milestones), rotate them into \`${ARCHIVE_DIR}/log_M1-M<last_archived>.md\` and keep only the recent decisions in ${LOG_FILE}.
+   - In ${STATE_FILE}: Ensure it is concise, strictly reflects the current active milestone and next task, and stays well under 30 lines.
+4. After approval, apply the changes using ${WRITE_TOOL} or edit tools.
+5. Report the result with line counts and file sizes before and after compaction.`;
+  }
+
   /**
    * Bloque de sistema del modo proyecto. Vacío salvo en estado `ready`. El protocolo vive en
    * AGENTS.md para que ZeroChat y los demás agentes lean lo mismo; aquí solo se presenta.
@@ -628,7 +641,35 @@ ${stateBody}
       }
     }
 
-    return { refresh, readProjectFile, canInitialize, initialize, canChangeDirectory, changeDirectory };
+    function canCompact() {
+      return Boolean(getCwd() && getAvailableTool(READ_TOOL) && getAvailableTool(WRITE_TOOL));
+    }
+
+    /**
+     * Lanza la simplificación y compactación de memoria en estado `ready`: tras confirmar,
+     * envía el prompt de saneamiento para condensar hitos en plan.md y rotar log.md.
+     */
+    async function compact({ askConfirmation, sendPrompt, startConversation, isBusy } = {}) {
+      if (typeof askConfirmation !== 'function' || typeof sendPrompt !== 'function') throw new TypeError('compact requires askConfirmation and sendPrompt');
+      const State = getState();
+      const project = State.get('project');
+      const cwd = project.cwd;
+      if (project.status !== 'ready' || !cwd || !canCompact()) return { ok: false, reason: 'unavailable' };
+
+      const parts = String(cwd || '').split(/[\\/]+/).filter(Boolean);
+      const name = parts[parts.length - 1] || String(cwd || '');
+      if (!await askConfirmation({ cwd, name })) return { ok: false, reason: 'cancelled' };
+
+      const current = State.get('project');
+      if (current.cwd !== cwd || current.status !== 'ready' || isBusy?.() || !canCompact()) {
+        return { ok: false, reason: 'state-changed' };
+      }
+      if (typeof startConversation === 'function') await startConversation();
+      await sendPrompt(buildCompactPrompt(cwd));
+      return { ok: true };
+    }
+
+    return { refresh, readProjectFile, canInitialize, initialize, canCompact, compact, canChangeDirectory, changeDirectory };
   }
 
   const defaultContext = createProjectContext();
@@ -644,9 +685,12 @@ ${stateBody}
     computeStatus,
     buildPromptBlock,
     buildBootstrapPrompt,
+    buildCompactPrompt,
     refresh: defaultContext.refresh,
     canInitialize: defaultContext.canInitialize,
     initialize: defaultContext.initialize,
+    canCompact: defaultContext.canCompact,
+    compact: defaultContext.compact,
     canChangeDirectory: defaultContext.canChangeDirectory,
     changeDirectory: defaultContext.changeDirectory
   };
