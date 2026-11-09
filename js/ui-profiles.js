@@ -553,14 +553,23 @@
   }
 
   function openProfileMenu() {
-    showLocalProfilesView();
-    renderProfileMenu();
+    const inServerMode = isServerMode();
+    if (inServerMode) {
+      openServerProfilesView('run');
+    } else {
+      showLocalProfilesView();
+      renderProfileMenu();
+    }
     setProfileMenuOpen(true);
     if (getMCP().manager.isProxyConnected()) {
       getMCP().manager.listServerProfiles().catch(() => {});
     }
-    const firstOption = els.activeProfileList?.querySelector('button');
-    if (firstOption) firstOption.focus();
+    if (inServerMode) {
+      els.btnProfileSubviewBack?.focus();
+    } else {
+      const firstOption = els.activeProfileList?.querySelector('button');
+      if (firstOption) firstOption.focus();
+    }
   }
 
   function closeProfileMenu() {

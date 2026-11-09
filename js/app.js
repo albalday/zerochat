@@ -574,8 +574,15 @@
       const cwd = State.get('project').cwd;
       Config.updateRuntime({ projectDeclined: getRuntimeConfig().projectDeclined.filter(path => path !== cwd) });
     },
-    reload() {
-      refreshProjectContext();
+    async reload() {
+      try {
+        await ProjectContext.refresh();
+      } catch (error) {
+        console.warn('[App] Could not refresh project context:', error);
+      }
+      renderProjectPanel();
+      const reloadBtn = elements.projectModePanel?.querySelector('[data-project-action="reload"]');
+      if (reloadBtn) reloadBtn.textContent = t('project_action_reloaded');
     },
     async changeDirectory() {
       try {
