@@ -83,11 +83,11 @@ class StorageEngineTest(unittest.TestCase):
         saved = zerochat.save_conversation({
             "id": "migrated_conv_1",
             "title": "Migrada con éxito",
-            "profileId": "Z-deepseek"
+            "profileId": "deepseek"
         }, [{"id": "m1", "role": "user", "content": "hola"}])
-        self.assertEqual(saved["profileId"], "Z-deepseek")
+        self.assertEqual(saved["profileId"], "deepseek")
         listed = zerochat.list_conversations()
-        self.assertTrue(any(c["id"] == "migrated_conv_1" and c["profileId"] == "Z-deepseek" for c in listed))
+        self.assertTrue(any(c["id"] == "migrated_conv_1" and c["profileId"] == "deepseek" for c in listed))
 
     @unittest.skipIf(os.name == "nt", "Permisos POSIX")
     def test_permisos_directorio_0700_y_fichero_0600(self):
@@ -338,7 +338,7 @@ class StorageEngineTest(unittest.TestCase):
 
     def test_cli_resolucion_perfiles_desde_sqlite(self):
         parser = zerochat.build_parser()
-        # Sin --profile y sin Z-local guardado en SQLite, falla con RUN_EXIT_ARGS (4).
+        # Sin --profile y sin local guardado en SQLite, falla con RUN_EXIT_ARGS (4).
         with self.assertRaises(SystemExit) as missing_default:
             zerochat.run_session_from_args(parser, parser.parse_args(["--prompt", "Hola"]))
         self.assertEqual(missing_default.exception.code, zerochat.RUN_EXIT_ARGS)
@@ -348,12 +348,12 @@ class StorageEngineTest(unittest.TestCase):
             "settings": {"apiUrl": "https://api.deepseek.com", "model": "deepseek-chat", "apiKey": "sk-ds-key"}
         })
         zerochat.save_general_profile({
-            "name": "Z-local",
+            "name": "local",
             "settings": {"apiUrl": "http://localhost:1234/v1", "model": "local-model"}
         })
 
         default_session = zerochat.run_session_from_args(parser, parser.parse_args(["--prompt", "Hola"]))
-        self.assertEqual(default_session.profile, "Z-local")
+        self.assertEqual(default_session.profile, "local")
 
         for arg in ("DeepSeek", "Z- DeepSeek"):
             with self.subTest(arg=arg):
@@ -395,7 +395,7 @@ class StorageEngineTest(unittest.TestCase):
             "title": "Conversación de prueba",
             "createdAt": 1700000000000,
             "updatedAt": 1700000001000,
-            "profileId": "Z-deepseek",
+            "profileId": "deepseek",
             "serverRun": True,
             "extra": {"cron": {"enabled": True}, "tags": ["prod"]}
         }
@@ -408,7 +408,7 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(saved["id"], "session_test_123")
         self.assertEqual(saved["title"], "Conversación de prueba")
         self.assertEqual(saved["messageCount"], 3)
-        self.assertEqual(saved["profileId"], "Z-deepseek")
+        self.assertEqual(saved["profileId"], "deepseek")
         self.assertEqual(saved["serverRun"], True)
         self.assertEqual(saved["extra"]["cron"], {"enabled": True})
         self.assertEqual(saved["extra"]["tags"], ["prod"])
@@ -417,7 +417,7 @@ class StorageEngineTest(unittest.TestCase):
         self.assertIsNotNone(retrieved)
         self.assertEqual(retrieved["id"], "session_test_123")
         self.assertEqual(retrieved["title"], "Conversación de prueba")
-        self.assertEqual(retrieved["profileId"], "Z-deepseek")
+        self.assertEqual(retrieved["profileId"], "deepseek")
         self.assertEqual(retrieved["serverRun"], True)
         self.assertEqual(retrieved["extra"]["cron"], {"enabled": True})
         self.assertEqual(len(retrieved["history"]), 3)

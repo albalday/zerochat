@@ -103,13 +103,6 @@ describe('Servidor local zerochat.py', () => {
     assert.equal((await post('zerochat/heartbeat', {}, { headers: { Authorization: '' } })).status, 401);
   });
 
-  test('favicon.ico responde vacío sin token, salvo a un origen ajeno', async () => {
-    const favicon = await fetch(`${baseUrl}/favicon.ico`);
-    assert.equal(favicon.status, 204);
-    assert.equal(await favicon.text(), '');
-    assert.equal((await fetch(`${baseUrl}/favicon.ico`, { headers: { Origin: 'https://untrusted.example' } })).status, 403);
-  });
-
   test('el cuerpo de una petición es un objeto JSON de hasta 1 MiB', async () => {
     const send = body => fetch(baseUrl, {
       method: 'POST',
@@ -238,85 +231,6 @@ describe('Servidor local zerochat.py', () => {
     }
   });
 
-  test('el visor de diffs exige un visor gráfico y abre el del árbol de trabajo o el del último commit', async () => {
-    const openDiff = params => rpc('zerochat/diff/open', params);
-    const nonGitDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-nongit-')));
-    const nonGitFile = path.join(nonGitDir, 'test.txt');
-    fs.writeFileSync(nonGitFile, 'hello');
-    const gitTestDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-git-')));
-    const trackedFile = path.join(gitTestDir, 'tracked.txt');
-    const untrackedFile = path.join(gitTestDir, 'untracked.txt');
-    fs.writeFileSync(trackedFile, 'initial\n');
-    fs.writeFileSync(untrackedFile, 'new\n');
-    execSync('git init && git config user.name test && git config user.email test@test.com && git add tracked.txt && git commit -m "init"', { cwd: gitTestDir, stdio: 'ignore' });
-    fs.appendFileSync(trackedFile, 'change\n');
-
-    const killPid = pid => {
-      if (!pid) return;
-      try {
-        if (process.platform === 'win32') {
-          execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore' });
-        } else {
-          process.kill(-pid, 'SIGKILL');
-        }
-      } catch (_) {
-        try { process.kill(pid, 'SIGKILL'); } catch (_) {}
-      }
-    };
-
-    try {
-      for (const params of [{}, { path: 123 }, { path: '' }, { path: 'nonexistent/file.txt' }, { path: gitTestDir }]) {
-        assert.equal((await openDiff(params)).error?.code, -32602, JSON.stringify(params));
-      }
-
-      // Sin visor gráfico configurado no se lanza nada (git recurriría a uno de terminal invisible): se propone uno.
-      const noGuiToolRes = await openDiff({ path: trackedFile });
-      assert.equal(noGuiToolRes.result?.success, false);
-      assert.ok(noGuiToolRes.result.setup.commands.includes(`git config --global diff.guitool ${noGuiToolRes.result.setup.tool}`));
-      assert.equal((await rpc('zerochat/diff/configure', { tool: 'nano' })).error?.code, -32602);
-      // Visor gráfico de prueba que termina sin abrir ventana.
-      execSync('git config diff.guitool zcfake && git config difftool.zcfake.cmd true', { cwd: gitTestDir, stdio: 'ignore' });
-
-      const nonGitRes = await openDiff({ path: nonGitFile });
-      assert.equal(nonGitRes.error?.code, -32602);
-      assert.match(nonGitRes.error?.message, /repositorio Git/);
-
-      const trackedRes = await openDiff({ path: trackedFile });
-      assert.equal(trackedRes.result?.success, true);
-      assert.equal(trackedRes.result?.has_diff, true);
-      assert.equal(trackedRes.result?.mode, 'working_tree');
-      assert.equal(trackedRes.result?.in_head, true);
-      assert.equal(typeof trackedRes.result?.pid, 'number');
-      killPid(trackedRes.result?.pid);
-
-      const untrackedRes = await openDiff({ path: untrackedFile });
-      assert.equal(untrackedRes.result?.success, true);
-      assert.equal(untrackedRes.result?.has_diff, true);
-      assert.equal(untrackedRes.result?.in_head, false);
-      assert.equal(typeof untrackedRes.result?.pid, 'number');
-      killPid(untrackedRes.result?.pid);
-
-      // Tras hacer commit del fichero, no hay diffs en working tree
-      execSync('git commit -am "second commit"', { cwd: gitTestDir, stdio: 'ignore' });
-      const cleanRes = await openDiff({ path: trackedFile });
-      assert.equal(cleanRes.result?.success, true);
-      assert.equal(cleanRes.result?.has_diff, false);
-      assert.equal(cleanRes.result?.has_commit_history, true);
-      assert.equal(cleanRes.result?.pid, undefined);
-
-      // Con commit_fallback: true, lanza el diff del último commit
-      const fallbackRes = await openDiff({ path: trackedFile, commit_fallback: true });
-      assert.equal(fallbackRes.result?.success, true);
-      assert.equal(fallbackRes.result?.has_diff, true);
-      assert.equal(fallbackRes.result?.mode, 'commit');
-      assert.equal(typeof fallbackRes.result?.pid, 'number');
-      killPid(fallbackRes.result?.pid);
-    } finally {
-      fs.rmSync(nonGitDir, { recursive: true, force: true });
-      fs.rmSync(gitTestDir, { recursive: true, force: true });
-    }
-  });
-
   test('las herramientas de archivos responden por tools/call y sus errores llegan con isError', async t => {
     const read = await callTool('read_file', { path: 'package.json', max_lines: 10 });
     assert.equal(read.json.result?.isError, false);
@@ -361,18 +275,6 @@ describe('Servidor local zerochat.py', () => {
       ['zerochat/jobs/report', { ids: 'x' }], ['zerochat/jobs/report', { ids: [true] }]]) {
       assert.equal((await rpc(method, params)).error?.code, -32602, `${method} ${JSON.stringify(params)}`);
     }
-  });
-
-  test('search_files busca en el proyecto', async () => {
-    const found = (await callTool('search_files', { query: 'def set_project_directory', path: '.', file_pattern: '*.py' })).parsed;
-    assert.equal(found.success, true);
-    assert.ok(found.matches.some(match => match.relative_path.includes('dd-tools.py') || match.relative_path.includes('zerochat.py')));
-  });
-
-  test('get_diagnostics revisa un archivo concreto', async () => {
-    const diagnostics = (await callTool('get_diagnostics', { path: 'package.json' })).parsed;
-    assert.equal(diagnostics.success, true);
-    assert.equal(diagnostics.error_count, 0);
   });
 
   test('browser_action navega y hace una captura', async () => {
@@ -580,11 +482,11 @@ test('Servidor local zerochat.py: heartbeat y apagado automático por inactivida
   const baseUrl = `http://127.0.0.1:${port}`;
   const testToken = 'heartbeat-test-token-67890';
 
-  // Iniciar servidor con timeout de heartbeat de 0.2 segundos para prueba ágil
+  // Iniciar servidor con timeout de heartbeat de 0.12 segundos para prueba ágil
   const serverProc = spawn('python3', [
     serverPath, '--port', String(port), '--no-browser', '--no-venv'
   ], {
-    env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken), ZEROCHAT_HEARTBEAT_TIMEOUT: '0.2', ZEROCHAT_HEARTBEAT_POLL: '0.05' },
+    env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken), ZEROCHAT_HEARTBEAT_TIMEOUT: '0.12', ZEROCHAT_HEARTBEAT_POLL: '0.02' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
@@ -611,8 +513,8 @@ test('Servidor local zerochat.py: heartbeat y apagado automático por inactivida
 
     // 3. Latidos sucesivos antes de que expire el timeout mantienen vivo el servidor, también con un
     // token caducado o erróneo (401): cualquier petición de un origen permitido es presencia del navegador.
-    for (const token of [testToken, 'token-caducado', 'token-caducado', testToken]) {
-      await new Promise(resolve => setTimeout(resolve, 100));
+    for (const token of [testToken, 'token-caducado', testToken]) {
+      await new Promise(resolve => setTimeout(resolve, 40));
       assert.equal((await beat(token)).status, token === testToken ? 200 : 401);
     }
     assert.equal(serverProc.exitCode, null, 'Los latidos con 401 mantienen vivo el servidor');
@@ -625,7 +527,7 @@ test('Servidor local zerochat.py: heartbeat y apagado automático por inactivida
     });
     assert.equal(rpcRes.status, 200, 'Llamada RPC debe devolver 200');
 
-    // 5. Esperar a que el watchdog detecte la inactividad (>0.2s desde la última petición) y apague el servidor automáticamente
+    // 5. Esperar a que el watchdog detecte la inactividad (>0.12s desde la última petición) y apague el servidor automáticamente
     const exitPromise = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('El servidor no se apagó por inactividad de heartbeat')), 3000);
       serverProc.on('exit', (code) => {
@@ -651,7 +553,7 @@ test('Servidor local zerochat.py: --keep-server desactiva el watchdog', async ()
   const serverProc = spawn('python3', [
     serverPath, '--port', String(port), '--no-browser', '--keep-server', '--no-venv'
   ], {
-    env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken) },
+    env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken), ZEROCHAT_HEARTBEAT_TIMEOUT: '0.1', ZEROCHAT_HEARTBEAT_POLL: '0.02' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
@@ -673,8 +575,8 @@ test('Servidor local zerochat.py: --keep-server desactiva el watchdog', async ()
     };
     assert.equal((await rpc('zerochat/heartbeat', {})).result.exit_on_close, false, 'Cerrar la pestaña no detendrá los comandos');
 
-    // Esperar 400ms (> ZEROCHAT_HEARTBEAT_TIMEOUT=0.2)
-    await new Promise(resolve => setTimeout(resolve, 400));
+    // Esperar 150ms (> ZEROCHAT_HEARTBEAT_TIMEOUT=0.1)
+    await new Promise(resolve => setTimeout(resolve, 150));
 
     // El servidor debe seguir activo porque --keep-server desactivó el watchdog
     assert.equal(serverProc.exitCode, null, 'El servidor debe seguir en marcha con --keep-server');

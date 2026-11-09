@@ -251,6 +251,8 @@ test('WebLLM - no oculta como fallback un error real de preparación', async () 
   const originalWorker = global.Worker;
   const originalCreateObjectURL = URL.createObjectURL;
   const originalRevokeObjectURL = URL.revokeObjectURL;
+  const originalConsoleError = console.error;
+  console.error = () => {};
   let mainThreadEngineCreated = false;
   global.Worker = class {
     addEventListener() {}
@@ -283,6 +285,7 @@ test('WebLLM - no oculta como fallback un error real de preparación', async () 
     global.Worker = originalWorker;
     URL.createObjectURL = originalCreateObjectURL;
     URL.revokeObjectURL = originalRevokeObjectURL;
+    console.error = originalConsoleError;
   }
 });
 
@@ -319,6 +322,8 @@ test('WebLLM - no usa el motor principal si el worker no puede arrancar', async 
   const originalWorker = global.Worker;
   const originalCreateObjectURL = URL.createObjectURL;
   const originalRevokeObjectURL = URL.revokeObjectURL;
+  const originalConsoleError = console.error;
+  console.error = () => {};
   let terminated = false;
   global.Worker = class {
     constructor() { this.listeners = new Map(); }
@@ -346,6 +351,7 @@ test('WebLLM - no usa el motor principal si el worker no puede arrancar', async 
     global.Worker = originalWorker;
     URL.createObjectURL = originalCreateObjectURL;
     URL.revokeObjectURL = originalRevokeObjectURL;
+    console.error = originalConsoleError;
   }
 });
 

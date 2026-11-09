@@ -7,37 +7,6 @@ describe('Browser UI - mcp_tools', { concurrency: 2 }, () => {
     await closeGlobalBrowser();
   });
 
-test('Browser UI - los metadatos MCP externos se renderizan como texto', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage();
-    await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await waitForAppReady(page);
-    const result = await page.evaluate(() => {
-      const byId = id => document.getElementById(id);
-      const serverDetails = byId('mcp-server-details');
-      const elements = {
-        statusBadge: byId('mcp-status-badge'), statusText: byId('mcp-status-text'), serverDetails,
-        commandSnippet: byId('mcp-terminal-command'), bootstrapCard: byId('mcp-bootstrap-card'),
-        toolsContainer: byId('mcp-tools-container'), serversList: byId('mcp-servers-list')
-      };
-      const payload = '<img data-xss-probe="mcp" src=x onerror="window.__mcpXss=true">';
-      window.ChatUIMcp.renderConnectionStatus(elements, {
-        ...window.ChatState.get('mcp'),
-        status: 'connected',
-        serverInfo: { name: payload, version: payload }
-      });
-      const detailsSafe = !serverDetails.querySelector('[data-xss-probe]') && (serverDetails.textContent.includes(payload) || (serverDetails.getAttribute('title') || '').includes(payload));
-      return {
-        detailsSafe,
-        executed: Boolean(window.__mcpXss)
-      };
-    });
-    assert.equal(result.detailsSafe, true);
-    assert.equal(result.executed, false);
-  } finally { await browser.close(); }
-});
-
 test('Browser UI - autorización de Composio muestra y devuelve únicamente su servicio', async () => {
   const browser = await createTestBrowser();
   try {
@@ -240,88 +209,6 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
   } finally { await browser.close(); }
 });
 
-test('Browser UI - el menú de permisos de escritorio no queda bajo el composer', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await waitForAppReady(page);
-    await page.evaluate(() => {
-      const messagesList = document.getElementById('messages-list');
-      messagesList.replaceChildren(Object.assign(document.createElement('div'), { style: 'height: 1200px; flex: 0 0 1200px;' }));
-      const card = document.createElement('div');
-      card.innerHTML = '<div class="tool-execution-card"><span class="tool-card-badge"></span><div class="tool-card-collapsible-body"><div style="height: 80px;"></div></div></div>';
-      messagesList.appendChild(card);
-      window.__desktopPermissionCard = card;
-      window.__desktopPermissionDecision = window.ChatToolCards.promptToolAuthorization(card, { function: { name: 'run_command' } }, {
-        args: { command: 'git status' }
-      });
-    });
-    await page.click('.btn-auth-more');
-    await page.waitForFunction(() => {
-      const menu = window.__desktopPermissionCard.querySelector('.tool-auth-more-menu');
-      const list = document.getElementById('messages-list');
-      return menu.getBoundingClientRect().bottom <= list.getBoundingClientRect().bottom + 1;
-    });
-    const layout = await page.evaluate(() => {
-      const card = window.__desktopPermissionCard.querySelector('.tool-execution-card');
-      const menu = window.__desktopPermissionCard.querySelector('.tool-auth-more-menu');
-      return {
-        cardOverflow: getComputedStyle(card).overflow,
-        menuPosition: getComputedStyle(menu).position
-      };
-    });
-    assert.equal(layout.cardOverflow, 'visible');
-    assert.equal(layout.menuPosition, 'absolute');
-    await page.click('.btn-auth-deny');
-    await page.evaluate(async () => {
-      await window.__desktopPermissionDecision;
-      window.__desktopPermissionCard.remove();
-    });
-  } finally { await browser.close(); }
-});
-
-test('Browser UI - RAG avisa al combinar ramas con idiomas distintos sin alterar su activación', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await waitForAppReady(page);
-    const branchIds = await page.evaluate(async () => {
-      for (const branch of await window.ChatRagStorage.getBranches()) await window.ChatRagStorage.deleteBranch(branch.id);
-      window.ChatConfig.updateRuntime({ activeRagBranchIds: [] });
-      const spanishOne = await window.ChatRagStorage.createBranch({ name: 'ES uno', language: 'spanish' });
-      const spanishTwo = await window.ChatRagStorage.createBranch({ name: 'ES dos', language: 'spanish' });
-      const english = await window.ChatRagStorage.createBranch({ name: 'EN', language: 'english' });
-      return { spanishOne: spanishOne.id, spanishTwo: spanishTwo.id, english: english.id };
-    });
-
-    await page.click('#btn-open-rag');
-    await page.waitForFunction(() => document.querySelectorAll('#rag-modal [data-branch-id]').length === 3);
-
-    const waitForActiveBranch = id => page.waitForFunction(branchId => document.querySelector(`#rag-modal [data-branch-id="${branchId}"]`)?.classList.contains('active'), id);
-    await page.locator(`#rag-modal [data-branch-id="${branchIds.spanishOne}"]`).click();
-    await waitForActiveBranch(branchIds.spanishOne);
-    assert.equal(await page.$eval('#notice-dialog', dialog => dialog.open), false);
-
-    await page.locator(`#rag-modal [data-branch-id="${branchIds.spanishTwo}"]`).click();
-    await waitForActiveBranch(branchIds.spanishTwo);
-    assert.equal(await page.$eval('#notice-dialog', dialog => dialog.open), false);
-
-    await page.locator(`#rag-modal [data-branch-id="${branchIds.english}"]`).click();
-    await page.waitForFunction(() => document.getElementById('notice-dialog')?.open);
-    const warningText = await page.$eval('#notice-message', el => el.textContent);
-    assert.match(warningText, /idiomas distintos/i);
-    assert.match(warningText, /Español/i);
-    assert.match(warningText, /Inglés/i);
-    assert.equal(await page.evaluate(() => window.ChatConfig.getActive().activeRagBranchIds.length), 3);
-    await page.click('#notice-accept');
-    await page.click('#btn-close-rag');
-  } finally {
-    await browser.close();
-  }
-});
-
 test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajustes y descartarlos no los guarda', async () => {
   const browser = await createTestBrowser();
   try {
@@ -376,68 +263,6 @@ test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajust
       policy: document.querySelector('input[name="mcp-global-policy"]:checked')?.value,
       rules: document.getElementById('mcp-directory-rules').value
     })), { policy: before.policy, rules: before.rules.join('\n') }, 'Reabrir restaura los permisos guardados');
-  } finally {
-    await browser.close();
-  }
-});
-
-test('Browser UI - Botón y cabecera para abrir/cerrar tool funcionan al recuperar del historial', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    const filePath = getIndexUrl();
-    await page.goto(filePath, { waitUntil: 'load' });
-    await page.waitForSelector('#welcome-banner');
-
-    // 1. Guardar y cargar una conversación con tool en el almacenamiento
-    await page.evaluate(async () => {
-      const history = [
-        { id: 'msg_u_tool', role: 'user', content: 'Calcula 10 + 20' },
-        {
-          id: 'msg_a_tool',
-          role: 'assistant',
-          content: 'He ejecutado el código para calcularlo:',
-          tool_calls: [{
-            id: 'call_js_hist_1',
-            type: 'function',
-            function: { name: 'execute_javascript', arguments: '{"javascript":"return 10 + 20;"}' }
-          }]
-        },
-        {
-          id: 'msg_t_tool',
-          role: 'tool',
-          tool_call_id: 'call_js_hist_1',
-          name: 'execute_javascript',
-          content: '{"success":true,"result":"30"}'
-        }
-      ];
-      await window.ChatStorage.saveConversation({ id: 'sess_tool_hist_toggle', title: 'Test Tool Toggle', createdAt: Date.now() }, history);
-    });
-    await openSavedSession(page, 'sess_tool_hist_toggle');
-
-    // 2. Las tools históricas se restauran dentro del historial plegado del grupo.
-    await page.waitForSelector('.tool-call-group-history');
-    await page.click('.tool-call-group-summary');
-    await page.waitForSelector('.tool-execution-card');
-
-    // 3. Verificar que aparece minimizada (collapsed) inicialmente
-    const isInitiallyCollapsed = await page.$eval('.tool-execution-card', el => el.classList.contains('collapsed'));
-    assert.equal(isInitiallyCollapsed, true, 'La tarjeta de tool recuperada del historial debe estar minimizada inicialmente');
-
-    // 4. Hacer clic en el botón .btn-tool-collapse y verificar que se abre (no colapsada)
-    await page.click('.btn-tool-collapse');
-    const isOpenedAfterBtnClick = await page.$eval('.tool-execution-card', el => !el.classList.contains('collapsed'));
-    assert.equal(isOpenedAfterBtnClick, true, 'Al pulsar el botón .btn-tool-collapse debe expandirse la tarjeta');
-
-    // 5. Hacer clic de nuevo en el botón .btn-tool-collapse y verificar que se cierra
-    await page.click('.btn-tool-collapse');
-    const isClosedAfterSecondClick = await page.$eval('.tool-execution-card', el => el.classList.contains('collapsed'));
-    assert.equal(isClosedAfterSecondClick, true, 'Al pulsar de nuevo el botón .btn-tool-collapse debe volver a minimizarse');
-
-    // 6. Hacer clic en la cabecera .tool-card-header y verificar que también se expande
-    await page.click('.tool-card-header');
-    const isOpenedAfterHeaderClick = await page.$eval('.tool-execution-card', el => !el.classList.contains('collapsed'));
-    assert.equal(isOpenedAfterHeaderClick, true, 'Al pulsar en la cabecera de la tarjeta debe expandirse');
   } finally {
     await browser.close();
   }

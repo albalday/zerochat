@@ -53,8 +53,8 @@
               <tr><td><strong>Conexión remota</strong></td><td>Ajustes › Conexión con la URL del servidor, túnel SSH o proxy inverso con su clave, e identificación con la cuenta del sistema cuando falta el token o caduca.</td><td>[test] <code>test_mcp.js</code>, <code>browser_connection.test.js</code>, <code>py/test_login.py</code>, <code>test_local_server.js</code></td><td>Una sola cuenta del sistema: la que ejecuta zerochat.</td></tr>
               <tr><td><strong>Modo proyecto</strong></td><td>Memoria en <code>.zerochat/</code> (plan, decisiones y estado) que el modelo mantiene con <code>task.py</code>.</td><td>[test] <code>test_project_context.js</code>, <code>test_task_helper.js</code></td><td>Depende de que el modelo siga el protocolo.</td></tr>
               <tr><td><strong>RAG léxico</strong></td><td>Índice Orama en IndexedDB con ramas, imágenes de documentos y búsqueda filtrada.</td><td>[test] <code>test_rag_index.js</code>, <code>test_rag_service.js</code>, <code>test_ingestion_engine.js</code></td><td>Búsqueda léxica, sin embeddings.</td></tr>
-              <tr><td><strong>Depuración</strong></td><td>Interceptor que detiene cada petición al modelo para revisar o editar el JSON antes de enviarlo.</td><td>[test] <code>browser_debug_panel.test.js</code></td><td>No intercepta el tráfico con el servidor local.</td></tr>
-              <tr><td><strong>WebLLM</strong></td><td>Inferencia en el navegador con WebGPU en un Web Worker.</td><td>[test] <code>test_webllm.js</code>, <code>browser_webllm.test.js</code></td><td>Para modelos compactos.</td></tr>
+              <tr><td><strong>Depuración</strong></td><td>Interceptor que detiene cada petición al modelo para revisar o editar el JSON antes de enviarlo.</td><td>[test] <code>test_api_utils.js</code></td><td>No intercepta el tráfico con el servidor local.</td></tr>
+              <tr><td><strong>WebLLM</strong></td><td>Inferencia en el navegador con WebGPU en un Web Worker.</td><td>[test] <code>test_webllm.js</code></td><td>Para modelos compactos.</td></tr>
             </tbody>
           </table>
         </div>

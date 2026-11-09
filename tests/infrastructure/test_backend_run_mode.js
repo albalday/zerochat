@@ -94,7 +94,7 @@ elif scenario == "chatty":
             rpc("zerochat/run/progress", kind="stream")
         except OSError:
             break
-        time.sleep(0.2)
+        time.sleep(0.04)
 elif scenario == "idle":
     time.sleep(5)
 `;
@@ -209,8 +209,8 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
       runZerochat('hola', { scenario: 'error' }),
       runZerochat('hola', { args: ['--export', unwritable] }),
       runZerochat('hola', { scenario: 'idle', env: { ZEROCHAT_RUN_IDLE_SECONDS: '1' } }),
-      runZerochat('hola', { scenario: 'chatty', env: { ZEROCHAT_RUN_IDLE_SECONDS: '1', ZEROCHAT_RUN_TIMEOUT: '2' } }),
-      runZerochat('hola', { scenario: 'exit', env: { ZEROCHAT_HEARTBEAT_TIMEOUT: '1' } }),
+      runZerochat('hola', { scenario: 'chatty', env: { ZEROCHAT_RUN_IDLE_SECONDS: '1', ZEROCHAT_RUN_TIMEOUT: '1' } }),
+      runZerochat('hola', { scenario: 'exit', env: { ZEROCHAT_HEARTBEAT_TIMEOUT: '0.2' } }),
       runZerochat('   '),
       runZerochat('hola', { seedDefaultProfile: false }),
       runZerochat('hola', { withPlaywright: false }),
@@ -230,7 +230,7 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(userHeadless.code, 0, userHeadless.stderr);
     assert.equal(userHeadless.info.launcher, 'user-browser');
     assert.deepEqual(userHeadless.info.args, ['--headless', '--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests']);
-    // Por defecto (sin --browser) usa el Chromium de Playwright en modo headless y el perfil Z-local.
+    // Por defecto (sin --browser) usa el Chromium de Playwright en modo headless y el perfil local.
     assert.equal(failed.info.launcher, 'chrome-headless-shell');
     assert.deepEqual(failed.info.args, ['--headless', '--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests']);
     // La interfaz es la del arranque normal (la local en desarrollo) con run= en el fragmento.
@@ -273,7 +273,7 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.match(idle.stderr, /Sin progreso de la interfaz durante 1s/);
     // El progreso continuo reinicia la inactividad, pero no el plazo total.
     assert.equal(chatty.code, 2, chatty.stderr);
-    assert.match(chatty.stderr, /Plazo total agotado \(2s\)/);
+    assert.match(chatty.stderr, /Plazo total agotado \(1s\)/);
     assert.equal(browserGone.code, 2, browserGone.stderr);
     assert.match(browserGone.stderr, /sin resultado/);
     for (const run of [failed, idle, chatty, browserGone]) assert.equal(run.stdout, '');

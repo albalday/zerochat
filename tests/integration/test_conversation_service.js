@@ -234,7 +234,7 @@ test('ConversationService - saveCurrentSession actualiza profileId con el perfil
   await Storage.deleteAllConversations();
   const Config = require('../../js/config-store.js');
   const Profiles = require('../../js/profile-repository.js');
-  Profiles.save({ id: 'prof_deepseek', name: 'Z-deepseek', general: true, settings: { apiType: 'openai' } });
+  Profiles.save({ id: 'prof_deepseek', name: 'deepseek', general: true, settings: { apiType: 'openai' } });
   t.after(() => Config.activateFallbackProfile());
 
   State.replaceConversation({
@@ -247,10 +247,10 @@ test('ConversationService - saveCurrentSession actualiza profileId con el perfil
   await ConversationService.saveCurrentSession({ renderSidebarChats() {} });
 
   const sessionMeta = State.get('sessions').list.find(s => s.id === 'sess_profile_test');
-  assert.equal(sessionMeta.profileId, 'Z-deepseek');
+  assert.equal(sessionMeta.profileId, 'deepseek');
 
   const stored = await Storage.getConversation('sess_profile_test');
-  assert.equal(stored.profileId, 'Z-deepseek');
+  assert.equal(stored.profileId, 'deepseek');
 });
 
 test('ConversationService - saveCurrentSession con overrides persiste serverRun y profileId y se preservan', async t => {

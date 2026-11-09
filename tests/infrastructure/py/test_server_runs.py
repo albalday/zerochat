@@ -165,8 +165,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(data["reasoning_text"], ("y" * zerochat.RUN_STREAM_TEXT_MAX) + "…")
 
     def test_cli_argumentos_conversation(self):
-        # Crear perfil por defecto Z-local para pruebas CLI
-        zerochat.save_general_profile({"name": "Z-local", "settings": {}})
+        # Crear perfil por defecto local para pruebas CLI
+        zerochat.save_general_profile({"name": "local", "settings": {}})
         parser = zerochat.build_parser()
 
         # Conversación inexistente rechaza con código 4 (RUN_EXIT_ARGS)
@@ -196,22 +196,22 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertIsNotNone(session)
         self.assertIsNone(session.prompt)
         self.assertEqual(session.conversation_id, "conv_con_user")
-        self.assertEqual(session.profile, "Z-local")
+        self.assertEqual(session.profile, "local")
 
         # Conversación con profileId resuelve su propio perfil general sin --profile explícito
-        zerochat.save_general_profile({"name": "Z-test-cron-profile", "settings": {}})
-        zerochat.save_conversation({"id": "conv_con_perfil", "title": "Con perfil propio", "profileId": "Z-test-cron-profile"}, [
+        zerochat.save_general_profile({"name": "test-cron-profile", "settings": {}})
+        zerochat.save_conversation({"id": "conv_con_perfil", "title": "Con perfil propio", "profileId": "test-cron-profile"}, [
             {"id": "sys_1", "role": "system", "content": "Prompt base"},
             {"id": "usr_2", "role": "user", "content": "¿Cuál es mi perfil?"}
         ])
         session_perfil = zerochat.run_session_from_args(parser, parser.parse_args(["--conversation", "conv_con_perfil"]))
         self.assertIsNotNone(session_perfil)
-        self.assertEqual(session_perfil.profile, "Z-test-cron-profile")
+        self.assertEqual(session_perfil.profile, "test-cron-profile")
         conv_updated = zerochat.get_conversation("conv_con_perfil")
         self.assertEqual(conv_updated.get("serverRun"), True)
 
         # Conversación cuyo perfil asociado no existe termina con error de argumentos
-        zerochat.save_conversation({"id": "conv_con_perfil_inexistente", "title": "Perfil roto", "profileId": "Z-fantasma"}, [
+        zerochat.save_conversation({"id": "conv_con_perfil_inexistente", "title": "Perfil roto", "profileId": "fantasma"}, [
             {"id": "usr_1", "role": "user", "content": "test"}
         ])
         with self.assertRaises(SystemExit):
@@ -314,17 +314,17 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         zerochat.RUN_SESSION = None
 
     def test_start_cancel_y_dispatch_server_run(self):
-        zerochat.save_general_profile({"name": "Z-valid", "settings": {}})
+        zerochat.save_general_profile({"name": "valid-profile", "settings": {}})
         zerochat.save_conversation({"id": "conv_val", "title": "Val"}, [])
 
         for invalid_params in (
             "no_es_dict",
-            {"conversation_id": "", "profile": "Z-valid"},
-            {"conversation_id": "no_existe", "profile": "Z-valid"},
+            {"conversation_id": "", "profile": "valid-profile"},
+            {"conversation_id": "no_existe", "profile": "valid-profile"},
             {"conversation_id": "conv_val", "profile": ""},
             {"conversation_id": "conv_val", "profile": "no_existe_prof"},
-            {"conversation_id": "conv_val", "profile": "Z-valid", "prompt": 123},
-            {"conversation_id": "conv_val", "profile": "Z-valid", "tool_security": "invalido"}
+            {"conversation_id": "conv_val", "profile": "valid-profile", "prompt": 123},
+            {"conversation_id": "conv_val", "profile": "valid-profile", "tool_security": "invalido"}
         ):
             with self.assertRaises(ValueError):
                 zerochat.start_server_run(invalid_params)
@@ -336,7 +336,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
              mock.patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
             res, err, _ = zerochat.dispatch_run("zerochat/run/start", {
                 "conversation_id": "conv_val",
-                "profile": "Z-valid",
+                "profile": "valid-profile",
                 "prompt": "Genera reporte",
                 "tool_security": {"directoryRules": ["R:/test"]}
             })
@@ -353,7 +353,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             self.assertIn("--conversation", cmd)
             self.assertEqual(cmd[cmd.index("--conversation") + 1], "conv_val")
             self.assertIn("--profile", cmd)
-            self.assertEqual(cmd[cmd.index("--profile") + 1], "Z-valid")
+            self.assertEqual(cmd[cmd.index("--profile") + 1], "valid-profile")
             self.assertIn("--prompt", cmd)
             self.assertEqual(cmd[cmd.index("--prompt") + 1], "Genera reporte")
 
@@ -367,11 +367,11 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                 self.assertEqual(stat.S_IMODE(state_path.stat().st_mode), 0o600)
             conv_data = zerochat.get_conversation("conv_val")
             self.assertEqual(conv_data.get("serverRun"), True)
-            self.assertEqual(conv_data.get("profileId"), "Z-valid")
+            self.assertEqual(conv_data.get("profileId"), "valid-profile")
 
             # Conflicto mientras la ejecución sigue en marcha
             with self.assertRaises(ValueError) as cm:
-                zerochat.start_server_run({"conversation_id": "conv_val", "profile": "Z-valid"})
+                zerochat.start_server_run({"conversation_id": "conv_val", "profile": "valid-profile"})
             self.assertIn("en marcha", str(cm.exception))
 
         # cancel_server_run mata el proceso cuando está running y coincide pid_start

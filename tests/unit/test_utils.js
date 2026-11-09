@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const ChatUtils = require('../../js/utils.js');
+const ChatUIConnection = require('../../js/ui-connection.js');
+const ChatI18n = require('../../js/i18n.js');
 
 test('ChatUtils - escapa HTML y sanea URLs y orígenes de imagen no confiables', () => {
   assert.strictEqual(ChatUtils.escapeHtml('<script>alert("XSS")&\'test\'</script>'), '&lt;script&gt;alert(&quot;XSS&quot;)&amp;&#39;test&#39;&lt;/script&gt;');
@@ -67,4 +69,12 @@ test('ChatUtils.createListenerGroup - dispose retira listeners y limpiezas, y el
   group.dispose();
   group.dispose();
   assert.deepStrictEqual(calls, ['first', 'cleanup', 'second'], 'Cada limpieza corre una sola vez');
+});
+
+test('UIConnection - un bloqueo por intentos fallidos indica los minutos de espera, redondeados hacia arriba', () => {
+  const locked = retryAfter => ChatUIConnection.loginErrorMessage({ rpcError: { code: -32002, data: { retryAfter } } });
+  assert.equal(locked(900), ChatI18n.t('login_locked', { minutes: 15 }));
+  assert.equal(locked(61), ChatI18n.t('login_locked', { minutes: 2 }));
+  assert.equal(locked(1), ChatI18n.t('login_locked', { minutes: 1 }));
+  assert.equal(ChatUIConnection.loginErrorMessage(new Error('Failed to fetch')), 'Failed to fetch');
 });

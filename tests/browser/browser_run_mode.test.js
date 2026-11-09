@@ -364,7 +364,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     assert.equal(JSON.parse(lastSavedMessages.at(-1).content).awaitingApproval, true);
   });
 
-  test('Browser UI - Ejecutar en servidor con perfil Z-*: switch, progreso en vivo, cambio de chat y reanudación de permisos y ask_user', async () => {
+  test('Browser UI - Ejecutar en servidor con perfil de servidor: switch, progreso en vivo, cambio de chat y reanudación de permisos y ask_user', async () => {
     const page = await browser.newPage();
     await seedConnectionProfiles(page);
     const savedConversations = new Map();
@@ -399,7 +399,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
       if (method === 'zerochat/profiles/list') {
         return reply({
           profiles: [{
-            id: 'general:z-server',
+            id: 'general:server',
             name: 'server',
             general: true,
             settings: { apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', model: 'server-model' }

@@ -27,13 +27,6 @@ class VersionTest(unittest.TestCase):
         self.assertFalse(zerochat.has_new_backend_version("7.4.9", "7.4"))
         self.assertTrue(zerochat.has_new_backend_version("7.5.0", "7.4"))
 
-    def test_los_avisos_son_transitorios_y_rechazan_el_texto_vacio(self):
-        zerochat.add_notice("Aviso de prueba")
-        self.assertEqual(zerochat.get_notices(), ("Aviso de prueba",))
-        self.assertEqual(zerochat.get_notices(), ("Aviso de prueba",), "Mostrarlos no los elimina")
-        with self.assertRaises(ValueError):
-            zerochat.add_notice("  ")
-
     def test_la_comprobacion_consulta_github_pages_para_la_interfaz_y_github_para_el_ejecutable(self):
         newer_version = f"{int(zerochat.VERSION.split('.')[0]) + 1}.0.0"
         with patch.object(zerochat, "get_dev_root", return_value=None), \

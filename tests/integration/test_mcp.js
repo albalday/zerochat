@@ -991,7 +991,7 @@ test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversatio
     // 1. startServerRun publica el estado 'running' y activa el temporizador rápido de 1 s (1000 ms)
     const started = await manager.startServerRun({
       conversationId: 'conv_srv_1',
-      profile: 'Z-Server',
+      profile: 'Server',
       toolSecurity: { globalMcpPolicy: 'ask' }
     });
     assert.equal(started.run_id, 'run_srv_1');

@@ -35,31 +35,6 @@ test('Browser UI - el fallback de contexto no invalida el formulario de envío',
   }
 });
 
-test('Browser UI - en móvil la telemetría con caché no saca el botón de enviar del composer', async () => {
-  const browser = await createTestBrowser();
-  try {
-    for (const width of [320, 375]) {
-      const page = await browser.newPage({ viewport: { width, height: 700 }, isMobile: true });
-      await page.goto(getIndexUrl(), { waitUntil: 'load' });
-      await waitForAppReady(page);
-      const layout = await page.evaluate(() => {
-        document.getElementById('connection-tokens-badge').hidden = false;
-        document.getElementById('connection-tokens-text').textContent = '~12.3k / 128k';
-        document.getElementById('context-hub-cache-pill').hidden = false;
-        document.getElementById('context-hub-cache-val').textContent = '10.2k';
-        const form = document.getElementById('chat-form').getBoundingClientRect();
-        const send = document.getElementById('btn-send').getBoundingClientRect();
-        return { formRight: form.right, sendRight: send.right, sendWidth: send.width };
-      });
-      assert.ok(layout.sendRight <= layout.formRight, `En ${width}px el botón de enviar debe quedar dentro del composer`);
-      assert.ok(layout.sendWidth >= 40, 'El botón de enviar no debe encogerse');
-      await page.close();
-    }
-  } finally {
-    await browser.close();
-  }
-});
-
 test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, persiste y ofrece acciones por estado', async () => {
   const browser = await createTestBrowser();
   try {

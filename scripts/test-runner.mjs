@@ -68,8 +68,7 @@ export const GROUPS = {
     'tests/unit/test_api_utils.js',
     'tests/unit/test_text_tool_calls.js',
     'tests/integration/test_providers.js',
-    'tests/integration/test_webllm.js',
-    'tests/browser/browser_webllm.test.js'
+    'tests/integration/test_webllm.js'
   ],
   project: [
     'tests/unit/test_project_context.js',

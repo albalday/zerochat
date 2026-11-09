@@ -32,40 +32,39 @@ class OpenBrowserTest(unittest.TestCase):
         self.assertIs(kwargs.get("start_new_session"), True)
         self.assertEqual((kwargs.get("stdout"), kwargs.get("stderr")), (subprocess.DEVNULL, subprocess.DEVNULL))
 
-    def test_termux_se_prioriza_aunque_haya_xdg_open(self):
-        popen = self.open_on("linux", {"TERMUX_VERSION": "0.118"}, which_in(TERMUX_BIN, "termux-open-url", "xdg-open"))
-        self.assert_detached(popen, ["termux-open-url", URL])
-
     def test_linux_de_escritorio_usa_xdg_open(self):
         popen = self.open_on("linux", {}, which_in("/usr/bin/", "xdg-open"))
         self.assert_detached(popen, ["xdg-open", URL])
 
-    def test_termux_se_detecta_por_prefix_sin_termux_version(self):
-        popen = self.open_on("linux", TERMUX_PREFIX, which_in(TERMUX_BIN, "termux-open-url", "xdg-open"))
-        self.assertEqual(popen.call_args.args[0], ["termux-open-url", URL])
+    def test_termux_lanzador_deteccion_y_comando(self):
+        cases = [
+            ("con_termux_version", "linux", {"TERMUX_VERSION": "0.118"}, which_in(TERMUX_BIN, "termux-open-url", "xdg-open"), ["termux-open-url", URL]),
+            ("con_prefix", "linux", TERMUX_PREFIX, which_in(TERMUX_BIN, "termux-open-url", "xdg-open"), ["termux-open-url", URL]),
+            ("con_platform_android", "android", {"TERMUX_VERSION": "0.118"}, lambda cmd: TERMUX_BIN + "termux-open-url", ["termux-open-url", URL]),
+        ]
+        for name, platform, env, which, expected_cmd in cases:
+            with self.subTest(name=name):
+                popen = self.open_on(platform, env, which)
+                self.assert_detached(popen, expected_cmd)
 
-    def test_termux_se_prioriza_aunque_python_se_identifique_como_android(self):
-        popen = self.open_on("android", {"TERMUX_VERSION": "0.118"}, lambda cmd: TERMUX_BIN + "termux-open-url")
-        self.assertEqual(popen.call_args.args[0], ["termux-open-url", URL])
+        with self.subTest("prefix_absoluto_sin_path"):
+            with patch.object(zerochat.Path, "is_file", return_value=True):
+                popen = self.open_on("linux", TERMUX_PREFIX, lambda cmd: None)
+            self.assertEqual(popen.call_args.args[0], [TERMUX_BIN + "termux-open-url", URL])
 
-    def test_termux_recibe_un_comando_manual_seguro_que_conserva_el_token(self):
-        url = "https://albalday.github.io/zerochat/zerochat.html#token=test-token&host=127.0.0.1&port=6388"
-        with patch.dict(os.environ, TERMUX_PREFIX, clear=True):
-            self.assertEqual(zerochat.get_manual_browser_command(url), f"termux-open-url '{url}'")
+        with self.subTest("comando_manual"):
+            url = "https://albalday.github.io/zerochat/zerochat.html#token=test-token&host=127.0.0.1&port=6388"
+            with patch.dict(os.environ, TERMUX_PREFIX, clear=True):
+                self.assertEqual(zerochat.get_manual_browser_command(url), f"termux-open-url '{url}'")
 
-    def test_termux_usa_la_ruta_absoluta_de_prefix_si_el_venv_no_hereda_path(self):
-        with patch.object(zerochat.Path, "is_file", return_value=True):
-            popen = self.open_on("linux", TERMUX_PREFIX, lambda cmd: None)
-        self.assertEqual(popen.call_args.args[0], [TERMUX_BIN + "termux-open-url", URL])
-
-    def test_termux_informa_del_fallo_de_lanzamiento_sin_probar_otro_lanzador(self):
-        with patch("subprocess.Popen", side_effect=PermissionError("permiso denegado")), \
-                patch("shutil.which", return_value=TERMUX_BIN + "termux-open-url"), \
-                patch.dict(os.environ, TERMUX_PREFIX, clear=True), patch.object(sys, "platform", "linux"), \
-                self.assertRaises(RuntimeError) as raised:
-            zerochat.open_browser(URL)
-        self.assertIn("permiso denegado", str(raised.exception))
-        self.assertIn("termux_detectado=True", str(raised.exception))
+        with self.subTest("fallo_no_reintenta"):
+            with patch("subprocess.Popen", side_effect=PermissionError("permiso denegado")), \
+                    patch("shutil.which", return_value=TERMUX_BIN + "termux-open-url"), \
+                    patch.dict(os.environ, TERMUX_PREFIX, clear=True), patch.object(sys, "platform", "linux"), \
+                    self.assertRaises(RuntimeError) as raised:
+                zerochat.open_browser(URL)
+            self.assertIn("permiso denegado", str(raised.exception))
+            self.assertIn("termux_detectado=True", str(raised.exception))
 
     def test_linux_sin_xdg_open_usa_gio(self):
         popen = self.open_on("linux", {}, which_in("/usr/bin/", "gio"))
@@ -120,7 +119,7 @@ class BrowserActionTest(unittest.TestCase):
 
     def test_playwright_chromium_executable_prefiere_headless_shell_y_valida_argumentos_de_prompt(self):
         use_data_dir(self)
-        zerochat.save_general_profile({"name": "Z-local", "settings": {"model": "local"}})
+        zerochat.save_general_profile({"name": "local", "settings": {"model": "local"}})
         cache = tempfile.TemporaryDirectory()
         self.addCleanup(cache.cleanup)
         full_bin = Path(cache.name) / "chromium-1200" / "chrome-linux64" / "chrome"
