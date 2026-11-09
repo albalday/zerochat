@@ -30,7 +30,6 @@ import json
 import math
 import os
 import queue
-import random
 import re
 import secrets
 import shutil
@@ -2299,7 +2298,7 @@ def chromium_install() -> tuple[str, Path] | None:
     return (executable, data_dir) if executable and os.path.isfile(executable) else None
 
 
-def playwright_launch_args(config: dict) -> list[str]:
+def playwright_launch_args(config: dict, user_agent: str | None = None) -> list[str]:
     """Argumentos de Playwright MCP para la configuración del navegador."""
     if config["mode"] == "user":
         # La extensión maneja el navegador abierto del usuario: siempre con ventana.
@@ -2321,6 +2320,9 @@ def playwright_launch_args(config: dict) -> list[str]:
         args.append(f"--user-data-dir={profile_dir}")
     else:
         args.append("--isolated")
+    # El motor propio usa el User-Agent de ZeroChat; en modo user lo pone el navegador del usuario.
+    if user_agent:
+        args.append(f"--user-agent={user_agent}")
     if config["headless"]:
         args.append("--headless")
     return args
@@ -2365,17 +2367,27 @@ def browser_choice(config: dict) -> dict:
     return {"mode": "user", "userBrowser": config["userBrowser"]}
 
 
-def _playwright_launch(browser: dict | None) -> tuple[list[str], dict[str, str], dict]:
+def _playwright_launch(browser: dict | None, user_agent: str | None = None) -> tuple[list[str], dict[str, str], dict]:
     """La configuración de Ajustes › Navegador con el modo y el navegador que exija el perfil activo."""
     config = load_browser_config()
     if browser is not None:
         config = {**config, **validate_profile_browser(browser)}
-    return playwright_launch_args(config), playwright_launch_env(config), browser_choice(config)
+    return playwright_launch_args(config, user_agent), playwright_launch_env(config), browser_choice(config)
+
+
+# User-Agent que usan los motores propios de Playwright; lo fija el servidor con el User-Agent
+# activo de las salidas web (ff-server) para que ambos compartan el mismo fingerprint.
+SERVICE_USER_AGENT: str | None = None
+
+
+def set_service_user_agent(user_agent: str | None) -> None:
+    global SERVICE_USER_AGENT
+    SERVICE_USER_AGENT = user_agent
 
 
 # Argumentos, entorno y navegador elegido que añade ZeroChat al arrancar un servicio gestionado,
 # calculados en cada arranque.
-SERVICE_LAUNCH = {"playwright": _playwright_launch}
+SERVICE_LAUNCH = {"playwright": lambda browser: _playwright_launch(browser, SERVICE_USER_AGENT)}
 
 
 # Motores propios de Playwright: cada uno se compone de las entradas de la caché que instala
@@ -4077,19 +4089,39 @@ METADATA_HOSTS = frozenset({
     "instance-data",
     "100.100.100.200",
 })
-DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+# El User-Agent activo se sustituye por el de la primera petición del frontend (variabilidad de
+# fingerprint); sin frontend (--prompt/--conversation) se queda el valor por defecto.
+ACTIVE_USER_AGENT = DEFAULT_USER_AGENT
+
+
+def capture_frontend_user_agent(user_agent: str) -> None:
+    """Adopta el User-Agent de la primera petición del frontend como User-Agent de las salidas web."""
+    global ACTIVE_USER_AGENT
+    if ACTIVE_USER_AGENT is DEFAULT_USER_AGENT and isinstance(user_agent, str) and user_agent.strip():
+        ACTIVE_USER_AGENT = user_agent.strip()
+        set_service_user_agent(ACTIVE_USER_AGENT)
+
+
+# Los motores propios de Playwright arrancan con el User-Agent por defecto hasta que el
+# frontend fija el suyo en la primera petición.
+set_service_user_agent(DEFAULT_USER_AGENT)
 WEB_FETCH_MAX_BYTES = 10 * 1024 * 1024
 WEB_FETCH_MAX_REDIRECTS = 5
 WEB_FETCH_READ_CHUNK = 64 * 1024
 TEXT_CONTENT_TYPE_RE = re.compile(
     r"^(text/|application/(json|xml|xhtml\+xml|javascript|x-javascript|ecmascript)$|[a-z]+/[^;]*\+(json|xml)$)"
 )
-# Control de cadencia entre peticiones consecutivas al mismo host (mitigación de retos anti-bot).
+# Control de cadencia frente a retos anti-bot: mínimo WEB_FETCH_MIN_GAP_S desde la RESPUESTA
+# anterior al mismo host; las peticiones en paralelo se escalonan de WEB_FETCH_PARALLEL_STAGGER_S
+# en WEB_FETCH_PARALLEL_STAGGER_S para que no coincidan. El timestamp se inicializa al arrancar
+# para que la primera petición espere aunque no se haya hecho ninguna antes.
 _WEB_FETCH_LOCK = threading.Lock()
-_LAST_WEB_FETCH_AT: dict[str, float] = {}
+_LAST_WEB_FETCH_AT: dict[str, float] = {"duckduckgo.com": time.monotonic()}
+_WEB_FETCH_PENDING: dict[str, int] = {}
 WEB_FETCH_HOST_PACING_DOMAINS = ("duckduckgo.com",)
-WEB_FETCH_MIN_DELAY_S = 0.6
-WEB_FETCH_MAX_DELAY_S = 1.2
+WEB_FETCH_MIN_GAP_S = 2.0
+WEB_FETCH_PARALLEL_STAGGER_S = 5.0
 
 
 
@@ -4174,27 +4206,44 @@ def fetch_web_resource(params: dict) -> dict:
     parsed = urllib.parse.urlsplit(url)
     hostname = (parsed.hostname or "").lower()
 
-    # Si se repite una consulta a un host sensible (ej. DuckDuckGo), aplicar un retardo mínimo aleatorio.
-    if any(hostname == domain or hostname.endswith("." + domain) for domain in WEB_FETCH_HOST_PACING_DOMAINS):
-        with _WEB_FETCH_LOCK:
-            now = time.monotonic()
-            last_call = _LAST_WEB_FETCH_AT.get(hostname, 0.0)
-            required_gap = random.uniform(WEB_FETCH_MIN_DELAY_S, WEB_FETCH_MAX_DELAY_S)
-            sleep_needed = max(0.0, (last_call + required_gap) - now)
-            _LAST_WEB_FETCH_AT[hostname] = now + sleep_needed
+    # Hosts sensibles (ej. DuckDuckGo): esperar al menos WEB_FETCH_MIN_GAP_S desde la respuesta
+    # anterior y escalar las peticiones en paralelo de a WEB_FETCH_PARALLEL_STAGGER_S.
+    pacing_domain = next(
+        (domain for domain in WEB_FETCH_HOST_PACING_DOMAINS if hostname == domain or hostname.endswith("." + domain)),
+        None,
+    )
+    if pacing_domain is None:
+        return _fetch_web_resource_unpaced(url, params, hostname, parsed)
+
+    with _WEB_FETCH_LOCK:
+        pending = _WEB_FETCH_PENDING.get(pacing_domain, 0)
+        gap = time.monotonic() - _LAST_WEB_FETCH_AT.get(pacing_domain, 0.0)
+        sleep_needed = max(0.0, WEB_FETCH_MIN_GAP_S - gap) + WEB_FETCH_PARALLEL_STAGGER_S * pending
+        _WEB_FETCH_PENDING[pacing_domain] = pending + 1
+    try:
         if sleep_needed > 0:
             time.sleep(sleep_needed)
+        return _fetch_web_resource_unpaced(url, params, hostname, parsed)
+    finally:
+        # El timestamp marca la respuesta (o el intento) terminado: la próxima petición
+        # cuenta los 2 s desde aquí.
+        with _WEB_FETCH_LOCK:
+            _LAST_WEB_FETCH_AT[pacing_domain] = time.monotonic()
+            _WEB_FETCH_PENDING[pacing_domain] = max(0, _WEB_FETCH_PENDING[pacing_domain] - 1)
 
+
+def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed) -> dict:
+    """Cuerpo de fetch_web_resource sin cadencia: cabeceras, descarga y respuesta."""
     timeout_s = max(0.5, min(float(params.get("timeout_s", 10.0)), 30.0))
     max_bytes = max(1024, min(int(params.get("max_bytes", 2 * 1024 * 1024)), WEB_FETCH_MAX_BYTES))
     as_binary = bool(params.get("binary", False))
     accept = params.get("accept")
     req_headers = {
-        "User-Agent": DEFAULT_USER_AGENT,
+        "User-Agent": ACTIVE_USER_AGENT,
         "Accept": accept if isinstance(accept, str) and accept else "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
         "Accept-Encoding": "gzip, deflate",
-        "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="131", "Google Chrome";v="131"',
         "Sec-Ch-Ua-Mobile": "?0",
         "Sec-Ch-Ua-Platform": '"Windows"',
         "Sec-Fetch-Dest": "document",
@@ -4890,6 +4939,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_res(403, safe_path, (time.monotonic() - t0) * 1000, f"Origen no permitido: '{origin}'")
             return
 
+        capture_frontend_user_agent(self.headers.get("User-Agent", ""))
         mark_browser_active()
         if not self.verify_token():
             # Sin token válido solo cabe identificarse para obtenerlo.

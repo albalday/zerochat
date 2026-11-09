@@ -62,7 +62,9 @@ class PlaywrightLaunchTest(unittest.TestCase):
         return constructor.call_args.args[1][1:]
 
     def own_args(self, engine, storage=None):
-        return [f"--browser={engine}", f"--user-data-dir={self.own / engine / storage}" if storage else "--isolated"]
+        # El motor propio arranca con el User-Agent activo de las salidas web (ff-server).
+        return [f"--browser={engine}", f"--user-data-dir={self.own / engine / storage}" if storage else "--isolated",
+                f"--user-agent={zerochat.SERVICE_USER_AGENT}"]
 
     def test_sin_configuracion_valida_se_usa_el_navegador_propio_aislado_sin_ventana(self):
         default_args = [*self.own_args("chromium"), "--headless"]
@@ -71,6 +73,26 @@ class PlaywrightLaunchTest(unittest.TestCase):
         self.assertEqual(self.launch_args("{roto"), default_args)
         self.assertEqual(self.launch_args({"mode": "own", "engine": "opera"}), default_args)
         self.assertEqual(self.launch_args({"mode": "own", "engine": "firefox", "headless": False}), self.own_args("firefox"))
+
+    def test_el_user_agent_solo_aplica_a_los_motores_propios(self):
+        """--user-agent viaja con los motores propios; el navegador del usuario pone el suyo."""
+        original = zerochat.SERVICE_USER_AGENT
+        try:
+            zerochat.set_service_user_agent("Mozilla/5.0 (FrontendTest/1.0)")
+            self.assertEqual(zerochat.SERVICE_USER_AGENT, "Mozilla/5.0 (FrontendTest/1.0)")
+            self.assertEqual(
+                zerochat.playwright_launch_args({**zerochat.BROWSER_CONFIG_DEFAULTS, "mode": "own", "engine": "firefox"},
+                                                 zerochat.SERVICE_USER_AGENT),
+                ["--browser=firefox", "--isolated", "--user-agent=Mozilla/5.0 (FrontendTest/1.0)", "--headless"])
+            # Modo user: sin --user-agent.
+            self.assertEqual(zerochat.playwright_launch_args({"mode": "user", "userBrowser": "msedge"},
+                                                             zerochat.SERVICE_USER_AGENT),
+                             ["--extension", "--browser=msedge"])
+            # Sin User-Agent: sin la bandera.
+            self.assertEqual(zerochat.playwright_launch_args({**zerochat.BROWSER_CONFIG_DEFAULTS, "mode": "own", "engine": "firefox"}, None),
+                             ["--browser=firefox", "--isolated", "--headless"])
+        finally:
+            zerochat.set_service_user_agent(original)
 
     def test_con_el_navegador_del_usuario_manda_la_extension_y_siempre_hay_ventana(self):
         self.assertEqual(self.launch_args({"mode": "user", "userBrowser": "msedge", "headless": True}), ["--extension", "--browser=msedge"])
