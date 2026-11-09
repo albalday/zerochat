@@ -392,15 +392,43 @@ ${TASK_SCRIPT_TEMPLATE}\`\`\``;
 
   function buildCompactPrompt(cwd) {
     return `Perform project memory housekeeping for the repository at ${cwd}.
-Work in this order:
-1. Inspect without modifying anything: ${PLAN_FILE}, ${LOG_FILE}, ${ARCHIVE_DIR}/, and ${STATE_FILE}.
-2. Check how many closed milestones exist in ${PLAN_FILE} and how many decisions exist in ${LOG_FILE}.
-3. Propose the following optimizations with exact text and wait for explicit user approval before modifying any files (use the ask_user tool when available):
-   - In ${PLAN_FILE}: Keep only the last 3 to 5 closed milestone headers (and any active/pending milestones). Condense earlier closed milestones into a single comment line: \`<!-- Hitos M1 a M<last_archived> archivados en ${ARCHIVE_DIR}/ -->\`.
-   - In ${LOG_FILE}: If there are decisions from older closed milestones (prior to the last 5-10 milestones), rotate them into \`${ARCHIVE_DIR}/log_M1-M<last_archived>.md\` and keep only the recent decisions in ${LOG_FILE}.
-   - In ${STATE_FILE}: Ensure it is concise, strictly reflects the current active milestone and next task, and stays well under 30 lines.
-4. After approval, apply the changes using ${WRITE_TOOL} or edit tools.
-5. Report the result with line counts and file sizes before and after compaction.`;
+Follow these strict phases in order:
+
+PHASE 1 - READ-ONLY INSPECTION:
+Read and inspect without modifying anything: ${PLAN_FILE}, ${LOG_FILE}, ${ARCHIVE_DIR}/, and ${STATE_FILE}. Count the closed milestones and all recorded decisions.
+
+PHASE 2 - QUALITATIVE ANALYSIS & SELECTION:
+Do not perform a blind chronological cut. Evaluate relevance, validity, and architectural impact:
+1. In ${PLAN_FILE}:
+   - Keep active/pending milestones and the last 2 to 3 closed milestone headers intact.
+   - Condense earlier closed milestones into a single comment line: \`<!-- Hitos M1 a M<last_archived> archivados en ${ARCHIVE_DIR}/ -->\`.
+2. In ${LOG_FILE} and ${ARCHIVE_DIR}/:
+   - Full historical preservation: Archive all decisions from the condensed milestones (M1 to M<last_archived>) verbatim into \`${ARCHIVE_DIR}/log_M1-M<last_archived>.md\`. Nothing is permanently lost.
+   - Curate the active ${LOG_FILE} qualitatively:
+     * Active architectural pillars: Retain decisions that define current architecture, security rules, data contracts, or core design patterns that remain strictly in force, even if they originated in older milestones.
+     * Superseded/obsolete decisions: Identify decisions that were revised, contradicted, or replaced by later decisions. Explicitly note which newer decision superseded them, and exclude them from the active log.
+     * Trivial/routine decisions: Exclude implementation minutiae or decisions already codified in code, tests, or ${RULES_FILE} from the active log (they remain preserved in the archive).
+3. In ${STATE_FILE}:
+   - Verify that it strictly reflects the current active milestone and next task, staying well under 30 lines.
+
+PHASE 3 - DETAILED PRESENTATION & MANDATORY USER APPROVAL (CRITICAL):
+DO NOT modify, write, or touch any files in this turn! It is strictly prohibited to call ${WRITE_TOOL}, edit tools, or modification commands before user approval.
+Present a comprehensive, transparent proposal to the user in this turn:
+- The exact condensation comment and list of closed milestone headers to condense in ${PLAN_FILE}.
+- The archive file path (\`${ARCHIVE_DIR}/log_M1-M<last_archived>.md\`) and total decisions being archived.
+- The itemized classification of decisions for active ${LOG_FILE}:
+  * Kept decisions (with their ID, text, and why they remain active architectural pillars).
+  * Removed superseded decisions (with the reason and which later decision replaced them).
+  * Omitted routine/trivial decisions (noting that they are safely stored in the archive).
+- The exact proposed final text for ${LOG_FILE}.
+- Any proposed adjustments for ${STATE_FILE}.
+Stop and wait for explicit user approval before modifying any files (using the ask_user tool if available, or by ending your turn so the user can review and approve in chat).
+
+PHASE 4 - APPLY CHANGES (ONLY AFTER APPROVAL):
+In the next turn, once the user gives explicit confirmation:
+1. Write the archive file \`${ARCHIVE_DIR}/log_M1-M<last_archived>.md\`.
+2. Update ${LOG_FILE}, ${PLAN_FILE}, and ${STATE_FILE} with the approved contents.
+3. Report final line counts and byte sizes before and after compaction.`;
   }
 
   /**
