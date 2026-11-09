@@ -93,7 +93,7 @@ def chromium_install() -> tuple[str, Path] | None:
     return (executable, data_dir) if executable and os.path.isfile(executable) else None
 
 
-def playwright_launch_args(config: dict) -> list[str]:
+def playwright_launch_args(config: dict, user_agent: str | None = None) -> list[str]:
     """Argumentos de Playwright MCP para la configuración del navegador."""
     if config["mode"] == "user":
         # La extensión maneja el navegador abierto del usuario: siempre con ventana.
@@ -115,6 +115,9 @@ def playwright_launch_args(config: dict) -> list[str]:
         args.append(f"--user-data-dir={profile_dir}")
     else:
         args.append("--isolated")
+    # El motor propio usa el User-Agent de ZeroChat; en modo user lo pone el navegador del usuario.
+    if user_agent:
+        args.append(f"--user-agent={user_agent}")
     if config["headless"]:
         args.append("--headless")
     return args
@@ -159,17 +162,27 @@ def browser_choice(config: dict) -> dict:
     return {"mode": "user", "userBrowser": config["userBrowser"]}
 
 
-def _playwright_launch(browser: dict | None) -> tuple[list[str], dict[str, str], dict]:
+def _playwright_launch(browser: dict | None, user_agent: str | None = None) -> tuple[list[str], dict[str, str], dict]:
     """La configuración de Ajustes › Navegador con el modo y el navegador que exija el perfil activo."""
     config = load_browser_config()
     if browser is not None:
         config = {**config, **validate_profile_browser(browser)}
-    return playwright_launch_args(config), playwright_launch_env(config), browser_choice(config)
+    return playwright_launch_args(config, user_agent), playwright_launch_env(config), browser_choice(config)
+
+
+# User-Agent que usan los motores propios de Playwright; lo fija el servidor con el User-Agent
+# activo de las salidas web (ff-server) para que ambos compartan el mismo fingerprint.
+SERVICE_USER_AGENT: str | None = None
+
+
+def set_service_user_agent(user_agent: str | None) -> None:
+    global SERVICE_USER_AGENT
+    SERVICE_USER_AGENT = user_agent
 
 
 # Argumentos, entorno y navegador elegido que añade ZeroChat al arrancar un servicio gestionado,
 # calculados en cada arranque.
-SERVICE_LAUNCH = {"playwright": _playwright_launch}
+SERVICE_LAUNCH = {"playwright": lambda browser: _playwright_launch(browser, SERVICE_USER_AGENT)}
 
 
 # Motores propios de Playwright: cada uno se compone de las entradas de la caché que instala
