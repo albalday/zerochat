@@ -30,7 +30,7 @@
     const triggerChange = () => {
       updateViewportHeight();
       updateScrollbarWidth(elements.messagesList);
-      onViewportChange();
+      if (typeof onViewportChange === 'function') onViewportChange();
     };
     updateViewportHeight();
     updateScrollbarWidth(elements.messagesList);

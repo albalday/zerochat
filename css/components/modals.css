@@ -1131,6 +1131,35 @@ input.form-input:focus-visible,
 }
 
 /* ==========================================================================
+   Panel de Razonamiento y Proyecto (<dialog class="settings-modal reasoning-modal">)
+   ========================================================================== */
+.reasoning-modal {
+  max-width: 420px;
+  width: min(420px, 94vw);
+}
+
+.reasoning-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.reasoning-modal-body {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.reasoning-modal-footer {
+  padding: 0.5rem 0.85rem;
+  border-top: 1px solid var(--border-color);
+  background-color: var(--bg-surface-subtle);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* ==========================================================================
    Conocimiento local (IndexedDB + Orama)
    ========================================================================== */
 
@@ -1477,6 +1506,11 @@ input.form-input:focus-visible,
     flex: 1;
     max-height: none;
     padding: 1rem;
+  }
+
+  .reasoning-modal-body {
+    flex: 1;
+    overflow-y: auto;
   }
 
   .debug-interceptor-modal {

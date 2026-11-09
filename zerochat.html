@@ -23,7 +23,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#0d1117">
   <meta name="description" content="ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación">
-  <title>ZeroChat v10.4.0</title>
+  <title>ZeroChat v10.4.1</title>
   <link rel="manifest" href="manifest.webmanifest">
   <!-- Carga concurrente paralela de hojas de estilo (elimina la cascada bloqueante de @import en móvil) -->
   <link rel="stylesheet" href="css/tokens.css">
@@ -356,7 +356,7 @@
         <a id="welcome-help-link" class="welcome-status-badge welcome-help-link" href="help/index.html" target="_blank" rel="noopener noreferrer" data-i18n-title="welcome_help_title" data-i18n-href="welcome_help_href" title="Abrir centro de ayuda y documentación online">
           <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg>
           <span data-i18n="welcome_help_link">Ayuda y Documentación</span>
-          <span id="welcome-version" class="welcome-version">(v10.4.0)</span>
+          <span id="welcome-version" class="welcome-version">(v10.4.1)</span>
           <svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-external-link"></use></svg>
         </a>
       </div>
@@ -404,26 +404,12 @@
 
             <!-- Control de Nivel de Razonamiento (Thinking) -->
             <div class="reasoning-control-wrapper">
-              <button type="button" id="btn-reasoning" class="btn-composer-chip btn-reasoning" aria-haspopup="dialog" aria-expanded="false" aria-labelledby="reasoning-button-name reasoning-label reasoning-project-label" title="Nivel de esfuerzo de razonamiento (Medio por defecto)">
+              <button type="button" id="btn-reasoning" class="btn-composer-chip btn-reasoning" aria-haspopup="dialog" aria-expanded="false" aria-controls="reasoning-modal" aria-labelledby="reasoning-button-name reasoning-label reasoning-project-label" title="Nivel de esfuerzo de razonamiento (Medio por defecto)">
                 <svg class="ui-icon reasoning-gauge" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 15a8 8 0 0 1 16 0"></path><path d="M6.5 15h11"></path><g id="reasoning-gauge-needle"><path d="M12 15 12 7"></path><circle cx="12" cy="15" r="1.2" fill="currentColor" stroke="none"></circle></g></svg>
                 <span id="reasoning-button-name" class="composer-visually-hidden" data-i18n="reasoning_menu_title">Nivel de Razonamiento</span>
                 <span id="reasoning-label" class="reasoning-label">None</span>
                 <span id="reasoning-project-label" class="composer-visually-hidden"></span>
               </button>
-
-              <!-- Panel de intensidad de razonamiento -->
-              <div id="reasoning-menu" class="reasoning-menu" role="dialog" aria-modal="false" aria-labelledby="reasoning-menu-title" hidden>
-                <div class="reasoning-menu-header">
-                  <span id="reasoning-menu-title" class="reasoning-menu-title-wrapper"><svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-brain"></use></svg><span data-i18n="reasoning_menu_title">Nivel de Razonamiento</span></span>
-                  <button type="button" id="btn-close-reasoning" class="btn-reasoning-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar"><svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg></button>
-                </div>
-                <div class="reasoning-intensity-control">
-                  <div class="reasoning-intensity-heading"><span data-i18n="reasoning_intensity_title">Intensidad</span><output id="reasoning-intensity-value" for="reasoning-intensity" aria-live="polite">Ninguno</output></div>
-                  <input id="reasoning-intensity" class="reasoning-intensity-slider" type="range" min="0" max="4" step="1" value="0" data-i18n-aria="reasoning_intensity_aria" aria-label="Intensidad de razonamiento">
-                  <div class="reasoning-intensity-scale" aria-hidden="true"><span data-i18n="reasoning_intensity_none">Ninguno</span><span data-i18n="reasoning_intensity_max">Máximo</span></div>
-                </div>
-                <div id="project-mode-panel" class="reasoning-menu-footer"></div>
-              </div>
             </div>
 
             <!-- Botón de gestión de conocimiento RAG (movido desde el header) -->
@@ -652,6 +638,29 @@
         <p id="profile-subview-hint" class="header-profile-subview-hint"></p>
         <div id="server-profile-list" class="header-profile-list" role="menu"></div>
       </div>
+    </div>
+  </dialog>
+  <dialog id="reasoning-modal" class="settings-modal reasoning-modal" closedby="any" hidden aria-labelledby="reasoning-modal-title">
+    <div class="modal-header settings-section-header">
+      <div class="modal-title">
+        <h3 id="reasoning-modal-title" class="reasoning-modal-title">
+          <svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-brain"></use></svg>
+          <span data-i18n="reasoning_menu_title">Nivel de Razonamiento</span>
+        </h3>
+      </div>
+      <div class="settings-header-actions">
+        <button type="button" id="btn-close-reasoning" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal">
+          <svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
+        </button>
+      </div>
+    </div>
+    <div class="modal-body reasoning-modal-body">
+      <div class="reasoning-intensity-control">
+        <div class="reasoning-intensity-heading"><span data-i18n="reasoning_intensity_title">Intensidad</span><output id="reasoning-intensity-value" for="reasoning-intensity" aria-live="polite">Ninguno</output></div>
+        <input id="reasoning-intensity" class="reasoning-intensity-slider" type="range" min="0" max="4" step="1" value="0" data-i18n-aria="reasoning_intensity_aria" aria-label="Intensidad de razonamiento">
+        <div class="reasoning-intensity-scale" aria-hidden="true"><span data-i18n="reasoning_intensity_none">Ninguno</span><span data-i18n="reasoning_intensity_max">Máximo</span></div>
+      </div>
+      <div id="project-mode-panel" class="reasoning-modal-footer"></div>
     </div>
   </dialog>
   <dialog id="inspector-dialog" class="settings-modal" closedby="any" aria-labelledby="inspector-dialog-title">

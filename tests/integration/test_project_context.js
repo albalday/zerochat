@@ -320,3 +320,55 @@ test('ProjectContext.changeDirectory - sin servidor local o generando no pregunt
   assert.deepEqual(await busy.context.changeDirectory({ askPath, isBusy: () => true }), { ok: false, reason: 'unavailable' });
   await assert.rejects(() => busy.context.changeDirectory({}), TypeError);
 });
+
+test('ProjectContext.compact - lanza el prompt tras confirmación y conversación nueva si procede', async () => {
+  const { state, context } = createHarness();
+  state.setProjectContext({ status: 'ready', cwd: '/repo' });
+  assert.equal(context.canCompact(), true);
+
+  const confirmations = [];
+  const prompts = [];
+  let conversationStarted = false;
+  const result = await context.compact({
+    askConfirmation: details => { confirmations.push(details); return true; },
+    startConversation: () => { conversationStarted = true; },
+    sendPrompt: prompt => { prompts.push(prompt); }
+  });
+
+  assert.deepEqual(result, { ok: true });
+  assert.equal(confirmations.length, 1);
+  assert.deepEqual(confirmations[0], { cwd: '/repo', name: 'repo' });
+  assert.equal(conversationStarted, true);
+  assert.equal(prompts.length, 1);
+  assert.match(prompts[0], /Perform project memory housekeeping/);
+});
+
+test('ProjectContext.compact - cancelar o cambio de estado no envía el prompt', async () => {
+  const { state, context } = createHarness();
+  state.setProjectContext({ status: 'ready', cwd: '/repo' });
+
+  const cancelled = await context.compact({
+    askConfirmation: () => false,
+    sendPrompt: () => { throw new Error('no debe enviar'); }
+  });
+  assert.deepEqual(cancelled, { ok: false, reason: 'cancelled' });
+
+  let busy = false;
+  const stateChanged = await context.compact({
+    askConfirmation: () => { busy = true; return true; },
+    isBusy: () => busy,
+    sendPrompt: () => { throw new Error('no debe enviar'); }
+  });
+  assert.deepEqual(stateChanged, { ok: false, reason: 'state-changed' });
+});
+
+test('ProjectContext.compact - fuera de ready o sin herramientas de escritura queda unavailable', async () => {
+  const { state, context } = createHarness({ writeTool: false });
+  state.setProjectContext({ status: 'ready', cwd: '/repo' });
+  assert.equal(context.canCompact(), false);
+  assert.deepEqual(await context.compact({ askConfirmation: () => true, sendPrompt: () => {} }), { ok: false, reason: 'unavailable' });
+
+  const notReady = createHarness();
+  notReady.state.setProjectContext({ status: 'missing', cwd: '/repo' });
+  assert.deepEqual(await notReady.context.compact({ askConfirmation: () => true, sendPrompt: () => {} }), { ok: false, reason: 'unavailable' });
+});

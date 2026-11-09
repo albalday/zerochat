@@ -60,16 +60,7 @@
   box-shadow: var(--shadow-composer), 0 0 0 2px var(--primary-soft-hover);
 }
 
-[data-theme="dark"] .reasoning-menu {
-  border-color: var(--border-color);
-}
-
-[data-theme="dark"] .reasoning-menu-header {
-  background-color: var(--bg-app);
-  border-color: var(--border-color);
-}
-
-[data-theme="dark"] .reasoning-menu-footer {
+[data-theme="dark"] .reasoning-modal-footer {
   background-color: var(--bg-app);
   border-color: var(--border-color);
 }
@@ -245,10 +236,6 @@
 /* Chevron icons en settings */
 [data-theme="dark"] .settings-item-chevron {
   color: var(--text-muted);
-}
-
-[data-theme="dark"] .btn-reasoning-close:hover {
-  background-color: var(--overlay-hover);
 }
 
 /* Botón de envío del compositor */

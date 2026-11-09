@@ -76,6 +76,16 @@ test('ProjectContext.buildBootstrapPrompt - interpola cwd y plantillas, y exige 
   }
 });
 
+test('ProjectContext.buildCompactPrompt - genera instrucciones de condensación de hitos y rotación de log', () => {
+  const prompt = ProjectContext.buildCompactPrompt('/home/u/repo');
+  assert.match(prompt, /repository at \/home\/u\/repo/);
+  assert.match(prompt, /\.zerochat\/plan\.md/);
+  assert.match(prompt, /\.zerochat\/log\.md/);
+  assert.match(prompt, /\.zerochat\/archive\//);
+  assert.match(prompt, /<!-- Hitos M1 a M<last_archived> archivados en \.zerochat\/archive\/ -->/);
+  assert.match(prompt, /wait for explicit user approval before modifying any files/);
+});
+
 test('ProjectContext - TASK_SCRIPT_TEMPLATE mantiene paridad exacta con .zerochat/task.py', () => {
   const diskPath = path.resolve(__dirname, '../../.zerochat/task.py');
   const diskContent = fs.readFileSync(diskPath, 'utf-8').trim();
