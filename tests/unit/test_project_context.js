@@ -84,6 +84,9 @@ test('ProjectContext.buildCompactPrompt - genera instrucciones de condensación 
   assert.match(prompt, /\.zerochat\/archive\//);
   assert.match(prompt, /<!-- Hitos M1 a M<last_archived> archivados en \.zerochat\/archive\/ -->/);
   assert.match(prompt, /wait for explicit user approval before modifying any files/);
+  assert.match(prompt, /Active architectural pillars/);
+  assert.match(prompt, /Superseded\/obsolete decisions/);
+  assert.match(prompt, /DO NOT modify, write, or touch any files in this turn/);
 });
 
 test('ProjectContext - TASK_SCRIPT_TEMPLATE mantiene paridad exacta con .zerochat/task.py', () => {
