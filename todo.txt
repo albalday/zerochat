@@ -17,6 +17,4 @@ ejecutar en servidor. posicion boton y quitar primera opcion basta con la x
 
 pasar permisos a backend, sandbox?
 
-search fallida no deberia tomarse por error
-
 
