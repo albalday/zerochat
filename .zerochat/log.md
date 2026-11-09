@@ -50,3 +50,4 @@
 - 2026-11-09 M55-D1 Al abrir el panel de selección de perfiles con el modo de ejecución con servidor activo se muestra directamente la vista de perfiles del servidor (run); para gestionar (editar/borrar) se vuelve a la vista local desde el botón de volver (M55-T2)
 - 2026-11-09 M55-D2 DEFAULT_USER_AGENT actualizado a Chrome 131, adopción del User-Agent de la primera petición del frontend en ACTIVE_USER_AGENT y propagación a SERVICE_USER_AGENT para motores propios de Playwright (M55-T4)
 - 2026-11-09 M55-D3 Cadencia de DuckDuckGo por fin de respuesta con espera mínima de 2 s, timestamp inicializado al arrancar y escalonado de 5 s en peticiones paralelas (M55-T5)
+- 2026-11-09 M55-D4 Módulo dd-diff.py en backend para generar diffs nativos de Git en HTML autocontenido y texto unificado para apertura en pestaña del navegador, sin ejecutables en .zerochat ni dependencia de visores gráficos (M55-T6)

@@ -24,6 +24,7 @@ import functools
 import getpass
 import hashlib
 import hmac
+import html
 import importlib.metadata
 import ipaddress
 import json

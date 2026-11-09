@@ -9,8 +9,6 @@ uso de subagentes de servidor
 
 normalizacion nombres de perfiles del sistema y sus usos
 
-diff remoto
-
 multiusuario 
 
 ejecutar en servidor. posicion boton y quitar primera opcion basta con la x
