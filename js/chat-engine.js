@@ -348,19 +348,19 @@
         },
         onChunk: (text, delta, stats, turnIndex) => {
           turnBlocks.get(turnIndex).render(text, { streaming: true });
-          if (stats) onStats(stats);
+          if (stats) onStats?.(stats);
           view.scrollToBottom();
           onProgress?.({ kind: 'stream', text: `step ${turnIndex + 1}: ${text.length} characters`, assistant_text: text });
         },
         onReasoningChunk: (chunk, accumulated, turnIndex) => {
-          onReasoningChunk(chunk);
+          onReasoningChunk?.(chunk);
           onProgress?.({ kind: 'stream', text: `step ${(turnIndex != null ? turnIndex + 1 : 1)}: reasoning`, reasoning_text: accumulated || chunk });
         },
         onLog: logData => {
-          if (logData.type !== 'thinking') onLog(logData.type, logData.text);
+          if (logData?.type !== 'thinking') onLog?.(logData?.type, logData?.text);
         },
         onToolStart: toolCall => {
-          onGenerationStatus({ phase: 'tool', text: I18n.t('generation_status_tool', { name: toolCall.function.name }) });
+          onGenerationStatus?.({ phase: 'tool', text: I18n.t('generation_status_tool', { name: toolCall.function.name }) });
         },
         onToolComplete: (toolCall, execution, _content, turnIndex) => {
           if (execution?.markdownBlock) getTurnMarkdown(turnIndex).toolBlocks.push(execution.markdownBlock);
@@ -382,8 +382,8 @@
           view.scrollToBottom();
         },
         onLoopDetected: () => {
-          onGenerationStatus({ phase: 'error', text: I18n.t('generation_status_loop_detected') });
-          onLog('error', '[Loop protection]: tools were called repeatedly with the same arguments. Stopping the agent loop.');
+          onGenerationStatus?.({ phase: 'error', text: I18n.t('generation_status_loop_detected') });
+          onLog?.('error', '[Loop protection]: tools were called repeatedly with the same arguments. Stopping the agent loop.');
         },
         onDone: finalText => {
           const block = turnBlocks.get(Math.max(...turnBlocks.keys(), 0));
