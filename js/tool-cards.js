@@ -561,7 +561,7 @@
       (card.querySelector('.tool-card-collapsible-body') || cardEl).prepend(authPromptEl);
     }
 
-    const ruleOffer = getToolSecurity().getRuleOffer(toolName, options.args || {}, options);
+    const ruleOffer = options.ruleOffer || getToolSecurity().getRuleOffer(toolName, options.args || {}, options);
     let contextualButtonsHtml = '';
     if (ruleOffer?.type === 'command') {
       // Con "cd <dir> && git status" se ofrece autorizar git, no cd.

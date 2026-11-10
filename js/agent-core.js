@@ -355,12 +355,68 @@
         }
         if (context.signal?.aborted) throw new Error('Tool execution cancelled by the user.');
 
-        const result = await tool.execute(args, {
+        let result = await tool.execute(args, {
           ...context,
           language: context.language || 'es',
           services: createToolServices(),
-          toolAuthorization: true
+          challengeId: context.challengeId
         });
+
+        if (result?.requiresAuthorization) {
+          if (typeof context.requestToolAuthorization !== 'function') {
+            return failure('The tool requires explicit user authorization.', { ...base, requiresAuthorization: true, challengeId: result.challengeId });
+          }
+          const decision = await context.requestToolAuthorization(toolCall, {
+            args: result.arguments || args,
+            serverName: result.serverName || '',
+            serverId: result.serverId || '',
+            toolName: result.toolName || tool.name,
+            challengeId: result.challengeId,
+            ruleOffer: result.ruleOffer,
+            details: result.details,
+            signal: context.signal
+          });
+          const decisionType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;
+          if (context.signal?.aborted) return failure('Tool execution cancelled.', base);
+          if (decisionType === 'pause_for_user') {
+            return failure('Execution paused waiting for user authorization.', {
+              ...base,
+              awaitingApproval: true,
+              challengeId: result.challengeId,
+              endTurn: true,
+              result: { endTurn: true, awaitingApproval: true, challengeId: result.challengeId }
+            });
+          }
+          const security = getToolSecurity().manager;
+          if (decisionType === 'deny') {
+            if (security.mcpClient) {
+              await security.authorizeChallenge(result.challengeId, 'deny').catch(() => {});
+            }
+            return failure('Execution denied by the user.', base);
+          }
+          if (security.mcpClient) {
+            const authRes = await security.authorizeChallenge(result.challengeId, decision, { execute: true }).catch(err => ({ error: err.message }));
+            if (authRes?.error || !authRes?.authorized) {
+              return failure(authRes?.error || 'Challenge authorization failed.', base);
+            }
+            const rawRes = authRes.result;
+            let textOutput = '';
+            if (Array.isArray(rawRes?.content)) {
+              textOutput = rawRes.content.map(item => item.text || (item.type === 'image' ? '[Embedded image]' : JSON.stringify(item))).join('\n\n').trim();
+            } else if (typeof rawRes === 'string') {
+              textOutput = rawRes;
+            } else if (rawRes) {
+              textOutput = JSON.stringify(rawRes, null, 2);
+            }
+            const isError = rawRes?.isError === true;
+            result = {
+              success: !isError,
+              isError,
+              content: textOutput,
+              rawResult: rawRes
+            };
+          }
+        }
         return { ...base, success: result?.success !== false, toolName: tool.name, result, error: result?.error, executionTimeMs: elapsed() };
       } catch (err) {
         return failure(err.message || String(err), { ...base, executionTimeMs: elapsed() });

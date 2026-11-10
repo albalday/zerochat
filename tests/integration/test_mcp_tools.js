@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const AgentCore = require('../../js/agent-core.js');
 const MCP = require('../../js/mcp.js');
 const ChatState = require('../../js/state.js');
+const ToolSecurity = require('../../js/tool-security.js');
 
 test('MCP Tools - Contrato declarativo y descubrimiento de herramientas nativas del sistema', async () => {
   const originalFetch = global.fetch;
@@ -210,5 +211,100 @@ test('MCP Tools - run_command del servidor local envía la clave de la invocaci�
     assert.equal(calls.some(call => call.method === 'zerochat/jobs/stop'), false);
   } finally {
     global.fetch = originalFetch;
+  }
+});
+
+test('MCP Tools - respuesta a retos de autorización mediante executeToolCall y resolución interactiva', async () => {
+  const originalFetch = global.fetch;
+  const calls = [];
+  try {
+    global.fetch = async (url, options) => {
+      const body = JSON.parse(options.body || '{}');
+      calls.push(body);
+      const reply = result => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ jsonrpc: '2.0', id: body.id, result })
+      });
+      if (body.method === 'tools/call') {
+        return reply({
+          requiresAuthorization: true,
+          challengeId: 'ch-challenge-99',
+          toolName: 'run_command',
+          serverName: 'mcp-proxy',
+          arguments: { command: 'git status' },
+          ruleOffer: { type: 'command', command: 'git' },
+          content: [{ type: 'text', text: 'Esta herramienta requiere autorización del usuario.' }]
+        });
+      }
+      if (body.method === 'zerochat/security/authorize') {
+        return reply({
+          authorized: true,
+          challengeId: body.params.challengeId,
+          result: {
+            content: [{ type: 'text', text: 'On branch dev\nnothing to commit' }],
+            isError: false
+          }
+        });
+      }
+      if (body.method === 'zerochat/security/get') {
+        return reply({
+          policies: {
+            globalMcpPolicy: 'ask',
+            directoryRules: ['R:.'],
+            tools: {},
+            servers: {}
+          }
+        });
+      }
+      return { ok: false, status: 404 };
+    };
+
+    const client = new MCP.McpClient({ id: 'mcp_proxy', name: 'mcp-proxy', url: 'http://127.0.0.1:6388' });
+    ToolSecurity.manager.setMcpClient(client);
+
+    const registry = new AgentCore.ToolRegistry();
+    const executor = new AgentCore.ToolExecutor(registry);
+    registry.registerTool(new AgentCore.Tool({
+      definition: { name: 'run_command', description: 'Run command' },
+      category: 'mcp',
+      metadata: { mcpServerId: 'mcp_proxy', mcpServerName: 'mcp-proxy' },
+      execute: async (args, ctx) => client.callTool('run_command', args, ctx),
+      result: {
+        toModel: (args, res) => res.content || '',
+        toMarkdown: (args, res) => res.content || ''
+      }
+    }));
+
+    let authRequested = null;
+    const execRes = await executor.executeToolCall({
+      id: 'tc-1',
+      function: {
+        name: 'run_command',
+        arguments: JSON.stringify({ command: 'git status' })
+      }
+    }, {
+      requestToolAuthorization: async (toolCall, details) => {
+        authRequested = details;
+        return { decision: 'allow_always' };
+      }
+    });
+
+    assert.ok(authRequested, 'Debe solicitar autorización');
+    assert.equal(authRequested.challengeId, 'ch-challenge-99');
+    assert.equal(authRequested.toolName, 'run_command');
+    assert.equal(authRequested.ruleOffer.command, 'git');
+
+    assert.equal(execRes.success, true);
+    assert.ok(execRes.result.content.includes('On branch dev'));
+
+    const authCall = calls.find(c => c.method === 'zerochat/security/authorize');
+    assert.ok(authCall);
+    assert.equal(authCall.params.challengeId, 'ch-challenge-99');
+    assert.equal(authCall.params.decision, 'allow_always');
+    assert.equal(authCall.params.execute, true);
+  } finally {
+    global.fetch = originalFetch;
+    ToolSecurity.manager.setMcpClient(null);
   }
 });
