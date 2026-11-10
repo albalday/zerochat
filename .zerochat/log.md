@@ -56,3 +56,4 @@
 - 2026-11-10 M56-D3 Interceptación de tools/call mediante AccessController, retirada de TOOL_AUTH_KEY y verificación HMAC en backend e implementación de retos con endpoint zerochat/security/authorize (M56-T3)
 - 2026-11-10 M56-D4 ChatToolSecurity y McpClient desacoplados de HMAC y adaptados como cliente RPC bidireccional (syncFromBackend, syncToBackend, authorizeChallenge) y recepción de retos (M56-T4)
 - 2026-11-10 M56-D5 Adaptación de UI y ToolExecutor: respuesta interactiva a retos de autorización con resolución y ejecución backend (M56-T5)
+- 2026-11-10 M56-D6 Alineación de RunSession con ACCESS_CONTROLLER para allow_dangerous_tools y tool_security y verificación completa de la suite de pruebas (M56-T6)

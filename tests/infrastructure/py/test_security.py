@@ -229,6 +229,31 @@ class AccessControllerPolicyTest(unittest.TestCase):
         # allow_once consumed once
         self.assertIsNone(zerochat.ACCESS_CONTROLLER.consume_challenge(ch["id"]))
 
+    def test_reset_session_credentials_with_run_session(self):
+        try:
+            zerochat.RUN_SESSION = zerochat.RunSession(
+                prompt="test",
+                allow_dangerous_tools=True,
+                tool_security={
+                    "globalMcpPolicy": "allow_all",
+                    "tools": {"custom_tool": {"policy": "allow"}},
+                    "directoryRules": ["RW:/test/**"]
+                }
+            )
+            zerochat.reset_session_credentials()
+
+            for dt in ("write_file", "edit_file", "run_command"):
+                pol = zerochat.ACCESS_CONTROLLER.get_tool_policy(dt)
+                self.assertIsNotNone(pol)
+                self.assertEqual(pol["policy"], "allow")
+            custom_pol = zerochat.ACCESS_CONTROLLER.get_tool_policy("custom_tool")
+            self.assertIsNotNone(custom_pol)
+            self.assertEqual(custom_pol["policy"], "allow")
+            self.assertEqual(zerochat.ACCESS_CONTROLLER.global_policy, "allow_all")
+        finally:
+            zerochat.RUN_SESSION = None
+            zerochat.reset_session_credentials()
+
 
 if __name__ == "__main__":
     unittest.main()
