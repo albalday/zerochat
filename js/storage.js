@@ -22,17 +22,44 @@
   // Campos opcionales de un mensaje que se guardan cuando están presentes.
   const OPTIONAL_MESSAGE_FIELDS = ['tool_calls', 'tool_call_id', 'name', 'stats', 'contextDateAnchor', 'images', 'commandNotes', '_isSummaryBlock', '_compressedMetadata'];
   let lastClearAllStorageError = '';
+  const memoryStorageFallback = new Map();
+
+  function getWebStorage() {
+    try {
+      if (typeof localStorage !== 'undefined') return localStorage;
+    } catch (_) {
+      // Web storage unavailable or blocked by environment
+    }
+    return {
+      getItem: key => memoryStorageFallback.get(key) ?? null,
+      setItem: (key, value) => memoryStorageFallback.set(key, String(value ?? '')),
+      removeItem: key => memoryStorageFallback.delete(key)
+    };
+  }
 
   function setStorageItem(name, value) {
     try {
-      localStorage.setItem(`${STORAGE_PREFIX}${name}`, String(value ?? ''));
+      getWebStorage().setItem(`${STORAGE_PREFIX}${name}`, String(value ?? ''));
     } catch (error) {
       console.warn(`[ChatStorage] Could not save ${name} in localStorage:`, error);
     }
   }
 
-  const getStorageItem = name => localStorage.getItem(`${STORAGE_PREFIX}${name}`);
-  const deleteStorageItem = name => localStorage.removeItem(`${STORAGE_PREFIX}${name}`);
+  const getStorageItem = name => {
+    try {
+      return getWebStorage().getItem(`${STORAGE_PREFIX}${name}`);
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const deleteStorageItem = name => {
+    try {
+      getWebStorage().removeItem(`${STORAGE_PREFIX}${name}`);
+    } catch (_) {
+      // Storage unavailable or read-only
+    }
+  };
 
   /** Sesión con el backend: su URL y el token diario que dio al abrir la página o al identificarse. */
   function normalizeBackendSession(session) {

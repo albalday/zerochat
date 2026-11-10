@@ -34,6 +34,10 @@
     authorizationResponder = responder;
   }
 
+  function getAuthorizationResponder() {
+    return authorizationResponder;
+  }
+
   function getToolCallGroup(container) {
     const lastChild = container.lastElementChild;
     return lastChild?.classList.contains('tool-call-group') ? lastChild : null;
@@ -777,6 +781,7 @@
     completeToolCard,
     reactivateToolCard,
     promptToolAuthorization,
-    setAuthorizationResponder
+    setAuthorizationResponder,
+    getAuthorizationResponder
   };
 }));
