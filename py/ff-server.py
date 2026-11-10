@@ -719,6 +719,27 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return self._dispatch_conversations(method, params)
         if method.startswith("zerochat/blobs/"):
             return self._dispatch_blobs(method, params)
+        if method.startswith("zerochat/security/"):
+            return self._dispatch_security(method, params)
+        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
+
+    @staticmethod
+    def _dispatch_security(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+        """Gestión de políticas y reglas de seguridad almacenadas en el backend local."""
+        params = params if isinstance(params, dict) else {}
+        user_id = params.get("user_id")
+        session_id = params.get("session_id")
+        ctx = SecurityContext(workspace_dir=Path.cwd().resolve(), user_id=user_id, session_id=session_id)
+        try:
+            if method == "zerochat/security/get":
+                return {"policies": ACCESS_CONTROLLER.export_state(ctx)}, None, ""
+            if method == "zerochat/security/update":
+                ACCESS_CONTROLLER.import_state(params, context=ctx, persist=True)
+                return {"policies": ACCESS_CONTROLLER.export_state(ctx)}, None, ""
+        except ValueError as exc:
+            return None, {"code": -32602, "message": str(exc)}, ""
+        except Exception as exc:
+            return None, {"code": -32603, "message": f"Error de seguridad: {exc}"}, str(exc)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @staticmethod

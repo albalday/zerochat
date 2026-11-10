@@ -52,3 +52,4 @@
 - 2026-11-09 M55-D3 Cadencia de DuckDuckGo por fin de respuesta con espera mínima de 2 s, timestamp inicializado al arrancar y escalonado de 5 s en peticiones paralelas (M55-T5)
 - 2026-11-09 M55-D4 Módulo dd-diff.py en backend para generar diffs nativos de Git en HTML autocontenido y texto unificado para apertura en pestaña del navegador, sin ejecutables en .zerochat ni dependencia de visores gráficos (M55-T6)
 - 2026-11-10 M56-D1 Motor AccessController y dataclass SecurityContext en py/dd-security.py con soporte de políticas globales, herramientas, servidores, reglas R/W y restricciones de comandos desacoplado para evolución multiusuario (M56-T1)
+- 2026-11-10 M56-D2 Persistencia de políticas y reglas en tabla SQLite security_policies (migración 5) y endpoints RPC zerochat/security/get y zerochat/security/update en backend (M56-T2)

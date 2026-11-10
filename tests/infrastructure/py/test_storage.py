@@ -25,7 +25,8 @@ class StorageEngineTest(unittest.TestCase):
         self.assertIn("conversations", tables)
         self.assertIn("messages", tables)
         self.assertIn("blobs", tables)
-        self.assertEqual(migrations, {1, 2, 3, 4})
+        self.assertIn("security_policies", tables)
+        self.assertEqual(migrations, {1, 2, 3, 4, 5})
         self.assertIn("extra_json", columns)
 
     def test_migracion_v4_aplica_a_base_existente(self):
@@ -72,11 +73,11 @@ class StorageEngineTest(unittest.TestCase):
         conn.commit()
         conn.close()
 
-        # Al abrir con zerochat.open_storage, se debe aplicar la migración 4 sin errores
+        # Al abrir con zerochat.open_storage, se deben aplicar las migraciones 4 y 5 sin errores
         with zerochat.open_storage() as conn:
             migrations = {row["version"] for row in conn.execute("SELECT version FROM schema_migrations;").fetchall()}
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(conversations);").fetchall()}
-        self.assertEqual(migrations, {1, 2, 3, 4})
+        self.assertEqual(migrations, {1, 2, 3, 4, 5})
         self.assertIn("extra_json", columns)
 
         # list_conversations y save_conversation funcionan correctamente tras la migración

@@ -2226,6 +2226,7 @@ class AccessController:
 
     def __init__(self):
         self._lock = threading.RLock()
+        self._loaded = False
         self.global_policy = GLOBAL_POLICY_ASK
         self.tools: dict[str, dict] = {}
         self.servers: dict[str, dict] = {}
@@ -2234,18 +2235,96 @@ class AccessController:
         self.session_servers: dict[str, dict] = {}
         self.pending_challenges: dict[str, dict] = {}
 
+    def _ensure_loaded(self, context: SecurityContext | None = None):
+        with self._lock:
+            if not self._loaded:
+                self._loaded = True
+                self.load_from_storage(context=context)
+
+    def load_from_storage(self, policy_id: str = "default", user_id: str | None = None, context: SecurityContext | None = None):
+        """Carga las políticas persistidas en SQLite si existen."""
+        try:
+            get_fn = globals().get("get_security_policy_data")
+            if callable(get_fn):
+                data = get_fn(policy_id, user_id)
+                if data and isinstance(data, dict):
+                    self.import_state(data, context=context, persist=False)
+        except Exception:
+            pass
+
+    def save_to_storage(self, policy_id: str = "default", user_id: str | None = None, context: SecurityContext | None = None):
+        """Persiste las políticas permanentes actuales en SQLite."""
+        try:
+            save_fn = globals().get("save_security_policy_data")
+            if callable(save_fn):
+                state = self.export_state(context)
+                save_fn(state, policy_id, user_id)
+        except Exception:
+            pass
+
+    def export_state(self, context: SecurityContext | None = None) -> dict:
+        self._ensure_loaded(context)
+        with self._lock:
+            return {
+                "version": 5,
+                "globalMcpPolicy": self.global_policy,
+                "directoryRules": self.get_directory_rules(context),
+                "tools": dict(self.tools),
+                "servers": dict(self.servers)
+            }
+
+    def import_state(self, state: dict, context: SecurityContext | None = None, persist: bool = True):
+        if not isinstance(state, dict):
+            raise ValueError("El estado de políticas debe ser un diccionario.")
+        with self._lock:
+            if "globalMcpPolicy" in state:
+                pol = state["globalMcpPolicy"]
+                if pol in GLOBAL_POLICIES:
+                    self.global_policy = pol
+                else:
+                    raise ValueError(f"Política global no válida: '{pol}'. Válidas: {GLOBAL_POLICIES}")
+            if "directoryRules" in state:
+                rules = state["directoryRules"]
+                if isinstance(rules, (list, tuple)):
+                    self.set_directory_rules(list(rules), context, persist=False)
+                else:
+                    raise ValueError("Las reglas de directorio deben ser una lista.")
+            if "tools" in state:
+                tools_map = state["tools"]
+                if isinstance(tools_map, dict):
+                    self.tools = dict(tools_map)
+                else:
+                    raise ValueError("tools debe ser un diccionario de herramientas.")
+            if "servers" in state:
+                servers_map = state["servers"]
+                if isinstance(servers_map, dict):
+                    self.servers = dict(servers_map)
+                else:
+                    raise ValueError("servers debe ser un diccionario de servidores.")
+        if persist:
+            self.save_to_storage(context=context)
+
+    def set_global_policy(self, policy: str, context: SecurityContext | None = None):
+        if policy not in GLOBAL_POLICIES:
+            raise ValueError(f"Política global inválida: {policy}")
+        self._ensure_loaded(context)
+        with self._lock:
+            self.global_policy = policy
+        self.save_to_storage(context=context)
+
     def get_default_directory_rule(self, context: SecurityContext | None = None) -> str:
         ctx = context or SecurityContext()
         base = normalize_directory_path(str(ctx.workspace_dir))
         return f"RW:{base}" if base == "/" else f"RW:{base}/**"
 
     def get_directory_rules(self, context: SecurityContext | None = None) -> list[str]:
+        self._ensure_loaded(context)
         with self._lock:
             if not self.directory_rules:
                 return [self.get_default_directory_rule(context)]
             return list(self.directory_rules)
 
-    def set_directory_rules(self, rules: list[str], context: SecurityContext | None = None) -> list[str]:
+    def set_directory_rules(self, rules: list[str], context: SecurityContext | None = None, persist: bool = True) -> list[str]:
         if not isinstance(rules, (list, tuple)):
             raise ValueError("Las reglas de directorio deben ser una lista.")
         parsed_rules = []
@@ -2255,9 +2334,13 @@ class AccessController:
                 raise ValueError(f"Regla de directorio inválida: '{raw}'. Formato esperado: R:path, W:path o RW:path.")
             parsed_rules.append(rule_obj["rule"])
         unique_rules = list(dict.fromkeys(parsed_rules))
+        self._ensure_loaded(context)
         with self._lock:
             self.directory_rules = unique_rules or [self.get_default_directory_rule(context)]
-            return list(self.directory_rules)
+            result = list(self.directory_rules)
+        if persist:
+            self.save_to_storage(context=context)
+        return result
 
     def add_directory_rule(self, rule: str, context: SecurityContext | None = None) -> list[str]:
         current = self.get_directory_rules(context)
@@ -2301,6 +2384,7 @@ class AccessController:
                         constraints: dict | None = None, server_name: str = "", original_name: str = ""):
         if not tool_id or not isinstance(tool_id, str):
             return
+        self._ensure_loaded()
         clean_policy = policy if policy in (TOOL_POLICY_ALLOW, TOOL_POLICY_DENY) else TOOL_POLICY_ASK
         with self._lock:
             if clean_policy == TOOL_POLICY_ASK:
@@ -2319,21 +2403,28 @@ class AccessController:
                 self.session_tools[tool_id] = entry
             else:
                 self.tools[tool_id] = entry
+        if scope != SCOPE_SESSION:
+            self.save_to_storage()
 
     def get_tool_policy(self, tool_id: str) -> dict | None:
+        self._ensure_loaded()
         with self._lock:
             return self.session_tools.get(tool_id) or self.tools.get(tool_id)
 
     def revoke_tool_policy(self, tool_id: str) -> bool:
+        self._ensure_loaded()
         with self._lock:
             del_session = self.session_tools.pop(tool_id, None) is not None
             del_perm = self.tools.pop(tool_id, None) is not None
-            return del_session or del_perm
+        if del_perm:
+            self.save_to_storage()
+        return del_session or del_perm
 
     def set_server_policy(self, server_id: str, policy: str, scope: str = SCOPE_PERMANENT, server_name: str = ""):
         if not server_id or not isinstance(server_id, str):
             return
         clean = server_id.strip()
+        self._ensure_loaded()
         clean_policy = policy if policy in (SERVER_POLICY_ALLOW, SERVER_POLICY_DENY) else SERVER_POLICY_ASK
         with self._lock:
             if clean_policy == SERVER_POLICY_ASK:
@@ -2350,18 +2441,24 @@ class AccessController:
                 self.session_servers[clean] = entry
             else:
                 self.servers[clean] = entry
+        if scope != SCOPE_SESSION:
+            self.save_to_storage()
 
     def get_server_policy(self, server_id: str) -> dict | None:
         clean = str(server_id or "").strip()
+        self._ensure_loaded()
         with self._lock:
             return self.session_servers.get(clean) or self.servers.get(clean)
 
     def revoke_server_policy(self, server_id: str) -> bool:
         clean = str(server_id or "").strip()
+        self._ensure_loaded()
         with self._lock:
             del_session = self.session_servers.pop(clean, None) is not None
             del_perm = self.servers.pop(clean, None) is not None
-            return del_session or del_perm
+        if del_perm:
+            self.save_to_storage()
+        return del_session or del_perm
 
     def clear_session(self):
         """Limpia todas las autorizaciones temporales de la sesión activa."""
@@ -2449,6 +2546,7 @@ class AccessController:
         7. Por defecto -> ask (solicitar confirmación).
         """
         ctx = context or SecurityContext()
+        self._ensure_loaded(ctx)
         args = dict(raw_args or {})
         tool_name = tool_or_name.get("name", "") if isinstance(tool_or_name, dict) else str(tool_or_name)
         tool_id = tool_name
@@ -4679,6 +4777,15 @@ STORAGE_MIGRATIONS = [
     """),
     (4, "004_add_extra_json_to_conversations", """
         ALTER TABLE conversations ADD COLUMN extra_json TEXT DEFAULT '{}';
+    """),
+    (5, "005_create_security_policies_table", """
+        CREATE TABLE IF NOT EXISTS security_policies (
+            id TEXT PRIMARY KEY,
+            user_id TEXT,
+            data_json TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_security_policies_user ON security_policies(user_id);
     """)
 ]
 
@@ -5161,6 +5268,40 @@ def has_blobs(blob_ids: list[str]) -> dict:
             "existing": [bid for bid in unique_ids if bid in existing_set],
             "missing": [bid for bid in unique_ids if bid not in existing_set],
         }
+
+
+def get_security_policy_data(policy_id: str = "default", user_id: str | None = None) -> dict | None:
+    """Recupera los datos de políticas de seguridad guardados en SQLite."""
+    clean_id = (policy_id or "default").strip()
+    with open_storage() as conn:
+        row = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (clean_id,)).fetchone()
+        if not row:
+            return None
+        try:
+            return json.loads(row["data_json"])
+        except (ValueError, TypeError):
+            return None
+
+
+def save_security_policy_data(data: dict, policy_id: str = "default", user_id: str | None = None) -> dict:
+    """Guarda los datos de políticas de seguridad en SQLite."""
+    if not isinstance(data, dict):
+        raise ValueError("Los datos de política de seguridad deben ser un objeto JSON")
+    clean_id = (policy_id or "default").strip()
+    data_str = json.dumps(data, ensure_ascii=False)
+    now = int(time.time() * 1000)
+    with open_storage() as conn:
+        conn.execute("""
+            INSERT INTO security_policies (id, user_id, data_json, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                user_id = excluded.user_id,
+                data_json = excluded.data_json,
+                updated_at = excluded.updated_at;
+        """, (clean_id, user_id, data_str, now))
+        conn.commit()
+    return {"id": clean_id, "updated_at": now}
+
 
 DEFAULT_HEARTBEAT_TIMEOUT = float(os.environ.get("ZEROCHAT_HEARTBEAT_TIMEOUT", "60.0"))
 DEFAULT_HEARTBEAT_GRACE = float(os.environ.get("ZEROCHAT_HEARTBEAT_GRACE", "45.0"))
@@ -5883,6 +6024,27 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return self._dispatch_conversations(method, params)
         if method.startswith("zerochat/blobs/"):
             return self._dispatch_blobs(method, params)
+        if method.startswith("zerochat/security/"):
+            return self._dispatch_security(method, params)
+        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
+
+    @staticmethod
+    def _dispatch_security(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+        """Gestión de políticas y reglas de seguridad almacenadas en el backend local."""
+        params = params if isinstance(params, dict) else {}
+        user_id = params.get("user_id")
+        session_id = params.get("session_id")
+        ctx = SecurityContext(workspace_dir=Path.cwd().resolve(), user_id=user_id, session_id=session_id)
+        try:
+            if method == "zerochat/security/get":
+                return {"policies": ACCESS_CONTROLLER.export_state(ctx)}, None, ""
+            if method == "zerochat/security/update":
+                ACCESS_CONTROLLER.import_state(params, context=ctx, persist=True)
+                return {"policies": ACCESS_CONTROLLER.export_state(ctx)}, None, ""
+        except ValueError as exc:
+            return None, {"code": -32602, "message": str(exc)}, ""
+        except Exception as exc:
+            return None, {"code": -32603, "message": f"Error de seguridad: {exc}"}, str(exc)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @staticmethod

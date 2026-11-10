@@ -163,6 +163,48 @@ class AccessControllerPolicyTest(unittest.TestCase):
         self.assertIsNone(self.controller.session_tools.get("tool_x"))
         self.assertIsNotNone(self.controller.tools.get("tool_y"))
 
+    def test_persistence_in_sqlite(self):
+        norm_ws = zerochat.normalize_directory_path(str(self.workspace))
+        state = {
+            "globalMcpPolicy": "workspace_trust",
+            "directoryRules": [f"R:{norm_ws}/docs/**", f"W:{norm_ws}/output/**"],
+            "tools": {"tool_saved": {"policy": "allow", "serverName": "srv"}},
+            "servers": {"srv_saved": {"policy": "deny"}}
+        }
+        res = zerochat.save_security_policy_data(state)
+        self.assertEqual(res["id"], "default")
+
+        loaded = zerochat.get_security_policy_data("default")
+        self.assertIsNotNone(loaded)
+        self.assertEqual(loaded["globalMcpPolicy"], "workspace_trust")
+        self.assertEqual(loaded["tools"]["tool_saved"]["policy"], "allow")
+        self.assertEqual(loaded["servers"]["srv_saved"]["policy"], "deny")
+
+    def test_rpc_dispatch_security_get_and_update(self):
+        norm_ws = zerochat.normalize_directory_path(str(self.workspace))
+        handler = zerochat.ZeroChatServerHandler
+
+        # 1. Update policies via RPC
+        update_params = {
+            "globalMcpPolicy": "workspace_trust",
+            "directoryRules": [f"R:{norm_ws}/custom/**"],
+            "tools": {"tool_rpc": {"policy": "allow", "serverName": "srv_rpc"}},
+            "servers": {"srv_rpc": {"policy": "allow"}}
+        }
+        res, err, info = handler._dispatch_security("zerochat/security/update", update_params)
+        self.assertIsNone(err)
+        self.assertIsNotNone(res)
+        self.assertEqual(res["policies"]["globalMcpPolicy"], "workspace_trust")
+        self.assertIn(f"R:{norm_ws}/custom/**", res["policies"]["directoryRules"])
+        self.assertEqual(res["policies"]["tools"]["tool_rpc"]["policy"], "allow")
+
+        # 2. Get policies via RPC
+        res_get, err_get, info_get = handler._dispatch_security("zerochat/security/get", {})
+        self.assertIsNone(err_get)
+        self.assertIsNotNone(res_get)
+        self.assertEqual(res_get["policies"]["globalMcpPolicy"], "workspace_trust")
+        self.assertEqual(res_get["policies"]["servers"]["srv_rpc"]["policy"], "allow")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -58,6 +58,15 @@ STORAGE_MIGRATIONS = [
     """),
     (4, "004_add_extra_json_to_conversations", """
         ALTER TABLE conversations ADD COLUMN extra_json TEXT DEFAULT '{}';
+    """),
+    (5, "005_create_security_policies_table", """
+        CREATE TABLE IF NOT EXISTS security_policies (
+            id TEXT PRIMARY KEY,
+            user_id TEXT,
+            data_json TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_security_policies_user ON security_policies(user_id);
     """)
 ]
 
@@ -540,4 +549,38 @@ def has_blobs(blob_ids: list[str]) -> dict:
             "existing": [bid for bid in unique_ids if bid in existing_set],
             "missing": [bid for bid in unique_ids if bid not in existing_set],
         }
+
+
+def get_security_policy_data(policy_id: str = "default", user_id: str | None = None) -> dict | None:
+    """Recupera los datos de políticas de seguridad guardados en SQLite."""
+    clean_id = (policy_id or "default").strip()
+    with open_storage() as conn:
+        row = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (clean_id,)).fetchone()
+        if not row:
+            return None
+        try:
+            return json.loads(row["data_json"])
+        except (ValueError, TypeError):
+            return None
+
+
+def save_security_policy_data(data: dict, policy_id: str = "default", user_id: str | None = None) -> dict:
+    """Guarda los datos de políticas de seguridad en SQLite."""
+    if not isinstance(data, dict):
+        raise ValueError("Los datos de política de seguridad deben ser un objeto JSON")
+    clean_id = (policy_id or "default").strip()
+    data_str = json.dumps(data, ensure_ascii=False)
+    now = int(time.time() * 1000)
+    with open_storage() as conn:
+        conn.execute("""
+            INSERT INTO security_policies (id, user_id, data_json, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                user_id = excluded.user_id,
+                data_json = excluded.data_json,
+                updated_at = excluded.updated_at;
+        """, (clean_id, user_id, data_str, now))
+        conn.commit()
+    return {"id": clean_id, "updated_at": now}
+
 
