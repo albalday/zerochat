@@ -871,3 +871,96 @@ test('ToolSecurityManager - un listener que falla no impide notificar al resto y
   assert.strictEqual(notified, true);
   assert.strictEqual(console.warn.mock.callCount(), 1);
 });
+
+test('ChatToolSecurity - adaptador cliente: syncFromBackend y syncToBackend sincronizan con el backend', async () => {
+  const manager = new ChatToolSecurity.ToolSecurityManager();
+  const calls = [];
+  const mockClient = {
+    async request(method, params) {
+      calls.push({ method, params });
+      if (method === 'zerochat/security/get') {
+        return {
+          policies: {
+            globalMcpPolicy: 'allow_all',
+            directoryRules: ['R:/custom/path'],
+            tools: {
+              read_file: { policy: 'allow', scope: 'permanent' }
+            },
+            servers: {
+              srv1: { policy: 'allow', scope: 'permanent' }
+            }
+          }
+        };
+      }
+      if (method === 'zerochat/security/update') {
+        return { success: true };
+      }
+      return {};
+    }
+  };
+
+  manager.setMcpClient(mockClient);
+  await manager.syncFromBackend();
+
+  assert.equal(manager.getGlobalMcpPolicy(), 'allow_all');
+  assert.equal(manager.getToolPolicy('read_file'), 'allow');
+  assert.equal(manager.getServerPolicy('srv1'), 'allow');
+  assert.deepEqual(manager.getDirectoryRules(), ['R:/custom/path']);
+
+  // Modificar una política dispara syncToBackend hacia el cliente
+  calls.length = 0;
+  manager.setToolPolicy('write_file', 'allow');
+  // allow asynchronous sync to resolve
+  await new Promise(r => setTimeout(r, 10));
+
+  const updateCall = calls.find(c => c.method === 'zerochat/security/update');
+  assert.ok(updateCall, 'Debe haber enviado zerochat/security/update');
+  assert.equal(updateCall.params.tools.write_file.policy, 'allow');
+});
+
+test('ChatToolSecurity - adaptador cliente: authorizeChallenge delega en el backend y refresca políticas', async () => {
+  const manager = new ChatToolSecurity.ToolSecurityManager();
+  const calls = [];
+  const mockClient = {
+    async request(method, params) {
+      calls.push({ method, params });
+      if (method === 'zerochat/security/authorize') {
+        return { authorized: true, challengeId: params.challengeId };
+      }
+      if (method === 'zerochat/security/get') {
+        return {
+          policies: {
+            globalMcpPolicy: 'ask',
+            directoryRules: ['R:/workspace', 'RW:/workspace'],
+            tools: {},
+            servers: {}
+          }
+        };
+      }
+      return {};
+    }
+  };
+
+  // Sin cliente configurado falla explícitamente
+  await assert.rejects(
+    async () => manager.authorizeChallenge('ch-1', 'allow_once'),
+    /Local server connection is required/
+  );
+
+  manager.setMcpClient(mockClient);
+  const res = await manager.authorizeChallenge('ch-1', 'allow_always', {
+    constraints: { command: { allowedPrefixes: ['git'] } },
+    directoryRule: 'RW:/workspace'
+  });
+
+  assert.equal(res.authorized, true);
+  assert.equal(res.challengeId, 'ch-1');
+  const authCall = calls.find(c => c.method === 'zerochat/security/authorize');
+  assert.ok(authCall);
+  assert.equal(authCall.params.decision, 'allow_always');
+  assert.equal(authCall.params.directoryRule, 'RW:/workspace');
+
+  // Comprueba que refrescó las políticas tras allow_always
+  const getCall = calls.find(c => c.method === 'zerochat/security/get');
+  assert.ok(getCall, 'Debe sincronizar desde el backend tras conceder un permiso permanente');
+});

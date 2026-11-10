@@ -777,7 +777,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                             po = json.loads(out_json)
                             if isinstance(po, dict) and po.get("success") is False:
                                 tool_err = str(po.get("error", "Error en herramienta"))
-                        except Exception:
+                        except (json.JSONDecodeError, TypeError, ValueError):
                             pass
                         return {"authorized": True, "result": {"content": [{"type": "text", "text": out_json}], "isError": bool(tool_err)}}, None, tool_err
                     else:

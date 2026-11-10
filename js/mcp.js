@@ -64,7 +64,6 @@
   const LIVE_RESET = Object.freeze({ serverInfo: null, tools: [], externalServers: [], externalTools: [], commandJobs: [], exitOnClose: false, playwright: null, serverRuns: [], focusRun: null });
   const MAX_OUTPUT_LENGTH = 60000;
   const MAX_IMAGE_BASE64_LENGTH = 8 * 1024 * 1024;
-  const TOOL_AUTH_VERSION = 'zerochat-tool-auth-v1';
   const UNREACHABLE_SERVER_ERROR = 'Cannot reach the local server at that address and port. Make sure zerochat is running in your terminal.';
 
   const getAgentCore = () => resolveDep('ChatAgentCore', './agent-core.js');
@@ -169,21 +168,6 @@
     return /network|fetch|econnrefused|timeout|http 5\d\d/.test(message);
   }
 
-  function base64Url(bytes) {
-    let binary = '';
-    for (const byte of bytes) binary += String.fromCharCode(byte);
-    return btoa(binary).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-  }
-
-  function base64UrlBytes(value) {
-    const padded = String(value).replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((String(value).length + 3) % 4);
-    return Uint8Array.from(atob(padded), char => char.charCodeAt(0));
-  }
-
-  function hex(bytes) {
-    return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
-  }
-
   const formatJsonRpcError = error => `MCP error${error.code ? ` (${error.code})` : ''}: ${error.message || JSON.stringify(error)}`;
 
   /**
@@ -200,10 +184,9 @@
       this.requestId = 1;
       this.serverCapabilities = null;
       this.serverInfo = null;
-      this.toolAuthorization = null;
     }
 
-    /** Solo el servidor local firma las llamadas a sus herramientas. */
+    /** Solo el servidor local procesa llamadas internas con privilegios de sistema. */
     get isLocalServer() {
       return this.id === PROXY_ID || this.id === EXTERNAL_ID;
     }
@@ -224,35 +207,10 @@
       return Object.assign(headers, this.headers);
     }
 
-    async buildToolAuthorizationHeaders(targetUrl, body) {
-      const credentials = this.toolAuthorization;
-      if (!credentials) throw new Error('Local tool authorization is unavailable. Reconnect to ZeroChat.');
-      // El servidor acepta caducidades entre su hora y su hora + ttlMs: el centro tolera
-      // un desfase de reloj de ±ttlMs/2 (navegador en otro equipo, p. ej. por un túnel SSH).
-      const expiresAt = Date.now() + Math.floor(credentials.ttlMs / 2);
-      const nonceBytes = new Uint8Array(16);
-      crypto.getRandomValues(nonceBytes);
-      const nonce = base64Url(nonceBytes);
-      const bodyHash = hex(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body))));
-      const path = new URL(targetUrl).pathname.replace(/\/$/, '') || '/';
-      const signatureBase = JSON.stringify([TOOL_AUTH_VERSION, credentials.sessionId, 'POST', path, expiresAt, nonce, bodyHash]);
-      const key = await crypto.subtle.importKey('raw', base64UrlBytes(credentials.key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-      const signature = base64Url(new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(signatureBase))));
-      return {
-        'X-ZeroChat-Tool-Session': credentials.sessionId,
-        'X-ZeroChat-Tool-Expires': String(expiresAt),
-        'X-ZeroChat-Tool-Nonce': nonce,
-        'X-ZeroChat-Tool-Signature': signature
-      };
-    }
-
-    async buildRequestHeaders(targetUrl, body, options) {
+    buildRequestHeaders(targetUrl, body, options) {
       const headers = this.buildHeaders();
       if (options?.headers) {
         Object.assign(headers, options.headers);
-      }
-      if (options?.toolAuthorization && this.isLocalServer && this.toolAuthorization) {
-        Object.assign(headers, await this.buildToolAuthorizationHeaders(targetUrl, body));
       }
       return headers;
     }
@@ -297,11 +255,6 @@
 
       this.serverCapabilities = result?.capabilities || {};
       this.serverInfo = result?.serverInfo || { name: this.name, version: 'unknown' };
-      const auth = result?.toolAuthorization;
-      if (this.isLocalServer && auth?.version === TOOL_AUTH_VERSION && typeof auth.sessionId === 'string' &&
-          typeof auth.key === 'string' && Number.isInteger(auth.ttlMs) && auth.ttlMs > 0 && auth.ttlMs <= 60_000) {
-        this.toolAuthorization = { sessionId: auth.sessionId, key: auth.key, ttlMs: auth.ttlMs };
-      }
       await this.notify('notifications/initialized', {});
       return { success: true, serverInfo: this.serverInfo, capabilities: this.serverCapabilities, liveState: result?.liveState || null };
     }
@@ -334,11 +287,13 @@
      */
     async callTool(name, args = {}, options = {}) {
       const startTime = performance.now();
-      const result = await this.request('tools/call', {
+      const params = {
         name,
         arguments: args,
+        ...(options.challengeId ? { challengeId: options.challengeId } : {}),
         ...(options.meta ? { _meta: options.meta } : {})
-      }, options);
+      };
+      const result = await this.request('tools/call', params, options);
       const elapsed = parseFloat((performance.now() - startTime).toFixed(2));
 
       let textOutput = '';
@@ -353,6 +308,22 @@
         textOutput = result;
       } else if (result) {
         textOutput = JSON.stringify(result, null, 2);
+      }
+
+      if (result?.requiresAuthorization) {
+        return {
+          success: false,
+          requiresAuthorization: true,
+          challengeId: result.challengeId,
+          toolName: result.toolName || name,
+          serverName: result.serverName || this.name,
+          arguments: result.arguments || args,
+          ruleOffer: result.ruleOffer,
+          details: result.details,
+          content: textOutput,
+          rawResult: result,
+          executionTimeMs: elapsed
+        };
       }
 
       const extractedImage = extractImageFromMcpText(textOutput);
@@ -458,7 +429,7 @@
               return await this.client.callTool(rt.name, args, {
                 signal: context.signal,
                 timeoutMs: options.timeoutMs,
-                toolAuthorization: context.toolAuthorization === true,
+                challengeId: context.challengeId,
                 meta: jobKey ? { zerochatJobKey: jobKey } : undefined
               });
             } catch (error) {
@@ -536,6 +507,9 @@
 
     /** Cierra el cliente y retira del registro las herramientas de su proveedor. */
     dropClient(clientId) {
+      if (clientId === PROXY_ID) {
+        getSecurity().manager.setMcpClient(null);
+      }
       getAgentCore().registry.unregisterProvider(`mcp_prov_${clientId}`);
       this.clients.delete(clientId);
     }
@@ -721,6 +695,10 @@
       let error = null;
       try {
         tools = await this.registerClient(client, { onTransportFailure: failure => this.markProxyUnavailable(failure) });
+        getSecurity().manager.setMcpClient(client);
+        await getSecurity().manager.syncFromBackend().catch(err => {
+          console.warn('[MCP] Could not sync security policies from backend:', err?.message || err);
+        });
       } catch (err) {
         error = err.message;
       }

@@ -302,6 +302,7 @@
   class ToolSecurityManager {
     constructor() {
       this.sessionToken = null;
+      this.mcpClient = null;
       this.globalMcpPolicy = GLOBAL_POLICIES.ASK;
       // El backend local informa del directorio real al conectarse (setStartupDirectory).
       this.startupDirectory = normalizeDirectoryPath('.');
@@ -446,6 +447,138 @@
 
       this.syncWithState();
       this.notifyListeners();
+      if (this.mcpClient) {
+        this.syncToBackend().catch(() => {});
+      }
+    }
+
+    setMcpClient(client) {
+      this.mcpClient = client || null;
+    }
+
+    /**
+     * Sincroniza las políticas de seguridad desde el backend local.
+     */
+    async syncFromBackend() {
+      if (!this.mcpClient) return null;
+      try {
+        const res = await this.mcpClient.request('zerochat/security/get', {});
+        const policies = res?.policies;
+        if (policies && typeof policies === 'object') {
+          if (Object.values(GLOBAL_POLICIES).includes(policies.globalMcpPolicy)) {
+            this.globalMcpPolicy = policies.globalMcpPolicy;
+          }
+          if (Array.isArray(policies.directoryRules)) {
+            this.directoryRules = policies.directoryRules.map(parseDirectoryRule).filter(Boolean).map(item => item.rule);
+          }
+          if (policies.tools && typeof policies.tools === 'object') {
+            this.tools.clear();
+            Object.entries(policies.tools).forEach(([id, item]) => {
+              if (item && typeof item === 'object') {
+                this.tools.set(id, {
+                  policy: item.policy || TOOL_POLICIES.ASK,
+                  scope: item.scope === SCOPES.SESSION ? SCOPES.SESSION : SCOPES.PERMANENT,
+                  grantedAt: item.grantedAt || Date.now(),
+                  lastUsedAt: item.lastUsedAt || null,
+                  serverName: item.serverName || '',
+                  originalName: item.originalName || id,
+                  constraints: item.constraints ? { ...item.constraints } : null
+                });
+              }
+            });
+          }
+          if (policies.servers && typeof policies.servers === 'object') {
+            this.servers.clear();
+            Object.entries(policies.servers).forEach(([id, item]) => {
+              if (item && typeof item === 'object') {
+                this.servers.set(id, {
+                  policy: item.policy || SERVER_POLICIES.ASK,
+                  scope: item.scope === SCOPES.SESSION ? SCOPES.SESSION : SCOPES.PERMANENT,
+                  grantedAt: item.grantedAt || Date.now(),
+                  lastUsedAt: item.lastUsedAt || null,
+                  serverName: item.serverName || id
+                });
+              }
+            });
+          }
+          this.syncWithState();
+          this.notifyListeners();
+          return policies;
+        }
+      } catch (err) {
+        console.warn('[ToolSecurity] Failed to sync policies from backend:', err?.message || err);
+      }
+      return null;
+    }
+
+    /**
+     * Sincroniza las políticas permanentes actuales hacia el backend local.
+     */
+    async syncToBackend() {
+      if (!this.mcpClient) return null;
+      try {
+        const permanentTools = {};
+        this.tools.forEach((val, key) => {
+          if (val.scope !== SCOPES.SESSION) {
+            permanentTools[key] = {
+              policy: val.policy,
+              grantedAt: val.grantedAt,
+              lastUsedAt: val.lastUsedAt,
+              serverName: val.serverName,
+              originalName: val.originalName,
+              constraints: val.constraints
+            };
+          }
+        });
+
+        const permanentServers = {};
+        this.servers.forEach((val, key) => {
+          if (val.scope !== SCOPES.SESSION) {
+            permanentServers[key] = {
+              policy: val.policy,
+              grantedAt: val.grantedAt,
+              lastUsedAt: val.lastUsedAt,
+              serverName: val.serverName
+            };
+          }
+        });
+
+        const payload = {
+          globalMcpPolicy: this.globalMcpPolicy,
+          tools: permanentTools,
+          servers: permanentServers,
+          directoryRules: this.directoryRules
+        };
+        return await this.mcpClient.request('zerochat/security/update', payload);
+      } catch (err) {
+        console.warn('[ToolSecurity] Failed to sync policies to backend:', err?.message || err);
+      }
+      return null;
+    }
+
+    /**
+     * Resuelve un reto de autorización interactivo en el backend.
+     */
+    async authorizeChallenge(challengeId, decision, options = {}) {
+      if (!this.mcpClient) {
+        throw new Error('Local server connection is required to authorize challenges.');
+      }
+      const decType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;
+      const constraints = options.constraints || (typeof decision === 'object' && decision !== null ? decision.constraints : null);
+      const directoryRule = options.directoryRule || (typeof decision === 'object' && decision !== null ? decision.directoryRule : null);
+
+      const params = {
+        challengeId,
+        decision: decType,
+        ...(constraints ? { constraints } : {}),
+        ...(directoryRule ? { directoryRule } : {}),
+        ...(options.execute ? { execute: true } : {})
+      };
+      const result = await this.mcpClient.request('zerochat/security/authorize', params);
+      if (decType === 'allow_always' || decType === 'allow_server_always' || directoryRule) {
+        await this.syncFromBackend().catch(() => {});
+      }
+      return result;
     }
 
     /**

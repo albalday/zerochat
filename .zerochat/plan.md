@@ -17,7 +17,7 @@ Done when: El backend valida de forma autónoma llamadas a herramientas y comand
 - [x] M56-T1 Motor de seguridad y evaluación de políticas en backend con abstracción de contexto (SecurityContext y AccessController) (2026-11-10)
 - [x] M56-T2 Persistencia de políticas de seguridad en SQLite y endpoints RPC de gestión (2026-11-10)
 - [x] M56-T3 Interceptación de tools/call, retirada de TOOL_AUTH_KEY y protocolo de retos de autorización (2026-11-10)
-- [ ] M56-T4 Refactorización de ChatToolSecurity y McpClient en frontend como adaptador cliente
+- [x] M56-T4 Refactorización de ChatToolSecurity y McpClient en frontend como adaptador cliente (2026-11-10)
 - [ ] M56-T5 Adaptación de la interfaz de usuario: edición de permisos y respuesta a retos de autorización
 - [ ] M56-T6 Modo de ejecución servidor/headless y validación de la suite de pruebas
 

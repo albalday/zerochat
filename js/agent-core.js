@@ -320,6 +320,9 @@
       }
 
       security.recordDecision(decision, authEval, tool.name);
+      if (context.challengeId && security.mcpClient) {
+        await security.authorizeChallenge(context.challengeId, decision).catch(() => {});
+      }
 
       return { allowed: true };
     }

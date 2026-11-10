@@ -54,3 +54,4 @@
 - 2026-11-10 M56-D1 Motor AccessController y dataclass SecurityContext en py/dd-security.py con soporte de políticas globales, herramientas, servidores, reglas R/W y restricciones de comandos desacoplado para evolución multiusuario (M56-T1)
 - 2026-11-10 M56-D2 Persistencia de políticas y reglas en tabla SQLite security_policies (migración 5) y endpoints RPC zerochat/security/get y zerochat/security/update en backend (M56-T2)
 - 2026-11-10 M56-D3 Interceptación de tools/call mediante AccessController, retirada de TOOL_AUTH_KEY y verificación HMAC en backend e implementación de retos con endpoint zerochat/security/authorize (M56-T3)
+- 2026-11-10 M56-D4 ChatToolSecurity y McpClient desacoplados de HMAC y adaptados como cliente RPC bidireccional (syncFromBackend, syncToBackend, authorizeChallenge) y recepción de retos (M56-T4)

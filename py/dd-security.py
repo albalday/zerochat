@@ -363,8 +363,8 @@ class AccessController:
                 data = get_fn(policy_id, user_id)
                 if data and isinstance(data, dict):
                     self.import_state(data, context=context, persist=False)
-        except Exception:
-            pass
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as ex:
+            logger.debug(f"[Security] No se pudo cargar la política desde almacenamiento: {ex}")
 
     def save_to_storage(self, policy_id: str = "default", user_id: str | None = None, context: SecurityContext | None = None):
         """Persiste las políticas permanentes actuales en SQLite."""
@@ -373,8 +373,8 @@ class AccessController:
             if callable(save_fn):
                 state = self.export_state(context)
                 save_fn(state, policy_id, user_id)
-        except Exception:
-            pass
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as ex:
+            logger.debug(f"[Security] No se pudo cargar la política desde almacenamiento: {ex}")
 
     def export_state(self, context: SecurityContext | None = None) -> dict:
         self._ensure_loaded(context)
@@ -617,7 +617,7 @@ class AccessController:
             if not challenge:
                 return False
             dec_type = decision.get("decision") if isinstance(decision, dict) else str(decision)
-            if dec_type not in ("allow_once", "allow_session", "allow_always"):
+            if dec_type not in ("allow_once", "allow_session", "allow_always", "allow_server_always"):
                 return False
             challenge["authorized"] = True
             challenge["decisionType"] = dec_type
