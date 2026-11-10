@@ -279,7 +279,7 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, resu
         sys.exit(RUN_EXIT_SETUP)
     if headless_browser is not None:
         threading.Thread(target=fall_back_when_headless_exits, args=(headless_browser, target_url), daemon=True).start()
-    threading.Thread(target=run_supervisor, args=(server, RUN_SESSION), daemon=True).start()
+    threading.Thread(target=run_supervisor, args=(server, RUN_SESSION, None, headless_browser), daemon=True).start()
     return headless_browser
 
 

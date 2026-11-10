@@ -3,25 +3,6 @@ const assert = require('node:assert/strict');
 const HeadlessAdapters = require('../../js/headless-adapters.js');
 const ToolCards = require('../../js/tool-cards.js');
 
-test('HeadlessAdapters - MemoryStorage soporta el contrato básico de almacenamiento clave-valor', () => {
-  const storage = HeadlessAdapters.createMemoryStorage();
-  assert.equal(storage.length, 0);
-  assert.equal(storage.getItem('missing'), null);
-
-  storage.setItem('k1', 'val1');
-  storage.setItem('k2', 'val2');
-  assert.equal(storage.length, 2);
-  assert.equal(storage.getItem('k1'), 'val1');
-  assert.equal(storage.key(0), 'k1');
-
-  storage.removeItem('k1');
-  assert.equal(storage.length, 1);
-  assert.equal(storage.getItem('k1'), null);
-
-  storage.clear();
-  assert.equal(storage.length, 0);
-});
-
 test('HeadlessAdapters - createHeadlessTurnView gestiona bloques de texto sin DOM', () => {
   const view = HeadlessAdapters.createHeadlessTurnView();
   assert.equal(typeof view.scrollToBottom, 'function');

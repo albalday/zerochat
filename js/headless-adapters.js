@@ -16,41 +16,6 @@
   const getToolCards = () => resolveDep('ChatToolCards', './tool-cards.js') || ToolCards;
 
   /**
-   * Almacenamiento clave-valor en memoria con la interfaz de Web Storage.
-   */
-  class MemoryStorage {
-    #items = new Map();
-
-    get length() {
-      return this.#items.size;
-    }
-
-    key(index) {
-      return [...this.#items.keys()][index] ?? null;
-    }
-
-    getItem(key) {
-      return this.#items.has(String(key)) ? this.#items.get(String(key)) : null;
-    }
-
-    setItem(key, value) {
-      this.#items.set(String(key), String(value));
-    }
-
-    removeItem(key) {
-      this.#items.delete(String(key));
-    }
-
-    clear() {
-      this.#items.clear();
-    }
-  }
-
-  function createMemoryStorage() {
-    return new MemoryStorage();
-  }
-
-  /**
    * Vista de turno desacoplada del DOM para ChatEngine.executeAgentTurnLoop.
    * Acumula el texto generado y responde a autorizaciones mediante el responder activo.
    */
@@ -125,7 +90,6 @@
   }
 
   return {
-    createMemoryStorage,
     createHeadlessTurnView,
     createHeadlessConversationStore
   };

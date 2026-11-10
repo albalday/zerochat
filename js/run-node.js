@@ -167,7 +167,7 @@
 ) {
   'use strict';
   const { readLaunchFragment } = Utils;
-  const { createMemoryStorage, createHeadlessTurnView, createHeadlessConversationStore } = HeadlessAdapters;
+  const { createHeadlessTurnView, createHeadlessConversationStore } = HeadlessAdapters;
 
   /**
    * Extrae los parámetros de conexión y ejecución a partir de argumentos CLI o URL de arranque.
@@ -219,7 +219,6 @@
    */
   async function startHeadlessRun(argv = [], runOptions = {}) {
     const params = parseRunArgs(argv);
-    createMemoryStorage();
     const host = runOptions.host || params.host;
     const port = runOptions.port || params.port;
     const token = runOptions.token || params.token;
@@ -326,10 +325,13 @@
         }
       }
 
+      if (loopResult.loopDetected) {
+        return { error: 'The agent loop was stopped after repeated tool calls.' };
+      }
       if (loopResult.error) {
         return { error: loopResult.error.message || String(loopResult.error) };
       }
-      return { text: loopResult.finalAssistantText || '' };
+      return { text: loopResult.finalAssistantText || loopResult.accumulatedMarkdown || '' };
     };
 
     const exportConversation = async format => {
