@@ -76,6 +76,34 @@ class AccessControllerPolicyTest(unittest.TestCase):
         self.assertEqual(dec.status, "deny")
         self.assertEqual(dec.reason, "server_deny_rule")
 
+    def test_allow_once_evaluates_and_consumes_on_execution(self):
+        self.controller.import_state({"allow_once": ["run_command"]}, self.ctx, persist=False)
+        # Primera llamada: permitida y consumida
+        dec1 = self.controller.evaluate_authorization("run_command", {"command": "sleep 20"}, self.ctx)
+        self.assertTrue(dec1.allowed)
+        self.assertEqual(dec1.status, "allow")
+        self.assertEqual(dec1.reason, "allow_once_rule")
+
+        # Segunda llamada: ya consumida, vuelve a pedir autorización
+        dec2 = self.controller.evaluate_authorization("run_command", {"command": "sleep 20"}, self.ctx)
+        self.assertFalse(dec2.allowed)
+        self.assertEqual(dec2.status, "ask")
+
+        # set_allow_once también funciona y clear_session la limpia
+        self.controller.set_allow_once(["run_command"])
+        self.controller.clear_session()
+        dec3 = self.controller.evaluate_authorization("run_command", {"command": "sleep 20"}, self.ctx)
+        self.assertFalse(dec3.allowed)
+        self.assertEqual(dec3.status, "ask")
+
+    def test_allow_once_respects_blacklist(self):
+        self.controller.set_tool_policy("run_command", zerochat.TOOL_POLICY_DENY)
+        self.controller.set_allow_once(["run_command"])
+        dec = self.controller.evaluate_authorization("run_command", {"command": "echo 1"}, self.ctx)
+        self.assertFalse(dec.allowed)
+        self.assertEqual(dec.status, "deny")
+        self.assertEqual(dec.reason, "granular_deny_rule")
+
     def test_directory_rules_evaluation(self):
         # Default directory rule is RW for workspace
         norm_ws = zerochat.normalize_directory_path(str(self.workspace))
@@ -237,11 +265,13 @@ class AccessControllerPolicyTest(unittest.TestCase):
                 tool_security={
                     "globalMcpPolicy": "allow_all",
                     "tools": {"custom_tool": {"policy": "allow"}},
-                    "directoryRules": ["RW:/test/**"]
+                    "directoryRules": ["RW:/test/**"],
+                    "allow_once": ["run_command"]
                 }
             )
             zerochat.reset_session_credentials()
 
+            self.assertIn("run_command", zerochat.ACCESS_CONTROLLER.allow_once)
             for dt in ("write_file", "edit_file", "run_command"):
                 pol = zerochat.ACCESS_CONTROLLER.get_tool_policy(dt)
                 self.assertIsNotNone(pol)

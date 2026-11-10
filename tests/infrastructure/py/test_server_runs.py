@@ -406,6 +406,35 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             mock_kill_reused.assert_not_called()
             self.assertFalse(state_path.exists())
 
+    def test_server_run_worker_allow_once_executes_tool_without_challenge(self):
+        try:
+            zerochat.RUN_SESSION = zerochat.RunSession(
+                conversation_id="conv_allow_once",
+                run_id="run_allow_once_123",
+                tool_security={"allow_once": ["run_command"]}
+            )
+            zerochat.reset_session_credentials()
+
+            handler = object.__new__(zerochat.ZeroChatServerHandler)
+            res, err, _ = handler._dispatch_local("tools/call", {
+                "name": "run_command",
+                "arguments": {"command": "echo hello_once"}
+            })
+            self.assertIsNone(err)
+            self.assertNotIn("requiresAuthorization", res)
+            self.assertIn("content", res)
+
+            res2, err2, _ = handler._dispatch_local("tools/call", {
+                "name": "run_command",
+                "arguments": {"command": "echo second_time"}
+            })
+            self.assertIsNone(err2)
+            self.assertTrue(res2.get("requiresAuthorization"))
+            self.assertIn("challengeId", res2)
+        finally:
+            zerochat.RUN_SESSION = None
+            zerochat.reset_session_credentials()
+
     def test_live_state_y_heartbeat_con_focus(self):
         state_path = zerochat.get_run_state_path("conv_hb")
         state_path.write_text(json.dumps({
