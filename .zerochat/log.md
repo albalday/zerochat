@@ -53,3 +53,4 @@
 - 2026-11-09 M55-D4 Módulo dd-diff.py en backend para generar diffs nativos de Git en HTML autocontenido y texto unificado para apertura en pestaña del navegador, sin ejecutables en .zerochat ni dependencia de visores gráficos (M55-T6)
 - 2026-11-10 M56-D1 Motor AccessController y dataclass SecurityContext en py/dd-security.py con soporte de políticas globales, herramientas, servidores, reglas R/W y restricciones de comandos desacoplado para evolución multiusuario (M56-T1)
 - 2026-11-10 M56-D2 Persistencia de políticas y reglas en tabla SQLite security_policies (migración 5) y endpoints RPC zerochat/security/get y zerochat/security/update en backend (M56-T2)
+- 2026-11-10 M56-D3 Interceptación de tools/call mediante AccessController, retirada de TOOL_AUTH_KEY y verificación HMAC en backend e implementación de retos con endpoint zerochat/security/authorize (M56-T3)

@@ -421,42 +421,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 token_candidate = auth_header[7:].strip()
         return bool(token_candidate) and hmac.compare_digest(token_candidate.encode(), current_session_token().encode())
 
-    def verify_tool_authorization(self, body: bytes, request_path: str) -> str | None:
-        """Validate and atomically consume an authorization for one tool call."""
-        session_id = self.headers.get("X-ZeroChat-Tool-Session", "")
-        expires_raw = self.headers.get("X-ZeroChat-Tool-Expires", "")
-        nonce = self.headers.get("X-ZeroChat-Tool-Nonce", "")
-        signature = self.headers.get("X-ZeroChat-Tool-Signature", "")
-        if (not isinstance(session_id, str) or len(session_id) > 128 or
-                not isinstance(nonce, str) or not re.fullmatch(r"[A-Za-z0-9_-]{22,128}", nonce) or
-                not isinstance(signature, str) or not re.fullmatch(r"[A-Za-z0-9_-]{43,128}", signature)):
-            return "Missing or invalid tool authorization"
-        try:
-            expires_at = int(expires_raw)
-        except (TypeError, ValueError):
-            return "Missing or invalid tool authorization"
-        now_ms = int(time.time() * 1000)
-        if session_id != TOOL_AUTH_SESSION_ID or expires_at < now_ms or expires_at > now_ms + TOOL_AUTH_TTL_MS:
-            return "Expired or invalid tool authorization"
-        body_hash = hashlib.sha256(body).hexdigest()
-        signature_base = json.dumps(
-            [TOOL_AUTH_VERSION, session_id, "POST", request_path or "/", expires_at, nonce, body_hash],
-            separators=(",", ":"), ensure_ascii=True
-        ).encode("utf-8")
-        expected = base64.urlsafe_b64encode(hmac.new(TOOL_AUTH_KEY, signature_base, hashlib.sha256).digest()).rstrip(b"=").decode("ascii")
-        if not hmac.compare_digest(signature, expected):
-            return "Invalid tool authorization signature"
-        with TOOL_AUTH_NONCES_LOCK:
-            for value, expiry in list(TOOL_AUTH_NONCES.items()):
-                if expiry < now_ms:
-                    del TOOL_AUTH_NONCES[value]
-            if nonce in TOOL_AUTH_NONCES:
-                return "Tool authorization was already used"
-            if len(TOOL_AUTH_NONCES) >= TOOL_AUTH_MAX_NONCES:
-                return "Tool authorization cache is full"
-            TOOL_AUTH_NONCES[nonce] = expires_at
-        return None
-
     def do_OPTIONS(self):
         t0 = time.monotonic()
         safe_path = sanitize_log_path(self.path)
@@ -605,12 +569,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             "serverInfo": server_info,
             "capabilities": {
                 "tools": {"listChanged": True}
-            },
-            "toolAuthorization": {
-                "version": TOOL_AUTH_VERSION,
-                "sessionId": TOOL_AUTH_SESSION_ID,
-                "key": base64.urlsafe_b64encode(TOOL_AUTH_KEY).rstrip(b"=").decode("ascii"),
-                "ttlMs": TOOL_AUTH_TTL_MS
             }
         }
 
@@ -625,8 +583,35 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if method == "tools/list":
             return {"tools": GLOBAL_MCP_MANAGER.tools()}, None, ""
         if method == "tools/call":
+            tool_name = params.get("name", "")
+            raw_args = params.get("arguments", {})
+            args = raw_args if isinstance(raw_args, dict) else {}
+            meta = params.get("_meta")
+            challenge_id = params.get("challengeId") or (meta.get("challengeId") if isinstance(meta, dict) else None)
+            ctx = SecurityContext(workspace_dir=Path.cwd().resolve())
+
+            authorized_challenge = ACCESS_CONTROLLER.consume_challenge(challenge_id) if challenge_id else None
+            if not authorized_challenge:
+                decision = ACCESS_CONTROLLER.evaluate_authorization(tool_name, args, context=ctx, server_name="external")
+                if decision.status == TOOL_POLICY_DENY:
+                    err_msg = f"Bloqueado por política de seguridad: {decision.reason}"
+                    return {"content": [{"type": "text", "text": f"Error: {err_msg}"}], "isError": True, "securityStatus": "deny", "reason": decision.reason}, None, err_msg
+                if decision.status == TOOL_POLICY_ASK:
+                    ch = ACCESS_CONTROLLER.create_challenge(tool_name, args, decision, server_name="external")
+                    return {
+                        "requiresAuthorization": True,
+                        "challengeId": ch["id"],
+                        "toolName": tool_name,
+                        "serverName": "external",
+                        "arguments": args,
+                        "ruleOffer": decision.rule_offer,
+                        "details": decision.details,
+                        "content": [{"type": "text", "text": "Esta herramienta requiere autorización del usuario."}],
+                        "isError": False
+                    }, None, ""
+
             try:
-                result = GLOBAL_MCP_MANAGER.call(params["name"], params.get("arguments", {}))
+                result = GLOBAL_MCP_MANAGER.call(tool_name, args)
             except Exception as ex:
                 return self._tool_exception_result(ex), None, str(ex)
             tool_error_info = ""
@@ -657,14 +642,41 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if method == "tools/list":
             return {"tools": [dict(definition) for definition in LOCAL_TOOLS_DEFINITIONS]}, None, ""
         if method == "tools/call":
-            tool_name = params["name"]
+            tool_name = params.get("name", "")
             handler = LOCAL_TOOL_HANDLERS.get(tool_name)
             if not handler:
                 return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
-            arguments = dict(params.get("arguments", {}))
+            raw_args = params.get("arguments", {})
+            args = dict(raw_args) if isinstance(raw_args, dict) else {}
+            meta = params.get("_meta")
+            if tool_name == "run_command" and isinstance(meta, dict) and "zerochatJobKey" in meta:
+                args["job_key"] = meta.get("zerochatJobKey")
+            challenge_id = params.get("challengeId") or (meta.get("challengeId") if isinstance(meta, dict) else None)
+            ctx = SecurityContext(workspace_dir=Path.cwd().resolve())
+
+            authorized_challenge = ACCESS_CONTROLLER.consume_challenge(challenge_id) if challenge_id else None
+            if not authorized_challenge:
+                decision = ACCESS_CONTROLLER.evaluate_authorization(tool_name, args, context=ctx, server_name="mcp-proxy")
+                if decision.status == TOOL_POLICY_DENY:
+                    err_msg = f"Bloqueado por política de seguridad: {decision.reason}"
+                    return {"content": [{"type": "text", "text": f"Error: {err_msg}"}], "isError": True, "securityStatus": "deny", "reason": decision.reason}, None, err_msg
+                if decision.status == TOOL_POLICY_ASK:
+                    ch = ACCESS_CONTROLLER.create_challenge(tool_name, args, decision, server_name="mcp-proxy")
+                    return {
+                        "requiresAuthorization": True,
+                        "challengeId": ch["id"],
+                        "toolName": tool_name,
+                        "serverName": "mcp-proxy",
+                        "arguments": args,
+                        "ruleOffer": decision.rule_offer,
+                        "details": decision.details,
+                        "content": [{"type": "text", "text": "Esta herramienta requiere autorización del usuario."}],
+                        "isError": False
+                    }, None, ""
+
+            arguments = dict(args)
             if tool_name == "run_command":
                 # La clave la pone el cliente, no el modelo: permite detener el comando antes de conocer su job_id.
-                meta = params.get("_meta")
                 arguments["job_key"] = meta.get("zerochatJobKey") if isinstance(meta, dict) else None
             try:
                 tool_output_json = handler(**arguments)
@@ -736,6 +748,42 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             if method == "zerochat/security/update":
                 ACCESS_CONTROLLER.import_state(params, context=ctx, persist=True)
                 return {"policies": ACCESS_CONTROLLER.export_state(ctx)}, None, ""
+            if method == "zerochat/security/authorize":
+                challenge_id = params.get("challengeId")
+                if not challenge_id or not isinstance(challenge_id, str):
+                    return None, {"code": -32602, "message": "challengeId es obligatorio"}, ""
+                decision = params.get("decision", "deny")
+                if decision == "deny":
+                    ACCESS_CONTROLLER.revoke_challenge(challenge_id)
+                    return {"authorized": False, "status": "deny"}, None, ""
+
+                constraints = params.get("constraints")
+                dir_rule = params.get("directoryRule")
+                success = ACCESS_CONTROLLER.authorize_challenge(challenge_id, decision, constraints, dir_rule, context=ctx)
+                if not success:
+                    return None, {"code": -32002, "message": "Reto no encontrado o no válido"}, ""
+
+                if params.get("execute"):
+                    ch = ACCESS_CONTROLLER.consume_challenge(challenge_id)
+                    if not ch:
+                        return None, {"code": -32002, "message": "Error al consumir el reto para ejecución"}, ""
+                    t_name = ch["toolName"]
+                    t_args = ch["arguments"]
+                    handler = LOCAL_TOOL_HANDLERS.get(t_name)
+                    if handler:
+                        out_json = handler(**t_args)
+                        tool_err = ""
+                        try:
+                            po = json.loads(out_json)
+                            if isinstance(po, dict) and po.get("success") is False:
+                                tool_err = str(po.get("error", "Error en herramienta"))
+                        except Exception:
+                            pass
+                        return {"authorized": True, "result": {"content": [{"type": "text", "text": out_json}], "isError": bool(tool_err)}}, None, tool_err
+                    else:
+                        ext_res = GLOBAL_MCP_MANAGER.call(t_name, t_args)
+                        return {"authorized": True, "result": ext_res}, None, ""
+                return {"authorized": True, "challengeId": challenge_id}, None, ""
         except ValueError as exc:
             return None, {"code": -32602, "message": str(exc)}, ""
         except Exception as exc:
@@ -999,13 +1047,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         req_id = req.get("id")
         method = req["method"]
         params = req.get("params", {})
-
-        if method == "tools/call":
-            auth_error = self.verify_tool_authorization(post_data, req_path or "/")
-            if auth_error:
-                self._log_req("POST", safe_path)
-                self._reject(403, {"error": auth_error}, safe_path, t0, auth_error)
-                return
 
         # Etiqueta de seguimiento para la petición y respuesta (sin datos sensibles)
         action_tag = f"[tools/call: {params['name']}]" if method == "tools/call" else f"[rpc: {method}]"

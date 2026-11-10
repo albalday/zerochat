@@ -251,7 +251,7 @@
       if (options?.headers) {
         Object.assign(headers, options.headers);
       }
-      if (options?.toolAuthorization && this.isLocalServer) {
+      if (options?.toolAuthorization && this.isLocalServer && this.toolAuthorization) {
         Object.assign(headers, await this.buildToolAuthorizationHeaders(targetUrl, body));
       }
       return headers;

@@ -173,14 +173,9 @@ def prepare_environment(args, is_dev: bool):
 
 
 def reset_session_credentials():
-    """Carga el token diario y renueva la clave de firma de herramientas."""
-    global TOOL_AUTH_KEY, TOOL_AUTH_SESSION_ID, TOOL_AUTH_NONCES
+    """Carga el token diario y reinicia las autorizaciones de sesión en memoria."""
     current_session_token()
-    # A restart deliberately invalidates every browser-side signing credential.
-    TOOL_AUTH_KEY = secrets.token_bytes(32)
-    TOOL_AUTH_SESSION_ID = secrets.token_urlsafe(18)
-    with TOOL_AUTH_NONCES_LOCK:
-        TOOL_AUTH_NONCES = {}
+    ACCESS_CONTROLLER.clear_session()
 
 
 def open_server(args, local_ui: bool) -> ThreadingHTTPServer:

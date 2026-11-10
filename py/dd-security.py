@@ -27,7 +27,7 @@ JOB_CONTROL_TOOL = "check_command"
 
 LOCAL_MANAGED_TOOLS = frozenset([
     "read_file", "list_directory", "search_files", "get_diagnostics",
-    "edit_file", "write_file", "run_command", "check_command"
+    "edit_file", "write_file", "run_command", "check_command", "browser_action"
 ])
 
 SAFE_REDIRECTION_PATTERN = re.compile(r"&>\s*/dev/null|\d?>>?\s*/dev/null|\d?>&\d")
@@ -580,6 +580,68 @@ class AccessController:
             self.session_tools.clear()
             self.session_servers.clear()
             self.pending_challenges.clear()
+
+    def create_challenge(self, tool_name: str, args: dict, decision: AccessDecision,
+                         server_name: str = "", server_id: str = "") -> dict:
+        """Genera un reto estructurado para solicitar confirmación interactiva al usuario."""
+        challenge_id = f"auth_{secrets.token_urlsafe(16)}"
+        now = int(time.time() * 1000)
+        with self._lock:
+            expired = [cid for cid, c in self.pending_challenges.items() if now - c.get("createdAt", 0) > 600_000]
+            for cid in expired:
+                self.pending_challenges.pop(cid, None)
+
+            challenge_data = {
+                "id": challenge_id,
+                "toolName": tool_name,
+                "arguments": args,
+                "decision": decision.to_dict(),
+                "serverName": server_name,
+                "serverId": server_id,
+                "createdAt": now,
+                "authorized": False,
+                "decisionType": None
+            }
+            self.pending_challenges[challenge_id] = challenge_data
+            return challenge_data
+
+    def get_challenge(self, challenge_id: str) -> dict | None:
+        with self._lock:
+            return self.pending_challenges.get(challenge_id)
+
+    def authorize_challenge(self, challenge_id: str, decision: str | dict,
+                            constraints: dict | None = None, directory_rule: str | None = None,
+                            context: SecurityContext | None = None) -> bool:
+        with self._lock:
+            challenge = self.pending_challenges.get(challenge_id)
+            if not challenge:
+                return False
+            dec_type = decision.get("decision") if isinstance(decision, dict) else str(decision)
+            if dec_type not in ("allow_once", "allow_session", "allow_always"):
+                return False
+            challenge["authorized"] = True
+            challenge["decisionType"] = dec_type
+            dec_payload = {
+                "decision": dec_type,
+                "constraints": constraints or (decision.get("constraints") if isinstance(decision, dict) else None),
+                "directoryRule": directory_rule or (decision.get("directoryRule") if isinstance(decision, dict) else None)
+            }
+            self.record_decision(dec_payload, challenge["decision"], fallback_tool_name=challenge["toolName"], context=context)
+            return True
+
+    def consume_challenge(self, challenge_id: str) -> dict | None:
+        """Consume y valida un reto previamente autorizado para una ejecución."""
+        with self._lock:
+            challenge = self.pending_challenges.get(challenge_id)
+            if not challenge or not challenge.get("authorized"):
+                return None
+            if challenge.get("decisionType") == "allow_once":
+                return self.pending_challenges.pop(challenge_id)
+            return challenge
+
+    def revoke_challenge(self, challenge_id: str) -> bool:
+        with self._lock:
+            return self.pending_challenges.pop(challenge_id, None) is not None
 
     def merge_tool_constraints(self, target_tool_id: str, requested: dict | None) -> dict | None:
         """Combina restricciones granulares existentes con nuevas solicitadas."""

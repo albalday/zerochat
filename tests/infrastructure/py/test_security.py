@@ -205,6 +205,30 @@ class AccessControllerPolicyTest(unittest.TestCase):
         self.assertEqual(res_get["policies"]["globalMcpPolicy"], "workspace_trust")
         self.assertEqual(res_get["policies"]["servers"]["srv_rpc"]["policy"], "allow")
 
+    def test_challenge_creation_and_authorize_rpc(self):
+        handler = zerochat.ZeroChatServerHandler
+        # Create challenge on the controller used by the handler
+        dec = zerochat.ACCESS_CONTROLLER.evaluate_authorization("run_command", {"command": "echo test"}, self.ctx)
+        ch = zerochat.ACCESS_CONTROLLER.create_challenge("run_command", {"command": "echo test"}, dec)
+        self.assertIsNotNone(ch["id"])
+        self.assertFalse(ch["authorized"])
+
+        # Authorize via RPC
+        auth_params = {
+            "challengeId": ch["id"],
+            "decision": "allow_once"
+        }
+        res, err, info = handler._dispatch_security("zerochat/security/authorize", auth_params)
+        self.assertIsNone(err)
+        self.assertEqual(res["authorized"], True)
+        self.assertEqual(res["challengeId"], ch["id"])
+
+        # Challenge can be consumed
+        consumed = zerochat.ACCESS_CONTROLLER.consume_challenge(ch["id"])
+        self.assertIsNotNone(consumed)
+        # allow_once consumed once
+        self.assertIsNone(zerochat.ACCESS_CONTROLLER.consume_challenge(ch["id"]))
+
 
 if __name__ == "__main__":
     unittest.main()

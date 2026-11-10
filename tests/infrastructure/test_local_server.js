@@ -23,18 +23,7 @@ describe('Servidor local zerochat.py', () => {
 
   /** Cabeceras del sello de tools/call, como las calcula el cliente con la autorización de initialize. */
   function toolSeal(url, body) {
-    const { sessionId, key, ttlMs } = initResult.toolAuthorization;
-    const expiresAt = Date.now() + ttlMs;
-    const nonce = crypto.randomBytes(16).toString('base64url');
-    const pathName = new URL(url).pathname.replace(/\/$/, '') || '/';
-    const bodyHash = crypto.createHash('sha256').update(body).digest('hex');
-    const signatureBase = JSON.stringify(['zerochat-tool-auth-v1', sessionId, 'POST', pathName, expiresAt, nonce, bodyHash]);
-    return {
-      'X-ZeroChat-Tool-Session': sessionId,
-      'X-ZeroChat-Tool-Expires': String(expiresAt),
-      'X-ZeroChat-Tool-Nonce': nonce,
-      'X-ZeroChat-Tool-Signature': crypto.createHmac('sha256', Buffer.from(key, 'base64url')).update(signatureBase).digest('base64url')
-    };
+    return {};
   }
 
   /** POST JSON-RPC con el token de sesión; tools/call va sellado salvo `seal: false`. */
@@ -51,7 +40,16 @@ describe('Servidor local zerochat.py', () => {
   async function callTool(name, args, meta) {
     const res = await post('tools/call', { name, arguments: args, ...(meta ? { _meta: meta } : {}) });
     assert.equal(res.status, 200);
-    const json = await res.json();
+    let json = await res.json();
+    if (json.result?.requiresAuthorization) {
+      const auth = await rpc('zerochat/security/authorize', {
+        challengeId: json.result.challengeId,
+        decision: 'allow_once',
+        directoryRule: `RW:${os.tmpdir()}/**`,
+        execute: true
+      });
+      json = { jsonrpc: '2.0', id: json.id, result: auth.result?.result };
+    }
     return { json, parsed: JSON.parse(json.result?.content?.[0]?.text) };
   }
   const heartbeat = async () => (await rpc('zerochat/heartbeat')).result;
@@ -161,29 +159,34 @@ describe('Servidor local zerochat.py', () => {
     }
   });
 
-  test('initialize publica el servidor, su versión, el SO, la autorización de herramientas y el estado vivo del latido', async () => {
+  test('initialize publica el servidor, su versión, el SO y el estado vivo del latido', async () => {
     assert.equal(initResult.serverInfo?.name, 'ZeroChat Local Server');
     assert.equal(initResult.serverInfo?.version, pkg.version.split('.').slice(0, 2).join('.'));
     assert.ok(typeof initResult.serverInfo?.os === 'string', 'serverInfo debe publicar el SO detectado');
-    assert.equal(initResult.toolAuthorization?.version, 'zerochat-tool-auth-v1');
+    assert.equal(initResult.toolAuthorization, undefined, 'La clave HMAC del cliente se retira de initialize');
     assert.deepEqual(Object.keys(initResult.liveState).sort(), Object.keys(await heartbeat()).sort());
     assert.equal(initResult.liveState.exit_on_close, true);
   });
 
-  test('tools/call exige el sello del cliente, que admite un desfase de reloj de 25 s', async t => {
-    const unsigned = await post('tools/call', { name: 'list_directory', arguments: { path: '.' } }, { seal: false });
-    assert.equal(unsigned.status, 403, 'Una llamada tools/call sin sello debe rechazarse');
-    await unsigned.text();
+  test('tools/call aplica control de acceso en backend y soporta autorización de herramientas', async () => {
     const client = new McpClient({ id: 'mcp_proxy', url: baseUrl, token: testToken });
     assert.equal((await client.initialize()).success, true);
-    assert.equal((await client.callTool('list_directory', { path: '.' }, { toolAuthorization: true })).success, true);
-    // Con el navegador en otro equipo, su reloj puede ir adelantado o atrasado respecto al del servidor.
-    const now = Date.now();
-    t.mock.timers.enable({ apis: ['Date'], now });
-    for (const skewMs of [25_000, -25_000]) {
-      t.mock.timers.setTime(now + skewMs);
-      assert.equal((await client.callTool('list_directory', { path: '.' }, { toolAuthorization: true })).success, true, `Desfase de reloj ${skewMs} ms`);
-    }
+    // list_directory en '.' está cubierto por la regla por defecto del workspace
+    assert.equal((await client.callTool('list_directory', { path: '.' })).success, true);
+
+    // run_command requiere autorización del usuario por defecto
+    const cmdRes = await client.request('tools/call', { name: 'run_command', arguments: { command: 'echo test' } });
+    assert.equal(cmdRes.requiresAuthorization, true);
+    assert.ok(cmdRes.challengeId, 'Debe devolver un challengeId para autorizar');
+
+    // Autorizar el reto con allow_once y ejecutarlo
+    const authRes = await client.request('zerochat/security/authorize', {
+      challengeId: cmdRes.challengeId,
+      decision: 'allow_once',
+      execute: true
+    });
+    assert.equal(authRes.authorized, true);
+    assert.ok(authRes.result?.content?.[0]?.text?.includes('test'));
   });
 
   test('tools/list publica las herramientas core con sus esquemas estrictos', async () => {
@@ -316,7 +319,16 @@ describe('Servidor local zerochat.py', () => {
 
     const extToolNames = ((await rpc('tools/list', {}, { endpoint: 'mcp/external' })).result?.tools || []).map(tool => tool.name);
     assert.ok(extToolNames.includes('ejemplo_echo'));
-    const extCall = await rpc('tools/call', { name: 'ejemplo_echo', arguments: { message: 'probando mcp' } }, { endpoint: 'mcp/external' });
+    const extCallRes = await rpc('tools/call', { name: 'ejemplo_echo', arguments: { message: 'probando mcp' } }, { endpoint: 'mcp/external' });
+    let extCall = extCallRes;
+    if (extCallRes.result?.requiresAuthorization) {
+      const auth = await rpc('zerochat/security/authorize', {
+        challengeId: extCallRes.result.challengeId,
+        decision: 'allow_once',
+        execute: true
+      });
+      extCall = { result: auth.result?.result };
+    }
     assert.equal(extCall.result?.isError, false);
     assert.equal(extCall.result?.content?.[0]?.text, 'echo: probando mcp');
 
@@ -368,7 +380,7 @@ test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos co
     await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });
 
     // 3. Petición POST con initialize
-    const loggingInitRes = await fetch(baseUrl, {
+    await fetch(baseUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -376,7 +388,6 @@ test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos co
       },
       body: JSON.stringify({ jsonrpc: '2.0', id: 10, method: 'initialize', params: {} })
     });
-    const loggingAuth = (await loggingInitRes.json()).result?.toolAuthorization;
 
     // 4. Petición POST con tools/call fallida (archivo no existente) con argumento sensible
     await fetch(baseUrl, {
@@ -414,20 +425,11 @@ test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos co
       jsonrpc: '2.0', id: 12, method: 'tools/call',
       params: { name: 'herramienta_fantasma', arguments: { secret_api_key: 'confidential_key_abc_999' } }
     });
-    const unknownExpires = Date.now() + loggingAuth.ttlMs;
-    const unknownNonce = crypto.randomBytes(16).toString('base64url');
-    const unknownHash = crypto.createHash('sha256').update(unknownBody).digest('hex');
-    const unknownBase = JSON.stringify(['zerochat-tool-auth-v1', loggingAuth.sessionId, 'POST', '/', unknownExpires, unknownNonce, unknownHash]);
-    const unknownSignature = crypto.createHmac('sha256', Buffer.from(loggingAuth.key, 'base64url')).update(unknownBase).digest('base64url');
     await fetch(baseUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${testToken}`,
-        'X-ZeroChat-Tool-Session': loggingAuth.sessionId,
-        'X-ZeroChat-Tool-Expires': String(unknownExpires),
-        'X-ZeroChat-Tool-Nonce': unknownNonce,
-        'X-ZeroChat-Tool-Signature': unknownSignature
+        'Authorization': `Bearer ${testToken}`
       },
       body: unknownBody
     });
