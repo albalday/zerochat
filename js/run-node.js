@@ -81,23 +81,32 @@
     const DelegateTaskTool = require('./tools/builtin/delegate-task.tool.js');
     globalThis.ChatBuiltinDelegateTaskTool = DelegateTaskTool;
 
-    const disabledToolNames = [
-      'ChatBuiltinExecuteJavascriptTool',
-      'ChatBuiltinRenderChartTool',
-      'ChatBuiltinListDocumentsTool',
-      'ChatBuiltinSearchKnowledgeBaseTool',
-      'ChatBuiltinReadKnowledgeChunkTool',
-      'ChatBuiltinReadKnowledgeImageTool'
+    const disabledTools = [
+      { globalName: 'ChatBuiltinExecuteJavascriptTool', name: 'execute_javascript' },
+      { globalName: 'ChatBuiltinRenderChartTool', name: 'render_chart' },
+      { globalName: 'ChatBuiltinListDocumentsTool', name: 'list_documents' },
+      { globalName: 'ChatBuiltinSearchKnowledgeBaseTool', name: 'search_knowledge_base' },
+      { globalName: 'ChatBuiltinReadKnowledgeChunkTool', name: 'read_knowledge_chunk' },
+      { globalName: 'ChatBuiltinReadKnowledgeImageTool', name: 'read_knowledge_image' }
     ];
-    for (const name of disabledToolNames) {
-      if (!globalThis[name]) {
-        globalThis[name] = {
+    for (const { globalName, name } of disabledTools) {
+      if (!globalThis[globalName]) {
+        globalThis[globalName] = {
           definition: { name, description: '' },
           isAvailable: () => false,
           settings: { showInSettings: false },
           execute: async () => ({ error: 'Tool not supported in headless environment' })
         };
       }
+    }
+
+    if (!globalThis.ChatSandbox) {
+      globalThis.ChatSandbox = {
+        execute: async () => ({ error: 'Sandbox not supported in headless environment' })
+      };
+    }
+    if (!globalThis.ChatRagService) {
+      globalThis.ChatRagService = {};
     }
 
     const AgentCore = require('./agent-core.js');
@@ -282,6 +291,9 @@
 
       const activeConfig = Config.getActive();
       const activeProfile = await ProfileRepository.loadUnlocked(activeConfig.activeProfile?.id);
+      if (activeProfile?.settings?.apiType === 'webllm' || activeConfig.apiType === 'webllm') {
+        return { error: 'WebLLM / WebGPU is not supported in the headless Node.js runner. Use --browser instead.' };
+      }
       currentAbortController = new AbortController();
 
       const view = createHeadlessTurnView({

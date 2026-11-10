@@ -97,3 +97,28 @@ test('RunNode - startHeadlessRun orquesta la conexión y arranca RunMode', async
   assert.equal(receivedRunId, 'run_target_id');
   assert.deepEqual(result, { ok: true });
 });
+
+test('RunNode - herramientas excluidas de Node se declaran no disponibles y devuelven error limpio al ejecutarse', async () => {
+  const disabledToolGlobals = [
+    'ChatBuiltinExecuteJavascriptTool',
+    'ChatBuiltinRenderChartTool',
+    'ChatBuiltinListDocumentsTool',
+    'ChatBuiltinSearchKnowledgeBaseTool',
+    'ChatBuiltinReadKnowledgeChunkTool',
+    'ChatBuiltinReadKnowledgeImageTool'
+  ];
+
+  for (const globalName of disabledToolGlobals) {
+    const tool = globalThis[globalName];
+    assert.ok(tool, `${globalName} debe estar registrado en globalThis`);
+    assert.equal(tool.isAvailable(), false, `${globalName} debe declarar isAvailable() === false`);
+    assert.equal(tool.settings.showInSettings, false);
+    const res = await tool.execute();
+    assert.equal(res.error, 'Tool not supported in headless environment');
+  }
+
+  assert.ok(globalThis.ChatSandbox);
+  const sandboxRes = await globalThis.ChatSandbox.execute();
+  assert.equal(sandboxRes.error, 'Sandbox not supported in headless environment');
+});
+
