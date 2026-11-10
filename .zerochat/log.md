@@ -60,3 +60,4 @@
 - 2026-11-10 M57-D1 Desacoplo de vistas y persistencia headless mediante adaptadores (TurnView y ConversationStore) con fallback de memoria en Storage para ejecutar el motor agéntico en Node sin DOM (M57-T1)
 - 2026-11-10 M57-D2 Orquestador headless run-node.js que ensambla el bucle agéntico desatendido en Node mediante ChatRunMode y adaptadores sin dependencias DOM (M57-T2)
 - 2026-11-10 M57-D3 Empaquetado de runner.js standalone para Node.js mediante esbuild en formato CommonJS para node18 con shebang y permisos de ejecución, integrado en scripts/build-runner.mjs y el comando de build (M57-T3)
+- 2026-11-10 M57-D4 Detección de Node.js 18+, descarga con comprobación condicional ETag/304 de runner.js en ~/zerochat/cache/ y supervisor de ejecución desatendida en backend Python (M57-T4)

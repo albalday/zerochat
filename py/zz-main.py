@@ -49,7 +49,7 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--profile", default=None, help=f"Con --prompt o --conversation, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo (por defecto: {DEFAULT_RUN_PROFILE} del servidor)")
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt o --conversation)")
     parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt o --conversation, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
-    parser.add_argument("--browser", action="store_true", help="Con --prompt o --conversation, abrir el navegador predeterminado del usuario en lugar del Chromium sin ventana de Playwright")
+    parser.add_argument("--browser", action="store_true", help="Con --prompt o --conversation, abrir el navegador predeterminado del usuario en lugar del proceso Node.js sin ventana")
     parser.add_argument("--keep-page", action="store_true", help="Página: con --browser, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")
     parser.add_argument("--allow-dangerous-tools", action="store_true", help="Con --prompt o --conversation, aprobar también las herramientas que escriben o ejecutan (write_file, edit_file, run_command); las demás se aprueban siempre para la sesión")
     parser.add_argument("--headless", action="store_true", help="Con --browser, abrir el navegador predeterminado sin ventana (si ya está abierto puede verse la pestaña)")
@@ -87,11 +87,11 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
             if not has_user_or_tool:
                 parser.error(f"la conversación '{conversation_id}' no tiene turnos para continuar")
     if args.no_browser:
-        parser.error("--prompt y --conversation necesitan abrir el navegador: no se combina con --no-browser")
+        parser.error("--prompt y --conversation ejecutan la interfaz de forma autónoma: no se combina con --no-browser")
     if args.keep_server:
         parser.error("--prompt y --conversation terminan al devolver el resultado: no se combina con --keep-server (para no cerrar la página, --keep-page)")
     if args.headless and not args.browser:
-        parser.error("--headless solo se usa con --browser (--prompt y --conversation ya se ejecutan sin ventana con el Chromium de Playwright)")
+        parser.error("--headless solo se usa con --browser (--prompt y --conversation ya se ejecutan sin ventana con Node.js)")
     if args.keep_page and (not args.browser or args.headless):
         parser.error("--keep-page necesita la ventana del navegador del usuario (--browser sin --headless)")
     profile_data = None
@@ -264,14 +264,13 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, resu
         return None
     target_url = launch_url(ui_url)
     if not args.browser:
-        headless_browser = launch_playwright_chromium(target_url)
-        if headless_browser is None:
-            run_error("No se pudo abrir el Chromium de Playwright (instálalo desde Ajustes › Navegador o usa --browser).")
+        runner_proc = launch_node_runner(target_url)
+        if runner_proc is None:
             server.server_close()
             sys.stdout = result_out
             sys.exit(RUN_EXIT_SETUP)
-        threading.Thread(target=run_supervisor, args=(server, RUN_SESSION, headless_browser), daemon=True).start()
-        return headless_browser
+        threading.Thread(target=run_supervisor, args=(server, RUN_SESSION, runner_proc), daemon=True).start()
+        return runner_proc
     headless_browser = launch_headless_browser(target_url) if args.headless else None
     if headless_browser is None and not launch_browser(target_url):
         run_error("No se pudo abrir el navegador.")

@@ -130,7 +130,7 @@ mod.save_general_profile({"name": "local", "settings": {"apiType": "openai", "mo
   return templateDbPath;
 }
 
-function launchZerochat(prompt, { scenario = 'ok', env = {}, port, args = [], production = false, seedDefaultProfile = true, withPlaywright = true } = {}) {
+function launchZerochat(prompt, { scenario = 'ok', env = {}, port, args = [], production = false, seedDefaultProfile = true, withNode = true } = {}) {
   const work = tempDir('zerochat-run-');
   let script = backendPath;
   if (production) {
@@ -144,6 +144,10 @@ function launchZerochat(prompt, { scenario = 'ok', env = {}, port, args = [], pr
     fs.copyFileSync(ensureTemplateDb(), path.join(storageDir, 'zerochat.db'));
     fs.chmodSync(path.join(storageDir, 'zerochat.db'), 0o600);
   }
+  const cacheDir = path.join(dataDir, 'cache');
+  fs.mkdirSync(cacheDir, { mode: 0o700, recursive: true });
+  fs.copyFileSync(path.join(repoRoot, 'runner.js'), path.join(cacheDir, 'runner.js'));
+  fs.chmodSync(path.join(cacheDir, 'runner.js'), 0o755);
   const binDir = path.join(work, 'bin');
   fs.mkdirSync(binDir);
   for (const name of ['xdg-open', 'user-browser']) {
@@ -154,14 +158,23 @@ function launchZerochat(prompt, { scenario = 'ok', env = {}, port, args = [], pr
   fs.mkdirSync(appsDir, { recursive: true });
   fs.writeFileSync(path.join(appsDir, 'user-browser.desktop'), '[Desktop Entry]\nExec=user-browser %u\n');
 
-  const pwCache = path.join(work, 'pw-cache');
-  fs.mkdirSync(pwCache);
-  if (withPlaywright) {
-    const shellDir = path.join(pwCache, 'chromium_headless_shell-1', 'chrome-headless-shell-linux64');
-    fs.mkdirSync(shellDir, { recursive: true });
-    fs.writeFileSync(path.join(pwCache, 'chromium_headless_shell-1', 'INSTALLATION_COMPLETE'), '');
-    fs.writeFileSync(path.join(shellDir, 'chrome-headless-shell'), `#!${pythonBin}\n${FAKE_BROWSER}`, { mode: 0o755 });
+  if (withNode) {
+    fs.writeFileSync(path.join(binDir, 'node'), `#!${pythonBin}
+import os, sys
+if "--version" in sys.argv:
+    print("v22.0.0")
+    sys.exit(0)
+${FAKE_BROWSER}
+`, { mode: 0o755 });
+  } else {
+    fs.writeFileSync(path.join(binDir, 'node'), `#!${pythonBin}
+import sys
+if "--version" in sys.argv:
+    print("v16.0.0")
+sys.exit(0)
+`, { mode: 0o755 });
   }
+
   const infoPath = path.join(work, 'info.json');
   return Promise.resolve(port === null ? null : port || freePort()).then(listenPort => new Promise(resolve => {
     const portArgs = listenPort === null ? [] : ['--port', String(listenPort)];
@@ -171,7 +184,6 @@ function launchZerochat(prompt, { scenario = 'ok', env = {}, port, args = [], pr
         ...process.env,
         PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
         XDG_DATA_HOME: path.join(work, 'share'),
-        PLAYWRIGHT_BROWSERS_PATH: pwCache,
         ZEROCHAT_DATA_DIR: dataDir,
         FAKE_UI_SCENARIO: scenario,
         FAKE_UI_INFO: infoPath,
@@ -202,7 +214,7 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     const busyPort = String(busy.address().port);
     const [
       ok, userHeadless, failed, unexported, idle, chatty, browserGone,
-      emptyPrompt, missingDefaultProfile, noPlaywright, portInUse, devDefaultInUse, devBrowserDefaultInUse, productionDefaultInUse
+      emptyPrompt, missingDefaultProfile, noNode, portInUse, devDefaultInUse, devBrowserDefaultInUse, productionDefaultInUse
     ] = await Promise.all([
       runZerochat('hola mundo', { args: ['--browser', '--profile', ' Oficina ', '--log', 'on', '--export', exportPath, '--keep-page', '--allow-dangerous-tools'] }),
       runZerochat('hola headless', { args: ['--browser', '--headless'] }),
@@ -213,7 +225,7 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
       runZerochat('hola', { scenario: 'exit', env: { ZEROCHAT_HEARTBEAT_TIMEOUT: '0.2' } }),
       runZerochat('   '),
       runZerochat('hola', { seedDefaultProfile: false }),
-      runZerochat('hola', { withPlaywright: false }),
+      runZerochat('hola', { withNode: false }),
       runZerochat('hola', { port: busy.address().port }),
       // Sin --port, el puerto por defecto (aquí ZEROCHAT_PORT) ocupado: sin --browser usa un puerto libre incluso en desarrollo.
       runZerochat('hola', { port: null, env: { ZEROCHAT_PORT: busyPort } }),
@@ -230,9 +242,9 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(userHeadless.code, 0, userHeadless.stderr);
     assert.equal(userHeadless.info.launcher, 'user-browser');
     assert.deepEqual(userHeadless.info.args, ['--headless', '--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests']);
-    // Por defecto (sin --browser) usa el Chromium de Playwright en modo headless y el perfil local.
-    assert.equal(failed.info.launcher, 'chrome-headless-shell');
-    assert.deepEqual(failed.info.args, ['--headless', '--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests']);
+    // Por defecto (sin --browser) usa el runner de Node.js en modo desatendido y el perfil local.
+    assert.equal(failed.info.launcher, 'node');
+    assert.match(failed.info.args[0], /(?:run-node|runner)\.js$/);
     // La interfaz es la del arranque normal (la local en desarrollo) con run= en el fragmento.
     assert.equal(ok.info.url, `http://127.0.0.1:${ok.port}/zerochat.html`);
     assert.deepEqual(ok.info.fragment_keys, ['host', 'port', 'run', 'token']);
@@ -282,8 +294,8 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.match(emptyPrompt.stderr, /error: el prompt está vacío/);
     assert.equal(missingDefaultProfile.code, 4, missingDefaultProfile.stderr);
     assert.match(missingDefaultProfile.stderr, /no existe el perfil por defecto 'local'/);
-    assert.equal(noPlaywright.code, 3, noPlaywright.stderr);
-    assert.match(noPlaywright.stderr, /No se pudo abrir el Chromium de Playwright/);
+    assert.equal(noNode.code, 3, noNode.stderr);
+    assert.match(noNode.stderr, /Node\.js 18\+ es necesario/);
     assert.equal(portInUse.code, 3, portInUse.stderr);
     assert.match(portInUse.stderr, /No se pudo escuchar/);
     assert.equal(portInUse.info, null);

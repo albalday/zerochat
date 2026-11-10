@@ -6909,8 +6909,8 @@ def start_server_run(params: dict) -> dict:
     if tool_security is not None and not isinstance(tool_security, dict):
         raise ValueError("tool_security debe ser un objeto o null.")
 
-    if not playwright_chromium_executable():
-        raise ValueError("No está instalado el Chromium de Playwright (instálalo desde Ajustes › Navegador).")
+    if not find_node_executable():
+        raise ValueError("Node.js 18+ es necesario para ejecutar tareas en segundo plano en el servidor (instala Node.js 18+).")
 
     run_id = secrets.token_urlsafe(24)
     cmd = [sys.executable, str(Path(__file__).resolve()), "--conversation", clean_conv_id, "--profile", profile_name]
@@ -7148,14 +7148,15 @@ def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, s
     return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
 
-def run_supervisor(server: ThreadingHTTPServer, session: RunSession, browser_proc: subprocess.Popen | None = None):
-    """Detiene el servidor al recibir el resultado, si termina el navegador propio o al agotar los plazos."""
+def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc: subprocess.Popen | None = None, browser_proc: subprocess.Popen | None = None):
+    """Detiene el servidor al recibir el resultado, si termina el runner propio o al agotar los plazos."""
+    proc = runner_proc if runner_proc is not None else browser_proc
     deadline = time.monotonic() + RUN_TOTAL_TIMEOUT
     while not session.finished.wait(RUN_POLL_SECONDS):
         # El latido o una señal ya detienen el servidor: el resultado queda vacío.
         if _SERVER_SHUTTING_DOWN.is_set():
             return
-        if browser_proc is not None and browser_proc.poll() is not None and not session.finished.wait(0.2):
+        if proc is not None and proc.poll() is not None and not session.finished.wait(0.2):
             break
         if time.monotonic() >= deadline:
             session.stop_reason = f"Plazo total agotado ({RUN_TOTAL_TIMEOUT:.0f}s)."
@@ -7166,7 +7167,7 @@ def run_supervisor(server: ThreadingHTTPServer, session: RunSession, browser_pro
     if session.result is None and session.conversation_id:
         with session.lock:
             session.status = "error"
-            session.error = session.stop_reason or "El navegador se cerró o la ejecución se interrumpió sin resultado."
+            session.error = session.stop_reason or ("El runner se cerró sin resultado." if proc else "La ejecución se interrumpió sin resultado.")
             write_run_state(session)
     stop_zerochat_server(server)
 
@@ -7213,6 +7214,116 @@ def fall_back_when_headless_exits(proc: subprocess.Popen, url: str):
     if not HEARTBEAT_INITIALIZED and not _SERVER_SHUTTING_DOWN.is_set():
         log_event("El navegador sin ventana terminó sin abrir la interfaz (¿ya estaba abierto?); se abre una pestaña de la forma normal.")
         launch_browser(url)
+
+
+NODE_MINIMUM_MAJOR = 18
+
+
+def find_node_executable(min_major: int = NODE_MINIMUM_MAJOR) -> str | None:
+    """Localiza un ejecutable de Node.js en PATH y comprueba su versión mínima."""
+    executable = shutil.which("node")
+    if not executable:
+        return None
+    try:
+        res = subprocess.run([executable, "--version"], capture_output=True, text=True, timeout=5)
+        if res.returncode != 0:
+            return None
+        match = re.search(r"v?(\d+)\.", res.stdout.strip())
+        if not match or int(match.group(1)) < min_major:
+            return None
+        return executable
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def ensure_runner_script() -> Path:
+    """
+    Obtiene la ruta al runner de Node.js: en entorno de desarrollo local usa js/run-node.js o runner.js;
+    en producción lo descarga o actualiza desde GitHub Pages con comprobación condicional ETag/304
+    en ~/zerochat/cache/runner.js.
+    """
+    dev_root = get_dev_root()
+    if dev_root is not None:
+        local_run_node = dev_root / "js" / "run-node.js"
+        if local_run_node.is_file():
+            return local_run_node
+        local_runner = dev_root / "runner.js"
+        if local_runner.is_file():
+            return local_runner
+
+    cache_dir = get_data_dir() / "cache"
+    cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.name != "nt":
+        try:
+            cache_dir.chmod(0o700)
+        except OSError:
+            pass
+    runner_path = cache_dir / "runner.js"
+    etag_path = cache_dir / "runner.etag"
+
+    runner_url = DEFAULT_UI_URL.rsplit("/", 1)[0] + "/runner.js"
+
+    try:
+        req = urllib.request.Request(runner_url, headers={"User-Agent": f"ZeroChat/{VERSION}"})
+        if runner_path.is_file() and etag_path.is_file():
+            try:
+                current_etag = etag_path.read_text(encoding="utf-8").strip()
+                if current_etag:
+                    req.add_header("If-None-Match", current_etag)
+            except OSError:
+                pass
+
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            content = resp.read()
+            etag = resp.headers.get("ETag")
+            _write_private_text(runner_path, content.decode("utf-8"))
+            if os.name != "nt":
+                try:
+                    runner_path.chmod(0o755)
+                except OSError:
+                    pass
+            if etag:
+                _write_private_text(etag_path, etag)
+    except urllib.error.HTTPError as err:
+        if err.code == 304 and runner_path.is_file():
+            pass
+        elif runner_path.is_file():
+            log_event(f"No se pudo comprobar actualización de runner.js ({err}); usando versión en caché.")
+        else:
+            raise RuntimeError(f"Error descargando runner.js desde {runner_url}: {err}") from err
+    except (urllib.error.URLError, TimeoutError, OSError) as err:
+        if runner_path.is_file():
+            log_event(f"No se pudo comprobar actualización de runner.js ({err}); usando versión en caché.")
+        else:
+            raise RuntimeError(f"No se pudo descargar runner.js ({err}) y no hay copia en caché.") from err
+
+    return runner_path
+
+
+def launch_node_runner(url: str) -> subprocess.Popen | None:
+    """Abre el runner de Node.js sin ventana en segundo plano."""
+    node = find_node_executable()
+    if not node:
+        run_error("Node.js 18+ es necesario para la ejecución desatendida. Instala Node.js o usa --browser.")
+        return None
+    try:
+        runner_path = ensure_runner_script()
+    except Exception as exc:
+        run_error(f"No se pudo preparar el runner de Node.js: {exc}")
+        return None
+    log_event(f"Iniciando runner de Node.js ({runner_path.name})...")
+    try:
+        return subprocess.Popen(
+            [node, str(runner_path), url],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as error:
+        run_error(f"No se pudo iniciar el proceso de Node.js ({error}).")
+        return None
+
 # ==============================================================================
 # Punto de Entrada Principal (CLI)
 # ==============================================================================
@@ -7264,7 +7375,7 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--profile", default=None, help=f"Con --prompt o --conversation, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo (por defecto: {DEFAULT_RUN_PROFILE} del servidor)")
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt o --conversation)")
     parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt o --conversation, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
-    parser.add_argument("--browser", action="store_true", help="Con --prompt o --conversation, abrir el navegador predeterminado del usuario en lugar del Chromium sin ventana de Playwright")
+    parser.add_argument("--browser", action="store_true", help="Con --prompt o --conversation, abrir el navegador predeterminado del usuario en lugar del proceso Node.js sin ventana")
     parser.add_argument("--keep-page", action="store_true", help="Página: con --browser, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")
     parser.add_argument("--allow-dangerous-tools", action="store_true", help="Con --prompt o --conversation, aprobar también las herramientas que escriben o ejecutan (write_file, edit_file, run_command); las demás se aprueban siempre para la sesión")
     parser.add_argument("--headless", action="store_true", help="Con --browser, abrir el navegador predeterminado sin ventana (si ya está abierto puede verse la pestaña)")
@@ -7302,11 +7413,11 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
             if not has_user_or_tool:
                 parser.error(f"la conversación '{conversation_id}' no tiene turnos para continuar")
     if args.no_browser:
-        parser.error("--prompt y --conversation necesitan abrir el navegador: no se combina con --no-browser")
+        parser.error("--prompt y --conversation ejecutan la interfaz de forma autónoma: no se combina con --no-browser")
     if args.keep_server:
         parser.error("--prompt y --conversation terminan al devolver el resultado: no se combina con --keep-server (para no cerrar la página, --keep-page)")
     if args.headless and not args.browser:
-        parser.error("--headless solo se usa con --browser (--prompt y --conversation ya se ejecutan sin ventana con el Chromium de Playwright)")
+        parser.error("--headless solo se usa con --browser (--prompt y --conversation ya se ejecutan sin ventana con Node.js)")
     if args.keep_page and (not args.browser or args.headless):
         parser.error("--keep-page necesita la ventana del navegador del usuario (--browser sin --headless)")
     profile_data = None
@@ -7479,14 +7590,13 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, resu
         return None
     target_url = launch_url(ui_url)
     if not args.browser:
-        headless_browser = launch_playwright_chromium(target_url)
-        if headless_browser is None:
-            run_error("No se pudo abrir el Chromium de Playwright (instálalo desde Ajustes › Navegador o usa --browser).")
+        runner_proc = launch_node_runner(target_url)
+        if runner_proc is None:
             server.server_close()
             sys.stdout = result_out
             sys.exit(RUN_EXIT_SETUP)
-        threading.Thread(target=run_supervisor, args=(server, RUN_SESSION, headless_browser), daemon=True).start()
-        return headless_browser
+        threading.Thread(target=run_supervisor, args=(server, RUN_SESSION, runner_proc), daemon=True).start()
+        return runner_proc
     headless_browser = launch_headless_browser(target_url) if args.headless else None
     if headless_browser is None and not launch_browser(target_url):
         run_error("No se pudo abrir el navegador.")

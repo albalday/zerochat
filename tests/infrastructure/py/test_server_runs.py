@@ -332,7 +332,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         mock_proc = mock.Mock()
         mock_proc.pid = os.getpid()
 
-        with mock.patch.object(zerochat, "playwright_chromium_executable", return_value="/usr/bin/chromium"), \
+        with mock.patch.object(zerochat, "find_node_executable", return_value="/usr/bin/node"), \
              mock.patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
             res, err, _ = zerochat.dispatch_run("zerochat/run/start", {
                 "conversation_id": "conv_val",

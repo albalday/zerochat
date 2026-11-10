@@ -19,7 +19,7 @@ Done when: --prompt y --conversation se ejecutan por defecto mediante Node.js (c
 - [x] M57-T1 Abstracción y encapsulación del entorno de ejecución (adaptadores de vista, persistencia y host sin DOM) (2026-11-10)
 - [x] M57-T2 Punto de entrada y orquestador del runner en Node.js (js/run-node.js) (2026-11-10)
 - [x] M57-T3 Empaquetado del runner standalone para distribución web (scripts/build-runner.mjs y runner.js) (2026-11-10)
-- [ ] M57-T4 Backend Python: detección de Node, descarga/caché de runner.js y supervisor de ejecución (py/ii-run-mode.py y py/zz-main.py)
+- [x] M57-T4 Backend Python: detección de Node, descarga/caché de runner.js y supervisor de ejecución (py/ii-run-mode.py y py/zz-main.py) (2026-11-10)
 - [ ] M57-T5 Delimitación de herramientas y proveedores en Node: exclusión limpia de RAG, WebGPU, charts y sandbox iframe
 - [ ] M57-T6 Pruebas de infraestructura, integración y verificación de empaquetado (wheel y smoke test)
 - [ ] M57-T7 Actualización de documentación (py/README.md y help/run-mode.html) y cierre
