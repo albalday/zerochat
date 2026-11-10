@@ -21,6 +21,20 @@ async function main() {
   const { outfile } = parseArgs(process.argv.slice(2));
   const entryPoint = path.join(ROOT_DIR, 'js', 'run-node.js');
 
+  const stubIconsPlugin = {
+    name: 'stub-icons',
+    setup(buildContext) {
+      buildContext.onResolve({ filter: /icons\.js$/ }, args => ({
+        path: args.path,
+        namespace: 'stub-icons'
+      }));
+      buildContext.onLoad({ filter: /.*/, namespace: 'stub-icons' }, () => ({
+        contents: 'module.exports = { get: () => "" };',
+        loader: 'js'
+      }));
+    }
+  };
+
   await build({
     entryPoints: [entryPoint],
     bundle: true,
@@ -28,6 +42,7 @@ async function main() {
     target: 'node18',
     format: 'cjs',
     outfile,
+    plugins: [stubIconsPlugin],
     banner: {
       js: '#!/usr/bin/env node\n'
     },

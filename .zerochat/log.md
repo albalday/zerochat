@@ -64,3 +64,4 @@
 - 2026-11-10 M57-D5 Exclusión limpia de RAG, WebGPU, charts y sandbox iframe en Node.js mediante desactivación declarativa isAvailable y respuestas de error controladas sin condicionales en el llamante (M57-T5)
 - 2026-11-10 M57-D6 Verificación exhaustiva de empaquetado PyPI (smoke test sin recursos web en wheel), infraestructura y suite completa de pruebas en verde (M57-T6)
 - 2026-11-10 M57-D7 Actualización de documentación técnica (py/README.md) y ayuda bilingüe de usuario (help/run-mode.html y help/en/run-mode.html) reflejando el runner de Node.js (M57-T7)
+- 2026-11-10 M57-D8 Desacoplo de tool-cards, icons y marcado modal de export del runner Node.js (M57-T8)

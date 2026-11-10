@@ -25,6 +25,7 @@ test('HeadlessAdapters - createHeadlessTurnView gestiona bloques de texto sin DO
 
 test('HeadlessAdapters - createHeadlessTurnView responde a autorizaciones usando el responder activo', async () => {
   let activeResponder = name => (name === 'read_file' ? 'allow_session' : 'deny');
+  globalThis.ChatToolCards = ToolCards;
   ToolCards.setAuthorizationResponder(activeResponder);
   try {
     const view = HeadlessAdapters.createHeadlessTurnView();

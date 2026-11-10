@@ -15,7 +15,6 @@ const HTML_SINK = /\.(?:innerHTML|outerHTML)\s*=(?!=)(?!\s*''\s*;)|insertAdjacen
 const REVIEWED_USES = {
   'js/command-card.js': 2,
   'js/debug.js': 5,
-  'js/export.js': 1,
   'js/generation-controller.js': 1,
   'js/rag-ui.js': 9,
   'js/tool-cards.js': 15,
@@ -36,6 +35,7 @@ const REVIEWED_USES = {
   'js/ui-reasoning.js': 1,
   'js/ui-settings.js': 2,
   'js/ui-sidebar.js': 2,
+  'js/ui-transfer.js': 1,
   'js/utils.js': 3
 };
 

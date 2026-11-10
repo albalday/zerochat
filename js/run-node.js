@@ -33,14 +33,28 @@
     const MCP = require('./mcp.js');
     globalThis.ChatMCP = MCP;
 
-    const Icons = require('./icons.js');
-    globalThis.ChatIcons = Icons;
+    const HeadlessIcons = {
+      get: () => ''
+    };
+    globalThis.ChatIcons = HeadlessIcons;
 
     const I18n = require('./i18n.js');
     globalThis.ChatI18n = I18n;
 
-    const ToolCards = require('./tool-cards.js');
-    globalThis.ChatToolCards = ToolCards;
+    let authorizationResponder = null;
+    const HeadlessToolCards = {
+      setAuthorizationResponder: responder => {
+        authorizationResponder = responder;
+      },
+      getAuthorizationResponder: () => authorizationResponder,
+      createMcpToolView: () => null,
+      getUrlArg: args => args?.url || args?.URL || args?.uri || args?.link || args?.href || args?.path || args?.input || '',
+      createWebRequestView: () => ({ createLiveCard: () => null, updateLiveCard: () => null }),
+      createTextResultView: () => ({ createLiveCard: () => null, updateLiveCard: () => null }),
+      renderCardHtml: () => '',
+      renderStatusBadge: () => {}
+    };
+    globalThis.ChatToolCards = HeadlessToolCards;
 
     const ToolSecurity = require('./tool-security.js');
     globalThis.ChatToolSecurity = ToolSecurity;
@@ -131,7 +145,7 @@
       ProfileRepository,
       MCP,
       ToolSecurity,
-      ToolCards,
+      HeadlessToolCards,
       Engine,
       Export,
       RunMode,

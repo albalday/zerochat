@@ -23,6 +23,7 @@ Done when: --prompt y --conversation se ejecutan por defecto mediante Node.js (c
 - [x] M57-T5 Delimitación de herramientas y proveedores en Node: exclusión limpia de RAG, WebGPU, charts y sandbox iframe (2026-11-10)
 - [x] M57-T6 Pruebas de infraestructura, integración y verificación de empaquetado (wheel y smoke test) (2026-11-10)
 - [x] M57-T7 Actualización de documentación (py/README.md y help/run-mode.html) y cierre (2026-11-10)
+- [x] M57-T8 Desacoplo de marcado HTML y módulos de UI (tool-cards, icons y export modal) del runner Node.js (2026-11-10)
 
 
 

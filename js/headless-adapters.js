@@ -5,15 +5,15 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'), require('./tool-cards.js'));
+    module.exports = factory(require('./utils.js'));
   } else {
-    root.ChatHeadlessAdapters = factory(root.ChatUtils, root.ChatToolCards);
+    root.ChatHeadlessAdapters = factory(root.ChatUtils);
   }
-}(typeof self !== 'undefined' ? self : this, function (Utils, ToolCards) {
+}(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
   const { resolveDep } = Utils;
-  const getToolCards = () => resolveDep('ChatToolCards', './tool-cards.js') || ToolCards;
+  const getToolCards = () => resolveDep('ChatToolCards');
 
   /**
    * Vista de turno desacoplada del DOM para ChatEngine.executeAgentTurnLoop.

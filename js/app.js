@@ -41,8 +41,7 @@
     ChatUIBrowser: UIBrowser,
     ChatUIConnection: UIConnection,
     ChatRagUI: RagUI,
-    ChatRunMode: RunMode,
-    ChatExport: Export
+    ChatRunMode: RunMode
   } = window;
   const { t } = I18n;
 
@@ -274,7 +273,7 @@
     UISettings.ensureDialogMarkup();
     UIProfiles.ensureDialogMarkup();
     RagUI.ensureDialogMarkup();
-    Export.ensureDialogMarkup();
+    UITransfer.ensureDialogMarkup();
     Debug.ensureDialogMarkup();
   }
 
