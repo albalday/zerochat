@@ -122,3 +122,17 @@ test('RunNode - herramientas excluidas de Node se declaran no disponibles y devu
   assert.equal(sandboxRes.error, 'Sandbox not supported in headless environment');
 });
 
+test('RunNode - ChatCommandCard está registrado en globalThis y parseResult extrae estado de run_command', () => {
+  assert.ok(globalThis.ChatCommandCard, 'ChatCommandCard debe estar registrado para el descubrimiento de run_command');
+  const view = globalThis.ChatCommandCard.createView();
+  assert.equal(typeof view.createLiveCard, 'function');
+  assert.equal(typeof view.renderHistoryCard, 'function');
+
+  assert.equal(globalThis.ChatCommandCard.parseResult(null), null);
+  assert.equal(globalThis.ChatCommandCard.parseResult('not-json'), null);
+  assert.deepEqual(globalThis.ChatCommandCard.parseResult('{"status": "running", "job_id": 12}'), { status: 'running', job_id: 12 });
+  assert.equal(globalThis.ChatCommandCard.isFailure({ status: 'exited', exitCode: 1 }), true);
+  assert.equal(globalThis.ChatCommandCard.isFailure({ status: 'exited', exitCode: 0 }), false);
+});
+
+

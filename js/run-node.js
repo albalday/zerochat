@@ -56,6 +56,32 @@
     };
     globalThis.ChatToolCards = HeadlessToolCards;
 
+    const HeadlessCommandCard = {
+      parseResult: raw => {
+        const text = typeof raw === 'string' ? raw : (typeof raw?.content === 'string' ? raw.content : null);
+        if (!text) return null;
+        try {
+          const data = JSON.parse(text);
+          return data && typeof data === 'object' && typeof data.status === 'string' ? data : null;
+        } catch (_) {
+          return null;
+        }
+      },
+      formatDuration: () => '',
+      isFailure: state => state?.status === 'timeout' || state?.status === 'error' || (state?.status === 'exited' && state?.exitCode !== 0),
+      createView: () => ({ createLiveCard: () => null, renderHistoryCard: () => null })
+    };
+    globalThis.ChatCommandCard = HeadlessCommandCard;
+
+    const Markdown = require('./markdown.js');
+    globalThis.ChatMarkdown = Markdown;
+
+    const FileParser = require('./file-parser.js');
+    globalThis.ChatFileParser = FileParser;
+
+    const OfficeParser = require('./office-parser.js');
+    globalThis.ChatOfficeParser = OfficeParser;
+
     const ToolSecurity = require('./tool-security.js');
     globalThis.ChatToolSecurity = ToolSecurity;
 

@@ -7191,7 +7191,7 @@ def run_outcome(session: RunSession) -> tuple[int, str | None]:
     if session.export_path and not session.exported:
         run_error(session.export_error or f"La interfaz no envió la conversación para {session.export_path}.")
     if session.result is None:
-        run_error(session.stop_reason or "El navegador se cerró o la ejecución se interrumpió sin resultado.")
+        run_error(session.stop_reason or session.error or "El runner se cerró o la ejecución se interrumpió sin resultado.")
         return RUN_EXIT_TIMEOUT, None
     if "error" in session.result:
         run_error(f"Error de generación: {session.result['error']}")
