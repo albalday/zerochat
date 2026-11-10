@@ -62,3 +62,4 @@
 - 2026-11-10 M57-D3 Empaquetado de runner.js standalone para Node.js mediante esbuild en formato CommonJS para node18 con shebang y permisos de ejecución, integrado en scripts/build-runner.mjs y el comando de build (M57-T3)
 - 2026-11-10 M57-D4 Detección de Node.js 18+, descarga con comprobación condicional ETag/304 de runner.js en ~/zerochat/cache/ y supervisor de ejecución desatendida en backend Python (M57-T4)
 - 2026-11-10 M57-D5 Exclusión limpia de RAG, WebGPU, charts y sandbox iframe en Node.js mediante desactivación declarativa isAvailable y respuestas de error controladas sin condicionales en el llamante (M57-T5)
+- 2026-11-10 M57-D6 Verificación exhaustiva de empaquetado PyPI (smoke test sin recursos web en wheel), infraestructura y suite completa de pruebas en verde (M57-T6)
