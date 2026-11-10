@@ -450,15 +450,25 @@ class StorageEngineTest(unittest.TestCase):
         renamed = zerochat.get_conversation("session_test_123")
         self.assertEqual(renamed["title"], "Título Renombrado")
 
-        # Actualizar mensajes de una conversación existente
+        # Actualizar mensajes de una conversación existente con metadatos mínimos preserva profileId, serverRun y extra
         new_messages = [
             {"id": "msg_1", "role": "user", "content": "¿Cómo estás?"},
             {"id": "msg_2", "role": "assistant", "content": "¡Bien!"},
             {"id": "msg_4", "role": "user", "content": "Genial."}
         ]
-        updated = zerochat.save_conversation(renamed, new_messages)
+        updated = zerochat.save_conversation({"id": "session_test_123"}, new_messages)
         self.assertEqual(updated["messageCount"], 3)
+        self.assertEqual(updated["title"], "Título Renombrado")
+        self.assertEqual(updated["profileId"], "deepseek")
+        self.assertEqual(updated["serverRun"], True)
+        self.assertEqual(updated["extra"]["cron"], {"enabled": True})
         self.assertEqual(len(zerochat.get_conversation("session_test_123")["history"]), 3)
+
+        # Desactivar explícitamente serverRun lo actualiza sin borrar profileId ni extra
+        toggled = zerochat.save_conversation({"id": "session_test_123", "serverRun": False}, new_messages)
+        self.assertEqual(toggled["serverRun"], False)
+        self.assertEqual(toggled["profileId"], "deepseek")
+        self.assertEqual(toggled["extra"]["cron"], {"enabled": True})
 
         # Borrar conversación y verificar borrado en cascada en la tabla messages
         with zerochat.open_storage() as conn:

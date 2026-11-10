@@ -163,6 +163,22 @@
     getEngine().ensureConversationDate(history, conversation.createdAt);
 
     if (!await activateConversation(conversation.id, history, 'chat_switch_blocked_generating', options)) return false;
+    const existing = getSavedSessions().find(s => s.id === conversation.id);
+    const isServerRun = conversation.serverRun !== undefined
+      ? Boolean(conversation.serverRun)
+      : (conversation.extra?.server_run !== undefined ? Boolean(conversation.extra.server_run) : undefined);
+    const sessionMeta = {
+      ...(existing || {}),
+      id: conversation.id,
+      title: conversation.title || existing?.title || '',
+      createdAt: conversation.createdAt || existing?.createdAt || Date.now(),
+      updatedAt: conversation.updatedAt || existing?.updatedAt || Date.now(),
+      messageCount: history.length,
+      profileId: conversation.profileId || conversation.extra?.profile_id || existing?.profileId || '',
+      ...(isServerRun !== undefined ? { serverRun: isServerRun } : (existing?.serverRun !== undefined ? { serverRun: existing.serverRun } : {})),
+      ...(conversation.extra ? { extra: conversation.extra } : (existing?.extra ? { extra: existing.extra } : {}))
+    };
+    getState().saveSessionMetadata(sessionMeta);
     showActiveSession(options, { resetComposer: false });
     if (typeof options.onSessionSwitched === 'function') {
       options.onSessionSwitched(conversation);

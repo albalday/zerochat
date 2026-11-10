@@ -4,6 +4,8 @@ const RunNode = require('../../js/run-node.js');
 const RunMode = require('../../js/run-mode.js');
 const MCP = require('../../js/mcp.js');
 const ToolSecurity = require('../../js/tool-security.js');
+const State = require('../../js/state.js');
+const Engine = require('../../js/chat-engine.js');
 
 test('RunNode - parseRunArgs extrae parámetros desde URL con fragmento', () => {
   const url = 'http://127.0.0.1:9090/zerochat.html#token=sec_tok&host=127.0.0.2&port=9090&run=run_xyz';
@@ -133,6 +135,67 @@ test('RunNode - ChatCommandCard está registrado en globalThis y parseResult ext
   assert.deepEqual(globalThis.ChatCommandCard.parseResult('{"status": "running", "job_id": 12}'), { status: 'running', job_id: 12 });
   assert.equal(globalThis.ChatCommandCard.isFailure({ status: 'exited', exitCode: 1 }), true);
   assert.equal(globalThis.ChatCommandCard.isFailure({ status: 'exited', exitCode: 0 }), false);
+});
+
+test('RunNode - switchToSession y submitComposerText preservan serverRun, profileId y extra', async t => {
+  let capturedOptions = null;
+  t.mock.method(MCP.manager, 'connectProxy', async () => ({ success: true }));
+  t.mock.method(ToolSecurity.manager, 'setSessionToken', () => {});
+  t.mock.method(RunMode, 'start', async (_runId, opts) => {
+    capturedOptions = opts;
+    return { ok: true };
+  });
+
+  await RunNode.startHeadlessRun([
+    '--port', '8282',
+    '--token', 'test_tok',
+    '--run', 'run_preserve_test'
+  ]);
+
+  assert.ok(capturedOptions);
+
+  let savedPayload = null;
+  t.mock.method(MCP.manager, 'requestExternalControl', async (method, params) => {
+    if (method === 'zerochat/conversations/get') {
+      return {
+        conversation: {
+          id: 'conv_server_preserve',
+          title: 'Charla persistente',
+          createdAt: 1000,
+          updatedAt: 2000,
+          profileId: 'perfil_remoto',
+          serverRun: true,
+          extra: { server_run: true, profile_id: 'perfil_remoto' }
+        }
+      };
+    }
+    if (method === 'zerochat/conversations/save') {
+      savedPayload = params;
+      return { success: true };
+    }
+    return null;
+  });
+
+  await capturedOptions.switchToSession('conv_server_preserve');
+  const sessionEntry = State.get('sessions')?.list?.find(s => s.id === 'conv_server_preserve');
+  assert.ok(sessionEntry);
+  assert.equal(sessionEntry.serverRun, true);
+  assert.equal(sessionEntry.profileId, 'perfil_remoto');
+  assert.equal(sessionEntry.extra?.server_run, true);
+
+  t.mock.method(Engine, 'executeAgentTurnLoop', async () => {
+    return {
+      chatHistory: [{ id: 'm1', role: 'user', content: 'test' }, { id: 'm2', role: 'assistant', content: 'ok' }],
+      finalAssistantText: 'ok'
+    };
+  });
+
+  await capturedOptions.submitComposerText('test', { resume: true });
+  assert.ok(savedPayload);
+  assert.equal(savedPayload.conversation.id, 'conv_server_preserve');
+  assert.equal(savedPayload.conversation.serverRun, true);
+  assert.equal(savedPayload.conversation.profileId, 'perfil_remoto');
+  assert.equal(savedPayload.conversation.extra?.server_run, true);
 });
 
 

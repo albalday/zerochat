@@ -5149,9 +5149,20 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
     if session_meta.get("serverRun") is not None:
         extra["server_run"] = bool(session_meta.get("serverRun"))
 
-    extra_json = json.dumps(extra, ensure_ascii=False) if extra else "{}"
-
     with open_storage() as conn:
+        existing = conn.execute("SELECT created_at, extra_json, title FROM conversations WHERE id = ?;", (session_id,)).fetchone()
+        if existing:
+            if not session_meta.get("createdAt") and existing["created_at"]:
+                created_at = int(existing["created_at"])
+            if not title and existing["title"]:
+                title = existing["title"]
+            existing_extra = json.loads(existing["extra_json"]) if existing["extra_json"] else {}
+            merged_extra = dict(existing_extra)
+            merged_extra.update(extra)
+            extra = merged_extra
+
+        extra_json = json.dumps(extra, ensure_ascii=False) if extra else "{}"
+
         conn.execute("""
             INSERT INTO conversations (id, title, created_at, updated_at, message_count, extra_json)
             VALUES (?, ?, ?, ?, ?, ?)

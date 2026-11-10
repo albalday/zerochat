@@ -983,12 +983,10 @@
             saveCurrent: false
           }).catch(error => console.warn('[App] Could not reload completed server conversation:', error));
         }
-        if (finishedIds.some(id => id !== activeId)) {
-          Storage.getConversationsList().then(sessions => {
-            State.set('sessions', { activeId: getCurrentSessionId(), list: sessions });
-            renderSidebarChats();
-          }).catch(error => console.warn('[App] Could not refresh conversations list:', error));
-        }
+        Storage.getConversationsList().then(sessions => {
+          State.set('sessions', { activeId: getCurrentSessionId(), list: sessions });
+          renderSidebarChats();
+        }).catch(error => console.warn('[App] Could not refresh conversations list:', error));
       }
     );
 

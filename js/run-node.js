@@ -360,7 +360,22 @@
         const activeSessionId = State.get('sessions')?.activeId;
         if (activeSessionId) {
           const sessionsList = State.get('sessions')?.list || [];
-          const sessionMeta = sessionsList.find(s => s.id === activeSessionId) || { id: activeSessionId };
+          const currentMeta = sessionsList.find(s => s.id === activeSessionId) || { id: activeSessionId };
+          const activeConfig = Config.getActive();
+          const activeProfileId = currentMeta.profileId || activeConfig?.activeProfile?.id || activeConfig?.activeProfile?.name || null;
+          const isServerRun = currentMeta.serverRun !== undefined ? Boolean(currentMeta.serverRun) : true;
+          const sessionMeta = {
+            ...currentMeta,
+            updatedAt: Date.now(),
+            messageCount: loopResult.chatHistory.length,
+            profileId: activeProfileId,
+            serverRun: isServerRun,
+            extra: {
+              ...(currentMeta.extra || {}),
+              server_run: isServerRun,
+              ...(activeProfileId ? { profile_id: activeProfileId } : {})
+            }
+          };
           await conversationStore.saveConversation(sessionMeta, loopResult.chatHistory);
         }
       }
@@ -389,11 +404,22 @@
       if (!conversation) throw new Error(`Conversation not found: ${sessionId}`);
       const messages = conversation.messages || conversation.history || [];
       const currentList = State.get('sessions')?.list || [];
+      const isServerRun = conversation.serverRun !== undefined
+        ? Boolean(conversation.serverRun)
+        : (conversation.extra?.server_run !== undefined ? Boolean(conversation.extra.server_run) : true);
+      const profileId = conversation.profileId || conversation.extra?.profile_id || null;
       const sessionEntry = {
         id: sessionId,
         title: conversation.title || 'Conversation',
+        createdAt: conversation.createdAt || Date.now(),
         updatedAt: conversation.updatedAt || Date.now(),
-        profileId: conversation.profileId || null
+        profileId,
+        serverRun: isServerRun,
+        extra: {
+          ...(conversation.extra || {}),
+          server_run: isServerRun,
+          ...(profileId ? { profile_id: profileId } : {})
+        }
       };
       const updatedList = currentList.some(s => s.id === sessionId)
         ? currentList.map(s => (s.id === sessionId ? { ...s, ...sessionEntry } : s))

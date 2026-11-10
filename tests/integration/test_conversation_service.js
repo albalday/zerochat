@@ -312,6 +312,9 @@ test('ConversationService - switchToSession notifica onSessionSwitched con los m
   assert.equal(switchedConversation.id, 'sess_history_server');
   assert.equal(switchedConversation.serverRun, true);
   assert.equal(switchedConversation.profileId, 'claude');
+  const storedInState = State.get('sessions')?.list?.find(s => s.id === 'sess_history_server');
+  assert.equal(storedInState?.serverRun, true);
+  assert.equal(storedInState?.profileId, 'claude');
 });
 
 test('ConversationService - saveCurrentSession en un borrador vacío no altera activeId ni sobreescribe chats previos', async t => {
