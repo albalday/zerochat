@@ -675,9 +675,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                     }, None, ""
 
             arguments = dict(args)
-            if tool_name == "run_command":
-                # La clave la pone el cliente, no el modelo: permite detener el comando antes de conocer su job_id.
-                arguments["job_key"] = meta.get("zerochatJobKey") if isinstance(meta, dict) else None
             try:
                 tool_output_json = handler(**arguments)
             except Exception as ex:

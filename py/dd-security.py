@@ -10,12 +10,10 @@ GLOBAL_POLICIES = (GLOBAL_POLICY_ASK, GLOBAL_POLICY_ALLOW_ALL, GLOBAL_POLICY_WOR
 TOOL_POLICY_ALLOW = "allow"
 TOOL_POLICY_DENY = "deny"
 TOOL_POLICY_ASK = "ask"
-TOOL_POLICIES = (TOOL_POLICY_ALLOW, TOOL_POLICY_DENY, TOOL_POLICY_ASK)
 
 SERVER_POLICY_ALLOW = "allow"
 SERVER_POLICY_DENY = "deny"
 SERVER_POLICY_ASK = "ask"
-SERVER_POLICIES = (SERVER_POLICY_ALLOW, SERVER_POLICY_DENY, SERVER_POLICY_ASK)
 
 SCOPE_PERMANENT = "permanent"
 SCOPE_SESSION = "session"
@@ -24,11 +22,6 @@ SCOPES = (SCOPE_PERMANENT, SCOPE_SESSION)
 DIRECTORY_RULE_PATTERN = re.compile(r"^(R|W|RW):(.+)$")
 COMMAND_TOOL = "run_command"
 JOB_CONTROL_TOOL = "check_command"
-
-LOCAL_MANAGED_TOOLS = frozenset([
-    "read_file", "list_directory", "search_files", "get_diagnostics",
-    "edit_file", "write_file", "run_command", "check_command", "browser_action"
-])
 
 SAFE_REDIRECTION_PATTERN = re.compile(r"&>\s*/dev/null|\d?>>?\s*/dev/null|\d?>&\d")
 
@@ -374,7 +367,7 @@ class AccessController:
                 state = self.export_state(context)
                 save_fn(state, policy_id, user_id)
         except (sqlite3.Error, ValueError, KeyError, TypeError) as ex:
-            logger.debug(f"[Security] No se pudo cargar la política desde almacenamiento: {ex}")
+            logger.debug(f"[Security] No se pudo guardar la política en almacenamiento: {ex}")
 
     def export_state(self, context: SecurityContext | None = None) -> dict:
         self._ensure_loaded(context)
@@ -604,10 +597,6 @@ class AccessController:
             }
             self.pending_challenges[challenge_id] = challenge_data
             return challenge_data
-
-    def get_challenge(self, challenge_id: str) -> dict | None:
-        with self._lock:
-            return self.pending_challenges.get(challenge_id)
 
     def authorize_challenge(self, challenge_id: str, decision: str | dict,
                             constraints: dict | None = None, directory_rule: str | None = None,
