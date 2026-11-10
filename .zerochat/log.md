@@ -59,3 +59,4 @@
 - 2026-11-10 M56-D6 Alineación de RunSession con ACCESS_CONTROLLER para allow_dangerous_tools y tool_security y verificación completa de la suite de pruebas (M56-T6)
 - 2026-11-10 M57-D1 Desacoplo de vistas y persistencia headless mediante adaptadores (TurnView y ConversationStore) con fallback de memoria en Storage para ejecutar el motor agéntico en Node sin DOM (M57-T1)
 - 2026-11-10 M57-D2 Orquestador headless run-node.js que ensambla el bucle agéntico desatendido en Node mediante ChatRunMode y adaptadores sin dependencias DOM (M57-T2)
+- 2026-11-10 M57-D3 Empaquetado de runner.js standalone para Node.js mediante esbuild en formato CommonJS para node18 con shebang y permisos de ejecución, integrado en scripts/build-runner.mjs y el comando de build (M57-T3)

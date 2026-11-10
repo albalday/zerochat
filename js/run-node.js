@@ -5,18 +5,128 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
+    // En Node.js, registrar secuencialmente en globalThis para que resolveDep resuelva en bundles estáticos
+    const Utils = require('./utils.js');
+    globalThis.ChatUtils = Utils;
+
+    const MessageTurns = require('./message-turns.js');
+    globalThis.ChatMessageTurns = MessageTurns;
+
+    const Defaults = require('./defaults.js');
+    globalThis.ChatDefaults = Defaults;
+
+    const State = require('./state.js');
+    globalThis.ChatState = State;
+
+    const Storage = require('./storage.js');
+    globalThis.ChatStorage = Storage;
+
+    const ContextManager = require('./context-manager.js');
+    globalThis.ChatContextManager = ContextManager;
+
+    const Config = require('./config-store.js');
+    globalThis.ChatConfig = Config;
+
+    const ProfileRepository = require('./profile-repository.js');
+    globalThis.ChatProfileRepository = ProfileRepository;
+
+    const MCP = require('./mcp.js');
+    globalThis.ChatMCP = MCP;
+
+    const Icons = require('./icons.js');
+    globalThis.ChatIcons = Icons;
+
+    const I18n = require('./i18n.js');
+    globalThis.ChatI18n = I18n;
+
+    const ToolCards = require('./tool-cards.js');
+    globalThis.ChatToolCards = ToolCards;
+
+    const ToolSecurity = require('./tool-security.js');
+    globalThis.ChatToolSecurity = ToolSecurity;
+
+    const ProjectContext = require('./project-context.js');
+    globalThis.ChatProjectContext = ProjectContext;
+
+    const Providers = require('./providers.js');
+    globalThis.ChatProviders = Providers;
+
+    const TextToolCalls = require('./text-tool-calls.js');
+    globalThis.ChatTextToolCalls = TextToolCalls;
+
+    const API = require('./api.js');
+    globalThis.ChatAPI = API;
+
+    const WebSearch = require('./web-search.js');
+    globalThis.ChatWebSearch = WebSearch;
+
+    const WebBrowser = require('./web-browser.js');
+    globalThis.ChatWebBrowser = WebBrowser;
+
+    const SearchWebTool = require('./tools/builtin/search-web.tool.js');
+    globalThis.ChatBuiltinSearchWebTool = SearchWebTool;
+
+    const FetchWebPageTool = require('./tools/builtin/fetch-web-page.tool.js');
+    globalThis.ChatBuiltinFetchWebPageTool = FetchWebPageTool;
+
+    const DownloadDocTool = require('./tools/builtin/download-doc.tool.js');
+    globalThis.ChatBuiltinDownloadDocTool = DownloadDocTool;
+
+    const DownloadImageTool = require('./tools/builtin/download-image.tool.js');
+    globalThis.ChatBuiltinDownloadImageTool = DownloadImageTool;
+
+    const AskUserTool = require('./tools/builtin/ask-user.tool.js');
+    globalThis.ChatBuiltinAskUserTool = AskUserTool;
+
+    const DelegateTaskTool = require('./tools/builtin/delegate-task.tool.js');
+    globalThis.ChatBuiltinDelegateTaskTool = DelegateTaskTool;
+
+    const disabledToolNames = [
+      'ChatBuiltinExecuteJavascriptTool',
+      'ChatBuiltinRenderChartTool',
+      'ChatBuiltinListDocumentsTool',
+      'ChatBuiltinSearchKnowledgeBaseTool',
+      'ChatBuiltinReadKnowledgeChunkTool',
+      'ChatBuiltinReadKnowledgeImageTool'
+    ];
+    for (const name of disabledToolNames) {
+      if (!globalThis[name]) {
+        globalThis[name] = {
+          definition: { name, description: '' },
+          isAvailable: () => false,
+          settings: { showInSettings: false },
+          execute: async () => ({ error: 'Tool not supported in headless environment' })
+        };
+      }
+    }
+
+    const AgentCore = require('./agent-core.js');
+    globalThis.ChatAgentCore = AgentCore;
+
+    const Engine = require('./chat-engine.js');
+    globalThis.ChatEngine = Engine;
+
+    const Export = require('./export.js');
+    globalThis.ChatExport = Export;
+
+    const HeadlessAdapters = require('./headless-adapters.js');
+    globalThis.ChatHeadlessAdapters = HeadlessAdapters;
+
+    const RunMode = require('./run-mode.js');
+    globalThis.ChatRunMode = RunMode;
+
     module.exports = factory(
-      require('./utils.js'),
-      require('./state.js'),
-      require('./config-store.js'),
-      require('./profile-repository.js'),
-      require('./mcp.js'),
-      require('./tool-security.js'),
-      require('./tool-cards.js'),
-      require('./chat-engine.js'),
-      require('./export.js'),
-      require('./run-mode.js'),
-      require('./headless-adapters.js')
+      Utils,
+      State,
+      Config,
+      ProfileRepository,
+      MCP,
+      ToolSecurity,
+      ToolCards,
+      Engine,
+      Export,
+      RunMode,
+      HeadlessAdapters
     );
   } else {
     root.ChatRunNode = factory(
@@ -47,7 +157,6 @@
   HeadlessAdapters
 ) {
   'use strict';
-
   const { readLaunchFragment } = Utils;
   const { createMemoryStorage, createHeadlessTurnView, createHeadlessConversationStore } = HeadlessAdapters;
 
