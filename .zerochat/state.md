@@ -1,4 +1,4 @@
 # Current state
-- Milestone: M57 Bucle agéntico desatendido en Node.js para --prompt y --conversation
-- Next task: none pending
+- Milestone: none
+- Next task: none
 - Last updated: 2026-11-10
