@@ -8,15 +8,18 @@
 
 ## M54 Mejoras al modo proyecto: normalización modal del panel de razonamiento y simplificación de memoria: closed 2026-11-09
 
-## M55 Mejoras simples
+## M55 Mejoras simples: closed 2026-11-10
 
-Goal: Implementar pequeñas mejoras de usabilidad y ajustes sencillos en la interfaz y funcionamiento general.
-Done when: Se completan las tareas de mejora acordadas manteniendo la suite de pruebas en verde.
-- [x] M55-T1 Feedback en el botón de actualizar datos del panel de razonamiento cambiando su texto por "datos actualizados" (2026-11-09)
-- [x] M55-T2 Al abrir el panel de selección de perfiles, si hay modo de ejecución con servidor activo, mostrar la vista de perfiles de servidor (2026-11-09)
-- [x] M55-T3 El tool search_files se muestra en rojo como error cuando no encuentra resultados. No debería: la ausencia de coincidencias es un resultado válido, no un fallo. Analizar el path de renderizado y corregir el estado visual. (dropped: no ocurre en realidad, la ausencia de resultados no genera error visual)
-- [x] M55-T4 User-Agent actualizado y variable: el DEFAULT_USER_AGENT global pasa a una versión de Chrome actual, se usa en las peticiones web del backend y en la inicialización de Playwright, y se sustituye por el User-Agent de la primera petición recibida del frontend (variabilidad; cubre --prompt/--conversation con el valor por defecto). (2026-11-09)
-- [x] M55-T5 Cadencia de DuckDuckGo por respuesta: las peticiones a duckduckgo.com se serializan esperando al menos 2 s desde la RESPUESTA anterior (no desde el inicio), el timestamp se inicializa al arrancar el backend, y las peticiones en paralelo se escalonan sumando 5 s para no coincidir. (2026-11-09)
-- [x] M55-T6 Herramienta propia de diff para casos de ejecución remota (2026-11-09)
+## M56 Migración del control de acceso a MCPs y ejecuciones al backend y desacoplo para evolución multiusuario
+
+Goal: Trasladar el motor de control de acceso y autorización de ejecuciones locales y herramientas MCP desde el frontend al backend, convirtiendo al servidor en el único punto de decisión y cumplimiento de políticas (PDP/PEP), eliminando la entrega de claves secretas HMAC al cliente y dejando en el frontend únicamente la interfaz de edición de permisos y la resolución de retos de autorización de usuario, estructurado sobre un contexto desacoplado (SecurityContext) extensible a multiusuario y multisesión.
+Done when: El backend valida de forma autónoma llamadas a herramientas y comandos aplicando políticas globales, de herramienta, de servidor, listas R/W y restricciones de comandos; se retira TOOL_AUTH_KEY del handshake initialize; el frontend conserva la edición en ajustes y responde a retos de autorización; y pasan todas las suites de pruebas (unit, infrastructure, architecture, integration, browser).
+- [x] M56-T1 Motor de seguridad y evaluación de políticas en backend con abstracción de contexto (SecurityContext y AccessController) (2026-11-10)
+- [ ] M56-T2 Persistencia de políticas de seguridad en SQLite y endpoints RPC de gestión
+- [ ] M56-T3 Interceptación de tools/call, retirada de TOOL_AUTH_KEY y protocolo de retos de autorización
+- [ ] M56-T4 Refactorización de ChatToolSecurity y McpClient en frontend como adaptador cliente
+- [ ] M56-T5 Adaptación de la interfaz de usuario: edición de permisos y respuesta a retos de autorización
+- [ ] M56-T6 Modo de ejecución servidor/headless y validación de la suite de pruebas
+
 
 
