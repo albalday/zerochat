@@ -549,5 +549,54 @@ class AccessControllerPolicyTest(unittest.TestCase):
             self.assertFalse(dec.allowed, f"Should ask for {path}")
             self.assertEqual(dec.status, "ask")
 
+    def test_directory_rules_real_path_symlinks_and_relative_escapes(self):
+        norm_ws = zerochat.normalize_directory_path(str(self.workspace))
+        self.controller.set_directory_rules([f"RW:{norm_ws}/**"], self.ctx)
+
+        # 1. Enlace dentro del proyecto que apunta fuera: pide confirmación
+        outside_dir = self.base_dir / "outside_dir"
+        outside_dir.mkdir(exist_ok=True)
+        (outside_dir / "secret.txt").write_text("secret")
+        link_out = self.workspace / "link_out"
+        if link_out.exists() or link_out.is_symlink():
+            link_out.unlink()
+        link_out.symlink_to(outside_dir, target_is_directory=True)
+
+        for access_tool, target in (
+            ("read_file", str(link_out / "secret.txt")),
+            ("read_file", "link_out/secret.txt"),
+            ("write_file", str(link_out / "new.txt")),
+            ("write_file", "link_out/new.txt")
+        ):
+            dec = self.controller.evaluate_authorization(access_tool, {"path": target}, self.ctx)
+            self.assertFalse(dec.allowed, f"Debe pedir confirmación para enlace que apunta fuera: {target}")
+            self.assertEqual(dec.status, "ask")
+
+        # 2. Regla cuya base es un enlace (/link/** -> /real): permite /real/x y /link/x
+        real_dir = self.base_dir / "real_dir"
+        real_dir.mkdir(exist_ok=True)
+        link_to_real = self.base_dir / "link_to_real"
+        if link_to_real.exists() or link_to_real.is_symlink():
+            link_to_real.unlink()
+        link_to_real.symlink_to(real_dir, target_is_directory=True)
+
+        norm_link = zerochat.normalize_directory_path(str(link_to_real))
+        norm_real = zerochat.normalize_directory_path(str(real_dir))
+        self.controller.set_directory_rules([f"RW:{norm_link}/**"], self.ctx)
+
+        for access_tool in ("read_file", "write_file"):
+            dec_real = self.controller.evaluate_authorization(access_tool, {"path": f"{norm_real}/x.txt"}, self.ctx)
+            self.assertTrue(dec_real.allowed, f"Debe permitir ruta real {norm_real}/x.txt")
+            dec_link = self.controller.evaluate_authorization(access_tool, {"path": f"{norm_link}/x.txt"}, self.ctx)
+            self.assertTrue(dec_link.allowed, f"Debe permitir ruta a través de enlace {norm_link}/x.txt")
+
+        # 3. Ruta relativa con .. que sale del proyecto: pide confirmación
+        self.controller.set_directory_rules([f"RW:{norm_ws}/**"], self.ctx)
+        for escape_path in ("../outside.txt", "sub/../../outside.txt", f"{norm_ws}/../outside.txt"):
+            for access_tool in ("read_file", "write_file"):
+                dec_esc = self.controller.evaluate_authorization(access_tool, {"path": escape_path}, self.ctx)
+                self.assertFalse(dec_esc.allowed, f"Debe pedir confirmación para escape ..: {escape_path}")
+                self.assertEqual(dec_esc.status, "ask")
+
 if __name__ == "__main__":
     unittest.main()

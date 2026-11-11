@@ -51,9 +51,9 @@ class SecurityContext:
         try:
             target = Path(norm)
             if not target.is_absolute():
-                target = (self.workspace_dir / target).resolve()
+                target = (self.workspace_dir / target).resolve(strict=False)
             else:
-                target = target.resolve()
+                target = target.resolve(strict=False)
             return target
         except (ValueError, RuntimeError, OSError):
             return None
@@ -454,28 +454,43 @@ class AccessController:
         current = self.get_directory_rules(context)
         return self.set_directory_rules(current + [rule], context)
 
+    @staticmethod
+    def _resolve_rule_pattern(pattern: str, workspace_dir: Path | None = None) -> str:
+        if "*" in pattern:
+            base, rest = pattern.split("*", 1)
+            if base:
+                if workspace_dir and not os.path.isabs(base):
+                    real_base = os.path.realpath(os.path.join(str(workspace_dir), base))
+                else:
+                    real_base = os.path.realpath(base)
+                if base.endswith("/") and not real_base.endswith("/"):
+                    real_base += "/"
+            else:
+                real_base = ""
+            return f"{real_base}*{rest}"
+        else:
+            if workspace_dir and not os.path.isabs(pattern):
+                return os.path.realpath(os.path.join(str(workspace_dir), pattern))
+            return os.path.realpath(pattern)
+
     def evaluate_directory_rule(self, access: str, path: str, context: SecurityContext | None = None) -> dict:
-        if contains_unresolved_reference(path):
-            return {"allowed": False, "rule": None, "path": ""}
-        normalized = normalize_directory_path(path)
-        if not normalized:
-            return {"allowed": False, "rule": None, "path": ""}
         ctx = context or SecurityContext()
-        startup_dir = normalize_directory_path(str(ctx.workspace_dir))
-        resolved_absolute = None
-        if not normalized.startswith("/") and not re.match(r"^[A-Za-z]:", normalized) and startup_dir:
-            resolved_absolute = normalize_directory_path(startup_dir if normalized == "." else f"{startup_dir}/{normalized}")
+        resolved_target = ctx.resolve_path(path)
+        if resolved_target is None:
+            return {"allowed": False, "rule": None, "path": ""}
+        normalized_dest = normalize_directory_path(str(resolved_target))
+        if not normalized_dest:
+            return {"allowed": False, "rule": None, "path": ""}
 
         rules = self.get_directory_rules(ctx)
         for raw_rule in rules:
             parsed = parse_directory_rule(raw_rule)
             if not parsed or (parsed["access"] != access and parsed["access"] != "RW"):
                 continue
-            if matches_directory_pattern(normalized, parsed["path"]):
-                return {"allowed": True, "rule": parsed["rule"], "path": normalized}
-            if resolved_absolute and matches_directory_pattern(resolved_absolute, parsed["path"]):
-                return {"allowed": True, "rule": parsed["rule"], "path": normalized}
-        return {"allowed": False, "rule": None, "path": normalized}
+            rule_pattern = self._resolve_rule_pattern(parsed["path"], ctx.workspace_dir)
+            if matches_directory_pattern(normalized_dest, rule_pattern):
+                return {"allowed": True, "rule": parsed["rule"], "path": normalized_dest}
+        return {"allowed": False, "rule": None, "path": normalized_dest}
 
     def evaluate_command_directories(self, args: dict, context: SecurityContext | None = None) -> dict:
         cmd_arg = get_command_arg(args)
