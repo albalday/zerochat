@@ -212,7 +212,6 @@ class AccessControllerPolicyTest(unittest.TestCase):
         dec = zerochat.ACCESS_CONTROLLER.evaluate_authorization("run_command", {"command": "echo test"}, self.ctx)
         ch = zerochat.ACCESS_CONTROLLER.create_challenge("run_command", {"command": "echo test"}, dec)
         self.assertIsNotNone(ch["id"])
-        self.assertFalse(ch["authorized"])
 
         # zerochat/security/authorize autoriza, consume y ejecuta el reto en una sola operación
         res, err, info = handler._dispatch_security("zerochat/security/authorize", {
@@ -224,7 +223,7 @@ class AccessControllerPolicyTest(unittest.TestCase):
         self.assertIn("test", res["result"]["content"][0]["text"])
 
         # El reto ya quedó consumido y no puede reutilizarse
-        self.assertIsNone(zerochat.ACCESS_CONTROLLER.consume_challenge(ch["id"]))
+        self.assertNotIn(ch["id"], zerochat.ACCESS_CONTROLLER.pending_challenges)
         res_again, err_again, _ = handler._dispatch_security("zerochat/security/authorize", {
             "challengeId": ch["id"],
             "decision": "allow_once"
@@ -833,6 +832,68 @@ class AccessControllerPolicyTest(unittest.TestCase):
         self.assertIn("policies", rpc_result)
         self.assertIn("t4", rpc_result["policies"]["tools"])
         self.assertIn("t2", rpc_result["policies"]["tools"])
+
+    def test_security_update_sets_granted_at_and_keeps_it_for_unchanged_grants(self):
+        with unittest.mock.patch.object(zerochat.time, "time", return_value=1_700_000_000.0):
+            first = self.controller.import_state({"tools": {"t_g": {"policy": "allow"}}}, self.ctx)
+        self.assertEqual(first["tools"]["t_g"]["grantedAt"], 1_700_000_000_000)
+
+        with unittest.mock.patch.object(zerochat.time, "time", return_value=1_700_000_100.0):
+            same = self.controller.import_state({"tools": {"t_g": {"policy": "allow"}}}, self.ctx)
+            changed = self.controller.import_state({"tools": {"t_g": {"policy": "deny"}}}, self.ctx)
+        self.assertEqual(same["tools"]["t_g"]["grantedAt"], 1_700_000_000_000)
+        self.assertEqual(changed["tools"]["t_g"]["grantedAt"], 1_700_000_100_000)
+
+    def test_authorize_with_invalid_directory_rule_fails_visibly_and_keeps_challenge(self):
+        handler = zerochat.ZeroChatServerHandler.__new__(zerochat.ZeroChatServerHandler)
+        zerochat.ACCESS_CONTROLLER.clear_session()
+        dec = zerochat.ACCESS_CONTROLLER.evaluate_authorization("custom_tool", {}, self.ctx)
+        ch = zerochat.ACCESS_CONTROLLER.create_challenge("custom_tool", {}, dec)
+
+        res, err, _ = handler._dispatch_security("zerochat/security/authorize", {
+            "challengeId": ch["id"],
+            "decision": "allow_always",
+            "directoryRule": "INVALID_RULE"
+        })
+        self.assertIsNone(res)
+        self.assertEqual(err["code"], -32602)
+        self.assertIn(ch["id"], zerochat.ACCESS_CONTROLLER.pending_challenges)
+        self.assertIsNone(zerochat.ACCESS_CONTROLLER.get_tool_policy("custom_tool"))
+
+    def test_allow_always_and_directory_rule_are_persisted_in_one_transaction(self):
+        self.controller.clear_session()
+        limit = zerochat.MAX_POLICY_ENTRIES
+        norm_ws = zerochat.normalize_directory_path(str(self.workspace))
+        self.controller.import_state({"tools": {f"fill_{i}": {"policy": "allow"} for i in range(limit - 1)}}, self.ctx)
+
+        # Herramienta + regla = N+1 entradas: no se guarda ninguna de las dos
+        with self.assertRaises(ValueError):
+            self.controller.record_decision(
+                {"decision": "allow_always", "directoryRule": f"R:{norm_ws}/extra/**"},
+                {"toolId": "tool_tx"}, context=self.ctx
+            )
+        self.assertIsNone(self.controller.get_tool_policy("tool_tx"))
+        self.assertEqual(self.controller.get_directory_rules(self.ctx), [])
+
+        # Solo la herramienta = N entradas: se guarda
+        self.controller.record_decision({"decision": "allow_always"}, {"toolId": "tool_tx"}, context=self.ctx)
+        self.assertEqual(self.controller.get_tool_policy("tool_tx")["policy"], zerochat.POLICY_ALLOW)
+
+    def test_storage_failure_on_authorize_is_reported_and_tool_not_executed(self):
+        handler = zerochat.ZeroChatServerHandler.__new__(zerochat.ZeroChatServerHandler)
+        zerochat.ACCESS_CONTROLLER.clear_session()
+        dec = zerochat.ACCESS_CONTROLLER.evaluate_authorization("custom_tool", {}, self.ctx)
+        ch = zerochat.ACCESS_CONTROLLER.create_challenge("custom_tool", {}, dec)
+        with unittest.mock.patch("zerochat.update_security_policy_data", side_effect=sqlite3.OperationalError("database is locked")), \
+                unittest.mock.patch.object(handler, "_execute_tool") as execute:
+            res, err, _ = handler._dispatch_security("zerochat/security/authorize", {
+                "challengeId": ch["id"],
+                "decision": "allow_always"
+            })
+        self.assertIsNone(res)
+        self.assertEqual(err["code"], -32603)
+        self.assertIn("database is locked", err["message"])
+        execute.assert_not_called()
 
 if __name__ == "__main__":
     unittest.main()

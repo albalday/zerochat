@@ -755,18 +755,17 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 if not challenge_id or not isinstance(challenge_id, str):
                     return None, {"code": -32602, "message": "challengeId es obligatorio"}, ""
                 decision = params.get("decision", "deny")
+                if not isinstance(decision, str):
+                    return None, {"code": -32602, "message": "decision debe ser un texto"}, ""
                 if decision == "deny":
                     ACCESS_CONTROLLER.revoke_challenge(challenge_id)
                     return {"authorized": False, "status": "deny"}, None, ""
 
-                constraints = params.get("constraints")
-                dir_rule = params.get("directoryRule")
-                if not ACCESS_CONTROLLER.authorize_challenge(challenge_id, decision, constraints, dir_rule, context=ctx):
-                    return None, {"code": -32002, "message": "Reto no encontrado o no válido"}, ""
-
-                ch = ACCESS_CONTROLLER.consume_challenge(challenge_id)
+                ch = ACCESS_CONTROLLER.authorize_challenge(
+                    challenge_id, decision, params.get("constraints"), params.get("directoryRule"), context=ctx
+                )
                 if not ch:
-                    return None, {"code": -32002, "message": "Error al consumir el reto para ejecución"}, ""
+                    return None, {"code": -32002, "message": "Reto no encontrado o no válido"}, ""
                 t_origin = ch.get("origin") or "local"
                 t_name = ch["toolName"]
                 t_args = ch["arguments"] if isinstance(ch.get("arguments"), dict) else {}

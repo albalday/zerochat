@@ -17,6 +17,7 @@ SCOPE_SESSION = "session"
 SCOPES = (SCOPE_PERMANENT, SCOPE_SESSION)
 
 CHALLENGE_TTL_MS = 600_000
+AUTHORIZE_DECISIONS = ("allow_once", "allow_session", "allow_always", "allow_server_always")
 MAX_POLICY_ENTRIES = 500
 
 DIRECTORY_RULE_PATTERN = re.compile(r"^(R|W|RW):(.+)$")
@@ -416,16 +417,41 @@ class AccessController:
             constraints = entry.get("constraints")
             if constraints is not None and not isinstance(constraints, dict):
                 raise ValueError(f"constraints para {kind_label} '{item_id}' debe ser un diccionario o None.")
-            cleaned_entry = {
-                "policy": pol,
-                "scope": scope,
-                "constraints": constraints,
-                "serverName": str(entry.get("serverName", "") or "")
-            }
-            if kind == "tools":
-                cleaned_entry["originalName"] = str(entry.get("originalName", "") or "")
-            clean_map[clean_key] = cleaned_entry
+            clean_map[clean_key] = AccessController._make_entry(
+                kind, pol, scope,
+                server_name=str(entry.get("serverName", "") or ""),
+                original_name=str(entry.get("originalName", "") or ""),
+                constraints=constraints
+            )
         return clean_map
+
+    @staticmethod
+    def _make_entry(kind: str, policy: str, scope: str, server_name: str = "", original_name: str = "",
+                    constraints: dict | None = None) -> dict:
+        """Única forma de una entrada de política de herramienta o servidor."""
+        entry = {
+            "policy": policy,
+            "scope": scope,
+            "grantedAt": int(time.time() * 1000),
+            "serverName": server_name
+        }
+        if kind == "tools":
+            entry["originalName"] = original_name
+            entry["constraints"] = constraints
+        return entry
+
+    def _session_map(self, kind: str) -> dict[str, dict]:
+        return self.session_tools if kind == "tools" else self.session_servers
+
+    def _set_session_entry(self, kind: str, item_id: str, entry: dict):
+        with self._lock:
+            self._session_map(kind)[item_id] = entry
+
+    @staticmethod
+    def _check_entry_limit(state: dict):
+        total = len(state.get("directoryRules") or []) + len(state.get("tools") or {}) + len(state.get("servers") or {})
+        if total > MAX_POLICY_ENTRIES:
+            raise ValueError(f"El número total de entradas ({total}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
 
     def _validate_state_payload(self, state: dict, scope: str, context: SecurityContext | None = None) -> tuple[str | None, list[str] | None, dict | None, dict | None]:
         if not isinstance(state, dict):
@@ -469,27 +495,10 @@ class AccessController:
             if clean_rules is not None:
                 current["directoryRules"] = clean_rules
             if clean_tools is not None:
-                tools_dict = dict(current.get("tools") or {})
-                for tool_id, entry in clean_tools.items():
-                    if entry is None:
-                        tools_dict.pop(tool_id, None)
-                    else:
-                        tools_dict[tool_id] = entry
-                current["tools"] = tools_dict
+                current["tools"] = self._apply_entry_patch(current.get("tools"), clean_tools)
             if clean_servers is not None:
-                servers_dict = dict(current.get("servers") or {})
-                for srv_id, entry in clean_servers.items():
-                    if entry is None:
-                        servers_dict.pop(srv_id, None)
-                    else:
-                        servers_dict[srv_id] = entry
-                current["servers"] = servers_dict
-
-            resulting_entries = len(current.get("directoryRules") or []) + \
-                                len(current.get("tools") or {}) + \
-                                len(current.get("servers") or {})
-            if resulting_entries > MAX_POLICY_ENTRIES:
-                raise ValueError(f"El número total de entradas ({resulting_entries}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
+                current["servers"] = self._apply_entry_patch(current.get("servers"), clean_servers)
+            self._check_entry_limit(current)
             return current
         update_security_policy_data(mutator)
         with self._lock:
@@ -505,6 +514,19 @@ class AccessController:
                     self.session_servers.pop(srv_id, None)
         return self.export_state(context)
 
+    @staticmethod
+    def _apply_entry_patch(current: dict | None, patch: dict) -> dict:
+        """Aplica un parche de entradas (None revoca); conserva grantedAt si la concesión no cambia."""
+        result = dict(current or {})
+        for item_id, entry in patch.items():
+            if entry is None:
+                result.pop(item_id, None)
+                continue
+            previous = result.get(item_id) or {}
+            same_grant = previous.get("policy") == entry["policy"] and previous.get("constraints") == entry.get("constraints")
+            result[item_id] = {**entry, "grantedAt": previous["grantedAt"]} if same_grant and previous.get("grantedAt") else entry
+        return result
+
     def apply_session_overlay(self, state: dict, context: SecurityContext | None = None):
         """Aplica una capa de políticas temporal en memoria para una ejecución en servidor, sin persistir."""
         clean_global, clean_rules, clean_tools, clean_servers = self._validate_state_payload(state, SCOPE_SESSION, context)
@@ -515,17 +537,9 @@ class AccessController:
             if clean_rules is not None:
                 self.session_directory_rules = clean_rules
             if clean_tools is not None:
-                for tool_id, entry in clean_tools.items():
-                    if entry is None:
-                        self.session_tools.pop(tool_id, None)
-                    else:
-                        self.session_tools[tool_id] = entry
+                self.session_tools = self._apply_entry_patch(self.session_tools, clean_tools)
             if clean_servers is not None:
-                for srv_id, entry in clean_servers.items():
-                    if entry is None:
-                        self.session_servers.pop(srv_id, None)
-                    else:
-                        self.session_servers[srv_id] = entry
+                self.session_servers = self._apply_entry_patch(self.session_servers, clean_servers)
         return self.export_state(context)
 
     def set_global_policy(self, policy: str, context: SecurityContext | None = None):
@@ -623,7 +637,7 @@ class AccessController:
         return {"allowed": allowed, "directory": target_dir}
 
     def _set_policy(self, kind: str, item_id: str, policy: str, scope: str = SCOPE_PERMANENT,
-                    entry_data: dict | None = None):
+                    server_name: str = "", original_name: str = "", constraints: dict | None = None):
         if not item_id or not isinstance(item_id, str):
             return
         clean_id = item_id.strip() if kind == "servers" else item_id
@@ -633,33 +647,26 @@ class AccessController:
         if clean_policy == POLICY_ASK:
             self._revoke_policy(kind, clean_id)
             return
-        now_ms = int(time.time() * 1000)
-        entry = {
-            "policy": clean_policy,
-            "scope": scope if scope in SCOPES else SCOPE_PERMANENT,
-            "grantedAt": now_ms,
-            **(entry_data or {})
-        }
-        session_dict = self.session_tools if kind == "tools" else self.session_servers
-        if scope == SCOPE_SESSION:
-            with self._lock:
-                session_dict[clean_id] = entry
-        else:
-            def mutator(state: dict) -> dict:
-                container = state.setdefault(kind, {})
-                container[clean_id] = entry
-                return state
-            update_security_policy_data(mutator)
-            with self._lock:
-                session_dict.pop(clean_id, None)
+        clean_scope = scope if scope in SCOPES else SCOPE_PERMANENT
+        entry = self._make_entry(kind, clean_policy, clean_scope, server_name=server_name,
+                                 original_name=original_name or clean_id, constraints=constraints)
+        if clean_scope == SCOPE_SESSION:
+            self._set_session_entry(kind, clean_id, entry)
+            return
+        def mutator(state: dict) -> dict:
+            state.setdefault(kind, {})[clean_id] = entry
+            self._check_entry_limit(state)
+            return state
+        update_security_policy_data(mutator)
+        with self._lock:
+            self._session_map(kind).pop(clean_id, None)
 
     def _get_policy(self, kind: str, item_id: str) -> dict | None:
         clean_id = str(item_id or "").strip() if kind == "servers" else str(item_id or "")
         if not clean_id:
             return None
-        session_dict = self.session_tools if kind == "tools" else self.session_servers
         with self._lock:
-            session_entry = session_dict.get(clean_id)
+            session_entry = self._session_map(kind).get(clean_id)
         if session_entry:
             return session_entry
         state = self._read_permanent_state()
@@ -669,9 +676,8 @@ class AccessController:
         clean_id = str(item_id or "").strip() if kind == "servers" else str(item_id or "")
         if not clean_id:
             return False
-        session_dict = self.session_tools if kind == "tools" else self.session_servers
         with self._lock:
-            del_session = session_dict.pop(clean_id, None) is not None
+            del_session = self._session_map(kind).pop(clean_id, None) is not None
         del_perm = [False]
         def mutator(state: dict) -> dict:
             container = state.get(kind, {})
@@ -684,11 +690,8 @@ class AccessController:
 
     def set_tool_policy(self, tool_id: str, policy: str, scope: str = SCOPE_PERMANENT,
                         constraints: dict | None = None, server_name: str = "", original_name: str = ""):
-        self._set_policy("tools", tool_id, policy, scope=scope, entry_data={
-            "serverName": server_name,
-            "originalName": original_name or tool_id,
-            "constraints": constraints
-        })
+        self._set_policy("tools", tool_id, policy, scope=scope, server_name=server_name,
+                         original_name=original_name, constraints=constraints)
 
     def get_tool_policy(self, tool_id: str) -> dict | None:
         return self._get_policy("tools", tool_id)
@@ -697,9 +700,8 @@ class AccessController:
         return self._revoke_policy("tools", tool_id)
 
     def set_server_policy(self, server_id: str, policy: str, scope: str = SCOPE_PERMANENT, server_name: str = ""):
-        self._set_policy("servers", server_id, policy, scope=scope, entry_data={
-            "serverName": server_name or str(server_id or "").strip()
-        })
+        self._set_policy("servers", server_id, policy, scope=scope,
+                         server_name=server_name or str(server_id or "").strip())
 
     def get_server_policy(self, server_id: str) -> dict | None:
         return self._get_policy("servers", server_id)
@@ -740,61 +742,55 @@ class AccessController:
                 "serverId": resolved_server_id,
                 "origin": origin,
                 "cwd": cwd,
-                "createdAt": now,
-                "authorized": False,
-                "decisionType": None
+                "createdAt": now
             }
             self.pending_challenges[challenge_id] = challenge_data
             return challenge_data
 
-    def authorize_challenge(self, challenge_id: str, decision: str | dict,
+    def authorize_challenge(self, challenge_id: str, decision: str,
                             constraints: dict | None = None, directory_rule: str | None = None,
-                            context: SecurityContext | None = None) -> bool:
+                            context: SecurityContext | None = None) -> dict | None:
+        """
+        Valida la decisión, consume el reto (una única ejecución) y registra la decisión.
+        Devuelve el reto consumido, o None si no existe, caducó, cambió el cwd o la decisión no aplica.
+        Una decisión mal formada lanza ValueError y deja el reto pendiente.
+        """
         now = int(time.time() * 1000)
         current_cwd = str((context.workspace_dir if context else Path.cwd()).resolve())
+        dec_payload = {"decision": decision, "constraints": constraints, "directoryRule": directory_rule}
         with self._lock:
             challenge = self.pending_challenges.get(challenge_id)
             if not challenge:
-                return False
+                return None
             if now - challenge.get("createdAt", 0) > CHALLENGE_TTL_MS or challenge.get("cwd") != current_cwd:
                 self.pending_challenges.pop(challenge_id, None)
-                return False
-            dec_type = decision.get("decision") if isinstance(decision, dict) else str(decision)
-            if dec_type not in ("allow_once", "allow_session", "allow_always", "allow_server_always"):
-                return False
-            if dec_type == "allow_server_always" and not challenge.get("serverId"):
-                return False
-            effective_constraints = constraints or (decision.get("constraints") if isinstance(decision, dict) else None)
-            dec_payload = {
-                "decision": dec_type,
-                "constraints": effective_constraints,
-                "directoryRule": directory_rule or (decision.get("directoryRule") if isinstance(decision, dict) else None)
-            }
-            self.record_decision(dec_payload, challenge["decision"], fallback_tool_name=challenge["toolName"], context=context)
-            challenge["authorized"] = True
-            challenge["decisionType"] = dec_type
-            return True
-
-    def consume_challenge(self, challenge_id: str) -> dict | None:
-        """Consume y valida un reto previamente autorizado para una única ejecución."""
-        now = int(time.time() * 1000)
-        with self._lock:
-            challenge = self.pending_challenges.get(challenge_id)
-            if not challenge or not challenge.get("authorized"):
                 return None
-            if now - challenge.get("createdAt", 0) > CHALLENGE_TTL_MS:
-                self.pending_challenges.pop(challenge_id, None)
+            if decision not in AUTHORIZE_DECISIONS:
                 return None
-            return self.pending_challenges.pop(challenge_id)
+            if decision == "allow_server_always" and not challenge.get("serverId"):
+                return None
+            self._validate_decision(dec_payload, challenge["toolName"], context)
+            self.pending_challenges.pop(challenge_id)
+        self.record_decision(dec_payload, challenge["decision"], fallback_tool_name=challenge["toolName"], context=context)
+        return challenge
 
     def revoke_challenge(self, challenge_id: str) -> bool:
         with self._lock:
             return self.pending_challenges.pop(challenge_id, None) is not None
 
-    def merge_tool_constraints(self, target_tool_id: str, requested: dict | None) -> dict | None:
+    def _validate_decision(self, decision: dict, tool_name: str, context: SecurityContext | None = None) -> list[str]:
+        """Valida restricciones y regla de una decisión sin persistir nada; devuelve las reglas nuevas limpias."""
+        constraints = decision.get("constraints")
+        if constraints is not None and not isinstance(constraints, dict):
+            raise ValueError("constraints debe ser un diccionario o None.")
+        if decision.get("decision") == "allow_always" and tool_name == COMMAND_TOOL and not (constraints or {}).get("command"):
+            raise ValueError("allow_always_requires_constraints")
+        rule = decision.get("directoryRule")
+        return self._validate_directory_rules([rule], context) if rule else []
+
+    @staticmethod
+    def merge_command_constraints(existing_constraints: dict | None, requested: dict | None) -> dict | None:
         """Combina restricciones granulares existentes con nuevas solicitadas."""
-        existing_entry = self.get_tool_policy(target_tool_id)
-        existing_constraints = existing_entry.get("constraints") if existing_entry else None
         if not requested or not isinstance(requested, dict):
             return existing_constraints
         if not requested.get("command"):
@@ -822,39 +818,52 @@ class AccessController:
         }
         return {"command": merged_cmd}
 
-    def record_decision(self, decision: str | dict, auth_eval: dict | AccessDecision,
+    def record_decision(self, decision: dict, auth_eval: dict,
                         fallback_tool_name: str = "", context: SecurityContext | None = None):
-        """Registra la respuesta de un usuario tras un reto de autorización."""
-        decision_dict = decision if isinstance(decision, dict) else {"decision": str(decision)}
-        decision_type = decision_dict.get("decision", "")
-        eval_dict = auth_eval.to_dict() if isinstance(auth_eval, AccessDecision) else dict(auth_eval)
-        target_tool = eval_dict.get("toolId") or fallback_tool_name
+        """
+        Registra la respuesta del usuario a un reto. La política permanente y la regla de directorio
+        se escriben en una sola transacción; un error de validación o de persistencia se propaga.
+        """
+        decision_type = decision.get("decision", "")
+        target_tool = auth_eval.get("toolId") or fallback_tool_name
+        server_name = auth_eval.get("serverName", "")
+        new_rules = self._validate_decision(decision, target_tool, context)
 
         if decision_type == "allow_session":
-            self.set_tool_policy(target_tool, POLICY_ALLOW, scope=SCOPE_SESSION,
-                                 server_name=eval_dict.get("serverName", ""),
-                                 original_name=eval_dict.get("originalName", ""))
-        elif decision_type == "allow_server_always":
-            server_target = eval_dict.get("serverId")
-            if not server_target:
-                raise ValueError("allow_server_always requiere un servidor externo válido.")
-            self.set_server_policy(server_target, POLICY_ALLOW, scope=SCOPE_PERMANENT,
-                                   server_name=eval_dict.get("serverName", ""))
-        elif decision_type == "allow_always":
-            req_constraints = decision_dict.get("constraints")
-            if target_tool == COMMAND_TOOL and (not req_constraints or not isinstance(req_constraints, dict) or not req_constraints.get("command")):
-                raise ValueError("allow_always_requires_constraints")
-            constraints = self.merge_tool_constraints(target_tool, req_constraints)
-            self.set_tool_policy(target_tool, POLICY_ALLOW, scope=SCOPE_PERMANENT,
-                                 constraints=constraints,
-                                 server_name=eval_dict.get("serverName", ""),
-                                 original_name=eval_dict.get("originalName", ""))
+            self._set_session_entry("tools", target_tool, self._make_entry(
+                "tools", POLICY_ALLOW, SCOPE_SESSION, server_name=server_name,
+                original_name=auth_eval.get("originalName", "") or target_tool))
 
-        if decision_dict.get("directoryRule"):
-            try:
-                self.add_directory_rule(str(decision_dict["directoryRule"]), context)
-            except ValueError:
-                pass
+        permanent_kind, permanent_id = None, ""
+        if decision_type == "allow_always":
+            permanent_kind, permanent_id = "tools", target_tool
+        elif decision_type == "allow_server_always":
+            permanent_kind, permanent_id = "servers", auth_eval.get("serverId") or ""
+            if not permanent_id:
+                raise ValueError("allow_server_always requiere un servidor externo válido.")
+        if not permanent_kind and not new_rules:
+            return
+
+        def mutator(state: dict) -> dict:
+            if permanent_kind == "tools":
+                existing = (state.get("tools") or {}).get(target_tool) or {}
+                constraints = self.merge_command_constraints(existing.get("constraints"), decision.get("constraints"))
+                state.setdefault("tools", {})[target_tool] = self._make_entry(
+                    "tools", POLICY_ALLOW, SCOPE_PERMANENT, server_name=server_name,
+                    original_name=auth_eval.get("originalName", "") or target_tool, constraints=constraints)
+            elif permanent_kind == "servers":
+                state.setdefault("servers", {})[permanent_id] = self._make_entry(
+                    "servers", POLICY_ALLOW, SCOPE_PERMANENT, server_name=server_name or permanent_id)
+            if new_rules:
+                state["directoryRules"] = list(dict.fromkeys(list(state.get("directoryRules") or []) + new_rules))
+            self._check_entry_limit(state)
+            return state
+        update_security_policy_data(mutator)
+        with self._lock:
+            if permanent_kind:
+                self._session_map(permanent_kind).pop(permanent_id, None)
+            if new_rules and self.session_directory_rules is not None:
+                self.session_directory_rules = list(dict.fromkeys(self.session_directory_rules + new_rules))
 
     def evaluate_authorization(self, tool_or_name: str | dict, raw_args: dict | None = None,
                                context: SecurityContext | None = None, server_name: str = "",

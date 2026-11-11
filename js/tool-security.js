@@ -106,7 +106,7 @@
             this.tools.set(id, {
               policy: item.policy || POLICIES.ASK,
               scope: item.scope === SCOPES.SESSION ? SCOPES.SESSION : SCOPES.PERMANENT,
-              grantedAt: item.grantedAt || Date.now(),
+              grantedAt: Number(item.grantedAt) || 0,
               serverName: item.serverName || '',
               originalName: item.originalName || id,
               constraints: item.constraints ? { ...item.constraints } : null
@@ -121,7 +121,7 @@
             this.servers.set(id, {
               policy: item.policy || POLICIES.ASK,
               scope: item.scope === SCOPES.SESSION ? SCOPES.SESSION : SCOPES.PERMANENT,
-              grantedAt: item.grantedAt || Date.now(),
+              grantedAt: Number(item.grantedAt) || 0,
               serverName: item.serverName || id
             });
           }

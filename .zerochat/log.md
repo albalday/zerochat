@@ -84,3 +84,4 @@
 - 2026-11-11 M61-D8 La regla del proyecto RW:<cwd>/** se calcula en cada evaluación, se aplica siempre y nunca se persiste; se expone como defaultDirectoryRule aparte de las reglas del usuario (M61)
 - 2026-11-11 M61-D9 El frontend es una caché del backend: sin localStorage para permisos, mutaciones como parche (security/update parcial, null revoca) y edición de permisos solo con servidor conectado (M61)
 - 2026-11-11 M61-D10 Sin migración de políticas antiguas: el usuario borra el directorio de datos de ZeroChat para partir de un estado limpio (M61)
+- 2026-11-11 M61-D11 authorize_challenge valida la decisión antes de consumir el reto, lo consume bajo el cerrojo y registra la decisión fuera de él; política permanente y regla de directorio en una sola transacción y errores propagados como RPC; grantedAt lo fija el backend y se conserva si la concesión no cambia (M61-T15)
