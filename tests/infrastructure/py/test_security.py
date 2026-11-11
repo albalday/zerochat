@@ -721,5 +721,59 @@ class AccessControllerPolicyTest(unittest.TestCase):
         self.assertTrue(dec.allowed, "Probe S1: la evaluación posterior al import debe conservar la política importada")
         self.assertEqual(dec.reason, "granular_allow_rule")
 
+    def test_dynamic_project_directory_rule_and_probe_d1(self):
+        proj_a = self.base_dir / "proj_a"
+        proj_a.mkdir()
+        proj_b = self.base_dir / "proj_b"
+        proj_b.mkdir()
+
+        ctx_a = zerochat.SecurityContext(workspace_dir=proj_a)
+        ctx_b = zerochat.SecurityContext(workspace_dir=proj_b)
+
+        file_a = proj_a / "test.txt"
+        file_a.write_text("hello", encoding="utf-8")
+        file_b = proj_b / "test.txt"
+        file_b.write_text("hello", encoding="utf-8")
+
+        read_a = self.controller.evaluate_authorization("read_file", {"path": str(file_a)}, ctx_a)
+        self.assertTrue(read_a.allowed)
+        write_a = self.controller.evaluate_authorization("write_file", {"path": str(file_a)}, ctx_a)
+        self.assertTrue(write_a.allowed)
+
+        read_b_in_a = self.controller.evaluate_authorization("read_file", {"path": str(file_b)}, ctx_a)
+        self.assertFalse(read_b_in_a.allowed)
+        self.assertEqual(read_b_in_a.status, "ask")
+
+        exported_a = self.controller.export_state(ctx_a)
+        self.assertEqual(exported_a["directoryRules"], [])
+        self.assertEqual(exported_a["defaultDirectoryRule"], f"RW:{zerochat.normalize_directory_path(str(proj_a.resolve()))}/**")
+
+        exported_a["directoryRules"].append(exported_a["defaultDirectoryRule"])
+        self.controller.import_state(exported_a, context=ctx_a, persist=True)
+
+        raw_state = zerochat.get_security_policy_data()
+        self.assertEqual(raw_state.get("directoryRules"), [], "La regla por defecto nunca debe persistirse en SQLite")
+
+        read_b = self.controller.evaluate_authorization("read_file", {"path": str(file_b)}, ctx_b)
+        self.assertTrue(read_b.allowed, "Probe D1: En el nuevo proyecto B debe permitirse lectura sin confirmación")
+        write_b = self.controller.evaluate_authorization("write_file", {"path": str(file_b)}, ctx_b)
+        self.assertTrue(write_b.allowed, "Probe D1: En el nuevo proyecto B debe permitirse escritura sin confirmación")
+
+        read_a_in_b = self.controller.evaluate_authorization("read_file", {"path": str(file_a)}, ctx_b)
+        self.assertFalse(read_a_in_b.allowed, "Probe D1: El proyecto anterior A deja de estar autorizado")
+        self.assertEqual(read_a_in_b.status, "ask")
+
+        self.controller.add_directory_rule(f"RW:{zerochat.normalize_directory_path(str(proj_a.resolve()))}/**", ctx_b)
+        rules_after_add = zerochat.get_security_policy_data().get("directoryRules") or []
+        self.assertEqual(len(rules_after_add), 1)
+        self.assertEqual(rules_after_add[0], f"RW:{zerochat.normalize_directory_path(str(proj_a.resolve()))}/**")
+
+        self.controller.add_directory_rule(self.controller.get_default_directory_rule(ctx_b), ctx_b)
+        rules_after_default = zerochat.get_security_policy_data().get("directoryRules") or []
+        self.assertEqual(len(rules_after_default), 1)
+
+        self.controller.set_directory_rules([], ctx_b)
+        self.assertEqual(zerochat.get_security_policy_data().get("directoryRules"), [])
+
 if __name__ == "__main__":
     unittest.main()

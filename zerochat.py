@@ -2255,13 +2255,12 @@ class AccessController:
 
     def export_state(self, context: SecurityContext | None = None) -> dict:
         state = self._read_permanent_state()
-        rules = state.get("directoryRules") or []
-        if not rules:
-            rules = [self.get_default_directory_rule(context)]
+        user_rules = state.get("directoryRules") or []
         return {
             "version": 5,
             "globalMcpPolicy": state.get("globalMcpPolicy") or GLOBAL_POLICY_ASK,
-            "directoryRules": list(rules),
+            "directoryRules": list(user_rules),
+            "defaultDirectoryRule": self.get_default_directory_rule(context),
             "tools": dict(state.get("tools") or {}),
             "servers": dict(state.get("servers") or {})
         }
@@ -2288,7 +2287,9 @@ class AccessController:
                 if not rule_obj:
                     raise ValueError(f"Regla de directorio inválida: '{raw}'. Formato esperado: R:path, W:path o RW:path.")
                 parsed_rules.append(rule_obj["rule"])
-            clean_rules = list(dict.fromkeys(parsed_rules))
+            unique_rules = list(dict.fromkeys(parsed_rules))
+            default_rule = self.get_default_directory_rule(context)
+            clean_rules = [r for r in unique_rules if r != default_rule]
 
         clean_tools = None
         if "tools" in state:
@@ -2342,13 +2343,13 @@ class AccessController:
             raise ValueError(f"El número total de entradas ({total_entries}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
 
         if not persist:
-            return self.apply_session_overlay(state)
+            return self.apply_session_overlay(state, context=context)
 
         def mutator(current: dict) -> dict:
             if clean_global is not None:
                 current["globalMcpPolicy"] = clean_global
             if clean_rules is not None:
-                current["directoryRules"] = clean_rules or [self.get_default_directory_rule(context)]
+                current["directoryRules"] = clean_rules
             if clean_tools is not None:
                 current["tools"] = clean_tools
             if clean_servers is not None:
@@ -2356,7 +2357,7 @@ class AccessController:
             return current
         update_security_policy_data(mutator)
 
-    def apply_session_overlay(self, state: dict):
+    def apply_session_overlay(self, state: dict, context: SecurityContext | None = None):
         """Aplica una capa de políticas temporal en memoria para una ejecución en servidor, sin persistir."""
         if not isinstance(state, dict):
             raise ValueError("El estado de políticas debe ser un diccionario.")
@@ -2379,7 +2380,9 @@ class AccessController:
                 if not rule_obj:
                     raise ValueError(f"Regla de directorio inválida: '{raw}'. Formato esperado: R:path, W:path o RW:path.")
                 parsed_rules.append(rule_obj["rule"])
-            clean_rules = list(dict.fromkeys(parsed_rules))
+            unique_rules = list(dict.fromkeys(parsed_rules))
+            default_rule = self.get_default_directory_rule(context)
+            clean_rules = [r for r in unique_rules if r != default_rule]
 
         clean_tools = None
         if "tools" in state:
@@ -2460,8 +2463,6 @@ class AccessController:
             if self.session_directory_rules is not None:
                 return list(self.session_directory_rules)
         rules = self._read_permanent_state().get("directoryRules") or []
-        if not rules:
-            return [self.get_default_directory_rule(context)]
         return list(rules)
 
     def set_directory_rules(self, rules: list[str], context: SecurityContext | None = None, persist: bool = True) -> list[str]:
@@ -2474,13 +2475,14 @@ class AccessController:
                 raise ValueError(f"Regla de directorio inválida: '{raw}'. Formato esperado: R:path, W:path o RW:path.")
             parsed_rules.append(rule_obj["rule"])
         unique_rules = list(dict.fromkeys(parsed_rules))
-        effective_rules = unique_rules or [self.get_default_directory_rule(context)]
+        default_rule = self.get_default_directory_rule(context)
+        clean_rules = [r for r in unique_rules if r != default_rule]
         if persist:
             def mutator(state: dict) -> dict:
-                state["directoryRules"] = effective_rules
+                state["directoryRules"] = clean_rules
                 return state
             update_security_policy_data(mutator)
-        return effective_rules
+        return clean_rules
 
     def add_directory_rule(self, rule: str, context: SecurityContext | None = None) -> list[str]:
         current = self.get_directory_rules(context)
@@ -2514,14 +2516,29 @@ class AccessController:
         if not normalized_dest:
             return {"allowed": False, "rule": None, "path": ""}
 
-        rules = self.get_directory_rules(ctx)
-        for raw_rule in rules:
+        user_rules = self.get_directory_rules(ctx)
+        matching_user_rules = []
+        for raw_rule in user_rules:
             parsed = parse_directory_rule(raw_rule)
-            if not parsed or (parsed["access"] != access and parsed["access"] != "RW"):
+            if not parsed:
                 continue
             rule_pattern = self._resolve_rule_pattern(parsed["path"], ctx.workspace_dir)
             if matches_directory_pattern(normalized_dest, rule_pattern):
+                matching_user_rules.append(parsed)
+
+        for parsed in matching_user_rules:
+            if parsed["access"] == access or parsed["access"] == "RW":
                 return {"allowed": True, "rule": parsed["rule"], "path": normalized_dest}
+
+        if matching_user_rules:
+            return {"allowed": False, "rule": None, "path": normalized_dest}
+
+        default_rule = self.get_default_directory_rule(ctx)
+        default_parsed = parse_directory_rule(default_rule)
+        if default_parsed and (default_parsed["access"] == access or default_parsed["access"] == "RW"):
+            rule_pattern = self._resolve_rule_pattern(default_parsed["path"], ctx.workspace_dir)
+            if matches_directory_pattern(normalized_dest, rule_pattern):
+                return {"allowed": True, "rule": default_parsed["rule"], "path": normalized_dest}
         return {"allowed": False, "rule": None, "path": normalized_dest}
 
     def evaluate_command_directories(self, args: dict, context: SecurityContext | None = None) -> dict:
