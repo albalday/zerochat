@@ -229,6 +229,45 @@ class AccessControllerPolicyTest(unittest.TestCase):
         # allow_once consumed once
         self.assertIsNone(zerochat.ACCESS_CONTROLLER.consume_challenge(ch["id"]))
 
+    def test_authorize_executes_challenge_by_stored_origin(self):
+        handler = zerochat.ZeroChatServerHandler.__new__(zerochat.ZeroChatServerHandler)
+        zerochat.ACCESS_CONTROLLER.clear_session()
+        zerochat.ACCESS_CONTROLLER.set_global_policy(zerochat.GLOBAL_POLICY_ASK, self.ctx)
+
+        # Un reto emitido en /mcp/external con un nombre que coincide con una herramienta local
+        # ("read_file") debe ejecutarse en GLOBAL_MCP_MANAGER.call y nunca en LOCAL_TOOL_HANDLERS.
+        gate_res, gate_err, _ = handler._dispatch_external("tools/call", {
+            "name": "read_file",
+            "arguments": {"path": "/etc/passwd"}
+        })
+        self.assertIsNone(gate_err)
+        self.assertTrue(gate_res.get("requiresAuthorization"))
+        challenge_id = gate_res["challengeId"]
+        self.assertEqual(zerochat.ACCESS_CONTROLLER.pending_challenges[challenge_id]["origin"], "external")
+
+        called_external = []
+        orig_call = zerochat.GLOBAL_MCP_MANAGER.call
+
+        def fake_external_call(name, args):
+            called_external.append((name, args))
+            return {"content": [{"type": "text", "text": "external-output"}], "isError": False}
+
+        zerochat.GLOBAL_MCP_MANAGER.call = fake_external_call
+        try:
+            res, err, tool_err = handler._dispatch_security("zerochat/security/authorize", {
+                "challengeId": challenge_id,
+                "decision": "allow_once",
+                "execute": True
+            })
+        finally:
+            zerochat.GLOBAL_MCP_MANAGER.call = orig_call
+
+        self.assertIsNone(err)
+        self.assertEqual(tool_err, "")
+        self.assertTrue(res["authorized"])
+        self.assertEqual(res["result"]["content"][0]["text"], "external-output")
+        self.assertEqual(called_external, [("read_file", {"path": "/etc/passwd"})])
+
     def test_reset_session_credentials_with_run_session(self):
         try:
             zerochat.RUN_SESSION = zerochat.RunSession(

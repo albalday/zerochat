@@ -2450,7 +2450,7 @@ class AccessController:
             self.pending_challenges.clear()
 
     def create_challenge(self, tool_name: str, args: dict, decision: AccessDecision,
-                         server_name: str = "", server_id: str = "") -> dict:
+                         server_name: str = "", server_id: str = "", origin: str = "local") -> dict:
         """Genera un reto estructurado para solicitar confirmación interactiva al usuario."""
         challenge_id = f"auth_{secrets.token_urlsafe(16)}"
         now = int(time.time() * 1000)
@@ -2466,6 +2466,7 @@ class AccessController:
                 "decision": decision.to_dict(),
                 "serverName": server_name,
                 "serverId": server_id,
+                "origin": origin,
                 "createdAt": now,
                 "authorized": False,
                 "decisionType": None
@@ -5932,6 +5933,62 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     def _tool_exception_result(ex: Exception) -> dict:
         return {"content": [{"type": "text", "text": _tool_error(str(ex))}], "isError": True}
 
+    @classmethod
+    def _execute_tool(cls, origin: str, tool_name: str, args: dict) -> tuple[dict | None, dict | None, str]:
+        """Punto único de ejecución y normalización de herramientas locales y externas."""
+        if origin == "external":
+            try:
+                result = GLOBAL_MCP_MANAGER.call(tool_name, args)
+            except Exception as ex:
+                return cls._tool_exception_result(ex), None, str(ex)
+            tool_error_info = ""
+            if isinstance(result, dict) and result.get("isError"):
+                c_list = result.get("content", [])
+                if c_list and isinstance(c_list, list) and isinstance(c_list[0], dict):
+                    tool_error_info = c_list[0].get("text", "Error en herramienta MCP externa")
+                else:
+                    tool_error_info = "Error en herramienta MCP externa"
+            return result, None, tool_error_info
+
+        handler = LOCAL_TOOL_HANDLERS.get(tool_name)
+        if not handler:
+            return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
+        try:
+            tool_output_json = handler(**dict(args))
+        except Exception as ex:
+            return cls._tool_exception_result(ex), None, str(ex)
+        tool_error_info = ""
+        try:
+            parsed_out = json.loads(tool_output_json)
+            if isinstance(parsed_out, dict) and parsed_out.get("success") is False:
+                tool_error_info = str(parsed_out.get("error", "Error en herramienta local"))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+        return {"content": [{"type": "text", "text": tool_output_json}], "isError": bool(tool_error_info)}, None, tool_error_info
+
+    @staticmethod
+    def _authorize_or_challenge(origin: str, tool_name: str, args: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str] | None:
+        """Evalúa la política de seguridad y devuelve respuesta de denegación o reto si procede."""
+        server_name = "external" if origin == "external" else "mcp-proxy"
+        decision = ACCESS_CONTROLLER.evaluate_authorization(tool_name, args, context=ctx, server_name=server_name)
+        if decision.status == TOOL_POLICY_DENY:
+            err_msg = f"Bloqueado por política de seguridad: {decision.reason}"
+            return {"content": [{"type": "text", "text": f"Error: {err_msg}"}], "isError": True, "securityStatus": "deny", "reason": decision.reason}, None, err_msg
+        if decision.status == TOOL_POLICY_ASK:
+            ch = ACCESS_CONTROLLER.create_challenge(tool_name, args, decision, server_name=server_name, origin=origin)
+            return {
+                "requiresAuthorization": True,
+                "challengeId": ch["id"],
+                "toolName": tool_name,
+                "serverName": server_name,
+                "arguments": args,
+                "ruleOffer": decision.rule_offer,
+                "details": decision.details,
+                "content": [{"type": "text", "text": "Esta herramienta requiere autorización del usuario."}],
+                "isError": False
+            }, None, ""
+        return None
+
     def _dispatch_external(self, method: str, params: dict) -> tuple[dict | None, dict | None, str]:
         """Atiende /mcp/external. Devuelve (result, error JSON-RPC, detalle de error de herramienta)."""
         if method == "initialize":
@@ -5948,36 +6005,11 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
             authorized_challenge = ACCESS_CONTROLLER.consume_challenge(challenge_id) if challenge_id else None
             if not authorized_challenge:
-                decision = ACCESS_CONTROLLER.evaluate_authorization(tool_name, args, context=ctx, server_name="external")
-                if decision.status == TOOL_POLICY_DENY:
-                    err_msg = f"Bloqueado por política de seguridad: {decision.reason}"
-                    return {"content": [{"type": "text", "text": f"Error: {err_msg}"}], "isError": True, "securityStatus": "deny", "reason": decision.reason}, None, err_msg
-                if decision.status == TOOL_POLICY_ASK:
-                    ch = ACCESS_CONTROLLER.create_challenge(tool_name, args, decision, server_name="external")
-                    return {
-                        "requiresAuthorization": True,
-                        "challengeId": ch["id"],
-                        "toolName": tool_name,
-                        "serverName": "external",
-                        "arguments": args,
-                        "ruleOffer": decision.rule_offer,
-                        "details": decision.details,
-                        "content": [{"type": "text", "text": "Esta herramienta requiere autorización del usuario."}],
-                        "isError": False
-                    }, None, ""
+                gate = self._authorize_or_challenge("external", tool_name, args, ctx)
+                if gate is not None:
+                    return gate
 
-            try:
-                result = GLOBAL_MCP_MANAGER.call(tool_name, args)
-            except Exception as ex:
-                return self._tool_exception_result(ex), None, str(ex)
-            tool_error_info = ""
-            if isinstance(result, dict) and result.get("isError"):
-                c_list = result.get("content", [])
-                if c_list and isinstance(c_list, list) and isinstance(c_list[0], dict):
-                    tool_error_info = c_list[0].get("text", "Error en herramienta MCP externa")
-                else:
-                    tool_error_info = "Error en herramienta MCP externa"
-            return result, None, tool_error_info
+            return self._execute_tool("external", tool_name, args)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado en /mcp/external."}, ""
 
     def _dispatch_local(self, method: str, params: dict) -> tuple[dict | None, dict | None, str]:
@@ -5999,8 +6031,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return {"tools": [dict(definition) for definition in LOCAL_TOOLS_DEFINITIONS]}, None, ""
         if method == "tools/call":
             tool_name = params.get("name", "")
-            handler = LOCAL_TOOL_HANDLERS.get(tool_name)
-            if not handler:
+            if tool_name not in LOCAL_TOOL_HANDLERS:
                 return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
             raw_args = params.get("arguments", {})
             args = dict(raw_args) if isinstance(raw_args, dict) else {}
@@ -6012,37 +6043,11 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
             authorized_challenge = ACCESS_CONTROLLER.consume_challenge(challenge_id) if challenge_id else None
             if not authorized_challenge:
-                decision = ACCESS_CONTROLLER.evaluate_authorization(tool_name, args, context=ctx, server_name="mcp-proxy")
-                if decision.status == TOOL_POLICY_DENY:
-                    err_msg = f"Bloqueado por política de seguridad: {decision.reason}"
-                    return {"content": [{"type": "text", "text": f"Error: {err_msg}"}], "isError": True, "securityStatus": "deny", "reason": decision.reason}, None, err_msg
-                if decision.status == TOOL_POLICY_ASK:
-                    ch = ACCESS_CONTROLLER.create_challenge(tool_name, args, decision, server_name="mcp-proxy")
-                    return {
-                        "requiresAuthorization": True,
-                        "challengeId": ch["id"],
-                        "toolName": tool_name,
-                        "serverName": "mcp-proxy",
-                        "arguments": args,
-                        "ruleOffer": decision.rule_offer,
-                        "details": decision.details,
-                        "content": [{"type": "text", "text": "Esta herramienta requiere autorización del usuario."}],
-                        "isError": False
-                    }, None, ""
+                gate = self._authorize_or_challenge("local", tool_name, args, ctx)
+                if gate is not None:
+                    return gate
 
-            arguments = dict(args)
-            try:
-                tool_output_json = handler(**arguments)
-            except Exception as ex:
-                return self._tool_exception_result(ex), None, str(ex)
-            tool_error_info = ""
-            try:
-                parsed_out = json.loads(tool_output_json)
-                if isinstance(parsed_out, dict) and parsed_out.get("success") is False:
-                    tool_error_info = str(parsed_out.get("error", "Error en herramienta local"))
-            except (json.JSONDecodeError, TypeError):
-                pass
-            return {"content": [{"type": "text", "text": tool_output_json}], "isError": bool(tool_error_info)}, None, tool_error_info
+            return self._execute_tool("local", tool_name, args)
         if method == "zerochat/project/set_directory":
             # Lo invoca la interfaz a petición del usuario: no es una herramienta del modelo.
             try:
@@ -6088,8 +6093,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return self._dispatch_security(method, params)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
-    @staticmethod
-    def _dispatch_security(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+    @classmethod
+    def _dispatch_security(cls, method: str, params: dict) -> tuple[dict | None, dict | None, str]:
         """Gestión de políticas y reglas de seguridad almacenadas en el backend local."""
         params = params if isinstance(params, dict) else {}
         user_id = params.get("user_id")
@@ -6120,22 +6125,13 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                     ch = ACCESS_CONTROLLER.consume_challenge(challenge_id)
                     if not ch:
                         return None, {"code": -32002, "message": "Error al consumir el reto para ejecución"}, ""
+                    t_origin = ch.get("origin") or "local"
                     t_name = ch["toolName"]
-                    t_args = ch["arguments"]
-                    handler = LOCAL_TOOL_HANDLERS.get(t_name)
-                    if handler:
-                        out_json = handler(**t_args)
-                        tool_err = ""
-                        try:
-                            po = json.loads(out_json)
-                            if isinstance(po, dict) and po.get("success") is False:
-                                tool_err = str(po.get("error", "Error en herramienta"))
-                        except (json.JSONDecodeError, TypeError, ValueError):
-                            pass
-                        return {"authorized": True, "result": {"content": [{"type": "text", "text": out_json}], "isError": bool(tool_err)}}, None, tool_err
-                    else:
-                        ext_res = GLOBAL_MCP_MANAGER.call(t_name, t_args)
-                        return {"authorized": True, "result": ext_res}, None, ""
+                    t_args = ch["arguments"] if isinstance(ch.get("arguments"), dict) else {}
+                    exec_res, exec_err, tool_err = cls._execute_tool(t_origin, t_name, t_args)
+                    if exec_err:
+                        return None, exec_err, tool_err
+                    return {"authorized": True, "result": exec_res}, None, tool_err
                 return {"authorized": True, "challengeId": challenge_id}, None, ""
         except ValueError as exc:
             return None, {"code": -32602, "message": str(exc)}, ""

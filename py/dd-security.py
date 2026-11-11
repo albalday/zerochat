@@ -574,7 +574,7 @@ class AccessController:
             self.pending_challenges.clear()
 
     def create_challenge(self, tool_name: str, args: dict, decision: AccessDecision,
-                         server_name: str = "", server_id: str = "") -> dict:
+                         server_name: str = "", server_id: str = "", origin: str = "local") -> dict:
         """Genera un reto estructurado para solicitar confirmación interactiva al usuario."""
         challenge_id = f"auth_{secrets.token_urlsafe(16)}"
         now = int(time.time() * 1000)
@@ -590,6 +590,7 @@ class AccessController:
                 "decision": decision.to_dict(),
                 "serverName": server_name,
                 "serverId": server_id,
+                "origin": origin,
                 "createdAt": now,
                 "authorized": False,
                 "decisionType": None
