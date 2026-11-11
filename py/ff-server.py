@@ -743,9 +743,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     def _dispatch_security(cls, method: str, params: dict) -> tuple[dict | None, dict | None, str]:
         """Gestión de políticas y reglas de seguridad almacenadas en el backend local."""
         params = params if isinstance(params, dict) else {}
-        user_id = params.get("user_id")
-        session_id = params.get("session_id")
-        ctx = SecurityContext(workspace_dir=Path.cwd().resolve(), user_id=user_id, session_id=session_id)
+        ctx = SecurityContext(workspace_dir=Path.cwd().resolve())
         try:
             if method == "zerochat/security/get":
                 return {"policies": ACCESS_CONTROLLER.export_state(ctx)}, None, ""

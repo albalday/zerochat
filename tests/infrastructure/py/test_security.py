@@ -13,15 +13,12 @@ class SecurityContextTest(unittest.TestCase):
         self.workspace = self.base_dir / "workspace"
         self.workspace.mkdir()
         (self.workspace / "file.txt").write_text("ok", encoding="utf-8")
-        self.ctx = zerochat.SecurityContext(workspace_dir=self.workspace, user_id="user1", session_id="sess1")
+        self.ctx = zerochat.SecurityContext(workspace_dir=self.workspace)
 
     def test_context_fields_and_defaults(self):
         ctx_default = zerochat.SecurityContext()
         self.assertIsNotNone(ctx_default.workspace_dir)
-        self.assertIsNone(ctx_default.user_id)
-        self.assertIsNone(ctx_default.session_id)
-        self.assertEqual(self.ctx.user_id, "user1")
-        self.assertEqual(self.ctx.session_id, "sess1")
+        self.assertEqual(self.ctx.workspace_dir, self.workspace)
 
     def test_resolve_path_inside_workspace(self):
         res = self.ctx.resolve_path("file.txt")
@@ -177,7 +174,7 @@ class AccessControllerPolicyTest(unittest.TestCase):
         res = zerochat.save_security_policy_data(state)
         self.assertEqual(res["id"], "default")
 
-        loaded = zerochat.get_security_policy_data("default")
+        loaded = zerochat.get_security_policy_data()
         self.assertIsNotNone(loaded)
         self.assertEqual(loaded["globalMcpPolicy"], "workspace_trust")
         self.assertEqual(loaded["tools"]["tool_saved"]["policy"], "allow")
@@ -400,7 +397,7 @@ class AccessControllerPolicyTest(unittest.TestCase):
             zerochat.GLOBAL_MCP_MANAGER.call = orig_call
 
         # Probe C2b: allow_server_always sobre una herramienta local se rechaza y no añade servidores
-        zerochat.ACCESS_CONTROLLER.servers.clear()
+        zerochat.ACCESS_CONTROLLER.revoke_server_policy("playwright")
         local_gate, local_err, _ = handler._dispatch_local("tools/call", {
             "name": "run_command",
             "arguments": {"command": "echo local_test"}
@@ -637,8 +634,8 @@ class AccessControllerPolicyTest(unittest.TestCase):
         self.controller.set_global_policy(zerochat.GLOBAL_POLICY_ASK, self.ctx)
         initial_state = self.controller.export_state(self.ctx)
 
-        # Simular fallo en save_security_policy_data (sqlite3.OperationalError)
-        with unittest.mock.patch("zerochat.save_security_policy_data", side_effect=sqlite3.OperationalError("database is locked")):
+        # Simular fallo en actualización de base de datos (sqlite3.OperationalError)
+        with unittest.mock.patch("zerochat.update_security_policy_data", side_effect=sqlite3.OperationalError("database is locked")):
             res, err, _ = handler._dispatch_security("zerochat/security/update", {
                 "globalMcpPolicy": zerochat.GLOBAL_POLICY_ALLOW_ALL,
                 "tools": {"my_tool": {"policy": "allow"}}
@@ -660,15 +657,48 @@ class AccessControllerPolicyTest(unittest.TestCase):
         # Exact boundary N: 500 entradas permitidas
         tools_n = {f"tool_{i}": {"policy": "allow"} for i in range(limit)}
         payload_n = {"tools": tools_n}
-        self.controller.import_state(payload_n, self.ctx, persist=False)
+        self.controller.import_state(payload_n, self.ctx, persist=True)
         self.assertEqual(len(self.controller.tools), limit)
 
         # Exact boundary N+1: 501 entradas rechazadas
         tools_n_plus_1 = {f"tool_{i}": {"policy": "allow"} for i in range(limit + 1)}
         payload_n_plus_1 = {"tools": tools_n_plus_1}
         with self.assertRaises(ValueError) as cm:
-            self.controller.import_state(payload_n_plus_1, self.ctx, persist=False)
+            self.controller.import_state(payload_n_plus_1, self.ctx, persist=True)
         self.assertIn("supera el máximo permitido", str(cm.exception))
+
+    def test_two_controllers_share_state_via_sqlite_and_probe_s1(self):
+        # 1. No hay atributos de estado permanente en la instancia del controlador
+        ctrl_attrs = set(self.controller.__dict__.keys())
+        expected_attrs = {"_lock", "session_global_policy", "session_directory_rules", "session_tools", "session_servers", "pending_challenges"}
+        self.assertEqual(ctrl_attrs, expected_attrs, "En memoria solo deben residir lock, sesiones y retos pendientes")
+
+        # 2. Dos instancias ven sus escrituras mutuas en SQLite
+        controller_a = zerochat.AccessController()
+        controller_b = zerochat.AccessController()
+
+        controller_a.set_global_policy(zerochat.GLOBAL_POLICY_WORKSPACE_TRUST, self.ctx)
+        controller_a.set_tool_policy("tool_shared", zerochat.TOOL_POLICY_ALLOW)
+        controller_a.set_server_policy("srv_shared", zerochat.SERVER_POLICY_ALLOW)
+
+        self.assertEqual(controller_b.global_policy, zerochat.GLOBAL_POLICY_WORKSPACE_TRUST)
+        self.assertIsNotNone(controller_b.get_tool_policy("tool_shared"))
+        self.assertEqual(controller_b.get_tool_policy("tool_shared")["policy"], zerochat.TOOL_POLICY_ALLOW)
+        self.assertIsNotNone(controller_b.get_server_policy("srv_shared"))
+        self.assertEqual(controller_b.get_server_policy("srv_shared")["policy"], zerochat.SERVER_POLICY_ALLOW)
+
+        # Mutación desde B visible en A
+        controller_b.revoke_tool_policy("tool_shared")
+        self.assertIsNone(controller_a.get_tool_policy("tool_shared"))
+
+        # 3. Probe S1: import_state seguido de evaluate_authorization conserva lo importado
+        controller_a.import_state({
+            "globalMcpPolicy": zerochat.GLOBAL_POLICY_ASK,
+            "tools": {"probe_tool": {"policy": "allow"}}
+        }, self.ctx, persist=True)
+        dec = controller_a.evaluate_authorization("probe_tool", {}, self.ctx)
+        self.assertTrue(dec.allowed, "Probe S1: la evaluación posterior al import debe conservar la política importada")
+        self.assertEqual(dec.reason, "granular_allow_rule")
 
 if __name__ == "__main__":
     unittest.main()

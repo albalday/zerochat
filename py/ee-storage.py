@@ -562,11 +562,10 @@ def has_blobs(blob_ids: list[str]) -> dict:
         }
 
 
-def get_security_policy_data(policy_id: str = "default", user_id: str | None = None) -> dict | None:
+def get_security_policy_data() -> dict | None:
     """Recupera los datos de políticas de seguridad guardados en SQLite."""
-    clean_id = (policy_id or "default").strip()
     with open_storage() as conn:
-        row = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (clean_id,)).fetchone()
+        row = conn.execute("SELECT data_json FROM security_policies WHERE id = 'default';").fetchone()
         if not row:
             return None
         try:
@@ -575,23 +574,63 @@ def get_security_policy_data(policy_id: str = "default", user_id: str | None = N
             return None
 
 
-def save_security_policy_data(data: dict, policy_id: str = "default", user_id: str | None = None) -> dict:
+def save_security_policy_data(data: dict) -> dict:
     """Guarda los datos de políticas de seguridad en SQLite."""
     if not isinstance(data, dict):
         raise ValueError("Los datos de política de seguridad deben ser un objeto JSON")
-    clean_id = (policy_id or "default").strip()
     data_str = json.dumps(data, ensure_ascii=False)
     now = int(time.time() * 1000)
     with open_storage() as conn:
         conn.execute("""
-            INSERT INTO security_policies (id, user_id, data_json, updated_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO security_policies (id, data_json, updated_at)
+            VALUES ('default', ?, ?)
             ON CONFLICT(id) DO UPDATE SET
-                user_id = excluded.user_id,
                 data_json = excluded.data_json,
                 updated_at = excluded.updated_at;
-        """, (clean_id, user_id, data_str, now))
+        """, (data_str, now))
         conn.commit()
-    return {"id": clean_id, "updated_at": now}
+    return {"id": "default", "updated_at": now}
+
+
+def update_security_policy_data(mutator: typing.Callable[[dict], dict | None]) -> dict:
+    """Ejecuta una lectura-modificación-escritura atómica en una transacción BEGIN IMMEDIATE."""
+    with open_storage() as conn:
+        conn.isolation_level = None
+        conn.execute("BEGIN IMMEDIATE;")
+        try:
+            row = conn.execute("SELECT data_json FROM security_policies WHERE id = 'default';").fetchone()
+            current = None
+            if row:
+                try:
+                    current = json.loads(row["data_json"])
+                except (ValueError, TypeError):
+                    current = None
+            if current is None or not isinstance(current, dict):
+                current = {
+                    "version": 5,
+                    "globalMcpPolicy": "ask",
+                    "directoryRules": [],
+                    "tools": {},
+                    "servers": {}
+                }
+            updated = mutator(current)
+            if updated is None:
+                updated = current
+            if not isinstance(updated, dict):
+                raise ValueError("El resultado de la mutación de políticas debe ser un diccionario.")
+            data_str = json.dumps(updated, ensure_ascii=False)
+            now = int(time.time() * 1000)
+            conn.execute("""
+                INSERT INTO security_policies (id, data_json, updated_at)
+                VALUES ('default', ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    data_json = excluded.data_json,
+                    updated_at = excluded.updated_at;
+            """, (data_str, now))
+            conn.execute("COMMIT;")
+            return updated
+        except Exception:
+            conn.execute("ROLLBACK;")
+            raise
 
 
