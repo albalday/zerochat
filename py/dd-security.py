@@ -422,8 +422,11 @@ class AccessController:
                 raise ValueError("tools debe ser un diccionario de herramientas.")
             clean_tools = {}
             for tool_id, entry in tools_map.items():
+                if entry is None:
+                    clean_tools[str(tool_id)] = None
+                    continue
                 if not isinstance(entry, dict):
-                    raise ValueError(f"La entrada para la herramienta '{tool_id}' debe ser un diccionario.")
+                    raise ValueError(f"La entrada para la herramienta '{tool_id}' debe ser un diccionario o None.")
                 pol = entry.get("policy")
                 if pol not in (TOOL_POLICY_ALLOW, TOOL_POLICY_DENY):
                     raise ValueError(f"Política inválida para herramienta '{tool_id}': '{pol}'. Válidas: allow, deny.")
@@ -445,8 +448,11 @@ class AccessController:
                 raise ValueError("servers debe ser un diccionario de servidores.")
             clean_servers = {}
             for srv_id, entry in servers_map.items():
+                if entry is None:
+                    clean_servers[str(srv_id)] = None
+                    continue
                 if not isinstance(entry, dict):
-                    raise ValueError(f"La entrada para el servidor '{srv_id}' debe ser un diccionario.")
+                    raise ValueError(f"La entrada para el servidor '{srv_id}' debe ser un diccionario o None.")
                 pol = entry.get("policy")
                 if pol not in (SERVER_POLICY_ALLOW, SERVER_POLICY_DENY):
                     raise ValueError(f"Política inválida para servidor '{srv_id}': '{pol}'. Válidas: allow, deny.")
@@ -461,8 +467,8 @@ class AccessController:
                 }
 
         total_entries = (len(clean_rules) if clean_rules is not None else 0) + \
-                        (len(clean_tools) if clean_tools is not None else 0) + \
-                        (len(clean_servers) if clean_servers is not None else 0)
+                        (len([e for e in clean_tools.values() if e is not None]) if clean_tools is not None else 0) + \
+                        (len([e for e in clean_servers.values() if e is not None]) if clean_servers is not None else 0)
         if total_entries > MAX_POLICY_ENTRIES:
             raise ValueError(f"El número total de entradas ({total_entries}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
 
@@ -475,11 +481,30 @@ class AccessController:
             if clean_rules is not None:
                 current["directoryRules"] = clean_rules
             if clean_tools is not None:
-                current["tools"] = clean_tools
+                tools_dict = dict(current.get("tools") or {})
+                for tool_id, entry in clean_tools.items():
+                    if entry is None:
+                        tools_dict.pop(tool_id, None)
+                    else:
+                        tools_dict[tool_id] = entry
+                current["tools"] = tools_dict
             if clean_servers is not None:
-                current["servers"] = clean_servers
+                servers_dict = dict(current.get("servers") or {})
+                for srv_id, entry in clean_servers.items():
+                    if entry is None:
+                        servers_dict.pop(srv_id, None)
+                    else:
+                        servers_dict[srv_id] = entry
+                current["servers"] = servers_dict
+
+            resulting_entries = len(current.get("directoryRules") or []) + \
+                                len(current.get("tools") or {}) + \
+                                len(current.get("servers") or {})
+            if resulting_entries > MAX_POLICY_ENTRIES:
+                raise ValueError(f"El número total de entradas ({resulting_entries}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
             return current
         update_security_policy_data(mutator)
+        return self.export_state(context)
 
     def apply_session_overlay(self, state: dict, context: SecurityContext | None = None):
         """Aplica una capa de políticas temporal en memoria para una ejecución en servidor, sin persistir."""
@@ -515,8 +540,11 @@ class AccessController:
                 raise ValueError("tools debe ser un diccionario de herramientas.")
             clean_tools = {}
             for tool_id, entry in tools_map.items():
+                if entry is None:
+                    clean_tools[str(tool_id)] = None
+                    continue
                 if not isinstance(entry, dict):
-                    raise ValueError(f"La entrada para la herramienta '{tool_id}' debe ser un diccionario.")
+                    raise ValueError(f"La entrada para la herramienta '{tool_id}' debe ser un diccionario o None.")
                 pol = entry.get("policy")
                 if pol not in (TOOL_POLICY_ALLOW, TOOL_POLICY_DENY):
                     raise ValueError(f"Política inválida para herramienta '{tool_id}': '{pol}'. Válidas: allow, deny.")
@@ -538,8 +566,11 @@ class AccessController:
                 raise ValueError("servers debe ser un diccionario de servidores.")
             clean_servers = {}
             for srv_id, entry in servers_map.items():
+                if entry is None:
+                    clean_servers[str(srv_id)] = None
+                    continue
                 if not isinstance(entry, dict):
-                    raise ValueError(f"La entrada para el servidor '{srv_id}' debe ser un diccionario.")
+                    raise ValueError(f"La entrada para el servidor '{srv_id}' debe ser un diccionario o None.")
                 pol = entry.get("policy")
                 if pol not in (SERVER_POLICY_ALLOW, SERVER_POLICY_DENY):
                     raise ValueError(f"Política inválida para servidor '{srv_id}': '{pol}'. Válidas: allow, deny.")
@@ -554,8 +585,8 @@ class AccessController:
                 }
 
         total_entries = (len(clean_rules) if clean_rules is not None else 0) + \
-                        (len(clean_tools) if clean_tools is not None else 0) + \
-                        (len(clean_servers) if clean_servers is not None else 0)
+                        (len([e for e in clean_tools.values() if e is not None]) if clean_tools is not None else 0) + \
+                        (len([e for e in clean_servers.values() if e is not None]) if clean_servers is not None else 0)
         if total_entries > MAX_POLICY_ENTRIES:
             raise ValueError(f"El número total de entradas ({total_entries}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
 
@@ -565,9 +596,18 @@ class AccessController:
             if clean_rules is not None:
                 self.session_directory_rules = clean_rules
             if clean_tools is not None:
-                self.session_tools.update(clean_tools)
+                for tool_id, entry in clean_tools.items():
+                    if entry is None:
+                        self.session_tools.pop(tool_id, None)
+                    else:
+                        self.session_tools[tool_id] = entry
             if clean_servers is not None:
-                self.session_servers.update(clean_servers)
+                for srv_id, entry in clean_servers.items():
+                    if entry is None:
+                        self.session_servers.pop(srv_id, None)
+                    else:
+                        self.session_servers[srv_id] = entry
+        return self.export_state(context)
 
     def set_global_policy(self, policy: str, context: SecurityContext | None = None):
         if policy not in GLOBAL_POLICIES:

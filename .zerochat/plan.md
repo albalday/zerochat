@@ -33,7 +33,7 @@ Done when: Los probes C1-C3, S1-S3 y D1 de docs/audits/M61-permisos.md se compor
 - [x] M61-T7 AccessController sin caché del estado permanente: lectura por operación y escritura transaccional en SQLite (2026-11-11)
 - [x] M61-T8 tool_security de ejecuciones en servidor como capa de sesión en memoria, nunca persistida (2026-11-11)
 - [x] M61-T9 Regla de directorio del proyecto dinámica y nunca persistida (defaultDirectoryRule aparte de las reglas del usuario) (2026-11-11)
-- [ ] M61-T10 zerochat/security/update como parche parcial (null revoca) en lugar de reemplazo completo
+- [x] M61-T10 zerochat/security/update como parche parcial (null revoca) en lugar de reemplazo completo (2026-11-11)
 - [ ] M61-T11 ChatToolSecurity como caché del backend: sin localStorage, setters por parche y refresco tras conectar y cambiar de directorio
 - [ ] M61-T12 Ajustes con la regla del proyecto de solo lectura, sin utilidades de rutas en JS, i18n y help sincronizados
 - [ ] M61-T13 Limpieza del backend de permisos (constantes y helpers unificados, código muerto) y contrato documentado en los README

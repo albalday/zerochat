@@ -775,5 +775,58 @@ class AccessControllerPolicyTest(unittest.TestCase):
         self.controller.set_directory_rules([], ctx_b)
         self.assertEqual(zerochat.get_security_policy_data().get("directoryRules"), [])
 
+    def test_partial_patch_update_and_revocation(self):
+        # Estado inicial con herramientas y servidores
+        self.controller.set_tool_policy("t1", zerochat.TOOL_POLICY_ALLOW)
+        self.controller.set_tool_policy("t2", zerochat.TOOL_POLICY_DENY)
+        self.controller.set_server_policy("s1", zerochat.SERVER_POLICY_ALLOW)
+        self.controller.set_directory_rules(["R:/tmp/docs/**"], self.ctx)
+
+        # 1. Parche parcial: añadir t3 sin mencionar t1 ni t2
+        res1 = self.controller.import_state({
+            "tools": {"t3": {"policy": "allow"}}
+        }, self.ctx, persist=True)
+        self.assertIn("t1", res1["tools"])
+        self.assertIn("t2", res1["tools"])
+        self.assertIn("t3", res1["tools"])
+        self.assertIn("s1", res1["servers"])
+        self.assertEqual(res1["directoryRules"], ["R:/tmp/docs/**"])
+
+        # 2. null revoca t1 sin tocar t2 ni t3
+        res2 = self.controller.import_state({
+            "tools": {"t1": None}
+        }, self.ctx, persist=True)
+        self.assertNotIn("t1", res2["tools"])
+        self.assertIn("t2", res2["tools"])
+        self.assertIn("t3", res2["tools"])
+
+        # 3. Clave ausente no cambia nada
+        res3 = self.controller.import_state({
+            "globalMcpPolicy": zerochat.GLOBAL_POLICY_WORKSPACE_TRUST
+        }, self.ctx, persist=True)
+        self.assertEqual(res3["globalMcpPolicy"], zerochat.GLOBAL_POLICY_WORKSPACE_TRUST)
+        self.assertIn("t2", res3["tools"])
+        self.assertIn("t3", res3["tools"])
+        self.assertIn("s1", res3["servers"])
+        self.assertEqual(res3["directoryRules"], ["R:/tmp/docs/**"])
+
+        # 4. Servidor: revocación con null y alta en el mismo parche
+        res4 = self.controller.import_state({
+            "servers": {"s1": None, "s2": {"policy": "deny"}}
+        }, self.ctx, persist=True)
+        self.assertNotIn("s1", res4["servers"])
+        self.assertIn("s2", res4["servers"])
+        self.assertEqual(res4["servers"]["s2"]["policy"], zerochat.SERVER_POLICY_DENY)
+
+        # 5. RPC zerochat/security/update aplica el parche y devuelve estado completo
+        handler = zerochat.ZeroChatServerHandler
+        rpc_result, rpc_err, _ = handler._dispatch_security("zerochat/security/update", {
+            "tools": {"t4": {"policy": "allow"}}
+        })
+        self.assertIsNone(rpc_err)
+        self.assertIn("policies", rpc_result)
+        self.assertIn("t4", rpc_result["policies"]["tools"])
+        self.assertIn("t2", rpc_result["policies"]["tools"])
+
 if __name__ == "__main__":
     unittest.main()
