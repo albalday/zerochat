@@ -761,11 +761,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
                 constraints = params.get("constraints")
                 dir_rule = params.get("directoryRule")
-                try:
-                    success = ACCESS_CONTROLLER.authorize_challenge(challenge_id, decision, constraints, dir_rule, context=ctx)
-                except ValueError as err:
-                    return None, {"code": -32602, "message": str(err)}, ""
-                if not success:
+                if not ACCESS_CONTROLLER.authorize_challenge(challenge_id, decision, constraints, dir_rule, context=ctx):
                     return None, {"code": -32002, "message": "Reto no encontrado o no válido"}, ""
 
                 ch = ACCESS_CONTROLLER.consume_challenge(challenge_id)

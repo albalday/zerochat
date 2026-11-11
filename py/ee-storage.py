@@ -574,24 +574,6 @@ def get_security_policy_data() -> dict | None:
             return None
 
 
-def save_security_policy_data(data: dict) -> dict:
-    """Guarda los datos de políticas de seguridad en SQLite."""
-    if not isinstance(data, dict):
-        raise ValueError("Los datos de política de seguridad deben ser un objeto JSON")
-    data_str = json.dumps(data, ensure_ascii=False)
-    now = int(time.time() * 1000)
-    with open_storage() as conn:
-        conn.execute("""
-            INSERT INTO security_policies (id, data_json, updated_at)
-            VALUES ('default', ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                data_json = excluded.data_json,
-                updated_at = excluded.updated_at;
-        """, (data_str, now))
-        conn.commit()
-    return {"id": "default", "updated_at": now}
-
-
 def update_security_policy_data(mutator: typing.Callable[[dict], dict | None]) -> dict:
     """Ejecuta una lectura-modificación-escritura atómica en una transacción BEGIN IMMEDIATE."""
     with open_storage() as conn:

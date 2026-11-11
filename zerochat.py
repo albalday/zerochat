@@ -1888,14 +1888,6 @@ POLICY_DENY = "deny"
 POLICY_ASK = "ask"
 POLICIES = (POLICY_ALLOW, POLICY_DENY, POLICY_ASK)
 
-TOOL_POLICY_ALLOW = POLICY_ALLOW
-TOOL_POLICY_DENY = POLICY_DENY
-TOOL_POLICY_ASK = POLICY_ASK
-
-SERVER_POLICY_ALLOW = POLICY_ALLOW
-SERVER_POLICY_DENY = POLICY_DENY
-SERVER_POLICY_ASK = POLICY_ASK
-
 SCOPE_PERMANENT = "permanent"
 SCOPE_SESSION = "session"
 SCOPES = (SCOPE_PERMANENT, SCOPE_SESSION)
@@ -2251,14 +2243,18 @@ class AccessController:
 
     def export_state(self, context: SecurityContext | None = None) -> dict:
         state = self._read_permanent_state()
-        user_rules = state.get("directoryRules") or []
+        with self._lock:
+            global_pol = self.session_global_policy if self.session_global_policy is not None else (state.get("globalMcpPolicy") or GLOBAL_POLICY_ASK)
+            user_rules = list(self.session_directory_rules) if self.session_directory_rules is not None else list(state.get("directoryRules") or [])
+            merged_tools = {**(state.get("tools") or {}), **self.session_tools}
+            merged_servers = {**(state.get("servers") or {}), **self.session_servers}
         return {
             "version": 5,
-            "globalMcpPolicy": state.get("globalMcpPolicy") or GLOBAL_POLICY_ASK,
-            "directoryRules": list(user_rules),
+            "globalMcpPolicy": global_pol,
+            "directoryRules": user_rules,
             "defaultDirectoryRule": self.get_default_directory_rule(context),
-            "tools": dict(state.get("tools") or {}),
-            "servers": dict(state.get("servers") or {})
+            "tools": merged_tools,
+            "servers": merged_servers
         }
 
     def _validate_directory_rules(self, raw_rules: list | tuple, context: SecurityContext | None = None) -> list[str]:
@@ -2282,8 +2278,11 @@ class AccessController:
             raise ValueError(f"{kind} debe ser un diccionario de {kind_desc}.")
         clean_map = {}
         for item_id, entry in raw_entries.items():
+            clean_key = str(item_id).strip() if kind == "servers" else str(item_id)
+            if not clean_key:
+                continue
             if entry is None:
-                clean_map[str(item_id)] = None
+                clean_map[clean_key] = None
                 continue
             if not isinstance(entry, dict):
                 raise ValueError(f"La entrada para {kind_label} '{item_id}' debe ser un diccionario o None.")
@@ -2301,10 +2300,10 @@ class AccessController:
             }
             if kind == "tools":
                 cleaned_entry["originalName"] = str(entry.get("originalName", "") or "")
-            clean_map[str(item_id)] = cleaned_entry
+            clean_map[clean_key] = cleaned_entry
         return clean_map
 
-    def import_state(self, state: dict, context: SecurityContext | None = None, persist: bool = True):
+    def _validate_state_payload(self, state: dict, scope: str, context: SecurityContext | None = None) -> tuple[str | None, list[str] | None, dict | None, dict | None]:
         if not isinstance(state, dict):
             raise ValueError("El estado de políticas debe ser un diccionario.")
 
@@ -2321,20 +2320,24 @@ class AccessController:
 
         clean_tools = None
         if "tools" in state:
-            clean_tools = self._validate_policy_entries(state["tools"], "tools", SCOPE_PERMANENT)
+            clean_tools = self._validate_policy_entries(state["tools"], "tools", scope)
 
         clean_servers = None
         if "servers" in state:
-            clean_servers = self._validate_policy_entries(state["servers"], "servers", SCOPE_PERMANENT)
+            clean_servers = self._validate_policy_entries(state["servers"], "servers", scope)
 
         total_entries = (len(clean_rules) if clean_rules is not None else 0) + \
                         (len([e for e in clean_tools.values() if e is not None]) if clean_tools is not None else 0) + \
                         (len([e for e in clean_servers.values() if e is not None]) if clean_servers is not None else 0)
         if total_entries > MAX_POLICY_ENTRIES:
             raise ValueError(f"El número total de entradas ({total_entries}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
+        return clean_global, clean_rules, clean_tools, clean_servers
 
+    def import_state(self, state: dict, context: SecurityContext | None = None, persist: bool = True):
         if not persist:
             return self.apply_session_overlay(state, context=context)
+
+        clean_global, clean_rules, clean_tools, clean_servers = self._validate_state_payload(state, SCOPE_PERMANENT, context)
 
         def mutator(current: dict) -> dict:
             if clean_global is not None:
@@ -2365,37 +2368,22 @@ class AccessController:
                 raise ValueError(f"El número total de entradas ({resulting_entries}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
             return current
         update_security_policy_data(mutator)
+        with self._lock:
+            if clean_global is not None:
+                self.session_global_policy = None
+            if clean_rules is not None:
+                self.session_directory_rules = None
+            if clean_tools is not None:
+                for tool_id in clean_tools:
+                    self.session_tools.pop(tool_id, None)
+            if clean_servers is not None:
+                for srv_id in clean_servers:
+                    self.session_servers.pop(srv_id, None)
         return self.export_state(context)
 
     def apply_session_overlay(self, state: dict, context: SecurityContext | None = None):
         """Aplica una capa de políticas temporal en memoria para una ejecución en servidor, sin persistir."""
-        if not isinstance(state, dict):
-            raise ValueError("El estado de políticas debe ser un diccionario.")
-
-        clean_global = None
-        if "globalMcpPolicy" in state:
-            pol = state["globalMcpPolicy"]
-            if pol not in GLOBAL_POLICIES:
-                raise ValueError(f"Política global no válida: '{pol}'. Válidas: {GLOBAL_POLICIES}")
-            clean_global = pol
-
-        clean_rules = None
-        if "directoryRules" in state:
-            clean_rules = self._validate_directory_rules(state["directoryRules"], context)
-
-        clean_tools = None
-        if "tools" in state:
-            clean_tools = self._validate_policy_entries(state["tools"], "tools", SCOPE_SESSION)
-
-        clean_servers = None
-        if "servers" in state:
-            clean_servers = self._validate_policy_entries(state["servers"], "servers", SCOPE_SESSION)
-
-        total_entries = (len(clean_rules) if clean_rules is not None else 0) + \
-                        (len([e for e in clean_tools.values() if e is not None]) if clean_tools is not None else 0) + \
-                        (len([e for e in clean_servers.values() if e is not None]) if clean_servers is not None else 0)
-        if total_entries > MAX_POLICY_ENTRIES:
-            raise ValueError(f"El número total de entradas ({total_entries}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
+        clean_global, clean_rules, clean_tools, clean_servers = self._validate_state_payload(state, SCOPE_SESSION, context)
 
         with self._lock:
             if clean_global is not None:
@@ -2423,6 +2411,8 @@ class AccessController:
             state["globalMcpPolicy"] = policy
             return state
         update_security_policy_data(mutator)
+        with self._lock:
+            self.session_global_policy = None
 
     def get_default_directory_rule(self, context: SecurityContext | None = None) -> str:
         ctx = context or SecurityContext()
@@ -2443,6 +2433,8 @@ class AccessController:
                 state["directoryRules"] = clean_rules
                 return state
             update_security_policy_data(mutator)
+            with self._lock:
+                self.session_directory_rules = None
         return clean_rules
 
     def add_directory_rule(self, rule: str, context: SecurityContext | None = None) -> list[str]:
@@ -2451,22 +2443,15 @@ class AccessController:
 
     @staticmethod
     def _resolve_rule_pattern(pattern: str, workspace_dir: Path | None = None) -> str:
-        if "*" in pattern:
-            base, rest = pattern.split("*", 1)
-            if base:
-                if workspace_dir and not os.path.isabs(base):
-                    real_base = os.path.realpath(os.path.join(str(workspace_dir), base))
-                else:
-                    real_base = os.path.realpath(base)
-                if base.endswith("/") and not real_base.endswith("/"):
-                    real_base += "/"
-            else:
-                real_base = ""
-            return f"{real_base}*{rest}"
+        base, sep, rest = pattern.partition("*")
+        if base:
+            target = os.path.join(str(workspace_dir), base) if (workspace_dir and not os.path.isabs(base)) else base
+            real_base = normalize_directory_path(os.path.realpath(target))
+            if sep and base.endswith("/") and not real_base.endswith("/"):
+                real_base += "/"
         else:
-            if workspace_dir and not os.path.isabs(pattern):
-                return os.path.realpath(os.path.join(str(workspace_dir), pattern))
-            return os.path.realpath(pattern)
+            real_base = ""
+        return f"{real_base}{sep}{rest}"
 
     def evaluate_directory_rule(self, access: str, path: str, context: SecurityContext | None = None) -> dict:
         ctx = context or SecurityContext()
@@ -2529,11 +2514,10 @@ class AccessController:
             "policy": clean_policy,
             "scope": scope if scope in SCOPES else SCOPE_PERMANENT,
             "grantedAt": now_ms,
-            "lastUsedAt": now_ms,
             **(entry_data or {})
         }
+        session_dict = self.session_tools if kind == "tools" else self.session_servers
         if scope == SCOPE_SESSION:
-            session_dict = self.session_tools if kind == "tools" else self.session_servers
             with self._lock:
                 session_dict[clean_id] = entry
         else:
@@ -2542,6 +2526,8 @@ class AccessController:
                 container[clean_id] = entry
                 return state
             update_security_policy_data(mutator)
+            with self._lock:
+                session_dict.pop(clean_id, None)
 
     def _get_policy(self, kind: str, item_id: str) -> dict | None:
         clean_id = str(item_id or "").strip() if kind == "servers" else str(item_id or "")
@@ -2654,19 +2640,15 @@ class AccessController:
                 return False
             if dec_type == "allow_server_always" and not challenge.get("serverId"):
                 return False
-            tool_name = challenge.get("toolName")
             effective_constraints = constraints or (decision.get("constraints") if isinstance(decision, dict) else None)
-            if tool_name == COMMAND_TOOL and dec_type == "allow_always":
-                if not effective_constraints or not isinstance(effective_constraints, dict) or not effective_constraints.get("command"):
-                    raise ValueError("allow_always_requires_constraints")
-            challenge["authorized"] = True
-            challenge["decisionType"] = dec_type
             dec_payload = {
                 "decision": dec_type,
                 "constraints": effective_constraints,
                 "directoryRule": directory_rule or (decision.get("directoryRule") if isinstance(decision, dict) else None)
             }
             self.record_decision(dec_payload, challenge["decision"], fallback_tool_name=challenge["toolName"], context=context)
+            challenge["authorized"] = True
+            challenge["decisionType"] = dec_type
             return True
 
     def consume_challenge(self, challenge_id: str) -> dict | None:
@@ -2827,16 +2809,12 @@ class AccessController:
                         return make_decision(POLICY_ASK, "command_directory_outside_rules", {
                             "details": f"El comando se ejecuta fuera de las reglas de directorio: {cmd_dir_eval['directory']}"
                         })
-            with self._lock:
-                tool_entry["lastUsedAt"] = int(time.time() * 1000)
             return make_decision(POLICY_ALLOW, "granular_allow_rule")
 
         # 5. Autorización de servidor completo
         if srv_id:
             srv_entry = self.get_server_policy(srv_id)
             if srv_entry and srv_entry.get("policy") == POLICY_ALLOW:
-                with self._lock:
-                    srv_entry["lastUsedAt"] = int(time.time() * 1000)
                 return make_decision(POLICY_ALLOW, "server_allow_rule")
 
         # 6. Reglas de Directorio y Workspace Trust
@@ -5516,24 +5494,6 @@ def get_security_policy_data() -> dict | None:
             return None
 
 
-def save_security_policy_data(data: dict) -> dict:
-    """Guarda los datos de políticas de seguridad en SQLite."""
-    if not isinstance(data, dict):
-        raise ValueError("Los datos de política de seguridad deben ser un objeto JSON")
-    data_str = json.dumps(data, ensure_ascii=False)
-    now = int(time.time() * 1000)
-    with open_storage() as conn:
-        conn.execute("""
-            INSERT INTO security_policies (id, data_json, updated_at)
-            VALUES ('default', ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                data_json = excluded.data_json,
-                updated_at = excluded.updated_at;
-        """, (data_str, now))
-        conn.commit()
-    return {"id": "default", "updated_at": now}
-
-
 def update_security_policy_data(mutator: typing.Callable[[dict], dict | None]) -> dict:
     """Ejecuta una lectura-modificación-escritura atómica en una transacción BEGIN IMMEDIATE."""
     with open_storage() as conn:
@@ -6339,11 +6299,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
                 constraints = params.get("constraints")
                 dir_rule = params.get("directoryRule")
-                try:
-                    success = ACCESS_CONTROLLER.authorize_challenge(challenge_id, decision, constraints, dir_rule, context=ctx)
-                except ValueError as err:
-                    return None, {"code": -32602, "message": str(err)}, ""
-                if not success:
+                if not ACCESS_CONTROLLER.authorize_challenge(challenge_id, decision, constraints, dir_rule, context=ctx):
                     return None, {"code": -32002, "message": "Reto no encontrado o no válido"}, ""
 
                 ch = ACCESS_CONTROLLER.consume_challenge(challenge_id)

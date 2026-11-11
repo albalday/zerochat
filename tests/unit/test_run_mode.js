@@ -137,14 +137,14 @@ test('RunMode.hydrateToolSecurity aplica políticas reales en ToolSecurityManage
     RunMode.hydrateToolSecurity({
       globalMcpPolicy: 'workspace_trust',
       tools: {
-        write_file: 'allow',
+        write_file: { policy: 'allow', scope: 'session' },
         run_command: {
           policy: 'allow',
           constraints: { command: { allowedPrefixes: ['git'], allowChaining: false, allowPipes: false } }
         }
       },
       directoryRules: ['R:/tmp/project'],
-      servers: { memory: 'allow' }
+      servers: { memory: { policy: 'allow', scope: 'session' } }
     });
 
     assert.equal(manager.getGlobalMcpPolicy(), 'workspace_trust');

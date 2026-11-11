@@ -37,3 +37,8 @@ Done when: Los probes C1-C3, S1-S3 y D1 de docs/audits/M61-permisos.md se compor
 - [x] M61-T11 ChatToolSecurity como caché del backend: sin localStorage, setters por parche y refresco tras conectar y cambiar de directorio (2026-11-11)
 - [x] M61-T12 Ajustes con la regla del proyecto de solo lectura, sin utilidades de rutas en JS, i18n y help sincronizados (2026-11-11)
 - [x] M61-T13 Limpieza del backend de permisos (constantes y helpers unificados, código muerto) y contrato documentado en los README (2026-11-11)
+- [x] M61-T14 Consolidar la limpieza pendiente: POLICIES único, validación de estado compartida, capa de sesión visible en export_state y formatToolCallResult común (2026-11-11)
+- [ ] M61-T15 Reto autorizado y consumido en una sola operación, decisión y regla de directorio en una transacción, errores visibles y grantedAt conservado en security/update
+- [ ] M61-T16 Errores de SQLite visibles, estado por defecto en una sola fuente y una lectura del estado permanente por evaluación
+- [ ] M61-T17 Retirar código solo de pruebas o sin consumidor en AccessController y ChatToolSecurity, y corregir las pruebas que dependían de él
+- [ ] M61-T18 Unificar normalización de ids, clasificación de herramientas de ficheros, parada de comandos en JS y caché del frontend sin decisiones propias

@@ -118,7 +118,7 @@
           <li><strong>Transporte web del servidor</strong> con protección anti-SSRF en la URL pedida y en cada redirección, y cuerpo acotado. [test] <code>py/test_network.py</code></li>
           <li><strong>Comandos acotados</strong>: plazo, terminación del grupo de procesos y limpieza de los huérfanos de sesiones anteriores; en Windows, Job Object. [test] <code>py/test_run_command.py</code> (la prueba del Job Object solo se ejecuta en Windows)</li>
           <li><strong>Sandbox de JavaScript</strong> en un <code>iframe</code> de origen opaco sin red; la ayuda advierte de que no es una barrera de seguridad. [test] <code>browser_sandbox_security.test.js</code></li>
-          <li><strong>Permisos de herramientas</strong>: políticas <code>ask</code>, <code>workspace_trust</code> y <code>allow_all</code>, reglas de directorio y comprobación de traversal. [test] <code>test_tool_security.js</code></li>
+          <li><strong>Permisos de herramientas</strong>: políticas <code>ask</code>, <code>workspace_trust</code> y <code>allow_all</code>, reglas de directorio y comprobación de traversal. [test] <code>py/test_security.py</code>, <code>test_tool_security.js</code></li>
         </ul>
       </div>
 

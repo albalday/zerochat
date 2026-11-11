@@ -294,54 +294,60 @@
       };
       const result = await this.request('tools/call', params, options);
       const elapsed = parseFloat((performance.now() - startTime).toFixed(2));
+      return formatToolCallResult(result, { name, serverName: this.name, args, elapsed });
+    }
+  }
 
-      let textOutput = '';
-      if (Array.isArray(result?.content)) {
-        textOutput = result.content.map(item => {
-          if (item.type === 'text') return item.text || '';
-          if (item.type === 'image') return `[Embedded image: ${item.mimeType || 'image/png'}]`;
-          if (item.type === 'resource') return `[Resource: ${item.resource?.uri || 'URI'}]\n${item.resource?.text || ''}`;
-          return JSON.stringify(item);
-        }).join('\n\n').trim();
-      } else if (typeof result === 'string') {
-        textOutput = result;
-      } else if (result) {
-        textOutput = JSON.stringify(result, null, 2);
-      }
+  /**
+   * Normaliza la respuesta de ejecución de una herramienta MCP (directa o tras autorización).
+   */
+  function formatToolCallResult(result, { name = '', serverName = '', args = {}, elapsed = 0 } = {}) {
+    let textOutput = '';
+    if (Array.isArray(result?.content)) {
+      textOutput = result.content.map(item => {
+        if (item.type === 'text') return item.text || '';
+        if (item.type === 'image') return `[Embedded image: ${item.mimeType || 'image/png'}]`;
+        if (item.type === 'resource') return `[Resource: ${item.resource?.uri || 'URI'}]\n${item.resource?.text || ''}`;
+        return JSON.stringify(item);
+      }).join('\n\n').trim();
+    } else if (typeof result === 'string') {
+      textOutput = result;
+    } else if (result) {
+      textOutput = JSON.stringify(result, null, 2);
+    }
 
-      if (result?.requiresAuthorization) {
-        return {
-          success: false,
-          requiresAuthorization: true,
-          challengeId: result.challengeId,
-          toolName: result.toolName || name,
-          serverName: result.serverName || this.name,
-          serverId: result.serverId || '',
-          arguments: result.arguments || args,
-          ruleOffer: result.ruleOffer,
-          details: result.details,
-          content: textOutput,
-          rawResult: result,
-          executionTimeMs: elapsed
-        };
-      }
-
-      const extractedImage = extractImageFromMcpText(textOutput);
-      if (extractedImage) textOutput = extractedImage.content;
-      if (textOutput.length > MAX_OUTPUT_LENGTH) {
-        textOutput = textOutput.slice(0, MAX_OUTPUT_LENGTH) + '\n\n[... MCP content truncated due to size limit ...]';
-      }
-
-      const isError = result?.isError === true;
+    if (result?.requiresAuthorization) {
       return {
-        success: !isError,
-        isError,
+        success: false,
+        requiresAuthorization: true,
+        challengeId: result.challengeId,
+        toolName: result.toolName || name,
+        serverName: result.serverName || serverName,
+        serverId: result.serverId || '',
+        arguments: result.arguments || args,
+        ruleOffer: result.ruleOffer,
+        details: result.details,
         content: textOutput,
         rawResult: result,
-        ...(extractedImage ? { image_base64: extractedImage.imageBase64, mime_type: extractedImage.mimeType } : {}),
         executionTimeMs: elapsed
       };
     }
+
+    const extractedImage = extractImageFromMcpText(textOutput);
+    if (extractedImage) textOutput = extractedImage.content;
+    if (textOutput.length > MAX_OUTPUT_LENGTH) {
+      textOutput = textOutput.slice(0, MAX_OUTPUT_LENGTH) + '\n\n[... MCP content truncated due to size limit ...]';
+    }
+
+    const isError = result?.isError === true;
+    return {
+      success: !isError,
+      isError,
+      content: textOutput,
+      rawResult: result,
+      ...(extractedImage ? { image_base64: extractedImage.imageBase64, mime_type: extractedImage.mimeType } : {}),
+      executionTimeMs: elapsed
+    };
   }
 
   function formatMcpMarkdown(toolName, args, result, serverName) {
@@ -1147,6 +1153,7 @@
     playwrightInstalled,
     browserActionAvailable,
     manager,
+    formatToolCallResult,
     getResultText,
     getSafeMcpImageDataUrl,
     getSafeMcpImageFromMessage

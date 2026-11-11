@@ -118,7 +118,7 @@
           <li><strong>Server web transport</strong> with SSRF protection on the requested URL and on every redirect, and a bounded body. [test] <code>py/test_network.py</code></li>
           <li><strong>Bounded commands</strong>: timeout, termination of the process group and cleanup of orphans from earlier sessions; on Windows, a Job Object. [test] <code>py/test_run_command.py</code> (the Job Object test only runs on Windows)</li>
           <li><strong>JavaScript sandbox</strong> in an opaque-origin <code>iframe</code> without network; the help warns that it is not a security barrier. [test] <code>browser_sandbox_security.test.js</code></li>
-          <li><strong>Tool permissions</strong>: <code>ask</code>, <code>workspace_trust</code> and <code>allow_all</code> policies, directory rules and traversal checks. [test] <code>test_tool_security.js</code></li>
+          <li><strong>Tool permissions</strong>: <code>ask</code>, <code>workspace_trust</code> and <code>allow_all</code> policies, directory rules and traversal checks. [test] <code>py/test_security.py</code>, <code>test_tool_security.js</code></li>
         </ul>
       </div>
 

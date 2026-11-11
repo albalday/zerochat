@@ -18,6 +18,7 @@
   const getAPI = () => resolveDep('ChatAPI', './api.js');
   const getContextManager = () => resolveDep('ChatContextManager', './context-manager.js');
   const getToolSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
+  const getMCP = () => resolveDep('ChatMCP', './mcp.js');
 
   const BUILTIN_TOOL_MODULES = [
     ['ChatBuiltinExecuteJavascriptTool', './tools/builtin/execute-javascript.tool.js'],
@@ -320,26 +321,21 @@
             return failure('Execution denied by the user.', base);
           }
           if (security.mcpClient) {
-            const authRes = await security.authorizeChallenge(result.challengeId, decision).catch(err => ({ error: err.message }));
+            const jobKey = tool.name === 'run_command' ? context.invocationId : null;
+            const stopJob = () => {
+              security.mcpClient.request('zerochat/jobs/stop', { key: jobKey }).catch(() => {});
+            };
+            if (jobKey) context.signal?.addEventListener('abort', stopJob, { once: true });
+            let authRes;
+            try {
+              authRes = await security.authorizeChallenge(result.challengeId, decision, { signal: context.signal }).catch(err => ({ error: err.message }));
+            } finally {
+              if (jobKey) context.signal?.removeEventListener('abort', stopJob);
+            }
             if (authRes?.error || !authRes?.authorized) {
               return failure(authRes?.error || 'Challenge authorization failed.', base);
             }
-            const rawRes = authRes.result;
-            let textOutput = '';
-            if (Array.isArray(rawRes?.content)) {
-              textOutput = rawRes.content.map(item => item.text || (item.type === 'image' ? '[Embedded image]' : JSON.stringify(item))).join('\n\n').trim();
-            } else if (typeof rawRes === 'string') {
-              textOutput = rawRes;
-            } else if (rawRes) {
-              textOutput = JSON.stringify(rawRes, null, 2);
-            }
-            const isError = rawRes?.isError === true;
-            result = {
-              success: !isError,
-              isError,
-              content: textOutput,
-              rawResult: rawRes
-            };
+            result = getMCP().formatToolCallResult(authRes.result, { name: tool.name, args, elapsed: elapsed() });
           }
         }
         return { ...base, success: result?.success !== false, toolName: tool.name, result, error: result?.error, executionTimeMs: elapsed() };

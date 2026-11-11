@@ -63,14 +63,14 @@ class AccessControllerPolicyTest(unittest.TestCase):
 
     def test_blacklist_takes_precedence_over_allow_all(self):
         self.controller.global_policy = zerochat.GLOBAL_POLICY_ALLOW_ALL
-        self.controller.set_tool_policy("run_command", zerochat.TOOL_POLICY_DENY)
+        self.controller.set_tool_policy("run_command", zerochat.POLICY_DENY)
         dec = self.controller.evaluate_authorization("run_command", {"command": "echo 1"}, self.ctx)
         self.assertFalse(dec.allowed)
         self.assertEqual(dec.status, "deny")
         self.assertEqual(dec.reason, "granular_deny_rule")
 
     def test_server_blacklist(self):
-        self.controller.set_server_policy("srv1", zerochat.SERVER_POLICY_DENY)
+        self.controller.set_server_policy("srv1", zerochat.POLICY_DENY)
         dec = self.controller.evaluate_authorization("custom_tool", {}, self.ctx, server_id="srv1")
         self.assertFalse(dec.allowed)
         self.assertEqual(dec.status, "deny")
@@ -92,7 +92,7 @@ class AccessControllerPolicyTest(unittest.TestCase):
         self.assertTrue(write_src.allowed)
 
     def test_command_constraints_prefixes_and_chaining(self):
-        self.controller.set_tool_policy("run_command", zerochat.TOOL_POLICY_ALLOW, constraints={
+        self.controller.set_tool_policy("run_command", zerochat.POLICY_ALLOW, constraints={
             "command": {
                 "allowedPrefixes": ["git", "npm"],
                 "allowChaining": False,
@@ -140,7 +140,7 @@ class AccessControllerPolicyTest(unittest.TestCase):
     def test_record_decision_updates_policies_and_rules(self):
         norm_ws = zerochat.normalize_directory_path(str(self.workspace))
 
-        # allow_session records in session_tools
+        # allow_session records in session_tools and appears in export_state with scope='session'
         self.controller.record_decision(
             {"decision": "allow_session"},
             {"toolId": "tool_x", "serverName": "srv_x"},
@@ -148,6 +148,8 @@ class AccessControllerPolicyTest(unittest.TestCase):
         )
         self.assertIsNotNone(self.controller.session_tools.get("tool_x"))
         self.assertIsNone(self.controller.tools.get("tool_x"))
+        exported = self.controller.export_state(self.ctx)
+        self.assertEqual(exported["tools"]["tool_x"]["scope"], "session")
 
         # allow_always records in tools
         self.controller.record_decision(
@@ -171,8 +173,8 @@ class AccessControllerPolicyTest(unittest.TestCase):
             "tools": {"tool_saved": {"policy": "allow", "serverName": "srv"}},
             "servers": {"srv_saved": {"policy": "deny"}}
         }
-        res = zerochat.save_security_policy_data(state)
-        self.assertEqual(res["id"], "default")
+        updated = zerochat.update_security_policy_data(lambda current: {**current, **state})
+        self.assertEqual(updated["globalMcpPolicy"], "workspace_trust")
 
         loaded = zerochat.get_security_policy_data()
         self.assertIsNotNone(loaded)
@@ -368,7 +370,7 @@ class AccessControllerPolicyTest(unittest.TestCase):
         zerochat.ACCESS_CONTROLLER.set_global_policy(zerochat.GLOBAL_POLICY_ASK, self.ctx)
 
         # Probe C2a: confiar en el servidor "playwright" autoriza playwright__x pero NO otro__y
-        zerochat.ACCESS_CONTROLLER.set_server_policy("playwright", zerochat.SERVER_POLICY_ALLOW)
+        zerochat.ACCESS_CONTROLLER.set_server_policy("playwright", zerochat.POLICY_ALLOW)
         called_external = []
         orig_call = zerochat.GLOBAL_MCP_MANAGER.call
 
@@ -468,7 +470,7 @@ class AccessControllerPolicyTest(unittest.TestCase):
     def test_reset_session_credentials_with_run_session(self):
         # 1. Poblar SQLite con estado permanente previo
         zerochat.ACCESS_CONTROLLER.set_global_policy(zerochat.GLOBAL_POLICY_ASK, self.ctx)
-        zerochat.ACCESS_CONTROLLER.set_tool_policy("db_tool", zerochat.TOOL_POLICY_DENY)
+        zerochat.ACCESS_CONTROLLER.set_tool_policy("db_tool", zerochat.POLICY_DENY)
         zerochat.ACCESS_CONTROLLER.set_directory_rules([f"R:{self.workspace}/**"], self.ctx)
 
         try:
@@ -545,7 +547,7 @@ class AccessControllerPolicyTest(unittest.TestCase):
     def test_cd_command_and_directory_rules(self):
         norm_ws = zerochat.normalize_directory_path(str(self.workspace))
         self.controller.set_directory_rules([f"R:{norm_ws}/**", f"W:{norm_ws}/**"], self.ctx)
-        self.controller.set_tool_policy("run_command", zerochat.TOOL_POLICY_ALLOW, constraints={
+        self.controller.set_tool_policy("run_command", zerochat.POLICY_ALLOW, constraints={
             "command": {"allowedPrefixes": ["git"], "allowChaining": False, "allowPipes": False}
         })
 
@@ -699,14 +701,14 @@ class AccessControllerPolicyTest(unittest.TestCase):
         controller_b = zerochat.AccessController()
 
         controller_a.set_global_policy(zerochat.GLOBAL_POLICY_WORKSPACE_TRUST, self.ctx)
-        controller_a.set_tool_policy("tool_shared", zerochat.TOOL_POLICY_ALLOW)
-        controller_a.set_server_policy("srv_shared", zerochat.SERVER_POLICY_ALLOW)
+        controller_a.set_tool_policy("tool_shared", zerochat.POLICY_ALLOW)
+        controller_a.set_server_policy("srv_shared", zerochat.POLICY_ALLOW)
 
         self.assertEqual(controller_b.global_policy, zerochat.GLOBAL_POLICY_WORKSPACE_TRUST)
         self.assertIsNotNone(controller_b.get_tool_policy("tool_shared"))
-        self.assertEqual(controller_b.get_tool_policy("tool_shared")["policy"], zerochat.TOOL_POLICY_ALLOW)
+        self.assertEqual(controller_b.get_tool_policy("tool_shared")["policy"], zerochat.POLICY_ALLOW)
         self.assertIsNotNone(controller_b.get_server_policy("srv_shared"))
-        self.assertEqual(controller_b.get_server_policy("srv_shared")["policy"], zerochat.SERVER_POLICY_ALLOW)
+        self.assertEqual(controller_b.get_server_policy("srv_shared")["policy"], zerochat.POLICY_ALLOW)
 
         # Mutación desde B visible en A
         controller_b.revoke_tool_policy("tool_shared")
@@ -776,10 +778,11 @@ class AccessControllerPolicyTest(unittest.TestCase):
         self.assertEqual(zerochat.get_security_policy_data().get("directoryRules"), [])
 
     def test_partial_patch_update_and_revocation(self):
-        # Estado inicial con herramientas y servidores
-        self.controller.set_tool_policy("t1", zerochat.TOOL_POLICY_ALLOW)
-        self.controller.set_tool_policy("t2", zerochat.TOOL_POLICY_DENY)
-        self.controller.set_server_policy("s1", zerochat.SERVER_POLICY_ALLOW)
+        # Estado inicial con herramientas y servidores (permanentes y de sesión)
+        self.controller.set_tool_policy("t1", zerochat.POLICY_ALLOW)
+        self.controller.set_tool_policy("t2", zerochat.POLICY_DENY)
+        self.controller.set_tool_policy("t_sess", zerochat.POLICY_ALLOW, scope=zerochat.SCOPE_SESSION)
+        self.controller.set_server_policy("s1", zerochat.POLICY_ALLOW)
         self.controller.set_directory_rules(["R:/tmp/docs/**"], self.ctx)
 
         # 1. Parche parcial: añadir t3 sin mencionar t1 ni t2
@@ -789,14 +792,17 @@ class AccessControllerPolicyTest(unittest.TestCase):
         self.assertIn("t1", res1["tools"])
         self.assertIn("t2", res1["tools"])
         self.assertIn("t3", res1["tools"])
+        self.assertIn("t_sess", res1["tools"])
         self.assertIn("s1", res1["servers"])
         self.assertEqual(res1["directoryRules"], ["R:/tmp/docs/**"])
 
-        # 2. null revoca t1 sin tocar t2 ni t3
+        # 2. null revoca t1 (permanente) y t_sess (sesión) sin tocar t2 ni t3
         res2 = self.controller.import_state({
-            "tools": {"t1": None}
+            "tools": {"t1": None, "t_sess": None}
         }, self.ctx, persist=True)
         self.assertNotIn("t1", res2["tools"])
+        self.assertNotIn("t_sess", res2["tools"])
+        self.assertIsNone(self.controller.get_tool_policy("t_sess"))
         self.assertIn("t2", res2["tools"])
         self.assertIn("t3", res2["tools"])
 
@@ -816,7 +822,7 @@ class AccessControllerPolicyTest(unittest.TestCase):
         }, self.ctx, persist=True)
         self.assertNotIn("s1", res4["servers"])
         self.assertIn("s2", res4["servers"])
-        self.assertEqual(res4["servers"]["s2"]["policy"], zerochat.SERVER_POLICY_DENY)
+        self.assertEqual(res4["servers"]["s2"]["policy"], zerochat.POLICY_DENY)
 
         # 5. RPC zerochat/security/update aplica el parche y devuelve estado completo
         handler = zerochat.ZeroChatServerHandler

@@ -24,13 +24,7 @@
     WORKSPACE_TRUST: 'workspace_trust'
   });
 
-  const TOOL_POLICIES = Object.freeze({
-    ALLOW: 'allow',
-    DENY: 'deny',
-    ASK: 'ask'
-  });
-
-  const SERVER_POLICIES = Object.freeze({
+  const POLICIES = Object.freeze({
     ALLOW: 'allow',
     DENY: 'deny',
     ASK: 'ask'
@@ -108,22 +102,11 @@
       if (policies.tools && typeof policies.tools === 'object') {
         this.tools.clear();
         Object.entries(policies.tools).forEach(([id, item]) => {
-          if (typeof item === 'string') {
+          if (item && typeof item === 'object') {
             this.tools.set(id, {
-              policy: item,
-              scope: SCOPES.SESSION,
-              grantedAt: Date.now(),
-              lastUsedAt: null,
-              serverName: '',
-              originalName: id,
-              constraints: null
-            });
-          } else if (item && typeof item === 'object') {
-            this.tools.set(id, {
-              policy: item.policy || TOOL_POLICIES.ASK,
+              policy: item.policy || POLICIES.ASK,
               scope: item.scope === SCOPES.SESSION ? SCOPES.SESSION : SCOPES.PERMANENT,
               grantedAt: item.grantedAt || Date.now(),
-              lastUsedAt: item.lastUsedAt || null,
               serverName: item.serverName || '',
               originalName: item.originalName || id,
               constraints: item.constraints ? { ...item.constraints } : null
@@ -134,20 +117,11 @@
       if (policies.servers && typeof policies.servers === 'object') {
         this.servers.clear();
         Object.entries(policies.servers).forEach(([id, item]) => {
-          if (typeof item === 'string') {
+          if (item && typeof item === 'object') {
             this.servers.set(id, {
-              policy: item,
-              scope: SCOPES.SESSION,
-              grantedAt: Date.now(),
-              lastUsedAt: null,
-              serverName: id
-            });
-          } else if (item && typeof item === 'object') {
-            this.servers.set(id, {
-              policy: item.policy || SERVER_POLICIES.ASK,
+              policy: item.policy || POLICIES.ASK,
               scope: item.scope === SCOPES.SESSION ? SCOPES.SESSION : SCOPES.PERMANENT,
               grantedAt: item.grantedAt || Date.now(),
-              lastUsedAt: item.lastUsedAt || null,
               serverName: item.serverName || id
             });
           }
@@ -201,7 +175,8 @@
         ...(constraints ? { constraints } : {}),
         ...(directoryRule ? { directoryRule } : {})
       };
-      const result = await this.mcpClient.request('zerochat/security/authorize', params);
+      const reqOptions = options.signal ? { signal: options.signal } : undefined;
+      const result = await this.mcpClient.request('zerochat/security/authorize', params, reqOptions);
       await this.refresh().catch(() => {});
       return result;
     }
@@ -255,16 +230,48 @@
       return this.setDirectoryRules([...current, rule]);
     }
 
-    findToolEntry(toolId) {
-      if (!toolId || typeof toolId !== 'string') return null;
-      if (this.tools.has(toolId)) {
-        return { toolId, entry: this.tools.get(toolId) };
+    _cleanId(kind, id) {
+      if (!id || typeof id !== 'string') return '';
+      return kind === 'servers' ? id.trim() : id;
+    }
+
+    _findEntry(kind, id, keyProp) {
+      const clean = this._cleanId(kind, id);
+      const map = kind === 'tools' ? this.tools : this.servers;
+      if (!clean || !map.has(clean)) return null;
+      return { [keyProp]: clean, entry: map.get(clean) };
+    }
+
+    async _setPolicy(kind, id, policy, buildEntry) {
+      const clean = this._cleanId(kind, id);
+      if (!clean) return;
+      const cleanPolicy = policy === POLICIES.ALLOW || policy === POLICIES.DENY ? policy : POLICIES.ASK;
+      if (cleanPolicy === POLICIES.ASK) {
+        return this._revokePolicy(kind, clean);
       }
-      return null;
+      await this._patchBackend({ [kind]: { [clean]: buildEntry(clean, cleanPolicy) } });
+    }
+
+    async _revokePolicy(kind, id) {
+      const clean = this._cleanId(kind, id);
+      if (!clean) return false;
+      await this._patchBackend({ [kind]: { [clean]: null } });
+      return true;
+    }
+
+    _listAuthorized(map, keyProp) {
+      const list = [];
+      map.forEach((val, key) => {
+        list.push({ [keyProp]: key, ...val });
+      });
+      return list.sort((a, b) => (b.grantedAt || 0) - (a.grantedAt || 0));
+    }
+
+    findToolEntry(toolId) {
+      return this._findEntry('tools', toolId, 'toolId');
     }
 
     getToolPolicy(toolId) {
-      if (!toolId) return null;
       const found = this.findToolEntry(toolId);
       return found ? found.entry.policy : null;
     }
@@ -275,47 +282,20 @@
     }
 
     async setToolPolicy(toolId, policy, meta = {}) {
-      if (!toolId) return;
-      const cleanPolicy = policy === TOOL_POLICIES.ALLOW || policy === TOOL_POLICIES.DENY
-        ? policy
-        : TOOL_POLICIES.ASK;
-
-      if (cleanPolicy === TOOL_POLICIES.ASK) {
-        return this.revokeToolPolicy(toolId);
-      }
-
-      const constraints = meta.constraints !== undefined ? meta.constraints : null;
-      const entry = {
+      return this._setPolicy('tools', toolId, policy, (clean, cleanPolicy) => ({
         policy: cleanPolicy,
-        constraints,
+        constraints: meta.constraints !== undefined ? meta.constraints : null,
         serverName: meta.serverName || '',
-        originalName: meta.originalName || toolId
-      };
-
-      await this._patchBackend({
-        tools: {
-          [toolId]: entry
-        }
-      });
+        originalName: meta.originalName || clean
+      }));
     }
 
     async revokeToolPolicy(toolId) {
-      if (!toolId) return false;
-      await this._patchBackend({
-        tools: {
-          [toolId]: null
-        }
-      });
-      return true;
+      return this._revokePolicy('tools', toolId);
     }
 
     findServerEntry(serverId) {
-      if (!serverId || typeof serverId !== 'string') return null;
-      const clean = serverId.trim();
-      if (this.servers.has(clean)) {
-        return { serverId: clean, entry: this.servers.get(clean) };
-      }
-      return null;
+      return this._findEntry('servers', serverId, 'serverId');
     }
 
     getServerPolicy(serverId) {
@@ -324,36 +304,14 @@
     }
 
     async setServerPolicy(serverId, policy, meta = {}) {
-      if (!serverId || typeof serverId !== 'string') return;
-      const clean = serverId.trim();
-      const cleanPolicy = policy === SERVER_POLICIES.ALLOW || policy === SERVER_POLICIES.DENY
-        ? policy
-        : SERVER_POLICIES.ASK;
-
-      if (cleanPolicy === SERVER_POLICIES.ASK) {
-        return this.revokeServerPolicy(clean);
-      }
-
-      const entry = {
+      return this._setPolicy('servers', serverId, policy, (clean, cleanPolicy) => ({
         policy: cleanPolicy,
         serverName: meta.serverName || clean
-      };
-
-      await this._patchBackend({
-        servers: {
-          [clean]: entry
-        }
-      });
+      }));
     }
 
     async revokeServerPolicy(serverId) {
-      if (!serverId) return false;
-      await this._patchBackend({
-        servers: {
-          [serverId.trim()]: null
-        }
-      });
-      return true;
+      return this._revokePolicy('servers', serverId);
     }
 
     async clearAllAuthorizations() {
@@ -365,25 +323,11 @@
     }
 
     listAuthorizedTools() {
-      const list = [];
-      this.tools.forEach((val, key) => {
-        list.push({
-          toolId: key,
-          ...val
-        });
-      });
-      return list.sort((a, b) => (b.grantedAt || 0) - (a.grantedAt || 0));
+      return this._listAuthorized(this.tools, 'toolId');
     }
 
     listAuthorizedServers() {
-      const list = [];
-      this.servers.forEach((val, key) => {
-        list.push({
-          serverId: key,
-          ...val
-        });
-      });
-      return list.sort((a, b) => (b.grantedAt || 0) - (a.grantedAt || 0));
+      return this._listAuthorized(this.servers, 'serverId');
     }
   }
 
@@ -391,8 +335,7 @@
 
   return {
     GLOBAL_POLICIES,
-    TOOL_POLICIES,
-    SERVER_POLICIES,
+    POLICIES,
     SCOPES,
     ToolSecurityManager,
     manager
