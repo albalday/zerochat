@@ -50,9 +50,9 @@ test('AgentCore - MCP conserva identificadores que solo difieren por mayúsculas
   assert.equal(registry.getTool('composio_search'), lower);
 });
 
-test('AgentCore - ToolExecutor bloquea MCP directo sin autorización explícita', async () => {
+test('AgentCore - ToolExecutor no ejecuta un reto del backend sin quien responda al usuario', async () => {
   const registry = new ToolRegistry();
-  registry.registerTool(makeTool({ name: 'mcp_blocked_run', category: 'mcp', execute: async () => ({ success: true }) }));
+  registry.registerTool(makeTool({ name: 'mcp_blocked_run', category: 'mcp', execute: async () => ({ requiresAuthorization: true, challengeId: 'ch-1' }) }));
 
   const result = await new ToolExecutor(registry).executeToolCall(call('mcp_blocked_run'));
 

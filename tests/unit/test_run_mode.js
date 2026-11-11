@@ -71,7 +71,7 @@ test('RunMode.answerToolApprovals permite para la sesión salvo las herramientas
   }
 });
 
-test('RunMode.answerToolApprovals en modo conversación pausa para el usuario salvo con allowDangerous o allowOnce (un solo uso)', t => {
+test('RunMode.answerToolApprovals en modo conversación pausa para el usuario salvo con allowDangerous o la decisión del usuario (un solo uso)', t => {
   const ToolCards = require('../../js/tool-cards.js');
   let responder = null;
   t.mock.method(ToolCards, 'setAuthorizationResponder', fn => { responder = fn; });
@@ -79,9 +79,9 @@ test('RunMode.answerToolApprovals en modo conversación pausa para el usuario sa
   const events = [];
   RunMode.answerToolApprovals(false, event => events.push(event), {
     pauseOnApproval: true,
-    allowOnce: ['write_file']
+    toolDecision: { toolName: 'write_file', decision: { decision: 'allow_always', directoryRule: 'W:src/**' } }
   });
-  assert.equal(responder('write_file'), 'allow_once', 'primera llamada permitida una vez');
+  assert.deepEqual(responder('write_file'), { decision: 'allow_always', directoryRule: 'W:src/**' }, 'la primera llamada recibe la decisión del usuario');
   assert.equal(responder('write_file'), 'pause_for_user', 'segunda llamada vuelve a pausar');
   assert.equal(responder('run_command'), 'pause_for_user');
   assert.deepEqual(events, [
@@ -129,7 +129,7 @@ test('RunMode.prepareConversationForContinuation retira el paso incompleto con a
   assert.deepEqual(RunMode.prepareConversationForContinuation(normalHistory), normalHistory);
 });
 
-test('RunMode.hydrateToolSecurity aplica políticas reales en ToolSecurityManager para evaluación', () => {
+test('RunMode.hydrateToolSecurity aplica políticas reales en ToolSecurityManager', () => {
   const ToolSecurity = require('../../js/tool-security.js');
   const manager = ToolSecurity.manager;
   manager.clearAllAuthorizations();
@@ -149,11 +149,11 @@ test('RunMode.hydrateToolSecurity aplica políticas reales en ToolSecurityManage
     });
 
     assert.equal(manager.getGlobalMcpPolicy(), 'workspace_trust');
-    assert.equal(manager.evaluateAuthorization({ name: 'write_file' }, { path: '/etc/hosts' }).status, 'allow');
-    assert.equal(manager.evaluateAuthorization({ name: 'run_command' }, { command: 'git status' }).status, 'allow');
-    assert.equal(manager.evaluateAuthorization({ name: 'run_command' }, { command: 'rm -rf /' }).requiresApproval, true);
-    assert.equal(manager.evaluateAuthorization({ name: 'read_file' }, { path: '/tmp/project/a.txt' }).status, 'allow');
-    assert.equal(manager.evaluateAuthorization({ name: 'memory_search', metadata: { mcpServerId: 'memory', originalName: 'search' } }, {}).status, 'allow');
+    assert.equal(manager.getToolPolicy('write_file'), 'allow');
+    assert.equal(manager.getToolPolicy('run_command'), 'allow');
+    assert.deepEqual(manager.getToolConstraints('run_command'), { command: { allowedPrefixes: ['git'], allowChaining: false, allowPipes: false } });
+    assert.ok(manager.getDirectoryRules().includes('R:/tmp/project'));
+    assert.equal(manager.getServerPolicy('memory'), 'allow');
   } finally {
     manager.clearAllAuthorizations();
     manager.setGlobalMcpPolicy('ask');

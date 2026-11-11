@@ -178,20 +178,20 @@
 
   /**
    * Contesta cada petición de autorización:
-   * - Si la herramienta está en `allowOnce`, la permite una sola vez ('allow_once') y la retira.
+   * - Si `toolDecision` es de esa herramienta, contesta con la decisión del usuario una sola vez.
    * - En modo conversación (pauseOnApproval = true sin allowDangerous): devuelve 'pause_for_user'
    *   y emite un aviso de tipo 'user_request'.
    * - En modo clásico (pauseOnApproval = false): permitida para la sesión, salvo las herramientas que
    *   escriben o ejecutan sin allowDangerous, que se deniegan.
    */
-  function answerToolApprovals(allowDangerous, report, { pauseOnApproval = false, allowOnce = [] } = {}) {
-    const onceList = Array.isArray(allowOnce) ? allowOnce : (allowOnce ? [allowOnce] : []);
-    const onceSet = new Set(onceList.filter(name => typeof name === 'string' && name));
+  function answerToolApprovals(allowDangerous, report, { pauseOnApproval = false, toolDecision = null } = {}) {
+    let pendingDecision = toolDecision && typeof toolDecision.toolName === 'string' ? toolDecision : null;
     getToolCards().setAuthorizationResponder(toolName => {
-      if (onceSet.has(toolName)) {
-        onceSet.delete(toolName);
+      if (pendingDecision?.toolName === toolName) {
+        const { decision } = pendingDecision;
+        pendingDecision = null;
         report({ kind: 'approval_allowed', text: toolName });
-        return 'allow_once';
+        return decision;
       }
       if (pauseOnApproval && !allowDangerous) {
         report({ kind: 'user_request', text: toolName });
@@ -281,7 +281,7 @@
 
       answerToolApprovals(allowDangerous === true, report, {
         pauseOnApproval: isConversationMode,
-        allowOnce: parsedSecurity?.allow_once
+        toolDecision: parsedSecurity?.tool_decision
       });
 
       if (isConversationMode) {

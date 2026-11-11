@@ -23,12 +23,10 @@ test('Browser UI - autorización de Composio muestra y devuelve únicamente su s
         }]
       });
       const [tool] = await provider.discoverTools();
-      const manager = new window.ChatToolSecurity.ToolSecurityManager();
-      const auth = manager.evaluateAuthorization(tool, {});
       const call = { function: { name: tool.name, arguments: '{}' } };
       const card = window.ChatToolCards.createLiveToolCard(tool.name, {});
       document.body.appendChild(card);
-      const pending = window.ChatToolCards.promptToolAuthorization(card, call, { ...auth, args: {} });
+      const pending = window.ChatToolCards.promptToolAuthorization(card, call, { serverId: tool.metadata.mcpServerId, serverName: tool.metadata.mcpServerId, args: {} });
       const button = card.querySelector('.btn-auth-allow-server');
       const label = button.textContent;
       const title = button.title;
@@ -87,13 +85,12 @@ test('Browser UI - la autorización de carpeta solo se ofrece para rutas que pue
       const manager = new window.ChatToolSecurity.ToolSecurityManager();
       manager.setStartupDirectory('/home/user/proj');
       const tool = { id: 'read_file', name: 'read_file', category: 'mcp' };
-      const render = (path) => {
+      const render = (path, ruleOffer = null) => {
         const args = { path };
-        const auth = manager.evaluateAuthorization(tool, args);
         const call = { function: { name: 'read_file', arguments: JSON.stringify(args) } };
         const card = window.ChatToolCards.createLiveToolCard('read_file', args);
         document.body.appendChild(card);
-        const pending = window.ChatToolCards.promptToolAuthorization(card, call, { ...auth, args });
+        const pending = window.ChatToolCards.promptToolAuthorization(card, call, { ruleOffer, args });
         return { card, pending };
       };
 
@@ -106,7 +103,7 @@ test('Browser UI - la autorización de carpeta solo se ofrece para rutas que pue
         card.remove();
       }
 
-      const { card, pending } = render('/home/user/other/a.txt');
+      const { card, pending } = render('/home/user/other/a.txt', { type: 'directory', access: 'R', directoryRule: 'R:/home/user/other/**' });
       const button = card.querySelector('.btn-auth-allow-path');
       button.click();
       const decision = await pending;
@@ -139,7 +136,8 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
       window.__permissionDecision = window.ChatToolCards.promptToolAuthorization(card, { function: { name: 'run_command' } }, {
         serverId: 'zerochat-local',
         serverName: 'ZeroChat Local Server',
-        args: { command: 'git status' }
+        args: { command: 'git status' },
+        ruleOffer: { type: 'command', command: 'git', constraints: { command: { allowedPrefixes: ['git'], allowChaining: false, allowPipes: false } } }
       });
     });
     await page.waitForFunction(() => document.getElementById('messages-list').scrollTop > 0);
@@ -325,12 +323,10 @@ test('Browser UI - Las reglas de permisos y herramientas sobreviven a recargas (
     const securityState = await page.evaluate(() => ({
       directoryRules: window.ChatToolSecurity.manager.getDirectoryRules(),
       readFilePolicy: window.ChatToolSecurity.manager.getToolPolicy('read_file'),
-      readFileEval: window.ChatToolSecurity.manager.evaluateAuthorization({ id: 'read_file', name: 'read_file', category: 'mcp' }, { path: 'some/file.txt' })
+      hasRule: window.ChatToolSecurity.manager.getDirectoryRules().includes('RW:my-project/**')
     }));
     assert.deepEqual(securityState.directoryRules, ['RW:my-project/**'], 'Las reglas de directorios deben sobrevivir al F5');
     assert.equal(securityState.readFilePolicy, 'allow', 'La política granular debe sobrevivir al F5');
-    assert.equal(securityState.readFileEval.status, 'allow', 'La evaluación tras F5 debe autorizar sin pedir confirmación');
-    assert.equal(securityState.readFileEval.requiresApproval, false);
 
     // 7. Verificar que el estado del checkbox del agente sobrevivió
     const enabledToolsAfterF5 = await page.evaluate(() => window.ChatConfig.getActive().enabledTools);

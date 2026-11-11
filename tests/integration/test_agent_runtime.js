@@ -15,31 +15,6 @@ function runAgent(t, registry, { api, ...params }) {
   return new AgentRuntime({ registry, executor: new ToolExecutor(registry) }).execute({ resolveToolDefinitions: () => registry.getActiveDefinitions(TOOL_CONFIG), ...params });
 }
 
-test('AgentRuntime - la ejecución directa de tools no omite su política', async t => {
-  const registry = new ToolRegistry();
-  let executions = 0;
-  registry.registerTool(makeTool({
-    name: 'mcp_test_sensitive_action',
-    category: 'mcp',
-    execute: async () => {
-      executions++;
-      return { success: true };
-    }
-  }));
-
-  let step = 0;
-  const result = await runAgent(t, registry, {
-    api: { streamChatCompletion: async () => step++ === 0
-      ? { accumulatedText: '', toolCalls: [{ id: 'call_1', function: { name: 'mcp_test_sensitive_action', arguments: '{}' } }] }
-      : { accumulatedText: 'Hecho.', toolCalls: [] } },
-    messages: [{ role: 'user', content: 'Actúa.' }]
-  });
-
-  assert.equal(result.toolExecutions[0].success, false);
-  assert.match(result.toolExecutions[0].error, /explicit user authorization/i);
-  assert.equal(executions, 0);
-});
-
 test('AgentRuntime - cancelar mientras se autoriza no guarda un permiso permanente', async t => {
   const security = require('../../js/tool-security.js');
   const registry = new ToolRegistry();
@@ -63,7 +38,8 @@ test('AgentRuntime - pause_for_user detiene el bucle y conserva assistant y tool
   registry.registerTool(makeTool({
     name: 'mcp_test_pause_action',
     category: 'mcp',
-    execute: async () => assert.fail('Should not execute when paused')
+    // El backend responde con un reto: la herramienta no se ejecuta hasta que el usuario decida
+    execute: async () => ({ requiresAuthorization: true, challengeId: 'ch-p1' })
   }));
 
   const result = await runAgent(t, registry, {

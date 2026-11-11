@@ -18,9 +18,4 @@
 
 ## M59 Habilitar render_chart en Node.js desatendido para visualización en cliente: closed 2026-11-11
 
-
-
-
-
-
-
+## M60 Frontend sin evaluación de permisos: closed 2026-11-11

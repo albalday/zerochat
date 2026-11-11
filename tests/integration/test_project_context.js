@@ -37,15 +37,19 @@ function createHarness({ config = {}, connected = true, cwd = '/repo', files = {
     if (writeTool && name === 'write_file') return { name: 'write_file', isAvailable: () => true };
     return null;
   });
+  // El backend decide la autorización: 'ask' responde con un reto y 'deny' con una denegación.
+  const decide = authorize || (() => (approval ? 'ask' : 'allow'));
   mock.method(AgentCore.executor, 'executeToolCall', async call => {
     const args = JSON.parse(call.function.arguments);
     calls.push(args);
+    const decision = decide(args);
+    if (decision === 'ask') return { success: false, requiresAuthorization: true, error: 'The tool requires explicit user authorization.' };
+    if (decision === 'deny') return { success: false, result: { isError: true, content: 'Error: blocked', rawResult: { securityStatus: 'deny' } } };
     return readResult(files, args.path);
   });
   const security = ToolSecurity.manager;
   const rules = [];
   if (!realSecurity) {
-    mock.method(security, 'evaluateAuthorization', authorize || (() => (approval ? { status: 'ask', requiresApproval: true } : { status: 'allow', requiresApproval: false })));
     mock.method(security, 'addDirectoryRule', rule => { rules.push(rule); });
   }
   const directoryRequests = [];
@@ -82,11 +86,11 @@ test('ProjectContext.refresh - un proyecto rechazado no se lee', async () => {
   assert.equal(calls.length, 0);
 });
 
-test('ProjectContext.refresh - si la política exige aprobación no ejecuta ni pregunta', async () => {
+test('ProjectContext.refresh - si el backend pide aprobación queda no_access sin preguntar', async () => {
   const { context, calls, state } = createHarness({ approval: true, files: { '/repo/.zerochat/task.py': 'helper' } });
   await context.refresh();
   assert.equal(state.get('project').status, 'no_access');
-  assert.equal(calls.length, 0);
+  assert.equal(calls.length, 1);
 });
 
 test('ProjectContext.refresh - sin .zerochat/task.py queda missing', async () => {
@@ -159,14 +163,13 @@ test('ProjectContext.refresh - si la lectura de state.md falla, es denegada o qu
       '/repo/.zerochat/state.md': 'state',
       '/repo/AGENTS.md': 'rules'
     },
-    authorize: (tool, args) => (args.path.endsWith('state.md')
-      ? { status: 'deny', requiresApproval: false }
-      : { status: 'allow', requiresApproval: false })
+    authorize: args => (args.path.endsWith('state.md') ? 'deny' : 'allow')
   });
   await harnessDenied.context.refresh();
   assert.equal(harnessDenied.state.get('project').status, 'no_access');
   assert.deepEqual(harnessDenied.calls.map(c => c.path), [
-    '/repo/.zerochat/task.py'
+    '/repo/.zerochat/task.py',
+    '/repo/.zerochat/state.md'
   ]);
 
   // Unavailable en state.md
@@ -262,19 +265,14 @@ test('ProjectContext.initialize - sin write_file o fuera de missing no hace nada
   assert.equal(second.log.confirms.length, 0);
 });
 
-test('ProjectContext.initialize - la regla concedida permite escribir en .zerochat y no en el resto del proyecto', async () => {
+test('ProjectContext.initialize - registra la regla para permitir escribir en .zerochat', async () => {
   const manager = ToolSecurity.manager;
   manager.setStartupDirectory('/repo');
   const { context } = createHarness({ realSecurity: true });
   await context.refresh();
   const result = await context.initialize(initCallbacks().callbacks);
   assert.equal(result.ok, true);
-
-  const writeTool = { id: 'write_file', name: 'write_file', category: 'mcp', metadata: { originalName: 'write_file' } };
-  assert.equal(manager.evaluateAuthorization(writeTool, { path: '/repo/.zerochat/state.md' }).requiresApproval, false);
-  assert.equal(manager.evaluateAuthorization(writeTool, { path: '/repo/AGENTS.md' }).requiresApproval, true);
-  assert.equal(manager.evaluateAuthorization(writeTool, { path: '/repo/.zerochat/../AGENTS.md' }).requiresApproval, true);
-  assert.equal(manager.evaluateAuthorization(writeTool, { path: '/repo/.zerochat-other/x' }).requiresApproval, true);
+  assert.ok(manager.getDirectoryRules().includes('RW:/repo/.zerochat'));
 });
 
 test('ProjectContext.refresh - un fallo de transporte sin contenido queda error con su motivo', async (t) => {

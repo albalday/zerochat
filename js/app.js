@@ -397,7 +397,7 @@
     });
   }
 
-  async function handleHistoricalToolAuthorization(decision, { toolName, authEval }) {
+  async function handleHistoricalToolAuthorization(decision, { toolName }) {
     if (isBusy() || isActiveSessionRunningOnServer()) return;
     const decisionType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;
     if (decisionType === 'deny') {
@@ -417,21 +417,11 @@
       return;
     }
 
-    if (typeof decision === 'object' && decision !== null && decision.directoryRule) {
-      try {
-        ToolSecurity.manager.addDirectoryRule(decision.directoryRule);
-      } catch (err) {
-        console.warn('[App] Invalid directory rule:', err);
-        return;
-      }
-    }
-    ToolSecurity.manager.recordDecision(decision, authEval, toolName);
     const cleaned = RunMode.prepareConversationForContinuation(getChatHistory());
     State.replaceMessages(cleaned);
     renderSessionMessages(getChatHistory());
     await saveCurrentSession();
-    const allowOnceTools = decisionType === 'allow_once' ? [toolName] : [];
-    await handleSendMessage({ resume: true, ...(allowOnceTools.length ? { allowOnceTools } : {}) });
+    await handleSendMessage({ resume: true, toolDecision: { toolName, decision } });
   }
 
   const messageCallbacks = {
@@ -466,8 +456,8 @@
       startServerRun: ({ conversationId, profile }) => MCP.manager.startServerRun({
         conversationId,
         profile: profile || UIProfiles.getSelectedServerProfile(),
-        toolSecurity: sendOptions.allowOnceTools?.length
-          ? { ...State.get('toolSecurity'), allow_once: sendOptions.allowOnceTools }
+        toolSecurity: sendOptions.toolDecision
+          ? { ...State.get('toolSecurity'), tool_decision: sendOptions.toolDecision }
           : State.get('toolSecurity')
       }),
       ...sendOptions

@@ -276,7 +276,7 @@ test('MCP Tools - respuesta a retos de autorización mediante executeToolCall y 
       }
     }));
 
-    let authRequested = null;
+    const authRequests = [];
     const execRes = await executor.executeToolCall({
       id: 'tc-1',
       function: {
@@ -285,15 +285,14 @@ test('MCP Tools - respuesta a retos de autorización mediante executeToolCall y 
       }
     }, {
       requestToolAuthorization: async (toolCall, details) => {
-        authRequested = details;
+        authRequests.push(details);
         return { decision: 'allow_always' };
       }
     });
 
-    assert.ok(authRequested, 'Debe solicitar autorización');
-    assert.equal(authRequested.challengeId, 'ch-challenge-99');
-    assert.equal(authRequested.toolName, 'run_command');
-    assert.equal(authRequested.ruleOffer.command, 'git');
+    // Una sola pregunta: la decisión dada en el navegador resuelve también el reto del servidor.
+    assert.equal(authRequests.length, 1);
+    assert.equal(authRequests[0].toolName, 'run_command');
 
     assert.equal(execRes.success, true);
     assert.ok(execRes.result.content.includes('On branch dev'));

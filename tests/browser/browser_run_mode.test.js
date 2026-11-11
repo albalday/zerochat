@@ -55,6 +55,16 @@ async function routeBackend(page, prompt, { profile, profileData = null, serverP
     if (method === 'tools/list') {
       return reply({ tools: ['demo_action', 'write_file', 'run_command'].map(name => ({ name, description: name, inputSchema: { type: 'object', properties: {} } })) });
     }
+    // Como el backend real con la política «preguntar»: toda llamada recibe un reto de autorización.
+    if (method === 'tools/call') {
+      return reply({ requiresAuthorization: true, challengeId: `ch-${id}`, toolName: params.name, arguments: params.arguments });
+    }
+    if (method === 'zerochat/security/authorize') {
+      return reply({ authorized: params.decision !== 'deny', challengeId: params.challengeId, result: { content: [{ type: 'text', text: 'ok' }] } });
+    }
+    if (method === 'zerochat/security/get') {
+      return reply({ policies: { globalMcpPolicy: 'ask', directoryRules: ['R:.'], tools: {}, servers: {} } });
+    }
     if (method === 'zerochat/external/servers/start') {
       started.push({ id: params.serverId, remember: params.remember, ...(params.browser ? { browser: params.browser } : {}) });
       externalServers.find(server => server.id === params.serverId).status = 'running';
@@ -303,7 +313,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     assert.deepEqual(resultOf(ask.backend), { run_id: RUN_ID, error: 'The run needs the user: ¿A o B?' });
   });
 
-  test('Browser UI - el modo ejecución con conversation_id reanuda un paso pausado con allow_once (un solo uso) y devuelve needs_input al volver a pedir permiso', async () => {
+  test('Browser UI - el modo ejecución con conversation_id reanuda un paso pausado con la decisión del usuario (un solo uso) y devuelve needs_input al volver a pedir permiso', async () => {
     const initialConversation = {
       id: 'conv_resume_e2e',
       title: 'Conversación pausada',
@@ -329,7 +339,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     const { page, backend } = await openRun(browser, server, null, {
       conversationId: 'conv_resume_e2e',
       initialConversation,
-      toolSecurity: { allow_once: ['write_file'] }
+      toolSecurity: { tool_decision: { toolName: 'write_file', decision: 'allow_once' } }
     });
     await page.evaluate(() => {
       window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
@@ -343,7 +353,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
             stats: null
           };
         }
-        // En el segundo paso vuelve a llamar a write_file: allow_once ya se consumió y debe pausar con needs_input.
+        // En el segundo paso vuelve a llamar a write_file: la decisión ya se consumió y debe pausar con needs_input.
         return {
           accumulatedText: 'Intentando el segundo',
           toolCalls: [{ id: 'call_w2', type: 'function', function: { name: 'write_file', arguments: '{"path":"b.txt","content":"2"}' } }],
@@ -545,11 +555,11 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     }), activeConvId);
     assert.deepEqual(pausedView, { liveWrapper: false, needsInputIcon: true, authPrompt: true });
 
-    // Al pulsar "Permitir una vez", retira el paso pausado y relanza la ejecución en el servidor con allow_once.
+    // Al pulsar "Permitir una vez", retira el paso pausado y relanza la ejecución en el servidor con esa decisión.
     await page.locator('.tool-card-auth-prompt .btn-auth-allow-once').click();
     await page.waitForFunction(() => document.querySelector('.server-run-live-wrapper') !== null);
     assert.equal(startCalls.length, 2);
-    assert.deepEqual(startCalls[1].tool_security.allow_once, ['write_file']);
+    assert.deepEqual(startCalls[1].tool_security.tool_decision, { toolName: 'write_file', decision: 'allow_once' });
 
     // Ahora el servidor pausa en ask_user y el usuario responde pulsando una opción.
     const convAfterResume = savedConversations.get(activeConvId);

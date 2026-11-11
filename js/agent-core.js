@@ -259,75 +259,6 @@
     }
 
     /**
-     * Aplica la política de ejecución antes de invocar una herramienta. La UI
-     * puede aportar `requestToolAuthorization`, pero no puede omitir este
-     * punto de control.
-     * @private
-     */
-    async _authorizeToolCall(tool, args, toolCall, context) {
-      const security = getToolSecurity().manager;
-      const authEval = security.evaluateAuthorization(tool, args, context);
-
-      if (authEval.status === 'deny') {
-        return { allowed: false, error: 'Tool blocked by security policy.' };
-      }
-
-      if (!authEval.requiresApproval) {
-        return { allowed: true };
-      }
-
-      if (typeof context.requestToolAuthorization !== 'function') {
-        return { allowed: false, error: 'The tool requires explicit user authorization.' };
-      }
-
-      const decision = await context.requestToolAuthorization(toolCall, {
-        args,
-        serverName: authEval.serverName,
-        serverId: authEval.serverId,
-        toolName: tool.name,
-        directoryAccess: authEval.directoryAccess,
-        directoryPath: authEval.directoryPath,
-        signal: context.signal
-      });
-      const decisionType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;
-
-      if (context.signal?.aborted) return { allowed: false, error: 'Tool execution cancelled.' };
-      if (security.evaluateAuthorization(tool, args, context).status === 'deny') {
-        return { allowed: false, error: 'Tool blocked by security policy.' };
-      }
-
-      if (decisionType === 'pause_for_user') {
-        return { allowed: false, awaitingApproval: true, error: 'Execution paused waiting for user authorization.' };
-      }
-
-      const allowedDecisions = new Set([
-        'allow_once',
-        'allow_session',
-        'allow_always',
-        'allow_server_always'
-      ]);
-
-      if (!allowedDecisions.has(decisionType)) {
-        return { allowed: false, error: 'Execution denied by the user.' };
-      }
-
-      if (typeof decision === 'object' && decision !== null && decision.directoryRule) {
-        try {
-          security.addDirectoryRule(decision.directoryRule);
-        } catch (error) {
-          return { allowed: false, error: error?.message || 'Execution denied by the user.' };
-        }
-      }
-
-      security.recordDecision(decision, authEval, tool.name);
-      if (context.challengeId && security.mcpClient) {
-        await security.authorizeChallenge(context.challengeId, decision).catch(() => {});
-      }
-
-      return { allowed: true };
-    }
-
-    /**
      * Ejecuta una llamada a herramienta y mide su duración. Los errores se devuelven en el
      * resultado, nunca se lanzan.
      */
@@ -346,13 +277,6 @@
       const startTime = performance.now();
       const elapsed = () => parseFloat((performance.now() - startTime).toFixed(2));
       try {
-        const authorization = await this._authorizeToolCall(tool, args, toolCall, context);
-        if (!authorization.allowed) {
-          if (authorization.awaitingApproval) {
-            return failure(authorization.error, { ...base, awaitingApproval: true, endTurn: true, result: { endTurn: true, awaitingApproval: true } });
-          }
-          return failure(authorization.error, base);
-        }
         if (context.signal?.aborted) throw new Error('Tool execution cancelled by the user.');
 
         let result = await tool.execute(args, {
@@ -366,6 +290,7 @@
           if (typeof context.requestToolAuthorization !== 'function') {
             return failure('The tool requires explicit user authorization.', { ...base, requiresAuthorization: true, challengeId: result.challengeId });
           }
+          // El backend decide la autorización; el navegador solo pregunta cuando emite un reto.
           const decision = await context.requestToolAuthorization(toolCall, {
             args: result.arguments || args,
             serverName: result.serverName || '',
@@ -383,6 +308,7 @@
               ...base,
               awaitingApproval: true,
               challengeId: result.challengeId,
+              ruleOffer: result.ruleOffer,
               endTurn: true,
               result: { endTurn: true, awaitingApproval: true, challengeId: result.challengeId }
             });
@@ -498,7 +424,11 @@
     const { success, result, resultText, tool, args } = execResult;
     if (!success || result === undefined) {
       const payload = { success: false, error: execResult.error || 'Unknown error executing tool.' };
-      if (execResult.awaitingApproval) payload.awaitingApproval = true;
+      if (execResult.awaitingApproval) {
+        payload.awaitingApproval = true;
+        // La regla que ofreció el backend, para pintar la petición al reanudar la conversación.
+        if (execResult.ruleOffer) payload.ruleOffer = execResult.ruleOffer;
+      }
       return { content: JSON.stringify(payload), images: null };
     }
     const content = resultText ?? tool.toModel(args, result);

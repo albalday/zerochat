@@ -512,16 +512,13 @@ ${stateBody}
       if (!tool) return { status: 'unavailable' };
 
       const args = { path: joinPath(cwd, relativePath), max_bytes: MAX_FILE_BYTES, max_lines: 2000 };
-      const authorization = getSecurity().evaluateAuthorization(tool, args);
-      if (authorization.status === 'deny' || authorization.requiresApproval) {
-        return { status: 'denied' };
-      }
-
       const execution = await getAgentCore().executor.executeToolCall({
         id: 'project_context_read',
         type: 'function',
         function: { name: READ_TOOL, arguments: JSON.stringify(args) }
       }, { signal });
+      // Sin quien conteste al usuario, un reto o una denegación del backend dejan la lectura sin hacer.
+      if (execution?.requiresAuthorization || execution?.result?.rawResult?.securityStatus === 'deny') return { status: 'denied' };
 
       // El servidor marca como error (isError) los resultados con success: false, como un fichero
       // inexistente; el motivo viaja en el contenido JSON, no en execution.error.

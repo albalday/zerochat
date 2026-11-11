@@ -6,7 +6,6 @@
   const { escapeHtml, resolveDep } = Utils;
   const { t } = I18n;
   const getRegistry = () => resolveDep('ChatAgentCore', './agent-core.js').registry;
-  const getToolSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
   const getMcp = () => resolveDep('ChatMCP', './mcp.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getView = name => getRegistry().getTool(name)?.view || null;
@@ -506,25 +505,20 @@
       card.dataset.toolCallStatus = 'pending_auth';
       expandCard(card);
       if (typeof options.onAuthorizationDecision === 'function') {
-        const tool = getRegistry().getTool(toolName);
-        const authEval = tool
-          ? getToolSecurity().manager.evaluateAuthorization(tool, args, {})
-          : { serverName: '', serverId: '', directoryAccess: '', directoryPath: '' };
+        const metadata = getRegistry().getTool(toolName)?.metadata || {};
         promptToolAuthorization(card, call, {
           args,
-          serverName: authEval.serverName,
-          serverId: authEval.serverId,
+          serverName: metadata.mcpServerName || '',
+          serverId: metadata.mcpServerId || '',
           toolName,
-          directoryAccess: authEval.directoryAccess,
-          directoryPath: authEval.directoryPath,
+          ruleOffer: parsedMessage.ruleOffer,
           interactive: true
         }).then(decision => {
           options.onAuthorizationDecision?.(decision, {
             toolCall: call,
             toolMessage: message,
             toolName,
-            args,
-            authEval
+            args
           });
         });
       }
@@ -565,7 +559,7 @@
       (card.querySelector('.tool-card-collapsible-body') || cardEl).prepend(authPromptEl);
     }
 
-    const ruleOffer = options.ruleOffer || getToolSecurity().getRuleOffer(toolName, options.args || {}, options);
+    const ruleOffer = options.ruleOffer;
     let contextualButtonsHtml = '';
     if (ruleOffer?.type === 'command') {
       // Con "cd <dir> && git status" se ofrece autorizar git, no cd.

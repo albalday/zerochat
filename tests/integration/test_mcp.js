@@ -526,10 +526,10 @@ test('MCP - proveedor, registro y permisos aíslan herramientas homónimas del h
     const first = new Security.ToolSecurityManager();
     first.setToolPolicy(tools[0].name, 'allow', { originalName: 'browser_navigate' });
     const restored = new Security.ToolSecurityManager();
-    assert.equal(restored.evaluateAuthorization(tools[0], {}).status, 'allow');
-    assert.equal(restored.evaluateAuthorization(tools[2], {}).requiresApproval, true);
+    assert.equal(restored.getToolPolicy(tools[0].name), 'allow');
+    assert.equal(restored.getToolPolicy(tools[2].name), null);
     assert.equal(restored.getToolPolicy('browser_navigate'), null);
-    assert.equal(restored.evaluateAuthorization('read_file', {}).requiresApproval, true);
+    assert.equal(restored.getToolPolicy('read_file'), null);
   } finally {
     if (previousStorage === undefined) delete global.localStorage;
     else global.localStorage = previousStorage;
@@ -556,25 +556,18 @@ test('MCP - autorización externa muestra el servicio de origen y conserva permi
   const [search, execute, browser] = await provider.discoverTools();
   const manager = new Security.ToolSecurityManager();
   for (const tool of [search, execute, browser]) {
-    const auth = manager.evaluateAuthorization(tool, {});
-    assert.equal(auth.serverName, tool.metadata.mcpServerId);
-    assert.equal(auth.serverId, tool.metadata.mcpServerId);
-    assert.equal(auth.requiresApproval, true);
     assert.equal(tool.description, tool === browser ? 'Navigate to a URL' : tool.metadata.originalName);
-    assert.ok(tool.toMarkdown({}, {}).includes(auth.serverName));
+    assert.ok(tool.toMarkdown({}, {}).includes(tool.metadata.mcpServerId));
     assert.ok(!tool.toMarkdown({}, {}).includes('ZeroChat External MCP Host'));
   }
   manager.setToolPolicy(search.name, 'allow');
-  assert.equal(manager.evaluateAuthorization(search, {}).status, 'allow');
-  assert.equal(manager.evaluateAuthorization(execute, {}).requiresApproval, true);
-  assert.equal(manager.evaluateAuthorization(browser, {}).requiresApproval, true);
-  const auth = manager.evaluateAuthorization(execute, {});
-  manager.setServerPolicy(auth.serverId, 'allow', { serverName: auth.serverName });
+  assert.equal(manager.getToolPolicy(search.name), 'allow');
+  assert.equal(manager.getToolPolicy(execute.name), null);
+  manager.setServerPolicy('composio', 'allow', { serverName: 'composio' });
   assert.equal(manager.listAuthorizedServers()[0].serverName, 'composio');
-  assert.equal(manager.evaluateAuthorization(execute, {}).status, 'allow');
-  assert.equal(manager.evaluateAuthorization(browser, {}).requiresApproval, true);
+  assert.equal(manager.getServerPolicy('composio'), 'allow');
   manager.setToolPolicy(execute.name, 'deny');
-  assert.equal(manager.evaluateAuthorization(execute, {}).status, 'deny');
+  assert.equal(manager.getToolPolicy(execute.name), 'deny');
 });
 
 test('MCP - nombres inválidos, duplicados y demasiado largos fallan explícitamente', async () => {

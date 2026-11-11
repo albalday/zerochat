@@ -180,14 +180,15 @@
       resolveDep('ChatMCP', './mcp.js').manager.cancelServerRun(generationSessionId).catch(() => {});
     }
 
-    const allowOnceSet = new Set(Array.isArray(options.allowOnceTools) ? options.allowOnceTools : []);
-    if (allowOnceSet.size > 0) {
+    // Al reanudar un paso pausado, la decisión del usuario contesta el siguiente reto del backend
+    // para esa herramienta; el backend la registra al resolver el reto.
+    const toolDecision = options.toolDecision;
+    if (toolDecision) {
       const ToolCards = resolveDep('ChatToolCards', './tool-cards.js');
       ToolCards.setAuthorizationResponder(toolName => {
-        if (!allowOnceSet.has(toolName)) return null;
-        allowOnceSet.delete(toolName);
-        if (allowOnceSet.size === 0) ToolCards.setAuthorizationResponder(null);
-        return 'allow_once';
+        if (toolName !== toolDecision.toolName) return null;
+        ToolCards.setAuthorizationResponder(null);
+        return toolDecision.decision;
       });
     }
 
@@ -314,7 +315,7 @@
       UIConversation.renderConnectionError(parts, generationError, config.apiUrl);
       return { error: generationError };
     } finally {
-      if (options.allowOnceTools?.length) resolveDep('ChatToolCards', './tool-cards.js').setAuthorizationResponder(null);
+      if (toolDecision) resolveDep('ChatToolCards', './tool-cards.js').setAuthorizationResponder(null);
       await finishGeneration(elements, { skipSave: !isCurrentSession(), saveCurrentSession: options.saveCurrentSession });
     }
   }

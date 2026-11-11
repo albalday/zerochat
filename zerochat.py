@@ -2143,12 +2143,11 @@ def get_rule_offer(tool_name: str, args: dict, auth_eval: dict) -> dict | None:
         base_name = get_command_base_name(command)
         if not base_name:
             return None
-        short_name = base_name.split("/")[-1]
         return {
             "type": "command",
             "command": base_name,
             "constraints": {
-                "command": {"allowedPrefixes": [short_name], "allowChaining": False, "allowPipes": False}
+                "command": {"allowedPrefixes": [base_name], "allowChaining": False, "allowPipes": False}
             }
         }
     path = auth_eval.get("directoryPath") or get_path_arg(args)
@@ -2217,7 +2216,6 @@ class AccessController:
         self.session_tools: dict[str, dict] = {}
         self.session_servers: dict[str, dict] = {}
         self.pending_challenges: dict[str, dict] = {}
-        self.allow_once: set[str] = set()
 
     def _ensure_loaded(self, context: SecurityContext | None = None):
         with self._lock:
@@ -2285,10 +2283,6 @@ class AccessController:
                     self.servers = dict(servers_map)
                 else:
                     raise ValueError("servers debe ser un diccionario de servidores.")
-            if "allow_once" in state:
-                raw_once = state["allow_once"]
-                if isinstance(raw_once, (list, tuple, set)):
-                    self.allow_once = {str(item).strip() for item in raw_once if item and isinstance(item, str)}
         if persist:
             self.save_to_storage(context=context)
 
@@ -2448,21 +2442,12 @@ class AccessController:
             self.save_to_storage()
         return del_session or del_perm
 
-    def set_allow_once(self, tools: list[str] | set[str] | tuple[str]):
-        """Define herramientas permitidas para una única ejecución inmediata."""
-        with self._lock:
-            if isinstance(tools, (list, tuple, set)):
-                self.allow_once = {str(item).strip() for item in tools if item and isinstance(item, str)}
-            else:
-                self.allow_once.clear()
-
     def clear_session(self):
         """Limpia todas las autorizaciones temporales de la sesión activa."""
         with self._lock:
             self.session_tools.clear()
             self.session_servers.clear()
             self.pending_challenges.clear()
-            self.allow_once.clear()
 
     def create_challenge(self, tool_name: str, args: dict, decision: AccessDecision,
                          server_name: str = "", server_id: str = "") -> dict:
@@ -2649,14 +2634,7 @@ class AccessController:
         if tool_name == JOB_CONTROL_TOOL or orig_name == JOB_CONTROL_TOOL:
             return make_decision(TOOL_POLICY_ALLOW, "job_control_tool")
 
-        # 3. Permiso de un solo uso (allow_once)
-        with self._lock:
-            if tool_name in self.allow_once or orig_name in self.allow_once:
-                self.allow_once.discard(tool_name)
-                self.allow_once.discard(orig_name)
-                return make_decision(TOOL_POLICY_ALLOW, "allow_once_rule")
-
-        # 4. Política global allow_all
+        # 3. Política global allow_all
         if self.global_policy == GLOBAL_POLICY_ALLOW_ALL:
             return make_decision(TOOL_POLICY_ALLOW, "mcp_global_allow_all")
 
