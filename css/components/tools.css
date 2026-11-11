@@ -1665,13 +1665,23 @@ button.command-jobs-link:focus-visible {
 }
 
 /* Prefijo de comando editable en la tarjeta de autorización y en las autorizaciones guardadas. */
-/* Campo y comodín en una fila y el botón debajo, a todo el ancho como el resto del menú. */
+/* Rótulo arriba; debajo, la línea editable ("git status *") y ✓ para aceptarla. */
 .tool-auth-cmd-rule {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.3rem;
   min-width: 0;
+}
+
+.tool-auth-cmd-caption {
+  grid-column: 1 / -1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
 }
 
 .tool-auth-cmd-input,
@@ -1687,13 +1697,18 @@ button.command-jobs-link:focus-visible {
   border-radius: var(--radius-sm);
 }
 
-.tool-auth-cmd-wildcard {
-  font-family: var(--font-mono);
-  color: var(--text-muted);
+.tool-auth-cmd-input[aria-invalid="true"] {
+  border-color: var(--danger-border);
 }
 
-.tool-auth-cmd-rule .btn-auth-action {
-  grid-column: 1 / -1;
+.tool-auth-more-menu .tool-auth-cmd-rule .btn-auth-allow-cmd {
+  width: auto;
+  justify-content: center;
+}
+
+.btn-auth-allow-cmd:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .mcp-auth-cmd-prefixes {

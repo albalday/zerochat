@@ -562,13 +562,14 @@
     const ruleOffer = options.ruleOffer;
     let contextualButtonsHtml = '';
     if (ruleOffer?.type === 'command') {
-      // Con "cd <dir> && git status" se ofrece autorizar "git status", no cd; el prefijo se puede editar.
+      // Con "cd <dir> && git status" se ofrece autorizar "git status *", no cd; la línea se edita y ✓ la acepta.
       const prefixLabel = escapeHtml(t('tool_auth_cmd_prefix_label'));
+      const acceptLabel = escapeHtml(t('tool_auth_allow_cmd_btn'));
       contextualButtonsHtml = `
-        <div class="tool-auth-cmd-rule">
-          <input type="text" class="tool-auth-cmd-input" value="${escapeHtml(ruleOffer.command)}" aria-label="${prefixLabel}" title="${prefixLabel}" spellcheck="false" autocomplete="off">
-          <span class="tool-auth-cmd-wildcard" aria-hidden="true">*</span>
-          <button type="button" class="btn-auth-action btn-auth-allow-cmd" title="${escapeHtml(t('tool_auth_allow_cmd_title'))}">${SHIELD_SVG} <span>${escapeHtml(t('tool_auth_allow_cmd_btn'))}</span></button>
+        <div class="tool-auth-cmd-rule" title="${escapeHtml(t('tool_auth_allow_cmd_title'))}">
+          <span class="tool-auth-cmd-caption">${SHIELD_SVG} ${acceptLabel}</span>
+          <input type="text" class="tool-auth-cmd-input" value="${escapeHtml(`${ruleOffer.command} *`)}" aria-label="${prefixLabel}" spellcheck="false" autocomplete="off">
+          <button type="button" class="btn-auth-action btn-auth-allow-cmd" title="${acceptLabel}" aria-label="${acceptLabel}">${CHECK_SVG}</button>
         </div>
       `;
     } else if (ruleOffer?.type === 'directory') {
@@ -706,15 +707,28 @@
       });
 
       const cmdInput = authPromptEl.querySelector('.tool-auth-cmd-input');
+      // La línea vale si, quitado el "*" final, queda un comando sin más "*" (el backend valida el resto).
+      const commandLine = () => cmdInput?.value.trim() || '';
+      const isValidCommandLine = line => {
+        const prefix = line.replace(/\s*\*$/, '').trim();
+        return Boolean(prefix) && !prefix.includes('*');
+      };
+      const syncCommandLine = () => {
+        const valid = isValidCommandLine(commandLine());
+        if (btnAllowCmd) btnAllowCmd.disabled = !valid;
+        cmdInput?.setAttribute('aria-invalid', String(!valid));
+      };
       const allowCommandPrefix = () => {
-        const prefix = cmdInput?.value.trim();
-        if (!prefix) {
+        const line = commandLine();
+        if (!isValidCommandLine(line)) {
           cmdInput?.focus();
           return;
         }
         const command = ruleOffer.constraints?.command || {};
-        handleDecision({ decision: 'allow_always', constraints: { command: { ...command, allowedPrefixes: [prefix] } } });
+        handleDecision({ decision: 'allow_always', constraints: { command: { ...command, allowedPrefixes: [line] } } });
       };
+      cmdInput?.addEventListener('input', syncCommandLine);
+      syncCommandLine();
       btnAllowCmd?.addEventListener('click', (e) => {
         e.stopPropagation();
         allowCommandPrefix();

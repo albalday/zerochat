@@ -84,14 +84,23 @@ test('Browser UI - autorización de comando oculta botón genérico permitir sie
       });
       const hasGenericAlwaysInCmd = Boolean(cardCmd.querySelector('.btn-auth-allow-always'));
       const hasCmdButton = Boolean(cardCmd.querySelector('.btn-auth-allow-cmd'));
-      // El prefijo propuesto se edita antes de aceptar; vacío no decide nada
+      // La línea propuesta lleva el "*" dentro y se edita; vacía, solo "*" o con "*" intermedio no se acepta
       const input = cardCmd.querySelector('.tool-auth-cmd-input');
+      const accept = cardCmd.querySelector('.btn-auth-allow-cmd');
       const proposedPrefix = input.value;
-      input.value = '  ';
-      cardCmd.querySelector('.btn-auth-allow-cmd').click();
+      const rejected = {};
+      for (const value of ['  ', '*', ' * ', 'ls * -l']) {
+        input.value = value;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        accept.click();
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        rejected[value] = accept.disabled && input.getAttribute('aria-invalid') === 'true';
+      }
       const stillPending = Boolean(cardCmd.querySelector('.tool-card-auth-prompt'));
-      input.value = 'ls -l';
-      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      input.value = 'ls -l *';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      const enabledAgain = !accept.disabled;
+      accept.click();
       const cmdDecision = await pendingCmd;
       cardCmd.remove();
 
@@ -108,13 +117,15 @@ test('Browser UI - autorización de comando oculta botón genérico permitir sie
       await pendingFile;
       cardFile.remove();
 
-      return { hasGenericAlwaysInCmd, hasCmdButton, hasGenericAlwaysInFile, proposedPrefix, stillPending, cmdDecision };
+      return { hasGenericAlwaysInCmd, hasCmdButton, hasGenericAlwaysInFile, proposedPrefix, rejected, stillPending, enabledAgain, cmdDecision };
     });
-    assert.equal(result.proposedPrefix, 'ls');
-    assert.equal(result.stillPending, true, 'Un prefijo vacío no decide la autorización');
+    assert.equal(result.proposedPrefix, 'ls *');
+    assert.deepEqual(result.rejected, { '  ': true, '*': true, ' * ': true, 'ls * -l': true });
+    assert.equal(result.stillPending, true, 'Una línea no válida no decide la autorización');
+    assert.equal(result.enabledAgain, true);
     assert.deepEqual(result.cmdDecision, {
       decision: 'allow_always',
-      constraints: { command: { allowedPrefixes: ['ls -l'], allowChaining: false, allowPipes: false } }
+      constraints: { command: { allowedPrefixes: ['ls -l *'], allowChaining: false, allowPipes: false } }
     });
     assert.equal(result.hasGenericAlwaysInCmd, false, 'El botón genérico permitir siempre no debe aparecer en comandos');
     assert.equal(result.hasCmdButton, true, 'El botón acotado permitir cmd debe aparecer');
@@ -261,9 +272,13 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
         hasSession: !!menu.querySelector('.btn-auth-allow-session'),
         hasPermanent: !!menu.querySelector('.btn-auth-allow-always'),
         hasCommandScope: !!menu.querySelector('.btn-auth-allow-cmd'),
-        // El campo del prefijo tiene ancho útil y el botón queda debajo, no en la misma línea
+        // La línea del comando tiene ancho útil y ✓ queda a su derecha, en la misma fila
         cmdInputWidth: menu.querySelector('.tool-auth-cmd-input').getBoundingClientRect().width,
-        cmdButtonBelow: menu.querySelector('.btn-auth-allow-cmd').getBoundingClientRect().top >= menu.querySelector('.tool-auth-cmd-input').getBoundingClientRect().bottom,
+        cmdButtonBeside: (() => {
+          const input = menu.querySelector('.tool-auth-cmd-input').getBoundingClientRect();
+          const button = menu.querySelector('.btn-auth-allow-cmd').getBoundingClientRect();
+          return button.left >= input.right && button.top < input.bottom && button.bottom > input.top;
+        })(),
         hasServerTrust: !!menu.querySelector('.btn-auth-allow-server'),
         panelVisible: window.__permissionCard.querySelector('.tool-execution-card').getBoundingClientRect().bottom <= document.getElementById('messages-list').getBoundingClientRect().bottom + 1
       };
@@ -275,7 +290,7 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
     assert.equal(expanded.hasPermanent, false, 'Comando oculta botón genérico permitir siempre (M61-T4)');
     assert.equal(expanded.hasCommandScope, true);
     assert.ok(expanded.cmdInputWidth >= 150, `El campo del prefijo es demasiado estrecho: ${expanded.cmdInputWidth}px`);
-    assert.equal(expanded.cmdButtonBelow, true);
+    assert.equal(expanded.cmdButtonBeside, true);
     assert.equal(expanded.hasServerTrust, true);
     assert.equal(expanded.panelVisible, true);
 
