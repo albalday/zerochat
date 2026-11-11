@@ -180,8 +180,9 @@ def reset_session_credentials():
         if RUN_SESSION.tool_security:
             ACCESS_CONTROLLER.apply_session_overlay(RUN_SESSION.tool_security)
         if RUN_SESSION.allow_dangerous_tools:
-            for tool_name in ("write_file", "edit_file", "run_command"):
-                ACCESS_CONTROLLER.set_tool_policy(tool_name, POLICY_ALLOW, scope=SCOPE_SESSION)
+            ACCESS_CONTROLLER.apply_session_overlay({
+                "tools": {name: {"policy": POLICY_ALLOW} for name in ("write_file", "edit_file", "run_command")}
+            })
 
 
 def open_server(args, local_ui: bool) -> ThreadingHTTPServer:

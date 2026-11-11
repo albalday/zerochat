@@ -165,9 +165,10 @@
       if (!this.mcpClient) {
         throw new Error('Local server connection is required to authorize challenges.');
       }
-      const decType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;
-      const constraints = options.constraints || (typeof decision === 'object' && decision !== null ? decision.constraints : null);
-      const directoryRule = options.directoryRule || (typeof decision === 'object' && decision !== null ? decision.directoryRule : null);
+      // La tarjeta devuelve el tipo de decisión o un objeto con sus restricciones o regla de directorio.
+      const { decision: decType, constraints, directoryRule } = (typeof decision === 'object' && decision !== null)
+        ? decision
+        : { decision };
 
       const params = {
         challengeId,

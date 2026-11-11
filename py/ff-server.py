@@ -748,7 +748,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             if method == "zerochat/security/get":
                 return {"policies": ACCESS_CONTROLLER.export_state(ctx)}, None, ""
             if method == "zerochat/security/update":
-                updated = ACCESS_CONTROLLER.import_state(params, context=ctx, persist=True)
+                updated = ACCESS_CONTROLLER.import_state(params, context=ctx)
                 return {"policies": updated}, None, ""
             if method == "zerochat/security/authorize":
                 challenge_id = params.get("challengeId")

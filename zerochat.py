@@ -2175,7 +2175,6 @@ class AccessDecision:
     tool_id: str = ""
     server_name: str = ""
     server_id: str = ""
-    original_name: str = ""
     details: str = ""
     rule_offer: dict | None = None
 
@@ -2188,7 +2187,6 @@ class AccessDecision:
             "toolId": self.tool_id,
             "serverName": self.server_name,
             "serverId": self.server_id,
-            "originalName": self.original_name,
             "details": self.details,
             "ruleOffer": self.rule_offer
         }
@@ -2235,26 +2233,6 @@ class AccessController:
                 "tools": {**state["tools"], **self.session_tools},
                 "servers": {**state["servers"], **self.session_servers}
             }
-
-    @property
-    def global_policy(self) -> str:
-        return self._effective_state()["globalMcpPolicy"]
-
-    @global_policy.setter
-    def global_policy(self, policy: str):
-        self.set_global_policy(policy)
-
-    @property
-    def tools(self) -> dict[str, dict]:
-        return self._read_permanent_state()["tools"]
-
-    @property
-    def servers(self) -> dict[str, dict]:
-        return self._read_permanent_state()["servers"]
-
-    @property
-    def directory_rules(self) -> list[str]:
-        return self._read_permanent_state()["directoryRules"]
 
     def export_state(self, context: SecurityContext | None = None) -> dict:
         return {
@@ -2324,10 +2302,6 @@ class AccessController:
     def _session_map(self, kind: str) -> dict[str, dict]:
         return self.session_tools if kind == "tools" else self.session_servers
 
-    def _set_session_entry(self, kind: str, item_id: str, entry: dict):
-        with self._lock:
-            self._session_map(kind)[item_id] = entry
-
     @staticmethod
     def _check_entry_limit(state: dict):
         total = len(state.get("directoryRules") or []) + len(state.get("tools") or {}) + len(state.get("servers") or {})
@@ -2364,10 +2338,8 @@ class AccessController:
             raise ValueError(f"El número total de entradas ({total_entries}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
         return clean_global, clean_rules, clean_tools, clean_servers
 
-    def import_state(self, state: dict, context: SecurityContext | None = None, persist: bool = True):
-        if not persist:
-            return self.apply_session_overlay(state, context=context)
-
+    def import_state(self, state: dict, context: SecurityContext | None = None):
+        """Aplica un parche parcial persistente (None revoca) y devuelve el estado exportado."""
         clean_global, clean_rules, clean_tools, clean_servers = self._validate_state_payload(state, SCOPE_PERMANENT, context)
 
         def mutator(current: dict) -> dict:
@@ -2423,38 +2395,10 @@ class AccessController:
                 self.session_servers = self._apply_entry_patch(self.session_servers, clean_servers)
         return self.export_state(context)
 
-    def set_global_policy(self, policy: str, context: SecurityContext | None = None):
-        if policy not in GLOBAL_POLICIES:
-            raise ValueError(f"Política global inválida: {policy}")
-        def mutator(state: dict) -> dict:
-            state["globalMcpPolicy"] = policy
-            return state
-        self._update_permanent(mutator)
-        with self._lock:
-            self.session_global_policy = None
-
     def get_default_directory_rule(self, context: SecurityContext | None = None) -> str:
         ctx = context or SecurityContext()
         base = normalize_directory_path(str(ctx.workspace_dir))
         return f"RW:{base}" if base == "/" else f"RW:{base}/**"
-
-    def get_directory_rules(self, context: SecurityContext | None = None) -> list[str]:
-        return self._effective_state()["directoryRules"]
-
-    def set_directory_rules(self, rules: list[str], context: SecurityContext | None = None, persist: bool = True) -> list[str]:
-        clean_rules = self._validate_directory_rules(rules, context)
-        if persist:
-            def mutator(state: dict) -> dict:
-                state["directoryRules"] = clean_rules
-                return state
-            self._update_permanent(mutator)
-            with self._lock:
-                self.session_directory_rules = None
-        return clean_rules
-
-    def add_directory_rule(self, rule: str, context: SecurityContext | None = None) -> list[str]:
-        current = self.get_directory_rules(context)
-        return self.set_directory_rules(current + [rule], context)
 
     @staticmethod
     def _resolve_rule_pattern(pattern: str, workspace_dir: Path | None = None) -> str:
@@ -2512,74 +2456,6 @@ class AccessController:
         write_eval = self.evaluate_directory_rule("W", target_dir, user_rules, context)
         allowed = read_eval["allowed"] or write_eval["allowed"]
         return {"allowed": allowed, "directory": target_dir}
-
-    def _set_policy(self, kind: str, item_id: str, policy: str, scope: str = SCOPE_PERMANENT,
-                    server_name: str = "", original_name: str = "", constraints: dict | None = None):
-        if not item_id or not isinstance(item_id, str):
-            return
-        clean_id = item_id.strip() if kind == "servers" else item_id
-        if not clean_id:
-            return
-        clean_policy = policy if policy in (POLICY_ALLOW, POLICY_DENY) else POLICY_ASK
-        if clean_policy == POLICY_ASK:
-            self._revoke_policy(kind, clean_id)
-            return
-        clean_scope = scope if scope in SCOPES else SCOPE_PERMANENT
-        entry = self._make_entry(kind, clean_policy, clean_scope, server_name=server_name,
-                                 original_name=original_name or clean_id, constraints=constraints)
-        if clean_scope == SCOPE_SESSION:
-            self._set_session_entry(kind, clean_id, entry)
-            return
-        def mutator(state: dict) -> dict:
-            state.setdefault(kind, {})[clean_id] = entry
-            self._check_entry_limit(state)
-            return state
-        self._update_permanent(mutator)
-        with self._lock:
-            self._session_map(kind).pop(clean_id, None)
-
-    def _get_policy(self, kind: str, item_id: str) -> dict | None:
-        clean_id = str(item_id or "").strip() if kind == "servers" else str(item_id or "")
-        if not clean_id:
-            return None
-        return self._effective_state()[kind].get(clean_id)
-
-    def _revoke_policy(self, kind: str, item_id: str) -> bool:
-        clean_id = str(item_id or "").strip() if kind == "servers" else str(item_id or "")
-        if not clean_id:
-            return False
-        with self._lock:
-            del_session = self._session_map(kind).pop(clean_id, None) is not None
-        del_perm = [False]
-        def mutator(state: dict) -> dict:
-            container = state.get(kind, {})
-            if clean_id in container:
-                del container[clean_id]
-                del_perm[0] = True
-            return state
-        self._update_permanent(mutator)
-        return del_session or del_perm[0]
-
-    def set_tool_policy(self, tool_id: str, policy: str, scope: str = SCOPE_PERMANENT,
-                        constraints: dict | None = None, server_name: str = "", original_name: str = ""):
-        self._set_policy("tools", tool_id, policy, scope=scope, server_name=server_name,
-                         original_name=original_name, constraints=constraints)
-
-    def get_tool_policy(self, tool_id: str) -> dict | None:
-        return self._get_policy("tools", tool_id)
-
-    def revoke_tool_policy(self, tool_id: str) -> bool:
-        return self._revoke_policy("tools", tool_id)
-
-    def set_server_policy(self, server_id: str, policy: str, scope: str = SCOPE_PERMANENT, server_name: str = ""):
-        self._set_policy("servers", server_id, policy, scope=scope,
-                         server_name=server_name or str(server_id or "").strip())
-
-    def get_server_policy(self, server_id: str) -> dict | None:
-        return self._get_policy("servers", server_id)
-
-    def revoke_server_policy(self, server_id: str) -> bool:
-        return self._revoke_policy("servers", server_id)
 
     def clear_session(self):
         """Limpia todas las autorizaciones temporales de la sesión activa."""
@@ -2702,9 +2578,9 @@ class AccessController:
         new_rules = self._validate_decision(decision, target_tool, context)
 
         if decision_type == "allow_session":
-            self._set_session_entry("tools", target_tool, self._make_entry(
-                "tools", POLICY_ALLOW, SCOPE_SESSION, server_name=server_name,
-                original_name=auth_eval.get("originalName", "") or target_tool))
+            entry = self._make_entry("tools", POLICY_ALLOW, SCOPE_SESSION, server_name=server_name, original_name=target_tool)
+            with self._lock:
+                self.session_tools[target_tool] = entry
 
         permanent_kind, permanent_id = None, ""
         if decision_type == "allow_always":
@@ -2722,7 +2598,7 @@ class AccessController:
                 constraints = self.merge_command_constraints(existing.get("constraints"), decision.get("constraints"))
                 state.setdefault("tools", {})[target_tool] = self._make_entry(
                     "tools", POLICY_ALLOW, SCOPE_PERMANENT, server_name=server_name,
-                    original_name=auth_eval.get("originalName", "") or target_tool, constraints=constraints)
+                    original_name=target_tool, constraints=constraints)
             elif permanent_kind == "servers":
                 state.setdefault("servers", {})[permanent_id] = self._make_entry(
                     "servers", POLICY_ALLOW, SCOPE_PERMANENT, server_name=server_name or permanent_id)
@@ -2737,9 +2613,9 @@ class AccessController:
             if new_rules and self.session_directory_rules is not None:
                 self.session_directory_rules = list(dict.fromkeys(self.session_directory_rules + new_rules))
 
-    def evaluate_authorization(self, tool_or_name: str | dict, raw_args: dict | None = None,
+    def evaluate_authorization(self, tool_name: str, raw_args: dict | None = None,
                                context: SecurityContext | None = None, server_name: str = "",
-                               server_id: str = "", original_name: str = "") -> AccessDecision:
+                               server_id: str = "") -> AccessDecision:
         """
         Evalúa si la invocación de una herramienta está permitida, denegada o requiere confirmación.
         Jerarquía:
@@ -2753,11 +2629,6 @@ class AccessController:
         """
         ctx = context or SecurityContext()
         args = dict(raw_args or {})
-        tool_name = tool_or_name.get("name", "") if isinstance(tool_or_name, dict) else str(tool_or_name)
-        tool_id = tool_name
-        orig_name = original_name or (tool_or_name.get("originalName") if isinstance(tool_or_name, dict) else tool_name)
-        srv_name = server_name or (tool_or_name.get("serverName") if isinstance(tool_or_name, dict) else "")
-        srv_id = server_id or (tool_or_name.get("serverId", "") if isinstance(tool_or_name, dict) else "")
 
         def make_decision(status: str, reason: str, extra: dict | None = None) -> AccessDecision:
             payload = extra or {}
@@ -2766,10 +2637,9 @@ class AccessController:
                 status=status,
                 reason=reason,
                 requires_approval=(status == POLICY_ASK),
-                tool_id=tool_id,
-                server_name=srv_name,
-                server_id=srv_id,
-                original_name=orig_name,
+                tool_id=tool_name,
+                server_name=server_name,
+                server_id=server_id,
                 details=payload.get("details", "")
             )
             if status == POLICY_ASK:
@@ -2777,14 +2647,14 @@ class AccessController:
             return dec
 
         default_path_tools = {"list_directory", "search_files", "get_diagnostics"}
-        if (tool_name in default_path_tools or orig_name in default_path_tools) and not get_path_arg(args):
+        if tool_name in default_path_tools and not get_path_arg(args):
             args["path"] = "."
 
         view = self._effective_state()
         global_policy = view["globalMcpPolicy"]
         user_rules = view["directoryRules"]
-        tool_entry = view["tools"].get(tool_id)
-        server_entry = view["servers"].get(srv_id.strip()) if srv_id else None
+        tool_entry = view["tools"].get(tool_name)
+        server_entry = view["servers"].get(server_id.strip()) if server_id else None
 
         # 1. Denegación explícita (Blacklist)
         if tool_entry and tool_entry.get("policy") == POLICY_DENY:
@@ -2794,7 +2664,7 @@ class AccessController:
             return make_decision(POLICY_DENY, "server_deny_rule")
 
         # 2. Herramientas auxiliares de control de trabajos
-        if tool_name == JOB_CONTROL_TOOL or orig_name == JOB_CONTROL_TOOL:
+        if tool_name == JOB_CONTROL_TOOL:
             return make_decision(POLICY_ALLOW, "job_control_tool")
 
         # 3. Política global allow_all
@@ -2824,7 +2694,7 @@ class AccessController:
             return make_decision(POLICY_ALLOW, "server_allow_rule")
 
         # 6. Reglas de Directorio y Workspace Trust
-        path_access = get_integrated_path_access(tool_name) or get_integrated_path_access(orig_name)
+        path_access = get_integrated_path_access(tool_name)
         path = get_path_arg(args)
 
         if path_access and path:
@@ -2842,7 +2712,7 @@ class AccessController:
                 "directoryPath": dir_eval["path"] or ""
             })
 
-        if (tool_name == COMMAND_TOOL or orig_name == COMMAND_TOOL) and global_policy == GLOBAL_POLICY_WORKSPACE_TRUST:
+        if tool_name == COMMAND_TOOL and global_policy == GLOBAL_POLICY_WORKSPACE_TRUST:
             cmd_val = get_command_arg(args)
             cd_part = split_leading_cd(cmd_val)
             sub_cmd = cd_part["command"] if cd_part else cmd_val
@@ -6282,7 +6152,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             if method == "zerochat/security/get":
                 return {"policies": ACCESS_CONTROLLER.export_state(ctx)}, None, ""
             if method == "zerochat/security/update":
-                updated = ACCESS_CONTROLLER.import_state(params, context=ctx, persist=True)
+                updated = ACCESS_CONTROLLER.import_state(params, context=ctx)
                 return {"policies": updated}, None, ""
             if method == "zerochat/security/authorize":
                 challenge_id = params.get("challengeId")
@@ -7686,8 +7556,9 @@ def reset_session_credentials():
         if RUN_SESSION.tool_security:
             ACCESS_CONTROLLER.apply_session_overlay(RUN_SESSION.tool_security)
         if RUN_SESSION.allow_dangerous_tools:
-            for tool_name in ("write_file", "edit_file", "run_command"):
-                ACCESS_CONTROLLER.set_tool_policy(tool_name, POLICY_ALLOW, scope=SCOPE_SESSION)
+            ACCESS_CONTROLLER.apply_session_overlay({
+                "tools": {name: {"policy": POLICY_ALLOW} for name in ("write_file", "edit_file", "run_command")}
+            })
 
 
 def open_server(args, local_ui: bool) -> ThreadingHTTPServer:
