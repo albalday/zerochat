@@ -53,6 +53,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
               const currentRules = params.directoryRules !== undefined ? params.directoryRules : window.ChatToolSecurity.manager.directoryRules;
               const currentPolicy = params.globalMcpPolicy !== undefined ? params.globalMcpPolicy : window.ChatToolSecurity.manager.globalMcpPolicy;
               return { policies: {
+                defaultDirectoryRule: 'RW:/workspace/**',
                 directoryRules: currentRules,
                 globalMcpPolicy: currentPolicy
               }};
@@ -61,6 +62,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
           }
         };
         window.ChatToolSecurity.manager.setMcpClient(client);
+        window.ChatToolSecurity.manager.applyPolicies({ defaultDirectoryRule: 'RW:/workspace/**' });
       });
       await openSettings(page, 'agent');
       await page.locator('.switch:has([data-tool-id="search_web"])').click();
@@ -81,10 +83,22 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       })), { rules: ['R:/home/user', 'W:/tmp'], policy: 'workspace_trust', dataPrompt: 'Datos propios', searchWeb: false });
 
       await openSettings(page, 'permissions');
+      assert.equal(await page.inputValue('#mcp-default-directory-rule'), 'RW:/workspace/**', 'La regla del proyecto se muestra en solo lectura');
+      assert.equal(await page.getAttribute('#mcp-default-directory-rule', 'readonly'), '', 'El input del proyecto es de solo lectura');
       assert.equal(await page.inputValue('#mcp-directory-rules'), 'R:/home/user\nW:/tmp', 'El campo muestra las reglas guardadas');
+
+      // Simular cambio de directorio del proyecto
+      await page.evaluate(() => {
+        window.ChatToolSecurity.manager.applyPolicies({ defaultDirectoryRule: 'RW:/workspace-nuevo/**' });
+      });
+      await openSettings(page, 'permissions');
+      assert.equal(await page.inputValue('#mcp-default-directory-rule'), 'RW:/workspace-nuevo/**', 'La regla del proyecto cambia tras cambio de directorio');
+
       await page.fill('#mcp-directory-rules', 'X:/invalid');
       await page.click('#btn-save-settings');
       await page.waitForFunction(() => document.getElementById('mcp-directory-rules-error').textContent !== '');
+      const errText = await page.textContent('#mcp-directory-rules-error');
+      assert.match(errText, /Invalid directory rule/, 'El error del backend se muestra en el formulario');
       assert.equal(await page.evaluate(() => document.getElementById('settings-dialog').open), true, 'Una regla inválida no cierra los ajustes');
     });
   });

@@ -41,42 +41,6 @@
     SESSION: 'session'
   });
 
-  const DIRECTORY_RULE_PATTERN = /^(R|W|RW):(.+)$/;
-
-  function containsUnresolvedReference(value) {
-    if (typeof value !== 'string') return false;
-    const trimmed = value.trim();
-    if (!trimmed) return false;
-    if (trimmed.startsWith('~')) return true;
-    return /\$(?:\{[^}]+\}|[A-Za-z_][A-Za-z0-9_]*)/.test(trimmed);
-  }
-
-  function normalizeDirectoryPath(value) {
-    if (typeof value !== 'string' || !value.trim() || value.includes('\0')) return '';
-    if (containsUnresolvedReference(value)) return '';
-    const isAbsolute = /^[\\/]/.test(value.trim());
-    const parts = [];
-    for (const part of value.trim().replace(/\\/g, '/').split('/')) {
-      if (!part || part === '.') continue;
-      if (part === '..') {
-        if (parts.length) parts.pop();
-        else return '';
-      } else {
-        parts.push(part);
-      }
-    }
-    return `${isAbsolute ? '/' : ''}${parts.join('/')}` || (isAbsolute ? '/' : '.');
-  }
-
-  function parseDirectoryRule(rawRule) {
-    if (typeof rawRule !== 'string') return null;
-    const match = rawRule.trim().match(DIRECTORY_RULE_PATTERN);
-    if (!match) return null;
-    const path = normalizeDirectoryPath(match[2]);
-    if (!path) return null;
-    return { access: match[1], path, rule: `${match[1]}:${path}` };
-  }
-
   const { resolveDep } = Utils;
 
   function getState() {
@@ -139,7 +103,7 @@
         this.defaultDirectoryRule = policies.defaultDirectoryRule;
       }
       if (Array.isArray(policies.directoryRules)) {
-        this.directoryRules = policies.directoryRules.map(parseDirectoryRule).filter(Boolean).map(item => item.rule);
+        this.directoryRules = policies.directoryRules.map(r => String(r || '').trim()).filter(Boolean);
       }
       if (policies.tools && typeof policies.tools === 'object') {
         this.tools.clear();

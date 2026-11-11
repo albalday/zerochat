@@ -216,6 +216,7 @@
     webllmHelpLink: 'webllm-help-link',
     apiKeyHintText: 'api-key-hint-text',
     apiKeyFreeHelpLink: 'api-key-free-help-link',
+    mcpDefaultDirectoryRule: 'mcp-default-directory-rule',
     mcpDirectoryRules: 'mcp-directory-rules',
     mcpDirectoryRulesError: 'mcp-directory-rules-error',
     settingWebllmContextWindow: 'setting-webllm-context-window',
