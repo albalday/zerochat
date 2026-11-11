@@ -261,6 +261,9 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
         hasSession: !!menu.querySelector('.btn-auth-allow-session'),
         hasPermanent: !!menu.querySelector('.btn-auth-allow-always'),
         hasCommandScope: !!menu.querySelector('.btn-auth-allow-cmd'),
+        // El campo del prefijo tiene ancho útil y el botón queda debajo, no en la misma línea
+        cmdInputWidth: menu.querySelector('.tool-auth-cmd-input').getBoundingClientRect().width,
+        cmdButtonBelow: menu.querySelector('.btn-auth-allow-cmd').getBoundingClientRect().top >= menu.querySelector('.tool-auth-cmd-input').getBoundingClientRect().bottom,
         hasServerTrust: !!menu.querySelector('.btn-auth-allow-server'),
         panelVisible: window.__permissionCard.querySelector('.tool-execution-card').getBoundingClientRect().bottom <= document.getElementById('messages-list').getBoundingClientRect().bottom + 1
       };
@@ -271,6 +274,8 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
     assert.equal(expanded.hasSession, true);
     assert.equal(expanded.hasPermanent, false, 'Comando oculta botón genérico permitir siempre (M61-T4)');
     assert.equal(expanded.hasCommandScope, true);
+    assert.ok(expanded.cmdInputWidth >= 150, `El campo del prefijo es demasiado estrecho: ${expanded.cmdInputWidth}px`);
+    assert.equal(expanded.cmdButtonBelow, true);
     assert.equal(expanded.hasServerTrust, true);
     assert.equal(expanded.panelVisible, true);
 

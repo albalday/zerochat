@@ -1665,8 +1665,10 @@ button.command-jobs-link:focus-visible {
 }
 
 /* Prefijo de comando editable en la tarjeta de autorización y en las autorizaciones guardadas. */
+/* Campo y comodín en una fila y el botón debajo, a todo el ancho como el resto del menú. */
 .tool-auth-cmd-rule {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.3rem;
   min-width: 0;
@@ -1691,8 +1693,7 @@ button.command-jobs-link:focus-visible {
 }
 
 .tool-auth-cmd-rule .btn-auth-action {
-  width: auto;
-  flex: 0 0 auto;
+  grid-column: 1 / -1;
 }
 
 .mcp-auth-cmd-prefixes {
