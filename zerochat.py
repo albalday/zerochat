@@ -1892,6 +1892,7 @@ SCOPE_PERMANENT = "permanent"
 SCOPE_SESSION = "session"
 SCOPES = (SCOPE_PERMANENT, SCOPE_SESSION)
 
+POLICY_STATE_VERSION = 5
 CHALLENGE_TTL_MS = 600_000
 AUTHORIZE_DECISIONS = ("allow_once", "allow_session", "allow_always", "allow_server_always")
 MAX_POLICY_ENTRIES = 500
@@ -2204,27 +2205,40 @@ class AccessController:
         self.session_servers: dict[str, dict] = {}
         self.pending_challenges: dict[str, dict] = {}
 
+    @staticmethod
+    def _normalize_state(raw: dict | None) -> dict:
+        """Única definición del estado permanente y de sus valores por defecto."""
+        data = raw if isinstance(raw, dict) else {}
+        return {
+            "version": POLICY_STATE_VERSION,
+            "globalMcpPolicy": data.get("globalMcpPolicy") or GLOBAL_POLICY_ASK,
+            "directoryRules": list(data.get("directoryRules") or []),
+            "tools": dict(data.get("tools") or {}),
+            "servers": dict(data.get("servers") or {})
+        }
+
     def _read_permanent_state(self) -> dict:
-        try:
-            data = get_security_policy_data()
-        except Exception:
-            data = None
-        if not data or not isinstance(data, dict):
+        """Lee el estado permanente de SQLite; un fallo de lectura se propaga al llamador."""
+        return self._normalize_state(get_security_policy_data())
+
+    def _update_permanent(self, mutator: typing.Callable[[dict], dict]) -> dict:
+        """Lectura-modificación-escritura transaccional sobre el estado permanente normalizado."""
+        return update_security_policy_data(lambda raw: mutator(self._normalize_state(raw)))
+
+    def _effective_state(self) -> dict:
+        """Una sola lectura del estado permanente combinada con la capa de sesión en memoria."""
+        state = self._read_permanent_state()
+        with self._lock:
             return {
-                "version": 5,
-                "globalMcpPolicy": GLOBAL_POLICY_ASK,
-                "directoryRules": [],
-                "tools": {},
-                "servers": {}
+                "globalMcpPolicy": self.session_global_policy if self.session_global_policy is not None else state["globalMcpPolicy"],
+                "directoryRules": list(self.session_directory_rules) if self.session_directory_rules is not None else state["directoryRules"],
+                "tools": {**state["tools"], **self.session_tools},
+                "servers": {**state["servers"], **self.session_servers}
             }
-        return data
 
     @property
     def global_policy(self) -> str:
-        with self._lock:
-            if self.session_global_policy is not None:
-                return self.session_global_policy
-        return self._read_permanent_state().get("globalMcpPolicy") or GLOBAL_POLICY_ASK
+        return self._effective_state()["globalMcpPolicy"]
 
     @global_policy.setter
     def global_policy(self, policy: str):
@@ -2232,30 +2246,21 @@ class AccessController:
 
     @property
     def tools(self) -> dict[str, dict]:
-        return dict(self._read_permanent_state().get("tools") or {})
+        return self._read_permanent_state()["tools"]
 
     @property
     def servers(self) -> dict[str, dict]:
-        return dict(self._read_permanent_state().get("servers") or {})
+        return self._read_permanent_state()["servers"]
 
     @property
     def directory_rules(self) -> list[str]:
-        return list(self._read_permanent_state().get("directoryRules") or [])
+        return self._read_permanent_state()["directoryRules"]
 
     def export_state(self, context: SecurityContext | None = None) -> dict:
-        state = self._read_permanent_state()
-        with self._lock:
-            global_pol = self.session_global_policy if self.session_global_policy is not None else (state.get("globalMcpPolicy") or GLOBAL_POLICY_ASK)
-            user_rules = list(self.session_directory_rules) if self.session_directory_rules is not None else list(state.get("directoryRules") or [])
-            merged_tools = {**(state.get("tools") or {}), **self.session_tools}
-            merged_servers = {**(state.get("servers") or {}), **self.session_servers}
         return {
-            "version": 5,
-            "globalMcpPolicy": global_pol,
-            "directoryRules": user_rules,
-            "defaultDirectoryRule": self.get_default_directory_rule(context),
-            "tools": merged_tools,
-            "servers": merged_servers
+            "version": POLICY_STATE_VERSION,
+            **self._effective_state(),
+            "defaultDirectoryRule": self.get_default_directory_rule(context)
         }
 
     def _validate_directory_rules(self, raw_rules: list | tuple, context: SecurityContext | None = None) -> list[str]:
@@ -2376,7 +2381,7 @@ class AccessController:
                 current["servers"] = self._apply_entry_patch(current.get("servers"), clean_servers)
             self._check_entry_limit(current)
             return current
-        update_security_policy_data(mutator)
+        self._update_permanent(mutator)
         with self._lock:
             if clean_global is not None:
                 self.session_global_policy = None
@@ -2424,7 +2429,7 @@ class AccessController:
         def mutator(state: dict) -> dict:
             state["globalMcpPolicy"] = policy
             return state
-        update_security_policy_data(mutator)
+        self._update_permanent(mutator)
         with self._lock:
             self.session_global_policy = None
 
@@ -2434,11 +2439,7 @@ class AccessController:
         return f"RW:{base}" if base == "/" else f"RW:{base}/**"
 
     def get_directory_rules(self, context: SecurityContext | None = None) -> list[str]:
-        with self._lock:
-            if self.session_directory_rules is not None:
-                return list(self.session_directory_rules)
-        rules = self._read_permanent_state().get("directoryRules") or []
-        return list(rules)
+        return self._effective_state()["directoryRules"]
 
     def set_directory_rules(self, rules: list[str], context: SecurityContext | None = None, persist: bool = True) -> list[str]:
         clean_rules = self._validate_directory_rules(rules, context)
@@ -2446,7 +2447,7 @@ class AccessController:
             def mutator(state: dict) -> dict:
                 state["directoryRules"] = clean_rules
                 return state
-            update_security_policy_data(mutator)
+            self._update_permanent(mutator)
             with self._lock:
                 self.session_directory_rules = None
         return clean_rules
@@ -2467,7 +2468,8 @@ class AccessController:
             real_base = ""
         return f"{real_base}{sep}{rest}"
 
-    def evaluate_directory_rule(self, access: str, path: str, context: SecurityContext | None = None) -> dict:
+    def evaluate_directory_rule(self, access: str, path: str, user_rules: list[str],
+                                context: SecurityContext | None = None) -> dict:
         ctx = context or SecurityContext()
         resolved_target = ctx.resolve_path(path)
         if resolved_target is None:
@@ -2476,7 +2478,6 @@ class AccessController:
         if not normalized_dest:
             return {"allowed": False, "rule": None, "path": ""}
 
-        user_rules = self.get_directory_rules(ctx)
         matching_user_rules = []
         for raw_rule in user_rules:
             parsed = parse_directory_rule(raw_rule)
@@ -2501,14 +2502,14 @@ class AccessController:
                 return {"allowed": True, "rule": default_parsed["rule"], "path": normalized_dest}
         return {"allowed": False, "rule": None, "path": normalized_dest}
 
-    def evaluate_command_directories(self, args: dict, context: SecurityContext | None = None) -> dict:
+    def evaluate_command_directories(self, args: dict, user_rules: list[str], context: SecurityContext | None = None) -> dict:
         cmd_arg = get_command_arg(args)
         cd_part = split_leading_cd(cmd_arg)
         if not cd_part:
             return {"allowed": True, "directory": None}
         target_dir = cd_part["directory"]
-        read_eval = self.evaluate_directory_rule("R", target_dir, context)
-        write_eval = self.evaluate_directory_rule("W", target_dir, context)
+        read_eval = self.evaluate_directory_rule("R", target_dir, user_rules, context)
+        write_eval = self.evaluate_directory_rule("W", target_dir, user_rules, context)
         allowed = read_eval["allowed"] or write_eval["allowed"]
         return {"allowed": allowed, "directory": target_dir}
 
@@ -2533,7 +2534,7 @@ class AccessController:
             state.setdefault(kind, {})[clean_id] = entry
             self._check_entry_limit(state)
             return state
-        update_security_policy_data(mutator)
+        self._update_permanent(mutator)
         with self._lock:
             self._session_map(kind).pop(clean_id, None)
 
@@ -2541,12 +2542,7 @@ class AccessController:
         clean_id = str(item_id or "").strip() if kind == "servers" else str(item_id or "")
         if not clean_id:
             return None
-        with self._lock:
-            session_entry = self._session_map(kind).get(clean_id)
-        if session_entry:
-            return session_entry
-        state = self._read_permanent_state()
-        return (state.get(kind) or {}).get(clean_id)
+        return self._effective_state()[kind].get(clean_id)
 
     def _revoke_policy(self, kind: str, item_id: str) -> bool:
         clean_id = str(item_id or "").strip() if kind == "servers" else str(item_id or "")
@@ -2561,7 +2557,7 @@ class AccessController:
                 del container[clean_id]
                 del_perm[0] = True
             return state
-        update_security_policy_data(mutator)
+        self._update_permanent(mutator)
         return del_session or del_perm[0]
 
     def set_tool_policy(self, tool_id: str, policy: str, scope: str = SCOPE_PERMANENT,
@@ -2734,7 +2730,7 @@ class AccessController:
                 state["directoryRules"] = list(dict.fromkeys(list(state.get("directoryRules") or []) + new_rules))
             self._check_entry_limit(state)
             return state
-        update_security_policy_data(mutator)
+        self._update_permanent(mutator)
         with self._lock:
             if permanent_kind:
                 self._session_map(permanent_kind).pop(permanent_id, None)
@@ -2784,22 +2780,25 @@ class AccessController:
         if (tool_name in default_path_tools or orig_name in default_path_tools) and not get_path_arg(args):
             args["path"] = "."
 
+        view = self._effective_state()
+        global_policy = view["globalMcpPolicy"]
+        user_rules = view["directoryRules"]
+        tool_entry = view["tools"].get(tool_id)
+        server_entry = view["servers"].get(srv_id.strip()) if srv_id else None
+
         # 1. Denegación explícita (Blacklist)
-        tool_entry = self.get_tool_policy(tool_id)
         if tool_entry and tool_entry.get("policy") == POLICY_DENY:
             return make_decision(POLICY_DENY, "granular_deny_rule")
 
-        if srv_id:
-            server_entry = self.get_server_policy(srv_id)
-            if server_entry and server_entry.get("policy") == POLICY_DENY:
-                return make_decision(POLICY_DENY, "server_deny_rule")
+        if server_entry and server_entry.get("policy") == POLICY_DENY:
+            return make_decision(POLICY_DENY, "server_deny_rule")
 
         # 2. Herramientas auxiliares de control de trabajos
         if tool_name == JOB_CONTROL_TOOL or orig_name == JOB_CONTROL_TOOL:
             return make_decision(POLICY_ALLOW, "job_control_tool")
 
         # 3. Política global allow_all
-        if self.global_policy == GLOBAL_POLICY_ALLOW_ALL:
+        if global_policy == GLOBAL_POLICY_ALLOW_ALL:
             return make_decision(POLICY_ALLOW, "mcp_global_allow_all")
 
         # 4. Autorización individual de herramienta
@@ -2813,7 +2812,7 @@ class AccessController:
                         return make_decision(POLICY_DENY, c_reason or "constraint_violation_denied", {"details": c_details})
                     if not c_allowed:
                         return make_decision(POLICY_ASK, c_reason or "constraint_outside_scope", {"details": c_details})
-                    cmd_dir_eval = self.evaluate_command_directories(args, ctx)
+                    cmd_dir_eval = self.evaluate_command_directories(args, user_rules, ctx)
                     if not cmd_dir_eval["allowed"]:
                         return make_decision(POLICY_ASK, "command_directory_outside_rules", {
                             "details": f"El comando se ejecuta fuera de las reglas de directorio: {cmd_dir_eval['directory']}"
@@ -2821,21 +2820,19 @@ class AccessController:
             return make_decision(POLICY_ALLOW, "granular_allow_rule")
 
         # 5. Autorización de servidor completo
-        if srv_id:
-            srv_entry = self.get_server_policy(srv_id)
-            if srv_entry and srv_entry.get("policy") == POLICY_ALLOW:
-                return make_decision(POLICY_ALLOW, "server_allow_rule")
+        if server_entry and server_entry.get("policy") == POLICY_ALLOW:
+            return make_decision(POLICY_ALLOW, "server_allow_rule")
 
         # 6. Reglas de Directorio y Workspace Trust
         path_access = get_integrated_path_access(tool_name) or get_integrated_path_access(orig_name)
         path = get_path_arg(args)
 
         if path_access and path:
-            dir_eval = self.evaluate_directory_rule(path_access, path, ctx)
+            dir_eval = self.evaluate_directory_rule(path_access, path, user_rules, ctx)
             if dir_eval["allowed"]:
                 return make_decision(POLICY_ALLOW, "directory_rule_allow")
 
-            if self.global_policy == GLOBAL_POLICY_WORKSPACE_TRUST:
+            if global_policy == GLOBAL_POLICY_WORKSPACE_TRUST:
                 if ctx.is_inside_workspace(path):
                     return make_decision(POLICY_ALLOW, "workspace_trust_allow")
 
@@ -2845,11 +2842,11 @@ class AccessController:
                 "directoryPath": dir_eval["path"] or ""
             })
 
-        if (tool_name == COMMAND_TOOL or orig_name == COMMAND_TOOL) and self.global_policy == GLOBAL_POLICY_WORKSPACE_TRUST:
+        if (tool_name == COMMAND_TOOL or orig_name == COMMAND_TOOL) and global_policy == GLOBAL_POLICY_WORKSPACE_TRUST:
             cmd_val = get_command_arg(args)
             cd_part = split_leading_cd(cmd_val)
             sub_cmd = cd_part["command"] if cd_part else cmd_val
-            is_local = is_workspace_local_command(sub_cmd) and self.evaluate_command_directories(args, ctx)["allowed"]
+            is_local = is_workspace_local_command(sub_cmd) and self.evaluate_command_directories(args, user_rules, ctx)["allowed"]
             if is_local:
                 return make_decision(POLICY_ALLOW, "workspace_trust_command")
             return make_decision(POLICY_ASK, "workspace_trust_external_or_global_command", {
@@ -5491,44 +5488,34 @@ def has_blobs(blob_ids: list[str]) -> dict:
         }
 
 
+def _parse_security_policy_row(row) -> dict | None:
+    """Decodifica la fila de políticas; un JSON corrupto es un error visible, nunca un estado vacío."""
+    if not row:
+        return None
+    try:
+        data = json.loads(row["data_json"])
+    except (ValueError, TypeError) as exc:
+        raise RuntimeError(f"Las políticas de seguridad guardadas están corruptas: {exc}") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError("Las políticas de seguridad guardadas no son un objeto JSON.")
+    return data
+
+
 def get_security_policy_data() -> dict | None:
-    """Recupera los datos de políticas de seguridad guardados en SQLite."""
+    """Recupera los datos de políticas de seguridad guardados en SQLite (None si no hay ninguno)."""
     with open_storage() as conn:
         row = conn.execute("SELECT data_json FROM security_policies WHERE id = 'default';").fetchone()
-        if not row:
-            return None
-        try:
-            return json.loads(row["data_json"])
-        except (ValueError, TypeError):
-            return None
+        return _parse_security_policy_row(row)
 
 
-def update_security_policy_data(mutator: typing.Callable[[dict], dict | None]) -> dict:
+def update_security_policy_data(mutator: typing.Callable[[dict | None], dict]) -> dict:
     """Ejecuta una lectura-modificación-escritura atómica en una transacción BEGIN IMMEDIATE."""
     with open_storage() as conn:
         conn.isolation_level = None
         conn.execute("BEGIN IMMEDIATE;")
         try:
             row = conn.execute("SELECT data_json FROM security_policies WHERE id = 'default';").fetchone()
-            current = None
-            if row:
-                try:
-                    current = json.loads(row["data_json"])
-                except (ValueError, TypeError):
-                    current = None
-            if current is None or not isinstance(current, dict):
-                current = {
-                    "version": 5,
-                    "globalMcpPolicy": "ask",
-                    "directoryRules": [],
-                    "tools": {},
-                    "servers": {}
-                }
-            updated = mutator(current)
-            if updated is None:
-                updated = current
-            if not isinstance(updated, dict):
-                raise ValueError("El resultado de la mutación de políticas debe ser un diccionario.")
+            updated = mutator(_parse_security_policy_row(row))
             data_str = json.dumps(updated, ensure_ascii=False)
             now = int(time.time() * 1000)
             conn.execute("""

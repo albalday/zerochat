@@ -173,7 +173,7 @@ class AccessControllerPolicyTest(unittest.TestCase):
             "tools": {"tool_saved": {"policy": "allow", "serverName": "srv"}},
             "servers": {"srv_saved": {"policy": "deny"}}
         }
-        updated = zerochat.update_security_policy_data(lambda current: {**current, **state})
+        updated = zerochat.update_security_policy_data(lambda current: {**(current or {}), **state})
         self.assertEqual(updated["globalMcpPolicy"], "workspace_trust")
 
         loaded = zerochat.get_security_policy_data()
@@ -894,6 +894,33 @@ class AccessControllerPolicyTest(unittest.TestCase):
         self.assertEqual(err["code"], -32603)
         self.assertIn("database is locked", err["message"])
         execute.assert_not_called()
+
+    def test_corrupt_stored_policies_fail_visibly_and_are_not_overwritten(self):
+        handler = zerochat.ZeroChatServerHandler.__new__(zerochat.ZeroChatServerHandler)
+        with zerochat.open_storage() as conn:
+            conn.execute("INSERT INTO security_policies (id, data_json, updated_at) VALUES ('default', '{corrupt', 0);")
+            conn.commit()
+
+        res, err, _ = handler._dispatch_security("zerochat/security/get", {})
+        self.assertIsNone(res)
+        self.assertEqual(err["code"], -32603)
+        self.assertIn("corruptas", err["message"])
+
+        res_up, err_up, _ = handler._dispatch_security("zerochat/security/update", {"globalMcpPolicy": "allow_all"})
+        self.assertIsNone(res_up)
+        self.assertIn("corruptas", err_up["message"])
+        with zerochat.open_storage() as conn:
+            raw = conn.execute("SELECT data_json FROM security_policies WHERE id = 'default';").fetchone()["data_json"]
+        self.assertEqual(raw, "{corrupt")
+
+        with self.assertRaises(RuntimeError):
+            zerochat.ACCESS_CONTROLLER.evaluate_authorization("read_file", {"path": "x.txt"}, self.ctx)
+
+    def test_evaluation_reads_permanent_state_once(self):
+        self.controller.set_global_policy(zerochat.GLOBAL_POLICY_WORKSPACE_TRUST, self.ctx)
+        with unittest.mock.patch("zerochat.get_security_policy_data", wraps=zerochat.get_security_policy_data) as reader:
+            self.controller.evaluate_authorization("run_command", {"command": "cd /tmp && ls"}, self.ctx, server_id="srv")
+        self.assertEqual(reader.call_count, 1)
 
 if __name__ == "__main__":
     unittest.main()

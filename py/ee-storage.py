@@ -562,44 +562,34 @@ def has_blobs(blob_ids: list[str]) -> dict:
         }
 
 
+def _parse_security_policy_row(row) -> dict | None:
+    """Decodifica la fila de políticas; un JSON corrupto es un error visible, nunca un estado vacío."""
+    if not row:
+        return None
+    try:
+        data = json.loads(row["data_json"])
+    except (ValueError, TypeError) as exc:
+        raise RuntimeError(f"Las políticas de seguridad guardadas están corruptas: {exc}") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError("Las políticas de seguridad guardadas no son un objeto JSON.")
+    return data
+
+
 def get_security_policy_data() -> dict | None:
-    """Recupera los datos de políticas de seguridad guardados en SQLite."""
+    """Recupera los datos de políticas de seguridad guardados en SQLite (None si no hay ninguno)."""
     with open_storage() as conn:
         row = conn.execute("SELECT data_json FROM security_policies WHERE id = 'default';").fetchone()
-        if not row:
-            return None
-        try:
-            return json.loads(row["data_json"])
-        except (ValueError, TypeError):
-            return None
+        return _parse_security_policy_row(row)
 
 
-def update_security_policy_data(mutator: typing.Callable[[dict], dict | None]) -> dict:
+def update_security_policy_data(mutator: typing.Callable[[dict | None], dict]) -> dict:
     """Ejecuta una lectura-modificación-escritura atómica en una transacción BEGIN IMMEDIATE."""
     with open_storage() as conn:
         conn.isolation_level = None
         conn.execute("BEGIN IMMEDIATE;")
         try:
             row = conn.execute("SELECT data_json FROM security_policies WHERE id = 'default';").fetchone()
-            current = None
-            if row:
-                try:
-                    current = json.loads(row["data_json"])
-                except (ValueError, TypeError):
-                    current = None
-            if current is None or not isinstance(current, dict):
-                current = {
-                    "version": 5,
-                    "globalMcpPolicy": "ask",
-                    "directoryRules": [],
-                    "tools": {},
-                    "servers": {}
-                }
-            updated = mutator(current)
-            if updated is None:
-                updated = current
-            if not isinstance(updated, dict):
-                raise ValueError("El resultado de la mutación de políticas debe ser un diccionario.")
+            updated = mutator(_parse_security_policy_row(row))
             data_str = json.dumps(updated, ensure_ascii=False)
             now = int(time.time() * 1000)
             conn.execute("""
