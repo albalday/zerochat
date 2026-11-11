@@ -25,7 +25,7 @@
 Goal: Que el backend aplique los permisos sin atajos ni incoherencias: un reto equivale a una ejecución por un único punto, la identidad del servidor y el alcance de "permitir siempre" son correctos, SQLite es la única persistencia (atómica, sin caché ni capa en localStorage) y la regla del proyecto sigue al directorio actual. Especificación detallada en docs/audits/M61-permisos.md.
 Done when: Los probes C1-C3, S1-S3 y D1 de docs/audits/M61-permisos.md se comportan como se espera y están cubiertos en test_security.py; el frontend no persiste permisos en localStorage; un solo punto ejecuta herramientas; la regla del proyecto es dinámica; no hay utilidades de rutas duplicadas entre JS y Python; y todos los niveles de §4 pasan en verde.
 - [x] M61-T1 Punto único de ejecución de herramientas en ff-server (evaluar/retar/ejecutar/normalizar) con origen guardado en el reto (2026-11-11)
-- [ ] M61-T2 Reto ligado a una sola ejecución: sin challengeId en tools/call, authorize siempre ejecuta y consume, caducidad y cwd comprobados
+- [x] M61-T2 Reto ligado a una sola ejecución: sin challengeId en tools/call, authorize siempre ejecuta y consume, caducidad y cwd comprobados (2026-11-11)
 - [ ] M61-T3 Identidad real del servidor en autorizaciones externas y sin confianza de servidor para herramientas locales
 - [ ] M61-T4 allow_always de run_command solo con restricciones de comando y sin botón genérico en la tarjeta
 - [ ] M61-T5 Reglas de directorio evaluadas sobre rutas reales (enlaces simbólicos) con el mismo resolutor que workspace_trust

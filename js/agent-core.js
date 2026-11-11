@@ -282,8 +282,7 @@
         let result = await tool.execute(args, {
           ...context,
           language: context.language || 'es',
-          services: createToolServices(),
-          challengeId: context.challengeId
+          services: createToolServices()
         });
 
         if (result?.requiresAuthorization) {
@@ -321,7 +320,7 @@
             return failure('Execution denied by the user.', base);
           }
           if (security.mcpClient) {
-            const authRes = await security.authorizeChallenge(result.challengeId, decision, { execute: true }).catch(err => ({ error: err.message }));
+            const authRes = await security.authorizeChallenge(result.challengeId, decision).catch(err => ({ error: err.message }));
             if (authRes?.error || !authRes?.authorized) {
               return failure(authRes?.error || 'Challenge authorization failed.', base);
             }

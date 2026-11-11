@@ -1,4 +1,6 @@
+import os
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from backend import use_data_dir, zerochat
@@ -207,27 +209,121 @@ class AccessControllerPolicyTest(unittest.TestCase):
 
     def test_challenge_creation_and_authorize_rpc(self):
         handler = zerochat.ZeroChatServerHandler
-        # Create challenge on the controller used by the handler
         dec = zerochat.ACCESS_CONTROLLER.evaluate_authorization("run_command", {"command": "echo test"}, self.ctx)
         ch = zerochat.ACCESS_CONTROLLER.create_challenge("run_command", {"command": "echo test"}, dec)
         self.assertIsNotNone(ch["id"])
         self.assertFalse(ch["authorized"])
 
-        # Authorize via RPC
-        auth_params = {
+        # zerochat/security/authorize autoriza, consume y ejecuta el reto en una sola operación
+        res, err, info = handler._dispatch_security("zerochat/security/authorize", {
             "challengeId": ch["id"],
             "decision": "allow_once"
-        }
-        res, err, info = handler._dispatch_security("zerochat/security/authorize", auth_params)
+        })
         self.assertIsNone(err)
         self.assertEqual(res["authorized"], True)
-        self.assertEqual(res["challengeId"], ch["id"])
+        self.assertIn("test", res["result"]["content"][0]["text"])
 
-        # Challenge can be consumed
-        consumed = zerochat.ACCESS_CONTROLLER.consume_challenge(ch["id"])
-        self.assertIsNotNone(consumed)
-        # allow_once consumed once
+        # El reto ya quedó consumido y no puede reutilizarse
         self.assertIsNone(zerochat.ACCESS_CONTROLLER.consume_challenge(ch["id"]))
+        res_again, err_again, _ = handler._dispatch_security("zerochat/security/authorize", {
+            "challengeId": ch["id"],
+            "decision": "allow_once"
+        })
+        self.assertIsNone(res_again)
+        self.assertEqual(err_again["code"], -32002)
+
+    def test_tools_call_ignores_challenge_id_and_challenge_is_single_use(self):
+        handler = zerochat.ZeroChatServerHandler.__new__(zerochat.ZeroChatServerHandler)
+        zerochat.ACCESS_CONTROLLER.clear_session()
+        zerochat.ACCESS_CONTROLLER.set_global_policy(zerochat.GLOBAL_POLICY_ASK, self.ctx)
+        zerochat.ACCESS_CONTROLLER.set_directory_rules([], self.ctx)
+
+        # Probe C1: crear un reto para get_diagnostics fuera del proyecto y autorizarlo con allow_session
+        gate, err, _ = handler._dispatch_local("tools/call", {
+            "name": "get_diagnostics",
+            "arguments": {"path": str(self.base_dir)}
+        })
+        self.assertIsNone(err)
+        self.assertTrue(gate.get("requiresAuthorization"))
+        cid = gate["challengeId"]
+
+        auth_res, auth_err, _ = handler._dispatch_security("zerochat/security/authorize", {
+            "challengeId": cid,
+            "decision": "allow_session"
+        })
+        self.assertIsNone(auth_err)
+        self.assertTrue(auth_res["authorized"])
+
+        # El reto se consumió incluso con allow_session: una segunda autorización falla
+        auth_twice, err_twice, _ = handler._dispatch_security("zerochat/security/authorize", {
+            "challengeId": cid,
+            "decision": "allow_session"
+        })
+        self.assertIsNone(auth_twice)
+        self.assertEqual(err_twice["code"], -32002)
+
+        # Enviar challengeId o _meta.challengeId en tools/call para otra herramienta (write_file)
+        # no salta la evaluación ni escribe el fichero: vuelve a emitir un reto nuevo
+        outside_target = self.base_dir / "pwned_c1.txt"
+        call_res, call_err, _ = handler._dispatch_local("tools/call", {
+            "name": "write_file",
+            "arguments": {"path": str(outside_target), "content": "exploit"},
+            "challengeId": cid,
+            "_meta": {"challengeId": cid}
+        })
+        self.assertIsNone(call_err)
+        self.assertTrue(call_res.get("requiresAuthorization"))
+        self.assertNotEqual(call_res["challengeId"], cid)
+        self.assertFalse(outside_target.exists())
+
+    def test_challenge_ttl_exact_boundary_and_cwd_change(self):
+        handler = zerochat.ZeroChatServerHandler.__new__(zerochat.ZeroChatServerHandler)
+        zerochat.ACCESS_CONTROLLER.clear_session()
+        base_sec = 1_700_000_000.0
+        ttl_sec = zerochat.CHALLENGE_TTL_MS / 1000.0
+
+        # Borde exacto N (600_000 ms): se acepta
+        with unittest.mock.patch.object(zerochat.time, "time", return_value=base_sec):
+            dec = zerochat.ACCESS_CONTROLLER.evaluate_authorization("run_command", {"command": "echo ok_boundary"}, self.ctx)
+            ch_ok = zerochat.ACCESS_CONTROLLER.create_challenge("run_command", {"command": "echo ok_boundary"}, dec)
+        with unittest.mock.patch.object(zerochat.time, "time", return_value=base_sec + ttl_sec):
+            res_ok, err_ok, _ = handler._dispatch_security("zerochat/security/authorize", {
+                "challengeId": ch_ok["id"],
+                "decision": "allow_once"
+            })
+        self.assertIsNone(err_ok)
+        self.assertTrue(res_ok["authorized"])
+
+        # Borde exacto N+1 (600_001 ms): se rechaza y se elimina
+        with unittest.mock.patch.object(zerochat.time, "time", return_value=base_sec):
+            ch_exp = zerochat.ACCESS_CONTROLLER.create_challenge("run_command", {"command": "echo expired"}, dec)
+        with unittest.mock.patch.object(zerochat.time, "time", return_value=base_sec + ttl_sec + 0.001):
+            res_exp, err_exp, _ = handler._dispatch_security("zerochat/security/authorize", {
+                "challengeId": ch_exp["id"],
+                "decision": "allow_always",
+                "constraints": {"command": {"allowedPrefixes": ["echo"]}}
+            })
+        self.assertIsNone(res_exp)
+        self.assertEqual(err_exp["code"], -32002)
+        self.assertNotIn(ch_exp["id"], zerochat.ACCESS_CONTROLLER.pending_challenges)
+        self.assertIsNone(zerochat.ACCESS_CONTROLLER.get_tool_policy("run_command"))
+
+        # Cambio de directorio entre creación y autorización: se rechaza
+        ch_cwd = zerochat.ACCESS_CONTROLLER.create_challenge("run_command", {"command": "echo cwd"}, dec)
+        other_dir = self.workspace / "subdir_cwd"
+        other_dir.mkdir(exist_ok=True)
+        orig_cwd = Path.cwd()
+        try:
+            os.chdir(other_dir)
+            res_cwd, err_cwd, _ = handler._dispatch_security("zerochat/security/authorize", {
+                "challengeId": ch_cwd["id"],
+                "decision": "allow_once"
+            })
+        finally:
+            os.chdir(orig_cwd)
+        self.assertIsNone(res_cwd)
+        self.assertEqual(err_cwd["code"], -32002)
+        self.assertNotIn(ch_cwd["id"], zerochat.ACCESS_CONTROLLER.pending_challenges)
 
     def test_authorize_executes_challenge_by_stored_origin(self):
         handler = zerochat.ZeroChatServerHandler.__new__(zerochat.ZeroChatServerHandler)
@@ -256,8 +352,7 @@ class AccessControllerPolicyTest(unittest.TestCase):
         try:
             res, err, tool_err = handler._dispatch_security("zerochat/security/authorize", {
                 "challengeId": challenge_id,
-                "decision": "allow_once",
-                "execute": True
+                "decision": "allow_once"
             })
         finally:
             zerochat.GLOBAL_MCP_MANAGER.call = orig_call

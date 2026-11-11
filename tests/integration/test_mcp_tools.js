@@ -301,7 +301,6 @@ test('MCP Tools - respuesta a retos de autorización mediante executeToolCall y 
     assert.ok(authCall);
     assert.equal(authCall.params.challengeId, 'ch-challenge-99');
     assert.equal(authCall.params.decision, 'allow_always');
-    assert.equal(authCall.params.execute, true);
   } finally {
     global.fetch = originalFetch;
     ToolSecurity.manager.setMcpClient(null);

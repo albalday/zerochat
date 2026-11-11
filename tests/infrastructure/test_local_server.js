@@ -45,8 +45,7 @@ describe('Servidor local zerochat.py', () => {
       const auth = await rpc('zerochat/security/authorize', {
         challengeId: json.result.challengeId,
         decision: 'allow_once',
-        directoryRule: `RW:${os.tmpdir()}/**`,
-        execute: true
+        directoryRule: `RW:${os.tmpdir()}/**`
       });
       json = { jsonrpc: '2.0', id: json.id, result: auth.result?.result };
     }
@@ -182,8 +181,7 @@ describe('Servidor local zerochat.py', () => {
     // Autorizar el reto con allow_once y ejecutarlo
     const authRes = await client.request('zerochat/security/authorize', {
       challengeId: cmdRes.challengeId,
-      decision: 'allow_once',
-      execute: true
+      decision: 'allow_once'
     });
     assert.equal(authRes.authorized, true);
     assert.ok(authRes.result?.content?.[0]?.text?.includes('test'));
@@ -324,8 +322,7 @@ describe('Servidor local zerochat.py', () => {
     if (extCallRes.result?.requiresAuthorization) {
       const auth = await rpc('zerochat/security/authorize', {
         challengeId: extCallRes.result.challengeId,
-        decision: 'allow_once',
-        execute: true
+        decision: 'allow_once'
       });
       extCall = { result: auth.result?.result };
     }

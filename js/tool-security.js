@@ -371,8 +371,7 @@
         challengeId,
         decision: decType,
         ...(constraints ? { constraints } : {}),
-        ...(directoryRule ? { directoryRule } : {}),
-        ...(options.execute ? { execute: true } : {})
+        ...(directoryRule ? { directoryRule } : {})
       };
       const result = await this.mcpClient.request('zerochat/security/authorize', params);
       if (decType === 'allow_always' || decType === 'allow_server_always' || directoryRule) {

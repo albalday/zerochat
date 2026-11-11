@@ -290,7 +290,6 @@
       const params = {
         name,
         arguments: args,
-        ...(options.challengeId ? { challengeId: options.challengeId } : {}),
         ...(options.meta ? { _meta: options.meta } : {})
       };
       const result = await this.request('tools/call', params, options);
@@ -429,7 +428,6 @@
               return await this.client.callTool(rt.name, args, {
                 signal: context.signal,
                 timeoutMs: options.timeoutMs,
-                challengeId: context.challengeId,
                 meta: jobKey ? { zerochatJobKey: jobKey } : undefined
               });
             } catch (error) {

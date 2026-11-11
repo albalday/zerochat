@@ -19,6 +19,8 @@ SCOPE_PERMANENT = "permanent"
 SCOPE_SESSION = "session"
 SCOPES = (SCOPE_PERMANENT, SCOPE_SESSION)
 
+CHALLENGE_TTL_MS = 600_000
+
 DIRECTORY_RULE_PATTERN = re.compile(r"^(R|W|RW):(.+)$")
 COMMAND_TOOL = "run_command"
 JOB_CONTROL_TOOL = "check_command"
@@ -574,12 +576,14 @@ class AccessController:
             self.pending_challenges.clear()
 
     def create_challenge(self, tool_name: str, args: dict, decision: AccessDecision,
-                         server_name: str = "", server_id: str = "", origin: str = "local") -> dict:
+                         server_name: str = "", server_id: str = "", origin: str = "local",
+                         context: SecurityContext | None = None) -> dict:
         """Genera un reto estructurado para solicitar confirmación interactiva al usuario."""
         challenge_id = f"auth_{secrets.token_urlsafe(16)}"
         now = int(time.time() * 1000)
+        cwd = str((context.workspace_dir if context else Path.cwd()).resolve())
         with self._lock:
-            expired = [cid for cid, c in self.pending_challenges.items() if now - c.get("createdAt", 0) > 600_000]
+            expired = [cid for cid, c in self.pending_challenges.items() if now - c.get("createdAt", 0) > CHALLENGE_TTL_MS]
             for cid in expired:
                 self.pending_challenges.pop(cid, None)
 
@@ -591,6 +595,7 @@ class AccessController:
                 "serverName": server_name,
                 "serverId": server_id,
                 "origin": origin,
+                "cwd": cwd,
                 "createdAt": now,
                 "authorized": False,
                 "decisionType": None
@@ -601,9 +606,14 @@ class AccessController:
     def authorize_challenge(self, challenge_id: str, decision: str | dict,
                             constraints: dict | None = None, directory_rule: str | None = None,
                             context: SecurityContext | None = None) -> bool:
+        now = int(time.time() * 1000)
+        current_cwd = str((context.workspace_dir if context else Path.cwd()).resolve())
         with self._lock:
             challenge = self.pending_challenges.get(challenge_id)
             if not challenge:
+                return False
+            if now - challenge.get("createdAt", 0) > CHALLENGE_TTL_MS or challenge.get("cwd") != current_cwd:
+                self.pending_challenges.pop(challenge_id, None)
                 return False
             dec_type = decision.get("decision") if isinstance(decision, dict) else str(decision)
             if dec_type not in ("allow_once", "allow_session", "allow_always", "allow_server_always"):
@@ -619,14 +629,16 @@ class AccessController:
             return True
 
     def consume_challenge(self, challenge_id: str) -> dict | None:
-        """Consume y valida un reto previamente autorizado para una ejecución."""
+        """Consume y valida un reto previamente autorizado para una única ejecución."""
+        now = int(time.time() * 1000)
         with self._lock:
             challenge = self.pending_challenges.get(challenge_id)
             if not challenge or not challenge.get("authorized"):
                 return None
-            if challenge.get("decisionType") == "allow_once":
-                return self.pending_challenges.pop(challenge_id)
-            return challenge
+            if now - challenge.get("createdAt", 0) > CHALLENGE_TTL_MS:
+                self.pending_challenges.pop(challenge_id, None)
+                return None
+            return self.pending_challenges.pop(challenge_id)
 
     def revoke_challenge(self, challenge_id: str) -> bool:
         with self._lock:

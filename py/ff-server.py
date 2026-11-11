@@ -618,7 +618,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             err_msg = f"Bloqueado por política de seguridad: {decision.reason}"
             return {"content": [{"type": "text", "text": f"Error: {err_msg}"}], "isError": True, "securityStatus": "deny", "reason": decision.reason}, None, err_msg
         if decision.status == TOOL_POLICY_ASK:
-            ch = ACCESS_CONTROLLER.create_challenge(tool_name, args, decision, server_name=server_name, origin=origin)
+            ch = ACCESS_CONTROLLER.create_challenge(tool_name, args, decision, server_name=server_name, origin=origin, context=ctx)
             return {
                 "requiresAuthorization": True,
                 "challengeId": ch["id"],
@@ -642,15 +642,11 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             tool_name = params.get("name", "")
             raw_args = params.get("arguments", {})
             args = raw_args if isinstance(raw_args, dict) else {}
-            meta = params.get("_meta")
-            challenge_id = params.get("challengeId") or (meta.get("challengeId") if isinstance(meta, dict) else None)
             ctx = SecurityContext(workspace_dir=Path.cwd().resolve())
 
-            authorized_challenge = ACCESS_CONTROLLER.consume_challenge(challenge_id) if challenge_id else None
-            if not authorized_challenge:
-                gate = self._authorize_or_challenge("external", tool_name, args, ctx)
-                if gate is not None:
-                    return gate
+            gate = self._authorize_or_challenge("external", tool_name, args, ctx)
+            if gate is not None:
+                return gate
 
             return self._execute_tool("external", tool_name, args)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado en /mcp/external."}, ""
@@ -681,14 +677,11 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             meta = params.get("_meta")
             if tool_name == "run_command" and isinstance(meta, dict) and "zerochatJobKey" in meta:
                 args["job_key"] = meta.get("zerochatJobKey")
-            challenge_id = params.get("challengeId") or (meta.get("challengeId") if isinstance(meta, dict) else None)
             ctx = SecurityContext(workspace_dir=Path.cwd().resolve())
 
-            authorized_challenge = ACCESS_CONTROLLER.consume_challenge(challenge_id) if challenge_id else None
-            if not authorized_challenge:
-                gate = self._authorize_or_challenge("local", tool_name, args, ctx)
-                if gate is not None:
-                    return gate
+            gate = self._authorize_or_challenge("local", tool_name, args, ctx)
+            if gate is not None:
+                return gate
 
             return self._execute_tool("local", tool_name, args)
         if method == "zerochat/project/set_directory":
@@ -764,18 +757,16 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 if not success:
                     return None, {"code": -32002, "message": "Reto no encontrado o no válido"}, ""
 
-                if params.get("execute"):
-                    ch = ACCESS_CONTROLLER.consume_challenge(challenge_id)
-                    if not ch:
-                        return None, {"code": -32002, "message": "Error al consumir el reto para ejecución"}, ""
-                    t_origin = ch.get("origin") or "local"
-                    t_name = ch["toolName"]
-                    t_args = ch["arguments"] if isinstance(ch.get("arguments"), dict) else {}
-                    exec_res, exec_err, tool_err = cls._execute_tool(t_origin, t_name, t_args)
-                    if exec_err:
-                        return None, exec_err, tool_err
-                    return {"authorized": True, "result": exec_res}, None, tool_err
-                return {"authorized": True, "challengeId": challenge_id}, None, ""
+                ch = ACCESS_CONTROLLER.consume_challenge(challenge_id)
+                if not ch:
+                    return None, {"code": -32002, "message": "Error al consumir el reto para ejecución"}, ""
+                t_origin = ch.get("origin") or "local"
+                t_name = ch["toolName"]
+                t_args = ch["arguments"] if isinstance(ch.get("arguments"), dict) else {}
+                exec_res, exec_err, tool_err = cls._execute_tool(t_origin, t_name, t_args)
+                if exec_err:
+                    return None, exec_err, tool_err
+                return {"authorized": True, "result": exec_res}, None, tool_err
         except ValueError as exc:
             return None, {"code": -32602, "message": str(exc)}, ""
         except Exception as exc:
