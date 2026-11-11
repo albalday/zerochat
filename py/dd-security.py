@@ -587,13 +587,16 @@ class AccessController:
             for cid in expired:
                 self.pending_challenges.pop(cid, None)
 
+            dec_dict = decision.to_dict()
+            resolved_server_id = server_id or dec_dict.get("serverId", "")
+            dec_dict["serverId"] = resolved_server_id
             challenge_data = {
                 "id": challenge_id,
                 "toolName": tool_name,
                 "arguments": args,
-                "decision": decision.to_dict(),
-                "serverName": server_name,
-                "serverId": server_id,
+                "decision": dec_dict,
+                "serverName": server_name or dec_dict.get("serverName", ""),
+                "serverId": resolved_server_id,
                 "origin": origin,
                 "cwd": cwd,
                 "createdAt": now,
@@ -617,6 +620,8 @@ class AccessController:
                 return False
             dec_type = decision.get("decision") if isinstance(decision, dict) else str(decision)
             if dec_type not in ("allow_once", "allow_session", "allow_always", "allow_server_always"):
+                return False
+            if dec_type == "allow_server_always" and not challenge.get("serverId"):
                 return False
             challenge["authorized"] = True
             challenge["decisionType"] = dec_type
@@ -688,10 +693,11 @@ class AccessController:
                                  server_name=eval_dict.get("serverName", ""),
                                  original_name=eval_dict.get("originalName", ""))
         elif decision_type == "allow_server_always":
-            server_target = decision_dict.get("serverId") or eval_dict.get("serverId")
-            if server_target:
-                self.set_server_policy(server_target, SERVER_POLICY_ALLOW, scope=SCOPE_PERMANENT,
-                                       server_name=eval_dict.get("serverName", ""))
+            server_target = eval_dict.get("serverId")
+            if not server_target:
+                raise ValueError("allow_server_always requiere un servidor externo válido.")
+            self.set_server_policy(server_target, SERVER_POLICY_ALLOW, scope=SCOPE_PERMANENT,
+                                   server_name=eval_dict.get("serverName", ""))
         elif decision_type == "allow_always":
             req_constraints = decision_dict.get("constraints")
             constraints = self.merge_tool_constraints(target_tool, req_constraints)
@@ -729,7 +735,7 @@ class AccessController:
         tool_id = tool_name
         orig_name = original_name or (tool_or_name.get("originalName") if isinstance(tool_or_name, dict) else tool_name)
         srv_name = server_name or (tool_or_name.get("serverName") if isinstance(tool_or_name, dict) else "")
-        srv_id = server_id or (tool_or_name.get("serverId") if isinstance(tool_or_name, dict) else srv_name)
+        srv_id = server_id or (tool_or_name.get("serverId", "") if isinstance(tool_or_name, dict) else "")
 
         def make_decision(status: str, reason: str, extra: dict | None = None) -> AccessDecision:
             payload = extra or {}

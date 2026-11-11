@@ -677,8 +677,7 @@ class McpServiceManager:
                     aggregated.append(tcopy)
         return aggregated
 
-    def call(self, public_name: str, arguments: dict) -> dict:
-        target = None
+    def _resolve_tool(self, public_name: str) -> tuple[str, StdioMcpClient, str] | None:
         with self._lock:
             for server_id, client in self._running_clients():
                 for t in client.tools:
@@ -687,14 +686,28 @@ class McpServiceManager:
                     except (ValueError, TypeError):
                         continue
                     if matches:
-                        target = (client, t["name"])
-                        break
-                if target:
-                    break
-        if not target:
+                        return server_id, client, t["name"]
+        return None
+
+    def server_of(self, public_name: str) -> str | None:
+        resolved = self._resolve_tool(public_name)
+        if resolved:
+            return resolved[0]
+        if not isinstance(public_name, str) or "_" not in public_name:
+            return None
+        prefix = public_name.split("_", 1)[0]
+        try:
+            decoded = re.sub(r"z([0-9a-f]+)z", lambda m: chr(int(m.group(1), 16)), prefix)
+        except (ValueError, OverflowError):
+            return None
+        return decoded or None
+
+    def call(self, public_name: str, arguments: dict) -> dict:
+        resolved = self._resolve_tool(public_name)
+        if not resolved:
             raise ValueError(f"Herramienta externa '{public_name}' no disponible o servidor detenido.")
         # La llamada puede durar decenas de segundos: no debe bloquear al resto de servidores.
-        client, original_name = target
+        _, client, original_name = resolved
         return client.request("tools/call", {"name": original_name, "arguments": arguments}, timeout=client.call_timeout)
 
     def close(self):

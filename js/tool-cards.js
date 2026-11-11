@@ -535,7 +535,7 @@
   function promptToolAuthorization(card, toolCall, options = {}) {
     const toolName = toolCall.function.name;
     const serverName = options.serverName || '';
-    const serverId = options.serverId || '';
+    const serverId = options.serverId && options.serverId !== 'mcp_proxy' ? options.serverId : '';
     const signal = options.signal;
 
     // La tarjeta sale del historial plegado de su grupo y se despliega para que la petición quede a
@@ -692,8 +692,7 @@
       btnAllowServer?.addEventListener('click', (e) => {
         e.stopPropagation();
         handleDecision({
-          decision: 'allow_server_always',
-          serverId
+          decision: 'allow_server_always'
         });
       });
 

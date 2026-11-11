@@ -2463,13 +2463,16 @@ class AccessController:
             for cid in expired:
                 self.pending_challenges.pop(cid, None)
 
+            dec_dict = decision.to_dict()
+            resolved_server_id = server_id or dec_dict.get("serverId", "")
+            dec_dict["serverId"] = resolved_server_id
             challenge_data = {
                 "id": challenge_id,
                 "toolName": tool_name,
                 "arguments": args,
-                "decision": decision.to_dict(),
-                "serverName": server_name,
-                "serverId": server_id,
+                "decision": dec_dict,
+                "serverName": server_name or dec_dict.get("serverName", ""),
+                "serverId": resolved_server_id,
                 "origin": origin,
                 "cwd": cwd,
                 "createdAt": now,
@@ -2493,6 +2496,8 @@ class AccessController:
                 return False
             dec_type = decision.get("decision") if isinstance(decision, dict) else str(decision)
             if dec_type not in ("allow_once", "allow_session", "allow_always", "allow_server_always"):
+                return False
+            if dec_type == "allow_server_always" and not challenge.get("serverId"):
                 return False
             challenge["authorized"] = True
             challenge["decisionType"] = dec_type
@@ -2564,10 +2569,11 @@ class AccessController:
                                  server_name=eval_dict.get("serverName", ""),
                                  original_name=eval_dict.get("originalName", ""))
         elif decision_type == "allow_server_always":
-            server_target = decision_dict.get("serverId") or eval_dict.get("serverId")
-            if server_target:
-                self.set_server_policy(server_target, SERVER_POLICY_ALLOW, scope=SCOPE_PERMANENT,
-                                       server_name=eval_dict.get("serverName", ""))
+            server_target = eval_dict.get("serverId")
+            if not server_target:
+                raise ValueError("allow_server_always requiere un servidor externo válido.")
+            self.set_server_policy(server_target, SERVER_POLICY_ALLOW, scope=SCOPE_PERMANENT,
+                                   server_name=eval_dict.get("serverName", ""))
         elif decision_type == "allow_always":
             req_constraints = decision_dict.get("constraints")
             constraints = self.merge_tool_constraints(target_tool, req_constraints)
@@ -2605,7 +2611,7 @@ class AccessController:
         tool_id = tool_name
         orig_name = original_name or (tool_or_name.get("originalName") if isinstance(tool_or_name, dict) else tool_name)
         srv_name = server_name or (tool_or_name.get("serverName") if isinstance(tool_or_name, dict) else "")
-        srv_id = server_id or (tool_or_name.get("serverId") if isinstance(tool_or_name, dict) else srv_name)
+        srv_id = server_id or (tool_or_name.get("serverId", "") if isinstance(tool_or_name, dict) else "")
 
         def make_decision(status: str, reason: str, extra: dict | None = None) -> AccessDecision:
             payload = extra or {}
@@ -4741,8 +4747,7 @@ class McpServiceManager:
                     aggregated.append(tcopy)
         return aggregated
 
-    def call(self, public_name: str, arguments: dict) -> dict:
-        target = None
+    def _resolve_tool(self, public_name: str) -> tuple[str, StdioMcpClient, str] | None:
         with self._lock:
             for server_id, client in self._running_clients():
                 for t in client.tools:
@@ -4751,14 +4756,28 @@ class McpServiceManager:
                     except (ValueError, TypeError):
                         continue
                     if matches:
-                        target = (client, t["name"])
-                        break
-                if target:
-                    break
-        if not target:
+                        return server_id, client, t["name"]
+        return None
+
+    def server_of(self, public_name: str) -> str | None:
+        resolved = self._resolve_tool(public_name)
+        if resolved:
+            return resolved[0]
+        if not isinstance(public_name, str) or "_" not in public_name:
+            return None
+        prefix = public_name.split("_", 1)[0]
+        try:
+            decoded = re.sub(r"z([0-9a-f]+)z", lambda m: chr(int(m.group(1), 16)), prefix)
+        except (ValueError, OverflowError):
+            return None
+        return decoded or None
+
+    def call(self, public_name: str, arguments: dict) -> dict:
+        resolved = self._resolve_tool(public_name)
+        if not resolved:
             raise ValueError(f"Herramienta externa '{public_name}' no disponible o servidor detenido.")
         # La llamada puede durar decenas de segundos: no debe bloquear al resto de servidores.
-        client, original_name = target
+        _, client, original_name = resolved
         return client.request("tools/call", {"name": original_name, "arguments": arguments}, timeout=client.call_timeout)
 
     def close(self):
@@ -5981,18 +6000,28 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     @staticmethod
     def _authorize_or_challenge(origin: str, tool_name: str, args: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str] | None:
         """Evalúa la política de seguridad y devuelve respuesta de denegación o reto si procede."""
-        server_name = "external" if origin == "external" else "mcp-proxy"
-        decision = ACCESS_CONTROLLER.evaluate_authorization(tool_name, args, context=ctx, server_name=server_name)
+        if origin == "external":
+            server_id = GLOBAL_MCP_MANAGER.server_of(tool_name) or ""
+            server_name = server_id or "external"
+        else:
+            server_id = ""
+            server_name = "mcp-proxy"
+        decision = ACCESS_CONTROLLER.evaluate_authorization(
+            tool_name, args, context=ctx, server_name=server_name, server_id=server_id
+        )
         if decision.status == TOOL_POLICY_DENY:
             err_msg = f"Bloqueado por política de seguridad: {decision.reason}"
             return {"content": [{"type": "text", "text": f"Error: {err_msg}"}], "isError": True, "securityStatus": "deny", "reason": decision.reason}, None, err_msg
         if decision.status == TOOL_POLICY_ASK:
-            ch = ACCESS_CONTROLLER.create_challenge(tool_name, args, decision, server_name=server_name, origin=origin, context=ctx)
+            ch = ACCESS_CONTROLLER.create_challenge(
+                tool_name, args, decision, server_name=server_name, server_id=server_id, origin=origin, context=ctx
+            )
             return {
                 "requiresAuthorization": True,
                 "challengeId": ch["id"],
                 "toolName": tool_name,
                 "serverName": server_name,
+                "serverId": server_id,
                 "arguments": args,
                 "ruleOffer": decision.rule_offer,
                 "details": decision.details,

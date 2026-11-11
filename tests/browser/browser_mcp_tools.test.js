@@ -33,12 +33,32 @@ test('Browser UI - autorización de Composio muestra y devuelve únicamente su s
       button.click();
       const decision = await pending;
       card.remove();
-      return { label, title, decision };
+
+      const localProvider = new window.ChatMCP.McpToolProvider({
+        id: 'mcp_proxy', name: 'ZeroChat Local Server',
+        initialize: async () => ({ success: true }),
+        listTools: async () => [{ name: 'run_command', inputSchema: { type: 'object', properties: {} } }]
+      });
+      const [localTool] = await localProvider.discoverTools();
+      const localCard = window.ChatToolCards.createLiveToolCard(localTool.name, {});
+      document.body.appendChild(localCard);
+      const localPending = window.ChatToolCards.promptToolAuthorization(localCard, { function: { name: localTool.name, arguments: '{}' } }, {
+        serverId: localTool.metadata.mcpServerId,
+        serverName: localTool.metadata.mcpServerName,
+        args: {}
+      });
+      const hasLocalServerButton = Boolean(localCard.querySelector('.btn-auth-allow-server'));
+      localCard.querySelector('.btn-auth-deny').click();
+      await localPending;
+      localCard.remove();
+
+      return { label, title, decision, hasLocalServerButton };
     });
     assert.ok(result.label.includes('composio'));
     assert.ok(result.title.includes('composio'));
     assert.ok(!result.label.includes('External MCP Host'));
-    assert.deepEqual(result.decision, { decision: 'allow_server_always', serverId: 'composio' });
+    assert.deepEqual(result.decision, { decision: 'allow_server_always' });
+    assert.equal(result.hasLocalServerButton, false);
   } finally { await browser.close(); }
 });
 

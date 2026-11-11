@@ -292,8 +292,8 @@
           // El backend decide la autorización; el navegador solo pregunta cuando emite un reto.
           const decision = await context.requestToolAuthorization(toolCall, {
             args: result.arguments || args,
-            serverName: result.serverName || '',
-            serverId: result.serverId || '',
+            serverName: result.serverName || tool.metadata?.mcpServerName || '',
+            serverId: result.serverId || tool.metadata?.mcpServerId || '',
             toolName: result.toolName || tool.name,
             challengeId: result.challengeId,
             ruleOffer: result.ruleOffer,

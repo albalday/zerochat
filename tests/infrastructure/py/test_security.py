@@ -363,6 +363,60 @@ class AccessControllerPolicyTest(unittest.TestCase):
         self.assertEqual(res["result"]["content"][0]["text"], "external-output")
         self.assertEqual(called_external, [("read_file", {"path": "/etc/passwd"})])
 
+    def test_external_server_identity_and_local_rejects_server_trust(self):
+        handler = zerochat.ZeroChatServerHandler.__new__(zerochat.ZeroChatServerHandler)
+        zerochat.ACCESS_CONTROLLER.clear_session()
+        zerochat.ACCESS_CONTROLLER.servers.clear()
+        zerochat.ACCESS_CONTROLLER.set_global_policy(zerochat.GLOBAL_POLICY_ASK, self.ctx)
+
+        # Probe C2a: confiar en el servidor "playwright" autoriza playwright__x pero NO otro__y
+        zerochat.ACCESS_CONTROLLER.set_server_policy("playwright", zerochat.SERVER_POLICY_ALLOW)
+        called_external = []
+        orig_call = zerochat.GLOBAL_MCP_MANAGER.call
+
+        def fake_external_call(name, args):
+            called_external.append(name)
+            return {"content": [{"type": "text", "text": f"ran:{name}"}], "isError": False}
+
+        zerochat.GLOBAL_MCP_MANAGER.call = fake_external_call
+        try:
+            res_pw, err_pw, _ = handler._dispatch_external("tools/call", {
+                "name": "playwright__x",
+                "arguments": {}
+            })
+            self.assertIsNone(err_pw)
+            self.assertFalse(res_pw.get("requiresAuthorization", False))
+            self.assertEqual(called_external, ["playwright__x"])
+
+            res_other, err_other, _ = handler._dispatch_external("tools/call", {
+                "name": "otro__y",
+                "arguments": {}
+            })
+            self.assertIsNone(err_other)
+            self.assertTrue(res_other.get("requiresAuthorization"))
+            self.assertEqual(res_other["serverId"], "otro")
+        finally:
+            zerochat.GLOBAL_MCP_MANAGER.call = orig_call
+
+        # Probe C2b: allow_server_always sobre una herramienta local se rechaza y no añade servidores
+        zerochat.ACCESS_CONTROLLER.servers.clear()
+        local_gate, local_err, _ = handler._dispatch_local("tools/call", {
+            "name": "run_command",
+            "arguments": {"command": "echo local_test"}
+        })
+        self.assertIsNone(local_err)
+        self.assertTrue(local_gate.get("requiresAuthorization"))
+        self.assertEqual(local_gate.get("serverId"), "")
+
+        auth_res, auth_err, _ = handler._dispatch_security("zerochat/security/authorize", {
+            "challengeId": local_gate["challengeId"],
+            "decision": "allow_server_always",
+            "serverId": "mcp-proxy"
+        })
+        self.assertIsNone(auth_res)
+        self.assertEqual(auth_err["code"], -32002)
+        self.assertEqual(zerochat.ACCESS_CONTROLLER.servers, {})
+
     def test_reset_session_credentials_with_run_session(self):
         try:
             zerochat.RUN_SESSION = zerochat.RunSession(

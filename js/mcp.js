@@ -316,6 +316,7 @@
           challengeId: result.challengeId,
           toolName: result.toolName || name,
           serverName: result.serverName || this.name,
+          serverId: result.serverId || '',
           arguments: result.arguments || args,
           ruleOffer: result.ruleOffer,
           details: result.details,

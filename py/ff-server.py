@@ -612,18 +612,28 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     @staticmethod
     def _authorize_or_challenge(origin: str, tool_name: str, args: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str] | None:
         """Evalúa la política de seguridad y devuelve respuesta de denegación o reto si procede."""
-        server_name = "external" if origin == "external" else "mcp-proxy"
-        decision = ACCESS_CONTROLLER.evaluate_authorization(tool_name, args, context=ctx, server_name=server_name)
+        if origin == "external":
+            server_id = GLOBAL_MCP_MANAGER.server_of(tool_name) or ""
+            server_name = server_id or "external"
+        else:
+            server_id = ""
+            server_name = "mcp-proxy"
+        decision = ACCESS_CONTROLLER.evaluate_authorization(
+            tool_name, args, context=ctx, server_name=server_name, server_id=server_id
+        )
         if decision.status == TOOL_POLICY_DENY:
             err_msg = f"Bloqueado por política de seguridad: {decision.reason}"
             return {"content": [{"type": "text", "text": f"Error: {err_msg}"}], "isError": True, "securityStatus": "deny", "reason": decision.reason}, None, err_msg
         if decision.status == TOOL_POLICY_ASK:
-            ch = ACCESS_CONTROLLER.create_challenge(tool_name, args, decision, server_name=server_name, origin=origin, context=ctx)
+            ch = ACCESS_CONTROLLER.create_challenge(
+                tool_name, args, decision, server_name=server_name, server_id=server_id, origin=origin, context=ctx
+            )
             return {
                 "requiresAuthorization": True,
                 "challengeId": ch["id"],
                 "toolName": tool_name,
                 "serverName": server_name,
+                "serverId": server_id,
                 "arguments": args,
                 "ruleOffer": decision.rule_offer,
                 "details": decision.details,
