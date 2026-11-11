@@ -62,7 +62,7 @@ test('Browser UI - autorización de Composio muestra y devuelve únicamente su s
   } finally { await browser.close(); }
 });
 
-test('Browser UI - autorización de comando oculta botón genérico permitir siempre y muestra permitir cmd', async () => {
+test('Browser UI - autorización de comando concede la línea editable con alcance de sesión, proyecto o todos', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
@@ -83,24 +83,26 @@ test('Browser UI - autorización de comando oculta botón genérico permitir sie
         }
       });
       const hasGenericAlwaysInCmd = Boolean(cardCmd.querySelector('.btn-auth-allow-always'));
-      const hasCmdButton = Boolean(cardCmd.querySelector('.btn-auth-allow-cmd'));
+      const hasGenericSessionInCmd = Boolean(cardCmd.querySelector('.btn-auth-allow-session'));
+      const scopes = [...cardCmd.querySelectorAll('.btn-auth-allow-cmd')].map(button => button.dataset.decision);
       // La línea propuesta lleva el "*" dentro y se edita; vacía, solo "*" o con "*" intermedio no se acepta
       const input = cardCmd.querySelector('.tool-auth-cmd-input');
-      const accept = cardCmd.querySelector('.btn-auth-allow-cmd');
+      const buttons = [...cardCmd.querySelectorAll('.btn-auth-allow-cmd')];
+      const projectButton = cardCmd.querySelector('.btn-auth-allow-cmd[data-decision="allow_project"]');
       const proposedPrefix = input.value;
       const rejected = {};
       for (const value of ['  ', '*', ' * ', 'ls * -l']) {
         input.value = value;
         input.dispatchEvent(new Event('input', { bubbles: true }));
-        accept.click();
+        buttons.forEach(button => button.click());
         input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-        rejected[value] = accept.disabled && input.getAttribute('aria-invalid') === 'true';
+        rejected[value] = buttons.every(button => button.disabled) && input.getAttribute('aria-invalid') === 'true';
       }
       const stillPending = Boolean(cardCmd.querySelector('.tool-card-auth-prompt'));
       input.value = 'ls -l *';
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      const enabledAgain = !accept.disabled;
-      accept.click();
+      const enabledAgain = buttons.every(button => !button.disabled);
+      projectButton.click();
       const cmdDecision = await pendingCmd;
       cardCmd.remove();
 
@@ -117,18 +119,19 @@ test('Browser UI - autorización de comando oculta botón genérico permitir sie
       await pendingFile;
       cardFile.remove();
 
-      return { hasGenericAlwaysInCmd, hasCmdButton, hasGenericAlwaysInFile, proposedPrefix, rejected, stillPending, enabledAgain, cmdDecision };
+      return { hasGenericAlwaysInCmd, hasGenericSessionInCmd, scopes, hasGenericAlwaysInFile, proposedPrefix, rejected, stillPending, enabledAgain, cmdDecision };
     });
+    assert.deepEqual(result.scopes, ['allow_session', 'allow_project', 'allow_always']);
+    assert.equal(result.hasGenericSessionInCmd, false, 'En un comando la sesión se concede sobre la línea, no sobre run_command entero');
     assert.equal(result.proposedPrefix, 'ls *');
     assert.deepEqual(result.rejected, { '  ': true, '*': true, ' * ': true, 'ls * -l': true });
     assert.equal(result.stillPending, true, 'Una línea no válida no decide la autorización');
     assert.equal(result.enabledAgain, true);
     assert.deepEqual(result.cmdDecision, {
-      decision: 'allow_always',
+      decision: 'allow_project',
       constraints: { command: { allowedPrefixes: ['ls -l *'], allowChaining: false, allowPipes: false } }
     });
     assert.equal(result.hasGenericAlwaysInCmd, false, 'El botón genérico permitir siempre no debe aparecer en comandos');
-    assert.equal(result.hasCmdButton, true, 'El botón acotado permitir cmd debe aparecer');
     assert.equal(result.hasGenericAlwaysInFile, true, 'El botón genérico permitir siempre debe aparecer en herramientas no comando');
   } finally { await browser.close(); }
 });
@@ -272,12 +275,11 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
         hasSession: !!menu.querySelector('.btn-auth-allow-session'),
         hasPermanent: !!menu.querySelector('.btn-auth-allow-always'),
         hasCommandScope: !!menu.querySelector('.btn-auth-allow-cmd'),
-        // La línea del comando tiene ancho útil y ✓ queda a su derecha, en la misma fila
+        // Los tres alcances van uno por fila y la línea del comando debajo, con ancho útil
         cmdInputWidth: menu.querySelector('.tool-auth-cmd-input').getBoundingClientRect().width,
-        cmdButtonBeside: (() => {
-          const input = menu.querySelector('.tool-auth-cmd-input').getBoundingClientRect();
-          const button = menu.querySelector('.btn-auth-allow-cmd').getBoundingClientRect();
-          return button.left >= input.right && button.top < input.bottom && button.bottom > input.top;
+        cmdLayout: (() => {
+          const rows = [...menu.querySelectorAll('.btn-auth-allow-cmd'), menu.querySelector('.tool-auth-cmd-input')].map(el => el.getBoundingClientRect());
+          return rows.every((rect, i) => i === 0 || rect.top >= rows[i - 1].bottom);
         })(),
         hasServerTrust: !!menu.querySelector('.btn-auth-allow-server'),
         panelVisible: window.__permissionCard.querySelector('.tool-execution-card').getBoundingClientRect().bottom <= document.getElementById('messages-list').getBoundingClientRect().bottom + 1
@@ -286,21 +288,22 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
     assert.equal(expanded.expanded, 'true');
     assert.equal(expanded.menuHidden, false);
     assert.equal(expanded.menuPosition, 'static');
-    assert.equal(expanded.hasSession, true);
+    assert.equal(expanded.hasSession, false, 'Comando oculta el botón genérico de sesión');
     assert.equal(expanded.hasPermanent, false, 'Comando oculta botón genérico permitir siempre (M61-T4)');
     assert.equal(expanded.hasCommandScope, true);
     assert.ok(expanded.cmdInputWidth >= 150, `El campo del prefijo es demasiado estrecho: ${expanded.cmdInputWidth}px`);
-    assert.equal(expanded.cmdButtonBeside, true);
+    assert.equal(expanded.cmdLayout, true);
     assert.equal(expanded.hasServerTrust, true);
     assert.equal(expanded.panelVisible, true);
 
-    await page.click('.tool-auth-more-menu .btn-auth-allow-session');
+    await page.click('.tool-auth-more-menu .btn-auth-allow-cmd[data-decision="allow_session"]');
     const decision = await page.evaluate(async () => {
       const result = await window.__permissionDecision;
       window.__permissionCard.remove();
       return result;
     });
-    assert.equal(decision, 'allow_session');
+    assert.equal(decision.decision, 'allow_session');
+    assert.deepEqual(decision.constraints.command.allowedPrefixes, ['git *']);
   } finally { await browser.close(); }
 });
 

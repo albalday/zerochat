@@ -183,21 +183,27 @@ test('ChatToolSecurity - cambio de sessionToken relee el estado del backend', as
   assert.equal(manager.getToolPolicy('sess_tool'), null);
 });
 
-test('ChatToolSecurity - setCommandPrefixes sustituye los prefijos conservando el resto y sin prefijos revoca', async () => {
+test('ChatToolSecurity - setCommandPrefixes sustituye los prefijos guardados sin enviar los de sesión y sin ninguno revoca', async () => {
   const mockClient = createMockClient({
-    tools: { run_command: { policy: 'allow', serverName: 'local', originalName: 'run_command', constraints: { command: { allowedPrefixes: ['git'], allowPipes: false } } } }
+    tools: { run_command: { policy: 'allow', serverName: 'local', originalName: 'run_command', constraints: { command: { allowedPrefixes: ['git'], sessionPrefixes: ['make'], allowPipes: false } } } }
   });
   const manager = new ChatToolSecurity.ToolSecurityManager();
   manager.setMcpClient(mockClient);
   await manager.refresh();
 
-  await manager.setCommandPrefixes('run_command', ['git status', ' ', 'git log']);
+  await manager.setCommandPrefixes('run_command', { allowedPrefixes: ['git status', ' ', 'git log'], projectPrefixes: { '/repo': ['npm test'], '/vacio': [] } });
   const patch = mockClient.calls[mockClient.calls.length - 1].params;
-  assert.deepEqual(patch.tools.run_command.constraints, { command: { allowedPrefixes: ['git status', 'git log'], allowPipes: false } });
+  assert.deepEqual(patch.tools.run_command.constraints, {
+    command: { allowedPrefixes: ['git status', 'git log'], projectPrefixes: { '/repo': ['npm test'] }, allowPipes: false }
+  });
   assert.equal(patch.tools.run_command.policy, 'allow');
   assert.equal(patch.tools.run_command.serverName, 'local');
 
-  await manager.setCommandPrefixes('run_command', []);
+  // Solo con prefijos de proyecto sigue siendo una autorización válida
+  await manager.setCommandPrefixes('run_command', { allowedPrefixes: [], projectPrefixes: { '/repo': ['npm test'] } });
+  assert.equal(mockClient.calls[mockClient.calls.length - 1].params.tools.run_command.policy, 'allow');
+
+  await manager.setCommandPrefixes('run_command', { allowedPrefixes: [], projectPrefixes: { '/repo': [] } });
   assert.deepEqual(mockClient.calls[mockClient.calls.length - 1].params, { tools: { run_command: null } });
   assert.equal(manager.getToolPolicy('run_command'), null);
 });

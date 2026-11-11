@@ -274,16 +274,22 @@
     }
 
     /**
-     * Sustituye los prefijos de comando autorizados de una herramienta; sin prefijos se revoca,
-     * porque una lista vacía no autoriza ningún comando. El backend valida y normaliza cada prefijo.
+     * Sustituye los prefijos de comando guardados de una herramienta: globales (`allowedPrefixes`) y por
+     * proyecto (`projectPrefixes`). Sin ninguno se revoca, porque sin prefijos no se autoriza ningún comando.
+     * Los de sesión no se guardan y no se envían. El backend valida y normaliza cada prefijo.
      */
-    async setCommandPrefixes(toolId, prefixes) {
-      const list = (Array.isArray(prefixes) ? prefixes : []).map(p => String(p ?? '').trim()).filter(Boolean);
-      if (!list.length) return this.revokeToolPolicy(toolId);
+    async setCommandPrefixes(toolId, { allowedPrefixes = [], projectPrefixes = {} } = {}) {
+      const clean = list => (Array.isArray(list) ? list : []).map(p => String(p ?? '').trim()).filter(Boolean);
+      const globalList = clean(allowedPrefixes);
+      const projects = Object.fromEntries(Object.entries(projectPrefixes || {})
+        .map(([project, list]) => [project, clean(list)])
+        .filter(([, list]) => list.length));
+      if (!globalList.length && !Object.keys(projects).length) return this.revokeToolPolicy(toolId);
       const entry = this.findToolEntry(toolId)?.entry || {};
-      const constraints = entry.constraints || {};
+      const command = { ...entry.constraints?.command };
+      delete command.sessionPrefixes;
       return this.setToolPolicy(toolId, POLICIES.ALLOW, {
-        constraints: { ...constraints, command: { ...constraints.command, allowedPrefixes: list } },
+        constraints: { ...entry.constraints, command: { ...command, allowedPrefixes: globalList, projectPrefixes: projects } },
         serverName: entry.serverName,
         originalName: entry.originalName
       });

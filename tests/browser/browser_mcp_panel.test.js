@@ -217,11 +217,14 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
       const removePrefix = prefix => page.evaluate(p => document.querySelector(`#mcp-saved-auths-list .btn-remove-cmd-prefix[data-prefix="${p}"]`).click(), prefix);
       await page.evaluate(async () => {
         await window.ChatToolSecurity.manager.setToolPolicy('run_command', 'allow', {
-          constraints: { command: { allowedPrefixes: ['git status', 'git diff'], allowChaining: false, allowPipes: false } }
+          constraints: { command: { allowedPrefixes: ['git status', 'git diff'], projectPrefixes: { '/repo': ['npm test'] }, sessionPrefixes: ['make'], allowChaining: false, allowPipes: false } }
         });
         window.ChatUIMcp.renderSavedAuthorizations();
       });
-      assert.deepEqual(await chips(), ['git status *', 'git diff *']);
+      // Agrupados por alcance: todos los proyectos, cada proyecto y la sesión (esta sin botón de quitar)
+      assert.deepEqual(await chips(), ['git status *', 'git diff *', 'npm test *', 'make *']);
+      assert.deepEqual(await page.$$eval('#mcp-saved-auths-list .mcp-auth-cmd-scope', els => els.map(el => el.textContent.trim())), ['Todos los proyectos', '/repo', 'Sesión']);
+      assert.equal(await page.$$eval('#mcp-saved-auths-list .btn-remove-cmd-prefix', els => els.length), 3);
 
       await page.evaluate(() => {
         document.querySelector('#mcp-saved-auths-list .mcp-auth-cmd-input').value = 'git log';
@@ -232,6 +235,11 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
 
       await removePrefix('git diff');
       await page.waitForFunction(() => window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.allowedPrefixes?.length === 2);
+      assert.deepEqual(await prefixes(), ['git status', 'git log']);
+
+      // Quitar un prefijo de proyecto no toca los globales
+      await page.evaluate(() => document.querySelector('#mcp-saved-auths-list .btn-remove-cmd-prefix[data-project="/repo"]').click());
+      await page.waitForFunction(() => !window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.projectPrefixes?.['/repo']);
       assert.deepEqual(await prefixes(), ['git status', 'git log']);
 
       // Un rechazo del backend se muestra junto al editor sin cambiar nada

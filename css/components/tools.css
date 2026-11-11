@@ -1665,23 +1665,12 @@ button.command-jobs-link:focus-visible {
 }
 
 /* Prefijo de comando editable en la tarjeta de autorización y en las autorizaciones guardadas. */
-/* Rótulo arriba; debajo, la línea editable ("git status *") y ✓ para aceptarla. */
+/* Los tres alcances (sesión, proyecto, todos) uno por fila y debajo la línea editable ("git status *"). */
 .tool-auth-cmd-rule {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.3rem;
   min-width: 0;
-}
-
-.tool-auth-cmd-caption {
-  grid-column: 1 / -1;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--text-muted);
 }
 
 .tool-auth-cmd-input,
@@ -1699,11 +1688,6 @@ button.command-jobs-link:focus-visible {
 
 .tool-auth-cmd-input[aria-invalid="true"] {
   border-color: var(--danger-border);
-}
-
-.tool-auth-more-menu .tool-auth-cmd-rule .btn-auth-allow-cmd {
-  width: auto;
-  justify-content: center;
 }
 
 .btn-auth-allow-cmd:disabled {
@@ -1761,4 +1745,23 @@ button.command-jobs-link:focus-visible {
   margin: 0;
   font-size: 0.72rem;
   color: var(--danger-text);
+}
+
+.mcp-auth-cmd-group {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.mcp-auth-cmd-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 100%;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
 }

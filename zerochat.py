@@ -1892,7 +1892,7 @@ SCOPE_SESSION = "session"
 
 POLICY_STATE_VERSION = 5
 CHALLENGE_TTL_MS = 600_000
-AUTHORIZE_DECISIONS = ("allow_once", "allow_session", "allow_always", "allow_server_always")
+AUTHORIZE_DECISIONS = ("allow_once", "allow_session", "allow_project", "allow_always", "allow_server_always")
 MAX_POLICY_ENTRIES = 500
 
 DIRECTORY_RULE_PATTERN = re.compile(r"^(R|W|RW):(.+)$")
@@ -2143,10 +2143,20 @@ def normalize_command_prefix(raw: str) -> str:
     return clean
 
 
+def _clean_prefix_list(raw: list, label: str) -> list[str]:
+    """Prefijos limpios, sin repetidos ni cubiertos por otro más amplio de la misma lista."""
+    if not isinstance(raw, list):
+        raise ValueError(f"{label} debe ser una lista de comandos.")
+    unique = list(dict.fromkeys(normalize_command_prefix(p) for p in raw))
+    return [p for p in unique if not any(q != p and matches_command_prefix(p, q) for q in unique)]
+
+
 def normalize_command_constraints(constraints: dict | None) -> dict | None:
     """
-    Valida y normaliza las restricciones de comando: lista no vacía de prefijos sin metacaracteres
-    de shell, sin repetidos ni prefijos cubiertos por otro más amplio, y con un tope.
+    Valida y normaliza las restricciones de comando: prefijos globales (`allowedPrefixes`) y por
+    proyecto (`projectPrefixes`, ruta absoluta del proyecto -> prefijos), sin metacaracteres de shell,
+    sin repetidos ni prefijos cubiertos por otro más amplio, con al menos uno y como máximo
+    MAX_COMMAND_PREFIXES en total. Los prefijos de sesión nunca forman parte del estado guardado.
     """
     if constraints is None:
         return None
@@ -2157,24 +2167,47 @@ def normalize_command_constraints(constraints: dict | None) -> dict | None:
         return None
     if not isinstance(command, dict):
         raise ValueError("constraints.command debe ser un diccionario.")
-    raw_prefixes = command.get("allowedPrefixes")
-    if not isinstance(raw_prefixes, list) or not raw_prefixes:
+    raw_allowed = command.get("allowedPrefixes", [])
+    raw_projects = command.get("projectPrefixes") or {}
+    if not isinstance(raw_projects, dict):
+        raise ValueError("projectPrefixes debe ser un diccionario de proyecto a prefijos.")
+    total = (len(raw_allowed) if isinstance(raw_allowed, list) else 0) + \
+        sum(len(v) for v in raw_projects.values() if isinstance(v, list))
+    if total > MAX_COMMAND_PREFIXES:
+        raise ValueError(f"Hay {total} prefijos de comando; el máximo es {MAX_COMMAND_PREFIXES}.")
+    allowed = _clean_prefix_list(raw_allowed, "allowedPrefixes")
+    projects: dict[str, list[str]] = {}
+    for raw_path, raw_list in raw_projects.items():
+        path = normalize_directory_path(str(raw_path))
+        if not path or not re.match(r"^(/|[A-Za-z]:/)", path):
+            raise ValueError(f"Proyecto no válido en projectPrefixes: '{raw_path}'.")
+        prefixes = _clean_prefix_list(list(projects.get(path, [])) + list(raw_list or []), "projectPrefixes")
+        if prefixes:
+            projects[path] = prefixes
+    if not allowed and not projects:
         raise ValueError("allowedPrefixes debe ser una lista no vacía de comandos.")
-    if len(raw_prefixes) > MAX_COMMAND_PREFIXES:
-        raise ValueError(f"Hay {len(raw_prefixes)} prefijos de comando; el máximo es {MAX_COMMAND_PREFIXES}.")
-    unique = list(dict.fromkeys(normalize_command_prefix(p) for p in raw_prefixes))
-    prefixes = [p for p in unique if not any(q != p and matches_command_prefix(p, q) for q in unique)]
     clean_command = {
-        "allowedPrefixes": prefixes,
+        "allowedPrefixes": allowed,
         "allowChaining": command.get("allowChaining") is True,
         "allowPipes": command.get("allowPipes") is True
     }
+    if projects:
+        clean_command["projectPrefixes"] = projects
     denied = command.get("deniedPatterns")
     if denied is not None:
         if not isinstance(denied, list) or not all(isinstance(d, str) and d.strip() for d in denied):
             raise ValueError("deniedPatterns debe ser una lista de textos.")
         clean_command["deniedPatterns"] = [d.strip() for d in denied]
     return {"command": clean_command}
+
+
+def command_prefixes_for(command_constraints: dict, project: str) -> list[str]:
+    """Prefijos que rigen en un proyecto: globales, los de ese proyecto y los de la sesión."""
+    return [
+        *(command_constraints.get("allowedPrefixes") or []),
+        *((command_constraints.get("projectPrefixes") or {}).get(project) or []),
+        *(command_constraints.get("sessionPrefixes") or [])
+    ]
 
 
 def suggest_command_prefix(command: str) -> str:
@@ -2284,9 +2317,38 @@ class AccessController:
             return {
                 "globalMcpPolicy": self.session_global_policy if self.session_global_policy is not None else state["globalMcpPolicy"],
                 "directoryRules": list(self.session_directory_rules) if self.session_directory_rules is not None else state["directoryRules"],
-                "tools": {**state["tools"], **self.session_tools},
+                "tools": {**state["tools"], **{tid: self._combine_tool_entry(state["tools"].get(tid), entry)
+                                               for tid, entry in self.session_tools.items()}},
                 "servers": {**state["servers"], **self.session_servers}
             }
+
+    @staticmethod
+    def _combine_tool_entry(permanent: dict | None, session: dict) -> dict:
+        """
+        Entrada efectiva de una herramienta. Una entrada de sesión sustituye a la permanente, salvo
+        los prefijos de comando de sesión, que se suman a los permanentes como `sessionPrefixes`
+        (una denegación o una autorización sin restricciones permanentes prevalecen).
+        """
+        session_cmd = (session.get("constraints") or {}).get("command")
+        if session.get("policy") != POLICY_ALLOW or not session_cmd:
+            return session
+        if permanent and (permanent.get("policy") == POLICY_DENY or not (permanent.get("constraints") or {}).get("command")):
+            return permanent
+        base = permanent or {**session, "constraints": {"command": {"allowedPrefixes": [], "allowChaining": False, "allowPipes": False}}}
+        base_cmd = base["constraints"]["command"]
+        return {**base, "constraints": {**base["constraints"], "command": {**base_cmd, "sessionPrefixes": list(session_cmd.get("allowedPrefixes") or [])}}}
+
+    def _drop_superseded_session(self, kind: str, item_ids, revoked: bool = False):
+        """Una escritura permanente retira la entrada de sesión, salvo prefijos de comando de sesión (se suman)."""
+        session = self._session_map(kind)
+        for item_id in item_ids:
+            entry = session.get(item_id)
+            if entry and (revoked or not (entry.get("constraints") or {}).get("command")):
+                session.pop(item_id, None)
+
+    @staticmethod
+    def _project_key(context: SecurityContext | None) -> str:
+        return normalize_directory_path(str((context or SecurityContext()).workspace_dir))
 
     def export_state(self, context: SecurityContext | None = None) -> dict:
         return {
@@ -2423,11 +2485,10 @@ class AccessController:
             elif added_rules and self.session_directory_rules is not None:
                 self.session_directory_rules = self._append_rules(self.session_directory_rules, added_rules)
             if clean_tools is not None:
-                for tool_id in clean_tools:
-                    self.session_tools.pop(tool_id, None)
+                self._drop_superseded_session("tools", [k for k, v in clean_tools.items() if v is not None])
+                self._drop_superseded_session("tools", [k for k, v in clean_tools.items() if v is None], revoked=True)
             if clean_servers is not None:
-                for srv_id in clean_servers:
-                    self.session_servers.pop(srv_id, None)
+                self._drop_superseded_session("servers", list(clean_servers), revoked=True)
         return self.export_state(context)
 
     @staticmethod
@@ -2447,8 +2508,24 @@ class AccessController:
             result[item_id] = {**entry, "grantedAt": previous["grantedAt"]} if same_grant and previous.get("grantedAt") else entry
         return result
 
+    @staticmethod
+    def _fold_session_prefixes(state: dict) -> dict:
+        """El estado exportado lleva los prefijos de sesión aparte; en una capa de sesión son prefijos más."""
+        if not isinstance(state, dict) or not isinstance(state.get("tools"), dict):
+            return state
+        tools = {}
+        for tool_id, entry in state["tools"].items():
+            command = ((entry or {}).get("constraints") or {}).get("command") if isinstance(entry, dict) else None
+            if isinstance(command, dict) and command.get("sessionPrefixes"):
+                folded = {k: v for k, v in command.items() if k != "sessionPrefixes"}
+                folded["allowedPrefixes"] = list(command.get("allowedPrefixes") or []) + list(command["sessionPrefixes"])
+                entry = {**entry, "constraints": {**entry["constraints"], "command": folded}}
+            tools[tool_id] = entry
+        return {**state, "tools": tools}
+
     def apply_session_overlay(self, state: dict, context: SecurityContext | None = None):
         """Aplica una capa de políticas temporal en memoria para una ejecución en servidor, sin persistir."""
+        state = self._fold_session_prefixes(state)
         clean_global, clean_rules, clean_tools, clean_servers = self._validate_state_payload(state, SCOPE_SESSION, context)
 
         with self._lock:
@@ -2587,7 +2664,7 @@ class AccessController:
             if decision == "allow_server_always" and not challenge.get("serverId"):
                 return None
             constraints, _ = self._validate_decision(dec_payload, challenge["toolName"], context)
-            if decision == "allow_always" and challenge["toolName"] == COMMAND_TOOL:
+            if constraints and challenge["toolName"] == COMMAND_TOOL:
                 self._check_prefixes_cover(constraints, challenge["arguments"])
             self.pending_challenges.pop(challenge_id)
         self.record_decision(dec_payload, challenge["decision"], fallback_tool_name=challenge["toolName"], context=context)
@@ -2601,8 +2678,11 @@ class AccessController:
                            context: SecurityContext | None = None) -> tuple[dict | None, list[str]]:
         """Valida restricciones y regla de una decisión sin persistir nada; devuelve ambas limpias."""
         constraints = normalize_command_constraints(decision.get("constraints"))
-        if decision.get("decision") == "allow_always" and tool_name == COMMAND_TOOL and not constraints:
+        decision_type = decision.get("decision")
+        if decision_type == "allow_always" and tool_name == COMMAND_TOOL and not constraints:
             raise ValueError("allow_always_requires_constraints")
+        if decision_type == "allow_project" and (tool_name != COMMAND_TOOL or not constraints):
+            raise ValueError("allow_project_requires_command_prefix")
         rule = decision.get("directoryRule")
         return constraints, (self._validate_directory_rules([rule], context) if rule else [])
 
@@ -2637,6 +2717,10 @@ class AccessController:
         def grants(key: str) -> bool:
             return req_cmd.get(key) is True and (not ext_cmd or ext_cmd.get(key) is True)
 
+        merged_projects = {path: list(prefixes) for path, prefixes in (ext_cmd.get("projectPrefixes") or {}).items()}
+        for path, prefixes in (req_cmd.get("projectPrefixes") or {}).items():
+            merged_projects[path] = list(dict.fromkeys(merged_projects.get(path, []) + list(prefixes)))
+
         merged_cmd = {
             **ext_cmd,
             **req_cmd,
@@ -2644,6 +2728,8 @@ class AccessController:
             "allowChaining": grants("allowChaining"),
             "allowPipes": grants("allowPipes")
         }
+        if merged_projects:
+            merged_cmd["projectPrefixes"] = merged_projects
         return {"command": merged_cmd}
 
     def record_decision(self, decision: dict, auth_eval: dict,
@@ -2658,12 +2744,16 @@ class AccessController:
         clean_constraints, new_rules = self._validate_decision(decision, target_tool, context)
 
         if decision_type == "allow_session":
-            entry = self._make_entry("tools", POLICY_ALLOW, SCOPE_SESSION, server_name=server_name, original_name=target_tool)
-            with self._lock:
-                self.session_tools[target_tool] = entry
+            self._record_session_decision(target_tool, server_name, clean_constraints if target_tool == COMMAND_TOOL else None)
 
         permanent_kind, permanent_id = None, ""
-        if decision_type == "allow_always":
+        if decision_type == "allow_project":
+            # Los prefijos aprobados solo rigen en el proyecto del reto.
+            clean_cmd = clean_constraints["command"]
+            clean_constraints = {"command": {**clean_cmd, "allowedPrefixes": [],
+                                             "projectPrefixes": {self._project_key(context): clean_cmd["allowedPrefixes"]}}}
+            permanent_kind, permanent_id = "tools", target_tool
+        elif decision_type == "allow_always":
             permanent_kind, permanent_id = "tools", target_tool
         elif decision_type == "allow_server_always":
             permanent_kind, permanent_id = "servers", auth_eval.get("serverId") or ""
@@ -2690,9 +2780,21 @@ class AccessController:
         self._update_permanent(mutator)
         with self._lock:
             if permanent_kind:
-                self._session_map(permanent_kind).pop(permanent_id, None)
+                self._drop_superseded_session(permanent_kind, [permanent_id])
             if new_rules and self.session_directory_rules is not None:
                 self.session_directory_rules = self._append_rules(self.session_directory_rules, new_rules)
+
+    def _record_session_decision(self, tool_id: str, server_name: str, constraints: dict | None):
+        """Sin prefijos autoriza la herramienta en la sesión; con prefijos de comando, solo esos prefijos."""
+        with self._lock:
+            current = self.session_tools.get(tool_id)
+            current_cmd = ((current or {}).get("constraints") or {}).get("command")
+            if constraints and current and current.get("policy") == POLICY_ALLOW and not current_cmd:
+                return  # la sesión ya autoriza la herramienta entera
+            merged = normalize_command_constraints(self.merge_command_constraints(
+                current.get("constraints") if current_cmd else None, constraints)) if constraints else None
+            self.session_tools[tool_id] = self._make_entry(
+                "tools", POLICY_ALLOW, SCOPE_SESSION, server_name=server_name, original_name=tool_id, constraints=merged)
 
     def evaluate_authorization(self, tool_name: str, raw_args: dict | None = None,
                                context: SecurityContext | None = None, server_name: str = "",
@@ -2757,7 +2859,9 @@ class AccessController:
             if constraints and isinstance(constraints, dict):
                 cmd_arg = get_command_arg(args)
                 if cmd_arg and constraints.get("command"):
-                    c_allowed, c_denied, c_reason, c_details = evaluate_command_constraint(cmd_arg, constraints["command"])
+                    project_constraints = {**constraints["command"],
+                                           "allowedPrefixes": command_prefixes_for(constraints["command"], self._project_key(ctx))}
+                    c_allowed, c_denied, c_reason, c_details = evaluate_command_constraint(cmd_arg, project_constraints)
                     if c_denied:
                         return make_decision(POLICY_DENY, c_reason or "constraint_violation_denied", {"details": c_details})
                     if not c_allowed:

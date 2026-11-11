@@ -405,15 +405,24 @@
       const { className } = badge(item);
       let { text } = badge(item);
       const toolId = escapeHtml(item.toolId);
-      const prefixes = item.policy === 'allow' ? (item.constraints?.command?.allowedPrefixes || []) : [];
-      if (prefixes.length) text += ` (${escapeHtml(t('mcp_security_constrained'))})`;
-      // Cada prefijo se quita por separado y se pueden añadir otros; el backend los valida.
-      const prefixEditor = prefixes.length ? `
+      const command = item.policy === 'allow' ? item.constraints?.command : null;
+      const globalPrefixes = command?.allowedPrefixes || [];
+      const projectPrefixes = Object.entries(command?.projectPrefixes || {});
+      const sessionPrefixes = command?.sessionPrefixes || [];
+      const hasPrefixes = Boolean(command) && (globalPrefixes.length || projectPrefixes.length || sessionPrefixes.length);
+      if (hasPrefixes) text += ` (${escapeHtml(t('mcp_security_constrained'))})`;
+      // Prefijos globales y de proyecto se quitan uno a uno; los de sesión duran hasta que acaba la sesión.
+      const chip = (prefix, project) => {
+        const removeLabel = escapeHtml(t('mcp_security_remove_prefix', { cmd: `${prefix} *` }));
+        const projectAttr = project === null ? '' : ` data-project="${escapeHtml(project)}"`;
+        return `<span class="mcp-auth-constraint-tag mcp-auth-cmd-chip"><code>${escapeHtml(prefix)} *</code><button type="button" class="btn-remove-cmd-prefix" data-tool-id="${toolId}" data-prefix="${escapeHtml(prefix)}"${projectAttr} title="${removeLabel}" aria-label="${removeLabel}">${Icons.get('close', { size: 10 })}</button></span>`;
+      };
+      const group = (icon, label, chips) => `<div class="mcp-auth-cmd-group"><span class="mcp-auth-cmd-scope" title="${escapeHtml(label)}">${icon} ${escapeHtml(label)}</span>${chips}</div>`;
+      const prefixEditor = hasPrefixes ? `
             <div class="mcp-auth-cmd-prefixes">
-              ${prefixes.map(prefix => {
-                const removeLabel = escapeHtml(t('mcp_security_remove_prefix', { cmd: `${prefix} *` }));
-                return `<span class="mcp-auth-constraint-tag mcp-auth-cmd-chip"><code>${escapeHtml(prefix)} *</code><button type="button" class="btn-remove-cmd-prefix" data-tool-id="${toolId}" data-prefix="${escapeHtml(prefix)}" title="${removeLabel}" aria-label="${removeLabel}">${Icons.get('close', { size: 10 })}</button></span>`;
-              }).join('')}
+              ${globalPrefixes.length ? group(Icons.get('globe', { size: 11 }), t('mcp_security_scope_global'), globalPrefixes.map(prefix => chip(prefix, null)).join('')) : ''}
+              ${projectPrefixes.map(([project, prefixes]) => group(Icons.get('folder', { size: 11 }), project, prefixes.map(prefix => chip(prefix, project)).join(''))).join('')}
+              ${sessionPrefixes.length ? group(Icons.get('clock', { size: 11 }), t('mcp_security_scope_session'), sessionPrefixes.map(prefix => `<span class="mcp-auth-constraint-tag mcp-auth-cmd-chip"><code>${escapeHtml(prefix)} *</code></span>`).join('')) : ''}
               <div class="mcp-auth-cmd-add" data-tool-id="${toolId}">
                 <input type="text" class="mcp-auth-cmd-input" placeholder="${addLabel}" aria-label="${addLabel}" spellcheck="false" autocomplete="off">
                 <button type="button" class="btn-add-cmd-prefix">${escapeHtml(t('mcp_security_add_prefix'))}</button>
@@ -436,11 +445,17 @@
   }
 
   /** Cambia los prefijos de comando de una herramienta; un rechazo del backend se muestra junto al editor. */
+  /**
+   * Cambia los prefijos guardados de una herramienta: `change` recibe y devuelve
+   * `{ allowedPrefixes, projectPrefixes }`. Un rechazo del backend se muestra junto al editor.
+   */
   async function updateCommandPrefixes(origin, toolId, change) {
     const security = getSecurity();
     const errorEl = origin.closest('.mcp-auth-cmd-prefixes')?.querySelector('.mcp-auth-cmd-error');
+    const command = security.getToolConstraints(toolId)?.command || {};
+    const current = { allowedPrefixes: [...(command.allowedPrefixes || [])], projectPrefixes: { ...(command.projectPrefixes || {}) } };
     try {
-      await security.setCommandPrefixes(toolId, change(security.getToolConstraints(toolId)?.command?.allowedPrefixes || []));
+      await security.setCommandPrefixes(toolId, change(current));
     } catch (err) {
       if (!errorEl) throw err;
       setText(errorEl, err?.message || String(err));
@@ -451,7 +466,7 @@
   async function addCommandPrefix(editor) {
     const value = editor?.querySelector('.mcp-auth-cmd-input').value.trim();
     if (!value) return;
-    await updateCommandPrefixes(editor, editor.getAttribute('data-tool-id'), prefixes => [...prefixes, value]);
+    await updateCommandPrefixes(editor, editor.getAttribute('data-tool-id'), current => ({ ...current, allowedPrefixes: [...current.allowedPrefixes, value] }));
   }
 
   function renderCurrentToolsList(elements) {
@@ -495,7 +510,10 @@
       if (removePrefix) {
         const toolId = removePrefix.getAttribute('data-tool-id');
         const prefix = removePrefix.getAttribute('data-prefix');
-        await updateCommandPrefixes(removePrefix, toolId, prefixes => prefixes.filter(p => p !== prefix));
+        const project = removePrefix.getAttribute('data-project');
+        await updateCommandPrefixes(removePrefix, toolId, current => (project === null
+          ? { ...current, allowedPrefixes: current.allowedPrefixes.filter(p => p !== prefix) }
+          : { ...current, projectPrefixes: { ...current.projectPrefixes, [project]: (current.projectPrefixes[project] || []).filter(p => p !== prefix) } }));
       }
       const addPrefix = event.target.closest('.btn-add-cmd-prefix');
       if (addPrefix) await addCommandPrefix(addPrefix.closest('.mcp-auth-cmd-add'));

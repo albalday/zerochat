@@ -46,3 +46,4 @@ Done when: Los probes C1-C3, S1-S3 y D1 de docs/audits/M61-permisos.md se compor
 - [x] M61-T20 Prefijo editable en la tarjeta de autorización y prefijos editables en Ajustes › MCP (añadir/quitar, vacía revoca), i18n y ayuda (2026-11-11)
 - [x] M61-T21 Campo del prefijo de comando en la tarjeta en su propia fila: el botón ya no lo deja sin ancho en el menú (2026-11-11)
 - [x] M61-T22 Línea de comando editable con el * dentro ("git status *") y ✓ al lado para aceptarla; vacía, solo * o * intermedio desactivan ✓ (2026-11-11)
+- [x] M61-T23 Prefijo de comando con tres alcances (esta sesión, este proyecto, todos los proyectos) en la tarjeta y agrupados por alcance en Ajustes (2026-11-11)

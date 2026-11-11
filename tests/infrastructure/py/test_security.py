@@ -1058,5 +1058,100 @@ class AccessControllerPolicyTest(unittest.TestCase):
         stored_prefixes = stored("tools")["run_command"]["constraints"]["command"]["allowedPrefixes"]
         self.assertEqual(stored_prefixes, ["echo"])
 
+    def _command_challenge(self, command):
+        handler = zerochat.ZeroChatServerHandler.__new__(zerochat.ZeroChatServerHandler)
+        gate, err, _ = handler._dispatch_local("tools/call", {"name": "run_command", "arguments": {"command": command}})
+        self.assertIsNone(err)
+        self.assertTrue(gate.get("requiresAuthorization"), gate)
+        return handler, gate["challengeId"]
+
+    def _authorize_prefix(self, handler, cid, decision, prefix):
+        return handler._dispatch_security("zerochat/security/authorize", {
+            "challengeId": cid, "decision": decision,
+            "constraints": {"command": {"allowedPrefixes": [prefix]}}
+        })
+
+    def _status(self, command, ctx=None):
+        cwd_ctx = ctx or zerochat.SecurityContext(workspace_dir=Path.cwd().resolve())
+        return zerochat.ACCESS_CONTROLLER.evaluate_authorization("run_command", {"command": command}, cwd_ctx).status
+
+    def test_command_prefix_scopes_session_project_and_global(self):
+        controller = zerochat.ACCESS_CONTROLLER
+        controller.clear_session()
+        set_global(controller, zerochat.GLOBAL_POLICY_ASK)
+        other_project = zerochat.SecurityContext(workspace_dir=self.base_dir.resolve())
+        project = zerochat.normalize_directory_path(str(Path.cwd().resolve()))
+
+        # Sesión: solo ese prefijo, en memoria y sin guardarse
+        handler, cid = self._command_challenge("echo uno")
+        res, err, _ = self._authorize_prefix(handler, cid, "allow_session", "echo uno *")
+        self.assertIsNone(err)
+        self.assertTrue(res["authorized"])
+        self.assertEqual(self._status("echo uno dos"), "allow")
+        self.assertEqual(self._status("echo otro"), "ask")
+        self.assertNotIn("run_command", stored("tools"))
+
+        # Proyecto: guardado ligado al proyecto actual; en otro proyecto vuelve a preguntar
+        handler, cid = self._command_challenge("printf proyecto")
+        res, err, _ = self._authorize_prefix(handler, cid, "allow_project", "printf *")
+        self.assertIsNone(err)
+        command = stored("tools")["run_command"]["constraints"]["command"]
+        self.assertEqual(command["allowedPrefixes"], [])
+        self.assertEqual(command["projectPrefixes"], {project: ["printf"]})
+        self.assertEqual(self._status("printf x"), "allow")
+        self.assertEqual(self._status("printf x", other_project), "ask")
+        # La escritura permanente no retira los prefijos de sesión: se suman
+        self.assertEqual(self._status("echo uno dos"), "allow")
+
+        # Global: vale en cualquier proyecto
+        handler, cid = self._command_challenge("true global")
+        res, err, _ = self._authorize_prefix(handler, cid, "allow_always", "true *")
+        self.assertIsNone(err)
+        self.assertEqual(self._status("true x", other_project), "allow")
+
+        exported = controller.export_state()["tools"]["run_command"]["constraints"]["command"]
+        self.assertEqual(exported["sessionPrefixes"], ["echo uno"])
+        self.assertEqual(exported["allowedPrefixes"], ["true"])
+
+        # Al acabar la sesión solo quedan los permanentes
+        controller.clear_session()
+        self.assertEqual(self._status("echo uno dos"), "ask")
+        self.assertEqual(self._status("printf x"), "allow")
+        self.assertEqual(self._status("true x"), "allow")
+
+    def test_allow_project_requires_a_command_prefix(self):
+        handler = zerochat.ZeroChatServerHandler.__new__(zerochat.ZeroChatServerHandler)
+        zerochat.ACCESS_CONTROLLER.clear_session()
+        dec = zerochat.ACCESS_CONTROLLER.evaluate_authorization("custom_tool", {}, self.ctx)
+        ch = zerochat.ACCESS_CONTROLLER.create_challenge("custom_tool", {}, dec)
+        res, err, _ = handler._dispatch_security("zerochat/security/authorize", {"challengeId": ch["id"], "decision": "allow_project"})
+        self.assertIsNone(res)
+        self.assertEqual(err["code"], -32602)
+        self.assertIn(ch["id"], zerochat.ACCESS_CONTROLLER.pending_challenges)
+
+    def test_exported_session_prefixes_survive_a_session_overlay(self):
+        controller = zerochat.ACCESS_CONTROLLER
+        controller.clear_session()
+        handler, cid = self._command_challenge("echo capa")
+        self._authorize_prefix(handler, cid, "allow_session", "echo capa")
+        snapshot = controller.export_state()
+        controller.clear_session()
+        controller.apply_session_overlay(snapshot)
+        self.assertEqual(self._status("echo capa x"), "allow")
+
+    def test_project_prefixes_are_validated_and_count_towards_the_limit(self):
+        with self.assertRaises(ValueError):
+            self.controller.import_state({"tools": {"run_command": {"policy": "allow", "constraints": {
+                "command": {"allowedPrefixes": [], "projectPrefixes": {"relativo": ["git"]}}
+            }}}}, self.ctx)
+        limit = zerochat.MAX_COMMAND_PREFIXES
+        half = limit // 2
+        ok = {"command": {"allowedPrefixes": [f"g{i}" for i in range(half)],
+                          "projectPrefixes": {"/proj": [f"p{i}" for i in range(limit - half)]}}}
+        self.controller.import_state({"tools": {"run_command": {"policy": "allow", "constraints": ok}}}, self.ctx)
+        over = {"command": {**ok["command"], "projectPrefixes": {"/proj": [f"p{i}" for i in range(limit - half + 1)]}}}
+        with self.assertRaisesRegex(ValueError, "máximo"):
+            self.controller.import_state({"tools": {"run_command": {"policy": "allow", "constraints": over}}}, self.ctx)
+
 if __name__ == "__main__":
     unittest.main()
