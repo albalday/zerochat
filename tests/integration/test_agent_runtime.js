@@ -709,3 +709,36 @@ test('AgentRuntime - una pregunta inválida no cede el turno y el modelo puede c
   assert.equal(result.finalText, 'Respuesta directa.');
 });
 
+test('AgentRuntime - execute_javascript ejecuta cálculos mediante ChatSandbox nativo en Node', async t => {
+  const registry = new ToolRegistry();
+  const executeJsTool = require('../../js/tools/builtin/execute-javascript.tool.js');
+  registry.registerTool(new Tool(executeJsTool));
+
+  let step = 0;
+  const result = await runAgent(t, registry, {
+    api: {
+      streamChatCompletion: async () => {
+        step++;
+        if (step === 1) {
+          return {
+            accumulatedText: 'Voy a calcularlo.',
+            toolCalls: [{ id: 'call_calc_1', type: 'function', function: { name: 'execute_javascript', arguments: JSON.stringify({ code: 'return Math.pow(2, 8);' }) } }],
+            stats: null
+          };
+        }
+        return { accumulatedText: 'El resultado es 256.', toolCalls: [], stats: null };
+      }
+    },
+    messages: [{ role: 'user', content: '¿Cuánto es 2 a la 8?' }],
+    appendFinalMessage: true
+  });
+
+  assert.equal(step, 2);
+  assert.equal(result.toolExecutions.length, 1);
+  assert.equal(result.toolExecutions[0].success, true);
+  assert.equal(result.toolExecutions[0].result.result, '256');
+  const toolMsg = result.history.find(m => m.role === 'tool');
+  assert.equal(toolMsg.content, '256');
+  assert.equal(result.finalText, 'El resultado es 256.');
+});
+

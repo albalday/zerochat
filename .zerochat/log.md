@@ -65,3 +65,5 @@
 - 2026-11-10 M57-D6 Verificación exhaustiva de empaquetado PyPI (smoke test sin recursos web en wheel), infraestructura y suite completa de pruebas en verde (M57-T6)
 - 2026-11-10 M57-D7 Actualización de documentación técnica (py/README.md) y ayuda bilingüe de usuario (help/run-mode.html y help/en/run-mode.html) reflejando el runner de Node.js (M57-T7)
 - 2026-11-10 M57-D8 Desacoplo de tool-cards, icons y marcado modal de export del runner Node.js (M57-T8)
+- 2026-11-11 M58-D1 Uso de node:vm en ChatSandbox para aislar la ejecución de JavaScript en Node.js sin depender del DOM ni iframes, manteniendo simetría en salida y timeouts con el navegador (M58-T1)
+- 2026-11-11 M58-D2 Inclusión de ChatBuiltinExecuteJavascriptTool y ChatSandbox en run-node.js y regeneración de runner.js (M58-T2)

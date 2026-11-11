@@ -102,7 +102,6 @@ test('RunNode - startHeadlessRun orquesta la conexión y arranca RunMode', async
 
 test('RunNode - herramientas excluidas de Node se declaran no disponibles y devuelven error limpio al ejecutarse', async () => {
   const disabledToolGlobals = [
-    'ChatBuiltinExecuteJavascriptTool',
     'ChatBuiltinRenderChartTool',
     'ChatBuiltinListDocumentsTool',
     'ChatBuiltinSearchKnowledgeBaseTool',
@@ -118,10 +117,23 @@ test('RunNode - herramientas excluidas de Node se declaran no disponibles y devu
     const res = await tool.execute();
     assert.equal(res.error, 'Tool not supported in headless environment');
   }
+});
 
-  assert.ok(globalThis.ChatSandbox);
-  const sandboxRes = await globalThis.ChatSandbox.execute();
-  assert.equal(sandboxRes.error, 'Sandbox not supported in headless environment');
+test('RunNode - execute_javascript y ChatSandbox están habilitados y ejecutan cálculos en Node', async () => {
+  const tool = globalThis.ChatBuiltinExecuteJavascriptTool;
+  assert.ok(tool, 'ChatBuiltinExecuteJavascriptTool debe estar registrado');
+  assert.equal(tool.definition.name, 'execute_javascript');
+  assert.ok(globalThis.ChatSandbox, 'ChatSandbox debe estar registrado');
+
+  const context = {
+    services: {
+      sandbox: globalThis.ChatSandbox
+    }
+  };
+  const execRes = await tool.execute({ code: 'return 19 + 23;' }, context);
+  assert.equal(execRes.success, true);
+  assert.equal(execRes.result, '42');
+  assert.equal(tool.result.toModel({ code: 'return 19 + 23;' }, execRes), '42');
 });
 
 test('RunNode - ChatCommandCard está registrado en globalThis y parseResult extrae estado de run_command', () => {

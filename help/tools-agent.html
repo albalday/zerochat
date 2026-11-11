@@ -38,7 +38,7 @@
       <p>El cierre automático afecta únicamente a la herramienta que acaba de terminar: respeta los grupos y las ejecuciones anteriores que hayas abierto.</p>
       <h2>2. Herramientas integradas</h2>
       <div class="table-responsive"><table><thead><tr><th>Herramienta</th><th>Uso y límites</th></tr></thead>
-      <tbody><tr><td><code>execute_javascript</code></td><td>Cálculos y transformaciones en un entorno aislado del navegador.</td></tr>
+      <tbody><tr><td><code>execute_javascript</code></td><td>Cálculos y transformaciones en un entorno aislado del navegador o del servidor.</td></tr>
       <tr><td><code>search_web</code></td><td>Búsqueda en DuckDuckGo a través del servidor local o, sin él, de Jina Reader. Puede fallar por bloqueos o límites de DuckDuckGo o de Jina.</td></tr>
       <tr><td><code>fetch_web_page</code></td><td>Recupera texto e imágenes de páginas públicas; no sustituye un navegador con sesión iniciada.</td></tr>
       <tr><td><code>download_doc</code></td><td>Descarga un PDF o un documento ofimático (DOCX, XLSX, PPTX, ODT, ODS, ODP) y extrae texto legible, con las limitaciones del lector.</td></tr>
@@ -53,7 +53,7 @@
 
     <div class="card">
       <h2>3. Ejecutar JavaScript</h2>
-      <p><code>execute_javascript</code> ejecuta código mediante un iframe de origen aislado, restricciones de red y un Web Worker. Hay límites de tiempo y de salida; el objetivo es hacer cálculos sin dar al código acceso directo al chat o al disco. <strong>No es una barrera de seguridad</strong>: está pensado para cálculos del modelo bajo tu supervisión, no para ejecutar código no fiable.</p>
+      <p><code>execute_javascript</code> ejecuta código mediante un iframe de origen aislado y un Web Worker en el navegador, o mediante un contexto limpio de <code>node:vm</code> en el servidor. Hay límites de tiempo y de salida; el objetivo es hacer cálculos sin dar al código acceso directo al chat o al disco. <strong>No es una barrera de seguridad</strong>: está pensado para cálculos del modelo bajo tu supervisión, no para ejecutar código no fiable.</p>
       <p>Actívala si necesitas ese procesamiento y puedes revisar lo que hace. El aislamiento no garantiza resultados correctos ni elimina todos los riesgos de recursos. Para comandos del sistema se usan herramientas distintas del servidor local.</p>
     </div>
 

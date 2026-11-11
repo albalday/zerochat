@@ -153,7 +153,7 @@
     let timer;
     const timeout = new Promise(resolve => {
       timer = setTimeout(() => {
-        stop();
+        if (typeof stop === 'function') stop();
         resolve({ success: false, result: '', logs: [], error: `Execution timed out after ${timeoutMs}ms and was terminated.` });
       }, timeoutMs);
     });
@@ -161,6 +161,74 @@
       clearTimeout(timer);
       return { ...result, executionTimeMs: parseFloat((performance.now() - startTime).toFixed(2)) };
     });
+  }
+
+  function executeInNode(code, timeoutMs) {
+    const vm = require('node:vm');
+    const logs = [];
+    const formatValue = value => {
+      if (value === null) return 'null';
+      if (value === undefined) return 'undefined';
+      if (typeof value === 'bigint') return value.toString();
+      if (typeof value !== 'object') return String(value);
+      try {
+        return JSON.stringify(value, (_key, item) => (typeof item === 'bigint' ? item.toString() : item), 2);
+      } catch (_) {
+        return String(value);
+      }
+    };
+    const truncate = text => (text.length > MAX_OUTPUT_LENGTH ? `${text.slice(0, MAX_OUTPUT_LENGTH)}... [output truncated]` : text);
+    const addLog = (prefix, args) => {
+      if (logs.length >= MAX_LOG_ENTRIES) return;
+      const text = args.map(formatValue).join(' ');
+      logs.push(truncate(prefix ? `[${prefix}] ${text}` : text));
+    };
+    const customConsole = {
+      log: (...args) => { addLog('', args); },
+      info: (...args) => { addLog('INFO', args); },
+      warn: (...args) => { addLog('WARN', args); },
+      error: (...args) => { addLog('ERROR', args); }
+    };
+    const failure = error => ({ success: false, result: '', logs, error: (error && error.message) || String(error) });
+
+    const trimmed = code.trim();
+    const isStatement = /^(?:while|for|if|let|const|var|function|class|try|throw|switch|do)\b/.test(trimmed) ||
+      trimmed.includes(';') || trimmed.includes('\n') || trimmed.includes('return');
+    const body = isStatement ? `"use strict";\n${trimmed}` : `"use strict"; return (${trimmed});`;
+    const isAsync = /\bawait\b/.test(trimmed);
+    const wrapper = isAsync ? `(async function() {\n${body}\n})()` : `(function() {\n${body}\n})()`;
+
+    const sandboxContext = Object.create(null);
+    Object.assign(sandboxContext, {
+      console: customConsole,
+      Math, JSON, Date, RegExp, Array, Object, String, Number, Boolean, Symbol, BigInt,
+      Map, Set, WeakMap, WeakSet, Promise,
+      Error, TypeError, RangeError, SyntaxError, URIError,
+      parseInt, parseFloat, isNaN, isFinite,
+      encodeURI, decodeURI, encodeURIComponent, decodeURIComponent
+    });
+
+    const context = vm.createContext(sandboxContext);
+    vm.runInContext('Function.prototype.constructor = function () { throw new Error("Dynamic function creation is not allowed in the sandbox."); };', context);
+
+    let execution;
+    try {
+      const script = new vm.Script(wrapper);
+      const rawResult = script.runInContext(context, { timeout: timeoutMs, breakOnSigint: true });
+      execution = Promise.resolve(rawResult).then(
+        value => ({
+          success: true,
+          result: value !== undefined ? truncate(formatValue(value)) : (logs.length > 0 ? logs.join('\n') : 'undefined'),
+          logs
+        }),
+        failure
+      );
+    } catch (err) {
+      const isTimeout = err?.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT' || /timed out/i.test(err?.message || '');
+      const errMsg = isTimeout ? `Execution timed out after ${timeoutMs}ms and was terminated.` : ((err && err.message) || String(err));
+      execution = Promise.resolve({ success: false, result: '', logs, error: errMsg });
+    }
+    return withTimeout(execution, timeoutMs);
   }
 
   function executeInIframe(code, timeoutMs) {
@@ -202,6 +270,9 @@
     const effectiveTimeout = typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS;
     if (!code || typeof code !== 'string') {
       return { success: false, result: '', logs: [], executionTimeMs: 0, error: 'No JavaScript code was provided.' };
+    }
+    if (typeof document === 'undefined' || !document.createElement) {
+      return executeInNode(code, effectiveTimeout);
     }
     return executeInIframe(code, effectiveTimeout);
   }

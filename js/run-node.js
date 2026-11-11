@@ -121,8 +121,10 @@
     const DelegateTaskTool = require('./tools/builtin/delegate-task.tool.js');
     globalThis.ChatBuiltinDelegateTaskTool = DelegateTaskTool;
 
+    const ExecuteJavascriptTool = require('./tools/builtin/execute-javascript.tool.js');
+    globalThis.ChatBuiltinExecuteJavascriptTool = ExecuteJavascriptTool;
+
     const disabledTools = [
-      { globalName: 'ChatBuiltinExecuteJavascriptTool', name: 'execute_javascript' },
       { globalName: 'ChatBuiltinRenderChartTool', name: 'render_chart' },
       { globalName: 'ChatBuiltinListDocumentsTool', name: 'list_documents' },
       { globalName: 'ChatBuiltinSearchKnowledgeBaseTool', name: 'search_knowledge_base' },
@@ -141,9 +143,7 @@
     }
 
     if (!globalThis.ChatSandbox) {
-      globalThis.ChatSandbox = {
-        execute: async () => ({ error: 'Sandbox not supported in headless environment' })
-      };
+      globalThis.ChatSandbox = require('./sandbox.js');
     }
     if (!globalThis.ChatRagService) {
       globalThis.ChatRagService = {};
