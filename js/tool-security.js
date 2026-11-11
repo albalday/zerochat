@@ -2,10 +2,10 @@
  * Módulo de Seguridad y Autorización de Herramientas (ChatToolSecurity) para ZeroChat.
  *
  * Responsabilidades:
- * - Evaluación jerárquica de permisos para herramientas y servidores MCP.
- * - Ámbitos de autorización: Global, Servidor MCP, Herramienta individual y Workspace.
- * - Ciclos de vida claros: Permanente (persistido) y Sesión (en memoria/ChatState).
- * - Autorización determinista sin falsos positivos heurísticos ni bloqueos automáticos.
+ * - Caché local en memoria de las políticas de seguridad del backend (SQLite).
+ * - Lectura síncrona de permisos (global, herramientas, servidores, directorios).
+ * - Escritura asíncrona mediante parches parciales al backend (security/update).
+ * - Sin persistencia local ni utilidades de resolución divergentes.
  * - Sincronización reactiva con ChatState y compatibilidad isomórfica (Node.js y navegador).
  */
 
@@ -17,9 +17,6 @@
   }
 })(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
-
-  const STORAGE_KEY = 'tool_security';
-  const STORAGE_VERSION = 4;
 
   const GLOBAL_POLICIES = Object.freeze({
     ASK: 'ask',
@@ -56,8 +53,6 @@
 
   function normalizeDirectoryPath(value) {
     if (typeof value !== 'string' || !value.trim() || value.includes('\0')) return '';
-    // ~, ~usuario y $VAR no se resuelven en el navegador: devolver '' para que nunca encajen
-    // contra una regla y la evaluación pida confirmación (T01).
     if (containsUnresolvedReference(value)) return '';
     const isAbsolute = /^[\\/]/.test(value.trim());
     const parts = [];
@@ -84,33 +79,23 @@
 
   const { resolveDep } = Utils;
 
-  function getStorage() {
-    return resolveDep('ChatStorage', './storage.js');
-  }
-
   function getState() {
     return resolveDep('ChatState', './state.js');
   }
 
-  function getAgentCore() {
-    return resolveDep('ChatAgentCore', './agent-core.js');
-  }
-
   /**
-   * Administrador de Seguridad y Políticas de Ejecución de ZeroChat.
+   * Administrador de Seguridad y Políticas de Ejecución de ZeroChat (Caché del backend).
    */
   class ToolSecurityManager {
     constructor() {
       this.sessionToken = null;
       this.mcpClient = null;
       this.globalMcpPolicy = GLOBAL_POLICIES.ASK;
-      // El backend local informa del directorio real al conectarse (setStartupDirectory).
-      this.startupDirectory = normalizeDirectoryPath('.');
+      this.defaultDirectoryRule = '';
       this.tools = new Map();
       this.servers = new Map();
       this.directoryRules = [];
       this.listeners = new Set();
-      this.load();
     }
 
     setSessionToken(token) {
@@ -118,7 +103,6 @@
       if (this.sessionToken === token) return;
       this.sessionToken = token;
 
-      // Limpiar autorizaciones acotadas exclusivamente a la sesión anterior
       let changed = false;
       for (const [id, item] of this.tools.entries()) {
         if (item.scope === SCOPES.SESSION) {
@@ -139,225 +123,105 @@
       }
     }
 
-    /**
-     * Carga las políticas persistidas desde el almacenamiento local seguro.
-     */
-    load() {
-      try {
-        const raw = getStorage().getStorageItem(STORAGE_KEY);
-
-        if (raw) {
-          const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-          // Solo se carga el formato vigente: otra versión se descarta y rigen los valores por defecto.
-          if (parsed && typeof parsed === 'object' && parsed.version === STORAGE_VERSION) {
-            if (Object.values(GLOBAL_POLICIES).includes(parsed.globalMcpPolicy)) {
-              this.globalMcpPolicy = parsed.globalMcpPolicy;
-            }
-            if (parsed.tools && typeof parsed.tools === 'object') {
-              Object.entries(parsed.tools).forEach(([id, item]) => {
-                if (item && typeof item === 'object') {
-                  const constraints = item.constraints ? { ...item.constraints } : null;
-                  this.tools.set(id, {
-                    policy: item.policy || TOOL_POLICIES.ASK,
-                    scope: SCOPES.PERMANENT,
-                    grantedAt: item.grantedAt || Date.now(),
-                    lastUsedAt: item.lastUsedAt || null,
-                    serverName: item.serverName || '',
-                    originalName: item.originalName || id,
-                    constraints
-                  });
-                }
-              });
-            }
-            if (parsed.servers && typeof parsed.servers === 'object') {
-              Object.entries(parsed.servers).forEach(([id, item]) => {
-                if (item && typeof item === 'object') {
-                  this.servers.set(id, {
-                    policy: item.policy || SERVER_POLICIES.ASK,
-                    scope: SCOPES.PERMANENT,
-                    grantedAt: item.grantedAt || Date.now(),
-                    lastUsedAt: item.lastUsedAt || null,
-                    serverName: item.serverName || id
-                  });
-                }
-              });
-            }
-            if (Array.isArray(parsed.directoryRules)) {
-              this.directoryRules = parsed.directoryRules.map(parseDirectoryRule).filter(Boolean).map(item => item.rule);
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('[ToolSecurity] Could not load the saved policies:', err?.message || err);
-      }
-      if (!this.directoryRules.length) {
-        this.directoryRules = [this.getDefaultDirectoryRule()];
-      }
-      this.syncWithState();
-    }
-
-    /**
-     * Guarda las políticas permanentes en el almacenamiento local seguro.
-     */
-    save() {
-      try {
-        if (!this.directoryRules.length) {
-          this.directoryRules = [this.getDefaultDirectoryRule()];
-        }
-        const Storage = getStorage();
-        const permanentTools = {};
-        this.tools.forEach((val, key) => {
-          if (val.scope !== SCOPES.SESSION) {
-            permanentTools[key] = {
-              policy: val.policy,
-              grantedAt: val.grantedAt,
-              lastUsedAt: val.lastUsedAt,
-              serverName: val.serverName,
-              originalName: val.originalName,
-              constraints: val.constraints
-            };
-          }
-        });
-
-        const permanentServers = {};
-        this.servers.forEach((val, key) => {
-          if (val.scope !== SCOPES.SESSION) {
-            permanentServers[key] = {
-              policy: val.policy,
-              grantedAt: val.grantedAt,
-              lastUsedAt: val.lastUsedAt,
-              serverName: val.serverName
-            };
-          }
-        });
-
-        const payload = {
-          version: STORAGE_VERSION,
-          globalMcpPolicy: this.globalMcpPolicy,
-          tools: permanentTools,
-          servers: permanentServers,
-          directoryRules: this.directoryRules,
-          updatedAt: Date.now()
-        };
-
-        Storage.setStorageItem(STORAGE_KEY, JSON.stringify(payload));
-      } catch (err) {
-        console.warn('[ToolSecurity] Could not save the policies:', err?.message || err);
-      }
-
-      this.syncWithState();
-      this.notifyListeners();
-      if (this.mcpClient) {
-        this.syncToBackend().catch(() => {});
-      }
-    }
-
     setMcpClient(client) {
       this.mcpClient = client || null;
     }
 
     /**
-     * Sincroniza las políticas de seguridad desde el backend local.
+     * Aplica el estado completo de políticas recibido del backend o de una sesión.
      */
-    async syncFromBackend() {
+    applyPolicies(policies) {
+      if (!policies || typeof policies !== 'object') return null;
+      if (typeof policies.globalMcpPolicy === 'string' && Object.values(GLOBAL_POLICIES).includes(policies.globalMcpPolicy)) {
+        this.globalMcpPolicy = policies.globalMcpPolicy;
+      }
+      if (typeof policies.defaultDirectoryRule === 'string') {
+        this.defaultDirectoryRule = policies.defaultDirectoryRule;
+      }
+      if (Array.isArray(policies.directoryRules)) {
+        this.directoryRules = policies.directoryRules.map(parseDirectoryRule).filter(Boolean).map(item => item.rule);
+      }
+      if (policies.tools && typeof policies.tools === 'object') {
+        this.tools.clear();
+        Object.entries(policies.tools).forEach(([id, item]) => {
+          if (typeof item === 'string') {
+            this.tools.set(id, {
+              policy: item,
+              scope: SCOPES.SESSION,
+              grantedAt: Date.now(),
+              lastUsedAt: null,
+              serverName: '',
+              originalName: id,
+              constraints: null
+            });
+          } else if (item && typeof item === 'object') {
+            this.tools.set(id, {
+              policy: item.policy || TOOL_POLICIES.ASK,
+              scope: item.scope === SCOPES.SESSION ? SCOPES.SESSION : SCOPES.PERMANENT,
+              grantedAt: item.grantedAt || Date.now(),
+              lastUsedAt: item.lastUsedAt || null,
+              serverName: item.serverName || '',
+              originalName: item.originalName || id,
+              constraints: item.constraints ? { ...item.constraints } : null
+            });
+          }
+        });
+      }
+      if (policies.servers && typeof policies.servers === 'object') {
+        this.servers.clear();
+        Object.entries(policies.servers).forEach(([id, item]) => {
+          if (typeof item === 'string') {
+            this.servers.set(id, {
+              policy: item,
+              scope: SCOPES.SESSION,
+              grantedAt: Date.now(),
+              lastUsedAt: null,
+              serverName: id
+            });
+          } else if (item && typeof item === 'object') {
+            this.servers.set(id, {
+              policy: item.policy || SERVER_POLICIES.ASK,
+              scope: item.scope === SCOPES.SESSION ? SCOPES.SESSION : SCOPES.PERMANENT,
+              grantedAt: item.grantedAt || Date.now(),
+              lastUsedAt: item.lastUsedAt || null,
+              serverName: item.serverName || id
+            });
+          }
+        });
+      }
+      this.syncWithState();
+      this.notifyListeners();
+      return policies;
+    }
+
+    /**
+     * Refresca el estado completo de políticas consultando al backend local.
+     */
+    async refresh() {
       if (!this.mcpClient) return null;
       try {
         const res = await this.mcpClient.request('zerochat/security/get', {});
-        const policies = res?.policies;
-        if (policies && typeof policies === 'object') {
-          if (Object.values(GLOBAL_POLICIES).includes(policies.globalMcpPolicy)) {
-            this.globalMcpPolicy = policies.globalMcpPolicy;
-          }
-          if (Array.isArray(policies.directoryRules)) {
-            this.directoryRules = policies.directoryRules.map(parseDirectoryRule).filter(Boolean).map(item => item.rule);
-          }
-          if (policies.tools && typeof policies.tools === 'object') {
-            this.tools.clear();
-            Object.entries(policies.tools).forEach(([id, item]) => {
-              if (item && typeof item === 'object') {
-                this.tools.set(id, {
-                  policy: item.policy || TOOL_POLICIES.ASK,
-                  scope: item.scope === SCOPES.SESSION ? SCOPES.SESSION : SCOPES.PERMANENT,
-                  grantedAt: item.grantedAt || Date.now(),
-                  lastUsedAt: item.lastUsedAt || null,
-                  serverName: item.serverName || '',
-                  originalName: item.originalName || id,
-                  constraints: item.constraints ? { ...item.constraints } : null
-                });
-              }
-            });
-          }
-          if (policies.servers && typeof policies.servers === 'object') {
-            this.servers.clear();
-            Object.entries(policies.servers).forEach(([id, item]) => {
-              if (item && typeof item === 'object') {
-                this.servers.set(id, {
-                  policy: item.policy || SERVER_POLICIES.ASK,
-                  scope: item.scope === SCOPES.SESSION ? SCOPES.SESSION : SCOPES.PERMANENT,
-                  grantedAt: item.grantedAt || Date.now(),
-                  lastUsedAt: item.lastUsedAt || null,
-                  serverName: item.serverName || id
-                });
-              }
-            });
-          }
-          this.syncWithState();
-          this.notifyListeners();
-          return policies;
-        }
+        return this.applyPolicies(res?.policies);
       } catch (err) {
-        console.warn('[ToolSecurity] Failed to sync policies from backend:', err?.message || err);
+        console.warn('[ToolSecurity] Failed to refresh policies from backend:', err?.message || err);
+        return null;
       }
-      return null;
     }
 
     /**
-     * Sincroniza las políticas permanentes actuales hacia el backend local.
+     * Envía un parche parcial al backend y actualiza la caché local con la respuesta.
      */
-    async syncToBackend() {
-      if (!this.mcpClient) return null;
-      try {
-        const permanentTools = {};
-        this.tools.forEach((val, key) => {
-          if (val.scope !== SCOPES.SESSION) {
-            permanentTools[key] = {
-              policy: val.policy,
-              grantedAt: val.grantedAt,
-              lastUsedAt: val.lastUsedAt,
-              serverName: val.serverName,
-              originalName: val.originalName,
-              constraints: val.constraints
-            };
-          }
-        });
-
-        const permanentServers = {};
-        this.servers.forEach((val, key) => {
-          if (val.scope !== SCOPES.SESSION) {
-            permanentServers[key] = {
-              policy: val.policy,
-              grantedAt: val.grantedAt,
-              lastUsedAt: val.lastUsedAt,
-              serverName: val.serverName
-            };
-          }
-        });
-
-        const payload = {
-          globalMcpPolicy: this.globalMcpPolicy,
-          tools: permanentTools,
-          servers: permanentServers,
-          directoryRules: this.directoryRules
-        };
-        return await this.mcpClient.request('zerochat/security/update', payload);
-      } catch (err) {
-        console.warn('[ToolSecurity] Failed to sync policies to backend:', err?.message || err);
+    async _patchBackend(patch) {
+      if (!this.mcpClient) {
+        throw new Error('Local server connection is required to update security policies.');
       }
-      return null;
+      const res = await this.mcpClient.request('zerochat/security/update', patch);
+      this.applyPolicies(res?.policies);
+      return res?.policies;
     }
 
     /**
-     * Resuelve un reto de autorización interactivo en el backend.
+     * Resuelve un reto de autorización interactivo en el backend y refresca las políticas.
      */
     async authorizeChallenge(challengeId, decision, options = {}) {
       if (!this.mcpClient) {
@@ -374,22 +238,18 @@
         ...(directoryRule ? { directoryRule } : {})
       };
       const result = await this.mcpClient.request('zerochat/security/authorize', params);
-      if (decType === 'allow_always' || decType === 'allow_server_always' || directoryRule) {
-        await this.syncFromBackend().catch(() => {});
-      }
+      await this.refresh().catch(() => {});
       return result;
     }
 
-    /**
-     * Sincroniza el estado reactivo con ChatState.
-     */
     syncWithState() {
       getState().set('toolSecurity', {
         globalMcpPolicy: this.globalMcpPolicy,
         authorizedCount: this.tools.size + this.servers.size,
         tools: Object.fromEntries(this.tools),
         servers: Object.fromEntries(this.servers),
-        directoryRules: this.directoryRules
+        directoryRules: this.directoryRules,
+        defaultDirectoryRule: this.defaultDirectoryRule
       });
     }
 
@@ -408,79 +268,33 @@
       return this.globalMcpPolicy;
     }
 
-    setGlobalMcpPolicy(policy) {
+    async setGlobalMcpPolicy(policy) {
       if (!Object.values(GLOBAL_POLICIES).includes(policy)) {
         throw new Error(`Invalid global policy: ${policy}`);
       }
-      this.globalMcpPolicy = policy;
-      this.save();
+      await this._patchBackend({ globalMcpPolicy: policy });
       return this.globalMcpPolicy;
     }
 
-    getStartupDirectory() {
-      return this.startupDirectory || '.';
-    }
-
-    getDefaultDirectoryRule() {
-      const dir = normalizeDirectoryPath(this.getStartupDirectory());
-      return dir ? `R:${dir}` : 'R:.';
-    }
-
-    setStartupDirectory(dir) {
-      const norm = normalizeDirectoryPath(dir);
-      if (!norm || norm === this.startupDirectory) return;
-      const oldDefault = this.getDefaultDirectoryRule();
-      this.startupDirectory = norm;
-      const newDefault = this.getDefaultDirectoryRule();
-
-      if (!this.directoryRules.length || (this.directoryRules.length === 1 && this.directoryRules[0] === oldDefault)) {
-        this.directoryRules = [newDefault];
-        this.save();
-      } else {
-        this.syncWithState();
-      }
-    }
-
     getDirectoryRules() {
-      if (!this.directoryRules.length) {
-        this.directoryRules = [this.getDefaultDirectoryRule()];
-      }
       return [...this.directoryRules];
     }
 
-    setDirectoryRules(rules) {
+    async setDirectoryRules(rules) {
       if (!Array.isArray(rules)) throw new Error('Las reglas de directorio deben ser una lista.');
-      const hasUnresolvedRule = rules.some(raw => {
-        if (typeof raw !== 'string') return false;
-        const match = raw.trim().match(DIRECTORY_RULE_PATTERN);
-        return Boolean(match && containsUnresolvedReference(match[2]));
-      });
-      const normalized = rules.map(parseDirectoryRule);
-      if (normalized.some(rule => !rule)) {
-        throw new Error(hasUnresolvedRule
-          ? 'Invalid directory rule: ~ and variables are not resolved in the browser. Use an absolute path.'
-          : 'Invalid directory rule. Use R:, W: or RW: followed by a path.');
-      }
-      let uniqueRules = [...new Set(normalized.map(rule => rule.rule))];
-      if (uniqueRules.length === 0) {
-        uniqueRules = [this.getDefaultDirectoryRule()];
-      }
-      this.directoryRules = uniqueRules;
-      this.save();
+      await this._patchBackend({ directoryRules: rules });
       return this.getDirectoryRules();
     }
 
-    addDirectoryRule(rule) {
-      return this.setDirectoryRules([...this.directoryRules, rule]);
+    async addDirectoryRule(rule) {
+      const current = this.getDirectoryRules();
+      return this.setDirectoryRules([...current, rule]);
     }
 
-    findToolEntry(toolIdOrName, tool = null) {
-      if (!toolIdOrName && !tool) return null;
-      const id = tool ? tool.name : toolIdOrName;
-      if (typeof id === 'string') {
-        if (this.tools.has(id)) {
-          return { toolId: id, entry: this.tools.get(id) };
-        }
+    findToolEntry(toolId) {
+      if (!toolId || typeof toolId !== 'string') return null;
+      if (this.tools.has(toolId)) {
+        return { toolId, entry: this.tools.get(toolId) };
       }
       return null;
     }
@@ -496,52 +310,39 @@
       return found ? (found.entry.constraints || null) : null;
     }
 
-
-    setToolPolicy(toolId, policy, meta = {}) {
+    async setToolPolicy(toolId, policy, meta = {}) {
       if (!toolId) return;
       const cleanPolicy = policy === TOOL_POLICIES.ALLOW || policy === TOOL_POLICIES.DENY
         ? policy
         : TOOL_POLICIES.ASK;
 
       if (cleanPolicy === TOOL_POLICIES.ASK) {
-        this.revokeToolPolicy(toolId);
-        return;
+        return this.revokeToolPolicy(toolId);
       }
 
-      const scope = meta.scope === SCOPES.SESSION ? SCOPES.SESSION : SCOPES.PERMANENT;
-      const found = this.findToolEntry(toolId);
-      const targetId = found ? found.toolId : toolId;
-      const existing = found ? found.entry : (this.tools.get(targetId) || {});
-
-      const constraints = meta.constraints !== undefined ? meta.constraints : (existing.constraints || null);
-
+      const constraints = meta.constraints !== undefined ? meta.constraints : null;
       const entry = {
         policy: cleanPolicy,
-        scope,
-        grantedAt: existing.grantedAt || Date.now(),
-        lastUsedAt: Date.now(),
-        serverName: meta.serverName || existing.serverName || '',
-        originalName: meta.originalName || existing.originalName || toolId,
-        constraints
+        constraints,
+        serverName: meta.serverName || '',
+        originalName: meta.originalName || toolId
       };
 
-      this.tools.set(targetId, entry);
-      this.save();
+      await this._patchBackend({
+        tools: {
+          [toolId]: entry
+        }
+      });
     }
 
-    revokeToolPolicy(toolId) {
+    async revokeToolPolicy(toolId) {
       if (!toolId) return false;
-      let deleted = false;
-      const found = this.findToolEntry(toolId);
-      if (found) {
-        deleted = this.tools.delete(found.toolId) || deleted;
-      }
-      deleted = this.tools.delete(toolId) || deleted;
-      if (deleted) {
-        this.save();
-        return true;
-      }
-      return false;
+      await this._patchBackend({
+        tools: {
+          [toolId]: null
+        }
+      });
+      return true;
     }
 
     findServerEntry(serverId) {
@@ -549,12 +350,6 @@
       const clean = serverId.trim();
       if (this.servers.has(clean)) {
         return { serverId: clean, entry: this.servers.get(clean) };
-      }
-      const lower = clean.toLowerCase();
-      for (const [id, entry] of this.servers.entries()) {
-        if (id.toLowerCase() === lower) {
-          return { serverId: id, entry };
-        }
       }
       return null;
     }
@@ -564,7 +359,7 @@
       return found ? found.entry.policy : null;
     }
 
-    setServerPolicy(serverId, policy, meta = {}) {
+    async setServerPolicy(serverId, policy, meta = {}) {
       if (!serverId || typeof serverId !== 'string') return;
       const clean = serverId.trim();
       const cleanPolicy = policy === SERVER_POLICIES.ALLOW || policy === SERVER_POLICIES.DENY
@@ -572,43 +367,37 @@
         : SERVER_POLICIES.ASK;
 
       if (cleanPolicy === SERVER_POLICIES.ASK) {
-        this.revokeServerPolicy(clean);
-        return;
+        return this.revokeServerPolicy(clean);
       }
-
-      const scope = meta.scope === SCOPES.SESSION ? SCOPES.SESSION : SCOPES.PERMANENT;
-      const found = this.findServerEntry(clean);
-      const targetId = found ? found.serverId : clean;
-      const existing = found ? found.entry : (this.servers.get(targetId) || {});
 
       const entry = {
         policy: cleanPolicy,
-        scope,
-        grantedAt: existing.grantedAt || Date.now(),
-        lastUsedAt: Date.now(),
-        serverName: meta.serverName || existing.serverName || clean
+        serverName: meta.serverName || clean
       };
 
-      this.servers.set(targetId, entry);
-      this.save();
+      await this._patchBackend({
+        servers: {
+          [clean]: entry
+        }
+      });
     }
 
-    revokeServerPolicy(serverId) {
+    async revokeServerPolicy(serverId) {
       if (!serverId) return false;
-      const found = this.findServerEntry(serverId);
-      const targetId = found ? found.serverId : serverId;
-      const deleted = this.servers.delete(targetId);
-      if (deleted) {
-        this.save();
-        return true;
-      }
-      return false;
+      await this._patchBackend({
+        servers: {
+          [serverId.trim()]: null
+        }
+      });
+      return true;
     }
 
-    clearAllAuthorizations() {
-      this.tools.clear();
-      this.servers.clear();
-      this.save();
+    async clearAllAuthorizations() {
+      const toolsPatch = {};
+      this.tools.forEach((_, id) => { toolsPatch[id] = null; });
+      const serversPatch = {};
+      this.servers.forEach((_, id) => { serversPatch[id] = null; });
+      await this._patchBackend({ tools: toolsPatch, servers: serversPatch });
     }
 
     listAuthorizedTools() {
@@ -637,7 +426,10 @@
   const manager = new ToolSecurityManager();
 
   return {
-    STORAGE_KEY,
+    GLOBAL_POLICIES,
+    TOOL_POLICIES,
+    SERVER_POLICIES,
+    SCOPES,
     ToolSecurityManager,
     manager
   };

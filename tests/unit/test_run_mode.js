@@ -132,11 +132,7 @@ test('RunMode.prepareConversationForContinuation retira el paso incompleto con a
 test('RunMode.hydrateToolSecurity aplica políticas reales en ToolSecurityManager sin persistir', () => {
   const ToolSecurity = require('../../js/tool-security.js');
   const manager = ToolSecurity.manager;
-  manager.clearAllAuthorizations();
-  manager.setGlobalMcpPolicy('ask');
-  let saveCalls = 0;
-  const originalSave = manager.save.bind(manager);
-  manager.save = () => { saveCalls++; originalSave(); };
+  manager.applyPolicies({ globalMcpPolicy: 'ask', tools: {}, servers: {}, directoryRules: [] });
   try {
     RunMode.hydrateToolSecurity({
       globalMcpPolicy: 'workspace_trust',
@@ -151,7 +147,6 @@ test('RunMode.hydrateToolSecurity aplica políticas reales en ToolSecurityManage
       servers: { memory: 'allow' }
     });
 
-    assert.equal(saveCalls, 0, 'hydrateToolSecurity no debe persistir las políticas de sesión');
     assert.equal(manager.getGlobalMcpPolicy(), 'workspace_trust');
     assert.equal(manager.getToolPolicy('write_file'), 'allow');
     assert.equal(manager.getToolPolicy('run_command'), 'allow');
@@ -159,8 +154,6 @@ test('RunMode.hydrateToolSecurity aplica políticas reales en ToolSecurityManage
     assert.ok(manager.getDirectoryRules().includes('R:/tmp/project'));
     assert.equal(manager.getServerPolicy('memory'), 'allow');
   } finally {
-    manager.save = originalSave;
-    manager.clearAllAuthorizations();
-    manager.setGlobalMcpPolicy('ask');
+    manager.applyPolicies({ globalMcpPolicy: 'ask', tools: {}, servers: {}, directoryRules: [] });
   }
 });

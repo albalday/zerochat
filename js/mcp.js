@@ -540,7 +540,7 @@
       const next = {};
       const cwd = typeof payload.cwd === 'string' ? payload.cwd.trim() : '';
       if (cwd && current.serverInfo && current.serverInfo.cwd !== cwd) {
-        getSecurity().manager.setStartupDirectory(cwd);
+        getSecurity().manager.refresh().catch(() => {});
         next.serverInfo = { ...current.serverInfo, cwd };
       }
       if (Array.isArray(payload.jobs)) {
@@ -613,7 +613,6 @@
           await this.markProxyUnavailable(Object.assign(new Error(probe.error), { status: probe.status }));
           return { success: false, probe };
         }
-        if (probe.serverInfo.cwd) getSecurity().manager.setStartupDirectory(probe.serverInfo.cwd);
         State.set('mcp', { status: 'connected', serverInfo: probe.serverInfo, latencyMs: probe.latencyMs, error: null });
         await this.applyLiveState(probe.liveState);
         return { success: true, probe };
@@ -688,14 +687,13 @@
       }
 
       this.dropClient(PROXY_ID);
-      if (probe.serverInfo.cwd) getSecurity().manager.setStartupDirectory(probe.serverInfo.cwd);
       const client = new McpClient({ id: PROXY_ID, name: probe.serverInfo.name || 'zerochat', url, token: this.sessionToken, headers: proxyHeaders(proxyKey) });
       let tools = [];
       let error = null;
       try {
         tools = await this.registerClient(client, { onTransportFailure: failure => this.markProxyUnavailable(failure) });
         getSecurity().manager.setMcpClient(client);
-        await getSecurity().manager.syncFromBackend().catch(err => {
+        await getSecurity().manager.refresh().catch(err => {
           console.warn('[MCP] Could not sync security policies from backend:', err?.message || err);
         });
       } catch (err) {
@@ -865,6 +863,7 @@
     async setProjectDirectory(path) {
       const result = await this.requestExternalControl('zerochat/project/set_directory', { path });
       await this.applyLiveState({ cwd: result?.cwd });
+      await getSecurity().manager.refresh().catch(() => {});
       return result;
     }
 

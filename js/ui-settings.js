@@ -128,11 +128,14 @@
   }
 
   /** Guarda las reglas de directorios; si alguna no es válida muestra el error y devuelve false. */
-  function saveDirectoryRulesFromSettings(elements) {
+  async function saveDirectoryRulesFromSettings(elements) {
+    const security = getToolSecurity().manager;
+    if (!security.mcpClient) return true;
     const input = elements.mcpDirectoryRules;
     const rules = input.value.split(/\r?\n/).map(rule => rule.trim()).filter(Boolean);
     try {
-      input.value = getToolSecurity().manager.setDirectoryRules(rules).join('\n');
+      const updated = await security.setDirectoryRules(rules);
+      input.value = updated.join('\n');
       elements.mcpDirectoryRulesError.textContent = '';
       return true;
     } catch (error) {
@@ -141,9 +144,11 @@
     }
   }
 
-  function saveMcpGlobalPolicyFromSettings(elements) {
+  async function saveMcpGlobalPolicyFromSettings(elements) {
+    const security = getToolSecurity().manager;
+    if (!security.mcpClient) return;
     const checked = elements.settingsDialog.querySelector('input[name="mcp-global-policy"]:checked');
-    if (checked) getToolSecurity().manager.setGlobalMcpPolicy(checked.value);
+    if (checked) await security.setGlobalMcpPolicy(checked.value);
   }
 
   /** Cierra los ajustes; con cambios sin guardar pide confirmación salvo con `force`. */
@@ -166,13 +171,13 @@
   }
 
   async function saveCurrentSettings(elements, appConfig, callbacks) {
-    if (!saveDirectoryRulesFromSettings(elements)) return false;
+    if (!await saveDirectoryRulesFromSettings(elements)) return false;
     const connection = getUIConnection().read();
     if (!connection) {
       openSettingsSection(elements, appConfig, 'connection');
       return false;
     }
-    saveMcpGlobalPolicyFromSettings(elements);
+    await saveMcpGlobalPolicyFromSettings(elements);
     if (!await getUIBrowser().save()) {
       openSettingsSection(elements, appConfig, 'browser');
       return false;

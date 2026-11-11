@@ -8,7 +8,7 @@ const ToolSecurity = require('../../js/tool-security.js');
 const { Tool, ToolRegistry, ToolExecutor, AgentRuntime } = AgentCore;
 
 // Como al conectar el backend local, que informa de su directorio de trabajo.
-ToolSecurity.manager.setStartupDirectory('/home/user/proj');
+ToolSecurity.manager.applyPolicies({ defaultDirectoryRule: 'RW:/home/user/proj/**' });
 const delegateTask = AgentCore.registry.getTool('delegate_task');
 
 function localTool(name, execute = async () => ({ success: true }), mcpServerId = 'mcp_proxy') {

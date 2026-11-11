@@ -149,9 +149,6 @@ test('Browser UI - la autorización de carpeta solo se ofrece para rutas que pue
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
     const result = await page.evaluate(async () => {
-      const manager = new window.ChatToolSecurity.ToolSecurityManager();
-      manager.setStartupDirectory('/home/user/proj');
-      const tool = { id: 'read_file', name: 'read_file', category: 'mcp' };
       const render = (path, ruleOffer = null) => {
         const args = { path };
         const call = { function: { name: 'read_file', arguments: JSON.stringify(args) } };
@@ -328,84 +325,6 @@ test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajust
       policy: document.querySelector('input[name="mcp-global-policy"]:checked')?.value,
       rules: document.getElementById('mcp-directory-rules').value
     })), { policy: before.policy, rules: before.rules.join('\n') }, 'Reabrir restaura los permisos guardados');
-  } finally {
-    await browser.close();
-  }
-});
-
-test('Browser UI - Las reglas de permisos y herramientas sobreviven a recargas (F5)', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    const filePath = getIndexUrl();
-    await page.goto(filePath, { waitUntil: 'load' });
-    await waitForAppReady(page);
-
-    // 1. Abrir Ajustes -> Permisos y configurar una regla de directorio
-    await page.click('#btn-open-settings');
-    await page.click('[data-section="permissions"]');
-    await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
-    await page.locator('#mcp-directory-rules').fill('RW:./my-project/**');
-    await page.click('#btn-save-settings');
-    await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
-
-    // Verificar que se guardó en ToolSecurity
-    assert.deepEqual(
-      await page.evaluate(() => window.ChatToolSecurity.manager.getDirectoryRules()),
-      ['RW:my-project/**']
-    );
-
-    // 2. Abrir Ajustes -> Modelo y guardar sin tocar Permisos (no debe borrar las reglas)
-    await page.click('[data-section="model"]');
-    await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
-    await page.click('#btn-save-settings');
-    await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
-
-    assert.deepEqual(
-      await page.evaluate(() => window.ChatToolSecurity.manager.getDirectoryRules()),
-      ['RW:my-project/**'],
-      'Guardar desde otra pestaña no debe borrar las reglas de directorios'
-    );
-
-    // 3. Abrir Ajustes -> Agente y desactivar execute_javascript
-    await page.click('[data-section="agent"]');
-    await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
-    await page.locator('.switch:has([data-tool-id="execute_javascript"])').click();
-    await page.click('#btn-save-settings');
-    await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
-
-    // 4. Establecer un permiso 'allow' en una herramienta integrada de archivos
-    await page.evaluate(() => {
-      window.ChatToolSecurity.manager.setToolPolicy('read_file', 'allow', {
-        serverName: 'mcp-proxy',
-        originalName: 'read_file'
-      });
-    });
-
-    // 5. Recarga de página (F5)
-    await page.reload({ waitUntil: 'load' });
-    await waitForAppReady(page);
-
-    // 6. Verificar que las reglas de directorios y la política granular sobrevivieron
-    const securityState = await page.evaluate(() => ({
-      directoryRules: window.ChatToolSecurity.manager.getDirectoryRules(),
-      readFilePolicy: window.ChatToolSecurity.manager.getToolPolicy('read_file'),
-      hasRule: window.ChatToolSecurity.manager.getDirectoryRules().includes('RW:my-project/**')
-    }));
-    assert.deepEqual(securityState.directoryRules, ['RW:my-project/**'], 'Las reglas de directorios deben sobrevivir al F5');
-    assert.equal(securityState.readFilePolicy, 'allow', 'La política granular debe sobrevivir al F5');
-
-    // 7. Verificar que el estado del checkbox del agente sobrevivió
-    const enabledToolsAfterF5 = await page.evaluate(() => window.ChatConfig.getActive().enabledTools);
-    assert.equal(enabledToolsAfterF5['execute_javascript'], false, 'El estado de la herramienta del agente debe sobrevivir al F5');
-
-    // 8. Reabrir Ajustes -> Permisos y verificar que el textarea contiene la regla
-    await page.click('#btn-open-settings');
-    await page.click('[data-section="permissions"]');
-    await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
-    const textareaVal = await page.$eval('#mcp-directory-rules', el => el.value);
-    assert.match(textareaVal, /RW:my-project\/\*\*/, 'El textarea de directorios debe mostrar la regla guardada tras F5');
-    await page.click('#btn-close-settings');
   } finally {
     await browser.close();
   }

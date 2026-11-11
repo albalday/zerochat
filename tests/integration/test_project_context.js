@@ -267,7 +267,16 @@ test('ProjectContext.initialize - sin write_file o fuera de missing no hace nada
 
 test('ProjectContext.initialize - registra la regla para permitir escribir en .zerochat', async () => {
   const manager = ToolSecurity.manager;
-  manager.setStartupDirectory('/repo');
+  const mockClient = {
+    async request(method, params) {
+      if (method === 'zerochat/security/update') {
+        return { policies: { directoryRules: params.directoryRules || [] } };
+      }
+      return {};
+    }
+  };
+  manager.setMcpClient(mockClient);
+  manager.applyPolicies({ directoryRules: [] });
   const { context } = createHarness({ realSecurity: true });
   await context.refresh();
   const result = await context.initialize(initCallbacks().callbacks);

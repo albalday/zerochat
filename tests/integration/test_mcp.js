@@ -519,21 +519,12 @@ test('MCP - proveedor, registro y permisos aíslan herramientas homónimas del h
   assert.equal(registry.getTool('mcpbrowserservicebrowsernavigate'), null);
   assert.equal(registry.getTool('mcp__browser_service__browser_navigate'), null);
 
-  const previousStorage = global.localStorage;
-  const saved = new Map();
-  global.localStorage = { getItem: k => saved.get(k) || null, setItem: (k, v) => saved.set(k, v) };
-  try {
-    const first = new Security.ToolSecurityManager();
-    first.setToolPolicy(tools[0].name, 'allow', { originalName: 'browser_navigate' });
-    const restored = new Security.ToolSecurityManager();
-    assert.equal(restored.getToolPolicy(tools[0].name), 'allow');
-    assert.equal(restored.getToolPolicy(tools[2].name), null);
-    assert.equal(restored.getToolPolicy('browser_navigate'), null);
-    assert.equal(restored.getToolPolicy('read_file'), null);
-  } finally {
-    if (previousStorage === undefined) delete global.localStorage;
-    else global.localStorage = previousStorage;
-  }
+  const restored = new Security.ToolSecurityManager();
+  restored.applyPolicies({ tools: { [tools[0].name]: { policy: 'allow', originalName: 'browser_navigate' } } });
+  assert.equal(restored.getToolPolicy(tools[0].name), 'allow');
+  assert.equal(restored.getToolPolicy(tools[2].name), null);
+  assert.equal(restored.getToolPolicy('browser_navigate'), null);
+  assert.equal(restored.getToolPolicy('read_file'), null);
   rawTools[0] = { ...rawTools[0], name: 'wrong_browser_navigate' };
   await assert.rejects(provider.discoverTools(), /Invalid external MCP public name/);
 });
@@ -555,18 +546,34 @@ test('MCP - autorización externa muestra el servicio de origen y conserva permi
   });
   const [search, execute, browser] = await provider.discoverTools();
   const manager = new Security.ToolSecurityManager();
+  const mockClient = {
+    async request(method, patch) {
+      const tools = { ...(mockClient.state.tools || {}) };
+      if (patch.tools) {
+        Object.entries(patch.tools).forEach(([k, v]) => { if (v === null) delete tools[k]; else tools[k] = v; });
+      }
+      const servers = { ...(mockClient.state.servers || {}) };
+      if (patch.servers) {
+        Object.entries(patch.servers).forEach(([k, v]) => { if (v === null) delete servers[k]; else servers[k] = v; });
+      }
+      mockClient.state = { ...mockClient.state, ...patch, tools, servers };
+      return { policies: mockClient.state };
+    },
+    state: {}
+  };
+  manager.setMcpClient(mockClient);
   for (const tool of [search, execute, browser]) {
     assert.equal(tool.description, tool === browser ? 'Navigate to a URL' : tool.metadata.originalName);
     assert.ok(tool.toMarkdown({}, {}).includes(tool.metadata.mcpServerId));
     assert.ok(!tool.toMarkdown({}, {}).includes('ZeroChat External MCP Host'));
   }
-  manager.setToolPolicy(search.name, 'allow');
+  await manager.setToolPolicy(search.name, 'allow');
   assert.equal(manager.getToolPolicy(search.name), 'allow');
   assert.equal(manager.getToolPolicy(execute.name), null);
-  manager.setServerPolicy('composio', 'allow', { serverName: 'composio' });
+  await manager.setServerPolicy('composio', 'allow', { serverName: 'composio' });
   assert.equal(manager.listAuthorizedServers()[0].serverName, 'composio');
   assert.equal(manager.getServerPolicy('composio'), 'allow');
-  manager.setToolPolicy(execute.name, 'deny');
+  await manager.setToolPolicy(execute.name, 'deny');
   assert.equal(manager.getToolPolicy(execute.name), 'deny');
 });
 
@@ -823,7 +830,7 @@ test('MCP - applyLiveState publica el estado vivo del servidor y solo escribe lo
   const Security = require('../../js/tool-security.js');
   const previousState = ChatState.get('mcp');
   const manager = new MCP.McpManager();
-  const startup = t.mock.method(Security.manager, 'setStartupDirectory', () => {});
+  const refreshSec = t.mock.method(Security.manager, 'refresh', async () => {});
   try {
     ChatState.set('mcp', { ...previousState, status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo' }, commandJobs: [], exitOnClose: false, playwright: null });
     const provider = new MCP.McpToolProvider({ id: 'mcp_proxy', name: 'ZeroChat', initialize: async () => ({ success: true }), listTools: async () => [{ name: 'browser_action' }] });
@@ -847,7 +854,7 @@ test('MCP - applyLiveState publica el estado vivo del servidor y solo escribe lo
     assert.deepEqual(mcp.commandJobs, [{ id: 1, command: 'npm run dev', startedAt: 1000 }]);
     assert.equal(mcp.exitOnClose, true);
     assert.equal(mcp.serverInfo.cwd, '/otro');
-    assert.deepEqual(startup.mock.calls.map(call => call.arguments[0]), ['/otro']);
+    assert.equal(refreshSec.mock.callCount(), 1);
     assert.deepEqual(mcp.playwright, { installed: true, browserAction: { available: true } });
     assert.equal(browserAction.isAvailable(), true);
     // El mismo estado con otro tiempo transcurrido no vuelve a escribir.

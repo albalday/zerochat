@@ -163,9 +163,9 @@
       const toolId = target.getAttribute('data-tool-id');
       const policy = target.value;
       if (policy === 'ask') {
-        getSecurity().revokeToolPolicy(toolId);
+        await getSecurity().revokeToolPolicy(toolId);
       } else {
-        getSecurity().setToolPolicy(toolId, policy, {
+        await getSecurity().setToolPolicy(toolId, policy, {
           serverName: target.getAttribute('data-server-name'),
           originalName: target.getAttribute('data-orig-name')
         });
@@ -258,12 +258,12 @@
   }
 
   /** Clic en la lista de servidores: confiar en el servidor o iniciarlo/detenerlo. */
-  function handleServersClick(container, target) {
+  async function handleServersClick(container, target) {
     const trust = target.closest('.btn-mcp-server-trust');
     if (trust) {
       const serverId = trust.getAttribute('data-server-id');
-      if (getSecurity().getServerPolicy(serverId) === 'allow') getSecurity().revokeServerPolicy(serverId);
-      else getSecurity().setServerPolicy(serverId, 'allow', { serverName: serverId });
+      if (getSecurity().getServerPolicy(serverId) === 'allow') await getSecurity().revokeServerPolicy(serverId);
+      else await getSecurity().setServerPolicy(serverId, 'allow', { serverName: serverId });
       renderExternalServers(container, getState().get('mcp').externalServers);
       renderSavedAuthorizations();
       return;
@@ -456,13 +456,13 @@
     on(elements.serversList, 'click', event => handleServersClick(elements.serversList, event.target));
     on(elements.serversList, 'change', event => handleServerOptionChange(event.target));
     // Revocar re-renderiza los ajustes MCP a través de la suscripción a ChatToolSecurity.
-    on(elements.savedAuthsList, 'click', event => {
+    on(elements.savedAuthsList, 'click', async event => {
       const tool = event.target.closest('.btn-revoke-auth');
-      if (tool) security.revokeToolPolicy(tool.getAttribute('data-tool-id'));
+      if (tool) await security.revokeToolPolicy(tool.getAttribute('data-tool-id'));
       const server = event.target.closest('.btn-revoke-server-auth');
-      if (server) security.revokeServerPolicy(server.getAttribute('data-server-id'));
+      if (server) await security.revokeServerPolicy(server.getAttribute('data-server-id'));
     });
-    on(elements.btnClearAuths, 'click', () => security.clearAllAuthorizations());
+    on(elements.btnClearAuths, 'click', async () => await security.clearAllAuthorizations());
 
     const unsubscribeSecurity = security.subscribe(() => syncSecurityControls(elements));
     const unsubscribeState = State.subscribe('mcp', state => renderConnectionStatus(elements, state));

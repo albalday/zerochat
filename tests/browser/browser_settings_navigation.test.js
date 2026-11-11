@@ -43,6 +43,25 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
   test('Browser UI - guardar aplica reglas, política MCP y datos del sistema, y una regla inválida muestra el error', async () => {
     await withTestApp({ viewport: { width: 1280, height: 800 } }, async page => {
       page.setDefaultTimeout(5000);
+      await page.evaluate(() => {
+        const client = {
+          async request(method, params) {
+            if (method === 'zerochat/security/update') {
+              if (params.directoryRules?.some(r => !/^(R|W|RW):/.test(r))) {
+                throw new Error('Invalid directory rule. Use R:, W: or RW: followed by a path.');
+              }
+              const currentRules = params.directoryRules !== undefined ? params.directoryRules : window.ChatToolSecurity.manager.directoryRules;
+              const currentPolicy = params.globalMcpPolicy !== undefined ? params.globalMcpPolicy : window.ChatToolSecurity.manager.globalMcpPolicy;
+              return { policies: {
+                directoryRules: currentRules,
+                globalMcpPolicy: currentPolicy
+              }};
+            }
+            return {};
+          }
+        };
+        window.ChatToolSecurity.manager.setMcpClient(client);
+      });
       await openSettings(page, 'agent');
       await page.locator('.switch:has([data-tool-id="search_web"])').click();
       assert.notEqual(await page.evaluate(() => window.ChatConfig.getActive().enabledTools.search_web), false, 'El interruptor espera a Guardar');

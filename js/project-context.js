@@ -632,7 +632,7 @@ ${stateBody}
       if (current.cwd !== cwd || current.status !== 'missing' || isBusy?.() || !canInitialize()) {
         return { ok: false, reason: 'state-changed' };
       }
-      getSecurity().addDirectoryRule(rule);
+      await getSecurity().addDirectoryRule(rule);
       if (typeof startConversation === 'function') await startConversation();
       await sendPrompt(buildBootstrapPrompt(cwd));
       return { ok: true, rule };

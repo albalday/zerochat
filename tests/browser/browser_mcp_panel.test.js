@@ -10,6 +10,33 @@ async function withMcpPanel(mcp, fn) {
   await withTestApp(async page => {
     page.setDefaultTimeout(5000);
     await page.evaluate(mcp => {
+      const mockClient = {
+        async request(method, patch) {
+          const tools = Object.fromEntries(window.ChatToolSecurity.manager.tools);
+          if (patch?.tools) {
+            for (const [id, val] of Object.entries(patch.tools)) {
+              if (val === null) delete tools[id];
+              else tools[id] = val;
+            }
+          }
+          const servers = Object.fromEntries(window.ChatToolSecurity.manager.servers);
+          if (patch?.servers) {
+            for (const [id, val] of Object.entries(patch.servers)) {
+              if (val === null) delete servers[id];
+              else servers[id] = val;
+            }
+          }
+          return {
+            policies: {
+              globalMcpPolicy: patch?.globalMcpPolicy || window.ChatToolSecurity.manager.globalMcpPolicy,
+              directoryRules: patch?.directoryRules || window.ChatToolSecurity.manager.directoryRules,
+              tools,
+              servers
+            }
+          };
+        }
+      };
+      window.ChatToolSecurity.manager.setMcpClient(mockClient);
       window.ChatState.set('mcp', current => ({ ...current, tools: [], externalTools: [], externalServers: [], ...mcp }));
       window.mcpElements = () => {
         const byId = id => document.getElementById(id);
@@ -143,36 +170,39 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
     // Conectada: cada cambio de política repinta la lista desde el estado MCP.
     await withMcpPanel({ status: 'connected', tools }, async page => {
       const select = id => page.locator(`.mcp-auth-select[data-tool-id="${id}"]`);
-      await page.evaluate(tools => {
-        window.ChatToolSecurity.manager.setToolPolicy('mcp_test_tool_2', 'allow', { serverName: 'srv1', originalName: 'tool2' });
+      await page.evaluate(async tools => {
+        await window.ChatToolSecurity.manager.setToolPolicy('mcp_test_tool_2', 'allow', { serverName: 'srv1', originalName: 'tool2' });
         window.ChatUIMcp.renderToolsList(document.getElementById('mcp-tools-container'), tools, {});
       }, tools);
       assert.equal(await select('mcp_test_tool_2').inputValue(), 'allow');
 
       await select('mcp_test_tool_1').evaluate(element => { element.value = 'allow'; element.dispatchEvent(new Event('change', { bubbles: true })); });
+      await page.waitForFunction(() => window.ChatToolSecurity.manager.getToolPolicy('mcp_test_tool_1') === 'allow');
       assert.equal(await page.evaluate(() => window.ChatToolSecurity.manager.getToolPolicy('mcp_test_tool_1')), 'allow');
       assert.equal(await select('mcp_test_tool_1').evaluate(element => element.classList.contains('status-allowed')), true);
 
       await select('mcp_test_tool_2').evaluate(element => { element.value = 'ask'; element.dispatchEvent(new Event('change', { bubbles: true })); });
+      await page.waitForFunction(() => window.ChatToolSecurity.manager.getToolPolicy('mcp_test_tool_2') === null);
       assert.equal(await page.evaluate(() => window.ChatToolSecurity.manager.getToolPolicy('mcp_test_tool_2')), null);
       assert.equal(await select('mcp_test_tool_2').evaluate(element => element.classList.contains('status-ask')), true);
 
-      const global = await page.evaluate(tools => {
-        window.ChatToolSecurity.manager.setGlobalMcpPolicy('allow_all');
+      const global = await page.evaluate(async tools => {
+        await window.ChatToolSecurity.manager.setGlobalMcpPolicy('allow_all');
         const container = document.getElementById('mcp-tools-container');
         window.ChatUIMcp.renderToolsList(container, tools, {});
         const text = container.textContent;
-        window.ChatToolSecurity.manager.setGlobalMcpPolicy('ask');
+        await window.ChatToolSecurity.manager.setGlobalMcpPolicy('ask');
         return text;
       }, tools);
       assert.match(global, /\(Global\)/);
 
-      const revoke = await page.evaluate(() => {
-        window.ChatToolSecurity.manager.setToolPolicy('mcp_compact_revoke_test', 'allow', { originalName: 'compact revoke test' });
+      const revoke = await page.evaluate(async () => {
+        await window.ChatToolSecurity.manager.setToolPolicy('mcp_compact_revoke_test', 'allow', { originalName: 'compact revoke test' });
         window.ChatUIMcp.renderSavedAuthorizations();
         const button = document.querySelector('#mcp-saved-auths-list .btn-revoke-auth');
         const shape = { title: button.title, aria: button.getAttribute('aria-label'), icon: Boolean(button.querySelector('.ui-icon')), text: button.textContent.trim() };
         button.click();
+        await new Promise(r => setTimeout(r, 20));
         return { ...shape, policy: window.ChatToolSecurity.manager.getToolPolicy('mcp_compact_revoke_test') };
       });
       assert.deepEqual(revoke, { title: 'Revocar', aria: 'Revocar', icon: true, text: '', policy: null });

@@ -12,8 +12,7 @@ function setup(t, mcp = {}) {
   ChatState.set('mcp', { ...previousState, tools: [], externalTools: [], externalServers: [], ...mcp });
   t.after(() => {
     ChatState.set('mcp', previousState);
-    ChatToolSecurity.manager.clearAllAuthorizations();
-    ChatToolSecurity.manager.setGlobalMcpPolicy('ask');
+    ChatToolSecurity.manager.applyPolicies({ globalMcpPolicy: 'ask', tools: {}, servers: {}, directoryRules: [] });
   });
 }
 
