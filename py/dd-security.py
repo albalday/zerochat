@@ -27,6 +27,10 @@ READ_PATH_TOOLS = frozenset(("read_file", "list_directory", "search_files", "get
 WRITE_PATH_TOOLS = frozenset(("edit_file", "write_file"))
 DIRECTORY_PATH_TOOLS = frozenset(("list_directory", "search_files", "get_diagnostics"))
 
+MAX_COMMAND_PREFIXES = 50
+COMMAND_PREFIX_FORBIDDEN = re.compile(r"[;&|<>$`*\n\r]")
+SUBCOMMAND_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_.:-]*")
+
 SAFE_REDIRECTION_PATTERN = re.compile(r"&>\s*/dev/null|\d?>>?\s*/dev/null|\d?>&\d")
 
 WORKSPACE_TRUST_PIPE_FILTERS = frozenset([
@@ -167,15 +171,6 @@ def split_leading_cd(cmd: str) -> dict | None:
     return {"directory": clean_dir, "command": match.group(2).strip()}
 
 
-def get_command_base_name(cmd: str) -> str:
-    """Devuelve el nombre del ejecutable principal omitiendo 'cd <dir> &&'."""
-    trimmed = str(cmd or "").strip()
-    cd_part = split_leading_cd(trimmed)
-    command_str = cd_part["command"] if cd_part else trimmed
-    tokens = command_str.split()
-    return tokens[0] if tokens else ""
-
-
 def get_command_arg(args: dict | None) -> str:
     """Extrae el argumento de comando con soporte de alias habituales."""
     if not isinstance(args, dict):
@@ -253,13 +248,69 @@ def evaluate_command_constraint(cmd_val: str, command_constraints: dict) -> tupl
             if isinstance(pattern, str) and pattern in trimmed:
                 return False, True, "command_matches_denied_pattern", f"El comando contiene un patrón bloqueado ({pattern}): {trimmed}"
 
+    # Sin prefijos no hay autorización: una lista vacía nunca equivale a cualquier comando.
     allowed_prefixes = command_constraints.get("allowedPrefixes")
-    if isinstance(allowed_prefixes, (list, tuple)) and len(allowed_prefixes) > 0:
-        matched = any(matches_command_prefix(command, p) for p in allowed_prefixes if isinstance(p, str))
-        if not matched:
-            return False, False, "command_outside_allowed_prefixes", f"Comando fuera de los prefijos autorizados: {trimmed}"
+    prefixes = [p for p in allowed_prefixes if isinstance(p, str)] if isinstance(allowed_prefixes, (list, tuple)) else []
+    if not any(matches_command_prefix(command, p) for p in prefixes):
+        return False, False, "command_outside_allowed_prefixes", f"Comando fuera de los prefijos autorizados: {trimmed}"
 
     return True, False, "", ""
+
+
+def normalize_command_prefix(raw: str) -> str:
+    """Limpia un prefijo autorizado ('git status *' -> 'git status'); ValueError si no es válido."""
+    if not isinstance(raw, str):
+        raise ValueError("Cada prefijo de comando debe ser un texto.")
+    clean = " ".join(re.sub(r"\s*\*\s*$", "", raw).split())
+    if not clean or COMMAND_PREFIX_FORBIDDEN.search(clean):
+        raise ValueError(f"Prefijo de comando no válido: '{raw}'.")
+    return clean
+
+
+def normalize_command_constraints(constraints: dict | None) -> dict | None:
+    """
+    Valida y normaliza las restricciones de comando: lista no vacía de prefijos sin metacaracteres
+    de shell, sin repetidos ni prefijos cubiertos por otro más amplio, y con un tope.
+    """
+    if constraints is None:
+        return None
+    if not isinstance(constraints, dict):
+        raise ValueError("constraints debe ser un diccionario o None.")
+    command = constraints.get("command")
+    if command is None:
+        return None
+    if not isinstance(command, dict):
+        raise ValueError("constraints.command debe ser un diccionario.")
+    raw_prefixes = command.get("allowedPrefixes")
+    if not isinstance(raw_prefixes, list) or not raw_prefixes:
+        raise ValueError("allowedPrefixes debe ser una lista no vacía de comandos.")
+    if len(raw_prefixes) > MAX_COMMAND_PREFIXES:
+        raise ValueError(f"Hay {len(raw_prefixes)} prefijos de comando; el máximo es {MAX_COMMAND_PREFIXES}.")
+    unique = list(dict.fromkeys(normalize_command_prefix(p) for p in raw_prefixes))
+    prefixes = [p for p in unique if not any(q != p and matches_command_prefix(p, q) for q in unique)]
+    clean_command = {
+        "allowedPrefixes": prefixes,
+        "allowChaining": command.get("allowChaining") is True,
+        "allowPipes": command.get("allowPipes") is True
+    }
+    denied = command.get("deniedPatterns")
+    if denied is not None:
+        if not isinstance(denied, list) or not all(isinstance(d, str) and d.strip() for d in denied):
+            raise ValueError("deniedPatterns debe ser una lista de textos.")
+        clean_command["deniedPatterns"] = [d.strip() for d in denied]
+    return {"command": clean_command}
+
+
+def suggest_command_prefix(command: str) -> str:
+    """Prefijo sugerido: ejecutable y, si lo hay, su subcomando ('git status --short' -> 'git status')."""
+    trimmed = str(command or "").strip()
+    cd_part = split_leading_cd(trimmed)
+    tokens = (cd_part["command"] if cd_part else trimmed).split()
+    if not tokens:
+        return ""
+    if len(tokens) > 1 and SUBCOMMAND_TOKEN.fullmatch(tokens[1]):
+        return f"{tokens[0]} {tokens[1]}"
+    return tokens[0]
 
 
 def get_rule_offer(tool_name: str, args: dict, auth_eval: dict | None = None) -> dict | None:
@@ -267,14 +318,14 @@ def get_rule_offer(tool_name: str, args: dict, auth_eval: dict | None = None) ->
     eval_info = auth_eval or {}
     command = get_command_arg(args)
     if command and not eval_info.get("directoryAccess"):
-        base_name = get_command_base_name(command)
-        if not base_name:
+        prefix = suggest_command_prefix(command)
+        if not prefix or COMMAND_PREFIX_FORBIDDEN.search(prefix):
             return None
         return {
             "type": "command",
-            "command": base_name,
+            "command": prefix,
             "constraints": {
-                "command": {"allowedPrefixes": [base_name], "allowChaining": False, "allowPipes": False}
+                "command": {"allowedPrefixes": [prefix], "allowChaining": False, "allowPipes": False}
             }
         }
     # Solo las herramientas integradas se autorizan por reglas de directorio.
@@ -400,9 +451,10 @@ class AccessController:
             pol = entry.get("policy")
             if pol not in (POLICY_ALLOW, POLICY_DENY):
                 raise ValueError(f"Política inválida para {kind_label} '{item_id}': '{pol}'. Válidas: allow, deny.")
-            constraints = entry.get("constraints")
-            if constraints is not None and not isinstance(constraints, dict):
-                raise ValueError(f"constraints para {kind_label} '{item_id}' debe ser un diccionario o None.")
+            try:
+                constraints = normalize_command_constraints(entry.get("constraints"))
+            except ValueError as exc:
+                raise ValueError(f"Restricciones de {kind_label} '{item_id}': {exc}") from exc
             clean_map[clean_key] = AccessController._make_entry(
                 kind, pol, scope,
                 server_name=str(entry.get("serverName", "") or ""),
@@ -658,7 +710,9 @@ class AccessController:
                 return None
             if decision == "allow_server_always" and not challenge.get("serverId"):
                 return None
-            self._validate_decision(dec_payload, challenge["toolName"], context)
+            constraints, _ = self._validate_decision(dec_payload, challenge["toolName"], context)
+            if decision == "allow_always" and challenge["toolName"] == COMMAND_TOOL:
+                self._check_prefixes_cover(constraints, challenge["arguments"])
             self.pending_challenges.pop(challenge_id)
         self.record_decision(dec_payload, challenge["decision"], fallback_tool_name=challenge["toolName"], context=context)
         return challenge
@@ -667,15 +721,24 @@ class AccessController:
         with self._lock:
             return self.pending_challenges.pop(challenge_id, None) is not None
 
-    def _validate_decision(self, decision: dict, tool_name: str, context: SecurityContext | None = None) -> list[str]:
-        """Valida restricciones y regla de una decisión sin persistir nada; devuelve las reglas nuevas limpias."""
-        constraints = decision.get("constraints")
-        if constraints is not None and not isinstance(constraints, dict):
-            raise ValueError("constraints debe ser un diccionario o None.")
-        if decision.get("decision") == "allow_always" and tool_name == COMMAND_TOOL and not (constraints or {}).get("command"):
+    def _validate_decision(self, decision: dict, tool_name: str,
+                           context: SecurityContext | None = None) -> tuple[dict | None, list[str]]:
+        """Valida restricciones y regla de una decisión sin persistir nada; devuelve ambas limpias."""
+        constraints = normalize_command_constraints(decision.get("constraints"))
+        if decision.get("decision") == "allow_always" and tool_name == COMMAND_TOOL and not constraints:
             raise ValueError("allow_always_requires_constraints")
         rule = decision.get("directoryRule")
-        return self._validate_directory_rules([rule], context) if rule else []
+        return constraints, (self._validate_directory_rules([rule], context) if rule else [])
+
+    @staticmethod
+    def _check_prefixes_cover(constraints: dict | None, args: dict):
+        """Un prefijo aprobado en un reto debe cubrir el comando de ese reto."""
+        command_str = get_command_arg(args)
+        cd_part = split_leading_cd(command_str)
+        command = cd_part["command"] if cd_part else command_str
+        for prefix in ((constraints or {}).get("command") or {}).get("allowedPrefixes") or []:
+            if not matches_command_prefix(command, prefix):
+                raise ValueError(f"El prefijo '{prefix}' no cubre el comando '{command}'.")
 
     @staticmethod
     def merge_command_constraints(existing_constraints: dict | None, requested: dict | None) -> dict | None:
@@ -701,7 +764,7 @@ class AccessController:
         merged_cmd = {
             **ext_cmd,
             **req_cmd,
-            "allowedPrefixes": merged_prefixes if merged_prefixes else None,
+            "allowedPrefixes": merged_prefixes,
             "allowChaining": grants("allowChaining"),
             "allowPipes": grants("allowPipes")
         }
@@ -716,7 +779,7 @@ class AccessController:
         decision_type = decision.get("decision", "")
         target_tool = auth_eval.get("toolId") or fallback_tool_name
         server_name = auth_eval.get("serverName", "")
-        new_rules = self._validate_decision(decision, target_tool, context)
+        clean_constraints, new_rules = self._validate_decision(decision, target_tool, context)
 
         if decision_type == "allow_session":
             entry = self._make_entry("tools", POLICY_ALLOW, SCOPE_SESSION, server_name=server_name, original_name=target_tool)
@@ -736,7 +799,8 @@ class AccessController:
         def mutator(state: dict) -> dict:
             if permanent_kind == "tools":
                 existing = (state.get("tools") or {}).get(target_tool) or {}
-                constraints = self.merge_command_constraints(existing.get("constraints"), decision.get("constraints"))
+                constraints = normalize_command_constraints(
+                    self.merge_command_constraints(existing.get("constraints"), clean_constraints))
                 state.setdefault("tools", {})[target_tool] = self._make_entry(
                     "tools", POLICY_ALLOW, SCOPE_PERMANENT, server_name=server_name,
                     original_name=target_tool, constraints=constraints)

@@ -42,3 +42,5 @@ Done when: Los probes C1-C3, S1-S3 y D1 de docs/audits/M61-permisos.md se compor
 - [x] M61-T16 Errores de SQLite visibles, estado por defecto en una sola fuente y una lectura del estado permanente por evaluación (2026-11-11)
 - [x] M61-T17 Retirar código solo de pruebas o sin consumidor en AccessController y ChatToolSecurity, y corregir las pruebas que dependían de él (2026-11-11)
 - [x] M61-T18 Unificar normalización de ids, clasificación de herramientas de ficheros, parada de comandos en JS y caché del frontend sin decisiones propias (2026-11-11)
+- [x] M61-T19 Prefijos de comando validados en el backend (lista no vacía, sin metacaracteres, tope), prefijo que cubre el comando del reto y oferta con subcomando (2026-11-11)
+- [ ] M61-T20 Prefijo editable en la tarjeta de autorización y prefijos editables en Ajustes › MCP (añadir/quitar, vacía revoca), i18n y ayuda

@@ -573,8 +573,12 @@ class AccessControllerPolicyTest(unittest.TestCase):
         # Command with cd prefix
         dec_cd = self.controller.evaluate_authorization("run_command", {"command": "cd /tmp && git status"}, self.ctx)
         self.assertIsNotNone(dec_cd.rule_offer)
-        self.assertEqual(dec_cd.rule_offer["command"], "git")
-        self.assertEqual(dec_cd.rule_offer["constraints"]["command"]["allowedPrefixes"], ["git"])
+        self.assertEqual(dec_cd.rule_offer["command"], "git status")
+        self.assertEqual(dec_cd.rule_offer["constraints"]["command"]["allowedPrefixes"], ["git status"])
+
+        # Una opción no es un subcomando: se ofrece solo el ejecutable
+        dec_flag = self.controller.evaluate_authorization("run_command", {"command": "ls -la"}, self.ctx)
+        self.assertEqual(dec_flag.rule_offer["command"], "ls")
 
         # Directory offer
         dec_file = self.controller.evaluate_authorization("write_file", {"path": f"{norm_ws}/src/app.py"}, self.ctx)
@@ -1000,6 +1004,59 @@ class AccessControllerPolicyTest(unittest.TestCase):
         dec = self.controller.evaluate_authorization("srv__write_file", {"path": "/tmp/x.txt"}, self.ctx, server_id="srv")
         self.assertEqual(dec.status, "ask")
         self.assertIsNone(dec.rule_offer)
+
+    def test_command_prefixes_are_validated_and_normalized(self):
+        res = self.controller.import_state({"tools": {"run_command": {"policy": "allow", "constraints": {
+            "command": {"allowedPrefixes": ["git status *", "git  status", "git diff", "git diff --stat"]}
+        }}}}, self.ctx)
+        self.assertEqual(res["tools"]["run_command"]["constraints"]["command"]["allowedPrefixes"], ["git status", "git diff"])
+
+        for bad in ([], ["git; rm"], ["git $(x)"], [""], ["*"], ["git * log"], [3]):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                self.controller.import_state({"tools": {"run_command": {"policy": "allow", "constraints": {
+                    "command": {"allowedPrefixes": bad}
+                }}}}, self.ctx)
+
+        limit = zerochat.MAX_COMMAND_PREFIXES
+        at_limit = [f"cmd{i}" for i in range(limit)]
+        self.controller.import_state({"tools": {"run_command": {"policy": "allow", "constraints": {"command": {"allowedPrefixes": at_limit}}}}}, self.ctx)
+        with self.assertRaisesRegex(ValueError, "máximo"):
+            self.controller.import_state({"tools": {"run_command": {"policy": "allow", "constraints": {
+                "command": {"allowedPrefixes": at_limit + ["extra"]}
+            }}}}, self.ctx)
+
+    def test_stored_empty_prefix_list_never_allows_any_command(self):
+        zerochat.update_security_policy_data(lambda current: {**(current or {}), "tools": {
+            "run_command": {"policy": "allow", "scope": "permanent", "constraints": {"command": {"allowedPrefixes": []}}}
+        }})
+        dec = self.controller.evaluate_authorization("run_command", {"command": "rm -rf build"}, self.ctx)
+        self.assertEqual(dec.status, "ask")
+        self.assertEqual(dec.reason, "command_outside_allowed_prefixes")
+
+    def test_edited_prefix_must_cover_the_challenge_command(self):
+        handler = zerochat.ZeroChatServerHandler.__new__(zerochat.ZeroChatServerHandler)
+        zerochat.ACCESS_CONTROLLER.clear_session()
+        set_global(zerochat.ACCESS_CONTROLLER, zerochat.GLOBAL_POLICY_ASK)
+        gate, _, _ = handler._dispatch_local("tools/call", {"name": "run_command", "arguments": {"command": "echo hola mundo"}})
+        cid = gate["challengeId"]
+        self.assertEqual(gate["ruleOffer"]["command"], "echo hola")
+
+        res_bad, err_bad, _ = handler._dispatch_security("zerochat/security/authorize", {
+            "challengeId": cid, "decision": "allow_always",
+            "constraints": {"command": {"allowedPrefixes": ["echo adios"]}}
+        })
+        self.assertIsNone(res_bad)
+        self.assertEqual(err_bad["code"], -32602)
+        self.assertIn(cid, zerochat.ACCESS_CONTROLLER.pending_challenges)
+
+        res_ok, err_ok, _ = handler._dispatch_security("zerochat/security/authorize", {
+            "challengeId": cid, "decision": "allow_always",
+            "constraints": {"command": {"allowedPrefixes": ["echo *"]}}
+        })
+        self.assertIsNone(err_ok)
+        self.assertTrue(res_ok["authorized"])
+        stored_prefixes = stored("tools")["run_command"]["constraints"]["command"]["allowedPrefixes"]
+        self.assertEqual(stored_prefixes, ["echo"])
 
 if __name__ == "__main__":
     unittest.main()
