@@ -173,15 +173,15 @@ class WebFetchTest(unittest.TestCase):
             self.assertEqual(slept, [])
 
             # Borde exacto: a 0,1 s de cumplir el gap espera el resto.
-            zerochat._LAST_WEB_FETCH_AT["duckduckgo.com"] = time.monotonic() - (zerochat.WEB_FETCH_MIN_GAP_S - 0.1)
+            now = original_monotonic()
+            time.monotonic = lambda: now
+            zerochat._LAST_WEB_FETCH_AT["duckduckgo.com"] = now - (zerochat.WEB_FETCH_MIN_GAP_S - 0.1)
             slept.clear()
             zerochat.fetch_web_resource({"url": "https://html.duckduckgo.com/html/?q=borde"})
             self.assertEqual(len(slept), 1)
-            self.assertAlmostEqual(slept[0], 0.1, delta=0.05)
+            self.assertAlmostEqual(slept[0], 0.1, places=3)
 
             # Tres peticiones en paralelo: escalonadas de 5 en 5 para que no coincidan.
-            now = original_monotonic()
-            time.monotonic = lambda: now
             zerochat._LAST_WEB_FETCH_AT["duckduckgo.com"] = now
             zerochat._WEB_FETCH_PENDING["duckduckgo.com"] = 0
             slept.clear()
