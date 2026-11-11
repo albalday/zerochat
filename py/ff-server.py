@@ -621,10 +621,10 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         decision = ACCESS_CONTROLLER.evaluate_authorization(
             tool_name, args, context=ctx, server_name=server_name, server_id=server_id
         )
-        if decision.status == TOOL_POLICY_DENY:
+        if decision.status == POLICY_DENY:
             err_msg = f"Bloqueado por política de seguridad: {decision.reason}"
             return {"content": [{"type": "text", "text": f"Error: {err_msg}"}], "isError": True, "securityStatus": "deny", "reason": decision.reason}, None, err_msg
-        if decision.status == TOOL_POLICY_ASK:
+        if decision.status == POLICY_ASK:
             ch = ACCESS_CONTROLLER.create_challenge(
                 tool_name, args, decision, server_name=server_name, server_id=server_id, origin=origin, context=ctx
             )

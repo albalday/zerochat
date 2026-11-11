@@ -7,13 +7,18 @@ GLOBAL_POLICY_ALLOW_ALL = "allow_all"
 GLOBAL_POLICY_WORKSPACE_TRUST = "workspace_trust"
 GLOBAL_POLICIES = (GLOBAL_POLICY_ASK, GLOBAL_POLICY_ALLOW_ALL, GLOBAL_POLICY_WORKSPACE_TRUST)
 
-TOOL_POLICY_ALLOW = "allow"
-TOOL_POLICY_DENY = "deny"
-TOOL_POLICY_ASK = "ask"
+POLICY_ALLOW = "allow"
+POLICY_DENY = "deny"
+POLICY_ASK = "ask"
+POLICIES = (POLICY_ALLOW, POLICY_DENY, POLICY_ASK)
 
-SERVER_POLICY_ALLOW = "allow"
-SERVER_POLICY_DENY = "deny"
-SERVER_POLICY_ASK = "ask"
+TOOL_POLICY_ALLOW = POLICY_ALLOW
+TOOL_POLICY_DENY = POLICY_DENY
+TOOL_POLICY_ASK = POLICY_ASK
+
+SERVER_POLICY_ALLOW = POLICY_ALLOW
+SERVER_POLICY_DENY = POLICY_DENY
+SERVER_POLICY_ASK = POLICY_ASK
 
 SCOPE_PERMANENT = "permanent"
 SCOPE_SESSION = "session"
@@ -261,10 +266,11 @@ def evaluate_command_constraint(cmd_val: str, command_constraints: dict) -> tupl
     return True, False, "", ""
 
 
-def get_rule_offer(tool_name: str, args: dict, auth_eval: dict) -> dict | None:
+def get_rule_offer(tool_name: str, args: dict, auth_eval: dict | None = None) -> dict | None:
     """Genera la regla sugerida para confirmaciones permanentes en la interfaz."""
+    eval_info = auth_eval or {}
     command = get_command_arg(args)
-    if command and not auth_eval.get("directoryAccess"):
+    if command and not eval_info.get("directoryAccess"):
         base_name = get_command_base_name(command)
         if not base_name:
             return None
@@ -275,10 +281,10 @@ def get_rule_offer(tool_name: str, args: dict, auth_eval: dict) -> dict | None:
                 "command": {"allowedPrefixes": [base_name], "allowChaining": False, "allowPipes": False}
             }
         }
-    path = auth_eval.get("directoryPath") or get_path_arg(args)
+    path = eval_info.get("directoryPath") or get_path_arg(args)
     if not path or not normalize_directory_path(path):
         return None
-    access = auth_eval.get("directoryAccess") or ("W" if re.search(r"(?:^|_)(?:edit|write)_file$", tool_name) else "R")
+    access = eval_info.get("directoryAccess") or ("W" if re.search(r"(?:^|_)(?:edit|write)_file$", tool_name) else "R")
     clean_path = path.replace("\\", "/").rstrip("/")
     if re.search(r"(?:^|_)list_directory$", tool_name):
         folder = clean_path
@@ -301,12 +307,7 @@ class AccessDecision:
     server_id: str = ""
     original_name: str = ""
     details: str = ""
-    directory_rule: str = ""
-    directory_access: str = ""
-    directory_path: str = ""
     rule_offer: dict | None = None
-    scope: str = ""
-    constraints: dict | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -319,12 +320,7 @@ class AccessDecision:
             "serverId": self.server_id,
             "originalName": self.original_name,
             "details": self.details,
-            "directoryRule": self.directory_rule,
-            "directoryAccess": self.directory_access,
-            "directoryPath": self.directory_path,
-            "ruleOffer": self.rule_offer,
-            "scope": self.scope,
-            "constraints": self.constraints
+            "ruleOffer": self.rule_offer
         }
 
 
@@ -389,6 +385,49 @@ class AccessController:
             "servers": dict(state.get("servers") or {})
         }
 
+    def _validate_directory_rules(self, raw_rules: list | tuple, context: SecurityContext | None = None) -> list[str]:
+        if not isinstance(raw_rules, (list, tuple)):
+            raise ValueError("Las reglas de directorio deben ser una lista.")
+        parsed_rules = []
+        for raw in raw_rules:
+            rule_obj = parse_directory_rule(raw)
+            if not rule_obj:
+                raise ValueError(f"Regla de directorio inválida: '{raw}'. Formato esperado: R:path, W:path o RW:path.")
+            parsed_rules.append(rule_obj["rule"])
+        unique_rules = list(dict.fromkeys(parsed_rules))
+        default_rule = self.get_default_directory_rule(context)
+        return [r for r in unique_rules if r != default_rule]
+
+    @staticmethod
+    def _validate_policy_entries(raw_entries: dict, kind: str, scope: str) -> dict:
+        kind_desc = "herramientas" if kind == "tools" else "servidores"
+        kind_label = "la herramienta" if kind == "tools" else "el servidor"
+        if not isinstance(raw_entries, dict):
+            raise ValueError(f"{kind} debe ser un diccionario de {kind_desc}.")
+        clean_map = {}
+        for item_id, entry in raw_entries.items():
+            if entry is None:
+                clean_map[str(item_id)] = None
+                continue
+            if not isinstance(entry, dict):
+                raise ValueError(f"La entrada para {kind_label} '{item_id}' debe ser un diccionario o None.")
+            pol = entry.get("policy")
+            if pol not in (POLICY_ALLOW, POLICY_DENY):
+                raise ValueError(f"Política inválida para {kind_label} '{item_id}': '{pol}'. Válidas: allow, deny.")
+            constraints = entry.get("constraints")
+            if constraints is not None and not isinstance(constraints, dict):
+                raise ValueError(f"constraints para {kind_label} '{item_id}' debe ser un diccionario o None.")
+            cleaned_entry = {
+                "policy": pol,
+                "scope": scope,
+                "constraints": constraints,
+                "serverName": str(entry.get("serverName", "") or "")
+            }
+            if kind == "tools":
+                cleaned_entry["originalName"] = str(entry.get("originalName", "") or "")
+            clean_map[str(item_id)] = cleaned_entry
+        return clean_map
+
     def import_state(self, state: dict, context: SecurityContext | None = None, persist: bool = True):
         if not isinstance(state, dict):
             raise ValueError("El estado de políticas debe ser un diccionario.")
@@ -402,69 +441,15 @@ class AccessController:
 
         clean_rules = None
         if "directoryRules" in state:
-            rules = state["directoryRules"]
-            if not isinstance(rules, (list, tuple)):
-                raise ValueError("Las reglas de directorio deben ser una lista.")
-            parsed_rules = []
-            for raw in rules:
-                rule_obj = parse_directory_rule(raw)
-                if not rule_obj:
-                    raise ValueError(f"Regla de directorio inválida: '{raw}'. Formato esperado: R:path, W:path o RW:path.")
-                parsed_rules.append(rule_obj["rule"])
-            unique_rules = list(dict.fromkeys(parsed_rules))
-            default_rule = self.get_default_directory_rule(context)
-            clean_rules = [r for r in unique_rules if r != default_rule]
+            clean_rules = self._validate_directory_rules(state["directoryRules"], context)
 
         clean_tools = None
         if "tools" in state:
-            tools_map = state["tools"]
-            if not isinstance(tools_map, dict):
-                raise ValueError("tools debe ser un diccionario de herramientas.")
-            clean_tools = {}
-            for tool_id, entry in tools_map.items():
-                if entry is None:
-                    clean_tools[str(tool_id)] = None
-                    continue
-                if not isinstance(entry, dict):
-                    raise ValueError(f"La entrada para la herramienta '{tool_id}' debe ser un diccionario o None.")
-                pol = entry.get("policy")
-                if pol not in (TOOL_POLICY_ALLOW, TOOL_POLICY_DENY):
-                    raise ValueError(f"Política inválida para herramienta '{tool_id}': '{pol}'. Válidas: allow, deny.")
-                constraints = entry.get("constraints")
-                if constraints is not None and not isinstance(constraints, dict):
-                    raise ValueError(f"constraints para herramienta '{tool_id}' debe ser un diccionario o None.")
-                clean_tools[str(tool_id)] = {
-                    "policy": pol,
-                    "scope": SCOPE_PERMANENT,
-                    "constraints": constraints,
-                    "serverName": str(entry.get("serverName", "") or ""),
-                    "originalName": str(entry.get("originalName", "") or "")
-                }
+            clean_tools = self._validate_policy_entries(state["tools"], "tools", SCOPE_PERMANENT)
 
         clean_servers = None
         if "servers" in state:
-            servers_map = state["servers"]
-            if not isinstance(servers_map, dict):
-                raise ValueError("servers debe ser un diccionario de servidores.")
-            clean_servers = {}
-            for srv_id, entry in servers_map.items():
-                if entry is None:
-                    clean_servers[str(srv_id)] = None
-                    continue
-                if not isinstance(entry, dict):
-                    raise ValueError(f"La entrada para el servidor '{srv_id}' debe ser un diccionario o None.")
-                pol = entry.get("policy")
-                if pol not in (SERVER_POLICY_ALLOW, SERVER_POLICY_DENY):
-                    raise ValueError(f"Política inválida para servidor '{srv_id}': '{pol}'. Válidas: allow, deny.")
-                constraints = entry.get("constraints")
-                if constraints is not None and not isinstance(constraints, dict):
-                    raise ValueError(f"constraints para servidor '{srv_id}' debe ser un diccionario o None.")
-                clean_servers[str(srv_id)] = {
-                    "policy": pol,
-                    "scope": SCOPE_PERMANENT,
-                    "constraints": constraints,
-                    "serverName": str(entry.get("serverName", "") or "")
-                }
+            clean_servers = self._validate_policy_entries(state["servers"], "servers", SCOPE_PERMANENT)
 
         total_entries = (len(clean_rules) if clean_rules is not None else 0) + \
                         (len([e for e in clean_tools.values() if e is not None]) if clean_tools is not None else 0) + \
@@ -520,69 +505,15 @@ class AccessController:
 
         clean_rules = None
         if "directoryRules" in state:
-            rules = state["directoryRules"]
-            if not isinstance(rules, (list, tuple)):
-                raise ValueError("Las reglas de directorio deben ser una lista.")
-            parsed_rules = []
-            for raw in rules:
-                rule_obj = parse_directory_rule(raw)
-                if not rule_obj:
-                    raise ValueError(f"Regla de directorio inválida: '{raw}'. Formato esperado: R:path, W:path o RW:path.")
-                parsed_rules.append(rule_obj["rule"])
-            unique_rules = list(dict.fromkeys(parsed_rules))
-            default_rule = self.get_default_directory_rule(context)
-            clean_rules = [r for r in unique_rules if r != default_rule]
+            clean_rules = self._validate_directory_rules(state["directoryRules"], context)
 
         clean_tools = None
         if "tools" in state:
-            tools_map = state["tools"]
-            if not isinstance(tools_map, dict):
-                raise ValueError("tools debe ser un diccionario de herramientas.")
-            clean_tools = {}
-            for tool_id, entry in tools_map.items():
-                if entry is None:
-                    clean_tools[str(tool_id)] = None
-                    continue
-                if not isinstance(entry, dict):
-                    raise ValueError(f"La entrada para la herramienta '{tool_id}' debe ser un diccionario o None.")
-                pol = entry.get("policy")
-                if pol not in (TOOL_POLICY_ALLOW, TOOL_POLICY_DENY):
-                    raise ValueError(f"Política inválida para herramienta '{tool_id}': '{pol}'. Válidas: allow, deny.")
-                constraints = entry.get("constraints")
-                if constraints is not None and not isinstance(constraints, dict):
-                    raise ValueError(f"constraints para herramienta '{tool_id}' debe ser un diccionario o None.")
-                clean_tools[str(tool_id)] = {
-                    "policy": pol,
-                    "scope": SCOPE_SESSION,
-                    "constraints": constraints,
-                    "serverName": str(entry.get("serverName", "") or ""),
-                    "originalName": str(entry.get("originalName", "") or "")
-                }
+            clean_tools = self._validate_policy_entries(state["tools"], "tools", SCOPE_SESSION)
 
         clean_servers = None
         if "servers" in state:
-            servers_map = state["servers"]
-            if not isinstance(servers_map, dict):
-                raise ValueError("servers debe ser un diccionario de servidores.")
-            clean_servers = {}
-            for srv_id, entry in servers_map.items():
-                if entry is None:
-                    clean_servers[str(srv_id)] = None
-                    continue
-                if not isinstance(entry, dict):
-                    raise ValueError(f"La entrada para el servidor '{srv_id}' debe ser un diccionario o None.")
-                pol = entry.get("policy")
-                if pol not in (SERVER_POLICY_ALLOW, SERVER_POLICY_DENY):
-                    raise ValueError(f"Política inválida para servidor '{srv_id}': '{pol}'. Válidas: allow, deny.")
-                constraints = entry.get("constraints")
-                if constraints is not None and not isinstance(constraints, dict):
-                    raise ValueError(f"constraints para servidor '{srv_id}' debe ser un diccionario o None.")
-                clean_servers[str(srv_id)] = {
-                    "policy": pol,
-                    "scope": SCOPE_SESSION,
-                    "constraints": constraints,
-                    "serverName": str(entry.get("serverName", "") or "")
-                }
+            clean_servers = self._validate_policy_entries(state["servers"], "servers", SCOPE_SESSION)
 
         total_entries = (len(clean_rules) if clean_rules is not None else 0) + \
                         (len([e for e in clean_tools.values() if e is not None]) if clean_tools is not None else 0) + \
@@ -630,17 +561,7 @@ class AccessController:
         return list(rules)
 
     def set_directory_rules(self, rules: list[str], context: SecurityContext | None = None, persist: bool = True) -> list[str]:
-        if not isinstance(rules, (list, tuple)):
-            raise ValueError("Las reglas de directorio deben ser una lista.")
-        parsed_rules = []
-        for raw in rules:
-            rule_obj = parse_directory_rule(raw)
-            if not rule_obj:
-                raise ValueError(f"Regla de directorio inválida: '{raw}'. Formato esperado: R:path, W:path o RW:path.")
-            parsed_rules.append(rule_obj["rule"])
-        unique_rules = list(dict.fromkeys(parsed_rules))
-        default_rule = self.get_default_directory_rule(context)
-        clean_rules = [r for r in unique_rules if r != default_rule]
+        clean_rules = self._validate_directory_rules(rules, context)
         if persist:
             def mutator(state: dict) -> dict:
                 state["directoryRules"] = clean_rules
@@ -716,101 +637,89 @@ class AccessController:
         allowed = read_eval["allowed"] or write_eval["allowed"]
         return {"allowed": allowed, "directory": target_dir}
 
-    def set_tool_policy(self, tool_id: str, policy: str, scope: str = SCOPE_PERMANENT,
-                        constraints: dict | None = None, server_name: str = "", original_name: str = ""):
-        if not tool_id or not isinstance(tool_id, str):
+    def _set_policy(self, kind: str, item_id: str, policy: str, scope: str = SCOPE_PERMANENT,
+                    entry_data: dict | None = None):
+        if not item_id or not isinstance(item_id, str):
             return
-        clean_policy = policy if policy in (TOOL_POLICY_ALLOW, TOOL_POLICY_DENY) else TOOL_POLICY_ASK
-        if clean_policy == TOOL_POLICY_ASK:
-            self.revoke_tool_policy(tool_id)
+        clean_id = item_id.strip() if kind == "servers" else item_id
+        if not clean_id:
             return
+        clean_policy = policy if policy in (POLICY_ALLOW, POLICY_DENY) else POLICY_ASK
+        if clean_policy == POLICY_ASK:
+            self._revoke_policy(kind, clean_id)
+            return
+        now_ms = int(time.time() * 1000)
         entry = {
             "policy": clean_policy,
             "scope": scope if scope in SCOPES else SCOPE_PERMANENT,
-            "grantedAt": int(time.time() * 1000),
-            "lastUsedAt": int(time.time() * 1000),
+            "grantedAt": now_ms,
+            "lastUsedAt": now_ms,
+            **(entry_data or {})
+        }
+        if scope == SCOPE_SESSION:
+            session_dict = self.session_tools if kind == "tools" else self.session_servers
+            with self._lock:
+                session_dict[clean_id] = entry
+        else:
+            def mutator(state: dict) -> dict:
+                container = state.setdefault(kind, {})
+                container[clean_id] = entry
+                return state
+            update_security_policy_data(mutator)
+
+    def _get_policy(self, kind: str, item_id: str) -> dict | None:
+        clean_id = str(item_id or "").strip() if kind == "servers" else str(item_id or "")
+        if not clean_id:
+            return None
+        session_dict = self.session_tools if kind == "tools" else self.session_servers
+        with self._lock:
+            session_entry = session_dict.get(clean_id)
+        if session_entry:
+            return session_entry
+        state = self._read_permanent_state()
+        return (state.get(kind) or {}).get(clean_id)
+
+    def _revoke_policy(self, kind: str, item_id: str) -> bool:
+        clean_id = str(item_id or "").strip() if kind == "servers" else str(item_id or "")
+        if not clean_id:
+            return False
+        session_dict = self.session_tools if kind == "tools" else self.session_servers
+        with self._lock:
+            del_session = session_dict.pop(clean_id, None) is not None
+        del_perm = [False]
+        def mutator(state: dict) -> dict:
+            container = state.get(kind, {})
+            if clean_id in container:
+                del container[clean_id]
+                del_perm[0] = True
+            return state
+        update_security_policy_data(mutator)
+        return del_session or del_perm[0]
+
+    def set_tool_policy(self, tool_id: str, policy: str, scope: str = SCOPE_PERMANENT,
+                        constraints: dict | None = None, server_name: str = "", original_name: str = ""):
+        self._set_policy("tools", tool_id, policy, scope=scope, entry_data={
             "serverName": server_name,
             "originalName": original_name or tool_id,
             "constraints": constraints
-        }
-        if scope == SCOPE_SESSION:
-            with self._lock:
-                self.session_tools[tool_id] = entry
-        else:
-            def mutator(state: dict) -> dict:
-                tools = state.setdefault("tools", {})
-                tools[tool_id] = entry
-                return state
-            update_security_policy_data(mutator)
+        })
 
     def get_tool_policy(self, tool_id: str) -> dict | None:
-        with self._lock:
-            session_entry = self.session_tools.get(tool_id)
-        if session_entry:
-            return session_entry
-        state = self._read_permanent_state()
-        return (state.get("tools") or {}).get(tool_id)
+        return self._get_policy("tools", tool_id)
 
     def revoke_tool_policy(self, tool_id: str) -> bool:
-        with self._lock:
-            del_session = self.session_tools.pop(tool_id, None) is not None
-        del_perm = [False]
-        def mutator(state: dict) -> dict:
-            tools = state.get("tools", {})
-            if tool_id in tools:
-                del tools[tool_id]
-                del_perm[0] = True
-            return state
-        update_security_policy_data(mutator)
-        return del_session or del_perm[0]
+        return self._revoke_policy("tools", tool_id)
 
     def set_server_policy(self, server_id: str, policy: str, scope: str = SCOPE_PERMANENT, server_name: str = ""):
-        if not server_id or not isinstance(server_id, str):
-            return
-        clean = server_id.strip()
-        clean_policy = policy if policy in (SERVER_POLICY_ALLOW, SERVER_POLICY_DENY) else SERVER_POLICY_ASK
-        if clean_policy == SERVER_POLICY_ASK:
-            self.revoke_server_policy(clean)
-            return
-        entry = {
-            "policy": clean_policy,
-            "scope": scope if scope in SCOPES else SCOPE_PERMANENT,
-            "grantedAt": int(time.time() * 1000),
-            "lastUsedAt": int(time.time() * 1000),
-            "serverName": server_name or clean
-        }
-        if scope == SCOPE_SESSION:
-            with self._lock:
-                self.session_servers[clean] = entry
-        else:
-            def mutator(state: dict) -> dict:
-                servers = state.setdefault("servers", {})
-                servers[clean] = entry
-                return state
-            update_security_policy_data(mutator)
+        self._set_policy("servers", server_id, policy, scope=scope, entry_data={
+            "serverName": server_name or str(server_id or "").strip()
+        })
 
     def get_server_policy(self, server_id: str) -> dict | None:
-        clean = str(server_id or "").strip()
-        with self._lock:
-            session_entry = self.session_servers.get(clean)
-        if session_entry:
-            return session_entry
-        state = self._read_permanent_state()
-        return (state.get("servers") or {}).get(clean)
+        return self._get_policy("servers", server_id)
 
     def revoke_server_policy(self, server_id: str) -> bool:
-        clean = str(server_id or "").strip()
-        with self._lock:
-            del_session = self.session_servers.pop(clean, None) is not None
-        del_perm = [False]
-        def mutator(state: dict) -> dict:
-            servers = state.get("servers", {})
-            if clean in servers:
-                del servers[clean]
-                del_perm[0] = True
-            return state
-        update_security_policy_data(mutator)
-        return del_session or del_perm[0]
+        return self._revoke_policy("servers", server_id)
 
     def clear_session(self):
         """Limpia todas las autorizaciones temporales de la sesión activa."""
@@ -940,26 +849,24 @@ class AccessController:
         target_tool = eval_dict.get("toolId") or fallback_tool_name
 
         if decision_type == "allow_session":
-            self.set_tool_policy(target_tool, TOOL_POLICY_ALLOW, scope=SCOPE_SESSION,
+            self.set_tool_policy(target_tool, POLICY_ALLOW, scope=SCOPE_SESSION,
                                  server_name=eval_dict.get("serverName", ""),
                                  original_name=eval_dict.get("originalName", ""))
         elif decision_type == "allow_server_always":
             server_target = eval_dict.get("serverId")
             if not server_target:
                 raise ValueError("allow_server_always requiere un servidor externo válido.")
-            self.set_server_policy(server_target, SERVER_POLICY_ALLOW, scope=SCOPE_PERMANENT,
+            self.set_server_policy(server_target, POLICY_ALLOW, scope=SCOPE_PERMANENT,
                                    server_name=eval_dict.get("serverName", ""))
         elif decision_type == "allow_always":
             req_constraints = decision_dict.get("constraints")
             if target_tool == COMMAND_TOOL and (not req_constraints or not isinstance(req_constraints, dict) or not req_constraints.get("command")):
                 raise ValueError("allow_always_requires_constraints")
             constraints = self.merge_tool_constraints(target_tool, req_constraints)
-            self.set_tool_policy(target_tool, TOOL_POLICY_ALLOW, scope=SCOPE_PERMANENT,
+            self.set_tool_policy(target_tool, POLICY_ALLOW, scope=SCOPE_PERMANENT,
                                  constraints=constraints,
                                  server_name=eval_dict.get("serverName", ""),
                                  original_name=eval_dict.get("originalName", ""))
-        elif decision_type == "allow_once":
-            pass
 
         if decision_dict.get("directoryRule"):
             try:
@@ -992,23 +899,18 @@ class AccessController:
         def make_decision(status: str, reason: str, extra: dict | None = None) -> AccessDecision:
             payload = extra or {}
             dec = AccessDecision(
-                allowed=(status == TOOL_POLICY_ALLOW),
+                allowed=(status == POLICY_ALLOW),
                 status=status,
                 reason=reason,
-                requires_approval=(status == TOOL_POLICY_ASK),
+                requires_approval=(status == POLICY_ASK),
                 tool_id=tool_id,
                 server_name=srv_name,
                 server_id=srv_id,
                 original_name=orig_name,
-                details=payload.get("details", ""),
-                directory_rule=payload.get("directoryRule", ""),
-                directory_access=payload.get("directoryAccess", ""),
-                directory_path=payload.get("directoryPath", ""),
-                scope=payload.get("scope", ""),
-                constraints=payload.get("constraints")
+                details=payload.get("details", "")
             )
-            if status == TOOL_POLICY_ASK:
-                dec.rule_offer = get_rule_offer(tool_name, args, dec.to_dict())
+            if status == POLICY_ASK:
+                dec.rule_offer = get_rule_offer(tool_name, args, payload)
             return dec
 
         default_path_tools = {"list_directory", "search_files", "get_diagnostics"}
@@ -1017,52 +919,49 @@ class AccessController:
 
         # 1. Denegación explícita (Blacklist)
         tool_entry = self.get_tool_policy(tool_id)
-        if tool_entry and tool_entry.get("policy") == TOOL_POLICY_DENY:
-            return make_decision(TOOL_POLICY_DENY, "granular_deny_rule")
+        if tool_entry and tool_entry.get("policy") == POLICY_DENY:
+            return make_decision(POLICY_DENY, "granular_deny_rule")
 
         if srv_id:
             server_entry = self.get_server_policy(srv_id)
-            if server_entry and server_entry.get("policy") == SERVER_POLICY_DENY:
-                return make_decision(TOOL_POLICY_DENY, "server_deny_rule")
+            if server_entry and server_entry.get("policy") == POLICY_DENY:
+                return make_decision(POLICY_DENY, "server_deny_rule")
 
         # 2. Herramientas auxiliares de control de trabajos
         if tool_name == JOB_CONTROL_TOOL or orig_name == JOB_CONTROL_TOOL:
-            return make_decision(TOOL_POLICY_ALLOW, "job_control_tool")
+            return make_decision(POLICY_ALLOW, "job_control_tool")
 
         # 3. Política global allow_all
         if self.global_policy == GLOBAL_POLICY_ALLOW_ALL:
-            return make_decision(TOOL_POLICY_ALLOW, "mcp_global_allow_all")
+            return make_decision(POLICY_ALLOW, "mcp_global_allow_all")
 
         # 4. Autorización individual de herramienta
-        if tool_entry and tool_entry.get("policy") == TOOL_POLICY_ALLOW:
+        if tool_entry and tool_entry.get("policy") == POLICY_ALLOW:
             constraints = tool_entry.get("constraints")
             if constraints and isinstance(constraints, dict):
                 cmd_arg = get_command_arg(args)
                 if cmd_arg and constraints.get("command"):
                     c_allowed, c_denied, c_reason, c_details = evaluate_command_constraint(cmd_arg, constraints["command"])
                     if c_denied:
-                        return make_decision(TOOL_POLICY_DENY, c_reason or "constraint_violation_denied", {"details": c_details})
+                        return make_decision(POLICY_DENY, c_reason or "constraint_violation_denied", {"details": c_details})
                     if not c_allowed:
-                        return make_decision(TOOL_POLICY_ASK, c_reason or "constraint_outside_scope", {"details": c_details})
+                        return make_decision(POLICY_ASK, c_reason or "constraint_outside_scope", {"details": c_details})
                     cmd_dir_eval = self.evaluate_command_directories(args, ctx)
                     if not cmd_dir_eval["allowed"]:
-                        return make_decision(TOOL_POLICY_ASK, "command_directory_outside_rules", {
+                        return make_decision(POLICY_ASK, "command_directory_outside_rules", {
                             "details": f"El comando se ejecuta fuera de las reglas de directorio: {cmd_dir_eval['directory']}"
                         })
             with self._lock:
                 tool_entry["lastUsedAt"] = int(time.time() * 1000)
-            return make_decision(TOOL_POLICY_ALLOW, "granular_allow_rule", {
-                "scope": tool_entry.get("scope", SCOPE_PERMANENT),
-                "constraints": tool_entry.get("constraints")
-            })
+            return make_decision(POLICY_ALLOW, "granular_allow_rule")
 
         # 5. Autorización de servidor completo
         if srv_id:
             srv_entry = self.get_server_policy(srv_id)
-            if srv_entry and srv_entry.get("policy") == SERVER_POLICY_ALLOW:
+            if srv_entry and srv_entry.get("policy") == POLICY_ALLOW:
                 with self._lock:
                     srv_entry["lastUsedAt"] = int(time.time() * 1000)
-                return make_decision(TOOL_POLICY_ALLOW, "server_allow_rule", {"scope": srv_entry.get("scope", SCOPE_PERMANENT)})
+                return make_decision(POLICY_ALLOW, "server_allow_rule")
 
         # 6. Reglas de Directorio y Workspace Trust
         path_access = get_integrated_path_access(tool_name) or get_integrated_path_access(orig_name)
@@ -1071,13 +970,13 @@ class AccessController:
         if path_access and path:
             dir_eval = self.evaluate_directory_rule(path_access, path, ctx)
             if dir_eval["allowed"]:
-                return make_decision(TOOL_POLICY_ALLOW, "directory_rule_allow", {"directoryRule": dir_eval["rule"]})
+                return make_decision(POLICY_ALLOW, "directory_rule_allow")
 
             if self.global_policy == GLOBAL_POLICY_WORKSPACE_TRUST:
                 if ctx.is_inside_workspace(path):
-                    return make_decision(TOOL_POLICY_ALLOW, "workspace_trust_allow")
+                    return make_decision(POLICY_ALLOW, "workspace_trust_allow")
 
-            return make_decision(TOOL_POLICY_ASK, "directory_rule_required", {
+            return make_decision(POLICY_ASK, "directory_rule_required", {
                 "details": f"La ruta no coincide con una regla {path_access}: {path}",
                 "directoryAccess": path_access if dir_eval["path"] else "",
                 "directoryPath": dir_eval["path"] or ""
@@ -1089,13 +988,13 @@ class AccessController:
             sub_cmd = cd_part["command"] if cd_part else cmd_val
             is_local = is_workspace_local_command(sub_cmd) and self.evaluate_command_directories(args, ctx)["allowed"]
             if is_local:
-                return make_decision(TOOL_POLICY_ALLOW, "workspace_trust_command")
-            return make_decision(TOOL_POLICY_ASK, "workspace_trust_external_or_global_command", {
+                return make_decision(POLICY_ALLOW, "workspace_trust_command")
+            return make_decision(POLICY_ASK, "workspace_trust_external_or_global_command", {
                 "details": "El comando accede a recursos globales o rutas fuera del espacio de trabajo."
             })
 
         # 7. Por defecto: confirmación
-        return make_decision(TOOL_POLICY_ASK, "mcp_default_ask")
+        return make_decision(POLICY_ASK, "mcp_default_ask")
 
 
 ACCESS_CONTROLLER = AccessController()
