@@ -273,6 +273,22 @@
       }));
     }
 
+    /**
+     * Sustituye los prefijos de comando autorizados de una herramienta; sin prefijos se revoca,
+     * porque una lista vacía no autoriza ningún comando. El backend valida y normaliza cada prefijo.
+     */
+    async setCommandPrefixes(toolId, prefixes) {
+      const list = (Array.isArray(prefixes) ? prefixes : []).map(p => String(p ?? '').trim()).filter(Boolean);
+      if (!list.length) return this.revokeToolPolicy(toolId);
+      const entry = this.findToolEntry(toolId)?.entry || {};
+      const constraints = entry.constraints || {};
+      return this.setToolPolicy(toolId, POLICIES.ALLOW, {
+        constraints: { ...constraints, command: { ...constraints.command, allowedPrefixes: list } },
+        serverName: entry.serverName,
+        originalName: entry.originalName
+      });
+    }
+
     async revokeToolPolicy(toolId) {
       return this._revokePolicy('tools', toolId);
     }

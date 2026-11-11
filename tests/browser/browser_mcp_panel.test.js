@@ -210,6 +210,51 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
     });
   });
 
+  test('Browser UI - los prefijos de comando guardados se quitan y añaden uno a uno y los rechazos se muestran', async () => {
+    await withMcpPanel({ status: 'connected', tools: [] }, async page => {
+      const prefixes = () => page.evaluate(() => window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.allowedPrefixes ?? null);
+      const chips = () => page.$$eval('#mcp-saved-auths-list .mcp-auth-cmd-chip code', els => els.map(el => el.textContent));
+      const removePrefix = prefix => page.evaluate(p => document.querySelector(`#mcp-saved-auths-list .btn-remove-cmd-prefix[data-prefix="${p}"]`).click(), prefix);
+      await page.evaluate(async () => {
+        await window.ChatToolSecurity.manager.setToolPolicy('run_command', 'allow', {
+          constraints: { command: { allowedPrefixes: ['git status', 'git diff'], allowChaining: false, allowPipes: false } }
+        });
+        window.ChatUIMcp.renderSavedAuthorizations();
+      });
+      assert.deepEqual(await chips(), ['git status *', 'git diff *']);
+
+      await page.evaluate(() => {
+        document.querySelector('#mcp-saved-auths-list .mcp-auth-cmd-input').value = 'git log';
+        document.querySelector('#mcp-saved-auths-list .btn-add-cmd-prefix').click();
+      });
+      await page.waitForFunction(() => window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.allowedPrefixes?.length === 3);
+      assert.deepEqual(await prefixes(), ['git status', 'git diff', 'git log']);
+
+      await removePrefix('git diff');
+      await page.waitForFunction(() => window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.allowedPrefixes?.length === 2);
+      assert.deepEqual(await prefixes(), ['git status', 'git log']);
+
+      // Un rechazo del backend se muestra junto al editor sin cambiar nada
+      const shown = await page.evaluate(async () => {
+        const manager = window.ChatToolSecurity.manager;
+        const original = manager.mcpClient.request;
+        manager.mcpClient.request = async () => { throw new Error('Prefijo de comando no válido'); };
+        const input = document.querySelector('#mcp-saved-auths-list .mcp-auth-cmd-input');
+        input.value = 'git; rm';
+        const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+        input.dispatchEvent(enter);
+        if (!enter.defaultPrevented) throw new Error('Enter debe quedarse en el editor y no enviar los ajustes');
+        await new Promise(r => setTimeout(r, 20));
+        manager.mcpClient.request = original;
+        const error = document.querySelector('#mcp-saved-auths-list .mcp-auth-cmd-error');
+        return { hidden: error.hidden, text: error.textContent };
+      });
+      assert.deepEqual(shown, { hidden: false, text: 'Prefijo de comando no válido' });
+      assert.deepEqual(await prefixes(), ['git status', 'git log']);
+
+    });
+  });
+
   test('Browser UI - los servidores externos muestran tarjetas con estado, ayuda, origen remoto sin secretos y aviso de Ajustes › Navegador', async () => {
     await withMcpPanel({}, async page => {
       const result = await page.evaluate(() => {

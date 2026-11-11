@@ -9,7 +9,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, McpStatus) {
   'use strict';
 
-  const { resolveDep, escapeHtml, clearElement, appendTextElement, copyToClipboard } = Utils;
+  const { resolveDep, escapeHtml, clearElement, appendTextElement, copyToClipboard, setText } = Utils;
   const { t } = I18n;
   const getState = () => resolveDep('ChatState', './state.js');
   const getMCP = () => resolveDep('ChatMCP', './mcp.js');
@@ -400,15 +400,26 @@
         </div>`;
     });
 
+    const addLabel = escapeHtml(t('mcp_security_add_prefix_label'));
     const toolItems = tools.map(item => {
       const { className } = badge(item);
       let { text } = badge(item);
-      const parts = [];
-      const prefixes = [...new Set((item.constraints?.command?.allowedPrefixes || []).map(prefix => String(prefix).trim()).filter(Boolean))];
-      if (prefixes.length) parts.push(prefixes.map(prefix => `${prefix} *`).join(', '));
-      if (parts.length) text += ` (${escapeHtml(t('mcp_security_constrained'))})`;
-      const constraint = escapeHtml(parts.join(' | '));
       const toolId = escapeHtml(item.toolId);
+      const prefixes = item.policy === 'allow' ? (item.constraints?.command?.allowedPrefixes || []) : [];
+      if (prefixes.length) text += ` (${escapeHtml(t('mcp_security_constrained'))})`;
+      // Cada prefijo se quita por separado y se pueden añadir otros; el backend los valida.
+      const prefixEditor = prefixes.length ? `
+            <div class="mcp-auth-cmd-prefixes">
+              ${prefixes.map(prefix => {
+                const removeLabel = escapeHtml(t('mcp_security_remove_prefix', { cmd: `${prefix} *` }));
+                return `<span class="mcp-auth-constraint-tag mcp-auth-cmd-chip"><code>${escapeHtml(prefix)} *</code><button type="button" class="btn-remove-cmd-prefix" data-tool-id="${toolId}" data-prefix="${escapeHtml(prefix)}" title="${removeLabel}" aria-label="${removeLabel}">${Icons.get('close', { size: 10 })}</button></span>`;
+              }).join('')}
+              <div class="mcp-auth-cmd-add" data-tool-id="${toolId}">
+                <input type="text" class="mcp-auth-cmd-input" placeholder="${addLabel}" aria-label="${addLabel}" spellcheck="false" autocomplete="off">
+                <button type="button" class="btn-add-cmd-prefix">${escapeHtml(t('mcp_security_add_prefix'))}</button>
+              </div>
+              <p class="mcp-auth-cmd-error" role="alert" hidden></p>
+            </div>` : '';
       return `
         <div class="mcp-auth-item" data-tool-id="${toolId}">
           <button type="button" class="btn-revoke-auth" data-tool-id="${toolId}" title="${revokeLabel}" aria-label="${revokeLabel}">${trashIcon}</button>
@@ -416,12 +427,31 @@
             <strong class="mcp-auth-item-name">${escapeHtml(item.originalName || item.toolId)}</strong>
             <span class="mcp-auth-badge ${className}">${text}</span>
             ${scopeBadge(item)}
-            ${parts.length ? `<span class="mcp-auth-constraint-tag" title="${constraint}">${constraint}</span>` : ''}
+            ${prefixEditor}
           </div>
         </div>`;
     });
 
     container.innerHTML = serverItems.join('') + toolItems.join('');
+  }
+
+  /** Cambia los prefijos de comando de una herramienta; un rechazo del backend se muestra junto al editor. */
+  async function updateCommandPrefixes(origin, toolId, change) {
+    const security = getSecurity();
+    const errorEl = origin.closest('.mcp-auth-cmd-prefixes')?.querySelector('.mcp-auth-cmd-error');
+    try {
+      await security.setCommandPrefixes(toolId, change(security.getToolConstraints(toolId)?.command?.allowedPrefixes || []));
+    } catch (err) {
+      if (!errorEl) throw err;
+      setText(errorEl, err?.message || String(err));
+      errorEl.hidden = false;
+    }
+  }
+
+  async function addCommandPrefix(editor) {
+    const value = editor?.querySelector('.mcp-auth-cmd-input').value.trim();
+    if (!value) return;
+    await updateCommandPrefixes(editor, editor.getAttribute('data-tool-id'), prefixes => [...prefixes, value]);
   }
 
   function renderCurrentToolsList(elements) {
@@ -461,6 +491,20 @@
       if (tool) await security.revokeToolPolicy(tool.getAttribute('data-tool-id'));
       const server = event.target.closest('.btn-revoke-server-auth');
       if (server) await security.revokeServerPolicy(server.getAttribute('data-server-id'));
+      const removePrefix = event.target.closest('.btn-remove-cmd-prefix');
+      if (removePrefix) {
+        const toolId = removePrefix.getAttribute('data-tool-id');
+        const prefix = removePrefix.getAttribute('data-prefix');
+        await updateCommandPrefixes(removePrefix, toolId, prefixes => prefixes.filter(p => p !== prefix));
+      }
+      const addPrefix = event.target.closest('.btn-add-cmd-prefix');
+      if (addPrefix) await addCommandPrefix(addPrefix.closest('.mcp-auth-cmd-add'));
+    });
+    // La lista vive dentro del formulario de ajustes: Enter añade el prefijo y no envía ese formulario.
+    on(elements.savedAuthsList, 'keydown', async event => {
+      if (event.key !== 'Enter' || !event.target.matches('.mcp-auth-cmd-input')) return;
+      event.preventDefault();
+      await addCommandPrefix(event.target.closest('.mcp-auth-cmd-add'));
     });
     on(elements.btnClearAuths, 'click', async () => await security.clearAllAuthorizations());
 

@@ -183,6 +183,25 @@ test('ChatToolSecurity - cambio de sessionToken relee el estado del backend', as
   assert.equal(manager.getToolPolicy('sess_tool'), null);
 });
 
+test('ChatToolSecurity - setCommandPrefixes sustituye los prefijos conservando el resto y sin prefijos revoca', async () => {
+  const mockClient = createMockClient({
+    tools: { run_command: { policy: 'allow', serverName: 'local', originalName: 'run_command', constraints: { command: { allowedPrefixes: ['git'], allowPipes: false } } } }
+  });
+  const manager = new ChatToolSecurity.ToolSecurityManager();
+  manager.setMcpClient(mockClient);
+  await manager.refresh();
+
+  await manager.setCommandPrefixes('run_command', ['git status', ' ', 'git log']);
+  const patch = mockClient.calls[mockClient.calls.length - 1].params;
+  assert.deepEqual(patch.tools.run_command.constraints, { command: { allowedPrefixes: ['git status', 'git log'], allowPipes: false } });
+  assert.equal(patch.tools.run_command.policy, 'allow');
+  assert.equal(patch.tools.run_command.serverName, 'local');
+
+  await manager.setCommandPrefixes('run_command', []);
+  assert.deepEqual(mockClient.calls[mockClient.calls.length - 1].params, { tools: { run_command: null } });
+  assert.equal(manager.getToolPolicy('run_command'), null);
+});
+
 test('ChatToolSecurity - un listener que falla no detiene la notificación a los demás', (t) => {
   t.mock.method(console, 'warn', () => {});
   const manager = new ChatToolSecurity.ToolSecurityManager();

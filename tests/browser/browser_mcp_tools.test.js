@@ -79,13 +79,20 @@ test('Browser UI - autorización de comando oculta botón genérico permitir sie
         ruleOffer: {
           type: 'command',
           command: 'ls',
-          constraints: { command: { allowedPrefixes: ['ls'] } }
+          constraints: { command: { allowedPrefixes: ['ls'], allowChaining: false, allowPipes: false } }
         }
       });
       const hasGenericAlwaysInCmd = Boolean(cardCmd.querySelector('.btn-auth-allow-always'));
       const hasCmdButton = Boolean(cardCmd.querySelector('.btn-auth-allow-cmd'));
-      cardCmd.querySelector('.btn-auth-deny').click();
-      await pendingCmd;
+      // El prefijo propuesto se edita antes de aceptar; vacío no decide nada
+      const input = cardCmd.querySelector('.tool-auth-cmd-input');
+      const proposedPrefix = input.value;
+      input.value = '  ';
+      cardCmd.querySelector('.btn-auth-allow-cmd').click();
+      const stillPending = Boolean(cardCmd.querySelector('.tool-card-auth-prompt'));
+      input.value = 'ls -l';
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      const cmdDecision = await pendingCmd;
       cardCmd.remove();
 
       // 2. Tarjeta sin oferta de comando (lectura o herramienta genérica)
@@ -101,7 +108,13 @@ test('Browser UI - autorización de comando oculta botón genérico permitir sie
       await pendingFile;
       cardFile.remove();
 
-      return { hasGenericAlwaysInCmd, hasCmdButton, hasGenericAlwaysInFile };
+      return { hasGenericAlwaysInCmd, hasCmdButton, hasGenericAlwaysInFile, proposedPrefix, stillPending, cmdDecision };
+    });
+    assert.equal(result.proposedPrefix, 'ls');
+    assert.equal(result.stillPending, true, 'Un prefijo vacío no decide la autorización');
+    assert.deepEqual(result.cmdDecision, {
+      decision: 'allow_always',
+      constraints: { command: { allowedPrefixes: ['ls -l'], allowChaining: false, allowPipes: false } }
     });
     assert.equal(result.hasGenericAlwaysInCmd, false, 'El botón genérico permitir siempre no debe aparecer en comandos');
     assert.equal(result.hasCmdButton, true, 'El botón acotado permitir cmd debe aparecer');

@@ -1663,3 +1663,86 @@ button.command-jobs-link:focus-visible {
 .subagent-error {
   color: var(--danger);
 }
+
+/* Prefijo de comando editable en la tarjeta de autorización y en las autorizaciones guardadas. */
+.tool-auth-cmd-rule {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.tool-auth-cmd-input,
+.mcp-auth-cmd-input {
+  flex: 1 1 8rem;
+  min-width: 0;
+  padding: 0.3rem 0.45rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-main);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+.tool-auth-cmd-wildcard {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.tool-auth-cmd-rule .btn-auth-action {
+  width: auto;
+  flex: 0 0 auto;
+}
+
+.mcp-auth-cmd-prefixes {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.mcp-auth-cmd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.btn-remove-cmd-prefix {
+  display: inline-flex;
+  padding: 0.1rem;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.btn-remove-cmd-prefix:hover {
+  color: var(--danger-text);
+}
+
+.mcp-auth-cmd-add {
+  display: flex;
+  flex: 1 1 12rem;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.btn-add-cmd-prefix {
+  padding: 0.25rem 0.55rem;
+  font-size: 0.72rem;
+  color: var(--text-main);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.mcp-auth-cmd-error {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--danger-text);
+}

@@ -562,9 +562,14 @@
     const ruleOffer = options.ruleOffer;
     let contextualButtonsHtml = '';
     if (ruleOffer?.type === 'command') {
-      // Con "cd <dir> && git status" se ofrece autorizar git, no cd.
+      // Con "cd <dir> && git status" se ofrece autorizar "git status", no cd; el prefijo se puede editar.
+      const prefixLabel = escapeHtml(t('tool_auth_cmd_prefix_label'));
       contextualButtonsHtml = `
-        <button type="button" class="btn-auth-action btn-auth-allow-cmd" title="${escapeHtml(t('tool_auth_allow_cmd_title', { cmd: ruleOffer.command }))}">${SHIELD_SVG} <span>${escapeHtml(t('tool_auth_allow_cmd_btn', { cmd: ruleOffer.command + ' *' }))}</span></button>
+        <div class="tool-auth-cmd-rule">
+          <input type="text" class="tool-auth-cmd-input" value="${escapeHtml(ruleOffer.command)}" aria-label="${prefixLabel}" title="${prefixLabel}" spellcheck="false" autocomplete="off">
+          <span class="tool-auth-cmd-wildcard" aria-hidden="true">*</span>
+          <button type="button" class="btn-auth-action btn-auth-allow-cmd" title="${escapeHtml(t('tool_auth_allow_cmd_title'))}">${SHIELD_SVG} <span>${escapeHtml(t('tool_auth_allow_cmd_btn'))}</span></button>
+        </div>
       `;
     } else if (ruleOffer?.type === 'directory') {
       contextualButtonsHtml = `
@@ -700,9 +705,26 @@
         });
       });
 
+      const cmdInput = authPromptEl.querySelector('.tool-auth-cmd-input');
+      const allowCommandPrefix = () => {
+        const prefix = cmdInput?.value.trim();
+        if (!prefix) {
+          cmdInput?.focus();
+          return;
+        }
+        const command = ruleOffer.constraints?.command || {};
+        handleDecision({ decision: 'allow_always', constraints: { command: { ...command, allowedPrefixes: [prefix] } } });
+      };
       btnAllowCmd?.addEventListener('click', (e) => {
         e.stopPropagation();
-        handleDecision({ decision: 'allow_always', constraints: ruleOffer.constraints });
+        allowCommandPrefix();
+      });
+      cmdInput?.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          allowCommandPrefix();
+        }
       });
 
       btnAllowPath?.addEventListener('click', (e) => {
