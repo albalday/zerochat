@@ -16,6 +16,13 @@
 
 ## M58 Soporte de ejecución de JavaScript (execute_javascript) en Node.js desatendido: closed 2026-11-11
 
+## M59 Habilitar render_chart en Node.js desatendido para visualización en cliente
+
+Goal: Activar la herramienta nativa render_chart en el runner headless de Node.js (run-node.js y runner.js) registrando las llamadas y datos en el historial sin requerir DOM, permitiendo al cliente web renderizar el gráfico interactivo al abrir el chat.
+Done when: ChatBuiltinRenderChartTool se carga en js/run-node.js y se retira de disabledTools; runner.js queda actualizado; se prueban en tests unitarios y de integración; y toda la suite pasa en verde.
+- [x] M59-T1 Habilitar render_chart en js/run-node.js y recompilar runner.js (2026-11-11)
+- [x] M59-T2 Pruebas unitarias y de integración de render_chart en Node y verificación de la suite (2026-11-11)
+
 
 
 

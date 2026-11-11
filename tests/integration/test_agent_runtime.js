@@ -742,3 +742,44 @@ test('AgentRuntime - execute_javascript ejecuta cálculos mediante ChatSandbox n
   assert.equal(result.finalText, 'El resultado es 256.');
 });
 
+test('AgentRuntime - render_chart ejecuta y persiste datos de gráficos en Node sin DOM', async t => {
+  const registry = new ToolRegistry();
+  const renderChartTool = require('../../js/tools/builtin/render-chart.tool.js');
+  registry.registerTool(new Tool(renderChartTool));
+
+  let step = 0;
+  const chartArgs = {
+    type: 'pie',
+    title: 'Distribución',
+    labels: ['A', 'B'],
+    datasets: [{ label: 'Total', data: [60, 40] }]
+  };
+
+  const result = await runAgent(t, registry, {
+    api: {
+      streamChatCompletion: async () => {
+        step++;
+        if (step === 1) {
+          return {
+            accumulatedText: 'Aquí tienes el gráfico.',
+            toolCalls: [{ id: 'call_chart_1', type: 'function', function: { name: 'render_chart', arguments: JSON.stringify(chartArgs) } }],
+            stats: null
+          };
+        }
+        return { accumulatedText: 'Gráfico mostrado correctamente.', toolCalls: [], stats: null };
+      }
+    },
+    messages: [{ role: 'user', content: 'Muestra la distribución' }],
+    appendFinalMessage: true
+  });
+
+  assert.equal(step, 2);
+  assert.equal(result.toolExecutions.length, 1);
+  assert.equal(result.toolExecutions[0].success, true);
+  assert.equal(result.toolExecutions[0].result.type, 'pie');
+  assert.equal(result.toolExecutions[0].result.title, 'Distribución');
+  const toolMsg = result.history.find(m => m.role === 'tool');
+  assert.equal(toolMsg.content, JSON.stringify({ success: true, type: 'pie', title: 'Distribución' }));
+  assert.equal(result.finalText, 'Gráfico mostrado correctamente.');
+});
+

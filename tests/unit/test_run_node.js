@@ -102,7 +102,6 @@ test('RunNode - startHeadlessRun orquesta la conexión y arranca RunMode', async
 
 test('RunNode - herramientas excluidas de Node se declaran no disponibles y devuelven error limpio al ejecutarse', async () => {
   const disabledToolGlobals = [
-    'ChatBuiltinRenderChartTool',
     'ChatBuiltinListDocumentsTool',
     'ChatBuiltinSearchKnowledgeBaseTool',
     'ChatBuiltinReadKnowledgeChunkTool',
@@ -117,6 +116,23 @@ test('RunNode - herramientas excluidas de Node se declaran no disponibles y devu
     const res = await tool.execute();
     assert.equal(res.error, 'Tool not supported in headless environment');
   }
+});
+
+test('RunNode - render_chart está habilitado y ejecuta sin requerir DOM en Node', async () => {
+  const tool = globalThis.ChatBuiltinRenderChartTool;
+  assert.ok(tool, 'ChatBuiltinRenderChartTool debe estar registrado');
+  assert.equal(tool.definition.name, 'render_chart');
+
+  const args = {
+    type: 'bar',
+    title: 'Ventas trimestrales',
+    labels: ['Q1', 'Q2', 'Q3', 'Q4'],
+    datasets: [{ label: '2026', data: [100, 200, 150, 300] }]
+  };
+  const execRes = await tool.execute(args);
+  assert.deepEqual(execRes, { success: true, type: 'bar', title: 'Ventas trimestrales' });
+  assert.equal(tool.result.toModel(args, execRes), JSON.stringify(execRes));
+  assert.match(tool.result.toMarkdown(args, execRes), /render_chart[\s\S]*Ventas trimestrales/);
 });
 
 test('RunNode - execute_javascript y ChatSandbox están habilitados y ejecutan cálculos en Node', async () => {

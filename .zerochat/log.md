@@ -67,3 +67,4 @@
 - 2026-11-10 M57-D8 Desacoplo de tool-cards, icons y marcado modal de export del runner Node.js (M57-T8)
 - 2026-11-11 M58-D1 Uso de node:vm en ChatSandbox para aislar la ejecución de JavaScript en Node.js sin depender del DOM ni iframes, manteniendo simetría en salida y timeouts con el navegador (M58-T1)
 - 2026-11-11 M58-D2 Inclusión de ChatBuiltinExecuteJavascriptTool y ChatSandbox en run-node.js y regeneración de runner.js (M58-T2)
+- 2026-11-11 M59-D1 Inclusión de ChatBuiltinRenderChartTool en run-node.js y recompilación de runner.js (M59-T1)

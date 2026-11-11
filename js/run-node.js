@@ -124,8 +124,10 @@
     const ExecuteJavascriptTool = require('./tools/builtin/execute-javascript.tool.js');
     globalThis.ChatBuiltinExecuteJavascriptTool = ExecuteJavascriptTool;
 
+    const RenderChartTool = require('./tools/builtin/render-chart.tool.js');
+    globalThis.ChatBuiltinRenderChartTool = RenderChartTool;
+
     const disabledTools = [
-      { globalName: 'ChatBuiltinRenderChartTool', name: 'render_chart' },
       { globalName: 'ChatBuiltinListDocumentsTool', name: 'list_documents' },
       { globalName: 'ChatBuiltinSearchKnowledgeBaseTool', name: 'search_knowledge_base' },
       { globalName: 'ChatBuiltinReadKnowledgeChunkTool', name: 'read_knowledge_chunk' },
