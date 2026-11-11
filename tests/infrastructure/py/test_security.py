@@ -1,4 +1,5 @@
 import os
+import sqlite3
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -597,6 +598,77 @@ class AccessControllerPolicyTest(unittest.TestCase):
                 dec_esc = self.controller.evaluate_authorization(access_tool, {"path": escape_path}, self.ctx)
                 self.assertFalse(dec_esc.allowed, f"Debe pedir confirmación para escape ..: {escape_path}")
                 self.assertEqual(dec_esc.status, "ask")
+
+    def test_probe_s2_atomic_import_state_validation(self):
+        self.controller.clear_session()
+        self.controller.set_global_policy(zerochat.GLOBAL_POLICY_ASK, self.ctx)
+        self.controller.set_directory_rules([f"RW:{self.workspace}/**"], self.ctx)
+
+        initial_state = self.controller.export_state(self.ctx)
+
+        # 1. Payload con regla inválida: falla y no modifica globalMcpPolicy (S2)
+        invalid_rule_payload = {
+            "globalMcpPolicy": zerochat.GLOBAL_POLICY_ALLOW_ALL,
+            "directoryRules": ["INVALID_NO_PREFIX_RULE"]
+        }
+        with self.assertRaises(ValueError):
+            self.controller.import_state(invalid_rule_payload, self.ctx, persist=False)
+        self.assertEqual(self.controller.global_policy, zerochat.GLOBAL_POLICY_ASK)
+        self.assertEqual(self.controller.export_state(self.ctx), initial_state)
+
+        # 2. Entrada con policy inválida en tools/servers: rechazada sin modificar estado
+        invalid_tool_payload = {
+            "tools": {"tool_a": {"policy": "unsupported_policy"}}
+        }
+        with self.assertRaises(ValueError):
+            self.controller.import_state(invalid_tool_payload, self.ctx, persist=False)
+        self.assertEqual(self.controller.export_state(self.ctx), initial_state)
+
+        invalid_server_payload = {
+            "servers": {"srv_a": {"policy": "invalid"}}
+        }
+        with self.assertRaises(ValueError):
+            self.controller.import_state(invalid_server_payload, self.ctx, persist=False)
+        self.assertEqual(self.controller.export_state(self.ctx), initial_state)
+
+    def test_probe_s3_storage_failure_propagates_to_rpc_without_mutating_memory(self):
+        handler = zerochat.ZeroChatServerHandler.__new__(zerochat.ZeroChatServerHandler)
+        self.controller.clear_session()
+        self.controller.set_global_policy(zerochat.GLOBAL_POLICY_ASK, self.ctx)
+        initial_state = self.controller.export_state(self.ctx)
+
+        # Simular fallo en save_security_policy_data (sqlite3.OperationalError)
+        with unittest.mock.patch("zerochat.save_security_policy_data", side_effect=sqlite3.OperationalError("database is locked")):
+            res, err, _ = handler._dispatch_security("zerochat/security/update", {
+                "globalMcpPolicy": zerochat.GLOBAL_POLICY_ALLOW_ALL,
+                "tools": {"my_tool": {"policy": "allow"}}
+            })
+            self.assertIsNone(res)
+            self.assertIsNotNone(err)
+            self.assertEqual(err["code"], -32603)
+            self.assertIn("database is locked", err["message"])
+
+        # La memoria debe haber quedado intacta sin desincronizarse (S3)
+        self.assertEqual(self.controller.global_policy, zerochat.GLOBAL_POLICY_ASK)
+        self.assertNotIn("my_tool", self.controller.tools)
+        self.assertEqual(self.controller.export_state(self.ctx), initial_state)
+
+    def test_max_policy_entries_exact_boundary(self):
+        self.controller.clear_session()
+        limit = zerochat.MAX_POLICY_ENTRIES
+
+        # Exact boundary N: 500 entradas permitidas
+        tools_n = {f"tool_{i}": {"policy": "allow"} for i in range(limit)}
+        payload_n = {"tools": tools_n}
+        self.controller.import_state(payload_n, self.ctx, persist=False)
+        self.assertEqual(len(self.controller.tools), limit)
+
+        # Exact boundary N+1: 501 entradas rechazadas
+        tools_n_plus_1 = {f"tool_{i}": {"policy": "allow"} for i in range(limit + 1)}
+        payload_n_plus_1 = {"tools": tools_n_plus_1}
+        with self.assertRaises(ValueError) as cm:
+            self.controller.import_state(payload_n_plus_1, self.ctx, persist=False)
+        self.assertIn("supera el máximo permitido", str(cm.exception))
 
 if __name__ == "__main__":
     unittest.main()
