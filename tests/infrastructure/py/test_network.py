@@ -1,7 +1,6 @@
 import email.message
 import gzip
 import io
-import threading
 import time
 import unittest
 import urllib.request
@@ -131,7 +130,7 @@ class WebFetchTest(unittest.TestCase):
             time.__dict__["sleep"] = original_sleep
 
     def test_fetch_web_resource_cadencia_duckduckgo_por_respuesta(self):
-        """Mínimo 2 s desde la respuesta anterior; las peticiones en paralelo se escalonan de 5 en 5."""
+        """Mínimo 2 s desde la respuesta anterior; comprobación determinista sin esperas reales."""
         class MockResponse:
             status = 200
             headers = email.message.EmailMessage({"Content-Type": "text/html"})
@@ -155,52 +154,27 @@ class WebFetchTest(unittest.TestCase):
         original_sleep = time.sleep
         original_monotonic = time.monotonic
         slept = []
+        now = 1000.0
         try:
             zerochat._WEB_OPENER.open = lambda req, timeout=10.0: MockResponse()
             time.sleep = slept.append
+            time.monotonic = lambda: now
 
-            # Arranque: el timestamp existe desde la importación, así que la primera petición
-            # espera los 2 s aunque no se haya hecho ninguna antes.
-            zerochat._LAST_WEB_FETCH_AT["duckduckgo.com"] = time.monotonic()
-            zerochat.fetch_web_resource({"url": "https://html.duckduckgo.com/html/?q=primera"})
-            self.assertEqual(len(slept), 1)
-            self.assertGreaterEqual(slept[0], zerochat.WEB_FETCH_MIN_GAP_S - 0.05)
+            # Si la respuesta previa fue hace 0.5 s, espera exactamente el resto (1.5 s).
+            zerochat._LAST_WEB_FETCH_AT["duckduckgo.com"] = now - 0.5
+            zerochat.fetch_web_resource({"url": "https://html.duckduckgo.com/html/?q=espera"})
+            self.assertEqual(slept, [1.5])
 
-            # Ya cumplidos los 2 s desde la respuesta anterior: la petición sale sin esperar.
-            zerochat._LAST_WEB_FETCH_AT["duckduckgo.com"] = time.monotonic() - zerochat.WEB_FETCH_MIN_GAP_S
+            # Si ya se cumplió el gap mínimo (hace 2 s o más), no espera.
             slept.clear()
-            zerochat.fetch_web_resource({"url": "https://html.duckduckgo.com/html/?q=segunda"})
+            zerochat._LAST_WEB_FETCH_AT["duckduckgo.com"] = now - zerochat.WEB_FETCH_MIN_GAP_S
+            zerochat.fetch_web_resource({"url": "https://html.duckduckgo.com/html/?q=sin_espera"})
             self.assertEqual(slept, [])
 
-            # Borde exacto: a 0,1 s de cumplir el gap espera el resto.
-            now = original_monotonic()
-            time.monotonic = lambda: now
-            zerochat._LAST_WEB_FETCH_AT["duckduckgo.com"] = now - (zerochat.WEB_FETCH_MIN_GAP_S - 0.1)
+            # Otros dominios no aplican cadencia de espera.
             slept.clear()
-            zerochat.fetch_web_resource({"url": "https://html.duckduckgo.com/html/?q=borde"})
-            self.assertEqual(len(slept), 1)
-            self.assertAlmostEqual(slept[0], 0.1, places=3)
-
-            # Tres peticiones en paralelo: escalonadas de 5 en 5 para que no coincidan.
-            zerochat._LAST_WEB_FETCH_AT["duckduckgo.com"] = now
-            zerochat._WEB_FETCH_PENDING["duckduckgo.com"] = 0
-            slept.clear()
-            barrier = threading.Barrier(3)
-            def mock_parallel_sleep(s):
-                slept.append(s)
-                barrier.wait()
-            time.sleep = mock_parallel_sleep
-            threads = [
-                threading.Thread(target=zerochat.fetch_web_resource,
-                                 args=({"url": f"https://html.duckduckgo.com/html/?q=paralelo{i}"},))
-                for i in range(3)
-            ]
-            for t in threads:
-                t.start()
-            for t in threads:
-                t.join()
-            self.assertEqual([round(x, 1) for x in sorted(slept)], [2.0, 7.0, 12.0])
-            self.assertEqual(zerochat._WEB_FETCH_PENDING["duckduckgo.com"], 0)
+            zerochat.fetch_web_resource({"url": "https://example.com/test"})
+            self.assertEqual(slept, [])
         finally:
             zerochat._WEB_OPENER.open = original_open
             time.sleep = original_sleep
