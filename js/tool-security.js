@@ -60,25 +60,8 @@
       if (!token || typeof token !== 'string') return;
       if (this.sessionToken === token) return;
       this.sessionToken = token;
-
-      let changed = false;
-      for (const [id, item] of this.tools.entries()) {
-        if (item.scope === SCOPES.SESSION) {
-          this.tools.delete(id);
-          changed = true;
-        }
-      }
-      for (const [id, item] of this.servers.entries()) {
-        if (item.scope === SCOPES.SESSION) {
-          this.servers.delete(id);
-          changed = true;
-        }
-      }
-
-      if (changed) {
-        this.syncWithState();
-        this.notifyListeners();
-      }
+      // El backend descarta las autorizaciones de sesión al cambiar el token: se relee su estado.
+      return this.refresh();
     }
 
     setMcpClient(client) {
@@ -227,24 +210,23 @@
     }
 
     async addDirectoryRule(rule) {
-      const current = this.getDirectoryRules();
-      return this.setDirectoryRules([...current, rule]);
+      await this._patchBackend({ addDirectoryRules: [rule] });
+      return this.getDirectoryRules();
     }
 
-    _cleanId(kind, id) {
-      if (!id || typeof id !== 'string') return '';
-      return kind === 'servers' ? id.trim() : id;
+    _cleanId(id) {
+      return id && typeof id === 'string' ? id : '';
     }
 
     _findEntry(kind, id, keyProp) {
-      const clean = this._cleanId(kind, id);
+      const clean = this._cleanId(id);
       const map = kind === 'tools' ? this.tools : this.servers;
       if (!clean || !map.has(clean)) return null;
       return { [keyProp]: clean, entry: map.get(clean) };
     }
 
     async _setPolicy(kind, id, policy, buildEntry) {
-      const clean = this._cleanId(kind, id);
+      const clean = this._cleanId(id);
       if (!clean) return;
       const cleanPolicy = policy === POLICIES.ALLOW || policy === POLICIES.DENY ? policy : POLICIES.ASK;
       if (cleanPolicy === POLICIES.ASK) {
@@ -254,7 +236,7 @@
     }
 
     async _revokePolicy(kind, id) {
-      const clean = this._cleanId(kind, id);
+      const clean = this._cleanId(id);
       if (!clean) return false;
       await this._patchBackend({ [kind]: { [clean]: null } });
       return true;

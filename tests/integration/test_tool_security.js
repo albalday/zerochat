@@ -25,6 +25,7 @@ function createMockClient(initialState = {}) {
       if (method === 'zerochat/security/update') {
         if (params.globalMcpPolicy !== undefined) state.globalMcpPolicy = params.globalMcpPolicy;
         if (params.directoryRules !== undefined) state.directoryRules = [...params.directoryRules];
+        if (params.addDirectoryRules !== undefined) state.directoryRules = [...new Set([...state.directoryRules, ...params.addDirectoryRules])];
         if (params.tools !== undefined) {
           state.tools = { ...state.tools };
           for (const [id, entry] of Object.entries(params.tools)) {
@@ -114,6 +115,7 @@ test('ChatToolSecurity - mutaciones envían parches parciales y adoptan la respu
   assert.deepEqual(manager.getDirectoryRules(), ['R:/proj/**']);
 
   await manager.addDirectoryRule('W:/out/**');
+  assert.deepEqual(mockClient.calls[mockClient.calls.length - 1].params, { addDirectoryRules: ['W:/out/**'] });
   assert.deepEqual(manager.getDirectoryRules(), ['R:/proj/**', 'W:/out/**']);
 
   // 6. clearAllAuthorizations envía parches con null
@@ -161,33 +163,24 @@ test('ChatToolSecurity - authorizeChallenge ejecuta y siempre refresca política
   assert.ok(getCall, 'Debe haber refrescado políticas tras autorizar');
 });
 
-test('ChatToolSecurity - cambio de sessionToken limpia autorizaciones de sesión y preserva permanentes', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager();
-  manager.setSessionToken('token-1');
-
-  manager.applyPolicies({
-    tools: {
-      perm_tool: { policy: 'allow', scope: 'permanent' },
-      sess_tool: { policy: 'allow', scope: 'session' }
-    },
-    servers: {
-      perm_srv: { policy: 'allow', scope: 'permanent' },
-      sess_srv: { policy: 'allow', scope: 'session' }
-    }
+test('ChatToolSecurity - cambio de sessionToken relee el estado del backend', async () => {
+  const mockClient = createMockClient({
+    tools: { perm_tool: { policy: 'allow', scope: 'permanent' }, sess_tool: { policy: 'allow', scope: 'session' } }
   });
-
-  assert.equal(manager.getToolPolicy('perm_tool'), 'allow');
+  const manager = new ChatToolSecurity.ToolSecurityManager();
+  manager.setMcpClient(mockClient);
+  await manager.setSessionToken('token-1');
   assert.equal(manager.getToolPolicy('sess_tool'), 'allow');
-  assert.equal(manager.getServerPolicy('perm_srv'), 'allow');
-  assert.equal(manager.getServerPolicy('sess_srv'), 'allow');
 
-  // Cambio de token
-  manager.setSessionToken('token-2');
+  // El backend descartó la sesión al rotar el token; el mismo token no vuelve a consultar
+  mockClient.state.tools = { perm_tool: { policy: 'allow', scope: 'permanent' } };
+  mockClient.calls.length = 0;
+  await manager.setSessionToken('token-1');
+  assert.equal(mockClient.calls.length, 0);
 
+  await manager.setSessionToken('token-2');
   assert.equal(manager.getToolPolicy('perm_tool'), 'allow');
   assert.equal(manager.getToolPolicy('sess_tool'), null);
-  assert.equal(manager.getServerPolicy('perm_srv'), 'allow');
-  assert.equal(manager.getServerPolicy('sess_srv'), null);
 });
 
 test('ChatToolSecurity - un listener que falla no detiene la notificación a los demás', (t) => {

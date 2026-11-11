@@ -299,6 +299,24 @@
   }
 
   /**
+   * Ejecuta una petición de run_command del servidor local deteniendo su trabajo si se aborta:
+   * el comando sigue vivo aunque se cancele la petición, y el servidor conoce la clave de la
+   * invocación antes de devolver su job_id.
+   */
+  async function withCommandJobStop(client, jobKey, signal, run) {
+    if (!jobKey) return run();
+    const stopJob = () => {
+      client.request('zerochat/jobs/stop', { key: jobKey }).catch(() => {});
+    };
+    signal?.addEventListener('abort', stopJob, { once: true });
+    try {
+      return await run();
+    } finally {
+      signal?.removeEventListener('abort', stopJob);
+    }
+  }
+
+  /**
    * Normaliza la respuesta de ejecución de una herramienta MCP (directa o tras autorización).
    */
   function formatToolCallResult(result, { name = '', serverName = '', args = {}, elapsed = 0 } = {}) {
@@ -421,27 +439,20 @@
             mcpServerUrl: this.serverUrl,
             originalName: toolName,
             mcpServerId: sourceServer,
+            localCommand: isLocalCommand,
             description: rt.description || ''
           },
           execute: async (args, context) => {
-            // Un comando del servidor local sigue vivo aunque se aborte la petición: se detiene
-            // con la clave de la invocación, que el servidor conoce antes de devolver su job_id.
             const jobKey = isLocalCommand ? context.invocationId : null;
-            const stopJob = () => {
-              this.client.request('zerochat/jobs/stop', { key: jobKey }).catch(() => {});
-            };
-            if (jobKey) context.signal?.addEventListener('abort', stopJob, { once: true });
             try {
-              return await this.client.callTool(rt.name, args, {
+              return await withCommandJobStop(this.client, jobKey, context.signal, () => this.client.callTool(rt.name, args, {
                 signal: context.signal,
                 timeoutMs: options.timeoutMs,
                 meta: jobKey ? { zerochatJobKey: jobKey } : undefined
-              });
+              }));
             } catch (error) {
               if (isProxy && isTransportFailure(error)) await this.onTransportFailure?.(error);
               throw error;
-            } finally {
-              if (jobKey) context.signal?.removeEventListener('abort', stopJob);
             }
           },
           result: {
@@ -1154,6 +1165,7 @@
     browserActionAvailable,
     manager,
     formatToolCallResult,
+    withCommandJobStop,
     getResultText,
     getSafeMcpImageDataUrl,
     getSafeMcpImageFromMessage

@@ -11,19 +11,20 @@ async function withMcpPanel(mcp, fn) {
     page.setDefaultTimeout(5000);
     await page.evaluate(mcp => {
       const mockClient = {
+        // Como el backend, fija grantedAt al conceder.
         async request(method, patch) {
           const tools = Object.fromEntries(window.ChatToolSecurity.manager.tools);
           if (patch?.tools) {
             for (const [id, val] of Object.entries(patch.tools)) {
               if (val === null) delete tools[id];
-              else tools[id] = val;
+              else tools[id] = { ...val, grantedAt: Date.now() };
             }
           }
           const servers = Object.fromEntries(window.ChatToolSecurity.manager.servers);
           if (patch?.servers) {
             for (const [id, val] of Object.entries(patch.servers)) {
               if (val === null) delete servers[id];
-              else servers[id] = val;
+              else servers[id] = { ...val, grantedAt: Date.now() };
             }
           }
           return {

@@ -270,7 +270,7 @@ test('ProjectContext.initialize - registra la regla para permitir escribir en .z
   const mockClient = {
     async request(method, params) {
       if (method === 'zerochat/security/update') {
-        return { policies: { directoryRules: params.directoryRules || [] } };
+        return { policies: { directoryRules: params.addDirectoryRules || [] } };
       }
       return {};
     }

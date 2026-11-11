@@ -610,7 +610,12 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         return {"content": [{"type": "text", "text": tool_output_json}], "isError": bool(tool_error_info)}, None, tool_error_info
 
     @staticmethod
-    def _authorize_or_challenge(origin: str, tool_name: str, args: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str] | None:
+    def _with_job_key(args: dict, job_key: str | None) -> dict:
+        return {**args, "job_key": job_key} if job_key else args
+
+    @staticmethod
+    def _authorize_or_challenge(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
+                                job_key: str | None = None) -> tuple[dict | None, dict | None, str] | None:
         """Evalúa la política de seguridad y devuelve respuesta de denegación o reto si procede."""
         if origin == "external":
             server_id = GLOBAL_MCP_MANAGER.server_of(tool_name) or ""
@@ -626,7 +631,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return {"content": [{"type": "text", "text": f"Error: {err_msg}"}], "isError": True, "securityStatus": "deny", "reason": decision.reason}, None, err_msg
         if decision.status == POLICY_ASK:
             ch = ACCESS_CONTROLLER.create_challenge(
-                tool_name, args, decision, server_name=server_name, server_id=server_id, origin=origin, context=ctx
+                tool_name, args, decision, server_name=server_name, server_id=server_id, origin=origin,
+                context=ctx, job_key=job_key
             )
             return {
                 "requiresAuthorization": True,
@@ -685,15 +691,15 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             raw_args = params.get("arguments", {})
             args = dict(raw_args) if isinstance(raw_args, dict) else {}
             meta = params.get("_meta")
-            if tool_name == "run_command" and isinstance(meta, dict) and "zerochatJobKey" in meta:
-                args["job_key"] = meta.get("zerochatJobKey")
+            # La clave del trabajo no es un argumento del modelo: no se evalúa ni se muestra en el reto.
+            job_key = meta.get("zerochatJobKey") if tool_name == COMMAND_TOOL and isinstance(meta, dict) else None
             ctx = SecurityContext(workspace_dir=Path.cwd().resolve())
 
-            gate = self._authorize_or_challenge("local", tool_name, args, ctx)
+            gate = self._authorize_or_challenge("local", tool_name, args, ctx, job_key)
             if gate is not None:
                 return gate
 
-            return self._execute_tool("local", tool_name, args)
+            return self._execute_tool("local", tool_name, self._with_job_key(args, job_key))
         if method == "zerochat/project/set_directory":
             # Lo invoca la interfaz a petición del usuario: no es una herramienta del modelo.
             try:
@@ -769,7 +775,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 t_origin = ch.get("origin") or "local"
                 t_name = ch["toolName"]
                 t_args = ch["arguments"] if isinstance(ch.get("arguments"), dict) else {}
-                exec_res, exec_err, tool_err = cls._execute_tool(t_origin, t_name, t_args)
+                exec_res, exec_err, tool_err = cls._execute_tool(t_origin, t_name, cls._with_job_key(t_args, ch.get("jobKey")))
                 if exec_err:
                     return None, exec_err, tool_err
                 return {"authorized": True, "result": exec_res}, None, tool_err

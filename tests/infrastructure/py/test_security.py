@@ -930,7 +930,7 @@ class AccessControllerPolicyTest(unittest.TestCase):
         dec = zerochat.ACCESS_CONTROLLER.evaluate_authorization("custom_tool", {}, self.ctx)
         ch = zerochat.ACCESS_CONTROLLER.create_challenge("custom_tool", {}, dec)
         with unittest.mock.patch("zerochat.update_security_policy_data", side_effect=sqlite3.OperationalError("database is locked")), \
-                unittest.mock.patch.object(handler, "_execute_tool") as execute:
+                unittest.mock.patch.object(zerochat.ZeroChatServerHandler, "_execute_tool") as execute:
             res, err, _ = handler._dispatch_security("zerochat/security/authorize", {
                 "challengeId": ch["id"],
                 "decision": "allow_always"
@@ -966,6 +966,40 @@ class AccessControllerPolicyTest(unittest.TestCase):
         with unittest.mock.patch("zerochat.get_security_policy_data", wraps=zerochat.get_security_policy_data) as reader:
             self.controller.evaluate_authorization("run_command", {"command": "cd /tmp && ls"}, self.ctx, server_id="srv")
         self.assertEqual(reader.call_count, 1)
+
+    def test_job_key_is_not_a_challenge_argument_but_reaches_execution(self):
+        handler = zerochat.ZeroChatServerHandler.__new__(zerochat.ZeroChatServerHandler)
+        zerochat.ACCESS_CONTROLLER.clear_session()
+        set_global(zerochat.ACCESS_CONTROLLER, zerochat.GLOBAL_POLICY_ASK)
+        gate, err, _ = handler._dispatch_local("tools/call", {
+            "name": "run_command",
+            "arguments": {"command": "echo job"},
+            "_meta": {"zerochatJobKey": "inv-1"}
+        })
+        self.assertIsNone(err)
+        self.assertEqual(gate["arguments"], {"command": "echo job"})
+
+        with unittest.mock.patch.object(zerochat.ZeroChatServerHandler, "_execute_tool", return_value=({"content": []}, None, "")) as execute:
+            res, err_auth, _ = handler._dispatch_security("zerochat/security/authorize", {
+                "challengeId": gate["challengeId"],
+                "decision": "allow_once"
+            })
+        self.assertIsNone(err_auth)
+        self.assertTrue(res["authorized"])
+        execute.assert_called_once_with("local", "run_command", {"command": "echo job", "job_key": "inv-1"})
+
+    def test_add_directory_rules_appends_in_the_same_patch(self):
+        norm_ws = zerochat.normalize_directory_path(str(self.workspace))
+        set_rules(self.controller, [f"R:{norm_ws}/docs/**"], self.ctx)
+        res = self.controller.import_state({"addDirectoryRules": [f"RW:{norm_ws}/.zerochat", f"R:{norm_ws}/docs/**"]}, self.ctx)
+        self.assertEqual(res["directoryRules"], [f"R:{norm_ws}/docs/**", f"RW:{norm_ws}/.zerochat"])
+        with self.assertRaises(ValueError):
+            self.controller.import_state({"addDirectoryRules": ["INVALID"]}, self.ctx)
+
+    def test_external_tools_get_no_directory_rule_offer(self):
+        dec = self.controller.evaluate_authorization("srv__write_file", {"path": "/tmp/x.txt"}, self.ctx, server_id="srv")
+        self.assertEqual(dec.status, "ask")
+        self.assertIsNone(dec.rule_offer)
 
 if __name__ == "__main__":
     unittest.main()

@@ -321,17 +321,11 @@
             return failure('Execution denied by the user.', base);
           }
           if (security.mcpClient) {
-            const jobKey = tool.name === 'run_command' ? context.invocationId : null;
-            const stopJob = () => {
-              security.mcpClient.request('zerochat/jobs/stop', { key: jobKey }).catch(() => {});
-            };
-            if (jobKey) context.signal?.addEventListener('abort', stopJob, { once: true });
-            let authRes;
-            try {
-              authRes = await security.authorizeChallenge(result.challengeId, decision, { signal: context.signal }).catch(err => ({ error: err.message }));
-            } finally {
-              if (jobKey) context.signal?.removeEventListener('abort', stopJob);
-            }
+            // Autorizar ejecuta el reto: un run_command del servidor local se detiene igual al abortar.
+            const jobKey = tool.metadata?.localCommand ? context.invocationId : null;
+            const authRes = await getMCP().withCommandJobStop(security.mcpClient, jobKey, context.signal,
+              () => security.authorizeChallenge(result.challengeId, decision, { signal: context.signal })
+            ).catch(err => ({ error: err.message }));
             if (authRes?.error || !authRes?.authorized) {
               return failure(authRes?.error || 'Challenge authorization failed.', base);
             }

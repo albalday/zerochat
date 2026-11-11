@@ -10,11 +10,9 @@ GLOBAL_POLICIES = (GLOBAL_POLICY_ASK, GLOBAL_POLICY_ALLOW_ALL, GLOBAL_POLICY_WOR
 POLICY_ALLOW = "allow"
 POLICY_DENY = "deny"
 POLICY_ASK = "ask"
-POLICIES = (POLICY_ALLOW, POLICY_DENY, POLICY_ASK)
 
 SCOPE_PERMANENT = "permanent"
 SCOPE_SESSION = "session"
-SCOPES = (SCOPE_PERMANENT, SCOPE_SESSION)
 
 POLICY_STATE_VERSION = 5
 CHALLENGE_TTL_MS = 600_000
@@ -24,6 +22,10 @@ MAX_POLICY_ENTRIES = 500
 DIRECTORY_RULE_PATTERN = re.compile(r"^(R|W|RW):(.+)$")
 COMMAND_TOOL = "run_command"
 JOB_CONTROL_TOOL = "check_command"
+# Herramientas integradas que acceden al sistema de archivos por su argumento de ruta.
+READ_PATH_TOOLS = frozenset(("read_file", "list_directory", "search_files", "get_diagnostics"))
+WRITE_PATH_TOOLS = frozenset(("edit_file", "write_file"))
+DIRECTORY_PATH_TOOLS = frozenset(("list_directory", "search_files", "get_diagnostics"))
 
 SAFE_REDIRECTION_PATTERN = re.compile(r"&>\s*/dev/null|\d?>>?\s*/dev/null|\d?>&\d")
 
@@ -192,9 +194,9 @@ def get_path_arg(args: dict | None) -> str:
 
 def get_integrated_path_access(tool_name: str) -> str:
     """Clasifica el tipo de acceso al sistema de archivos ('R' o 'W') de herramientas core."""
-    if tool_name in ("read_file", "list_directory", "search_files", "get_diagnostics"):
+    if tool_name in READ_PATH_TOOLS:
         return "R"
-    if tool_name in ("edit_file", "write_file"):
+    if tool_name in WRITE_PATH_TOOLS:
         return "W"
     return ""
 
@@ -249,7 +251,7 @@ def evaluate_command_constraint(cmd_val: str, command_constraints: dict) -> tupl
     if isinstance(denied_patterns, (list, tuple)):
         for pattern in denied_patterns:
             if isinstance(pattern, str) and pattern in trimmed:
-                return False, True, "command_matches_denied_pattern", f"The command contains a blocked pattern ({pattern}): {trimmed}"
+                return False, True, "command_matches_denied_pattern", f"El comando contiene un patrón bloqueado ({pattern}): {trimmed}"
 
     allowed_prefixes = command_constraints.get("allowedPrefixes")
     if isinstance(allowed_prefixes, (list, tuple)) and len(allowed_prefixes) > 0:
@@ -275,12 +277,13 @@ def get_rule_offer(tool_name: str, args: dict, auth_eval: dict | None = None) ->
                 "command": {"allowedPrefixes": [base_name], "allowChaining": False, "allowPipes": False}
             }
         }
+    # Solo las herramientas integradas se autorizan por reglas de directorio.
+    access = eval_info.get("directoryAccess") or get_integrated_path_access(tool_name)
     path = eval_info.get("directoryPath") or get_path_arg(args)
-    if not path or not normalize_directory_path(path):
+    if not access or not path or not normalize_directory_path(path):
         return None
-    access = eval_info.get("directoryAccess") or ("W" if re.search(r"(?:^|_)(?:edit|write)_file$", tool_name) else "R")
     clean_path = path.replace("\\", "/").rstrip("/")
-    if re.search(r"(?:^|_)list_directory$", tool_name):
+    if tool_name == "list_directory":
         folder = clean_path
     else:
         folder = clean_path[:clean_path.rfind("/")] if "/" in clean_path else "."
@@ -386,7 +389,7 @@ class AccessController:
             raise ValueError(f"{kind} debe ser un diccionario de {kind_desc}.")
         clean_map = {}
         for item_id, entry in raw_entries.items():
-            clean_key = str(item_id).strip() if kind == "servers" else str(item_id)
+            clean_key = str(item_id).strip()
             if not clean_key:
                 continue
             if entry is None:
@@ -463,14 +466,20 @@ class AccessController:
         return clean_global, clean_rules, clean_tools, clean_servers
 
     def import_state(self, state: dict, context: SecurityContext | None = None):
-        """Aplica un parche parcial persistente (None revoca) y devuelve el estado exportado."""
+        """
+        Aplica un parche parcial persistente (None revoca) y devuelve el estado exportado.
+        `addDirectoryRules` añade reglas a las guardadas dentro de la misma transacción.
+        """
         clean_global, clean_rules, clean_tools, clean_servers = self._validate_state_payload(state, SCOPE_PERMANENT, context)
+        added_rules = self._validate_directory_rules(state["addDirectoryRules"], context) if "addDirectoryRules" in state else []
 
         def mutator(current: dict) -> dict:
             if clean_global is not None:
                 current["globalMcpPolicy"] = clean_global
             if clean_rules is not None:
                 current["directoryRules"] = clean_rules
+            if added_rules:
+                current["directoryRules"] = self._append_rules(current["directoryRules"], added_rules)
             if clean_tools is not None:
                 current["tools"] = self._apply_entry_patch(current.get("tools"), clean_tools)
             if clean_servers is not None:
@@ -483,6 +492,8 @@ class AccessController:
                 self.session_global_policy = None
             if clean_rules is not None:
                 self.session_directory_rules = None
+            elif added_rules and self.session_directory_rules is not None:
+                self.session_directory_rules = self._append_rules(self.session_directory_rules, added_rules)
             if clean_tools is not None:
                 for tool_id in clean_tools:
                     self.session_tools.pop(tool_id, None)
@@ -490,6 +501,10 @@ class AccessController:
                 for srv_id in clean_servers:
                     self.session_servers.pop(srv_id, None)
         return self.export_state(context)
+
+    @staticmethod
+    def _append_rules(rules: list[str], new_rules: list[str]) -> list[str]:
+        return list(dict.fromkeys(list(rules) + list(new_rules)))
 
     @staticmethod
     def _apply_entry_patch(current: dict | None, patch: dict) -> dict:
@@ -528,8 +543,9 @@ class AccessController:
     def _resolve_rule_pattern(pattern: str, workspace_dir: Path | None = None) -> str:
         base, sep, rest = pattern.partition("*")
         if base:
-            target = os.path.join(str(workspace_dir), base) if (workspace_dir and not os.path.isabs(base)) else base
-            real_base = normalize_directory_path(os.path.realpath(target))
+            # Mismo resolutor que SecurityContext.resolve_path (destino y base de la regla).
+            target = Path(base) if (not workspace_dir or os.path.isabs(base)) else Path(workspace_dir) / base
+            real_base = normalize_directory_path(str(target.resolve(strict=False)))
             if sep and base.endswith("/") and not real_base.endswith("/"):
                 real_base += "/"
         else:
@@ -592,7 +608,7 @@ class AccessController:
 
     def create_challenge(self, tool_name: str, args: dict, decision: AccessDecision,
                          server_name: str = "", server_id: str = "", origin: str = "local",
-                         context: SecurityContext | None = None) -> dict:
+                         context: SecurityContext | None = None, job_key: str | None = None) -> dict:
         """Genera un reto estructurado para solicitar confirmación interactiva al usuario."""
         challenge_id = f"auth_{secrets.token_urlsafe(16)}"
         now = int(time.time() * 1000)
@@ -613,6 +629,7 @@ class AccessController:
                 "serverName": server_name or dec_dict.get("serverName", ""),
                 "serverId": resolved_server_id,
                 "origin": origin,
+                "jobKey": job_key,
                 "cwd": cwd,
                 "createdAt": now
             }
@@ -727,7 +744,7 @@ class AccessController:
                 state.setdefault("servers", {})[permanent_id] = self._make_entry(
                     "servers", POLICY_ALLOW, SCOPE_PERMANENT, server_name=server_name or permanent_id)
             if new_rules:
-                state["directoryRules"] = list(dict.fromkeys(list(state.get("directoryRules") or []) + new_rules))
+                state["directoryRules"] = self._append_rules(state["directoryRules"], new_rules)
             self._check_entry_limit(state)
             return state
         self._update_permanent(mutator)
@@ -735,7 +752,7 @@ class AccessController:
             if permanent_kind:
                 self._session_map(permanent_kind).pop(permanent_id, None)
             if new_rules and self.session_directory_rules is not None:
-                self.session_directory_rules = list(dict.fromkeys(self.session_directory_rules + new_rules))
+                self.session_directory_rules = self._append_rules(self.session_directory_rules, new_rules)
 
     def evaluate_authorization(self, tool_name: str, raw_args: dict | None = None,
                                context: SecurityContext | None = None, server_name: str = "",
@@ -770,15 +787,14 @@ class AccessController:
                 dec.rule_offer = get_rule_offer(tool_name, args, payload)
             return dec
 
-        default_path_tools = {"list_directory", "search_files", "get_diagnostics"}
-        if tool_name in default_path_tools and not get_path_arg(args):
+        if tool_name in DIRECTORY_PATH_TOOLS and not get_path_arg(args):
             args["path"] = "."
 
         view = self._effective_state()
         global_policy = view["globalMcpPolicy"]
         user_rules = view["directoryRules"]
         tool_entry = view["tools"].get(tool_name)
-        server_entry = view["servers"].get(server_id.strip()) if server_id else None
+        server_entry = view["servers"].get(server_id) if server_id else None
 
         # 1. Denegación explícita (Blacklist)
         if tool_entry and tool_entry.get("policy") == POLICY_DENY:
