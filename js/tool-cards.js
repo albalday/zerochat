@@ -580,6 +580,10 @@
       `;
     }
 
+    const allowAlwaysButtonHtml = ruleOffer?.type === 'command'
+      ? ''
+      : `<button type="button" class="btn-auth-action btn-auth-allow-always" title="${escapeHtml(t('tool_auth_allow_always'))}">${SHIELD_SVG} <span>${t('tool_auth_allow_always')}</span></button>`;
+
     const morePermissionsLabel = t('tool_auth_more_permissions');
     const morePermissionsTitle = escapeHtml(t('tool_auth_more_permissions_title'));
     authPromptEl.innerHTML = `
@@ -596,7 +600,7 @@
           <button type="button" class="btn-auth-action btn-auth-more" title="${morePermissionsTitle}" aria-label="${morePermissionsTitle}" aria-expanded="false">${CHEVRON_SVG} <span class="btn-auth-more-label">${morePermissionsLabel}</span></button>
           <div class="tool-auth-more-menu" role="group" aria-label="${morePermissionsTitle}" hidden>
             <button type="button" class="btn-auth-action btn-auth-allow-session" title="${escapeHtml(t('tool_auth_allow_session'))}">${CLOCK_SVG} <span>${t('tool_auth_allow_session')}</span></button>
-            <button type="button" class="btn-auth-action btn-auth-allow-always" title="${escapeHtml(t('tool_auth_allow_always'))}">${SHIELD_SVG} <span>${t('tool_auth_allow_always')}</span></button>
+            ${allowAlwaysButtonHtml}
             ${contextualButtonsHtml}
             ${serverButtonHtml}
           </div>

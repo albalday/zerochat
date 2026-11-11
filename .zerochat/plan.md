@@ -27,7 +27,7 @@ Done when: Los probes C1-C3, S1-S3 y D1 de docs/audits/M61-permisos.md se compor
 - [x] M61-T1 Punto único de ejecución de herramientas en ff-server (evaluar/retar/ejecutar/normalizar) con origen guardado en el reto (2026-11-11)
 - [x] M61-T2 Reto ligado a una sola ejecución: sin challengeId en tools/call, authorize siempre ejecuta y consume, caducidad y cwd comprobados (2026-11-11)
 - [x] M61-T3 Identidad real del servidor en autorizaciones externas y sin confianza de servidor para herramientas locales (2026-11-11)
-- [ ] M61-T4 allow_always de run_command solo con restricciones de comando y sin botón genérico en la tarjeta
+- [x] M61-T4 allow_always de run_command solo con restricciones de comando y sin botón genérico en la tarjeta (2026-11-11)
 - [ ] M61-T5 Reglas de directorio evaluadas sobre rutas reales (enlaces simbólicos) con el mismo resolutor que workspace_trust
 - [ ] M61-T6 Actualización de políticas atómica, validada por entrada y con errores de persistencia visibles en la RPC
 - [ ] M61-T7 AccessController sin caché del estado permanente: lectura por operación y escritura transaccional en SQLite

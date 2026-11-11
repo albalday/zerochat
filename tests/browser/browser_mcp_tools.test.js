@@ -62,6 +62,53 @@ test('Browser UI - autorización de Composio muestra y devuelve únicamente su s
   } finally { await browser.close(); }
 });
 
+test('Browser UI - autorización de comando oculta botón genérico permitir siempre y muestra permitir cmd', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+    const result = await page.evaluate(async () => {
+      // 1. Tarjeta con oferta de comando
+      const cardCmd = window.ChatToolCards.createLiveToolCard('run_command', {});
+      document.body.appendChild(cardCmd);
+      const pendingCmd = window.ChatToolCards.promptToolAuthorization(cardCmd, {
+        function: { name: 'run_command', arguments: JSON.stringify({ command: 'ls -la' }) }
+      }, {
+        args: { command: 'ls -la' },
+        ruleOffer: {
+          type: 'command',
+          command: 'ls',
+          constraints: { command: { allowedPrefixes: ['ls'] } }
+        }
+      });
+      const hasGenericAlwaysInCmd = Boolean(cardCmd.querySelector('.btn-auth-allow-always'));
+      const hasCmdButton = Boolean(cardCmd.querySelector('.btn-auth-allow-cmd'));
+      cardCmd.querySelector('.btn-auth-deny').click();
+      await pendingCmd;
+      cardCmd.remove();
+
+      // 2. Tarjeta sin oferta de comando (lectura o herramienta genérica)
+      const cardFile = window.ChatToolCards.createLiveToolCard('read_file', {});
+      document.body.appendChild(cardFile);
+      const pendingFile = window.ChatToolCards.promptToolAuthorization(cardFile, {
+        function: { name: 'read_file', arguments: JSON.stringify({ path: 'test.txt' }) }
+      }, {
+        args: { path: 'test.txt' }
+      });
+      const hasGenericAlwaysInFile = Boolean(cardFile.querySelector('.btn-auth-allow-always'));
+      cardFile.querySelector('.btn-auth-deny').click();
+      await pendingFile;
+      cardFile.remove();
+
+      return { hasGenericAlwaysInCmd, hasCmdButton, hasGenericAlwaysInFile };
+    });
+    assert.equal(result.hasGenericAlwaysInCmd, false, 'El botón genérico permitir siempre no debe aparecer en comandos');
+    assert.equal(result.hasCmdButton, true, 'El botón acotado permitir cmd debe aparecer');
+    assert.equal(result.hasGenericAlwaysInFile, true, 'El botón genérico permitir siempre debe aparecer en herramientas no comando');
+  } finally { await browser.close(); }
+});
+
 test('Browser UI - la petición de autorización saca la tarjeta del historial plegado y la deja como estaba al decidir', async () => {
   const browser = await createTestBrowser();
   try {
@@ -212,7 +259,7 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
     assert.equal(expanded.menuHidden, false);
     assert.equal(expanded.menuPosition, 'static');
     assert.equal(expanded.hasSession, true);
-    assert.equal(expanded.hasPermanent, true);
+    assert.equal(expanded.hasPermanent, false, 'Comando oculta botón genérico permitir siempre (M61-T4)');
     assert.equal(expanded.hasCommandScope, true);
     assert.equal(expanded.hasServerTrust, true);
     assert.equal(expanded.panelVisible, true);

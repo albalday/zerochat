@@ -417,6 +417,56 @@ class AccessControllerPolicyTest(unittest.TestCase):
         self.assertEqual(auth_err["code"], -32002)
         self.assertEqual(zerochat.ACCESS_CONTROLLER.servers, {})
 
+    def test_probe_c3_run_command_allow_always_requires_constraints(self):
+        handler = zerochat.ZeroChatServerHandler.__new__(zerochat.ZeroChatServerHandler)
+        zerochat.ACCESS_CONTROLLER.clear_session()
+        zerochat.ACCESS_CONTROLLER.set_global_policy(zerochat.GLOBAL_POLICY_ASK, self.ctx)
+
+        # 1. Ejecución de run_command emite un reto
+        gate_res, gate_err, _ = handler._dispatch_local("tools/call", {
+            "name": "run_command",
+            "arguments": {"command": "ls"}
+        })
+        self.assertIsNone(gate_err)
+        self.assertTrue(gate_res.get("requiresAuthorization"))
+        cid = gate_res["challengeId"]
+
+        # 2. allow_always sin constraints se rechaza con -32602 y el reto sigue pendiente
+        res_fail, err_fail, _ = handler._dispatch_security("zerochat/security/authorize", {
+            "challengeId": cid,
+            "decision": "allow_always"
+        })
+        self.assertIsNone(res_fail)
+        self.assertEqual(err_fail["code"], -32602)
+        self.assertEqual(err_fail["message"], "allow_always_requires_constraints")
+        self.assertIn(cid, zerochat.ACCESS_CONTROLLER.pending_challenges)
+
+        # 3. Con constraints de comando acotadas ("ls"), se autoriza y consume
+        res_ok, err_ok, _ = handler._dispatch_security("zerochat/security/authorize", {
+            "challengeId": cid,
+            "decision": "allow_always",
+            "constraints": {"command": {"allowedPrefixes": ["ls"]}}
+        })
+        self.assertIsNone(err_ok)
+        self.assertTrue(res_ok["authorized"])
+        self.assertNotIn(cid, zerochat.ACCESS_CONTROLLER.pending_challenges)
+
+        # 4. Siguiente llamada con ls: permitida automáticamente
+        call_ls, err_ls, _ = handler._dispatch_local("tools/call", {
+            "name": "run_command",
+            "arguments": {"command": "ls -la"}
+        })
+        self.assertIsNone(err_ls)
+        self.assertFalse(call_ls.get("requiresAuthorization", False))
+
+        # 5. Siguiente llamada con rm -rf /: pide confirmación (no se permite a ciegas)
+        call_rm, err_rm, _ = handler._dispatch_local("tools/call", {
+            "name": "run_command",
+            "arguments": {"command": "rm -rf /"}
+        })
+        self.assertIsNone(err_rm)
+        self.assertTrue(call_rm.get("requiresAuthorization"))
+
     def test_reset_session_credentials_with_run_session(self):
         try:
             zerochat.RUN_SESSION = zerochat.RunSession(

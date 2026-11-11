@@ -623,11 +623,16 @@ class AccessController:
                 return False
             if dec_type == "allow_server_always" and not challenge.get("serverId"):
                 return False
+            tool_name = challenge.get("toolName")
+            effective_constraints = constraints or (decision.get("constraints") if isinstance(decision, dict) else None)
+            if tool_name == COMMAND_TOOL and dec_type == "allow_always":
+                if not effective_constraints or not isinstance(effective_constraints, dict) or not effective_constraints.get("command"):
+                    raise ValueError("allow_always_requires_constraints")
             challenge["authorized"] = True
             challenge["decisionType"] = dec_type
             dec_payload = {
                 "decision": dec_type,
-                "constraints": constraints or (decision.get("constraints") if isinstance(decision, dict) else None),
+                "constraints": effective_constraints,
                 "directoryRule": directory_rule or (decision.get("directoryRule") if isinstance(decision, dict) else None)
             }
             self.record_decision(dec_payload, challenge["decision"], fallback_tool_name=challenge["toolName"], context=context)
@@ -700,6 +705,8 @@ class AccessController:
                                    server_name=eval_dict.get("serverName", ""))
         elif decision_type == "allow_always":
             req_constraints = decision_dict.get("constraints")
+            if target_tool == COMMAND_TOOL and (not req_constraints or not isinstance(req_constraints, dict) or not req_constraints.get("command")):
+                raise ValueError("allow_always_requires_constraints")
             constraints = self.merge_tool_constraints(target_tool, req_constraints)
             self.set_tool_policy(target_tool, TOOL_POLICY_ALLOW, scope=SCOPE_PERMANENT,
                                  constraints=constraints,
