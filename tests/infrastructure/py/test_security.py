@@ -466,7 +466,13 @@ class AccessControllerPolicyTest(unittest.TestCase):
         self.assertTrue(call_rm.get("requiresAuthorization"))
 
     def test_reset_session_credentials_with_run_session(self):
+        # 1. Poblar SQLite con estado permanente previo
+        zerochat.ACCESS_CONTROLLER.set_global_policy(zerochat.GLOBAL_POLICY_ASK, self.ctx)
+        zerochat.ACCESS_CONTROLLER.set_tool_policy("db_tool", zerochat.TOOL_POLICY_DENY)
+        zerochat.ACCESS_CONTROLLER.set_directory_rules([f"R:{self.workspace}/**"], self.ctx)
+
         try:
+            # 2. Configurar una ejecución con capa de políticas en memoria
             zerochat.RUN_SESSION = zerochat.RunSession(
                 prompt="test",
                 allow_dangerous_tools=True,
@@ -486,9 +492,24 @@ class AccessControllerPolicyTest(unittest.TestCase):
             self.assertIsNotNone(custom_pol)
             self.assertEqual(custom_pol["policy"], "allow")
             self.assertEqual(zerochat.ACCESS_CONTROLLER.global_policy, "allow_all")
+
+            # 3. La capa sobrevive a la primera evaluación de autorización
+            dec_custom = zerochat.ACCESS_CONTROLLER.evaluate_authorization("custom_tool", {}, self.ctx)
+            self.assertTrue(dec_custom.allowed)
+
+            # 4. No aparece en SQLite (no se persiste la capa de sesión)
+            stored = zerochat.get_security_policy_data()
+            self.assertIsNotNone(stored)
+            self.assertEqual(stored["globalMcpPolicy"], "ask", "La BD debe conservar la política permanente 'ask'")
+            self.assertIn("db_tool", stored["tools"])
+            self.assertNotIn("custom_tool", stored["tools"], "La herramienta de sesión no debe persistirse en BD")
         finally:
             zerochat.RUN_SESSION = None
             zerochat.reset_session_credentials()
+
+        # 5. Tras limpiar sesión, la capa desaparece y se recupera la política guardada
+        self.assertEqual(zerochat.ACCESS_CONTROLLER.global_policy, "ask")
+        self.assertIsNone(zerochat.ACCESS_CONTROLLER.get_tool_policy("custom_tool"))
 
 
 

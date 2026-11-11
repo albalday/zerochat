@@ -178,7 +178,7 @@ def reset_session_credentials():
     ACCESS_CONTROLLER.clear_session()
     if RUN_SESSION is not None:
         if RUN_SESSION.tool_security:
-            ACCESS_CONTROLLER.import_state(RUN_SESSION.tool_security, persist=False)
+            ACCESS_CONTROLLER.apply_session_overlay(RUN_SESSION.tool_security)
         if RUN_SESSION.allow_dangerous_tools:
             for tool_name in ("write_file", "edit_file", "run_command"):
                 ACCESS_CONTROLLER.set_tool_policy(tool_name, TOOL_POLICY_ALLOW, scope=SCOPE_SESSION)

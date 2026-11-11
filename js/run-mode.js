@@ -142,37 +142,43 @@
     if (!security) return;
     const data = typeof toolSecurity === 'string' ? JSON.parse(toolSecurity) : toolSecurity;
     if (typeof data !== 'object' || data === null) return;
-    if (typeof data.globalMcpPolicy === 'string') {
-      try {
-        security.setGlobalMcpPolicy(data.globalMcpPolicy);
-      } catch (_) { /* invalid global policy ignored */ }
-    }
-    if (data.tools && typeof data.tools === 'object') {
-      Object.entries(data.tools).forEach(([id, item]) => {
-        if (typeof item === 'string') {
-          security.setToolPolicy(id, item, { scope: 'session' });
-        } else if (item && typeof item === 'object') {
-          security.setToolPolicy(id, item.policy || 'allow', {
-            scope: item.scope || 'session',
-            constraints: item.constraints,
-            serverName: item.serverName,
-            originalName: item.originalName
-          });
-        }
-      });
-    }
-    if (Array.isArray(data.directoryRules)) {
-      data.directoryRules.forEach(rule => {
+    const origSave = security.save;
+    security.save = () => {};
+    try {
+      if (typeof data.globalMcpPolicy === 'string') {
         try {
-          security.addDirectoryRule(rule);
-        } catch (_) { /* invalid directory rule ignored */ }
-      });
-    }
-    if (data.servers && typeof data.servers === 'object') {
-      Object.entries(data.servers).forEach(([id, item]) => {
-        const policy = typeof item === 'string' ? item : item?.policy;
-        if (policy) security.setServerPolicy(id, policy, { scope: 'session' });
-      });
+          security.setGlobalMcpPolicy(data.globalMcpPolicy);
+        } catch (_) { /* invalid global policy ignored */ }
+      }
+      if (data.tools && typeof data.tools === 'object') {
+        Object.entries(data.tools).forEach(([id, item]) => {
+          if (typeof item === 'string') {
+            security.setToolPolicy(id, item, { scope: 'session' });
+          } else if (item && typeof item === 'object') {
+            security.setToolPolicy(id, item.policy || 'allow', {
+              scope: item.scope || 'session',
+              constraints: item.constraints,
+              serverName: item.serverName,
+              originalName: item.originalName
+            });
+          }
+        });
+      }
+      if (Array.isArray(data.directoryRules)) {
+        data.directoryRules.forEach(rule => {
+          try {
+            security.addDirectoryRule(rule);
+          } catch (_) { /* invalid directory rule ignored */ }
+        });
+      }
+      if (data.servers && typeof data.servers === 'object') {
+        Object.entries(data.servers).forEach(([id, item]) => {
+          const policy = typeof item === 'string' ? item : item?.policy;
+          if (policy) security.setServerPolicy(id, policy, { scope: 'session' });
+        });
+      }
+    } finally {
+      security.save = origSave;
     }
   }
 

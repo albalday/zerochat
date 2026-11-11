@@ -2341,28 +2341,106 @@ class AccessController:
         if total_entries > MAX_POLICY_ENTRIES:
             raise ValueError(f"El número total de entradas ({total_entries}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
 
-        if persist:
-            def mutator(current: dict) -> dict:
-                if clean_global is not None:
-                    current["globalMcpPolicy"] = clean_global
-                if clean_rules is not None:
-                    current["directoryRules"] = clean_rules or [self.get_default_directory_rule(context)]
-                if clean_tools is not None:
-                    current["tools"] = clean_tools
-                if clean_servers is not None:
-                    current["servers"] = clean_servers
-                return current
-            update_security_policy_data(mutator)
-        else:
-            with self._lock:
-                if clean_global is not None:
-                    self.session_global_policy = clean_global
-                if clean_rules is not None:
-                    self.session_directory_rules = clean_rules
-                if clean_tools is not None:
-                    self.session_tools.update(clean_tools)
-                if clean_servers is not None:
-                    self.session_servers.update(clean_servers)
+        if not persist:
+            return self.apply_session_overlay(state)
+
+        def mutator(current: dict) -> dict:
+            if clean_global is not None:
+                current["globalMcpPolicy"] = clean_global
+            if clean_rules is not None:
+                current["directoryRules"] = clean_rules or [self.get_default_directory_rule(context)]
+            if clean_tools is not None:
+                current["tools"] = clean_tools
+            if clean_servers is not None:
+                current["servers"] = clean_servers
+            return current
+        update_security_policy_data(mutator)
+
+    def apply_session_overlay(self, state: dict):
+        """Aplica una capa de políticas temporal en memoria para una ejecución en servidor, sin persistir."""
+        if not isinstance(state, dict):
+            raise ValueError("El estado de políticas debe ser un diccionario.")
+
+        clean_global = None
+        if "globalMcpPolicy" in state:
+            pol = state["globalMcpPolicy"]
+            if pol not in GLOBAL_POLICIES:
+                raise ValueError(f"Política global no válida: '{pol}'. Válidas: {GLOBAL_POLICIES}")
+            clean_global = pol
+
+        clean_rules = None
+        if "directoryRules" in state:
+            rules = state["directoryRules"]
+            if not isinstance(rules, (list, tuple)):
+                raise ValueError("Las reglas de directorio deben ser una lista.")
+            parsed_rules = []
+            for raw in rules:
+                rule_obj = parse_directory_rule(raw)
+                if not rule_obj:
+                    raise ValueError(f"Regla de directorio inválida: '{raw}'. Formato esperado: R:path, W:path o RW:path.")
+                parsed_rules.append(rule_obj["rule"])
+            clean_rules = list(dict.fromkeys(parsed_rules))
+
+        clean_tools = None
+        if "tools" in state:
+            tools_map = state["tools"]
+            if not isinstance(tools_map, dict):
+                raise ValueError("tools debe ser un diccionario de herramientas.")
+            clean_tools = {}
+            for tool_id, entry in tools_map.items():
+                if not isinstance(entry, dict):
+                    raise ValueError(f"La entrada para la herramienta '{tool_id}' debe ser un diccionario.")
+                pol = entry.get("policy")
+                if pol not in (TOOL_POLICY_ALLOW, TOOL_POLICY_DENY):
+                    raise ValueError(f"Política inválida para herramienta '{tool_id}': '{pol}'. Válidas: allow, deny.")
+                constraints = entry.get("constraints")
+                if constraints is not None and not isinstance(constraints, dict):
+                    raise ValueError(f"constraints para herramienta '{tool_id}' debe ser un diccionario o None.")
+                clean_tools[str(tool_id)] = {
+                    "policy": pol,
+                    "scope": SCOPE_SESSION,
+                    "constraints": constraints,
+                    "serverName": str(entry.get("serverName", "") or ""),
+                    "originalName": str(entry.get("originalName", "") or "")
+                }
+
+        clean_servers = None
+        if "servers" in state:
+            servers_map = state["servers"]
+            if not isinstance(servers_map, dict):
+                raise ValueError("servers debe ser un diccionario de servidores.")
+            clean_servers = {}
+            for srv_id, entry in servers_map.items():
+                if not isinstance(entry, dict):
+                    raise ValueError(f"La entrada para el servidor '{srv_id}' debe ser un diccionario.")
+                pol = entry.get("policy")
+                if pol not in (SERVER_POLICY_ALLOW, SERVER_POLICY_DENY):
+                    raise ValueError(f"Política inválida para servidor '{srv_id}': '{pol}'. Válidas: allow, deny.")
+                constraints = entry.get("constraints")
+                if constraints is not None and not isinstance(constraints, dict):
+                    raise ValueError(f"constraints para servidor '{srv_id}' debe ser un diccionario o None.")
+                clean_servers[str(srv_id)] = {
+                    "policy": pol,
+                    "scope": SCOPE_SESSION,
+                    "constraints": constraints,
+                    "serverName": str(entry.get("serverName", "") or "")
+                }
+
+        total_entries = (len(clean_rules) if clean_rules is not None else 0) + \
+                        (len(clean_tools) if clean_tools is not None else 0) + \
+                        (len(clean_servers) if clean_servers is not None else 0)
+        if total_entries > MAX_POLICY_ENTRIES:
+            raise ValueError(f"El número total de entradas ({total_entries}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
+
+        with self._lock:
+            if clean_global is not None:
+                self.session_global_policy = clean_global
+            if clean_rules is not None:
+                self.session_directory_rules = clean_rules
+            if clean_tools is not None:
+                self.session_tools.update(clean_tools)
+            if clean_servers is not None:
+                self.session_servers.update(clean_servers)
 
     def set_global_policy(self, policy: str, context: SecurityContext | None = None):
         if policy not in GLOBAL_POLICIES:
@@ -7699,7 +7777,7 @@ def reset_session_credentials():
     ACCESS_CONTROLLER.clear_session()
     if RUN_SESSION is not None:
         if RUN_SESSION.tool_security:
-            ACCESS_CONTROLLER.import_state(RUN_SESSION.tool_security, persist=False)
+            ACCESS_CONTROLLER.apply_session_overlay(RUN_SESSION.tool_security)
         if RUN_SESSION.allow_dangerous_tools:
             for tool_name in ("write_file", "edit_file", "run_command"):
                 ACCESS_CONTROLLER.set_tool_policy(tool_name, TOOL_POLICY_ALLOW, scope=SCOPE_SESSION)
