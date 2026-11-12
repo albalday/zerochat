@@ -53,8 +53,8 @@ def stored(kind):
     return (zerochat.get_security_policy_data() or {}).get(kind) or {}
 
 
-def command_constraints(*patterns, **extra):
-    return {"command": {"allowedPatterns": list(patterns), "allowChaining": False, "allowPipes": False, **extra}}
+def command_constraints(*patterns):
+    return {"command": {"allowedPatterns": list(patterns)}}
 
 
 class SecurityContextTest(unittest.TestCase):
@@ -209,12 +209,11 @@ class PolicyEvaluationTest(ControllerTestCase):
             self.assertEqual(self.evaluate("read_file", {"path": path}).status, "ask", path)
         self.assertEqual(self.evaluate("run_command", {"command": "sudo apt update"}).status, "ask")
 
-    def test_command_constraints_chaining_and_denied_patterns(self):
-        set_tool(self.controller, "run_command", zerochat.POLICY_ALLOW,
-                 constraints=command_constraints("git *", "npm *", deniedPatterns=["rm -rf"]))
+    def test_command_patterns_never_cover_chaining_pipes_or_redirection(self):
+        set_tool(self.controller, "run_command", zerochat.POLICY_ALLOW, constraints=command_constraints("git *"))
         self.assertTrue(self.evaluate("run_command", {"command": "git status"}).allowed)
-        self.assertEqual(self.evaluate("run_command", {"command": "git status && ls"}).status, "ask")
-        self.assertEqual(self.evaluate("run_command", {"command": "git rm -rf ."}).status, "deny")
+        for command in ("git status && ls", "git log | head", "git log > out.txt"):
+            self.assertEqual(self.evaluate("run_command", {"command": command}).reason, "command_chaining_requires_approval", command)
 
     def test_leading_cd_must_be_covered_by_directory_rules(self):
         set_rules(self.controller, [f"RW:{self.norm_ws}/**"], self.ctx)

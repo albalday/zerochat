@@ -189,7 +189,7 @@ test('ChatToolSecurity - cambio de sessionToken relee el estado del backend', as
 
 test('ChatToolSecurity - setCommandPatterns sustituye los patrones guardados sin enviar los de sesión y sin ninguno revoca', async () => {
   const mockClient = createMockClient({
-    tools: { run_command: { policy: 'allow', serverName: 'local', originalName: 'run_command', constraints: { command: { allowedPatterns: ['git *'], sessionPatterns: ['make *'], allowPipes: false } } } }
+    tools: { run_command: { policy: 'allow', serverName: 'local', originalName: 'run_command', constraints: { command: { allowedPatterns: ['git *'], sessionPatterns: ['make *'] } } } }
   });
   const manager = new ChatToolSecurity.ToolSecurityManager();
   manager.setMcpClient(mockClient);
@@ -198,7 +198,7 @@ test('ChatToolSecurity - setCommandPatterns sustituye los patrones guardados sin
   await manager.setCommandPatterns('run_command', { allowedPatterns: ['git status *', ' ', 'git log *'], projectPatterns: { '/repo': ['npm test *'], '/vacio': [] } });
   const patch = mockClient.calls[mockClient.calls.length - 1].params;
   assert.deepEqual(patch.tools.run_command.constraints, {
-    command: { allowedPatterns: ['git status *', 'git log *'], projectPatterns: { '/repo': ['npm test *'] }, allowPipes: false }
+    command: { allowedPatterns: ['git status *', 'git log *'], projectPatterns: { '/repo': ['npm test *'] } }
   });
   assert.equal(patch.tools.run_command.policy, 'allow');
   assert.equal(patch.tools.run_command.serverName, 'local');

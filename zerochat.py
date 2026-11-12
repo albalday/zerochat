@@ -2057,19 +2057,15 @@ def split_leading_cd(cmd: str) -> dict | None:
 
 
 def get_command_arg(args: dict | None) -> str:
-    """Extrae el argumento de comando con soporte de alias habituales."""
-    if not isinstance(args, dict):
-        return ""
-    val = args.get("command") or args.get("cmd") or args.get("script") or ""
-    return str(val).strip()
+    """Argumento `command` de run_command (el manejador no admite otro nombre)."""
+    val = args.get("command") if isinstance(args, dict) else None
+    return val.strip() if isinstance(val, str) else ""
 
 
 def get_path_arg(args: dict | None) -> str:
-    """Extrae la ruta con soporte de alias habituales."""
-    if not isinstance(args, dict):
-        return ""
-    val = args.get("path") or args.get("filepath") or args.get("file") or args.get("directory") or args.get("dir") or ""
-    return str(val).strip() if isinstance(val, str) else ""
+    """Argumento `path` de las herramientas integradas de ficheros (el manejador no admite otro nombre)."""
+    val = args.get("path") if isinstance(args, dict) else None
+    return val.strip() if isinstance(val, str) else ""
 
 
 def get_integrated_path_access(tool_name: str) -> str:
@@ -2130,32 +2126,19 @@ def matches_command_pattern(command: str, pattern: str) -> bool:
     return not any(COMMAND_WILDCARD_UNSAFE.search(arg) or COMMAND_ABSOLUTE_ARG.search(arg) for arg in args[len(words):])
 
 
-def evaluate_command_constraint(cmd_val: str, command_constraints: dict) -> tuple[bool, bool, str, str]:
-    """Evalúa restricciones granulares de comando (encadenamiento, patrones prohibidos y autorizados)."""
-    if not cmd_val or not isinstance(cmd_val, str) or not isinstance(command_constraints, dict):
-        return True, False, "", ""
+def command_outside_patterns(cmd_val: str, patterns: list[str]) -> tuple[str, str]:
+    """
+    Motivo y detalle por los que los patrones no autorizan el comando, o ('', '') si lo autorizan.
+    Un patrón nunca cubre encadenamiento, tuberías ni redirecciones, y sin patrones no hay autorización.
+    """
     trimmed = cmd_val.strip()
     cd_part = split_leading_cd(trimmed)
     command = cd_part["command"] if cd_part else trimmed
-
-    if command_constraints.get("allowChaining") is not True:
-        has_unauthorized_pipe = (command_constraints.get("allowPipes") is not True) and ("|" in command)
-        if has_command_chaining(command) or has_file_redirection(command) or has_unauthorized_pipe:
-            return False, False, "command_chaining_requires_approval", f"Comando contiene encadenamiento no autorizado: {trimmed}"
-
-    denied_patterns = command_constraints.get("deniedPatterns")
-    if isinstance(denied_patterns, (list, tuple)):
-        for pattern in denied_patterns:
-            if isinstance(pattern, str) and pattern in trimmed:
-                return False, True, "command_matches_denied_pattern", f"El comando contiene un patrón bloqueado ({pattern}): {trimmed}"
-
-    # Sin patrones no hay autorización: una lista vacía nunca equivale a cualquier comando.
-    allowed_patterns = command_constraints.get("allowedPatterns")
-    patterns = [p for p in allowed_patterns if isinstance(p, str)] if isinstance(allowed_patterns, (list, tuple)) else []
+    if has_command_chaining(command) or has_file_redirection(command) or "|" in command:
+        return "command_chaining_requires_approval", f"Comando contiene encadenamiento no autorizado: {trimmed}"
     if not any(matches_command_pattern(command, p) for p in patterns):
-        return False, False, "command_outside_allowed_patterns", f"Comando fuera de los patrones autorizados: {trimmed}"
-
-    return True, False, "", ""
+        return "command_outside_allowed_patterns", f"Comando fuera de los patrones autorizados: {trimmed}"
+    return "", ""
 
 
 def normalize_command_pattern(raw: str) -> str:
@@ -2221,18 +2204,9 @@ def normalize_command_constraints(constraints: dict | None) -> dict | None:
             projects[path] = patterns
     if not allowed and not projects:
         raise ValueError("allowedPatterns debe ser una lista no vacía de comandos.")
-    clean_command = {
-        "allowedPatterns": allowed,
-        "allowChaining": command.get("allowChaining") is True,
-        "allowPipes": command.get("allowPipes") is True
-    }
+    clean_command = {"allowedPatterns": allowed}
     if projects:
         clean_command["projectPatterns"] = projects
-    denied = command.get("deniedPatterns")
-    if denied is not None:
-        if not isinstance(denied, list) or not all(isinstance(d, str) and d.strip() for d in denied):
-            raise ValueError("deniedPatterns debe ser una lista de textos.")
-        clean_command["deniedPatterns"] = [d.strip() for d in denied]
     return {"command": clean_command}
 
 
@@ -2260,8 +2234,8 @@ def suggest_command_prefix(command: str) -> str:
 def get_rule_offer(tool_name: str, args: dict, auth_eval: dict | None = None) -> dict | None:
     """Genera la regla sugerida para confirmaciones permanentes en la interfaz."""
     eval_info = auth_eval or {}
-    command = get_command_arg(args)
-    if command and not eval_info.get("directoryAccess"):
+    command = get_command_arg(args) if tool_name == COMMAND_TOOL else ""
+    if command:
         # El programa con su subcomando y '*', o el comando exacto si sus argumentos salen del proyecto.
         cd_part = split_leading_cd(command)
         target = cd_part["command"] if cd_part else command
@@ -2273,7 +2247,7 @@ def get_rule_offer(tool_name: str, args: dict, auth_eval: dict | None = None) ->
             "type": "command",
             "command": pattern,
             "constraints": {
-                "command": {"allowedPatterns": [pattern], "allowChaining": False, "allowPipes": False}
+                "command": {"allowedPatterns": [pattern]}
             }
         }
     # Solo las herramientas integradas se autorizan por reglas de directorio.
@@ -2373,7 +2347,7 @@ class AccessController:
             return session
         if permanent and (permanent.get("policy") == POLICY_DENY or not (permanent.get("constraints") or {}).get("command")):
             return permanent
-        base = permanent or {**session, "constraints": {"command": {"allowedPatterns": [], "allowChaining": False, "allowPipes": False}}}
+        base = permanent or {**session, "constraints": {"command": {"allowedPatterns": []}}}
         base_cmd = base["constraints"]["command"]
         return {**base, "constraints": {**base["constraints"], "command": {**base_cmd, "sessionPatterns": list(session_cmd.get("allowedPatterns") or [])}}}
 
@@ -2756,9 +2730,6 @@ class AccessController:
                 seen.add(p.strip())
                 merged_patterns.append(p.strip())
 
-        def grants(key: str) -> bool:
-            return req_cmd.get(key) is True and (not ext_cmd or ext_cmd.get(key) is True)
-
         merged_projects = {path: list(patterns) for path, patterns in (ext_cmd.get("projectPatterns") or {}).items()}
         for path, patterns in (req_cmd.get("projectPatterns") or {}).items():
             merged_projects[path] = list(dict.fromkeys(merged_projects.get(path, []) + list(patterns)))
@@ -2766,9 +2737,7 @@ class AccessController:
         merged_cmd = {
             **ext_cmd,
             **req_cmd,
-            "allowedPatterns": merged_patterns,
-            "allowChaining": grants("allowChaining"),
-            "allowPipes": grants("allowPipes")
+            "allowedPatterns": merged_patterns
         }
         if merged_projects:
             merged_cmd["projectPatterns"] = merged_projects
@@ -2899,15 +2868,11 @@ class AccessController:
         if tool_entry and tool_entry.get("policy") == POLICY_ALLOW:
             constraints = tool_entry.get("constraints")
             if constraints and isinstance(constraints, dict):
-                cmd_arg = get_command_arg(args)
-                if cmd_arg and constraints.get("command"):
-                    project_constraints = {**constraints["command"],
-                                           "allowedPatterns": command_patterns_for(constraints["command"], self._project_key(ctx))}
-                    c_allowed, c_denied, c_reason, c_details = evaluate_command_constraint(cmd_arg, project_constraints)
-                    if c_denied:
-                        return make_decision(POLICY_DENY, c_reason or "constraint_violation_denied", {"details": c_details})
-                    if not c_allowed:
-                        return make_decision(POLICY_ASK, c_reason or "constraint_outside_scope", {"details": c_details})
+                if tool_name == COMMAND_TOOL and constraints.get("command"):
+                    patterns = command_patterns_for(constraints["command"], self._project_key(ctx))
+                    c_reason, c_details = command_outside_patterns(get_command_arg(args), patterns)
+                    if c_reason:
+                        return make_decision(POLICY_ASK, c_reason, {"details": c_details})
                     cmd_dir_eval = self.evaluate_command_directories(args, user_rules, ctx)
                     if not cmd_dir_eval["allowed"]:
                         return make_decision(POLICY_ASK, "command_directory_outside_rules", {

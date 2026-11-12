@@ -168,7 +168,6 @@
     syncWithState() {
       getState().set('toolSecurity', {
         globalMcpPolicy: this.globalMcpPolicy,
-        authorizedCount: this.tools.size + this.servers.size,
         tools: Object.fromEntries(this.tools),
         servers: Object.fromEntries(this.servers),
         directoryRules: this.directoryRules,
@@ -339,9 +338,6 @@
   const manager = new ToolSecurityManager();
 
   return {
-    GLOBAL_POLICIES,
-    POLICIES,
-    SCOPES,
     ToolSecurityManager,
     manager
   };

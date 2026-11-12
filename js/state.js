@@ -98,7 +98,6 @@
       // 8. Políticas de Seguridad de Herramientas (MCP y Built-in)
       toolSecurity: {
         globalMcpPolicy: 'ask',
-        authorizedCount: 0,
         tools: {}
       },
 

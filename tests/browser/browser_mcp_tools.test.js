@@ -79,7 +79,7 @@ test('Browser UI - autorización de comando concede la línea editable con alcan
         ruleOffer: {
           type: 'command',
           command: 'ls *',
-          constraints: { command: { allowedPatterns: ['ls *'], allowChaining: false, allowPipes: false } }
+          constraints: { command: { allowedPatterns: ['ls *'] } }
         }
       });
       const hasGenericAlwaysInCmd = Boolean(cardCmd.querySelector('.btn-auth-allow-always'));
@@ -129,7 +129,7 @@ test('Browser UI - autorización de comando concede la línea editable con alcan
     assert.equal(result.enabledAgain, true);
     assert.deepEqual(result.cmdDecision, {
       decision: 'allow_project',
-      constraints: { command: { allowedPatterns: ['ls -l *'], allowChaining: false, allowPipes: false } }
+      constraints: { command: { allowedPatterns: ['ls -l *'] } }
     });
     assert.equal(result.hasGenericAlwaysInCmd, false, 'El botón genérico permitir siempre no debe aparecer en comandos');
     assert.equal(result.hasGenericAlwaysInFile, true, 'El botón genérico permitir siempre debe aparecer en herramientas no comando');
@@ -228,7 +228,7 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
         serverId: 'zerochat-local',
         serverName: 'ZeroChat Local Server',
         args: { command: 'git status' },
-        ruleOffer: { type: 'command', command: 'git *', constraints: { command: { allowedPatterns: ['git *'], allowChaining: false, allowPipes: false } } }
+        ruleOffer: { type: 'command', command: 'git *', constraints: { command: { allowedPatterns: ['git *'] } } }
       });
     });
     await page.waitForFunction(() => document.getElementById('messages-list').scrollTop > 0);

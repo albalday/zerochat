@@ -133,7 +133,6 @@ test('ChatState - Contrato de slices canónicos y rechazo de escrituras no autor
   const initialState = store.getState();
   assert.deepEqual(initialState.toolSecurity, {
     globalMcpPolicy: 'ask',
-    authorizedCount: 0,
     tools: {}
   });
 

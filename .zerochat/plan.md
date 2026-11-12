@@ -55,7 +55,7 @@ Done when: Los probes C1-C3, S1-S3 y D1 de docs/audits/M61-permisos.md se compor
 - [x] M61-T29 Renombrar prefijos a patrones en backend, frontend, i18n y pruebas (`allowedPrefixes`, `projectPrefixes`, `sessionPrefixes`, `matches_command_prefix`, `setCommandPrefixes`…); sin migración, preproducción (2026-11-12)
 - [x] M61-T30 El * final de un patrón de comando exige a cada argumento extra lo mismo que el comodín (sin .., ~, $, llaves ni ruta absoluta) con un único predicado (2026-11-12)
 - [x] M61-T31 run_command permanente sin patrones rechazado también en security/update (simétrico con allow_always) y sin "permitir" genérico en Ajustes (2026-11-12)
-- [ ] M61-T32 Retirar opciones sin consumidor: allowChaining, allowPipes, deniedPatterns, alias de argumentos (cmd, script, file…), oferta de comando para herramientas que no son run_command y exportaciones JS sin uso
+- [x] M61-T32 Retirar opciones sin consumidor: allowChaining, allowPipes, deniedPatterns, alias de argumentos (cmd, script, file…), oferta de comando para herramientas que no son run_command y exportaciones JS sin uso (2026-11-12)
 - [ ] M61-T33 Patrones de comando como sección propia del estado (commandPatterns: global, proyectos, sesión) en lugar de constraints de run_command; un patrón es una vía más de permitir y no anula workspace_trust
 - [ ] M61-T34 evaluate_authorization partida en comando y ruta con el cd inicial analizado una vez, y SecurityContext obligatorio
 - [ ] M61-T35 Validación de decisiones y tope de entradas en un solo sitio (authorize_challenge/record_decision, _validate_state_payload/_check_entry_limit)

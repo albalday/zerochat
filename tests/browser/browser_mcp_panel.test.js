@@ -217,7 +217,7 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
       const removePattern = pattern => page.evaluate(p => document.querySelector(`#mcp-saved-auths-list .btn-remove-cmd-pattern[data-pattern="${p}"]`).click(), pattern);
       await page.evaluate(async () => {
         await window.ChatToolSecurity.manager.setToolPolicy('run_command', 'allow', {
-          constraints: { command: { allowedPatterns: ['git status *', 'git diff'], projectPatterns: { '/repo': ['npm test *'] }, sessionPatterns: ['make *'], allowChaining: false, allowPipes: false } }
+          constraints: { command: { allowedPatterns: ['git status *', 'git diff'], projectPatterns: { '/repo': ['npm test *'] }, sessionPatterns: ['make *'] } }
         });
         window.ChatUIMcp.renderSavedAuthorizations();
       });
