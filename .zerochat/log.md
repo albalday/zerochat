@@ -121,3 +121,4 @@
 - 2026-11-12 M62-D15 BrowserLease se adquiere en _execute_tool (llamada directa y tras reto, que guarda conversationId), no al pedir; recurso calculado una vez; PLAYWRIGHT_SERVER_ID único en Python y JS (M62-T13)
 - 2026-11-12 M62-D16 SecurityContext.key única para sesiones, patrones y comandos (CommandJob.project); sin campo directory, sin error inalcanzable del tope (8 comandos < 16 proyectos) y sin previous_cwd (M62-T14)
 - 2026-11-12 M62-D17 _execute_tool pasa ctx solo a los manejadores que lo declaran (inspect.signature); browser_action vuelve a no recibirlo (M62-T15)
+- 2026-11-12 M62-D18 SecurityContext.absolute es el único resolutor: colapsa .. antes de seguir enlaces (antes resolve_path y las herramientas diferían con enlace/../x) y resolve_path lo reutiliza rechazando ~ y variables (M62-T16)

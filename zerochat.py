@@ -1976,24 +1976,23 @@ class SecurityContext:
         return normalize_directory_path(str(self.workspace_dir))
 
     def absolute(self, path: str) -> Path:
-        """Ruta de una herramienta resuelta contra la carpeta del proyecto ('~' es la carpeta del usuario)."""
-        target = Path(str(path).strip()).expanduser()
+        """
+        Ruta que una herramienta abre: la resuelta contra la carpeta del proyecto ('~' es la del usuario).
+        Es la misma que evalúan los permisos (resolve_path): colapsa los '..' antes de seguir enlaces
+        simbólicos, así 'enlace/../x' no se permite como una ruta y se abre como otra. ValueError si no es válida.
+        """
+        norm = normalize_directory_path(str(Path(str(path).strip()).expanduser()))
+        if not norm:
+            raise ValueError(f"Ruta no válida: '{path}'.")
+        target = Path(norm)
         return (target if target.is_absolute() else self.workspace_dir / target).resolve()
 
     def resolve_path(self, path_str: str) -> Path | None:
-        """Resuelve una ruta relativa al espacio de trabajo. Rechaza referencias no resueltas."""
+        """La ruta de absolute() para evaluar permisos; None si no es válida o lleva referencias sin resolver ('~', '$VAR')."""
         if not isinstance(path_str, str) or contains_unresolved_reference(path_str):
             return None
-        norm = normalize_directory_path(path_str)
-        if not norm:
-            return None
         try:
-            target = Path(norm)
-            if not target.is_absolute():
-                target = (self.workspace_dir / target).resolve(strict=False)
-            else:
-                target = target.resolve(strict=False)
-            return target
+            return self.absolute(path_str)
         except (ValueError, RuntimeError, OSError):
             return None
 

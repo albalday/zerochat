@@ -8,6 +8,23 @@ from backend import use_data_dir, zerochat
 CTX = zerochat.SecurityContext(Path.cwd())
 
 
+class SamePathForPermissionsAndExecutionTest(unittest.TestCase):
+    def test_dotdot_after_a_symlink_is_collapsed_the_same_way_for_both(self):
+        base = use_data_dir(self)
+        project, outside = base / "proj", base / "outside"
+        (project).mkdir()
+        (outside / "deep").mkdir(parents=True)
+        (project / "link").symlink_to(outside / "deep")
+        ctx = zerochat.SecurityContext(project.resolve())
+        # 'link/../x' es '<proyecto>/x' (lo que ven los permisos), no la carpeta superior del destino del enlace
+        self.assertEqual(ctx.absolute("link/../x"), project.resolve() / "x")
+        self.assertEqual(ctx.resolve_path("link/../x"), ctx.absolute("link/../x"))
+        with self.assertRaises(ValueError):
+            ctx.absolute("../../../../../../../../..")
+        self.assertIsNone(ctx.resolve_path("~/x"), "Los permisos no aceptan '~'")
+        self.assertEqual(ctx.absolute("~/x"), Path("~/x").expanduser().resolve(), "La herramienta, tras aprobarlo, sí")
+
+
 class ExternalSymlinkTest(unittest.TestCase):
     def setUp(self):
         base = use_data_dir(self)
