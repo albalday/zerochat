@@ -456,12 +456,11 @@ class JobManager:
             except OSError:
                 pass
 
-    def start(self, command: str, background: bool, key: str | None = None) -> CommandJob:
+    def start(self, command: str, background: bool, cwd: str, key: str | None = None) -> CommandJob:
         if not isinstance(command, str) or not command.strip():
             raise ValueError("The command is empty.")
         if key is not None and not (isinstance(key, str) and JOB_KEY_PATTERN.fullmatch(key)):
             key = None
-        cwd = str(Path.cwd().resolve())
         with self._lock:
             if sum(1 for job in self._jobs.values() if job.status == "running") >= MAX_RUNNING_JOBS:
                 raise ValueError(
@@ -646,10 +645,10 @@ def _job_result(job: CommandJob, note: str | None = None, output_field: str = "o
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
-def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, background: bool = False, job_key: str | None = None) -> str:
+def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, background: bool = False, job_key: str | None = None, *, ctx: SecurityContext) -> str:
     """Ejecuta un comando en una shell nueva en el directorio del proyecto."""
     try:
-        job = JOBS.start(command, background=bool(background), key=job_key)
+        job = JOBS.start(command, background=bool(background), cwd=str(ctx.workspace_dir), key=job_key)
     except (ValueError, OSError) as exc:
         return _tool_error(str(exc), os=DETECTED_OS)
     if background:
@@ -670,7 +669,7 @@ def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, ba
     return _job_result(job)
 
 
-def check_command(job_id: int, wait_seconds: int = 0, stop: bool = False) -> str:
+def check_command(job_id: int, wait_seconds: int = 0, stop: bool = False, *, ctx: SecurityContext) -> str:
     """Estado y salida nueva de un comando lanzado por run_command; puede esperarlo o detenerlo."""
     job = JOBS.get(job_id=job_id)
     if job is None:

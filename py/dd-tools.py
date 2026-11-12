@@ -27,10 +27,10 @@ IGNORED_WORKSPACE_DIRS = {
 }
 
 
-def list_directory(path: str = ".", recursive: bool = False) -> str:
+def list_directory(path: str = ".", recursive: bool = False, *, ctx: SecurityContext) -> str:
     """List files and directories in a local directory with safe bounded recursive traversal."""
     try:
-        target = Path(path).expanduser().resolve()
+        target = ctx.absolute(path)
         if not target.exists():
             return _tool_error(f"Path '{path}' does not exist.")
         if not target.is_dir():
@@ -89,10 +89,10 @@ def list_directory(path: str = ".", recursive: bool = False) -> str:
         return _tool_error(str(e))
 
 
-def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: int = 500, max_bytes: int = 100000) -> str:
+def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: int = 500, max_bytes: int = 100000, *, ctx: SecurityContext) -> str:
     """Read text content from a local file in streaming mode with safe ranges and bounds."""
     try:
-        target = Path(path).expanduser().resolve()
+        target = ctx.absolute(path)
         if not target.exists():
             return _tool_error(f"File '{path}' does not exist.")
         if not target.is_file():
@@ -166,10 +166,10 @@ def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: i
         return _tool_error(str(e))
 
 
-def write_file(path: str, content: str) -> str:
+def write_file(path: str, content: str, *, ctx: SecurityContext) -> str:
     """Create or overwrite a file completely and atomically."""
     try:
-        target = Path(path).expanduser().resolve()
+        target = ctx.absolute(path)
         target.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write_text(target, content)
         bytes_written = len(content.encode("utf-8"))
@@ -182,10 +182,10 @@ def write_file(path: str, content: str) -> str:
         return _tool_error(str(e))
 
 
-def edit_file(path: str, old_str: str, new_str: str, replace_all: bool = False) -> str:
+def edit_file(path: str, old_str: str, new_str: str, replace_all: bool = False, *, ctx: SecurityContext) -> str:
     """Replace old_str with new_str in an existing file: its single occurrence, or all of them with replace_all."""
     try:
-        target = Path(path).expanduser().resolve()
+        target = ctx.absolute(path)
         if not target.exists():
             return _tool_error(f"File '{path}' does not exist. Use read_file to verify existing paths.")
         if not target.is_file():
@@ -215,27 +215,28 @@ def edit_file(path: str, old_str: str, new_str: str, replace_all: bool = False) 
 
 
 def set_project_directory(path) -> dict:
-    """Cambia el directorio del proyecto: el del proceso, base de las rutas relativas y de los comandos."""
+    """Cambia el proyecto del servidor: base de las rutas relativas y de los comandos. El proceso no cambia de directorio."""
+    global PROJECT_DIR
     if not isinstance(path, str) or not path.strip():
         raise ValueError("La ruta del directorio está vacía.")
     if len(path) > MAX_PATH_LENGTH:
         raise ValueError("La ruta del directorio excede el tamaño máximo permitido.")
-    target = Path(path.strip()).expanduser().resolve()
+    target = project_context().absolute(path)
     if not target.is_dir():
         raise ValueError(f"'{path}' no existe o no es un directorio.")
-    previous = str(Path.cwd().resolve())
+    previous = PROJECT_DIR
     # Los comandos en marcha conservan el directorio en que se lanzaron.
-    os.chdir(target)
+    PROJECT_DIR = target
     # Lo autorizado en la sesión valía para el proyecto anterior.
-    if str(target) != previous:
+    if target != previous:
         reset_session_authorizations()
-    return {"cwd": str(target), "previous_cwd": previous}
+    return {"cwd": str(target), "previous_cwd": str(previous)}
 
 
-def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100) -> str:
+def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100, *, ctx: SecurityContext) -> str:
     """Recursively search for plain text or regular expressions across project files."""
     try:
-        target = Path(path).expanduser().resolve()
+        target = ctx.absolute(path)
         if not target.exists():
             return _tool_error(f"Path '{path}' does not exist.")
         if not target.is_dir():
@@ -323,13 +324,10 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
         return _tool_error(str(e))
 
 
-def get_diagnostics(path: str | None = None) -> str:
+def get_diagnostics(path: str | None = None, *, ctx: SecurityContext) -> str:
     """Retrieve syntax diagnostics and code errors for a file or the entire workspace."""
     try:
-        if path is not None and str(path).strip():
-            target = Path(str(path).strip()).expanduser().resolve()
-        else:
-            target = Path.cwd().resolve()
+        target = ctx.absolute(path) if path is not None and str(path).strip() else ctx.workspace_dir
 
         if not target.exists():
             return _tool_error(f"Path '{path}' does not exist.")
@@ -341,7 +339,7 @@ def get_diagnostics(path: str | None = None) -> str:
             ext = fpath.suffix.lower()
             file_diags: list[dict] = []
             try:
-                rel_display = str(fpath.relative_to(Path.cwd()))
+                rel_display = str(fpath.relative_to(ctx.workspace_dir))
             except ValueError:
                 rel_display = str(fpath)
 
@@ -639,8 +637,8 @@ def playwright_status() -> dict:
     return {"installed": playwright_service_cli().is_file(), "browserAction": browser_action_availability()}
 
 
-def browser_action(action: str, url: str | None = None, selector: str | None = None, value: str | None = None) -> str:
-    """Control a headless browser for UI testing and visual inspection."""
+def browser_action(action: str, url: str | None = None, selector: str | None = None, value: str | None = None, *, ctx: SecurityContext) -> str:
+    """Control a headless browser for UI testing and visual inspection. No depende del proyecto (ctx)."""
     try:
         act = (action or "").strip().lower()
         if act not in BROWSER_ACTIONS:

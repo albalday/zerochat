@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from backend import use_data_dir, zerochat
+from backend import use_data_dir, use_project, zerochat
 
 
 def use_fresh_jobs(test):
@@ -31,7 +31,11 @@ def wait_dead(pid):
 
 
 def run(command, **kwargs):
-    return json.loads(zerochat.run_command(command, **kwargs))
+    return json.loads(zerochat.run_command(command, **kwargs, ctx=zerochat.project_context()))
+
+
+def check(job_id, **kwargs):
+    return json.loads(zerochat.check_command(job_id, **kwargs, ctx=zerochat.project_context()))
 
 
 @unittest.skipIf(os.name == "nt", "Comandos POSIX")
@@ -40,11 +44,10 @@ class RunCommandTest(unittest.TestCase):
         self.data_dir = use_data_dir(self)
         self.project = (self.data_dir / "project").resolve()
         (self.project / "src").mkdir(parents=True)
-        self.addCleanup(os.chdir, Path.cwd())
+        use_project(self, self.project)
         use_fresh_jobs(self)
 
     def test_la_salida_une_stdout_y_stderr_y_nada_pasa_de_una_llamada_a_otra(self):
-        os.chdir(self.project)
         result = run("echo uno; echo dos >&2; echo tres; exit 3")
         self.assertEqual((result["success"], result["status"], result["exit_code"]), (False, "exited", 3))
         self.assertEqual(result["output"], "uno\ndos\ntres\n")
@@ -59,28 +62,29 @@ class RunCommandTest(unittest.TestCase):
 
     def test_set_project_directory_mueve_la_raiz_de_rutas_relativas_y_comandos(self):
         dev_root = zerochat.get_dev_root()
-        start = Path.cwd().resolve()
+        process_cwd = Path.cwd()
         (self.project / "note.txt").write_text("hola", encoding="utf-8")
+        read_note = lambda: json.loads(zerochat.read_file("note.txt", ctx=zerochat.project_context()))
         for bad in ("", "   ", None, 7, "x" * 5000, str(self.project / "missing"), str(self.project / "note.txt")):
             with self.subTest(path=bad):
                 with self.assertRaises(ValueError):
                     zerochat.set_project_directory(bad)
-                self.assertEqual(Path.cwd().resolve(), start)
+                self.assertEqual(zerochat.PROJECT_DIR, self.project)
 
-        self.assertEqual(zerochat.set_project_directory(str(self.project)), {"cwd": str(self.project), "previous_cwd": str(start)})
-        self.assertEqual(Path.cwd().resolve(), self.project)
-        self.assertTrue(json.loads(zerochat.read_file("note.txt"))["content"].startswith("hola"))
+        self.assertEqual(zerochat.set_project_directory(str(self.project)), {"cwd": str(self.project), "previous_cwd": str(self.project)})
+        self.assertTrue(read_note()["content"].startswith("hola"))
         self.assertEqual(run("pwd")["output"].strip(), str(self.project))
 
         # cd solo vale dentro del comando: el proyecto (y las rutas relativas) siguen en la raíz.
         self.assertEqual(run("cd src && pwd")["output"].strip(), str(self.project / "src"))
         self.assertEqual(run("cd src; pwd")["output"].strip(), str(self.project / "src"))
-        self.assertEqual(Path.cwd().resolve(), self.project)
-        self.assertIs(json.loads(zerochat.read_file("note.txt"))["success"], True)
+        self.assertIs(read_note()["success"], True)
 
         # Una ruta relativa se resuelve contra el proyecto actual y los comandos arrancan en la nueva raíz.
         self.assertEqual(zerochat.set_project_directory("src")["cwd"], str(self.project / "src"))
         self.assertEqual(run("pwd")["output"].strip(), str(self.project / "src"))
+        # El proceso nunca cambia de directorio: el proyecto viaja en el contexto.
+        self.assertEqual(Path.cwd(), process_cwd)
         self.assertEqual(zerochat.get_dev_root(), dev_root)
         self.assertNotIn("set_project_directory", zerochat.LOCAL_TOOL_HANDLERS)
 
@@ -147,17 +151,17 @@ class BackgroundCommandTest(unittest.TestCase):
         self.assertEqual(zerochat.JOBS.get(key="clave-de-prueba").id, job_id)
 
         # Solo devuelve lo que el modelo aún no ha visto.
-        nothing = json.loads(zerochat.check_command(job_id))
+        nothing = check(job_id)
         self.assertEqual((nothing["status"], nothing["new_output"]), ("running", ""))
-        finished = json.loads(zerochat.check_command(job_id, wait_seconds=10))
+        finished = check(job_id, wait_seconds=10)
         self.assertEqual((finished["status"], finished["exit_code"], finished["new_output"]), ("exited", 0, "dos\ntres\n"))
         self.assertIs(zerochat.JOBS.get(job_id=job_id).reported, True)
 
         server = run("echo escuchando; exec sleep 100", background=True)
-        stopped = json.loads(zerochat.check_command(server["job_id"], stop=True))
+        stopped = check(server["job_id"], stop=True)
         self.assertEqual((stopped["success"], stopped["status"], stopped["stopped_by"]), (True, "stopped", "model"))
 
-        unknown = json.loads(zerochat.check_command(9999))
+        unknown = check(9999)
         self.assertIs(unknown["success"], False)
         self.assertIn("Unknown job_id", unknown["error"])
 
@@ -165,7 +169,7 @@ class BackgroundCommandTest(unittest.TestCase):
         # Los finales ya vistos y los comandos vivos nunca se entregan.
         seen = run("echo visto", background=True)
         zerochat.JOBS.get(job_id=seen["job_id"]).done.wait(5)
-        json.loads(zerochat.check_command(seen["job_id"]))
+        check(seen["job_id"])
         unseen = run("echo a; sleep 0.3; echo fin; exit 3", background=True)
         zerochat.JOBS.get(job_id=unseen["job_id"]).done.wait(5)
         alive = run("exec sleep 100", background=True)
@@ -174,7 +178,7 @@ class BackgroundCommandTest(unittest.TestCase):
         self.assertEqual((reports[0]["exit_code"], reports[0]["tail"]), (3, "a\nfin"))
         self.assertTrue(reports[0]["log_file"].endswith(".log"))
         self.assertEqual(zerochat.JOBS.report_finished([unseen["job_id"]]), [])
-        self.assertEqual(json.loads(zerochat.check_command(unseen["job_id"]))["new_output"], "")
+        self.assertEqual(check(unseen["job_id"])["new_output"], "")
 
     def test_hay_un_limite_de_comandos_simultaneos_y_al_apagar_se_detienen_y_se_borran_los_logs(self):
         with patch.object(zerochat, "MAX_RUNNING_JOBS", 1):
@@ -244,7 +248,7 @@ class OrphanJobsTest(unittest.TestCase):
         self.assertEqual(json.loads((own / "owner.json").read_text(encoding="utf-8"))["pid"], os.getpid())
         registry = json.loads((own / "jobs.json").read_text(encoding="utf-8"))
         self.assertEqual(registry[str(job.id)], {"pgid": job.proc.pid, "start": zerochat._process_start_token(job.proc.pid)})
-        zerochat.check_command(job.id, stop=True)
+        check(job.id, stop=True)
         self.assertEqual(json.loads((own / "jobs.json").read_text(encoding="utf-8")), {})
         zerochat.JOBS.shutdown()
         self.assertFalse(own.exists())
@@ -258,7 +262,7 @@ class WindowsJobObjectTest(unittest.TestCase):
 
         use_data_dir(self)
         use_fresh_jobs(self)
-        job = zerochat.JOBS.start("Start-Sleep -Seconds 30", background=True)
+        job = zerochat.JOBS.start("Start-Sleep -Seconds 30", background=True, cwd=str(Path.cwd()))
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         kernel32.IsProcessInJob.argtypes = [wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL)]
         inside = wintypes.BOOL(False)

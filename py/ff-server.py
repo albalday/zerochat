@@ -30,7 +30,7 @@ def live_state(focus_conversation_id: str | None = None) -> dict:
     """
     runs, focus_run = list_server_runs(focus_conversation_id)
     return {
-        "cwd": str(Path.cwd().resolve()),
+        "cwd": str(PROJECT_DIR),
         "jobs": [job.summary() for job in JOBS.running()],
         "exit_on_close": EXIT_ON_CLOSE,
         "playwright": playwright_status(),
@@ -577,7 +577,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         return {"content": [{"type": "text", "text": _tool_error(str(ex))}], "isError": True}
 
     @classmethod
-    def _execute_tool(cls, origin: str, tool_name: str, args: dict) -> tuple[dict | None, dict | None, str]:
+    def _execute_tool(cls, origin: str, tool_name: str, args: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
         """Punto único de ejecución y normalización de herramientas locales y externas."""
         if origin == "external":
             try:
@@ -597,7 +597,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if not handler:
             return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
         try:
-            tool_output_json = handler(**dict(args))
+            tool_output_json = handler(**dict(args), ctx=ctx)
         except Exception as ex:
             return cls._tool_exception_result(ex), None, str(ex)
         tool_error_info = ""
@@ -659,8 +659,9 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         meta = params.get("_meta")
         # La clave del trabajo no es un argumento del modelo: no se evalúa ni se muestra en el reto.
         job_key = meta.get("zerochatJobKey") if origin == "local" and tool_name == COMMAND_TOOL and isinstance(meta, dict) else None
-        gate = cls._authorize_or_challenge(origin, tool_name, args, SecurityContext(), job_key)
-        return gate if gate is not None else cls._execute_tool(origin, tool_name, cls._with_job_key(args, job_key))
+        ctx = project_context()
+        gate = cls._authorize_or_challenge(origin, tool_name, args, ctx, job_key)
+        return gate if gate is not None else cls._execute_tool(origin, tool_name, cls._with_job_key(args, job_key), ctx)
 
     def _dispatch_external(self, method: str, params: dict) -> tuple[dict | None, dict | None, str]:
         """Atiende /mcp/external. Devuelve (result, error JSON-RPC, detalle de error de herramienta)."""
@@ -678,7 +679,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             server_info = {
                 "name": "ZeroChat Local Server",
                 "version": VERSION,
-                "cwd": str(Path.cwd().resolve()),
+                "cwd": str(PROJECT_DIR),
                 "os": DETECTED_OS
             }
             return {**self._initialize_result(server_info), "liveState": live_state()}, None, ""
@@ -699,7 +700,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 return None, {"code": -32602, "message": str(exc)}, ""
         if method == "zerochat/diff/open":
             try:
-                return open_file_diff(params.get("path"), bool(params.get("commit_fallback")), bool(params.get("gui"))), None, ""
+                return open_file_diff(params.get("path"), project_context(), bool(params.get("commit_fallback")), bool(params.get("gui"))), None, ""
             except (ValueError, RuntimeError) as exc:
                 return None, {"code": -32602, "message": str(exc)}, ""
             except Exception as exc:
@@ -740,7 +741,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     def _dispatch_security(cls, method: str, params: dict) -> tuple[dict | None, dict | None, str]:
         """Gestión de políticas y reglas de seguridad almacenadas en el backend local."""
         params = params if isinstance(params, dict) else {}
-        ctx = SecurityContext()
+        ctx = project_context()
         try:
             if method == "zerochat/security/get":
                 return {"policies": ACCESS_CONTROLLER.export_state(ctx)}, None, ""
@@ -767,7 +768,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 t_origin = ch.get("origin") or "local"
                 t_name = ch["toolName"]
                 t_args = ch["arguments"] if isinstance(ch.get("arguments"), dict) else {}
-                exec_res, exec_err, tool_err = cls._execute_tool(t_origin, t_name, cls._with_job_key(t_args, ch.get("jobKey")))
+                exec_res, exec_err, tool_err = cls._execute_tool(t_origin, t_name, cls._with_job_key(t_args, ch.get("jobKey")), ctx)
                 if exec_err:
                     return None, exec_err, tool_err
                 return {"authorized": True, "result": exec_res}, None, tool_err

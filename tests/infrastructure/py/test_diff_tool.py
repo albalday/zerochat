@@ -117,13 +117,13 @@ index 1234567..89abcdef 100644
 
     def test_generate_file_diff_validations(self):
         with self.assertRaises(ValueError):
-            zerochat.generate_file_diff("")
+            zerochat.generate_file_diff("", zerochat.project_context())
         with self.assertRaises(ValueError):
-            zerochat.generate_file_diff("   ")
+            zerochat.generate_file_diff("   ", zerochat.project_context())
         with self.assertRaises(ValueError):
-            zerochat.generate_file_diff("a" * (zerochat.MAX_PATH_LENGTH + 1))
+            zerochat.generate_file_diff("a" * (zerochat.MAX_PATH_LENGTH + 1), zerochat.project_context())
         with self.assertRaises(ValueError):
-            zerochat.generate_file_diff("/path/to/nonexistent/file_xyz.txt")
+            zerochat.generate_file_diff("/path/to/nonexistent/file_xyz.txt", zerochat.project_context())
 
     def test_generate_file_diff_working_tree_and_commit(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -136,7 +136,7 @@ index 1234567..89abcdef 100644
             target_file.write_text("line 1\nline 2\n", encoding="utf-8")
 
             # 1. Untracked file (working tree diff vs /dev/null)
-            res_untracked = zerochat.generate_file_diff(str(target_file))
+            res_untracked = zerochat.generate_file_diff(str(target_file), zerochat.project_context())
             self.assertTrue(res_untracked["success"])
             self.assertTrue(res_untracked["has_diff"])
             self.assertEqual(res_untracked["mode"], "working_tree")
@@ -147,13 +147,13 @@ index 1234567..89abcdef 100644
             subprocess.run(["git", "add", "sample.txt"], cwd=str(repo_path), check=True)
             subprocess.run(["git", "commit", "-m", "initial commit"], cwd=str(repo_path), check=True, capture_output=True)
 
-            res_clean = zerochat.generate_file_diff(str(target_file))
+            res_clean = zerochat.generate_file_diff(str(target_file), zerochat.project_context())
             self.assertTrue(res_clean["success"])
             self.assertFalse(res_clean["has_diff"])
             self.assertTrue(res_clean["has_commit_history"])
 
             # 3. Commit fallback -> returns diff of the commit
-            res_fallback = zerochat.generate_file_diff(str(target_file), commit_fallback=True)
+            res_fallback = zerochat.generate_file_diff(str(target_file), zerochat.project_context(), commit_fallback=True)
             self.assertTrue(res_fallback["success"])
             self.assertTrue(res_fallback["has_diff"])
             self.assertEqual(res_fallback["mode"], "commit")
@@ -162,7 +162,7 @@ index 1234567..89abcdef 100644
 
             # 4. Modify file -> working tree diff vs HEAD
             target_file.write_text("line 1\nline 2 modified\nline 3\n", encoding="utf-8")
-            res_modified = zerochat.generate_file_diff(str(target_file))
+            res_modified = zerochat.generate_file_diff(str(target_file), zerochat.project_context())
             self.assertTrue(res_modified["success"])
             self.assertTrue(res_modified["has_diff"])
             self.assertEqual(res_modified["mode"], "working_tree")
@@ -170,7 +170,7 @@ index 1234567..89abcdef 100644
             self.assertIn("+line 2 modified", res_modified["diff"])
 
             # 5. open_file_diff uses generate_file_diff by default and embeds full file button
-            res_open = zerochat.open_file_diff(str(target_file))
+            res_open = zerochat.open_file_diff(str(target_file), zerochat.project_context())
             self.assertTrue(res_open["success"])
             self.assertTrue(res_open["has_diff"])
             self.assertIn("html", res_open)
@@ -187,7 +187,7 @@ index 1234567..89abcdef 100644
             modified_lines[9] = "line 10 MODIFIED\n"
             lines_file.write_text("".join(modified_lines), encoding="utf-8")
 
-            res_context = zerochat.generate_file_diff(str(lines_file))
+            res_context = zerochat.generate_file_diff(str(lines_file), zerochat.project_context())
             diff_text = res_context["diff"]
             # 5 lines before: lines 5, 6, 7, 8, 9
             self.assertIn("line 5", diff_text)

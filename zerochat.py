@@ -880,12 +880,11 @@ class JobManager:
             except OSError:
                 pass
 
-    def start(self, command: str, background: bool, key: str | None = None) -> CommandJob:
+    def start(self, command: str, background: bool, cwd: str, key: str | None = None) -> CommandJob:
         if not isinstance(command, str) or not command.strip():
             raise ValueError("The command is empty.")
         if key is not None and not (isinstance(key, str) and JOB_KEY_PATTERN.fullmatch(key)):
             key = None
-        cwd = str(Path.cwd().resolve())
         with self._lock:
             if sum(1 for job in self._jobs.values() if job.status == "running") >= MAX_RUNNING_JOBS:
                 raise ValueError(
@@ -1070,10 +1069,10 @@ def _job_result(job: CommandJob, note: str | None = None, output_field: str = "o
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
-def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, background: bool = False, job_key: str | None = None) -> str:
+def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, background: bool = False, job_key: str | None = None, *, ctx: SecurityContext) -> str:
     """Ejecuta un comando en una shell nueva en el directorio del proyecto."""
     try:
-        job = JOBS.start(command, background=bool(background), key=job_key)
+        job = JOBS.start(command, background=bool(background), cwd=str(ctx.workspace_dir), key=job_key)
     except (ValueError, OSError) as exc:
         return _tool_error(str(exc), os=DETECTED_OS)
     if background:
@@ -1094,7 +1093,7 @@ def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, ba
     return _job_result(job)
 
 
-def check_command(job_id: int, wait_seconds: int = 0, stop: bool = False) -> str:
+def check_command(job_id: int, wait_seconds: int = 0, stop: bool = False, *, ctx: SecurityContext) -> str:
     """Estado y salida nueva de un comando lanzado por run_command; puede esperarlo o detenerlo."""
     job = JOBS.get(job_id=job_id)
     if job is None:
@@ -1214,14 +1213,14 @@ def _configured_gui_diff_tool(git_bin: str, repo_root: Path) -> str:
     return ""
 
 
-def _open_gui_file_diff(path: str, commit_fallback: bool = False) -> dict:
+def _open_gui_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = False) -> dict:
     """Abre un visor externo de diffs (git difftool) en una ventana del sistema operativo."""
     if not isinstance(path, str) or not path.strip():
         raise ValueError("La ruta del archivo está vacía.")
     if len(path) > MAX_PATH_LENGTH:
         raise ValueError("La ruta del archivo excede el tamaño máximo permitido.")
 
-    target = Path(path.strip()).expanduser().resolve()
+    target = ctx.absolute(path)
     if not target.exists():
         raise ValueError(f"El archivo '{path}' no existe.")
     if not target.is_file():
@@ -1681,14 +1680,14 @@ def render_diff_html(
 </html>"""
 
 
-def generate_file_diff(path: str, commit_fallback: bool = False, context_lines: int = DIFF_CONTEXT_LINES) -> dict:
+def generate_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = False, context_lines: int = DIFF_CONTEXT_LINES) -> dict:
     """Calcula y devuelve el diff de un archivo frente a Git HEAD o su último commit, incluyendo HTML."""
     if not isinstance(path, str) or not path.strip():
         raise ValueError("La ruta del archivo está vacía.")
     if len(path) > MAX_PATH_LENGTH:
         raise ValueError("La ruta del archivo excede el tamaño máximo permitido.")
 
-    target = Path(path.strip()).expanduser().resolve()
+    target = ctx.absolute(path)
     if not target.exists():
         raise ValueError(f"El archivo '{path}' no existe.")
     if not target.is_file():
@@ -1849,7 +1848,7 @@ def generate_file_diff(path: str, commit_fallback: bool = False, context_lines: 
     }
 
 
-def open_file_diff(path: str, commit_fallback: bool = False, gui: bool = False, context_lines: int = DIFF_CONTEXT_LINES) -> dict:
+def open_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = False, gui: bool = False, context_lines: int = DIFF_CONTEXT_LINES) -> dict:
     """Obtiene el diff de un archivo asociado a Git.
 
     Por defecto genera el diff con el visor propio de ZeroChat (HTML y texto), apto para
@@ -1857,8 +1856,8 @@ def open_file_diff(path: str, commit_fallback: bool = False, gui: bool = False, 
     Con `gui=True` lanza el visor gráfico externo configurado en Git (difftool).
     """
     if gui:
-        return _open_gui_file_diff(path, commit_fallback)
-    return generate_file_diff(path, commit_fallback, context_lines=context_lines)
+        return _open_gui_file_diff(path, ctx, commit_fallback)
+    return generate_file_diff(path, ctx, commit_fallback, context_lines=context_lines)
 # ==============================================================================
 # Generated from services/ by scripts/build-managed-services.mjs. Do not edit.
 # ==============================================================================
@@ -1931,10 +1930,25 @@ WORKSPACE_TRUST_GLOBAL_COMMANDS = re.compile(r"(?:^|\s)(?:sudo|su|doas|mkfs|rebo
 WORKSPACE_TRUST_OUTSIDE_REFERENCE = re.compile(r"(?:^|[\s=:'\"])(?:[\\/~]|[A-Za-z]:[\\/])|\$|(?:^|[\s=:'\"\\/])\.\.(?=[\s\\/'\"]|$)")
 
 
+# Carpeta del proyecto del servidor: la de arranque, y después la que elige set_project_directory.
+# El proceso nunca cambia de directorio: las herramientas reciben el proyecto en su SecurityContext.
+PROJECT_DIR = Path.cwd().resolve()
+
+
+def project_context() -> "SecurityContext":
+    """Contexto del proyecto actual del servidor."""
+    return SecurityContext(PROJECT_DIR)
+
+
 @dataclasses.dataclass
 class SecurityContext:
-    """Contexto de seguridad desacoplado para ejecuciones o sesiones."""
-    workspace_dir: Path = dataclasses.field(default_factory=lambda: Path.cwd().resolve())
+    """Proyecto en el que actúa una petición: base de sus rutas relativas, de sus comandos y de sus permisos."""
+    workspace_dir: Path
+
+    def absolute(self, path: str) -> Path:
+        """Ruta de una herramienta resuelta contra la carpeta del proyecto ('~' es la carpeta del usuario)."""
+        target = Path(str(path).strip()).expanduser()
+        return (target if target.is_absolute() else self.workspace_dir / target).resolve()
 
     def resolve_path(self, path_str: str) -> Path | None:
         """Resuelve una ruta relativa al espacio de trabajo. Rechaza referencias no resueltas."""
@@ -2808,10 +2822,10 @@ IGNORED_WORKSPACE_DIRS = {
 }
 
 
-def list_directory(path: str = ".", recursive: bool = False) -> str:
+def list_directory(path: str = ".", recursive: bool = False, *, ctx: SecurityContext) -> str:
     """List files and directories in a local directory with safe bounded recursive traversal."""
     try:
-        target = Path(path).expanduser().resolve()
+        target = ctx.absolute(path)
         if not target.exists():
             return _tool_error(f"Path '{path}' does not exist.")
         if not target.is_dir():
@@ -2870,10 +2884,10 @@ def list_directory(path: str = ".", recursive: bool = False) -> str:
         return _tool_error(str(e))
 
 
-def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: int = 500, max_bytes: int = 100000) -> str:
+def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: int = 500, max_bytes: int = 100000, *, ctx: SecurityContext) -> str:
     """Read text content from a local file in streaming mode with safe ranges and bounds."""
     try:
-        target = Path(path).expanduser().resolve()
+        target = ctx.absolute(path)
         if not target.exists():
             return _tool_error(f"File '{path}' does not exist.")
         if not target.is_file():
@@ -2947,10 +2961,10 @@ def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: i
         return _tool_error(str(e))
 
 
-def write_file(path: str, content: str) -> str:
+def write_file(path: str, content: str, *, ctx: SecurityContext) -> str:
     """Create or overwrite a file completely and atomically."""
     try:
-        target = Path(path).expanduser().resolve()
+        target = ctx.absolute(path)
         target.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write_text(target, content)
         bytes_written = len(content.encode("utf-8"))
@@ -2963,10 +2977,10 @@ def write_file(path: str, content: str) -> str:
         return _tool_error(str(e))
 
 
-def edit_file(path: str, old_str: str, new_str: str, replace_all: bool = False) -> str:
+def edit_file(path: str, old_str: str, new_str: str, replace_all: bool = False, *, ctx: SecurityContext) -> str:
     """Replace old_str with new_str in an existing file: its single occurrence, or all of them with replace_all."""
     try:
-        target = Path(path).expanduser().resolve()
+        target = ctx.absolute(path)
         if not target.exists():
             return _tool_error(f"File '{path}' does not exist. Use read_file to verify existing paths.")
         if not target.is_file():
@@ -2996,27 +3010,28 @@ def edit_file(path: str, old_str: str, new_str: str, replace_all: bool = False) 
 
 
 def set_project_directory(path) -> dict:
-    """Cambia el directorio del proyecto: el del proceso, base de las rutas relativas y de los comandos."""
+    """Cambia el proyecto del servidor: base de las rutas relativas y de los comandos. El proceso no cambia de directorio."""
+    global PROJECT_DIR
     if not isinstance(path, str) or not path.strip():
         raise ValueError("La ruta del directorio está vacía.")
     if len(path) > MAX_PATH_LENGTH:
         raise ValueError("La ruta del directorio excede el tamaño máximo permitido.")
-    target = Path(path.strip()).expanduser().resolve()
+    target = project_context().absolute(path)
     if not target.is_dir():
         raise ValueError(f"'{path}' no existe o no es un directorio.")
-    previous = str(Path.cwd().resolve())
+    previous = PROJECT_DIR
     # Los comandos en marcha conservan el directorio en que se lanzaron.
-    os.chdir(target)
+    PROJECT_DIR = target
     # Lo autorizado en la sesión valía para el proyecto anterior.
-    if str(target) != previous:
+    if target != previous:
         reset_session_authorizations()
-    return {"cwd": str(target), "previous_cwd": previous}
+    return {"cwd": str(target), "previous_cwd": str(previous)}
 
 
-def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100) -> str:
+def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100, *, ctx: SecurityContext) -> str:
     """Recursively search for plain text or regular expressions across project files."""
     try:
-        target = Path(path).expanduser().resolve()
+        target = ctx.absolute(path)
         if not target.exists():
             return _tool_error(f"Path '{path}' does not exist.")
         if not target.is_dir():
@@ -3104,13 +3119,10 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
         return _tool_error(str(e))
 
 
-def get_diagnostics(path: str | None = None) -> str:
+def get_diagnostics(path: str | None = None, *, ctx: SecurityContext) -> str:
     """Retrieve syntax diagnostics and code errors for a file or the entire workspace."""
     try:
-        if path is not None and str(path).strip():
-            target = Path(str(path).strip()).expanduser().resolve()
-        else:
-            target = Path.cwd().resolve()
+        target = ctx.absolute(path) if path is not None and str(path).strip() else ctx.workspace_dir
 
         if not target.exists():
             return _tool_error(f"Path '{path}' does not exist.")
@@ -3122,7 +3134,7 @@ def get_diagnostics(path: str | None = None) -> str:
             ext = fpath.suffix.lower()
             file_diags: list[dict] = []
             try:
-                rel_display = str(fpath.relative_to(Path.cwd()))
+                rel_display = str(fpath.relative_to(ctx.workspace_dir))
             except ValueError:
                 rel_display = str(fpath)
 
@@ -3420,8 +3432,8 @@ def playwright_status() -> dict:
     return {"installed": playwright_service_cli().is_file(), "browserAction": browser_action_availability()}
 
 
-def browser_action(action: str, url: str | None = None, selector: str | None = None, value: str | None = None) -> str:
-    """Control a headless browser for UI testing and visual inspection."""
+def browser_action(action: str, url: str | None = None, selector: str | None = None, value: str | None = None, *, ctx: SecurityContext) -> str:
+    """Control a headless browser for UI testing and visual inspection. No depende del proyecto (ctx)."""
     try:
         act = (action or "").strip().lower()
         if act not in BROWSER_ACTIONS:
@@ -5499,7 +5511,7 @@ def live_state(focus_conversation_id: str | None = None) -> dict:
     """
     runs, focus_run = list_server_runs(focus_conversation_id)
     return {
-        "cwd": str(Path.cwd().resolve()),
+        "cwd": str(PROJECT_DIR),
         "jobs": [job.summary() for job in JOBS.running()],
         "exit_on_close": EXIT_ON_CLOSE,
         "playwright": playwright_status(),
@@ -6046,7 +6058,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         return {"content": [{"type": "text", "text": _tool_error(str(ex))}], "isError": True}
 
     @classmethod
-    def _execute_tool(cls, origin: str, tool_name: str, args: dict) -> tuple[dict | None, dict | None, str]:
+    def _execute_tool(cls, origin: str, tool_name: str, args: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
         """Punto único de ejecución y normalización de herramientas locales y externas."""
         if origin == "external":
             try:
@@ -6066,7 +6078,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if not handler:
             return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
         try:
-            tool_output_json = handler(**dict(args))
+            tool_output_json = handler(**dict(args), ctx=ctx)
         except Exception as ex:
             return cls._tool_exception_result(ex), None, str(ex)
         tool_error_info = ""
@@ -6128,8 +6140,9 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         meta = params.get("_meta")
         # La clave del trabajo no es un argumento del modelo: no se evalúa ni se muestra en el reto.
         job_key = meta.get("zerochatJobKey") if origin == "local" and tool_name == COMMAND_TOOL and isinstance(meta, dict) else None
-        gate = cls._authorize_or_challenge(origin, tool_name, args, SecurityContext(), job_key)
-        return gate if gate is not None else cls._execute_tool(origin, tool_name, cls._with_job_key(args, job_key))
+        ctx = project_context()
+        gate = cls._authorize_or_challenge(origin, tool_name, args, ctx, job_key)
+        return gate if gate is not None else cls._execute_tool(origin, tool_name, cls._with_job_key(args, job_key), ctx)
 
     def _dispatch_external(self, method: str, params: dict) -> tuple[dict | None, dict | None, str]:
         """Atiende /mcp/external. Devuelve (result, error JSON-RPC, detalle de error de herramienta)."""
@@ -6147,7 +6160,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             server_info = {
                 "name": "ZeroChat Local Server",
                 "version": VERSION,
-                "cwd": str(Path.cwd().resolve()),
+                "cwd": str(PROJECT_DIR),
                 "os": DETECTED_OS
             }
             return {**self._initialize_result(server_info), "liveState": live_state()}, None, ""
@@ -6168,7 +6181,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 return None, {"code": -32602, "message": str(exc)}, ""
         if method == "zerochat/diff/open":
             try:
-                return open_file_diff(params.get("path"), bool(params.get("commit_fallback")), bool(params.get("gui"))), None, ""
+                return open_file_diff(params.get("path"), project_context(), bool(params.get("commit_fallback")), bool(params.get("gui"))), None, ""
             except (ValueError, RuntimeError) as exc:
                 return None, {"code": -32602, "message": str(exc)}, ""
             except Exception as exc:
@@ -6209,7 +6222,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     def _dispatch_security(cls, method: str, params: dict) -> tuple[dict | None, dict | None, str]:
         """Gestión de políticas y reglas de seguridad almacenadas en el backend local."""
         params = params if isinstance(params, dict) else {}
-        ctx = SecurityContext()
+        ctx = project_context()
         try:
             if method == "zerochat/security/get":
                 return {"policies": ACCESS_CONTROLLER.export_state(ctx)}, None, ""
@@ -6236,7 +6249,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 t_origin = ch.get("origin") or "local"
                 t_name = ch["toolName"]
                 t_args = ch["arguments"] if isinstance(ch.get("arguments"), dict) else {}
-                exec_res, exec_err, tool_err = cls._execute_tool(t_origin, t_name, cls._with_job_key(t_args, ch.get("jobKey")))
+                exec_res, exec_err, tool_err = cls._execute_tool(t_origin, t_name, cls._with_job_key(t_args, ch.get("jobKey")), ctx)
                 if exec_err:
                     return None, exec_err, tool_err
                 return {"authorized": True, "result": exec_res}, None, tool_err
@@ -7025,7 +7038,7 @@ def start_server_run(params: dict) -> dict:
     if not find_node_executable():
         raise ValueError("Node.js 18+ es necesario para ejecutar tareas en segundo plano en el servidor (instala Node.js 18+).")
 
-    # La ejecución trabaja en el proyecto de la conversación; sin proyecto, en el del servidor.
+    # La ejecución trabaja en el proyecto de la conversación; sin proyecto, en el actual del servidor.
     project = conv.get("project")
     if project and not Path(project).is_dir():
         raise ValueError(f"La carpeta del proyecto de la conversación ya no existe: {project}")
@@ -7050,7 +7063,7 @@ def start_server_run(params: dict) -> dict:
         stderr=subprocess.DEVNULL,
         start_new_session=DETECTED_OS != "windows" and hasattr(os, "setsid"),
         env=env,
-        cwd=project or None
+        cwd=project or str(PROJECT_DIR)
     )
 
     payload = {
@@ -7628,11 +7641,11 @@ def reset_session_authorizations():
     ACCESS_CONTROLLER.clear_session()
     if RUN_SESSION is not None:
         if RUN_SESSION.tool_security:
-            ACCESS_CONTROLLER.apply_session_overlay(RUN_SESSION.tool_security, SecurityContext())
+            ACCESS_CONTROLLER.apply_session_overlay(RUN_SESSION.tool_security, project_context())
         if RUN_SESSION.allow_dangerous_tools:
             ACCESS_CONTROLLER.apply_session_overlay({
                 "tools": {name: {"policy": POLICY_ALLOW} for name in ("write_file", "edit_file", "run_command")}
-            }, SecurityContext())
+            }, project_context())
 
 
 def open_server(args, local_ui: bool) -> ThreadingHTTPServer:
@@ -7682,7 +7695,7 @@ def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_cl
     """Cabecera del servidor con su configuración (sin el token)."""
     print("=" * 64)
     print(f"  ZeroChat Local Server v{VERSION} (UI {UI_VERSION})")
-    print(f"  Directorio de trabajo : {Path.cwd()}")
+    print(f"  Directorio de trabajo : {PROJECT_DIR}")
     print(f"  Datos y MCP           : {get_data_dir()}")
     print(f"  Entorno MCP           : {get_venv_dir()}")
     if dev_root is not None:

@@ -225,7 +225,7 @@ def start_server_run(params: dict) -> dict:
     if not find_node_executable():
         raise ValueError("Node.js 18+ es necesario para ejecutar tareas en segundo plano en el servidor (instala Node.js 18+).")
 
-    # La ejecución trabaja en el proyecto de la conversación; sin proyecto, en el del servidor.
+    # La ejecución trabaja en el proyecto de la conversación; sin proyecto, en el actual del servidor.
     project = conv.get("project")
     if project and not Path(project).is_dir():
         raise ValueError(f"La carpeta del proyecto de la conversación ya no existe: {project}")
@@ -250,7 +250,7 @@ def start_server_run(params: dict) -> dict:
         stderr=subprocess.DEVNULL,
         start_new_session=DETECTED_OS != "windows" and hasattr(os, "setsid"),
         env=env,
-        cwd=project or None
+        cwd=project or str(PROJECT_DIR)
     )
 
     payload = {

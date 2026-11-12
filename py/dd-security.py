@@ -54,10 +54,25 @@ WORKSPACE_TRUST_GLOBAL_COMMANDS = re.compile(r"(?:^|\s)(?:sudo|su|doas|mkfs|rebo
 WORKSPACE_TRUST_OUTSIDE_REFERENCE = re.compile(r"(?:^|[\s=:'\"])(?:[\\/~]|[A-Za-z]:[\\/])|\$|(?:^|[\s=:'\"\\/])\.\.(?=[\s\\/'\"]|$)")
 
 
+# Carpeta del proyecto del servidor: la de arranque, y después la que elige set_project_directory.
+# El proceso nunca cambia de directorio: las herramientas reciben el proyecto en su SecurityContext.
+PROJECT_DIR = Path.cwd().resolve()
+
+
+def project_context() -> "SecurityContext":
+    """Contexto del proyecto actual del servidor."""
+    return SecurityContext(PROJECT_DIR)
+
+
 @dataclasses.dataclass
 class SecurityContext:
-    """Contexto de seguridad desacoplado para ejecuciones o sesiones."""
-    workspace_dir: Path = dataclasses.field(default_factory=lambda: Path.cwd().resolve())
+    """Proyecto en el que actúa una petición: base de sus rutas relativas, de sus comandos y de sus permisos."""
+    workspace_dir: Path
+
+    def absolute(self, path: str) -> Path:
+        """Ruta de una herramienta resuelta contra la carpeta del proyecto ('~' es la carpeta del usuario)."""
+        target = Path(str(path).strip()).expanduser()
+        return (target if target.is_absolute() else self.workspace_dir / target).resolve()
 
     def resolve_path(self, path_str: str) -> Path | None:
         """Resuelve una ruta relativa al espacio de trabajo. Rechaza referencias no resueltas."""

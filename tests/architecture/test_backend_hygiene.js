@@ -60,3 +60,22 @@ test('Backend Higiene - paridad entre LOCAL_TOOLS_DEFINITIONS y LOCAL_TOOL_HANDL
     assert.ok(handlers.includes(name), `La herramienta '${name}' debe tener un manejador en LOCAL_TOOL_HANDLERS`);
   }
 });
+
+test('Backend Higiene - el proceso no cambia de directorio ni lee el suyo fuera del arranque', () => {
+  // El proyecto viaja en el SecurityContext de cada petición: un Path.cwd() olvidado actuaría en otra carpeta.
+  // Solo se admite al arrancar: la carpeta inicial del proyecto y la detección del repositorio de desarrollo.
+  const allowed = new Set([
+    'py/dd-security.py:PROJECT_DIR = Path.cwd().resolve()',
+    'py/cc-environment.py:cwd = Path.cwd().resolve()'
+  ]);
+  const offenders = [];
+  for (const file of listPyFiles(PY_DIR)) {
+    const rel = path.relative(ROOT, file);
+    fs.readFileSync(file, 'utf8').split('\n').forEach((line, i) => {
+      if (/os\.chdir\(|Path\.cwd\(\)|os\.getcwd\(\)/.test(line) && !allowed.has(`${rel}:${line.trim()}`)) {
+        offenders.push(`${rel}:${i + 1} ${line.trim()}`);
+      }
+    });
+  }
+  assert.deepEqual(offenders, [], `Usa el SecurityContext del proyecto en lugar del directorio del proceso:\n${offenders.join('\n')}`);
+});

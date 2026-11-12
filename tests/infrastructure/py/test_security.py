@@ -4,13 +4,13 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-from backend import use_data_dir, zerochat
+from backend import use_data_dir, use_project, zerochat
 
 
 # Las pruebas preparan y leen el estado por el mismo contrato que la RPC (import_state/export_state),
 # con el directorio actual como contexto, igual que la RPC.
 def cwd():
-    return zerochat.SecurityContext()
+    return zerochat.project_context()
 def set_global(controller, policy):
     controller.import_state({"globalMcpPolicy": policy}, cwd())
 
@@ -122,7 +122,7 @@ class HandlerTestCase(ControllerTestCase):
         return gate
 
     def status(self, command, ctx=None):
-        cwd_ctx = ctx or zerochat.SecurityContext()
+        cwd_ctx = ctx or cwd()
         return self.controller.evaluate_authorization("run_command", {"command": command}, cwd_ctx).status
 
 
@@ -461,8 +461,7 @@ class ChallengeTest(HandlerTestCase):
         ch_cwd = self.controller.create_challenge("run_command", {"command": "echo cwd"}, dec, context=cwd())
         other_dir = self.workspace / "subdir"
         other_dir.mkdir()
-        self.addCleanup(os.chdir, Path.cwd())
-        os.chdir(other_dir)
+        use_project(self, other_dir)
         res, err = self.authorize(ch_cwd["id"], "allow_once")
         self.assertEqual((res, err["code"]), (None, -32002))
         self.assertNotIn(ch_cwd["id"], self.controller.pending_challenges)
@@ -521,7 +520,7 @@ class ChallengeTest(HandlerTestCase):
             res, err = self.authorize(gate["challengeId"], "allow_once")
         self.assertIsNone(err)
         self.assertTrue(res["authorized"])
-        execute.assert_called_once_with("local", "run_command", {"command": "echo job", "job_key": "inv-1"})
+        execute.assert_called_once_with("local", "run_command", {"command": "echo job", "job_key": "inv-1"}, cwd())
 
 
 class CommandPatternTest(HandlerTestCase):
@@ -624,7 +623,7 @@ class CommandPatternTest(HandlerTestCase):
 
     def test_command_pattern_scopes_session_project_and_global(self):
         other_project = zerochat.SecurityContext(workspace_dir=self.base_dir.resolve())
-        project = zerochat.normalize_directory_path(str(Path.cwd().resolve()))
+        project = zerochat.normalize_directory_path(str(zerochat.PROJECT_DIR))
 
         # Sesión: solo ese patrón, en memoria y sin guardarse
         res, err = self.authorize(self.command_challenge("echo uno")["challengeId"], "allow_session", commandPattern="echo uno *")
@@ -682,10 +681,9 @@ class SessionLifecycleTest(HandlerTestCase):
         self.assertIsNone(tool_entry(self.controller, "custom_tool"))
 
     def test_changing_project_clears_session_authorizations_and_challenges(self):
-        self.addCleanup(os.chdir, Path.cwd())
         other = self.base_dir / "otro"
         other.mkdir()
-        os.chdir(self.workspace)
+        use_project(self, self.workspace)
         set_tool(self.controller, "custom_tool", zerochat.POLICY_ALLOW, scope=zerochat.SCOPE_SESSION)
         self.controller.create_challenge("other_tool", {}, self.evaluate("other_tool"), context=cwd())
 

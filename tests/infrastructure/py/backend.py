@@ -26,6 +26,14 @@ os.environ["ZEROCHAT_DATA_DIR"] = _PROCESS_DATA_DIR.name
 zerochat = load_zerochat("zerochat")
 
 
+def use_project(test, path: Path):
+    """Fija el proyecto del servidor para la prueba (sin cambiar el directorio del proceso) y devuelve su contexto."""
+    patcher = mock.patch.object(zerochat, "PROJECT_DIR", Path(path).resolve())
+    patcher.start()
+    test.addCleanup(patcher.stop)
+    return zerochat.project_context()
+
+
 def use_data_dir(test) -> Path:
     """Da a la prueba un ZEROCHAT_DATA_DIR temporal propio, que se borra al terminar."""
     data_dir = tempfile.TemporaryDirectory()

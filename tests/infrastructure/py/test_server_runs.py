@@ -376,7 +376,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             self.assertIn("--prompt", cmd)
             self.assertEqual(cmd[cmd.index("--prompt") + 1], "Genera reporte")
 
-            self.assertIsNone(kwargs["cwd"], "Sin proyecto arranca en el directorio del servidor")
+            self.assertEqual(kwargs["cwd"], str(zerochat.PROJECT_DIR), "Sin proyecto arranca en el proyecto actual del servidor")
             env = kwargs["env"]
             self.assertEqual(env["ZEROCHAT_RUN_ID"], run_id)
             self.assertEqual(json.loads(env["ZEROCHAT_RUN_SECURITY"])["directoryRules"], ["R:/test"])

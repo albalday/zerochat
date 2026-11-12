@@ -183,11 +183,11 @@ def reset_session_authorizations():
     ACCESS_CONTROLLER.clear_session()
     if RUN_SESSION is not None:
         if RUN_SESSION.tool_security:
-            ACCESS_CONTROLLER.apply_session_overlay(RUN_SESSION.tool_security, SecurityContext())
+            ACCESS_CONTROLLER.apply_session_overlay(RUN_SESSION.tool_security, project_context())
         if RUN_SESSION.allow_dangerous_tools:
             ACCESS_CONTROLLER.apply_session_overlay({
                 "tools": {name: {"policy": POLICY_ALLOW} for name in ("write_file", "edit_file", "run_command")}
-            }, SecurityContext())
+            }, project_context())
 
 
 def open_server(args, local_ui: bool) -> ThreadingHTTPServer:
@@ -237,7 +237,7 @@ def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_cl
     """Cabecera del servidor con su configuración (sin el token)."""
     print("=" * 64)
     print(f"  ZeroChat Local Server v{VERSION} (UI {UI_VERSION})")
-    print(f"  Directorio de trabajo : {Path.cwd()}")
+    print(f"  Directorio de trabajo : {PROJECT_DIR}")
     print(f"  Datos y MCP           : {get_data_dir()}")
     print(f"  Entorno MCP           : {get_venv_dir()}")
     if dev_root is not None:

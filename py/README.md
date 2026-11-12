@@ -28,6 +28,7 @@ El backend opera de forma idéntica provenga del paquete PyPI o de la descarga c
   * `.venv/`: entorno virtual Python aislado.
 * **Aislamiento de dependencias MCP:** Las herramientas y dependencias Python de MCP se instalan y ejecutan exclusivamente dentro de `~/zerochat/.venv/`. Queda prohibido instalar dependencias en el Python global o en el entorno del comando de PyPI.
 * **Ejecución del servidor:** El servidor se ejecuta con el intérprete Python que lo lanzó. No se reinstala ni se reejecuta dentro del venv aislado.
+* **Proyecto:** el proceso nunca cambia de directorio. `PROJECT_DIR` es la carpeta del proyecto (la de arranque y, después, la que elige `zerochat/project/set_directory`) y cada petición la recibe en su `SecurityContext` (`project_context()`): las herramientas resuelven las rutas relativas con `ctx.absolute`, `run_command` arranca en `ctx.workspace_dir` y el diff y los permisos usan el mismo contexto. Una prueba de arquitectura prohíbe `os.chdir`, `Path.cwd()` y `os.getcwd()` fuera del arranque.
 * **Ciclo de vida limpio:** Borrar `~/zerochat/` debe restablecer por completo el estado del backend y eliminar los servicios MCP sin afectar al ejecutable ni a los datos almacenados en el navegador.
 
 ---

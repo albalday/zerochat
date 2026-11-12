@@ -101,14 +101,14 @@ def _configured_gui_diff_tool(git_bin: str, repo_root: Path) -> str:
     return ""
 
 
-def _open_gui_file_diff(path: str, commit_fallback: bool = False) -> dict:
+def _open_gui_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = False) -> dict:
     """Abre un visor externo de diffs (git difftool) en una ventana del sistema operativo."""
     if not isinstance(path, str) or not path.strip():
         raise ValueError("La ruta del archivo está vacía.")
     if len(path) > MAX_PATH_LENGTH:
         raise ValueError("La ruta del archivo excede el tamaño máximo permitido.")
 
-    target = Path(path.strip()).expanduser().resolve()
+    target = ctx.absolute(path)
     if not target.exists():
         raise ValueError(f"El archivo '{path}' no existe.")
     if not target.is_file():
@@ -568,14 +568,14 @@ def render_diff_html(
 </html>"""
 
 
-def generate_file_diff(path: str, commit_fallback: bool = False, context_lines: int = DIFF_CONTEXT_LINES) -> dict:
+def generate_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = False, context_lines: int = DIFF_CONTEXT_LINES) -> dict:
     """Calcula y devuelve el diff de un archivo frente a Git HEAD o su último commit, incluyendo HTML."""
     if not isinstance(path, str) or not path.strip():
         raise ValueError("La ruta del archivo está vacía.")
     if len(path) > MAX_PATH_LENGTH:
         raise ValueError("La ruta del archivo excede el tamaño máximo permitido.")
 
-    target = Path(path.strip()).expanduser().resolve()
+    target = ctx.absolute(path)
     if not target.exists():
         raise ValueError(f"El archivo '{path}' no existe.")
     if not target.is_file():
@@ -736,7 +736,7 @@ def generate_file_diff(path: str, commit_fallback: bool = False, context_lines: 
     }
 
 
-def open_file_diff(path: str, commit_fallback: bool = False, gui: bool = False, context_lines: int = DIFF_CONTEXT_LINES) -> dict:
+def open_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = False, gui: bool = False, context_lines: int = DIFF_CONTEXT_LINES) -> dict:
     """Obtiene el diff de un archivo asociado a Git.
 
     Por defecto genera el diff con el visor propio de ZeroChat (HTML y texto), apto para
@@ -744,5 +744,5 @@ def open_file_diff(path: str, commit_fallback: bool = False, gui: bool = False, 
     Con `gui=True` lanza el visor gráfico externo configurado en Git (difftool).
     """
     if gui:
-        return _open_gui_file_diff(path, commit_fallback)
-    return generate_file_diff(path, commit_fallback, context_lines=context_lines)
+        return _open_gui_file_diff(path, ctx, commit_fallback)
+    return generate_file_diff(path, ctx, commit_fallback, context_lines=context_lines)
