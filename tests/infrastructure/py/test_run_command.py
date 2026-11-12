@@ -74,6 +74,7 @@ class RunCommandTest(unittest.TestCase):
 
         # cd solo vale dentro del comando: el proyecto (y las rutas relativas) siguen en la raíz.
         self.assertEqual(run("cd src && pwd")["output"].strip(), str(self.project / "src"))
+        self.assertEqual(run("cd src; pwd")["output"].strip(), str(self.project / "src"))
         self.assertEqual(Path.cwd().resolve(), self.project)
         self.assertIs(json.loads(zerochat.read_file("note.txt"))["success"], True)
 

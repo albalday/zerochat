@@ -564,7 +564,7 @@
     const ruleOffer = options.ruleOffer;
     let contextualButtonsHtml = '';
     if (ruleOffer?.type === 'command') {
-      // Con "cd <dir> && git status" se ofrece autorizar el patrón "git status *", no cd. Cada botón concede la línea
+      // Con "cd <dir> && git status" (o "cd <dir> ; git status") se ofrece autorizar el patrón "git status *", no cd. Cada botón concede la línea
       // de la caja (editable) con su alcance: esta sesión, este proyecto o todos los proyectos.
       const prefixLabel = escapeHtml(t('tool_auth_cmd_prefix_label'));
       const scopeButton = (decision, icon, label, title) => `<button type="button" class="btn-auth-action btn-auth-allow-cmd" data-decision="${decision}" title="${escapeHtml(title)}">${icon} <span>${escapeHtml(label)}</span></button>`;

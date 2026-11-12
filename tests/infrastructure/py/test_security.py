@@ -220,7 +220,11 @@ class PolicyEvaluationTest(ControllerTestCase):
         set_rules(self.controller, [f"RW:{self.norm_ws}/**"], self.ctx)
         set_tool(self.controller, "run_command", zerochat.POLICY_ALLOW, constraints=command_constraints("git *"))
         self.assertTrue(self.evaluate("run_command", {"command": f"cd {self.norm_ws} && git status"}).allowed)
+        self.assertTrue(self.evaluate("run_command", {"command": f"cd {self.norm_ws} ; git status"}).allowed)
         self.assertEqual(self.evaluate("run_command", {"command": "cd /etc && git status"}).status, "ask")
+        self.assertEqual(self.evaluate("run_command", {"command": "cd /etc; git status"}).status, "ask")
+        # Solo el primer ';' tras el cd separa; los siguientes siguen siendo encadenamiento
+        self.assertEqual(self.evaluate("run_command", {"command": f"cd {self.norm_ws}; git status; ls"}).status, "ask")
 
     def test_rule_offer_for_commands_and_directories(self):
         set_rules(self.controller, [f"R:{self.norm_ws}/**"], self.ctx)

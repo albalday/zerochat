@@ -2036,10 +2036,14 @@ def has_file_redirection(cmd: str) -> bool:
 
 
 def split_leading_cd(cmd: str) -> dict | None:
-    """Separa un comando inicial 'cd <dir> && <cmd>'."""
+    """Separa un comando inicial 'cd <dir> && <cmd>' o 'cd <dir> ; <cmd>'.
+
+    Con ';' el comando se ejecuta aunque falle el cd, pero entonces lo hace en la carpeta
+    del proyecto, que ya está autorizada; las reglas de carpeta se exigen igual sobre <dir>.
+    """
     if not isinstance(cmd, str):
         return None
-    match = re.match(r"^cd\s+(\"[^\"]*\"|'[^']*'|[^\s;&|<>`$()'\"]+)\s*&&\s*(\S[\s\S]*)$", cmd.strip())
+    match = re.match(r"^cd\s+(\"[^\"]*\"|'[^']*'|[^\s;&|<>`$()'\"]+)\s*(?:&&|;)\s*(\S[\s\S]*)$", cmd.strip())
     if not match:
         return None
     raw_dir = match.group(1).strip()
