@@ -413,16 +413,16 @@
       if (hasPrefixes) text += ` (${escapeHtml(t('mcp_security_constrained'))})`;
       // Prefijos globales y de proyecto se quitan uno a uno; los de sesión duran hasta que acaba la sesión.
       const chip = (prefix, project) => {
-        const removeLabel = escapeHtml(t('mcp_security_remove_prefix', { cmd: `${prefix} *` }));
+        const removeLabel = escapeHtml(t('mcp_security_remove_prefix', { cmd: prefix }));
         const projectAttr = project === null ? '' : ` data-project="${escapeHtml(project)}"`;
-        return `<span class="mcp-auth-constraint-tag mcp-auth-cmd-chip"><code>${escapeHtml(prefix)} *</code><button type="button" class="btn-remove-cmd-prefix" data-tool-id="${toolId}" data-prefix="${escapeHtml(prefix)}"${projectAttr} title="${removeLabel}" aria-label="${removeLabel}">${Icons.get('close', { size: 10 })}</button></span>`;
+        return `<span class="mcp-auth-constraint-tag mcp-auth-cmd-chip"><code>${escapeHtml(prefix)}</code><button type="button" class="btn-remove-cmd-prefix" data-tool-id="${toolId}" data-prefix="${escapeHtml(prefix)}"${projectAttr} title="${removeLabel}" aria-label="${removeLabel}">${Icons.get('close', { size: 10 })}</button></span>`;
       };
       const group = (icon, label, chips) => `<div class="mcp-auth-cmd-group"><span class="mcp-auth-cmd-scope" title="${escapeHtml(label)}">${icon} ${escapeHtml(label)}</span>${chips}</div>`;
       const prefixEditor = hasPrefixes ? `
             <div class="mcp-auth-cmd-prefixes">
               ${globalPrefixes.length ? group(Icons.get('globe', { size: 11 }), t('mcp_security_scope_global'), globalPrefixes.map(prefix => chip(prefix, null)).join('')) : ''}
               ${projectPrefixes.map(([project, prefixes]) => group(Icons.get('folder', { size: 11 }), project, prefixes.map(prefix => chip(prefix, project)).join(''))).join('')}
-              ${sessionPrefixes.length ? group(Icons.get('clock', { size: 11 }), t('mcp_security_scope_session'), sessionPrefixes.map(prefix => `<span class="mcp-auth-constraint-tag mcp-auth-cmd-chip"><code>${escapeHtml(prefix)} *</code></span>`).join('')) : ''}
+              ${sessionPrefixes.length ? group(Icons.get('clock', { size: 11 }), t('mcp_security_scope_session'), sessionPrefixes.map(prefix => `<span class="mcp-auth-constraint-tag mcp-auth-cmd-chip"><code>${escapeHtml(prefix)}</code></span>`).join('')) : ''}
               <div class="mcp-auth-cmd-add" data-tool-id="${toolId}">
                 <input type="text" class="mcp-auth-cmd-input" placeholder="${addLabel}" aria-label="${addLabel}" spellcheck="false" autocomplete="off">
                 <button type="button" class="btn-add-cmd-prefix">${escapeHtml(t('mcp_security_add_prefix'))}</button>

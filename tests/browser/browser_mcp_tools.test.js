@@ -78,20 +78,20 @@ test('Browser UI - autorización de comando concede la línea editable con alcan
         args: { command: 'ls -la' },
         ruleOffer: {
           type: 'command',
-          command: 'ls',
-          constraints: { command: { allowedPrefixes: ['ls'], allowChaining: false, allowPipes: false } }
+          command: 'ls *',
+          constraints: { command: { allowedPrefixes: ['ls *'], allowChaining: false, allowPipes: false } }
         }
       });
       const hasGenericAlwaysInCmd = Boolean(cardCmd.querySelector('.btn-auth-allow-always'));
       const hasGenericSessionInCmd = Boolean(cardCmd.querySelector('.btn-auth-allow-session'));
       const scopes = [...cardCmd.querySelectorAll('.btn-auth-allow-cmd')].map(button => button.dataset.decision);
-      // La línea propuesta lleva el "*" dentro y se edita; vacía, solo "*" o con "*" intermedio no se acepta
+      // La línea propuesta es el patrón y se edita; vacía o con "*" en el ejecutable no se acepta
       const input = cardCmd.querySelector('.tool-auth-cmd-input');
       const buttons = [...cardCmd.querySelectorAll('.btn-auth-allow-cmd')];
       const projectButton = cardCmd.querySelector('.btn-auth-allow-cmd[data-decision="allow_project"]');
       const proposedPrefix = input.value;
       const rejected = {};
-      for (const value of ['  ', '*', ' * ', 'ls * -l']) {
+      for (const value of ['  ', '*', ' * ', 'l* -l']) {
         input.value = value;
         input.dispatchEvent(new Event('input', { bubbles: true }));
         buttons.forEach(button => button.click());
@@ -124,7 +124,7 @@ test('Browser UI - autorización de comando concede la línea editable con alcan
     assert.deepEqual(result.scopes, ['allow_session', 'allow_project', 'allow_always']);
     assert.equal(result.hasGenericSessionInCmd, false, 'En un comando la sesión se concede sobre la línea, no sobre run_command entero');
     assert.equal(result.proposedPrefix, 'ls *');
-    assert.deepEqual(result.rejected, { '  ': true, '*': true, ' * ': true, 'ls * -l': true });
+    assert.deepEqual(result.rejected, { '  ': true, '*': true, ' * ': true, 'l* -l': true });
     assert.equal(result.stillPending, true, 'Una línea no válida no decide la autorización');
     assert.equal(result.enabledAgain, true);
     assert.deepEqual(result.cmdDecision, {
@@ -228,7 +228,7 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
         serverId: 'zerochat-local',
         serverName: 'ZeroChat Local Server',
         args: { command: 'git status' },
-        ruleOffer: { type: 'command', command: 'git', constraints: { command: { allowedPrefixes: ['git'], allowChaining: false, allowPipes: false } } }
+        ruleOffer: { type: 'command', command: 'git *', constraints: { command: { allowedPrefixes: ['git *'], allowChaining: false, allowPipes: false } } }
       });
     });
     await page.waitForFunction(() => document.getElementById('messages-list').scrollTop > 0);

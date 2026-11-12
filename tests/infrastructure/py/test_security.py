@@ -140,7 +140,7 @@ class AccessControllerPolicyTest(unittest.TestCase):
     def test_command_constraints_prefixes_and_chaining(self):
         set_tool(self.controller, "run_command", zerochat.POLICY_ALLOW, constraints={
             "command": {
-                "allowedPrefixes": ["git", "npm"],
+                "allowedPrefixes": ["git *", "npm *"],
                 "allowChaining": False,
                 "allowPipes": False,
                 "deniedPatterns": ["rm -rf"]
@@ -489,7 +489,7 @@ class AccessControllerPolicyTest(unittest.TestCase):
         res_ok, err_ok, _ = handler._dispatch_security("zerochat/security/authorize", {
             "challengeId": cid,
             "decision": "allow_always",
-            "constraints": {"command": {"allowedPrefixes": ["ls"]}}
+            "constraints": {"command": {"allowedPrefixes": ["ls *"]}}
         })
         self.assertIsNone(err_ok)
         self.assertTrue(res_ok["authorized"])
@@ -567,18 +567,18 @@ class AccessControllerPolicyTest(unittest.TestCase):
         dec_cmd = self.controller.evaluate_authorization("run_command", {"command": "./myui --port 8080"}, self.ctx)
         self.assertIsNotNone(dec_cmd.rule_offer)
         self.assertEqual(dec_cmd.rule_offer["type"], "command")
-        self.assertEqual(dec_cmd.rule_offer["command"], "./myui")
-        self.assertEqual(dec_cmd.rule_offer["constraints"]["command"]["allowedPrefixes"], ["./myui"])
+        self.assertEqual(dec_cmd.rule_offer["command"], "./myui *")
+        self.assertEqual(dec_cmd.rule_offer["constraints"]["command"]["allowedPrefixes"], ["./myui *"])
 
         # Command with cd prefix
         dec_cd = self.controller.evaluate_authorization("run_command", {"command": "cd /tmp && git status"}, self.ctx)
         self.assertIsNotNone(dec_cd.rule_offer)
-        self.assertEqual(dec_cd.rule_offer["command"], "git status")
-        self.assertEqual(dec_cd.rule_offer["constraints"]["command"]["allowedPrefixes"], ["git status"])
+        self.assertEqual(dec_cd.rule_offer["command"], "git status *")
+        self.assertEqual(dec_cd.rule_offer["constraints"]["command"]["allowedPrefixes"], ["git status *"])
 
         # Una opción no es un subcomando: se ofrece solo el ejecutable
         dec_flag = self.controller.evaluate_authorization("run_command", {"command": "ls -la"}, self.ctx)
-        self.assertEqual(dec_flag.rule_offer["command"], "ls")
+        self.assertEqual(dec_flag.rule_offer["command"], "ls *")
 
         # Directory offer
         dec_file = self.controller.evaluate_authorization("write_file", {"path": f"{norm_ws}/src/app.py"}, self.ctx)
@@ -596,7 +596,7 @@ class AccessControllerPolicyTest(unittest.TestCase):
         norm_ws = zerochat.normalize_directory_path(str(self.workspace))
         set_rules(self.controller, [f"R:{norm_ws}/**", f"W:{norm_ws}/**"], self.ctx)
         set_tool(self.controller, "run_command", zerochat.POLICY_ALLOW, constraints={
-            "command": {"allowedPrefixes": ["git"], "allowChaining": False, "allowPipes": False}
+            "command": {"allowedPrefixes": ["git *"], "allowChaining": False, "allowPipes": False}
         })
 
         # cd inside workspace with allowed git command
@@ -1007,11 +1007,11 @@ class AccessControllerPolicyTest(unittest.TestCase):
 
     def test_command_prefixes_are_validated_and_normalized(self):
         res = self.controller.import_state({"tools": {"run_command": {"policy": "allow", "constraints": {
-            "command": {"allowedPrefixes": ["git status *", "git  status", "git diff", "git diff --stat"]}
+            "command": {"allowedPrefixes": ["git status *", "git  status  *", "git status", "git diff *", "git diff --stat"]}
         }}}}, self.ctx)
-        self.assertEqual(res["tools"]["run_command"]["constraints"]["command"]["allowedPrefixes"], ["git status", "git diff"])
+        self.assertEqual(res["tools"]["run_command"]["constraints"]["command"]["allowedPrefixes"], ["git status *", "git diff *"])
 
-        for bad in ([], ["git; rm"], ["git $(x)"], [""], ["*"], ["git * log"], [3]):
+        for bad in ([], ["git; rm"], ["git $(x)"], [""], ["*"], ["g* log"], ["git **"], ["git 'x'"], [3]):
             with self.assertRaises(ValueError, msg=repr(bad)):
                 self.controller.import_state({"tools": {"run_command": {"policy": "allow", "constraints": {
                     "command": {"allowedPrefixes": bad}
@@ -1024,6 +1024,31 @@ class AccessControllerPolicyTest(unittest.TestCase):
             self.controller.import_state({"tools": {"run_command": {"policy": "allow", "constraints": {
                 "command": {"allowedPrefixes": at_limit + ["extra"]}
             }}}}, self.ctx)
+
+    def test_command_patterns_match_argument_by_argument(self):
+        cases = [
+            ("git status", "git status", True),
+            ("git status", "git status -s", False),        # sin * el texto es exacto
+            ("git status *", "git status", True),          # * final: cero o más argumentos
+            ("git status *", "git status -s --long", True),
+            ("git status *", "git statusx", False),
+            ("git sta*", "git status", True),              # * dentro de una palabra
+            ("git status", "git  status", True),           # los espacios no cuentan
+            ("git status", "/usr/bin/git status", True),
+            ("git * -n *", "git log -n 3", True),          # * suelto: un argumento
+            ("rm /tmp/z/*", "rm /tmp/z/a.txt", True),
+            ("rm /tmp/z/*", "rm '/tmp/z/a b'", True),      # comillas: un solo argumento
+            ("rm /tmp/z/*", "rm /tmp/z/a /etc/passwd", False),
+            ("rm /tmp/z/*", "rm /tmp/z/a/b", False),       # * no cruza /
+            ("rm /tmp/z/*", "rm /tmp/z/..", False),
+            ("rm /tmp/z/.*", "rm /tmp/z/..", False),
+            ("rm /tmp/z/*", "rm /tmp/z/$X", False),        # lo que expande la shell
+            ("rm /tmp/z/*", "rm /tmp/z/{a,b}", False),
+            ("echo *", 'echo "sin cerrar', False),
+        ]
+        for pattern, command, expected in cases:
+            with self.subTest(pattern=pattern, command=command):
+                self.assertIs(zerochat.matches_command_prefix(command, pattern), expected)
 
     def test_stored_empty_prefix_list_never_allows_any_command(self):
         zerochat.update_security_policy_data(lambda current: {**(current or {}), "tools": {
@@ -1039,7 +1064,7 @@ class AccessControllerPolicyTest(unittest.TestCase):
         set_global(zerochat.ACCESS_CONTROLLER, zerochat.GLOBAL_POLICY_ASK)
         gate, _, _ = handler._dispatch_local("tools/call", {"name": "run_command", "arguments": {"command": "echo hola mundo"}})
         cid = gate["challengeId"]
-        self.assertEqual(gate["ruleOffer"]["command"], "echo hola")
+        self.assertEqual(gate["ruleOffer"]["command"], "echo hola *")
 
         res_bad, err_bad, _ = handler._dispatch_security("zerochat/security/authorize", {
             "challengeId": cid, "decision": "allow_always",
@@ -1056,7 +1081,7 @@ class AccessControllerPolicyTest(unittest.TestCase):
         self.assertIsNone(err_ok)
         self.assertTrue(res_ok["authorized"])
         stored_prefixes = stored("tools")["run_command"]["constraints"]["command"]["allowedPrefixes"]
-        self.assertEqual(stored_prefixes, ["echo"])
+        self.assertEqual(stored_prefixes, ["echo *"])
 
     def _command_challenge(self, command):
         handler = zerochat.ZeroChatServerHandler.__new__(zerochat.ZeroChatServerHandler)
@@ -1097,7 +1122,7 @@ class AccessControllerPolicyTest(unittest.TestCase):
         self.assertIsNone(err)
         command = stored("tools")["run_command"]["constraints"]["command"]
         self.assertEqual(command["allowedPrefixes"], [])
-        self.assertEqual(command["projectPrefixes"], {project: ["printf"]})
+        self.assertEqual(command["projectPrefixes"], {project: ["printf *"]})
         self.assertEqual(self._status("printf x"), "allow")
         self.assertEqual(self._status("printf x", other_project), "ask")
         # La escritura permanente no retira los prefijos de sesión: se suman
@@ -1110,8 +1135,8 @@ class AccessControllerPolicyTest(unittest.TestCase):
         self.assertEqual(self._status("true x", other_project), "allow")
 
         exported = controller.export_state()["tools"]["run_command"]["constraints"]["command"]
-        self.assertEqual(exported["sessionPrefixes"], ["echo uno"])
-        self.assertEqual(exported["allowedPrefixes"], ["true"])
+        self.assertEqual(exported["sessionPrefixes"], ["echo uno *"])
+        self.assertEqual(exported["allowedPrefixes"], ["true *"])
 
         # Al acabar la sesión solo quedan los permanentes
         controller.clear_session()
@@ -1154,7 +1179,7 @@ class AccessControllerPolicyTest(unittest.TestCase):
         controller = zerochat.ACCESS_CONTROLLER
         controller.clear_session()
         handler, cid = self._command_challenge("echo capa")
-        self._authorize_prefix(handler, cid, "allow_session", "echo capa")
+        self._authorize_prefix(handler, cid, "allow_session", "echo capa *")
         snapshot = controller.export_state()
         controller.clear_session()
         controller.apply_session_overlay(snapshot)

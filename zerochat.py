@@ -1904,7 +1904,10 @@ WRITE_PATH_TOOLS = frozenset(("edit_file", "write_file"))
 DIRECTORY_PATH_TOOLS = frozenset(("list_directory", "search_files", "get_diagnostics"))
 
 MAX_COMMAND_PREFIXES = 50
-COMMAND_PREFIX_FORBIDDEN = re.compile(r"[;&|<>$`*\n\r]")
+COMMAND_PATTERN_FORBIDDEN = re.compile(r"[;&|<>$`'\"\\\n\r]")
+# Lo que la shell expandiría no lo cubre un comodín: variables, llaves, ~ y comillas invertidas.
+COMMAND_WILDCARD_UNSAFE = re.compile(r"[$`{}~]")
+SYSTEM_BIN_DIRS = ("/usr/bin/", "/bin/", "/usr/local/bin/")
 SUBCOMMAND_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_.:-]*")
 
 SAFE_REDIRECTION_PATTERN = re.compile(r"&>\s*/dev/null|\d?>>?\s*/dev/null|\d?>&\d")
@@ -2084,25 +2087,41 @@ def is_workspace_local_command(cmd: str) -> bool:
     return not WORKSPACE_TRUST_GLOBAL_COMMANDS.search(cmd) and not WORKSPACE_TRUST_OUTSIDE_REFERENCE.search(cmd)
 
 
-def matches_command_prefix(command: str, prefix: str) -> bool:
-    """Verifica si un comando cumple un prefijo autorizado."""
-    clean_prefix = str(prefix).rstrip("*").strip()
-    if not clean_prefix:
+@functools.lru_cache(maxsize=512)
+def compile_command_pattern(pattern: str) -> tuple[tuple[tuple[re.Pattern, bool], ...], bool]:
+    """
+    Compila un patrón de comando por argumentos: cada palabra es una expresión regular (un `*`
+    vale cualquier texto sin `/`) con su marca de comodín, y un `*` suelto al final admite
+    cualquier número de argumentos más ('git log *' -> ((git, no), (log, no)), sí).
+    """
+    words = pattern.split()
+    rest = bool(words) and words[-1] == "*"
+    if rest:
+        words = words[:-1]
+    compiled = tuple((re.compile("[^/]*".join(re.escape(part) for part in word.split("*"))), "*" in word)
+                     for word in words)
+    return compiled, rest
+
+
+def matches_command_prefix(command: str, pattern: str) -> bool:
+    """
+    Verifica si un comando cumple un patrón autorizado, argumento a argumento: sin `*` el texto es
+    exacto. Un argumento cubierto por un comodín no puede contener `..` ni lo que expande la shell.
+    """
+    words, rest = compile_command_pattern(str(pattern))
+    try:
+        args = shlex.split(command)
+    except ValueError:
         return False
-    prefixes = [
-        clean_prefix,
-        f"/usr/bin/{clean_prefix}",
-        f"/bin/{clean_prefix}",
-        f"/usr/local/bin/{clean_prefix}"
-    ]
-    for p in prefixes:
-        if command == p:
-            return True
-        if p.endswith("/") and command.startswith(p):
-            return True
-        if command.startswith(f"{p} ") or command.startswith(f"{p}\t"):
-            return True
-    return False
+    if not words or len(args) < len(words) or (len(args) > len(words) and not rest):
+        return False
+    first = next((args[0][len(d):] for d in SYSTEM_BIN_DIRS if args[0].startswith(d)), args[0])
+    for (regex, wildcard), arg in zip(words, [first, *args[1:]]):
+        if not regex.fullmatch(arg):
+            return False
+        if wildcard and (COMMAND_WILDCARD_UNSAFE.search(arg) or ".." in arg.split("/")):
+            return False
+    return True
 
 
 def evaluate_command_constraint(cmd_val: str, command_constraints: dict) -> tuple[bool, bool, str, str]:
@@ -2134,17 +2153,20 @@ def evaluate_command_constraint(cmd_val: str, command_constraints: dict) -> tupl
 
 
 def normalize_command_prefix(raw: str) -> str:
-    """Limpia un prefijo autorizado ('git status *' -> 'git status'); ValueError si no es válido."""
+    """
+    Limpia un patrón de comando ('git  status *' -> 'git status *'): el ejecutable sin comodín, sin
+    metacaracteres de shell ni comillas y sin `**`, reservado; ValueError si no es válido.
+    """
     if not isinstance(raw, str):
-        raise ValueError("Cada prefijo de comando debe ser un texto.")
-    clean = " ".join(re.sub(r"\s*\*\s*$", "", raw).split())
-    if not clean or COMMAND_PREFIX_FORBIDDEN.search(clean):
-        raise ValueError(f"Prefijo de comando no válido: '{raw}'.")
+        raise ValueError("Cada patrón de comando debe ser un texto.")
+    clean = " ".join(raw.split())
+    if not clean or "*" in clean.split()[0] or "**" in clean or COMMAND_PATTERN_FORBIDDEN.search(clean):
+        raise ValueError(f"Patrón de comando no válido: '{raw}'.")
     return clean
 
 
 def _clean_prefix_list(raw: list, label: str) -> list[str]:
-    """Prefijos limpios, sin repetidos ni cubiertos por otro más amplio de la misma lista."""
+    """Patrones limpios, sin repetidos ni cubiertos por otro más amplio de la misma lista."""
     if not isinstance(raw, list):
         raise ValueError(f"{label} debe ser una lista de comandos.")
     unique = list(dict.fromkeys(normalize_command_prefix(p) for p in raw))
@@ -2228,13 +2250,14 @@ def get_rule_offer(tool_name: str, args: dict, auth_eval: dict | None = None) ->
     command = get_command_arg(args)
     if command and not eval_info.get("directoryAccess"):
         prefix = suggest_command_prefix(command)
-        if not prefix or COMMAND_PREFIX_FORBIDDEN.search(prefix):
+        if not prefix or "*" in prefix or COMMAND_PATTERN_FORBIDDEN.search(prefix):
             return None
+        pattern = f"{prefix} *"
         return {
             "type": "command",
-            "command": prefix,
+            "command": pattern,
             "constraints": {
-                "command": {"allowedPrefixes": [prefix], "allowChaining": False, "allowPipes": False}
+                "command": {"allowedPrefixes": [pattern], "allowChaining": False, "allowPipes": False}
             }
         }
     # Solo las herramientas integradas se autorizan por reglas de directorio.

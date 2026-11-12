@@ -564,7 +564,7 @@
     const ruleOffer = options.ruleOffer;
     let contextualButtonsHtml = '';
     if (ruleOffer?.type === 'command') {
-      // Con "cd <dir> && git status" se ofrece autorizar "git status *", no cd. Cada botón concede la línea
+      // Con "cd <dir> && git status" se ofrece autorizar el patrón "git status *", no cd. Cada botón concede la línea
       // de la caja (editable) con su alcance: esta sesión, este proyecto o todos los proyectos.
       const prefixLabel = escapeHtml(t('tool_auth_cmd_prefix_label'));
       const scopeButton = (decision, icon, label, title) => `<button type="button" class="btn-auth-action btn-auth-allow-cmd" data-decision="${decision}" title="${escapeHtml(title)}">${icon} <span>${escapeHtml(label)}</span></button>`;
@@ -573,7 +573,7 @@
           ${scopeButton('allow_session', CLOCK_SVG, t('tool_auth_cmd_session'), t('tool_auth_cmd_session_title'))}
           ${scopeButton('allow_project', FOLDER_SVG, t('tool_auth_cmd_project'), t('tool_auth_cmd_project_title'))}
           ${scopeButton('allow_always', GLOBE_SVG, t('tool_auth_cmd_global'), t('tool_auth_cmd_global_title'))}
-          <input type="text" class="tool-auth-cmd-input" value="${escapeHtml(`${ruleOffer.command} *`)}" aria-label="${prefixLabel}" title="${escapeHtml(t('tool_auth_allow_cmd_title'))}" spellcheck="false" autocomplete="off">
+          <input type="text" class="tool-auth-cmd-input" value="${escapeHtml(ruleOffer.command)}" aria-label="${prefixLabel}" title="${escapeHtml(t('tool_auth_allow_cmd_title'))}" spellcheck="false" autocomplete="off">
         </div>
       `;
     } else if (ruleOffer?.type === 'directory') {
@@ -716,12 +716,9 @@
 
       const cmdInput = authPromptEl.querySelector('.tool-auth-cmd-input');
       const cmdButtons = [...authPromptEl.querySelectorAll('.btn-auth-allow-cmd')];
-      // La línea vale si, quitado el "*" final, queda un comando sin más "*" (el backend valida el resto).
+      // La línea vale si el ejecutable no lleva "*" (el backend valida el resto del patrón).
       const commandLine = () => cmdInput?.value.trim() || '';
-      const isValidCommandLine = line => {
-        const prefix = line.replace(/\s*\*$/, '').trim();
-        return Boolean(prefix) && !prefix.includes('*');
-      };
+      const isValidCommandLine = line => Boolean(line) && !line.split(/\s+/)[0].includes('*');
       const syncCommandLine = () => {
         const valid = isValidCommandLine(commandLine());
         cmdButtons.forEach(button => { button.disabled = !valid; });

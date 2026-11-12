@@ -47,7 +47,7 @@ Done when: Los probes C1-C3, S1-S3 y D1 de docs/audits/M61-permisos.md se compor
 - [x] M61-T21 Campo del prefijo de comando en la tarjeta en su propia fila: el botón ya no lo deja sin ancho en el menú (2026-11-11)
 - [x] M61-T22 Línea de comando editable con el * dentro ("git status *") y ✓ al lado para aceptarla; vacía, solo * o * intermedio desactivan ✓ (2026-11-11)
 - [x] M61-T23 Prefijo de comando con tres alcances (esta sesión, este proyecto, todos los proyectos) en la tarjeta y agrupados por alcance en Ajustes (2026-11-11)
-- [ ] M61-T24 Comodín * en patrones de comando por argumento (shlex): * sin espacios ni /, " *" final para más argumentos, sin * texto exacto, .. rechazado; patrón compilado a regex (sin migración: se borra la base de datos)
+- [x] M61-T24 Comodín * en patrones de comando por argumento (shlex): * sin espacios ni /, " *" final para más argumentos, sin * texto exacto, .. rechazado; patrón compilado a regex (sin migración: se borra la base de datos) (2026-11-12)
 - [ ] M61-T25 Rediseño visual de los permisos en Ajustes › MCP: alcance de cada prefijo claro (global, proyecto, sesión), alta cuadrada y con alcance elegible, permisos de sesión visibles
 - [x] M61-T26 Cambiar de proyecto (set_project_directory) borra las autorizaciones de sesión y los retos pendientes (2026-11-12)
 - [ ] M61-T27 Revisar y reestructurar las pruebas de permisos (Python, integración y navegador): quitar redundancias y casos obsoletos, probar solo el comportamiento vigente e importante
