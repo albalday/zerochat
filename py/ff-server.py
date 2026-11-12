@@ -648,6 +648,20 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             }, None, ""
         return None
 
+    @classmethod
+    def _call_tool(cls, origin: str, params: dict) -> tuple[dict | None, dict | None, str]:
+        """tools/call de los dos endpoints: evalúa, emite un reto o ejecuta por el punto único."""
+        tool_name = params.get("name", "")
+        if origin == "local" and tool_name not in LOCAL_TOOL_HANDLERS:
+            return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
+        raw_args = params.get("arguments")
+        args = dict(raw_args) if isinstance(raw_args, dict) else {}
+        meta = params.get("_meta")
+        # La clave del trabajo no es un argumento del modelo: no se evalúa ni se muestra en el reto.
+        job_key = meta.get("zerochatJobKey") if origin == "local" and tool_name == COMMAND_TOOL and isinstance(meta, dict) else None
+        gate = cls._authorize_or_challenge(origin, tool_name, args, SecurityContext(), job_key)
+        return gate if gate is not None else cls._execute_tool(origin, tool_name, cls._with_job_key(args, job_key))
+
     def _dispatch_external(self, method: str, params: dict) -> tuple[dict | None, dict | None, str]:
         """Atiende /mcp/external. Devuelve (result, error JSON-RPC, detalle de error de herramienta)."""
         if method == "initialize":
@@ -655,16 +669,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if method == "tools/list":
             return {"tools": GLOBAL_MCP_MANAGER.tools()}, None, ""
         if method == "tools/call":
-            tool_name = params.get("name", "")
-            raw_args = params.get("arguments", {})
-            args = raw_args if isinstance(raw_args, dict) else {}
-            ctx = SecurityContext()
-
-            gate = self._authorize_or_challenge("external", tool_name, args, ctx)
-            if gate is not None:
-                return gate
-
-            return self._execute_tool("external", tool_name, args)
+            return self._call_tool("external", params)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado en /mcp/external."}, ""
 
     def _dispatch_local(self, method: str, params: dict) -> tuple[dict | None, dict | None, str]:
@@ -685,21 +690,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if method == "tools/list":
             return {"tools": [dict(definition) for definition in LOCAL_TOOLS_DEFINITIONS]}, None, ""
         if method == "tools/call":
-            tool_name = params.get("name", "")
-            if tool_name not in LOCAL_TOOL_HANDLERS:
-                return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
-            raw_args = params.get("arguments", {})
-            args = dict(raw_args) if isinstance(raw_args, dict) else {}
-            meta = params.get("_meta")
-            # La clave del trabajo no es un argumento del modelo: no se evalúa ni se muestra en el reto.
-            job_key = meta.get("zerochatJobKey") if tool_name == COMMAND_TOOL and isinstance(meta, dict) else None
-            ctx = SecurityContext()
-
-            gate = self._authorize_or_challenge("local", tool_name, args, ctx, job_key)
-            if gate is not None:
-                return gate
-
-            return self._execute_tool("local", tool_name, self._with_job_key(args, job_key))
+            return self._call_tool("local", params)
         if method == "zerochat/project/set_directory":
             # Lo invoca la interfaz a petición del usuario: no es una herramienta del modelo.
             try:
