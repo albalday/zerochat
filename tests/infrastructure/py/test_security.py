@@ -727,6 +727,34 @@ class SessionLifecycleTest(HandlerTestCase):
         self.assertIn(ch["id"], challenges(self.controller, project_a))
         self.assertIsNotNone(self.controller.authorize_challenge(ch["id"], "allow_once", context=project_a))
 
+    def test_project_sessions_are_capped_releasing_the_least_recently_used_without_commands(self):
+        projects = {}
+        for name in "abcd":
+            (self.base_dir / name).mkdir()
+            projects[name] = zerochat.SecurityContext((self.base_dir / name).resolve())
+        controller = zerochat.AccessController()
+        running = set()
+        self.addCleanup(setattr, zerochat, "JOBS", zerochat.JOBS)
+        zerochat.JOBS = unittest.mock.Mock(running=lambda project: [project] if project in running else [])
+        with unittest.mock.patch.object(zerochat, "MAX_PROJECT_SESSIONS", 2):
+            controller.apply_session_overlay({"tools": {"t": {"policy": "allow"}}}, projects["a"])
+            controller.export_state(projects["b"])
+            self.assertEqual(len(controller.sessions), 2, "N proyectos caben")
+            key = lambda name: zerochat.normalize_directory_path(str(projects[name].workspace_dir))
+            # N+1: se olvida el usado hace más tiempo (a), salvo que tenga comandos en marcha: entonces b
+            running.add(str(projects["a"].workspace_dir))
+            controller.export_state(projects["c"])
+            self.assertEqual(set(controller.sessions), {key("a"), key("c")})
+            # Si todos tienen comandos en marcha, el nuevo no entra
+            running.add(str(projects["c"].workspace_dir))
+            with self.assertRaises(ValueError):
+                controller.export_state(projects["d"])
+            self.assertEqual(set(controller.sessions), {key("a"), key("c")})
+            running.clear()
+            controller.export_state(projects["d"])
+            self.assertEqual(set(controller.sessions), {key("c"), key("d")})
+            self.assertIsNone(tool_entry(controller, "t", projects["a"]), "Al volver, a empieza vacía")
+
     def test_a_saved_change_replaces_the_session_entry_in_every_project(self):
         other = self.base_dir / "otro"
         other.mkdir()

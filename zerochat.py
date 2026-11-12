@@ -1897,6 +1897,8 @@ POLICY_STATE_VERSION = 6
 CHALLENGE_TTL_MS = 600_000
 AUTHORIZE_DECISIONS = ("allow_once", "allow_session", "allow_project", "allow_always", "allow_server_always")
 MAX_POLICY_ENTRIES = 500
+# Proyectos con sesión en memoria: al pasar del tope se olvida la del usado hace más tiempo sin comandos en marcha.
+MAX_PROJECT_SESSIONS = 16
 
 DIRECTORY_RULE_PATTERN = re.compile(r"^(R|W|RW):(.+)$")
 COMMAND_TOOL = "run_command"
@@ -2319,6 +2321,8 @@ class ProjectSession:
     Lo autorizado en la sesión para un proyecto y sus retos pendientes, en memoria mientras dure el servidor.
     Lo comparten todas las pestañas y dispositivos que trabajan en ese proyecto.
     """
+    directory: str
+    last_used: float = 0.0
     global_policy: str | None = None
     directory_rules: list[str] | None = None
     tools: dict[str, dict] = dataclasses.field(default_factory=dict)
@@ -2338,9 +2342,23 @@ class AccessController:
         self.sessions: dict[str, ProjectSession] = {}
 
     def _session(self, context: SecurityContext) -> ProjectSession:
-        """Sesión del proyecto de la petición, creada vacía la primera vez."""
+        """
+        Sesión del proyecto de la petición, creada vacía la primera vez. Con MAX_PROJECT_SESSIONS proyectos
+        en memoria, olvida la del usado hace más tiempo que no tenga comandos en marcha; si todos los
+        tienen, la nueva no se crea (ValueError).
+        """
+        key = self._project_key(context)
         with self._lock:
-            return self.sessions.setdefault(self._project_key(context), ProjectSession())
+            session = self.sessions.get(key)
+            if session is None:
+                if len(self.sessions) >= MAX_PROJECT_SESSIONS:
+                    idle = [k for k, s in self.sessions.items() if not JOBS.running(s.directory)]
+                    if not idle:
+                        raise ValueError(f"Hay {MAX_PROJECT_SESSIONS} proyectos con comandos en marcha; detén alguno para trabajar en otro.")
+                    del self.sessions[min(idle, key=lambda k: self.sessions[k].last_used)]
+                session = self.sessions[key] = ProjectSession(str(context.workspace_dir))
+            session.last_used = time.monotonic()
+            return session
 
     @staticmethod
     def _normalize_state(raw: dict | None) -> dict:
