@@ -118,7 +118,7 @@ class RunCommandTest(unittest.TestCase):
         # Un log que supera el tope conserva comienzo y final, con una marca en medio.
         with patch.object(zerochat, "JOB_LOG_HEAD_BYTES", 1000), patch.object(zerochat, "JOB_LOG_TAIL_BYTES", 1000):
             result = run("seq 1 20000")
-        job = zerochat.JOBS.get(job_id=result["job_id"])
+        job = zerochat.JOBS.get(str(self.project), job_id=result["job_id"])
         self.assertTrue(result["output"].endswith("20000\n"))
         self.assertIs(result["truncated"], True)
         text, next_offset = job.read_range(0, 10 ** 9)
@@ -133,7 +133,10 @@ class RunCommandTest(unittest.TestCase):
 @unittest.skipIf(os.name == "nt", "Comandos POSIX")
 class BackgroundCommandTest(unittest.TestCase):
     def setUp(self):
-        use_data_dir(self)
+        self.data_dir = use_data_dir(self)
+        self.project = (self.data_dir / "project").resolve()
+        self.project.mkdir()
+        use_project(self, self.project)
         use_fresh_jobs(self)
         patcher = patch.object(zerochat, "BACKGROUND_STARTUP_WAIT", 0.1)
         patcher.start()
@@ -150,14 +153,14 @@ class BackgroundCommandTest(unittest.TestCase):
         self.assertEqual((first["status"], first["output"]), ("running", "uno\n"))
         self.assertIn("check_command", first["note"])
         job_id = first["job_id"]
-        self.assertEqual(zerochat.JOBS.get(key="clave-de-prueba").id, job_id)
+        self.assertEqual(zerochat.JOBS.get(str(self.project), key="clave-de-prueba").id, job_id)
 
         # Solo devuelve lo que el modelo aún no ha visto.
         nothing = check(job_id)
         self.assertEqual((nothing["status"], nothing["new_output"]), ("running", ""))
         finished = check(job_id, wait_seconds=10)
         self.assertEqual((finished["status"], finished["exit_code"], finished["new_output"]), ("exited", 0, "dos\ntres\n"))
-        self.assertIs(zerochat.JOBS.get(job_id=job_id).reported, True)
+        self.assertIs(zerochat.JOBS.get(str(self.project), job_id=job_id).reported, True)
 
         server = run("echo escuchando; exec sleep 100", background=True)
         stopped = check(server["job_id"], stop=True)
@@ -167,19 +170,29 @@ class BackgroundCommandTest(unittest.TestCase):
         self.assertIs(unknown["success"], False)
         self.assertIn("Unknown job_id", unknown["error"])
 
+    def test_cada_proyecto_solo_ve_y_detiene_sus_comandos(self):
+        other = zerochat.SecurityContext(self.data_dir.resolve())
+        alive = run("exec sleep 100", background=True)
+        foreign = json.loads(zerochat.check_command(alive["job_id"], stop=True, ctx=other))
+        self.assertIs(foreign["success"], False, "Otro proyecto no puede consultarlo ni detenerlo")
+        self.assertEqual(zerochat.JOBS.running(str(other.workspace_dir)), [])
+        self.assertEqual([job.id for job in zerochat.JOBS.running(str(self.project))], [alive["job_id"]])
+        self.assertIsNone(zerochat.JOBS.get(str(other.workspace_dir), job_id=alive["job_id"]))
+        self.assertEqual(check(alive["job_id"], stop=True)["status"], "stopped")
+
     def test_un_final_no_visto_se_entrega_una_sola_vez(self):
         # Los finales ya vistos y los comandos vivos nunca se entregan.
         seen = run("echo visto", background=True)
-        zerochat.JOBS.get(job_id=seen["job_id"]).done.wait(5)
+        zerochat.JOBS.get(str(self.project), job_id=seen["job_id"]).done.wait(5)
         check(seen["job_id"])
         unseen = run("echo a; sleep 0.3; echo fin; exit 3", background=True)
-        zerochat.JOBS.get(job_id=unseen["job_id"]).done.wait(5)
+        zerochat.JOBS.get(str(self.project), job_id=unseen["job_id"]).done.wait(5)
         alive = run("exec sleep 100", background=True)
-        reports = zerochat.JOBS.report_finished([unseen["job_id"], seen["job_id"], alive["job_id"], 9999, unseen["job_id"]])
+        reports = zerochat.JOBS.report_finished([unseen["job_id"], seen["job_id"], alive["job_id"], 9999, unseen["job_id"]], str(self.project))
         self.assertEqual([report["id"] for report in reports], [unseen["job_id"]])
         self.assertEqual((reports[0]["exit_code"], reports[0]["tail"]), (3, "a\nfin"))
         self.assertTrue(reports[0]["log_file"].endswith(".log"))
-        self.assertEqual(zerochat.JOBS.report_finished([unseen["job_id"]]), [])
+        self.assertEqual(zerochat.JOBS.report_finished([unseen["job_id"]], str(self.project)), [])
         self.assertEqual(check(unseen["job_id"])["new_output"], "")
 
     def test_hay_un_limite_de_comandos_simultaneos_y_al_apagar_se_detienen_y_se_borran_los_logs(self):
@@ -189,9 +202,9 @@ class BackgroundCommandTest(unittest.TestCase):
         self.assertIs(refused["success"], False)
         self.assertIn("Too many commands", refused["error"])
 
-        log_dir = zerochat.JOBS.get(job_id=busy["job_id"]).log_path.parent
+        log_dir = zerochat.JOBS.get(str(self.project), job_id=busy["job_id"]).log_path.parent
         zerochat.JOBS.shutdown()
-        self.assertEqual(zerochat.JOBS.get(job_id=busy["job_id"]).status, "stopped")
+        self.assertEqual(zerochat.JOBS.get(str(self.project), job_id=busy["job_id"]).status, "stopped")
         self.assertFalse(log_dir.exists())
 
 
@@ -245,7 +258,7 @@ class OrphanJobsTest(unittest.TestCase):
     def test_la_instancia_apunta_sus_comandos_en_marcha_y_los_borra_al_terminar(self):
         with patch.object(zerochat, "BACKGROUND_STARTUP_WAIT", 0.2):
             started = run("exec sleep 100", background=True)
-        job = zerochat.JOBS.get(job_id=started["job_id"])
+        job = zerochat.JOBS.get(str(zerochat.PROJECT_DIR), job_id=started["job_id"])
         own = job.log_path.parent
         self.assertEqual(json.loads((own / "owner.json").read_text(encoding="utf-8"))["pid"], os.getpid())
         registry = json.loads((own / "jobs.json").read_text(encoding="utf-8"))

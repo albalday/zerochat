@@ -838,7 +838,10 @@ class CommandJob:
 
 
 class JobManager:
-    """Registro de los comandos lanzados en esta sesión del servidor."""
+    """
+    Registro de los comandos lanzados en esta sesión del servidor. Cada comando es del proyecto en el que
+    arrancó (su cwd): las consultas indican el proyecto y solo ven los suyos; None (al apagar) los ve todos.
+    """
 
     def __init__(self):
         self._jobs: dict[int, CommandJob] = {}
@@ -963,17 +966,17 @@ class JobManager:
         self._write_registry()
         job.done.set()
 
-    def get(self, job_id=None, key=None) -> CommandJob | None:
-        with self._lock:
-            if isinstance(job_id, int) and not isinstance(job_id, bool):
-                return self._jobs.get(job_id)
-            if isinstance(key, str) and key:
-                return next((job for job in self._jobs.values() if job.key == key), None)
+    def get(self, project: str, job_id=None, key=None) -> CommandJob | None:
+        jobs = self.list(project)
+        if isinstance(job_id, int) and not isinstance(job_id, bool):
+            return next((job for job in jobs if job.id == job_id), None)
+        if isinstance(key, str) and key:
+            return next((job for job in jobs if job.key == key), None)
         return None
 
-    def list(self) -> list[CommandJob]:
+    def list(self, project: str | None) -> list[CommandJob]:
         with self._lock:
-            return list(self._jobs.values())
+            return [job for job in self._jobs.values() if project is None or job.cwd == project]
 
     def stop(self, job: CommandJob, reason: str) -> CommandJob:
         """Termina el grupo del comando: primero con cortesía y, si no basta, a la fuerza."""
@@ -998,14 +1001,14 @@ class JobManager:
             job.done.wait(JOB_STOP_GRACE_SECONDS)
         return job
 
-    def report_finished(self, ids: list[int]) -> list[dict]:
+    def report_finished(self, ids: list[int], project: str) -> list[dict]:
         """Final de los comandos indicados que han terminado sin que el modelo lo haya visto.
 
         Cada final se entrega una sola vez: queda marcado como visto.
         """
         reports = []
         for job_id in dict.fromkeys(ids):
-            job = self.get(job_id=job_id)
+            job = self.get(project, job_id=job_id)
             if job is None or not job.done.is_set() or job.reported:
                 continue
             job.reported = True
@@ -1014,11 +1017,11 @@ class JobManager:
             reports.append({**job.summary(), "tail": tail, "log_file": str(job.log_path)})
         return reports
 
-    def running(self) -> list[CommandJob]:
-        return [job for job in self.list() if not job.done.is_set()]
+    def running(self, project: str | None) -> list[CommandJob]:
+        return [job for job in self.list(project) if not job.done.is_set()]
 
     def stop_all(self, reason: str = "shutdown"):
-        threads = [threading.Thread(target=self.stop, args=(job, reason), daemon=True) for job in self.running()]
+        threads = [threading.Thread(target=self.stop, args=(job, reason), daemon=True) for job in self.running(None)]
         for thread in threads:
             thread.start()
         for thread in threads:
@@ -1095,9 +1098,9 @@ def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, ba
 
 def check_command(job_id: int, wait_seconds: int = 0, stop: bool = False, *, ctx: SecurityContext) -> str:
     """Estado y salida nueva de un comando lanzado por run_command; puede esperarlo o detenerlo."""
-    job = JOBS.get(job_id=job_id)
+    job = JOBS.get(str(ctx.workspace_dir), job_id=job_id)
     if job is None:
-        return _tool_error(f"Unknown job_id {job_id}. It may belong to a previous ZeroChat session.", os=DETECTED_OS)
+        return _tool_error(f"Unknown job_id {job_id}. It may belong to a previous ZeroChat session or to another project.", os=DETECTED_OS)
     if stop:
         JOBS.stop(job, "model")
     else:
@@ -5539,7 +5542,7 @@ def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -
     runs, focus_run = list_server_runs(focus_conversation_id)
     return {
         "cwd": str(ctx.workspace_dir),
-        "jobs": [job.summary() for job in JOBS.running()],
+        "jobs": [job.summary() for job in JOBS.running(str(ctx.workspace_dir))],
         "exit_on_close": EXIT_ON_CLOSE,
         "playwright": playwright_status(),
         "servers": GLOBAL_MCP_MANAGER.list_servers(),
@@ -5554,7 +5557,7 @@ def stop_zerochat_server(server: ThreadingHTTPServer):
         return
     _SERVER_SHUTTING_DOWN.set()
     HEARTBEAT_WATCHDOG_STOP.set()
-    running = JOBS.running()
+    running = JOBS.running(None)
     if running:
         console_log(timestamp_message(f"Deteniendo {len(running)} comando(s) en marcha: " + ", ".join(job.command[:60] for job in running)))
     JOBS.stop_all("shutdown")
@@ -6227,7 +6230,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 return None, {"code": -32603, "message": f"Error en transporte web: {exc}"}, str(exc)
         if method.startswith("zerochat/jobs/"):
-            return self._dispatch_jobs(method, params)
+            return self._dispatch_jobs(method, params, ctx)
         if method.startswith("zerochat/run/"):
             return dispatch_run(method, params)
         if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):
@@ -6429,16 +6432,17 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_res(200, log_detail, (time.monotonic() - t0) * 1000, error_info=error_info)
 
     @staticmethod
-    def _dispatch_jobs(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
-        """Control de los comandos desde la interfaz: tarjetas, log y botón de detener."""
+    def _dispatch_jobs(method: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
+        """Control de los comandos del proyecto de la petición desde la interfaz: tarjetas, log y botón de detener."""
+        project = str(ctx.workspace_dir)
         if method == "zerochat/jobs/list":
-            return {"jobs": [job.summary() for job in JOBS.list()]}, None, ""
+            return {"jobs": [job.summary() for job in JOBS.list(project)]}, None, ""
         if method == "zerochat/jobs/report":
             ids = params.get("ids")
             if not isinstance(ids, list) or len(ids) > 100 or any(isinstance(i, bool) or not isinstance(i, int) for i in ids):
                 return None, {"code": -32602, "message": "ids debe ser una lista de hasta 100 enteros."}, ""
-            return {"reports": JOBS.report_finished(ids)}, None, ""
-        job = JOBS.get(job_id=params.get("id"), key=params.get("key"))
+            return {"reports": JOBS.report_finished(ids, project)}, None, ""
+        job = JOBS.get(project, job_id=params.get("id"), key=params.get("key"))
         if method in ("zerochat/jobs/get", "zerochat/jobs/log", "zerochat/jobs/stop") and job is None:
             return None, {"code": -32602, "message": "Comando no encontrado: puede pertenecer a una sesión anterior de ZeroChat."}, ""
         if method == "zerochat/jobs/get":

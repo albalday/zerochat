@@ -414,7 +414,10 @@ class CommandJob:
 
 
 class JobManager:
-    """Registro de los comandos lanzados en esta sesión del servidor."""
+    """
+    Registro de los comandos lanzados en esta sesión del servidor. Cada comando es del proyecto en el que
+    arrancó (su cwd): las consultas indican el proyecto y solo ven los suyos; None (al apagar) los ve todos.
+    """
 
     def __init__(self):
         self._jobs: dict[int, CommandJob] = {}
@@ -539,17 +542,17 @@ class JobManager:
         self._write_registry()
         job.done.set()
 
-    def get(self, job_id=None, key=None) -> CommandJob | None:
-        with self._lock:
-            if isinstance(job_id, int) and not isinstance(job_id, bool):
-                return self._jobs.get(job_id)
-            if isinstance(key, str) and key:
-                return next((job for job in self._jobs.values() if job.key == key), None)
+    def get(self, project: str, job_id=None, key=None) -> CommandJob | None:
+        jobs = self.list(project)
+        if isinstance(job_id, int) and not isinstance(job_id, bool):
+            return next((job for job in jobs if job.id == job_id), None)
+        if isinstance(key, str) and key:
+            return next((job for job in jobs if job.key == key), None)
         return None
 
-    def list(self) -> list[CommandJob]:
+    def list(self, project: str | None) -> list[CommandJob]:
         with self._lock:
-            return list(self._jobs.values())
+            return [job for job in self._jobs.values() if project is None or job.cwd == project]
 
     def stop(self, job: CommandJob, reason: str) -> CommandJob:
         """Termina el grupo del comando: primero con cortesía y, si no basta, a la fuerza."""
@@ -574,14 +577,14 @@ class JobManager:
             job.done.wait(JOB_STOP_GRACE_SECONDS)
         return job
 
-    def report_finished(self, ids: list[int]) -> list[dict]:
+    def report_finished(self, ids: list[int], project: str) -> list[dict]:
         """Final de los comandos indicados que han terminado sin que el modelo lo haya visto.
 
         Cada final se entrega una sola vez: queda marcado como visto.
         """
         reports = []
         for job_id in dict.fromkeys(ids):
-            job = self.get(job_id=job_id)
+            job = self.get(project, job_id=job_id)
             if job is None or not job.done.is_set() or job.reported:
                 continue
             job.reported = True
@@ -590,11 +593,11 @@ class JobManager:
             reports.append({**job.summary(), "tail": tail, "log_file": str(job.log_path)})
         return reports
 
-    def running(self) -> list[CommandJob]:
-        return [job for job in self.list() if not job.done.is_set()]
+    def running(self, project: str | None) -> list[CommandJob]:
+        return [job for job in self.list(project) if not job.done.is_set()]
 
     def stop_all(self, reason: str = "shutdown"):
-        threads = [threading.Thread(target=self.stop, args=(job, reason), daemon=True) for job in self.running()]
+        threads = [threading.Thread(target=self.stop, args=(job, reason), daemon=True) for job in self.running(None)]
         for thread in threads:
             thread.start()
         for thread in threads:
@@ -671,9 +674,9 @@ def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, ba
 
 def check_command(job_id: int, wait_seconds: int = 0, stop: bool = False, *, ctx: SecurityContext) -> str:
     """Estado y salida nueva de un comando lanzado por run_command; puede esperarlo o detenerlo."""
-    job = JOBS.get(job_id=job_id)
+    job = JOBS.get(str(ctx.workspace_dir), job_id=job_id)
     if job is None:
-        return _tool_error(f"Unknown job_id {job_id}. It may belong to a previous ZeroChat session.", os=DETECTED_OS)
+        return _tool_error(f"Unknown job_id {job_id}. It may belong to a previous ZeroChat session or to another project.", os=DETECTED_OS)
     if stop:
         JOBS.stop(job, "model")
     else:

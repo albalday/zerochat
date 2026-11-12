@@ -31,7 +31,7 @@ def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -
     runs, focus_run = list_server_runs(focus_conversation_id)
     return {
         "cwd": str(ctx.workspace_dir),
-        "jobs": [job.summary() for job in JOBS.running()],
+        "jobs": [job.summary() for job in JOBS.running(str(ctx.workspace_dir))],
         "exit_on_close": EXIT_ON_CLOSE,
         "playwright": playwright_status(),
         "servers": GLOBAL_MCP_MANAGER.list_servers(),
@@ -46,7 +46,7 @@ def stop_zerochat_server(server: ThreadingHTTPServer):
         return
     _SERVER_SHUTTING_DOWN.set()
     HEARTBEAT_WATCHDOG_STOP.set()
-    running = JOBS.running()
+    running = JOBS.running(None)
     if running:
         console_log(timestamp_message(f"Deteniendo {len(running)} comando(s) en marcha: " + ", ".join(job.command[:60] for job in running)))
     JOBS.stop_all("shutdown")
@@ -719,7 +719,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 return None, {"code": -32603, "message": f"Error en transporte web: {exc}"}, str(exc)
         if method.startswith("zerochat/jobs/"):
-            return self._dispatch_jobs(method, params)
+            return self._dispatch_jobs(method, params, ctx)
         if method.startswith("zerochat/run/"):
             return dispatch_run(method, params)
         if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):
@@ -921,16 +921,17 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_res(200, log_detail, (time.monotonic() - t0) * 1000, error_info=error_info)
 
     @staticmethod
-    def _dispatch_jobs(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
-        """Control de los comandos desde la interfaz: tarjetas, log y botón de detener."""
+    def _dispatch_jobs(method: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
+        """Control de los comandos del proyecto de la petición desde la interfaz: tarjetas, log y botón de detener."""
+        project = str(ctx.workspace_dir)
         if method == "zerochat/jobs/list":
-            return {"jobs": [job.summary() for job in JOBS.list()]}, None, ""
+            return {"jobs": [job.summary() for job in JOBS.list(project)]}, None, ""
         if method == "zerochat/jobs/report":
             ids = params.get("ids")
             if not isinstance(ids, list) or len(ids) > 100 or any(isinstance(i, bool) or not isinstance(i, int) for i in ids):
                 return None, {"code": -32602, "message": "ids debe ser una lista de hasta 100 enteros."}, ""
-            return {"reports": JOBS.report_finished(ids)}, None, ""
-        job = JOBS.get(job_id=params.get("id"), key=params.get("key"))
+            return {"reports": JOBS.report_finished(ids, project)}, None, ""
+        job = JOBS.get(project, job_id=params.get("id"), key=params.get("key"))
         if method in ("zerochat/jobs/get", "zerochat/jobs/log", "zerochat/jobs/stop") and job is None:
             return None, {"code": -32602, "message": "Comando no encontrado: puede pertenecer a una sesión anterior de ZeroChat."}, ""
         if method == "zerochat/jobs/get":
