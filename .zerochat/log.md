@@ -116,3 +116,4 @@
 - 2026-11-12 M62-D10 BrowserLease por recurso (browser_action, playwright): reserva al llamar (antes del reto), error de herramienta para otra conversación y liberación tras 300 s sin uso; la interfaz envía zerochatConversationId solo en llamadas a navegadores (M62-T7)
 - 2026-11-12 M62-D11 MAX_PROJECT_SESSIONS = 16; ProjectSession guarda su carpeta y last_used; al crear la 17.ª se olvida la de last_used menor sin JOBS.running y, si todas tienen comandos, ValueError (M62-T8)
 - 2026-11-12 M62-D12 Documentado en py/README (multisesión y multiusuario), ayuda del modo proyecto (varios proyectos, worktrees) y del proxy remoto (una persona por servidor, contenedor por usuario), es/en (M62-T9)
+- 2026-11-12 M62-D13 La vista del proyecto añade al final las conversaciones sin proyecto; renderProjectFilter y groupSessions separan selector y agrupación (M62-T11)

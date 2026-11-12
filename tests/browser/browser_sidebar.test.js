@@ -99,7 +99,9 @@ test('Browser UI - con proyecto la barra muestra sus conversaciones y, con todos
     assert.equal(await page.isVisible('#sidebar-project-filter'), true);
     assert.equal(await page.$eval('#sidebar-project-filter option[value="current"]', option => option.textContent),
       await page.evaluate(() => window.ChatI18n.t('sidebar_project_current', { name: 'app' })));
-    assert.deepEqual(await sidebarTitles(page), ['A reciente', 'A antigua']);
+    // Las que no tienen proyecto (anteriores a esta función) siguen a la vista, al final
+    assert.deepEqual(await sidebarTitles(page), ['A reciente', 'A antigua', 'Sin proyecto']);
+    assert.deepEqual(await sidebarHeaders(page), await page.evaluate(() => [window.ChatI18n.t('sidebar_group_today'), window.ChatI18n.t('sidebar_no_project')]));
 
     await page.selectOption('#sidebar-project-filter', 'all');
     await render('/repo/app');
@@ -108,7 +110,7 @@ test('Browser UI - con proyecto la barra muestra sus conversaciones y, con todos
 
     await page.selectOption('#sidebar-project-filter', 'current');
     await render('/repo/vacio');
-    assert.equal(await page.textContent('#sidebar-chats-list .sidebar-no-chats'), await page.evaluate(() => window.ChatI18n.t('sidebar_no_project_chats')));
+    assert.deepEqual(await sidebarTitles(page), ['Sin proyecto']);
 
     // Sin servidor no hay proyecto: se ven todas y no hay selector
     await render('');
