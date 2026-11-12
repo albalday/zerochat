@@ -842,6 +842,24 @@ test('MCP - el cliente del servidor local envía el proyecto de la pestaña; un 
   }
 });
 
+test('MCP - si la carpeta del proyecto desaparece, el latido vuelve al proyecto por defecto y avisa una vez', async () => {
+  const previousMcp = ChatState.get('mcp');
+  const manager = new MCP.McpManager();
+  try {
+    ChatState.set('mcp', { ...previousMcp, status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo/borrado' } });
+    manager.clients.set('mcp_proxy', { request: async () => { throw Object.assign(new Error('gone'), { rpcError: { code: -32003 } }); } });
+    manager.probeTarget = async () => ({ success: true, serverInfo: { name: 'ZeroChat', cwd: '/repo/inicio' }, liveState: null });
+    const lost = [];
+    manager.onProjectLost = info => lost.push(info);
+    await manager.sendHeartbeat();
+    assert.deepEqual(lost, [{ project: '/repo/borrado', fallback: '/repo/inicio' }]);
+    assert.equal(ChatState.get('mcp').serverInfo.cwd, '/repo/inicio');
+    assert.equal(ChatState.get('mcp').status, 'connected', 'Sigue conectado: solo cambia de proyecto');
+  } finally {
+    ChatState.set('mcp', previousMcp);
+  }
+});
+
 test('MCP - las herramientas locales solo están disponibles si la conversación activa es del proyecto del servidor', async () => {
   const previousMcp = ChatState.get('mcp');
   const previousSessions = ChatState.get('sessions');

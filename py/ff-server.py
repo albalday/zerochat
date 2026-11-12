@@ -1095,8 +1095,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
         try:
             ctx = request_project_context(self.headers.get("X-ZeroChat-Project"), fallback=method == "initialize")
-        except ValueError as ex:
-            self._send_rpc_response(req_id, (None, {"code": -32602, "message": str(ex)}, ""), log_detail, t0, quiet)
+        except ProjectGoneError as ex:
+            self._send_rpc_response(req_id, (None, {"code": PROJECT_GONE_CODE, "message": str(ex)}, ""), log_detail, t0, quiet)
             return
         try:
             if "/mcp/external" in req_path:

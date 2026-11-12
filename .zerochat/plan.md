@@ -43,5 +43,5 @@ Decisiones: sin identidad de cliente (ni clientId ni Mcp-Session-Id): PC y table
 - [x] M62-T14 Quitar el error inalcanzable del tope de sesiones y previous_cwd; una sola clave de proyecto (SecurityContext.key) (2026-11-12)
 - [x] M62-T15 ctx solo para los manejadores de herramientas que lo declaran (2026-11-12)
 - [x] M62-T16 Un solo resolutor de rutas en SecurityContext para permisos y ejecución (2026-11-12)
-- [ ] M62-T17 Abrir una conversación espera al cambio de proyecto antes de darla por abierta
-- [ ] M62-T18 Avisar cuando la carpeta del proyecto de la pestaña deja de existir
+- [x] M62-T17 Abrir una conversación espera al cambio de proyecto antes de darla por abierta (2026-11-12)
+- [x] M62-T18 Avisar cuando la carpeta del proyecto de la pestaña deja de existir (2026-11-12)

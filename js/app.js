@@ -1013,6 +1013,10 @@
       }
     );
 
+    // Si la carpeta del proyecto desaparece, la pestaña vuelve al proyecto por defecto y se avisa una vez.
+    MCP.manager.onProjectLost = async ({ project, fallback }) => {
+      await Dialogs.alert(t('project_folder_missing', { project, fallback }), { type: 'warning' });
+    };
     // La barra muestra las conversaciones del proyecto actual: se repinta al conectar o cambiar de proyecto.
     State.subscribe(state => ({ cwd: state.mcp.status === 'connected' ? state.mcp.serverInfo?.cwd || '' : '' }), renderSidebarChats);
     // El proyecto depende del servidor local: se recalcula al conectar, cambiar de cwd o de herramientas.

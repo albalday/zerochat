@@ -67,6 +67,14 @@ def project_context() -> "SecurityContext":
     return SecurityContext(PROJECT_DIR)
 
 
+# Código JSON-RPC de una petición cuyo proyecto (cabecera X-ZeroChat-Project) ya no existe.
+PROJECT_GONE_CODE = -32003
+
+
+class ProjectGoneError(ValueError):
+    """La carpeta del proyecto de la pestaña ya no existe."""
+
+
 def request_project_context(raw: str | None, *, fallback: bool) -> "SecurityContext":
     """
     Proyecto de una petición: la carpeta absoluta de la cabecera X-ZeroChat-Project (codificada como en
@@ -80,7 +88,7 @@ def request_project_context(raw: str | None, *, fallback: bool) -> "SecurityCont
         return SecurityContext(path.resolve())
     if fallback:
         return project_context()
-    raise ValueError(f"La carpeta del proyecto de la pestaña ya no existe: {path}")
+    raise ProjectGoneError(f"La carpeta del proyecto de la pestaña ya no existe: {path}")
 
 
 @dataclasses.dataclass

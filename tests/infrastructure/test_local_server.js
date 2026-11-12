@@ -262,7 +262,7 @@ describe('Servidor local zerochat.py', () => {
 
       fs.rmSync(projects[1], { recursive: true });
       const gone = await post('tools/call', { name: 'run_command', arguments: { command: 'pwd' } }, { headers: header(projects[1]) });
-      assert.equal((await gone.json()).error.code, -32602, 'Nunca se ejecuta en otra carpeta');
+      assert.equal((await gone.json()).error.code, -32003, 'Nunca se ejecuta en otra carpeta');
       // initialize sí responde, con el proyecto por defecto, para que la pestaña sepa dónde está
       assert.equal((await rpc('initialize', {}, { headers: header(projects[1]) })).result.serverInfo.cwd, fs.realpathSync(repoRoot));
     } finally {

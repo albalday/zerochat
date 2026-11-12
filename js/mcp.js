@@ -72,6 +72,8 @@
   // y la espera de la autorización OAuth.
   const EXTERNAL_LONG_START_POLL_ATTEMPTS = 80;
   const HEARTBEAT_INTERVAL_MS = 10000;
+  // Código con el que el servidor avisa de que la carpeta del proyecto de la pestaña ya no existe.
+  const PROJECT_GONE_CODE = -32003;
   const HEARTBEAT_FAST_INTERVAL_MS = 1000;
   // Plazo de los sondeos al servidor local (conexión, comprobación y reconexión del latido).
   const PROBE_TIMEOUT_MS = 1500;
@@ -803,8 +805,9 @@
         if (this.isProxyConnected()) {
           try {
             await this.readLiveState();
-          } catch (_) {
-            await this.verifyProxyConnection();
+          } catch (error) {
+            if (error?.rpcError?.code === PROJECT_GONE_CODE) await this.recoverLostProject();
+            else await this.verifyProxyConnection();
           }
         } else if (this.target) {
           const probe = await this.probeTarget();
@@ -819,6 +822,20 @@
       }
       // Fuera del bloqueo, para que connectProxy publique el estado vivo de la nueva conexión.
       if (reconnect) await this.connectProxy({ ...this.target, silentOnFailure: true });
+    }
+
+    /**
+     * La carpeta del proyecto de la pestaña ya no existe: vuelve al proyecto por defecto del servidor
+     * (initialize lo devuelve cuando falta la carpeta) y avisa con `onProjectLost`, que fija la interfaz.
+     * Las conversaciones del proyecto perdido se quedan sin herramientas locales.
+     */
+    async recoverLostProject() {
+      const lost = getState().get('mcp').serverInfo?.cwd || '';
+      const probe = await this.probeTarget();
+      if (!probe.success) return this.verifyProxyConnection();
+      getState().set('mcp', { serverInfo: probe.serverInfo });
+      await this.applyLiveState(probe.liveState);
+      this.onProjectLost?.({ project: lost, fallback: probe.serverInfo?.cwd || '' });
     }
 
     /**
