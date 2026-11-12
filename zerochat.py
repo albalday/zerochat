@@ -1905,8 +1905,10 @@ DIRECTORY_PATH_TOOLS = frozenset(("list_directory", "search_files", "get_diagnos
 
 MAX_COMMAND_PATTERNS = 50
 COMMAND_PATTERN_FORBIDDEN = re.compile(r"[;&|<>$`'\"\\\n\r]")
-# Lo que la shell expandiría no lo cubre un comodín: variables, llaves, ~ y comillas invertidas.
-COMMAND_WILDCARD_UNSAFE = re.compile(r"[$`{}~]")
+# Lo que nunca cubre un comodín: expansión de la shell (variables, llaves, comillas invertidas, ~ inicial),
+# un segmento '..' o un glob que lo alcance ('.?'), y en los argumentos del '*' final, una ruta absoluta.
+COMMAND_WILDCARD_UNSAFE = re.compile(r"[$`{}]|(?:^|[=:])~|(?:^|[/\\=:])\.\.(?:[/\\]|$)|(?:^|/)\.[^/]*[*?\[]")
+COMMAND_ABSOLUTE_ARG = re.compile(r"(?:^|[=:])(?:[/\\]|[A-Za-z]:[/\\])")
 SYSTEM_BIN_DIRS = ("/usr/bin/", "/bin/", "/usr/local/bin/")
 SUBCOMMAND_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_.:-]*")
 
@@ -2110,7 +2112,8 @@ def compile_command_pattern(pattern: str) -> tuple[tuple[tuple[re.Pattern, bool]
 def matches_command_pattern(command: str, pattern: str) -> bool:
     """
     Verifica si un comando cumple un patrón autorizado, argumento a argumento: sin `*` el texto es
-    exacto. Un argumento cubierto por un comodín no puede contener `..` ni lo que expande la shell.
+    exacto. Un argumento cubierto por un comodín no puede contener `..` ni lo que expande la shell, y
+    los del `*` final tampoco una ruta absoluta.
     """
     words, rest = compile_command_pattern(str(pattern))
     try:
@@ -2121,11 +2124,10 @@ def matches_command_pattern(command: str, pattern: str) -> bool:
         return False
     first = next((args[0][len(d):] for d in SYSTEM_BIN_DIRS if args[0].startswith(d)), args[0])
     for (regex, wildcard), arg in zip(words, [first, *args[1:]]):
-        if not regex.fullmatch(arg):
+        if not regex.fullmatch(arg) or (wildcard and COMMAND_WILDCARD_UNSAFE.search(arg)):
             return False
-        if wildcard and (COMMAND_WILDCARD_UNSAFE.search(arg) or ".." in arg.split("/")):
-            return False
-    return True
+    # Los argumentos del '*' final no tienen texto fijo que los acote: tampoco pueden salir del proyecto.
+    return not any(COMMAND_WILDCARD_UNSAFE.search(arg) or COMMAND_ABSOLUTE_ARG.search(arg) for arg in args[len(words):])
 
 
 def evaluate_command_constraint(cmd_val: str, command_constraints: dict) -> tuple[bool, bool, str, str]:
@@ -2167,6 +2169,13 @@ def normalize_command_pattern(raw: str) -> str:
     if not clean or "*" in clean.split()[0] or "**" in clean or COMMAND_PATTERN_FORBIDDEN.search(clean):
         raise ValueError(f"Patrón de comando no válido: '{raw}'.")
     return clean
+
+
+def _is_valid_pattern(raw: str) -> bool:
+    try:
+        return bool(normalize_command_pattern(raw))
+    except ValueError:
+        return False
 
 
 def _clean_pattern_list(raw: list, label: str) -> list[str]:
@@ -2253,10 +2262,13 @@ def get_rule_offer(tool_name: str, args: dict, auth_eval: dict | None = None) ->
     eval_info = auth_eval or {}
     command = get_command_arg(args)
     if command and not eval_info.get("directoryAccess"):
-        prefix = suggest_command_prefix(command)
-        if not prefix or "*" in prefix or COMMAND_PATTERN_FORBIDDEN.search(prefix):
+        # El programa con su subcomando y '*', o el comando exacto si sus argumentos salen del proyecto.
+        cd_part = split_leading_cd(command)
+        target = cd_part["command"] if cd_part else command
+        pattern = next((p for p in (f"{suggest_command_prefix(command)} *", target)
+                        if _is_valid_pattern(p) and matches_command_pattern(target, p)), None)
+        if not pattern:
             return None
-        pattern = f"{prefix} *"
         return {
             "type": "command",
             "command": pattern,

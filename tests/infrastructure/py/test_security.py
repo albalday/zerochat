@@ -505,6 +505,15 @@ class CommandPatternTest(HandlerTestCase):
             ("rm /tmp/z/*", "rm /tmp/z/$X", False),        # lo que expande la shell
             ("rm /tmp/z/*", "rm /tmp/z/{a,b}", False),
             ("echo *", 'echo "sin cerrar', False),
+            # Los argumentos del * final cumplen lo mismo que un comodín y no son rutas absolutas
+            ("cat *", "cat ../../etc/passwd", False),
+            ("cat *", "cat /etc/passwd", False),
+            ("cat *", "cat ~/.ssh/id_rsa", False),
+            ("cat *", "cat $HOME/.bashrc", False),
+            ("cat *", "cat .?/passwd", False),             # glob que alcanza ..
+            ("ls * *", "ls a ../x", False),
+            ("git log *", "git log --output=/tmp/x", False),
+            ("git log *", "git log HEAD~3 -- src/a.js", True),
         ]
         for pattern, command, expected in cases:
             with self.subTest(pattern=pattern, command=command):
@@ -542,6 +551,8 @@ class CommandPatternTest(HandlerTestCase):
         gate = self.command_challenge("echo hola mundo")
         cid = gate["challengeId"]
         self.assertEqual(gate["ruleOffer"]["command"], "echo hola *")
+        # Si el * no cubriría los argumentos (fuera del proyecto), se ofrece el comando exacto
+        self.assertEqual(self.command_challenge("cat /etc/hosts")["ruleOffer"]["command"], "cat /etc/hosts")
         rejected = (
             ("allow_always", {}, "allow_always_requires_constraints"),
             ("allow_project", {}, "allow_project_requires_command_pattern"),
