@@ -94,12 +94,14 @@
     }
     const constraints = security.getToolConstraints(tool.name);
     const constrained = Boolean(constraints?.command) && policy === 'allow';
+    // run_command solo se permite siempre con patrones, que se conceden desde la tarjeta o el editor.
+    const canAllow = policy === 'allow' || tool.name !== getMCP().LOCAL_COMMAND_TOOL;
     const selectTitle = escapeHtml(t('mcp_security_select_title'));
     const option = (value, label) => `<option value="${value}"${policy === value ? ' selected' : ''}>${label}</option>`;
     return `
       <select class="mcp-auth-select ${policyClass(policy)}" data-tool-id="${escapeHtml(tool.name)}" data-server-name="${escapeHtml(serverName)}" data-orig-name="${escapeHtml(originalName)}" title="${selectTitle}" aria-label="${selectTitle}">
         ${option('ask', escapeHtml(t('mcp_security_badge_ask')))}
-        ${option('allow', `${allowed}${constrained ? ` (${escapeHtml(t('mcp_security_constrained'))})` : ''}`)}
+        ${canAllow ? option('allow', `${allowed}${constrained ? ` (${escapeHtml(t('mcp_security_constrained'))})` : ''}`) : ''}
         ${option('deny', escapeHtml(t('tool_auth_denied_badge')))}
       </select>`;
   }
@@ -162,15 +164,21 @@
     if (target.matches('.mcp-auth-select')) {
       const toolId = target.getAttribute('data-tool-id');
       const policy = target.value;
-      if (policy === 'ask') {
-        await getSecurity().revokeToolPolicy(toolId);
-      } else {
-        await getSecurity().setToolPolicy(toolId, policy, {
-          serverName: target.getAttribute('data-server-name'),
-          originalName: target.getAttribute('data-orig-name')
-        });
+      try {
+        if (policy === 'ask') {
+          await getSecurity().revokeToolPolicy(toolId);
+        } else {
+          await getSecurity().setToolPolicy(toolId, policy, {
+            serverName: target.getAttribute('data-server-name'),
+            originalName: target.getAttribute('data-orig-name')
+          });
+        }
+      } catch (err) {
+        // El backend rechazó el cambio: el selector vuelve a la política vigente.
+        console.warn('[MCP] Could not update tool policy:', err?.message || err);
+        target.value = getSecurity().getToolPolicy(toolId) || 'ask';
       }
-      target.className = `mcp-auth-select ${policyClass(policy)}`;
+      target.className = `mcp-auth-select ${policyClass(target.value)}`;
       renderSavedAuthorizations();
       return;
     }

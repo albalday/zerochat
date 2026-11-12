@@ -532,6 +532,10 @@ class CommandPatternTest(HandlerTestCase):
                 store({"allowedPatterns": bad})
         with self.assertRaises(ValueError):
             store({"allowedPatterns": [], "projectPatterns": {"relativo": ["git"]}})
+        # Guardar run_command sin patrones autorizaría cualquier comando; en la sesión sí se admite
+        with self.assertRaisesRegex(ValueError, "allow_always_requires_constraints"):
+            self.controller.import_state({"tools": {"run_command": {"policy": "allow"}}}, self.ctx)
+        self.controller.apply_session_overlay({"tools": {"run_command": {"policy": "allow"}}})
 
         # El tope cuenta los patrones globales y los de todos los proyectos: N se acepta y N+1 no
         limit = zerochat.MAX_COMMAND_PATTERNS

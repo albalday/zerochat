@@ -556,6 +556,9 @@ class AccessController:
                 constraints = normalize_command_constraints(entry.get("constraints"))
             except ValueError as exc:
                 raise ValueError(f"Restricciones de {kind_label} '{item_id}': {exc}") from exc
+            # Como en un reto (allow_always), run_command solo se guarda con patrones de comando.
+            if kind == "tools" and clean_key == COMMAND_TOOL and pol == POLICY_ALLOW and scope == SCOPE_PERMANENT and not constraints:
+                raise ValueError("allow_always_requires_constraints")
             clean_map[clean_key] = AccessController._make_entry(
                 kind, pol, scope,
                 server_name=str(entry.get("serverName", "") or ""),

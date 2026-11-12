@@ -1168,6 +1168,7 @@
     withCommandJobStop,
     getResultText,
     getSafeMcpImageDataUrl,
-    getSafeMcpImageFromMessage
+    getSafeMcpImageFromMessage,
+    LOCAL_COMMAND_TOOL
   };
 });
