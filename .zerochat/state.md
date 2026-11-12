@@ -1,4 +1,4 @@
 # Current state
 - Milestone: M62 Multisesión de un usuario y límites del multiusuario
-- Next task: M62-T15
+- Next task: M62-T16
 - Last updated: 2026-11-12

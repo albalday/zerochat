@@ -636,7 +636,9 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if not handler:
             return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
         try:
-            tool_output_json = handler(**dict(args), ctx=ctx)
+            # Solo las herramientas que actúan en el proyecto declaran ctx.
+            takes_project = "ctx" in inspect.signature(handler).parameters
+            tool_output_json = handler(**dict(args), **({"ctx": ctx} if takes_project else {}))
         except Exception as ex:
             return cls._tool_exception_result(ex), None, str(ex)
         tool_error_info = ""

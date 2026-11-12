@@ -634,8 +634,8 @@ def playwright_status() -> dict:
     return {"installed": playwright_service_cli().is_file(), "browserAction": browser_action_availability()}
 
 
-def browser_action(action: str, url: str | None = None, selector: str | None = None, value: str | None = None, *, ctx: SecurityContext) -> str:
-    """Control a headless browser for UI testing and visual inspection. No depende del proyecto (ctx)."""
+def browser_action(action: str, url: str | None = None, selector: str | None = None, value: str | None = None) -> str:
+    """Control a headless browser for UI testing and visual inspection."""
     try:
         act = (action or "").strip().lower()
         if act not in BROWSER_ACTIONS:
