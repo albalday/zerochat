@@ -54,7 +54,7 @@ def stored(kind):
 
 
 def command_constraints(*patterns, **extra):
-    return {"command": {"allowedPrefixes": list(patterns), "allowChaining": False, "allowPipes": False, **extra}}
+    return {"command": {"allowedPatterns": list(patterns), "allowChaining": False, "allowPipes": False, **extra}}
 
 
 class SecurityContextTest(unittest.TestCase):
@@ -236,7 +236,7 @@ class PolicyEvaluationTest(ControllerTestCase):
         for command, pattern in offers.items():
             offer = self.evaluate("run_command", {"command": command}).rule_offer
             self.assertEqual((offer["type"], offer["command"]), ("command", pattern), command)
-            self.assertEqual(offer["constraints"]["command"]["allowedPrefixes"], [pattern])
+            self.assertEqual(offer["constraints"]["command"]["allowedPatterns"], [pattern])
 
         offer = self.evaluate("write_file", {"path": f"{self.norm_ws}/src/app.py"}).rule_offer
         self.assertEqual((offer["type"], offer["access"], offer["directoryRule"]), ("directory", "W", f"W:{self.norm_ws}/src/**"))
@@ -508,35 +508,35 @@ class CommandPatternTest(HandlerTestCase):
         ]
         for pattern, command, expected in cases:
             with self.subTest(pattern=pattern, command=command):
-                self.assertIs(zerochat.matches_command_prefix(command, pattern), expected)
+                self.assertIs(zerochat.matches_command_pattern(command, pattern), expected)
 
     def test_command_patterns_are_validated_normalized_and_limited(self):
         res = self.controller.import_state({"tools": {"run_command": {"policy": "allow", "constraints": command_constraints(
             "git status *", "git  status  *", "git status", "git diff *", "git diff --stat")}}}, self.ctx)
-        self.assertEqual(res["tools"]["run_command"]["constraints"]["command"]["allowedPrefixes"], ["git status *", "git diff *"])
+        self.assertEqual(res["tools"]["run_command"]["constraints"]["command"]["allowedPatterns"], ["git status *", "git diff *"])
 
         def store(command):
             self.controller.import_state({"tools": {"run_command": {"policy": "allow", "constraints": {"command": command}}}}, self.ctx)
 
         for bad in ([], ["git; rm"], ["git $(x)"], [""], ["*"], ["g* log"], ["git **"], ["git 'x'"], [3]):
             with self.assertRaises(ValueError, msg=repr(bad)):
-                store({"allowedPrefixes": bad})
+                store({"allowedPatterns": bad})
         with self.assertRaises(ValueError):
-            store({"allowedPrefixes": [], "projectPrefixes": {"relativo": ["git"]}})
+            store({"allowedPatterns": [], "projectPatterns": {"relativo": ["git"]}})
 
         # El tope cuenta los patrones globales y los de todos los proyectos: N se acepta y N+1 no
-        limit = zerochat.MAX_COMMAND_PREFIXES
+        limit = zerochat.MAX_COMMAND_PATTERNS
         half = limit // 2
-        store({"allowedPrefixes": [f"g{i}" for i in range(half)], "projectPrefixes": {"/proj": [f"p{i}" for i in range(limit - half)]}})
+        store({"allowedPatterns": [f"g{i}" for i in range(half)], "projectPatterns": {"/proj": [f"p{i}" for i in range(limit - half)]}})
         with self.assertRaisesRegex(ValueError, "máximo"):
-            store({"allowedPrefixes": [f"g{i}" for i in range(half)], "projectPrefixes": {"/proj": [f"p{i}" for i in range(limit - half + 1)]}})
+            store({"allowedPatterns": [f"g{i}" for i in range(half)], "projectPatterns": {"/proj": [f"p{i}" for i in range(limit - half + 1)]}})
 
     def test_stored_empty_pattern_list_never_allows_any_command(self):
         zerochat.update_security_policy_data(lambda current: {**(current or {}), "tools": {
-            "run_command": {"policy": "allow", "scope": "permanent", "constraints": {"command": {"allowedPrefixes": []}}}
+            "run_command": {"policy": "allow", "scope": "permanent", "constraints": {"command": {"allowedPatterns": []}}}
         }})
         dec = self.evaluate("run_command", {"command": "rm -rf build"})
-        self.assertEqual((dec.status, dec.reason), ("ask", "command_outside_allowed_prefixes"))
+        self.assertEqual((dec.status, dec.reason), ("ask", "command_outside_allowed_patterns"))
 
     def test_command_grants_need_a_pattern_that_covers_the_challenge(self):
         gate = self.command_challenge("echo hola mundo")
@@ -544,7 +544,7 @@ class CommandPatternTest(HandlerTestCase):
         self.assertEqual(gate["ruleOffer"]["command"], "echo hola *")
         rejected = (
             ("allow_always", {}, "allow_always_requires_constraints"),
-            ("allow_project", {}, "allow_project_requires_command_prefix"),
+            ("allow_project", {}, "allow_project_requires_command_pattern"),
             ("allow_always", {"constraints": command_constraints("echo adios *")}, None),
         )
         for decision, extra, message in rejected:
@@ -557,7 +557,7 @@ class CommandPatternTest(HandlerTestCase):
         res, err = self.authorize(cid, "allow_always", constraints=command_constraints("echo *"))
         self.assertIsNone(err)
         self.assertTrue(res["authorized"])
-        self.assertEqual(stored("tools")["run_command"]["constraints"]["command"]["allowedPrefixes"], ["echo *"])
+        self.assertEqual(stored("tools")["run_command"]["constraints"]["command"]["allowedPatterns"], ["echo *"])
         self.assertEqual(self.status("echo otra cosa"), "allow")
         self.assertEqual(self.status("rm -rf /"), "ask")
 
@@ -575,7 +575,7 @@ class CommandPatternTest(HandlerTestCase):
         res, err = self.authorize(self.command_challenge("printf proyecto")["challengeId"], "allow_project", constraints=command_constraints("printf *"))
         self.assertIsNone(err)
         command = stored("tools")["run_command"]["constraints"]["command"]
-        self.assertEqual((command["allowedPrefixes"], command["projectPrefixes"]), ([], {project: ["printf *"]}))
+        self.assertEqual((command["allowedPatterns"], command["projectPatterns"]), ([], {project: ["printf *"]}))
         self.assertEqual((self.status("printf x"), self.status("printf x", other_project)), ("allow", "ask"))
         # La escritura permanente no retira los patrones de sesión: se suman
         self.assertEqual(self.status("echo uno dos"), "allow")
@@ -585,7 +585,7 @@ class CommandPatternTest(HandlerTestCase):
         self.assertIsNone(err)
         self.assertEqual(self.status("true x", other_project), "allow")
         exported = self.controller.export_state()["tools"]["run_command"]["constraints"]["command"]
-        self.assertEqual((exported["sessionPrefixes"], exported["allowedPrefixes"]), (["echo uno *"], ["true *"]))
+        self.assertEqual((exported["sessionPatterns"], exported["allowedPatterns"]), (["echo uno *"], ["true *"]))
 
         # Al acabar la sesión solo quedan los permanentes
         self.controller.clear_session()

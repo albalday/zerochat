@@ -274,22 +274,22 @@
     }
 
     /**
-     * Sustituye los prefijos de comando guardados de una herramienta: globales (`allowedPrefixes`) y por
-     * proyecto (`projectPrefixes`). Sin ninguno se revoca, porque sin prefijos no se autoriza ningún comando.
-     * Los de sesión no se guardan y no se envían. El backend valida y normaliza cada prefijo.
+     * Sustituye los patrones de comando guardados de una herramienta: globales (`allowedPatterns`) y por
+     * proyecto (`projectPatterns`). Sin ninguno se revoca, porque sin patrones no se autoriza ningún comando.
+     * Los de sesión no se guardan y no se envían. El backend valida y normaliza cada patrón.
      */
-    async setCommandPrefixes(toolId, { allowedPrefixes = [], projectPrefixes = {} } = {}) {
+    async setCommandPatterns(toolId, { allowedPatterns = [], projectPatterns = {} } = {}) {
       const clean = list => (Array.isArray(list) ? list : []).map(p => String(p ?? '').trim()).filter(Boolean);
-      const globalList = clean(allowedPrefixes);
-      const projects = Object.fromEntries(Object.entries(projectPrefixes || {})
+      const globalList = clean(allowedPatterns);
+      const projects = Object.fromEntries(Object.entries(projectPatterns || {})
         .map(([project, list]) => [project, clean(list)])
         .filter(([, list]) => list.length));
       if (!globalList.length && !Object.keys(projects).length) return this.revokeToolPolicy(toolId);
       const entry = this.findToolEntry(toolId)?.entry || {};
       const command = { ...entry.constraints?.command };
-      delete command.sessionPrefixes;
+      delete command.sessionPatterns;
       return this.setToolPolicy(toolId, POLICIES.ALLOW, {
-        constraints: { ...entry.constraints, command: { ...command, allowedPrefixes: globalList, projectPrefixes: projects } },
+        constraints: { ...entry.constraints, command: { ...command, allowedPatterns: globalList, projectPatterns: projects } },
         serverName: entry.serverName,
         originalName: entry.originalName
       });

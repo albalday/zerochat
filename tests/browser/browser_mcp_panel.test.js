@@ -210,14 +210,14 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
     });
   });
 
-  test('Browser UI - los prefijos de comando guardados se quitan y añaden uno a uno y los rechazos se muestran', async () => {
+  test('Browser UI - los patrones de comando guardados se quitan y añaden uno a uno y los rechazos se muestran', async () => {
     await withMcpPanel({ status: 'connected', tools: [], serverInfo: { cwd: '/home/yo/app' } }, async page => {
-      const prefixes = () => page.evaluate(() => window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.allowedPrefixes ?? null);
+      const patterns = () => page.evaluate(() => window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.allowedPatterns ?? null);
       const chips = () => page.$$eval('#mcp-saved-auths-list .mcp-auth-cmd-chip code', els => els.map(el => el.textContent));
-      const removePrefix = prefix => page.evaluate(p => document.querySelector(`#mcp-saved-auths-list .btn-remove-cmd-prefix[data-prefix="${p}"]`).click(), prefix);
+      const removePattern = pattern => page.evaluate(p => document.querySelector(`#mcp-saved-auths-list .btn-remove-cmd-pattern[data-pattern="${p}"]`).click(), pattern);
       await page.evaluate(async () => {
         await window.ChatToolSecurity.manager.setToolPolicy('run_command', 'allow', {
-          constraints: { command: { allowedPrefixes: ['git status *', 'git diff'], projectPrefixes: { '/repo': ['npm test *'] }, sessionPrefixes: ['make *'], allowChaining: false, allowPipes: false } }
+          constraints: { command: { allowedPatterns: ['git status *', 'git diff'], projectPatterns: { '/repo': ['npm test *'] }, sessionPatterns: ['make *'], allowChaining: false, allowPipes: false } }
         });
         window.ChatUIMcp.renderSavedAuthorizations();
       });
@@ -226,29 +226,29 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
       // Cada proyecto se nombra por su carpeta, con la ruta completa en el título
       assert.deepEqual(await page.$$eval('#mcp-saved-auths-list .mcp-auth-cmd-scope', els => els.map(el => [el.textContent.trim(), el.title])),
         [['Todos los proyectos', 'Todos los proyectos'], ['repo', '/repo'], ['Sesión', await page.evaluate(() => window.ChatI18n.t('tool_auth_cmd_session_title'))]]);
-      assert.equal(await page.$$eval('#mcp-saved-auths-list .btn-remove-cmd-prefix', els => els.length), 3);
+      assert.equal(await page.$$eval('#mcp-saved-auths-list .btn-remove-cmd-pattern', els => els.length), 3);
 
       await page.evaluate(() => {
         document.querySelector('#mcp-saved-auths-list .mcp-auth-cmd-input').value = 'git log *';
-        document.querySelector('#mcp-saved-auths-list .btn-add-cmd-prefix').click();
+        document.querySelector('#mcp-saved-auths-list .btn-add-cmd-pattern').click();
       });
-      await page.waitForFunction(() => window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.allowedPrefixes?.length === 3);
-      assert.deepEqual(await prefixes(), ['git status *', 'git diff', 'git log *']);
+      await page.waitForFunction(() => window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.allowedPatterns?.length === 3);
+      assert.deepEqual(await patterns(), ['git status *', 'git diff', 'git log *']);
 
-      await removePrefix('git diff');
-      await page.waitForFunction(() => window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.allowedPrefixes?.length === 2);
-      assert.deepEqual(await prefixes(), ['git status *', 'git log *']);
+      await removePattern('git diff');
+      await page.waitForFunction(() => window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.allowedPatterns?.length === 2);
+      assert.deepEqual(await patterns(), ['git status *', 'git log *']);
 
-      // Quitar un prefijo de proyecto no toca los globales
-      await page.evaluate(() => document.querySelector('#mcp-saved-auths-list .btn-remove-cmd-prefix[data-project="/repo"]').click());
-      await page.waitForFunction(() => !window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.projectPrefixes?.['/repo']);
-      assert.deepEqual(await prefixes(), ['git status *', 'git log *']);
+      // Quitar un patrón de proyecto no toca los globales
+      await page.evaluate(() => document.querySelector('#mcp-saved-auths-list .btn-remove-cmd-pattern[data-project="/repo"]').click());
+      await page.waitForFunction(() => !window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.projectPatterns?.['/repo']);
+      assert.deepEqual(await patterns(), ['git status *', 'git log *']);
 
       // Un rechazo del backend se muestra junto al editor sin cambiar nada
       const shown = await page.evaluate(async () => {
         const manager = window.ChatToolSecurity.manager;
         const original = manager.mcpClient.request;
-        manager.mcpClient.request = async () => { throw new Error('Prefijo de comando no válido'); };
+        manager.mcpClient.request = async () => { throw new Error('Patrón de comando no válido'); };
         const input = document.querySelector('#mcp-saved-auths-list .mcp-auth-cmd-input');
         input.value = 'git; rm';
         const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
@@ -259,19 +259,19 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
         const error = document.querySelector('#mcp-saved-auths-list .mcp-auth-cmd-error');
         return { hidden: error.hidden, text: error.textContent };
       });
-      assert.deepEqual(shown, { hidden: false, text: 'Prefijo de comando no válido' });
-      assert.deepEqual(await prefixes(), ['git status *', 'git log *']);
+      assert.deepEqual(shown, { hidden: false, text: 'Patrón de comando no válido' });
+      assert.deepEqual(await patterns(), ['git status *', 'git log *']);
 
       // El alta elige el alcance: el proyecto actual guarda el patrón solo para ese proyecto
       await page.evaluate(() => {
         const editor = document.querySelector('#mcp-saved-auths-list .mcp-auth-cmd-add');
         editor.querySelector('.mcp-auth-cmd-scope-select').value = '/home/yo/app';
         editor.querySelector('.mcp-auth-cmd-input').value = 'npm test *';
-        editor.querySelector('.btn-add-cmd-prefix').click();
+        editor.querySelector('.btn-add-cmd-pattern').click();
       });
-      await page.waitForFunction(() => window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.projectPrefixes?.['/home/yo/app']);
-      assert.deepEqual(await page.evaluate(() => window.ChatToolSecurity.manager.getToolConstraints('run_command').command.projectPrefixes), { '/home/yo/app': ['npm test *'] });
-      assert.deepEqual(await prefixes(), ['git status *', 'git log *']);
+      await page.waitForFunction(() => window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.projectPatterns?.['/home/yo/app']);
+      assert.deepEqual(await page.evaluate(() => window.ChatToolSecurity.manager.getToolConstraints('run_command').command.projectPatterns), { '/home/yo/app': ['npm test *'] });
+      assert.deepEqual(await patterns(), ['git status *', 'git log *']);
     });
   });
 

@@ -79,7 +79,7 @@ test('Browser UI - autorización de comando concede la línea editable con alcan
         ruleOffer: {
           type: 'command',
           command: 'ls *',
-          constraints: { command: { allowedPrefixes: ['ls *'], allowChaining: false, allowPipes: false } }
+          constraints: { command: { allowedPatterns: ['ls *'], allowChaining: false, allowPipes: false } }
         }
       });
       const hasGenericAlwaysInCmd = Boolean(cardCmd.querySelector('.btn-auth-allow-always'));
@@ -89,7 +89,7 @@ test('Browser UI - autorización de comando concede la línea editable con alcan
       const input = cardCmd.querySelector('.tool-auth-cmd-input');
       const buttons = [...cardCmd.querySelectorAll('.btn-auth-allow-cmd')];
       const projectButton = cardCmd.querySelector('.btn-auth-allow-cmd[data-decision="allow_project"]');
-      const proposedPrefix = input.value;
+      const proposedPattern = input.value;
       const rejected = {};
       for (const value of ['  ', '*', ' * ', 'l* -l']) {
         input.value = value;
@@ -119,17 +119,17 @@ test('Browser UI - autorización de comando concede la línea editable con alcan
       await pendingFile;
       cardFile.remove();
 
-      return { hasGenericAlwaysInCmd, hasGenericSessionInCmd, scopes, hasGenericAlwaysInFile, proposedPrefix, rejected, stillPending, enabledAgain, cmdDecision };
+      return { hasGenericAlwaysInCmd, hasGenericSessionInCmd, scopes, hasGenericAlwaysInFile, proposedPattern, rejected, stillPending, enabledAgain, cmdDecision };
     });
     assert.deepEqual(result.scopes, ['allow_session', 'allow_project', 'allow_always']);
     assert.equal(result.hasGenericSessionInCmd, false, 'En un comando la sesión se concede sobre la línea, no sobre run_command entero');
-    assert.equal(result.proposedPrefix, 'ls *');
+    assert.equal(result.proposedPattern, 'ls *');
     assert.deepEqual(result.rejected, { '  ': true, '*': true, ' * ': true, 'l* -l': true });
     assert.equal(result.stillPending, true, 'Una línea no válida no decide la autorización');
     assert.equal(result.enabledAgain, true);
     assert.deepEqual(result.cmdDecision, {
       decision: 'allow_project',
-      constraints: { command: { allowedPrefixes: ['ls -l *'], allowChaining: false, allowPipes: false } }
+      constraints: { command: { allowedPatterns: ['ls -l *'], allowChaining: false, allowPipes: false } }
     });
     assert.equal(result.hasGenericAlwaysInCmd, false, 'El botón genérico permitir siempre no debe aparecer en comandos');
     assert.equal(result.hasGenericAlwaysInFile, true, 'El botón genérico permitir siempre debe aparecer en herramientas no comando');
@@ -228,7 +228,7 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
         serverId: 'zerochat-local',
         serverName: 'ZeroChat Local Server',
         args: { command: 'git status' },
-        ruleOffer: { type: 'command', command: 'git *', constraints: { command: { allowedPrefixes: ['git *'], allowChaining: false, allowPipes: false } } }
+        ruleOffer: { type: 'command', command: 'git *', constraints: { command: { allowedPatterns: ['git *'], allowChaining: false, allowPipes: false } } }
       });
     });
     await page.waitForFunction(() => document.getElementById('messages-list').scrollTop > 0);
@@ -287,7 +287,7 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
     assert.equal(expanded.menuHidden, false);
     assert.equal(expanded.menuPosition, 'static');
     assert.equal(expanded.hasCommandScope, true);
-    assert.ok(expanded.cmdInputWidth >= 150, `El campo del prefijo es demasiado estrecho: ${expanded.cmdInputWidth}px`);
+    assert.ok(expanded.cmdInputWidth >= 150, `El campo del patrón es demasiado estrecho: ${expanded.cmdInputWidth}px`);
     assert.equal(expanded.cmdLayout, true);
     assert.equal(expanded.hasServerTrust, true);
     assert.equal(expanded.panelVisible, true);

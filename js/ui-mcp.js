@@ -400,7 +400,7 @@
         </div>`;
     });
 
-    const addLabel = escapeHtml(t('mcp_security_add_prefix_label'));
+    const addLabel = escapeHtml(t('mcp_security_add_pattern_label'));
     const projectDir = String(getState().get('mcp').serverInfo?.cwd || '').trim();
     const folderName = dir => dir.split(/[\\/]+/).filter(Boolean).pop() || dir;
     const toolItems = tools.map(item => {
@@ -408,40 +408,40 @@
       let { text } = badge(item);
       const toolId = escapeHtml(item.toolId);
       const command = item.policy === 'allow' ? item.constraints?.command : null;
-      const globalPrefixes = command?.allowedPrefixes || [];
-      const projectPrefixes = Object.entries(command?.projectPrefixes || {});
-      const sessionPrefixes = command?.sessionPrefixes || [];
-      const hasPrefixes = Boolean(command) && (globalPrefixes.length || projectPrefixes.length || sessionPrefixes.length);
-      if (hasPrefixes) text += ` (${escapeHtml(t('mcp_security_constrained'))})`;
+      const globalPatterns = command?.allowedPatterns || [];
+      const projectPatterns = Object.entries(command?.projectPatterns || {});
+      const sessionPatterns = command?.sessionPatterns || [];
+      const hasPatterns = Boolean(command) && (globalPatterns.length || projectPatterns.length || sessionPatterns.length);
+      if (hasPatterns) text += ` (${escapeHtml(t('mcp_security_constrained'))})`;
       // Una fila por alcance: etiqueta a la izquierda y sus patrones a la derecha. Los globales y de proyecto
       // se quitan uno a uno; los de sesión duran hasta que se cierra ZeroChat o se cambia de proyecto.
-      const chip = (prefix, project) => {
-        const removeLabel = escapeHtml(t('mcp_security_remove_prefix', { cmd: prefix }));
+      const chip = (pattern, project) => {
+        const removeLabel = escapeHtml(t('mcp_security_remove_pattern', { cmd: pattern }));
         const projectAttr = project === null ? '' : ` data-project="${escapeHtml(project)}"`;
-        return `<span class="mcp-auth-constraint-tag mcp-auth-cmd-chip"><code>${escapeHtml(prefix)}</code><button type="button" class="btn-remove-cmd-prefix" data-tool-id="${toolId}" data-prefix="${escapeHtml(prefix)}"${projectAttr} title="${removeLabel}" aria-label="${removeLabel}">${Icons.get('close', { size: 10 })}</button></span>`;
+        return `<span class="mcp-auth-constraint-tag mcp-auth-cmd-chip"><code>${escapeHtml(pattern)}</code><button type="button" class="btn-remove-cmd-pattern" data-tool-id="${toolId}" data-pattern="${escapeHtml(pattern)}"${projectAttr} title="${removeLabel}" aria-label="${removeLabel}">${Icons.get('close', { size: 10 })}</button></span>`;
       };
-      const sessionChip = prefix => `<span class="mcp-auth-constraint-tag mcp-auth-cmd-chip is-session"><code>${escapeHtml(prefix)}</code></span>`;
+      const sessionChip = pattern => `<span class="mcp-auth-constraint-tag mcp-auth-cmd-chip is-session"><code>${escapeHtml(pattern)}</code></span>`;
       const group = (icon, label, title, chips) => `
               <span class="mcp-auth-cmd-scope" title="${escapeHtml(title)}">${icon}<span class="mcp-auth-cmd-scope-label">${escapeHtml(label)}</span></span>
               <div class="mcp-auth-cmd-chips">${chips}</div>`;
-      const projectGroup = ([project, prefixes]) => {
+      const projectGroup = ([project, patterns]) => {
         const label = project === projectDir ? t('mcp_security_scope_this_project', { name: folderName(project) }) : folderName(project);
-        return group(Icons.get('folder', { size: 12 }), label, project, prefixes.map(prefix => chip(prefix, project)).join(''));
+        return group(Icons.get('folder', { size: 12 }), label, project, patterns.map(pattern => chip(pattern, project)).join(''));
       };
       const scopeOptions = [
         `<option value="">${escapeHtml(t('mcp_security_scope_global'))}</option>`,
         projectDir ? `<option value="${escapeHtml(projectDir)}">${escapeHtml(t('mcp_security_scope_this_project', { name: folderName(projectDir) }))}</option>` : ''
       ].join('');
-      const prefixEditor = hasPrefixes ? `
-            <div class="mcp-auth-cmd-prefixes">
-              ${globalPrefixes.length ? group(Icons.get('globe', { size: 12 }), t('mcp_security_scope_global'), t('mcp_security_scope_global'), globalPrefixes.map(prefix => chip(prefix, null)).join('')) : ''}
-              ${projectPrefixes.map(projectGroup).join('')}
-              ${sessionPrefixes.length ? group(Icons.get('clock', { size: 12 }), t('mcp_security_scope_session'), t('tool_auth_cmd_session_title'), sessionPrefixes.map(sessionChip).join('')) : ''}
+      const patternEditor = hasPatterns ? `
+            <div class="mcp-auth-cmd-patterns">
+              ${globalPatterns.length ? group(Icons.get('globe', { size: 12 }), t('mcp_security_scope_global'), t('mcp_security_scope_global'), globalPatterns.map(pattern => chip(pattern, null)).join('')) : ''}
+              ${projectPatterns.map(projectGroup).join('')}
+              ${sessionPatterns.length ? group(Icons.get('clock', { size: 12 }), t('mcp_security_scope_session'), t('tool_auth_cmd_session_title'), sessionPatterns.map(sessionChip).join('')) : ''}
               <div class="mcp-auth-cmd-add" data-tool-id="${toolId}">
                 <select class="mcp-auth-cmd-scope-select" aria-label="${escapeHtml(t('mcp_security_add_scope_label'))}">${scopeOptions}</select>
                 <div class="mcp-auth-cmd-add-line">
                   <input type="text" class="mcp-auth-cmd-input" placeholder="${addLabel}" aria-label="${addLabel}" spellcheck="false" autocomplete="off">
-                  <button type="button" class="btn-add-cmd-prefix">${escapeHtml(t('mcp_security_add_prefix'))}</button>
+                  <button type="button" class="btn-add-cmd-pattern">${escapeHtml(t('mcp_security_add_pattern'))}</button>
                 </div>
               </div>
               <p class="mcp-auth-cmd-error" role="alert" hidden></p>
@@ -454,7 +454,7 @@
             <span class="mcp-auth-badge ${className}">${text}</span>
             ${scopeBadge(item)}
           </div>
-          ${prefixEditor}
+          ${patternEditor}
         </div>`;
     });
 
@@ -462,16 +462,16 @@
   }
 
   /**
-   * Cambia los prefijos guardados de una herramienta: `change` recibe y devuelve
-   * `{ allowedPrefixes, projectPrefixes }`. Un rechazo del backend se muestra junto al editor.
+   * Cambia los patrones guardados de una herramienta: `change` recibe y devuelve
+   * `{ allowedPatterns, projectPatterns }`. Un rechazo del backend se muestra junto al editor.
    */
-  async function updateCommandPrefixes(origin, toolId, change) {
+  async function updateCommandPatterns(origin, toolId, change) {
     const security = getSecurity();
-    const errorEl = origin.closest('.mcp-auth-cmd-prefixes')?.querySelector('.mcp-auth-cmd-error');
+    const errorEl = origin.closest('.mcp-auth-cmd-patterns')?.querySelector('.mcp-auth-cmd-error');
     const command = security.getToolConstraints(toolId)?.command || {};
-    const current = { allowedPrefixes: [...(command.allowedPrefixes || [])], projectPrefixes: { ...(command.projectPrefixes || {}) } };
+    const current = { allowedPatterns: [...(command.allowedPatterns || [])], projectPatterns: { ...(command.projectPatterns || {}) } };
     try {
-      await security.setCommandPrefixes(toolId, change(current));
+      await security.setCommandPatterns(toolId, change(current));
     } catch (err) {
       if (!errorEl) throw err;
       setText(errorEl, err?.message || String(err));
@@ -480,13 +480,13 @@
   }
 
   /** Añade el patrón del editor al alcance elegido: todos los proyectos o el proyecto actual. */
-  async function addCommandPrefix(editor) {
+  async function addCommandPattern(editor) {
     const value = editor?.querySelector('.mcp-auth-cmd-input').value.trim();
     if (!value) return;
     const project = editor.querySelector('.mcp-auth-cmd-scope-select').value;
-    await updateCommandPrefixes(editor, editor.getAttribute('data-tool-id'), current => (project
-      ? { ...current, projectPrefixes: { ...current.projectPrefixes, [project]: [...(current.projectPrefixes[project] || []), value] } }
-      : { ...current, allowedPrefixes: [...current.allowedPrefixes, value] }));
+    await updateCommandPatterns(editor, editor.getAttribute('data-tool-id'), current => (project
+      ? { ...current, projectPatterns: { ...current.projectPatterns, [project]: [...(current.projectPatterns[project] || []), value] } }
+      : { ...current, allowedPatterns: [...current.allowedPatterns, value] }));
   }
 
   function renderCurrentToolsList(elements) {
@@ -526,23 +526,23 @@
       if (tool) await security.revokeToolPolicy(tool.getAttribute('data-tool-id'));
       const server = event.target.closest('.btn-revoke-server-auth');
       if (server) await security.revokeServerPolicy(server.getAttribute('data-server-id'));
-      const removePrefix = event.target.closest('.btn-remove-cmd-prefix');
-      if (removePrefix) {
-        const toolId = removePrefix.getAttribute('data-tool-id');
-        const prefix = removePrefix.getAttribute('data-prefix');
-        const project = removePrefix.getAttribute('data-project');
-        await updateCommandPrefixes(removePrefix, toolId, current => (project === null
-          ? { ...current, allowedPrefixes: current.allowedPrefixes.filter(p => p !== prefix) }
-          : { ...current, projectPrefixes: { ...current.projectPrefixes, [project]: (current.projectPrefixes[project] || []).filter(p => p !== prefix) } }));
+      const removePattern = event.target.closest('.btn-remove-cmd-pattern');
+      if (removePattern) {
+        const toolId = removePattern.getAttribute('data-tool-id');
+        const pattern = removePattern.getAttribute('data-pattern');
+        const project = removePattern.getAttribute('data-project');
+        await updateCommandPatterns(removePattern, toolId, current => (project === null
+          ? { ...current, allowedPatterns: current.allowedPatterns.filter(p => p !== pattern) }
+          : { ...current, projectPatterns: { ...current.projectPatterns, [project]: (current.projectPatterns[project] || []).filter(p => p !== pattern) } }));
       }
-      const addPrefix = event.target.closest('.btn-add-cmd-prefix');
-      if (addPrefix) await addCommandPrefix(addPrefix.closest('.mcp-auth-cmd-add'));
+      const addPattern = event.target.closest('.btn-add-cmd-pattern');
+      if (addPattern) await addCommandPattern(addPattern.closest('.mcp-auth-cmd-add'));
     });
-    // La lista vive dentro del formulario de ajustes: Enter añade el prefijo y no envía ese formulario.
+    // La lista vive dentro del formulario de ajustes: Enter añade el patrón y no envía ese formulario.
     on(elements.savedAuthsList, 'keydown', async event => {
       if (event.key !== 'Enter' || !event.target.matches('.mcp-auth-cmd-input')) return;
       event.preventDefault();
-      await addCommandPrefix(event.target.closest('.mcp-auth-cmd-add'));
+      await addCommandPattern(event.target.closest('.mcp-auth-cmd-add'));
     });
     on(elements.btnClearAuths, 'click', async () => await security.clearAllAuthorizations());
 

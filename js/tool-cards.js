@@ -566,14 +566,14 @@
     if (ruleOffer?.type === 'command') {
       // Con "cd <dir> && git status" (o "cd <dir> ; git status") se ofrece autorizar el patrón "git status *", no cd. Cada botón concede la línea
       // de la caja (editable) con su alcance: esta sesión, este proyecto o todos los proyectos.
-      const prefixLabel = escapeHtml(t('tool_auth_cmd_prefix_label'));
+      const patternLabel = escapeHtml(t('tool_auth_cmd_pattern_label'));
       const scopeButton = (decision, icon, label, title) => `<button type="button" class="btn-auth-action btn-auth-allow-cmd" data-decision="${decision}" title="${escapeHtml(title)}">${icon} <span>${escapeHtml(label)}</span></button>`;
       contextualButtonsHtml = `
         <div class="tool-auth-cmd-rule" role="group" aria-label="${escapeHtml(t('tool_auth_allow_cmd_title'))}">
           ${scopeButton('allow_session', CLOCK_SVG, t('tool_auth_cmd_session'), t('tool_auth_cmd_session_title'))}
           ${scopeButton('allow_project', FOLDER_SVG, t('tool_auth_cmd_project'), t('tool_auth_cmd_project_title'))}
           ${scopeButton('allow_always', GLOBE_SVG, t('tool_auth_cmd_global'), t('tool_auth_cmd_global_title'))}
-          <input type="text" class="tool-auth-cmd-input" value="${escapeHtml(ruleOffer.command)}" aria-label="${prefixLabel}" title="${escapeHtml(t('tool_auth_allow_cmd_title'))}" spellcheck="false" autocomplete="off">
+          <input type="text" class="tool-auth-cmd-input" value="${escapeHtml(ruleOffer.command)}" aria-label="${patternLabel}" title="${escapeHtml(t('tool_auth_allow_cmd_title'))}" spellcheck="false" autocomplete="off">
         </div>
       `;
     } else if (ruleOffer?.type === 'directory') {
@@ -736,7 +736,7 @@
         const line = commandLine();
         if (!isValidCommandLine(line)) return;
         const command = ruleOffer.constraints?.command || {};
-        handleDecision({ decision: button.dataset.decision, constraints: { command: { ...command, allowedPrefixes: [line] } } });
+        handleDecision({ decision: button.dataset.decision, constraints: { command: { ...command, allowedPatterns: [line] } } });
       }));
 
       btnAllowPath?.addEventListener('click', (e) => {

@@ -27,7 +27,7 @@ READ_PATH_TOOLS = frozenset(("read_file", "list_directory", "search_files", "get
 WRITE_PATH_TOOLS = frozenset(("edit_file", "write_file"))
 DIRECTORY_PATH_TOOLS = frozenset(("list_directory", "search_files", "get_diagnostics"))
 
-MAX_COMMAND_PREFIXES = 50
+MAX_COMMAND_PATTERNS = 50
 COMMAND_PATTERN_FORBIDDEN = re.compile(r"[;&|<>$`'\"\\\n\r]")
 # Lo que la shell expandiría no lo cubre un comodín: variables, llaves, ~ y comillas invertidas.
 COMMAND_WILDCARD_UNSAFE = re.compile(r"[$`{}~]")
@@ -231,7 +231,7 @@ def compile_command_pattern(pattern: str) -> tuple[tuple[tuple[re.Pattern, bool]
     return compiled, rest
 
 
-def matches_command_prefix(command: str, pattern: str) -> bool:
+def matches_command_pattern(command: str, pattern: str) -> bool:
     """
     Verifica si un comando cumple un patrón autorizado, argumento a argumento: sin `*` el texto es
     exacto. Un argumento cubierto por un comodín no puede contener `..` ni lo que expande la shell.
@@ -253,7 +253,7 @@ def matches_command_prefix(command: str, pattern: str) -> bool:
 
 
 def evaluate_command_constraint(cmd_val: str, command_constraints: dict) -> tuple[bool, bool, str, str]:
-    """Evalúa restricciones granulares de comando (encadenamiento, patrones prohibidos y prefijos)."""
+    """Evalúa restricciones granulares de comando (encadenamiento, patrones prohibidos y autorizados)."""
     if not cmd_val or not isinstance(cmd_val, str) or not isinstance(command_constraints, dict):
         return True, False, "", ""
     trimmed = cmd_val.strip()
@@ -271,16 +271,16 @@ def evaluate_command_constraint(cmd_val: str, command_constraints: dict) -> tupl
             if isinstance(pattern, str) and pattern in trimmed:
                 return False, True, "command_matches_denied_pattern", f"El comando contiene un patrón bloqueado ({pattern}): {trimmed}"
 
-    # Sin prefijos no hay autorización: una lista vacía nunca equivale a cualquier comando.
-    allowed_prefixes = command_constraints.get("allowedPrefixes")
-    prefixes = [p for p in allowed_prefixes if isinstance(p, str)] if isinstance(allowed_prefixes, (list, tuple)) else []
-    if not any(matches_command_prefix(command, p) for p in prefixes):
-        return False, False, "command_outside_allowed_prefixes", f"Comando fuera de los prefijos autorizados: {trimmed}"
+    # Sin patrones no hay autorización: una lista vacía nunca equivale a cualquier comando.
+    allowed_patterns = command_constraints.get("allowedPatterns")
+    patterns = [p for p in allowed_patterns if isinstance(p, str)] if isinstance(allowed_patterns, (list, tuple)) else []
+    if not any(matches_command_pattern(command, p) for p in patterns):
+        return False, False, "command_outside_allowed_patterns", f"Comando fuera de los patrones autorizados: {trimmed}"
 
     return True, False, "", ""
 
 
-def normalize_command_prefix(raw: str) -> str:
+def normalize_command_pattern(raw: str) -> str:
     """
     Limpia un patrón de comando ('git  status *' -> 'git status *'): el ejecutable sin comodín, sin
     metacaracteres de shell ni comillas y sin `**`, reservado; ValueError si no es válido.
@@ -293,20 +293,20 @@ def normalize_command_prefix(raw: str) -> str:
     return clean
 
 
-def _clean_prefix_list(raw: list, label: str) -> list[str]:
+def _clean_pattern_list(raw: list, label: str) -> list[str]:
     """Patrones limpios, sin repetidos ni cubiertos por otro más amplio de la misma lista."""
     if not isinstance(raw, list):
         raise ValueError(f"{label} debe ser una lista de comandos.")
-    unique = list(dict.fromkeys(normalize_command_prefix(p) for p in raw))
-    return [p for p in unique if not any(q != p and matches_command_prefix(p, q) for q in unique)]
+    unique = list(dict.fromkeys(normalize_command_pattern(p) for p in raw))
+    return [p for p in unique if not any(q != p and matches_command_pattern(p, q) for q in unique)]
 
 
 def normalize_command_constraints(constraints: dict | None) -> dict | None:
     """
-    Valida y normaliza las restricciones de comando: prefijos globales (`allowedPrefixes`) y por
-    proyecto (`projectPrefixes`, ruta absoluta del proyecto -> prefijos), sin metacaracteres de shell,
-    sin repetidos ni prefijos cubiertos por otro más amplio, con al menos uno y como máximo
-    MAX_COMMAND_PREFIXES en total. Los prefijos de sesión nunca forman parte del estado guardado.
+    Valida y normaliza las restricciones de comando: patrones globales (`allowedPatterns`) y por
+    proyecto (`projectPatterns`, ruta absoluta del proyecto -> patrones), sin metacaracteres de shell,
+    sin repetidos ni patrones cubiertos por otro más amplio, con al menos uno y como máximo
+    MAX_COMMAND_PATTERNS en total. Los patrones de sesión nunca forman parte del estado guardado.
     """
     if constraints is None:
         return None
@@ -317,32 +317,32 @@ def normalize_command_constraints(constraints: dict | None) -> dict | None:
         return None
     if not isinstance(command, dict):
         raise ValueError("constraints.command debe ser un diccionario.")
-    raw_allowed = command.get("allowedPrefixes", [])
-    raw_projects = command.get("projectPrefixes") or {}
+    raw_allowed = command.get("allowedPatterns", [])
+    raw_projects = command.get("projectPatterns") or {}
     if not isinstance(raw_projects, dict):
-        raise ValueError("projectPrefixes debe ser un diccionario de proyecto a prefijos.")
+        raise ValueError("projectPatterns debe ser un diccionario de proyecto a patrones.")
     total = (len(raw_allowed) if isinstance(raw_allowed, list) else 0) + \
         sum(len(v) for v in raw_projects.values() if isinstance(v, list))
-    if total > MAX_COMMAND_PREFIXES:
-        raise ValueError(f"Hay {total} prefijos de comando; el máximo es {MAX_COMMAND_PREFIXES}.")
-    allowed = _clean_prefix_list(raw_allowed, "allowedPrefixes")
+    if total > MAX_COMMAND_PATTERNS:
+        raise ValueError(f"Hay {total} patrones de comando; el máximo es {MAX_COMMAND_PATTERNS}.")
+    allowed = _clean_pattern_list(raw_allowed, "allowedPatterns")
     projects: dict[str, list[str]] = {}
     for raw_path, raw_list in raw_projects.items():
         path = normalize_directory_path(str(raw_path))
         if not path or not re.match(r"^(/|[A-Za-z]:/)", path):
-            raise ValueError(f"Proyecto no válido en projectPrefixes: '{raw_path}'.")
-        prefixes = _clean_prefix_list(list(projects.get(path, [])) + list(raw_list or []), "projectPrefixes")
-        if prefixes:
-            projects[path] = prefixes
+            raise ValueError(f"Proyecto no válido en projectPatterns: '{raw_path}'.")
+        patterns = _clean_pattern_list(list(projects.get(path, [])) + list(raw_list or []), "projectPatterns")
+        if patterns:
+            projects[path] = patterns
     if not allowed and not projects:
-        raise ValueError("allowedPrefixes debe ser una lista no vacía de comandos.")
+        raise ValueError("allowedPatterns debe ser una lista no vacía de comandos.")
     clean_command = {
-        "allowedPrefixes": allowed,
+        "allowedPatterns": allowed,
         "allowChaining": command.get("allowChaining") is True,
         "allowPipes": command.get("allowPipes") is True
     }
     if projects:
-        clean_command["projectPrefixes"] = projects
+        clean_command["projectPatterns"] = projects
     denied = command.get("deniedPatterns")
     if denied is not None:
         if not isinstance(denied, list) or not all(isinstance(d, str) and d.strip() for d in denied):
@@ -351,12 +351,12 @@ def normalize_command_constraints(constraints: dict | None) -> dict | None:
     return {"command": clean_command}
 
 
-def command_prefixes_for(command_constraints: dict, project: str) -> list[str]:
-    """Prefijos que rigen en un proyecto: globales, los de ese proyecto y los de la sesión."""
+def command_patterns_for(command_constraints: dict, project: str) -> list[str]:
+    """Patrones que rigen en un proyecto: globales, los de ese proyecto y los de la sesión."""
     return [
-        *(command_constraints.get("allowedPrefixes") or []),
-        *((command_constraints.get("projectPrefixes") or {}).get(project) or []),
-        *(command_constraints.get("sessionPrefixes") or [])
+        *(command_constraints.get("allowedPatterns") or []),
+        *((command_constraints.get("projectPatterns") or {}).get(project) or []),
+        *(command_constraints.get("sessionPatterns") or [])
     ]
 
 
@@ -385,7 +385,7 @@ def get_rule_offer(tool_name: str, args: dict, auth_eval: dict | None = None) ->
             "type": "command",
             "command": pattern,
             "constraints": {
-                "command": {"allowedPrefixes": [pattern], "allowChaining": False, "allowPipes": False}
+                "command": {"allowedPatterns": [pattern], "allowChaining": False, "allowPipes": False}
             }
         }
     # Solo las herramientas integradas se autorizan por reglas de directorio.
@@ -477,7 +477,7 @@ class AccessController:
     def _combine_tool_entry(permanent: dict | None, session: dict) -> dict:
         """
         Entrada efectiva de una herramienta. Una entrada de sesión sustituye a la permanente, salvo
-        los prefijos de comando de sesión, que se suman a los permanentes como `sessionPrefixes`
+        los patrones de comando de sesión, que se suman a los permanentes como `sessionPatterns`
         (una denegación o una autorización sin restricciones permanentes prevalecen).
         """
         session_cmd = (session.get("constraints") or {}).get("command")
@@ -485,12 +485,12 @@ class AccessController:
             return session
         if permanent and (permanent.get("policy") == POLICY_DENY or not (permanent.get("constraints") or {}).get("command")):
             return permanent
-        base = permanent or {**session, "constraints": {"command": {"allowedPrefixes": [], "allowChaining": False, "allowPipes": False}}}
+        base = permanent or {**session, "constraints": {"command": {"allowedPatterns": [], "allowChaining": False, "allowPipes": False}}}
         base_cmd = base["constraints"]["command"]
-        return {**base, "constraints": {**base["constraints"], "command": {**base_cmd, "sessionPrefixes": list(session_cmd.get("allowedPrefixes") or [])}}}
+        return {**base, "constraints": {**base["constraints"], "command": {**base_cmd, "sessionPatterns": list(session_cmd.get("allowedPatterns") or [])}}}
 
     def _drop_superseded_session(self, kind: str, item_ids, revoked: bool = False):
-        """Una escritura permanente retira la entrada de sesión, salvo prefijos de comando de sesión (se suman)."""
+        """Una escritura permanente retira la entrada de sesión, salvo patrones de comando de sesión (se suman)."""
         session = self._session_map(kind)
         for item_id in item_ids:
             entry = session.get(item_id)
@@ -660,23 +660,23 @@ class AccessController:
         return result
 
     @staticmethod
-    def _fold_session_prefixes(state: dict) -> dict:
-        """El estado exportado lleva los prefijos de sesión aparte; en una capa de sesión son prefijos más."""
+    def _fold_session_patterns(state: dict) -> dict:
+        """El estado exportado lleva los patrones de sesión aparte; en una capa de sesión son patrones más."""
         if not isinstance(state, dict) or not isinstance(state.get("tools"), dict):
             return state
         tools = {}
         for tool_id, entry in state["tools"].items():
             command = ((entry or {}).get("constraints") or {}).get("command") if isinstance(entry, dict) else None
-            if isinstance(command, dict) and command.get("sessionPrefixes"):
-                folded = {k: v for k, v in command.items() if k != "sessionPrefixes"}
-                folded["allowedPrefixes"] = list(command.get("allowedPrefixes") or []) + list(command["sessionPrefixes"])
+            if isinstance(command, dict) and command.get("sessionPatterns"):
+                folded = {k: v for k, v in command.items() if k != "sessionPatterns"}
+                folded["allowedPatterns"] = list(command.get("allowedPatterns") or []) + list(command["sessionPatterns"])
                 entry = {**entry, "constraints": {**entry["constraints"], "command": folded}}
             tools[tool_id] = entry
         return {**state, "tools": tools}
 
     def apply_session_overlay(self, state: dict, context: SecurityContext | None = None):
         """Aplica una capa de políticas temporal en memoria para una ejecución en servidor, sin persistir."""
-        state = self._fold_session_prefixes(state)
+        state = self._fold_session_patterns(state)
         clean_global, clean_rules, clean_tools, clean_servers = self._validate_state_payload(state, SCOPE_SESSION, context)
 
         with self._lock:
@@ -816,7 +816,7 @@ class AccessController:
                 return None
             constraints, _ = self._validate_decision(dec_payload, challenge["toolName"], context)
             if constraints and challenge["toolName"] == COMMAND_TOOL:
-                self._check_prefixes_cover(constraints, challenge["arguments"])
+                self._check_patterns_cover(constraints, challenge["arguments"])
             self.pending_challenges.pop(challenge_id)
         self.record_decision(dec_payload, challenge["decision"], fallback_tool_name=challenge["toolName"], context=context)
         return challenge
@@ -833,19 +833,19 @@ class AccessController:
         if decision_type == "allow_always" and tool_name == COMMAND_TOOL and not constraints:
             raise ValueError("allow_always_requires_constraints")
         if decision_type == "allow_project" and (tool_name != COMMAND_TOOL or not constraints):
-            raise ValueError("allow_project_requires_command_prefix")
+            raise ValueError("allow_project_requires_command_pattern")
         rule = decision.get("directoryRule")
         return constraints, (self._validate_directory_rules([rule], context) if rule else [])
 
     @staticmethod
-    def _check_prefixes_cover(constraints: dict | None, args: dict):
-        """Un prefijo aprobado en un reto debe cubrir el comando de ese reto."""
+    def _check_patterns_cover(constraints: dict | None, args: dict):
+        """Un patrón aprobado en un reto debe cubrir el comando de ese reto."""
         command_str = get_command_arg(args)
         cd_part = split_leading_cd(command_str)
         command = cd_part["command"] if cd_part else command_str
-        for prefix in ((constraints or {}).get("command") or {}).get("allowedPrefixes") or []:
-            if not matches_command_prefix(command, prefix):
-                raise ValueError(f"El prefijo '{prefix}' no cubre el comando '{command}'.")
+        for pattern in ((constraints or {}).get("command") or {}).get("allowedPatterns") or []:
+            if not matches_command_pattern(command, pattern):
+                raise ValueError(f"El patrón '{pattern}' no cubre el comando '{command}'.")
 
     @staticmethod
     def merge_command_constraints(existing_constraints: dict | None, requested: dict | None) -> dict | None:
@@ -857,30 +857,30 @@ class AccessController:
         req_cmd = requested["command"]
         ext_cmd = existing_constraints.get("command") if (existing_constraints and isinstance(existing_constraints, dict)) else {}
 
-        raw_prefixes = list(ext_cmd.get("allowedPrefixes") or []) + list(req_cmd.get("allowedPrefixes") or [])
+        raw_patterns = list(ext_cmd.get("allowedPatterns") or []) + list(req_cmd.get("allowedPatterns") or [])
         seen = set()
-        merged_prefixes = []
-        for p in raw_prefixes:
+        merged_patterns = []
+        for p in raw_patterns:
             if isinstance(p, str) and p.strip() and p.strip() not in seen:
                 seen.add(p.strip())
-                merged_prefixes.append(p.strip())
+                merged_patterns.append(p.strip())
 
         def grants(key: str) -> bool:
             return req_cmd.get(key) is True and (not ext_cmd or ext_cmd.get(key) is True)
 
-        merged_projects = {path: list(prefixes) for path, prefixes in (ext_cmd.get("projectPrefixes") or {}).items()}
-        for path, prefixes in (req_cmd.get("projectPrefixes") or {}).items():
-            merged_projects[path] = list(dict.fromkeys(merged_projects.get(path, []) + list(prefixes)))
+        merged_projects = {path: list(patterns) for path, patterns in (ext_cmd.get("projectPatterns") or {}).items()}
+        for path, patterns in (req_cmd.get("projectPatterns") or {}).items():
+            merged_projects[path] = list(dict.fromkeys(merged_projects.get(path, []) + list(patterns)))
 
         merged_cmd = {
             **ext_cmd,
             **req_cmd,
-            "allowedPrefixes": merged_prefixes,
+            "allowedPatterns": merged_patterns,
             "allowChaining": grants("allowChaining"),
             "allowPipes": grants("allowPipes")
         }
         if merged_projects:
-            merged_cmd["projectPrefixes"] = merged_projects
+            merged_cmd["projectPatterns"] = merged_projects
         return {"command": merged_cmd}
 
     def record_decision(self, decision: dict, auth_eval: dict,
@@ -899,10 +899,10 @@ class AccessController:
 
         permanent_kind, permanent_id = None, ""
         if decision_type == "allow_project":
-            # Los prefijos aprobados solo rigen en el proyecto del reto.
+            # Los patrones aprobados solo rigen en el proyecto del reto.
             clean_cmd = clean_constraints["command"]
-            clean_constraints = {"command": {**clean_cmd, "allowedPrefixes": [],
-                                             "projectPrefixes": {self._project_key(context): clean_cmd["allowedPrefixes"]}}}
+            clean_constraints = {"command": {**clean_cmd, "allowedPatterns": [],
+                                             "projectPatterns": {self._project_key(context): clean_cmd["allowedPatterns"]}}}
             permanent_kind, permanent_id = "tools", target_tool
         elif decision_type == "allow_always":
             permanent_kind, permanent_id = "tools", target_tool
@@ -936,7 +936,7 @@ class AccessController:
                 self.session_directory_rules = self._append_rules(self.session_directory_rules, new_rules)
 
     def _record_session_decision(self, tool_id: str, server_name: str, constraints: dict | None):
-        """Sin prefijos autoriza la herramienta en la sesión; con prefijos de comando, solo esos prefijos."""
+        """Sin patrones autoriza la herramienta en la sesión; con patrones de comando, solo esos patrones."""
         with self._lock:
             current = self.session_tools.get(tool_id)
             current_cmd = ((current or {}).get("constraints") or {}).get("command")
@@ -1011,7 +1011,7 @@ class AccessController:
                 cmd_arg = get_command_arg(args)
                 if cmd_arg and constraints.get("command"):
                     project_constraints = {**constraints["command"],
-                                           "allowedPrefixes": command_prefixes_for(constraints["command"], self._project_key(ctx))}
+                                           "allowedPatterns": command_patterns_for(constraints["command"], self._project_key(ctx))}
                     c_allowed, c_denied, c_reason, c_details = evaluate_command_constraint(cmd_arg, project_constraints)
                     if c_denied:
                         return make_decision(POLICY_DENY, c_reason or "constraint_violation_denied", {"details": c_details})

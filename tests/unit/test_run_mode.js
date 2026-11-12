@@ -140,7 +140,7 @@ test('RunMode.hydrateToolSecurity aplica políticas reales en ToolSecurityManage
         write_file: { policy: 'allow', scope: 'session' },
         run_command: {
           policy: 'allow',
-          constraints: { command: { allowedPrefixes: ['git'], allowChaining: false, allowPipes: false } }
+          constraints: { command: { allowedPatterns: ['git'], allowChaining: false, allowPipes: false } }
         }
       },
       directoryRules: ['R:/tmp/project'],
@@ -150,7 +150,7 @@ test('RunMode.hydrateToolSecurity aplica políticas reales en ToolSecurityManage
     assert.equal(manager.getGlobalMcpPolicy(), 'workspace_trust');
     assert.equal(manager.getToolPolicy('write_file'), 'allow');
     assert.equal(manager.getToolPolicy('run_command'), 'allow');
-    assert.deepEqual(manager.getToolConstraints('run_command'), { command: { allowedPrefixes: ['git'], allowChaining: false, allowPipes: false } });
+    assert.deepEqual(manager.getToolConstraints('run_command'), { command: { allowedPatterns: ['git'], allowChaining: false, allowPipes: false } });
     assert.ok(manager.getDirectoryRules().includes('R:/tmp/project'));
     assert.equal(manager.getServerPolicy('memory'), 'allow');
   } finally {

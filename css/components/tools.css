@@ -1664,7 +1664,7 @@ button.command-jobs-link:focus-visible {
   color: var(--danger);
 }
 
-/* Prefijo de comando editable en la tarjeta de autorización y en las autorizaciones guardadas. */
+/* Patrón de comando editable en la tarjeta de autorización y en las autorizaciones guardadas. */
 /* Los tres alcances (sesión, proyecto, todos) uno por fila y debajo la línea editable ("git status *"). */
 .tool-auth-cmd-rule {
   display: grid;
@@ -1696,7 +1696,7 @@ button.command-jobs-link:focus-visible {
 }
 
 /* Patrones de comando: una fila por alcance (etiqueta | patrones) y la fila de alta con su alcance. */
-.mcp-auth-cmd-prefixes {
+.mcp-auth-cmd-patterns {
   display: grid;
   grid-column: 2;
   grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
@@ -1723,7 +1723,7 @@ button.command-jobs-link:focus-visible {
   gap: 0.25rem;
 }
 
-.btn-remove-cmd-prefix {
+.btn-remove-cmd-pattern {
   display: inline-flex;
   padding: 0.1rem;
   color: var(--text-muted);
@@ -1733,7 +1733,7 @@ button.command-jobs-link:focus-visible {
   cursor: pointer;
 }
 
-.btn-remove-cmd-prefix:hover {
+.btn-remove-cmd-pattern:hover {
   color: var(--danger-text);
 }
 
@@ -1758,7 +1758,7 @@ button.command-jobs-link:focus-visible {
   min-width: 0;
 }
 
-.btn-add-cmd-prefix {
+.btn-add-cmd-pattern {
   flex: 0 0 auto;
   padding: 0.25rem 0.55rem;
   white-space: nowrap;
@@ -1794,7 +1794,7 @@ button.command-jobs-link:focus-visible {
 }
 
 @media (max-width: 600px) {
-  .mcp-auth-cmd-prefixes {
+  .mcp-auth-cmd-patterns {
     grid-column: 1 / -1;
     grid-template-columns: minmax(0, 1fr);
   }
