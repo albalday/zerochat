@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import shutil
 import stat
 import sys
 import tempfile
@@ -313,6 +314,24 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(zerochat.list_server_runs(focus_conversation_id="conv_1"), ([], None))
         zerochat.RUN_SESSION = None
 
+    def test_start_server_run_arranca_en_el_proyecto_de_la_conversacion(self):
+        zerochat.save_general_profile({"name": "valid-profile", "settings": {}})
+        project = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, project, True)
+        zerochat.save_conversation({"id": "conv_proj", "title": "P", "project": project}, [])
+        zerochat.save_conversation({"id": "conv_gone", "title": "G", "project": os.path.join(project, "borrado")}, [])
+        mock_proc = mock.Mock()
+        mock_proc.pid = os.getpid()
+        with mock.patch.object(zerochat, "find_node_executable", return_value="/usr/bin/node"), \
+             mock.patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            zerochat.start_server_run({"conversation_id": "conv_proj", "profile": "valid-profile"})
+            self.assertEqual(mock_popen.call_args.kwargs["cwd"], project)
+            # Si la carpeta ya no existe no arranca en otra
+            with self.assertRaises(ValueError):
+                zerochat.start_server_run({"conversation_id": "conv_gone", "profile": "valid-profile"})
+            self.assertEqual(mock_popen.call_count, 1)
+        zerochat.remove_run_state("conv_proj")
+
     def test_start_cancel_y_dispatch_server_run(self):
         zerochat.save_general_profile({"name": "valid-profile", "settings": {}})
         zerochat.save_conversation({"id": "conv_val", "title": "Val"}, [])
@@ -357,6 +376,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             self.assertIn("--prompt", cmd)
             self.assertEqual(cmd[cmd.index("--prompt") + 1], "Genera reporte")
 
+            self.assertIsNone(kwargs["cwd"], "Sin proyecto arranca en el directorio del servidor")
             env = kwargs["env"]
             self.assertEqual(env["ZEROCHAT_RUN_ID"], run_id)
             self.assertEqual(json.loads(env["ZEROCHAT_RUN_SECURITY"])["directoryRules"], ["R:/test"])

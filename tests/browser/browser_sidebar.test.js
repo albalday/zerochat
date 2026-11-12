@@ -117,6 +117,35 @@ test('Browser UI - con proyecto la barra muestra sus conversaciones y, con todos
   });
 });
 
+test('Browser UI - abrir una conversación de otro proyecto lleva el servidor a su carpeta y, si no existe, avisa', async () => {
+  await withTestApp(async page => {
+    await page.evaluate(async () => {
+      for (const [id, project] of [['p_ok', '/repo/b'], ['p_gone', '/repo/borrado']]) {
+        await window.ChatStorage.saveConversation({ id, title: id, project, createdAt: Date.now(), updatedAt: Date.now() }, [{ id: `${id}_m`, role: 'user', content: 'hola' }]);
+      }
+      window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), list: await window.ChatStorage.getConversationsList() });
+      window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo/a' } });
+      window.__dirs = [];
+      window.ChatMCP.manager.setProjectDirectory = async path => {
+        window.__dirs.push(path);
+        if (path === '/repo/borrado') throw new Error('Error MCP (-32602): no existe');
+        window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), serverInfo: { name: 'ZeroChat', cwd: path } });
+        return { cwd: path };
+      };
+    });
+    await page.selectOption('#sidebar-project-filter', 'all');
+    await page.locator('.sidebar-chat-item[data-session-id="p_ok"]').click();
+    await page.waitForFunction(() => window.__dirs.length === 1);
+    assert.equal(await page.evaluate(() => window.ChatState.get('mcp').serverInfo.cwd), '/repo/b');
+
+    await page.locator('.sidebar-chat-item[data-session-id="p_gone"]').click();
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    const notice = await page.textContent('#notice-dialog');
+    assert.ok(notice.includes('/repo/borrado') && notice.includes('no existe'), notice);
+    assert.equal(await page.evaluate(() => window.ChatState.get('mcp').serverInfo.cwd), '/repo/b', 'No se queda en otra carpeta: sigue la anterior y sin herramientas');
+  });
+});
+
 test('Browser UI - en móvil abrir la barra deja el chat inerte detrás del fondo y el fondo la cierra', async () => {
   await withTestApp({ viewport: { width: 390, height: 800 }, isMobile: true }, async page => {
     const state = () => page.evaluate(() => ({

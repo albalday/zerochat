@@ -44,6 +44,20 @@
   const EXTERNAL_ID = 'mcp_external';
   const DEFAULT_TIMEOUT_MS = 15000;
   const LOCAL_COMMAND_TOOL = 'run_command';
+
+  /**
+   * Las herramientas del servidor local actúan en su directorio: solo están disponibles con el servidor
+   * conectado y si la conversación activa es de ese proyecto (o aún no tiene ninguno). Así una conversación
+   * cuyo proyecto ya no existe, o que otra pestaña sacó de su carpeta, nunca actúa en otra.
+   */
+  function localToolsAvailable() {
+    const State = getState();
+    const mcp = State.get('mcp');
+    if (mcp.status !== 'connected') return false;
+    const { activeId, list } = State.get('sessions');
+    const project = list.find(session => session.id === activeId)?.project;
+    return !project || project === mcp.serverInfo?.cwd;
+  }
   const BROWSER_ACTION_TOOL = 'browser_action';
 
   /** Playwright del servicio instalado según el último latido; null mientras no se sabe. */
@@ -431,7 +445,7 @@
           // El nombre público ya identifica el servidor; repetirlo en la descripción gasta contexto.
           definition: { name: namespacedName, description: rt.description || toolName, parameters: rt.inputSchema },
           category: 'mcp',
-          isAvailable: () => (!isProxy || getState().get('mcp').status === 'connected') && (!isBrowserAction || browserActionAvailable()),
+          isAvailable: () => (!isProxy || localToolsAvailable()) && (!isBrowserAction || browserActionAvailable()),
           settings: { showInSettings: true },
           metadata: {
             iconSvg: Icons.get('plug', { size: 14 }),
@@ -876,7 +890,7 @@
       return lines.join('\n');
     }
 
-    /** Cambia el directorio del proyecto en el servidor local a petición del usuario. */
+    /** Cambia el directorio del proyecto en el servidor local: a petición del usuario o al abrir una conversación de otro proyecto. */
     async setProjectDirectory(path) {
       const result = await this.requestExternalControl('zerochat/project/set_directory', { path });
       await this.applyLiveState({ cwd: result?.cwd });

@@ -826,6 +826,28 @@ test('MCP - startExternalServer espera instalaciones largas y limita cada fase',
   }
 });
 
+test('MCP - las herramientas locales solo están disponibles si la conversación activa es del proyecto del servidor', async () => {
+  const previousMcp = ChatState.get('mcp');
+  const previousSessions = ChatState.get('sessions');
+  try {
+    const provider = new MCP.McpToolProvider({ id: 'mcp_proxy', name: 'ZeroChat', initialize: async () => ({ success: true }), listTools: async () => [{ name: 'read_file' }] });
+    const [readFile] = await provider.discoverTools();
+    ChatState.set('mcp', { ...previousMcp, status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo' } });
+    const withProject = project => {
+      ChatState.set('sessions', { activeId: 's1', list: [{ id: 's1', title: 'x', ...(project ? { project } : {}) }] });
+      return readFile.isAvailable();
+    };
+    assert.equal(withProject('/repo'), true);
+    assert.equal(withProject(''), true, 'Una conversación sin proyecto lo recibe al guardarse');
+    assert.equal(withProject('/otro'), false, 'Nunca actúa en la carpeta de otro proyecto');
+    ChatState.set('mcp', { ...ChatState.get('mcp'), status: 'disconnected' });
+    assert.equal(withProject('/repo'), false);
+  } finally {
+    ChatState.set('mcp', previousMcp);
+    ChatState.set('sessions', previousSessions);
+  }
+});
+
 test('MCP - applyLiveState publica el estado vivo del servidor y solo escribe lo que cambia', async t => {
   const Security = require('../../js/tool-security.js');
   const previousState = ChatState.get('mcp');

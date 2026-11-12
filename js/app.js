@@ -299,7 +299,10 @@
         Debug.togglePanel(false);
         resetTelemetryDisplay({ syncState: false });
       },
-      onSessionSwitched: conversation => applySessionModeAndProfile(conversation),
+      onSessionSwitched: conversation => {
+        applySessionModeAndProfile(conversation);
+        followConversationProject(conversation).catch(error => console.warn('[App] Could not open the conversation project:', error));
+      },
       isServerMode: () => isServerRunEnabled(),
       getProject: () => getServerCwd(),
       getServerProfile: () => UIProfiles.getSelectedServerProfile(),
@@ -343,6 +346,22 @@
       UIProfiles.setServerMode(true, profile);
     } else {
       UIProfiles.setServerMode(false);
+    }
+  }
+
+  /**
+   * Abrir una conversación de otro proyecto lleva el servidor a su carpeta. Si ya no existe, se avisa y
+   * la conversación se queda sin herramientas locales (localToolsAvailable), nunca en otra carpeta.
+   */
+  async function followConversationProject(conversation) {
+    const project = conversation?.project;
+    const cwd = getServerCwd();
+    if (!project || !cwd || project === cwd) return;
+    try {
+      await MCP.manager.setProjectDirectory(project);
+    } catch (error) {
+      const reason = String(error?.message || error).replace(/^Error MCP \(-?\d+\): /, '');
+      await Dialogs.alert(t('conversation_project_unavailable', { project, error: reason }), { type: 'warning' });
     }
   }
 
@@ -591,6 +610,10 @@
         if (result?.reason === 'error') {
           await Dialogs.alert(t('project_directory_error', { error: result.error }), { type: 'error' });
         }
+        // La conversación abierta es de su proyecto: en la carpeta nueva se empieza otra.
+        const { activeId, list } = State.get('sessions');
+        const project = list.find(session => session.id === activeId)?.project;
+        if (result?.ok && project && project !== result.cwd) await createNewSession();
       } catch (error) {
         console.error('[App] Project directory change failed:', error);
         await Dialogs.alert(error?.message || String(error), { type: 'error' });
