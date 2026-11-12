@@ -5519,6 +5519,33 @@ _SERVER_SHUTTING_DOWN = threading.Event()
 # Si el servidor se detiene al cerrar el navegador, cerrar la pestaña detiene también los comandos.
 EXIT_ON_CLOSE = False
 # zerochat/run/progress ya se registra con su propio texto en dispatch_run.
+# Un navegador lo usa una conversación cada vez; queda libre tras este tiempo sin que lo use.
+BROWSER_LEASE_IDLE_SECONDS = 300.0
+
+
+class BrowserLease:
+    """
+    Reserva de los navegadores (browser_action y Playwright MCP): la conversación que los usa los conserva
+    mientras siga usándolos; otra recibe un error claro hasta que pasen BROWSER_LEASE_IDLE_SECONDS sin uso.
+    Sin cola: compartir la página haría que una conversación actuase sobre la de otra.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._holders: dict[str, tuple[str, float]] = {}
+
+    def acquire(self, resource: str, conversation_id: str) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            holder = self._holders.get(resource)
+            if holder and holder[0] != conversation_id and now - holder[1] < BROWSER_LEASE_IDLE_SECONDS:
+                return False
+            self._holders[resource] = (conversation_id, now)
+            return True
+
+
+BROWSER_LEASES = BrowserLease()
+
 QUIET_RPC_METHODS = frozenset({"zerochat/heartbeat", "zerochat/jobs/get", "zerochat/jobs/log", "zerochat/jobs/list", "zerochat/run/progress"})
 
 
@@ -6159,6 +6186,19 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             }, None, ""
         return None
 
+    @staticmethod
+    def _browser_busy(origin: str, tool_name: str, meta) -> tuple[dict, None, str] | None:
+        """Error de herramienta si el navegador lo está usando otra conversación; si no, lo reserva para esta."""
+        is_browser = tool_name == "browser_action" if origin == "local" else GLOBAL_MCP_MANAGER.server_of(tool_name) == "playwright"
+        if not is_browser:
+            return None
+        conversation_id = meta.get("zerochatConversationId") if isinstance(meta, dict) else None
+        if BROWSER_LEASES.acquire("browser_action" if origin == "local" else "playwright", str(conversation_id or "")):
+            return None
+        message = (f"The browser is in use by another conversation. It is released after {int(BROWSER_LEASE_IDLE_SECONDS // 60)} "
+                   "minutes without use; tell the user or try again later.")
+        return {"content": [{"type": "text", "text": _tool_error(message)}], "isError": True}, None, message
+
     @classmethod
     def _call_tool(cls, origin: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
         """tools/call de los dos endpoints: evalúa, emite un reto o ejecuta por el punto único."""
@@ -6170,6 +6210,9 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         meta = params.get("_meta")
         # La clave del trabajo no es un argumento del modelo: no se evalúa ni se muestra en el reto.
         job_key = meta.get("zerochatJobKey") if origin == "local" and tool_name == COMMAND_TOOL and isinstance(meta, dict) else None
+        busy = cls._browser_busy(origin, tool_name, meta)
+        if busy is not None:
+            return busy
         gate = cls._authorize_or_challenge(origin, tool_name, args, ctx, job_key)
         return gate if gate is not None else cls._execute_tool(origin, tool_name, cls._with_job_key(args, job_key), ctx)
 

@@ -172,7 +172,8 @@ test('MCP Tools - run_command del servidor local envía la clave de la invocaci�
       if (body.method === 'tools/list') {
         return reply({ tools: [
           { name: 'run_command', description: 'Run a command', inputSchema: { type: 'object', required: ['command'] } },
-          { name: 'read_file', description: 'Read a file', inputSchema: { type: 'object', required: ['path'] } }
+          { name: 'read_file', description: 'Read a file', inputSchema: { type: 'object', required: ['path'] } },
+          { name: 'browser_action', description: 'Browser', inputSchema: { type: 'object', required: ['action'] } }
         ] });
       }
       if (body.method === 'tools/call' && body.params.name === 'run_command') {
@@ -197,7 +198,7 @@ test('MCP Tools - run_command del servidor local envía la clave de la invocaci�
     const pending = runTool.execute({ command: 'sleep 100' }, { invocationId: 'inv-clave-1234', signal: controller.signal });
     await new Promise(resolve => setTimeout(resolve, 10));
     const toolCall = calls.find(call => call.method === 'tools/call');
-    assert.deepEqual(toolCall.params._meta, { zerochatJobKey: 'inv-clave-1234' });
+    assert.deepEqual(toolCall.params._meta, { zerochatJobKey: 'inv-clave-1234' }, 'Solo los navegadores llevan la conversación');
     controller.abort();
     await assert.rejects(pending, error => error.name === 'AbortError');
     await new Promise(resolve => setTimeout(resolve, 10));
@@ -209,6 +210,14 @@ test('MCP Tools - run_command del servidor local envía la clave de la invocaci�
     await readTool.execute({ path: 'x' }, { invocationId: 'inv-otra-12345', signal: new AbortController().signal });
     assert.equal(calls.find(call => call.method === 'tools/call').params._meta, undefined);
     assert.equal(calls.some(call => call.method === 'zerochat/jobs/stop'), false);
+
+    // El navegador lo usa una conversación cada vez: su llamada dice cuál.
+    const previousSessions = ChatState.get('sessions');
+    ChatState.set('sessions', { ...previousSessions, activeId: 'conv-navegador' });
+    calls.length = 0;
+    await tools.find(t => t.name === 'browser_action').execute({ action: 'screenshot' }, { invocationId: 'inv-nav-12345', signal: new AbortController().signal });
+    ChatState.set('sessions', previousSessions);
+    assert.deepEqual(calls.find(call => call.method === 'tools/call').params._meta, { zerochatConversationId: 'conv-navegador' });
   } finally {
     global.fetch = originalFetch;
   }

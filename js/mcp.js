@@ -59,6 +59,7 @@
     return !project || project === mcp.serverInfo?.cwd;
   }
   const BROWSER_ACTION_TOOL = 'browser_action';
+  const PLAYWRIGHT_SERVER_ID = 'playwright';
 
   /** Playwright del servicio instalado según el último latido; null mientras no se sabe. */
   const playwrightInstalled = () => getState().get('mcp').playwright?.installed ?? null;
@@ -446,6 +447,7 @@
         // run_command del servidor local: tarjeta propia y detención del comando al abortar.
         const isLocalCommand = isProxy && toolName === LOCAL_COMMAND_TOOL;
         const isBrowserAction = isProxy && toolName === BROWSER_ACTION_TOOL;
+        const usesBrowser = isBrowserAction || (external && sourceServer === PLAYWRIGHT_SERVER_ID);
         const namespacedName = publicToolName(isProxy ? null : sourceServer, toolName);
         if (external && rt.name !== namespacedName) throw new Error('Invalid external MCP public name');
         if (toolInstances.some(tool => tool.name === namespacedName)) throw new Error('Duplicate MCP public name');
@@ -467,11 +469,14 @@
           },
           execute: async (args, context) => {
             const jobKey = isLocalCommand ? context.invocationId : null;
+            // Un navegador lo usa una conversación cada vez: el servidor necesita saber cuál lo pide.
+            const conversationId = usesBrowser ? getState().get('sessions').activeId : null;
+            const meta = { ...(jobKey ? { zerochatJobKey: jobKey } : {}), ...(conversationId ? { zerochatConversationId: conversationId } : {}) };
             try {
               return await withCommandJobStop(this.client, jobKey, context.signal, () => this.client.callTool(rt.name, args, {
                 signal: context.signal,
                 timeoutMs: options.timeoutMs,
-                meta: jobKey ? { zerochatJobKey: jobKey } : undefined
+                meta: Object.keys(meta).length ? meta : undefined
               }));
             } catch (error) {
               if (isProxy && isTransportFailure(error)) await this.onTransportFailure?.(error);
@@ -510,7 +515,7 @@
 
   /** El Playwright MCP en marcha usa otro navegador o almacenamiento del que exige el perfil, o no muestra la ventana que pide. */
   function usesOtherBrowser(server, required) {
-    return server.id === 'playwright' && Boolean(required) && McpStatus.isRunning(server.status)
+    return server.id === PLAYWRIGHT_SERVER_ID && Boolean(required) && McpStatus.isRunning(server.status)
       && (server.browser?.mode !== required.mode || server.browser.engine !== required.engine || server.browser.userBrowser !== required.userBrowser
         || (server.browser.storage || '') !== (required.storage || '')
         || (required.headless === false && server.browser.headless !== false));
@@ -1109,7 +1114,7 @@
         updateExternalServerState(serverId, { status, ...(oauthUrl ? { oauthUrl } : {}), error: null, startWait: { attempt, total } });
       };
       try {
-        const browser = serverId === 'playwright' ? getConfig().getActive().playwrightBrowser : null;
+        const browser = serverId === PLAYWRIGHT_SERVER_ID ? getConfig().getActive().playwrightBrowser : null;
         if (action === 'start') await this.startExternalServer(serverId, reportStartWait, { remember, ...(browser ? { browser } : {}) });
         else await this.stopExternalServer(serverId);
         return true;

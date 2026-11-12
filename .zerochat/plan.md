@@ -33,7 +33,7 @@ Decisiones: sin identidad de cliente (ni clientId ni Mcp-Session-Id): PC y table
 - [x] M62-T4 Permisos de sesión, patrones de sesión y retos pendientes pasan de AccessController al estado del proyecto; un reto solo se resuelve en su proyecto; cambiar de proyecto ya no borra nada (2026-11-12)
 - [x] M62-T5 Contexto explícito en todas las herramientas, comandos y diff (rutas por context.resolve), todavía con un solo proyecto y sin cambio de comportamiento; quitar os.chdir; prueba de arquitectura contra os.chdir, Path.cwd() y os.getcwd() fuera del arranque (2026-11-12)
 - [x] M62-T6 Comandos y live_state por proyecto: check_command y la lista de comandos solo ven los del proyecto de la petición; el heartbeat sigue siendo global (2026-11-12)
-- [ ] M62-T7 Navegadores (browser_action y Playwright MCP) en uso por una conversación: conversationId en _meta de tools/call, error claro para las demás y liberación por inactividad
+- [x] M62-T7 Navegadores (browser_action y Playwright MCP) en uso por una conversación: conversationId en _meta de tools/call, error claro para las demás y liberación por inactividad (2026-11-12)
 - [ ] M62-T8 Tope de proyectos con estado en memoria: se libera el usado hace más tiempo sin comandos en marcha y, si todos los tienen, error (N y N+1)
 - [ ] M62-T9 Documentar en py/README y en la ayuda es/en: estado por proyecto compartido entre pestañas y dispositivos, worktrees para trabajar en paralelo y un contenedor por usuario para multiusuario
 - [x] M62-T10 Proyecto de cada petición en una cabecera: el servidor valida la carpeta y busca o crea el estado de ese proyecto; set_directory solo cambia el proyecto de la pestaña (2026-11-12)
