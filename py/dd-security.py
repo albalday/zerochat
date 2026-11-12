@@ -496,6 +496,7 @@ class AccessController:
 
     @staticmethod
     def _check_entry_limit(state: dict):
+        """Único tope de entradas, sobre el estado resultante (guardado o capa de sesión)."""
         total = len(state.get("directoryRules") or []) + len(state.get("tools") or {}) + len(state.get("servers") or {})
         if total > MAX_POLICY_ENTRIES:
             raise ValueError(f"El número total de entradas ({total}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
@@ -511,23 +512,9 @@ class AccessController:
                 raise ValueError(f"Política global no válida: '{pol}'. Válidas: {GLOBAL_POLICIES}")
             clean_global = pol
 
-        clean_rules = None
-        if "directoryRules" in state:
-            clean_rules = self._validate_directory_rules(state["directoryRules"], context)
-
-        clean_tools = None
-        if "tools" in state:
-            clean_tools = self._validate_policy_entries(state["tools"], "tools", scope)
-
-        clean_servers = None
-        if "servers" in state:
-            clean_servers = self._validate_policy_entries(state["servers"], "servers", scope)
-
-        total_entries = (len(clean_rules) if clean_rules is not None else 0) + \
-                        (len([e for e in clean_tools.values() if e is not None]) if clean_tools is not None else 0) + \
-                        (len([e for e in clean_servers.values() if e is not None]) if clean_servers is not None else 0)
-        if total_entries > MAX_POLICY_ENTRIES:
-            raise ValueError(f"El número total de entradas ({total_entries}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
+        clean_rules = self._validate_directory_rules(state["directoryRules"], context) if "directoryRules" in state else None
+        clean_tools = self._validate_policy_entries(state["tools"], "tools", scope) if "tools" in state else None
+        clean_servers = self._validate_policy_entries(state["servers"], "servers", scope) if "servers" in state else None
         return clean_global, clean_rules, clean_tools, clean_servers
 
     def import_state(self, state: dict, context: SecurityContext):
@@ -597,14 +584,13 @@ class AccessController:
             if isinstance(raw_patterns, dict) else None
 
         with self._lock:
+            rules = clean_rules if clean_rules is not None else self.session_directory_rules
+            tools = self._apply_entry_patch(self.session_tools, clean_tools or {})
+            servers = self._apply_entry_patch(self.session_servers, clean_servers or {})
+            self._check_entry_limit({"directoryRules": rules, "tools": tools, "servers": servers})
             if clean_global is not None:
                 self.session_global_policy = clean_global
-            if clean_rules is not None:
-                self.session_directory_rules = clean_rules
-            if clean_tools is not None:
-                self.session_tools = self._apply_entry_patch(self.session_tools, clean_tools)
-            if clean_servers is not None:
-                self.session_servers = self._apply_entry_patch(self.session_servers, clean_servers)
+            self.session_directory_rules, self.session_tools, self.session_servers = rules, tools, servers
             if session_patterns is not None:
                 self.session_command_patterns = session_patterns
         return self.export_state(context)

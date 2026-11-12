@@ -310,6 +310,10 @@ class PolicyStateTest(ControllerTestCase):
         self.assertEqual(len(stored("tools")), limit)
         with self.assertRaisesRegex(ValueError, "supera el máximo permitido"):
             self.controller.import_state({"tools": {f"tool_{i}": {"policy": "allow"} for i in range(limit + 1)}}, self.ctx)
+        # La capa de sesión tiene el mismo tope
+        self.controller.apply_session_overlay({"tools": {f"s_{i}": {"policy": "allow"} for i in range(limit)}}, self.ctx)
+        with self.assertRaisesRegex(ValueError, "supera el máximo permitido"):
+            self.controller.apply_session_overlay({"tools": {f"s_{i}": {"policy": "allow"} for i in range(limit + 1)}}, self.ctx)
 
     def test_security_update_sets_granted_at_and_keeps_it_for_unchanged_grants(self):
         with unittest.mock.patch.object(zerochat.time, "time", return_value=1_700_000_000.0):
