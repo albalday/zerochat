@@ -50,4 +50,4 @@ Done when: Los probes C1-C3, S1-S3 y D1 de docs/audits/M61-permisos.md se compor
 - [x] M61-T24 Comodín * en patrones de comando por argumento (shlex): * sin espacios ni /, " *" final para más argumentos, sin * texto exacto, .. rechazado; patrón compilado a regex (sin migración: se borra la base de datos) (2026-11-12)
 - [x] M61-T25 Rediseño visual de los permisos en Ajustes › MCP: alcance de cada prefijo claro (global, proyecto, sesión), alta cuadrada y con alcance elegible, permisos de sesión visibles (2026-11-12)
 - [x] M61-T26 Cambiar de proyecto (set_project_directory) borra las autorizaciones de sesión y los retos pendientes (2026-11-12)
-- [ ] M61-T27 Revisar y reestructurar las pruebas de permisos (Python, integración y navegador): quitar redundancias y casos obsoletos, probar solo el comportamiento vigente e importante
+- [x] M61-T27 Revisar y reestructurar las pruebas de permisos (Python, integración y navegador): quitar redundancias y casos obsoletos, probar solo el comportamiento vigente e importante (2026-11-12)

@@ -272,8 +272,6 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
         expanded: prompt.querySelector('.btn-auth-more').getAttribute('aria-expanded'),
         menuHidden: menu.hidden,
         menuPosition: getComputedStyle(menu).position,
-        hasSession: !!menu.querySelector('.btn-auth-allow-session'),
-        hasPermanent: !!menu.querySelector('.btn-auth-allow-always'),
         hasCommandScope: !!menu.querySelector('.btn-auth-allow-cmd'),
         // Los tres alcances van uno por fila y la línea del comando debajo, con ancho útil
         cmdInputWidth: menu.querySelector('.tool-auth-cmd-input').getBoundingClientRect().width,
@@ -288,22 +286,11 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
     assert.equal(expanded.expanded, 'true');
     assert.equal(expanded.menuHidden, false);
     assert.equal(expanded.menuPosition, 'static');
-    assert.equal(expanded.hasSession, false, 'Comando oculta el botón genérico de sesión');
-    assert.equal(expanded.hasPermanent, false, 'Comando oculta botón genérico permitir siempre (M61-T4)');
     assert.equal(expanded.hasCommandScope, true);
     assert.ok(expanded.cmdInputWidth >= 150, `El campo del prefijo es demasiado estrecho: ${expanded.cmdInputWidth}px`);
     assert.equal(expanded.cmdLayout, true);
     assert.equal(expanded.hasServerTrust, true);
     assert.equal(expanded.panelVisible, true);
-
-    await page.click('.tool-auth-more-menu .btn-auth-allow-cmd[data-decision="allow_session"]');
-    const decision = await page.evaluate(async () => {
-      const result = await window.__permissionDecision;
-      window.__permissionCard.remove();
-      return result;
-    });
-    assert.equal(decision.decision, 'allow_session');
-    assert.deepEqual(decision.constraints.command.allowedPrefixes, ['git *']);
   } finally { await browser.close(); }
 });
 

@@ -54,15 +54,19 @@ function createMockClient(initialState = {}) {
 test('ChatToolSecurity - sin servidor conectado los setters y retos lanzan error explícito', async () => {
   const manager = new ChatToolSecurity.ToolSecurityManager();
 
-  await assert.rejects(async () => manager.setToolPolicy('tool1', 'allow'), /Local server connection is required/);
-  await assert.rejects(async () => manager.revokeToolPolicy('tool1'), /Local server connection is required/);
-  await assert.rejects(async () => manager.setServerPolicy('srv1', 'allow'), /Local server connection is required/);
-  await assert.rejects(async () => manager.revokeServerPolicy('srv1'), /Local server connection is required/);
-  await assert.rejects(async () => manager.setGlobalMcpPolicy('allow_all'), /Local server connection is required/);
-  await assert.rejects(async () => manager.setDirectoryRules(['R:/workspace/**']), /Local server connection is required/);
-  await assert.rejects(async () => manager.addDirectoryRule('R:/workspace/**'), /Local server connection is required/);
-  await assert.rejects(async () => manager.clearAllAuthorizations(), /Local server connection is required/);
-  await assert.rejects(async () => manager.authorizeChallenge('ch-1', 'allow_once'), /Local server connection is required/);
+  const calls = [
+    () => manager.setToolPolicy('tool1', 'allow'),
+    () => manager.revokeToolPolicy('tool1'),
+    () => manager.setServerPolicy('srv1', 'allow'),
+    () => manager.revokeServerPolicy('srv1'),
+    () => manager.setGlobalMcpPolicy('allow_all'),
+    () => manager.setDirectoryRules(['R:/workspace/**']),
+    () => manager.addDirectoryRule('R:/workspace/**'),
+    () => manager.setCommandPrefixes('run_command', { allowedPrefixes: ['git *'] }),
+    () => manager.clearAllAuthorizations(),
+    () => manager.authorizeChallenge('ch-1', 'allow_once')
+  ];
+  for (const call of calls) await assert.rejects(call, /Local server connection is required/);
 });
 
 test('ChatToolSecurity - mutaciones envían parches parciales y adoptan la respuesta del backend', async () => {
@@ -183,24 +187,24 @@ test('ChatToolSecurity - cambio de sessionToken relee el estado del backend', as
   assert.equal(manager.getToolPolicy('sess_tool'), null);
 });
 
-test('ChatToolSecurity - setCommandPrefixes sustituye los prefijos guardados sin enviar los de sesión y sin ninguno revoca', async () => {
+test('ChatToolSecurity - setCommandPrefixes sustituye los patrones guardados sin enviar los de sesión y sin ninguno revoca', async () => {
   const mockClient = createMockClient({
-    tools: { run_command: { policy: 'allow', serverName: 'local', originalName: 'run_command', constraints: { command: { allowedPrefixes: ['git'], sessionPrefixes: ['make'], allowPipes: false } } } }
+    tools: { run_command: { policy: 'allow', serverName: 'local', originalName: 'run_command', constraints: { command: { allowedPrefixes: ['git *'], sessionPrefixes: ['make *'], allowPipes: false } } } }
   });
   const manager = new ChatToolSecurity.ToolSecurityManager();
   manager.setMcpClient(mockClient);
   await manager.refresh();
 
-  await manager.setCommandPrefixes('run_command', { allowedPrefixes: ['git status', ' ', 'git log'], projectPrefixes: { '/repo': ['npm test'], '/vacio': [] } });
+  await manager.setCommandPrefixes('run_command', { allowedPrefixes: ['git status *', ' ', 'git log *'], projectPrefixes: { '/repo': ['npm test *'], '/vacio': [] } });
   const patch = mockClient.calls[mockClient.calls.length - 1].params;
   assert.deepEqual(patch.tools.run_command.constraints, {
-    command: { allowedPrefixes: ['git status', 'git log'], projectPrefixes: { '/repo': ['npm test'] }, allowPipes: false }
+    command: { allowedPrefixes: ['git status *', 'git log *'], projectPrefixes: { '/repo': ['npm test *'] }, allowPipes: false }
   });
   assert.equal(patch.tools.run_command.policy, 'allow');
   assert.equal(patch.tools.run_command.serverName, 'local');
 
   // Solo con prefijos de proyecto sigue siendo una autorización válida
-  await manager.setCommandPrefixes('run_command', { allowedPrefixes: [], projectPrefixes: { '/repo': ['npm test'] } });
+  await manager.setCommandPrefixes('run_command', { allowedPrefixes: [], projectPrefixes: { '/repo': ['npm test *'] } });
   assert.equal(mockClient.calls[mockClient.calls.length - 1].params.tools.run_command.policy, 'allow');
 
   await manager.setCommandPrefixes('run_command', { allowedPrefixes: [], projectPrefixes: { '/repo': [] } });
