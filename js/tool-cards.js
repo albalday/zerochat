@@ -735,8 +735,7 @@
         e.stopPropagation();
         const line = commandLine();
         if (!isValidCommandLine(line)) return;
-        const command = ruleOffer.constraints?.command || {};
-        handleDecision({ decision: button.dataset.decision, constraints: { command: { ...command, allowedPatterns: [line] } } });
+        handleDecision({ decision: button.dataset.decision, commandPattern: line });
       }));
 
       btnAllowPath?.addEventListener('click', (e) => {

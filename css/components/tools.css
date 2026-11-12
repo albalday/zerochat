@@ -1017,7 +1017,8 @@
 }
 
 .btn-revoke-auth,
-.btn-revoke-server-auth {
+.btn-revoke-server-auth,
+.btn-revoke-cmd-patterns {
   display: inline-grid;
   place-items: center;
   flex: 0 0 1.75rem;
@@ -1033,7 +1034,8 @@
 }
 
 .btn-revoke-auth:hover,
-.btn-revoke-server-auth:hover {
+.btn-revoke-server-auth:hover,
+.btn-revoke-cmd-patterns:hover {
   color: var(--danger-text);
   border-color: var(--danger);
   background: var(--danger-soft);

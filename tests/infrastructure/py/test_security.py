@@ -24,8 +24,8 @@ def rules_of(controller, ctx=None):
     return controller.export_state(ctx)["directoryRules"]
 
 
-def set_tool(controller, tool_id, policy, constraints=None, scope=zerochat.SCOPE_PERMANENT):
-    patch = {"tools": {tool_id: {"policy": policy, "constraints": constraints}}}
+def set_tool(controller, tool_id, policy, scope=zerochat.SCOPE_PERMANENT):
+    patch = {"tools": {tool_id: {"policy": policy}}}
     if scope == zerochat.SCOPE_SESSION:
         controller.apply_session_overlay(patch)
     else:
@@ -53,8 +53,13 @@ def stored(kind):
     return (zerochat.get_security_policy_data() or {}).get(kind) or {}
 
 
-def command_constraints(*patterns):
-    return {"command": {"allowedPatterns": list(patterns)}}
+def set_patterns(controller, *patterns, projects=None):
+    controller.import_state({"commandPatterns": {"global": list(patterns), "projects": projects or {}}})
+
+
+def saved_patterns():
+    """Patrones de comando guardados en SQLite, sin los de sesión."""
+    return (zerochat.get_security_policy_data() or {}).get("commandPatterns") or {}
 
 
 class SecurityContextTest(unittest.TestCase):
@@ -208,16 +213,19 @@ class PolicyEvaluationTest(ControllerTestCase):
         for path in ("/etc/passwd", "~/.ssh/id_rsa", "$HOME/.bashrc", "../outside.txt", "/workspace/../etc/passwd"):
             self.assertEqual(self.evaluate("read_file", {"path": path}).status, "ask", path)
         self.assertEqual(self.evaluate("run_command", {"command": "sudo apt update"}).status, "ask")
+        # Un patrón guardado es una vía más de permitir: no hace más estricto Workspace Trust
+        set_patterns(self.controller, "git status *")
+        self.assertEqual(self.evaluate("run_command", {"command": "npm test"}).reason, "workspace_trust_command")
 
     def test_command_patterns_never_cover_chaining_pipes_or_redirection(self):
-        set_tool(self.controller, "run_command", zerochat.POLICY_ALLOW, constraints=command_constraints("git *"))
+        set_patterns(self.controller, "git *")
         self.assertTrue(self.evaluate("run_command", {"command": "git status"}).allowed)
         for command in ("git status && ls", "git log | head", "git log > out.txt"):
             self.assertEqual(self.evaluate("run_command", {"command": command}).reason, "command_chaining_requires_approval", command)
 
     def test_leading_cd_must_be_covered_by_directory_rules(self):
         set_rules(self.controller, [f"RW:{self.norm_ws}/**"], self.ctx)
-        set_tool(self.controller, "run_command", zerochat.POLICY_ALLOW, constraints=command_constraints("git *"))
+        set_patterns(self.controller, "git *")
         self.assertTrue(self.evaluate("run_command", {"command": f"cd {self.norm_ws} && git status"}).allowed)
         self.assertTrue(self.evaluate("run_command", {"command": f"cd {self.norm_ws} ; git status"}).allowed)
         self.assertEqual(self.evaluate("run_command", {"command": "cd /etc && git status"}).status, "ask")
@@ -235,7 +243,6 @@ class PolicyEvaluationTest(ControllerTestCase):
         for command, pattern in offers.items():
             offer = self.evaluate("run_command", {"command": command}).rule_offer
             self.assertEqual((offer["type"], offer["command"]), ("command", pattern), command)
-            self.assertEqual(offer["constraints"]["command"]["allowedPatterns"], [pattern])
 
         offer = self.evaluate("write_file", {"path": f"{self.norm_ws}/src/app.py"}).rule_offer
         self.assertEqual((offer["type"], offer["access"], offer["directoryRule"]), ("directory", "W", f"W:{self.norm_ws}/src/**"))
@@ -314,7 +321,8 @@ class PolicyStateTest(ControllerTestCase):
     def test_two_controllers_share_state_through_sqlite(self):
         # En memoria solo hay sesión y retos pendientes: el estado permanente vive en SQLite
         self.assertEqual(set(self.controller.__dict__), {"_lock", "session_global_policy", "session_directory_rules",
-                                                         "session_tools", "session_servers", "pending_challenges"})
+                                                         "session_tools", "session_servers", "session_command_patterns",
+                                                         "pending_challenges"})
         controller_b = zerochat.AccessController()
         set_global(self.controller, zerochat.GLOBAL_POLICY_WORKSPACE_TRUST)
         set_tool(self.controller, "tool_shared", zerochat.POLICY_ALLOW)
@@ -325,13 +333,16 @@ class PolicyStateTest(ControllerTestCase):
         revoke(controller_b, "tools", "tool_shared")
         self.assertIsNone(tool_entry(self.controller, "tool_shared"))
 
-    def test_record_decision_keeps_session_in_memory_and_persists_permanent(self):
-        self.controller.record_decision({"decision": "allow_session"}, {"toolId": "tool_x", "serverName": "srv_x"}, context=self.ctx)
+    def decide(self, tool, decision, **kwargs):
+        ch = self.controller.create_challenge(tool, {}, self.evaluate(tool), context=self.ctx)
+        return self.controller.authorize_challenge(ch["id"], decision, context=self.ctx, **kwargs)
+
+    def test_decisions_keep_session_in_memory_and_persist_permanent(self):
+        self.decide("tool_x", "allow_session")
         self.assertEqual(tool_entry(self.controller, "tool_x")["scope"], "session")
         self.assertNotIn("tool_x", stored("tools"))
 
-        self.controller.record_decision({"decision": "allow_always", "directoryRule": f"R:{self.norm_ws}/extra/**"},
-                                        {"toolId": "tool_y"}, context=self.ctx)
+        self.decide("tool_y", "allow_always", directory_rule=f"R:{self.norm_ws}/extra/**")
         self.assertIn("tool_y", stored("tools"))
         self.assertIn(f"R:{self.norm_ws}/extra/**", rules_of(self.controller, self.ctx))
 
@@ -344,12 +355,11 @@ class PolicyStateTest(ControllerTestCase):
         self.controller.import_state({"tools": {f"fill_{i}": {"policy": "allow"} for i in range(limit - 1)}}, self.ctx)
         # Herramienta + regla = N+1 entradas: no se guarda ninguna de las dos
         with self.assertRaises(ValueError):
-            self.controller.record_decision({"decision": "allow_always", "directoryRule": f"R:{self.norm_ws}/extra/**"},
-                                            {"toolId": "tool_tx"}, context=self.ctx)
+            self.decide("tool_tx", "allow_always", directory_rule=f"R:{self.norm_ws}/extra/**")
         self.assertIsNone(tool_entry(self.controller, "tool_tx"))
         self.assertEqual(rules_of(self.controller, self.ctx), [])
         # Solo la herramienta = N entradas: se guarda
-        self.controller.record_decision({"decision": "allow_always"}, {"toolId": "tool_tx"}, context=self.ctx)
+        self.decide("tool_tx", "allow_always")
         self.assertEqual(tool_entry(self.controller, "tool_tx")["policy"], zerochat.POLICY_ALLOW)
 
     def test_storage_failure_on_update_is_reported_and_changes_nothing(self):
@@ -411,10 +421,10 @@ class ChallengeTest(HandlerTestCase):
         self.assertIsNone(err)
         self.assertTrue(res["authorized"])
         with unittest.mock.patch.object(zerochat.time, "time", return_value=base_sec + ttl_sec + 0.001):
-            res, err = self.authorize(ch_exp["id"], "allow_always", constraints=command_constraints("echo *"))
+            res, err = self.authorize(ch_exp["id"], "allow_always", commandPattern="echo *")
         self.assertEqual((res, err["code"]), (None, -32002))
         self.assertNotIn(ch_exp["id"], self.controller.pending_challenges)
-        self.assertIsNone(tool_entry(self.controller, "run_command"))
+        self.assertEqual(saved_patterns(), {})
 
         # Un cambio de directorio entre la creación y la autorización invalida el reto
         ch_cwd = self.controller.create_challenge("run_command", {"command": "echo cwd"}, dec)
@@ -519,36 +529,34 @@ class CommandPatternTest(HandlerTestCase):
                 self.assertIs(zerochat.matches_command_pattern(command, pattern), expected)
 
     def test_command_patterns_are_validated_normalized_and_limited(self):
-        res = self.controller.import_state({"tools": {"run_command": {"policy": "allow", "constraints": command_constraints(
-            "git status *", "git  status  *", "git status", "git diff *", "git diff --stat")}}}, self.ctx)
-        self.assertEqual(res["tools"]["run_command"]["constraints"]["command"]["allowedPatterns"], ["git status *", "git diff *"])
+        set_patterns(self.controller, "git status *", "git  status  *", "git status", "git diff *", "git diff --stat")
+        self.assertEqual(saved_patterns()["global"], ["git status *", "git diff *"])
 
-        def store(command):
-            self.controller.import_state({"tools": {"run_command": {"policy": "allow", "constraints": {"command": command}}}}, self.ctx)
+        def store(global_patterns, projects=None):
+            self.controller.import_state({"commandPatterns": {"global": global_patterns, "projects": projects or {}}}, self.ctx)
 
-        for bad in ([], ["git; rm"], ["git $(x)"], [""], ["*"], ["g* log"], ["git **"], ["git 'x'"], [3]):
+        for bad in (["git; rm"], ["git $(x)"], [""], ["*"], ["g* log"], ["git **"], ["git 'x'"], [3], "git"):
             with self.assertRaises(ValueError, msg=repr(bad)):
-                store({"allowedPatterns": bad})
+                store(bad)
         with self.assertRaises(ValueError):
-            store({"allowedPatterns": [], "projectPatterns": {"relativo": ["git"]}})
+            store([], {"relativo": ["git"]})
         # Guardar run_command sin patrones autorizaría cualquier comando; en la sesión sí se admite
-        with self.assertRaisesRegex(ValueError, "allow_always_requires_constraints"):
+        with self.assertRaisesRegex(ValueError, "allow_always_requires_command_pattern"):
             self.controller.import_state({"tools": {"run_command": {"policy": "allow"}}}, self.ctx)
         self.controller.apply_session_overlay({"tools": {"run_command": {"policy": "allow"}}})
 
         # El tope cuenta los patrones globales y los de todos los proyectos: N se acepta y N+1 no
         limit = zerochat.MAX_COMMAND_PATTERNS
         half = limit // 2
-        store({"allowedPatterns": [f"g{i}" for i in range(half)], "projectPatterns": {"/proj": [f"p{i}" for i in range(limit - half)]}})
+        store([f"g{i}" for i in range(half)], {"/proj": [f"p{i}" for i in range(limit - half)]})
         with self.assertRaisesRegex(ValueError, "máximo"):
-            store({"allowedPatterns": [f"g{i}" for i in range(half)], "projectPatterns": {"/proj": [f"p{i}" for i in range(limit - half + 1)]}})
+            store([f"g{i}" for i in range(half)], {"/proj": [f"p{i}" for i in range(limit - half + 1)]})
 
-    def test_stored_empty_pattern_list_never_allows_any_command(self):
+    def test_stored_run_command_allow_never_allows_any_command(self):
+        # Solo los patrones autorizan run_command de forma permanente, aunque la base de datos diga otra cosa
         zerochat.update_security_policy_data(lambda current: {**(current or {}), "tools": {
-            "run_command": {"policy": "allow", "scope": "permanent", "constraints": {"command": {"allowedPatterns": []}}}
-        }})
-        dec = self.evaluate("run_command", {"command": "rm -rf build"})
-        self.assertEqual((dec.status, dec.reason), ("ask", "command_outside_allowed_patterns"))
+            "run_command": {"policy": "allow", "scope": "permanent"}}, "commandPatterns": {"global": []}})
+        self.assertEqual(self.evaluate("run_command", {"command": "rm -rf build"}).status, "ask")
 
     def test_command_grants_need_a_pattern_that_covers_the_challenge(self):
         gate = self.command_challenge("echo hola mundo")
@@ -557,9 +565,9 @@ class CommandPatternTest(HandlerTestCase):
         # Si el * no cubriría los argumentos (fuera del proyecto), se ofrece el comando exacto
         self.assertEqual(self.command_challenge("cat /etc/hosts")["ruleOffer"]["command"], "cat /etc/hosts")
         rejected = (
-            ("allow_always", {}, "allow_always_requires_constraints"),
+            ("allow_always", {}, "allow_always_requires_command_pattern"),
             ("allow_project", {}, "allow_project_requires_command_pattern"),
-            ("allow_always", {"constraints": command_constraints("echo adios *")}, None),
+            ("allow_always", {"commandPattern": "echo adios *"}, None),
         )
         for decision, extra, message in rejected:
             res, err = self.authorize(cid, decision, **extra)
@@ -568,10 +576,10 @@ class CommandPatternTest(HandlerTestCase):
                 self.assertEqual(err["message"], message)
             self.assertIn(cid, self.controller.pending_challenges)
 
-        res, err = self.authorize(cid, "allow_always", constraints=command_constraints("echo *"))
+        res, err = self.authorize(cid, "allow_always", commandPattern="echo *")
         self.assertIsNone(err)
         self.assertTrue(res["authorized"])
-        self.assertEqual(stored("tools")["run_command"]["constraints"]["command"]["allowedPatterns"], ["echo *"])
+        self.assertEqual(saved_patterns()["global"], ["echo *"])
         self.assertEqual(self.status("echo otra cosa"), "allow")
         self.assertEqual(self.status("rm -rf /"), "ask")
 
@@ -580,33 +588,32 @@ class CommandPatternTest(HandlerTestCase):
         project = zerochat.normalize_directory_path(str(Path.cwd().resolve()))
 
         # Sesión: solo ese patrón, en memoria y sin guardarse
-        res, err = self.authorize(self.command_challenge("echo uno")["challengeId"], "allow_session", constraints=command_constraints("echo uno *"))
+        res, err = self.authorize(self.command_challenge("echo uno")["challengeId"], "allow_session", commandPattern="echo uno *")
         self.assertIsNone(err)
         self.assertEqual((self.status("echo uno dos"), self.status("echo otro")), ("allow", "ask"))
-        self.assertNotIn("run_command", stored("tools"))
+        self.assertEqual(saved_patterns(), {})
 
         # Proyecto: guardado ligado al proyecto actual; en otro proyecto vuelve a preguntar
-        res, err = self.authorize(self.command_challenge("printf proyecto")["challengeId"], "allow_project", constraints=command_constraints("printf *"))
+        res, err = self.authorize(self.command_challenge("printf proyecto")["challengeId"], "allow_project", commandPattern="printf *")
         self.assertIsNone(err)
-        command = stored("tools")["run_command"]["constraints"]["command"]
-        self.assertEqual((command["allowedPatterns"], command["projectPatterns"]), ([], {project: ["printf *"]}))
+        self.assertEqual(saved_patterns(), {"global": [], "projects": {project: ["printf *"]}})
         self.assertEqual((self.status("printf x"), self.status("printf x", other_project)), ("allow", "ask"))
         # La escritura permanente no retira los patrones de sesión: se suman
         self.assertEqual(self.status("echo uno dos"), "allow")
 
         # Global: vale en cualquier proyecto
-        res, err = self.authorize(self.command_challenge("true global")["challengeId"], "allow_always", constraints=command_constraints("true *"))
+        res, err = self.authorize(self.command_challenge("true global")["challengeId"], "allow_always", commandPattern="true *")
         self.assertIsNone(err)
         self.assertEqual(self.status("true x", other_project), "allow")
-        exported = self.controller.export_state()["tools"]["run_command"]["constraints"]["command"]
-        self.assertEqual((exported["sessionPatterns"], exported["allowedPatterns"]), (["echo uno *"], ["true *"]))
+        exported = self.controller.export_state()["commandPatterns"]
+        self.assertEqual((exported["session"], exported["global"]), (["echo uno *"], ["true *"]))
 
         # Al acabar la sesión solo quedan los permanentes
         self.controller.clear_session()
         self.assertEqual([self.status(c) for c in ("echo uno dos", "printf x", "true x")], ["ask", "allow", "allow"])
 
     def test_exported_session_patterns_survive_a_session_overlay(self):
-        self.authorize(self.command_challenge("echo capa")["challengeId"], "allow_session", constraints=command_constraints("echo capa *"))
+        self.authorize(self.command_challenge("echo capa")["challengeId"], "allow_session", commandPattern="echo capa *")
         snapshot = self.controller.export_state()
         self.controller.clear_session()
         self.controller.apply_session_overlay(snapshot)

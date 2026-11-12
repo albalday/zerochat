@@ -53,6 +53,7 @@
       this.tools = new Map();
       this.servers = new Map();
       this.directoryRules = [];
+      this.commandPatterns = { global: [], projects: {}, session: [] };
       this.listeners = new Set();
     }
 
@@ -91,8 +92,7 @@
               scope: item.scope === SCOPES.SESSION ? SCOPES.SESSION : SCOPES.PERMANENT,
               grantedAt: Number(item.grantedAt) || 0,
               serverName: item.serverName || '',
-              originalName: item.originalName || id,
-              constraints: item.constraints ? { ...item.constraints } : null
+              originalName: item.originalName || id
             });
           }
         });
@@ -109,6 +109,14 @@
             });
           }
         });
+      }
+      const patterns = policies.commandPatterns;
+      if (patterns && typeof patterns === 'object') {
+        this.commandPatterns = {
+          global: [...(patterns.global || [])],
+          projects: { ...(patterns.projects || {}) },
+          session: [...(patterns.session || [])]
+        };
       }
       this.syncWithState();
       this.notifyListeners();
@@ -148,15 +156,15 @@
       if (!this.mcpClient) {
         throw new Error('Local server connection is required to authorize challenges.');
       }
-      // La tarjeta devuelve el tipo de decisión o un objeto con sus restricciones o regla de directorio.
-      const { decision: decType, constraints, directoryRule } = (typeof decision === 'object' && decision !== null)
+      // La tarjeta devuelve el tipo de decisión o un objeto con su patrón de comando o regla de directorio.
+      const { decision: decType, commandPattern, directoryRule } = (typeof decision === 'object' && decision !== null)
         ? decision
         : { decision };
 
       const params = {
         challengeId,
         decision: decType,
-        ...(constraints ? { constraints } : {}),
+        ...(commandPattern ? { commandPattern } : {}),
         ...(directoryRule ? { directoryRule } : {})
       };
       const reqOptions = options.signal ? { signal: options.signal } : undefined;
@@ -171,6 +179,7 @@
         tools: Object.fromEntries(this.tools),
         servers: Object.fromEntries(this.servers),
         directoryRules: this.directoryRules,
+        commandPatterns: this.commandPatterns,
         defaultDirectoryRule: this.defaultDirectoryRule
       });
     }
@@ -258,40 +267,26 @@
       return found ? found.entry.policy : null;
     }
 
-    getToolConstraints(toolId) {
-      const found = this.findToolEntry(toolId);
-      return found ? (found.entry.constraints || null) : null;
-    }
-
     async setToolPolicy(toolId, policy, meta = {}) {
       return this._setPolicy('tools', toolId, policy, (clean, cleanPolicy) => ({
         policy: cleanPolicy,
-        constraints: meta.constraints !== undefined ? meta.constraints : null,
         serverName: meta.serverName || '',
         originalName: meta.originalName || clean
       }));
     }
 
+    /** Patrones de comando que rigen: de todos los proyectos, por proyecto y de la sesión. */
+    getCommandPatterns() {
+      const { global, projects, session } = this.commandPatterns;
+      return { global: [...global], projects: { ...projects }, session: [...session] };
+    }
+
     /**
-     * Sustituye los patrones de comando guardados de una herramienta: globales (`allowedPatterns`) y por
-     * proyecto (`projectPatterns`). Sin ninguno se revoca, porque sin patrones no se autoriza ningún comando.
-     * Los de sesión no se guardan y no se envían. El backend valida y normaliza cada patrón.
+     * Sustituye los patrones de comando guardados (`global` y `projects`); los de sesión no se guardan.
+     * El backend valida y normaliza cada patrón.
      */
-    async setCommandPatterns(toolId, { allowedPatterns = [], projectPatterns = {} } = {}) {
-      const clean = list => (Array.isArray(list) ? list : []).map(p => String(p ?? '').trim()).filter(Boolean);
-      const globalList = clean(allowedPatterns);
-      const projects = Object.fromEntries(Object.entries(projectPatterns || {})
-        .map(([project, list]) => [project, clean(list)])
-        .filter(([, list]) => list.length));
-      if (!globalList.length && !Object.keys(projects).length) return this.revokeToolPolicy(toolId);
-      const entry = this.findToolEntry(toolId)?.entry || {};
-      const command = { ...entry.constraints?.command };
-      delete command.sessionPatterns;
-      return this.setToolPolicy(toolId, POLICIES.ALLOW, {
-        constraints: { ...entry.constraints, command: { ...command, allowedPatterns: globalList, projectPatterns: projects } },
-        serverName: entry.serverName,
-        originalName: entry.originalName
-      });
+    async setCommandPatterns({ global = [], projects = {} } = {}) {
+      await this._patchBackend({ commandPatterns: { global, projects } });
     }
 
     async revokeToolPolicy(toolId) {
@@ -323,7 +318,7 @@
       this.tools.forEach((_, id) => { toolsPatch[id] = null; });
       const serversPatch = {};
       this.servers.forEach((_, id) => { serversPatch[id] = null; });
-      await this._patchBackend({ tools: toolsPatch, servers: serversPatch });
+      await this._patchBackend({ tools: toolsPatch, servers: serversPatch, commandPatterns: { global: [], projects: {} } });
     }
 
     listAuthorizedTools() {

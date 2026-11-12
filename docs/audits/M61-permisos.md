@@ -84,7 +84,7 @@ Orden de ejecución: T1 → T13. Cada tarea deja todos los niveles de §4 de AGE
 
 ### M61-T4 «Permitir siempre» acotado en run_command
 - **Cambios:**
-  - En `authorize_challenge`, si la herramienta es `COMMAND_TOOL` y `allow_always` llega sin `constraints.command`, se devuelve el error -32602 `allow_always_requires_constraints` y el reto sigue pendiente.
+  - En `authorize_challenge`, si la herramienta es `COMMAND_TOOL` y `allow_always` llega sin `constraints.command`, se devuelve el error -32602 `allow_always_requires_command_pattern` y el reto sigue pendiente.
   - `tool-cards.js` oculta el botón genérico «Permitir siempre» cuando `ruleOffer.type === 'command'`; queda el botón «Permitir `cmd *`».
 - **Pruebas:**
   - `allow_always` sin restricciones en `run_command` se rechaza.

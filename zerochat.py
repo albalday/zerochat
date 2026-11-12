@@ -1890,7 +1890,7 @@ POLICY_ASK = "ask"
 SCOPE_PERMANENT = "permanent"
 SCOPE_SESSION = "session"
 
-POLICY_STATE_VERSION = 5
+POLICY_STATE_VERSION = 6
 CHALLENGE_TTL_MS = 600_000
 AUTHORIZE_DECISIONS = ("allow_once", "allow_session", "allow_project", "allow_always", "allow_server_always")
 MAX_POLICY_ENTRIES = 500
@@ -2161,7 +2161,7 @@ def _is_valid_pattern(raw: str) -> bool:
         return False
 
 
-def _clean_pattern_list(raw: list, label: str) -> list[str]:
+def clean_pattern_list(raw, label: str) -> list[str]:
     """Patrones limpios, sin repetidos ni cubiertos por otro más amplio de la misma lista."""
     if not isinstance(raw, list):
         raise ValueError(f"{label} debe ser una lista de comandos.")
@@ -2169,54 +2169,30 @@ def _clean_pattern_list(raw: list, label: str) -> list[str]:
     return [p for p in unique if not any(q != p and matches_command_pattern(p, q) for q in unique)]
 
 
-def normalize_command_constraints(constraints: dict | None) -> dict | None:
+def normalize_command_patterns(raw) -> dict:
     """
-    Valida y normaliza las restricciones de comando: patrones globales (`allowedPatterns`) y por
-    proyecto (`projectPatterns`, ruta absoluta del proyecto -> patrones), sin metacaracteres de shell,
-    sin repetidos ni patrones cubiertos por otro más amplio, con al menos uno y como máximo
-    MAX_COMMAND_PATTERNS en total. Los patrones de sesión nunca forman parte del estado guardado.
+    Valida los patrones de comando guardados: `global` (todos los proyectos) y `projects` (ruta absoluta
+    del proyecto -> patrones), sin repetidos ni cubiertos por otro más amplio y como máximo
+    MAX_COMMAND_PATTERNS en total. Los de sesión nunca forman parte del estado guardado.
     """
-    if constraints is None:
-        return None
-    if not isinstance(constraints, dict):
-        raise ValueError("constraints debe ser un diccionario o None.")
-    command = constraints.get("command")
-    if command is None:
-        return None
-    if not isinstance(command, dict):
-        raise ValueError("constraints.command debe ser un diccionario.")
-    raw_allowed = command.get("allowedPatterns", [])
-    raw_projects = command.get("projectPatterns") or {}
+    if not isinstance(raw, dict):
+        raise ValueError("commandPatterns debe ser un diccionario con global y projects.")
+    raw_projects = raw.get("projects") or {}
     if not isinstance(raw_projects, dict):
-        raise ValueError("projectPatterns debe ser un diccionario de proyecto a patrones.")
-    total = (len(raw_allowed) if isinstance(raw_allowed, list) else 0) + \
-        sum(len(v) for v in raw_projects.values() if isinstance(v, list))
-    if total > MAX_COMMAND_PATTERNS:
-        raise ValueError(f"Hay {total} patrones de comando; el máximo es {MAX_COMMAND_PATTERNS}.")
-    allowed = _clean_pattern_list(raw_allowed, "allowedPatterns")
+        raise ValueError("commandPatterns.projects debe ser un diccionario de proyecto a patrones.")
     projects: dict[str, list[str]] = {}
     for raw_path, raw_list in raw_projects.items():
         path = normalize_directory_path(str(raw_path))
         if not path or not re.match(r"^(/|[A-Za-z]:/)", path):
-            raise ValueError(f"Proyecto no válido en projectPatterns: '{raw_path}'.")
-        patterns = _clean_pattern_list(list(projects.get(path, [])) + list(raw_list or []), "projectPatterns")
+            raise ValueError(f"Proyecto no válido en commandPatterns.projects: '{raw_path}'.")
+        patterns = clean_pattern_list(projects.get(path, []) + clean_pattern_list(raw_list, "commandPatterns.projects"), "commandPatterns.projects")
         if patterns:
             projects[path] = patterns
-    if not allowed and not projects:
-        raise ValueError("allowedPatterns debe ser una lista no vacía de comandos.")
-    clean_command = {"allowedPatterns": allowed}
-    if projects:
-        clean_command["projectPatterns"] = projects
-    return {"command": clean_command}
-
-
-def command_patterns_for(command_constraints: dict, project: str) -> list[str]:
-    """Patrones que rigen en un proyecto: globales, los de ese proyecto y los de la sesión."""
-    return [
-        *(command_constraints.get("allowedPatterns") or []),
-        *((command_constraints.get("projectPatterns") or {}).get(project) or []),
-        *(command_constraints.get("sessionPatterns") or [])
-    ]
+    global_patterns = clean_pattern_list(raw.get("global") or [], "commandPatterns.global")
+    total = len(global_patterns) + sum(len(v) for v in projects.values())
+    if total > MAX_COMMAND_PATTERNS:
+        raise ValueError(f"Hay {total} patrones de comando; el máximo es {MAX_COMMAND_PATTERNS}.")
+    return {"global": global_patterns, "projects": projects}
 
 
 def suggest_command_prefix(command: str) -> str:
@@ -2243,13 +2219,7 @@ def get_rule_offer(tool_name: str, args: dict, auth_eval: dict | None = None) ->
                         if _is_valid_pattern(p) and matches_command_pattern(target, p)), None)
         if not pattern:
             return None
-        return {
-            "type": "command",
-            "command": pattern,
-            "constraints": {
-                "command": {"allowedPatterns": [pattern]}
-            }
-        }
+        return {"type": "command", "command": pattern}
     # Solo las herramientas integradas se autorizan por reglas de directorio.
     access = eval_info.get("directoryAccess") or get_integrated_path_access(tool_name)
     path = eval_info.get("directoryPath") or get_path_arg(args)
@@ -2301,18 +2271,24 @@ class AccessController:
         self.session_directory_rules: list[str] | None = None
         self.session_tools: dict[str, dict] = {}
         self.session_servers: dict[str, dict] = {}
+        self.session_command_patterns: list[str] = []
         self.pending_challenges: dict[str, dict] = {}
 
     @staticmethod
     def _normalize_state(raw: dict | None) -> dict:
         """Única definición del estado permanente y de sus valores por defecto."""
         data = raw if isinstance(raw, dict) else {}
+        patterns = data.get("commandPatterns") if isinstance(data.get("commandPatterns"), dict) else {}
+        # run_command nunca se guarda autorizado entero: sus permisos permanentes son patrones.
+        tools = {tid: entry for tid, entry in dict(data.get("tools") or {}).items()
+                 if not (tid == COMMAND_TOOL and isinstance(entry, dict) and entry.get("policy") == POLICY_ALLOW)}
         return {
             "version": POLICY_STATE_VERSION,
             "globalMcpPolicy": data.get("globalMcpPolicy") or GLOBAL_POLICY_ASK,
             "directoryRules": list(data.get("directoryRules") or []),
-            "tools": dict(data.get("tools") or {}),
-            "servers": dict(data.get("servers") or {})
+            "tools": tools,
+            "servers": dict(data.get("servers") or {}),
+            "commandPatterns": {"global": list(patterns.get("global") or []), "projects": dict(patterns.get("projects") or {})}
         }
 
     def _read_permanent_state(self) -> dict:
@@ -2330,38 +2306,19 @@ class AccessController:
             return {
                 "globalMcpPolicy": self.session_global_policy if self.session_global_policy is not None else state["globalMcpPolicy"],
                 "directoryRules": list(self.session_directory_rules) if self.session_directory_rules is not None else state["directoryRules"],
-                "tools": {**state["tools"], **{tid: self._combine_tool_entry(state["tools"].get(tid), entry)
-                                               for tid, entry in self.session_tools.items()}},
-                "servers": {**state["servers"], **self.session_servers}
+                "tools": {**state["tools"], **self.session_tools},
+                "servers": {**state["servers"], **self.session_servers},
+                "commandPatterns": {**state["commandPatterns"], "session": list(self.session_command_patterns)}
             }
-
-    @staticmethod
-    def _combine_tool_entry(permanent: dict | None, session: dict) -> dict:
-        """
-        Entrada efectiva de una herramienta. Una entrada de sesión sustituye a la permanente, salvo
-        los patrones de comando de sesión, que se suman a los permanentes como `sessionPatterns`
-        (una denegación o una autorización sin restricciones permanentes prevalecen).
-        """
-        session_cmd = (session.get("constraints") or {}).get("command")
-        if session.get("policy") != POLICY_ALLOW or not session_cmd:
-            return session
-        if permanent and (permanent.get("policy") == POLICY_DENY or not (permanent.get("constraints") or {}).get("command")):
-            return permanent
-        base = permanent or {**session, "constraints": {"command": {"allowedPatterns": []}}}
-        base_cmd = base["constraints"]["command"]
-        return {**base, "constraints": {**base["constraints"], "command": {**base_cmd, "sessionPatterns": list(session_cmd.get("allowedPatterns") or [])}}}
-
-    def _drop_superseded_session(self, kind: str, item_ids, revoked: bool = False):
-        """Una escritura permanente retira la entrada de sesión, salvo patrones de comando de sesión (se suman)."""
-        session = self._session_map(kind)
-        for item_id in item_ids:
-            entry = session.get(item_id)
-            if entry and (revoked or not (entry.get("constraints") or {}).get("command")):
-                session.pop(item_id, None)
 
     @staticmethod
     def _project_key(context: SecurityContext | None) -> str:
         return normalize_directory_path(str((context or SecurityContext()).workspace_dir))
+
+    def _command_patterns(self, view: dict, context: SecurityContext | None) -> list[str]:
+        """Patrones que rigen en el proyecto: los de todos los proyectos, los de este y los de la sesión."""
+        patterns = view["commandPatterns"]
+        return [*patterns["global"], *(patterns["projects"].get(self._project_key(context)) or []), *patterns["session"]]
 
     def export_state(self, context: SecurityContext | None = None) -> dict:
         return {
@@ -2402,24 +2359,18 @@ class AccessController:
             pol = entry.get("policy")
             if pol not in (POLICY_ALLOW, POLICY_DENY):
                 raise ValueError(f"Política inválida para {kind_label} '{item_id}': '{pol}'. Válidas: allow, deny.")
-            try:
-                constraints = normalize_command_constraints(entry.get("constraints"))
-            except ValueError as exc:
-                raise ValueError(f"Restricciones de {kind_label} '{item_id}': {exc}") from exc
-            # Como en un reto (allow_always), run_command solo se guarda con patrones de comando.
-            if kind == "tools" and clean_key == COMMAND_TOOL and pol == POLICY_ALLOW and scope == SCOPE_PERMANENT and not constraints:
-                raise ValueError("allow_always_requires_constraints")
+            # Como en un reto (allow_always), run_command solo se autoriza siempre con patrones de comando.
+            if kind == "tools" and clean_key == COMMAND_TOOL and pol == POLICY_ALLOW and scope == SCOPE_PERMANENT:
+                raise ValueError("allow_always_requires_command_pattern")
             clean_map[clean_key] = AccessController._make_entry(
                 kind, pol, scope,
                 server_name=str(entry.get("serverName", "") or ""),
-                original_name=str(entry.get("originalName", "") or ""),
-                constraints=constraints
+                original_name=str(entry.get("originalName", "") or "")
             )
         return clean_map
 
     @staticmethod
-    def _make_entry(kind: str, policy: str, scope: str, server_name: str = "", original_name: str = "",
-                    constraints: dict | None = None) -> dict:
+    def _make_entry(kind: str, policy: str, scope: str, server_name: str = "", original_name: str = "") -> dict:
         """Única forma de una entrada de política de herramienta o servidor."""
         entry = {
             "policy": policy,
@@ -2429,7 +2380,6 @@ class AccessController:
         }
         if kind == "tools":
             entry["originalName"] = original_name
-            entry["constraints"] = constraints
         return entry
 
     def _session_map(self, kind: str) -> dict[str, dict]:
@@ -2474,10 +2424,12 @@ class AccessController:
     def import_state(self, state: dict, context: SecurityContext | None = None):
         """
         Aplica un parche parcial persistente (None revoca) y devuelve el estado exportado.
-        `addDirectoryRules` añade reglas a las guardadas dentro de la misma transacción.
+        `addDirectoryRules` añade reglas a las guardadas dentro de la misma transacción y
+        `commandPatterns` sustituye los patrones de comando guardados.
         """
         clean_global, clean_rules, clean_tools, clean_servers = self._validate_state_payload(state, SCOPE_PERMANENT, context)
         added_rules = self._validate_directory_rules(state["addDirectoryRules"], context) if "addDirectoryRules" in state else []
+        clean_patterns = normalize_command_patterns(state["commandPatterns"]) if "commandPatterns" in state else None
 
         def mutator(current: dict) -> dict:
             if clean_global is not None:
@@ -2490,6 +2442,8 @@ class AccessController:
                 current["tools"] = self._apply_entry_patch(current.get("tools"), clean_tools)
             if clean_servers is not None:
                 current["servers"] = self._apply_entry_patch(current.get("servers"), clean_servers)
+            if clean_patterns is not None:
+                current["commandPatterns"] = clean_patterns
             self._check_entry_limit(current)
             return current
         self._update_permanent(mutator)
@@ -2500,11 +2454,10 @@ class AccessController:
                 self.session_directory_rules = None
             elif added_rules and self.session_directory_rules is not None:
                 self.session_directory_rules = self._append_rules(self.session_directory_rules, added_rules)
-            if clean_tools is not None:
-                self._drop_superseded_session("tools", [k for k, v in clean_tools.items() if v is not None])
-                self._drop_superseded_session("tools", [k for k, v in clean_tools.items() if v is None], revoked=True)
-            if clean_servers is not None:
-                self._drop_superseded_session("servers", list(clean_servers), revoked=True)
+            # Una escritura permanente sustituye o revoca la entrada de sesión de la misma herramienta o servidor.
+            for kind, patch in (("tools", clean_tools), ("servers", clean_servers)):
+                for item_id in patch or {}:
+                    self._session_map(kind).pop(item_id, None)
         return self.export_state(context)
 
     @staticmethod
@@ -2513,36 +2466,26 @@ class AccessController:
 
     @staticmethod
     def _apply_entry_patch(current: dict | None, patch: dict) -> dict:
-        """Aplica un parche de entradas (None revoca); conserva grantedAt si la concesión no cambia."""
+        """Aplica un parche de entradas (None revoca); conserva grantedAt si la política no cambia."""
         result = dict(current or {})
         for item_id, entry in patch.items():
             if entry is None:
                 result.pop(item_id, None)
                 continue
             previous = result.get(item_id) or {}
-            same_grant = previous.get("policy") == entry["policy"] and previous.get("constraints") == entry.get("constraints")
+            same_grant = previous.get("policy") == entry["policy"]
             result[item_id] = {**entry, "grantedAt": previous["grantedAt"]} if same_grant and previous.get("grantedAt") else entry
         return result
 
-    @staticmethod
-    def _fold_session_patterns(state: dict) -> dict:
-        """El estado exportado lleva los patrones de sesión aparte; en una capa de sesión son patrones más."""
-        if not isinstance(state, dict) or not isinstance(state.get("tools"), dict):
-            return state
-        tools = {}
-        for tool_id, entry in state["tools"].items():
-            command = ((entry or {}).get("constraints") or {}).get("command") if isinstance(entry, dict) else None
-            if isinstance(command, dict) and command.get("sessionPatterns"):
-                folded = {k: v for k, v in command.items() if k != "sessionPatterns"}
-                folded["allowedPatterns"] = list(command.get("allowedPatterns") or []) + list(command["sessionPatterns"])
-                entry = {**entry, "constraints": {**entry["constraints"], "command": folded}}
-            tools[tool_id] = entry
-        return {**state, "tools": tools}
-
     def apply_session_overlay(self, state: dict, context: SecurityContext | None = None):
-        """Aplica una capa de políticas temporal en memoria para una ejecución en servidor, sin persistir."""
-        state = self._fold_session_patterns(state)
+        """
+        Aplica una capa de políticas temporal en memoria para una ejecución en servidor, sin persistir.
+        De los patrones de comando solo toma los de sesión: los guardados se leen de la misma base de datos.
+        """
         clean_global, clean_rules, clean_tools, clean_servers = self._validate_state_payload(state, SCOPE_SESSION, context)
+        raw_patterns = state.get("commandPatterns")
+        session_patterns = self._limit_patterns(clean_pattern_list(raw_patterns.get("session") or [], "commandPatterns.session")) \
+            if isinstance(raw_patterns, dict) else None
 
         with self._lock:
             if clean_global is not None:
@@ -2553,7 +2496,15 @@ class AccessController:
                 self.session_tools = self._apply_entry_patch(self.session_tools, clean_tools)
             if clean_servers is not None:
                 self.session_servers = self._apply_entry_patch(self.session_servers, clean_servers)
+            if session_patterns is not None:
+                self.session_command_patterns = session_patterns
         return self.export_state(context)
+
+    @staticmethod
+    def _limit_patterns(patterns: list[str]) -> list[str]:
+        if len(patterns) > MAX_COMMAND_PATTERNS:
+            raise ValueError(f"Hay {len(patterns)} patrones de comando; el máximo es {MAX_COMMAND_PATTERNS}.")
+        return patterns
 
     def get_default_directory_rule(self, context: SecurityContext | None = None) -> str:
         ctx = context or SecurityContext()
@@ -2625,6 +2576,7 @@ class AccessController:
             self.session_directory_rules = None
             self.session_tools.clear()
             self.session_servers.clear()
+            self.session_command_patterns = []
             self.pending_challenges.clear()
 
     def create_challenge(self, tool_name: str, args: dict, decision: AccessDecision,
@@ -2639,16 +2591,12 @@ class AccessController:
             for cid in expired:
                 self.pending_challenges.pop(cid, None)
 
-            dec_dict = decision.to_dict()
-            resolved_server_id = server_id or dec_dict.get("serverId", "")
-            dec_dict["serverId"] = resolved_server_id
             challenge_data = {
                 "id": challenge_id,
                 "toolName": tool_name,
                 "arguments": args,
-                "decision": dec_dict,
-                "serverName": server_name or dec_dict.get("serverName", ""),
-                "serverId": resolved_server_id,
+                "serverName": server_name or decision.server_name,
+                "serverId": server_id or decision.server_id,
                 "origin": origin,
                 "jobKey": job_key,
                 "cwd": cwd,
@@ -2657,9 +2605,8 @@ class AccessController:
             self.pending_challenges[challenge_id] = challenge_data
             return challenge_data
 
-    def authorize_challenge(self, challenge_id: str, decision: str,
-                            constraints: dict | None = None, directory_rule: str | None = None,
-                            context: SecurityContext | None = None) -> dict | None:
+    def authorize_challenge(self, challenge_id: str, decision: str, command_pattern: str | None = None,
+                            directory_rule: str | None = None, context: SecurityContext | None = None) -> dict | None:
         """
         Valida la decisión, consume el reto (una única ejecución) y registra la decisión.
         Devuelve el reto consumido, o None si no existe, caducó, cambió el cwd o la decisión no aplica.
@@ -2667,7 +2614,6 @@ class AccessController:
         """
         now = int(time.time() * 1000)
         current_cwd = str((context.workspace_dir if context else Path.cwd()).resolve())
-        dec_payload = {"decision": decision, "constraints": constraints, "directoryRule": directory_rule}
         with self._lock:
             challenge = self.pending_challenges.get(challenge_id)
             if not challenge:
@@ -2679,133 +2625,78 @@ class AccessController:
                 return None
             if decision == "allow_server_always" and not challenge.get("serverId"):
                 return None
-            constraints, _ = self._validate_decision(dec_payload, challenge["toolName"], context)
-            if constraints and challenge["toolName"] == COMMAND_TOOL:
-                self._check_patterns_cover(constraints, challenge["arguments"])
+            pattern = self._validate_command_pattern(decision, command_pattern, challenge)
+            rules = self._validate_directory_rules([directory_rule], context) if directory_rule else []
             self.pending_challenges.pop(challenge_id)
-        self.record_decision(dec_payload, challenge["decision"], fallback_tool_name=challenge["toolName"], context=context)
+        self._record_decision(challenge, decision, pattern, rules, context)
         return challenge
 
     def revoke_challenge(self, challenge_id: str) -> bool:
         with self._lock:
             return self.pending_challenges.pop(challenge_id, None) is not None
 
-    def _validate_decision(self, decision: dict, tool_name: str,
-                           context: SecurityContext | None = None) -> tuple[dict | None, list[str]]:
-        """Valida restricciones y regla de una decisión sin persistir nada; devuelve ambas limpias."""
-        constraints = normalize_command_constraints(decision.get("constraints"))
-        decision_type = decision.get("decision")
-        if decision_type == "allow_always" and tool_name == COMMAND_TOOL and not constraints:
-            raise ValueError("allow_always_requires_constraints")
-        if decision_type == "allow_project" and (tool_name != COMMAND_TOOL or not constraints):
-            raise ValueError("allow_project_requires_command_pattern")
-        rule = decision.get("directoryRule")
-        return constraints, (self._validate_directory_rules([rule], context) if rule else [])
-
     @staticmethod
-    def _check_patterns_cover(constraints: dict | None, args: dict):
-        """Un patrón aprobado en un reto debe cubrir el comando de ese reto."""
-        command_str = get_command_arg(args)
+    def _validate_command_pattern(decision: str, raw_pattern: str | None, challenge: dict) -> str | None:
+        """Patrón de una decisión sobre run_command: obligatorio para siempre o proyecto y que cubra el comando del reto."""
+        is_command = challenge["toolName"] == COMMAND_TOOL
+        if decision == "allow_project" and (not is_command or not raw_pattern):
+            raise ValueError("allow_project_requires_command_pattern")
+        if decision == "allow_always" and is_command and not raw_pattern:
+            raise ValueError("allow_always_requires_command_pattern")
+        if raw_pattern is None or decision not in ("allow_session", "allow_project", "allow_always"):
+            return None
+        if not is_command:
+            raise ValueError("Solo run_command admite patrones de comando.")
+        pattern = normalize_command_pattern(raw_pattern)
+        command_str = get_command_arg(challenge["arguments"])
         cd_part = split_leading_cd(command_str)
         command = cd_part["command"] if cd_part else command_str
-        for pattern in ((constraints or {}).get("command") or {}).get("allowedPatterns") or []:
-            if not matches_command_pattern(command, pattern):
-                raise ValueError(f"El patrón '{pattern}' no cubre el comando '{command}'.")
+        if not matches_command_pattern(command, pattern):
+            raise ValueError(f"El patrón '{pattern}' no cubre el comando '{command}'.")
+        return pattern
 
-    @staticmethod
-    def merge_command_constraints(existing_constraints: dict | None, requested: dict | None) -> dict | None:
-        """Combina restricciones granulares existentes con nuevas solicitadas."""
-        if not requested or not isinstance(requested, dict):
-            return existing_constraints
-        if not requested.get("command"):
-            return requested
-        req_cmd = requested["command"]
-        ext_cmd = existing_constraints.get("command") if (existing_constraints and isinstance(existing_constraints, dict)) else {}
-
-        raw_patterns = list(ext_cmd.get("allowedPatterns") or []) + list(req_cmd.get("allowedPatterns") or [])
-        seen = set()
-        merged_patterns = []
-        for p in raw_patterns:
-            if isinstance(p, str) and p.strip() and p.strip() not in seen:
-                seen.add(p.strip())
-                merged_patterns.append(p.strip())
-
-        merged_projects = {path: list(patterns) for path, patterns in (ext_cmd.get("projectPatterns") or {}).items()}
-        for path, patterns in (req_cmd.get("projectPatterns") or {}).items():
-            merged_projects[path] = list(dict.fromkeys(merged_projects.get(path, []) + list(patterns)))
-
-        merged_cmd = {
-            **ext_cmd,
-            **req_cmd,
-            "allowedPatterns": merged_patterns
-        }
-        if merged_projects:
-            merged_cmd["projectPatterns"] = merged_projects
-        return {"command": merged_cmd}
-
-    def record_decision(self, decision: dict, auth_eval: dict,
-                        fallback_tool_name: str = "", context: SecurityContext | None = None):
+    def _record_decision(self, challenge: dict, decision: str, pattern: str | None, rules: list[str],
+                         context: SecurityContext | None):
         """
-        Registra la respuesta del usuario a un reto. La política permanente y la regla de directorio
-        se escriben en una sola transacción; un error de validación o de persistencia se propaga.
+        Registra la respuesta del usuario a un reto. La sesión queda en memoria; la política permanente y la
+        regla de directorio se escriben en una sola transacción y un error de persistencia se propaga.
         """
-        decision_type = decision.get("decision", "")
-        target_tool = auth_eval.get("toolId") or fallback_tool_name
-        server_name = auth_eval.get("serverName", "")
-        clean_constraints, new_rules = self._validate_decision(decision, target_tool, context)
-
-        if decision_type == "allow_session":
-            self._record_session_decision(target_tool, server_name, clean_constraints if target_tool == COMMAND_TOOL else None)
-
-        permanent_kind, permanent_id = None, ""
-        if decision_type == "allow_project":
-            # Los patrones aprobados solo rigen en el proyecto del reto.
-            clean_cmd = clean_constraints["command"]
-            clean_constraints = {"command": {**clean_cmd, "allowedPatterns": [],
-                                             "projectPatterns": {self._project_key(context): clean_cmd["allowedPatterns"]}}}
-            permanent_kind, permanent_id = "tools", target_tool
-        elif decision_type == "allow_always":
-            permanent_kind, permanent_id = "tools", target_tool
-        elif decision_type == "allow_server_always":
-            permanent_kind, permanent_id = "servers", auth_eval.get("serverId") or ""
-            if not permanent_id:
-                raise ValueError("allow_server_always requiere un servidor externo válido.")
-        if not permanent_kind and not new_rules:
+        tool, server_name, server_id = challenge["toolName"], challenge["serverName"], challenge["serverId"]
+        if decision == "allow_session":
+            with self._lock:
+                if pattern:
+                    self.session_command_patterns = self._limit_patterns(
+                        clean_pattern_list(self.session_command_patterns + [pattern], "commandPatterns.session"))
+                else:
+                    self.session_tools[tool] = self._make_entry("tools", POLICY_ALLOW, SCOPE_SESSION, server_name, tool)
+        permanent = decision in ("allow_project", "allow_always", "allow_server_always")
+        if not permanent and not rules:
             return
+        project = self._project_key(context)
 
         def mutator(state: dict) -> dict:
-            if permanent_kind == "tools":
-                existing = (state.get("tools") or {}).get(target_tool) or {}
-                constraints = normalize_command_constraints(
-                    self.merge_command_constraints(existing.get("constraints"), clean_constraints))
-                state.setdefault("tools", {})[target_tool] = self._make_entry(
-                    "tools", POLICY_ALLOW, SCOPE_PERMANENT, server_name=server_name,
-                    original_name=target_tool, constraints=constraints)
-            elif permanent_kind == "servers":
-                state.setdefault("servers", {})[permanent_id] = self._make_entry(
-                    "servers", POLICY_ALLOW, SCOPE_PERMANENT, server_name=server_name or permanent_id)
-            if new_rules:
-                state["directoryRules"] = self._append_rules(state["directoryRules"], new_rules)
+            saved = state["commandPatterns"]
+            if pattern and decision == "allow_project":
+                projects = {**saved["projects"], project: [*(saved["projects"].get(project) or []), pattern]}
+                state["commandPatterns"] = normalize_command_patterns({**saved, "projects": projects})
+            elif pattern and decision == "allow_always":
+                state["commandPatterns"] = normalize_command_patterns({**saved, "global": [*saved["global"], pattern]})
+            elif decision == "allow_always":
+                state["tools"][tool] = self._make_entry("tools", POLICY_ALLOW, SCOPE_PERMANENT, server_name, tool)
+            elif decision == "allow_server_always":
+                state["servers"][server_id] = self._make_entry("servers", POLICY_ALLOW, SCOPE_PERMANENT, server_name or server_id)
+            if rules:
+                state["directoryRules"] = self._append_rules(state["directoryRules"], rules)
             self._check_entry_limit(state)
             return state
         self._update_permanent(mutator)
         with self._lock:
-            if permanent_kind:
-                self._drop_superseded_session(permanent_kind, [permanent_id])
-            if new_rules and self.session_directory_rules is not None:
-                self.session_directory_rules = self._append_rules(self.session_directory_rules, new_rules)
-
-    def _record_session_decision(self, tool_id: str, server_name: str, constraints: dict | None):
-        """Sin patrones autoriza la herramienta en la sesión; con patrones de comando, solo esos patrones."""
-        with self._lock:
-            current = self.session_tools.get(tool_id)
-            current_cmd = ((current or {}).get("constraints") or {}).get("command")
-            if constraints and current and current.get("policy") == POLICY_ALLOW and not current_cmd:
-                return  # la sesión ya autoriza la herramienta entera
-            merged = normalize_command_constraints(self.merge_command_constraints(
-                current.get("constraints") if current_cmd else None, constraints)) if constraints else None
-            self.session_tools[tool_id] = self._make_entry(
-                "tools", POLICY_ALLOW, SCOPE_SESSION, server_name=server_name, original_name=tool_id, constraints=merged)
+            if decision == "allow_always" and not pattern:
+                self.session_tools.pop(tool, None)
+            elif decision == "allow_server_always":
+                self.session_servers.pop(server_id, None)
+            if rules and self.session_directory_rules is not None:
+                self.session_directory_rules = self._append_rules(self.session_directory_rules, rules)
 
     def evaluate_authorization(self, tool_name: str, raw_args: dict | None = None,
                                context: SecurityContext | None = None, server_name: str = "",
@@ -2816,10 +2707,11 @@ class AccessController:
         1. Lista negra explícita (deny individual o de servidor).
         2. Herramientas de control de procesos (check_command).
         3. Política global allow_all -> allow incondicional.
-        4. Política granular de herramienta -> allow (comprobando constraints).
+        4. Política granular de herramienta -> allow.
         5. Política de servidor completo -> allow incondicional para sus herramientas.
-        6. Reglas de directorio y Workspace Trust.
-        7. Por defecto -> ask (solicitar confirmación).
+        6. run_command: patrones de comando y, si no lo cubren, Workspace Trust.
+        7. Herramientas con ruta: reglas de directorio y Workspace Trust.
+        8. Por defecto -> ask (solicitar confirmación).
         """
         ctx = context or SecurityContext()
         args = dict(raw_args or {})
@@ -2866,25 +2758,30 @@ class AccessController:
 
         # 4. Autorización individual de herramienta
         if tool_entry and tool_entry.get("policy") == POLICY_ALLOW:
-            constraints = tool_entry.get("constraints")
-            if constraints and isinstance(constraints, dict):
-                if tool_name == COMMAND_TOOL and constraints.get("command"):
-                    patterns = command_patterns_for(constraints["command"], self._project_key(ctx))
-                    c_reason, c_details = command_outside_patterns(get_command_arg(args), patterns)
-                    if c_reason:
-                        return make_decision(POLICY_ASK, c_reason, {"details": c_details})
-                    cmd_dir_eval = self.evaluate_command_directories(args, user_rules, ctx)
-                    if not cmd_dir_eval["allowed"]:
-                        return make_decision(POLICY_ASK, "command_directory_outside_rules", {
-                            "details": f"El comando se ejecuta fuera de las reglas de directorio: {cmd_dir_eval['directory']}"
-                        })
             return make_decision(POLICY_ALLOW, "granular_allow_rule")
 
         # 5. Autorización de servidor completo
         if server_entry and server_entry.get("policy") == POLICY_ALLOW:
             return make_decision(POLICY_ALLOW, "server_allow_rule")
 
-        # 6. Reglas de Directorio y Workspace Trust
+        # 6. run_command: un patrón es una vía más de permitir, nunca una puerta que anule Workspace Trust
+        if tool_name == COMMAND_TOOL:
+            command = get_command_arg(args)
+            cd_part = split_leading_cd(command)
+            directory_ok = self.evaluate_command_directories(args, user_rules, ctx)["allowed"]
+            patterns = self._command_patterns(view, ctx)
+            reason, details = command_outside_patterns(command, patterns) if patterns else ("mcp_default_ask", "")
+            if not reason and not directory_ok:
+                reason, details = "command_directory_outside_rules", f"El comando se ejecuta fuera de las reglas de directorio: {cd_part['directory']}"
+            if not reason:
+                return make_decision(POLICY_ALLOW, "command_pattern_allow")
+            if global_policy == GLOBAL_POLICY_WORKSPACE_TRUST:
+                if directory_ok and is_workspace_local_command(cd_part["command"] if cd_part else command):
+                    return make_decision(POLICY_ALLOW, "workspace_trust_command")
+                reason, details = "workspace_trust_external_or_global_command", "El comando accede a recursos globales o rutas fuera del espacio de trabajo."
+            return make_decision(POLICY_ASK, reason, {"details": details})
+
+        # 7. Reglas de Directorio y Workspace Trust
         path_access = get_integrated_path_access(tool_name)
         path = get_path_arg(args)
 
@@ -2903,18 +2800,7 @@ class AccessController:
                 "directoryPath": dir_eval["path"] or ""
             })
 
-        if tool_name == COMMAND_TOOL and global_policy == GLOBAL_POLICY_WORKSPACE_TRUST:
-            cmd_val = get_command_arg(args)
-            cd_part = split_leading_cd(cmd_val)
-            sub_cmd = cd_part["command"] if cd_part else cmd_val
-            is_local = is_workspace_local_command(sub_cmd) and self.evaluate_command_directories(args, user_rules, ctx)["allowed"]
-            if is_local:
-                return make_decision(POLICY_ALLOW, "workspace_trust_command")
-            return make_decision(POLICY_ASK, "workspace_trust_external_or_global_command", {
-                "details": "El comando accede a recursos globales o rutas fuera del espacio de trabajo."
-            })
-
-        # 7. Por defecto: confirmación
+        # 8. Por defecto: confirmación
         return make_decision(POLICY_ASK, "mcp_default_ask")
 
 
@@ -6366,7 +6252,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                     return {"authorized": False, "status": "deny"}, None, ""
 
                 ch = ACCESS_CONTROLLER.authorize_challenge(
-                    challenge_id, decision, params.get("constraints"), params.get("directoryRule"), context=ctx
+                    challenge_id, decision, params.get("commandPattern"), params.get("directoryRule"), context=ctx
                 )
                 if not ch:
                     return None, {"code": -32002, "message": "Reto no encontrado o no válido"}, ""

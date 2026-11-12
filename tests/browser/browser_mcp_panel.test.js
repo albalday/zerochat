@@ -32,7 +32,10 @@ async function withMcpPanel(mcp, fn) {
               globalMcpPolicy: patch?.globalMcpPolicy || window.ChatToolSecurity.manager.globalMcpPolicy,
               directoryRules: patch?.directoryRules || window.ChatToolSecurity.manager.directoryRules,
               tools,
-              servers
+              servers,
+              commandPatterns: patch?.commandPatterns
+                ? { global: [], projects: {}, ...patch.commandPatterns, session: window.ChatToolSecurity.manager.commandPatterns.session }
+                : window.ChatToolSecurity.manager.commandPatterns
             }
           };
         }
@@ -212,12 +215,12 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
 
   test('Browser UI - los patrones de comando guardados se quitan y añaden uno a uno y los rechazos se muestran', async () => {
     await withMcpPanel({ status: 'connected', tools: [], serverInfo: { cwd: '/home/yo/app' } }, async page => {
-      const patterns = () => page.evaluate(() => window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.allowedPatterns ?? null);
+      const patterns = () => page.evaluate(() => window.ChatToolSecurity.manager.getCommandPatterns().global);
       const chips = () => page.$$eval('#mcp-saved-auths-list .mcp-auth-cmd-chip code', els => els.map(el => el.textContent));
       const removePattern = pattern => page.evaluate(p => document.querySelector(`#mcp-saved-auths-list .btn-remove-cmd-pattern[data-pattern="${p}"]`).click(), pattern);
-      await page.evaluate(async () => {
-        await window.ChatToolSecurity.manager.setToolPolicy('run_command', 'allow', {
-          constraints: { command: { allowedPatterns: ['git status *', 'git diff'], projectPatterns: { '/repo': ['npm test *'] }, sessionPatterns: ['make *'] } }
+      await page.evaluate(() => {
+        window.ChatToolSecurity.manager.applyPolicies({
+          commandPatterns: { global: ['git status *', 'git diff'], projects: { '/repo': ['npm test *'] }, session: ['make *'] }
         });
         window.ChatUIMcp.renderSavedAuthorizations();
       });
@@ -232,16 +235,16 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
         document.querySelector('#mcp-saved-auths-list .mcp-auth-cmd-input').value = 'git log *';
         document.querySelector('#mcp-saved-auths-list .btn-add-cmd-pattern').click();
       });
-      await page.waitForFunction(() => window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.allowedPatterns?.length === 3);
+      await page.waitForFunction(() => window.ChatToolSecurity.manager.getCommandPatterns().global.length === 3);
       assert.deepEqual(await patterns(), ['git status *', 'git diff', 'git log *']);
 
       await removePattern('git diff');
-      await page.waitForFunction(() => window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.allowedPatterns?.length === 2);
+      await page.waitForFunction(() => window.ChatToolSecurity.manager.getCommandPatterns().global.length === 2);
       assert.deepEqual(await patterns(), ['git status *', 'git log *']);
 
       // Quitar un patrón de proyecto no toca los globales
       await page.evaluate(() => document.querySelector('#mcp-saved-auths-list .btn-remove-cmd-pattern[data-project="/repo"]').click());
-      await page.waitForFunction(() => !window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.projectPatterns?.['/repo']);
+      await page.waitForFunction(() => !window.ChatToolSecurity.manager.getCommandPatterns().projects['/repo']?.length);
       assert.deepEqual(await patterns(), ['git status *', 'git log *']);
 
       // Un rechazo del backend se muestra junto al editor sin cambiar nada
@@ -269,8 +272,8 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
         editor.querySelector('.mcp-auth-cmd-input').value = 'npm test *';
         editor.querySelector('.btn-add-cmd-pattern').click();
       });
-      await page.waitForFunction(() => window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.projectPatterns?.['/home/yo/app']);
-      assert.deepEqual(await page.evaluate(() => window.ChatToolSecurity.manager.getToolConstraints('run_command').command.projectPatterns), { '/home/yo/app': ['npm test *'] });
+      await page.waitForFunction(() => window.ChatToolSecurity.manager.getCommandPatterns().projects['/home/yo/app']);
+      assert.deepEqual(await page.evaluate(() => window.ChatToolSecurity.manager.getCommandPatterns().projects), { '/repo': [], '/home/yo/app': ['npm test *'] });
       assert.deepEqual(await patterns(), ['git status *', 'git log *']);
     });
   });

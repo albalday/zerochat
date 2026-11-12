@@ -768,7 +768,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                     return {"authorized": False, "status": "deny"}, None, ""
 
                 ch = ACCESS_CONTROLLER.authorize_challenge(
-                    challenge_id, decision, params.get("constraints"), params.get("directoryRule"), context=ctx
+                    challenge_id, decision, params.get("commandPattern"), params.get("directoryRule"), context=ctx
                 )
                 if not ch:
                     return None, {"code": -32002, "message": "Reto no encontrado o no válido"}, ""

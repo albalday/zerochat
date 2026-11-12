@@ -33,6 +33,7 @@ function createMockClient(initialState = {}) {
             else state.tools[id] = { ...entry, scope: 'permanent' };
           }
         }
+        if (params.commandPatterns !== undefined) state.commandPatterns = { ...params.commandPatterns, session: state.commandPatterns?.session || [] };
         if (params.servers !== undefined) {
           state.servers = { ...state.servers };
           for (const [id, entry] of Object.entries(params.servers)) {
@@ -62,7 +63,7 @@ test('ChatToolSecurity - sin servidor conectado los setters y retos lanzan error
     () => manager.setGlobalMcpPolicy('allow_all'),
     () => manager.setDirectoryRules(['R:/workspace/**']),
     () => manager.addDirectoryRule('R:/workspace/**'),
-    () => manager.setCommandPatterns('run_command', { allowedPatterns: ['git *'] }),
+    () => manager.setCommandPatterns({ global: ['git *'] }),
     () => manager.clearAllAuthorizations(),
     () => manager.authorizeChallenge('ch-1', 'allow_once')
   ];
@@ -82,7 +83,6 @@ test('ChatToolSecurity - mutaciones envían parches parciales y adoptan la respu
     tools: {
       tool1: {
         policy: 'allow',
-        constraints: null,
         serverName: 'srv1',
         originalName: 'tool1'
       }
@@ -187,29 +187,16 @@ test('ChatToolSecurity - cambio de sessionToken relee el estado del backend', as
   assert.equal(manager.getToolPolicy('sess_tool'), null);
 });
 
-test('ChatToolSecurity - setCommandPatterns sustituye los patrones guardados sin enviar los de sesión y sin ninguno revoca', async () => {
-  const mockClient = createMockClient({
-    tools: { run_command: { policy: 'allow', serverName: 'local', originalName: 'run_command', constraints: { command: { allowedPatterns: ['git *'], sessionPatterns: ['make *'] } } } }
-  });
+test('ChatToolSecurity - setCommandPatterns sustituye los patrones guardados y nunca envía los de sesión', async () => {
+  const mockClient = createMockClient({ commandPatterns: { global: ['git *'], projects: {}, session: ['make *'] } });
   const manager = new ChatToolSecurity.ToolSecurityManager();
   manager.setMcpClient(mockClient);
   await manager.refresh();
+  assert.deepEqual(manager.getCommandPatterns().session, ['make *']);
 
-  await manager.setCommandPatterns('run_command', { allowedPatterns: ['git status *', ' ', 'git log *'], projectPatterns: { '/repo': ['npm test *'], '/vacio': [] } });
-  const patch = mockClient.calls[mockClient.calls.length - 1].params;
-  assert.deepEqual(patch.tools.run_command.constraints, {
-    command: { allowedPatterns: ['git status *', 'git log *'], projectPatterns: { '/repo': ['npm test *'] } }
-  });
-  assert.equal(patch.tools.run_command.policy, 'allow');
-  assert.equal(patch.tools.run_command.serverName, 'local');
-
-  // Solo con patrones de proyecto sigue siendo una autorización válida
-  await manager.setCommandPatterns('run_command', { allowedPatterns: [], projectPatterns: { '/repo': ['npm test *'] } });
-  assert.equal(mockClient.calls[mockClient.calls.length - 1].params.tools.run_command.policy, 'allow');
-
-  await manager.setCommandPatterns('run_command', { allowedPatterns: [], projectPatterns: { '/repo': [] } });
-  assert.deepEqual(mockClient.calls[mockClient.calls.length - 1].params, { tools: { run_command: null } });
-  assert.equal(manager.getToolPolicy('run_command'), null);
+  await manager.setCommandPatterns({ global: ['git status *'], projects: { '/repo': ['npm test *'] } });
+  assert.deepEqual(mockClient.calls.at(-1).params, { commandPatterns: { global: ['git status *'], projects: { '/repo': ['npm test *'] } } });
+  assert.deepEqual(manager.getCommandPatterns(), { global: ['git status *'], projects: { '/repo': ['npm test *'] }, session: ['make *'] });
 });
 
 test('ChatToolSecurity - un listener que falla no detiene la notificación a los demás', (t) => {
