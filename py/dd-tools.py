@@ -226,6 +226,9 @@ def set_project_directory(path) -> dict:
     previous = str(Path.cwd().resolve())
     # Los comandos en marcha conservan el directorio en que se lanzaron.
     os.chdir(target)
+    # Lo autorizado en la sesión valía para el proyecto anterior.
+    if str(target) != previous:
+        reset_session_authorizations()
     return {"cwd": str(target), "previous_cwd": previous}
 
 

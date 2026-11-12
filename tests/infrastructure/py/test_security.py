@@ -1119,6 +1119,27 @@ class AccessControllerPolicyTest(unittest.TestCase):
         self.assertEqual(self._status("printf x"), "allow")
         self.assertEqual(self._status("true x"), "allow")
 
+    def test_changing_project_clears_session_authorizations_and_challenges(self):
+        controller = zerochat.ACCESS_CONTROLLER
+        controller.clear_session()
+        self.addCleanup(controller.clear_session)
+        self.addCleanup(os.chdir, Path.cwd())
+        other = self.base_dir / "otro"
+        other.mkdir()
+        os.chdir(self.workspace)
+        set_tool(controller, "custom_tool", zerochat.POLICY_ALLOW, scope=zerochat.SCOPE_SESSION)
+        dec = controller.evaluate_authorization("other_tool", {}, self.ctx)
+        controller.create_challenge("other_tool", {}, dec)
+
+        # Volver a elegir el mismo proyecto no borra nada.
+        zerochat.set_project_directory(str(self.workspace))
+        self.assertIsNotNone(tool_entry(controller, "custom_tool"))
+        self.assertEqual(len(controller.pending_challenges), 1)
+
+        zerochat.set_project_directory(str(other))
+        self.assertIsNone(tool_entry(controller, "custom_tool"))
+        self.assertEqual(controller.pending_challenges, {})
+
     def test_allow_project_requires_a_command_prefix(self):
         handler = zerochat.ZeroChatServerHandler.__new__(zerochat.ZeroChatServerHandler)
         zerochat.ACCESS_CONTROLLER.clear_session()

@@ -175,6 +175,11 @@ def prepare_environment(args, is_dev: bool):
 def reset_session_credentials():
     """Carga el token diario y reinicia las autorizaciones de sesión en memoria."""
     current_session_token()
+    reset_session_authorizations()
+
+
+def reset_session_authorizations():
+    """Borra las autorizaciones de sesión y los retos pendientes, y vuelve a aplicar la capa de la ejecución."""
     ACCESS_CONTROLLER.clear_session()
     if RUN_SESSION is not None:
         if RUN_SESSION.tool_security:
