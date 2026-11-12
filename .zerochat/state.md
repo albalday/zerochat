@@ -1,4 +1,4 @@
 # Current state
-- Milestone: M61 Integridad del sistema de permisos (docs/audits/M61-permisos.md)
-- Next task: none
+- Milestone: M62 Multisesión de un usuario y límites del multiusuario
+- Next task: M62-T1
 - Last updated: 2026-11-12
