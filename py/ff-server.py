@@ -658,7 +658,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             tool_name = params.get("name", "")
             raw_args = params.get("arguments", {})
             args = raw_args if isinstance(raw_args, dict) else {}
-            ctx = SecurityContext(workspace_dir=Path.cwd().resolve())
+            ctx = SecurityContext()
 
             gate = self._authorize_or_challenge("external", tool_name, args, ctx)
             if gate is not None:
@@ -693,7 +693,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             meta = params.get("_meta")
             # La clave del trabajo no es un argumento del modelo: no se evalúa ni se muestra en el reto.
             job_key = meta.get("zerochatJobKey") if tool_name == COMMAND_TOOL and isinstance(meta, dict) else None
-            ctx = SecurityContext(workspace_dir=Path.cwd().resolve())
+            ctx = SecurityContext()
 
             gate = self._authorize_or_challenge("local", tool_name, args, ctx, job_key)
             if gate is not None:
@@ -749,7 +749,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     def _dispatch_security(cls, method: str, params: dict) -> tuple[dict | None, dict | None, str]:
         """Gestión de políticas y reglas de seguridad almacenadas en el backend local."""
         params = params if isinstance(params, dict) else {}
-        ctx = SecurityContext(workspace_dir=Path.cwd().resolve())
+        ctx = SecurityContext()
         try:
             if method == "zerochat/security/get":
                 return {"policies": ACCESS_CONTROLLER.export_state(ctx)}, None, ""
@@ -768,7 +768,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                     return {"authorized": False, "status": "deny"}, None, ""
 
                 ch = ACCESS_CONTROLLER.authorize_challenge(
-                    challenge_id, decision, params.get("commandPattern"), params.get("directoryRule"), context=ctx
+                    challenge_id, decision, context=ctx,
+                    command_pattern=params.get("commandPattern"), directory_rule=params.get("directoryRule")
                 )
                 if not ch:
                     return None, {"code": -32002, "message": "Reto no encontrado o no válido"}, ""

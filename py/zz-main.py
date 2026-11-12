@@ -183,11 +183,11 @@ def reset_session_authorizations():
     ACCESS_CONTROLLER.clear_session()
     if RUN_SESSION is not None:
         if RUN_SESSION.tool_security:
-            ACCESS_CONTROLLER.apply_session_overlay(RUN_SESSION.tool_security)
+            ACCESS_CONTROLLER.apply_session_overlay(RUN_SESSION.tool_security, SecurityContext())
         if RUN_SESSION.allow_dangerous_tools:
             ACCESS_CONTROLLER.apply_session_overlay({
                 "tools": {name: {"policy": POLICY_ALLOW} for name in ("write_file", "edit_file", "run_command")}
-            })
+            }, SecurityContext())
 
 
 def open_server(args, local_ui: bool) -> ThreadingHTTPServer:

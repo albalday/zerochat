@@ -7,13 +7,16 @@ from pathlib import Path
 from backend import use_data_dir, zerochat
 
 
-# Las pruebas preparan y leen el estado por el mismo contrato que la RPC (import_state/export_state).
+# Las pruebas preparan y leen el estado por el mismo contrato que la RPC (import_state/export_state),
+# con el directorio actual como contexto, igual que la RPC.
+def cwd():
+    return zerochat.SecurityContext()
 def set_global(controller, policy):
-    controller.import_state({"globalMcpPolicy": policy})
+    controller.import_state({"globalMcpPolicy": policy}, cwd())
 
 
 def global_policy(controller):
-    return controller.export_state()["globalMcpPolicy"]
+    return controller.export_state(cwd())["globalMcpPolicy"]
 
 
 def set_rules(controller, rules, ctx=None):
@@ -27,25 +30,25 @@ def rules_of(controller, ctx=None):
 def set_tool(controller, tool_id, policy, scope=zerochat.SCOPE_PERMANENT):
     patch = {"tools": {tool_id: {"policy": policy}}}
     if scope == zerochat.SCOPE_SESSION:
-        controller.apply_session_overlay(patch)
+        controller.apply_session_overlay(patch, cwd())
     else:
-        controller.import_state(patch)
+        controller.import_state(patch, cwd())
 
 
 def set_server(controller, server_id, policy):
-    controller.import_state({"servers": {server_id: {"policy": policy}}})
+    controller.import_state({"servers": {server_id: {"policy": policy}}}, cwd())
 
 
 def revoke(controller, kind, item_id):
-    controller.import_state({kind: {item_id: None}})
+    controller.import_state({kind: {item_id: None}}, cwd())
 
 
 def tool_entry(controller, tool_id):
-    return controller.export_state()["tools"].get(tool_id)
+    return controller.export_state(cwd())["tools"].get(tool_id)
 
 
 def server_entry(controller, server_id):
-    return controller.export_state()["servers"].get(server_id)
+    return controller.export_state(cwd())["servers"].get(server_id)
 
 
 def stored(kind):
@@ -54,7 +57,7 @@ def stored(kind):
 
 
 def set_patterns(controller, *patterns, projects=None):
-    controller.import_state({"commandPatterns": {"global": list(patterns), "projects": projects or {}}})
+    controller.import_state({"commandPatterns": {"global": list(patterns), "projects": projects or {}}}, cwd())
 
 
 def saved_patterns():
@@ -119,7 +122,7 @@ class HandlerTestCase(ControllerTestCase):
         return gate
 
     def status(self, command, ctx=None):
-        cwd_ctx = ctx or zerochat.SecurityContext(workspace_dir=Path.cwd().resolve())
+        cwd_ctx = ctx or zerochat.SecurityContext()
         return self.controller.evaluate_authorization("run_command", {"command": command}, cwd_ctx).status
 
 
@@ -414,8 +417,8 @@ class ChallengeTest(HandlerTestCase):
         ttl_sec = zerochat.CHALLENGE_TTL_MS / 1000.0
         dec = self.evaluate("run_command", {"command": "echo ok"})
         with unittest.mock.patch.object(zerochat.time, "time", return_value=base_sec):
-            ch_ok = self.controller.create_challenge("run_command", {"command": "echo ok"}, dec)
-            ch_exp = self.controller.create_challenge("run_command", {"command": "echo expired"}, dec)
+            ch_ok = self.controller.create_challenge("run_command", {"command": "echo ok"}, dec, context=cwd())
+            ch_exp = self.controller.create_challenge("run_command", {"command": "echo expired"}, dec, context=cwd())
         with unittest.mock.patch.object(zerochat.time, "time", return_value=base_sec + ttl_sec):
             res, err = self.authorize(ch_ok["id"], "allow_once")
         self.assertIsNone(err)
@@ -427,7 +430,7 @@ class ChallengeTest(HandlerTestCase):
         self.assertEqual(saved_patterns(), {})
 
         # Un cambio de directorio entre la creación y la autorización invalida el reto
-        ch_cwd = self.controller.create_challenge("run_command", {"command": "echo cwd"}, dec)
+        ch_cwd = self.controller.create_challenge("run_command", {"command": "echo cwd"}, dec, context=cwd())
         other_dir = self.workspace / "subdir"
         other_dir.mkdir()
         self.addCleanup(os.chdir, Path.cwd())
@@ -468,14 +471,14 @@ class ChallengeTest(HandlerTestCase):
         self.assertEqual(stored("servers"), {})
 
     def test_invalid_directory_rule_fails_visibly_and_keeps_challenge(self):
-        ch = self.controller.create_challenge("custom_tool", {}, self.evaluate("custom_tool"))
+        ch = self.controller.create_challenge("custom_tool", {}, self.evaluate("custom_tool"), context=cwd())
         res, err = self.authorize(ch["id"], "allow_always", directoryRule="INVALID_RULE")
         self.assertEqual((res, err["code"]), (None, -32602))
         self.assertIn(ch["id"], self.controller.pending_challenges)
         self.assertIsNone(tool_entry(self.controller, "custom_tool"))
 
     def test_storage_failure_on_authorize_is_reported_and_tool_not_executed(self):
-        ch = self.controller.create_challenge("custom_tool", {}, self.evaluate("custom_tool"))
+        ch = self.controller.create_challenge("custom_tool", {}, self.evaluate("custom_tool"), context=cwd())
         with unittest.mock.patch("zerochat.update_security_policy_data", side_effect=sqlite3.OperationalError("database is locked")), \
                 unittest.mock.patch.object(zerochat.ZeroChatServerHandler, "_execute_tool") as execute:
             res, err = self.authorize(ch["id"], "allow_always")
@@ -543,7 +546,7 @@ class CommandPatternTest(HandlerTestCase):
         # Guardar run_command sin patrones autorizaría cualquier comando; en la sesión sí se admite
         with self.assertRaisesRegex(ValueError, "allow_always_requires_command_pattern"):
             self.controller.import_state({"tools": {"run_command": {"policy": "allow"}}}, self.ctx)
-        self.controller.apply_session_overlay({"tools": {"run_command": {"policy": "allow"}}})
+        self.controller.apply_session_overlay({"tools": {"run_command": {"policy": "allow"}}}, cwd())
 
         # El tope cuenta los patrones globales y los de todos los proyectos: N se acepta y N+1 no
         limit = zerochat.MAX_COMMAND_PATTERNS
@@ -605,7 +608,7 @@ class CommandPatternTest(HandlerTestCase):
         res, err = self.authorize(self.command_challenge("true global")["challengeId"], "allow_always", commandPattern="true *")
         self.assertIsNone(err)
         self.assertEqual(self.status("true x", other_project), "allow")
-        exported = self.controller.export_state()["commandPatterns"]
+        exported = self.controller.export_state(cwd())["commandPatterns"]
         self.assertEqual((exported["session"], exported["global"]), (["echo uno *"], ["true *"]))
 
         # Al acabar la sesión solo quedan los permanentes
@@ -614,9 +617,9 @@ class CommandPatternTest(HandlerTestCase):
 
     def test_exported_session_patterns_survive_a_session_overlay(self):
         self.authorize(self.command_challenge("echo capa")["challengeId"], "allow_session", commandPattern="echo capa *")
-        snapshot = self.controller.export_state()
+        snapshot = self.controller.export_state(cwd())
         self.controller.clear_session()
-        self.controller.apply_session_overlay(snapshot)
+        self.controller.apply_session_overlay(snapshot, cwd())
         self.assertEqual(self.status("echo capa x"), "allow")
 
 
@@ -648,7 +651,7 @@ class SessionLifecycleTest(HandlerTestCase):
         other.mkdir()
         os.chdir(self.workspace)
         set_tool(self.controller, "custom_tool", zerochat.POLICY_ALLOW, scope=zerochat.SCOPE_SESSION)
-        self.controller.create_challenge("other_tool", {}, self.evaluate("other_tool"))
+        self.controller.create_challenge("other_tool", {}, self.evaluate("other_tool"), context=cwd())
 
         # Volver a elegir el mismo proyecto no borra nada
         zerochat.set_project_directory(str(self.workspace))

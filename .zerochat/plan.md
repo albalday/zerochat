@@ -57,7 +57,7 @@ Done when: Los probes C1-C3, S1-S3 y D1 de docs/audits/M61-permisos.md se compor
 - [x] M61-T31 run_command permanente sin patrones rechazado también en security/update (simétrico con allow_always) y sin "permitir" genérico en Ajustes (2026-11-12)
 - [x] M61-T32 Retirar opciones sin consumidor: allowChaining, allowPipes, deniedPatterns, alias de argumentos (cmd, script, file…), oferta de comando para herramientas que no son run_command y exportaciones JS sin uso (2026-11-12)
 - [x] M61-T33 Patrones de comando como sección propia del estado (commandPatterns: global, proyectos, sesión) en lugar de constraints de run_command; un patrón es una vía más de permitir y no anula workspace_trust (2026-11-12)
-- [ ] M61-T34 evaluate_authorization partida en comando y ruta con el cd inicial analizado una vez, y SecurityContext obligatorio
+- [x] M61-T34 evaluate_authorization partida en comando y ruta con el cd inicial analizado una vez, y SecurityContext obligatorio (2026-11-12)
 - [ ] M61-T35 Validación de decisiones y tope de entradas en un solo sitio (authorize_challenge/record_decision, _validate_state_payload/_check_entry_limit)
 - [ ] M61-T36 ToolSecurityManager simplificado: applyPolicies sin renormalizar lo del backend, sin helpers de indirección ni doble canal de aviso
 - [ ] M61-T37 tools/call local y externo por un único _call_tool en ff-server

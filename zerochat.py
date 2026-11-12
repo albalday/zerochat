@@ -2037,23 +2037,20 @@ def has_file_redirection(cmd: str) -> bool:
     return bool(re.search(r"[<>]", sanitized))
 
 
-def split_leading_cd(cmd: str) -> dict | None:
-    """Separa un comando inicial 'cd <dir> && <cmd>' o 'cd <dir> ; <cmd>'.
-
+def split_leading_cd(cmd: str) -> tuple[str | None, str]:
+    """
+    Separa un 'cd <dir> && <cmd>' o 'cd <dir> ; <cmd>' inicial: (dir, cmd), o (None, comando entero).
     Con ';' el comando se ejecuta aunque falle el cd, pero entonces lo hace en la carpeta
     del proyecto, que ya está autorizada; las reglas de carpeta se exigen igual sobre <dir>.
     """
-    if not isinstance(cmd, str):
-        return None
-    match = re.match(r"^cd\s+(\"[^\"]*\"|'[^']*'|[^\s;&|<>`$()'\"]+)\s*(?:&&|;)\s*(\S[\s\S]*)$", cmd.strip())
+    trimmed = cmd.strip() if isinstance(cmd, str) else ""
+    match = re.match(r"^cd\s+(\"[^\"]*\"|'[^']*'|[^\s;&|<>`$()'\"]+)\s*(?:&&|;)\s*(\S[\s\S]*)$", trimmed)
     if not match:
-        return None
-    raw_dir = match.group(1).strip()
-    if (raw_dir.startswith('"') and raw_dir.endswith('"')) or (raw_dir.startswith("'") and raw_dir.endswith("'")):
-        clean_dir = raw_dir[1:-1]
-    else:
-        clean_dir = raw_dir
-    return {"directory": clean_dir, "command": match.group(2).strip()}
+        return None, trimmed
+    directory = match.group(1)
+    if directory[0] in "\"'":
+        directory = directory[1:-1]
+    return directory, match.group(2).strip()
 
 
 def get_command_arg(args: dict | None) -> str:
@@ -2126,18 +2123,15 @@ def matches_command_pattern(command: str, pattern: str) -> bool:
     return not any(COMMAND_WILDCARD_UNSAFE.search(arg) or COMMAND_ABSOLUTE_ARG.search(arg) for arg in args[len(words):])
 
 
-def command_outside_patterns(cmd_val: str, patterns: list[str]) -> tuple[str, str]:
+def command_outside_patterns(command: str, patterns: list[str]) -> tuple[str, str]:
     """
-    Motivo y detalle por los que los patrones no autorizan el comando, o ('', '') si lo autorizan.
-    Un patrón nunca cubre encadenamiento, tuberías ni redirecciones, y sin patrones no hay autorización.
+    Motivo y detalle por los que los patrones no autorizan el comando (sin su cd inicial), o ('', '')
+    si lo autorizan. Un patrón nunca cubre encadenamiento, tuberías ni redirecciones.
     """
-    trimmed = cmd_val.strip()
-    cd_part = split_leading_cd(trimmed)
-    command = cd_part["command"] if cd_part else trimmed
     if has_command_chaining(command) or has_file_redirection(command) or "|" in command:
-        return "command_chaining_requires_approval", f"Comando contiene encadenamiento no autorizado: {trimmed}"
+        return "command_chaining_requires_approval", f"Comando contiene encadenamiento no autorizado: {command}"
     if not any(matches_command_pattern(command, p) for p in patterns):
-        return "command_outside_allowed_patterns", f"Comando fuera de los patrones autorizados: {trimmed}"
+        return "command_outside_allowed_patterns", f"Comando fuera de los patrones autorizados: {command}"
     return "", ""
 
 
@@ -2197,9 +2191,7 @@ def normalize_command_patterns(raw) -> dict:
 
 def suggest_command_prefix(command: str) -> str:
     """Prefijo sugerido: ejecutable y, si lo hay, su subcomando ('git status --short' -> 'git status')."""
-    trimmed = str(command or "").strip()
-    cd_part = split_leading_cd(trimmed)
-    tokens = (cd_part["command"] if cd_part else trimmed).split()
+    tokens = command.split()
     if not tokens:
         return ""
     if len(tokens) > 1 and SUBCOMMAND_TOKEN.fullmatch(tokens[1]):
@@ -2207,23 +2199,16 @@ def suggest_command_prefix(command: str) -> str:
     return tokens[0]
 
 
-def get_rule_offer(tool_name: str, args: dict, auth_eval: dict | None = None) -> dict | None:
-    """Genera la regla sugerida para confirmaciones permanentes en la interfaz."""
-    eval_info = auth_eval or {}
-    command = get_command_arg(args) if tool_name == COMMAND_TOOL else ""
-    if command:
-        # El programa con su subcomando y '*', o el comando exacto si sus argumentos salen del proyecto.
-        cd_part = split_leading_cd(command)
-        target = cd_part["command"] if cd_part else command
-        pattern = next((p for p in (f"{suggest_command_prefix(command)} *", target)
-                        if _is_valid_pattern(p) and matches_command_pattern(target, p)), None)
-        if not pattern:
-            return None
-        return {"type": "command", "command": pattern}
-    # Solo las herramientas integradas se autorizan por reglas de directorio.
-    access = eval_info.get("directoryAccess") or get_integrated_path_access(tool_name)
-    path = eval_info.get("directoryPath") or get_path_arg(args)
-    if not access or not path or not normalize_directory_path(path):
+def command_rule_offer(command: str) -> dict | None:
+    """Patrón sugerido: el programa con su subcomando y '*', o el comando exacto si el '*' no lo cubriría."""
+    pattern = next((p for p in (f"{suggest_command_prefix(command)} *", command)
+                    if _is_valid_pattern(p) and matches_command_pattern(command, p)), None)
+    return {"type": "command", "command": pattern} if pattern else None
+
+
+def directory_rule_offer(tool_name: str, access: str, path: str) -> dict | None:
+    """Regla sugerida para la carpeta de la ruta (la propia ruta en list_directory)."""
+    if not normalize_directory_path(path):
         return None
     clean_path = path.replace("\\", "/").rstrip("/")
     if tool_name == "list_directory":
@@ -2231,8 +2216,8 @@ def get_rule_offer(tool_name: str, args: dict, auth_eval: dict | None = None) ->
     else:
         folder = clean_path[:clean_path.rfind("/")] if "/" in clean_path else "."
     dir_path = folder or "/"
-    pattern = f"{access}:{dir_path}" if dir_path == "/" else f"{access}:{dir_path}/**"
-    return {"type": "directory", "access": access, "directoryRule": pattern}
+    rule = f"{access}:{dir_path}" if dir_path == "/" else f"{access}:{dir_path}/**"
+    return {"type": "directory", "access": access, "directoryRule": rule}
 
 
 @dataclasses.dataclass
@@ -2312,22 +2297,22 @@ class AccessController:
             }
 
     @staticmethod
-    def _project_key(context: SecurityContext | None) -> str:
-        return normalize_directory_path(str((context or SecurityContext()).workspace_dir))
+    def _project_key(context: SecurityContext) -> str:
+        return normalize_directory_path(str(context.workspace_dir))
 
-    def _command_patterns(self, view: dict, context: SecurityContext | None) -> list[str]:
+    def _command_patterns(self, view: dict, context: SecurityContext) -> list[str]:
         """Patrones que rigen en el proyecto: los de todos los proyectos, los de este y los de la sesión."""
         patterns = view["commandPatterns"]
         return [*patterns["global"], *(patterns["projects"].get(self._project_key(context)) or []), *patterns["session"]]
 
-    def export_state(self, context: SecurityContext | None = None) -> dict:
+    def export_state(self, context: SecurityContext) -> dict:
         return {
             "version": POLICY_STATE_VERSION,
             **self._effective_state(),
             "defaultDirectoryRule": self.get_default_directory_rule(context)
         }
 
-    def _validate_directory_rules(self, raw_rules: list | tuple, context: SecurityContext | None = None) -> list[str]:
+    def _validate_directory_rules(self, raw_rules: list | tuple, context: SecurityContext) -> list[str]:
         if not isinstance(raw_rules, (list, tuple)):
             raise ValueError("Las reglas de directorio deben ser una lista.")
         parsed_rules = []
@@ -2391,7 +2376,7 @@ class AccessController:
         if total > MAX_POLICY_ENTRIES:
             raise ValueError(f"El número total de entradas ({total}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
 
-    def _validate_state_payload(self, state: dict, scope: str, context: SecurityContext | None = None) -> tuple[str | None, list[str] | None, dict | None, dict | None]:
+    def _validate_state_payload(self, state: dict, scope: str, context: SecurityContext) -> tuple[str | None, list[str] | None, dict | None, dict | None]:
         if not isinstance(state, dict):
             raise ValueError("El estado de políticas debe ser un diccionario.")
 
@@ -2421,7 +2406,7 @@ class AccessController:
             raise ValueError(f"El número total de entradas ({total_entries}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
         return clean_global, clean_rules, clean_tools, clean_servers
 
-    def import_state(self, state: dict, context: SecurityContext | None = None):
+    def import_state(self, state: dict, context: SecurityContext):
         """
         Aplica un parche parcial persistente (None revoca) y devuelve el estado exportado.
         `addDirectoryRules` añade reglas a las guardadas dentro de la misma transacción y
@@ -2477,7 +2462,7 @@ class AccessController:
             result[item_id] = {**entry, "grantedAt": previous["grantedAt"]} if same_grant and previous.get("grantedAt") else entry
         return result
 
-    def apply_session_overlay(self, state: dict, context: SecurityContext | None = None):
+    def apply_session_overlay(self, state: dict, context: SecurityContext):
         """
         Aplica una capa de políticas temporal en memoria para una ejecución en servidor, sin persistir.
         De los patrones de comando solo toma los de sesión: los guardados se leen de la misma base de datos.
@@ -2506,9 +2491,9 @@ class AccessController:
             raise ValueError(f"Hay {len(patterns)} patrones de comando; el máximo es {MAX_COMMAND_PATTERNS}.")
         return patterns
 
-    def get_default_directory_rule(self, context: SecurityContext | None = None) -> str:
-        ctx = context or SecurityContext()
-        base = normalize_directory_path(str(ctx.workspace_dir))
+    @staticmethod
+    def get_default_directory_rule(context: SecurityContext) -> str:
+        base = normalize_directory_path(str(context.workspace_dir))
         return f"RW:{base}" if base == "/" else f"RW:{base}/**"
 
     @staticmethod
@@ -2525,8 +2510,7 @@ class AccessController:
         return f"{real_base}{sep}{rest}"
 
     def evaluate_directory_rule(self, access: str, path: str, user_rules: list[str],
-                                context: SecurityContext | None = None) -> dict:
-        ctx = context or SecurityContext()
+                                ctx: SecurityContext) -> dict:
         resolved_target = ctx.resolve_path(path)
         if resolved_target is None:
             return {"allowed": False, "rule": None, "path": ""}
@@ -2558,17 +2542,6 @@ class AccessController:
                 return {"allowed": True, "rule": default_parsed["rule"], "path": normalized_dest}
         return {"allowed": False, "rule": None, "path": normalized_dest}
 
-    def evaluate_command_directories(self, args: dict, user_rules: list[str], context: SecurityContext | None = None) -> dict:
-        cmd_arg = get_command_arg(args)
-        cd_part = split_leading_cd(cmd_arg)
-        if not cd_part:
-            return {"allowed": True, "directory": None}
-        target_dir = cd_part["directory"]
-        read_eval = self.evaluate_directory_rule("R", target_dir, user_rules, context)
-        write_eval = self.evaluate_directory_rule("W", target_dir, user_rules, context)
-        allowed = read_eval["allowed"] or write_eval["allowed"]
-        return {"allowed": allowed, "directory": target_dir}
-
     def clear_session(self):
         """Limpia todas las autorizaciones temporales de la sesión activa."""
         with self._lock:
@@ -2579,13 +2552,13 @@ class AccessController:
             self.session_command_patterns = []
             self.pending_challenges.clear()
 
-    def create_challenge(self, tool_name: str, args: dict, decision: AccessDecision,
+    def create_challenge(self, tool_name: str, args: dict, decision: AccessDecision, *, context: SecurityContext,
                          server_name: str = "", server_id: str = "", origin: str = "local",
-                         context: SecurityContext | None = None, job_key: str | None = None) -> dict:
+                         job_key: str | None = None) -> dict:
         """Genera un reto estructurado para solicitar confirmación interactiva al usuario."""
         challenge_id = f"auth_{secrets.token_urlsafe(16)}"
         now = int(time.time() * 1000)
-        cwd = str((context.workspace_dir if context else Path.cwd()).resolve())
+        cwd = str(context.workspace_dir.resolve())
         with self._lock:
             expired = [cid for cid, c in self.pending_challenges.items() if now - c.get("createdAt", 0) > CHALLENGE_TTL_MS]
             for cid in expired:
@@ -2605,15 +2578,15 @@ class AccessController:
             self.pending_challenges[challenge_id] = challenge_data
             return challenge_data
 
-    def authorize_challenge(self, challenge_id: str, decision: str, command_pattern: str | None = None,
-                            directory_rule: str | None = None, context: SecurityContext | None = None) -> dict | None:
+    def authorize_challenge(self, challenge_id: str, decision: str, *, context: SecurityContext,
+                            command_pattern: str | None = None, directory_rule: str | None = None) -> dict | None:
         """
         Valida la decisión, consume el reto (una única ejecución) y registra la decisión.
         Devuelve el reto consumido, o None si no existe, caducó, cambió el cwd o la decisión no aplica.
         Una decisión mal formada lanza ValueError y deja el reto pendiente.
         """
         now = int(time.time() * 1000)
-        current_cwd = str((context.workspace_dir if context else Path.cwd()).resolve())
+        current_cwd = str(context.workspace_dir.resolve())
         with self._lock:
             challenge = self.pending_challenges.get(challenge_id)
             if not challenge:
@@ -2648,15 +2621,13 @@ class AccessController:
         if not is_command:
             raise ValueError("Solo run_command admite patrones de comando.")
         pattern = normalize_command_pattern(raw_pattern)
-        command_str = get_command_arg(challenge["arguments"])
-        cd_part = split_leading_cd(command_str)
-        command = cd_part["command"] if cd_part else command_str
+        _, command = split_leading_cd(get_command_arg(challenge["arguments"]))
         if not matches_command_pattern(command, pattern):
             raise ValueError(f"El patrón '{pattern}' no cubre el comando '{command}'.")
         return pattern
 
     def _record_decision(self, challenge: dict, decision: str, pattern: str | None, rules: list[str],
-                         context: SecurityContext | None):
+                         context: SecurityContext):
         """
         Registra la respuesta del usuario a un reto. La sesión queda en memoria; la política permanente y la
         regla de directorio se escriben en una sola transacción y un error de persistencia se propaga.
@@ -2698,9 +2669,8 @@ class AccessController:
             if rules and self.session_directory_rules is not None:
                 self.session_directory_rules = self._append_rules(self.session_directory_rules, rules)
 
-    def evaluate_authorization(self, tool_name: str, raw_args: dict | None = None,
-                               context: SecurityContext | None = None, server_name: str = "",
-                               server_id: str = "") -> AccessDecision:
+    def evaluate_authorization(self, tool_name: str, raw_args: dict | None, context: SecurityContext,
+                               server_name: str = "", server_id: str = "") -> AccessDecision:
         """
         Evalúa si la invocación de una herramienta está permitida, denegada o requiere confirmación.
         Jerarquía:
@@ -2711,97 +2681,64 @@ class AccessController:
         5. Política de servidor completo -> allow incondicional para sus herramientas.
         6. run_command: patrones de comando y, si no lo cubren, Workspace Trust.
         7. Herramientas con ruta: reglas de directorio y Workspace Trust.
-        8. Por defecto -> ask (solicitar confirmación).
+        8. Por defecto -> ask (solicitar confirmación), con la regla sugerida si la hay.
         """
-        ctx = context or SecurityContext()
-        args = dict(raw_args or {})
+        status, reason, details, offer = self._evaluate(tool_name, dict(raw_args or {}), context, server_id)
+        return AccessDecision(allowed=status == POLICY_ALLOW, status=status, reason=reason,
+                              requires_approval=status == POLICY_ASK, tool_id=tool_name, server_name=server_name,
+                              server_id=server_id, details=details, rule_offer=offer)
 
-        def make_decision(status: str, reason: str, extra: dict | None = None) -> AccessDecision:
-            payload = extra or {}
-            dec = AccessDecision(
-                allowed=(status == POLICY_ALLOW),
-                status=status,
-                reason=reason,
-                requires_approval=(status == POLICY_ASK),
-                tool_id=tool_name,
-                server_name=server_name,
-                server_id=server_id,
-                details=payload.get("details", "")
-            )
-            if status == POLICY_ASK:
-                dec.rule_offer = get_rule_offer(tool_name, args, payload)
-            return dec
-
-        if tool_name in DIRECTORY_PATH_TOOLS and not get_path_arg(args):
-            args["path"] = "."
-
+    def _evaluate(self, tool_name: str, args: dict, ctx: SecurityContext, server_id: str) -> tuple[str, str, str, dict | None]:
         view = self._effective_state()
-        global_policy = view["globalMcpPolicy"]
-        user_rules = view["directoryRules"]
-        tool_entry = view["tools"].get(tool_name)
-        server_entry = view["servers"].get(server_id) if server_id else None
-
-        # 1. Denegación explícita (Blacklist)
-        if tool_entry and tool_entry.get("policy") == POLICY_DENY:
-            return make_decision(POLICY_DENY, "granular_deny_rule")
-
-        if server_entry and server_entry.get("policy") == POLICY_DENY:
-            return make_decision(POLICY_DENY, "server_deny_rule")
-
-        # 2. Herramientas auxiliares de control de trabajos
+        tool_policy = (view["tools"].get(tool_name) or {}).get("policy")
+        server_policy = (view["servers"].get(server_id) or {}).get("policy") if server_id else None
+        if tool_policy == POLICY_DENY:
+            return POLICY_DENY, "granular_deny_rule", "", None
+        if server_policy == POLICY_DENY:
+            return POLICY_DENY, "server_deny_rule", "", None
         if tool_name == JOB_CONTROL_TOOL:
-            return make_decision(POLICY_ALLOW, "job_control_tool")
-
-        # 3. Política global allow_all
-        if global_policy == GLOBAL_POLICY_ALLOW_ALL:
-            return make_decision(POLICY_ALLOW, "mcp_global_allow_all")
-
-        # 4. Autorización individual de herramienta
-        if tool_entry and tool_entry.get("policy") == POLICY_ALLOW:
-            return make_decision(POLICY_ALLOW, "granular_allow_rule")
-
-        # 5. Autorización de servidor completo
-        if server_entry and server_entry.get("policy") == POLICY_ALLOW:
-            return make_decision(POLICY_ALLOW, "server_allow_rule")
-
-        # 6. run_command: un patrón es una vía más de permitir, nunca una puerta que anule Workspace Trust
+            return POLICY_ALLOW, "job_control_tool", "", None
+        if view["globalMcpPolicy"] == GLOBAL_POLICY_ALLOW_ALL:
+            return POLICY_ALLOW, "mcp_global_allow_all", "", None
+        if tool_policy == POLICY_ALLOW:
+            return POLICY_ALLOW, "granular_allow_rule", "", None
+        if server_policy == POLICY_ALLOW:
+            return POLICY_ALLOW, "server_allow_rule", "", None
         if tool_name == COMMAND_TOOL:
-            command = get_command_arg(args)
-            cd_part = split_leading_cd(command)
-            directory_ok = self.evaluate_command_directories(args, user_rules, ctx)["allowed"]
-            patterns = self._command_patterns(view, ctx)
-            reason, details = command_outside_patterns(command, patterns) if patterns else ("mcp_default_ask", "")
-            if not reason and not directory_ok:
-                reason, details = "command_directory_outside_rules", f"El comando se ejecuta fuera de las reglas de directorio: {cd_part['directory']}"
-            if not reason:
-                return make_decision(POLICY_ALLOW, "command_pattern_allow")
-            if global_policy == GLOBAL_POLICY_WORKSPACE_TRUST:
-                if directory_ok and is_workspace_local_command(cd_part["command"] if cd_part else command):
-                    return make_decision(POLICY_ALLOW, "workspace_trust_command")
-                reason, details = "workspace_trust_external_or_global_command", "El comando accede a recursos globales o rutas fuera del espacio de trabajo."
-            return make_decision(POLICY_ASK, reason, {"details": details})
+            return self._evaluate_command(get_command_arg(args), view, ctx)
+        access = get_integrated_path_access(tool_name)
+        path = get_path_arg(args) or ("." if tool_name in DIRECTORY_PATH_TOOLS else "")
+        if access and path:
+            return self._evaluate_path(tool_name, access, path, view, ctx)
+        return POLICY_ASK, "mcp_default_ask", "", None
 
-        # 7. Reglas de Directorio y Workspace Trust
-        path_access = get_integrated_path_access(tool_name)
-        path = get_path_arg(args)
+    def _evaluate_command(self, raw_command: str, view: dict, ctx: SecurityContext) -> tuple[str, str, str, dict | None]:
+        """Un patrón es una vía más de permitir, nunca una puerta que anule Workspace Trust."""
+        directory, command = split_leading_cd(raw_command)
+        # El cd inicial tiene que estar cubierto por una regla de directorio, como el directorio de trabajo.
+        directory_ok = directory is None or any(
+            self.evaluate_directory_rule(access, directory, view["directoryRules"], ctx)["allowed"] for access in ("R", "W"))
+        patterns = self._command_patterns(view, ctx)
+        reason, details = command_outside_patterns(command, patterns) if patterns else ("mcp_default_ask", "")
+        if not reason and not directory_ok:
+            reason, details = "command_directory_outside_rules", f"El comando se ejecuta fuera de las reglas de directorio: {directory}"
+        if not reason:
+            return POLICY_ALLOW, "command_pattern_allow", "", None
+        if view["globalMcpPolicy"] == GLOBAL_POLICY_WORKSPACE_TRUST:
+            if directory_ok and is_workspace_local_command(command):
+                return POLICY_ALLOW, "workspace_trust_command", "", None
+            reason, details = "workspace_trust_external_or_global_command", "El comando accede a recursos globales o rutas fuera del espacio de trabajo."
+        return POLICY_ASK, reason, details, command_rule_offer(command)
 
-        if path_access and path:
-            dir_eval = self.evaluate_directory_rule(path_access, path, user_rules, ctx)
-            if dir_eval["allowed"]:
-                return make_decision(POLICY_ALLOW, "directory_rule_allow")
-
-            if global_policy == GLOBAL_POLICY_WORKSPACE_TRUST:
-                if ctx.is_inside_workspace(path):
-                    return make_decision(POLICY_ALLOW, "workspace_trust_allow")
-
-            return make_decision(POLICY_ASK, "directory_rule_required", {
-                "details": f"La ruta no coincide con una regla {path_access}: {path}",
-                "directoryAccess": path_access if dir_eval["path"] else "",
-                "directoryPath": dir_eval["path"] or ""
-            })
-
-        # 8. Por defecto: confirmación
-        return make_decision(POLICY_ASK, "mcp_default_ask")
+    def _evaluate_path(self, tool_name: str, access: str, path: str, view: dict, ctx: SecurityContext) -> tuple[str, str, str, dict | None]:
+        """Herramientas integradas de ficheros: reglas de directorio y, con Workspace Trust, el proyecto."""
+        dir_eval = self.evaluate_directory_rule(access, path, view["directoryRules"], ctx)
+        if dir_eval["allowed"]:
+            return POLICY_ALLOW, "directory_rule_allow", "", None
+        if view["globalMcpPolicy"] == GLOBAL_POLICY_WORKSPACE_TRUST and ctx.is_inside_workspace(path):
+            return POLICY_ALLOW, "workspace_trust_allow", "", None
+        return (POLICY_ASK, "directory_rule_required", f"La ruta no coincide con una regla {access}: {path}",
+                directory_rule_offer(tool_name, access, dir_eval["path"] or path))
 
 
 ACCESS_CONTROLLER = AccessController()
@@ -6142,7 +6079,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             tool_name = params.get("name", "")
             raw_args = params.get("arguments", {})
             args = raw_args if isinstance(raw_args, dict) else {}
-            ctx = SecurityContext(workspace_dir=Path.cwd().resolve())
+            ctx = SecurityContext()
 
             gate = self._authorize_or_challenge("external", tool_name, args, ctx)
             if gate is not None:
@@ -6177,7 +6114,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             meta = params.get("_meta")
             # La clave del trabajo no es un argumento del modelo: no se evalúa ni se muestra en el reto.
             job_key = meta.get("zerochatJobKey") if tool_name == COMMAND_TOOL and isinstance(meta, dict) else None
-            ctx = SecurityContext(workspace_dir=Path.cwd().resolve())
+            ctx = SecurityContext()
 
             gate = self._authorize_or_challenge("local", tool_name, args, ctx, job_key)
             if gate is not None:
@@ -6233,7 +6170,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     def _dispatch_security(cls, method: str, params: dict) -> tuple[dict | None, dict | None, str]:
         """Gestión de políticas y reglas de seguridad almacenadas en el backend local."""
         params = params if isinstance(params, dict) else {}
-        ctx = SecurityContext(workspace_dir=Path.cwd().resolve())
+        ctx = SecurityContext()
         try:
             if method == "zerochat/security/get":
                 return {"policies": ACCESS_CONTROLLER.export_state(ctx)}, None, ""
@@ -6252,7 +6189,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                     return {"authorized": False, "status": "deny"}, None, ""
 
                 ch = ACCESS_CONTROLLER.authorize_challenge(
-                    challenge_id, decision, params.get("commandPattern"), params.get("directoryRule"), context=ctx
+                    challenge_id, decision, context=ctx,
+                    command_pattern=params.get("commandPattern"), directory_rule=params.get("directoryRule")
                 )
                 if not ch:
                     return None, {"code": -32002, "message": "Reto no encontrado o no válido"}, ""
@@ -7645,11 +7583,11 @@ def reset_session_authorizations():
     ACCESS_CONTROLLER.clear_session()
     if RUN_SESSION is not None:
         if RUN_SESSION.tool_security:
-            ACCESS_CONTROLLER.apply_session_overlay(RUN_SESSION.tool_security)
+            ACCESS_CONTROLLER.apply_session_overlay(RUN_SESSION.tool_security, SecurityContext())
         if RUN_SESSION.allow_dangerous_tools:
             ACCESS_CONTROLLER.apply_session_overlay({
                 "tools": {name: {"policy": POLICY_ALLOW} for name in ("write_file", "edit_file", "run_command")}
-            })
+            }, SecurityContext())
 
 
 def open_server(args, local_ui: bool) -> ThreadingHTTPServer:
