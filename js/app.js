@@ -59,6 +59,7 @@
     btnSidebarNewTab: 'btn-sidebar-new-tab',
     btnSidebarNewChat: 'btn-sidebar-new-chat',
     sidebarSearchInput: 'sidebar-search-input',
+    sidebarProjectFilter: 'sidebar-project-filter',
     sidebarChatsList: 'sidebar-chats-list',
     btnImportChatFile: 'btn-import-chat-file',
     importJsonInput: 'import-json-input',
@@ -300,6 +301,7 @@
       },
       onSessionSwitched: conversation => applySessionModeAndProfile(conversation),
       isServerMode: () => isServerRunEnabled(),
+      getProject: () => getServerCwd(),
       getServerProfile: () => UIProfiles.getSelectedServerProfile(),
       resetComposerInput: () => resetComposerInput(),
       closeMobileSidebar: () => {
@@ -316,8 +318,14 @@
     onSummarizing: active => (active ? UIConversation.showBranchLoadingIndicator(wrapper) : UIConversation.hideBranchLoadingIndicator(wrapper))
   });
 
+  /** Directorio del proyecto en el servidor local; vacío sin servidor conectado. */
+  function getServerCwd() {
+    const mcp = State.get('mcp');
+    return mcp.status === 'connected' ? mcp.serverInfo?.cwd || '' : '';
+  }
+
   function renderSidebarChats() {
-    UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId(), State.get('mcp').serverRuns);
+    UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId(), State.get('mcp').serverRuns, getServerCwd());
   }
 
   function isServerConversation(conversation) {
@@ -805,6 +813,7 @@
       onExportSession: sessionId => UITransfer.openExportModal(sessionId),
       onNewSession: createNewSession,
       onSearchInput: renderSidebarChats,
+      onProjectFilterChange: renderSidebarChats,
       onDeleteAllSessions: () => ConversationService.deleteAllSessions(getConversationServiceOptions()),
       onOpenSettingsMode: () => showSidebarNav('settings'),
       onOpenConnection: () => {
@@ -981,6 +990,8 @@
       }
     );
 
+    // La barra muestra las conversaciones del proyecto actual: se repinta al conectar o cambiar de proyecto.
+    State.subscribe(state => ({ cwd: state.mcp.status === 'connected' ? state.mcp.serverInfo?.cwd || '' : '' }), renderSidebarChats);
     // El proyecto depende del servidor local: se recalcula al conectar, cambiar de cwd o de herramientas.
     State.subscribe(
       state => ({ status: state.mcp.status, cwd: state.mcp.serverInfo?.cwd || '', tools: state.mcp.tools.length }),

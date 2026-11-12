@@ -110,12 +110,37 @@
       </div>`;
   }
 
-  /** Lista de conversaciones filtrada por el buscador; sin filtro, agrupada por fecha. */
-  function renderSidebarChats(elements, sessions, currentSessionId, serverRuns = []) {
+  /** Nombre de la carpeta de un proyecto ('/home/yo/app' -> 'app'). */
+  const projectName = path => String(path).replace(/[\\/]+$/, '').split(/[\\/]/).pop() || String(path);
+
+  /**
+   * Con un proyecto, el selector elige entre sus conversaciones (por defecto) o las de todos, agrupadas
+   * por proyecto y con las que no tienen ninguno al final. Sin proyecto no hay selector.
+   */
+  function filterByProject(elements, sessions, project) {
+    const select = elements.sidebarProjectFilter;
+    select.hidden = !project;
+    if (!project) return { visible: sessions, grouped: false };
+    const current = select.querySelector('option[value="current"]');
+    current.textContent = t('sidebar_project_current', { name: projectName(project) });
+    current.title = project;
+    if (select.value !== 'all') return { visible: sessions.filter(session => session.project === project), grouped: false };
+    // Los proyectos se ordenan por su conversación más reciente; las listas ya llegan de la más reciente a la más antigua.
+    const order = [...new Set(sessions.map(session => session.project || ''))].sort((a, b) => (a === '') - (b === ''));
+    return { visible: order.flatMap(key => sessions.filter(session => (session.project || '') === key)), grouped: true };
+  }
+
+  /**
+   * Lista de conversaciones del proyecto elegido; con texto en el buscador, filtrada por título y sin
+   * grupos, y si no, agrupada por fecha (o por proyecto, al ver todos).
+   */
+  function renderSidebarChats(elements, sessions, currentSessionId, serverRuns = [], project = '') {
     const filter = elements.sidebarSearchInput.value.toLowerCase().trim();
-    const matching = filter ? sessions.filter(session => session.title?.toLowerCase().includes(filter)) : sessions;
+    const { visible, grouped } = filterByProject(elements, sessions, project);
+    const matching = filter ? visible.filter(session => session.title?.toLowerCase().includes(filter)) : visible;
     if (matching.length === 0) {
-      elements.sidebarChatsList.innerHTML = `<div class="sidebar-no-chats">${escapeHtml(t('sidebar_no_chats'))}</div>`;
+      const emptyKey = project && elements.sidebarProjectFilter.value !== 'all' ? 'sidebar_no_project_chats' : 'sidebar_no_chats';
+      elements.sidebarChatsList.innerHTML = `<div class="sidebar-no-chats">${escapeHtml(t(emptyKey))}</div>`;
       return;
     }
     const runStatusMap = new Map();
@@ -128,10 +153,11 @@
     elements.sidebarChatsList.innerHTML = matching.map(session => {
       const date = new Date(session.updatedAt || session.createdAt || Date.now());
       let header = '';
-      const category = getChronologicalCategory(date);
+      const category = grouped ? session.project || '' : getChronologicalCategory(date);
       if (!filter && category !== currentCategory) {
         currentCategory = category;
-        header = `<div class="sidebar-group-header">${escapeHtml(t(GROUP_LABEL_KEYS[category]))}</div>`;
+        const label = grouped ? (category ? projectName(category) : t('sidebar_no_project')) : t(GROUP_LABEL_KEYS[category]);
+        header = `<div class="sidebar-group-header"${grouped && category ? ` title="${escapeHtml(category)}"` : ''}>${escapeHtml(label)}</div>`;
       }
       return header + renderChatItem(session, date, session.id === currentSessionId, runStatusMap.get(session.id) || null);
     }).join('');
@@ -147,7 +173,7 @@
   /**
    * Conecta la barra. `callbacks` aporta las acciones de las conversaciones (onSwitchSession,
    * onRenameSession, onDeleteSession, onExportSession, onNewSession, onSearchInput,
-   * onDeleteAllSessions) y de la navegación de ajustes (onOpenSettingsMode, onBackToChats,
+   * onProjectFilterChange, onDeleteAllSessions) y de la navegación de ajustes (onOpenSettingsMode, onBackToChats,
    * onSelectSettingsSection).
    */
   function mount(elements, callbacks) {
@@ -165,6 +191,7 @@
     listen(elements.btnCloseSidebarSettings, 'click', () => closeSidebar(elements));
     listen(elements.btnSidebarNewChat, 'click', () => callbacks.onNewSession());
     listen(elements.sidebarSearchInput, 'input', () => callbacks.onSearchInput(elements.sidebarSearchInput.value));
+    listen(elements.sidebarProjectFilter, 'change', () => callbacks.onProjectFilterChange());
     listen(elements.btnDeleteAllChats, 'click', () => callbacks.onDeleteAllSessions());
     listen(elements.btnOpenSettings, 'click', () => {
       setSidebarMode(elements, 'settings');

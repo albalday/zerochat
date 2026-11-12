@@ -464,6 +464,14 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(updated["extra"]["cron"], {"enabled": True})
         self.assertEqual(len(zerochat.get_conversation("session_test_123")["history"]), 3)
 
+        # El proyecto se fija la primera vez y no cambia al guardar desde otro proyecto
+        with_project = zerochat.save_conversation({"id": "session_test_123", "project": "/repo/a"}, new_messages)
+        self.assertEqual(with_project["project"], "/repo/a")
+        moved = zerochat.save_conversation({"id": "session_test_123", "project": "/repo/b", "extra": {"project": "/repo/b"}}, new_messages)
+        self.assertEqual(moved["project"], "/repo/a")
+        with self.assertRaises(ValueError):
+            zerochat.save_conversation({"id": "session_test_123", "project": ["/repo"]}, new_messages)
+
         # Desactivar explícitamente serverRun lo actualiza sin borrar profileId ni extra
         toggled = zerochat.save_conversation({"id": "session_test_123", "serverRun": False}, new_messages)
         self.assertEqual(toggled["serverRun"], False)

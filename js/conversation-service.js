@@ -125,8 +125,10 @@
       || (isServerRun ? (currentServerProfile || existing?.profileId || 'local') : defaultProfileId)
       || existing?.profileId
       || '';
+    // El proyecto se fija al crear la conversación: la del directorio del servidor en ese momento.
+    const project = existing ? '' : (typeof options.getProject === 'function' ? options.getProject() : '');
     const session = {
-      ...(existing || { id: sessionId, title: '', createdAt: now }),
+      ...(existing || { id: sessionId, title: '', createdAt: now, ...(project ? { project } : {}) }),
       updatedAt: now,
       messageCount: history.length,
       profileId: resolvedProfileId,

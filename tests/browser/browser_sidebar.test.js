@@ -13,7 +13,7 @@ test('Browser UI - el menú contextual de un chat es táctil y no activa la conv
     await page.waitForFunction(() => !document.getElementById('chat-sidebar').classList.contains('sidebar-hidden'));
     const activeSessionId = await page.evaluate(() => {
       ChatState.saveSessionMetadata({ id: 'chat-options', title: 'Opciones táctiles', updatedAt: Date.now() });
-      const elements = { sidebarChatsList: document.getElementById('sidebar-chats-list'), sidebarSearchInput: document.getElementById('sidebar-search-input') };
+      const elements = { sidebarChatsList: document.getElementById('sidebar-chats-list'), sidebarSearchInput: document.getElementById('sidebar-search-input'), sidebarProjectFilter: document.getElementById('sidebar-project-filter') };
       ChatUISidebar.renderSidebarChats(elements, ChatState.get('sessions').list.filter(session => session.id === 'chat-options'), '');
       return ChatState.get('sessions').activeId;
     });
@@ -74,6 +74,46 @@ test('Browser UI - la barra agrupa las conversaciones por fecha, marca la activa
 
     await page.fill('#sidebar-search-input', 'nada');
     assert.equal(await page.textContent('#sidebar-chats-list .sidebar-no-chats'), await page.evaluate(() => window.ChatI18n.t('sidebar_no_chats')));
+  });
+});
+
+test('Browser UI - con proyecto la barra muestra sus conversaciones y, con todos, las agrupa por proyecto', async () => {
+  await withTestApp(async page => {
+    const render = project => page.evaluate(project => {
+      const elements = {
+        sidebarChatsList: document.getElementById('sidebar-chats-list'),
+        sidebarSearchInput: document.getElementById('sidebar-search-input'),
+        sidebarProjectFilter: document.getElementById('sidebar-project-filter')
+      };
+      const now = Date.now();
+      const sessions = [
+        { id: 'a1', title: 'A reciente', project: '/repo/app', updatedAt: now },
+        { id: 'n1', title: 'Sin proyecto', updatedAt: now - 1000 },
+        { id: 'b1', title: 'B', project: '/repo/lib/', updatedAt: now - 2000 },
+        { id: 'a2', title: 'A antigua', project: '/repo/app', updatedAt: now - 3000 }
+      ];
+      window.ChatUISidebar.renderSidebarChats(elements, sessions, '', [], project);
+    }, project);
+
+    await render('/repo/app');
+    assert.equal(await page.isVisible('#sidebar-project-filter'), true);
+    assert.equal(await page.$eval('#sidebar-project-filter option[value="current"]', option => option.textContent),
+      await page.evaluate(() => window.ChatI18n.t('sidebar_project_current', { name: 'app' })));
+    assert.deepEqual(await sidebarTitles(page), ['A reciente', 'A antigua']);
+
+    await page.selectOption('#sidebar-project-filter', 'all');
+    await render('/repo/app');
+    assert.deepEqual(await sidebarTitles(page), ['A reciente', 'A antigua', 'B', 'Sin proyecto']);
+    assert.deepEqual(await sidebarHeaders(page), ['app', 'lib', await page.evaluate(() => window.ChatI18n.t('sidebar_no_project'))]);
+
+    await page.selectOption('#sidebar-project-filter', 'current');
+    await render('/repo/vacio');
+    assert.equal(await page.textContent('#sidebar-chats-list .sidebar-no-chats'), await page.evaluate(() => window.ChatI18n.t('sidebar_no_project_chats')));
+
+    // Sin servidor no hay proyecto: se ven todas y no hay selector
+    await render('');
+    assert.equal(await page.isVisible('#sidebar-project-filter'), false);
+    assert.equal((await sidebarTitles(page)).length, 4);
   });
 });
 
@@ -145,7 +185,8 @@ test('Browser UI - sincroniza conversaciones locales y remotas al conectar desde
       window.ChatState.replaceConversation({ sessionId: 'chat_local_1', messages, sessions: list });
       window.ChatUISidebar.renderSidebarChats({
         sidebarChatsList: document.getElementById('sidebar-chats-list'),
-        sidebarSearchInput: document.getElementById('sidebar-search-input')
+        sidebarSearchInput: document.getElementById('sidebar-search-input'),
+        sidebarProjectFilter: document.getElementById('sidebar-project-filter')
       }, list, 'chat_local_1');
     });
 

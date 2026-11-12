@@ -253,6 +253,17 @@ test('ConversationService - saveCurrentSession actualiza profileId con el perfil
   assert.equal(stored.profileId, 'deepseek');
 });
 
+test('ConversationService - saveCurrentSession asigna el proyecto al crear la conversación y no lo cambia después', async () => {
+  await Storage.deleteAllConversations();
+  State.replaceConversation({ sessionId: 'sess_project', sessions: [], messages: [{ id: 'u1', role: 'user', content: 'hola' }] });
+  await ConversationService.saveCurrentSession({ renderSidebarChats() {}, getProject: () => '/repo/a' });
+  assert.equal(State.get('sessions').list.find(s => s.id === 'sess_project').project, '/repo/a');
+
+  await ConversationService.saveCurrentSession({ renderSidebarChats() {}, getProject: () => '/repo/b' });
+  assert.equal(State.get('sessions').list.find(s => s.id === 'sess_project').project, '/repo/a');
+  assert.equal((await Storage.getConversation('sess_project')).project, '/repo/a');
+});
+
 test('ConversationService - saveCurrentSession con overrides persiste serverRun y profileId y se preservan', async t => {
   await Storage.deleteAllConversations();
   State.replaceConversation({

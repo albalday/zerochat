@@ -5175,6 +5175,8 @@ def _row_to_conversation_header(row: sqlite3.Row) -> dict:
             header["profileId"] = extra["profile_id"]
         if "server_run" in extra:
             header["serverRun"] = bool(extra["server_run"])
+        if extra.get("project"):
+            header["project"] = extra["project"]
     return header
 
 
@@ -5238,6 +5240,12 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
         extra["profile_id"] = profile_id.strip()
     if session_meta.get("serverRun") is not None:
         extra["server_run"] = bool(session_meta.get("serverRun"))
+    project = session_meta.get("project")
+    if project is not None:
+        if not isinstance(project, str) or len(project) > MAX_PATH_LENGTH:
+            raise ValueError("El proyecto de la conversación debe ser una ruta")
+        if project.strip():
+            extra["project"] = project.strip()
 
     with open_storage() as conn:
         existing = conn.execute("SELECT created_at, extra_json, title FROM conversations WHERE id = ?;", (session_id,)).fetchone()
@@ -5249,6 +5257,9 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
             existing_extra = json.loads(existing["extra_json"]) if existing["extra_json"] else {}
             merged_extra = dict(existing_extra)
             merged_extra.update(extra)
+            # El proyecto se fija al crear la conversación y no cambia después.
+            if existing_extra.get("project"):
+                merged_extra["project"] = existing_extra["project"]
             extra = merged_extra
 
         extra_json = json.dumps(extra, ensure_ascii=False) if extra else "{}"

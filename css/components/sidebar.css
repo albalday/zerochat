@@ -403,6 +403,28 @@
   outline: none;
 }
 
+/* Selector de proyecto: conversaciones del proyecto actual o de todos */
+.sidebar-project-filter {
+  margin: 0.5rem 0.85rem 0;
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--input-border);
+  background-color: var(--input-bg-subtle);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.8rem;
+}
+
+.sidebar-project-filter:focus-visible {
+  border-color: var(--input-border-focus);
+  box-shadow: var(--input-focus-ring);
+  outline: none;
+}
+
+.sidebar-project-filter[hidden] {
+  display: none;
+}
+
 /* Encabezados de Agrupación Cronológica (Hoy, Ayer, Últimos 7 días, etc.) */
 .sidebar-no-chats {
   padding: 1rem;

@@ -120,6 +120,10 @@
         <svg class="ui-icon sidebar-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg>
         <input type="text" id="sidebar-search-input" class="sidebar-search-input" data-i18n-placeholder="sidebar_search_placeholder" placeholder="Buscar en historial...">
       </div>
+      <select id="sidebar-project-filter" class="sidebar-project-filter" data-i18n-aria="sidebar_project_filter_label" aria-label="Conversaciones a mostrar" hidden>
+        <option value="current">Este proyecto</option>
+        <option value="all" data-i18n="sidebar_project_all">Todos los proyectos</option>
+      </select>
 
       <div id="sidebar-chats-list" class="sidebar-chats-list">
         <!-- Lista de chats generada dinámicamente -->

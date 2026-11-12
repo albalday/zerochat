@@ -201,6 +201,7 @@
   function toConversationHeader(record) {
     const { id, title, createdAt, updatedAt, messageCount, profileId, serverRun, extra } = record;
     const isServerRun = serverRun !== undefined ? Boolean(serverRun) : (extra?.server_run !== undefined ? Boolean(extra.server_run) : undefined);
+    const project = record.project || extra?.project;
     return {
       id,
       title,
@@ -209,6 +210,7 @@
       messageCount,
       ...(profileId ? { profileId } : {}),
       ...(isServerRun !== undefined ? { serverRun: isServerRun } : {}),
+      ...(project ? { project } : {}),
       ...(extra ? { extra } : {})
     };
   }
@@ -266,6 +268,7 @@
         messageCount: messages.length,
         ...(sessionMeta.profileId ? { profileId: sessionMeta.profileId } : {}),
         ...(sessionMeta.serverRun !== undefined ? { serverRun: Boolean(sessionMeta.serverRun) } : {}),
+        ...(sessionMeta.project ? { project: sessionMeta.project } : {}),
         ...(sessionMeta.extra ? { extra: sessionMeta.extra } : {})
       });
       const messageStore = tx.objectStore(STORES.messages);
