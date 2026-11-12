@@ -37,6 +37,15 @@ SYSTEM_BIN_DIRS = ("/usr/bin/", "/bin/", "/usr/local/bin/")
 SUBCOMMAND_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_.:-]*")
 
 SAFE_REDIRECTION_PATTERN = re.compile(r"&>\s*/dev/null|\d?>>?\s*/dev/null|\d?>&\d")
+# Lo que impide validar un comando por partes: sustitución de comandos o de procesos y saltos de línea.
+SHELL_SPLIT_UNSUPPORTED = re.compile(r"[`\n\r]|\$\(|[<>]\(")
+# Palabras que cambian cómo se ejecuta lo que sigue (bloques, bucles, prefijos o cambios de carpeta ocultos).
+SHELL_KEYWORDS = frozenset(["if", "then", "else", "elif", "fi", "for", "while", "until", "do", "done", "case", "esac",
+                            "select", "function", "{", "}", "!", "[[", "time", "coproc", "pushd", "popd", "builtin",
+                            "set-location", "sl", "chdir", "push-location", "pop-location"])
+ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
+# Un cd a una carpeta que solo la shell conoce: variables, ~, comodines o la anterior.
+CD_UNSAFE_TARGET = re.compile(r"[$~*?\[{]")
 
 WORKSPACE_TRUST_PIPE_FILTERS = frozenset([
     "head", "tail", "grep", "egrep", "fgrep", "rg", "wc", "sort", "uniq", "cut", "tr", "column", "nl", "cat", "jq"
@@ -146,40 +155,68 @@ def matches_directory_pattern(path: str, pattern: str) -> bool:
     return bool(re.fullmatch(escaped, path))
 
 
-def has_command_chaining(cmd: str) -> bool:
-    """Detecta sintaxis de shell que encadena o bifurca ejecuciones."""
-    if not isinstance(cmd, str):
-        return False
-    return bool(re.search(r"[;\n\r`]|&&|\|\||\$\(|[<>]\(", cmd) or re.search(r"(?<!>|\d)&(?!\d|>)", cmd))
-
-
-def has_file_redirection(cmd: str) -> bool:
-    """Detecta redirecciones a ficheros no seguras."""
-    if not isinstance(cmd, str):
-        return False
-    sanitized = SAFE_REDIRECTION_PATTERN.sub(" ", cmd)
-    return bool(re.search(r"[<>]", sanitized))
-
-
-def is_compound_command(cmd: str) -> bool:
-    """Encadenamiento, tubería o redirección: ningún patrón puede cubrir un comando así."""
-    return has_command_chaining(cmd) or has_file_redirection(cmd) or "|" in cmd
-
-
-def split_leading_cd(cmd: str) -> tuple[str | None, str]:
+def split_command(cmd: str) -> list[tuple[str, str]] | None:
     """
-    Separa un 'cd <dir> && <cmd>' o 'cd <dir> ; <cmd>' inicial: (dir, cmd), o (None, comando entero).
-    Con ';' el comando se ejecuta aunque falle el cd, pero entonces lo hace en la carpeta
-    del proyecto, que ya está autorizada; las reglas de carpeta se exigen igual sobre <dir>.
+    Parte un comando por sus operadores de shell fuera de comillas (&&, ||, ; y |) en
+    [(operador anterior, subcomando)], para validar cada subcomando por separado. None si usa algo
+    que no se puede validar por partes: sustitución de comandos, saltos de línea, '&' en segundo
+    plano, subshells, redirecciones a ficheros (salvo las de SAFE_REDIRECTION_PATTERN), palabras
+    reservadas de la shell, comillas sin cerrar, un subcomando vacío o un cd que no sea 'cd <dir>'.
     """
-    trimmed = cmd.strip() if isinstance(cmd, str) else ""
-    match = re.match(r"^cd\s+(\"[^\"]*\"|'[^']*'|[^\s;&|<>`$()'\"]+)\s*(?:&&|;)\s*(\S[\s\S]*)$", trimmed)
-    if not match:
-        return None, trimmed
-    directory = match.group(1)
-    if directory[0] in "\"'":
-        directory = directory[1:-1]
-    return directory, match.group(2).strip()
+    if not isinstance(cmd, str) or SHELL_SPLIT_UNSUPPORTED.search(cmd):
+        return None
+    text = SAFE_REDIRECTION_PATTERN.sub(" ", cmd)
+    segments, current, operator, quote, i = [], "", "", "", 0
+    while i < len(text):
+        ch = text[i]
+        two = text[i:i + 2]
+        if quote:
+            if ch == "\\" and quote == '"':
+                current += two
+                i += 2
+                continue
+            quote = "" if ch == quote else quote
+        elif ch == "\\":
+            current += two
+            i += 2
+            continue
+        elif ch in "'\"":
+            quote = ch
+        elif two in ("&&", "||") or ch in ";|":
+            sep = two if two in ("&&", "||") else ch
+            segments.append((operator, current.strip()))
+            current, operator = "", sep
+            i += len(sep)
+            continue
+        elif ch in "&<>()":
+            return None
+        current += ch
+        i += 1
+    segments.append((operator, current.strip()))
+    if quote or not all(_is_plain_segment(segment) for _, segment in segments):
+        return None
+    return segments
+
+
+def _is_plain_segment(segment: str) -> bool:
+    """Un subcomando no vacío, que no empieza por una palabra reservada y, si es un cd, de la forma 'cd <dir>'."""
+    try:
+        words = shlex.split(segment)
+    except ValueError:
+        return False
+    if not words or words[0].lower() in SHELL_KEYWORDS:
+        return False
+    # Un cd tras variables ('x=1 cd /etc') o tras 'command' también cambia la carpeta: no se admite.
+    rest = list(itertools.dropwhile(ENV_ASSIGNMENT.fullmatch, words))
+    if rest[rest[:1] == ["command"]:][:1] == ["cd"] and words[0] != "cd":
+        return False
+    return words[0] != "cd" or (len(words) == 2 and not words[1].startswith("-") and not CD_UNSAFE_TARGET.search(words[1]))
+
+
+def cd_target(segment: str) -> str | None:
+    """Carpeta de un subcomando 'cd <dir>' ya validado por split_command, o None si no es un cd."""
+    words = shlex.split(segment)
+    return words[1] if words[0] == "cd" else None
 
 
 def get_command_arg(args: dict | None) -> str:
@@ -203,16 +240,9 @@ def get_integrated_path_access(tool_name: str) -> str:
     return ""
 
 
-def is_workspace_local_command(cmd: str) -> bool:
-    """Filtro de seguridad para la política workspace_trust."""
-    if not cmd or has_command_chaining(cmd) or has_file_redirection(cmd):
-        return False
-    piped_stages = cmd.split("|")[1:]
-    for stage in piped_stages:
-        first_token = stage.strip().split()[0] if stage.strip().split() else ""
-        if first_token not in WORKSPACE_TRUST_PIPE_FILTERS:
-            return False
-    return not WORKSPACE_TRUST_GLOBAL_COMMANDS.search(cmd) and not WORKSPACE_TRUST_OUTSIDE_REFERENCE.search(cmd)
+def is_workspace_local_command(segment: str) -> bool:
+    """Filtro de Workspace Trust para un subcomando: sin órdenes globales ni referencias fuera del proyecto."""
+    return not WORKSPACE_TRUST_GLOBAL_COMMANDS.search(segment) and not WORKSPACE_TRUST_OUTSIDE_REFERENCE.search(segment)
 
 
 @functools.lru_cache(maxsize=512)
@@ -235,10 +265,12 @@ def matches_command_pattern(command: str, pattern: str) -> bool:
     """
     Verifica si un comando cumple un patrón autorizado, argumento a argumento: sin `*` el texto es
     exacto. Un argumento cubierto por un comodín no puede contener `..` ni lo que expande la shell, y
-    los del `*` final tampoco una ruta absoluta. Nunca cubre un comando compuesto.
+    los del `*` final tampoco una ruta absoluta. Solo cubre un subcomando simple, nunca un cd.
     """
-    if is_compound_command(command):
+    segments = split_command(command)
+    if not segments or len(segments) != 1 or cd_target(segments[0][1]) is not None:
         return False
+    command = segments[0][1]
     words, rest = compile_command_pattern(str(pattern))
     try:
         args = shlex.split(command)
@@ -252,18 +284,6 @@ def matches_command_pattern(command: str, pattern: str) -> bool:
             return False
     # Los argumentos del '*' final no tienen texto fijo que los acote: tampoco pueden salir del proyecto.
     return not any(COMMAND_WILDCARD_UNSAFE.search(arg) or COMMAND_ABSOLUTE_ARG.search(arg) for arg in args[len(words):])
-
-
-def command_outside_patterns(command: str, patterns: list[str]) -> tuple[str, str]:
-    """
-    Motivo y detalle por los que los patrones no autorizan el comando (sin su cd inicial), o ('', '')
-    si lo autorizan. Un patrón nunca cubre encadenamiento, tuberías ni redirecciones.
-    """
-    if is_compound_command(command):
-        return "command_chaining_requires_approval", f"Comando contiene encadenamiento no autorizado: {command}"
-    if not any(matches_command_pattern(command, p) for p in patterns):
-        return "command_outside_allowed_patterns", f"Comando fuera de los patrones autorizados: {command}"
-    return "", ""
 
 
 def normalize_command_pattern(raw: str) -> str:
@@ -330,10 +350,14 @@ def suggest_command_prefix(command: str) -> str:
     return tokens[0]
 
 
-def command_rule_offer(command: str) -> dict | None:
-    """Patrón sugerido: el programa con su subcomando y '*', o el comando exacto si el '*' no lo cubriría."""
-    pattern = next((p for p in (f"{suggest_command_prefix(command)} *", command)
-                    if _is_valid_pattern(p) and matches_command_pattern(command, p)), None)
+def command_rule_offer(commands: list[str]) -> dict | None:
+    """
+    Un patrón que cubra todos los subcomandos sin autorizar: el programa con su subcomando y '*', o el
+    comando exacto si es uno solo y el '*' no lo cubriría. Sin oferta si no hay uno común.
+    """
+    candidates = [*dict.fromkeys(f"{suggest_command_prefix(c)} *" for c in commands), *commands[:len(commands) == 1]]
+    pattern = next((p for p in candidates
+                    if _is_valid_pattern(p) and all(matches_command_pattern(c, p) for c in commands)), None)
     return {"type": "command", "command": pattern} if pattern else None
 
 
@@ -738,9 +762,9 @@ class AccessController:
         if not is_command:
             raise ValueError("Solo run_command admite patrones de comando.")
         pattern = normalize_command_pattern(raw_pattern)
-        _, command = split_leading_cd(get_command_arg(challenge["arguments"]))
-        if not matches_command_pattern(command, pattern):
-            raise ValueError(f"El patrón '{pattern}' no cubre el comando '{command}'.")
+        command = get_command_arg(challenge["arguments"])
+        if not any(matches_command_pattern(segment, pattern) for _, segment in split_command(command) or []):
+            raise ValueError(f"El patrón '{pattern}' no cubre ningún subcomando de '{command}'.")
         return pattern
 
     def _record_decision(self, challenge: dict, decision: str, pattern: str | None, rules: list[str],
@@ -830,22 +854,41 @@ class AccessController:
         return POLICY_ASK, "mcp_default_ask", "", None
 
     def _evaluate_command(self, raw_command: str, view: dict, ctx: SecurityContext) -> tuple[str, str, str, dict | None]:
-        """Un patrón es una vía más de permitir, nunca una puerta que anule Workspace Trust."""
-        directory, command = split_leading_cd(raw_command)
-        # El cd inicial tiene que estar cubierto por una regla de directorio, como el directorio de trabajo.
-        directory_ok = directory is None or any(
-            self.evaluate_directory_rule(access, directory, view["directoryRules"], ctx)["allowed"] for access in ("R", "W"))
+        """
+        Valida cada subcomando por separado: un cd tiene que llevar a una carpeta cubierta por las reglas
+        de directorio, y los subcomandos siguientes se ejecutan en ella; el resto tiene que estar cubierto
+        por un patrón o, con Workspace Trust, quedarse en el proyecto (tras una tubería, solo un filtro).
+        Un patrón es una vía más de permitir, nunca una puerta que anule Workspace Trust.
+        """
+        segments = split_command(raw_command)
+        if segments is None:
+            return (POLICY_ASK, "command_chaining_requires_approval",
+                    f"El comando usa sintaxis de shell que no se puede validar por partes: {raw_command}", None)
         patterns = self._command_patterns(view, ctx)
-        reason, details = command_outside_patterns(command, patterns) if patterns else ("mcp_default_ask", "")
-        if not reason and not directory_ok:
-            reason, details = "command_directory_outside_rules", f"El comando se ejecuta fuera de las reglas de directorio: {directory}"
-        if not reason:
-            return POLICY_ALLOW, "command_pattern_allow", "", None
-        if view["globalMcpPolicy"] == GLOBAL_POLICY_WORKSPACE_TRUST:
-            if directory_ok and is_workspace_local_command(command):
-                return POLICY_ALLOW, "workspace_trust_command", "", None
+        trust = view["globalMcpPolicy"] == GLOBAL_POLICY_WORKSPACE_TRUST
+        cwd, by_trust, uncovered = ctx.workspace_dir, False, []
+        for operator, segment in segments:
+            directory = cd_target(segment)
+            if directory is not None:
+                target = directory if re.match(r"^(/|[A-Za-z]:[\\/])", directory) else str(cwd / directory)
+                if not any(self.evaluate_directory_rule(a, target, view["directoryRules"], ctx)["allowed"] for a in ("R", "W")):
+                    return (POLICY_ASK, "command_directory_outside_rules",
+                            f"El comando se ejecuta fuera de las reglas de directorio: {directory}", None)
+                cwd = ctx.resolve_path(target)
+            elif any(matches_command_pattern(segment, p) for p in patterns):
+                continue
+            elif trust and is_workspace_local_command(segment) and (
+                    operator != "|" or segment.split()[0] in WORKSPACE_TRUST_PIPE_FILTERS):
+                by_trust = True
+            else:
+                uncovered.append(segment)
+        if not uncovered:
+            return POLICY_ALLOW, "workspace_trust_command" if by_trust else "command_pattern_allow", "", None
+        if trust:
             reason, details = "workspace_trust_external_or_global_command", "El comando accede a recursos globales o rutas fuera del espacio de trabajo."
-        return POLICY_ASK, reason, details, command_rule_offer(command)
+        else:
+            reason, details = ("command_outside_allowed_patterns", f"Comando fuera de los patrones autorizados: {'; '.join(uncovered)}") if patterns else ("mcp_default_ask", "")
+        return POLICY_ASK, reason, details, command_rule_offer(uncovered)
 
     def _evaluate_path(self, tool_name: str, access: str, path: str, view: dict, ctx: SecurityContext) -> tuple[str, str, str, dict | None]:
         """Herramientas integradas de ficheros: reglas de directorio y, con Workspace Trust, el proyecto."""

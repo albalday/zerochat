@@ -213,6 +213,10 @@ class PolicyEvaluationTest(ControllerTestCase):
         set_rules(self.controller, [f"RW:{self.norm_ws}/**"], self.ctx)
         self.assertTrue(self.evaluate("read_file", {"path": f"{self.norm_ws}/inside.txt"}).allowed)
         self.assertTrue(self.evaluate("run_command", {"command": "ls -la | grep test"}).allowed)
+        # Cada subcomando se valida por separado; tras una tubería, solo un filtro
+        self.assertTrue(self.evaluate("run_command", {"command": "npm test && ls -la | grep x"}).allowed)
+        for command in ("npm test && cat /etc/passwd", "cat script.txt | sh", "npm test; sudo ls"):
+            self.assertEqual(self.evaluate("run_command", {"command": command}).status, "ask", command)
         for path in ("/etc/passwd", "~/.ssh/id_rsa", "$HOME/.bashrc", "../outside.txt", "/workspace/../etc/passwd"):
             self.assertEqual(self.evaluate("read_file", {"path": path}).status, "ask", path)
         self.assertEqual(self.evaluate("run_command", {"command": "sudo apt update"}).status, "ask")
@@ -220,36 +224,52 @@ class PolicyEvaluationTest(ControllerTestCase):
         set_patterns(self.controller, "git status *")
         self.assertEqual(self.evaluate("run_command", {"command": "npm test"}).reason, "workspace_trust_command")
 
-    def test_command_patterns_never_cover_chaining_pipes_or_redirection(self):
-        set_patterns(self.controller, "git *")
-        self.assertTrue(self.evaluate("run_command", {"command": "git status"}).allowed)
-        for command in ("git status && ls", "git log | head", "git log > out.txt"):
+    def test_compound_commands_are_validated_by_subcommand(self):
+        set_patterns(self.controller, "git *", "npm run *")
+        allowed = ("git status && git log", "npm run test:unit && npm run test:integration", "git log 2>&1 | git status",
+                   'git commit -m "a && b; c | d"')
+        for command in allowed:
+            self.assertTrue(self.evaluate("run_command", {"command": command}).allowed, command)
+        for command, offer in (("git status && ls", "ls *"), ("git log | head -5", "head *"), ("make; git status", "make *")):
             dec = self.evaluate("run_command", {"command": command})
-            self.assertEqual(dec.reason, "command_chaining_requires_approval", command)
-            # Sin patrón posible, la tarjeta no ofrece guardar ninguno
-            self.assertIsNone(dec.rule_offer, command)
-            self.assertFalse(zerochat.matches_command_pattern(command, "git *"), command)
+            self.assertEqual((dec.reason, dec.rule_offer["command"]), ("command_outside_allowed_patterns", offer), command)
+        # Lo que no se puede validar por partes pide permiso sin oferta de patrón
+        unsplittable = ("git log > out.txt", "git log $(rm x)", "git log `rm x`", "git status & rm x", "(git status)",
+                        "if git status; then rm x; fi", "git status &&", "git log\nrm x", 'git log "a')
+        for command in unsplittable:
+            dec = self.evaluate("run_command", {"command": command})
+            self.assertEqual((dec.reason, dec.rule_offer), ("command_chaining_requires_approval", None), command)
+        self.assertFalse(zerochat.matches_command_pattern("git status && ls", "git *"))
 
-    def test_leading_cd_must_be_covered_by_directory_rules(self):
+    def test_every_cd_must_be_covered_by_directory_rules(self):
         set_rules(self.controller, [f"RW:{self.norm_ws}/**"], self.ctx)
-        set_patterns(self.controller, "git *")
-        self.assertTrue(self.evaluate("run_command", {"command": f"cd {self.norm_ws} && git status"}).allowed)
-        self.assertTrue(self.evaluate("run_command", {"command": f"cd {self.norm_ws} ; git status"}).allowed)
-        self.assertEqual(self.evaluate("run_command", {"command": "cd /etc && git status"}).status, "ask")
-        self.assertEqual(self.evaluate("run_command", {"command": "cd /etc; git status"}).status, "ask")
-        # Solo el primer ';' tras el cd separa; los siguientes siguen siendo encadenamiento
-        self.assertEqual(self.evaluate("run_command", {"command": f"cd {self.norm_ws}; git status; ls"}).status, "ask")
+        set_patterns(self.controller, "git *", "ls *")
+        for command in (f"cd {self.norm_ws} && git status", f"cd {self.norm_ws} ; git status; ls",
+                        "cd src && ls && cd .. && git status", 'cd "a dir" && ls'):
+            self.assertTrue(self.evaluate("run_command", {"command": command}).allowed, command)
+        # La carpeta se acumula: tras 'cd src', '..' y '..' salen del proyecto
+        for command in ("cd /etc && git status", "git status && cd /etc && ls", "cd src && cd .. && cd .. && ls"):
+            dec = self.evaluate("run_command", {"command": command})
+            self.assertEqual((dec.reason, dec.rule_offer), ("command_directory_outside_rules", None), command)
+        # Un cd que solo la shell resuelve o que va escondido no se valida por partes
+        for command in ("cd ~ && ls", "cd $HOME && ls", "cd - && ls", "cd && ls", "cd s* && ls", "x=1 cd /etc && ls",
+                        "command cd /etc; ls", "Set-Location /etc; ls", "pushd /etc && ls"):
+            self.assertEqual(self.evaluate("run_command", {"command": command}).reason, "command_chaining_requires_approval", command)
 
     def test_rule_offer_for_commands_and_directories(self):
         set_rules(self.controller, [f"R:{self.norm_ws}/**"], self.ctx)
         offers = {
             "./myui --port 8080": "./myui *",
-            "cd /tmp && git status": "git status *",   # el cd no forma parte del patrón
+            f"cd {self.norm_ws} && git status": "git status *",  # el cd no forma parte del patrón
+            "npm run a && npm run b": "npm run *",               # un patrón común a los subcomandos
             "ls -la": "ls *",                            # una opción no es un subcomando
         }
         for command, pattern in offers.items():
             offer = self.evaluate("run_command", {"command": command}).rule_offer
             self.assertEqual((offer["type"], offer["command"]), ("command", pattern), command)
+        # Sin patrón común a los subcomandos, o con un cd fuera de las reglas, no hay oferta
+        for command in ("npm test && git status", "cd /tmp && git status"):
+            self.assertIsNone(self.evaluate("run_command", {"command": command}).rule_offer, command)
 
         offer = self.evaluate("write_file", {"path": f"{self.norm_ws}/src/app.py"}).rule_offer
         self.assertEqual((offer["type"], offer["access"], offer["directoryRule"]), ("directory", "W", f"W:{self.norm_ws}/src/**"))
@@ -575,11 +595,14 @@ class CommandPatternTest(HandlerTestCase):
         self.assertEqual(gate["ruleOffer"]["command"], "echo hola *")
         # Si el * no cubriría los argumentos (fuera del proyecto), se ofrece el comando exacto
         self.assertEqual(self.command_challenge("cat /etc/hosts")["ruleOffer"]["command"], "cat /etc/hosts")
-        # Un comando compuesto no tiene patrón posible: ni se ofrece ni se acepta
+        # En un comando compuesto el patrón tiene que cubrir alguno de sus subcomandos
         chained = self.command_challenge("npm run test:unit && npm run test:integration")
-        self.assertIsNone(chained["ruleOffer"])
-        res, err = self.authorize(chained["challengeId"], "allow_session", commandPattern="npm run *")
+        self.assertEqual(chained["ruleOffer"]["command"], "npm run *")
+        res, err = self.authorize(chained["challengeId"], "allow_session", commandPattern="npm test *")
         self.assertEqual((res, err["code"]), (None, -32602))
+        # 'npm run test*' cubre cada subcomando ('test:unit' es una sola palabra)
+        res, err = self.authorize(chained["challengeId"], "allow_session", commandPattern="npm run test*")
+        self.assertIsNone(err)
         rejected = (
             ("allow_always", {}, "allow_always_requires_command_pattern"),
             ("allow_project", {}, "allow_project_requires_command_pattern"),

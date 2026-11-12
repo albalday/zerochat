@@ -27,6 +27,7 @@ import hmac
 import html
 import importlib.metadata
 import ipaddress
+import itertools
 import json
 import math
 import os
