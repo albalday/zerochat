@@ -401,6 +401,8 @@
     });
 
     const addLabel = escapeHtml(t('mcp_security_add_prefix_label'));
+    const projectDir = String(getState().get('mcp').serverInfo?.cwd || '').trim();
+    const folderName = dir => dir.split(/[\\/]+/).filter(Boolean).pop() || dir;
     const toolItems = tools.map(item => {
       const { className } = badge(item);
       let { text } = badge(item);
@@ -411,21 +413,36 @@
       const sessionPrefixes = command?.sessionPrefixes || [];
       const hasPrefixes = Boolean(command) && (globalPrefixes.length || projectPrefixes.length || sessionPrefixes.length);
       if (hasPrefixes) text += ` (${escapeHtml(t('mcp_security_constrained'))})`;
-      // Prefijos globales y de proyecto se quitan uno a uno; los de sesión duran hasta que acaba la sesión.
+      // Una fila por alcance: etiqueta a la izquierda y sus patrones a la derecha. Los globales y de proyecto
+      // se quitan uno a uno; los de sesión duran hasta que se cierra ZeroChat o se cambia de proyecto.
       const chip = (prefix, project) => {
         const removeLabel = escapeHtml(t('mcp_security_remove_prefix', { cmd: prefix }));
         const projectAttr = project === null ? '' : ` data-project="${escapeHtml(project)}"`;
         return `<span class="mcp-auth-constraint-tag mcp-auth-cmd-chip"><code>${escapeHtml(prefix)}</code><button type="button" class="btn-remove-cmd-prefix" data-tool-id="${toolId}" data-prefix="${escapeHtml(prefix)}"${projectAttr} title="${removeLabel}" aria-label="${removeLabel}">${Icons.get('close', { size: 10 })}</button></span>`;
       };
-      const group = (icon, label, chips) => `<div class="mcp-auth-cmd-group"><span class="mcp-auth-cmd-scope" title="${escapeHtml(label)}">${icon} ${escapeHtml(label)}</span>${chips}</div>`;
+      const sessionChip = prefix => `<span class="mcp-auth-constraint-tag mcp-auth-cmd-chip is-session"><code>${escapeHtml(prefix)}</code></span>`;
+      const group = (icon, label, title, chips) => `
+              <span class="mcp-auth-cmd-scope" title="${escapeHtml(title)}">${icon}<span class="mcp-auth-cmd-scope-label">${escapeHtml(label)}</span></span>
+              <div class="mcp-auth-cmd-chips">${chips}</div>`;
+      const projectGroup = ([project, prefixes]) => {
+        const label = project === projectDir ? t('mcp_security_scope_this_project', { name: folderName(project) }) : folderName(project);
+        return group(Icons.get('folder', { size: 12 }), label, project, prefixes.map(prefix => chip(prefix, project)).join(''));
+      };
+      const scopeOptions = [
+        `<option value="">${escapeHtml(t('mcp_security_scope_global'))}</option>`,
+        projectDir ? `<option value="${escapeHtml(projectDir)}">${escapeHtml(t('mcp_security_scope_this_project', { name: folderName(projectDir) }))}</option>` : ''
+      ].join('');
       const prefixEditor = hasPrefixes ? `
             <div class="mcp-auth-cmd-prefixes">
-              ${globalPrefixes.length ? group(Icons.get('globe', { size: 11 }), t('mcp_security_scope_global'), globalPrefixes.map(prefix => chip(prefix, null)).join('')) : ''}
-              ${projectPrefixes.map(([project, prefixes]) => group(Icons.get('folder', { size: 11 }), project, prefixes.map(prefix => chip(prefix, project)).join(''))).join('')}
-              ${sessionPrefixes.length ? group(Icons.get('clock', { size: 11 }), t('mcp_security_scope_session'), sessionPrefixes.map(prefix => `<span class="mcp-auth-constraint-tag mcp-auth-cmd-chip"><code>${escapeHtml(prefix)}</code></span>`).join('')) : ''}
+              ${globalPrefixes.length ? group(Icons.get('globe', { size: 12 }), t('mcp_security_scope_global'), t('mcp_security_scope_global'), globalPrefixes.map(prefix => chip(prefix, null)).join('')) : ''}
+              ${projectPrefixes.map(projectGroup).join('')}
+              ${sessionPrefixes.length ? group(Icons.get('clock', { size: 12 }), t('mcp_security_scope_session'), t('tool_auth_cmd_session_title'), sessionPrefixes.map(sessionChip).join('')) : ''}
               <div class="mcp-auth-cmd-add" data-tool-id="${toolId}">
-                <input type="text" class="mcp-auth-cmd-input" placeholder="${addLabel}" aria-label="${addLabel}" spellcheck="false" autocomplete="off">
-                <button type="button" class="btn-add-cmd-prefix">${escapeHtml(t('mcp_security_add_prefix'))}</button>
+                <select class="mcp-auth-cmd-scope-select" aria-label="${escapeHtml(t('mcp_security_add_scope_label'))}">${scopeOptions}</select>
+                <div class="mcp-auth-cmd-add-line">
+                  <input type="text" class="mcp-auth-cmd-input" placeholder="${addLabel}" aria-label="${addLabel}" spellcheck="false" autocomplete="off">
+                  <button type="button" class="btn-add-cmd-prefix">${escapeHtml(t('mcp_security_add_prefix'))}</button>
+                </div>
               </div>
               <p class="mcp-auth-cmd-error" role="alert" hidden></p>
             </div>` : '';
@@ -436,15 +453,14 @@
             <strong class="mcp-auth-item-name">${escapeHtml(item.originalName || item.toolId)}</strong>
             <span class="mcp-auth-badge ${className}">${text}</span>
             ${scopeBadge(item)}
-            ${prefixEditor}
           </div>
+          ${prefixEditor}
         </div>`;
     });
 
     container.innerHTML = serverItems.join('') + toolItems.join('');
   }
 
-  /** Cambia los prefijos de comando de una herramienta; un rechazo del backend se muestra junto al editor. */
   /**
    * Cambia los prefijos guardados de una herramienta: `change` recibe y devuelve
    * `{ allowedPrefixes, projectPrefixes }`. Un rechazo del backend se muestra junto al editor.
@@ -463,10 +479,14 @@
     }
   }
 
+  /** Añade el patrón del editor al alcance elegido: todos los proyectos o el proyecto actual. */
   async function addCommandPrefix(editor) {
     const value = editor?.querySelector('.mcp-auth-cmd-input').value.trim();
     if (!value) return;
-    await updateCommandPrefixes(editor, editor.getAttribute('data-tool-id'), current => ({ ...current, allowedPrefixes: [...current.allowedPrefixes, value] }));
+    const project = editor.querySelector('.mcp-auth-cmd-scope-select').value;
+    await updateCommandPrefixes(editor, editor.getAttribute('data-tool-id'), current => (project
+      ? { ...current, projectPrefixes: { ...current.projectPrefixes, [project]: [...(current.projectPrefixes[project] || []), value] } }
+      : { ...current, allowedPrefixes: [...current.allowedPrefixes, value] }));
   }
 
   function renderCurrentToolsList(elements) {

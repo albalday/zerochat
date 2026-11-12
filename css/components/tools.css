@@ -990,10 +990,10 @@
 }
 
 .mcp-auth-item {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
-  gap: 0.45rem;
+  gap: 0.45rem 0.55rem;
   padding: 0.35rem 0.65rem;
   background: var(--bg-surface-subtle);
   border-radius: var(--radius-md);
@@ -1695,12 +1695,26 @@ button.command-jobs-link:focus-visible {
   cursor: not-allowed;
 }
 
+/* Patrones de comando: una fila por alcance (etiqueta | patrones) y la fila de alta con su alcance. */
 .mcp-auth-cmd-prefixes {
-  display: flex;
-  flex: 1 1 100%;
-  flex-wrap: wrap;
+  display: grid;
+  grid-column: 2;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.4rem 0.75rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.mcp-auth-cmd-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.mcp-auth-cmd-chip.is-session {
+  border-style: dotted;
 }
 
 .mcp-auth-cmd-chip {
@@ -1724,14 +1738,30 @@ button.command-jobs-link:focus-visible {
 }
 
 .mcp-auth-cmd-add {
+  display: contents;
+}
+
+.mcp-auth-cmd-scope-select {
+  max-width: 14rem;
+  min-width: 0;
+  padding: 0.25rem 0.35rem;
+  font-size: 0.72rem;
+  color: var(--text-main);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+.mcp-auth-cmd-add-line {
   display: flex;
-  flex: 1 1 12rem;
   gap: 0.3rem;
   min-width: 0;
 }
 
 .btn-add-cmd-prefix {
+  flex: 0 0 auto;
   padding: 0.25rem 0.55rem;
+  white-space: nowrap;
   font-size: 0.72rem;
   color: var(--text-main);
   background: var(--bg-surface);
@@ -1741,27 +1771,31 @@ button.command-jobs-link:focus-visible {
 }
 
 .mcp-auth-cmd-error {
-  flex: 1 1 100%;
+  grid-column: 1 / -1;
   margin: 0;
   font-size: 0.72rem;
   color: var(--danger-text);
 }
 
-.mcp-auth-cmd-group {
-  display: flex;
-  flex: 1 1 100%;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem;
-  min-width: 0;
-}
-
 .mcp-auth-cmd-scope {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  max-width: 100%;
-  font-size: 0.68rem;
+  gap: 0.3rem;
+  max-width: 14rem;
+  min-width: 0;
+  font-size: 0.7rem;
   color: var(--text-muted);
-  overflow-wrap: anywhere;
+}
+
+.mcp-auth-cmd-scope-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .mcp-auth-cmd-prefixes {
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

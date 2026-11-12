@@ -1,4 +1,4 @@
 # Current state
 - Milestone: M61 Integridad del sistema de permisos (docs/audits/M61-permisos.md)
-- Next task: M61-T25
+- Next task: M61-T27
 - Last updated: 2026-11-12

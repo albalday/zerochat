@@ -211,7 +211,7 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
   });
 
   test('Browser UI - los prefijos de comando guardados se quitan y añaden uno a uno y los rechazos se muestran', async () => {
-    await withMcpPanel({ status: 'connected', tools: [] }, async page => {
+    await withMcpPanel({ status: 'connected', tools: [], serverInfo: { cwd: '/home/yo/app' } }, async page => {
       const prefixes = () => page.evaluate(() => window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.allowedPrefixes ?? null);
       const chips = () => page.$$eval('#mcp-saved-auths-list .mcp-auth-cmd-chip code', els => els.map(el => el.textContent));
       const removePrefix = prefix => page.evaluate(p => document.querySelector(`#mcp-saved-auths-list .btn-remove-cmd-prefix[data-prefix="${p}"]`).click(), prefix);
@@ -223,7 +223,9 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
       });
       // Agrupados por alcance: todos los proyectos, cada proyecto y la sesión (esta sin botón de quitar)
       assert.deepEqual(await chips(), ['git status *', 'git diff', 'npm test *', 'make *']);
-      assert.deepEqual(await page.$$eval('#mcp-saved-auths-list .mcp-auth-cmd-scope', els => els.map(el => el.textContent.trim())), ['Todos los proyectos', '/repo', 'Sesión']);
+      // Cada proyecto se nombra por su carpeta, con la ruta completa en el título
+      assert.deepEqual(await page.$$eval('#mcp-saved-auths-list .mcp-auth-cmd-scope', els => els.map(el => [el.textContent.trim(), el.title])),
+        [['Todos los proyectos', 'Todos los proyectos'], ['repo', '/repo'], ['Sesión', await page.evaluate(() => window.ChatI18n.t('tool_auth_cmd_session_title'))]]);
       assert.equal(await page.$$eval('#mcp-saved-auths-list .btn-remove-cmd-prefix', els => els.length), 3);
 
       await page.evaluate(() => {
@@ -260,6 +262,16 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
       assert.deepEqual(shown, { hidden: false, text: 'Prefijo de comando no válido' });
       assert.deepEqual(await prefixes(), ['git status *', 'git log *']);
 
+      // El alta elige el alcance: el proyecto actual guarda el patrón solo para ese proyecto
+      await page.evaluate(() => {
+        const editor = document.querySelector('#mcp-saved-auths-list .mcp-auth-cmd-add');
+        editor.querySelector('.mcp-auth-cmd-scope-select').value = '/home/yo/app';
+        editor.querySelector('.mcp-auth-cmd-input').value = 'npm test *';
+        editor.querySelector('.btn-add-cmd-prefix').click();
+      });
+      await page.waitForFunction(() => window.ChatToolSecurity.manager.getToolConstraints('run_command')?.command?.projectPrefixes?.['/home/yo/app']);
+      assert.deepEqual(await page.evaluate(() => window.ChatToolSecurity.manager.getToolConstraints('run_command').command.projectPrefixes), { '/home/yo/app': ['npm test *'] });
+      assert.deepEqual(await prefixes(), ['git status *', 'git log *']);
     });
   });
 
