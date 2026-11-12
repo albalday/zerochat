@@ -5546,8 +5546,9 @@ _SERVER_SHUTTING_DOWN = threading.Event()
 # Si el servidor se detiene al cerrar el navegador, cerrar la pestaña detiene también los comandos.
 EXIT_ON_CLOSE = False
 # zerochat/run/progress ya se registra con su propio texto en dispatch_run.
-# Un navegador lo usa una conversación cada vez; queda libre tras este tiempo sin que lo use.
-BROWSER_LEASE_IDLE_SECONDS = 300.0
+# Un navegador lo usa una conversación cada vez; queda libre tras este tiempo sin que lo use. Cubre lo que
+# el modelo tarda en razonar entre dos acciones, no la espera a otra petición del usuario.
+BROWSER_LEASE_IDLE_SECONDS = 60.0
 
 
 class BrowserLease:
@@ -6153,8 +6154,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         else:
             browser = PLAYWRIGHT_SERVER_ID if GLOBAL_MCP_MANAGER.server_of(tool_name) == PLAYWRIGHT_SERVER_ID else None
         if browser and not BROWSER_LEASES.acquire(browser, conversation_id):
-            message = (f"The browser is in use by another conversation. It is released after {int(BROWSER_LEASE_IDLE_SECONDS // 60)} "
-                       "minutes without use; tell the user or try again later.")
+            message = (f"The browser is in use by another conversation. It is released after {int(BROWSER_LEASE_IDLE_SECONDS)} "
+                       "seconds without use; tell the user or try again later.")
             return {"content": [{"type": "text", "text": _tool_error(message)}], "isError": True}, None, message
         if origin == "external":
             try:

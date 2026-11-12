@@ -124,3 +124,4 @@
 - 2026-11-12 M62-D18 SecurityContext.absolute es el único resolutor: colapsa .. antes de seguir enlaces (antes resolve_path y las herramientas diferían con enlace/../x) y resolve_path lo reutiliza rechazando ~ y variables (M62-T16)
 - 2026-11-12 M62-D19 dropped: el cambio de proyecto va en segundo plano por decisión del usuario; localToolsAvailable ya protege el turno mientras tanto (M62-T17)
 - 2026-11-12 M62-D20 Error propio -32003 (ProjectGoneError) para carpeta desaparecida; el latido llama a recoverLostProject: vuelve al proyecto por defecto y onProjectLost avisa una vez (M62-T18)
+- 2026-11-12 M62-D21 La reserva del navegador dura 1 minuto sin uso: solo cubre lo que el modelo razona entre acciones, no la espera a otra petición del usuario (M62-T19)
