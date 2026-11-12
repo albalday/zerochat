@@ -7,6 +7,7 @@ OWN_BROWSER_ENGINES = ("chromium", "firefox", "webkit")
 USER_BROWSERS = ("chrome", "msedge", "chromium")
 BROWSER_CONFIG_DEFAULTS = {"mode": "own", "engine": "chromium", "userBrowser": "chrome", "headless": True, "extensionToken": ""}
 # Identificador de la extensión de Playwright en la tienda de Chrome, que también usa Edge.
+PLAYWRIGHT_SERVER_ID = "playwright"
 PLAYWRIGHT_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm"
 # Token que muestra la extensión: con él la conexión no pide aceptarla en el navegador.
 _EXTENSION_TOKEN = re.compile(r"^[A-Za-z0-9_-]{0,256}$")
@@ -61,7 +62,7 @@ def save_browser_config(raw) -> dict:
 
 
 def _playwright_active() -> bool:
-    return any(server["id"] == "playwright" and server["status"] in ("running", "starting", "installing")
+    return any(server["id"] == PLAYWRIGHT_SERVER_ID and server["status"] in ("running", "starting", "installing")
                for server in GLOBAL_MCP_MANAGER.list_servers())
 
 
@@ -182,7 +183,7 @@ def set_service_user_agent(user_agent: str | None) -> None:
 
 # Argumentos, entorno y navegador elegido que añade ZeroChat al arrancar un servicio gestionado,
 # calculados en cada arranque.
-SERVICE_LAUNCH = {"playwright": lambda browser: _playwright_launch(browser, SERVICE_USER_AGENT)}
+SERVICE_LAUNCH = {PLAYWRIGHT_SERVER_ID: lambda browser: _playwright_launch(browser, SERVICE_USER_AGENT)}
 
 
 # Motores propios de Playwright: cada uno se compone de las entradas de la caché que instala

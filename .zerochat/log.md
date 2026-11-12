@@ -118,3 +118,4 @@
 - 2026-11-12 M62-D12 Documentado en py/README (multisesión y multiusuario), ayuda del modo proyecto (varios proyectos, worktrees) y del proxy remoto (una persona por servidor, contenedor por usuario), es/en (M62-T9)
 - 2026-11-12 M62-D13 La vista del proyecto añade al final las conversaciones sin proyecto; renderProjectFilter y groupSessions separan selector y agrupación (M62-T11)
 - 2026-11-12 M62-D14 dispatch_run y start_server_run reciben el contexto de la petición; sin proyecto en la conversación, cwd = proyecto de la pestaña (M62-T12)
+- 2026-11-12 M62-D15 BrowserLease se adquiere en _execute_tool (llamada directa y tras reto, que guarda conversationId), no al pedir; recurso calculado una vez; PLAYWRIGHT_SERVER_ID único en Python y JS (M62-T13)

@@ -474,22 +474,34 @@ class ChallengeTest(HandlerTestCase):
     def test_a_browser_is_used_by_one_conversation_until_it_stays_idle(self):
         self.addCleanup(setattr, zerochat, "BROWSER_LEASES", zerochat.BROWSER_LEASES)
         zerochat.BROWSER_LEASES = zerochat.BrowserLease()
+        patcher = unittest.mock.patch.dict(zerochat.LOCAL_TOOL_HANDLERS, {"browser_action": lambda **_: '{"success": true}'})
+        patcher.start()
+        self.addCleanup(patcher.stop)
         navigate = {"action": "navigate", "url": "https://example.com"}
         call = (lambda conversation: self.handler._dispatch_local(
             "tools/call", {"name": "browser_action", "arguments": navigate, "_meta": {"zerochatConversationId": conversation}}, cwd())[0])
-        self.assertFalse(call("conv-a").get("isError"), "La primera conversación lo reserva (aquí, con un reto)")
-        busy = call("conv-b")
+
+        # Pedirlo no lo reserva: lo ocupa la conversación que llega a ejecutar, también tras un reto
+        gate_b, gate_a = call("conv-b"), call("conv-a")
+        self.assertTrue(gate_b["requiresAuthorization"] and gate_a["requiresAuthorization"])
+        self.assertFalse(self.authorize(gate_a["challengeId"], "allow_session")[0]["result"]["isError"])
+        busy = self.authorize(gate_b["challengeId"], "allow_once")[0]["result"]
         self.assertTrue(busy["isError"])
         self.assertIn("in use by another conversation", busy["content"][0]["text"])
-        self.assertFalse(call("conv-a").get("isError"), "La que lo usa sigue usándolo")
+        self.assertTrue(call("conv-b")["isError"])
+        self.assertFalse(call("conv-a")["isError"], "La que lo usa sigue usándolo")
         # Playwright MCP es otro navegador, con su propia reserva
-        with unittest.mock.patch.object(zerochat.GLOBAL_MCP_MANAGER, "server_of", return_value="playwright"):
-            gate, err, _ = self.handler._dispatch_external("tools/call", {"name": "playwright__navigate", "arguments": {}, "_meta": {"zerochatConversationId": "conv-b"}}, cwd())
-            self.assertIsNone(err)
-            self.assertFalse(gate.get("isError"))
+        set_server(self.controller, "playwright", zerochat.POLICY_ALLOW)
+        result = {"content": [{"type": "text", "text": "ok"}], "isError": False}
+        with unittest.mock.patch.object(zerochat.GLOBAL_MCP_MANAGER, "server_of", return_value="playwright"), \
+             unittest.mock.patch.object(zerochat.GLOBAL_MCP_MANAGER, "call", return_value=result):
+            external = (lambda conversation: self.handler._dispatch_external(
+                "tools/call", {"name": "playwright__navigate", "arguments": {}, "_meta": {"zerochatConversationId": conversation}}, cwd())[0])
+            self.assertFalse(external("conv-b")["isError"])
+            self.assertTrue(external("conv-a")["isError"])
         # Sin uso durante el plazo queda libre
         with unittest.mock.patch.object(zerochat, "BROWSER_LEASE_IDLE_SECONDS", 0):
-            self.assertFalse(call("conv-b").get("isError"))
+            self.assertFalse(call("conv-b")["isError"])
 
     def test_authorize_executes_challenge_by_stored_origin(self):
         # Un reto de /mcp/external con el nombre de una herramienta local se ejecuta en el host externo
@@ -545,7 +557,7 @@ class ChallengeTest(HandlerTestCase):
             res, err = self.authorize(gate["challengeId"], "allow_once")
         self.assertIsNone(err)
         self.assertTrue(res["authorized"])
-        execute.assert_called_once_with("local", "run_command", {"command": "echo job", "job_key": "inv-1"}, cwd())
+        execute.assert_called_once_with("local", "run_command", {"command": "echo job", "job_key": "inv-1"}, cwd(), "")
 
 
 class CommandPatternTest(HandlerTestCase):

@@ -1163,7 +1163,7 @@
       const started = [];
       const unavailable = [];
       if (State.get('mcp').status !== 'connected') return { started, unavailable };
-      const ids = getAgentCore().activeBrowserTool(appConfig) === 'playwright' ? [...appConfig.mcpServers, 'playwright'] : appConfig.mcpServers;
+      const ids = getAgentCore().activeBrowserTool(appConfig) === 'playwright' ? [...appConfig.mcpServers, PLAYWRIGHT_SERVER_ID] : appConfig.mcpServers;
       for (const id of ids) {
         const server = State.get('mcp').externalServers.find(item => item.id === id);
         if (!server) {

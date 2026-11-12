@@ -2636,7 +2636,7 @@ class AccessController:
 
     def create_challenge(self, tool_name: str, args: dict, decision: AccessDecision, *, context: SecurityContext,
                          server_name: str = "", server_id: str = "", origin: str = "local",
-                         job_key: str | None = None) -> dict:
+                         job_key: str | None = None, conversation_id: str = "") -> dict:
         """Genera un reto estructurado para solicitar confirmación interactiva al usuario."""
         challenge_id = f"auth_{secrets.token_urlsafe(16)}"
         now = int(time.time() * 1000)
@@ -2654,6 +2654,7 @@ class AccessController:
                 "serverId": server_id or decision.server_id,
                 "origin": origin,
                 "jobKey": job_key,
+                "conversationId": conversation_id,
                 "createdAt": now
             }
             challenges[challenge_id] = challenge_data
@@ -3670,6 +3671,7 @@ OWN_BROWSER_ENGINES = ("chromium", "firefox", "webkit")
 USER_BROWSERS = ("chrome", "msedge", "chromium")
 BROWSER_CONFIG_DEFAULTS = {"mode": "own", "engine": "chromium", "userBrowser": "chrome", "headless": True, "extensionToken": ""}
 # Identificador de la extensión de Playwright en la tienda de Chrome, que también usa Edge.
+PLAYWRIGHT_SERVER_ID = "playwright"
 PLAYWRIGHT_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm"
 # Token que muestra la extensión: con él la conexión no pide aceptarla en el navegador.
 _EXTENSION_TOKEN = re.compile(r"^[A-Za-z0-9_-]{0,256}$")
@@ -3724,7 +3726,7 @@ def save_browser_config(raw) -> dict:
 
 
 def _playwright_active() -> bool:
-    return any(server["id"] == "playwright" and server["status"] in ("running", "starting", "installing")
+    return any(server["id"] == PLAYWRIGHT_SERVER_ID and server["status"] in ("running", "starting", "installing")
                for server in GLOBAL_MCP_MANAGER.list_servers())
 
 
@@ -3845,7 +3847,7 @@ def set_service_user_agent(user_agent: str | None) -> None:
 
 # Argumentos, entorno y navegador elegido que añade ZeroChat al arrancar un servicio gestionado,
 # calculados en cada arranque.
-SERVICE_LAUNCH = {"playwright": lambda browser: _playwright_launch(browser, SERVICE_USER_AGENT)}
+SERVICE_LAUNCH = {PLAYWRIGHT_SERVER_ID: lambda browser: _playwright_launch(browser, SERVICE_USER_AGENT)}
 
 
 # Motores propios de Playwright: cada uno se compone de las entradas de la caché que instala
@@ -6133,8 +6135,20 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         return {"content": [{"type": "text", "text": _tool_error(str(ex))}], "isError": True}
 
     @classmethod
-    def _execute_tool(cls, origin: str, tool_name: str, args: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
-        """Punto único de ejecución y normalización de herramientas locales y externas."""
+    def _execute_tool(cls, origin: str, tool_name: str, args: dict, ctx: SecurityContext,
+                      conversation_id: str = "") -> tuple[dict | None, dict | None, str]:
+        """
+        Punto único de ejecución y normalización de herramientas locales y externas. Un navegador se
+        reserva aquí, al ejecutar, para la conversación que lo usa: pedirlo sin llegar a ejecutar no lo ocupa.
+        """
+        if origin == "local":
+            browser = tool_name if tool_name == "browser_action" else None
+        else:
+            browser = PLAYWRIGHT_SERVER_ID if GLOBAL_MCP_MANAGER.server_of(tool_name) == PLAYWRIGHT_SERVER_ID else None
+        if browser and not BROWSER_LEASES.acquire(browser, conversation_id):
+            message = (f"The browser is in use by another conversation. It is released after {int(BROWSER_LEASE_IDLE_SECONDS // 60)} "
+                       "minutes without use; tell the user or try again later.")
+            return {"content": [{"type": "text", "text": _tool_error(message)}], "isError": True}, None, message
         if origin == "external":
             try:
                 result = GLOBAL_MCP_MANAGER.call(tool_name, args)
@@ -6171,7 +6185,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
     @staticmethod
     def _authorize_or_challenge(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
-                                job_key: str | None = None) -> tuple[dict | None, dict | None, str] | None:
+                                job_key: str | None = None, conversation_id: str = "") -> tuple[dict | None, dict | None, str] | None:
         """Evalúa la política de seguridad y devuelve respuesta de denegación o reto si procede."""
         if origin == "external":
             server_id = GLOBAL_MCP_MANAGER.server_of(tool_name) or ""
@@ -6188,7 +6202,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if decision.status == POLICY_ASK:
             ch = ACCESS_CONTROLLER.create_challenge(
                 tool_name, args, decision, server_name=server_name, server_id=server_id, origin=origin,
-                context=ctx, job_key=job_key
+                context=ctx, job_key=job_key, conversation_id=conversation_id
             )
             return {
                 "requiresAuthorization": True,
@@ -6204,19 +6218,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             }, None, ""
         return None
 
-    @staticmethod
-    def _browser_busy(origin: str, tool_name: str, meta) -> tuple[dict, None, str] | None:
-        """Error de herramienta si el navegador lo está usando otra conversación; si no, lo reserva para esta."""
-        is_browser = tool_name == "browser_action" if origin == "local" else GLOBAL_MCP_MANAGER.server_of(tool_name) == "playwright"
-        if not is_browser:
-            return None
-        conversation_id = meta.get("zerochatConversationId") if isinstance(meta, dict) else None
-        if BROWSER_LEASES.acquire("browser_action" if origin == "local" else "playwright", str(conversation_id or "")):
-            return None
-        message = (f"The browser is in use by another conversation. It is released after {int(BROWSER_LEASE_IDLE_SECONDS // 60)} "
-                   "minutes without use; tell the user or try again later.")
-        return {"content": [{"type": "text", "text": _tool_error(message)}], "isError": True}, None, message
-
     @classmethod
     def _call_tool(cls, origin: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
         """tools/call de los dos endpoints: evalúa, emite un reto o ejecuta por el punto único."""
@@ -6225,14 +6226,12 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
         raw_args = params.get("arguments")
         args = dict(raw_args) if isinstance(raw_args, dict) else {}
-        meta = params.get("_meta")
-        # La clave del trabajo no es un argumento del modelo: no se evalúa ni se muestra en el reto.
-        job_key = meta.get("zerochatJobKey") if origin == "local" and tool_name == COMMAND_TOOL and isinstance(meta, dict) else None
-        busy = cls._browser_busy(origin, tool_name, meta)
-        if busy is not None:
-            return busy
-        gate = cls._authorize_or_challenge(origin, tool_name, args, ctx, job_key)
-        return gate if gate is not None else cls._execute_tool(origin, tool_name, cls._with_job_key(args, job_key), ctx)
+        meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
+        # Ni la clave del trabajo ni la conversación son argumentos del modelo: no se evalúan ni se muestran en el reto.
+        job_key = meta.get("zerochatJobKey") if origin == "local" and tool_name == COMMAND_TOOL else None
+        conversation_id = str(meta.get("zerochatConversationId") or "")
+        gate = cls._authorize_or_challenge(origin, tool_name, args, ctx, job_key, conversation_id)
+        return gate if gate is not None else cls._execute_tool(origin, tool_name, cls._with_job_key(args, job_key), ctx, conversation_id)
 
     def _dispatch_external(self, method: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
         """Atiende /mcp/external. Devuelve (result, error JSON-RPC, detalle de error de herramienta)."""
@@ -6338,7 +6337,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 t_origin = ch.get("origin") or "local"
                 t_name = ch["toolName"]
                 t_args = ch["arguments"] if isinstance(ch.get("arguments"), dict) else {}
-                exec_res, exec_err, tool_err = cls._execute_tool(t_origin, t_name, cls._with_job_key(t_args, ch.get("jobKey")), ctx)
+                exec_res, exec_err, tool_err = cls._execute_tool(t_origin, t_name, cls._with_job_key(t_args, ch.get("jobKey")), ctx, ch.get("conversationId") or "")
                 if exec_err:
                     return None, exec_err, tool_err
                 return {"authorized": True, "result": exec_res}, None, tool_err

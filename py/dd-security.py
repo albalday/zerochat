@@ -757,7 +757,7 @@ class AccessController:
 
     def create_challenge(self, tool_name: str, args: dict, decision: AccessDecision, *, context: SecurityContext,
                          server_name: str = "", server_id: str = "", origin: str = "local",
-                         job_key: str | None = None) -> dict:
+                         job_key: str | None = None, conversation_id: str = "") -> dict:
         """Genera un reto estructurado para solicitar confirmación interactiva al usuario."""
         challenge_id = f"auth_{secrets.token_urlsafe(16)}"
         now = int(time.time() * 1000)
@@ -775,6 +775,7 @@ class AccessController:
                 "serverId": server_id or decision.server_id,
                 "origin": origin,
                 "jobKey": job_key,
+                "conversationId": conversation_id,
                 "createdAt": now
             }
             challenges[challenge_id] = challenge_data
