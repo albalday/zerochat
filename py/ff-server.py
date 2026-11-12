@@ -608,8 +608,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     def _execute_tool(cls, origin: str, tool_name: str, args: dict, ctx: SecurityContext,
                       conversation_id: str = "") -> tuple[dict | None, dict | None, str]:
         """
-        Punto único de ejecución y normalización de herramientas locales y externas. Un navegador se
-        reserva aquí, al ejecutar, para la conversación que lo usa: pedirlo sin llegar a ejecutar no lo ocupa.
+        Punto único de ejecución de herramientas locales y externas. Un navegador se reserva aquí, al
+        ejecutar, para la conversación que lo usa: pedirlo sin llegar a ejecutar no lo ocupa.
         """
         if origin == "local":
             browser = tool_name if tool_name == "browser_action" else None
@@ -619,6 +619,16 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             message = (f"The browser is in use by another conversation. It is released after {int(BROWSER_LEASE_IDLE_SECONDS)} "
                        "seconds without use; tell the user or try again later.")
             return {"content": [{"type": "text", "text": _tool_error(message)}], "isError": True}, None, message
+        try:
+            return cls._run_tool(origin, tool_name, args, ctx)
+        finally:
+            # El plazo cuenta desde que la acción termina: lo que tarde no acorta lo que el modelo puede razonar después.
+            if browser:
+                BROWSER_LEASES.acquire(browser, conversation_id)
+
+    @classmethod
+    def _run_tool(cls, origin: str, tool_name: str, args: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
+        """Ejecuta la herramienta y normaliza su resultado: (result, error JSON-RPC, detalle de error)."""
         if origin == "external":
             try:
                 result = GLOBAL_MCP_MANAGER.call(tool_name, args)

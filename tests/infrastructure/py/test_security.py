@@ -502,6 +502,13 @@ class ChallengeTest(HandlerTestCase):
         # Sin uso durante el plazo queda libre
         with unittest.mock.patch.object(zerochat, "BROWSER_LEASE_IDLE_SECONDS", 0):
             self.assertFalse(call("conv-b")["isError"])
+        # El plazo cuenta desde que la acción termina, no desde que empieza
+        clock = [zerochat.time.monotonic()]
+        with unittest.mock.patch.object(zerochat.time, "monotonic", lambda: clock[0]), \
+             unittest.mock.patch.dict(zerochat.LOCAL_TOOL_HANDLERS, {"browser_action": lambda **_: clock.__setitem__(0, clock[0] + 50) or "{}"}):
+            self.assertFalse(call("conv-b")["isError"])
+            clock[0] += 20
+            self.assertTrue(call("conv-a")["isError"], "70 s desde que empezó, 20 desde que acabó")
 
     def test_authorize_executes_challenge_by_stored_origin(self):
         # Un reto de /mcp/external con el nombre de una herramienta local se ejecuta en el host externo
