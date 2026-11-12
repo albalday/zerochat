@@ -69,6 +69,15 @@ test('ConversationService - sin diálogo de resumen, la rama clona el historial 
   const stored = await Storage.getConversation(sessionId);
   assert.deepEqual(stored.history.map(message => message.content), shortHistory.map(message => message.content));
   assert.equal(stored.title, require('../../js/i18n.js').t('chat_branch_title', { title: 'Parent Chat' }));
+  assert.equal(stored.project, undefined, 'Sin proyecto en la original, la rama tampoco lo tiene');
+});
+
+test('ConversationService - la rama es del mismo proyecto que la conversación de la que sale', async t => {
+  const { anchor, options } = await setupBranch(t, HISTORY.slice(0, 3), 'm3');
+  State.set('sessions', { list: [{ id: 'parent_sess_1', title: 'Parent Chat', project: '/repo/app' }] });
+  useDialogs(t, []);
+  assert.equal(await ConversationService.createConversationBranch(anchor, options), true);
+  assert.equal((await savedBranches())[0].project, '/repo/app');
 });
 
 test('ConversationService - con resumen, la rama compacta el contexto previo y conserva literal la respuesta de anclaje', async t => {

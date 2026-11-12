@@ -342,7 +342,9 @@
       updatedAt: now,
       messageCount: branchHistory.length,
       profileId: branchProfileId,
-      serverRun: isServerRun
+      serverRun: isServerRun,
+      // La rama es del mismo proyecto que la conversación de la que sale.
+      ...(parentSession?.project ? { project: parentSession.project } : {})
     };
 
     const Storage = getStorage();
