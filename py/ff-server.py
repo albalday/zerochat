@@ -764,7 +764,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if method.startswith("zerochat/jobs/"):
             return self._dispatch_jobs(method, params, ctx)
         if method.startswith("zerochat/run/"):
-            return dispatch_run(method, params)
+            return dispatch_run(method, params, ctx)
         if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):
             return self._dispatch_server_control(method, params)
         if method.startswith("zerochat/browser/"):

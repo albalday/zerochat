@@ -6293,7 +6293,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if method.startswith("zerochat/jobs/"):
             return self._dispatch_jobs(method, params, ctx)
         if method.startswith("zerochat/run/"):
-            return dispatch_run(method, params)
+            return dispatch_run(method, params, ctx)
         if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):
             return self._dispatch_server_control(method, params)
         if method.startswith("zerochat/browser/"):
@@ -7089,8 +7089,8 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
     return runs, focus_run
 
 
-def start_server_run(params: dict) -> dict:
-    """Inicia una ejecución en segundo plano para una conversación."""
+def start_server_run(params: dict, ctx: SecurityContext) -> dict:
+    """Inicia una ejecución en segundo plano para una conversación, en su proyecto o, si no tiene, en el de la petición."""
     if not isinstance(params, dict):
         raise ValueError("Parámetros no válidos.")
     conv_id = params.get("conversation_id")
@@ -7133,7 +7133,6 @@ def start_server_run(params: dict) -> dict:
     if not find_node_executable():
         raise ValueError("Node.js 18+ es necesario para ejecutar tareas en segundo plano en el servidor (instala Node.js 18+).")
 
-    # La ejecución trabaja en el proyecto de la conversación; sin proyecto, en el actual del servidor.
     project = conv.get("project")
     if project and not Path(project).is_dir():
         raise ValueError(f"La carpeta del proyecto de la conversación ya no existe: {project}")
@@ -7158,7 +7157,7 @@ def start_server_run(params: dict) -> dict:
         stderr=subprocess.DEVNULL,
         start_new_session=DETECTED_OS != "windows" and hasattr(os, "setsid"),
         env=env,
-        cwd=project or str(PROJECT_DIR)
+        cwd=project or str(ctx.workspace_dir)
     )
 
     payload = {
@@ -7266,7 +7265,7 @@ def http_body_limit() -> int:
     return MAX_HTTP_BODY_BYTES
 
 
-def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+def dispatch_run(method: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
     """Métodos zerochat/run/* que usa la interfaz abierta por el modo ejecución."""
     params = params if isinstance(params, dict) else {}
     session = RUN_SESSION
@@ -7274,7 +7273,7 @@ def dispatch_run(method: str, params: dict) -> tuple[dict | None, dict | None, s
         if session is not None:
             return None, {"code": -32601, "message": "No disponible dentro de un proceso de ejecución."}, ""
         try:
-            return start_server_run(params), None, ""
+            return start_server_run(params, ctx), None, ""
         except ValueError as exc:
             return None, {"code": -32602, "message": str(exc)}, ""
         except OSError as exc:

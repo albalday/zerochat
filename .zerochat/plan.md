@@ -38,7 +38,7 @@ Decisiones: sin identidad de cliente (ni clientId ni Mcp-Session-Id): PC y table
 - [x] M62-T9 Documentar en py/README y en la ayuda es/en: estado por proyecto compartido entre pestañas y dispositivos, worktrees para trabajar en paralelo y un contenedor por usuario para multiusuario (2026-11-12)
 - [x] M62-T10 Proyecto de cada petición en una cabecera: el servidor valida la carpeta y busca o crea el estado de ese proyecto; set_directory solo cambia el proyecto de la pestaña (2026-11-12)
 - [x] M62-T11 Barra lateral: la vista del proyecto muestra también las conversaciones sin proyecto; separar el selector de la agrupación (2026-11-12)
-- [ ] M62-T12 start_server_run de una conversación sin proyecto arranca en el proyecto de la petición
+- [x] M62-T12 start_server_run de una conversación sin proyecto arranca en el proyecto de la petición (2026-11-12)
 - [ ] M62-T13 Reserva del navegador al ejecutar (directo y tras el reto), no al pedir; un solo cálculo del recurso
 - [ ] M62-T14 Quitar el error inalcanzable del tope de sesiones y previous_cwd; una sola clave de proyecto (SecurityContext.key)
 - [ ] M62-T15 ctx solo para los manejadores de herramientas que lo declaran

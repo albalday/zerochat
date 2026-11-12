@@ -10,6 +10,14 @@ import time
 import unittest
 from unittest import mock
 from backend import use_data_dir, zerochat
+from pathlib import Path
+
+# Proyecto de la petición, distinto del proyecto por defecto del servidor.
+CTX = zerochat.SecurityContext(Path(tempfile.gettempdir()).resolve())
+
+
+def dispatch_run(method, params):
+    return zerochat.dispatch_run(method, params, CTX)
 
 
 class ServerRunsInfrastructureTest(unittest.TestCase):
@@ -55,13 +63,13 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
 
         # zerochat/run/prompt entrega conversation_id y tool_security
         zerochat.RUN_SESSION = session
-        prompt_res, err, _ = zerochat.dispatch_run("zerochat/run/prompt", {"run_id": session.run_id})
+        prompt_res, err, _ = dispatch_run("zerochat/run/prompt", {"run_id": session.run_id})
         self.assertIsNone(err)
         self.assertEqual(prompt_res["conversation_id"], conv_id)
         self.assertEqual(prompt_res["tool_security"], {"directoryRules": ["R:/workspace"]})
 
         # zerochat/run/progress actualiza situación y streaming de texto y razonamiento
-        prog_res, err, _ = zerochat.dispatch_run("zerochat/run/progress", {
+        prog_res, err, _ = dispatch_run("zerochat/run/progress", {
             "run_id": session.run_id,
             "kind": "tool",
             "text": "run_command: pytest",
@@ -77,7 +85,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(data["reasoning_text"], "Pensando el siguiente paso...")
 
         # zerochat/run/result con needs_input guarda estado needs_input y pending
-        res_outcome, err, _ = zerochat.dispatch_run("zerochat/run/result", {
+        res_outcome, err, _ = dispatch_run("zerochat/run/result", {
             "run_id": session.run_id,
             "needs_input": {"kind": "ask_user", "question": "¿Deseas continuar?"}
         })
@@ -98,7 +106,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         # Nueva sesión con resultado error actualiza el fichero de situación
         session_err = zerochat.RunSession(conversation_id=conv_id)
         zerochat.RUN_SESSION = session_err
-        zerochat.dispatch_run("zerochat/run/result", {
+        dispatch_run("zerochat/run/result", {
             "run_id": session_err.run_id,
             "error": "Modelo no disponible"
         })
@@ -111,7 +119,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         session2 = zerochat.RunSession(conversation_id=conv_id)
         self.assertTrue(state_path.exists())
         zerochat.RUN_SESSION = session2
-        zerochat.dispatch_run("zerochat/run/result", {
+        dispatch_run("zerochat/run/result", {
             "run_id": session2.run_id,
             "text": "Respuesta final completa."
         })
@@ -124,7 +132,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         zerochat.RUN_SESSION = session
 
         # Borde exacto N (500) y N+1 (501) en step_text (RUN_PROGRESS_TEXT_MAX)
-        zerochat.dispatch_run("zerochat/run/progress", {
+        dispatch_run("zerochat/run/progress", {
             "run_id": session.run_id,
             "kind": "tool",
             "text": "a" * zerochat.RUN_PROGRESS_TEXT_MAX
@@ -133,7 +141,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(data["step_text"], "a" * zerochat.RUN_PROGRESS_TEXT_MAX)
         self.assertFalse(data["step_text"].endswith("…"))
 
-        zerochat.dispatch_run("zerochat/run/progress", {
+        dispatch_run("zerochat/run/progress", {
             "run_id": session.run_id,
             "kind": "tool",
             "text": "b" * (zerochat.RUN_PROGRESS_TEXT_MAX + 1)
@@ -143,7 +151,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(data["step_text"], ("b" * zerochat.RUN_PROGRESS_TEXT_MAX) + "…")
 
         # Borde exacto N (8000) y N+1 (8001) en assistant_text y reasoning_text (RUN_STREAM_TEXT_MAX)
-        zerochat.dispatch_run("zerochat/run/progress", {
+        dispatch_run("zerochat/run/progress", {
             "run_id": session.run_id,
             "kind": "stream",
             "assistant_text": "t" * zerochat.RUN_STREAM_TEXT_MAX,
@@ -155,7 +163,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(data["reasoning_text"], "r" * zerochat.RUN_STREAM_TEXT_MAX)
         self.assertFalse(data["reasoning_text"].endswith("…"))
 
-        zerochat.dispatch_run("zerochat/run/progress", {
+        dispatch_run("zerochat/run/progress", {
             "run_id": session.run_id,
             "kind": "stream",
             "assistant_text": "x" * (zerochat.RUN_STREAM_TEXT_MAX + 1),
@@ -324,11 +332,11 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         mock_proc.pid = os.getpid()
         with mock.patch.object(zerochat, "find_node_executable", return_value="/usr/bin/node"), \
              mock.patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
-            zerochat.start_server_run({"conversation_id": "conv_proj", "profile": "valid-profile"})
+            zerochat.start_server_run({"conversation_id": "conv_proj", "profile": "valid-profile"}, CTX)
             self.assertEqual(mock_popen.call_args.kwargs["cwd"], project)
             # Si la carpeta ya no existe no arranca en otra
             with self.assertRaises(ValueError):
-                zerochat.start_server_run({"conversation_id": "conv_gone", "profile": "valid-profile"})
+                zerochat.start_server_run({"conversation_id": "conv_gone", "profile": "valid-profile"}, CTX)
             self.assertEqual(mock_popen.call_count, 1)
         zerochat.remove_run_state("conv_proj")
 
@@ -346,14 +354,14 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             {"conversation_id": "conv_val", "profile": "valid-profile", "tool_security": "invalido"}
         ):
             with self.assertRaises(ValueError):
-                zerochat.start_server_run(invalid_params)
+                zerochat.start_server_run(invalid_params, CTX)
 
         mock_proc = mock.Mock()
         mock_proc.pid = os.getpid()
 
         with mock.patch.object(zerochat, "find_node_executable", return_value="/usr/bin/node"), \
              mock.patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
-            res, err, _ = zerochat.dispatch_run("zerochat/run/start", {
+            res, err, _ = dispatch_run("zerochat/run/start", {
                 "conversation_id": "conv_val",
                 "profile": "valid-profile",
                 "prompt": "Genera reporte",
@@ -376,7 +384,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             self.assertIn("--prompt", cmd)
             self.assertEqual(cmd[cmd.index("--prompt") + 1], "Genera reporte")
 
-            self.assertEqual(kwargs["cwd"], str(zerochat.PROJECT_DIR), "Sin proyecto arranca en el proyecto actual del servidor")
+            self.assertEqual(kwargs["cwd"], str(CTX.workspace_dir), "Sin proyecto arranca en el proyecto de la petición")
             env = kwargs["env"]
             self.assertEqual(env["ZEROCHAT_RUN_ID"], run_id)
             self.assertEqual(json.loads(env["ZEROCHAT_RUN_SECURITY"])["directoryRules"], ["R:/test"])
@@ -391,12 +399,12 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
 
             # Conflicto mientras la ejecución sigue en marcha
             with self.assertRaises(ValueError) as cm:
-                zerochat.start_server_run({"conversation_id": "conv_val", "profile": "valid-profile"})
+                zerochat.start_server_run({"conversation_id": "conv_val", "profile": "valid-profile"}, CTX)
             self.assertIn("en marcha", str(cm.exception))
 
         # cancel_server_run mata el proceso cuando está running y coincide pid_start
         with mock.patch.object(zerochat, "_kill_pid_tree") as mock_kill:
-            res_c, err_c, _ = zerochat.dispatch_run("zerochat/run/cancel", {"conversation_id": "conv_val"})
+            res_c, err_c, _ = dispatch_run("zerochat/run/cancel", {"conversation_id": "conv_val"})
             self.assertIsNone(err_c)
             self.assertTrue(res_c["cancelled"])
             mock_kill.assert_called_once_with(os.getpid())
