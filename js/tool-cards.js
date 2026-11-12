@@ -595,7 +595,8 @@
     const allowSessionButtonHtml = isCommandOffer
       ? ''
       : `<button type="button" class="btn-auth-action btn-auth-allow-session" title="${escapeHtml(t('tool_auth_allow_session'))}">${CLOCK_SVG} <span>${t('tool_auth_allow_session')}</span></button>`;
-    const allowAlwaysButtonHtml = isCommandOffer
+    // run_command solo se permite para siempre con un patrón; un comando compuesto no admite ninguno.
+    const allowAlwaysButtonHtml = isCommandOffer || toolName === getMcp().LOCAL_COMMAND_TOOL
       ? ''
       : `<button type="button" class="btn-auth-action btn-auth-allow-always" title="${escapeHtml(t('tool_auth_allow_always'))}">${SHIELD_SVG} <span>${t('tool_auth_allow_always')}</span></button>`;
 

@@ -118,9 +118,21 @@ test('Browser UI - autorización de comando concede la línea editable con alcan
       await pendingFile;
       cardFile.remove();
 
-      return { hasGenericAlwaysInCmd, hasGenericSessionInCmd, scopes, hasGenericAlwaysInFile, proposedPattern, rejected, stillPending, enabledAgain, cmdDecision };
+      // 3. run_command compuesto, sin oferta: no hay "siempre" sin patrón
+      const cardChained = window.ChatToolCards.createLiveToolCard('run_command', {});
+      document.body.appendChild(cardChained);
+      const pendingChained = window.ChatToolCards.promptToolAuthorization(cardChained, {
+        function: { name: 'run_command', arguments: JSON.stringify({ command: 'ls && pwd' }) }
+      }, { args: { command: 'ls && pwd' } });
+      const hasGenericAlwaysInChained = Boolean(cardChained.querySelector('.btn-auth-allow-always'));
+      cardChained.querySelector('.btn-auth-deny').click();
+      await pendingChained;
+      cardChained.remove();
+
+      return { hasGenericAlwaysInChained, hasGenericAlwaysInCmd, hasGenericSessionInCmd, scopes, hasGenericAlwaysInFile, proposedPattern, rejected, stillPending, enabledAgain, cmdDecision };
     });
     assert.deepEqual(result.scopes, ['allow_session', 'allow_project', 'allow_always']);
+    assert.equal(result.hasGenericAlwaysInChained, false, 'run_command solo se permite para siempre con un patrón');
     assert.equal(result.hasGenericSessionInCmd, false, 'En un comando la sesión se concede sobre la línea, no sobre run_command entero');
     assert.equal(result.proposedPattern, 'ls *');
     assert.deepEqual(result.rejected, { '  ': true, '*': true, ' * ': true, 'l* -l': true });

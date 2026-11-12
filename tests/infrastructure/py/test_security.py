@@ -224,7 +224,11 @@ class PolicyEvaluationTest(ControllerTestCase):
         set_patterns(self.controller, "git *")
         self.assertTrue(self.evaluate("run_command", {"command": "git status"}).allowed)
         for command in ("git status && ls", "git log | head", "git log > out.txt"):
-            self.assertEqual(self.evaluate("run_command", {"command": command}).reason, "command_chaining_requires_approval", command)
+            dec = self.evaluate("run_command", {"command": command})
+            self.assertEqual(dec.reason, "command_chaining_requires_approval", command)
+            # Sin patrón posible, la tarjeta no ofrece guardar ninguno
+            self.assertIsNone(dec.rule_offer, command)
+            self.assertFalse(zerochat.matches_command_pattern(command, "git *"), command)
 
     def test_leading_cd_must_be_covered_by_directory_rules(self):
         set_rules(self.controller, [f"RW:{self.norm_ws}/**"], self.ctx)
@@ -571,6 +575,11 @@ class CommandPatternTest(HandlerTestCase):
         self.assertEqual(gate["ruleOffer"]["command"], "echo hola *")
         # Si el * no cubriría los argumentos (fuera del proyecto), se ofrece el comando exacto
         self.assertEqual(self.command_challenge("cat /etc/hosts")["ruleOffer"]["command"], "cat /etc/hosts")
+        # Un comando compuesto no tiene patrón posible: ni se ofrece ni se acepta
+        chained = self.command_challenge("npm run test:unit && npm run test:integration")
+        self.assertIsNone(chained["ruleOffer"])
+        res, err = self.authorize(chained["challengeId"], "allow_session", commandPattern="npm run *")
+        self.assertEqual((res, err["code"]), (None, -32602))
         rejected = (
             ("allow_always", {}, "allow_always_requires_command_pattern"),
             ("allow_project", {}, "allow_project_requires_command_pattern"),

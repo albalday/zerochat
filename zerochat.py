@@ -2037,6 +2037,11 @@ def has_file_redirection(cmd: str) -> bool:
     return bool(re.search(r"[<>]", sanitized))
 
 
+def is_compound_command(cmd: str) -> bool:
+    """Encadenamiento, tubería o redirección: ningún patrón puede cubrir un comando así."""
+    return has_command_chaining(cmd) or has_file_redirection(cmd) or "|" in cmd
+
+
 def split_leading_cd(cmd: str) -> tuple[str | None, str]:
     """
     Separa un 'cd <dir> && <cmd>' o 'cd <dir> ; <cmd>' inicial: (dir, cmd), o (None, comando entero).
@@ -2106,8 +2111,10 @@ def matches_command_pattern(command: str, pattern: str) -> bool:
     """
     Verifica si un comando cumple un patrón autorizado, argumento a argumento: sin `*` el texto es
     exacto. Un argumento cubierto por un comodín no puede contener `..` ni lo que expande la shell, y
-    los del `*` final tampoco una ruta absoluta.
+    los del `*` final tampoco una ruta absoluta. Nunca cubre un comando compuesto.
     """
+    if is_compound_command(command):
+        return False
     words, rest = compile_command_pattern(str(pattern))
     try:
         args = shlex.split(command)
@@ -2128,7 +2135,7 @@ def command_outside_patterns(command: str, patterns: list[str]) -> tuple[str, st
     Motivo y detalle por los que los patrones no autorizan el comando (sin su cd inicial), o ('', '')
     si lo autorizan. Un patrón nunca cubre encadenamiento, tuberías ni redirecciones.
     """
-    if has_command_chaining(command) or has_file_redirection(command) or "|" in command:
+    if is_compound_command(command):
         return "command_chaining_requires_approval", f"Comando contiene encadenamiento no autorizado: {command}"
     if not any(matches_command_pattern(command, p) for p in patterns):
         return "command_outside_allowed_patterns", f"Comando fuera de los patrones autorizados: {command}"

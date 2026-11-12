@@ -61,3 +61,4 @@ Done when: Los probes C1-C3, S1-S3 y D1 de docs/audits/M61-permisos.md se compor
 - [x] M61-T35 Validación de decisiones y tope de entradas en un solo sitio (authorize_challenge/record_decision, _validate_state_payload/_check_entry_limit) (2026-11-12)
 - [x] M61-T36 ToolSecurityManager simplificado: applyPolicies sin renormalizar lo del backend, sin helpers de indirección ni doble canal de aviso (2026-11-12)
 - [x] M61-T37 tools/call local y externo por un único _call_tool en ff-server (2026-11-12)
+- [x] M61-T38 Comando compuesto (&&, |, >): sin oferta de patrón ni 'siempre' genérico en la tarjeta; un patrón nunca lo cubre (2026-11-12)
