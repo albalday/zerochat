@@ -458,8 +458,8 @@
         conversationId,
         profile: profile || UIProfiles.getSelectedServerProfile(),
         toolSecurity: sendOptions.toolDecision
-          ? { ...State.get('toolSecurity'), tool_decision: sendOptions.toolDecision }
-          : State.get('toolSecurity')
+          ? { ...ToolSecurity.manager.snapshot(), tool_decision: sendOptions.toolDecision }
+          : ToolSecurity.manager.snapshot()
       }),
       ...sendOptions
     });

@@ -50,8 +50,8 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
               if (params.directoryRules?.some(r => !/^(R|W|RW):/.test(r))) {
                 throw new Error('Invalid directory rule. Use R:, W: or RW: followed by a path.');
               }
-              const currentRules = params.directoryRules !== undefined ? params.directoryRules : window.ChatToolSecurity.manager.directoryRules;
-              const currentPolicy = params.globalMcpPolicy !== undefined ? params.globalMcpPolicy : window.ChatToolSecurity.manager.globalMcpPolicy;
+              const currentRules = params.directoryRules !== undefined ? params.directoryRules : window.ChatToolSecurity.manager.getDirectoryRules();
+              const currentPolicy = params.globalMcpPolicy !== undefined ? params.globalMcpPolicy : window.ChatToolSecurity.manager.getGlobalMcpPolicy();
               return { policies: {
                 defaultDirectoryRule: 'RW:/workspace/**',
                 directoryRules: currentRules,

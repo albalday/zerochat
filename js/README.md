@@ -37,7 +37,6 @@ Este documento contiene las especificaciones técnicas y normas de desarrollo pa
   * `telemetry`: métricas de tokens y tiempos.
   * `ui`: estado transitorio de la interfaz.
   * `mcp`: herramientas locales y servicios MCP activos.
-  * `toolSecurity`: políticas y permisos de ejecución de herramientas.
   * `project`: contexto y normas del proyecto local.
 * **Mutadores atómicos:** Prohibido usar variables globales mutables de módulo que provoquen fugas entre conversaciones. Cualquier cambio de estado debe realizarse exclusivamente a través de los mutadores de dominio específicos (`appendMessage`, `replaceMessages`, `removeTurn`, `saveSessionMetadata`, `removeSession`, `replaceConversation`, `importConversation`, `setAttachments`, etc.).
 
@@ -95,7 +94,7 @@ Este documento contiene las especificaciones técnicas y normas de desarrollo pa
 
 ## 10. Políticas de seguridad y permisos de herramientas (`js/tool-security.js`)
 
-* **Caché en memoria sin persistencia local:** `ChatToolSecurity` actúa como caché en memoria del backend (`AccessController`), sin persistencia propia en `localStorage`, `sessionStorage` o IndexedDB. SQLite en el servidor local es la única fuente de verdad de las políticas.
+* **Caché en memoria sin persistencia local:** `ChatToolSecurity` actúa como caché en memoria del backend (`AccessController`), sin persistencia propia en `localStorage`, `sessionStorage` o IndexedDB. SQLite en el servidor local es la única fuente de verdad de las políticas. Guarda tal cual el último estado exportado por el backend (`policies`), sin normalizarlo ni decidir nada; avisa a sus suscriptores (`subscribe`) y `snapshot()` da la copia que se envía a una ejecución en servidor (no hay slice en `ChatState`).
 * **Lecturas síncronas de memoria:** La interfaz consulta el estado cargado mediante getters síncronos (`getToolPolicy`, `getCommandPatterns`, `getServerPolicy`, `getDirectoryRules`, `getGlobalMcpPolicy`, `defaultDirectoryRule`), permitiendo renderizar tarjetas de herramientas y ajustes sin bloqueos.
 * **Mutaciones asíncronas vía RPC:** Las actualizaciones de políticas (`setToolPolicy`, `setServerPolicy`, `setDirectoryRules`, `setGlobalMcpPolicy`) se canalizan mediante `zerochat/security/update` como parches parciales (`{ tools: { id: policy | null }, ... }`; `addDirectoryRule` envía `addDirectoryRules`; `setCommandPatterns` envía `commandPatterns: { global, projects }`, que sustituye los patrones de comando guardados sin tocar los de sesión), adoptando atómicamente el estado exportado que devuelve el backend.
 * **Refresco automático (`refresh()`):** Se sincroniza tras conectar con el servidor local y tras cambios en el directorio de trabajo o proyecto (`project/set_directory`). Un cambio de token de sesión (`sessionToken`) relee el estado del backend, que es quien descarta las autorizaciones de sesión.

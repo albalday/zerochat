@@ -128,13 +128,7 @@ test('ChatState - Deniega activar una conversación durante una generación', ()
 test('ChatState - Contrato de slices canónicos y rechazo de escrituras no autorizadas', () => {
   const store = ChatState.createStore();
   assert.ok(Array.isArray(store.CANONICAL_SLICES));
-  assert.ok(store.CANONICAL_SLICES.includes('toolSecurity'));
-
-  const initialState = store.getState();
-  assert.deepEqual(initialState.toolSecurity, {
-    globalMcpPolicy: 'ask',
-    tools: {}
-  });
+  assert.ok(store.CANONICAL_SLICES.includes('project'));
 
   // set con slice no canónico debe lanzar error
   assert.throws(() => {

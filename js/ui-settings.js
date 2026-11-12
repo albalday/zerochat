@@ -89,7 +89,7 @@
     const policy = security.getGlobalMcpPolicy();
     elements.settingsDialog.querySelectorAll('input[name="mcp-global-policy"]').forEach(radio => { radio.checked = radio.value === policy; });
     if (elements.mcpDefaultDirectoryRule) {
-      elements.mcpDefaultDirectoryRule.value = security.defaultDirectoryRule || '';
+      elements.mcpDefaultDirectoryRule.value = security.getDefaultDirectoryRule();
     }
     elements.mcpDirectoryRules.value = security.getDirectoryRules().join('\n');
     elements.mcpDirectoryRulesError.textContent = '';
@@ -137,8 +137,8 @@
     const input = elements.mcpDirectoryRules;
     const rules = input.value.split(/\r?\n/).map(rule => rule.trim()).filter(Boolean);
     try {
-      const updated = await security.setDirectoryRules(rules);
-      input.value = updated.join('\n');
+      await security.setDirectoryRules(rules);
+      input.value = security.getDirectoryRules().join('\n');
       elements.mcpDirectoryRulesError.textContent = '';
       return true;
     } catch (error) {

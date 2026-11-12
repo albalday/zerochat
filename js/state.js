@@ -37,7 +37,6 @@
     'telemetry',
     'ui',
     'mcp',
-    'toolSecurity',
     'project'
   ]);
 
@@ -95,13 +94,7 @@
         focusRun: null
       },
 
-      // 8. Políticas de Seguridad de Herramientas (MCP y Built-in)
-      toolSecurity: {
-        globalMcpPolicy: 'ask',
-        tools: {}
-      },
-
-      // 9. Modo proyecto: común a todas las conversaciones (ver js/project-context.js)
+      // 8. Modo proyecto: común a todas las conversaciones (ver js/project-context.js)
       project: {
         cwd: '',
         status: 'disabled',

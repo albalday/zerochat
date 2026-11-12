@@ -130,22 +130,13 @@ test('ChatToolSecurity - mutaciones envían parches parciales y adoptan la respu
   assert.equal(manager.listAuthorizedServers().length, 0);
 });
 
-test('ChatToolSecurity - findToolEntry y findServerEntry son búsquedas exactas', () => {
+test('ChatToolSecurity - las políticas se buscan por id exacto y propio', () => {
   const manager = new ChatToolSecurity.ToolSecurityManager();
-  manager.applyPolicies({
-    tools: {
-      MyTool: { policy: 'allow', originalName: 'MyTool' }
-    },
-    servers: {
-      PlayWright: { policy: 'allow', serverName: 'PlayWright' }
-    }
-  });
-
-  // Búsqueda exacta
-  assert.notEqual(manager.findToolEntry('MyTool'), null);
-  assert.equal(manager.findToolEntry('mytool'), null);
-  assert.notEqual(manager.findServerEntry('PlayWright'), null);
-  assert.equal(manager.findServerEntry('playwright'), null);
+  manager.applyPolicies({ tools: { MyTool: { policy: 'allow' } }, servers: { PlayWright: { policy: 'allow' } } });
+  assert.equal(manager.getToolPolicy('MyTool'), 'allow');
+  assert.equal(manager.getToolPolicy('mytool'), null);
+  assert.equal(manager.getToolPolicy('__proto__'), null);
+  assert.equal(manager.getServerPolicy('playwright'), null);
 });
 
 test('ChatToolSecurity - authorizeChallenge ejecuta y siempre refresca políticas', async () => {
@@ -206,7 +197,7 @@ test('ChatToolSecurity - un listener que falla no detiene la notificación a los
   manager.subscribe(() => { throw new Error('broken listener'); });
   manager.subscribe(() => { notified = true; });
 
-  manager.notifyListeners();
+  manager.applyPolicies({});
 
   assert.equal(notified, true);
   assert.equal(console.warn.mock.callCount(), 1);

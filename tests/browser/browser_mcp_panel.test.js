@@ -13,14 +13,14 @@ async function withMcpPanel(mcp, fn) {
       const mockClient = {
         // Como el backend, fija grantedAt al conceder.
         async request(method, patch) {
-          const tools = Object.fromEntries(window.ChatToolSecurity.manager.tools);
+          const tools = { ...window.ChatToolSecurity.manager.policies.tools };
           if (patch?.tools) {
             for (const [id, val] of Object.entries(patch.tools)) {
               if (val === null) delete tools[id];
               else tools[id] = { ...val, grantedAt: Date.now() };
             }
           }
-          const servers = Object.fromEntries(window.ChatToolSecurity.manager.servers);
+          const servers = { ...window.ChatToolSecurity.manager.policies.servers };
           if (patch?.servers) {
             for (const [id, val] of Object.entries(patch.servers)) {
               if (val === null) delete servers[id];
@@ -29,13 +29,13 @@ async function withMcpPanel(mcp, fn) {
           }
           return {
             policies: {
-              globalMcpPolicy: patch?.globalMcpPolicy || window.ChatToolSecurity.manager.globalMcpPolicy,
-              directoryRules: patch?.directoryRules || window.ChatToolSecurity.manager.directoryRules,
+              globalMcpPolicy: patch?.globalMcpPolicy || window.ChatToolSecurity.manager.policies.globalMcpPolicy,
+              directoryRules: patch?.directoryRules || window.ChatToolSecurity.manager.policies.directoryRules,
               tools,
               servers,
               commandPatterns: patch?.commandPatterns
-                ? { global: [], projects: {}, ...patch.commandPatterns, session: window.ChatToolSecurity.manager.commandPatterns.session }
-                : window.ChatToolSecurity.manager.commandPatterns
+                ? { global: [], projects: {}, ...patch.commandPatterns, session: window.ChatToolSecurity.manager.policies.commandPatterns.session }
+                : window.ChatToolSecurity.manager.policies.commandPatterns
             }
           };
         }
