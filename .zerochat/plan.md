@@ -51,3 +51,5 @@ Done when: Los probes C1-C3, S1-S3 y D1 de docs/audits/M61-permisos.md se compor
 - [x] M61-T25 Rediseño visual de los permisos en Ajustes › MCP: alcance de cada prefijo claro (global, proyecto, sesión), alta cuadrada y con alcance elegible, permisos de sesión visibles (2026-11-12)
 - [x] M61-T26 Cambiar de proyecto (set_project_directory) borra las autorizaciones de sesión y los retos pendientes (2026-11-12)
 - [x] M61-T27 Revisar y reestructurar las pruebas de permisos (Python, integración y navegador): quitar redundancias y casos obsoletos, probar solo el comportamiento vigente e importante (2026-11-12)
+- [ ] M61-T28 `cd dir ;` al inicio del comando tratado como `cd dir &&` al evaluar patrones (hoy solo se reconoce `&&` y `;` pide permiso como encadenamiento)
+- [ ] M61-T29 Renombrar prefijos a patrones en backend, frontend, i18n y pruebas (`allowedPrefixes`, `projectPrefixes`, `sessionPrefixes`, `matches_command_prefix`, `setCommandPrefixes`…); sin migración, preproducción
