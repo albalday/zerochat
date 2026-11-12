@@ -19,10 +19,10 @@ def mark_browser_active():
     HEARTBEAT_INITIALIZED = True
 
 
-def live_state(focus_conversation_id: str | None = None) -> dict:
+def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -> dict:
     """
     Estado del servidor que la interfaz sigue en vivo, en initialize y en cada zerochat/heartbeat:
-    cwd, para notar que otra pestaña ha cambiado el directorio del proyecto; jobs, los comandos en
+    cwd, el proyecto de la pestaña que pregunta (su cabecera X-ZeroChat-Project); jobs, los comandos en
     marcha, para mostrarlos y avisar antes de cerrar si se detendrían; exit_on_close; playwright, si
     se puede navegar aunque se haya instalado o quitado durante la sesión; servers, los servicios
     MCP externos aunque otra pestaña los cambie o su proceso muera; runs, lista ligera de ejecuciones
@@ -30,7 +30,7 @@ def live_state(focus_conversation_id: str | None = None) -> dict:
     """
     runs, focus_run = list_server_runs(focus_conversation_id)
     return {
-        "cwd": str(PROJECT_DIR),
+        "cwd": str(ctx.workspace_dir),
         "jobs": [job.summary() for job in JOBS.running()],
         "exit_on_close": EXIT_ON_CLOSE,
         "playwright": playwright_status(),
@@ -406,7 +406,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return
         self.send_header("Access-Control-Allow-Origin", origin if origin else "*")
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, X-ZeroChat-Token, X-ZeroChat-Client, X-ZeroChat-Proxy, X-ZeroChat-Tool-Session, X-ZeroChat-Tool-Expires, X-ZeroChat-Tool-Nonce, X-ZeroChat-Tool-Signature, X-ZeroChat-Blob")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, X-ZeroChat-Token, X-ZeroChat-Client, X-ZeroChat-Proxy, X-ZeroChat-Tool-Session, X-ZeroChat-Tool-Expires, X-ZeroChat-Tool-Nonce, X-ZeroChat-Tool-Signature, X-ZeroChat-Blob, X-ZeroChat-Project")
         self.send_header("Access-Control-Allow-Private-Network", "true")
 
     def verify_token(self) -> bool:
@@ -649,7 +649,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         return None
 
     @classmethod
-    def _call_tool(cls, origin: str, params: dict) -> tuple[dict | None, dict | None, str]:
+    def _call_tool(cls, origin: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
         """tools/call de los dos endpoints: evalúa, emite un reto o ejecuta por el punto único."""
         tool_name = params.get("name", "")
         if origin == "local" and tool_name not in LOCAL_TOOL_HANDLERS:
@@ -659,48 +659,47 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         meta = params.get("_meta")
         # La clave del trabajo no es un argumento del modelo: no se evalúa ni se muestra en el reto.
         job_key = meta.get("zerochatJobKey") if origin == "local" and tool_name == COMMAND_TOOL and isinstance(meta, dict) else None
-        ctx = project_context()
         gate = cls._authorize_or_challenge(origin, tool_name, args, ctx, job_key)
         return gate if gate is not None else cls._execute_tool(origin, tool_name, cls._with_job_key(args, job_key), ctx)
 
-    def _dispatch_external(self, method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+    def _dispatch_external(self, method: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
         """Atiende /mcp/external. Devuelve (result, error JSON-RPC, detalle de error de herramienta)."""
         if method == "initialize":
             return self._initialize_result({"name": "ZeroChat External MCP Host", "version": VERSION}), None, ""
         if method == "tools/list":
             return {"tools": GLOBAL_MCP_MANAGER.tools()}, None, ""
         if method == "tools/call":
-            return self._call_tool("external", params)
+            return self._call_tool("external", params, ctx)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado en /mcp/external."}, ""
 
-    def _dispatch_local(self, method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+    def _dispatch_local(self, method: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
         """Atiende el endpoint local. Devuelve (result, error JSON-RPC, detalle de error de herramienta)."""
         if method == "initialize":
             server_info = {
                 "name": "ZeroChat Local Server",
                 "version": VERSION,
-                "cwd": str(PROJECT_DIR),
+                "cwd": str(ctx.workspace_dir),
                 "os": DETECTED_OS
             }
-            return {**self._initialize_result(server_info), "liveState": live_state()}, None, ""
+            return {**self._initialize_result(server_info), "liveState": live_state(ctx)}, None, ""
         if method == "zerochat/heartbeat":
             focus_id = params.get("focus_conversation_id") if isinstance(params, dict) else None
-            return live_state(focus_id), None, ""
+            return live_state(ctx, focus_id), None, ""
         if method == "zerochat/login":
             return self._login(params)
         if method == "tools/list":
             return {"tools": [dict(definition) for definition in LOCAL_TOOLS_DEFINITIONS]}, None, ""
         if method == "tools/call":
-            return self._call_tool("local", params)
+            return self._call_tool("local", params, ctx)
         if method == "zerochat/project/set_directory":
             # Lo invoca la interfaz a petición del usuario: no es una herramienta del modelo.
             try:
-                return set_project_directory(params.get("path")), None, ""
+                return resolve_project_directory(params.get("path"), ctx), None, ""
             except (ValueError, OSError) as exc:
                 return None, {"code": -32602, "message": str(exc)}, ""
         if method == "zerochat/diff/open":
             try:
-                return open_file_diff(params.get("path"), project_context(), bool(params.get("commit_fallback")), bool(params.get("gui"))), None, ""
+                return open_file_diff(params.get("path"), ctx, bool(params.get("commit_fallback")), bool(params.get("gui"))), None, ""
             except (ValueError, RuntimeError) as exc:
                 return None, {"code": -32602, "message": str(exc)}, ""
             except Exception as exc:
@@ -734,14 +733,13 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if method.startswith("zerochat/blobs/"):
             return self._dispatch_blobs(method, params)
         if method.startswith("zerochat/security/"):
-            return self._dispatch_security(method, params)
+            return self._dispatch_security(method, params, ctx)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @classmethod
-    def _dispatch_security(cls, method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+    def _dispatch_security(cls, method: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
         """Gestión de políticas y reglas de seguridad almacenadas en el backend local."""
         params = params if isinstance(params, dict) else {}
-        ctx = project_context()
         try:
             if method == "zerochat/security/get":
                 return {"policies": ACCESS_CONTROLLER.export_state(ctx)}, None, ""
@@ -1053,10 +1051,15 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return
 
         try:
+            ctx = request_project_context(self.headers.get("X-ZeroChat-Project"), fallback=method == "initialize")
+        except ValueError as ex:
+            self._send_rpc_response(req_id, (None, {"code": -32602, "message": str(ex)}, ""), log_detail, t0, quiet)
+            return
+        try:
             if "/mcp/external" in req_path:
-                outcome = self._dispatch_external(method, params)
+                outcome = self._dispatch_external(method, params, ctx)
             else:
-                outcome = self._dispatch_local(method, params)
+                outcome = self._dispatch_local(method, params, ctx)
         except Exception as ex:
             outcome = None, {"code": -32603, "message": f"Error interno: {ex}"}, ""
         self._send_rpc_response(req_id, outcome, log_detail, t0, quiet)

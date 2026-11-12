@@ -214,23 +214,22 @@ def edit_file(path: str, old_str: str, new_str: str, replace_all: bool = False, 
         return _tool_error(str(e))
 
 
-def set_project_directory(path) -> dict:
-    """Cambia el proyecto del servidor: base de las rutas relativas y de los comandos. El proceso no cambia de directorio."""
-    global PROJECT_DIR
+def resolve_project_directory(path, ctx: SecurityContext) -> dict:
+    """
+    Valida la carpeta que elige una pestaña como proyecto (relativa al suyo actual). El servidor no la
+    guarda: la pestaña la envía en cada petición (X-ZeroChat-Project) y otras pestañas siguen en la suya.
+    """
     if not isinstance(path, str) or not path.strip():
         raise ValueError("La ruta del directorio está vacía.")
     if len(path) > MAX_PATH_LENGTH:
         raise ValueError("La ruta del directorio excede el tamaño máximo permitido.")
-    target = project_context().absolute(path)
+    target = ctx.absolute(path)
     if not target.is_dir():
         raise ValueError(f"'{path}' no existe o no es un directorio.")
-    previous = PROJECT_DIR
-    # Los comandos en marcha conservan el directorio en que se lanzaron.
-    PROJECT_DIR = target
     # Lo autorizado en la sesión valía para el proyecto anterior.
-    if target != previous:
+    if target != ctx.workspace_dir:
         reset_session_authorizations()
-    return {"cwd": str(target), "previous_cwd": str(previous)}
+    return {"cwd": str(target), "previous_cwd": str(ctx.workspace_dir)}
 
 
 def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100, *, ctx: SecurityContext) -> str:

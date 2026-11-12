@@ -48,7 +48,7 @@
   /**
    * Las herramientas del servidor local actúan en su directorio: solo están disponibles con el servidor
    * conectado y si la conversación activa es de ese proyecto (o aún no tiene ninguno). Así una conversación
-   * cuyo proyecto ya no existe, o que otra pestaña sacó de su carpeta, nunca actúa en otra.
+   * cuyo proyecto ya no existe nunca actúa en otra carpeta.
    */
   function localToolsAvailable() {
     const State = getState();
@@ -90,6 +90,15 @@
 
   /** Cabeceras del proxy inverso: X-ZeroChat-Proxy enruta hacia zerochat.py y Authorization lleva su clave. */
   const proxyHeaders = proxyKey => (proxyKey === null ? {} : { 'X-ZeroChat-Proxy': '1', Authorization: `Bearer ${proxyKey}` });
+
+  /**
+   * El proyecto es de la pestaña: viaja en cada petición al servidor local, que lo usa como carpeta de
+   * trabajo y no lo guarda. Sin proyecto todavía (la primera conexión), el servidor usa el suyo por defecto.
+   */
+  function projectHeaders() {
+    const cwd = getState().get('mcp').serverInfo?.cwd;
+    return cwd ? { 'X-ZeroChat-Project': encodeURIComponent(cwd) } : {};
+  }
   // Un 401 (sin token, caducado o de otro día) pide identificarse con la cuenta del sistema.
   const failureStatus = error => (error?.status === 401 ? 'login_required' : 'error');
 
@@ -218,7 +227,7 @@
         headers['Authorization'] = `Bearer ${this.token}`;
         headers['X-ZeroChat-Token'] = this.token;
       }
-      return Object.assign(headers, this.headers);
+      return Object.assign(headers, this.headers, this.isLocalServer ? projectHeaders() : {});
     }
 
     buildRequestHeaders(targetUrl, body, options) {
@@ -686,7 +695,7 @@
      */
     /** Sondea el destino de la conexión con el token de la sesión. */
     probeTarget(timeoutMs = PROBE_TIMEOUT_MS) {
-      return probeConnection(this.target.url, { timeoutMs, token: this.sessionToken, headers: proxyHeaders(this.target.proxyKey) });
+      return probeConnection(this.target.url, { timeoutMs, token: this.sessionToken, headers: { ...proxyHeaders(this.target.proxyKey), ...projectHeaders() } });
     }
 
     /**
@@ -890,7 +899,7 @@
       return lines.join('\n');
     }
 
-    /** Cambia el directorio del proyecto en el servidor local: a petición del usuario o al abrir una conversación de otro proyecto. */
+    /** Cambia el proyecto de esta pestaña (las demás siguen en el suyo): a petición del usuario o al abrir una conversación de otro proyecto. */
     async setProjectDirectory(path) {
       const result = await this.requestExternalControl('zerochat/project/set_directory', { path });
       await this.applyLiveState({ cwd: result?.cwd });

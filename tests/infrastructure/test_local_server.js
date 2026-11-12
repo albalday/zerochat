@@ -37,8 +37,8 @@ describe('Servidor local zerochat.py', () => {
     });
   }
   const rpc = async (method, params, options) => (await post(method, params, options)).json();
-  async function callTool(name, args, meta) {
-    const res = await post('tools/call', { name, arguments: args, ...(meta ? { _meta: meta } : {}) });
+  async function callTool(name, args, meta, headers = {}) {
+    const res = await post('tools/call', { name, arguments: args, ...(meta ? { _meta: meta } : {}) }, { headers });
     assert.equal(res.status, 200);
     let json = await res.json();
     if (json.result?.requiresAuthorization) {
@@ -46,7 +46,7 @@ describe('Servidor local zerochat.py', () => {
         challengeId: json.result.challengeId,
         decision: 'allow_once',
         directoryRule: `RW:${os.tmpdir()}/**`
-      });
+      }, { headers });
       json = { jsonrpc: '2.0', id: json.id, result: auth.result?.result };
     }
     return { json, parsed: JSON.parse(json.result?.content?.[0]?.text) };
@@ -120,11 +120,12 @@ describe('Servidor local zerochat.py', () => {
     await api.text();
     const preflight = await fetch(baseUrl, {
       method: 'OPTIONS',
-      headers: { Origin: ORIGIN, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'x-zerochat-proxy, x-zerochat-blob' }
+      headers: { Origin: ORIGIN, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'x-zerochat-proxy, x-zerochat-blob, x-zerochat-project' }
     });
     assert.equal(preflight.status, 204);
     assert.match(preflight.headers.get('access-control-allow-headers'), /X-ZeroChat-Proxy/);
     assert.match(preflight.headers.get('access-control-allow-headers'), /X-ZeroChat-Blob/);
+    assert.match(preflight.headers.get('access-control-allow-headers'), /X-ZeroChat-Project/);
     const client = new McpClient({ url: baseUrl, token: testToken });
     assert.ok(Array.isArray((await client.request('tools/list')).tools));
   });
@@ -212,22 +213,14 @@ describe('Servidor local zerochat.py', () => {
     assert.match((await res.json()).error || '', /Argumento no permitido: cwd/);
   });
 
-  test('el directorio del proyecto lo cambia la interfaz y lo publica el latido', async () => {
-    const startCwd = initResult.serverInfo.cwd;
+  test('set_directory rechaza carpetas no válidas y el latido publica Playwright', async () => {
     const projectDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-project-')));
-    const setDirectory = params => rpc('zerochat/project/set_directory', params);
     try {
-      const moved = await setDirectory({ path: projectDir });
-      assert.equal(moved.result?.cwd, projectDir);
-      assert.equal(moved.result?.previous_cwd, startCwd);
-      const movedHb = await heartbeat();
-      assert.equal(movedHb.cwd, projectDir, 'El heartbeat publica el nuevo directorio');
-      assert.deepEqual(movedHb.playwright, { installed: true, browserAction: { available: true } }, 'El heartbeat publica el estado de Playwright');
       for (const params of [{ path: path.join(projectDir, 'missing') }, { path: 7 }, {}]) {
-        assert.equal((await setDirectory(params)).error?.code, -32602, JSON.stringify(params));
+        assert.equal((await rpc('zerochat/project/set_directory', params)).error?.code, -32602, JSON.stringify(params));
       }
+      assert.deepEqual((await heartbeat()).playwright, { installed: true, browserAction: { available: true } }, 'El heartbeat publica el estado de Playwright');
     } finally {
-      assert.equal((await setDirectory({ path: startCwd })).result?.cwd, startCwd);
       fs.rmSync(projectDir, { recursive: true, force: true });
     }
   });
@@ -252,6 +245,29 @@ describe('Servidor local zerochat.py', () => {
     assert.equal(failing.json.result.isError, true);
     assert.equal(failing.parsed.exit_code, 2);
     assert.equal(failing.parsed.output, `${fs.realpathSync(repoRoot)}\ndos\n`);
+  });
+
+  test('cada pestaña trabaja en el proyecto de su cabecera y una carpeta que ya no existe no cae en otra', async () => {
+    const projects = ['a', 'b'].map(name => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `zc-proyecto-${name}-`))));
+    const header = dir => ({ 'X-ZeroChat-Project': encodeURIComponent(dir) });
+    try {
+      for (const dir of projects) {
+        assert.equal((await callTool('run_command', { command: 'pwd' }, null, header(dir))).parsed.output, `${dir}\n`);
+        assert.equal((await rpc('zerochat/heartbeat', {}, { headers: header(dir) })).result.cwd, dir);
+      }
+      // Elegir carpeta solo la valida para la pestaña: sin cabecera sigue el proyecto por defecto
+      const chosen = await rpc('zerochat/project/set_directory', { path: projects[1] }, { headers: header(projects[0]) });
+      assert.deepEqual(chosen.result, { cwd: projects[1], previous_cwd: projects[0] });
+      assert.equal((await rpc('zerochat/heartbeat')).result.cwd, fs.realpathSync(repoRoot));
+
+      fs.rmSync(projects[1], { recursive: true });
+      const gone = await post('tools/call', { name: 'run_command', arguments: { command: 'pwd' } }, { headers: header(projects[1]) });
+      assert.equal((await gone.json()).error.code, -32602, 'Nunca se ejecuta en otra carpeta');
+      // initialize sí responde, con el proyecto por defecto, para que la pestaña sepa dónde está
+      assert.equal((await rpc('initialize', {}, { headers: header(projects[1]) })).result.serverInfo.cwd, fs.realpathSync(repoRoot));
+    } finally {
+      projects.forEach(dir => fs.rmSync(dir, { recursive: true, force: true }));
+    }
   });
 
   test('un comando en marcha se publica en el latido y se sigue y se detiene con zerochat/jobs/*', async () => {

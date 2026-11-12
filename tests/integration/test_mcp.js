@@ -826,6 +826,22 @@ test('MCP - startExternalServer espera instalaciones largas y limita cada fase',
   }
 });
 
+test('MCP - el cliente del servidor local envía el proyecto de la pestaña; un servidor externo no lo recibe', () => {
+  const previousMcp = ChatState.get('mcp');
+  try {
+    const local = new MCP.McpClient({ id: 'mcp_proxy', url: 'http://127.0.0.1:6883' });
+    const external = new MCP.McpClient({ id: 'otro', url: 'https://mcp.example.com' });
+    ChatState.set('mcp', { ...previousMcp, serverInfo: null });
+    assert.equal(local.buildHeaders()['X-ZeroChat-Project'], undefined, 'Sin proyecto el servidor usa el suyo por defecto');
+    ChatState.set('mcp', { ...previousMcp, serverInfo: { cwd: '/home/yo/año nuevo' } });
+    assert.equal(decodeURIComponent(local.buildHeaders()['X-ZeroChat-Project']), '/home/yo/año nuevo');
+    assert.match(local.buildHeaders()['X-ZeroChat-Project'], /^[\x20-\x7e]+$/, 'Una cabecera HTTP solo admite ASCII');
+    assert.equal(external.buildHeaders()['X-ZeroChat-Project'], undefined);
+  } finally {
+    ChatState.set('mcp', previousMcp);
+  }
+});
+
 test('MCP - las herramientas locales solo están disponibles si la conversación activa es del proyecto del servidor', async () => {
   const previousMcp = ChatState.get('mcp');
   const previousSessions = ChatState.get('sessions');

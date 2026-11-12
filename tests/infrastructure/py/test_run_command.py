@@ -60,33 +60,35 @@ class RunCommandTest(unittest.TestCase):
         for bad in ("", "   "):
             self.assertIs(run(bad)["success"], False)
 
-    def test_set_project_directory_mueve_la_raiz_de_rutas_relativas_y_comandos(self):
+    def test_el_proyecto_de_la_peticion_es_la_raiz_de_rutas_relativas_y_comandos(self):
         dev_root = zerochat.get_dev_root()
         process_cwd = Path.cwd()
         (self.project / "note.txt").write_text("hola", encoding="utf-8")
-        read_note = lambda: json.loads(zerochat.read_file("note.txt", ctx=zerochat.project_context()))
+        ctx = zerochat.SecurityContext(self.project)
         for bad in ("", "   ", None, 7, "x" * 5000, str(self.project / "missing"), str(self.project / "note.txt")):
             with self.subTest(path=bad):
                 with self.assertRaises(ValueError):
-                    zerochat.set_project_directory(bad)
-                self.assertEqual(zerochat.PROJECT_DIR, self.project)
+                    zerochat.resolve_project_directory(bad, ctx)
 
-        self.assertEqual(zerochat.set_project_directory(str(self.project)), {"cwd": str(self.project), "previous_cwd": str(self.project)})
-        self.assertTrue(read_note()["content"].startswith("hola"))
+        self.assertEqual(zerochat.resolve_project_directory(str(self.project), ctx), {"cwd": str(self.project), "previous_cwd": str(self.project)})
+        self.assertTrue(json.loads(zerochat.read_file("note.txt", ctx=ctx))["content"].startswith("hola"))
         self.assertEqual(run("pwd")["output"].strip(), str(self.project))
 
         # cd solo vale dentro del comando: el proyecto (y las rutas relativas) siguen en la raíz.
         self.assertEqual(run("cd src && pwd")["output"].strip(), str(self.project / "src"))
         self.assertEqual(run("cd src; pwd")["output"].strip(), str(self.project / "src"))
-        self.assertIs(read_note()["success"], True)
 
-        # Una ruta relativa se resuelve contra el proyecto actual y los comandos arrancan en la nueva raíz.
-        self.assertEqual(zerochat.set_project_directory("src")["cwd"], str(self.project / "src"))
-        self.assertEqual(run("pwd")["output"].strip(), str(self.project / "src"))
+        # Una ruta relativa se resuelve contra el proyecto de la petición; el servidor no la guarda.
+        src = zerochat.resolve_project_directory("src", ctx)["cwd"]
+        self.assertEqual(src, str(self.project / "src"))
+        self.assertEqual(zerochat.PROJECT_DIR, self.project)
+        src_ctx = zerochat.SecurityContext(Path(src))
+        self.assertEqual(json.loads(zerochat.run_command("pwd", ctx=src_ctx))["output"].strip(), src)
+        self.assertEqual(run("pwd")["output"].strip(), str(self.project))
         # El proceso nunca cambia de directorio: el proyecto viaja en el contexto.
         self.assertEqual(Path.cwd(), process_cwd)
         self.assertEqual(zerochat.get_dev_root(), dev_root)
-        self.assertNotIn("set_project_directory", zerochat.LOCAL_TOOL_HANDLERS)
+        self.assertNotIn("resolve_project_directory", zerochat.LOCAL_TOOL_HANDLERS)
 
     def test_el_plazo_agotado_mata_tambien_a_los_descendientes(self):
         pid_file = self.data_dir / "timeout.pid"

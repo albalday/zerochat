@@ -206,7 +206,7 @@ class StorageEngineTest(unittest.TestCase):
             "conversation": {"id": "rpc_conv_1", "title": "Conversación RPC", "createdAt": 1700000000000, "updatedAt": 1700000001000},
             "messages": [{"id": "m1", "role": "user", "content": "Hola desde RPC"}]
         }
-        res, err, _ = handler._dispatch_local("zerochat/conversations/save", payload1)
+        res, err, _ = handler._dispatch_local("zerochat/conversations/save", payload1, zerochat.project_context())
         self.assertIsNone(err)
         self.assertEqual(res["conversation"]["id"], "rpc_conv_1")
         self.assertEqual(res["conversation"]["title"], "Conversación RPC")
@@ -228,13 +228,13 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(res["conversation"]["messageCount"], 1)
 
         # 3. Listar conversaciones
-        res, err, _ = handler._dispatch_local("zerochat/conversations/list", {})
+        res, err, _ = handler._dispatch_local("zerochat/conversations/list", {}, zerochat.project_context())
         self.assertIsNone(err)
         self.assertEqual(len(res["conversations"]), 2)
         self.assertEqual(res["conversations"][0]["id"], "rpc_conv_2")
 
         # 4. Obtener conversación completa por id
-        res, err, _ = handler._dispatch_local("zerochat/conversations/get", {"id": "rpc_conv_1"})
+        res, err, _ = handler._dispatch_local("zerochat/conversations/get", {"id": "rpc_conv_1"}, zerochat.project_context())
         self.assertIsNone(err)
         self.assertIsNotNone(res["conversation"])
         self.assertEqual(res["conversation"]["id"], "rpc_conv_1")
@@ -246,7 +246,7 @@ class StorageEngineTest(unittest.TestCase):
         self.assertIsNone(res_inexist["conversation"])
 
         # 5. Renombrar conversación
-        res, err, _ = handler._dispatch_local("zerochat/conversations/rename", {"id": "rpc_conv_1", "title": "Título Modificado"})
+        res, err, _ = handler._dispatch_local("zerochat/conversations/rename", {"id": "rpc_conv_1", "title": "Título Modificado"}, zerochat.project_context())
         self.assertIsNone(err)
         self.assertTrue(res["renamed"])
 
@@ -258,7 +258,7 @@ class StorageEngineTest(unittest.TestCase):
         self.assertFalse(res_ren_inexist["renamed"])
 
         # 6. Borrar una conversación
-        res, err, _ = handler._dispatch_local("zerochat/conversations/delete", {"id": "rpc_conv_1"})
+        res, err, _ = handler._dispatch_local("zerochat/conversations/delete", {"id": "rpc_conv_1"}, zerochat.project_context())
         self.assertIsNone(err)
         self.assertTrue(res["deleted"])
 
@@ -608,24 +608,24 @@ class StorageEngineTest(unittest.TestCase):
         res, err, _ = handler._dispatch_local("zerochat/blobs/put", {
             "mimeType": "image/png",
             "data": f"data:image/png;base64,{b64}"
-        })
+        }, zerochat.project_context())
         self.assertIsNone(err)
         self.assertEqual(res["id"], expected_id)
         self.assertEqual(res["mimeType"], "image/png")
         self.assertEqual(res["size"], len(raw))
 
         # zerochat/blobs/get
-        res, err, _ = handler._dispatch_local("zerochat/blobs/get", {"id": expected_id})
+        res, err, _ = handler._dispatch_local("zerochat/blobs/get", {"id": expected_id}, zerochat.project_context())
         self.assertIsNone(err)
         self.assertEqual(res["blob"]["id"], expected_id)
         self.assertEqual(res["blob"]["data"], b64)
 
         # zerochat/blobs/has
-        res, err, _ = handler._dispatch_local("zerochat/blobs/has", {"ids": [expected_id, "0" * 64]})
+        res, err, _ = handler._dispatch_local("zerochat/blobs/has", {"ids": [expected_id, "0" * 64]}, zerochat.project_context())
         self.assertIsNone(err)
         self.assertEqual(res["existing"], [expected_id])
         self.assertEqual(res["missing"], ["0" * 64])
 
         # Error en put sin data
-        res, err, _ = handler._dispatch_local("zerochat/blobs/put", {})
+        res, err, _ = handler._dispatch_local("zerochat/blobs/put", {}, zerochat.project_context())
         self.assertEqual(err["code"], -32602)

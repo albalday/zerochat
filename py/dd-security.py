@@ -54,14 +54,31 @@ WORKSPACE_TRUST_GLOBAL_COMMANDS = re.compile(r"(?:^|\s)(?:sudo|su|doas|mkfs|rebo
 WORKSPACE_TRUST_OUTSIDE_REFERENCE = re.compile(r"(?:^|[\s=:'\"])(?:[\\/~]|[A-Za-z]:[\\/])|\$|(?:^|[\s=:'\"\\/])\.\.(?=[\s\\/'\"]|$)")
 
 
-# Carpeta del proyecto del servidor: la de arranque, y después la que elige set_project_directory.
-# El proceso nunca cambia de directorio: las herramientas reciben el proyecto en su SecurityContext.
+# Proyecto por defecto: la carpeta de arranque, para las peticiones que no indican el suyo (la primera
+# conexión de una pestaña, las ejecuciones en servidor). El proceso nunca cambia de directorio: cada
+# petición recibe su proyecto en un SecurityContext.
 PROJECT_DIR = Path.cwd().resolve()
 
 
 def project_context() -> "SecurityContext":
-    """Contexto del proyecto actual del servidor."""
+    """Contexto del proyecto por defecto del servidor."""
     return SecurityContext(PROJECT_DIR)
+
+
+def request_project_context(raw: str | None, *, fallback: bool) -> "SecurityContext":
+    """
+    Proyecto de una petición: la carpeta absoluta de la cabecera X-ZeroChat-Project (codificada como en
+    una URL) o, sin cabecera, el proyecto por defecto. Una carpeta que ya no existe es un error, salvo con
+    fallback (initialize), que devuelve el proyecto por defecto para que la pestaña sepa dónde está.
+    """
+    if not raw:
+        return project_context()
+    path = Path(urllib.parse.unquote(raw))
+    if path.is_absolute() and path.is_dir():
+        return SecurityContext(path.resolve())
+    if fallback:
+        return project_context()
+    raise ValueError(f"La carpeta del proyecto de la pestaña ya no existe: {path}")
 
 
 @dataclasses.dataclass

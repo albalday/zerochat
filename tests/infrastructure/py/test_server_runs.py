@@ -437,21 +437,21 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             "assistant_text": "Live test"
         }), encoding="utf-8")
 
-        state = zerochat.live_state()
+        state = zerochat.live_state(zerochat.project_context())
         self.assertIn("runs", state)
         self.assertIn("focus_run", state)
         self.assertEqual(len(state["runs"]), 1)
         self.assertEqual(state["runs"][0]["conversation_id"], "conv_hb")
         self.assertIsNone(state["focus_run"])
 
-        state_focused = zerochat.live_state(focus_conversation_id="conv_hb")
+        state_focused = zerochat.live_state(zerochat.project_context(), focus_conversation_id="conv_hb")
         self.assertIsNotNone(state_focused["focus_run"])
         self.assertEqual(state_focused["focus_run"]["assistant_text"], "Live test")
 
         handler = mock.Mock(spec=zerochat.ZeroChatServerHandler)
         outcome = zerochat.ZeroChatServerHandler._dispatch_local(handler, "zerochat/heartbeat", {
             "focus_conversation_id": "conv_hb"
-        })
+        }, zerochat.project_context())
         result, error, _ = outcome
         self.assertIsNone(error)
         self.assertIsNotNone(result["focus_run"])
