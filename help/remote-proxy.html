@@ -77,6 +77,7 @@
         <li><strong>Intentos limitados:</strong> tras 5 intentos fallidos seguidos, zerochat rechaza los siguientes durante 15 minutos sin comprobarlos.</li>
         <li><strong>Bloqueo de cuentas del sistema:</strong> si el equipo bloquea la cuenta tras varios fallos (por ejemplo, con <code>pam_faillock</code>), deja ese límite por encima del de zerochat. Si no, unos intentos fallidos desde la web podrían bloquear también el inicio de sesión local.</li>
         <li><strong>Herramientas firmadas:</strong> cada llamada a una herramienta va firmada para esa sesión y caduca en segundos, aunque alguien vea pasar la petición.</li>
+        <li><strong>Una persona por servidor:</strong> zerochat actúa con la cuenta del sistema que lo ejecuta (la shell, los ficheros y los servicios MCP) y todo el que se identifica comparte sus conversaciones y permisos. Para varias personas, da a cada una su propio servidor, por ejemplo un contenedor (Docker) por usuario con su volumen de datos (<code>ZEROCHAT_DATA_DIR</code>), y que el proxy dirija a cada una al suyo.</li>
       </ul>
     </div>
 

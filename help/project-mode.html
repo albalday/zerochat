@@ -86,7 +86,9 @@
       <li>Si falta <code>AGENTS.md</code> o su sección <em>Project memory</em>, el agente propone añadirla. Colócala al principio del fichero: se leen 16 KB.</li>
       <li>El contenido se trata como datos del repositorio, no como instrucciones privilegiadas, y se lee hasta 16 KB por fichero.</li>
       <li>Las normas y el estado sobreviven a la compactación del historial; el resumen señala lo que aún falta por registrar.</li>
-      <li>El sistema organiza la información, pero no garantiza que el modelo la siga. Revisa lo que propone, sobre todo con modelos pequeños.</li></ul>
+      <li>El sistema organiza la información, pero no garantiza que el modelo la siga. Revisa lo que propone, sobre todo con modelos pequeños.</li>
+      <li><strong>Varios proyectos a la vez:</strong> cada pestaña o dispositivo trabaja en su proyecto. Quienes trabajan en el mismo proyecto (otra pestaña, la tablet) comparten lo autorizado en la sesión, los retos pendientes y los comandos en marcha, así que puedes continuar el trabajo desde otro sitio; otro proyecto no ve nada de eso. El servidor recuerda en memoria hasta 16 proyectos y, al pasar de ahí, olvida lo autorizado en la sesión del usado hace más tiempo sin comandos en marcha.</li>
+      <li><strong>Trabajo en paralelo en un mismo repositorio:</strong> ZeroChat no sincroniza los ficheros entre conversaciones, como tampoco lo hacen otros agentes: dos conversaciones que editan a la vez el mismo repositorio pueden pisarse. Para trabajar en paralelo, crea un <code>git worktree</code> por conversación (por ejemplo, <code>git worktree add ../app-tarea rama</code>) y ábrelo como proyecto propio.</li></ul>
     </div>
 
     <nav class="page-navigation" aria-label="Navegación de ayuda">

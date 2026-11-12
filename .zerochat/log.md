@@ -115,3 +115,4 @@
 - 2026-11-12 M62-D9 Los comandos son del proyecto de su cwd: JOBS.get/list/running/report_finished reciben el proyecto (None solo al apagar); check_command, zerochat/jobs/* y live_state solo ven los del proyecto de la petición; heartbeat global (M62-T6)
 - 2026-11-12 M62-D10 BrowserLease por recurso (browser_action, playwright): reserva al llamar (antes del reto), error de herramienta para otra conversación y liberación tras 300 s sin uso; la interfaz envía zerochatConversationId solo en llamadas a navegadores (M62-T7)
 - 2026-11-12 M62-D11 MAX_PROJECT_SESSIONS = 16; ProjectSession guarda su carpeta y last_used; al crear la 17.ª se olvida la de last_used menor sin JOBS.running y, si todas tienen comandos, ValueError (M62-T8)
+- 2026-11-12 M62-D12 Documentado en py/README (multisesión y multiusuario), ayuda del modo proyecto (varios proyectos, worktrees) y del proxy remoto (una persona por servidor, contenedor por usuario), es/en (M62-T9)

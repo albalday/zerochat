@@ -86,7 +86,9 @@
       <li>If <code>AGENTS.md</code> or its <em>Project memory</em> section is missing, the agent proposes adding it. Place it at the top of the file: 16 KB are read.</li>
       <li>Contents are treated as repository data, not privileged instructions, and each file is read up to 16 KB.</li>
       <li>The rules and state survive history compaction; the summary flags anything not yet recorded.</li>
-      <li>The system organizes information, but it does not guarantee that the model follows it. Review what it proposes, especially with small models.</li></ul>
+      <li>The system organizes information, but it does not guarantee that the model follows it. Review what it proposes, especially with small models.</li>
+      <li><strong>Several projects at once:</strong> each tab or device works in its own project. Those working on the same project (another tab, the tablet) share what was allowed for the session, pending challenges and running commands, so you can carry on from somewhere else; another project sees none of it. The server keeps up to 16 projects in memory and, beyond that, forgets the session permissions of the one used longest ago without running commands.</li>
+      <li><strong>Parallel work on one repository:</strong> ZeroChat does not synchronize files between conversations, and neither do other agents: two conversations editing the same repository at once may overwrite each other. To work in parallel, create a <code>git worktree</code> per conversation (for example, <code>git worktree add ../app-task branch</code>) and open it as its own project.</li></ul>
     </div>
 
     <nav class="page-navigation" aria-label="Help navigation">
