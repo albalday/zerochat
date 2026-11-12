@@ -748,19 +748,14 @@ class SessionLifecycleTest(HandlerTestCase):
         running = set()
         self.addCleanup(setattr, zerochat, "JOBS", zerochat.JOBS)
         zerochat.JOBS = unittest.mock.Mock(running=lambda project: [project] if project in running else [])
+        key = lambda name: projects[name].key
         with unittest.mock.patch.object(zerochat, "MAX_PROJECT_SESSIONS", 2):
             controller.apply_session_overlay({"tools": {"t": {"policy": "allow"}}}, projects["a"])
             controller.export_state(projects["b"])
             self.assertEqual(len(controller.sessions), 2, "N proyectos caben")
-            key = lambda name: zerochat.normalize_directory_path(str(projects[name].workspace_dir))
             # N+1: se olvida el usado hace más tiempo (a), salvo que tenga comandos en marcha: entonces b
-            running.add(str(projects["a"].workspace_dir))
+            running.add(key("a"))
             controller.export_state(projects["c"])
-            self.assertEqual(set(controller.sessions), {key("a"), key("c")})
-            # Si todos tienen comandos en marcha, el nuevo no entra
-            running.add(str(projects["c"].workspace_dir))
-            with self.assertRaises(ValueError):
-                controller.export_state(projects["d"])
             self.assertEqual(set(controller.sessions), {key("a"), key("c")})
             running.clear()
             controller.export_state(projects["d"])

@@ -257,7 +257,7 @@ describe('Servidor local zerochat.py', () => {
       }
       // Elegir carpeta solo la valida para la pestaña: sin cabecera sigue el proyecto por defecto
       const chosen = await rpc('zerochat/project/set_directory', { path: projects[1] }, { headers: header(projects[0]) });
-      assert.deepEqual(chosen.result, { cwd: projects[1], previous_cwd: projects[0] });
+      assert.deepEqual(chosen.result, { cwd: projects[1] });
       assert.equal((await rpc('zerochat/heartbeat')).result.cwd, fs.realpathSync(repoRoot));
 
       fs.rmSync(projects[1], { recursive: true });

@@ -70,7 +70,7 @@ class RunCommandTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     zerochat.resolve_project_directory(bad, ctx)
 
-        self.assertEqual(zerochat.resolve_project_directory(str(self.project), ctx), {"cwd": str(self.project), "previous_cwd": str(self.project)})
+        self.assertEqual(zerochat.resolve_project_directory(str(self.project), ctx), {"cwd": str(self.project)})
         self.assertTrue(json.loads(zerochat.read_file("note.txt", ctx=ctx))["content"].startswith("hola"))
         self.assertEqual(run("pwd")["output"].strip(), str(self.project))
 

@@ -58,7 +58,7 @@ def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -
     runs, focus_run = list_server_runs(focus_conversation_id)
     return {
         "cwd": str(ctx.workspace_dir),
-        "jobs": [job.summary() for job in JOBS.running(str(ctx.workspace_dir))],
+        "jobs": [job.summary() for job in JOBS.running(ctx.key)],
         "exit_on_close": EXIT_ON_CLOSE,
         "playwright": playwright_status(),
         "servers": GLOBAL_MCP_MANAGER.list_servers(),
@@ -963,7 +963,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     @staticmethod
     def _dispatch_jobs(method: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
         """Control de los comandos del proyecto de la petición desde la interfaz: tarjetas, log y botón de detener."""
-        project = str(ctx.workspace_dir)
+        project = ctx.key
         if method == "zerochat/jobs/list":
             return {"jobs": [job.summary() for job in JOBS.list(project)]}, None, ""
         if method == "zerochat/jobs/report":

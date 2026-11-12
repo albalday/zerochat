@@ -251,11 +251,12 @@ def _powershell_runner(command: str) -> str:
 class CommandJob:
     """Un comando lanzado por run_command: su proceso, su log y su estado."""
 
-    def __init__(self, job_id: int, key: str | None, command: str, cwd: str, background: bool, log_path: Path):
+    def __init__(self, job_id: int, key: str | None, command: str, project: SecurityContext, background: bool, log_path: Path):
         self.id = job_id
         self.key = key
         self.command = command
-        self.cwd = cwd
+        self.cwd = str(project.workspace_dir)
+        self.project = project.key
         self.background = background
         self.log_path = log_path
         self.started_at = time.time()
@@ -459,7 +460,7 @@ class JobManager:
             except OSError:
                 pass
 
-    def start(self, command: str, background: bool, cwd: str, key: str | None = None) -> CommandJob:
+    def start(self, command: str, background: bool, project: SecurityContext, key: str | None = None) -> CommandJob:
         if not isinstance(command, str) or not command.strip():
             raise ValueError("The command is empty.")
         if key is not None and not (isinstance(key, str) and JOB_KEY_PATTERN.fullmatch(key)):
@@ -473,7 +474,7 @@ class JobManager:
             self._prune()
             job_id = self._next_id
             self._next_id += 1
-            job = CommandJob(job_id, key, command, cwd, background, self._session_dir() / f"job-{job_id}.log")
+            job = CommandJob(job_id, key, command, project, background, self._session_dir() / f"job-{job_id}.log")
             self._jobs[job_id] = job
         try:
             self._launch(job)
@@ -551,8 +552,9 @@ class JobManager:
         return None
 
     def list(self, project: str | None) -> list[CommandJob]:
+        """Comandos del proyecto con esa clave (SecurityContext.key); None, los de todos."""
         with self._lock:
-            return [job for job in self._jobs.values() if project is None or job.cwd == project]
+            return [job for job in self._jobs.values() if project is None or job.project == project]
 
     def stop(self, job: CommandJob, reason: str) -> CommandJob:
         """Termina el grupo del comando: primero con cortesía y, si no basta, a la fuerza."""
@@ -651,7 +653,7 @@ def _job_result(job: CommandJob, note: str | None = None, output_field: str = "o
 def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, background: bool = False, job_key: str | None = None, *, ctx: SecurityContext) -> str:
     """Ejecuta un comando en una shell nueva en el directorio del proyecto."""
     try:
-        job = JOBS.start(command, background=bool(background), cwd=str(ctx.workspace_dir), key=job_key)
+        job = JOBS.start(command, background=bool(background), project=ctx, key=job_key)
     except (ValueError, OSError) as exc:
         return _tool_error(str(exc), os=DETECTED_OS)
     if background:
@@ -674,7 +676,7 @@ def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, ba
 
 def check_command(job_id: int, wait_seconds: int = 0, stop: bool = False, *, ctx: SecurityContext) -> str:
     """Estado y salida nueva de un comando lanzado por run_command; puede esperarlo o detenerlo."""
-    job = JOBS.get(str(ctx.workspace_dir), job_id=job_id)
+    job = JOBS.get(ctx.key, job_id=job_id)
     if job is None:
         return _tool_error(f"Unknown job_id {job_id}. It may belong to a previous ZeroChat session or to another project.", os=DETECTED_OS)
     if stop:

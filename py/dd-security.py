@@ -88,6 +88,11 @@ class SecurityContext:
     """Proyecto en el que actúa una petición: base de sus rutas relativas, de sus comandos y de sus permisos."""
     workspace_dir: Path
 
+    @property
+    def key(self) -> str:
+        """Identificador estable del proyecto: la clave de sus sesiones, de sus patrones guardados y de sus comandos."""
+        return normalize_directory_path(str(self.workspace_dir))
+
     def absolute(self, path: str) -> Path:
         """Ruta de una herramienta resuelta contra la carpeta del proyecto ('~' es la carpeta del usuario)."""
         target = Path(str(path).strip()).expanduser()
@@ -442,7 +447,6 @@ class ProjectSession:
     Lo autorizado en la sesión para un proyecto y sus retos pendientes, en memoria mientras dure el servidor.
     Lo comparten todas las pestañas y dispositivos que trabajan en ese proyecto.
     """
-    directory: str
     last_used: float = 0.0
     global_policy: str | None = None
     directory_rules: list[str] | None = None
@@ -465,19 +469,16 @@ class AccessController:
     def _session(self, context: SecurityContext) -> ProjectSession:
         """
         Sesión del proyecto de la petición, creada vacía la primera vez. Con MAX_PROJECT_SESSIONS proyectos
-        en memoria, olvida la del usado hace más tiempo que no tenga comandos en marcha; si todos los
-        tienen, la nueva no se crea (ValueError).
+        en memoria, olvida la del usado hace más tiempo que no tenga comandos en marcha (como mucho hay 8
+        comandos a la vez, así que siempre queda alguno sin ellos).
         """
-        key = self._project_key(context)
         with self._lock:
-            session = self.sessions.get(key)
+            session = self.sessions.get(context.key)
             if session is None:
                 if len(self.sessions) >= MAX_PROJECT_SESSIONS:
-                    idle = [k for k, s in self.sessions.items() if not JOBS.running(s.directory)]
-                    if not idle:
-                        raise ValueError(f"Hay {MAX_PROJECT_SESSIONS} proyectos con comandos en marcha; detén alguno para trabajar en otro.")
+                    idle = [k for k in self.sessions if not JOBS.running(k)]
                     del self.sessions[min(idle, key=lambda k: self.sessions[k].last_used)]
-                session = self.sessions[key] = ProjectSession(str(context.workspace_dir))
+                session = self.sessions[context.key] = ProjectSession()
             session.last_used = time.monotonic()
             return session
 
@@ -519,14 +520,10 @@ class AccessController:
                 "commandPatterns": {**state["commandPatterns"], "session": list(session.command_patterns)}
             }
 
-    @staticmethod
-    def _project_key(context: SecurityContext) -> str:
-        return normalize_directory_path(str(context.workspace_dir))
-
     def _command_patterns(self, view: dict, context: SecurityContext) -> list[str]:
         """Patrones que rigen en el proyecto: los de todos los proyectos, los de este y los de la sesión."""
         patterns = view["commandPatterns"]
-        return [*patterns["global"], *(patterns["projects"].get(self._project_key(context)) or []), *patterns["session"]]
+        return [*patterns["global"], *(patterns["projects"].get(context.key) or []), *patterns["session"]]
 
     def export_state(self, context: SecurityContext) -> dict:
         return {
@@ -847,7 +844,7 @@ class AccessController:
         permanent = decision in ("allow_project", "allow_always", "allow_server_always")
         if not permanent and not rules:
             return
-        project = self._project_key(context)
+        project = context.key
 
         def mutator(state: dict) -> dict:
             saved = state["commandPatterns"]

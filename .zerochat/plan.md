@@ -40,7 +40,7 @@ Decisiones: sin identidad de cliente (ni clientId ni Mcp-Session-Id): PC y table
 - [x] M62-T11 Barra lateral: la vista del proyecto muestra también las conversaciones sin proyecto; separar el selector de la agrupación (2026-11-12)
 - [x] M62-T12 start_server_run de una conversación sin proyecto arranca en el proyecto de la petición (2026-11-12)
 - [x] M62-T13 Reserva del navegador al ejecutar (directo y tras el reto), no al pedir; un solo cálculo del recurso (2026-11-12)
-- [ ] M62-T14 Quitar el error inalcanzable del tope de sesiones y previous_cwd; una sola clave de proyecto (SecurityContext.key)
+- [x] M62-T14 Quitar el error inalcanzable del tope de sesiones y previous_cwd; una sola clave de proyecto (SecurityContext.key) (2026-11-12)
 - [ ] M62-T15 ctx solo para los manejadores de herramientas que lo declaran
 - [ ] M62-T16 Un solo resolutor de rutas en SecurityContext para permisos y ejecución
 - [ ] M62-T17 Abrir una conversación espera al cambio de proyecto antes de darla por abierta

@@ -227,7 +227,7 @@ def resolve_project_directory(path, ctx: SecurityContext) -> dict:
     if not target.is_dir():
         raise ValueError(f"'{path}' no existe o no es un directorio.")
     # Cambiar de proyecto no borra nada: cada proyecto conserva su propia sesión.
-    return {"cwd": str(target), "previous_cwd": str(ctx.workspace_dir)}
+    return {"cwd": str(target)}
 
 
 def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100, *, ctx: SecurityContext) -> str:

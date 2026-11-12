@@ -675,11 +675,12 @@ def _powershell_runner(command: str) -> str:
 class CommandJob:
     """Un comando lanzado por run_command: su proceso, su log y su estado."""
 
-    def __init__(self, job_id: int, key: str | None, command: str, cwd: str, background: bool, log_path: Path):
+    def __init__(self, job_id: int, key: str | None, command: str, project: SecurityContext, background: bool, log_path: Path):
         self.id = job_id
         self.key = key
         self.command = command
-        self.cwd = cwd
+        self.cwd = str(project.workspace_dir)
+        self.project = project.key
         self.background = background
         self.log_path = log_path
         self.started_at = time.time()
@@ -883,7 +884,7 @@ class JobManager:
             except OSError:
                 pass
 
-    def start(self, command: str, background: bool, cwd: str, key: str | None = None) -> CommandJob:
+    def start(self, command: str, background: bool, project: SecurityContext, key: str | None = None) -> CommandJob:
         if not isinstance(command, str) or not command.strip():
             raise ValueError("The command is empty.")
         if key is not None and not (isinstance(key, str) and JOB_KEY_PATTERN.fullmatch(key)):
@@ -897,7 +898,7 @@ class JobManager:
             self._prune()
             job_id = self._next_id
             self._next_id += 1
-            job = CommandJob(job_id, key, command, cwd, background, self._session_dir() / f"job-{job_id}.log")
+            job = CommandJob(job_id, key, command, project, background, self._session_dir() / f"job-{job_id}.log")
             self._jobs[job_id] = job
         try:
             self._launch(job)
@@ -975,8 +976,9 @@ class JobManager:
         return None
 
     def list(self, project: str | None) -> list[CommandJob]:
+        """Comandos del proyecto con esa clave (SecurityContext.key); None, los de todos."""
         with self._lock:
-            return [job for job in self._jobs.values() if project is None or job.cwd == project]
+            return [job for job in self._jobs.values() if project is None or job.project == project]
 
     def stop(self, job: CommandJob, reason: str) -> CommandJob:
         """Termina el grupo del comando: primero con cortesía y, si no basta, a la fuerza."""
@@ -1075,7 +1077,7 @@ def _job_result(job: CommandJob, note: str | None = None, output_field: str = "o
 def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, background: bool = False, job_key: str | None = None, *, ctx: SecurityContext) -> str:
     """Ejecuta un comando en una shell nueva en el directorio del proyecto."""
     try:
-        job = JOBS.start(command, background=bool(background), cwd=str(ctx.workspace_dir), key=job_key)
+        job = JOBS.start(command, background=bool(background), project=ctx, key=job_key)
     except (ValueError, OSError) as exc:
         return _tool_error(str(exc), os=DETECTED_OS)
     if background:
@@ -1098,7 +1100,7 @@ def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, ba
 
 def check_command(job_id: int, wait_seconds: int = 0, stop: bool = False, *, ctx: SecurityContext) -> str:
     """Estado y salida nueva de un comando lanzado por run_command; puede esperarlo o detenerlo."""
-    job = JOBS.get(str(ctx.workspace_dir), job_id=job_id)
+    job = JOBS.get(ctx.key, job_id=job_id)
     if job is None:
         return _tool_error(f"Unknown job_id {job_id}. It may belong to a previous ZeroChat session or to another project.", os=DETECTED_OS)
     if stop:
@@ -1967,6 +1969,11 @@ class SecurityContext:
     """Proyecto en el que actúa una petición: base de sus rutas relativas, de sus comandos y de sus permisos."""
     workspace_dir: Path
 
+    @property
+    def key(self) -> str:
+        """Identificador estable del proyecto: la clave de sus sesiones, de sus patrones guardados y de sus comandos."""
+        return normalize_directory_path(str(self.workspace_dir))
+
     def absolute(self, path: str) -> Path:
         """Ruta de una herramienta resuelta contra la carpeta del proyecto ('~' es la carpeta del usuario)."""
         target = Path(str(path).strip()).expanduser()
@@ -2321,7 +2328,6 @@ class ProjectSession:
     Lo autorizado en la sesión para un proyecto y sus retos pendientes, en memoria mientras dure el servidor.
     Lo comparten todas las pestañas y dispositivos que trabajan en ese proyecto.
     """
-    directory: str
     last_used: float = 0.0
     global_policy: str | None = None
     directory_rules: list[str] | None = None
@@ -2344,19 +2350,16 @@ class AccessController:
     def _session(self, context: SecurityContext) -> ProjectSession:
         """
         Sesión del proyecto de la petición, creada vacía la primera vez. Con MAX_PROJECT_SESSIONS proyectos
-        en memoria, olvida la del usado hace más tiempo que no tenga comandos en marcha; si todos los
-        tienen, la nueva no se crea (ValueError).
+        en memoria, olvida la del usado hace más tiempo que no tenga comandos en marcha (como mucho hay 8
+        comandos a la vez, así que siempre queda alguno sin ellos).
         """
-        key = self._project_key(context)
         with self._lock:
-            session = self.sessions.get(key)
+            session = self.sessions.get(context.key)
             if session is None:
                 if len(self.sessions) >= MAX_PROJECT_SESSIONS:
-                    idle = [k for k, s in self.sessions.items() if not JOBS.running(s.directory)]
-                    if not idle:
-                        raise ValueError(f"Hay {MAX_PROJECT_SESSIONS} proyectos con comandos en marcha; detén alguno para trabajar en otro.")
+                    idle = [k for k in self.sessions if not JOBS.running(k)]
                     del self.sessions[min(idle, key=lambda k: self.sessions[k].last_used)]
-                session = self.sessions[key] = ProjectSession(str(context.workspace_dir))
+                session = self.sessions[context.key] = ProjectSession()
             session.last_used = time.monotonic()
             return session
 
@@ -2398,14 +2401,10 @@ class AccessController:
                 "commandPatterns": {**state["commandPatterns"], "session": list(session.command_patterns)}
             }
 
-    @staticmethod
-    def _project_key(context: SecurityContext) -> str:
-        return normalize_directory_path(str(context.workspace_dir))
-
     def _command_patterns(self, view: dict, context: SecurityContext) -> list[str]:
         """Patrones que rigen en el proyecto: los de todos los proyectos, los de este y los de la sesión."""
         patterns = view["commandPatterns"]
-        return [*patterns["global"], *(patterns["projects"].get(self._project_key(context)) or []), *patterns["session"]]
+        return [*patterns["global"], *(patterns["projects"].get(context.key) or []), *patterns["session"]]
 
     def export_state(self, context: SecurityContext) -> dict:
         return {
@@ -2726,7 +2725,7 @@ class AccessController:
         permanent = decision in ("allow_project", "allow_always", "allow_server_always")
         if not permanent and not rules:
             return
-        project = self._project_key(context)
+        project = context.key
 
         def mutator(state: dict) -> dict:
             saved = state["commandPatterns"]
@@ -3074,7 +3073,7 @@ def resolve_project_directory(path, ctx: SecurityContext) -> dict:
     if not target.is_dir():
         raise ValueError(f"'{path}' no existe o no es un directorio.")
     # Cambiar de proyecto no borra nada: cada proyecto conserva su propia sesión.
-    return {"cwd": str(target), "previous_cwd": str(ctx.workspace_dir)}
+    return {"cwd": str(target)}
 
 
 def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100, *, ctx: SecurityContext) -> str:
@@ -5589,7 +5588,7 @@ def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -
     runs, focus_run = list_server_runs(focus_conversation_id)
     return {
         "cwd": str(ctx.workspace_dir),
-        "jobs": [job.summary() for job in JOBS.running(str(ctx.workspace_dir))],
+        "jobs": [job.summary() for job in JOBS.running(ctx.key)],
         "exit_on_close": EXIT_ON_CLOSE,
         "playwright": playwright_status(),
         "servers": GLOBAL_MCP_MANAGER.list_servers(),
@@ -6494,7 +6493,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     @staticmethod
     def _dispatch_jobs(method: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
         """Control de los comandos del proyecto de la petición desde la interfaz: tarjetas, log y botón de detener."""
-        project = str(ctx.workspace_dir)
+        project = ctx.key
         if method == "zerochat/jobs/list":
             return {"jobs": [job.summary() for job in JOBS.list(project)]}, None, ""
         if method == "zerochat/jobs/report":
