@@ -2310,17 +2310,34 @@ class AccessDecision:
         }
 
 
+@dataclasses.dataclass
+class ProjectSession:
+    """
+    Lo autorizado en la sesión para un proyecto y sus retos pendientes, en memoria mientras dure el servidor.
+    Lo comparten todas las pestañas y dispositivos que trabajan en ese proyecto.
+    """
+    global_policy: str | None = None
+    directory_rules: list[str] | None = None
+    tools: dict[str, dict] = dataclasses.field(default_factory=dict)
+    servers: dict[str, dict] = dataclasses.field(default_factory=dict)
+    command_patterns: list[str] = dataclasses.field(default_factory=list)
+    challenges: dict[str, dict] = dataclasses.field(default_factory=dict)
+
+    def entries(self, kind: str) -> dict[str, dict]:
+        return self.tools if kind == "tools" else self.servers
+
+
 class AccessController:
     """Motor de control de acceso y autorización del backend (PDP/PEP)."""
 
     def __init__(self):
         self._lock = threading.RLock()
-        self.session_global_policy: str | None = None
-        self.session_directory_rules: list[str] | None = None
-        self.session_tools: dict[str, dict] = {}
-        self.session_servers: dict[str, dict] = {}
-        self.session_command_patterns: list[str] = []
-        self.pending_challenges: dict[str, dict] = {}
+        self.sessions: dict[str, ProjectSession] = {}
+
+    def _session(self, context: SecurityContext) -> ProjectSession:
+        """Sesión del proyecto de la petición, creada vacía la primera vez."""
+        with self._lock:
+            return self.sessions.setdefault(self._project_key(context), ProjectSession())
 
     @staticmethod
     def _normalize_state(raw: dict | None) -> dict:
@@ -2347,16 +2364,17 @@ class AccessController:
         """Lectura-modificación-escritura transaccional sobre el estado permanente normalizado."""
         return update_security_policy_data(lambda raw: mutator(self._normalize_state(raw)))
 
-    def _effective_state(self) -> dict:
-        """Una sola lectura del estado permanente combinada con la capa de sesión en memoria."""
+    def _effective_state(self, context: SecurityContext) -> dict:
+        """Una sola lectura del estado permanente combinada con la capa de sesión del proyecto."""
         state = self._read_permanent_state()
         with self._lock:
+            session = self._session(context)
             return {
-                "globalMcpPolicy": self.session_global_policy if self.session_global_policy is not None else state["globalMcpPolicy"],
-                "directoryRules": list(self.session_directory_rules) if self.session_directory_rules is not None else state["directoryRules"],
-                "tools": {**state["tools"], **self.session_tools},
-                "servers": {**state["servers"], **self.session_servers},
-                "commandPatterns": {**state["commandPatterns"], "session": list(self.session_command_patterns)}
+                "globalMcpPolicy": session.global_policy if session.global_policy is not None else state["globalMcpPolicy"],
+                "directoryRules": list(session.directory_rules) if session.directory_rules is not None else state["directoryRules"],
+                "tools": {**state["tools"], **session.tools},
+                "servers": {**state["servers"], **session.servers},
+                "commandPatterns": {**state["commandPatterns"], "session": list(session.command_patterns)}
             }
 
     @staticmethod
@@ -2371,7 +2389,7 @@ class AccessController:
     def export_state(self, context: SecurityContext) -> dict:
         return {
             "version": POLICY_STATE_VERSION,
-            **self._effective_state(),
+            **self._effective_state(context),
             "defaultDirectoryRule": self.get_default_directory_rule(context)
         }
 
@@ -2430,9 +2448,6 @@ class AccessController:
             entry["originalName"] = original_name
         return entry
 
-    def _session_map(self, kind: str) -> dict[str, dict]:
-        return self.session_tools if kind == "tools" else self.session_servers
-
     @staticmethod
     def _check_entry_limit(state: dict):
         """Único tope de entradas, sobre el estado resultante (guardado o capa de sesión)."""
@@ -2482,17 +2497,18 @@ class AccessController:
             self._check_entry_limit(current)
             return current
         self._update_permanent(mutator)
+        # Lo guardado vale para todos los proyectos: sustituye o revoca lo equivalente en la sesión de cada uno.
         with self._lock:
-            if clean_global is not None:
-                self.session_global_policy = None
-            if clean_rules is not None:
-                self.session_directory_rules = None
-            elif added_rules and self.session_directory_rules is not None:
-                self.session_directory_rules = self._append_rules(self.session_directory_rules, added_rules)
-            # Una escritura permanente sustituye o revoca la entrada de sesión de la misma herramienta o servidor.
-            for kind, patch in (("tools", clean_tools), ("servers", clean_servers)):
-                for item_id in patch or {}:
-                    self._session_map(kind).pop(item_id, None)
+            for session in self.sessions.values():
+                if clean_global is not None:
+                    session.global_policy = None
+                if clean_rules is not None:
+                    session.directory_rules = None
+                elif added_rules and session.directory_rules is not None:
+                    session.directory_rules = self._append_rules(session.directory_rules, added_rules)
+                for kind, patch in (("tools", clean_tools), ("servers", clean_servers)):
+                    for item_id in patch or {}:
+                        session.entries(kind).pop(item_id, None)
         return self.export_state(context)
 
     @staticmethod
@@ -2523,15 +2539,16 @@ class AccessController:
             if isinstance(raw_patterns, dict) else None
 
         with self._lock:
-            rules = clean_rules if clean_rules is not None else self.session_directory_rules
-            tools = self._apply_entry_patch(self.session_tools, clean_tools or {})
-            servers = self._apply_entry_patch(self.session_servers, clean_servers or {})
+            session = self._session(context)
+            rules = clean_rules if clean_rules is not None else session.directory_rules
+            tools = self._apply_entry_patch(session.tools, clean_tools or {})
+            servers = self._apply_entry_patch(session.servers, clean_servers or {})
             self._check_entry_limit({"directoryRules": rules, "tools": tools, "servers": servers})
             if clean_global is not None:
-                self.session_global_policy = clean_global
-            self.session_directory_rules, self.session_tools, self.session_servers = rules, tools, servers
+                session.global_policy = clean_global
+            session.directory_rules, session.tools, session.servers = rules, tools, servers
             if session_patterns is not None:
-                self.session_command_patterns = session_patterns
+                session.command_patterns = session_patterns
         return self.export_state(context)
 
     @staticmethod
@@ -2592,14 +2609,9 @@ class AccessController:
         return {"allowed": False, "rule": None, "path": normalized_dest}
 
     def clear_session(self):
-        """Limpia todas las autorizaciones temporales de la sesión activa."""
+        """Olvida lo autorizado en la sesión y los retos pendientes de todos los proyectos."""
         with self._lock:
-            self.session_global_policy = None
-            self.session_directory_rules = None
-            self.session_tools.clear()
-            self.session_servers.clear()
-            self.session_command_patterns = []
-            self.pending_challenges.clear()
+            self.sessions.clear()
 
     def create_challenge(self, tool_name: str, args: dict, decision: AccessDecision, *, context: SecurityContext,
                          server_name: str = "", server_id: str = "", origin: str = "local",
@@ -2607,11 +2619,11 @@ class AccessController:
         """Genera un reto estructurado para solicitar confirmación interactiva al usuario."""
         challenge_id = f"auth_{secrets.token_urlsafe(16)}"
         now = int(time.time() * 1000)
-        cwd = str(context.workspace_dir.resolve())
         with self._lock:
-            expired = [cid for cid, c in self.pending_challenges.items() if now - c.get("createdAt", 0) > CHALLENGE_TTL_MS]
+            challenges = self._session(context).challenges
+            expired = [cid for cid, c in challenges.items() if now - c.get("createdAt", 0) > CHALLENGE_TTL_MS]
             for cid in expired:
-                self.pending_challenges.pop(cid, None)
+                challenges.pop(cid, None)
 
             challenge_data = {
                 "id": challenge_id,
@@ -2621,27 +2633,26 @@ class AccessController:
                 "serverId": server_id or decision.server_id,
                 "origin": origin,
                 "jobKey": job_key,
-                "cwd": cwd,
                 "createdAt": now
             }
-            self.pending_challenges[challenge_id] = challenge_data
+            challenges[challenge_id] = challenge_data
             return challenge_data
 
     def authorize_challenge(self, challenge_id: str, decision: str, *, context: SecurityContext,
                             command_pattern: str | None = None, directory_rule: str | None = None) -> dict | None:
         """
         Valida la decisión, consume el reto (una única ejecución) y registra la decisión.
-        Devuelve el reto consumido, o None si no existe, caducó, cambió el cwd o la decisión no aplica.
-        Una decisión mal formada lanza ValueError y deja el reto pendiente.
+        Devuelve el reto consumido, o None si no existe en el proyecto de la petición, caducó o la decisión
+        no aplica. Una decisión mal formada lanza ValueError y deja el reto pendiente.
         """
         now = int(time.time() * 1000)
-        current_cwd = str(context.workspace_dir.resolve())
         with self._lock:
-            challenge = self.pending_challenges.get(challenge_id)
+            challenges = self._session(context).challenges
+            challenge = challenges.get(challenge_id)
             if not challenge:
                 return None
-            if now - challenge.get("createdAt", 0) > CHALLENGE_TTL_MS or challenge.get("cwd") != current_cwd:
-                self.pending_challenges.pop(challenge_id, None)
+            if now - challenge.get("createdAt", 0) > CHALLENGE_TTL_MS:
+                challenges.pop(challenge_id, None)
                 return None
             if decision not in AUTHORIZE_DECISIONS:
                 return None
@@ -2649,13 +2660,13 @@ class AccessController:
                 return None
             pattern = self._validate_command_pattern(decision, command_pattern, challenge)
             rules = self._validate_directory_rules([directory_rule], context) if directory_rule else []
-            self.pending_challenges.pop(challenge_id)
+            challenges.pop(challenge_id)
         self._record_decision(challenge, decision, pattern, rules, context)
         return challenge
 
-    def revoke_challenge(self, challenge_id: str) -> bool:
+    def revoke_challenge(self, challenge_id: str, *, context: SecurityContext) -> bool:
         with self._lock:
-            return self.pending_challenges.pop(challenge_id, None) is not None
+            return self._session(context).challenges.pop(challenge_id, None) is not None
 
     @staticmethod
     def _validate_command_pattern(decision: str, raw_pattern: str | None, challenge: dict) -> str | None:
@@ -2684,11 +2695,12 @@ class AccessController:
         tool, server_name, server_id = challenge["toolName"], challenge["serverName"], challenge["serverId"]
         if decision == "allow_session":
             with self._lock:
+                session = self._session(context)
                 if pattern:
-                    self.session_command_patterns = self._limit_patterns(
-                        clean_pattern_list(self.session_command_patterns + [pattern], "commandPatterns.session"))
+                    session.command_patterns = self._limit_patterns(
+                        clean_pattern_list(session.command_patterns + [pattern], "commandPatterns.session"))
                 else:
-                    self.session_tools[tool] = self._make_entry("tools", POLICY_ALLOW, SCOPE_SESSION, server_name, tool)
+                    session.tools[tool] = self._make_entry("tools", POLICY_ALLOW, SCOPE_SESSION, server_name, tool)
         permanent = decision in ("allow_project", "allow_always", "allow_server_always")
         if not permanent and not rules:
             return
@@ -2711,12 +2723,13 @@ class AccessController:
             return state
         self._update_permanent(mutator)
         with self._lock:
-            if decision == "allow_always" and not pattern:
-                self.session_tools.pop(tool, None)
-            elif decision == "allow_server_always":
-                self.session_servers.pop(server_id, None)
-            if rules and self.session_directory_rules is not None:
-                self.session_directory_rules = self._append_rules(self.session_directory_rules, rules)
+            for session in self.sessions.values():
+                if decision == "allow_always" and not pattern:
+                    session.tools.pop(tool, None)
+                elif decision == "allow_server_always":
+                    session.servers.pop(server_id, None)
+                if rules and session.directory_rules is not None:
+                    session.directory_rules = self._append_rules(session.directory_rules, rules)
 
     def evaluate_authorization(self, tool_name: str, raw_args: dict | None, context: SecurityContext,
                                server_name: str = "", server_id: str = "") -> AccessDecision:
@@ -2738,7 +2751,7 @@ class AccessController:
                               server_id=server_id, details=details, rule_offer=offer)
 
     def _evaluate(self, tool_name: str, args: dict, ctx: SecurityContext, server_id: str) -> tuple[str, str, str, dict | None]:
-        view = self._effective_state()
+        view = self._effective_state(ctx)
         tool_policy = (view["tools"].get(tool_name) or {}).get("policy")
         server_policy = (view["servers"].get(server_id) or {}).get("policy") if server_id else None
         if tool_policy == POLICY_DENY:
@@ -3038,9 +3051,7 @@ def resolve_project_directory(path, ctx: SecurityContext) -> dict:
     target = ctx.absolute(path)
     if not target.is_dir():
         raise ValueError(f"'{path}' no existe o no es un directorio.")
-    # Lo autorizado en la sesión valía para el proyecto anterior.
-    if target != ctx.workspace_dir:
-        reset_session_authorizations()
+    # Cambiar de proyecto no borra nada: cada proyecto conserva su propia sesión.
     return {"cwd": str(target), "previous_cwd": str(ctx.workspace_dir)}
 
 
@@ -6251,7 +6262,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 if not isinstance(decision, str):
                     return None, {"code": -32602, "message": "decision debe ser un texto"}, ""
                 if decision == "deny":
-                    ACCESS_CONTROLLER.revoke_challenge(challenge_id)
+                    ACCESS_CONTROLLER.revoke_challenge(challenge_id, context=ctx)
                     return {"authorized": False, "status": "deny"}, None, ""
 
                 ch = ACCESS_CONTROLLER.authorize_challenge(

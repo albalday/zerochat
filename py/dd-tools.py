@@ -226,9 +226,7 @@ def resolve_project_directory(path, ctx: SecurityContext) -> dict:
     target = ctx.absolute(path)
     if not target.is_dir():
         raise ValueError(f"'{path}' no existe o no es un directorio.")
-    # Lo autorizado en la sesión valía para el proyecto anterior.
-    if target != ctx.workspace_dir:
-        reset_session_authorizations()
+    # Cambiar de proyecto no borra nada: cada proyecto conserva su propia sesión.
     return {"cwd": str(target), "previous_cwd": str(ctx.workspace_dir)}
 
 

@@ -43,8 +43,13 @@ def revoke(controller, kind, item_id):
     controller.import_state({kind: {item_id: None}}, cwd())
 
 
-def tool_entry(controller, tool_id):
-    return controller.export_state(cwd())["tools"].get(tool_id)
+def tool_entry(controller, tool_id, ctx=None):
+    return controller.export_state(ctx or cwd())["tools"].get(tool_id)
+
+
+def challenges(controller, ctx=None):
+    """Retos pendientes de la sesión del proyecto."""
+    return controller._session(ctx or cwd()).challenges
 
 
 def server_entry(controller, server_id):
@@ -88,7 +93,8 @@ class ControllerTestCase(unittest.TestCase):
         self.workspace = self.base_dir / "proj"
         self.workspace.mkdir()
         self.norm_ws = zerochat.normalize_directory_path(str(self.workspace))
-        self.ctx = zerochat.SecurityContext(workspace_dir=self.workspace)
+        # El proyecto de la prueba es también el del servidor: cwd() y self.ctx comparten sesión.
+        self.ctx = use_project(self, self.workspace)
         self.controller = zerochat.AccessController()
 
     def evaluate(self, tool, args=None, ctx=None, **kwargs):
@@ -351,9 +357,7 @@ class PolicyStateTest(ControllerTestCase):
 
     def test_two_controllers_share_state_through_sqlite(self):
         # En memoria solo hay sesión y retos pendientes: el estado permanente vive en SQLite
-        self.assertEqual(set(self.controller.__dict__), {"_lock", "session_global_policy", "session_directory_rules",
-                                                         "session_tools", "session_servers", "session_command_patterns",
-                                                         "pending_challenges"})
+        self.assertEqual(set(self.controller.__dict__), {"_lock", "sessions"})
         controller_b = zerochat.AccessController()
         set_global(self.controller, zerochat.GLOBAL_POLICY_WORKSPACE_TRUST)
         set_tool(self.controller, "tool_shared", zerochat.POLICY_ALLOW)
@@ -454,23 +458,24 @@ class ChallengeTest(HandlerTestCase):
         with unittest.mock.patch.object(zerochat.time, "time", return_value=base_sec + ttl_sec + 0.001):
             res, err = self.authorize(ch_exp["id"], "allow_always", commandPattern="echo *")
         self.assertEqual((res, err["code"]), (None, -32002))
-        self.assertNotIn(ch_exp["id"], self.controller.pending_challenges)
+        self.assertNotIn(ch_exp["id"], challenges(self.controller))
         self.assertEqual(saved_patterns(), {})
 
-        # Un cambio de directorio entre la creación y la autorización invalida el reto
-        ch_cwd = self.controller.create_challenge("run_command", {"command": "echo cwd"}, dec, context=cwd())
+        # Un reto solo se resuelve desde su proyecto, que lo conserva pendiente
+        own = cwd()
+        ch_cwd = self.controller.create_challenge("run_command", {"command": "echo cwd"}, dec, context=own)
         other_dir = self.workspace / "subdir"
         other_dir.mkdir()
         use_project(self, other_dir)
         res, err = self.authorize(ch_cwd["id"], "allow_once")
         self.assertEqual((res, err["code"]), (None, -32002))
-        self.assertNotIn(ch_cwd["id"], self.controller.pending_challenges)
+        self.assertIn(ch_cwd["id"], challenges(self.controller, own))
 
     def test_authorize_executes_challenge_by_stored_origin(self):
         # Un reto de /mcp/external con el nombre de una herramienta local se ejecuta en el host externo
         gate, err, _ = self.handler._dispatch_external("tools/call", {"name": "read_file", "arguments": {"path": "/etc/passwd"}}, cwd())
         self.assertIsNone(err)
-        self.assertEqual(self.controller.pending_challenges[gate["challengeId"]]["origin"], "external")
+        self.assertEqual(challenges(self.controller)[gate["challengeId"]]["origin"], "external")
         result = {"content": [{"type": "text", "text": "external-output"}], "isError": False}
         with unittest.mock.patch.object(zerochat.GLOBAL_MCP_MANAGER, "call", return_value=result) as external:
             res, err = self.authorize(gate["challengeId"], "allow_once")
@@ -501,7 +506,7 @@ class ChallengeTest(HandlerTestCase):
         ch = self.controller.create_challenge("custom_tool", {}, self.evaluate("custom_tool"), context=cwd())
         res, err = self.authorize(ch["id"], "allow_always", directoryRule="INVALID_RULE")
         self.assertEqual((res, err["code"]), (None, -32602))
-        self.assertIn(ch["id"], self.controller.pending_challenges)
+        self.assertIn(ch["id"], challenges(self.controller))
         self.assertIsNone(tool_entry(self.controller, "custom_tool"))
 
     def test_storage_failure_on_authorize_is_reported_and_tool_not_executed(self):
@@ -612,7 +617,7 @@ class CommandPatternTest(HandlerTestCase):
             self.assertEqual((res, err["code"]), (None, -32602), decision)
             if message:
                 self.assertEqual(err["message"], message)
-            self.assertIn(cid, self.controller.pending_challenges)
+            self.assertIn(cid, challenges(self.controller))
 
         res, err = self.authorize(cid, "allow_always", commandPattern="echo *")
         self.assertIsNone(err)
@@ -680,22 +685,35 @@ class SessionLifecycleTest(HandlerTestCase):
         self.assertEqual(global_policy(self.controller), "ask")
         self.assertIsNone(tool_entry(self.controller, "custom_tool"))
 
-    def test_changing_project_clears_session_authorizations_and_challenges(self):
+    def test_each_project_keeps_its_own_session_and_challenges(self):
         other = self.base_dir / "otro"
         other.mkdir()
-        use_project(self, self.workspace)
+        project_a = use_project(self, self.workspace)
+        project_b = zerochat.SecurityContext(other.resolve())
         set_tool(self.controller, "custom_tool", zerochat.POLICY_ALLOW, scope=zerochat.SCOPE_SESSION)
-        self.controller.create_challenge("other_tool", {}, self.evaluate("other_tool"), context=cwd())
+        set_patterns_session = self.controller.apply_session_overlay({"commandPatterns": {"session": ["make *"]}}, project_a)
+        self.assertEqual(set_patterns_session["commandPatterns"]["session"], ["make *"])
+        ch = self.controller.create_challenge("other_tool", {}, self.evaluate("other_tool"), context=project_a)
 
-        # Volver a elegir el mismo proyecto no borra nada
-        zerochat.resolve_project_directory(str(self.workspace), cwd())
-        self.assertIsNotNone(tool_entry(self.controller, "custom_tool"))
-        self.assertEqual(len(self.controller.pending_challenges), 1)
+        # Cambiar de proyecto no borra nada; el otro proyecto empieza con su sesión vacía
+        self.assertEqual(zerochat.resolve_project_directory(str(other), project_a)["cwd"], str(other.resolve()))
+        self.assertIsNone(tool_entry(self.controller, "custom_tool", project_b))
+        self.assertEqual(self.controller.export_state(project_b)["commandPatterns"]["session"], [])
+        self.assertIsNone(self.controller.authorize_challenge(ch["id"], "allow_once", context=project_b))
+        self.assertFalse(self.controller.revoke_challenge(ch["id"], context=project_b))
 
-        zerochat.resolve_project_directory(str(other), cwd())
-        self.assertIsNone(tool_entry(self.controller, "custom_tool"))
-        self.assertEqual(self.controller.pending_challenges, {})
+        # Al volver, el proyecto conserva su sesión y su reto
+        self.assertEqual(tool_entry(self.controller, "custom_tool", project_a)["policy"], "allow")
+        self.assertIn(ch["id"], challenges(self.controller, project_a))
+        self.assertIsNotNone(self.controller.authorize_challenge(ch["id"], "allow_once", context=project_a))
 
+    def test_a_saved_change_replaces_the_session_entry_in_every_project(self):
+        other = self.base_dir / "otro"
+        other.mkdir()
+        project_b = zerochat.SecurityContext(other.resolve())
+        self.controller.apply_session_overlay({"tools": {"t": {"policy": "allow"}}}, project_b)
+        set_tool(self.controller, "t", zerochat.POLICY_DENY)
+        self.assertEqual(tool_entry(self.controller, "t", project_b)["policy"], "deny")
 
 if __name__ == "__main__":
     unittest.main()

@@ -754,7 +754,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 if not isinstance(decision, str):
                     return None, {"code": -32602, "message": "decision debe ser un texto"}, ""
                 if decision == "deny":
-                    ACCESS_CONTROLLER.revoke_challenge(challenge_id)
+                    ACCESS_CONTROLLER.revoke_challenge(challenge_id, context=ctx)
                     return {"authorized": False, "status": "deny"}, None, ""
 
                 ch = ACCESS_CONTROLLER.authorize_challenge(
