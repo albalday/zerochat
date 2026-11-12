@@ -125,3 +125,4 @@
 - 2026-11-12 M62-D19 dropped: el cambio de proyecto va en segundo plano por decisión del usuario; localToolsAvailable ya protege el turno mientras tanto (M62-T17)
 - 2026-11-12 M62-D20 Error propio -32003 (ProjectGoneError) para carpeta desaparecida; el latido llama a recoverLostProject: vuelve al proyecto por defecto y onProjectLost avisa una vez (M62-T18)
 - 2026-11-12 M62-D21 La reserva del navegador dura 1 minuto sin uso: solo cubre lo que el modelo razona entre acciones, no la espera a otra petición del usuario (M62-T19)
+- 2026-11-12 M62-D22 recoverLostProject se dispara en requestExternalControl y repite la petición: sin auto-cierre no hay latido periódico y el guardado de conversaciones fallaba con -32003 hasta volver a la pestaña (M62-T22)

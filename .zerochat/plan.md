@@ -46,3 +46,6 @@ Decisiones: sin identidad de cliente (ni clientId ni Mcp-Session-Id): PC y table
 - [x] M62-T17 Abrir una conversación espera al cambio de proyecto antes de darla por abierta (dropped: el cambio de proyecto va en segundo plano, a petición del usuario)
 - [x] M62-T18 Avisar cuando la carpeta del proyecto de la pestaña deja de existir (2026-11-12)
 - [x] M62-T19 Reserva del navegador: 1 minuto sin uso en vez de 5 (2026-11-12)
+- [x] M62-T20 El plazo de la reserva del navegador cuenta desde que termina la acción (2026-11-12)
+- [x] M62-T21 Una rama hereda el proyecto de su conversación (2026-11-12)
+- [x] M62-T22 Carpeta desaparecida: cualquier petición de control recupera el proyecto por defecto y se repite, no solo el latido (2026-11-12)

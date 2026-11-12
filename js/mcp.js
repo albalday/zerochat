@@ -532,6 +532,7 @@
       this.clients = new Map();
       this.sessionToken = null;
       this.healthCheckPromise = null;
+      this.projectRecovery = null;
       // Destino de la conexión ({ url, proxyKey }), que el latido vigila aunque la conexión falle.
       this.target = null;
       this.heartbeatTimer = null;
@@ -805,9 +806,8 @@
         if (this.isProxyConnected()) {
           try {
             await this.readLiveState();
-          } catch (error) {
-            if (error?.rpcError?.code === PROJECT_GONE_CODE) await this.recoverLostProject();
-            else await this.verifyProxyConnection();
+          } catch (_) {
+            await this.verifyProxyConnection();
           }
         } else if (this.target) {
           const probe = await this.probeTarget();
@@ -829,13 +829,21 @@
      * (initialize lo devuelve cuando falta la carpeta) y avisa con `onProjectLost`, que fija la interfaz.
      * Las conversaciones del proyecto perdido se quedan sin herramientas locales.
      */
-    async recoverLostProject() {
-      const lost = getState().get('mcp').serverInfo?.cwd || '';
-      const probe = await this.probeTarget();
-      if (!probe.success) return this.verifyProxyConnection();
-      getState().set('mcp', { serverInfo: probe.serverInfo });
-      await this.applyLiveState(probe.liveState);
-      this.onProjectLost?.({ project: lost, fallback: probe.serverInfo?.cwd || '' });
+    recoverLostProject() {
+      // Varias peticiones pueden fallar a la vez: una sola recuperación y un solo aviso.
+      this.projectRecovery ||= (async () => {
+        const lost = getState().get('mcp').serverInfo?.cwd || '';
+        const probe = await this.probeTarget();
+        if (!probe.success) {
+          await this.verifyProxyConnection();
+          return false;
+        }
+        getState().set('mcp', { serverInfo: probe.serverInfo });
+        await this.applyLiveState(probe.liveState);
+        this.onProjectLost?.({ project: lost, fallback: probe.serverInfo?.cwd || '' });
+        return true;
+      })().finally(() => { this.projectRecovery = null; });
+      return this.projectRecovery;
     }
 
     /**
@@ -854,7 +862,13 @@
     async requestExternalControl(method, params = {}, options = {}) {
       const client = this.clients.get(PROXY_ID);
       if (!client) throw new Error('The local tool server is not connected.');
-      return client.request(method, params, options);
+      try {
+        return await client.request(method, params, options);
+      } catch (error) {
+        // El servidor rechaza la petición antes de atenderla: tras volver al proyecto por defecto se repite.
+        if (error?.rpcError?.code !== PROJECT_GONE_CODE || !await this.recoverLostProject()) throw error;
+        return client.request(method, params, options);
+      }
     }
 
     /** Comprueba si el proxy del backend local está conectado y activo. */

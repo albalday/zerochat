@@ -842,19 +842,32 @@ test('MCP - el cliente del servidor local envía el proyecto de la pestaña; un 
   }
 });
 
-test('MCP - si la carpeta del proyecto desaparece, el latido vuelve al proyecto por defecto y avisa una vez', async () => {
+test('MCP - si la carpeta del proyecto desaparece, cualquier petición vuelve al proyecto por defecto, se repite y avisa una vez', async () => {
   const previousMcp = ChatState.get('mcp');
   const manager = new MCP.McpManager();
   try {
     ChatState.set('mcp', { ...previousMcp, status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo/borrado' } });
-    manager.clients.set('mcp_proxy', { request: async () => { throw Object.assign(new Error('gone'), { rpcError: { code: -32003 } }); } });
+    const calls = [];
+    // Como el servidor: rechaza mientras la pestaña siga en la carpeta borrada
+    manager.clients.set('mcp_proxy', { request: async method => {
+      calls.push(method);
+      if (ChatState.get('mcp').serverInfo.cwd === '/repo/borrado') throw Object.assign(new Error('gone'), { rpcError: { code: -32003 } });
+      return { method };
+    } });
     manager.probeTarget = async () => ({ success: true, serverInfo: { name: 'ZeroChat', cwd: '/repo/inicio' }, liveState: null });
     const lost = [];
     manager.onProjectLost = info => lost.push(info);
-    await manager.sendHeartbeat();
+    // Sin latido periódico (servidor sin auto-cierre) la primera en notarlo es una petición cualquiera
+    const results = await Promise.all(['zerochat/conversations/list', 'zerochat/jobs/list'].map(method => manager.requestExternalControl(method)));
+    assert.deepEqual(results.map(result => result.method), ['zerochat/conversations/list', 'zerochat/jobs/list'], 'Se repiten y responden');
+    assert.equal(calls.length, 4);
     assert.deepEqual(lost, [{ project: '/repo/borrado', fallback: '/repo/inicio' }]);
     assert.equal(ChatState.get('mcp').serverInfo.cwd, '/repo/inicio');
     assert.equal(ChatState.get('mcp').status, 'connected', 'Sigue conectado: solo cambia de proyecto');
+    // Otro error, o no poder volver, se entrega tal cual
+    manager.clients.set('mcp_proxy', { request: async () => { throw Object.assign(new Error('other'), { rpcError: { code: -32602 } }); } });
+    await assert.rejects(manager.requestExternalControl('zerochat/jobs/list'), /other/);
+    assert.equal(lost.length, 1);
   } finally {
     ChatState.set('mcp', previousMcp);
   }
