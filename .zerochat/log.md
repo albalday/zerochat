@@ -105,3 +105,4 @@
 - 2026-11-12 M61-D29 matches_command_pattern rechaza comandos compuestos; sin rule_offer para ellos y la tarjeta oculta 'Permitir siempre' en run_command (M61-T38)
 - 2026-11-12 M61-D30 split_command parte por operadores fuera de comillas; cada subcomando por patrón o Workspace Trust, cada cd por reglas de directorio con carpeta acumulada; sin validar por partes: $(), `, &, subshells, redirecciones, palabras reservadas y cd escondido (M61-T39)
 - 2026-11-12 M62-D1 Multiusuario fuera del proceso (un contenedor por usuario); la multisesión de un usuario sí se aborda, con SecurityContext como objeto sesión y lo permanente compartido en SQLite
+- 2026-11-12 M62-D2 Sesión = (clientId de localStorage, proyecto), identificada en initialize con Mcp-Session-Id; sin caducidad por tiempo, tope de 16 con liberación de la menos usada sin comandos; historia de chats por proyecto; concurrencia no sincronizada (worktrees), salvo navegador ocupado -> error
