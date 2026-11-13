@@ -1,3 +1,23 @@
+"""Almacenamiento local en SQLite (~/zerochat/storage/zerochat.db): perfiles del servidor, conversaciones, blobs y políticas de seguridad."""
+
+from __future__ import annotations
+
+import contextlib
+import hashlib
+import json
+import os
+import re
+import sqlite3
+import threading
+import time
+import typing
+import urllib.parse
+from pathlib import Path
+
+from core.environment import get_data_dir
+from core.limits import MAX_PATH_LENGTH
+
+
 # Persistencia local de zerochat.py con SQLite embebido para perfiles de conexión generales y conversaciones.
 _STORAGE_LOCK = threading.RLock()
 _INITIALIZED_DB: Path | None = None
@@ -9,7 +29,6 @@ MAX_CONVERSATION_ID_LENGTH = 128
 MAX_CONVERSATION_TITLE_LENGTH = 256
 MAX_BLOB_SIZE = 50 * 1024 * 1024
 MAX_BLOB_HTTP_BYTES = 72 * 1024 * 1024
-
 STORAGE_MIGRATIONS = [
     (1, "001_create_profiles_table", """
         CREATE TABLE IF NOT EXISTS profiles (
@@ -283,10 +302,6 @@ def delete_general_profile(profile_id: str) -> bool:
         conn.commit()
         return cursor.rowcount > 0
 
-
-# ==============================================================================
-# Almacén de conversaciones y mensajes (M46)
-# ==============================================================================
 
 def _validate_conversation_id(session_id) -> str:
     if not isinstance(session_id, str) or not session_id.strip():
@@ -645,5 +660,3 @@ def update_security_policy_data(mutator: typing.Callable[[dict | None], dict]) -
         except Exception:
             conn.execute("ROLLBACK;")
             raise
-
-
