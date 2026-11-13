@@ -41,7 +41,7 @@ Done when: Las tareas del hito están hechas, probadas en el navegador y todos l
 - [x] M63-T11 La clave del proxy de la conexión remota tiene el botón de ojo para mostrarla u ocultarla, con el mismo manejador que la API key del perfil (2026-11-13)
 - [x] M63-T12 El historial deja de leer y escribir extra en el cliente y el servidor deja de exponerlo en la cabecera: profileId, serverRun y project ya viajan en ella (2026-11-13)
 - [x] M63-T13 ConversationService sin guardas de opciones ni de serverRuns que solo pedían las pruebas, perfil de la sesión resuelto en un solo sitio y cabecera al abrir como fusión de la guardada y la leída (2026-11-13)
-- [ ] M63-T14 Borrar una conversación la quita de la barra solo si se borró del almacenamiento; switchToSession devuelve siempre un booleano
+- [x] M63-T14 Borrar una conversación la quita de la barra solo si se borró del almacenamiento; switchToSession devuelve siempre un booleano (2026-11-13)
 - [ ] M63-T15 Storage sin hasBlob, con un único borrado local de conversaciones e hidratación de imágenes en un solo punto
 - [ ] M63-T16 Sin servidor, una conversación cuya cabecera remota es más reciente que su copia local abre esa copia en vez de avisar de que no está descargada
 - [ ] M63-T17 Upsert de sesiones compartido en ChatState, refresco de la lista tras una ejecución de servidor vía ConversationService y un único callback de repintado en la barra

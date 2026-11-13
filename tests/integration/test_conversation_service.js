@@ -158,6 +158,19 @@ test('ConversationService - si el resumen falla ofrece bifurcar con el historial
   }
 });
 
+test('ConversationService - si el almacenamiento no borra la conversación, sigue en la lista', async t => {
+  await Storage.deleteAllConversations();
+  const session = { id: 'del_fail', title: 'No se borra' };
+  await Storage.saveConversation(session, [{ id: 'del_fail_m', role: 'user', content: 'hola' }]);
+  State.replaceConversation({ sessionId: 'del_other', sessions: [session], messages: [] });
+  const { alerts } = useDialogs(t, [true]);
+  t.mock.method(Storage, 'deleteConversation', async () => { throw new Error('Storage failure'); });
+
+  await ConversationService.deleteSession('del_fail', appOptions());
+  assert.deepEqual(State.get('sessions').list.map(item => item.id), ['del_fail']);
+  assert.equal(alerts.length, 1);
+});
+
 test('ConversationService - una sesión sin mensajes del usuario no se guarda', async t => {
   await setupBranch(t, [{ id: 'm1', role: 'system', content: 'sys' }]);
   await ConversationService.saveCurrentSession(appOptions());

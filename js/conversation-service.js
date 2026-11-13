@@ -149,7 +149,7 @@
 
   async function switchToSession(sessionId, options) {
     const { force = false, saveCurrent = true } = options;
-    if (!force && sessionId === getActiveSessionId()) return;
+    if (!force && sessionId === getActiveSessionId()) return true;
     if (await blockSessionTransitionIfBusy('chat_switch_blocked_generating')) return false;
     if (saveCurrent) await saveCurrentSession(options);
 
@@ -162,7 +162,7 @@
       await getDialogs().alert(t(notDownloaded ? 'chat_not_downloaded' : 'chat_storage_read_error'), { type: 'error' });
       return false;
     }
-    if (!conversation) return;
+    if (!conversation) return false;
     const history = conversation.history.length > 0 ? [...conversation.history] : createInitialChatHistory();
     getEngine().ensureConversationDate(history, conversation.createdAt);
 
@@ -347,15 +347,16 @@
     if (await blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
 
     const activeId = getActiveSessionId();
-    if (!getState().removeSession(sessionId).ok) {
-      await getDialogs().alert(t('chat_delete_blocked_generating'));
-      return;
-    }
+    // Sale de la lista solo si se borró del almacenamiento: si falla, sigue visible y se puede reintentar.
     try {
       await getStorage().deleteConversation(sessionId);
     } catch (error) {
       console.warn('[ConversationService] Could not delete conversation:', error);
       await getDialogs().alert(t('chat_delete_history_err'), { type: 'error' });
+      return;
+    }
+    if (!getState().removeSession(sessionId).ok) {
+      await getDialogs().alert(t('chat_delete_blocked_generating'));
       return;
     }
 
