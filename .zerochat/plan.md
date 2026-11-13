@@ -60,7 +60,7 @@ Done when: Las tareas del hito están hechas, probadas en el navegador y todos l
 - [x] M63-T30 test-runner falla si un archivo de grupo no existe, sin las referencias a test_mcp_status.js y test_browser_ui.js; test_ui_mcp.js compara SERVICE_STATUSES con tests/fixtures/mcp/contract.json (auditoría F-07) (2026-11-13)
 - [x] M63-T31 Plazos del modo desatendido sin variables de entorno que solo usan las pruebas: decidir entre opción documentada de la CLI o parche de las constantes desde la prueba (auditoría F-08) (2026-11-13)
 - [x] M63-T32 El sandbox del navegador restaura Function.prototype.constructor al resolverse la promesa del código, no en el finally síncrono; prueba: un escape por el constructor tras un await devuelve error (auditoría F-14) (2026-11-13)
-- [ ] M63-T33 validate_local_tool_arguments rechaza con error de validación un tipo de argumento que no conoce en lugar de lanzar TypeError; prueba con una definición de tipo no admitido (auditoría F-15)
+- [x] M63-T33 validate_local_tool_arguments rechaza con error de validación un tipo de argumento que no conoce en lugar de lanzar TypeError; prueba con una definición de tipo no admitido (auditoría F-15) (2026-11-13)
 - [ ] M63-T34 Retirar del repositorio la copia de la verificación de Google en js/ y test-results/, añadirlos a .gitignore y decidir con el usuario si todo.txt sigue versionado (auditoría F-11)
 - [ ] M63-T35 Trabajos de CI en windows-latest y macos-latest para las pruebas Python de infraestructura y uno con el Node mínimo que fije M65 para test_run_node.js; cada fallo que aparezca se abre como tarea propia (auditoría F-09)
 

@@ -26,6 +26,8 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
             return f"Argumento no permitido: {name}"
         expected_type_name = prop.get("type")
         expected_type = type_map.get(expected_type_name)
+        if expected_type is None:
+            return f"Tipo no admitido en la definición de '{name}': {expected_type_name}"
         if expected_type is bool:
             if not isinstance(value, bool):
                 return f"Tipo inválido para '{name}'"

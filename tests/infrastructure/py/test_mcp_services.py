@@ -341,6 +341,10 @@ class LocalToolArgumentsTest(unittest.TestCase):
         self.assertEqual(validate("edit_file", {"path": "a", "old_str": "x"}), "Falta el argumento obligatorio: new_str")
         self.assertEqual(validate("edit_file", {"path": "a", "old_str": "x", "new_str": "y", "replace_all": "true"}), "Tipo inválido para 'replace_all'")
         self.assertEqual(validate("run_command", {"command": "pwd", "timeout_seconds": True}), "Tipo inválido para 'timeout_seconds'")
+        # Un tipo que el validador no conoce se rechaza como error de validación, no con una excepción.
+        definition = {"name": "demo_tool", "inputSchema": {"type": "object", "properties": {"items": {"type": "array"}}}}
+        with patch.object(zerochat, "LOCAL_TOOLS_DEFINITIONS", [*zerochat.LOCAL_TOOLS_DEFINITIONS, definition]):
+            self.assertEqual(validate("demo_tool", {"items": []}), "Tipo no admitido en la definición de 'items': array")
 
 
 class StdioClientTest(unittest.TestCase):
