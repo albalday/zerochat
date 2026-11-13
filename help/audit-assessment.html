@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Revisión 5: Nivel técnico y evolución · ZeroChat 10.x Docs</title>
+  <meta name="description" content="Valoración del nivel técnico de ZeroChat 10.14.0 por áreas, sus debilidades de estructura y consejos de evolución ordenados por plazo.">
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat 10.x Docs
+        </a>
+        <div class="header-actions">
+          <a href="en/audit-assessment.html" class="top-nav-link" lang="en">English</a>
+          <a href="architecture.html#auditorias" class="top-nav-link">← Infraestructura y datos</a>
+        </div>
+      </div>
+      <h1>Revisión 5: Nivel técnico y evolución</h1>
+      <p class="subtitle">Una opinión razonada sobre la calidad técnica de ZeroChat 10.14.0 y consejos para su siguiente etapa. Escrita el 13 de noviembre de 2026.</p>
+    </header>
+
+    <main>
+      <div class="card">
+        <h2>Qué es esta página</h2>
+        <p>Las cuatro revisiones anteriores describen hechos comprobados. Esta es una <strong>opinión</strong>: una valoración del nivel técnico de ZeroChat 10.14.0 y unos consejos sobre hacia dónde llevarlo. Se apoya en esas revisiones y en la lectura del código, pero las conclusiones son discutibles y así deben leerse.</p>
+        <p>La vara de medir es doble: lo que cabe esperar de un proyecto personal mantenido por una persona con agentes de código, y lo que se exigiría a un producto que ejecuta comandos en el equipo de quien lo usa.</p>
+      </div>
+      <div class="card">
+        <h2>1. Valoración por áreas</h2>
+        <div class="table-responsive">
+          <table>
+            <thead><tr><th>Área</th><th>Nivel</th><th>Por qué</th></tr></thead>
+            <tbody>
+              <tr><td>Pruebas y normas ejecutables</td><td>Muy alto</td><td>809 pruebas que se ejecutan en menos de un minuto y, sobre todo, 14 archivos de pruebas de arquitectura que convierten las normas en algo que falla. Es lo más distintivo del proyecto y poco habitual incluso en equipos profesionales. Le falta medir cobertura y probar fuera de Linux.</td></tr>
+              <tr><td>Motor de permisos</td><td>Alto</td><td>Un único punto de decisión en el servidor, estado transaccional, retos de un solo uso, comandos validados subcomando a subcomando y fallos que nunca degradan a «permitir». Está diseñado como lo haría alguien que conoce el problema.</td></tr>
+              <tr><td>Seguridad del perímetro</td><td>Alto, con un hueco</td><td>Token diario, identificación por PAM sin dependencias, anti-SSRF en cada redirección y lista cerrada de <code>innerHTML</code>. El sandbox de Node y el runner sin verificación rebajan la nota de las ejecuciones en servidor hasta que se corrijan.</td></tr>
+              <tr><td>Arquitectura del frontend</td><td>Alto</td><td>66 módulos sin bundle, estado por slices con mutadores, fronteras de persistencia y de DOM vigiladas por pruebas, y un bucle de agente que corre igual en el navegador y en Node gracias a adaptadores. Contrapartidas: ningún análisis de tipos y varios módulos de más de 1.200 líneas.</td></tr>
+              <tr><td>Arquitectura del backend</td><td>Medio-alto</td><td>Un solo archivo sin dependencias que hace de servidor HTTP, gestor de procesos, motor de permisos y almacén SQLite es una proeza de economía. Pero concatenar módulos por orden alfabético no es un sistema de módulos: no hay importaciones, ni espacios de nombres, ni análisis estático, y 8.000 líneas en un espacio global tienen un techo cercano.</td></tr>
+              <tr><td>Modelo de datos</td><td>Medio</td><td>Los datos viven dos veces (SQLite e IndexedDB) y la relación entre ambas copias se ha redefinido varias veces en una semana. No hay control de concurrencia entre pestañas, ni borrado de adjuntos, ni copia de seguridad del servidor. Es la zona menos asentada.</td></tr>
+              <tr><td>Proceso de desarrollo</td><td>Alto</td><td>Memoria de proyecto versionada, decisiones registradas, tareas de 300 líneas, auditorías periódicas y limpieza continua. El riesgo está en el ritmo: quince versiones menores en siete días no dejan tiempo para que el uso real encuentre los fallos.</td></tr>
+              <tr><td>Producto y experiencia de uso</td><td>Medio-alto</td><td>Cubre mucho y lo cubre bien, pero cada serie añade conceptos: perfiles locales y del servidor, proyecto por pestaña, tres ámbitos de permisos, dos entornos de ejecución. La curva de entrada crece más deprisa que la ayuda que la explica.</td></tr>
+              <tr><td>Documentación</td><td>Alto</td><td>Ayuda bilingüe con su prueba de sincronía, README con contratos por subsistema y un registro de decisiones que permite reconstruir el porqué de casi todo.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <h2>2. Opinión de conjunto</h2>
+        <p><strong>El nivel técnico es alto, y en disciplina de pruebas y de permisos está por encima de lo que se ve en la mayoría de los proyectos de su tamaño.</strong> No es un prototipo que ha crecido: es un sistema con fronteras definidas, que se limpia a sí mismo y que puede cambiar de arquitectura en una semana sin romperse. Eso es difícil de conseguir, y más con casi todo el código escrito por agentes.</p>
+        <p>Ese último punto es la clave para entenderlo. La calidad no la garantiza quien escribe cada línea, sino el conjunto de normas que fallan cuando se incumplen. Donde esas normas existen, el código es consistente; donde todavía no se han formulado, aparecen los huecos, y aparecen deprisa porque el ritmo de entrega es muy alto. El sandbox de Node es el ejemplo: se entregó en un día, con una prueba que parecía cubrirlo, en la única zona del frontend que no tenía una norma de seguridad propia.</p>
+        <p>Las debilidades de fondo son cinco, y ninguna es de oficio sino de estructura:</p>
+        <ul>
+          <li><strong>No hay verificación estática.</strong> 30.000 líneas de JavaScript y 8.000 de Python sin tipos comprobados; los contratos entre módulos solo los vigilan las pruebas.</li>
+          <li><strong>Dos entornos de ejecución</strong> para el mismo agente, con garantías distintas que hay que mantener a mano.</li>
+          <li><strong>Dos copias de los datos</strong> sin una regla única sobre cuál manda.</li>
+          <li><strong>Dependencia de un origen web ajeno</strong> (GitHub Pages bajo un dominio compartido), que ahora además sirve código que se ejecuta en el servidor.</li>
+          <li><strong>Una sola persona.</strong> La memoria de proyecto lo mitiga muy bien, pero nadie más ha usado ni revisado el sistema.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h2>3. Consejos de evolución</h2>
+        <h3>Ahora: cerrar lo que la serie 10 dejó abierto</h3>
+        <ol>
+          <li><strong>Aislar de verdad el JavaScript del modelo en el servidor.</strong> Un proceso hijo con el modelo de permisos de Node y terminación por señal resuelve F-01 y F-02 a la vez. Hasta entonces, retirar la herramienta de las ejecuciones en servidor cuesta una línea.</li>
+          <li><strong>Lanzar el runner con permisos restringidos</strong> y probar su descarga. Así, un fallo en el origen web deja de ser ejecución de código sin límites en el equipo.</li>
+          <li><strong>Escribir las garantías que faltan como pruebas</strong>: el runner está al día, borrar una conversación borra sus adjuntos y solo cuando el servidor lo confirma, rotar el token olvida los permisos de sesión y el ejecutor de pruebas falla si le falta un archivo.</li>
+          <li><strong>Añadir Windows y macOS a la CI</strong> para las pruebas de infraestructura. Es la deuda más antigua que sigue abierta.</li>
+        </ol>
+        <h3>Después: dar suelo a lo que ha crecido deprisa</h3>
+        <ol>
+          <li><strong>Comprobación de tipos sin renunciar a «sin bundle».</strong> Anotaciones JSDoc y <code>tsc --checkJs --noEmit</code> como sexto nivel de validación, empezando por el estado, el almacenamiento y el bucle del agente; en Python, un analizador sobre <code>zerochat.py</code>. No cambia cómo se sirve la aplicación y atrapa la clase de errores que hoy solo encuentran las pruebas.</li>
+          <li><strong>Una regla única para los datos.</strong> Con servidor conectado, SQLite manda e IndexedDB es una caché; con una versión por conversación para detectar que otra pestaña ha guardado antes, en lugar de dejar que gane el último. M63 ya ha dado el primer paso al sincronizar solo cabeceras.</li>
+          <li><strong>Copia de seguridad del servidor.</strong> Ahora que el historial vive en <code>~/zerochat/storage/</code>, una orden para exportarlo y restaurarlo vale más que cualquier función nueva.</li>
+          <li><strong>Evaluaciones del agente.</strong> Una batería pequeña y reproducible de tareas, ejecutada con <code>zerochat --prompt</code> contra varios modelos locales, que mida aciertos, pasos y contexto consumido. Las pruebas actuales demuestran que el código hace lo que dice; ninguna demuestra que el agente resuelve tareas. Sin ajustes por modelo: la batería mide el producto, no afina plantillas.</li>
+          <li><strong>Un canal estable.</strong> Seguir publicando tan a menudo como se quiera en un canal de desarrollo y promover a estable cada una o dos semanas, con una lista de cambios. Quince versiones en siete días son demasiadas para quien instala desde PyPI.</li>
+          <li><strong>Partir el backend cuando duela.</strong> Antes de las 10.000 líneas, convertir <code>py/</code> en un paquete con importaciones reales y generar el archivo único a partir de él. Se conserva la distribución en un archivo y se gana análisis estático.</li>
+        </ol>
+        <h3>Más adelante: decisiones de rumbo</h3>
+        <ol>
+          <li><strong>Un origen propio.</strong> Un dominio propio elimina el riesgo del origen compartido y permite enviar cabeceras de seguridad reales, entre ellas una política de contenido sin <code>'unsafe-inline'</code> ni <code>'unsafe-eval'</code>.</li>
+          <li><strong>Simplificar antes de añadir.</strong> Un único tipo de perfil, o un asistente que explique cuándo usar cada uno; una tabla visible de qué funciona en el navegador y qué en el servidor. El siguiente salto de calidad está en que una persona nueva lo entienda en diez minutos.</li>
+          <li><strong>Decidir la matriz de soporte.</strong> Siete proveedores, tres navegadores, tres sistemas y dos entornos de ejecución son muchas combinaciones para una persona. Declarar qué se prueba y qué es «mejor esfuerzo», y retirar lo que no se usa, es una forma legítima de mejorar.</li>
+          <li><strong>RAG híbrido opcional.</strong> Los servidores de modelos locales ya exponen embeddings; usarlos cuando existan, junto al índice léxico, cerraría la carencia más citada sin añadir dependencias al servidor.</li>
+          <li><strong>Mantener el multiusuario fuera.</strong> La decisión de M62, un servidor por persona, es la correcta para un programa que actúa con una cuenta del sistema. Lo útil sería una receta oficial de contenedor, no cuentas dentro del proceso.</li>
+          <li><strong>Buscar un segundo par de ojos.</strong> Una revisión externa del motor de permisos y del modo servidor, o simplemente dos o tres personas usándolo a diario, encontraría lo que ni las pruebas ni estas auditorías ven.</li>
+        </ol>
+      </div>
+      <div class="card">
+        <h2>4. En una frase</h2>
+        <p><strong>Un proyecto de nivel alto cuyo mayor activo son sus normas ejecutables y cuyo mayor riesgo es su propia velocidad:</strong> el consejo no es hacer más, sino dedicar la próxima serie a asentar lo que la 10 ha levantado.</p>
+      </div>
+      <div class="card" id="autoria">
+        <h2>Autoría y entorno de verificación</h2>
+        <div class="alert alert-info">
+          <ul>
+            <li><strong>Opinión y redacción:</strong> Claude Fable 5.2 en Claude Code, a petición del responsable del proyecto.</li>
+            <li><strong>Base:</strong> las revisiones 1 a 4, incluidos los hallazgos de la revisión paralela hecha con Gemini, y la lectura del código en el commit <code>bc942cf</code>. No se ha medido la cobertura ni se ha comparado con otros proyectos de forma sistemática.</li>
+          </ul>
+        </div>
+      </div>
+    </main>
+
+    <nav class="page-navigation" aria-label="Navegación de revisiones">
+      <a href="audit-history.html" class="nav-button prev">
+        <span class="nav-direction">← Anterior</span>
+        <span class="nav-title">Revisión 4: Historial</span>
+      </a>
+      <a href="architecture.html#auditorias" class="nav-button next">
+        <span class="nav-direction">Siguiente →</span>
+        <span class="nav-title">Infraestructura y datos</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat 10.x · Revisión 5 (Nivel técnico y evolución) · 13 de noviembre de 2026</p>
+    </footer>
+  </div>
+</body>
+</html>

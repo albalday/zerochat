@@ -91,10 +91,12 @@ el mismo cambio.
 
 ## Entregable y priorización
 
-El resultado son cuatro revisiones bilingües publicadas en la ayuda, escritas desde cero
+El resultado son cinco revisiones bilingües publicadas en la ayuda, escritas desde cero
 y no como actualización de las anteriores: `help/audit-infrastructure.html` (infraestructura
 y normas), `help/audit-functionalities.html` (funcionalidades), `help/audit-comparison.html`
-(comparativa) y `help/audit-history.html` (historial), con sus versiones en `help/en/`.
+(comparativa), `help/audit-history.html` (historial) y `help/audit-assessment.html` (opinión
+sobre el nivel técnico y consejos de evolución, separada de los hechos de las otras cuatro),
+con sus versiones en `help/en/`.
 No se crean informes en Markdown.
 
 Cada hallazgo incluye, como mínimo:
@@ -121,8 +123,8 @@ npm run test:all
 npm run build
 ```
 
-Confirmar que los archivos generados (`zerochat.py`, `py/dd-managed-services.py` y
-`js/vendor/orama.browser.js`) están sincronizados, que no hay cambios inesperados y
+Confirmar que los archivos generados (`zerochat.py`, `py/dd-managed-services.py`, `runner.js`
+y los bundles de `js/vendor/`) están sincronizados, que no hay cambios inesperados y
 que el informe refleja el estado final. La promoción a `master` sigue las reglas
 de `AGENTS.md` y requiere el incremento de versión validado previamente en `dev`.
 

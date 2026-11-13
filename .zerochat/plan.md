@@ -51,3 +51,5 @@ Done when: Las tareas del hito están hechas, probadas en el navegador y todos l
 - [x] M63-T21 El aviso de bucle lo redacta ChatEngine con i18n; AgentRuntime solo informa del estado loop_detected (2026-11-13)
 - [x] M63-T22 ToolExecutor parsea los argumentos una sola vez y separa el protocolo de autorización de la ejecución (2026-11-13)
 - [x] M63-T23 Cada herramienta declara el texto de su evidencia visual; ChatEngine deja de listar nombres de herramientas (2026-11-13)
+- [x] M63-T24 Auditoría completa de la 10.14.0: revisiones 1 a 4 de la ayuda escritas desde cero y una quinta con el nivel técnico y los consejos de evolución, en español e inglés (2026-11-13)
+- [x] M63-T25 Incorporar a la auditoría los hallazgos comprobados de la revisión paralela con Gemini (F-12 a F-15, ayuda en F-06) y corregir help/remote-proxy.html, que describía la firma de herramientas retirada en M56 (2026-11-13)

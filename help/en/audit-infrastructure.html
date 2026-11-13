@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Review 1: Infrastructure and rules · ZeroChat 10.x Docs</title>
-  <meta name="description" content="Review of ZeroChat 9.11.0: each AGENTS.md rule against the test that protects it, local server security, accepted risks and findings.">
+  <meta name="description" content="Review of ZeroChat 10.14.0: AGENTS.md rules against their tests, local server security, accepted risks and fifteen findings, including the Node sandbox.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -21,152 +21,169 @@
         </div>
       </div>
       <h1>Review 1: Infrastructure and rules</h1>
-      <p class="subtitle">Which AGENTS.md rule is protected by a test, and which depends only on someone reading it? Updated on 24 October 2026.</p>
+      <p class="subtitle">What a test protects and what it does not in the 10.x series: SQLite, backend permissions and execution in Node. Updated on 13 November 2026.</p>
     </header>
 
     <main>
       <div class="card">
         <h2>Scope and method</h2>
-        <p>Review of version <strong>9.11.0</strong> on the <code>dev</code> branch (commit <code>170ee03</code>), written from scratch against the current code. Since the previous review (9.2.3, commit <code>924aef6</code>) there are 238 commits and 39 closed milestones (M5 to M43). It follows the <code>docs/audits/AuditFull.md</code> procedure.</p>
-        <p>The criterion is the <a href="learning.html#rules-lesson">9.0.0 lesson</a>: <strong>a rule only counts as met if a test fails when it is broken</strong>. Each statement shows where it comes from:</p>
+        <p>Review of version <strong>10.14.0</strong> on the <code>dev</code> branch (commit <code>bc942cf</code>), written from scratch against the current code and not starting from the conclusions of the previous review (9.11.0, commit <code>170ee03</code>). There are 251 commits and 19 closed milestones (M44 to M62) between the two, with M63 open. It follows the procedure in <code>docs/audits/AuditFull.md</code>.</p>
+        <p>The 10.x series changes the scope of the infrastructure: the local server is no longer just a tool bridge. It stores profiles, conversations, attachments and permissions in SQLite, it alone decides the authorization of every tool, and it runs full agent turns in the background with a Node.js process. This review focuses on those new parts.</p>
+        <p>It includes four findings from a parallel review made with Gemini on the same commit (F-12 to F-15 and the extension of F-06), each checked in the code before being added.</p>
+        <p>Each claim states where it comes from:</p>
         <ul>
           <li><strong>[test]</strong> an automated test protects it;</li>
-          <li><strong>[cmd]</strong> a reproducible command checks it today, but nothing stops it from breaking;</li>
+          <li><strong>[cmd]</strong> a reproducible command checks it today, but nothing prevents it from breaking;</li>
           <li><strong>[reading]</strong> code review, with no test or command;</li>
           <li><strong>[no test]</strong> a written rule that no test watches.</li>
         </ul>
       </div>
-
       <div class="card">
         <h2>1. Baseline</h2>
         <div class="table-responsive">
           <table>
             <thead><tr><th>Command</th><th>Result</th></tr></thead>
             <tbody>
-              <tr><td><code>npm run test:all</code></td><td>702 cases: 623 from <code>node --test</code> and 79 from <code>unittest</code>; all passing and 1 skipped (Job Object, Windows only)</td></tr>
-              <tr><td><code>npm run test:unit</code></td><td>180/180</td></tr>
-              <tr><td><code>npm run test:integration</code></td><td>273/273</td></tr>
-              <tr><td><code>npm run test:infrastructure</code></td><td>28/28 in Node and 79 in Python across 12 files (1 skipped)</td></tr>
-              <tr><td><code>npm run test:architecture</code></td><td>39/39 across 14 files</td></tr>
-              <tr><td><code>npm run test:browser</code></td><td>103/103 in headless Chromium</td></tr>
-              <tr><td><code>npm run build</code></td><td>No differences in <code>zerochat.py</code>, <code>py/dd-managed-services.py</code> or the <code>js/vendor/</code> bundles</td></tr>
+              <tr><td><code>npm run test:all</code></td><td>809 cases: 660 from <code>node --test</code> and 149 from <code>unittest</code>; all pass and 1 is skipped (Job Object, Windows only)</td></tr>
+              <tr><td><code>npm run test:unit</code></td><td>213/213</td></tr>
+              <tr><td><code>npm run test:integration</code></td><td>279/279</td></tr>
+              <tr><td><code>npm run test:infrastructure</code></td><td>26/26 in Node and 149 in Python across 14 files (1 skipped)</td></tr>
+              <tr><td><code>npm run test:architecture</code></td><td>40/40 in 14 files</td></tr>
+              <tr><td><code>npm run test:browser</code></td><td>102/102 in headless Chromium</td></tr>
+              <tr><td><code>npm run build</code></td><td>No differences in <code>zerochat.py</code>, <code>py/dd-managed-services.py</code>, <code>runner.js</code> or the <code>js/vendor/</code> bundles</td></tr>
+              <tr><td><code>git status --short</code></td><td>Before starting, only <code>todo.txt</code> modified (unrelated to the review)</td></tr>
             </tbody>
           </table>
         </div>
-        <p>Size: 64 JavaScript modules in <code>js/</code> (27,963 lines) and 12 built-in tools in <code>js/tools/builtin/</code> (970 lines); 13 Python modules in <code>py/</code> (4,909 lines); 14 style sheets (8,367 lines); 834 translation keys per language; 3 third-party bundles in <code>js/vendor/</code>. [cmd]</p>
-        <p>The suite has fewer cases than in 9.2.3 (864) while covering more features: milestones M24, M32 and M41 removed trivial, duplicate or absence tests and left each behavior tested once, at the lowest level that observes it.</p>
+        <p>Size: 66 JavaScript modules in <code>js/</code> (29,934 lines) and 12 native tools in <code>js/tools/builtin/</code> (970 lines); 16 Python modules in <code>py/</code> (7,995 lines, up from 13 and 4,909 in 9.11.0); 14 stylesheets (8,751 lines); 890 translation keys per language; 3 third-party bundles in <code>js/vendor/</code> and a fourth generated artifact, <code>runner.js</code>. [cmd]</p>
+        <p>The backend has grown 63% in three weeks and is where the new risk concentrates: storage, permissions and unattended execution.</p>
       </div>
-
       <div class="card">
         <h2>2. Rules and tests</h2>
-        <p>Each row is a rule from <code>AGENTS.md</code> (by section) or from a subsystem README, with the test that protects it continuously.</p>
+        <p>Each row is a rule from <code>AGENTS.md</code> or from a subsystem README, with the test that fails when it is broken.</p>
         <div class="table-responsive">
           <table>
-            <thead><tr><th>Rule</th><th>Protection</th><th>State today</th></tr></thead>
+            <thead><tr><th>Rule</th><th>Protection</th><th>Status today</th></tr></thead>
             <tbody>
               <tr><td colspan="3"><strong>§2 Code quality</strong></td></tr>
-              <tr><td>One source per decision, and tests that import that source</td><td>[test] for the JS–Python contracts: <code>tests/fixtures/mcp/</code> (service statuses, engines, browsers, public tool names) is checked by both the Node and the Python tests; elsewhere, [reading]</td><td>Met</td></tr>
+              <tr><td>Single source per decision, and tests that import that source</td><td>[test] partial: both suites check <code>tests/fixtures/mcp/</code> for engines, browsers, tokens, storages and public names; service statuses are checked only by Python (F-07); elsewhere, [reading]</td><td>Met except F-07</td></tr>
               <tr><td>Dependencies through <code>resolveDep</code> or the UMD factory</td><td>[test] <code>test_code_hygiene.js</code></td><td>Met</td></tr>
-              <tr><td>Separate domain, persistence, adapters and presentation</td><td>[test] <code>test_persistence_boundary.js</code> and <code>test_state_contract.js</code>; model, view and controller zones in the dialogs (M38), [reading]</td><td>Met</td></tr>
-              <tr><td>Explicit errors</td><td>[test] <code>test_error_handling.js</code> (no empty <code>catch</code>) and <code>test_backend_hygiene.js</code> (no silent catch-alls in <code>py/</code>)</td><td>Met</td></tr>
-              <tr><td>No speculative or backward-compatibility code</td><td>[no test] in general; partial [test]: <code>test_code_hygiene.js</code> catches functions the app never runs</td><td>Manual review of each diff</td></tr>
-              <tr><td>Remove what becomes orphaned after a removal</td><td>[test] <code>test_code_hygiene.js</code> (functions and variables), <code>test_i18n_literals.js</code> (unused keys), <code>test_icon_sprite.js</code> (symbols and glyphs), <code>test_style_hygiene.js</code> (selectors and tokens)</td><td>Met</td></tr>
-              <tr><td>No production code used only by tests</td><td>[test] <code>test_code_hygiene.js</code></td><td>Met</td></tr>
+              <tr><td>Separate domain, persistence, adapters and presentation</td><td>[test] <code>test_persistence_boundary.js</code>, <code>test_state_contract.js</code>; browser/Node environment adapters, [reading]</td><td>Met</td></tr>
+              <tr><td>Explicit errors</td><td>[test] <code>test_error_handling.js</code> and <code>test_backend_hygiene.js</code></td><td>Met</td></tr>
+              <tr><td>No speculative or backward-compatibility code</td><td>[no test] in general; [test] partial through the unused functions and variables of <code>test_code_hygiene.js</code></td><td>Review of each diff; M63-T13 and T19 removed several cases</td></tr>
+              <tr><td>Remove what is orphaned after a removal</td><td>[test] in JavaScript, i18n, icons and CSS; [no test] for HTTP headers, documentation, help pages and test-runner lists</td><td>Not met in F-06 and F-07</td></tr>
+              <tr><td>No production code used only by tests</td><td>[test] <code>test_code_hygiene.js</code> in JavaScript; [no test] in <code>py/</code></td><td>Not met in F-08</td></tr>
               <tr><td colspan="3"><strong>§3 Security</strong></td></tr>
-              <tr><td>External data kept out of <code>innerHTML</code>, closed list of uses</td><td>[test] <code>test_html_sinks.js</code> (93 uses in 24 files) and injection tests (<code>browser_tool_cards.test.js</code>)</td><td>Met</td></tr>
-              <tr><td>Commands, sandbox and sensitive data with boundary and authorization tests</td><td>[test] <code>py/test_run_command.py</code>, <code>test_tool_security.js</code>, <code>browser_sandbox_security.test.js</code>, <code>py/test_login.py</code></td><td>Met</td></tr>
+              <tr><td>External data kept out of <code>innerHTML</code>, closed list of uses</td><td>[test] <code>test_html_sinks.js</code> (94 uses in 24 files) and injection tests</td><td>Met</td></tr>
+              <tr><td>Commands, sandbox and sensitive data with limit and authorization tests</td><td>[test] <code>py/test_security.py</code> (38 cases), <code>py/test_run_command.py</code>, <code>py/test_login.py</code>, <code>browser_sandbox_security.test.js</code>, <code>test_sandbox_node.js</code></td><td>Not met in the Node sandbox (F-01, F-02)</td></tr>
               <tr><td>Mandatory session token and listening on <code>127.0.0.1</code></td><td>[test] <code>test_local_server.js</code>, <code>py/test_token.py</code>, <code>py/test_network.py</code></td><td>Met</td></tr>
               <tr><td colspan="3"><strong>§4 Tests</strong></td></tr>
-              <tr><td>Each behavior tested once, at the lowest level</td><td>[reading] reviews in M32 and M41</td><td>Met after the M41 pruning</td></tr>
-              <tr><td>Every cap tested at <code>N</code> and <code>N+1</code> with its notice</td><td>[test] cap by cap (<code>test_office_parser.js</code>, <code>test_local_server.js</code> with the 1 MiB body and the 4096-byte body without a token, <code>py/test_login.py</code> with the attempts); [no test] that every new cap gets one</td><td>Met for the reviewed caps</td></tr>
+              <tr><td>Each behaviour is tested once, at the lowest level</td><td>[reading]; prunings in M53 and M63</td><td>Met</td></tr>
+              <tr><td>Every cap tested at <code>N</code> and <code>N+1</code> with its notice</td><td>[test] cap by cap: 1 MiB body, 64 MB export, blobs, names and titles, 500 policy entries, 16 project sessions, 50 patterns, challenge TTL, 50 conversations per group; [no test] that every new cap gets one</td><td>No test located for <code>MAX_FINISHED_JOBS</code>, <code>WEB_FETCH_MAX_REDIRECTS</code>, <code>MAX_MCP_MESSAGE_CHARS</code> and the 128 characters of method and tool names [cmd]</td></tr>
               <tr><td colspan="3"><strong>§5 Git and versions</strong></td></tr>
               <tr><td>Versions only through <code>npm run bump</code></td><td>[test] <code>test_versioning.js</code></td><td>Met</td></tr>
-              <tr><td>Promotion to <code>master</code> only from <code>dev</code>, with a bump and a green suite</td><td>[no test]: it is a procedure</td><td>Followed for every version since 9.2.3</td></tr>
+              <tr><td>Promotion to <code>master</code> only from <code>dev</code>, with a bump and a green suite</td><td>[no test]: it is a procedure</td><td><code>master</code> is at 10.13.0, 28 commits behind <code>dev</code></td></tr>
               <tr><td colspan="3"><strong>§6 Completion</strong></td></tr>
-              <tr><td>Spanish and English in sync in the interface and help</td><td>[test] <code>test_i18n.js</code> (same keys in both languages) and <code>test_help_pages.js</code> (translation, language and cross link of every page)</td><td>Met: 834/834 keys</td></tr>
-              <tr><td><code>sitemap.xml</code> regenerated when pages are added or removed</td><td>[test] <code>test_help_pages.js</code></td><td>Met: 50 pages</td></tr>
-              <tr><td>Backend rebuilt after changing <code>py/</code></td><td>[test] <code>test_backend_hygiene.js</code> (<code>zerochat.py</code> equals the concatenation of <code>py/</code>)</td><td>Met</td></tr>
-              <tr><td>Project memory (<code>.zerochat/</code>) up to date</td><td>[no test]; <code>task.py</code> updates it atomically</td><td>Met in M42</td></tr>
+              <tr><td>Spanish and English in sync</td><td>[test] <code>test_i18n.js</code> and <code>test_help_pages.js</code></td><td>Met: 890/890 keys</td></tr>
+              <tr><td><code>sitemap.xml</code> regenerated</td><td>[test] <code>test_help_pages.js</code></td><td>Met</td></tr>
+              <tr><td>Backend rebuilt after changing <code>py/</code></td><td>[test] <code>test_backend_hygiene.js</code></td><td>Met</td></tr>
+              <tr><td>Generated artifacts in sync</td><td>[test] <code>zerochat.py</code> and the <code>js/vendor/</code> bundles; [cmd] <code>runner.js</code></td><td>Met today; nothing watches <code>runner.js</code> (F-04)</td></tr>
+              <tr><td>Project memory (<code>.zerochat/</code>) up to date</td><td>[no test]; <code>task.py</code> updates it atomically and has its own test</td><td>Met in M63</td></tr>
               <tr><td colspan="3"><strong>Subsystem READMEs</strong></td></tr>
-              <tr><td>Events bound once in <code>mount()</code> and <code>ChatDialogs</code> dialogs always awaited</td><td>[test] <code>test_ui_listeners.js</code> and <code>test_code_hygiene.js</code></td><td>Met</td></tr>
-              <tr><td>Messages injected for the model in English and visible text through <code>ChatI18n</code></td><td>[test] <code>test_english_literals.js</code> and <code>test_i18n_literals.js</code></td><td>Met</td></tr>
-              <tr><td>Colors in <code>tokens.css</code>, no fallback in <code>var()</code>, hide with <code>hidden</code></td><td>[test] <code>test_style_hygiene.js</code></td><td>Met</td></tr>
+              <tr><td>Events bound once in <code>mount()</code> and dialogs always awaited</td><td>[test] <code>test_ui_listeners.js</code>, <code>test_code_hygiene.js</code></td><td>Met</td></tr>
+              <tr><td>Messages to the model in English and visible text through <code>ChatI18n</code></td><td>[test] <code>test_english_literals.js</code>, <code>test_i18n_literals.js</code></td><td>Met</td></tr>
+              <tr><td>Colours in <code>tokens.css</code>, no fallback in <code>var()</code>, hide with <code>hidden</code></td><td>[test] <code>test_style_hygiene.js</code></td><td>Met</td></tr>
               <tr><td>No emojis; icons from the sprite and <code>ChatIcons</code></td><td>[test] <code>test_icon_sprite.js</code></td><td>Met</td></tr>
               <tr><td><code>ChatState</code> only through its mutators</td><td>[test] <code>test_state_contract.js</code></td><td>Met</td></tr>
-              <tr><td>Only startup libraries load with the page and go into the precache</td><td>[test] <code>test_vendor_loading.js</code></td><td>Met</td></tr>
+              <tr><td>Only startup libraries enter the precache</td><td>[test] <code>test_vendor_loading.js</code></td><td>Met</td></tr>
               <tr><td>System prompt order for the context cache</td><td>[test] <code>test_context_cache_architecture.js</code></td><td>Met</td></tr>
               <tr><td>Providers extend <code>BaseProviderAdapter</code></td><td>[test] <code>test_providers.js</code></td><td>Met</td></tr>
-              <tr><td>Public pages with a unique title and description</td><td>[test] <code>test_help_pages.js</code></td><td>Met</td></tr>
-              <tr><td>Backend: <code>zz-main.py</code> last and tool definitions paired with handlers</td><td>[test] <code>test_backend_hygiene.js</code></td><td>Met</td></tr>
-              <tr><td>The wheel only contains the executable</td><td>[test] <code>tests/packaging_smoke_test.py</code> in the release</td><td>Met in 9.11.0</td></tr>
+              <tr><td>Only the backend decides permissions; the browser stores no policies</td><td>[test] <code>test_persistence_boundary.js</code> and <code>py/test_security.py</code>; that the frontend does not evaluate, [reading]</td><td>Met</td></tr>
+              <tr><td>Single tool execution point and single-use challenges</td><td>[test] <code>py/test_security.py</code></td><td>Met</td></tr>
+              <tr><td>Session authorizations are forgotten at startup or when the token rotates</td><td>[test] at startup; [no test] when rotating with the server running</td><td>Not met on rotation (F-12)</td></tr>
+              <tr><td>The process never changes directory; the project travels in every request</td><td>[test] <code>test_backend_hygiene.js</code>, <code>py/test_security.py</code></td><td>Met</td></tr>
+              <tr><td>SQLite and run files with <code>0600</code> permissions in <code>0700</code> directories</td><td>[test] <code>py/test_storage.py</code>, <code>py/test_server_runs.py</code></td><td>Met on Linux; no tested equivalent on Windows</td></tr>
+              <tr><td>Backend: <code>zz-main.py</code> last, and parity of tool definitions and handlers</td><td>[test] <code>test_backend_hygiene.js</code></td><td>Met</td></tr>
+              <tr><td>The wheel contains only the executable</td><td>[test] <code>tests/packaging_smoke_test.py</code> at release</td><td>Met</td></tr>
             </tbody>
           </table>
         </div>
-        <p>Count: of 29 rules, <strong>23 are protected by tests</strong>, 2 partly (one source per decision, caps at the boundary), 1 relies on reading the test reviews, and <strong>3 have no automated test</strong>: the absence of speculative or compatibility code, promotion to <code>master</code>, and project memory. The last two are procedures; the first is only watched by reviewing diffs.</p>
+        <p>Count: of 33 rules, <strong>22 are protected by tests</strong>, 6 are partly protected and <strong>5 have no automated test</strong> or are broken somewhere today. The pattern is clear: the hygiene tests cover JavaScript, CSS and i18n very well, and cover little of the Python backend, the generated artifacts and the development scripts, which is exactly what has grown most in the 10.x series.</p>
       </div>
-
       <div class="card">
         <h2>3. Local server security</h2>
         <ul>
-          <li><strong>Mandatory daily token</strong> on every request, in headers only. It expires at the day change even with the server running: the old one gets a 401 and a new one is generated. [test] <code>test_local_server.js</code>, <code>py/test_token.py</code></li>
-          <li><strong>Sign-in with the system account</strong>: without a token only sign-in is served, with a body of at most 4096 bytes. The password is checked with PAM (Linux and macOS) or <code>LogonUserW</code> (Windows) and never stored. After 5 failures in a row, attempts are rejected for 15 minutes without checking them. [test] <code>py/test_login.py</code>, <code>test_local_server.js</code></li>
-          <li><strong>No trust in the reverse proxy</strong>: the header the proxy routes by grants no access; behind it the token and sign-in are still required. [test] <code>test_local_server.js</code> and <code>browser_connection.test.js</code></li>
-          <li><strong>POST-only API</strong> over JSON-RPC, with CORS origins from a closed list; GET only serves the interface in development. [test] <code>test_local_server.js</code></li>
-          <li><strong>Each tool call signed</strong> with HMAC, a single-use nonce and a 60 s window that tolerates ±30 s of clock skew. [test] <code>test_local_server.js</code></li>
-          <li><strong>Bounded HTTP body</strong> of 1 MiB, except the <code>--prompt --export</code> export (64 MB). [test] <code>test_local_server.js</code></li>
-          <li><strong>Loopback listening</strong> by default, with a warning for any other host. [test] <code>py/test_network.py</code></li>
-          <li><strong>Server web transport</strong> with SSRF protection on the requested URL and on every redirect, and a bounded body. [test] <code>py/test_network.py</code></li>
-          <li><strong>Bounded commands</strong>: timeout, termination of the process group and cleanup of orphans from earlier sessions; on Windows, a Job Object. [test] <code>py/test_run_command.py</code> (the Job Object test only runs on Windows)</li>
-          <li><strong>JavaScript sandbox</strong> in an opaque-origin <code>iframe</code> without network; the help warns that it is not a security barrier. [test] <code>browser_sandbox_security.test.js</code></li>
-          <li><strong>Tool permissions</strong>: <code>ask</code>, <code>workspace_trust</code> and <code>allow_all</code> policies, directory rules and traversal checks. [test] <code>py/test_security.py</code>, <code>test_tool_security.js</code></li>
+          <li><strong>Mandatory daily token</strong>, headers only, compared in constant time; it expires when the day changes even while the server runs. [test] <code>test_local_server.js</code>, <code>py/test_token.py</code></li>
+          <li><strong>Sign-in with the system account</strong> (PAM or <code>LogonUserW</code>), a body of at most 4096 bytes and a 15-minute lockout after 5 failures. [test] <code>py/test_login.py</code></li>
+          <li><strong>Closed list of CORS origins</strong> (<code>albalday.github.io</code>, <code>127.0.0.1</code> and <code>localhost</code>) and a POST-only API. [test] <code>test_local_server.js</code></li>
+          <li><strong>Permission engine in the backend</strong>: a single evaluation hierarchy, directory rules that resolve symbolic links, <code>run_command</code> validated subcommand by subcommand and patterns matched argument by argument. [test] <code>py/test_security.py</code></li>
+          <li><strong>Authorization challenges</strong> that are single-use, have a 10-minute TTL and are bound to the project; a persistence failure does not run the tool. [test] <code>py/test_security.py</code></li>
+          <li><strong>Corrupt or unreadable policies</strong>: the error propagates and is never replaced by the default state. [test] <code>py/test_security.py</code></li>
+          <li><strong>Isolation by project</strong>: session permissions, challenges and commands belong to their project, capped at 16 sessions. [test] <code>py/test_security.py</code>, <code>py/test_run_command.py</code></li>
+          <li><strong>Web transport</strong> with anti-SSRF protection on the URL and on every redirect, and a body cap that also holds against compression bombs. [test] <code>py/test_network.py</code></li>
+          <li><strong>HTTP body capped</strong> at 1 MiB, with explicit exceptions for blobs and export, each tested at its edge. [test] <code>test_local_server.js</code>, <code>test_backend_run_mode.js</code></li>
+          <li><strong>JavaScript sandbox in the browser</strong>: an opaque-origin <code>iframe</code> with no network. [test] <code>browser_sandbox_security.test.js</code></li>
+          <li><strong>JavaScript sandbox in Node</strong> (server runs): it <strong>does not isolate</strong>; see F-01 and F-02.</li>
+          <li><strong>Node runner</strong>: downloaded from GitHub Pages and executed with no integrity check; see F-03.</li>
+          <li><strong>Token rotation with the server running</strong>: the token changes, but permissions granted "for this session" stay valid; see F-12.</li>
         </ul>
       </div>
-
       <div class="card">
         <h2>4. Accepted risks</h2>
         <div class="table-responsive">
           <table>
             <thead><tr><th>Risk</th><th>Situation</th></tr></thead>
             <tbody>
-              <tr><td>Shared origin <code>albalday.github.io</code></td><td>Other pages on the same origin could read the session cookie, <code>localStorage</code> and IndexedDB. Accepted while the origin only publishes the project's own pages.</td></tr>
-              <tr><td>Proxy key unencrypted in the browser</td><td>Stored in the local configuration (M42-D17): it only opens the proxy door, and the server still requires the daily token and sign-in. It is only sent to the configured URL.</td></tr>
-              <tr><td>System account lockout</td><td>If the computer locks accounts after failed attempts (for example, <code>pam_faillock</code>) with a limit below 5, failures from the web could lock the account. The help explains how to avoid it.</td></tr>
-              <tr><td>Non-local <code>--host</code></td><td>Exposes command execution to the network without encryption; startup warns. For remote access, the SSH tunnel and the HTTPS reverse proxy are documented.</td></tr>
-              <tr><td>WebLLM from a CDN</td><td>The engine is imported from <code>cdn.jsdelivr.net</code> when this provider is used.</td></tr>
-              <tr><td>Web tools</td><td>DuckDuckGo search and page reading go through the local server or, without it, through Jina Reader.</td></tr>
-              <tr><td>Remote providers</td><td>With a cloud API, messages go to the configured provider; with a local LLM they do not.</td></tr>
+              <tr><td>Shared origin <code>albalday.github.io</code></td><td>Other pages on the same origin could read the session cookie, <code>localStorage</code> and IndexedDB. Accepted while that origin only publishes the project's own pages. Since 10.8 that origin also serves the code the server runs with Node (F-03), so the risk weighs more than before.</td></tr>
+              <tr><td>Server profile API keys in clear text</td><td>They are stored unencrypted in SQLite (<code>0600</code>), because unattended runs need them without intervention, and they are returned to any signed-in client. Whoever reads the account's files reads the keys.</td></tr>
+              <tr><td>Permissive content security policy</td><td><code>zerochat.html</code> declares <code>script-src</code> with <code>'unsafe-inline'</code> and <code>'unsafe-eval'</code>: the defence against markup injection is the closed list of <code>innerHTML</code> uses, not the CSP. [reading]</td></tr>
+              <tr><td>One conversation open in two tabs</td><td>There is no concurrency control: the last one to save wins. Documented in <code>py/README.md</code>.</td></tr>
+              <tr><td>Proxy key unencrypted in the browser</td><td>It only opens the proxy door; the server still demands the token and sign-in.</td></tr>
+              <tr><td>System account lockout</td><td>With an attempt lockout below 5 (<code>pam_faillock</code>), failures from the web could lock the account. The help explains how to avoid it.</td></tr>
+              <tr><td>Non-local <code>--host</code></td><td>It exposes command execution to the network unencrypted; startup warns about it.</td></tr>
+              <tr><td>WebLLM from a CDN and web tools</td><td>The WebLLM engine is imported from <code>cdn.jsdelivr.net</code>; web search and reading go through the local server or Jina Reader.</td></tr>
             </tbody>
           </table>
         </div>
       </div>
-
       <div class="card">
         <h2>5. Findings</h2>
         <div class="table-responsive">
           <table>
-            <thead><tr><th>Id</th><th>Finding</th><th>Risk and priority</th><th>Proposal</th></tr></thead>
+            <thead><tr><th>Id</th><th>Finding and evidence</th><th>Risk and priority</th><th>Proposal and test</th></tr></thead>
             <tbody>
-              <tr><td>F-01</td><td>The Windows-only paths (<code>LogonUserW</code> for sign-in and the Job Object for commands) run in no test: CI only uses <code>ubuntu-latest</code> and the Job Object test is skipped.</td><td>Stability; medium</td><td>A CI job on <code>windows-latest</code> for the Python infrastructure tests, with a <code>LogonUserW</code> case that rejects a wrong password.</td></tr>
-              <tr><td>F-02</td><td>A successful PAM sign-in has no automated test: the tests mock the check and, by hand, only the rejection of a nonexistent user and the project owner's real use have been tried.</td><td>Security; low</td><td>In CI, a temporary user with a known password that runs the check on its own account.</td></tr>
-              <tr><td>F-03</td><td><code>js/app.js</code> (1,020 lines) and <code>js/mcp.js</code> (1,058) keep growing with coordination: the backend session (startup fragment, connection and sign-in) lives in <code>app.js</code>.</td><td>Technical debt; low</td><td>Move the backend session to its own domain module the next time it changes.</td></tr>
+              <tr><td>F-01</td><td><code>execute_javascript</code> in Node does not isolate the code. <code>executeInNode</code> (<code>js/sandbox.js</code>) hands the <code>node:vm</code> context objects from the host process (<code>Object</code>, <code>Math</code>, the console…); through them the code reaches the host's function constructor and, with it, <code>process</code>. Verified in this review: sandboxed code obtained the PID and the working directory of the process and ran a system command. The tool belongs to the <code>computation</code> category and does not go through the permission engine, so in a server run, or with <code>--prompt</code> without <code>--allow-dangerous-tools</code>, the model, or text injected into a page it reads, can run commands that bypass the policies. <code>test_sandbox_node.js</code> tests only one variant of the escape.</td><td>Security; <strong>high</strong></td><td>Run the code in a Node child process with the permission model (<code>--permission</code>, no disk, processes or workers) and kill it when the deadline passes; meanwhile, remove the tool from the runner. Test: escapes through inherited objects return an error and <code>process</code> is unreachable.</td></tr>
+              <tr><td>F-02</td><td>An endless asynchronous loop in that same sandbox is not interrupted: the <code>node:vm</code> timeout only covers the synchronous part and the fallback timer never gets to fire. Verified: with a 500 ms timeout the call had not returned after 8 s. Only the supervisor stops it after 180 s without progress, and the run ends with no answer.</td><td>Stability; medium</td><td>The same process separation as F-01, terminated by signal. Test: the asynchronous loop returns the timeout error in the expected time.</td></tr>
+              <tr><td>F-03</td><td><code>ensure_runner_script</code> (<code>py/ii-run-mode.py</code>) downloads <code>runner.js</code> from GitHub Pages and runs it with Node with all the privileges of the account, checking neither integrity nor size. Up to 10.7 the code served by that origin could only act through the permission engine; now it runs outside it. No test covers the download, the 304 response, the cache or the network failure.</td><td>Security (supply chain); medium</td><td>Launch the runner with <code>--permission</code> (it only needs the network), cap the download size and, optionally, publish a digest next to the artifact. Test: the four download branches against a local server.</td></tr>
+              <tr><td>F-04</td><td><code>runner.js</code> is a generated artifact (<code>npm run build:runner</code>) that is published and that servers execute, and no test checks that it matches the code in <code>js/</code>, unlike <code>zerochat.py</code> and the bundles. It matches today [cmd]. If it falls behind, server runs use a different agent from the interface with no warning.</td><td>Stability; medium</td><td>A case in <code>test_vendor_build.js</code> that regenerates the runner into a temporary directory and compares it. The audit procedure now lists it among the artifacts.</td></tr>
+              <tr><td>F-05</td><td>Attachments and images stored separately (blobs) are never deleted: there is no <code>DELETE</code> on the <code>blobs</code> table in <code>py/ee-storage.py</code> and no deletion in the <code>blobs</code> store of <code>js/storage.js</code>. Deleting a conversation, a project or the whole history keeps its blobs, up to 50 MB each.</td><td>Data and disk; medium</td><td>When deleting conversations, remove in the same transaction the blobs no other one references, in SQLite and in IndexedDB. Test: the blob of the only conversation using it is deleted and a shared one is kept.</td></tr>
+              <tr><td>F-06</td><td>Leftovers from the call signature removed in M56: <code>send_cors_headers</code> (<code>py/ff-server.py</code>) still allows four <code>X-ZeroChat-Tool-*</code> headers that no client sends, and <code>js/tools/README.md</code> still describes the HMAC signature on the client. The user help described it too: <code>help/remote-proxy.html</code> and its translation spoke of "signed tools" and a 30 s clock skew (contributed by the Gemini review).</td><td>Technical debt; medium because it affects the help</td><td><strong>Help fixed in this review</strong>: it now describes permissions on the server and the expiry of pending authorizations. The headers and the README remain. Test: the list of allowed headers is exactly the one the interface sends.</td></tr>
+              <tr><td>F-07</td><td><code>scripts/test-runner.mjs</code> names two files that do not exist (<code>tests/unit/test_mcp_status.js</code> in the <code>mcp</code> group and <code>tests/test_browser_ui.js</code> as a fallback) and silently drops missing group files. When that test was deleted, <code>SERVICE_STATUSES</code> in <code>js/mcp-status.js</code> stopped being compared with the shared contract, which only Python checks now.</td><td>Technical debt; low</td><td>The runner fails if a group file does not exist; an assertion in <code>test_ui_mcp.js</code> compares the statuses with the fixture.</td></tr>
+              <tr><td>F-08</td><td><code>RUN_TOTAL_TIMEOUT</code> and <code>RUN_IDLE_SECONDS</code> are read from environment variables that, according to the code comment and <code>py/README.md</code>, "only the tests use": this is production code serving the tests (<code>AGENTS.md</code> §2).</td><td>Rule; low</td><td>Turn them into documented options of the unattended mode, which have a real use in long tasks, or patch the constants from the test.</td></tr>
+              <tr><td>F-09</td><td>CI only uses <code>ubuntu-latest</code> with Node 22 and Python 3.12. The Windows paths (<code>LogonUserW</code>, Job Object, data file permissions) and macOS are never run, and the runner's declared minimum (Node 18) is not tested.</td><td>Stability; medium</td><td>A matrix with <code>windows-latest</code> and <code>macos-latest</code> for the Python infrastructure tests, and a Node 18 job for <code>test_run_node.js</code>.</td></tr>
+              <tr><td>F-10</td><td>The coordinators keep growing: <code>js/app.js</code> has gone from 1,020 to 1,298 lines and <code>js/mcp.js</code> from 1,058 to 1,233; <code>py/ff-server.py</code> has 1,131 and <code>py/dd-security.py</code> 972.</td><td>Technical debt; low</td><td>Split them when touched: the backend session out of <code>app.js</code>, and the JSON-RPC method dispatch of <code>ff-server.py</code> into one table per domain.</td></tr>
+              <tr><td>F-12</td><td>When the day changes with the server running, <code>current_session_token()</code> (<code>py/cc-environment.py</code>) generates the new token but does not call <code>reset_session_authorizations()</code>, which only runs at startup (<code>py/zz-main.py</code>). <code>py/README.md</code> promises to forget them "at startup or when the token rotates" and the browser rereads the state relying on it. With <code>--keep-server</code> for several days, permissions granted "for this session" survive the change of day. <code>py/test_token.py</code> tests the token rotation, not the permissions. Contributed by the Gemini review.</td><td>Security; medium</td><td>Forget session authorizations in the same rotation, under the same lock. Test: with a simulated date, a session permission granted the previous day asks for confirmation again.</td></tr>
+              <tr><td>F-13</td><td><code>removeConversations</code> (<code>js/storage.js</code>) first deletes the IndexedDB copy and then asks the server to delete. If the server refuses (for example, because a run is in progress), the conversation disappears from the browser and stays on the server until the next synchronization, and the user gets an error about something they no longer see. Contributed by the Gemini review.</td><td>Data; medium</td><td>With the server connected, confirm the remote deletion first and only then delete the local copy. Test: a server refusal leaves the conversation in IndexedDB.</td></tr>
+              <tr><td>F-14</td><td>The browser sandbox restores <code>Function.prototype.constructor</code> in a synchronous <code>finally</code> (<code>js/sandbox.js</code>), before the model's asynchronous code finishes: after the first <code>await</code> the block is gone. The opaque-origin <code>iframe</code> with no network contains it, but it is an asymmetry with the Node version. Contributed by the Gemini review.</td><td>Security; low</td><td>Restore when the code's promise settles. Test: a constructor escape after an <code>await</code> returns an error.</td></tr>
+              <tr><td>F-15</td><td><code>validate_local_tool_arguments</code> (<code>py/ee-mcp.py</code>) only knows the <code>string</code>, <code>integer</code> and <code>boolean</code> types; an argument declared with another type would end in <code>isinstance(value, None)</code> and an exception, not a rejection. No local tool declares one today [cmd]. Contributed by the Gemini review.</td><td>Stability; low</td><td>Reject an unknown type explicitly. Test: a definition with an unsupported type returns the validation error.</td></tr>
+              <tr><td>F-11</td><td>The repository tracks working files: <code>todo.txt</code>, <code>test-results/.last-run.json</code> and a copy of the Google verification file inside <code>js/</code>, identical to the one at the root.</td><td>Presentation; low</td><td>Remove them from the index and add them to <code>.gitignore</code>.</td></tr>
             </tbody>
           </table>
         </div>
-        <p><strong>Resolved in this version:</strong> a browser startup test assumed no real zerochat was listening on <code>127.0.0.1:6388</code>; with one running, its 401 opened the sign-in dialog. The test now blocks that address.</p>
+        <p>Under the procedure, <strong>F-01 must be fixed or explicitly accepted before the next major version</strong>. Since it affects a feature that is already published, it is better not to wait for it.</p>
       </div>
-
       <div class="card">
         <h2>6. Verdict</h2>
-        <p><strong>Solid infrastructure, with the network surface redesigned without losing protection.</strong> Since 9.2.3 the local server has moved to a POST-only transport, a daily token that expires while running, sign-in with the system account and remote access by tunnel or reverse proxy; each of those changes arrived with its tests. The suite is smaller and faster than in 9.2.3 and covers more features. What remains is Windows coverage (F-01), which today is only tested by hand.</p>
+        <p><strong>Infrastructure with a solid permission core and a new edge without the same protection.</strong> Moving authorization to the backend was done well: a single decision point, state in SQLite with transactions, single-use challenges, failures that propagate instead of degrading to "allow", and 38 tests that prove it. Execution in Node, by contrast, arrived in two days and left three gaps in the same area: a sandbox that does not isolate, a runner that is downloaded and executed unverified, and a generated artifact with no sync test. None affects people who use ZeroChat only from the browser; all three affect server runs, which are the main novelty of the 10.x series. A second pattern, pointed out by the Gemini review, is the life cycle: several parts only clean up on the happy path (session permissions at startup but not when the token rotates, attachments never, the local copy before the server confirms).</p>
       </div>
-
       <div class="card" id="authorship">
         <h2>Authorship and verification environment</h2>
         <div class="alert alert-info">
           <ul>
-            <li><strong>Review and writing:</strong> Claude Opus 5.5 in Claude Code, from the project owner's instructions and the <code>docs/audits/AuditFull.md</code> procedure.</li>
-            <li><strong>Environment:</strong> Linux x86_64, Node.js 24.21.0, Python 3.14.8, Playwright 1.62.1 with headless Chromium.</li>
-            <li><strong>Reproduction:</strong> the baseline commands.</li>
+            <li><strong>Review and writing:</strong> Claude Fable 5.2 in Claude Code, following the project owner's instructions and the procedure in <code>docs/audits/AuditFull.md</code>.</li>
+            <li><strong>Environment:</strong> Linux x86_64, Node.js 24.22.1, Python 3.14.8, Playwright 1.62.1 with headless Chromium.</li>
+            <li><strong>Reproduction:</strong> the baseline commands. F-01 and F-02 were verified by calling <code>ChatSandbox.execute</code> from Node; the specific code is not published here.</li>
+            <li><strong>Parallel review:</strong> F-12 to F-15 and the help part of F-06 come from an audit made with Gemini on the same commit; they were checked in the code before being included. That review did not detect F-01 or F-02.</li>
           </ul>
         </div>
       </div>
@@ -184,7 +201,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat 10.x · Review 1 (Infrastructure and rules) · 24 October 2026</p>
+      <p>ZeroChat 10.x · Review 1 (Infrastructure and rules) · 13 November 2026</p>
     </footer>
   </div>
 </body>

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Revisión 2: Funcionalidades · ZeroChat 10.x Docs</title>
-  <meta name="description" content="Revisión funcional de ZeroChat 9.11.0 como frontend único de modelos locales: agente, documentos, navegación, perfiles, ejecución desatendida y conexión remota.">
+  <meta name="description" content="Capacidades de ZeroChat 10.14.0 con la prueba que protege cada una: conversaciones en SQLite, ejecución en servidor, permisos, proyectos y los dos entornos de ejecución.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -21,97 +21,110 @@
         </div>
       </div>
       <h1>Revisión 2: Funcionalidades</h1>
-      <p class="subtitle">ZeroChat 9.11.0 como frontend único de modelos locales. Actualizada el 24 de octubre de 2026.</p>
+      <p class="subtitle">Qué hace ZeroChat 10.14.0, qué prueba lo respalda y qué cambia al ejecutar en el servidor. Actualizada el 13 de noviembre de 2026.</p>
     </header>
 
     <main>
       <div class="card">
         <h2>1. Objetivo y método</h2>
-        <p>El objetivo del proyecto es que ZeroChat sea el <strong>único frontend de modelos locales</strong> servidos aparte con APIs compatibles con OpenAI (vLLM, llama.cpp, LM Studio, SGLang) u Ollama. La revisión recorre las capacidades de la versión <strong>9.11.0</strong> (commit <code>170ee03</code>) en el código, no en la documentación.</p>
-        <p>Desde la 9.2.3 las novedades más relevantes son la ejecución desatendida (<code>zerochat --prompt</code>), los perfiles de configuración con sus servicios MCP y su navegador, Playwright MCP con motores propios o el navegador del usuario, el visor de diferencias, el estado vivo del servidor local con reconexión automática y la conexión remota con identificación por la cuenta del sistema.</p>
+        <p>ZeroChat quiere ser el frontend único de modelos locales servidos aparte con APIs compatibles con OpenAI (vLLM, llama.cpp, LM Studio, SGLang) u Ollama. La revisión recorre las capacidades de la versión <strong>10.14.0</strong> (commit <code>bc942cf</code>) en el código, no en la documentación.</p>
+        <p>La serie 10.x convierte el servidor local en la sede del trabajo: guarda las conversaciones y los perfiles, ejecuta turnos del agente en segundo plano aunque se cierre el navegador, decide los permisos y separa el estado por proyecto. La interfaz web pasa a ser una vista que puede abrirse desde varios dispositivos.</p>
         <p>Cada capacidad indica qué la protege: <strong>[test]</strong> prueba automatizada o <strong>[lectura]</strong> revisión del código.</p>
       </div>
-
       <div class="card">
         <h2>2. Capacidades</h2>
         <div class="table-responsive">
           <table>
             <thead><tr><th>Área</th><th>Qué ofrece</th><th>Protección</th><th>Límite</th></tr></thead>
             <tbody>
-              <tr><td><strong>Conexión con el modelo</strong></td><td>Adaptadores OpenAI compatible, Ollama, OpenRouter, Claude, Gemini, WebLLM y Espejo; descubrimiento de modelos y diagnóstico de capacidades con el inspector.</td><td>[test] <code>test_providers.js</code>, <code>test_inspector.js</code>, <code>browser_inspector.test.js</code></td><td>La visión y el razonamiento se deducen de lo que publica el servidor o del adaptador.</td></tr>
-              <tr><td><strong>Contexto y caché</strong></td><td>Lectura de la capacidad publicada (<code>n_ctx</code>, <code>max_model_len</code>…) o ajuste manual; compactación del historial y prefijo estable para la caché de contexto.</td><td>[test] <code>test_context_manager.js</code>, <code>test_token_telemetry.js</code>, <code>test_context_cache_architecture.js</code></td><td>Una capacidad asumida se marca con <code>*</code> y ajusta los umbrales.</td></tr>
-              <tr><td><strong>Razonamiento</strong></td><td>Bloque plegable, niveles de Ninguno a Máximo, etiquetas <code>&lt;think&gt;</code> y reenvío del razonamiento entre pasos del agente.</td><td>[test] <code>test_providers.js</code>, <code>test_agent_runtime.js</code>, <code>test_api_utils.js</code></td><td>El servidor debe separar el razonamiento en su respuesta para reenviarlo.</td></tr>
-              <tr><td><strong>Herramientas y agente</strong></td><td>12 herramientas nativas, llamadas nativas o en texto (<code>&lt;tool_call&gt;</code>), agente sin tope de pasos con detección de bucles y subagentes de solo lectura (<code>delegate_task</code>).</td><td>[test] <code>test_builtin_tools.js</code>, <code>test_text_tool_calls.js</code>, <code>test_agent_core.js</code>, <code>test_delegate_task.js</code></td><td>Un bucle con argumentos siempre distintos requiere pulsar Detener.</td></tr>
-              <tr><td><strong>Documentos</strong></td><td>Word, PowerPoint, Excel (lector XLSX nativo), OpenDocument, los binarios antiguos <code>.doc</code> y <code>.xls</code>, y PDF con extractor propio, como adjuntos y en RAG.</td><td>[test] <code>test_office_parser.js</code>, <code>test_office_documents.js</code>, <code>test_file_parser.js</code>, <code>browser_documents.test.js</code></td><td>Topes por hoja y por archivo, con aviso de truncado.</td></tr>
-              <tr><td><strong>Generación y exportación</strong></td><td>Documentos HTML, SVG y CSV en el chat con visor aislado; exportación de la conversación (también en HTML tal como se ve).</td><td>[test] <code>test_export.js</code>, <code>browser_conversation.test.js</code></td><td>Los documentos se abren en un Blob con <code>noopener</code>.</td></tr>
-              <tr><td><strong>Web</strong></td><td>Búsqueda en DuckDuckGo y lectura de páginas por el servidor local o, sin él, por Jina Reader; descarga de documentos e imágenes web para modelos con visión.</td><td>[test] <code>test_web_tools.js</code>, <code>py/test_network.py</code></td><td>Sin servidor local, la lectura depende de un servicio externo.</td></tr>
-              <tr><td><strong>Servidor local</strong></td><td>Archivos, <code>run_command</code> y <code>check_command</code> con tarjeta viva y segundo plano, visor gráfico de diferencias con configuración guiada y servicios MCP externos gestionados.</td><td>[test] <code>py/test_run_command.py</code>, <code>py/test_file_tools.py</code>, <code>py/test_diff_tool.py</code>, <code>py/test_mcp_services.py</code>, <code>test_local_server.js</code></td><td>En Android (Termux) no hay Playwright.</td></tr>
-              <tr><td><strong>Estado vivo y reconexión</strong></td><td>El servidor informa del directorio, los comandos en marcha, Playwright y los servicios externos; la página reconecta sola cuando el servidor vuelve, sin recargar.</td><td>[test] <code>test_mcp.js</code>, <code>test_ui_mcp.js</code>, <code>browser_mcp_panel.test.js</code></td><td>Con <code>--keep-server</code> el estado se relee al volver a la pestaña, no cada 10 s.</td></tr>
-              <tr><td><strong>Navegación del modelo</strong></td><td><code>browser_action</code> o Playwright MCP, con motores propios (Chromium, Firefox, WebKit) que se instalan y quitan desde Ajustes, o el Chrome, Edge o Chromium del usuario mediante la extensión.</td><td>[test] <code>py/test_browser.py</code>, <code>py/test_browser_config.py</code>, <code>test_ui_browser.js</code></td><td>La extensión pide aceptar cada conexión salvo con su token.</td></tr>
-              <tr><td><strong>Perfiles de configuración</strong></td><td>Proveedor, modelo y comportamiento por perfil, con los servicios MCP que arranca y el navegador que exige; claves de API cifradas y exportación de perfiles.</td><td>[test] <code>test_profiles.js</code>, <code>test_ui_profiles.js</code>, <code>browser_profiles_settings.test.js</code></td><td>Las claves de API se protegen con la contraseña de cifrado si se activa.</td></tr>
-              <tr><td><strong>Ejecución desatendida</strong></td><td><code>zerochat --prompt</code> ejecuta un prompt en la interfaz y devuelve la respuesta en stdout, con perfil, exportación, ventana oculta y códigos de salida.</td><td>[test] <code>test_backend_run_mode.js</code>, <code>browser_run_mode.test.js</code>, <code>test_run_mode.js</code></td><td>Necesita un navegador de escritorio; sin ventana es de mejor esfuerzo.</td></tr>
-              <tr><td><strong>Conexión remota</strong></td><td>Ajustes › Conexión con la URL del servidor, túnel SSH o proxy inverso con su clave, e identificación con la cuenta del sistema cuando falta el token o caduca.</td><td>[test] <code>test_mcp.js</code>, <code>browser_connection.test.js</code>, <code>py/test_login.py</code>, <code>test_local_server.js</code></td><td>Una sola cuenta del sistema: la que ejecuta zerochat.</td></tr>
-              <tr><td><strong>Modo proyecto</strong></td><td>Memoria en <code>.zerochat/</code> (plan, decisiones y estado) que el modelo mantiene con <code>task.py</code>.</td><td>[test] <code>test_project_context.js</code>, <code>test_task_helper.js</code></td><td>Depende de que el modelo siga el protocolo.</td></tr>
-              <tr><td><strong>RAG léxico</strong></td><td>Índice Orama en IndexedDB con ramas, imágenes de documentos y búsqueda filtrada.</td><td>[test] <code>test_rag_index.js</code>, <code>test_rag_service.js</code>, <code>test_ingestion_engine.js</code></td><td>Búsqueda léxica, sin embeddings.</td></tr>
-              <tr><td><strong>Depuración</strong></td><td>Interceptor que detiene cada petición al modelo para revisar o editar el JSON antes de enviarlo.</td><td>[test] <code>test_api_utils.js</code></td><td>No intercepta el tráfico con el servidor local.</td></tr>
-              <tr><td><strong>WebLLM</strong></td><td>Inferencia en el navegador con WebGPU en un Web Worker.</td><td>[test] <code>test_webllm.js</code></td><td>Para modelos compactos.</td></tr>
+              <tr><td>Conexión con el modelo</td><td>Adaptadores OpenAI compatible, Ollama, OpenRouter, Claude, Gemini, WebLLM y Espejo; descubrimiento de modelos e inspector de capacidades.</td><td>[test] <code>test_providers.js</code>, <code>test_inspector.js</code>, <code>browser_inspector.test.js</code></td><td>La visión y el razonamiento se deducen de lo que publica el servidor.</td></tr>
+              <tr><td>Contexto, caché y razonamiento</td><td>Capacidad de contexto publicada o manual, compactación del historial, prefijo estable para la caché y razonamiento en bloque propio, reenviado entre pasos.</td><td>[test] <code>test_context_manager.js</code>, <code>test_token_telemetry.js</code>, <code>test_context_cache_architecture.js</code>, <code>test_agent_runtime.js</code></td><td>El servidor de modelos debe separar el razonamiento en su respuesta.</td></tr>
+              <tr><td>Agente y herramientas</td><td>12 herramientas nativas, llamadas nativas o en texto, agente sin tope de pasos con detección de bucles y subagentes de solo lectura.</td><td>[test] <code>test_builtin_tools.js</code>, <code>test_text_tool_calls.js</code>, <code>test_agent_core.js</code>, <code>test_agent_runtime.js</code>, <code>test_delegate_task.js</code></td><td>Un bucle con argumentos siempre distintos requiere Detener.</td></tr>
+              <tr><td>Servidor local</td><td>Archivos, <code>run_command</code> con tarjeta viva y segundo plano, diagnósticos, visor de diferencias propio en HTML y servicios MCP gestionados.</td><td>[test] <code>py/test_run_command.py</code>, <code>py/test_file_tools.py</code>, <code>py/test_diff_tool.py</code>, <code>py/test_mcp_services.py</code></td><td>Hasta 8 comandos en marcha a la vez.</td></tr>
+              <tr><td>Permisos</td><td>Políticas por herramienta y servicio, reglas de directorio, patrones de comando con comodines por argumento en tres ámbitos (sesión, proyecto y global) y tarjeta de autorización con el patrón editable.</td><td>[test] <code>py/test_security.py</code>, <code>test_tool_security.js</code>, <code>browser_mcp_tools.test.js</code></td><td><code>execute_javascript</code> queda fuera del motor de permisos (Revisión 1, F-01).</td></tr>
+              <tr><td>Conversaciones en el servidor</td><td>Historial en SQLite sincronizado con IndexedDB: al conectar llegan las cabeceras y cada conversación se descarga al abrirla; adjuntos e imágenes aparte, enviados una sola vez.</td><td>[test] <code>py/test_storage.py</code>, <code>test_conversation_service.js</code>, <code>test_blob_sync.js</code>, <code>browser_sidebar.test.js</code></td><td>Sin servidor solo se abren las conversaciones ya descargadas en ese navegador; los adjuntos no se borran (F-05) y un borrado rechazado por el servidor ya ha quitado la copia local (F-13).</td></tr>
+              <tr><td>Ejecución en servidor</td><td>Un turno del agente se ejecuta en segundo plano en el servidor; el progreso llega con el latido, la barra indica las que están en marcha o esperan respuesta, y se retoman tras <code>ask_user</code> o una autorización.</td><td>[test] <code>py/test_server_runs.py</code>, <code>test_backend_run_mode.js</code>, <code>test_run_node.js</code>, <code>browser_run_mode.test.js</code></td><td>Necesita Node.js 18 o superior; sin RAG ni WebLLM.</td></tr>
+              <tr><td>Línea de comandos</td><td><code>zerochat --prompt</code> y <code>--conversation</code> con perfil, exportación y códigos de salida; <code>--list-profiles</code> y <code>--list-conversations</code>.</td><td>[test] <code>test_backend_run_mode.js</code>, <code>test_run_mode.js</code>, <code>py/test_storage.py</code></td><td>Plazo total de 900 s y 180 s sin progreso, no configurables de forma documentada (F-08).</td></tr>
+              <tr><td>Proyectos y multisesión</td><td>Cada conversación pertenece a un proyecto; abrirla lleva a su carpeta. Permisos de sesión, retos y comandos no se mezclan entre proyectos, y varias pestañas o dispositivos comparten el estado del suyo.</td><td>[test] <code>py/test_security.py</code>, <code>py/test_run_command.py</code>, <code>test_conversation_service.js</code></td><td>Una misma conversación en dos pestañas no se sincroniza.</td></tr>
+              <tr><td>Historial</td><td>Grupos de proyecto plegables, búsqueda que conserva las cabeceras, 50 conversaciones pintadas por grupo con «Mostrar más» y borrado por proyecto o total.</td><td>[test] <code>test_ui_sidebar.js</code>, <code>browser_sidebar.test.js</code>; medido con 10.000 conversaciones en <code>docs/audits/M63-historial.md</code></td><td>Sin borrado automático por antigüedad.</td></tr>
+              <tr><td>Perfiles</td><td>Perfiles locales y del servidor con guardado independiente, importación, servicios MCP y navegador por perfil; el perfil de cada conversación se recuerda.</td><td>[test] <code>test_profiles.js</code>, <code>test_ui_profiles.js</code>, <code>browser_profiles_settings.test.js</code></td><td>Las claves de los perfiles del servidor se guardan en claro.</td></tr>
+              <tr><td>Navegación del modelo</td><td><code>browser_action</code> o Playwright MCP con motores propios o el navegador del usuario; un navegador lo usa una conversación cada vez y se libera tras un minuto sin uso.</td><td>[test] <code>py/test_browser.py</code>, <code>py/test_browser_config.py</code>, <code>py/test_security.py</code></td><td>Sin cola: otra conversación recibe un error hasta que queda libre.</td></tr>
+              <tr><td>Documentos</td><td>Word, PowerPoint, Excel, OpenDocument, <code>.doc</code>, <code>.xls</code> y PDF como adjuntos y en RAG; imágenes WebP convertidas a JPEG para los modelos que no las leen.</td><td>[test] <code>test_office_parser.js</code>, <code>test_office_documents.js</code>, <code>test_file_parser.js</code>, <code>browser_documents.test.js</code></td><td>Topes por hoja y por archivo, con aviso.</td></tr>
+              <tr><td>Web</td><td>Búsqueda en DuckDuckGo y lectura de páginas por el servidor local, con cabeceras de navegador y cadencia entre peticiones, o por Jina Reader sin él.</td><td>[test] <code>test_web_tools.js</code>, <code>py/test_network.py</code></td><td>Los retos anti-bot se informan; no se sortean.</td></tr>
+              <tr><td>Conexión remota</td><td>Túnel SSH o proxy inverso con su clave, e identificación con la cuenta del sistema.</td><td>[test] <code>browser_connection.test.js</code>, <code>py/test_login.py</code>, <code>test_local_server.js</code></td><td>Una sola cuenta del sistema por servidor.</td></tr>
+              <tr><td>Modo proyecto</td><td>Memoria en <code>.zerochat/</code> que el modelo mantiene con <code>task.py</code>, con panel propio y compactación previa aprobación.</td><td>[test] <code>test_project_context.js</code>, <code>test_task_helper.js</code></td><td>Depende de que el modelo siga el protocolo.</td></tr>
+              <tr><td>RAG, depuración y WebLLM</td><td>Índice léxico Orama en IndexedDB, interceptor editable de cada petición e inferencia en el navegador con WebGPU.</td><td>[test] <code>test_rag_index.js</code>, <code>test_rag_service.js</code>, <code>test_api_utils.js</code>, <code>test_webllm.js</code></td><td>Solo en el navegador; RAG sin embeddings.</td></tr>
             </tbody>
           </table>
         </div>
       </div>
-
       <div class="card">
-        <h2>3. Buenas prácticas con un servidor de modelos local</h2>
+        <h2>3. Dos entornos de ejecución</h2>
+        <p>Desde la 10.8 el mismo bucle del agente corre en dos sitios, y no ofrecen lo mismo. Conviene tenerlo presente al elegir «Ejecutar en servidor».</p>
+        <div class="table-responsive">
+          <table>
+            <thead><tr><th>Capacidad</th><th>En el navegador</th><th>En el servidor (Node.js)</th></tr></thead>
+            <tbody>
+              <tr><td>Proveedores</td><td>Todos, incluido WebLLM</td><td>APIs remotas y servidores de modelos; sin WebLLM</td></tr>
+              <tr><td>Herramientas del equipo y MCP</td><td>Sí, con retos de autorización en pantalla</td><td>Sí; un reto pausa la ejecución hasta que se responde</td></tr>
+              <tr><td>RAG</td><td>Sí</td><td>No</td></tr>
+              <tr><td><code>execute_javascript</code></td><td><code>iframe</code> de origen opaco sin red</td><td><code>node:vm</code>, que no aísla (F-01)</td></tr>
+              <tr><td><code>render_chart</code></td><td>Se pinta al momento</td><td>Se registra y se pinta al abrir el chat</td></tr>
+              <tr><td>Sigue con el navegador cerrado</td><td>No</td><td>Sí</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>La separación está bien resuelta en el código, con adaptadores de entorno en lugar de condicionales repartidos [lectura], pero la ayuda no reúne estas diferencias en una tabla como esta.</p>
+      </div>
+      <div class="card">
+        <h2>4. Buenas prácticas con un servidor de modelos local</h2>
         <div class="table-responsive">
           <table>
             <thead><tr><th>Aspecto</th><th>Recomendación</th><th>Beneficio en ZeroChat</th></tr></thead>
             <tbody>
-              <tr><td><strong>Capacidad de contexto</strong></td><td>Publicar el contexto real (<code>meta.n_ctx</code> en llama.cpp, <code>max_model_len</code> en vLLM).</td><td>Los umbrales de compactación se calculan sobre el límite real y no sobre uno asumido.</td></tr>
-              <tr><td><strong>Razonamiento</strong></td><td>Activar el analizador de razonamiento del servidor.</td><td>El razonamiento va a su bloque y se reenvía entre pasos sin mezclarse con la respuesta.</td></tr>
-              <tr><td><strong>Llamadas a herramientas</strong></td><td>Activar la plantilla de herramientas del servidor (por ejemplo, <code>--jinja</code>).</td><td>Llamadas estructuradas; sin ella, ZeroChat extrae los bloques <code>&lt;tool_call&gt;</code> del texto.</td></tr>
-              <tr><td><strong>Streaming</strong></td><td>Respuestas en streaming.</td><td>Texto token a token y cancelación inmediata.</td></tr>
-              <tr><td><strong>Acceso remoto</strong></td><td>Túnel SSH o proxy inverso con HTTPS, nunca <code>--host</code> público.</td><td>El servidor sigue escuchando solo en el propio equipo y exige identificación.</td></tr>
+              <tr><td>Capacidad de contexto</td><td>Publicar el contexto real del servidor de modelos.</td><td>La compactación se calcula sobre el límite real.</td></tr>
+              <tr><td>Razonamiento</td><td>Activar el analizador de razonamiento del servidor.</td><td>El razonamiento va a su bloque y se reenvía entre pasos.</td></tr>
+              <tr><td>Llamadas a herramientas</td><td>Activar la plantilla de herramientas del servidor.</td><td>Llamadas estructuradas; sin ella se extraen del texto.</td></tr>
+              <tr><td>Tareas largas</td><td>Usar «Ejecutar en servidor» con un perfil del servidor.</td><td>El turno continúa aunque se cierre la pestaña o se pierda el túnel.</td></tr>
+              <tr><td>Permisos</td><td>Conceder patrones de comando por proyecto, no «permitir todo».</td><td>Las ejecuciones desatendidas avanzan sin abrir más de lo necesario.</td></tr>
+              <tr><td>Trabajo en paralelo</td><td>Un <code>git worktree</code> por conversación.</td><td>Dos agentes no escriben en los mismos archivos.</td></tr>
+              <tr><td>Acceso remoto</td><td>Túnel SSH o proxy inverso con HTTPS, nunca <code>--host</code> público.</td><td>El servidor sigue escuchando solo en el propio equipo.</td></tr>
             </tbody>
           </table>
         </div>
       </div>
-
       <div class="card">
-        <h2>4. Coherencia con la ayuda</h2>
-        <p>Se ha contrastado la ayuda con el código:</p>
+        <h2>5. Coherencia con la ayuda</h2>
+        <p>Se ha contrastado la ayuda con el código en las páginas de servidor local y MCP, ejecución desde la línea de comandos, conversaciones, perfiles, gestión de proyectos, herramientas y conexión remota. Coinciden con la 10.14.0 en opciones, límites y nombres, con una excepción. [lectura]</p>
         <ul>
-          <li><a href="tools-agent.html">Herramientas y agente</a>: las 12 herramientas nativas, el agente sin tope de pasos y los subagentes.</li>
-          <li><a href="mcp.html">Servidor local y MCP</a>: arranque, conexión, comandos, servicios externos y permisos.</li>
-          <li><a href="browser-action.html">Navegación del modelo</a>, <a href="profiles.html">perfiles</a> y <a href="run-mode.html">ejecución desatendida</a>: coinciden con las opciones de la 9.11.0, sin <code>--print-url</code>.</li>
-          <li><a href="remote-android.html">Túnel SSH desde Android</a> y <a href="remote-proxy.html">proxy inverso</a>: Ajustes › Conexión e identificación con la cuenta del sistema.</li>
-          <li><a href="composer.html">Compositor y documentos</a> y <a href="reasoning-telemetry.html">razonamiento y telemetría</a>.</li>
+          <li><code>remote-proxy.html</code> y su traducción seguían describiendo la firma de cada llamada a herramienta, retirada en M56, y un fallo por desfase de reloj que ya no puede ocurrir. Una primera versión de esta revisión no lo detectó; lo señaló la revisión hecha con Gemini y <strong>la página está corregida</strong> (Revisión 1, F-06).</li>
+          <li><code>tools-agent.html</code> advierte de que el sandbox «no es una barrera de seguridad». Es cierto, pero en el servidor la consecuencia es distinta a la del navegador y la página no lo distingue (F-01).</li>
+          <li>Falta una tabla que compare la ejecución en el navegador con la del servidor (apartado 3).</li>
+          <li><code>js/tools/README.md</code>, documentación de desarrollo, describe una firma de llamadas que ya no existe (F-06).</li>
         </ul>
-        <p><code>test_help_pages.js</code> comprueba que cada página tiene su traducción enlazada, la serie de versión 10.x, un título y una descripción únicos, y que el sitemap está al día.</p>
+        <p><code>test_help_pages.js</code> comprueba que cada página tiene su traducción enlazada, la serie de versión 10.x, título y descripción únicos y el sitemap al día. [test]</p>
       </div>
-
       <div class="card">
-        <h2>5. Límites</h2>
+        <h2>6. Límites</h2>
         <ul>
-          <li><strong>Monousuario:</strong> una sola cuenta del sistema, la que ejecuta zerochat; sin roles.</li>
-          <li><strong>Datos en el navegador:</strong> conversaciones, perfiles y RAG viven en IndexedDB y <code>localStorage</code>; conviene exportarlos.</li>
-          <li><strong>Origen compartido</strong> en GitHub Pages, riesgo aceptado.</li>
+          <li><strong>Monousuario</strong>: una cuenta del sistema por servidor; el multiusuario se resuelve con un servidor por persona.</li>
+          <li><strong>Dos copias de los datos</strong>: SQLite en el servidor e IndexedDB en cada navegador, sin copia de seguridad integrada del servidor.</li>
+          <li><strong>Ejecución en servidor</strong>: requiere Node.js y no incluye RAG ni WebLLM.</li>
           <li><strong>RAG léxico</strong>, sin similitud vectorial.</li>
-          <li><strong>Navegadores:</strong> Chromium y Firefox; WebKit (Safari y los navegadores de iPhone e iPad) no está soportado.</li>
-          <li><strong>Windows:</strong> funciona, pero sus rutas propias no se prueban de forma automática.</li>
-          <li><strong>Privacidad de la web:</strong> con un LLM local el chat no sale del equipo, pero las herramientas web consultan servicios externos.</li>
+          <li><strong>Navegadores</strong>: Chromium y Firefox; WebKit no está soportado.</li>
+          <li><strong>Windows y macOS</strong>: funcionan, pero sus rutas propias no se prueban de forma automática.</li>
+          <li><strong>Complejidad de configuración</strong>: perfiles locales y del servidor, proyecto por pestaña y permisos en tres ámbitos exigen entender el modelo antes de sacarle partido.</li>
         </ul>
       </div>
-
       <div class="card">
-        <h2>6. Dictamen</h2>
-        <p><strong>Frontend maduro para modelos locales y ahora también para un servidor remoto.</strong> ZeroChat 9.11.0 cubre el trabajo técnico diario con un modelo local: agente con herramientas del equipo, documentos y PDF, navegación con Playwright, perfiles que preparan cada entorno y ejecución desatendida desde la terminal. La conexión remota unificada, con túnel o proxy inverso, permite usarlo desde el móvil o desde otro equipo sin exponer el servidor local.</p>
+        <h2>7. Dictamen</h2>
+        <p><strong>De frontend de modelos locales a entorno de trabajo con sede en el servidor.</strong> ZeroChat 10.14.0 permite lanzar una tarea, cerrar el navegador y retomarla desde otro dispositivo, con el historial y los permisos en un solo sitio y separados por proyecto. Es un cambio de categoría respecto a la 9.11.0, hecho sin añadir dependencias al servidor más allá de Node.js para la ejecución desatendida. El precio es un producto más difícil de explicar y dos entornos de ejecución que hay que mantener equivalentes.</p>
       </div>
-
       <div class="card" id="autoria">
-        <h2>Autoría</h2>
+        <h2>Autoría y entorno de verificación</h2>
         <div class="alert alert-info">
           <ul>
-            <li><strong>Revisión y redacción:</strong> Claude Opus 5.5 en Claude Code, a partir del código en el commit <code>170ee03</code> y la suite de pruebas.</li>
+            <li><strong>Revisión y redacción:</strong> Claude Fable 5.2 en Claude Code, a partir del código en el commit <code>bc942cf</code> y la suite de pruebas.</li>
           </ul>
         </div>
       </div>
@@ -129,7 +142,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat 10.x · Revisión 2 (Funcionalidades) · 24 de octubre de 2026</p>
+      <p>ZeroChat 10.x · Revisión 2 (Funcionalidades) · 13 de noviembre de 2026</p>
     </footer>
   </div>
 </body>

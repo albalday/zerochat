@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Revisión 3: Comparativa · ZeroChat 10.x Docs</title>
-  <meta name="description" content="ZeroChat 9.11.0 frente a otros frontends para un LLM local: Open WebUI, LM Studio, la interfaz de llama.cpp y Jan, con acceso remoto y ejecución desde la terminal y fuentes fechadas.">
+  <meta name="description" content="Comparativa de ZeroChat 10.14.0 con Open WebUI, LM Studio, la interfaz de llama.cpp y Jan: MCP, permisos de herramientas, trabajo en segundo plano e historial, con fuentes fechadas.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -21,109 +21,91 @@
         </div>
       </div>
       <h1>Revisión 3: Comparativa</h1>
-      <p class="subtitle">¿Qué frontend conviene para un LLM local servido aparte? Actualizada el 24 de octubre de 2026.</p>
+      <p class="subtitle">ZeroChat frente a Open WebUI, LM Studio, la interfaz de llama.cpp y Jan, ahora que todos tienen herramientas. Actualizada el 13 de noviembre de 2026.</p>
     </header>
 
     <main>
-      <div class="alert alert-warning">
-        <p><strong>Vigencia y método:</strong> los datos de ZeroChat se han comprobado en su código (versión 9.11.0, commit <code>170ee03</code>). Los del resto proceden de su documentación pública oficial: las filas nuevas (acceso remoto y ejecución desde la terminal) se consultaron el 24 de octubre de 2026 y las demás entre el 4 y el 16 de octubre. Lo que no consta en esa documentación se indica como «no consta», no como «no». No se han medido memoria ni rendimiento.</p>
+      <div class="alert alert-info">
+        <p><strong>Vigencia y método:</strong> los datos de ZeroChat se han comprobado en su código (versión 10.14.0, commit <code>bc942cf</code>). Los del resto proceden de su documentación pública oficial, consultada el 13 de noviembre de 2026. Lo que no consta en esa documentación se indica como «no consta», no como «no». No se han instalado ni medido los demás productos.</p>
       </div>
-
       <div class="card">
         <h2>1. Qué se compara</h2>
-        <p>ZeroChat quiere ser el frontend único de modelos servidos por su propio motor (vLLM, llama.cpp, LM Studio, SGLang u Ollama), cambiando de modelo según la tarea. Por eso se compara con las interfaces que suelen ponerse delante de un servidor local, no con las orientadas solo a proveedores en la nube.</p>
-        <p>Desde la revisión de la 9.2.3 la comparativa añade dos dimensiones en las que ZeroChat ha cambiado: el <strong>acceso remoto</strong> al entorno de trabajo y la <strong>ejecución de un prompt desde la terminal</strong>.</p>
+        <p>ZeroChat se sitúa delante de un servidor de modelos ya en marcha. Se compara con las interfaces que ocupan ese mismo lugar: Open WebUI, LM Studio, la interfaz incluida en <code>llama-server</code> y Jan.</p>
+        <p>El terreno se ha movido en dos direcciones desde la revisión anterior. Los demás han incorporado herramientas: la interfaz de llama.cpp admite ahora servidores MCP y herramientas propias de lectura y ejecución, de forma experimental, y Jan ofrece un agente de terminal. ZeroChat, por su parte, ha llevado al servidor el historial, los permisos y la ejecución en segundo plano. La comparación ya no es «quién tiene herramientas», sino cómo se gobiernan y dónde vive el trabajo.</p>
       </div>
-
       <div class="card">
         <h2>2. Matriz</h2>
         <div class="table-responsive">
           <table>
-            <thead>
-              <tr><th>Dimensión</th><th>ZeroChat</th><th>Open WebUI</th><th>LM Studio</th><th>Interfaz de llama.cpp</th><th>Jan</th></tr>
-            </thead>
+            <thead><tr><th>Dimensión</th><th>ZeroChat</th><th>Open WebUI</th><th>LM Studio</th><th>Interfaz de llama.cpp</th><th>Jan</th></tr></thead>
             <tbody>
-              <tr><td><strong>Despliegue</strong></td><td>Web estática y servidor local opcional de un solo archivo Python</td><td>Servidor (Docker o pip) con base de datos</td><td>App de escritorio con motor propio</td><td>Incluida en <code>llama-server</code></td><td>App de escritorio con llama.cpp integrado</td></tr>
-              <tr><td><strong>Conectar a un servidor ya en marcha</strong></td><td>Sí: OpenAI compatible, Ollama y APIs en la nube</td><td>Sí</td><td>Orientado a su propio motor; configurable</td><td>Solo a su propio servidor</td><td>Sí, como proveedor remoto</td></tr>
-              <tr><td><strong>Razonamiento separado y reenviado</strong></td><td>Sí, en bloque plegable y reenviado entre pasos del agente</td><td>Sí</td><td>Sí</td><td>Sí</td><td>No consta</td></tr>
-              <tr><td><strong>MCP</strong></td><td>Servicios stdio gestionados por el servidor local; los remotos HTTP mediante <code>mcp-remote</code>, con OAuth</td><td>Nativo (Streamable HTTP)</td><td>Sí, local y remoto</td><td>No consta</td><td>Sí</td></tr>
-              <tr><td><strong>Navegación del modelo</strong></td><td><code>browser_action</code> o Playwright MCP con motores propios o el navegador del usuario</td><td>Mediante herramientas o MCP</td><td>Mediante MCP</td><td>No consta</td><td>Mediante MCP</td></tr>
-              <tr><td><strong>Permisos de herramientas</strong></td><td>Políticas globales, reglas por directorio y comando, firma por llamada</td><td>Por administrador y roles</td><td>Confirmación interactiva con argumentos editables</td><td>No consta</td><td>Por configuración</td></tr>
-              <tr><td><strong>Archivos y comandos del equipo</strong></td><td>Sí, con el servidor local, sin contenedores, y visor de diferencias</td><td>Mediante herramientas o MCP</td><td>Mediante MCP</td><td>No consta</td><td>Mediante MCP</td></tr>
-              <tr><td><strong>Documentos</strong></td><td>Word, PowerPoint, Excel, OpenDocument, <code>.doc</code>, <code>.xls</code> y PDF, en el chat y en RAG</td><td>Mediante extracción del servidor</td><td>Adjuntos de documentos</td><td>No consta</td><td>Documentos básicos</td></tr>
-              <tr><td><strong>Visión e imágenes web</strong></td><td>Sí, con descarga de imágenes web para el modelo</td><td>Sí, adjuntos de imagen</td><td>Sí, en modelos de visión</td><td>Sí, con soporte multimodal</td><td>Sí, en modelos de visión</td></tr>
-              <tr><td><strong>Subagentes</strong></td><td>Sí, de solo lectura (<code>delegate_task</code>)</td><td>No consta</td><td>No consta</td><td>No consta</td><td>No consta</td></tr>
-              <tr><td><strong>RAG</strong></td><td>Léxico en el navegador (Orama en IndexedDB)</td><td>Vectorial con base de datos</td><td>Adjuntos de documentos</td><td>No consta</td><td>Recuperación local</td></tr>
-              <tr><td><strong>Inspección y edición de peticiones</strong></td><td>Interceptor editable antes de cada envío</td><td>Registros del servidor</td><td>Registros de desarrollo</td><td>Registros de consola</td><td>Limitada</td></tr>
-              <tr><td><strong>Acceso remoto</strong></td><td>El entorno completo (agente, archivos y comandos) desde cualquier navegador, por túnel SSH o proxy inverso, con identificación por la cuenta del sistema</td><td>Servidor web con cuentas de usuario propias</td><td>La API del modelo en la red local o con LM Link (en vista previa); la interfaz es de escritorio</td><td>La de <code>llama-server</code>; su clave de API protege la API</td><td>La API del modelo en la red local, con clave de API; la interfaz es de escritorio</td></tr>
-              <tr><td><strong>Prompt desde la terminal</strong></td><td><code>zerochat --prompt</code>: el agente completo con herramientas y perfil, respuesta en stdout y exportación de la conversación</td><td>No consta</td><td><code>lms chat -p</code>: respuesta del modelo en stdout</td><td><code>llama-cli</code>, aparte de la interfaz</td><td>No consta</td></tr>
-              <tr><td><strong>Multiusuario</strong></td><td>No: una cuenta del sistema</td><td>Sí, con roles y autenticación</td><td>No</td><td>No</td><td>No</td></tr>
+              <tr><td>Despliegue</td><td>Web estática y servidor local de un solo archivo Python; Node.js solo para ejecutar en segundo plano</td><td>Servidor (Docker o pip) con base de datos</td><td>App de escritorio con motor propio; modo sin interfaz</td><td>Incluida en <code>llama-server</code></td><td>App de escritorio con motor integrado</td></tr>
+              <tr><td>Conectar a un servidor de modelos ya en marcha</td><td>Sí: OpenAI compatible, Ollama y APIs en la nube</td><td>Sí</td><td>Orientado a su propio motor</td><td>Solo a su propio servidor</td><td>Sí, como proveedor remoto</td></tr>
+              <tr><td>MCP</td><td>Servicios stdio gestionados; remotos HTTP mediante <code>mcp-remote</code></td><td>Nativo solo por Streamable HTTP; stdio mediante el proxy mcpo; los registra el administrador</td><td>Local y remoto, con <code>mcp.json</code></td><td>Experimental: stdio por configuración y remotos mediante un proxy del servidor</td><td>stdio, HTTP y SSE</td></tr>
+              <tr><td>Archivos y comandos del equipo</td><td>Herramientas propias del servidor local</td><td>Mediante herramientas o MCP</td><td>Mediante MCP</td><td>Herramientas propias experimentales (<code>--tools</code>), con aviso de no usarlas en entornos no fiables</td><td>Mediante MCP</td></tr>
+              <tr><td>Gobierno de las herramientas</td><td>Motor en el servidor: reglas de directorio, patrones de comando por argumento en tres ámbitos y retos de un solo uso</td><td>Por administrador y roles</td><td>Confirmación por llamada con argumentos editables; «permitir siempre» por herramienta</td><td>No consta un control por llamada</td><td>Un ajuste que aprueba por adelantado todas las llamadas</td></tr>
+              <tr><td>Trabajo en segundo plano</td><td>El turno del agente sigue en el servidor con el navegador cerrado y se retoma desde otro dispositivo</td><td>La ejecución de herramientas es del servidor; no consta la continuación sin cliente</td><td>No consta</td><td>No consta</td><td>No consta</td></tr>
+              <tr><td>Dónde vive el historial</td><td>SQLite en el servidor local, con copia en cada navegador y separado por proyecto</td><td>Base de datos del servidor, por usuario</td><td>En la aplicación</td><td>En el navegador</td><td>En la aplicación</td></tr>
+              <tr><td>Prompt desde la terminal</td><td><code>zerochat --prompt</code> y <code>--conversation</code>: el agente completo, con perfil y exportación</td><td>API con ejecución de herramientas en el servidor</td><td><code>lms chat</code></td><td><code>llama-cli</code>, aparte de la interfaz</td><td>Jan Agent, de instalación aparte</td></tr>
+              <tr><td>Acceso remoto al entorno</td><td>Túnel SSH o proxy inverso, con identificación por la cuenta del sistema</td><td>Servidor web con cuentas propias</td><td>La API del modelo en la red; la interfaz es de escritorio</td><td>La de <code>llama-server</code>, con clave de API</td><td>La API local, con clave opcional</td></tr>
+              <tr><td>Documentos</td><td>Ofimática y PDF con analizadores propios, en el chat y en RAG</td><td>Extracción en el servidor</td><td>Adjuntos de documentos</td><td>No consta</td><td>Documentos básicos</td></tr>
+              <tr><td>RAG</td><td>Léxico en el navegador</td><td>Vectorial con base de datos</td><td>Sobre adjuntos</td><td>No consta</td><td>Recuperación local</td></tr>
+              <tr><td>Inspección de peticiones</td><td>Interceptor que permite editar el JSON antes de enviarlo</td><td>Registros del servidor</td><td>Registros de desarrollo</td><td>Registros de consola</td><td>Limitada</td></tr>
+              <tr><td>Multiusuario</td><td>No: un servidor por persona</td><td>Sí, con roles</td><td>No</td><td>No</td><td>No</td></tr>
             </tbody>
           </table>
         </div>
       </div>
-
       <div class="card">
         <h2>3. Análisis</h2>
-        <div class="subsection">
-          <h3>Frente a la interfaz de llama.cpp</h3>
-          <p>Es la opción mínima: viene con el servidor y no hay que instalar nada. Sirve para probar un modelo, pero no tiene agente, herramientas del equipo, permisos ni MCP. ZeroChat se conecta al mismo <code>llama-server</code> y añade todo el entorno de trabajo.</p>
-        </div>
-        <div class="subsection">
-          <h3>Frente a LM Studio</h3>
-          <p>LM Studio une motor e interfaz de escritorio, admite MCP con confirmación de cada llamada y su CLI responde a un prompt desde la terminal. Su acceso remoto es el de la API del modelo. ZeroChat no depende del motor y lleva al navegador remoto el agente con los archivos y comandos del equipo; su <code>--prompt</code> ejecuta ese agente completo, no solo el modelo.</p>
-        </div>
-        <div class="subsection">
-          <h3>Frente a Open WebUI</h3>
-          <p>Open WebUI es una suite cliente-servidor con base de datos, cuentas de usuario y RAG vectorial, pensada para equipos. ZeroChat es una aplicación estática sin base de datos en el servidor, para una sola persona, que arranca sin Docker, guarda los datos en el navegador y funciona también en Android con Termux.</p>
-        </div>
-        <div class="subsection">
-          <h3>Frente a Jan</h3>
-          <p>Aplicación de escritorio para ejecutar modelos GGUF en el propio equipo, con una API local que puede abrirse a la red. Para quien ya sirve sus modelos con vLLM o llama.cpp, ZeroChat ofrece más control de la conexión, transparencia en las peticiones y herramientas técnicas integradas.</p>
-        </div>
+        <h3>Frente a la interfaz de llama.cpp</h3>
+        <p>Ha dejado de ser solo un chat de prueba: admite MCP y herramientas de lectura y ejecución, aunque su propia documentación las marca como experimentales y advierte de que no deben activarse en entornos no fiables. No consta un sistema de permisos por llamada. ZeroChat se conecta al mismo <code>llama-server</code> y aporta lo que ahí falta: reglas, historial por proyecto y ejecución en segundo plano. Para quien solo quiere que el modelo lea un archivo de vez en cuando, la interfaz incluida empieza a bastar.</p>
+        <h3>Frente a LM Studio</h3>
+        <p>Su confirmación de herramientas es buena y sencilla: ver la llamada, editar los argumentos y permitir una vez o siempre. ZeroChat es más fino (patrones por argumento, ámbitos, directorios) y también más difícil de entender. LM Studio gana en facilidad de instalación y en gestión de modelos; ZeroChat, en independencia del motor y en llevar el entorno completo a otro dispositivo.</p>
+        <h3>Frente a Open WebUI</h3>
+        <p>Es la referencia en despliegues compartidos: usuarios, roles, RAG vectorial y herramientas administradas de forma central. Su MCP nativo es solo por HTTP y lo registra el administrador. ZeroChat cubre el caso contrario: una persona, su equipo y sus carpetas, sin base de datos que administrar. Con el historial en SQLite la distancia de arquitectura es menor que antes, pero la de propósito sigue siendo la misma.</p>
+        <h3>Frente a Jan</h3>
+        <p>Combina aplicación de escritorio, API local y un agente de terminal. Su control de herramientas es de todo o nada. ZeroChat ofrece más control y más transparencia a cambio de más configuración.</p>
+        <h3>Lo que la matriz no recoge</h3>
+        <p>Para programar con un modelo local, la alternativa real a ZeroChat son también los agentes de terminal, que no se han comparado aquí porque no son interfaces de chat. Quien valore ZeroChat para ese uso debería medirlo contra ellos en tareas reales; es una comparación pendiente.</p>
       </div>
-
       <div class="card">
         <h2>4. Diferenciadores de ZeroChat para este uso</h2>
         <ul>
-          <li><strong>Independencia del motor:</strong> un único cliente para vLLM, llama.cpp, LM Studio, SGLang u Ollama.</li>
-          <li><strong>El entorno de trabajo en remoto:</strong> agente, archivos y comandos del equipo desde el móvil u otro ordenador, sin exponer el servidor local y con la cuenta del sistema como identificación.</li>
-          <li><strong>Agente desde la terminal:</strong> <code>zerochat --prompt</code> ejecuta una tarea completa con herramientas y devuelve solo la respuesta, apta para scripts y cron.</li>
-          <li><strong>Perfiles que preparan el entorno:</strong> cada perfil elige modelo, servicios MCP y navegador.</li>
-          <li><strong>Razonamiento preservado entre pasos</strong> y <strong>documentos nativos</strong> (ofimática y PDF) sin dependencias pesadas en el servidor.</li>
+          <li><strong>Permisos con granularidad de comando y directorio</strong>, decididos en el servidor y probados; es lo que más lo separa del resto.</li>
+          <li><strong>El trabajo vive en el servidor</strong>: una tarea sigue con el navegador cerrado y se retoma desde el móvil.</li>
+          <li><strong>Independencia del motor</strong>: un cliente para vLLM, llama.cpp, LM Studio, SGLang u Ollama.</li>
+          <li><strong>Proyectos</strong>: historial, permisos y comandos separados por carpeta.</li>
+          <li><strong>Servidor sin dependencias</strong>: un archivo Python; funciona también en Android con Termux.</li>
           <li><strong>Interceptor editable</strong> del JSON exacto que se envía al modelo.</li>
         </ul>
-        <p>Contrapartidas asumidas: RAG solo léxico, una sola persona y datos en el navegador que conviene exportar.</p>
+        <p><strong>Contrapartidas:</strong> RAG solo léxico, una persona por servidor, más conceptos que aprender que en cualquiera de las alternativas y un sandbox de JavaScript en el servidor pendiente de corregir (Revisión 1, F-01).</p>
       </div>
-
       <div class="card">
         <h2>5. Cuándo elegir cada uno</h2>
         <ul>
-          <li><strong>ZeroChat:</strong> una persona que quiere un agente para programación o tareas técnicas sobre un modelo local servido aparte, con acceso controlado al equipo, también desde fuera de casa.</li>
-          <li><strong>LM Studio:</strong> una aplicación gráfica que descargue, ejecute y sirva el modelo.</li>
-          <li><strong>Interfaz de llama.cpp:</strong> comprobaciones rápidas sin instalar nada más.</li>
-          <li><strong>Open WebUI:</strong> varios usuarios, administración centralizada o RAG vectorial.</li>
-          <li><strong>Jan:</strong> uso personal sencillo de modelos GGUF en el escritorio.</li>
+          <li><strong>ZeroChat</strong>: una persona que trabaja con un agente sobre un modelo local servido aparte, quiere controlar con precisión qué puede hacer en su equipo y seguir el trabajo desde otro dispositivo.</li>
+          <li><strong>LM Studio</strong>: una aplicación que descargue, ejecute y sirva el modelo, con herramientas MCP confirmadas a mano.</li>
+          <li><strong>Interfaz de llama.cpp</strong>: comprobaciones rápidas y uso ocasional de herramientas sin instalar nada más.</li>
+          <li><strong>Open WebUI</strong>: varios usuarios, administración central o RAG vectorial.</li>
+          <li><strong>Jan</strong>: uso personal sencillo en el escritorio, con MCP sin configuración fina.</li>
         </ul>
       </div>
-
       <div class="card">
         <h2>6. Fuentes</h2>
         <ul>
-          <li><a href="https://docs.openwebui.com/features/mcp" rel="noopener">Open WebUI: MCP</a> (consultado en octubre de 2026)</li>
-          <li><a href="https://docs.openwebui.com/alternatives/llama-cpp/" rel="noopener">Open WebUI: llama.cpp integration</a> (consultado en octubre de 2026)</li>
-          <li><a href="https://lmstudio.ai/blog/mcp" rel="noopener">LM Studio: MCP</a> y notas de versión (consultado en octubre de 2026)</li>
-          <li><a href="https://lmstudio.ai/docs/cli/local-models/chat" rel="noopener">LM Studio: <code>lms chat</code></a>, <a href="https://lmstudio.ai/docs/developer/core/server/serve-on-network" rel="noopener">servir en la red local</a> y <a href="https://lmstudio.ai/docs/developer/core/lmlink" rel="noopener">LM Link</a> (consultados el 24 de octubre de 2026)</li>
-          <li><a href="https://jan.ai/changelog" rel="noopener">Jan: changelog</a> y <a href="https://jan.ai/docs/desktop/api-server" rel="noopener">servidor de API local</a> (consultado el 24 de octubre de 2026)</li>
-          <li><a href="https://github.com/ggml-org/llama.cpp/tree/master/tools/server" rel="noopener">llama.cpp: <code>llama-server</code></a> (consultado el 24 de octubre de 2026)</li>
+          <li><a href="https://docs.openwebui.com/features/extensibility/mcp/">Open WebUI: Model Context Protocol</a> y <a href="https://docs.openwebui.com/reference/server-side-tool-calling/">ejecución de herramientas en el servidor</a></li>
+          <li><a href="https://lmstudio.ai/blog/lmstudio-v0.3.17">LM Studio: MCP</a>, <a href="https://lmstudio.ai/docs/developer/core/mcp">MCP mediante la API</a> y <a href="https://lmstudio.ai/docs/developer">documentación de desarrollo</a></li>
+          <li><a href="https://www.jan.ai/docs/desktop/mcp">Jan: MCP</a>, <a href="https://www.jan.ai/docs/desktop/api-server">servidor de API local</a> y <a href="https://www.jan.ai/docs/agent/mcp">Jan Agent</a></li>
+          <li><a href="https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md">llama.cpp: README de <code>llama-server</code></a></li>
         </ul>
+        <p>Todas consultadas el 13 de noviembre de 2026.</p>
       </div>
-
       <div class="card" id="autoria">
-        <h2>Autoría</h2>
+        <h2>Autoría y entorno de verificación</h2>
         <div class="alert alert-info">
           <ul>
-            <li><strong>Revisión y redacción:</strong> Claude Opus 5.5 en Claude Code, a partir de las fuentes fechadas y del código de ZeroChat en el commit <code>170ee03</code>.</li>
+            <li><strong>Revisión y redacción:</strong> Claude Fable 5.2 en Claude Code, a partir de las fuentes citadas y del código de ZeroChat en el commit <code>bc942cf</code>.</li>
           </ul>
         </div>
       </div>
@@ -141,7 +123,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat 10.x · Revisión 3 (Comparativa) · 24 de octubre de 2026</p>
+      <p>ZeroChat 10.x · Revisión 3 (Comparativa) · 13 de noviembre de 2026</p>
     </footer>
   </div>
 </body>

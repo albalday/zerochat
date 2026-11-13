@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Review 4: Evolution from Git · ZeroChat 10.x Docs</title>
-  <meta name="description" content="Evolution of ZeroChat across 1,244 commits, from ChatCLI v0.9 to 9.11.0, and how long each AGENTS.md rule took to gain automated test coverage.">
+  <title>Review 4: Evolution according to Git · ZeroChat 10.x Docs</title>
+  <meta name="description" content="History of ZeroChat according to Git up to 10.14.0: 251 commits and 19 milestones since 9.11.0, the phases of the 10 series and which guarantees arrived with a test.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -20,164 +20,109 @@
           <a href="architecture.html#audits" class="top-nav-link">← Infrastructure and data</a>
         </div>
       </div>
-      <h1>Review 4: Evolution from Git</h1>
-      <p class="subtitle">1,244 commits across 60 days, from ChatCLI v0.9 to 9.11.0, and how long each rule took to get its test. Updated on 24 October 2026.</p>
+      <h1>Review 4: Evolution according to Git</h1>
+      <p class="subtitle">1,495 commits in 80 days and a 10 series that changed the architecture in a week. Updated on 13 November 2026.</p>
     </header>
 
     <main>
       <div class="card">
         <h2>Method and limits</h2>
-        <p><strong>Facts</strong> are verified with <code>git log</code>, <code>git show</code>, and <code>git log -S</code> against <code>AGENTS.md</code>; dates and version tags come directly from repository commits. <strong>Interpretations</strong> are explicitly highlighted as such. Most commits feature descriptive commit messages referencing specific task IDs, enabling clear tracing of key design decisions.</p>
-        <p>This review inspects the historical lag between writing a rule in <code>AGENTS.md</code> and introducing the automated test that enforces it, corroborating the real-world value of the <a href="learning.html#rules-lesson">9.0.0 lesson</a>.</p>
+        <p>Facts are checked with <code>git log</code>, <code>git show</code> and <code>git log -S</code>; dates and versions are those of each commit. Interpretations are marked as such. The phases before 9.11.0 are summarized; the detail of this review is in the 10.x series.</p>
+        <p>Dates are author dates: some commits after 9.11.0 keep earlier dates because the branch was reorganized.</p>
       </div>
-
       <div class="card">
         <h2>1. Figures</h2>
         <ul>
-          <li>1,244 commits between 26 August and 24 October 2026, with activity on 57 of those 60 days; the peaks are still the early ones: 74 (02/09) and 65 (29/08).</li>
-          <li>238 commits since the 9.2.3 review (<code>924aef6</code>, 16/10), over 9 consecutive days, peaking at 51 on 23/10; in that time 39 milestones closed (M5 to M43) and nine minor versions shipped, from 9.3.0 to 9.11.0.</li>
-          <li>Of those 238 commits, 212 list Claude Opus 5.5 as co-author; earlier, Claude Opus 5, Fable 5.1 and Antigravity (Gemini 3.8 Flash) also took part.</li>
-          <li>The suite went from 864 cases in 9.2.3 to 702 in 9.11.0 while covering more features: milestones M24, M32 and M41 pruned trivial, duplicate or absence tests.</li>
+          <li><strong>1,495 commits</strong> between 26 August and 13 November 2026, with activity on 68 of those 80 days.</li>
+          <li><strong>251 commits since 9.11.0</strong> (<code>170ee03</code>), with 19 closed milestones (M44 to M62) and more than 20 versions: 9.11.1 to 9.11.5 and 10.0.0 to 10.14.0.</li>
+          <li><strong>Fifteen minor versions of the 10 series in seven days</strong> (7 to 13 November), all publishable on PyPI.</li>
+          <li>The pace speeds up at the end: 21, 33, 43 and 27 commits from 10 to 13 November.</li>
+          <li>Of the 251 commits, 115 declare a co-author: 95 Claude Opus 5.5, 13 Claude Fable 5.2 and 7 Claude Sonnet 5.5. The other 136 declare none.</li>
+          <li>In code, tests and scripts: 133 files changed, 14,635 lines added and 4,795 removed.</li>
+          <li>The suite went from 702 cases to 809; the backend from 4,909 to 7,995 lines.</li>
         </ul>
       </div>
-
       <div class="card">
-        <h2>2. Evolution phases</h2>
-        <div class="subsection">
-          <h3>Origins and initial growth (26 August – 16 September)</h3>
-          <p>ChatCLI v0.9 emerges (<code>39fed30</code>), featuring multi-chat and voice recognition (later removed in <code>cbc4cb1</code>). Introduction of <code>AgentCore</code> and first MCP integration (<code>969526e</code>). The project is renamed to ZeroChat (<code>ad107f4</code>). Orama lexical RAG engine arrives and the first <code>AGENTS.md</code> is drafted on 02/09 (<code>481c9c6</code>, <code>d37ff35</code>). SVG vector icons, custom modal dialogs, and WebLLM (<code>e20a70c</code>, 11/09).</p>
-        </div>
-        <div class="subsection">
-          <h3>Backend and hardening (17 September – 4 October)</h3>
-          <p>Frontend bundling step eliminated; <code>zerochat.py</code> unified in version 7.0.0 (<code>f58544f</code>). PyPI package release and backend modularization into <code>py/</code> (<code>b3db5f0</code>). HMAC signature for tool calls (<code>c51d0a8</code>). <code>ChatState</code> domain slices with tests (<code>2059455</code>) and <code>0600</code> token permissions. First audited release with version 8.12.4 (<code>aff1019</code>).</p>
-        </div>
-        <div class="subsection">
-          <h3>8.12 series (4 – 9 October)</h3>
-          <p>From 8.12.5 to 8.12.16: closure of audit findings with tests against empty <code>catch</code> blocks and untranslated literals, branch summaries, persistent project mode, and its memory protocol.</p>
-        </div>
-        <div class="subsection">
-          <h3>Towards 9.0.0 and the great cleanup (9 – 12 October)</h3>
-          <p>Unbounded agent loop with loop detection (<code>38ef6f9</code>). Modern <code>run_command</code> and <code>check_command</code> tools replace legacy shell execution (<code>514591d</code>). Read-only subagents (<code>ba21510</code>). Forwarding reasoning traces across tool steps (<code>a3e41b6</code>). Removal of legacy compatibility layers (<code>c1c66af</code>, <code>8d769f7</code>) and strict hygiene rules (<code>f785a3f</code>). Release of 9.0.0 (<code>d2ab109</code>) followed by 17 refactoring passes deleting 16,500 lines across <code>js/</code>, <code>css/</code>, and <code>py/</code>.</p>
-        </div>
-        <div class="subsection">
-          <h3>Closure of the 9.1.0 audit (13 October)</h3>
-          <p>Review 9.1.0 closed all ten findings with automated tests in <code>14a7fab</code>: persistence boundary protection (<code>test_persistence_boundary.js</code>), closed HTML sink whitelist (<code>test_html_sinks.js</code>), provider inheritance (<code>test_providers.js</code>), and help page consistency (<code>test_help_pages.js</code>).</p>
-        </div>
-        <div class="subsection">
-          <h3>9.1 to 9.2 series: Document maturity, multimodality and optimization (13 – 16 October)</h3>
-          <p>A period of expanding capabilities while actively shedding technical debt:</p>
-          <ul>
-            <li><strong>Office document ingestion and native parsing:</strong> Milestone M4 supported DOCX, PPTX, XLSX, and ODS in chat and RAG. Subsequently, milestone M17 (<code>ee7e732</code>) replaced the heavy ExcelJS dependency with an in-house lightweight native XLSX parser in <code>js/office-parser.js</code>, cutting ~1 MB from vendor bundles and eliminating complicated external licenses.</li>
-            <li><strong>Multimodal web vision (M19):</strong> Builtin <code>download_image</code> tool (<code>88ede9e</code>) allowing multimodal models to directly fetch, validate, and analyze web images with anti-SSRF protections.</li>
-            <li><strong>In-chat document generation (M13):</strong> Interactive generation of HTML, SVG, and CSV documents in chat (<code>c9b0b0c</code>), with secure Blob previews and CSV table exports.</li>
-            <li><strong>Project memory automation (M9):</strong> Creation of <code>task.py</code> (<code>37ba6a0</code>, <code>cca1c87</code>) to atomically record tasks, architectural decisions, and milestone states in <code>.zerochat/</code>, preventing memory desynchronization.</li>
-            <li><strong>Test suite optimization (M5):</strong> Domain-based test suite consolidation (<code>ccf7bec</code>), timer acceleration, and <code>withTestApp</code> harness (<code>468bf8b</code>), reaching 864 tests running in seconds.</li>
-            <li><strong>Documentation colocation and rules:</strong> Slimmed down <code>AGENTS.md</code> (<code>93766e5</code>) by relocating subsystem contracts into colocated <code>README.md</code> files and capping tasks at ~300 lines.</li>
-          </ul>
-        </div>
-        <div class="subsection">
-          <h3>9.3 to 9.5 series: own web transport and test pruning (16 – 17 October)</h3>
-          <p>Public proxies are removed and web transport becomes the local server or, without it, Jina Reader, with DuckDuckGo search (M21, M23, M27; <code>b15e953</code>, <code>029b4c8</code>). The external diff viewer arrives in the file-write cards (9.4.0, M20, <code>7541dca</code>). happy-dom is removed and trivial or duplicate tests are pruned, with written criteria for keeping or deleting them (M24, <code>62682d7</code>). The post-9.2.3 review is fixed in M26 (<code>ca8ce1d</code>).</p>
-        </div>
-        <div class="subsection">
-          <h3>9.6 series: unattended runs, profiles and Playwright (17 – 19 October)</h3>
-          <p><code>zerochat --prompt</code> runs a prompt in the interface and returns the answer in the terminal, with profile, export and hidden window (M18, from <code>a4b9bbd</code>). Connection profiles become configuration profiles, with the MCP services they start and the model's browser (M29). Playwright MCP gains its own engines, installed from Settings, and a mode with the user's browser (M3, <code>94ed197</code>, <code>5b6a5b6</code>).</p>
-        </div>
-        <div class="subsection">
-          <h3>9.7 and 9.8 series: scoped audits and live state (20 – 21 October)</h3>
-          <p>Two scoped audits between minor versions close with their tasks (M30, M31) and the tests added since 9.2.0 are reviewed (M32). The local server becomes the single source of state that changes during a session: external services, commands and Playwright arrive in the heartbeat (M33, <code>b92e9d7</code>). The most complex frontend hotspots are simplified (M34, M35).</p>
-        </div>
-        <div class="subsection">
-          <h3>9.9 and 9.10 series: structure and reconnection (22 – 23 October)</h3>
-          <p>PDF reader bounded by each stream (M36), guided diff viewer setup (M37), bilingual home page with a generated sitemap (M28, <code>ba04ab0</code>), model-view-controller separation in the dialogs (M38), interface logic tested without a browser (M39), automatic reconnection to the local server (M40, <code>7120ce7</code>) and a suite that runs in half the time (M41). For using the home server from Android through an SSH tunnel, <code>zerochat --print-url</code> arrives; 9.11 replaces it with sign-in.</p>
-        </div>
-        <div class="subsection">
-          <h3>9.11 series: one way to connect (24 October)</h3>
-          <p>Transport with the local server becomes POST-only, without an SSE channel (<code>4e39189</code>). The daily token also expires while the server runs (<code>2476077</code>) and, when it is missing or expired, the page asks for the user name and password of the system account (<code>fb8dd4b</code>). Settings › Connection unifies the local server, the SSH tunnel and the reverse proxy (<code>6407dc1</code>, <code>3f12d81</code>). The design decisions were recorded before starting (M42-D10 to D17).</p>
-        </div>
+        <h2>2. Phases of evolution</h2>
+        <h3>From ChatCLI to 9.11 (26 August – 24 October)</h3>
+        <p>It is born as ChatCLI v0.9 (<code>39fed30</code>), is renamed ZeroChat, adopts <code>AGENTS.md</code> on 2 September, drops the bundle in 7.0.0 and does its great cleanup in 9.0.0, removing 16,500 lines. The 9 series adds office documents, its own web transport, profiles, Playwright, unattended execution with a browser and, in 9.11.0, the remote connection with sign-in through the system account.</p>
+        <h3>Pause and maintenance (25 October – 5 November)</h3>
+        <p>Five fix versions (9.11.1 to 9.11.5) and ten days with very little activity. WebP images start being sent as JPEG (M44).</p>
+        <h3>The server stores data (6 – 7 November, 10.0.0)</h3>
+        <p>In two days SQLite appears in the backend: profiles (M45, <code>9cbbd8f</code>), conversations (M46) and background turn execution with <code>--conversation</code> (M47, <code>0a4df3b</code>). It is the largest architectural change since 7.0.0: until then the server stored nothing belonging to the user.</p>
+        <h3>Consolidating server mode (7 – 9 November, 10.1 – 10.6)</h3>
+        <p>A separate attachment store to stay under the 1 MiB limit per request (M49), the profile remembered per conversation (M50), server profiles separated from local ones, without the <code>Z-</code> prefix introduced four days earlier (M51), a more robust web transport (M52) and another test pruning (M53).</p>
+        <h3>Permissions move to the backend (10 – 12 November, 10.7 – 10.12)</h3>
+        <p>M56 moves authorization to the server and removes the HMAC signature from the client. M60 removes permission evaluation from the frontend. M61, with 39 tasks in two days, rebuilds the integrity of the system: single-use challenges, SQLite as the only persistence, per-argument command patterns and subcommand-by-subcommand validation. It started from a specification written beforehand (<code>docs/audits/M61-permisos.md</code>).</p>
+        <h3>Node replaces the browser in runs (10 – 11 November, 10.8 – 10.10)</h3>
+        <p>M57 swaps Chromium for a Node.js process for <code>--prompt</code> and <code>--conversation</code> (<code>1fb6441</code>), with the runner published on GitHub Pages. M58 and M59 add <code>execute_javascript</code> with <code>node:vm</code> (<code>9685350</code>) and <code>render_chart</code> the next day.</p>
+        <h3>Multi-session by project (12 November, 10.13)</h3>
+        <p>M62 defines "session = project": the process stops changing directory, each request carries its project, and session permissions, challenges, commands and browsers are separated. Multi-user is decided to live outside the process and is only documented.</p>
+        <h3>Adjusting with measurements (13 November, 10.14)</h3>
+        <p>M63 measures the history with 10,000 conversations before deciding (<code>8edaade</code>), fixes the sidebar painting and synchronizes headers only; it then simplifies <code>AgentRuntime</code>, <code>ToolExecutor</code> and <code>ConversationService</code> by removing parameters and guards with no consumer.</p>
       </div>
-
       <div class="card">
         <h2>3. Rules and tests over time</h2>
+        <p>The previous review measured how long each historical rule took to get its test: up to 36 days for those of September and zero since the 9 series. This table continues with what the 10 series introduced.</p>
         <div class="table-responsive">
           <table>
-            <thead><tr><th>Rule</th><th>In AGENTS.md</th><th>Test added</th><th>Lag</th><th>What the test found upon arrival</th></tr></thead>
+            <thead><tr><th>Rule or guarantee</th><th>Written</th><th>Test</th><th>Lag</th><th>Remark</th></tr></thead>
             <tbody>
-              <tr><td>Dialogs with <code>ChatDialogs</code></td><td>09/09 (<code>11a0389</code>)</td><td>09/09 (<code>c87f69b</code>)</td><td>0 days</td><td>Zero defects; test existed from day one</td></tr>
-              <tr><td><code>ChatState</code> domain slices</td><td>07/09 (<code>3481a07</code>)</td><td>03/10 (<code>2059455</code>)</td><td>26 days</td><td>Direct mutations on the <code>ui</code> slice</td></tr>
-              <tr><td>Explicit error handling (frontend)</td><td>07/09 (<code>3481a07</code>)</td><td>04/10 (<code>cf7aca4</code>)</td><td>27 days</td><td>116 empty <code>catch</code> blocks</td></tr>
-              <tr><td>Visible text with <code>ChatI18n</code></td><td>06/09 (<code>66a1967</code>)</td><td>04/10 (<code>46b6228</code>)</td><td>28 days</td><td>10 untranslated string literals</td></tr>
-              <tr><td>Explicit error handling (backend)</td><td>07/09 (<code>3481a07</code>)</td><td>12/10 (<code>72deff7</code>)</td><td>35 days</td><td>Silent generic catches across 7 files</td></tr>
-              <tr><td>Styles using <code>tokens.css</code> tokens</td><td>06/09 (<code>66a1967</code>)</td><td>12/10 (<code>26abb4c</code>)</td><td>36 days</td><td>Literal color values and <code>var()</code> fallbacks across 58 files</td></tr>
-              <tr><td>No fallbacks, legacy compatibility, or test exports</td><td>11/10 (<code>f785a3f</code>)</td><td>11/10 (<code>f785a3f</code>)</td><td>0 days (after 46 d)</td><td>The great 9.0.0 cleanup (16,500 lines removed)</td></tr>
-              <tr><td><code>mount()</code> with delegated listeners</td><td>12/10 (<code>98f07af</code>)</td><td>13/10 (<code>9ff0df4</code>)</td><td>1 day</td><td>Duplicate listener attachments in MCP panel</td></tr>
-              <tr><td>Injected chat messages in English</td><td>08/09 (<code>cfdab94</code>)</td><td>13/10 (<code>631f2d3</code>)</td><td>35 days</td><td>One system profile description in Spanish</td></tr>
-              <tr><td>External data kept out of <code>innerHTML</code></td><td>13/10 (<code>29a1af3</code>)</td><td>13/10 (<code>29a1af3</code>)</td><td>0 days</td><td>Markup injection in SVG attributes in <code>render_chart</code></td></tr>
-              <tr><td>Bilingual synchronized help pages</td><td>13/10 (<code>975a723</code>)</td><td>13/10 (<code>975a723</code>)</td><td>0 days</td><td>API key help pages missing language switcher</td></tr>
-              <tr><td>Memory automation and sentinel (<code>task.py</code>)</td><td>14/10 (<code>37ba6a0</code>)</td><td>14/10 (<code>cca1c87</code>)</td><td>0 days</td><td>Prevents desynchronization in milestone plans</td></tr>
-              <tr><td>Single source of truth and exact <code>N</code>/<code>N+1</code> limits</td><td>15/10 (<code>b4aad8a</code>)</td><td>15/10 (<code>976ab59</code>)</td><td>0 days</td><td>Row loss at the 500-row cap in ODS tables</td></tr>
-              <tr><td>No production code used only by tests</td><td>17/10 (<code>2b663f0</code>)</td><td>17/10 (<code>2b663f0</code>)</td><td>0 days</td><td>Parameters and injections that only existed for tests</td></tr>
-              <tr><td>Sitemap and unique titles and descriptions</td><td>22/10 (<code>ba04ab0</code>)</td><td>22/10 (<code>ba04ab0</code>)</td><td>0 days</td><td>Born with the bilingual home page and the generated sitemap</td></tr>
-              <tr><td>One source also between JavaScript and Python</td><td>15/10 (<code>b4aad8a</code>)</td><td>24/10 (<code>f2e7224</code>)</td><td>9 days</td><td>Engines, browsers and the extension token, now in a fixture both suites check</td></tr>
+              <tr><td>Single tool execution point and single-use challenges</td><td>11/11 (<code>8e52e60</code>)</td><td>12/11 (<code>d8377e4</code>)</td><td>1 day</td><td>The M61 audit found shortcuts before the test existed</td></tr>
+              <tr><td><code>ChatToolSecurity</code> with no local persistence</td><td>11/11 (<code>8e52e60</code>)</td><td>Already existed (<code>test_persistence_boundary.js</code>)</td><td>0 days</td><td>An earlier architecture test covered a new rule</td></tr>
+              <tr><td>The process never changes directory</td><td>12/11 (<code>ee5c667</code>)</td><td>12/11 (<code>ee5c667</code>)</td><td>0 days</td><td>Rule and test in the same commit</td></tr>
+              <tr><td>Cap on painted conversations per group</td><td>13/11</td><td>13/11</td><td>0 days</td><td>Born from a measurement, with its edge at 50 and 51</td></tr>
+              <tr><td>The Node sandbox isolates from the process</td><td>11/11 (<code>9685350</code>)</td><td>11/11, incomplete</td><td>Not closed</td><td>The test covers one variant of the escape and not the others (Review 1, F-01)</td></tr>
+              <tr><td><code>runner.js</code> in sync with <code>js/</code></td><td>Not written</td><td>Does not exist</td><td>Not closed</td><td>The only generated artifact with no sync test (F-04)</td></tr>
+              <tr><td>Attachments are deleted with their conversation</td><td>Not written</td><td>Does not exist</td><td>Not closed</td><td>The blob store was designed to save, not to delete (F-05)</td></tr>
+              <tr><td>Session permissions are forgotten when the token rotates</td><td>Written in <code>py/README.md</code></td><td>Only at startup</td><td>Not closed</td><td>The rotation test covers the token, not the permissions (F-12)</td></tr>
             </tbody>
           </table>
         </div>
-        <p><em>Interpretation:</em> the lag between writing a rule and having its test was historically the main source of technical debt. Since the 9.x series almost every rule arrives with its test in the same commit; the recent exception, one source between JavaScript and Python, took 9 days because until M42 there was no fixture shared by both suites.</p>
+        <p>Dates in day/month format.</p>
+        <p><strong>Interpretation:</strong> the 9.0.0 lesson holds wherever a rule is written: it arrives with its test the same day or the next. The gaps of the 10 series are mostly of a different kind. They are not rules without a test but guarantees nobody got to write down, because the feature shipped in one or two days: that the sandbox isolates, that the runner is current, that deleting frees space. The exception is the rotation of session permissions: written in the README and tested only at startup.</p>
       </div>
-
       <div class="card">
         <h2>4. What history teaches</h2>
         <ul>
-          <li><strong>Code improves by trimming dependencies:</strong> Replacing ExcelJS with a focused, native XLSX parser showed that simplifying architecture yields better maintainability than piling on vendor libraries.</li>
-          <li><strong>Tests must consolidate around domains:</strong> Reorganizing test suites in milestone M5 demonstrated that consolidating suites and removing synthetic delays increases test coverage (from 756 to 864 tests) while speeding up execution.</li>
-          <li><strong>Scoping tasks preserves control:</strong> Capping tasks at ~300 lines and creating shared bases before rolling out multiple format variants stops sister implementations from diverging.</li>
-          <li><strong>Fewer tests can cover more:</strong> from 9.2.3 to 9.11.0 the suite dropped from 864 to 702 cases while features grew, because each behavior is now tested once, at the lowest level that observes it.</li>
-          <li><strong>Decide before coding:</strong> in M42 the remote connection design was discussed and recorded as decisions before the first line of code; the seven tasks were then completed without redoing any.</li>
+          <li><strong>Specifying first pays off.</strong> M61 (permissions) and M62 (multi-session) started from a specification and recorded decisions; they are the best-covered areas of the series.</li>
+          <li><strong>Measure before limiting.</strong> M63 measured with 10,000 conversations and found the bottleneck was not the assumed one: the sidebar, not the database.</li>
+          <li><strong>What ships in a day is redone within a week.</strong> The <code>Z-</code> profile prefix lasted four days; the client HMAC signature, removed in M56, still leaves traces; permission evaluation in the frontend was written and removed within the same series.</li>
+          <li><strong>Each new environment doubles the guarantees to test.</strong> The browser sandbox had its security tests; taking it to Node copied the interface, not the level of isolation.</li>
+          <li><strong>Continuous cleanup works.</strong> M53 and M63 removed tests and code with no consumer a few days after they were written, without waiting for a great cleanup like that of 9.0.0.</li>
         </ul>
-        <p><em>Interpretation:</em> 9.11.0 changes the local server's network surface more than any earlier version, and does so with the same discipline: every decision recorded and every new behavior with its test.</p>
+        <p><strong>Interpretation:</strong> the project has shown it can change architecture in a week without breaking the suite. The risk is no longer accumulating old debt, but speed leaving guarantees unstated in the newest parts.</p>
       </div>
-
       <div class="card">
         <h2>5. Summary timeline</h2>
         <div class="table-responsive">
           <table>
-            <thead><tr><th>Date</th><th>Version</th><th>Commit</th><th>Key milestone</th></tr></thead>
+            <thead><tr><th>Date</th><th>Version</th><th>Commit</th><th>Highlight</th></tr></thead>
             <tbody>
-              <tr><td>26/08</td><td>v0.9</td><td><code>39fed30</code></td><td>ChatCLI creation</td></tr>
-              <tr><td>02/09</td><td>v5.3</td><td><code>d37ff35</code></td><td>First AGENTS.md</td></tr>
-              <tr><td>09/09</td><td>v6.5.4</td><td><code>11a0389</code></td><td>Custom dialogs guarded by automated test</td></tr>
-              <tr><td>11/09</td><td>v6.6.0</td><td><code>e20a70c</code></td><td>In-browser WebLLM integration</td></tr>
-              <tr><td>17/09</td><td>v7.0.0</td><td><code>f58544f</code></td><td>End of client bundle; unification in zerochat.py</td></tr>
-              <tr><td>04/10</td><td>v8.12.4</td><td><code>aff1019</code></td><td>Audited release</td></tr>
-              <tr><td>11/10</td><td>v9.0.0</td><td><code>d2ab109</code></td><td>Great cleanup; unbounded agent and subagents</td></tr>
-              <tr><td>12/10</td><td>9.1.0</td><td><code>a0393c3</code></td><td>Baseline of the 9.1.0 review</td></tr>
-              <tr><td>13/10</td><td>9.1.0</td><td><code>14a7fab</code></td><td>Total closure of the 10 infrastructure findings</td></tr>
-              <tr><td>14/10</td><td>v9.1.2</td><td><code>37ba6a0</code></td><td>Project memory automation with task.py</td></tr>
-              <tr><td>15/10</td><td>v9.1.5</td><td><code>8e449f8</code></td><td>Office document support (Word, Excel, PowerPoint, ODS)</td></tr>
-              <tr><td>15/10</td><td>v9.1.6</td><td><code>1177dee</code></td><td>Native XLSX reader and removal of ExcelJS</td></tr>
-              <tr><td>15/10</td><td>v9.2.0</td><td><code>02710d7</code></td><td>Bump to 9.2.0 with unified backend and office support</td></tr>
-              <tr><td>16/10</td><td>v9.2.1</td><td><code>2df3888</code></td><td>In-chat document generation and table CSV export (M13)</td></tr>
-              <tr><td>16/10</td><td>v9.2.2</td><td><code>233ae57</code></td><td>download_image tool and multimodal web vision (M19)</td></tr>
-              <tr><td>16/10</td><td>v9.2.3</td><td><code>924aef6</code></td><td>Test suite consolidation (M5) and previous review</td></tr>
-              <tr><td>17/10</td><td>v9.3.0</td><td><code>b15e953</code></td><td>No public proxies; unified web transport</td></tr>
-              <tr><td>17/10</td><td>v9.4.0</td><td><code>8ce5e82</code></td><td>External diff viewer</td></tr>
-              <tr><td>17/10</td><td>v9.5.0</td><td><code>09e2fcf</code></td><td>Web transport hardened after the 9.2.3 review</td></tr>
-              <tr><td>19/10</td><td>v9.6.0</td><td><code>07fc781</code></td><td>Unattended runs, configuration profiles and Playwright engines</td></tr>
-              <tr><td>20/10</td><td>v9.7.0</td><td><code>957220a</code></td><td>Fixes from the scoped audits</td></tr>
-              <tr><td>21/10</td><td>v9.8.0</td><td><code>d93491a</code></td><td>Live local server state in the heartbeat</td></tr>
-              <tr><td>22/10</td><td>v9.9.0</td><td><code>4de3d1f</code></td><td>Bilingual home page, PDF stream bounds and visible Playwright browser window</td></tr>
-              <tr><td>22/10</td><td>v9.10.0</td><td><code>b8dea66</code></td><td><code>zerochat --print-url</code> for the tablet (removed in 9.11) and tool signatures with ±30 s clock skew</td></tr>
-              <tr><td>24/10</td><td>v9.11.0</td><td><code>170ee03</code></td><td>Sign-in with the system account and Settings › Connection; reviewed version</td></tr>
+              <tr><td>26/08</td><td>v0.9</td><td><code>39fed30</code></td><td>ChatCLI is born</td></tr>
+              <tr><td>02/09</td><td>v5.3</td><td><code>d37ff35</code></td><td>First <code>AGENTS.md</code></td></tr>
+              <tr><td>17/09</td><td>v7.0.0</td><td><code>f58544f</code></td><td>End of the bundle; unified <code>zerochat.py</code></td></tr>
+              <tr><td>11/10</td><td>v9.0.0</td><td><code>d2ab109</code></td><td>Great cleanup; agent with no step cap and subagents</td></tr>
+              <tr><td>24/10</td><td>v9.11.0</td><td><code>170ee03</code></td><td>Sign-in with the system account; previous review</td></tr>
+              <tr><td>05/11</td><td>v9.11.5</td><td><code>b70c7d3</code></td><td>Last version of the 9 series</td></tr>
+              <tr><td>07/11</td><td>v10.0.0</td><td><code>0a4df3b</code></td><td>SQLite on the server and background turn execution</td></tr>
+              <tr><td>08/11</td><td>v10.2.0 – 10.4.0</td><td><code>8de2b93</code>, <code>b9e291f</code></td><td>Independent server profiles and robust web transport</td></tr>
+              <tr><td>09/11</td><td>v10.5.0 – 10.6.0</td><td><code>877ce62</code>, <code>303b9fa</code></td><td>Test pruning and project mode improvements</td></tr>
+              <tr><td>10/11</td><td>v10.7.0</td><td><code>e59d19a</code></td><td>Tool authorization in the backend</td></tr>
+              <tr><td>10/11</td><td>v10.8.0</td><td><code>c5a6c99</code></td><td>Node.js runner for unattended execution</td></tr>
+              <tr><td>11/11</td><td>v10.10.0 – 10.11.0</td><td><code>161cbe7</code>, <code>d5fc8bc</code></td><td><code>execute_javascript</code> and <code>render_chart</code> in Node; frontend with no permission evaluation</td></tr>
+              <tr><td>12/11</td><td>v10.12.0</td><td><code>04f6bdc</code></td><td>Integrity of the permission system</td></tr>
+              <tr><td>12/11</td><td>v10.13.0</td><td><code>ddad4b9</code></td><td>Multi-session by project</td></tr>
+              <tr><td>13/11</td><td>v10.14.0</td><td><code>bc942cf</code></td><td>Bounded history and agent simplification; reviewed version</td></tr>
             </tbody>
           </table>
         </div>
       </div>
-
-      <div class="card" id="autoria">
-        <h2>Authorship</h2>
+      <div class="card" id="authorship">
+        <h2>Authorship and verification environment</h2>
         <div class="alert alert-info">
           <ul>
-            <li><strong>Review and drafting:</strong> Claude Opus 5.5 in Claude Code, from the Git history up to commit <code>170ee03</code>; the phases up to 9.2.3 come from the previous review, by Antigravity (Gemini 3.8 Flash).</li>
+            <li><strong>Review and writing:</strong> Claude Fable 5.2 in Claude Code, from the Git log up to commit <code>bc942cf</code> and the project memory in <code>.zerochat/</code>.</li>
           </ul>
         </div>
       </div>
@@ -188,14 +133,14 @@
         <span class="nav-direction">← Previous</span>
         <span class="nav-title">Review 3: Comparison</span>
       </a>
-      <a href="architecture.html#audits" class="nav-button next">
+      <a href="audit-assessment.html" class="nav-button next">
         <span class="nav-direction">Next →</span>
-        <span class="nav-title">Infrastructure and data</span>
+        <span class="nav-title">Review 5: Technical level and evolution</span>
       </a>
     </nav>
 
     <footer>
-      <p>ZeroChat 10.x · Review 4 (History) · 24 October 2026</p>
+      <p>ZeroChat 10.x · Review 4 (History) · 13 November 2026</p>
     </footer>
   </div>
 </body>

@@ -76,7 +76,7 @@
         <li><strong>Token diario:</strong> caduca a medianoche también con el servidor en marcha. La página vuelve entonces a pedir el usuario y la contraseña; el servidor y sus comandos siguen.</li>
         <li><strong>Intentos limitados:</strong> tras 5 intentos fallidos seguidos, zerochat rechaza los siguientes durante 15 minutos sin comprobarlos.</li>
         <li><strong>Bloqueo de cuentas del sistema:</strong> si el equipo bloquea la cuenta tras varios fallos (por ejemplo, con <code>pam_faillock</code>), deja ese límite por encima del de zerochat. Si no, unos intentos fallidos desde la web podrían bloquear también el inicio de sesión local.</li>
-        <li><strong>Herramientas firmadas:</strong> cada llamada a una herramienta va firmada para esa sesión y caduca en segundos, aunque alguien vea pasar la petición.</li>
+        <li><strong>Permisos en el servidor:</strong> el servidor decide cada llamada a una herramienta con sus permisos guardados. Las que necesitan tu confirmación esperan como una autorización pendiente de un solo uso, que caduca a los 10 minutos o si cambias de carpeta de proyecto.</li>
         <li><strong>Una persona por servidor:</strong> zerochat actúa con la cuenta del sistema que lo ejecuta (la shell, los ficheros y los servicios MCP) y todo el que se identifica comparte sus conversaciones y permisos. Para varias personas, da a cada una su propio servidor, por ejemplo un contenedor (Docker) por usuario con su volumen de datos (<code>ZEROCHAT_DATA_DIR</code>), y que el proxy dirija a cada una al suyo.</li>
       </ul>
     </div>
@@ -89,7 +89,7 @@
           <tr><td>Conectar dice que no se puede alcanzar el servidor</td><td>El servidor remoto o el proxy no responden, o la clave del proxy es incorrecta: un proxy que no da pistas a quien no tiene la clave responde igual que si no hubiera nada. Revisa la URL y la clave.</td></tr>
           <tr><td>La URL no se acepta</td><td>Solo se admite el origen: <code>https://</code>, el nombre y el puerto, sin ruta.</td></tr>
           <tr><td>La página pide identificarse</td><td>No había sesión guardada en el navegador o el token del día ha caducado. Identifícate de nuevo.</td></tr>
-          <tr><td>Las herramientas fallan por autorización caducada</td><td>Los relojes del navegador y del equipo remoto difieren en más de 30 s. Activa la fecha y hora automáticas en los dos.</td></tr>
+          <tr><td>Una autorización pendiente ya no se puede aprobar</td><td>Han pasado más de 10 minutos o la pestaña ha cambiado de carpeta de proyecto, y la autorización ha caducado. Pide al modelo que repita la acción.</td></tr>
         </tbody>
       </table></div>
     </div>

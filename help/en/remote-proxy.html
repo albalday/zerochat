@@ -76,7 +76,7 @@
         <li><strong>Daily token:</strong> it expires at midnight even with the server running. The page then asks for the user name and password again; the server and its commands carry on.</li>
         <li><strong>Limited attempts:</strong> after 5 failed attempts in a row, zerochat rejects the next ones for 15 minutes without checking them.</li>
         <li><strong>System account lockout:</strong> if the computer locks the account after several failures (for example, with <code>pam_faillock</code>), set that limit above zerochat's. Otherwise, a few failed attempts from the web could also lock the local login.</li>
-        <li><strong>Signed tools:</strong> each tool call is signed for that session and expires within seconds, even if someone sees the request go by.</li>
+        <li><strong>Permissions on the server:</strong> the server decides every tool call with its stored permissions. Calls that need your confirmation wait as a single-use pending authorization, which expires after 10 minutes or if you change project folder.</li>
         <li><strong>One person per server:</strong> zerochat acts with the system account that runs it (the shell, the files and the MCP services) and everyone who signs in shares its conversations and permissions. For several people, give each one their own server, for example one container (Docker) per user with its data volume (<code>ZEROCHAT_DATA_DIR</code>), and have the proxy route each person to theirs.</li>
       </ul>
     </div>
@@ -89,7 +89,7 @@
           <tr><td>Connect says the server cannot be reached</td><td>The remote server or the proxy is not responding, or the proxy key is wrong: a proxy that gives no hints to those without the key answers as if nothing were there. Check the URL and the key.</td></tr>
           <tr><td>The URL is not accepted</td><td>Only the origin is allowed: <code>https://</code>, the name and the port, without a path.</td></tr>
           <tr><td>The page asks you to sign in</td><td>The browser had no saved session or the daily token has expired. Sign in again.</td></tr>
-          <tr><td>Tools fail with an expired authorization</td><td>The browser and remote computer clocks differ by more than 30 s. Turn on automatic date and time on both.</td></tr>
+          <tr><td>A pending authorization can no longer be approved</td><td>More than 10 minutes have passed or the tab has changed project folder, and the authorization has expired. Ask the model to repeat the action.</td></tr>
         </tbody>
       </table></div>
     </div>

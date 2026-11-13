@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Review 5: Technical level and evolution · ZeroChat 10.x Docs</title>
+  <meta name="description" content="Assessment of the technical level of ZeroChat 10.14.0 by area, its structural weaknesses and advice on evolution ordered by time frame.">
+  <link rel="stylesheet" href="../help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat 10.x Docs
+        </a>
+        <div class="header-actions">
+          <a href="../audit-assessment.html" class="top-nav-link" lang="es">Español</a>
+          <a href="architecture.html#audits" class="top-nav-link">← Infrastructure and data</a>
+        </div>
+      </div>
+      <h1>Review 5: Technical level and evolution</h1>
+      <p class="subtitle">A reasoned opinion on the technical quality of ZeroChat 10.14.0 and advice for its next stage. Written on 13 November 2026.</p>
+    </header>
+
+    <main>
+      <div class="card">
+        <h2>What this page is</h2>
+        <p>The four previous reviews describe verified facts. This one is an <strong>opinion</strong>: an assessment of the technical level of ZeroChat 10.14.0 and some advice on where to take it. It rests on those reviews and on reading the code, but its conclusions are debatable and should be read that way.</p>
+        <p>The yardstick is twofold: what can be expected from a personal project maintained by one person with coding agents, and what would be demanded of a product that runs commands on its user's machine.</p>
+      </div>
+      <div class="card">
+        <h2>1. Assessment by area</h2>
+        <div class="table-responsive">
+          <table>
+            <thead><tr><th>Area</th><th>Level</th><th>Why</th></tr></thead>
+            <tbody>
+              <tr><td>Tests and executable rules</td><td>Very high</td><td>809 tests that run in under a minute and, above all, 14 files of architecture tests that turn the rules into something that fails. It is the most distinctive trait of the project and uncommon even in professional teams. It lacks coverage measurement and testing outside Linux.</td></tr>
+              <tr><td>Permission engine</td><td>High</td><td>A single decision point on the server, transactional state, single-use challenges, commands validated subcommand by subcommand and failures that never degrade to "allow". It is designed the way someone who knows the problem would design it.</td></tr>
+              <tr><td>Perimeter security</td><td>High, with a gap</td><td>Daily token, PAM sign-in with no dependencies, anti-SSRF on every redirect and a closed list of <code>innerHTML</code> uses. The Node sandbox and the unverified runner lower the grade of server runs until they are fixed.</td></tr>
+              <tr><td>Frontend architecture</td><td>High</td><td>66 modules with no bundle, state in slices with mutators, persistence and DOM boundaries watched by tests, and an agent loop that runs the same in the browser and in Node thanks to adapters. Trade-offs: no type analysis and several modules above 1,200 lines.</td></tr>
+              <tr><td>Backend architecture</td><td>Medium-high</td><td>A single dependency-free file acting as HTTP server, process manager, permission engine and SQLite store is a feat of economy. But concatenating modules in alphabetical order is not a module system: there are no imports, no namespaces and no static analysis, and 8,000 lines in one global space have a ceiling close by.</td></tr>
+              <tr><td>Data model</td><td>Medium</td><td>The data lives twice (SQLite and IndexedDB) and the relationship between the two copies has been redefined several times in a week. There is no concurrency control between tabs, no attachment deletion and no server backup. It is the least settled area.</td></tr>
+              <tr><td>Development process</td><td>High</td><td>Versioned project memory, recorded decisions, 300-line tasks, periodic audits and continuous cleanup. The risk lies in the pace: fifteen minor versions in seven days leave no time for real use to find the faults.</td></tr>
+              <tr><td>Product and user experience</td><td>Medium-high</td><td>It covers a lot and covers it well, but each series adds concepts: local and server profiles, a project per tab, three permission scopes, two execution environments. The entry curve grows faster than the help that explains it.</td></tr>
+              <tr><td>Documentation</td><td>High</td><td>Bilingual help with its sync test, READMEs with contracts per subsystem and a decision log that lets you reconstruct the why of almost everything.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <h2>2. Overall opinion</h2>
+        <p><strong>The technical level is high, and in testing and permission discipline it is above what most projects of its size show.</strong> It is not a prototype that grew: it is a system with defined boundaries that cleans itself up and can change architecture in a week without breaking. That is hard to achieve, and harder with almost all the code written by agents.</p>
+        <p>That last point is the key to understanding it. Quality is not guaranteed by whoever writes each line, but by the set of rules that fail when broken. Where those rules exist, the code is consistent; where they have not been stated yet, the gaps appear, and they appear fast because the delivery pace is very high. The Node sandbox is the example: it shipped in one day, with a test that seemed to cover it, in the only part of the frontend that had no security rule of its own.</p>
+        <p>There are five underlying weaknesses, and none is about craft but about structure:</p>
+        <ul>
+          <li><strong>There is no static verification.</strong> 30,000 lines of JavaScript and 8,000 of Python with no checked types; contracts between modules are watched only by tests.</li>
+          <li><strong>Two execution environments</strong> for the same agent, with different guarantees that must be kept by hand.</li>
+          <li><strong>Two copies of the data</strong> with no single rule about which one rules.</li>
+          <li><strong>Dependence on a web origin it does not control</strong> (GitHub Pages under a shared domain), which now also serves code that runs on the server.</li>
+          <li><strong>A single person.</strong> The project memory mitigates it very well, but nobody else has used or reviewed the system.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h2>3. Advice on evolution</h2>
+        <h3>Now: close what the 10 series left open</h3>
+        <ol>
+          <li><strong>Truly isolate the model's JavaScript on the server.</strong> A child process with Node's permission model, terminated by signal, solves F-01 and F-02 at once. Until then, removing the tool from server runs costs one line.</li>
+          <li><strong>Launch the runner with restricted permissions</strong> and test its download. A fault at the web origin then stops being unlimited code execution on the machine.</li>
+          <li><strong>Write the missing guarantees as tests</strong>: the runner is current, deleting a conversation deletes its attachments and only once the server confirms, rotating the token forgets session permissions, and the test runner fails if a file is missing.</li>
+          <li><strong>Add Windows and macOS to CI</strong> for the infrastructure tests. It is the oldest debt still open.</li>
+        </ol>
+        <h3>Next: give ground to what grew fast</h3>
+        <ol>
+          <li><strong>Type checking without giving up "no bundle".</strong> JSDoc annotations and <code>tsc --checkJs --noEmit</code> as a sixth validation level, starting with state, storage and the agent loop; in Python, an analyser over <code>zerochat.py</code>. It does not change how the application is served and it catches the class of errors that only tests find today.</li>
+          <li><strong>A single rule for the data.</strong> With the server connected, SQLite rules and IndexedDB is a cache; with a version per conversation to detect that another tab saved first, instead of letting the last one win. M63 already took the first step by synchronizing headers only.</li>
+          <li><strong>Server backup.</strong> Now that history lives in <code>~/zerochat/storage/</code>, a command to export and restore it is worth more than any new feature.</li>
+          <li><strong>Agent evaluations.</strong> A small, reproducible battery of tasks, run with <code>zerochat --prompt</code> against several local models, measuring successes, steps and context used. The current tests prove the code does what it says; none proves the agent solves tasks. No per-model tuning: the battery measures the product, it does not tweak templates.</li>
+          <li><strong>A stable channel.</strong> Keep publishing as often as wanted on a development channel and promote to stable every week or two, with a changelog. Fifteen versions in seven days are too many for someone installing from PyPI.</li>
+          <li><strong>Split the backend when it hurts.</strong> Before 10,000 lines, turn <code>py/</code> into a package with real imports and generate the single file from it. Single-file distribution is kept and static analysis is gained.</li>
+        </ol>
+        <h3>Later: decisions about direction</h3>
+        <ol>
+          <li><strong>An origin of its own.</strong> Its own domain removes the shared-origin risk and allows real security headers, including a content policy without <code>'unsafe-inline'</code> or <code>'unsafe-eval'</code>.</li>
+          <li><strong>Simplify before adding.</strong> A single kind of profile, or an assistant explaining when to use each; a visible table of what works in the browser and what on the server. The next leap in quality is a new person understanding it in ten minutes.</li>
+          <li><strong>Decide the support matrix.</strong> Seven providers, three browsers, three systems and two execution environments are many combinations for one person. Declaring what is tested and what is "best effort", and removing what is not used, is a legitimate way to improve.</li>
+          <li><strong>Optional hybrid RAG.</strong> Local model servers already expose embeddings; using them when present, alongside the lexical index, would close the most cited gap without adding dependencies to the server.</li>
+          <li><strong>Keep multi-user outside.</strong> The M62 decision, one server per person, is the right one for a program acting with a system account. What would help is an official container recipe, not accounts inside the process.</li>
+          <li><strong>Find a second pair of eyes.</strong> An external review of the permission engine and of server mode, or simply two or three people using it daily, would find what neither the tests nor these audits see.</li>
+        </ol>
+      </div>
+      <div class="card">
+        <h2>4. In one sentence</h2>
+        <p><strong>A high-level project whose greatest asset is its executable rules and whose greatest risk is its own speed:</strong> the advice is not to do more, but to spend the next series settling what the 10 series has raised.</p>
+      </div>
+      <div class="card" id="authorship">
+        <h2>Authorship and verification environment</h2>
+        <div class="alert alert-info">
+          <ul>
+            <li><strong>Opinion and writing:</strong> Claude Fable 5.2 in Claude Code, at the project owner's request.</li>
+            <li><strong>Basis:</strong> reviews 1 to 4, including the findings of the parallel review made with Gemini, and reading the code at commit <code>bc942cf</code>. Coverage was not measured and no systematic comparison with other projects was made.</li>
+          </ul>
+        </div>
+      </div>
+    </main>
+
+    <nav class="page-navigation" aria-label="Review navigation">
+      <a href="audit-history.html" class="nav-button prev">
+        <span class="nav-direction">← Previous</span>
+        <span class="nav-title">Review 4: History</span>
+      </a>
+      <a href="architecture.html#audits" class="nav-button next">
+        <span class="nav-direction">Next →</span>
+        <span class="nav-title">Infrastructure and data</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat 10.x · Review 5 (Technical level and evolution) · 13 November 2026</p>
+    </footer>
+  </div>
+</body>
+</html>
