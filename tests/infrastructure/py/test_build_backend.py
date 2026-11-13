@@ -1,4 +1,6 @@
 import importlib.util
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -26,7 +28,7 @@ class BuildBackendCompilerTest(unittest.TestCase):
             target.write_text(content, encoding="utf-8")
         return py_dir
 
-    def test_compila_dag_en_espacio_plano_deduplica_imports_y_ordena_transicion(self):
+    def test_compila_dag_en_espacio_plano_deduplica_imports_y_ordena_por_dependencias(self):
         # z_base aparece alfabéticamente después de a_consumer para verificar orden topológico real.
         py_dir = self._write_tree({
             "core/__init__.py": "",
@@ -47,9 +49,10 @@ class BuildBackendCompilerTest(unittest.TestCase):
                 "def total() -> int:\n"
                 "    return get_base() + BASE_VAL\n"
             ),
-            "zz-legacy.py": (
+            "app/b_top.py": (
                 "import os\n"
-                "def legacy_fn() -> int:\n"
+                "from app.a_consumer import total\n\n"
+                "def top_fn() -> int:\n"
                 "    return total() + 1\n"
             ),
         })
@@ -62,16 +65,16 @@ class BuildBackendCompilerTest(unittest.TestCase):
         self.assertEqual(compiled.count("from pathlib import Path"), 1)
         self.assertNotIn("from core.z_base import", compiled)
 
-        # Paquetes antes de prefijados y dependencia antes que consumidor.
+        # Cada dependencia antes que su consumidor, aunque el orden alfabético sea otro.
         self.assertLess(compiled.index("def get_base()"), compiled.index("def total()"))
-        self.assertLess(compiled.index("def total()"), compiled.index("def legacy_fn()"))
+        self.assertLess(compiled.index("def total()"), compiled.index("def top_fn()"))
 
-        # Espacio de nombres plano: sustituir get_base afecta directamente a total() y legacy_fn().
+        # Espacio de nombres plano: sustituir BASE_VAL afecta directamente a total() y top_fn().
         ns: dict = {}
         exec(compile(compiled, "zerochat.py", "exec"), ns)
-        self.assertEqual(ns["legacy_fn"](), 21)
+        self.assertEqual(ns["top_fn"](), 21)
         ns["BASE_VAL"] = 50
-        self.assertEqual(ns["legacy_fn"](), 101)
+        self.assertEqual(ns["top_fn"](), 101)
 
     def test_rechaza_imports_internos_no_permitidos(self):
         invalid_cases = [
@@ -110,10 +113,10 @@ class BuildBackendCompilerTest(unittest.TestCase):
                 "app/__init__.py": "",
                 "app/mod.py": "from py.core.limits import LIMIT\n",
             }),
-            ("modulo paquete importa prefijado", {
+            ("archivo suelto en py/", {
                 "aa-legacy.py": "OLD = 1\n",
                 "core/__init__.py": "",
-                "core/mod.py": "from aa_legacy import OLD\n",
+                "core/mod.py": "VALUE = 1\n",
             }),
             ("simbolo inexistente en modulo destino", {
                 "core/__init__.py": "",
@@ -153,3 +156,24 @@ class BuildBackendCompilerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BackendPackageTest(unittest.TestCase):
+    def test_cada_modulo_de_py_se_importa_solo_como_paquete_sin_escribir_en_disco(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        home, data = Path(tmp.name) / "home", Path(tmp.name) / "data"
+        home.mkdir()
+        data.mkdir()
+        script = (
+            "import importlib, pathlib, sys\n"
+            f"py_dir = pathlib.Path({str(ROOT_DIR / 'py')!r})\n"
+            "sys.path.insert(0, str(py_dir))\n"
+            "for path in sorted(py_dir.glob('*/*.py')):\n"
+            "    if path.name != '__init__.py':\n"
+            "        importlib.import_module(f'{path.parent.name}.{path.stem}')\n"
+        )
+        env = {**os.environ, "HOME": str(home), "USERPROFILE": str(home), "ZEROCHAT_DATA_DIR": str(data)}
+        result = subprocess.run([sys.executable, "-I", "-c", script], env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((list(home.iterdir()), list(data.iterdir())), ([], []))

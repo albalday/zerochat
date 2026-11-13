@@ -18,11 +18,9 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_PY_DIR = ROOT_DIR / "py"
 DEFAULT_OUTPUT = ROOT_DIR / "zerochat.py"
 
-LEGACY_FILE_RE = re.compile(r"^[a-z]{2}-.*\.py$")
-LEGACY_STEM_RE = re.compile(r"^[a-z]{2}[_-][a-zA-Z0-9_-]+$")
 PACKAGE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
-DEFAULT_HEADER_DOCSTRING = '''"""
+HEADER_DOCSTRING = '''"""
 ZeroChat - Backend Local Unificado y Gestor de Entorno
 
 Proporciona:
@@ -43,7 +41,6 @@ class ModuleInfo:
     path: Path
     source: str
     tree: ast.Module
-    is_package: bool
     defined_symbols: set[str] = field(default_factory=set)
     internal_imports: list[tuple[str, str]] = field(default_factory=list)
     stripped_lines: set[int] = field(default_factory=set)
@@ -86,69 +83,48 @@ def _mark_node_lines(node: ast.AST, stripped: set[int]) -> None:
         stripped.update(range(start, end + 1))
 
 
-def _discover_modules(py_dir: Path) -> tuple[dict[str, ModuleInfo], list[ModuleInfo], set[str]]:
+def _discover_modules(py_dir: Path) -> tuple[dict[str, ModuleInfo], set[str]]:
     if not py_dir.is_dir():
         raise BackendBuildError(f"No existe el directorio fuente: {py_dir}")
 
     package_dirs: set[str] = set()
-    for entry in sorted(py_dir.iterdir(), key=lambda p: p.name):
-        if entry.name.startswith(".") or entry.name == "__pycache__":
-            continue
-        if entry.is_dir():
-            if not PACKAGE_NAME_RE.match(entry.name):
-                raise BackendBuildError(f"Nombre de paquete no válido en py/: {entry.name}")
-            package_dirs.add(entry.name)
-
     package_modules: dict[str, ModuleInfo] = {}
-    legacy_modules: list[ModuleInfo] = []
-
     for entry in sorted(py_dir.iterdir(), key=lambda p: p.name):
         if entry.name.startswith(".") or entry.name == "__pycache__":
             continue
         if entry.is_file():
-            if entry.name == "__init__.py":
-                _validate_init_file(entry)
+            if entry.suffix == ".py":
+                raise BackendBuildError(
+                    f"Archivo suelto en py/: {entry.name}. Todo módulo vive en un paquete: py/<paquete>/<modulo>.py."
+                )
+            continue
+        if not PACKAGE_NAME_RE.match(entry.name):
+            raise BackendBuildError(f"Nombre de paquete no válido en py/: {entry.name}")
+        package_dirs.add(entry.name)
+        for child in sorted(entry.iterdir(), key=lambda p: p.name):
+            if child.name.startswith(".") or child.name == "__pycache__":
                 continue
-            if entry.suffix != ".py":
+            if child.is_dir():
+                raise BackendBuildError(f"Subdirectorio no permitido dentro de py/{entry.name}/: {child.name}")
+            if child.suffix != ".py":
                 continue
-            if not LEGACY_FILE_RE.match(entry.name):
-                raise BackendBuildError(f"Archivo inesperado en raíz de py/ sin prefijo aa-..zz-: {entry.name}")
-            source = entry.read_text(encoding="utf-8")
-            tree = ast.parse(source, filename=str(entry))
-            legacy_modules.append(ModuleInfo(
-                mod_id=entry.name,
-                path=entry,
+            if child.name == "__init__.py":
+                _validate_init_file(child)
+                continue
+            if not PACKAGE_NAME_RE.match(child.stem):
+                raise BackendBuildError(f"Nombre de módulo no válido: py/{entry.name}/{child.name}")
+            mod_id = f"{entry.name}.{child.stem}"
+            source = child.read_text(encoding="utf-8")
+            tree = ast.parse(source, filename=str(child))
+            package_modules[mod_id] = ModuleInfo(
+                mod_id=mod_id,
+                path=child,
                 source=source,
                 tree=tree,
-                is_package=False,
                 defined_symbols=extract_top_level_symbols(tree),
-            ))
-        elif entry.is_dir():
-            for child in sorted(entry.iterdir(), key=lambda p: p.name):
-                if child.name.startswith(".") or child.name == "__pycache__":
-                    continue
-                if child.is_dir():
-                    raise BackendBuildError(f"Subdirectorio no permitido dentro de py/{entry.name}/: {child.name}")
-                if child.suffix != ".py":
-                    continue
-                if child.name == "__init__.py":
-                    _validate_init_file(child)
-                    continue
-                if not PACKAGE_NAME_RE.match(child.stem):
-                    raise BackendBuildError(f"Nombre de módulo no válido: py/{entry.name}/{child.name}")
-                mod_id = f"{entry.name}.{child.stem}"
-                source = child.read_text(encoding="utf-8")
-                tree = ast.parse(source, filename=str(child))
-                package_modules[mod_id] = ModuleInfo(
-                    mod_id=mod_id,
-                    path=child,
-                    source=source,
-                    tree=tree,
-                    is_package=True,
-                    defined_symbols=extract_top_level_symbols(tree),
-                )
+            )
 
-    return package_modules, legacy_modules, package_dirs
+    return package_modules, package_dirs
 
 
 def _validate_init_file(path: Path) -> None:
@@ -164,7 +140,6 @@ def _collect_and_validate_imports(
     module: ModuleInfo,
     package_modules: dict[str, ModuleInfo],
     package_dirs: set[str],
-    legacy_stems: set[str],
     future_imports: set[str],
     plain_imports: set[tuple[str, str | None]],
     from_imports: dict[tuple[str, int], set[tuple[str, str | None]]],
@@ -176,12 +151,7 @@ def _collect_and_validate_imports(
             is_top = node in top_level_nodes
             for alias in node.names:
                 root = alias.name.split(".", 1)[0]
-                if module.is_package and (
-                    root == "py"
-                    or root in package_dirs
-                    or alias.name in legacy_stems
-                    or LEGACY_STEM_RE.match(root)
-                ):
+                if root == "py" or root in package_dirs:
                     raise BackendBuildError(
                         f"Módulo '{module.mod_id}' usa import prohibido 'import {alias.name}'. "
                         "Entre módulos propios solo se permite 'from paquete.modulo import nombre'."
@@ -197,19 +167,13 @@ def _collect_and_validate_imports(
             parts = mod.split(".") if mod else []
             root = parts[0] if parts else ""
 
-            if module.is_package and node.level > 0:
+            if node.level > 0:
                 raise BackendBuildError(
                     f"Módulo '{module.mod_id}' usa import relativo. "
                     "Usa siempre 'from paquete.modulo import nombre'."
                 )
 
-            is_internal_ref = bool(
-                root == "py"
-                or root in package_dirs
-                or mod in legacy_stems
-                or LEGACY_STEM_RE.match(root)
-            )
-            if module.is_package and is_internal_ref:
+            if root == "py" or root in package_dirs:
                 if not is_top:
                     raise BackendBuildError(
                         f"Módulo '{module.mod_id}' importa '{mod}' fuera del nivel superior del módulo."
@@ -217,10 +181,6 @@ def _collect_and_validate_imports(
                 if root == "py":
                     raise BackendBuildError(
                         f"Módulo '{module.mod_id}' debe importar 'from paquete.modulo import nombre' sin prefijo 'py.'."
-                    )
-                if mod in legacy_stems or LEGACY_STEM_RE.match(root):
-                    raise BackendBuildError(
-                        f"Módulo '{module.mod_id}' no puede importar el módulo prefijado '{mod}'."
                     )
                 if len(parts) != 2 or mod not in package_modules:
                     raise BackendBuildError(
@@ -315,17 +275,12 @@ def _find_cycle(nodes: list[str], deps: dict[str, set[str]]) -> list[str]:
     return nodes
 
 
-def _extract_module_body(module: ModuleInfo, strip_header_docstring: bool = False) -> str:
+def _extract_module_body(module: ModuleInfo) -> str:
     lines = module.source.splitlines(keepends=True)
     stripped = set(module.stripped_lines)
 
     if lines and lines[0].startswith("#!"):
         stripped.add(1)
-
-    if strip_header_docstring and module.tree.body:
-        first = module.tree.body[0]
-        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
-            _mark_node_lines(first, stripped)
 
     for node in module.tree.body:
         if _is_main_guard(node):
@@ -366,16 +321,13 @@ def _format_imports(
 
 def compile_backend(py_dir: Path = DEFAULT_PY_DIR) -> str:
     """Compila el árbol py/ en un único script Python determinista en un espacio de nombres plano."""
-    package_modules, legacy_modules, package_dirs = _discover_modules(py_dir)
-    if not package_modules and not legacy_modules:
+    package_modules, package_dirs = _discover_modules(py_dir)
+    if not package_modules:
         raise BackendBuildError(f"No se encontraron módulos Python en {py_dir}")
-
-    legacy_stems = {m.path.stem for m in legacy_modules} | {m.path.stem.replace("-", "_") for m in legacy_modules}
 
     # Detección de colisiones de símbolos entre todos los módulos.
     symbol_owners: dict[str, str] = {}
-    all_modules = list(package_modules.values()) + legacy_modules
-    for mod in all_modules:
+    for mod in package_modules.values():
         for sym in sorted(mod.defined_symbols):
             if sym in symbol_owners:
                 raise BackendBuildError(
@@ -387,52 +339,22 @@ def compile_backend(py_dir: Path = DEFAULT_PY_DIR) -> str:
     plain_imports: set[tuple[str, str | None]] = set()
     from_imports: dict[tuple[str, int], set[tuple[str, str | None]]] = defaultdict(set)
 
-    for mod in all_modules:
-        _collect_and_validate_imports(
-            mod,
-            package_modules,
-            package_dirs,
-            legacy_stems,
-            future_imports,
-            plain_imports,
-            from_imports,
-        )
+    for mod in package_modules.values():
+        _collect_and_validate_imports(mod, package_modules, package_dirs, future_imports, plain_imports, from_imports)
 
-    ordered_packages = _topological_order(package_modules)
-
-    header_doc = DEFAULT_HEADER_DOCSTRING
-    for leg in legacy_modules:
-        if leg.mod_id == "aa-header.py" and leg.tree.body:
-            first = leg.tree.body[0]
-            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
-                seg = ast.get_source_segment(leg.source, first)
-                if seg:
-                    header_doc = seg
-            break
-
-    parts: list[str] = ["#!/usr/bin/env python3\n" + header_doc.strip() + "\n"]
+    parts: list[str] = ["#!/usr/bin/env python3\n" + HEADER_DOCSTRING.strip() + "\n"]
     imports_block = _format_imports(future_imports, plain_imports, from_imports)
     if imports_block:
         parts.append(imports_block + "\n")
 
     main_guards: list[str] = []
-    # En transición se emiten primero los módulos del paquete y después los prefijados.
-    for mod in ordered_packages:
+    for mod in _topological_order(package_modules):
         body = _extract_module_body(mod)
         if body:
             parts.append(f"# --- {mod.mod_id} ---\n{body}")
         if mod.main_guard_source:
             main_guards.append(mod.main_guard_source)
-
-    for leg in legacy_modules:
-        body = _extract_module_body(leg, strip_header_docstring=(leg.mod_id == "aa-header.py"))
-        if body:
-            parts.append(body)
-        if leg.main_guard_source:
-            main_guards.append(leg.main_guard_source)
-
-    for guard in main_guards:
-        parts.append(guard)
+    parts.extend(main_guards)
 
     result = "\n\n".join(part.rstrip("\n") for part in parts if part.strip()) + "\n"
     # Verificación final de que el código generado es sintácticamente válido.
