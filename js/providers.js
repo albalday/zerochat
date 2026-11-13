@@ -321,13 +321,13 @@
         if (delta.tool_calls && Array.isArray(delta.tool_calls)) {
           result.toolCallDeltas = delta.tool_calls;
         }
-
-        // Thought signature de Gemini / Google
-        const sig = delta.thought_signature || delta.extra_content?.google?.thought_signature || choice?.thought_signature || parsed.thought_signature;
-        if (sig) {
-          result.thoughtSignature = sig;
-        }
       }
+
+      // Firma del razonamiento de Gemini: puede llegar en un chunk sin delta (de razonamiento o de cierre).
+      const sig = delta?.thought_signature || delta?.extra_content?.google?.thought_signature ||
+        choice?.thought_signature || choice?.extra_content?.google?.thought_signature ||
+        parsed.thought_signature || parsed.extra_content?.google?.thought_signature;
+      if (sig) result.thoughtSignature = sig;
 
       // Usage / Context Caching (OpenAI, Anthropic, Ollama)
       let usage = parsed.usage || parsed.message?.usage;

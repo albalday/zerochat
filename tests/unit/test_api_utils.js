@@ -415,3 +415,56 @@ test('Api - registra los fragmentos SSE ilegibles sin interrumpir la respuesta',
     global.fetch = originalFetch;
   }
 });
+
+/** Respuesta SSE de Gemini (compatibilidad OpenAI) con los chunks dados; devuelve las llamadas acumuladas. */
+async function streamGeminiToolCalls(chunks) {
+  const originalFetch = global.fetch;
+  const sseData = chunks.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join('') + 'data: [DONE]\n\n';
+  const encoder = new TextEncoder();
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    body: new ReadableStream({ start(controller) { controller.enqueue(encoder.encode(sseData)); controller.close(); } })
+  });
+  try {
+    const res = await Api.streamChatCompletion({
+      apiUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      apiType: 'gemini',
+      model: 'gemini-2.5-flash',
+      messages: [{ role: 'user', content: 'test' }],
+      tools: [{ type: 'function', function: { name: 'search_web', parameters: { type: 'object', properties: {} } } }]
+    });
+    return res.toolCalls;
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
+test('ChatAPI - la firma de Gemini llegada sin delta de llamadas va en la primera llamada del lote', async () => {
+  const call = (id, query) => ({ id, type: 'function', function: { name: 'search_web', arguments: JSON.stringify({ query }) } });
+  const fromReasoning = await streamGeminiToolCalls([
+    { choices: [{ delta: { reasoning_content: 'plan', extra_content: { google: { thought_signature: 'sig_reasoning' } } } }] },
+    { choices: [{ delta: { tool_calls: [call('a', 'uno')] } }] },
+    { choices: [{ delta: { tool_calls: [call('b', 'dos')] } }] }
+  ]);
+  assert.deepEqual(fromReasoning.map(item => item.thought_signature), ['sig_reasoning', undefined]);
+
+  const fromClosingChunk = await streamGeminiToolCalls([
+    { choices: [{ delta: { tool_calls: [call('a', 'uno')] } }] },
+    { choices: [{ finish_reason: 'tool_calls', thought_signature: 'sig_close' }] }
+  ]);
+  assert.equal(fromClosingChunk[0].thought_signature, 'sig_close');
+});
+
+test('ChatAPI - los deltas sin index se asignan por id y conservan la firma de extra_content', async () => {
+  const toolCalls = await streamGeminiToolCalls([
+    { choices: [{ delta: { tool_calls: [{ id: 'a', type: 'function', function: { name: 'search_web', arguments: '{"query":"uno"}' }, extra_content: { google: { thought_signature: 'sig_a' } } }] } }] },
+    { choices: [{ delta: { tool_calls: [{ id: 'b', type: 'function', function: { name: 'search_web', arguments: '{"query":"dos"}' } }] } }] },
+    { choices: [{ delta: { tool_calls: [{ id: 'b', extra_content: { google: { cached: true } } }] } }] },
+    { choices: [{ delta: { tool_calls: [{ id: 'a', extra_content: { trace: 'x' } }] } }] }
+  ]);
+  assert.deepEqual(toolCalls.map(item => item.id), ['a', 'b']);
+  assert.deepEqual(toolCalls[0].extra_content, { google: { thought_signature: 'sig_a' }, trace: 'x' });
+  assert.deepEqual(toolCalls[1].extra_content, { google: { cached: true } });
+  assert.deepEqual(toolCalls.map(item => item.function.arguments), ['{"query":"uno"}', '{"query":"dos"}']);
+});
