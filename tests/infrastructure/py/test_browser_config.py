@@ -63,7 +63,7 @@ class PlaywrightLaunchTest(unittest.TestCase):
         return constructor.call_args.args[1][1:]
 
     def own_args(self, engine, storage=None):
-        # El motor propio arranca con el User-Agent activo de las salidas web (ff-server).
+        # El motor propio arranca con el User-Agent activo de las salidas web (web/fetch.py).
         return [f"--browser={engine}", f"--user-data-dir={self.own / engine / storage}" if storage else "--isolated",
                 f"--user-agent={zerochat.SERVICE_USER_AGENT}"]
 
