@@ -92,9 +92,9 @@ Done when: Todos los módulos en py/ son código Python válido e importable de 
 
 ## M65 Aislamiento de las ejecuciones en servidor
 
-Goal: Que el código que corre con Node en las ejecuciones en servidor no pueda salir de su contención: execute_javascript no se ofrece en ellas mientras Node no aísle código malicioso, y runner.js se descarga y se ejecuta con límites y sincronizado con js/ (auditoría 10.14.0, F-01 a F-04; decisión M65-D1).
-Done when: Una ejecución en servidor no ofrece execute_javascript y la ayuda lo explica; runner.js se lanza con el modelo de permisos de Node y su descarga tiene tope de tamaño y pruebas de sus cuatro ramas; una prueba falla si runner.js no coincide con el generado; y todos los niveles de §4 pasan en verde.
-- [ ] M65-T1 Retirar execute_javascript del runner de Node, con prueba de que una ejecución en servidor no la ofrece y explicación en tools-agent.html (cierra F-01; F-02 deja de aplicar al no ejecutarse en Node)
+Goal: Que runner.js se descargue y se ejecute con límites y sincronizado con js/ (auditoría 10.14.0, F-03 y F-04); execute_javascript sigue en las ejecuciones en servidor con node:vm y su riesgo (F-01, F-02) queda pendiente de una contención real (decisiones M65-D1 y M65-D2).
+Done when: runner.js se lanza con el modelo de permisos de Node y su descarga tiene tope de tamaño y pruebas de sus cuatro ramas; una prueba falla si runner.js no coincide con el generado; y todos los niveles de §4 pasan en verde.
+- [x] M65-T1 Retirar execute_javascript del runner de Node (dropped: no se retira para volver a añadirlo enseguida; sigue en las ejecuciones en servidor, M65-D2)
 - [x] M65-T2 Decidir con el usuario el mecanismo de aislamiento en Node: modelo de permisos (exige subir el mínimo de Node, hoy 18) o proceso hijo con otra contención; registrar la decisión y el nuevo mínimo de Node (2026-11-13)
 - [x] M65-T3 execute_javascript en Node en un proceso hijo aislado (dropped: el modelo de permisos de Node no aísla código malicioso y no restringe la red hasta Node 25; la herramienta queda fuera del servidor, M65-D1)
 - [ ] M65-T4 runner.js se lanza con el modelo de permisos de Node (--permission: sin escritura en disco, procesos, workers ni inspector) y su descarga tiene tope de tamaño; pruebas con un servidor local de descarga, 304, uso de la caché y fallo de red (F-03)
