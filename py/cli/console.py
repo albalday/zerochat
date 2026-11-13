@@ -1,3 +1,21 @@
+"""Consola interactiva del servidor: una línea de ayuda tras un rato sin actividad y órdenes de teclado (abrir la interfaz, salir)."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+import threading
+import time
+from http.server import ThreadingHTTPServer
+
+from browser.launch import launch_browser
+from core.environment import get_notices
+from core.logging import timestamp_message
+from server.state import stop_zerochat_server
+
+CONSOLE_STATUS_IDLE_SECONDS = 8.0
+
+
 class ConsoleControl:
     """Muestra una sola línea de ayuda tras un periodo de inactividad en consola."""
     def __init__(self, server: ThreadingHTTPServer, parser: argparse.ArgumentParser, launch_url=None):
@@ -88,5 +106,3 @@ class ConsoleControl:
             if not line:
                 return
             self._handle_command(line)
-
-

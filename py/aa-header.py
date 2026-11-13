@@ -58,4 +58,3 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 
-CONSOLE_STATUS_IDLE_SECONDS = 8.0

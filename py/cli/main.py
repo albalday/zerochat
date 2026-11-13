@@ -1,6 +1,73 @@
-# ==============================================================================
-# Punto de Entrada Principal (CLI)
-# ==============================================================================
+"""Punto de entrada de zerochat: argumentos de la línea de órdenes, arranque del servidor, interfaz, ejecución desatendida y cierre."""
+
+from __future__ import annotations
+
+import argparse
+import datetime
+import ipaddress
+import json
+import os
+import signal
+import sys
+import threading
+from http.server import ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urlencode
+
+from auth.tokens import current_session_token, on_token_rotation
+from browser.launch import launch_browser, launch_headless_browser
+from cli.console import ConsoleControl
+from core.environment import (
+    ACTIVE_HOST,
+    ACTIVE_PORT,
+    DEFAULT_HOST,
+    DEFAULT_PORT,
+    add_notice,
+    ensure_virtual_environment,
+    get_data_dir,
+    get_dev_root,
+    get_static_root,
+    get_venv_dir,
+    reset_notices,
+)
+from core.logging import CONSOLE_CONTROL, console_log, log_event, timestamp_message
+from core.process import _kill_process_tree
+from core.version import DEFAULT_UI_URL, UI_VERSION, VERSION, check_version, is_installed_runtime
+from run_mode.state import (
+    DEFAULT_RUN_PROFILE,
+    RUN_EXIT_ARGS,
+    RUN_EXIT_SETUP,
+    RUN_EXPORT_FORMATS,
+    RUN_SESSION,
+    RunSession,
+    run_error,
+    run_outcome,
+)
+from run_mode.supervisor import fall_back_when_headless_exits, launch_node_runner, run_supervisor
+from security.context import PROJECT_DIR, project_context
+from security.controller import ACCESS_CONTROLLER
+from security.rules import POLICY_ALLOW
+from server.handler import ZeroChatServerHandler
+from server.state import (
+    DEFAULT_HEARTBEAT_GRACE,
+    DEFAULT_HEARTBEAT_TIMEOUT,
+    EXIT_ON_CLOSE,
+    heartbeat_watchdog,
+    stop_zerochat_server,
+)
+from storage.db import (
+    _validate_conversation_id,
+    get_conversation,
+    get_general_profile,
+    get_general_profile_by_name,
+    list_conversations,
+    list_general_profiles,
+    mark_conversation_server_run,
+)
+from tools.browser_action import browser_action_availability
+from tools.filesystem import list_directory, read_file
+from tools.jobs import cleanup_orphan_jobs, run_command
+
 
 def is_loopback_host(host: str) -> bool:
     """Indica si el host de escucha solo acepta conexiones del propio equipo."""
