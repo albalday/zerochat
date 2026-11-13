@@ -309,6 +309,13 @@ test('Storage Backend - sincroniza conversaciones locales y remotas en getConver
   assert.ok(cachedLocal);
   assert.equal(cachedLocal.history[0].content, 'Desde local');
 
+  // Si el servidor tiene una versión más reciente de una conversación local, sin servidor se abre la copia local
+  backendStore.set('l_conv', { id: 'l_conv', title: 'Local Chat', createdAt: 150, updatedAt: 400, messageCount: 0, history: [] });
+  await Storage.getConversationsList();
+  connected = false;
+  assert.equal((await Storage.getConversation('l_conv')).history[0].content, 'Desde local');
+  backendStore.delete('l_conv');
+
   // 2. Conectado: save, rename, get y delete operan sobre el backend
   connected = true;
   backendCalls.length = 0;

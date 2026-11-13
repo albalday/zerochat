@@ -264,7 +264,8 @@
       const messages = await getAllByIndex(tx.objectStore(STORES.messages), 'by_conversation', conversationRange(sessionId));
       return { ...toConversationHeader(conversation), history: messages.map(fromMessageRecord) };
     });
-    if (conversation?.messagesPending) {
+    // Una cabecera remota más reciente deja pendiente la copia local, pero sus mensajes siguen aquí y se abren.
+    if (conversation?.messagesPending && conversation.history.length === 0) {
       const error = new Error(`Conversation ${sessionId} has not been downloaded from the server`);
       error.code = CONVERSATION_NOT_DOWNLOADED;
       throw error;
@@ -331,8 +332,8 @@
 
   /**
    * Conversación completa con sus mensajes en orden; null si no existe. Con el backend conectado se
-   * descarga y, si aquí solo estaba su cabecera, se guarda; sin él, una que solo tiene la cabecera
-   * lanza un error con el código CONVERSATION_NOT_DOWNLOADED.
+   * descarga y, si aquí faltaba o estaba pendiente, se guarda; sin él, una pendiente abre la copia
+   * local que tenga y, si no tiene mensajes, lanza un error con el código CONVERSATION_NOT_DOWNLOADED.
    */
   async function getConversation(sessionId) {
     if (!sessionId) return null;

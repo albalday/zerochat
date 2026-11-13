@@ -43,5 +43,5 @@ Done when: Las tareas del hito están hechas, probadas en el navegador y todos l
 - [x] M63-T13 ConversationService sin guardas de opciones ni de serverRuns que solo pedían las pruebas, perfil de la sesión resuelto en un solo sitio y cabecera al abrir como fusión de la guardada y la leída (2026-11-13)
 - [x] M63-T14 Borrar una conversación la quita de la barra solo si se borró del almacenamiento; switchToSession devuelve siempre un booleano (2026-11-13)
 - [x] M63-T15 Storage sin hasBlob, con un único borrado local de conversaciones e hidratación de imágenes en un solo punto (2026-11-13)
-- [ ] M63-T16 Sin servidor, una conversación cuya cabecera remota es más reciente que su copia local abre esa copia en vez de avisar de que no está descargada
+- [x] M63-T16 Sin servidor, una conversación cuya cabecera remota es más reciente que su copia local abre esa copia en vez de avisar de que no está descargada (2026-11-13)
 - [ ] M63-T17 Upsert de sesiones compartido en ChatState, refresco de la lista tras una ejecución de servidor vía ConversationService y un único callback de repintado en la barra
