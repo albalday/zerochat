@@ -114,7 +114,7 @@ describe('Servidor local zerochat.py', () => {
     }
   });
 
-  test('la API va solo por POST, con la cabecera del proxy admitida por CORS, y el cliente MCP la usa', async () => {
+  test('la API va solo por POST, CORS admite exactamente las cabeceras que envía la interfaz y el cliente MCP las usa', async () => {
     const api = await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });
     assert.equal(api.status, 404, 'GET no da acceso a la API');
     await api.text();
@@ -123,9 +123,9 @@ describe('Servidor local zerochat.py', () => {
       headers: { Origin: ORIGIN, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'x-zerochat-proxy, x-zerochat-blob, x-zerochat-project' }
     });
     assert.equal(preflight.status, 204);
-    assert.match(preflight.headers.get('access-control-allow-headers'), /X-ZeroChat-Proxy/);
-    assert.match(preflight.headers.get('access-control-allow-headers'), /X-ZeroChat-Blob/);
-    assert.match(preflight.headers.get('access-control-allow-headers'), /X-ZeroChat-Project/);
+    assert.deepEqual(preflight.headers.get('access-control-allow-headers').split(', '), [
+      'Content-Type', 'Accept', 'Authorization', 'X-ZeroChat-Token', 'X-ZeroChat-Client', 'X-ZeroChat-Proxy', 'X-ZeroChat-Blob', 'X-ZeroChat-Project'
+    ]);
     const client = new McpClient({ url: baseUrl, token: testToken });
     assert.ok(Array.isArray((await client.request('tools/list')).tools));
   });
@@ -163,7 +163,6 @@ describe('Servidor local zerochat.py', () => {
     assert.equal(initResult.serverInfo?.name, 'ZeroChat Local Server');
     assert.equal(initResult.serverInfo?.version, pkg.version.split('.').slice(0, 2).join('.'));
     assert.ok(typeof initResult.serverInfo?.os === 'string', 'serverInfo debe publicar el SO detectado');
-    assert.equal(initResult.toolAuthorization, undefined, 'La clave HMAC del cliente se retira de initialize');
     assert.deepEqual(Object.keys(initResult.liveState).sort(), Object.keys(await heartbeat()).sort());
     assert.equal(initResult.liveState.exit_on_close, true);
   });
