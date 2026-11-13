@@ -964,7 +964,7 @@ class JobManager:
 
     def _watch(self, job: CommandJob):
         proc = job.proc
-        if DETECTED_OS != "windows" and hasattr(os, "waitid"):
+        if DETECTED_OS in ("linux", "android") and hasattr(os, "waitid"):
             # Esperar sin recoger al proceso mantiene reservado su grupo: así se puede matar a lo
             # que haya dejado en marcha sin riesgo de alcanzar a un grupo nuevo con el mismo número.
             try:
@@ -972,7 +972,16 @@ class JobManager:
                 os.killpg(proc.pid, signal.SIGKILL)
             except (OSError, ChildProcessError):
                 pass
-        returncode = proc.wait()
+            returncode = proc.wait()
+        else:
+            returncode = proc.wait()
+            if DETECTED_OS != "windows":
+                # En macOS waitid con WNOWAIT no vuelve al terminar el comando. Tras recogerlo, el grupo
+                # sigue reservado mientras le quede algún proceso, que es justo lo que se mata.
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except OSError:
+                    pass
         job._finalize_log()
         if proc.stdout:
             try:
