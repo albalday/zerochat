@@ -42,6 +42,7 @@ class PlaywrightLaunchTest(unittest.TestCase):
     def setUp(self):
         data_dir = use_data_dir(self)
         self.config_file = data_dir / "config" / "browser.json"
+        self.config_file.parent.mkdir()
         self.own = data_dir / "playwright" / "profile"
         self.manager = zerochat.McpServiceManager()
         self.client = Mock(tools=[])

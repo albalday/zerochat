@@ -11,7 +11,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  // Estados de service_status en py/ee-mcp.py; tests/fixtures/mcp/contract.json (serviceStatuses) es la lista
+  // Estados de service_status en py/mcp/manager.py; tests/fixtures/mcp/contract.json (serviceStatuses) es la lista
   // común que comprueban las pruebas de los dos lados.
 
   /** Arrancando: instala sus dependencias o espera el handshake (y la autorización OAuth). */
