@@ -141,3 +141,4 @@
 - 2026-11-13 M63-D12 SERVICE_STATUSES de js/mcp-status.js se retira porque solo lo leía una prueba borrada; el contrato JS-Python de estados de servicio lo comprueba una prueba de los predicados contra contract.json (M63-T30) (M63-T30)
 - 2026-11-13 M63-D13 Los plazos del modo desatendido (900 s y 180 s) son constantes: sin variables de entorno solo para pruebas, que los parchean en run_supervisor; no se añade opción de CLI mientras nadie la pida (M63-T31) (M63-T31)
 - 2026-11-13 M63-D14 La verificación de Google solo vive en la raíz y test-results/ deja de versionarse; todo.txt se mantiene versionado hasta que el usuario decida (M63-T34) (M63-T34)
+- 2026-11-13 M63-D15 La CI ejecuta las pruebas Python de infraestructura en Windows y macOS y test_run_node.js con Node 18, el mínimo de find_node_executable; M65-T2 lo actualizará si cambia el mínimo (M63-T35) (M63-T35)

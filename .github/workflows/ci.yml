@@ -46,6 +46,34 @@ jobs:
           python -m twine check dist/*
           python tests/packaging_smoke_test.py dist
 
+  # Rutas propias de Windows y macOS (LogonUserW, Job Object, permisos de los datos) en las pruebas Python.
+  platforms:
+    runs-on: ${{ matrix.os }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover -s tests/infrastructure/py -t tests/infrastructure/py
+
+  # El runner de Node.js de la ejecución desatendida con el Node mínimo declarado (find_node_executable).
+  node-minimum:
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 18
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node --require ./tests/helpers/storage-env.js --test tests/unit/test_run_node.js
+
   browser:
     runs-on: ubuntu-latest
     needs: validate
