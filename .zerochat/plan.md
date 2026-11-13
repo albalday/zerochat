@@ -40,7 +40,7 @@ Done when: Todos los módulos en py/ son código Python válido e importable de 
 - [x] M64-T8 Extraer el transporte HTTP saliente y protección anti-SSRF de ff-server.py a py/web/fetch.py (2026-11-13)
 - [x] M64-T9 Migrar dd-commands.py a py/tools/jobs.py (sobre core.process y security.context) y dd-diff.py a py/tools/diff.py; después, AccessController y ACCESS_CONTROLLER a py/security/controller.py (consumiendo storage.db y tools.jobs sin ciclos) (2026-11-13)
 - [x] M64-T10 Dividir dd-tools.py en py/tools/filesystem.py, py/tools/browser_action.py y py/tools/registry.py, actualizando test_backend_hygiene.js (2026-11-13)
-- [ ] M64-T11 Migrar ii-run-mode.py a py/run_mode/state.py y py/run_mode/supervisor.py eliminando la referencia circular con ff-server.py
+- [x] M64-T11 Migrar ii-run-mode.py a py/run_mode/state.py y py/run_mode/supervisor.py eliminando la referencia circular con ff-server.py (2026-11-13)
 - [ ] M64-T12 Dividir ff-server.py en py/server/state.py (BrowserLease, live_state, watchdog) y py/server/handler.py (despacho HTTP/JSON-RPC por grupos)
 - [ ] M64-T13 Mover ConsoleControl a py/cli/console.py y migrar zz-main.py a py/cli/main.py con inicialización explícita del runtime manteniendo los símbolos públicos en zerochat.py
 - [ ] M64-T14 Retirar el soporte de transición a prefijos aa-..zz-, verificar importación aislada sin side effects de py/, actualizar py/README.md y validar npm run test:all y tests/packaging_smoke_test.py
