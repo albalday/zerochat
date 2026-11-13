@@ -105,13 +105,17 @@ SESSION_TOKEN_LOCK = threading.Lock()
 
 
 def current_session_token() -> str:
-    """Token diario vigente: al cambiar el día carga o genera el nuevo, también con el servidor en marcha."""
+    """
+    Token diario vigente: al cambiar el día carga o genera el nuevo, también con el servidor en marcha.
+    Cada token abre una sesión: al cargarlo se olvidan, bajo el mismo cerrojo, las autorizaciones de sesión.
+    """
     global SESSION_TOKEN, SESSION_TOKEN_DATE
     today = datetime.date.today().isoformat()
     with SESSION_TOKEN_LOCK:
         if SESSION_TOKEN_DATE != today:
             SESSION_TOKEN = get_daily_token()
             SESSION_TOKEN_DATE = today
+            reset_session_authorizations()
         return SESSION_TOKEN
 ACTIVE_PORT = DEFAULT_PORT
 ACTIVE_HOST = DEFAULT_HOST

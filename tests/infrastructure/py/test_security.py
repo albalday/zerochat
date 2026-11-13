@@ -703,14 +703,14 @@ class CommandPatternTest(HandlerTestCase):
 
 
 class SessionLifecycleTest(HandlerTestCase):
-    def test_reset_session_credentials_applies_the_run_overlay_without_storing_it(self):
+    def test_reset_session_authorizations_applies_the_run_overlay_without_storing_it(self):
         set_global(self.controller, zerochat.GLOBAL_POLICY_ASK)
         set_tool(self.controller, "db_tool", zerochat.POLICY_DENY)
         self.addCleanup(setattr, zerochat, "RUN_SESSION", None)
         zerochat.RUN_SESSION = zerochat.RunSession(prompt="test", allow_dangerous_tools=True, tool_security={
             "globalMcpPolicy": "allow_all", "tools": {"custom_tool": {"policy": "allow"}}, "directoryRules": ["RW:/test/**"]
         })
-        zerochat.reset_session_credentials()
+        zerochat.reset_session_authorizations()
 
         for tool in ("write_file", "edit_file", "run_command", "custom_tool"):
             self.assertEqual(tool_entry(self.controller, tool)["policy"], "allow", tool)
@@ -720,9 +720,27 @@ class SessionLifecycleTest(HandlerTestCase):
         self.assertEqual((saved["globalMcpPolicy"], list(saved["tools"])), ("ask", ["db_tool"]))
 
         zerochat.RUN_SESSION = None
-        zerochat.reset_session_credentials()
+        zerochat.reset_session_authorizations()
         self.assertEqual(global_policy(self.controller), "ask")
         self.assertIsNone(tool_entry(self.controller, "custom_tool"))
+
+    def test_rotating_the_daily_token_forgets_session_authorizations_and_challenges(self):
+        set_tool(self.controller, "tool_x", zerochat.POLICY_ALLOW, scope=zerochat.SCOPE_SESSION)
+        set_tool(self.controller, "tool_y", zerochat.POLICY_ALLOW)
+        self.controller.create_challenge("tool_z", {}, self.evaluate("tool_z"), context=self.ctx)
+        today = zerochat.datetime.date.today().isoformat()
+        with unittest.mock.patch.multiple(zerochat, SESSION_TOKEN="x" * 43, SESSION_TOKEN_DATE=today):
+            # Mismo día: el token y la sesión siguen.
+            self.assertEqual(zerochat.current_session_token(), "x" * 43)
+            self.assertEqual(tool_entry(self.controller, "tool_x")["scope"], zerochat.SCOPE_SESSION)
+            self.assertEqual(len(challenges(self.controller)), 1)
+            # Día siguiente: nuevo token, y lo autorizado en la sesión anterior vuelve a pedirse.
+            zerochat.SESSION_TOKEN_DATE = "2000-01-01"
+            self.assertNotEqual(zerochat.current_session_token(), "x" * 43)
+            self.assertIsNone(tool_entry(self.controller, "tool_x"))
+            self.assertEqual(self.evaluate("tool_x").status, "ask")
+            self.assertEqual(len(challenges(self.controller)), 0)
+            self.assertEqual(tool_entry(self.controller, "tool_y")["policy"], zerochat.POLICY_ALLOW)
 
     def test_each_project_keeps_its_own_session_and_challenges(self):
         other = self.base_dir / "otro"

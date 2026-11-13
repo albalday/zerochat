@@ -326,13 +326,17 @@ SESSION_TOKEN_LOCK = threading.Lock()
 
 
 def current_session_token() -> str:
-    """Token diario vigente: al cambiar el día carga o genera el nuevo, también con el servidor en marcha."""
+    """
+    Token diario vigente: al cambiar el día carga o genera el nuevo, también con el servidor en marcha.
+    Cada token abre una sesión: al cargarlo se olvidan, bajo el mismo cerrojo, las autorizaciones de sesión.
+    """
     global SESSION_TOKEN, SESSION_TOKEN_DATE
     today = datetime.date.today().isoformat()
     with SESSION_TOKEN_LOCK:
         if SESSION_TOKEN_DATE != today:
             SESSION_TOKEN = get_daily_token()
             SESSION_TOKEN_DATE = today
+            reset_session_authorizations()
         return SESSION_TOKEN
 ACTIVE_PORT = DEFAULT_PORT
 ACTIVE_HOST = DEFAULT_HOST
@@ -7758,12 +7762,6 @@ def prepare_environment(args, is_dev: bool):
         threading.Thread(target=check_version, daemon=True).start()
 
 
-def reset_session_credentials():
-    """Carga el token diario y reinicia las autorizaciones de sesión en memoria."""
-    current_session_token()
-    reset_session_authorizations()
-
-
 def reset_session_authorizations():
     """Borra las autorizaciones de sesión y los retos pendientes, y vuelve a aplicar la capa de la ejecución."""
     ACCESS_CONTROLLER.clear_session()
@@ -7968,7 +7966,7 @@ def main():
     dev_root = get_dev_root()
     static_root = get_static_root()
     prepare_environment(args, is_dev=dev_root is not None)
-    reset_session_credentials()
+    current_session_token()
 
     # La interfaz local de desarrollo en el navegador del usuario tiene el puerto en su origen: en otro no vería los datos guardados.
     server = open_server(args, local_ui=static_root is not None and not args.ui_url and args.browser)

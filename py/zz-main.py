@@ -172,12 +172,6 @@ def prepare_environment(args, is_dev: bool):
         threading.Thread(target=check_version, daemon=True).start()
 
 
-def reset_session_credentials():
-    """Carga el token diario y reinicia las autorizaciones de sesión en memoria."""
-    current_session_token()
-    reset_session_authorizations()
-
-
 def reset_session_authorizations():
     """Borra las autorizaciones de sesión y los retos pendientes, y vuelve a aplicar la capa de la ejecución."""
     ACCESS_CONTROLLER.clear_session()
@@ -382,7 +376,7 @@ def main():
     dev_root = get_dev_root()
     static_root = get_static_root()
     prepare_environment(args, is_dev=dev_root is not None)
-    reset_session_credentials()
+    current_session_token()
 
     # La interfaz local de desarrollo en el navegador del usuario tiene el puerto en su origen: en otro no vería los datos guardados.
     server = open_server(args, local_ui=static_root is not None and not args.ui_url and args.browser)
