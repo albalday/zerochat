@@ -5,16 +5,21 @@ const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 
-// El backend no admite fijar el token por argumentos: las pruebas lo dejan
-// preparado como token diario en un directorio de datos temporal, que se borra
-// al terminar la prueba o el describe desde el que se pide.
-function tokenDataDir(token) {
+// El backend no admite fijar el token por argumentos: se deja preparado como
+// token diario en un directorio de datos temporal que borra quien lo pide.
+function createTokenDataDir(token) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-token-'));
   const now = new Date();
   const today = [now.getFullYear(), now.getMonth() + 1, now.getDate()]
     .map((part, index) => String(part).padStart(index ? 2 : 4, '0')).join('-');
   fs.mkdirSync(path.join(dataDir, 'config'), { mode: 0o700 });
   fs.writeFileSync(path.join(dataDir, 'config', 'token.json'), JSON.stringify({ token, date: today }), { mode: 0o600 });
+  return dataDir;
+}
+
+// En las pruebas, el directorio se borra al terminar la prueba o el describe desde el que se pide.
+function tokenDataDir(token) {
+  const dataDir = createTokenDataDir(token);
   test.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   return dataDir;
 }
@@ -53,4 +58,4 @@ async function waitForServer(baseUrl, testToken, serverProc, maxWaitMs = 15000) 
   assert.fail(`El servidor zerochat.py no arrancó en ${baseUrl} tras ${maxWaitMs}ms. Error: ${serverError}`);
 }
 
-module.exports = { tokenDataDir, waitForServer, freePort };
+module.exports = { createTokenDataDir, tokenDataDir, waitForServer, freePort };
