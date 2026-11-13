@@ -1,4 +1,4 @@
 # Current state
 - Milestone: M63 Cambios pequeños y pruebas
-- Next task: M63-T45
+- Next task: none pending
 - Last updated: 2026-11-13
