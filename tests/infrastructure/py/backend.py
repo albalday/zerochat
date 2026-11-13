@@ -35,10 +35,13 @@ def use_project(test, path: Path):
 
 
 def use_data_dir(test) -> Path:
-    """Da a la prueba un ZEROCHAT_DATA_DIR temporal propio, que se borra al terminar."""
+    """
+    Da a la prueba un ZEROCHAT_DATA_DIR temporal propio, que se borra al terminar. Devuelve su ruta canónica,
+    la que usa zerochat: el temporal puede pasar por un enlace (/var en macOS) o un nombre corto (RUNNER~1 en Windows).
+    """
     data_dir = tempfile.TemporaryDirectory()
     test.addCleanup(data_dir.cleanup)
     patcher = mock.patch.dict(os.environ, {"ZEROCHAT_DATA_DIR": data_dir.name})
     patcher.start()
     test.addCleanup(patcher.stop)
-    return Path(data_dir.name)
+    return Path(data_dir.name).resolve()
