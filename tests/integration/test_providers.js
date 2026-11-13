@@ -475,6 +475,38 @@ test('GeminiAdapter - formatMessages conserva resultados de llamadas paralelas y
   }
 });
 
+test('Multimodal Adapters - un lote paralelo con evidencia visual mantiene su bloque en Gemini, Claude y OpenAI', () => {
+  const evidence = { role: 'user', content: [
+    { type: 'text', text: 'Visual evidence returned by download_image: https://example.com/a.png' },
+    { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } }
+  ] };
+  const history = [
+    { role: 'system', content: 'System instruction' },
+    { role: 'user', content: 'Compara' },
+    { role: 'assistant', content: null, tool_calls: [
+      { id: 'call_img', type: 'function', function: { name: 'download_image', arguments: '{}' }, extra_content: { google: { thought_signature: 'sig' } } },
+      { id: 'call_txt', type: 'function', function: { name: 'search_web', arguments: '{}' } }
+    ] },
+    { role: 'tool', tool_call_id: 'call_img', name: 'download_image', content: 'Image retrieved.' },
+    { role: 'tool', tool_call_id: 'call_txt', name: 'search_web', content: 'Results.' },
+    evidence
+  ];
+
+  const gemini = new GeminiProviderAdapter().formatMessages(history);
+  assert.deepEqual(gemini.map(m => m.role), ['system', 'user', 'assistant', 'tool', 'tool', 'assistant', 'user']);
+  assert.equal(gemini[2].tool_calls[0].extra_content.google.thought_signature, 'sig');
+  assert.equal(gemini[5].content, 'Tool information received.');
+  assert.equal(gemini.filter(m => Array.isArray(m.tool_calls)).length, 1, 'sin assistant sintético sin firma');
+
+  const claude = new ClaudeProviderAdapter().buildPayload({ model: 'claude-3-7-sonnet', messages: history }).messages;
+  assert.deepEqual(claude.map(m => m.role), ['user', 'assistant', 'user']);
+  assert.deepEqual(claude[2].content.map(part => part.type), ['tool_result', 'tool_result', 'text', 'image'],
+    'todos los tool_result en el primer user tras tool_use, con la imagen detrás');
+
+  const openai = new BaseProviderAdapter({ id: 'openai', label: 'OpenAI', capabilities: { vision: true } }).formatMessages(history);
+  assert.deepEqual(openai.map(m => m.role), ['system', 'user', 'assistant', 'tool', 'tool', 'user']);
+});
+
 test('Multimodal Adapters - verificación de payloads de imágenes web descargadas en Gemini, Claude, OpenAI y Ollama', () => {
   const webImageTurn = {
     role: 'user',

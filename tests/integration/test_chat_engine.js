@@ -78,29 +78,34 @@ test('ChatEngine - no inventa turnos assistant para resultados de llamadas paral
   assert.deepEqual(tail[3].tool_calls.map(call => call.id), ['call_orphan']);
 });
 
-test('ChatEngine - adjunta la imagen de un resultado como evidencia multimodal con su procedencia', () => {
+test('ChatEngine - la evidencia visual de un lote paralelo va en un único user tras todos sus resultados', () => {
+  const longResult = 'x'.repeat(5000);
   const messages = buildMessages([
-    { role: 'assistant', content: null, tool_calls: [{ id: 'call_image', type: 'function', function: { name: 'read_knowledge_image', arguments: '{}' } }] },
+    { role: 'user', content: 'compara' },
+    { role: 'assistant', content: null, tool_calls: [
+      { id: 'call_image', type: 'function', function: { name: 'read_knowledge_image', arguments: '{}' } },
+      { id: 'call_text', type: 'function', function: { name: 'search_web', arguments: '{}' } },
+      { id: 'call_shot', type: 'function', function: { name: 'browser_action', arguments: '{}' } }
+    ] },
     { role: 'tool', tool_call_id: 'call_image', name: 'read_knowledge_image', content: 'Imagen recuperada.', images: [{ dataUrl: 'data:image/png;base64,AA==', imageRef: 'rag-image://doc_1:img_1', documentTitle: 'diagrama.md', page: 2 }] },
-    { role: 'assistant', content: null, tool_calls: [{ id: 'call_shot', type: 'function', function: { name: 'browser_action', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'call_text', name: 'search_web', content: longResult },
     { role: 'tool', tool_call_id: 'call_shot', name: 'browser_action', content: '{}', images: [{ dataUrl: 'data:image/png;base64,BB==', url: 'https://example.com/' }] }
   ], {}, { enableTools: false });
 
-  const evidenceAfter = name => messages[messages.findIndex(message => message.role === 'tool' && message.name === name) + 1];
-  assert.deepEqual(evidenceAfter('read_knowledge_image'), {
+  const tail = messages.slice(messages.findIndex(message => message.role === 'assistant'));
+  assert.deepEqual(tail.map(message => message.role), ['assistant', 'tool', 'tool', 'tool', 'user']);
+  assert.equal(tail[0].tool_calls.length, 3, 'sin assistant sintético para los resultados tras la imagen');
+  assert.deepEqual(tail[4], {
     role: 'user',
     content: [
       { type: 'text', text: 'Visual evidence returned by read_knowledge_image: rag-image://doc_1:img_1 · diagrama.md · page 2' },
-      { type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } }
-    ]
-  });
-  assert.deepEqual(evidenceAfter('browser_action'), {
-    role: 'user',
-    content: [
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } },
       { type: 'text', text: 'Visual evidence returned by browser_action: https://example.com/' },
       { type: 'image_url', image_url: { url: 'data:image/png;base64,BB==' } }
     ]
-  });
+  }, 'una sola evidencia, sin la marca interna');
+  // La evidencia forma bloque con el lote: sus resultados siguen siendo los del turno activo y no se podan.
+  assert.equal(tail[2].content, longResult);
 });
 
 test('ChatEngine - getConversationDateAnchor genera el ancla con fecha y zona horaria', (t) => {

@@ -257,11 +257,21 @@
   // 4. Ventana Deslizante con Preservación de Pares Agénticos (Pair-Safe Sliding Window)
   // ==========================================================================
 
+  // Marca del mensaje user con la evidencia visual de una racha de resultados (ChatEngine); no viaja al proveedor.
+  const TOOL_EVIDENCE_FLAG = '_toolEvidence';
+
+  function stripToolEvidenceFlag(message) {
+    if (!message[TOOL_EVIDENCE_FLAG]) return message;
+    const { [TOOL_EVIDENCE_FLAG]: _flag, ...rest } = message;
+    return rest;
+  }
+
   /**
    * Agrupa los mensajes en bloques atómicos indivisibles para no romper sintaxis de Function Calling.
    * Un bloque puede ser:
    * - Un mensaje regular de usuario o asistente.
-   * - Un par asistente (con tool_calls) + sus correspondientes mensajes tool (role: 'tool').
+   * - Un par asistente (con tool_calls) + sus correspondientes mensajes tool (role: 'tool') y, si la
+   *   hay, la evidencia visual de esos resultados.
    */
   function groupIntoAtomicBlocks(messages = []) {
     const blocks = [];
@@ -276,6 +286,11 @@
         i++;
         // Recoger todos los mensajes 'tool' consecutivos que responden a este assistant
         while (i < messages.length && messages[i].role === 'tool') {
+          block.push(messages[i]);
+          i++;
+        }
+        // y la evidencia visual de sus resultados, que no tiene sentido sin ellos
+        if (i < messages.length && messages[i][TOOL_EVIDENCE_FLAG]) {
           block.push(messages[i]);
           i++;
         }
@@ -406,12 +421,12 @@
       }
     }
 
-    // 6. Ensamblado final de la lista de mensajes
+    // 6. Ensamblado final de la lista de mensajes, sin la marca interna de la evidencia visual
     const finalMessages = [
       ...systemMessages,
       ...includedHistoricalBlocks.flat(),
       ...processedLastBlock
-    ];
+    ].map(stripToolEvidenceFlag);
 
     const totalFinalTokens = estimateHistoryTokens(finalMessages, model);
 
@@ -666,6 +681,7 @@
     estimateMessageTokens,
     truncateToolContent,
     buildOptimizedContext,
+    TOOL_EVIDENCE_FLAG,
     getContextDiagnostics,
     shouldCompress,
     compressHistory,
