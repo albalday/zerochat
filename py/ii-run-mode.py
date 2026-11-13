@@ -534,9 +534,9 @@ def fall_back_when_headless_exits(proc: subprocess.Popen, url: str):
         launch_browser(url)
 
 
-# Versión mayor mínima de Node.js para el runner: la LTS más antigua con soporte (runner.js usa el global navigator, de Node 21+).
-NODE_MINIMUM_MAJOR = 22
-NODE_REQUIRED_MESSAGE = f"Node.js {NODE_MINIMUM_MAJOR} o superior"
+# Versión mínima de Node.js para el runner: el modelo de permisos es estable desde la 22.13 (M65-D1).
+NODE_MINIMUM_VERSION = (22, 13)
+NODE_REQUIRED_MESSAGE = f"Node.js {'.'.join(map(str, NODE_MINIMUM_VERSION))} o superior"
 
 
 def find_node_executable() -> str | None:
@@ -548,8 +548,8 @@ def find_node_executable() -> str | None:
         res = subprocess.run([executable, "--version"], capture_output=True, text=True, timeout=5)
         if res.returncode != 0:
             return None
-        match = re.search(r"v?(\d+)\.", res.stdout.strip())
-        if not match or int(match.group(1)) < NODE_MINIMUM_MAJOR:
+        match = re.search(r"v?(\d+)\.(\d+)\.", res.stdout.strip())
+        if not match or (int(match.group(1)), int(match.group(2))) < NODE_MINIMUM_VERSION:
             return None
         return executable
     except (OSError, subprocess.SubprocessError):

@@ -153,7 +153,7 @@ function launchZerochat(prompt, { scenario = 'ok', env = {}, port, args = [], pr
     fs.writeFileSync(path.join(binDir, 'node'), `#!${pythonBin}
 import os, sys
 if "--version" in sys.argv:
-    print("v22.0.0")
+    print("v22.13.0")
     sys.exit(0)
 ${FAKE_BROWSER}
 `, { mode: 0o755 });
@@ -279,7 +279,7 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(missingDefaultProfile.code, 4, missingDefaultProfile.stderr);
     assert.match(missingDefaultProfile.stderr, /no existe el perfil por defecto 'local'/);
     assert.equal(noNode.code, 3, noNode.stderr);
-    assert.match(noNode.stderr, /Se necesita Node\.js 22 o superior/);
+    assert.match(noNode.stderr, /Se necesita Node\.js 22\.13 o superior/);
     assert.equal(portInUse.code, 3, portInUse.stderr);
     assert.match(portInUse.stderr, /No se pudo escuchar/);
     assert.equal(portInUse.info, null);

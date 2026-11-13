@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      # Node 22 es también el mínimo del runner (NODE_MINIMUM_MAJOR en py/ii-run-mode.py): test_run_node.js lo cubre.
+      # Node 22 (la última 22.x) cumple el mínimo del runner, 22.13 (NODE_MINIMUM_VERSION en py/ii-run-mode.py).
       - uses: actions/setup-node@v5
         with:
           node-version: 22

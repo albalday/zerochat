@@ -32,7 +32,7 @@
       <ul>
         <li><strong>Salida estándar:</strong> solo la respuesta final del modelo.</li>
         <li><strong>Salida de errores:</strong> el motivo de una ejecución sin respuesta. El registro del servidor está desactivado por defecto; con <code>--log on</code> también va a la salida de errores.</li>
-        <li><strong>Ejecución:</strong> por defecto usa Node.js 22 o superior en segundo plano (sin necesidad de abrir navegadores gráficos); con <code>--browser</code> usa tu navegador predeterminado (visible, o sin ventana si añades <code>--headless</code>).</li>
+        <li><strong>Ejecución:</strong> por defecto usa Node.js 22.13 o superior en segundo plano (sin necesidad de abrir navegadores gráficos); con <code>--browser</code> usa tu navegador predeterminado (visible, o sin ventana si añades <code>--headless</code>).</li>
         <li><strong>Directorio de trabajo:</strong> las herramientas de archivos y comandos trabajan en el directorio desde el que lanzas la orden, como en una sesión normal.</li>
       </ul>
     </div>
@@ -83,7 +83,7 @@
 
     <div class="card" id="sin-ventana">
       <h2>5. Modo sin ventana y navegador del usuario (<code>--browser</code> / <code>--headless</code>)</h2>
-      <p>Por defecto, <code>--prompt</code> y <code>--conversation</code> se ejecutan sin ventana mediante un proceso en Node.js 22 o superior utilizando los perfiles guardados en el servidor local (<code>~/zerochat/storage/zerochat.db</code>), sin requerir sesión gráfica ni navegadores instalados.</p>
+      <p>Por defecto, <code>--prompt</code> y <code>--conversation</code> se ejecutan sin ventana mediante un proceso en Node.js 22.13 o superior utilizando los perfiles guardados en el servidor local (<code>~/zerochat/storage/zerochat.db</code>), sin requerir sesión gráfica ni navegadores instalados.</p>
       <ul>
         <li><strong><code>--prompt --browser</code>:</strong> abre tu navegador predeterminado en modo visible (con tus perfiles locales, historial y reglas guardadas en él). Admite <code>--keep-page</code>.</li>
         <li><strong><code>--prompt --browser --headless</code>:</strong> en Linux, busca el navegador predeterminado (<code>xdg-settings</code>) y lo lanza con <code>--headless</code> sobre tu perfil normal; si ya está abierto o no es identificable, se abre como pestaña de la forma normal.</li>
@@ -93,7 +93,7 @@
     <div class="card" id="cron">
       <h2>6. Tareas programadas (cron)</h2>
       <ul>
-        <li><strong>Perfil y entorno:</strong> guarda el perfil en el servidor con el botón <strong>Guardar en servidor</strong> (por defecto <code>local</code>, o el que pases en <code>--profile</code>) y asegúrate de tener Node.js 22 o superior en el sistema. De esa forma <code>--prompt</code> corre directamente en segundo plano sin sesión gráfica ni conflictos con tu navegador abierto.</li>
+        <li><strong>Perfil y entorno:</strong> guarda el perfil en el servidor con el botón <strong>Guardar en servidor</strong> (por defecto <code>local</code>, o el que pases en <code>--profile</code>) y asegúrate de tener Node.js 22.13 o superior en el sistema. De esa forma <code>--prompt</code> corre directamente en segundo plano sin sesión gráfica ni conflictos con tu navegador abierto.</li>
         <li><strong>Entorno:</strong> cron arranca con un <code>PATH</code> mínimo y en el directorio personal. Entra en el directorio de trabajo con <code>cd</code> y añade al <code>PATH</code> los comandos que necesitan tus servicios MCP (<code>node</code>, <code>npx</code>, <code>uvx</code>…).</li>
         <li><strong>Resultado:</strong> cron envía por correo la salida (<code>MAILTO</code>); el código de salida distingue cada caso. Con <code>flock</code> evitas que dos ejecuciones se solapen.</li>
       </ul>
