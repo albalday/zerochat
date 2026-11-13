@@ -166,6 +166,29 @@ test('Browser UI - en la vista de todos los proyectos se pliegan salvo el actual
   });
 });
 
+test('Browser UI - cada grupo pinta 50 conversaciones y "Mostrar más" añade el resto', async () => {
+  await withTestApp(async page => {
+    const render = count => page.evaluate(count => {
+      const now = Date.now();
+      const list = Array.from({ length: count }, (_, index) => ({ id: `s${index}`, title: `Chat ${index}`, updatedAt: now - index * 1000 }));
+      window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), activeId: null, list });
+      document.getElementById('sidebar-search-input').dispatchEvent(new Event('input'));
+    }, count);
+    const showMore = () => page.$$eval('.sidebar-show-more', buttons => buttons.map(button => button.textContent));
+
+    await render(50);
+    assert.equal((await sidebarTitles(page)).length, 50);
+    assert.deepEqual(await showMore(), []);
+
+    await render(51);
+    assert.equal((await sidebarTitles(page)).length, 50);
+    assert.deepEqual(await showMore(), [await page.evaluate(() => window.ChatI18n.t('sidebar_show_more', { count: 1 }))]);
+    await page.click('.sidebar-show-more');
+    assert.equal((await sidebarTitles(page)).at(-1), 'Chat 50');
+    assert.deepEqual(await showMore(), []);
+  });
+});
+
 test('Browser UI - abrir una conversación de otro proyecto lleva el servidor a su carpeta y, si no existe, avisa', async () => {
   await withTestApp(async page => {
     await page.evaluate(async () => {

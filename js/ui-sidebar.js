@@ -23,6 +23,9 @@
   };
 
   let cleanups = [];
+  // Conversaciones pintadas por grupo: la lista no crece con el historial; "Mostrar más" añade otra tanda.
+  const GROUP_PAGE_SIZE = 50;
+  let groupLimits = {};
   // Proyectos que el usuario ha plegado (false) o desplegado (true) en la vista de todos; el resto sigue la regla por defecto.
   let projectGroupChoices = {};
   let renderedProjectKeys = [];
@@ -203,11 +206,17 @@
       });
     }
     const renderItem = session => renderChatItem(session, sessionDate(session), session.id === currentSessionId, runStatusMap.get(session.id) || null);
+    const renderChats = (group, items) => {
+      const shown = items.slice(0, groupLimits[group.key] || GROUP_PAGE_SIZE);
+      const rest = Math.min(items.length - shown.length, GROUP_PAGE_SIZE);
+      const more = rest > 0 ? `<button type="button" class="sidebar-show-more" data-group-key="${escapeHtml(group.key)}">${escapeHtml(t('sidebar_show_more', { count: rest }))}</button>` : '';
+      return shown.map(renderItem).join('') + more;
+    };
     const collapsible = showAll && !filter;
     const runs = toRuns(matching);
     if (collapsible) renderedProjectKeys = runs.map(({ group }) => group.key);
     elements.sidebarChatsList.innerHTML = runs.map(({ group, sessions: items }) => {
-      const chats = () => items.map(renderItem).join('');
+      const chats = () => renderChats(group, items);
       if (filter) return (group.kind === 'project' ? renderGroupHeader(group, items.length) : '') + chats();
       if (!collapsible) return renderGroupHeader(group, items.length) + chats();
       // Un grupo plegado no pinta sus conversaciones: con miles serían miles de nodos ocultos.
@@ -264,6 +273,17 @@
 
     const actions = { 'btn-export': callbacks.onExportSession, 'btn-rename': callbacks.onRenameSession, 'btn-delete': callbacks.onDeleteSession };
     listen(list, 'click', event => {
+      const showMore = event.target.closest('.sidebar-show-more');
+      if (showMore) {
+        const key = showMore.dataset.groupKey;
+        groupLimits = { ...groupLimits, [key]: (groupLimits[key] || GROUP_PAGE_SIZE) + GROUP_PAGE_SIZE };
+        // El foco sigue en el botón del grupo si aún quedan más; si no, en el menú de la última conversación pintada.
+        const lastId = showMore.previousElementSibling.dataset.sessionId;
+        callbacks.renderList();
+        (list.querySelector(`.sidebar-show-more[data-group-key="${CSS.escape(key)}"]`)
+          || list.querySelector(`[data-session-id="${CSS.escape(lastId)}"]`)?.nextElementSibling?.querySelector('.btn-chat-menu'))?.focus();
+        return;
+      }
       const toggle = event.target.closest('.sidebar-group-toggle');
       if (toggle) {
         const key = toggle.dataset.groupKey;

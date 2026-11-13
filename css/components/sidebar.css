@@ -517,6 +517,30 @@
   transform: rotate(90deg);
 }
 
+/* Siguiente tanda de conversaciones de un grupo */
+.sidebar-show-more {
+  margin: 0.1rem 0.75rem 0.3rem;
+  padding: 0.3rem 0;
+  background: none;
+  border: none;
+  color: var(--primary);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-show-more:hover {
+  text-decoration: underline;
+}
+
+.sidebar-show-more:focus-visible {
+  outline: 2px solid var(--input-border-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
 /* Lista de conversaciones */
 .sidebar-chats-list {
   flex: 1;
