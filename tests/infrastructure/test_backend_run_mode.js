@@ -231,9 +231,13 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(userHeadless.code, 0, userHeadless.stderr);
     assert.equal(userHeadless.info.launcher, 'user-browser');
     assert.deepEqual(userHeadless.info.args, ['--headless', '--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests']);
-    // Por defecto (sin --browser) usa el runner de Node.js en modo desatendido y el perfil local.
+    // Por defecto (sin --browser) usa el runner de Node.js con --permission y el perfil local.
     assert.equal(failed.info.launcher, 'node');
-    assert.match(failed.info.args[0], /(?:run-node|runner)\.js$/);
+    assert.deepEqual(failed.info.args, [
+      '--permission',
+      `--allow-fs-read=${path.join(repoRoot, 'js')}`,
+      path.join(repoRoot, 'js', 'run-node.js')
+    ]);
     // La interfaz es la del arranque normal (la local en desarrollo) con run= en el fragmento.
     assert.equal(ok.info.url, `http://127.0.0.1:${ok.port}/zerochat.html`);
     assert.deepEqual(ok.info.fragment_keys, ['host', 'port', 'run', 'token']);
@@ -294,6 +298,10 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(productionDefaultInUse.code, 0, productionDefaultInUse.stderr);
     assert.equal(productionDefaultInUse.stdout, 'Respuesta a: hola\n');
     assert.equal(productionDefaultInUse.info.url, 'https://albalday.github.io/zerochat/zerochat.html');
+    assert.equal(productionDefaultInUse.info.launcher, 'node');
+    assert.equal(productionDefaultInUse.info.args.length, 2);
+    assert.equal(productionDefaultInUse.info.args[0], '--permission');
+    assert.match(productionDefaultInUse.info.args[1], /cache[\\/]runner\.js$/);
   } finally {
     busy.close();
   }

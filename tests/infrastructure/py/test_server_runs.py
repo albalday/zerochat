@@ -1,3 +1,4 @@
+import gzip
 import io
 import json
 import os
@@ -8,6 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 from backend import use_data_dir, zerochat
 from pathlib import Path
@@ -291,6 +293,142 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertIsNone(found("v22.12.9"))
         self.assertEqual(found("v22.13.0"), "/usr/bin/node")
         self.assertEqual(found("v24.0.0"), "/usr/bin/node")
+
+    def test_launch_node_runner_usa_modelo_de_permisos(self):
+        cache_runner = self.data_dir / "cache" / "runner.js"
+        dev_runner = self.data_dir / "repo" / "js" / "run-node.js"
+        url = "http://127.0.0.1:9999/zerochat.html#run=r1"
+        forbidden = ("--allow-fs-write", "--allow-child-process", "--allow-worker", "--allow-inspector")
+
+        with mock.patch.object(zerochat, "find_node_executable", return_value="/usr/bin/node"), \
+             mock.patch.object(zerochat, "ensure_runner_script", return_value=cache_runner), \
+             mock.patch("subprocess.Popen", return_value=mock.Mock()) as popen:
+            zerochat.launch_node_runner(url)
+            cmd = popen.call_args.args[0]
+            self.assertEqual(cmd, ["/usr/bin/node", "--permission", str(cache_runner), url])
+            self.assertFalse(any(flag.startswith(forbidden + ("--allow-fs-read",)) for flag in cmd))
+
+        with mock.patch.object(zerochat, "find_node_executable", return_value="/usr/bin/node"), \
+             mock.patch.object(zerochat, "ensure_runner_script", return_value=dev_runner), \
+             mock.patch("subprocess.Popen", return_value=mock.Mock()) as popen:
+            zerochat.launch_node_runner(url)
+            cmd = popen.call_args.args[0]
+            self.assertEqual(
+                cmd,
+                ["/usr/bin/node", "--permission", f"--allow-fs-read={dev_runner.parent}", str(dev_runner), url]
+            )
+            self.assertFalse(any(flag.startswith(forbidden) for flag in cmd))
+
+    def test_ensure_runner_script_descarga_304_cache_fallo_red_y_tope_tamano(self):
+        state = {
+            "status": 200, "body": b"console.log('v1');", "etag": '"etag-v1"',
+            "gzip": False, "send_length": True, "seen_inm": []
+        }
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path != "/runner.js":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                state["seen_inm"].append(self.headers.get("If-None-Match"))
+                if state["status"] == 304:
+                    self.send_response(304)
+                    self.end_headers()
+                    return
+                if state["status"] != 200:
+                    self.send_response(state["status"])
+                    self.end_headers()
+                    return
+                payload = gzip.compress(state["body"]) if state["gzip"] else state["body"]
+                self.send_response(200)
+                self.send_header("Content-Type", "application/javascript; charset=utf-8")
+                if state["gzip"]:
+                    self.send_header("Content-Encoding", "gzip")
+                elif state["send_length"]:
+                    self.send_header("Content-Length", str(len(payload)))
+                if state["etag"]:
+                    self.send_header("ETag", state["etag"])
+                self.end_headers()
+                try:
+                    self.wfile.write(payload)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+
+            def log_message(self, format, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        server_closed = False
+        try:
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            base_url = f"http://127.0.0.1:{server.server_address[1]}/zerochat.html"
+            runner_path = self.data_dir / "cache" / "runner.js"
+            etag_path = self.data_dir / "cache" / "runner.etag"
+
+            with mock.patch.object(zerochat, "get_dev_root", return_value=None), \
+                 mock.patch.object(zerochat, "DEFAULT_UI_URL", base_url):
+                # 1. Descarga inicial desde servidor local con ETag.
+                result = zerochat.ensure_runner_script()
+                self.assertEqual(result, runner_path)
+                self.assertEqual(runner_path.read_text("utf-8"), "console.log('v1');")
+                self.assertEqual(etag_path.read_text("utf-8"), '"etag-v1"')
+                if os.name != "nt":
+                    self.assertEqual(stat.S_IMODE(runner_path.parent.stat().st_mode), 0o700)
+                    self.assertEqual(stat.S_IMODE(runner_path.stat().st_mode), 0o755)
+
+                # 2. Comprobación condicional 304 Not Modified conserva la copia en caché.
+                state["status"] = 304
+                self.assertEqual(zerochat.ensure_runner_script(), runner_path)
+                self.assertEqual(state["seen_inm"][-1], '"etag-v1"')
+                self.assertEqual(runner_path.read_text("utf-8"), "console.log('v1');")
+
+                # 3. Error HTTP del servidor usa la copia en caché.
+                state["status"] = 503
+                self.assertEqual(zerochat.ensure_runner_script(), runner_path)
+                self.assertEqual(runner_path.read_text("utf-8"), "console.log('v1');")
+
+                # 4. Tope de tamaño en el borde exacto N y N+1 (Content-Length, flujo sin cabecera y gzip).
+                limit = zerochat.RUNNER_MAX_BYTES
+                state.update({"status": 200, "body": b"//" + b"a" * (limit - 2), "etag": None, "gzip": False, "send_length": True})
+                self.assertEqual(zerochat.ensure_runner_script(), runner_path)
+                self.assertEqual(runner_path.stat().st_size, limit)
+                self.assertFalse(etag_path.exists())
+
+                for use_gzip, send_length in ((False, True), (False, False), (True, True)):
+                    state.update({
+                        "status": 200, "body": b"//" + b"b" * (limit - 1),
+                        "etag": '"bad"', "gzip": use_gzip, "send_length": send_length
+                    })
+                    with self.assertRaises(RuntimeError):
+                        zerochat.ensure_runner_script()
+                    self.assertEqual(runner_path.stat().st_size, limit)
+                    self.assertFalse(etag_path.exists())
+
+                runner_path.unlink()
+                state.update({"status": 200, "body": b"//" + b"b" * (limit - 1), "etag": None, "gzip": False, "send_length": True})
+                with self.assertRaises(RuntimeError):
+                    zerochat.ensure_runner_script()
+                self.assertFalse(runner_path.exists())
+
+                # 5. Fallo de red: usa caché si existe y falla si no hay copia local.
+                state.update({"status": 200, "body": b"console.log('cached');", "etag": None, "gzip": False})
+                zerochat.ensure_runner_script()
+                server.shutdown()
+                server.server_close()
+                server_closed = True
+
+                self.assertEqual(zerochat.ensure_runner_script(), runner_path)
+                self.assertEqual(runner_path.read_text("utf-8"), "console.log('cached');")
+
+                runner_path.unlink()
+                with self.assertRaises(RuntimeError):
+                    zerochat.ensure_runner_script()
+                self.assertFalse(runner_path.exists())
+        finally:
+            if not server_closed:
+                server.shutdown()
+                server.server_close()
 
     def test_list_server_runs_orden_focus_proceso_muerto_y_aislamiento_worker(self):
         runs, focus = zerochat.list_server_runs()

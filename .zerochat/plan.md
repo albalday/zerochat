@@ -46,15 +46,7 @@ Done when: Todos los módulos en py/ son código Python válido e importable de 
 - [ ] M64-T14 Retirar el soporte de transición a prefijos aa-..zz-, verificar importación aislada sin side effects de py/, actualizar py/README.md y validar npm run test:all y tests/packaging_smoke_test.py
 - [ ] M64-T15 Análisis estático en la CI sobre py/: ruff (nombres no definidos e imports sin uso) y pyright en modo básico, corrigiendo lo que detecten
 
-## M65 Aislamiento de las ejecuciones en servidor
-
-Goal: Que runner.js se descargue y se ejecute con límites y sincronizado con js/ (auditoría 10.14.0, F-03 y F-04); execute_javascript sigue en las ejecuciones en servidor con node:vm y su riesgo (F-01, F-02) queda pendiente de una contención real (decisiones M65-D1 y M65-D2).
-Done when: runner.js se lanza con el modelo de permisos de Node y su descarga tiene tope de tamaño y pruebas de sus cuatro ramas; una prueba falla si runner.js no coincide con el generado; y todos los niveles de §4 pasan en verde.
-- [x] M65-T1 Retirar execute_javascript del runner de Node (dropped: no se retira para volver a añadirlo enseguida; sigue en las ejecuciones en servidor, M65-D2)
-- [x] M65-T2 Decidir con el usuario el mecanismo de aislamiento en Node: modelo de permisos (exige subir el mínimo de Node, hoy 18) o proceso hijo con otra contención; registrar la decisión y el nuevo mínimo de Node (2026-11-13)
-- [x] M65-T3 execute_javascript en Node en un proceso hijo aislado (dropped: el modelo de permisos de Node no aísla código malicioso y no restringe la red hasta Node 25; la herramienta queda fuera del servidor, M65-D1)
-- [ ] M65-T4 runner.js se lanza con el modelo de permisos de Node (--permission: sin escritura en disco, procesos, workers ni inspector) y su descarga tiene tope de tamaño; pruebas con un servidor local de descarga, 304, uso de la caché y fallo de red (F-03)
-- [ ] M65-T5 Prueba en test_vendor_build.js que regenera runner.js en un directorio temporal y falla si no coincide con el versionado (F-04)
+## M65 Aislamiento de las ejecuciones en servidor: closed 2026-11-13
 
 ## M66 Coordinadores del frontend
 

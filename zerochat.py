@@ -7066,6 +7066,8 @@ DEFAULT_RUN_PROFILE = "local"
 RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json", ".html": "html"}
 # Cuerpo HTTP admitido mientras se espera la exportación: el JSON y el HTML llevan las imágenes incrustadas.
 RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
+# Tope de descarga para runner.js (evita agotar memoria o disco con respuestas desbordadas).
+RUNNER_MAX_BYTES = 4 * 1024 * 1024
 
 
 def get_runs_dir() -> Path:
@@ -7599,6 +7601,27 @@ def find_node_executable() -> str | None:
         return None
 
 
+def _read_bounded_runner(resp) -> str:
+    """Lee runner.js de la respuesta HTTP con tope RUNNER_MAX_BYTES y validación UTF-8."""
+    raw_length = resp.headers.get("Content-Length")
+    encoding = (resp.headers.get("Content-Encoding") or "").strip().lower()
+    if raw_length and not encoding:
+        try:
+            if int(raw_length) > RUNNER_MAX_BYTES:
+                raise RuntimeError(f"runner.js supera el tamaño máximo permitido ({RUNNER_MAX_BYTES} bytes).")
+        except ValueError:
+            pass
+    content, truncated = _read_limited_body(resp, encoding, RUNNER_MAX_BYTES)
+    if truncated:
+        raise RuntimeError(f"runner.js supera el tamaño máximo permitido ({RUNNER_MAX_BYTES} bytes).")
+    if not content:
+        raise RuntimeError("runner.js descargado está vacío.")
+    try:
+        return content.decode("utf-8")
+    except UnicodeDecodeError as err:
+        raise RuntimeError(f"runner.js descargado no es UTF-8 válido: {err}") from err
+
+
 def ensure_runner_script() -> Path:
     """
     Obtiene la ruta al runner de Node.js: en entorno de desarrollo local usa js/run-node.js o runner.js;
@@ -7637,9 +7660,9 @@ def ensure_runner_script() -> Path:
                 pass
 
         with urllib.request.urlopen(req, timeout=5) as resp:
-            content = resp.read()
+            runner_text = _read_bounded_runner(resp)
             etag = resp.headers.get("ETag")
-            _write_private_text(runner_path, content.decode("utf-8"))
+            _write_private_text(runner_path, runner_text)
             if os.name != "nt":
                 try:
                     runner_path.chmod(0o755)
@@ -7647,6 +7670,8 @@ def ensure_runner_script() -> Path:
                     pass
             if etag:
                 _write_private_text(etag_path, etag)
+            else:
+                etag_path.unlink(missing_ok=True)
     except urllib.error.HTTPError as err:
         if err.code == 304 and runner_path.is_file():
             pass
@@ -7664,7 +7689,7 @@ def ensure_runner_script() -> Path:
 
 
 def launch_node_runner(url: str) -> subprocess.Popen | None:
-    """Abre el runner de Node.js sin ventana en segundo plano."""
+    """Abre el runner de Node.js sin ventana en segundo plano con el modelo de permisos de Node."""
     node = find_node_executable()
     if not node:
         run_error(f"Se necesita {NODE_REQUIRED_MESSAGE} para la ejecución desatendida. Instálalo o usa --browser.")
@@ -7675,9 +7700,14 @@ def launch_node_runner(url: str) -> subprocess.Popen | None:
         run_error(f"No se pudo preparar el runner de Node.js: {exc}")
         return None
     log_event(f"Iniciando runner de Node.js ({runner_path.name})...")
+    cmd = [node, "--permission"]
+    if runner_path.name == "run-node.js":
+        # En desarrollo js/run-node.js carga sus módulos por require() dentro de js/.
+        cmd.append(f"--allow-fs-read={runner_path.parent}")
+    cmd.extend([str(runner_path), url])
     try:
         return subprocess.Popen(
-            [node, str(runner_path), url],
+            cmd,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
