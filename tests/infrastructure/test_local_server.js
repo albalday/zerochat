@@ -489,74 +489,6 @@ test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos co
     serverProc.kill('SIGTERM');
   }
 });
-test('Servidor local zerochat.py: heartbeat y apagado automático por inactividad', async () => {
-  const repoRoot = path.resolve(__dirname, '../..');
-  const serverPath = path.resolve(repoRoot, 'zerochat.py');
-  const port = await freePort();
-  const baseUrl = `http://127.0.0.1:${port}`;
-  const testToken = 'heartbeat-test-token-67890';
-
-  // Iniciar servidor con timeout de heartbeat de 0.12 segundos para prueba ágil
-  const serverProc = spawn('python3', [
-    serverPath, '--port', String(port), '--no-browser', '--no-venv'
-  ], {
-    env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken), ZEROCHAT_HEARTBEAT_TIMEOUT: '0.12', ZEROCHAT_HEARTBEAT_POLL: '0.02' },
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
-
-  let serverOutput = '';
-  serverProc.stdout.on('data', chunk => { serverOutput += chunk; });
-
-  try {
-    // 1. Esperar arranque
-    await waitForServer(baseUrl, testToken, serverProc);
-
-    const beat = token => fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-ZeroChat-Token': token },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'zerochat/heartbeat', params: {} })
-    });
-
-    // 2. Aceptación del latido con token válido
-    const authHb = await beat(testToken);
-    assert.equal(authHb.status, 200, 'Heartbeat con token válido debe ser 200');
-    const hbData = (await authHb.json()).result;
-    assert.equal(typeof hbData.cwd, 'string', 'Heartbeat debe publicar el directorio del proyecto');
-    assert.equal(hbData.exit_on_close, true, 'Heartbeat avisa de que cerrar el navegador detiene el servidor');
-    assert.deepEqual(hbData.jobs, []);
-
-    // 3. Latidos sucesivos antes de que expire el timeout mantienen vivo el servidor, también con un
-    // token caducado o erróneo (401): cualquier petición de un origen permitido es presencia del navegador.
-    for (const token of [testToken, 'token-caducado', testToken]) {
-      await new Promise(resolve => setTimeout(resolve, 40));
-      assert.equal((await beat(token)).status, token === testToken ? 200 : 401);
-    }
-    assert.equal(serverProc.exitCode, null, 'Los latidos con 401 mantienen vivo el servidor');
-
-    // 4. Una petición RPC autenticada a /mcp/external renueva el watchdog sin zerochat/heartbeat
-    const rpcRes = await fetch(`${baseUrl}/mcp/external`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-ZeroChat-Token': testToken },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })
-    });
-    assert.equal(rpcRes.status, 200, 'Llamada RPC debe devolver 200');
-
-    // 5. Esperar a que el watchdog detecte la inactividad (>0.12s desde la última petición) y apague el servidor automáticamente
-    const exitPromise = new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('El servidor no se apagó por inactividad de heartbeat')), 3000);
-      serverProc.on('exit', (code) => {
-        clearTimeout(timeout);
-        resolve(code);
-      });
-    });
-
-    await exitPromise;
-    assert.match(serverOutput, /Navegador desconectado \(cierre detectado\)/, 'El log debe indicar la detección de cierre');
-  } finally {
-    try { serverProc.kill('SIGTERM'); } catch (_) {}
-  }
-});
-
 test('Servidor local zerochat.py: --keep-server desactiva el watchdog', async () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const serverPath = path.resolve(repoRoot, 'zerochat.py');
@@ -567,7 +499,7 @@ test('Servidor local zerochat.py: --keep-server desactiva el watchdog', async ()
   const serverProc = spawn('python3', [
     serverPath, '--port', String(port), '--no-browser', '--keep-server', '--no-venv'
   ], {
-    env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken), ZEROCHAT_HEARTBEAT_TIMEOUT: '0.1', ZEROCHAT_HEARTBEAT_POLL: '0.02' },
+    env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken) },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
@@ -589,11 +521,6 @@ test('Servidor local zerochat.py: --keep-server desactiva el watchdog', async ()
     };
     assert.equal((await rpc('zerochat/heartbeat', {})).result.exit_on_close, false, 'Cerrar la pestaña no detendrá los comandos');
 
-    // Esperar 150ms (> ZEROCHAT_HEARTBEAT_TIMEOUT=0.1)
-    await new Promise(resolve => setTimeout(resolve, 150));
-
-    // El servidor debe seguir activo porque --keep-server desactivó el watchdog
-    assert.equal(serverProc.exitCode, null, 'El servidor debe seguir en marcha con --keep-server');
     assert.match(serverOutput, /Auto-cierre\s*:\s*Desactivado/, 'El banner debe indicar auto-cierre desactivado');
 
     for (const action of ['start', 'stop', 'configure']) {

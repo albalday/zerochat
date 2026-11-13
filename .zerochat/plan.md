@@ -63,6 +63,7 @@ Done when: Las tareas del hito están hechas, probadas en el navegador y todos l
 - [x] M63-T33 validate_local_tool_arguments rechaza con error de validación un tipo de argumento que no conoce en lugar de lanzar TypeError; prueba con una definición de tipo no admitido (auditoría F-15) (2026-11-13)
 - [x] M63-T34 Retirar del repositorio la copia de la verificación de Google en js/ y test-results/, añadirlos a .gitignore y decidir con el usuario si todo.txt sigue versionado (auditoría F-11) (2026-11-13)
 - [x] M63-T35 Trabajos de CI en windows-latest y macos-latest para las pruebas Python de infraestructura y uno con el Node mínimo que fije M65 para test_run_node.js; cada fallo que aparezca se abre como tarea propia (auditoría F-09) (2026-11-13)
+- [x] M63-T36 Retirar ZEROCHAT_HEARTBEAT_TIMEOUT, _GRACE y _POLL, variables de entorno que solo usan las pruebas: el auto-cierre por latido se prueba en proceso con un servidor real y plazos pasados como parámetros (2026-11-13)
 
 ## M64 Modularización del backend Python
 

@@ -143,3 +143,4 @@
 - 2026-11-13 M63-D14 La verificación de Google solo vive en la raíz y test-results/ deja de versionarse; todo.txt se mantiene versionado hasta que el usuario decida (M63-T34) (M63-T34)
 - 2026-11-13 M63-D15 La CI ejecuta las pruebas Python de infraestructura en Windows y macOS y test_run_node.js con Node 18, el mínimo de find_node_executable; M65-T2 lo actualizará si cambia el mínimo (M63-T35) (M63-T35)
 - 2026-11-13 M63-D15 todo.txt son notas personales del responsable del proyecto: deja de versionarse y queda en .gitignore (M63-T34)
+- 2026-11-13 M63-D16 El auto-cierre por latido usa plazos fijos (60 s, 45 s de gracia, sondeo de 5 s) y se prueba en proceso con un servidor real y plazos pasados a heartbeat_watchdog, sin variables de entorno solo para pruebas (M63-T36) (M63-T36)

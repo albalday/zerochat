@@ -211,7 +211,7 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
       runZerochat('hola headless', { args: ['--browser', '--headless'] }),
       runZerochat('hola', { scenario: 'error' }),
       runZerochat('hola', { args: ['--export', unwritable] }),
-      runZerochat('hola', { scenario: 'exit', env: { ZEROCHAT_HEARTBEAT_TIMEOUT: '0.2' } }),
+      runZerochat('hola', { scenario: 'exit' }),
       runZerochat('   '),
       runZerochat('hola', { seedDefaultProfile: false }),
       runZerochat('hola', { withNode: false }),

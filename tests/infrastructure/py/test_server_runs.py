@@ -494,6 +494,47 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertIsNotNone(result["focus_run"])
         self.assertEqual(result["focus_run"]["conversation_id"], "conv_hb")
 
+    def test_cualquier_peticion_de_un_origen_permitido_es_presencia_y_la_inactividad_detiene_el_servidor(self):
+        token = "heartbeat-test-token"
+        today = zerochat.datetime.date.today().isoformat()
+        # ACTIVE_USER_AGENT propio: la petición de la prueba no fija el User-Agent de las salidas web.
+        patches = mock.patch.multiple(zerochat, SESSION_TOKEN=token, SESSION_TOKEN_DATE=today, HEARTBEAT_INITIALIZED=False,
+                                      HEARTBEAT_LAST_SEEN=0.0, ACTIVE_USER_AGENT="test-agent")
+        patches.start()
+        self.addCleanup(patches.stop)
+        server = zerochat.ThreadingHTTPServer(("127.0.0.1", 0), zerochat.ZeroChatServerHandler)
+        self.addCleanup(server.server_close)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+
+        def post(path, method, sent_token):
+            body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": {}}).encode()
+            request = zerochat.urllib.request.Request(f"{base}{path}", data=body, headers={
+                "Content-Type": "application/json", "X-ZeroChat-Token": sent_token})
+            try:
+                with zerochat.urllib.request.urlopen(request, timeout=5) as response:
+                    return response.status
+            except zerochat.urllib.error.HTTPError as error:
+                return error.code
+
+        def renews(path, method, sent_token, status):
+            before = zerochat.HEARTBEAT_LAST_SEEN
+            time.sleep(0.01)
+            self.assertEqual(post(path, method, sent_token), status)
+            self.assertGreater(zerochat.HEARTBEAT_LAST_SEEN, before, (path, method, sent_token))
+
+        renews("/", "zerochat/heartbeat", token, 200)
+        self.assertTrue(zerochat.HEARTBEAT_INITIALIZED)
+        # Un token caducado o erróneo (401) también es presencia: el auto-cierre no salta al cambiar el día.
+        renews("/", "zerochat/heartbeat", "token-caducado", 401)
+        # Una RPC autenticada a /mcp/external renueva la presencia sin zerochat/heartbeat.
+        renews("/mcp/external", "tools/list", token, 200)
+
+        with mock.patch.object(zerochat, "stop_zerochat_server") as stop:
+            zerochat.heartbeat_watchdog(server, inactivity_timeout_seconds=0.1)
+        stop.assert_called_once_with(server)
+
     def test_heartbeat_watchdog_no_apaga_si_hay_run_activo(self):
         state_path = zerochat.get_run_state_path("conv_watchdog")
         state_path.write_text(json.dumps({
