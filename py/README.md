@@ -6,13 +6,14 @@ Este documento contiene las especificaciones de arquitectura, entorno local y em
 
 ## 1. Arquitectura y ensamblado de `zerochat.py`
 
-* **Modularización:** El código fuente del backend reside dividido por dominios en `py/`.
-* **Punto de entrada:** El módulo que contiene la función `main()` y el bloque de ejecución se denomina obligatoriamente `zz-main.py` para que la concatenación alfabética lo ubique siempre al final.
+* **Modularización:** El código fuente del backend reside dividido por dominios en `py/`, en paquetes de un nivel (`py/<paquete>/<modulo>.py`, con `__init__.py` vacío). Se está migrando desde los archivos con prefijo `aa-..zz-` (M64); `py/core/` ya tiene la base común: `version.py`, `limits.py` (topes compartidos), `logging.py`, `environment.py` y `process.py` (si un proceso vive, su huella de arranque y `_kill_process_tree`, la única forma de terminar un proceso con sus descendientes).
+* **Imports entre módulos propios:** solo `from paquete.modulo import nombre`, en el nivel superior y sin alias. Un módulo del paquete nunca importa uno con prefijo, así que se migra de abajo arriba.
+* **Punto de entrada:** El módulo que contiene la función `main()` y el bloque de ejecución se denomina obligatoriamente `zz-main.py`, el último de los archivos con prefijo.
 * **Proceso de compilación:** Cualquier cambio en `py/` requiere reconstruir el ejecutable unificado con:
   ```bash
   npm run build:backend
   ```
-  Este script sincroniza los servicios gestionados, concatena ordenadamente los módulos de `py/` en `zerochat.py` y asegura sus permisos de ejecución. `zerochat.py` es un archivo autogenerado y debe mantenerse estrictamente sincronizado con `py/`.
+  Este script sincroniza los servicios gestionados y compila `py/` en `zerochat.py` con `scripts/build-backend.py`: un único espacio de nombres plano (las pruebas sustituyen símbolos de `zerochat` y hay instancias únicas compartidas), con los módulos del paquete en orden de dependencias seguidos de los archivos con prefijo, los imports de la biblioteca estándar deduplicados y error ante ciclos o símbolos repetidos. `tests/fixtures/zerochat_symbols.json` guarda el inventario de nombres de nivel superior: un traslado lo conserva y un cambio deliberado lo actualiza. `zerochat.py` es un archivo autogenerado y debe mantenerse estrictamente sincronizado con `py/`.
 
 ---
 

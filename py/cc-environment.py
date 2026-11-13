@@ -120,8 +120,6 @@ def current_session_token() -> str:
 ACTIVE_PORT = DEFAULT_PORT
 ACTIVE_HOST = DEFAULT_HOST
 
-DETECTED_OS = "windows" if sys.platform.startswith("win") else ("macos" if sys.platform == "darwin" else ("android" if "ANDROID_ROOT" in os.environ else "linux"))
-
 
 def get_venv_python(venv_dir: Path) -> Path:
     """Devuelve el ejecutable de Python del entorno virtual según el SO."""

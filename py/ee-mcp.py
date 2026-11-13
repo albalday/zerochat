@@ -2,8 +2,6 @@
 # Servidor HTTP JSON-RPC 2.0 y SSE con Autenticación por Token
 # ==============================================================================
 
-MAX_RPC_METHOD_LENGTH = 128
-MAX_TOOL_NAME_LENGTH = 128
 # Un mensaje MCP admite imágenes en base64, pero no puede agotar la memoria del backend.
 MAX_MCP_MESSAGE_CHARS = 16 * 1024 * 1024
 MAX_MCP_STDERR_LINE_CHARS = 64 * 1024
@@ -218,7 +216,6 @@ class StdioMcpClient:
                     self.oauth_url = url
                     self._trace(f"oauth_url detected for frontend: {_mcp_trace_text(url)}")
                     pending_oauth = False
-
 
 
     def _read_stdout(self):

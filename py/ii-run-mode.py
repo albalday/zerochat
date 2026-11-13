@@ -89,43 +89,6 @@ def remove_run_state(conversation_id: str | None) -> None:
         pass
 
 
-def _kill_pid_tree(pid: int) -> None:
-    """Termina el proceso por su PID y su grupo o árbol de procesos si es líder de su grupo."""
-    if not _pid_alive(pid) or pid == os.getpid():
-        return
-    try:
-        if DETECTED_OS == "windows":
-            subprocess.run(
-                ["taskkill", "/PID", str(pid), "/T", "/F"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            )
-        elif hasattr(os, "killpg") and hasattr(os, "getpgid"):
-            try:
-                if os.getpgid(pid) == pid:
-                    os.killpg(pid, signal.SIGTERM)
-                    time.sleep(0.05)
-                    if _pid_alive(pid):
-                        os.killpg(pid, signal.SIGKILL)
-                else:
-                    os.kill(pid, signal.SIGTERM)
-                    time.sleep(0.05)
-                    if _pid_alive(pid):
-                        os.kill(pid, signal.SIGKILL)
-            except OSError:
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except OSError:
-                    pass
-        else:
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except OSError:
-                pass
-    except (ProcessLookupError, PermissionError, OSError):
-        pass
-
-
 def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dict], dict | None]:
     """
     Lee las situaciones en ~/zerochat/runs/*.json. Si un proceso 'running' ya murió,
@@ -283,7 +246,7 @@ def cancel_server_run(conversation_id: str) -> dict:
         try:
             data = json.loads(state_path.read_text(encoding="utf-8"))
             if isinstance(data, dict) and data.get("status") == "running" and _run_process_alive(data):
-                _kill_pid_tree(data.get("pid"))
+                _kill_process_tree(data.get("pid"), grace_seconds=0.05)
         except (json.JSONDecodeError, OSError):
             pass
         remove_run_state(clean_conv_id)

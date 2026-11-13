@@ -588,11 +588,11 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             self.assertIn("en marcha", str(cm.exception))
 
         # cancel_server_run mata el proceso cuando está running y coincide pid_start
-        with mock.patch.object(zerochat, "_kill_pid_tree") as mock_kill:
+        with mock.patch.object(zerochat, "_kill_process_tree") as mock_kill:
             res_c, err_c, _ = dispatch_run("zerochat/run/cancel", {"conversation_id": "conv_val"})
             self.assertIsNone(err_c)
             self.assertTrue(res_c["cancelled"])
-            mock_kill.assert_called_once_with(os.getpid())
+            mock_kill.assert_called_once_with(os.getpid(), grace_seconds=0.05)
             self.assertFalse(state_path.exists())
 
         # Si el fichero está en needs_input o pid_start no coincide (PID reutilizado), cancel_server_run borra el fichero sin matar el PID
@@ -602,7 +602,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             "pid": os.getpid(),
             "status": "needs_input"
         }), encoding="utf-8")
-        with mock.patch.object(zerochat, "_kill_pid_tree") as mock_kill_paused:
+        with mock.patch.object(zerochat, "_kill_process_tree") as mock_kill_paused:
             zerochat.cancel_server_run("conv_val")
             mock_kill_paused.assert_not_called()
             self.assertFalse(state_path.exists())
@@ -614,7 +614,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             "pid_start": "token_de_proceso_anterior_distinto",
             "status": "running"
         }), encoding="utf-8")
-        with mock.patch.object(zerochat, "_kill_pid_tree") as mock_kill_reused:
+        with mock.patch.object(zerochat, "_kill_process_tree") as mock_kill_reused:
             zerochat.cancel_server_run("conv_val")
             mock_kill_reused.assert_not_called()
             self.assertFalse(state_path.exists())

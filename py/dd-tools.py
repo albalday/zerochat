@@ -2,9 +2,6 @@
 # Herramientas Locales Core
 # ==============================================================================
 
-MAX_HTTP_BODY_BYTES = 1024 * 1024
-MAX_PATH_LENGTH = 4096
-MAX_COMMAND_LENGTH = 16384
 BROWSER_ACTIONS = ("navigate", "screenshot", "click", "fill")
 
 

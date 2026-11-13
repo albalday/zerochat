@@ -211,7 +211,6 @@
   "_is_valid_pattern",
   "_job_result",
   "_jobs_base_dir",
-  "_kill_pid_tree",
   "_kill_process_tree",
   "_mcp_trace_text",
   "_open_gui_file_diff",
