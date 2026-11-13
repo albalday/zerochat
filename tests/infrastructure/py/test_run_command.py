@@ -283,6 +283,17 @@ class ProcessAliveTest(unittest.TestCase):
         for invalid in (0, -1, True, "1", None):
             self.assertFalse(zerochat._pid_alive(invalid), invalid)
 
+    def test_la_huella_de_arranque_identifica_al_proceso_y_no_vale_para_uno_terminado(self):
+        own = zerochat._process_start_token(os.getpid())
+        self.assertIsNotNone(own)
+        self.assertEqual(zerochat._process_start_token(os.getpid()), own)
+        child = subprocess.Popen([zerochat.sys.executable, "-c", "import time; time.sleep(30)"])
+        self.addCleanup(child.wait)
+        self.addCleanup(child.kill)
+        child_token = zerochat._process_start_token(child.pid)
+        self.assertIsNotNone(child_token)
+        self.assertNotEqual(child_token, own)
+
 
 @unittest.skipUnless(os.name == "nt", "Job Object de Windows")
 class WindowsJobObjectTest(unittest.TestCase):

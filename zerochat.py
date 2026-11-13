@@ -502,8 +502,44 @@ def _kill_process_tree(proc: subprocess.Popen):
             pass
 
 
+def _windows_kernel32():
+    """kernel32 con los prototipos que usan la huella de arranque y la comprobación de vida de un proceso."""
+    from ctypes import wintypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.GetProcessTimes.restype = wintypes.BOOL
+    kernel32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    return kernel32
+
+
+# PROCESS_QUERY_LIMITED_INFORMATION: basta para leer la hora de creación y el código de salida.
+_WINDOWS_PROCESS_QUERY = 0x1000
+
+
+def _windows_process_start_token(pid: int) -> str | None:
+    """En Windows la huella es la hora de creación del proceso (GetProcessTimes)."""
+    from ctypes import wintypes
+    kernel32 = _windows_kernel32()
+    handle = kernel32.OpenProcess(_WINDOWS_PROCESS_QUERY, False, pid)
+    if not handle:
+        return None
+    try:
+        created, exited, kernel, user = (wintypes.FILETIME() for _ in range(4))
+        if not kernel32.GetProcessTimes(handle, ctypes.byref(created), ctypes.byref(exited), ctypes.byref(kernel), ctypes.byref(user)):
+            return None
+        return str((created.dwHighDateTime << 32) | created.dwLowDateTime)
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def _process_start_token(pid: int) -> str | None:
     """Huella del arranque de un proceso: distingue al original de otro que reciba el mismo PID."""
+    if os.name == "nt":
+        return _windows_process_start_token(pid)
     try:
         if Path(f"/proc/{pid}/stat").is_file():
             stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
@@ -518,13 +554,8 @@ def _process_start_token(pid: int) -> str | None:
 def _windows_pid_alive(pid: int) -> bool:
     """En Windows, os.kill(pid, 0) no comprueba nada: envía Ctrl+C a la consola de ese proceso."""
     from ctypes import wintypes
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.OpenProcess.restype = wintypes.HANDLE
-    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
-    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
-    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    kernel32 = _windows_kernel32()
+    handle = kernel32.OpenProcess(_WINDOWS_PROCESS_QUERY, False, pid)
     if not handle:
         return ctypes.get_last_error() == 5  # ERROR_ACCESS_DENIED: existe, pero es de otra cuenta
     try:
