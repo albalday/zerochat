@@ -259,19 +259,25 @@
       }
     }
 
+    /** Herramienta y argumentos de una llamada; `args` es `null` si no son un objeto JSON válido. */
+    resolveCall(toolCall) {
+      const rawName = toolCall?.function?.name || '';
+      const parsed = this.parseArguments(toolCall?.function?.arguments);
+      // Copia estable: el diálogo de autorización puede esperar al usuario.
+      return { rawName, tool: this.registry.getTool(rawName), args: parsed && Utils.clone(parsed) };
+    }
+
     /**
      * Ejecuta una llamada a herramienta y mide su duración. Los errores se devuelven en el
      * resultado, nunca se lanzan.
      */
-    async executeToolCall(toolCall, context = {}) {
-      const rawName = toolCall?.function?.name || '';
-      const tool = this.registry.getTool(rawName);
+    executeToolCall(toolCall, context = {}) {
+      return this.executeResolved(this.resolveCall(toolCall), toolCall, context);
+    }
+
+    async executeResolved({ rawName, tool, args }, toolCall, context) {
       const failure = (error, extra = {}) => ({ success: false, toolName: tool?.name || rawName, error, result: null, executionTimeMs: 0, ...extra });
       if (!tool) return failure(`Tool '${rawName}' is not registered.`);
-
-      // Valor estable: el diálogo de autorización puede esperar al usuario.
-      const parsed = this.parseArguments(toolCall.function.arguments);
-      const args = parsed && Utils.clone(parsed);
       const base = { tool, args };
       if (!args) return failure('Invalid tool arguments: expected a JSON object. The tool was not executed.', base);
 
@@ -290,55 +296,61 @@
         });
 
         if (result?.requiresAuthorization) {
-          if (typeof context.requestToolAuthorization !== 'function') {
-            return failure('The tool requires explicit user authorization.', { ...base, requiresAuthorization: true, challengeId: result.challengeId });
-          }
-          // El backend decide la autorización; el navegador solo pregunta cuando emite un reto.
-          const decision = await context.requestToolAuthorization(toolCall, {
-            args: result.arguments || args,
-            serverName: result.serverName || tool.metadata?.mcpServerName || '',
-            serverId: result.serverId || tool.metadata?.mcpServerId || '',
-            toolName: result.toolName || tool.name,
-            challengeId: result.challengeId,
-            ruleOffer: result.ruleOffer,
-            details: result.details,
-            signal: context.signal
-          });
-          const decisionType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;
-          if (context.signal?.aborted) return failure('Tool execution cancelled.', base);
-          if (decisionType === 'pause_for_user') {
-            return failure('Execution paused waiting for user authorization.', {
-              ...base,
-              awaitingApproval: true,
-              challengeId: result.challengeId,
-              ruleOffer: result.ruleOffer,
-              endTurn: true,
-              result: { endTurn: true, awaitingApproval: true, challengeId: result.challengeId }
-            });
-          }
-          const security = getToolSecurity().manager;
-          if (decisionType === 'deny') {
-            if (security.mcpClient) {
-              await security.authorizeChallenge(result.challengeId, 'deny').catch(() => {});
-            }
-            return failure('Execution denied by the user.', base);
-          }
-          if (security.mcpClient) {
-            // Autorizar ejecuta el reto: un run_command del servidor local se detiene igual al abortar.
-            const jobKey = tool.metadata?.localCommand ? context.invocationId : null;
-            const authRes = await getMCP().withCommandJobStop(security.mcpClient, jobKey, context.signal,
-              () => security.authorizeChallenge(result.challengeId, decision, { signal: context.signal })
-            ).catch(err => ({ error: err.message }));
-            if (authRes?.error || !authRes?.authorized) {
-              return failure(authRes?.error || 'Challenge authorization failed.', base);
-            }
-            result = getMCP().formatToolCallResult(authRes.result, { name: tool.name, args, elapsed: elapsed() });
-          }
+          const { error, ...authorization } = await this.authorize(result, { tool, args, toolCall, context, elapsed });
+          if (error) return failure(error, { ...base, ...authorization });
+          result = authorization.result;
         }
         return { ...base, success: result?.success !== false, toolName: tool.name, result, error: result?.error, executionTimeMs: elapsed() };
       } catch (err) {
         return failure(err.message || String(err), { ...base, executionTimeMs: elapsed() });
       }
+    }
+
+    /**
+     * Resuelve el reto de autorización de una herramienta. El backend decide la autorización; el
+     * navegador solo pregunta al usuario cuando emite un reto y, si acepta, lo ejecuta. Devuelve
+     * `{ result }` o `{ error }` con los campos que acompañan al fallo.
+     */
+    async authorize(challenge, { tool, args, toolCall, context, elapsed }) {
+      const { challengeId, ruleOffer } = challenge;
+      if (typeof context.requestToolAuthorization !== 'function') {
+        return { error: 'The tool requires explicit user authorization.', requiresAuthorization: true, challengeId };
+      }
+      const decision = await context.requestToolAuthorization(toolCall, {
+        args: challenge.arguments || args,
+        serverName: challenge.serverName || tool.metadata?.mcpServerName || '',
+        serverId: challenge.serverId || tool.metadata?.mcpServerId || '',
+        toolName: challenge.toolName || tool.name,
+        challengeId,
+        ruleOffer,
+        details: challenge.details,
+        signal: context.signal
+      });
+      const decisionType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;
+      if (context.signal?.aborted) return { error: 'Tool execution cancelled.' };
+      if (decisionType === 'pause_for_user') {
+        return {
+          error: 'Execution paused waiting for user authorization.',
+          awaitingApproval: true,
+          challengeId,
+          ruleOffer,
+          endTurn: true,
+          result: { endTurn: true, awaitingApproval: true, challengeId }
+        };
+      }
+      const security = getToolSecurity().manager;
+      if (decisionType === 'deny') {
+        if (security.mcpClient) await security.authorizeChallenge(challengeId, 'deny').catch(() => {});
+        return { error: 'Execution denied by the user.' };
+      }
+      if (!security.mcpClient) return { result: challenge };
+      // Autorizar ejecuta el reto: un run_command del servidor local se detiene igual al abortar.
+      const jobKey = tool.metadata?.localCommand ? context.invocationId : null;
+      const authRes = await getMCP().withCommandJobStop(security.mcpClient, jobKey, context.signal,
+        () => security.authorizeChallenge(challengeId, decision, { signal: context.signal })
+      ).catch(err => ({ error: err.message }));
+      if (authRes?.error || !authRes?.authorized) return { error: authRes?.error || 'Challenge authorization failed.' };
+      return { result: getMCP().formatToolCallResult(authRes.result, { name: tool.name, args, elapsed: elapsed() }) };
     }
 
     /**
@@ -348,20 +360,19 @@
      */
     async dispatchToolCall(toolCall, options = {}) {
       const { cards, onLog } = options;
-      const rawFuncName = toolCall?.function?.name || '';
-      const rawArgs = toolCall?.function?.arguments;
-      const validArgs = this.parseArguments(rawArgs);
-      const parsedArgs = validArgs || {};
+      const resolved = this.resolveCall(toolCall);
+      const rawFuncName = resolved.rawName;
+      const parsedArgs = resolved.args || {};
       // Identifica esta invocación ante la herramienta y su tarjeta mientras se ejecuta.
       const invocationId = createId();
       const toolCard = cards ? cards.open(rawFuncName, parsedArgs, invocationId) : null;
 
       // Unos argumentos inválidos se registran tal como llegaron, no como el `{}` de la tarjeta.
-      const loggedArgs = validArgs ? JSON.stringify(validArgs, null, 2) : String(rawArgs);
+      const loggedArgs = resolved.args ? JSON.stringify(resolved.args, null, 2) : String(toolCall?.function?.arguments);
       onLog?.('tool', `${rawFuncName}:\n${loggedArgs}`);
       onLog?.('raw', `>>> TOOL CALL ${rawFuncName}:\n${loggedArgs}`);
 
-      const execRes = await this.executeToolCall(toolCall, {
+      const execRes = await this.executeResolved(resolved, toolCall, {
         ...options,
         invocationId,
         toolCard,
