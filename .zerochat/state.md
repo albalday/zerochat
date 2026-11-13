@@ -1,4 +1,4 @@
 # Current state
-- Milestone: none (M62 closed 2026-11-12)
+- Milestone: M63 Cambios pequeños y pruebas
 - Next task: none
-- Last updated: 2026-11-12
+- Last updated: 2026-11-13

@@ -23,3 +23,10 @@
 ## M61 Integridad del sistema de permisos: closed 2026-11-12
 
 ## M62 Multisesión de un usuario y límites del multiusuario: closed 2026-11-12
+
+## M63 Cambios pequeños y pruebas
+
+Goal: Corregir fallos pequeños detectados en el uso tras los últimos hitos y probar a mano lo cambiado.
+Done when: Las tareas del hito están hechas, probadas en el navegador y todos los niveles de §4 pasan en verde.
+- [x] M63-T1 Editar un perfil de servidor sin cambiar nada deja cerrar el editor sin preguntar; Guardar en local sigue importándolo (2026-11-13)
+- [x] M63-T2 En móvil los botones de guardar del editor de perfiles muestran solo el icono para que la cabecera no se desborde (2026-11-13)

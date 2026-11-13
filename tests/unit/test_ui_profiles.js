@@ -35,6 +35,7 @@ test('UIProfiles - Guardar espera a la API key y al desbloqueo, cierra sin nada 
   assert.deepEqual(save(pending, 'Local chat', undefined, LOCAL), { action: 'error', message: 'Ya existe un perfil llamado "Local chat".' });
   assert.deepEqual(save(pending, 'Local chat', LOCAL, LOCAL), { action: 'save' });
   assert.deepEqual(save(editorWith({ queryReady: true }), 'Nuevo', undefined, null), { action: 'save' });
+  assert.deepEqual(save(editorWith({ fromServer: true }), 'Remoto', undefined, null), { action: 'save' }, 'Un perfil del servidor se importa sin cambios');
 });
 
 test('UIProfiles - Guardar en servidor valida conexión, desbloqueo, clave, nombre y perfil protegido sin requerir cambios pendientes', () => {
@@ -51,6 +52,7 @@ test('UIProfiles - Guardar en servidor valida conexión, desbloqueo, clave, nomb
 
 test('UIProfiles - cerrar el editor pregunta por la consulta sin guardar antes que por los cambios', () => {
   assert.equal(UIProfiles.getCloseConfirmation(editorWith()), null);
+  assert.equal(UIProfiles.getCloseConfirmation(editorWith({ fromServer: true })), null, 'Un perfil del servidor sin cambios cierra sin preguntar');
   assert.match(UIProfiles.getCloseConfirmation(editorWith({ dirty: true })), /^Hay cambios sin guardar en el perfil/);
   for (const editor of [editorWith({ queryReady: true }), editorWith({ queryReady: true, dirty: true })]) {
     assert.match(UIProfiles.getCloseConfirmation(editor), /no se ha guardado/);

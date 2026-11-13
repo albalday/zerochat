@@ -44,13 +44,17 @@
 
   /**
    * Estado del editor de perfiles que no está en sus campos: un cambio sin guardar (`dirty`), una
-   * consulta al servidor lista para guardar (`queryReady`), el bloqueo del perfil cargado (`locked`)
-   * y su API key descifrada (`loadedApiKey`), undefined mientras se descifra.
+   * consulta al servidor lista para guardar (`queryReady`), un perfil del servidor cargado que Guardar
+   * en local importa (`fromServer`), el bloqueo del perfil cargado (`locked`) y su API key descifrada
+   * (`loadedApiKey`), undefined mientras se descifra.
    */
-  const initialEditorState = () => ({ dirty: false, queryReady: false, locked: false, loadedApiKey: undefined });
+  const initialEditorState = () => ({ dirty: false, queryReady: false, fromServer: false, locked: false, loadedApiKey: undefined });
 
   // Un cambio en el formulario o una consulta lista quedan pendientes hasta guardar, descartar o cambiar de perfil.
   const hasPendingChanges = editor => editor.dirty || editor.queryReady;
+
+  // Un perfil del servidor ya está guardado allí: cerrar no pregunta, pero Guardar en local lo importa.
+  const hasSomethingToSave = editor => hasPendingChanges(editor) || editor.fromServer;
 
   /**
    * Aviso del editor sobre el guardado. `form` aporta el nombre escrito, si el perfil es de solo
@@ -59,7 +63,7 @@
   function getSaveHint(editor, { name, readOnly, webllmModelReady }) {
     if (readOnly) return t('err_profile_read_only');
     if (!name) return t('field_profile_placeholder');
-    if (!hasPendingChanges(editor)) return t('profile_save_changes_required');
+    if (!hasSomethingToSave(editor)) return t('profile_save_changes_required');
     return t(webllmModelReady ? 'webllm_query_optional' : 'profile_save_pending');
   }
 
@@ -70,7 +74,7 @@
    */
   function getSaveDecision(editor, { name, selected, sameName }) {
     if (editor.loadedApiKey === undefined) return { action: 'none' };
-    if (!hasPendingChanges(editor)) return { action: 'close' };
+    if (!hasSomethingToSave(editor)) return { action: 'close' };
     if (editor.locked) return { action: 'none' };
     const error = message => ({ action: 'error', message });
     if (!name) return error(t('field_profile_placeholder'));
@@ -256,7 +260,7 @@
    * contraseña) y solo se escribe si el usuario sigue en el mismo perfil.
    */
   async function applyProfileToForm(profileData, profileId) {
-    updateEditor({ dirty: false, locked: profileData.apiKeyLocked === true, loadedApiKey: undefined });
+    updateEditor({ dirty: false, fromServer: false, locked: profileData.apiKeyLocked === true, loadedApiKey: undefined });
     els.settingApiKey.value = '';
     fillProfileForm(profileData);
     syncProfileSaveState();
@@ -432,11 +436,11 @@
         <span id="api-key-locked-status" class="profile-lock-status" hidden data-i18n="profile_api_key_locked">Cambios bloqueados</span>
         <button type="button" id="btn-save-server-profile" class="btn-secondary btn-save-header" data-i18n-title="btn_save_server_profile_title" title="Guardar este perfil en el servidor local" disabled>
           <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-server"></use></svg>
-          <span data-i18n="btn_save_server_short">Guardar en servidor</span>
+          <span class="btn-text-responsive" data-i18n="btn_save_server_short">Guardar en servidor</span>
         </button>
         <button type="button" id="btn-save-profile" class="btn-primary btn-save-header" data-i18n-title="btn_save_local_title" title="Guardar todos los valores actuales en este navegador" disabled>
           <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-save"></use></svg>
-          <span data-i18n="btn_save_local_short">Guardar en local</span>
+          <span class="btn-text-responsive" data-i18n="btn_save_local_short">Guardar en local</span>
         </button>
         <button id="btn-close-profiles" type="button" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal"><svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg></button>
       </div>
@@ -682,7 +686,7 @@
     });
 
     populateProfileSelector(saved.id);
-    updateEditor({ dirty: false, loadedApiKey: settings.apiKey });
+    updateEditor({ dirty: false, fromServer: false, loadedApiKey: settings.apiKey });
     setProfileQueryState(false);
     activateProfileFromUI(saved.id);
     const displayName = formatProfileDisplayName(saved);
@@ -936,7 +940,7 @@
   function showProfilesDialog() {
     hideEditorStatus();
     resetProfileChapters();
-    updateEditor({ dirty: false });
+    updateEditor({ dirty: false, fromServer: false });
     setProfileQueryState(false);
     options.loadCachedModels();
     syncProfileSaveState();
@@ -975,7 +979,7 @@
     els.settingProfileDescription.value = serverProfile.description || '';
     const settings = serverProfile.settings || {};
     updateEditor({
-      dirty: true,
+      fromServer: true,
       locked: settings.apiKeyLocked === true,
       loadedApiKey: settings.apiKey || ''
     });

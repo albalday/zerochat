@@ -138,7 +138,8 @@
     min-width: 0;
   }
 
-  .settings-header-actions .btn-secondary {
+  .settings-header-actions .btn-secondary,
+  .settings-header-actions .btn-save-header {
     padding: 0 0.6rem;
   }
 
