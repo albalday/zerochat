@@ -23,6 +23,9 @@
   };
 
   let cleanups = [];
+  // Proyectos que el usuario ha plegado (false) o desplegado (true) en la vista de todos; el resto sigue la regla por defecto.
+  let projectGroupChoices = {};
+  let renderedProjectKeys = [];
 
   const isMobile = () => window.innerWidth <= 768;
 
@@ -160,12 +163,23 @@
     return runs;
   }
 
-  /** Cabecera de un grupo: la de proyecto lleva carpeta y número de conversaciones para distinguirse de las de fecha. */
-  function renderGroupHeader(group, count) {
+  /**
+   * Cabecera de un grupo: la de proyecto lleva carpeta y número de conversaciones para distinguirse de
+   * las de fecha. Con `expanded` booleano es un botón que pliega o despliega el grupo.
+   */
+  function renderGroupHeader(group, count, expanded = null) {
     const label = `<span class="sidebar-group-label">${escapeHtml(group.label)}</span>`;
     if (group.kind !== 'project') return `<div class="sidebar-group-header">${label}</div>`;
     const title = group.title ? ` title="${escapeHtml(group.title)}"` : '';
-    return `<div class="sidebar-group-header sidebar-project-header"${title}>${Icons.get('folder', { size: 14 })}${label}<span class="sidebar-group-count">${count}</span></div>`;
+    const content = `${Icons.get('folder', { size: 14 })}${label}<span class="sidebar-group-count">${count}</span>`;
+    if (expanded === null) return `<div class="sidebar-group-header sidebar-project-header"${title}>${content}</div>`;
+    return `<button type="button" class="sidebar-group-header sidebar-project-header sidebar-group-toggle" data-group-key="${escapeHtml(group.key)}" aria-expanded="${expanded}"${title}>${Icons.get('chevron-right', { size: 14, className: 'sidebar-group-chevron' })}${content}</button>`;
+  }
+
+  /** Un proyecto de la vista de todos se ve desplegado si el usuario lo eligió o, si no, si es el actual o tiene la conversación abierta. */
+  function isGroupExpanded(group, sessions, project, currentSessionId) {
+    if (Object.hasOwn(projectGroupChoices, group.key)) return projectGroupChoices[group.key] === true;
+    return group.key === project || sessions.some(session => session.id === currentSessionId);
   }
 
   /** Lista de conversaciones de la vista elegida, agrupada; con texto en el buscador, filtrada por título y sin grupos. */
@@ -186,9 +200,16 @@
       });
     }
     const renderItem = session => renderChatItem(session, sessionDate(session), session.id === currentSessionId, runStatusMap.get(session.id) || null);
-    elements.sidebarChatsList.innerHTML = toRuns(matching).map(({ group, sessions: items }) =>
-      (filter ? '' : renderGroupHeader(group, items.length)) + items.map(renderItem).join('')
-    ).join('');
+    const collapsible = showAll && !filter;
+    const runs = toRuns(matching);
+    if (collapsible) renderedProjectKeys = runs.map(({ group }) => group.key);
+    elements.sidebarChatsList.innerHTML = runs.map(({ group, sessions: items }) => {
+      const chats = items.map(renderItem).join('');
+      if (filter) return chats;
+      if (!collapsible) return renderGroupHeader(group, items.length) + chats;
+      const expanded = isGroupExpanded(group, items, project, currentSessionId);
+      return renderGroupHeader(group, items.length, expanded) + `<div class="sidebar-group-items"${expanded ? '' : ' hidden'}>${chats}</div>`;
+    }).join('');
   }
 
   function closeChatMenus(list) {
@@ -201,8 +222,9 @@
   /**
    * Conecta la barra. `callbacks` aporta las acciones de las conversaciones (onSwitchSession,
    * onRenameSession, onDeleteSession, onExportSession, onNewSession, onSearchInput,
-   * onProjectFilterChange, onDeleteAllSessions) y de la navegación de ajustes (onOpenSettingsMode, onBackToChats,
-   * onSelectSettingsSection).
+   * onProjectFilterChange, onDeleteAllSessions), los proyectos plegados (loadProjectGroups, que devuelve
+   * las elecciones guardadas, y onProjectGroupsChange, que las recibe para guardarlas) y la navegación
+   * de ajustes (onOpenSettingsMode, onBackToChats, onSelectSettingsSection).
    */
   function mount(elements, callbacks) {
     cleanups.forEach(cleanup => cleanup());
@@ -212,6 +234,7 @@
       cleanups.push(() => target.removeEventListener(type, handler));
     };
     const list = elements.sidebarChatsList;
+    projectGroupChoices = callbacks.loadProjectGroups();
 
     listen(elements.btnToggleSidebar, 'click', () => toggleSidebar(elements));
     listen(elements.btnCloseSidebar, 'click', () => closeSidebar(elements));
@@ -237,6 +260,17 @@
 
     const actions = { 'btn-export': callbacks.onExportSession, 'btn-rename': callbacks.onRenameSession, 'btn-delete': callbacks.onDeleteSession };
     listen(list, 'click', event => {
+      const toggle = event.target.closest('.sidebar-group-toggle');
+      if (toggle) {
+        const expanded = toggle.getAttribute('aria-expanded') !== 'true';
+        toggle.setAttribute('aria-expanded', String(expanded));
+        toggle.nextElementSibling.hidden = !expanded;
+        // Solo se guardan las elecciones de proyectos que aún tienen conversaciones.
+        projectGroupChoices = Object.fromEntries(Object.entries({ ...projectGroupChoices, [toggle.dataset.groupKey]: expanded })
+          .filter(([key]) => renderedProjectKeys.includes(key)));
+        callbacks.onProjectGroupsChange(projectGroupChoices);
+        return;
+      }
       const item = event.target.closest('.sidebar-chat-item');
       if (!item) return;
       const sessionId = item.dataset.sessionId;

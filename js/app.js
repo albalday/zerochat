@@ -50,6 +50,8 @@
   const getRuntimeConfig = () => Config.getActive();
   const getChatHistory = () => State.get('messages');
   const getCurrentSessionId = () => State.get('sessions').activeId;
+  // Proyectos plegados o desplegados por el usuario en el historial ("Todos"), solo en este navegador.
+  const PROJECT_GROUPS_STORAGE_KEY = 'sidebar_project_groups';
 
   const ELEMENT_IDS = {
     // Barra lateral de chats
@@ -837,6 +839,15 @@
       onNewSession: createNewSession,
       onSearchInput: renderSidebarChats,
       onProjectFilterChange: renderSidebarChats,
+      loadProjectGroups: () => {
+        try {
+          const choices = JSON.parse(Storage.getStorageItem(PROJECT_GROUPS_STORAGE_KEY) || '{}');
+          return choices && typeof choices === 'object' && !Array.isArray(choices) ? choices : {};
+        } catch (_) {
+          return {};
+        }
+      },
+      onProjectGroupsChange: choices => Storage.setStorageItem(PROJECT_GROUPS_STORAGE_KEY, JSON.stringify(choices)),
       onDeleteAllSessions: () => ConversationService.deleteAllSessions(getConversationServiceOptions()),
       onOpenSettingsMode: () => showSidebarNav('settings'),
       onOpenConnection: () => {

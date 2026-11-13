@@ -119,6 +119,46 @@ test('Browser UI - con proyecto la barra muestra sus conversaciones y, con todos
   });
 });
 
+const visibleTitles = page => page.$$eval('#sidebar-chats-list .sidebar-chat-title', titles => titles.filter(title => !title.closest('[hidden]')).map(title => title.textContent));
+
+test('Browser UI - en la vista de todos los proyectos se pliegan salvo el actual y el de la conversación abierta, y la elección se recuerda', async () => {
+  await withTestApp(async page => {
+    const render = currentSessionId => page.evaluate(currentSessionId => {
+      const elements = {
+        sidebarChatsList: document.getElementById('sidebar-chats-list'),
+        sidebarSearchInput: document.getElementById('sidebar-search-input'),
+        sidebarProjectFilter: document.getElementById('sidebar-project-filter')
+      };
+      elements.sidebarProjectFilter.value = 'all';
+      const now = Date.now();
+      const sessions = [
+        { id: 'a1', title: 'A', project: '/repo/app', updatedAt: now },
+        { id: 'b1', title: 'B', project: '/repo/lib', updatedAt: now - 1000 },
+        { id: 'c1', title: 'C', project: '/repo/web', updatedAt: now - 2000 },
+        { id: 'n1', title: 'N', updatedAt: now - 3000 }
+      ];
+      window.ChatUISidebar.renderSidebarChats(elements, sessions, currentSessionId, [], '/repo/app');
+    }, currentSessionId);
+    const expandedHeaders = () => page.$$eval('.sidebar-group-toggle', toggles => toggles.map(toggle => `${toggle.textContent}:${toggle.getAttribute('aria-expanded')}`));
+
+    await render('c1');
+    assert.deepEqual(await visibleTitles(page), ['A', 'C']);
+    assert.deepEqual(await expandedHeaders(), ['app1:true', 'lib1:false', 'web1:true', `${await page.evaluate(() => window.ChatI18n.t('sidebar_no_project'))}1:false`]);
+
+    await page.click('.sidebar-group-toggle[data-group-key="/repo/lib"]');
+    await page.click('.sidebar-group-toggle[data-group-key="/repo/app"]');
+    assert.deepEqual(await visibleTitles(page), ['B', 'C']);
+    assert.deepEqual(JSON.parse(await page.evaluate(() => window.ChatStorage.getStorageItem('sidebar_project_groups'))), { '/repo/lib': true, '/repo/app': false });
+
+    // Al volver a pintar (otra conversación abierta) se respeta lo elegido.
+    await render('a1');
+    assert.deepEqual(await visibleTitles(page), ['B']);
+    await page.focus('.sidebar-group-toggle[data-group-key=""]');
+    await page.keyboard.press('Enter');
+    assert.deepEqual(await visibleTitles(page), ['B', 'N']);
+  });
+});
+
 test('Browser UI - abrir una conversación de otro proyecto lleva el servidor a su carpeta y, si no existe, avisa', async () => {
   await withTestApp(async page => {
     await page.evaluate(async () => {
@@ -136,10 +176,13 @@ test('Browser UI - abrir una conversación de otro proyecto lleva el servidor a 
       };
     });
     await page.selectOption('#sidebar-project-filter', 'all');
+    // Los proyectos que no son el actual aparecen plegados.
+    await page.click('.sidebar-group-toggle[data-group-key="/repo/b"]');
     await page.locator('.sidebar-chat-item[data-session-id="p_ok"]').click();
     await page.waitForFunction(() => window.__dirs.length === 1);
     assert.equal(await page.evaluate(() => window.ChatState.get('mcp').serverInfo.cwd), '/repo/b');
 
+    await page.click('.sidebar-group-toggle[data-group-key="/repo/borrado"]');
     await page.locator('.sidebar-chat-item[data-session-id="p_gone"]').click();
     await page.waitForFunction(() => document.getElementById('notice-dialog').open);
     const notice = await page.textContent('#notice-dialog');

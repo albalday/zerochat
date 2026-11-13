@@ -485,6 +485,48 @@
   font-weight: 600;
 }
 
+/* En la vista de todos, la cabecera de proyecto pliega y despliega sus conversaciones */
+.sidebar-group-toggle {
+  width: 100%;
+  background: none;
+  border-right: none;
+  border-bottom: none;
+  border-left: none;
+  border-radius: 0;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-group-toggle:hover {
+  background-color: var(--bg-hover);
+}
+
+.sidebar-group-toggle:focus-visible {
+  outline: 2px solid var(--input-border-focus);
+  outline-offset: -2px;
+}
+
+.sidebar-project-header .sidebar-group-chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform var(--transition-fast);
+}
+
+.sidebar-group-toggle[aria-expanded="true"] .sidebar-group-chevron {
+  transform: rotate(90deg);
+}
+
+.sidebar-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.sidebar-group-items[hidden] {
+  display: none;
+}
+
 /* Lista de conversaciones */
 .sidebar-chats-list {
   flex: 1;
