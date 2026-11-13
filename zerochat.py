@@ -5814,6 +5814,10 @@ def _is_public_ip(address: str) -> bool:
     return ip.is_global and not ip.is_multicast
 
 
+# Una dirección IPv4 en notación numérica: partes decimales o hexadecimales (0x…), de una a cuatro.
+_NUMERIC_HOST = re.compile(r"(?:0x[0-9a-f]*|\d+)(?:\.(?:0x[0-9a-f]*|\d+)){0,3}")
+
+
 def is_dangerous_host(hostname: str) -> bool:
     """Riesgo de SSRF: metadatos cloud, nombres locales o cualquier dirección resuelta no pública."""
     clean_host = (hostname or "").strip().lower().strip("[]").rstrip(".")
@@ -5821,6 +5825,13 @@ def is_dangerous_host(hostname: str) -> bool:
         return True
     if clean_host.endswith((".localhost", ".local", ".internal")):
         return True
+    if _NUMERIC_HOST.fullmatch(clean_host):
+        # Abreviadas, enteras, hexadecimales u octales (127.1, 2130706433, 0x7f.1, 0177.0.0.1): cada
+        # resolvedor las interpreta a su manera, así que solo se admite la forma canónica.
+        try:
+            ipaddress.IPv4Address(clean_host)
+        except ValueError:
+            return True
     try:
         infos = socket.getaddrinfo(clean_host, None, proto=socket.IPPROTO_TCP)
     except (socket.gaierror, UnicodeError):

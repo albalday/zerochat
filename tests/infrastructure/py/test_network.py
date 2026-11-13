@@ -3,6 +3,7 @@ import gzip
 import io
 import time
 import unittest
+from unittest.mock import patch
 import urllib.request
 
 from backend import zerochat
@@ -27,13 +28,17 @@ class WebFetchTest(unittest.TestCase):
         dangerous = (
             "169.254.169.254", "metadata.google.internal", "127.0.0.1", "localhost", "printer.local",
             "10.0.0.1", "192.168.1.1", "100.64.0.1", "::ffff:127.0.0.1",
-            # Formas abreviadas que el resolvedor convierte en loopback
-            "127.1", "2130706433",
+            # Notaciones numéricas no canónicas, que cada resolvedor interpreta a su manera
+            "127.1", "2130706433", "0x7f.1", "0177.0.0.1",
         )
         for host in dangerous:
             with self.subTest(host=host):
                 self.assertIs(zerochat.is_dangerous_host(host), True)
         self.assertIs(zerochat.is_dangerous_host("8.8.8.8"), False)
+        # Un nombre hecho solo de letras hexadecimales no es una notación numérica: se resuelve como cualquier otro.
+        public = [(None, None, None, "", ("93.184.216.34", 0))]
+        with patch.object(zerochat.socket, "getaddrinfo", return_value=public):
+            self.assertIs(zerochat.is_dangerous_host("cafe.de"), False)
 
     def test_cada_redireccion_pasa_la_misma_validacion(self):
         handler = zerochat._ValidatingRedirectHandler()
