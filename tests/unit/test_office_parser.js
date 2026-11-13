@@ -41,7 +41,29 @@ test('getOfficeDocumentKind devuelve el nombre legible según la tabla unificada
   assert.equal(OfficeParser.getOfficeDocumentKind('unknown'), 'Office document');
 });
 
-// docx se convierte con mammoth y el DOMParser del navegador: lo cubre browser_documents.
+// Node no tiene DOMParser: el HTML de mammoth pasa por el árbol ligero de ChatHtmlDocument, como en el runner.
+test('docx: Markdown con formato, listas, tablas e imágenes, sin DOMParser', async () => {
+  assert.equal(typeof globalThis.DOMParser, 'undefined');
+  for (const name of ['pandoc.docx', 'libreoffice.docx']) {
+    const { text, images } = await parseFixture(name);
+    assert.match(text, /^# Informe trimestral$/m, name);
+    assert.match(text, /^## Anexo$/m, name);
+    assert.match(text, /\*\*negrita\*\*/, name);
+    assert.match(text, /\[enlace\]\(https:\/\/example\.com\/?\)/, name);
+    assert.match(text, /^- Uno\n- Dos\n {2}- Dos punto uno$/m, name);
+    assert.match(text, /^1\. Primero\n2\. Segundo$/m, name);
+    assert.match(text, /^\| Producto \| Ventas \|\n\| --- \| --- \|\n\| Café \| 120 \|\n\| Té \\\| verde \| 80 \|$/m, name);
+    assert.match(text, /!\[[^\]]+\]\(rag-image:\/\/__DOC_ID__:img_1\)/, name);
+    assertRedPng(images, 1);
+  }
+
+  const linked = await parseFixture('linked-image.docx');
+  assert.match(linked.text, /\[Image not shown: Logo rojo \(linked external image\)\]/);
+  assert.doesNotMatch(linked.text, /example\.com\/logo\.png/);
+  assert.deepEqual(linked.images, []);
+
+  assert.match((await parseFixture('pandoc.docx', 'informe.docm')).text, /^# Informe trimestral$/m, 'Un documento con macros se lee como su formato base');
+});
 
 for (const fixture of ['pandoc.odt', 'libreoffice.odt']) {
   test(`odt (${fixture}): títulos, enlaces, listas numeradas, tablas e imágenes`, async () => {

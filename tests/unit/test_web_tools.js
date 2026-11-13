@@ -240,3 +240,32 @@ test('ChatWebBrowser.webFetch - valida la URL antes de cualquier petición, sea 
   assert.equal(read.url, 'https://example.com/');
   assert.deepEqual(requested, ['https://r.jina.ai/https://example.com/']);
 });
+
+test('ChatWebBrowser.extractReadableTextFromHtml - funciona en Node sin DOMParser con HTML real e imperfecto', () => {
+  assert.equal(typeof globalThis.DOMParser, 'undefined');
+  const extracted = WebBrowser.extractReadableTextFromHtml(`<!DOCTYPE html>
+    <TITLE>Caf&eacute; &amp; t&#233;</TITLE>
+    <meta name=description content="Gu&iacute;a r&aacute;pida">
+    <!-- <main>comentario</main> -->
+    <NAV><a href="/">Menú</a></NAV>
+    <div id="content">
+      <h1>Titular</h1>
+      <p>Primer p&aacute;rrafo<p>Segundo&nbsp;párrafo
+      <ul><li>Uno<li>Dos</ul>
+      <img src=/media/foto.jpg alt="Foto">
+      <img src="/pixel.gif" width=1 height=1>
+      <script>document.write("</div><p>inyectado</p>")</script>
+      <style>p { color: red }</style>
+      <form><input value="Buscar"> Enviar</form>
+      </span>
+    </div>
+    <footer>Pie</footer>`, 'https://example.com/a/b');
+
+  assert.match(extracted, /^\[Title: Café & té\]\n\[URL: https:\/\/example\.com\/a\/b\]\n\[Description: Guía rápida\]\n\[Images found on page: 1\]\n\n--- Page content ---\nTitular/);
+  for (const text of ['Primer párrafo', 'Segundo párrafo', 'Uno', 'Dos', '![Foto](https://example.com/media/foto.jpg)']) {
+    assert.ok(extracted.includes(text), text);
+  }
+  for (const text of ['Menú', 'comentario', 'inyectado', 'color: red', 'Enviar', 'Pie', 'pixel.gif']) {
+    assert.ok(!extracted.includes(text), text);
+  }
+});

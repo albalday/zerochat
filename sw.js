@@ -26,6 +26,7 @@ const PRECACHE_ASSETS = [
   './js/vendor/orama.browser.js',
   './js/utils.js',
   './js/vendor-loader.js',
+  './js/html-document.js',
   './js/defaults.js',
   './js/mcp-status.js',
   './js/i18n.js',

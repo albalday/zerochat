@@ -38,11 +38,11 @@
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'));
+    module.exports = factory(require('./utils.js'), require('./html-document.js'));
   } else {
-    root.ChatWebBrowser = factory(root.ChatUtils);
+    root.ChatWebBrowser = factory(root.ChatUtils, root.ChatHtmlDocument);
   }
-})(typeof self !== 'undefined' ? self : this, function (Utils) {
+})(typeof self !== 'undefined' ? self : this, function (Utils, HtmlDocument) {
   'use strict';
 
   const MAX_CONTENT_LENGTH = 60000;
@@ -282,11 +282,10 @@
 
 
   /**
-   * Extrae el texto legible y estructurado de un documento HTML con el DOMParser del navegador.
+   * Extrae el texto legible y estructurado de un documento HTML (ChatHtmlDocument: DOMParser del navegador o árbol ligero en Node.js).
    */
   function extractReadableTextFromHtml(htmlString, targetUrl) {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(htmlString, 'text/html');
+    const doc = HtmlDocument.parseHtml(htmlString);
 
     const elementsToRemove = doc.querySelectorAll('script, style, noscript, iframe, svg, canvas, nav, footer, form');
     elementsToRemove.forEach(el => el.remove());
