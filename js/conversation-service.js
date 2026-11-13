@@ -3,9 +3,10 @@
  * Coordina el ciclo de vida de las sesiones (crear, guardar, renombrar, borrar, cambiar de sesión,
  * bifurcar ramas / branching y persistir en State y Storage).
  *
- * Las opciones que recibe cada operación son los callbacks de presentación de app.js:
- * renderSessionMessages, renderSidebarChats, onSessionReset, resetComposerInput y
- * closeMobileSidebar. El servicio no toca el DOM.
+ * Las opciones que recibe cada operación son los callbacks de app.js: los de presentación
+ * (renderSessionMessages, renderSidebarChats, onSessionReset, onSessionSwitched, resetComposerInput
+ * y closeMobileSidebar) y los que leen la interfaz (isServerMode, getServerProfile y getProject).
+ * El servicio no toca el DOM.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -88,19 +89,31 @@
     return candidate.length > 35 ? `${candidate.substring(0, 32)}…` : candidate;
   }
 
+  /**
+   * Modo servidor y perfil de una sesión: los de `overrides` o, si no, los de la interfaz. En modo
+   * servidor sin perfil elegido conserva el de `base` (la sesión guardada o la de origen de una rama).
+   */
+  function resolveSessionMode(options, base, overrides = {}) {
+    const serverRun = overrides.serverRun !== undefined ? Boolean(overrides.serverRun) : options.isServerMode();
+    const activeProfile = getConfig().getActive()?.activeProfile;
+    const profileId = overrides.profileId || (serverRun
+      ? options.getServerProfile() || base?.profileId || 'local'
+      : activeProfile?.name || activeProfile?.id || base?.profileId || '');
+    return { serverRun, profileId };
+  }
+
   async function saveCurrentSession(options, overrides = {}) {
     const State = getState();
     const Storage = getStorage();
     const history = getHistory();
     const sessionId = getActiveSessionId();
-    const serverRuns = State.get('mcp')?.serverRuns;
-    if (Array.isArray(serverRuns) && serverRuns.some(run => run?.conversationId === sessionId && run.status === 'running')) {
+    if (State.get('mcp').serverRuns.some(run => run.conversationId === sessionId && run.status === 'running')) {
       options.renderSidebarChats();
       return;
     }
 
+    const existing = getSavedSessions().find(session => session.id === sessionId);
     if (!history.some(message => message.role === 'user')) {
-      const existing = getSavedSessions().find(session => session.id === sessionId);
       if (existing) {
         State.removeSession(sessionId);
         try {
@@ -114,25 +127,13 @@
     }
 
     const now = Date.now();
-    const existing = getSavedSessions().find(session => session.id === sessionId);
-    const activeProfile = getConfig().getActive()?.activeProfile;
-    const defaultProfileId = activeProfile?.name || activeProfile?.id || '';
-    const isServerRun = overrides.serverRun !== undefined
-      ? Boolean(overrides.serverRun)
-      : (typeof options.isServerMode === 'function' ? options.isServerMode() : Boolean(existing?.serverRun));
-    const currentServerProfile = typeof options.getServerProfile === 'function' ? options.getServerProfile() : '';
-    const resolvedProfileId = overrides.profileId
-      || (isServerRun ? (currentServerProfile || existing?.profileId || 'local') : defaultProfileId)
-      || existing?.profileId
-      || '';
     // El proyecto se fija al crear la conversación: la del directorio del servidor en ese momento.
-    const project = existing ? '' : (typeof options.getProject === 'function' ? options.getProject() : '');
+    const project = existing ? '' : options.getProject();
     const session = {
       ...(existing || { id: sessionId, title: '', createdAt: now, ...(project ? { project } : {}) }),
       updatedAt: now,
       messageCount: history.length,
-      profileId: resolvedProfileId,
-      serverRun: isServerRun
+      ...resolveSessionMode(options, existing, overrides)
     };
     if (!session.title) session.title = deriveTitle(history) || t('chat_untitled');
 
@@ -166,22 +167,11 @@
     getEngine().ensureConversationDate(history, conversation.createdAt);
 
     if (!await activateConversation(conversation.id, history, 'chat_switch_blocked_generating', options)) return false;
-    const existing = getSavedSessions().find(s => s.id === conversation.id);
-    const sessionMeta = {
-      ...(existing || {}),
-      id: conversation.id,
-      title: conversation.title || existing?.title || '',
-      createdAt: conversation.createdAt || existing?.createdAt || Date.now(),
-      updatedAt: conversation.updatedAt || existing?.updatedAt || Date.now(),
-      messageCount: history.length,
-      profileId: conversation.profileId || existing?.profileId || '',
-      ...(conversation.serverRun !== undefined ? { serverRun: conversation.serverRun } : {})
-    };
-    getState().saveSessionMetadata(sessionMeta);
+    // La cabecera leída se fusiona con la guardada en la lista.
+    const { history: _history, ...header } = conversation;
+    getState().saveSessionMetadata({ ...header, messageCount: history.length });
     showActiveSession(options, { resetComposer: false });
-    if (typeof options.onSessionSwitched === 'function') {
-      options.onSessionSwitched(conversation);
-    }
+    options.onSessionSwitched(conversation);
     return true;
   }
 
@@ -313,8 +303,7 @@
     const mode = await askBranchMode(history, boundary);
     if (!mode || await blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
 
-    const parentSessionId = getActiveSessionId();
-    const parentTitle = getSavedSessions().find(session => session.id === parentSessionId)?.title || t('chat_untitled');
+    const parentSession = getSavedSessions().find(session => session.id === getActiveSessionId());
     const branchSessionId = createId('session');
     const branchHistory = mode.summarize
       ? await buildSummarizedBranchHistory(history, boundary, branchSessionId, options.onSummarizing)
@@ -322,24 +311,13 @@
     if (!branchHistory) return false;
 
     const now = Date.now();
-    const parentSession = getSavedSessions().find(s => s.id === parentSessionId);
-    const isServerRun = typeof options.isServerMode === 'function'
-      ? options.isServerMode()
-      : Boolean(parentSession?.serverRun);
-    const activeProfile = getConfig().getActive()?.activeProfile;
-    const defaultProfileId = activeProfile?.name || activeProfile?.id || '';
-    const currentServerProfile = typeof options.getServerProfile === 'function' ? options.getServerProfile() : '';
-    const branchProfileId = isServerRun
-      ? (currentServerProfile || parentSession?.profileId || 'local')
-      : (defaultProfileId || parentSession?.profileId || '');
     const branchSession = {
       id: branchSessionId,
-      title: t('chat_branch_title', { title: parentTitle }),
+      title: t('chat_branch_title', { title: parentSession?.title || t('chat_untitled') }),
       createdAt: now,
       updatedAt: now,
       messageCount: branchHistory.length,
-      profileId: branchProfileId,
-      serverRun: isServerRun,
+      ...resolveSessionMode(options, parentSession),
       // La rama es del mismo proyecto que la conversación de la que sale.
       ...(parentSession?.project ? { project: parentSession.project } : {})
     };
@@ -360,9 +338,7 @@
     }
     getState().saveSessionMetadata(branchSession);
     showActiveSession(options, { resetComposer: true });
-    if (typeof options.onSessionSwitched === 'function') {
-      options.onSessionSwitched(branchSession);
-    }
+    options.onSessionSwitched(branchSession);
     return true;
   }
 
@@ -401,7 +377,7 @@
     const sessions = getSavedSessions();
     if (sessions.length === 0) return;
     if (await blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
-    const project = typeof options.getProject === 'function' ? options.getProject() : '';
+    const project = options.getProject();
     const projectCount = project ? sessions.filter(session => session.project === project).length : 0;
     let deleteAll = true;
     if (projectCount > 0) {

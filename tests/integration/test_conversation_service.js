@@ -14,6 +14,23 @@ const HISTORY = [
   { id: 'm5', role: 'assistant', content: 'asst 2' }
 ];
 
+/** Opciones completas de app.js con callbacks vacíos; `overrides` sustituye los que la prueba observa. */
+function appOptions(overrides = {}) {
+  return {
+    renderSessionMessages() {},
+    renderSidebarChats() {},
+    onSessionReset() {},
+    onSessionSwitched() {},
+    resetComposerInput() {},
+    closeMobileSidebar() {},
+    onSummarizing() {},
+    isServerMode: () => false,
+    getServerProfile: () => '',
+    getProject: () => '',
+    ...overrides
+  };
+}
+
 /**
  * Conversación activa; devuelve la referencia de la respuesta de anclaje y las opciones de app.js.
  * `summarizing` registra cada cambio del indicador de progreso del resumen.
@@ -23,14 +40,7 @@ async function setupBranch(t, history = HISTORY, anchorId = 'm5') {
   State.replaceConversation({ sessionId: 'parent_sess_1', sessions: [{ id: 'parent_sess_1', title: 'Parent Chat' }], messages: structuredClone(history) });
   const anchor = { msgId: anchorId, baseId: anchorId, explicitIds: [] };
   const summarizing = [];
-  const options = {
-    renderSessionMessages() {},
-    renderSidebarChats() {},
-    onSessionReset() {},
-    resetComposerInput() {},
-    closeMobileSidebar() {},
-    onSummarizing: active => summarizing.push(active)
-  };
+  const options = appOptions({ onSummarizing: active => summarizing.push(active) });
   return { anchor, options, summarizing };
 }
 
@@ -150,7 +160,7 @@ test('ConversationService - si el resumen falla ofrece bifurcar con el historial
 
 test('ConversationService - una sesión sin mensajes del usuario no se guarda', async t => {
   await setupBranch(t, [{ id: 'm1', role: 'system', content: 'sys' }]);
-  await ConversationService.saveCurrentSession({ renderSidebarChats() {} });
+  await ConversationService.saveCurrentSession(appOptions());
   assert.deepEqual(State.get('sessions').list, []);
   assert.equal(await Storage.getConversation('parent_sess_1'), null);
 });
@@ -167,10 +177,10 @@ test('ConversationService - loadSessionsFromStorage inicializa al arrancar, cons
   State.set('messages', []);
   let renderedMessages = 0;
   let renderedSidebar = 0;
-  const options = {
+  const options = appOptions({
     renderSessionMessages() { renderedMessages++; },
     renderSidebarChats() { renderedSidebar++; }
-  };
+  });
 
   await ConversationService.loadSessionsFromStorage(options);
   const initialActiveId = State.get('sessions').activeId;
@@ -231,7 +241,7 @@ test('ConversationService - saveCurrentSession no sobrescribe en almacenamiento 
   });
 
   let sidebarRendered = 0;
-  await ConversationService.saveCurrentSession({ renderSidebarChats() { sidebarRendered++; } });
+  await ConversationService.saveCurrentSession(appOptions({ renderSidebarChats() { sidebarRendered++; } }));
   assert.equal(sidebarRendered, 1);
 
   const stored = await Storage.getConversation('srv_running_1');
@@ -253,7 +263,7 @@ test('ConversationService - saveCurrentSession actualiza profileId con el perfil
   });
 
   Config.activateProfile('prof_deepseek');
-  await ConversationService.saveCurrentSession({ renderSidebarChats() {} });
+  await ConversationService.saveCurrentSession(appOptions());
 
   const sessionMeta = State.get('sessions').list.find(s => s.id === 'sess_profile_test');
   assert.equal(sessionMeta.profileId, 'deepseek');
@@ -265,10 +275,10 @@ test('ConversationService - saveCurrentSession actualiza profileId con el perfil
 test('ConversationService - saveCurrentSession asigna el proyecto al crear la conversación y no lo cambia después', async () => {
   await Storage.deleteAllConversations();
   State.replaceConversation({ sessionId: 'sess_project', sessions: [], messages: [{ id: 'u1', role: 'user', content: 'hola' }] });
-  await ConversationService.saveCurrentSession({ renderSidebarChats() {}, getProject: () => '/repo/a' });
+  await ConversationService.saveCurrentSession(appOptions({ getProject: () => '/repo/a' }));
   assert.equal(State.get('sessions').list.find(s => s.id === 'sess_project').project, '/repo/a');
 
-  await ConversationService.saveCurrentSession({ renderSidebarChats() {}, getProject: () => '/repo/b' });
+  await ConversationService.saveCurrentSession(appOptions({ getProject: () => '/repo/b' }));
   assert.equal(State.get('sessions').list.find(s => s.id === 'sess_project').project, '/repo/a');
   assert.equal((await Storage.getConversation('sess_project')).project, '/repo/a');
 });
@@ -304,7 +314,7 @@ test('ConversationService - saveCurrentSession con overrides persiste serverRun 
     messages: [{ id: 'u1', role: 'user', content: 'test server run' }]
   });
 
-  await ConversationService.saveCurrentSession({ renderSidebarChats() {} }, { serverRun: true, profileId: 'claude' });
+  await ConversationService.saveCurrentSession(appOptions(), { serverRun: true, profileId: 'claude' });
 
   const sessionMeta = State.get('sessions').list.find(s => s.id === 'sess_srv_run_1');
   assert.equal(sessionMeta.serverRun, true);
@@ -314,8 +324,8 @@ test('ConversationService - saveCurrentSession con overrides persiste serverRun 
   assert.equal(stored.serverRun, true);
   assert.equal(stored.profileId, 'claude');
 
-  // Guardar de nuevo sin overrides preserva serverRun y profileId de servidor
-  await ConversationService.saveCurrentSession({ renderSidebarChats() {} });
+  // Guardar de nuevo en modo servidor sin perfil elegido conserva el perfil guardado
+  await ConversationService.saveCurrentSession(appOptions({ isServerMode: () => true }));
   const updatedMeta = State.get('sessions').list.find(s => s.id === 'sess_srv_run_1');
   assert.equal(updatedMeta.serverRun, true);
   assert.equal(updatedMeta.profileId, 'claude');
@@ -340,14 +350,7 @@ test('ConversationService - switchToSession notifica onSessionSwitched con los m
   });
 
   let switchedConversation = null;
-  const options = {
-    renderSessionMessages() {},
-    renderSidebarChats() {},
-    onSessionReset() {},
-    resetComposerInput() {},
-    closeMobileSidebar() {},
-    onSessionSwitched: conv => { switchedConversation = conv; }
-  };
+  const options = appOptions({ onSessionSwitched: conv => { switchedConversation = conv; } });
 
   const switched = await ConversationService.switchToSession('sess_history_server', options);
   assert.equal(switched, true);
@@ -384,9 +387,7 @@ test('ConversationService - saveCurrentSession en un borrador vacío no altera a
   });
 
   let sidebarRendered = 0;
-  const options = {
-    renderSidebarChats() { sidebarRendered++; }
-  };
+  const options = appOptions({ renderSidebarChats() { sidebarRendered++; } });
 
   // Se invoca saveCurrentSession sobre el borrador vacío (ej: cambio de modo/perfil)
   await ConversationService.saveCurrentSession(options, { serverRun: true, profileId: 'local' });
@@ -419,17 +420,11 @@ test('ConversationService - createConversationBranch respeta el modo servidor y 
 
   const anchor = { msgId: 'm3', baseId: 'm3', explicitIds: [] };
   let switchedConversation = null;
-  const options = {
-    renderSessionMessages() {},
-    renderSidebarChats() {},
-    onSessionReset() {},
-    resetComposerInput() {},
-    closeMobileSidebar() {},
-    onSummarizing() {},
+  const options = appOptions({
     isServerMode: () => true,
     getServerProfile: () => 'deepseek-coder',
     onSessionSwitched: conv => { switchedConversation = conv; }
-  };
+  });
 
   const branched = await ConversationService.createConversationBranch(anchor, options);
   assert.equal(branched, true);
