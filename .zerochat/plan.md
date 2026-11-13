@@ -50,4 +50,4 @@ Done when: Las tareas del hito están hechas, probadas en el navegador y todos l
 - [x] M63-T20 AgentRuntime.execute dividido en paso de inferencia y cierre único; respuesta final y bucle detectado comparten rama (2026-11-13)
 - [x] M63-T21 El aviso de bucle lo redacta ChatEngine con i18n; AgentRuntime solo informa del estado loop_detected (2026-11-13)
 - [x] M63-T22 ToolExecutor parsea los argumentos una sola vez y separa el protocolo de autorización de la ejecución (2026-11-13)
-- [ ] M63-T23 Cada herramienta declara el texto de su evidencia visual; ChatEngine deja de listar nombres de herramientas
+- [x] M63-T23 Cada herramienta declara el texto de su evidencia visual; ChatEngine deja de listar nombres de herramientas (2026-11-13)

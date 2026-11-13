@@ -78,34 +78,29 @@ test('ChatEngine - no inventa turnos assistant para resultados de llamadas paral
   assert.deepEqual(tail[3].tool_calls.map(call => call.id), ['call_orphan']);
 });
 
-test('ChatEngine - adjunta una imagen RAG como evidencia multimodal tras su resultado', () => {
+test('ChatEngine - adjunta la imagen de un resultado como evidencia multimodal con su procedencia', () => {
   const messages = buildMessages([
     { role: 'assistant', content: null, tool_calls: [{ id: 'call_image', type: 'function', function: { name: 'read_knowledge_image', arguments: '{}' } }] },
-    { role: 'tool', tool_call_id: 'call_image', name: 'read_knowledge_image', content: 'Imagen recuperada.', images: [{ dataUrl: 'data:image/png;base64,AA==', imageRef: 'rag-image://doc_1:img_1', documentTitle: 'diagrama.md', page: 2 }] }
+    { role: 'tool', tool_call_id: 'call_image', name: 'read_knowledge_image', content: 'Imagen recuperada.', images: [{ dataUrl: 'data:image/png;base64,AA==', imageRef: 'rag-image://doc_1:img_1', documentTitle: 'diagrama.md', page: 2 }] },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'call_shot', type: 'function', function: { name: 'browser_action', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'call_shot', name: 'browser_action', content: '{}', images: [{ dataUrl: 'data:image/png;base64,BB==', url: 'https://example.com/' }] }
   ], {}, { enableTools: false });
 
-  const toolIndex = messages.findIndex(message => message.role === 'tool' && message.name === 'read_knowledge_image');
-  assert.ok(toolIndex >= 0);
-  const visual = messages[toolIndex + 1];
-  assert.equal(visual.role, 'user');
-  assert.equal(visual.content[1].type, 'image_url');
-  assert.equal(visual.content[1].image_url.url, 'data:image/png;base64,AA==');
-  assert.match(visual.content[0].text, /rag-image:\/\/doc_1:img_1/);
-});
-
-test('ChatEngine - adjunta una imagen web descargada como evidencia multimodal tras su resultado', () => {
-  const messages = buildMessages([
-    { role: 'assistant', content: null, tool_calls: [{ id: 'call_dl_img', type: 'function', function: { name: 'download_image', arguments: '{"url":"https://example.com/cat.png"}' } }] },
-    { role: 'tool', tool_call_id: 'call_dl_img', name: 'download_image', content: 'Image retrieved: https://example.com/cat.png', images: [{ dataUrl: 'data:image/png;base64,AA==', url: 'https://example.com/cat.png' }] }
-  ], {}, { enableTools: false });
-
-  const toolIndex = messages.findIndex(message => message.role === 'tool' && message.name === 'download_image');
-  assert.ok(toolIndex >= 0);
-  const visual = messages[toolIndex + 1];
-  assert.equal(visual.role, 'user');
-  assert.equal(visual.content[1].type, 'image_url');
-  assert.equal(visual.content[1].image_url.url, 'data:image/png;base64,AA==');
-  assert.match(visual.content[0].text, /https:\/\/example.com\/cat.png/);
+  const evidenceAfter = name => messages[messages.findIndex(message => message.role === 'tool' && message.name === name) + 1];
+  assert.deepEqual(evidenceAfter('read_knowledge_image'), {
+    role: 'user',
+    content: [
+      { type: 'text', text: 'Visual evidence returned by read_knowledge_image: rag-image://doc_1:img_1 · diagrama.md · page 2' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } }
+    ]
+  });
+  assert.deepEqual(evidenceAfter('browser_action'), {
+    role: 'user',
+    content: [
+      { type: 'text', text: 'Visual evidence returned by browser_action: https://example.com/' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,BB==' } }
+    ]
+  });
 });
 
 test('ChatEngine - getConversationDateAnchor genera el ancla con fecha y zona horaria', (t) => {

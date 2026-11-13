@@ -138,33 +138,17 @@
           content: toolContent
         });
 
-        // La imagen recuperada por RAG o por browser_action se entrega como evidencia visual en el
-        // siguiente turno de inferencia, sin convertirla en un mensaje visible
-        // ni en texto/base64 dentro del resultado de la herramienta.
+        // La imagen que acompaña al resultado de una herramienta (RAG, descarga o captura del
+        // navegador) se entrega como evidencia visual en el siguiente turno de inferencia, sin
+        // convertirla en un mensaje visible ni en base64 dentro del resultado.
         const image = Array.isArray(m.images) ? m.images.find(item => item?.dataUrl) : null;
-        if (toolName === 'read_knowledge_image' && image) {
-          const provenance = [image.imageRef, image.documentTitle, image.page ? `page ${image.page}` : '']
+        if (image) {
+          const provenance = [image.imageRef, image.documentTitle, image.page ? `page ${image.page}` : '', image.url]
             .filter(Boolean).join(' · ');
           messages.push({
             role: 'user',
             content: [
-              { type: 'text', text: `Visual evidence retrieved by read_knowledge_image${provenance ? `: ${provenance}` : '.'}` },
-              { type: 'image_url', image_url: { url: image.dataUrl } }
-            ]
-          });
-        } else if (toolName === 'download_image' && image) {
-          messages.push({
-            role: 'user',
-            content: [
-              { type: 'text', text: `Visual evidence downloaded by download_image${image.url ? `: ${image.url}` : '.'}` },
-              { type: 'image_url', image_url: { url: image.dataUrl } }
-            ]
-          });
-        } else if ((toolName === 'browser_action' || toolName.endsWith('browser_action')) && image) {
-          messages.push({
-            role: 'user',
-            content: [
-              { type: 'text', text: `Screenshot captured by ${toolName}${image.url ? ` (${image.url})` : ''}:` },
+              { type: 'text', text: `Visual evidence returned by ${toolName}${provenance ? `: ${provenance}` : '.'}` },
               { type: 'image_url', image_url: { url: image.dataUrl } }
             ]
           });
