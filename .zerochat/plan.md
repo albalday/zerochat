@@ -30,3 +30,7 @@ Goal: Corregir fallos pequeños detectados en el uso tras los últimos hitos y p
 Done when: Las tareas del hito están hechas, probadas en el navegador y todos los niveles de §4 pasan en verde.
 - [x] M63-T1 Editar un perfil de servidor sin cambiar nada deja cerrar el editor sin preguntar; Guardar en local sigue importándolo (2026-11-13)
 - [x] M63-T2 En móvil los botones de guardar del editor de perfiles muestran solo el icono para que la cabecera no se desborde (2026-11-13)
+- [ ] M63-T3 Cabecera de proyecto destacada en el historial (icono de carpeta, línea separadora, nombre en el color del texto y número de conversaciones) para distinguirla de los chats y de las cabeceras de fecha
+- [ ] M63-T4 Grupos de proyecto plegables en la vista "Todos": plegados por defecto salvo el de la conversación abierta; el estado plegado se recuerda por navegador (localStorage, tolerante a fallos) y se maneja con teclado (botón con aria-expanded)
+- [ ] M63-T5 La búsqueda del historial conserva las cabeceras de proyecto: muestra solo los grupos con coincidencias, desplegados mientras haya texto, y "Sin proyecto" al final
+- [ ] M63-T6 Límites del historial sin borrado: medir con 2000 conversaciones el coste de conversations/list, de la sincronización completa a IndexedDB al conectar y del pintado de la barra; proponer en docs/ los topes o la carga diferida necesarios y abrir sus tareas tras decidir con el usuario
