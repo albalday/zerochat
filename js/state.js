@@ -365,6 +365,16 @@
       return { ok: true, removedCount, messages: getState().messages };
     }
 
+    /** Copia del listado con `sessionMeta` fusionada en su sesión o, si no está, al principio. */
+    function upsertSession(sessionMeta) {
+      const list = clone(state.sessions.list);
+      const clonedMeta = clone(sessionMeta);
+      const idx = list.findIndex(s => s.id === sessionMeta.id);
+      if (idx >= 0) list[idx] = Object.assign({}, list[idx], clonedMeta);
+      else list.unshift(clonedMeta);
+      return { list, clonedMeta };
+    }
+
     /**
      * Guarda o actualiza los metadatos de una sesión en el listado de sesiones.
      */
@@ -372,14 +382,7 @@
       if (!sessionMeta || typeof sessionMeta !== 'object' || !sessionMeta.id) {
         throw new Error('[ChatState] saveSessionMetadata: a session object with a valid id is required.');
       }
-      const list = clone(state.sessions.list);
-      const idx = list.findIndex(s => s.id === sessionMeta.id);
-      const clonedMeta = clone(sessionMeta);
-      if (idx >= 0) {
-        list[idx] = Object.assign({}, list[idx], clonedMeta);
-      } else {
-        list.unshift(clonedMeta);
-      }
+      const { list, clonedMeta } = upsertSession(sessionMeta);
       setState({
         sessions: {
           activeId: state.sessions.activeId,
@@ -428,15 +431,7 @@
         return { ok: false, reason: 'invalid-history' };
       }
 
-      const list = clone(state.sessions.list);
-      const idx = list.findIndex(s => s.id === sessionMeta.id);
-      const clonedMeta = clone(sessionMeta);
-      if (idx >= 0) {
-        list[idx] = Object.assign({}, list[idx], clonedMeta);
-      } else {
-        list.unshift(clonedMeta);
-      }
-
+      const { list, clonedMeta } = upsertSession(sessionMeta);
       setState({
         sessions: { activeId: clonedMeta.id, list },
         messages: clone(history),

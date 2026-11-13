@@ -1,5 +1,5 @@
 /**
- * Barra lateral: lista de conversaciones agrupada por fecha, su menú de acciones y la navegación
+ * Barra lateral: lista de conversaciones agrupada por fecha o por proyecto, su menú de acciones y la navegación
  * de las secciones de ajustes.
  */
 (function (root, factory) {
@@ -187,7 +187,7 @@
    * Lista de conversaciones de la vista elegida, agrupada. Con texto en el buscador se filtra por título
    * y solo quedan las cabeceras de proyecto de los grupos con coincidencias, desplegados.
    */
-  function renderSidebarChats(elements, sessions, currentSessionId, serverRuns = [], project = '') {
+  function renderSidebarChats(elements, sessions, currentSessionId, serverRuns, project) {
     const filter = elements.sidebarSearchInput.value.toLowerCase().trim();
     const showAll = renderProjectFilter(elements.sidebarProjectFilter, project);
     const visible = groupSessions(sessions, project, showAll);
@@ -197,12 +197,7 @@
       elements.sidebarChatsList.innerHTML = `<div class="sidebar-no-chats">${escapeHtml(t(emptyKey))}</div>`;
       return;
     }
-    const runStatusMap = new Map();
-    if (Array.isArray(serverRuns)) {
-      serverRuns.forEach(run => {
-        if (run?.conversationId && run.status) runStatusMap.set(run.conversationId, run.status);
-      });
-    }
+    const runStatusMap = new Map(serverRuns.map(run => [run.conversationId, run.status]));
     const renderItem = session => renderChatItem(session, sessionDate(session), session.id === currentSessionId, runStatusMap.get(session.id) || null);
     const renderChats = (group, items) => {
       const shown = items.slice(0, groupLimits[group.key] || GROUP_PAGE_SIZE);
@@ -232,8 +227,8 @@
 
   /**
    * Conecta la barra. `callbacks` aporta las acciones de las conversaciones (onSwitchSession,
-   * onRenameSession, onDeleteSession, onExportSession, onNewSession, onSearchInput,
-   * onProjectFilterChange, onDeleteAllSessions), el repintado de la lista (renderList), los proyectos
+   * onRenameSession, onDeleteSession, onExportSession, onNewSession, onDeleteAllSessions), el
+   * repintado de la lista (renderList, también al buscar o cambiar el filtro de proyecto), los proyectos
    * plegados (loadProjectGroups, que devuelve las elecciones guardadas, y onProjectGroupsChange, que las
    * recibe para guardarlas) y la navegación de ajustes (onOpenSettingsMode, onBackToChats, onSelectSettingsSection).
    */
@@ -252,8 +247,8 @@
     listen(elements.sidebarBackdrop, 'click', () => closeSidebar(elements));
     listen(elements.btnCloseSidebarSettings, 'click', () => closeSidebar(elements));
     listen(elements.btnSidebarNewChat, 'click', () => callbacks.onNewSession());
-    listen(elements.sidebarSearchInput, 'input', () => callbacks.onSearchInput(elements.sidebarSearchInput.value));
-    listen(elements.sidebarProjectFilter, 'change', () => callbacks.onProjectFilterChange());
+    listen(elements.sidebarSearchInput, 'input', () => callbacks.renderList());
+    listen(elements.sidebarProjectFilter, 'change', () => callbacks.renderList());
     listen(elements.btnDeleteAllChats, 'click', () => callbacks.onDeleteAllSessions());
     listen(elements.btnOpenSettings, 'click', () => {
       setSidebarMode(elements, 'settings');

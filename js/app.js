@@ -335,8 +335,7 @@
   function isServerConversation(conversation) {
     if (!conversation) return false;
     if (conversation.serverRun) return true;
-    const mcpRuns = State.get('mcp')?.serverRuns;
-    return Array.isArray(mcpRuns) && mcpRuns.some(run => run?.conversationId === conversation.id);
+    return State.get('mcp').serverRuns.some(run => run.conversationId === conversation.id);
   }
 
   function applySessionModeAndProfile(conversation) {
@@ -845,8 +844,6 @@
       onDeleteSession: sessionId => ConversationService.deleteSession(sessionId, getConversationServiceOptions()),
       onExportSession: sessionId => UITransfer.openExportModal(sessionId),
       onNewSession: createNewSession,
-      onSearchInput: renderSidebarChats,
-      onProjectFilterChange: renderSidebarChats,
       renderList: renderSidebarChats,
       loadProjectGroups: () => {
         try {
@@ -1007,8 +1004,7 @@
     State.subscribe(
       state => state.mcp.serverRuns,
       serverRuns => {
-        const runs = Array.isArray(serverRuns) ? serverRuns : [];
-        const currentRunningIds = new Set(runs.filter(run => run.status === 'running').map(run => run.conversationId));
+        const currentRunningIds = new Set(serverRuns.filter(run => run.status === 'running').map(run => run.conversationId));
         const finishedIds = [...previousRunningIds].filter(id => !currentRunningIds.has(id));
         previousRunningIds = currentRunningIds;
 
@@ -1026,10 +1022,7 @@
             saveCurrent: false
           }).catch(error => console.warn('[App] Could not reload completed server conversation:', error));
         }
-        Storage.getConversationsList().then(sessions => {
-          State.set('sessions', { activeId: getCurrentSessionId(), list: sessions });
-          renderSidebarChats();
-        }).catch(error => console.warn('[App] Could not refresh conversations list:', error));
+        ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
       }
     );
 

@@ -14,7 +14,7 @@ test('Browser UI - el menú contextual de un chat es táctil y no activa la conv
     const activeSessionId = await page.evaluate(() => {
       ChatState.saveSessionMetadata({ id: 'chat-options', title: 'Opciones táctiles', updatedAt: Date.now() });
       const elements = { sidebarChatsList: document.getElementById('sidebar-chats-list'), sidebarSearchInput: document.getElementById('sidebar-search-input'), sidebarProjectFilter: document.getElementById('sidebar-project-filter') };
-      ChatUISidebar.renderSidebarChats(elements, ChatState.get('sessions').list.filter(session => session.id === 'chat-options'), '');
+      ChatUISidebar.renderSidebarChats(elements, ChatState.get('sessions').list.filter(session => session.id === 'chat-options'), '', [], '');
       return ChatState.get('sessions').activeId;
     });
     const trigger = page.locator('.btn-chat-menu');
@@ -291,7 +291,7 @@ test('Browser UI - sincroniza conversaciones locales y remotas al conectar desde
         sidebarChatsList: document.getElementById('sidebar-chats-list'),
         sidebarSearchInput: document.getElementById('sidebar-search-input'),
         sidebarProjectFilter: document.getElementById('sidebar-project-filter')
-      }, list, 'chat_local_1');
+      }, list, 'chat_local_1', [], '');
     });
 
     await page.waitForSelector('.sidebar-chat-item[data-session-id="chat_local_1"].active');
