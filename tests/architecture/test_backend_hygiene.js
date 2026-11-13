@@ -64,15 +64,15 @@ test('Backend Higiene - ningún archivo en py/ usa capturas genéricas silencios
 });
 
 test('Backend Higiene - paridad entre LOCAL_TOOLS_DEFINITIONS y LOCAL_TOOL_HANDLERS', () => {
-  const toolsSource = fs.readFileSync(path.join(PY_DIR, 'dd-tools.py'), 'utf8');
+  const toolsSource = fs.readFileSync(path.join(PY_DIR, 'tools', 'registry.py'), 'utf8');
   const defMatch = toolsSource.match(/LOCAL_TOOLS_DEFINITIONS\s*=\s*\[([\s\S]*?)\n\]/);
-  assert.ok(defMatch, 'LOCAL_TOOLS_DEFINITIONS debe existir en dd-tools.py');
+  assert.ok(defMatch, 'LOCAL_TOOLS_DEFINITIONS debe existir en tools/registry.py');
 
   const names = [...defMatch[1].matchAll(/"name":\s*"([^"]+)"/g)].map(m => m[1]);
   assert.ok(names.length >= 8, 'Deben existir herramientas locales definidas');
 
   const handlerMatch = toolsSource.match(/LOCAL_TOOL_HANDLERS\s*=\s*\{([\s\S]*?)\n\}/);
-  assert.ok(handlerMatch, 'LOCAL_TOOL_HANDLERS debe existir en dd-tools.py');
+  assert.ok(handlerMatch, 'LOCAL_TOOL_HANDLERS debe existir en tools/registry.py');
 
   const handlers = [...handlerMatch[1].matchAll(/"([^"]+)":/g)].map(m => m[1]);
   for (const name of names) {
