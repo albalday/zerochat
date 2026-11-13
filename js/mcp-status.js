@@ -11,8 +11,8 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  /** Los de service_status en py/ee-mcp.py; tests/fixtures/mcp/contract.json comprueba que coinciden. */
-  const SERVICE_STATUSES = Object.freeze(['stopped', 'installing', 'starting', 'running', 'error']);
+  // Estados de service_status en py/ee-mcp.py; tests/fixtures/mcp/contract.json (serviceStatuses) es la lista
+  // común que comprueban las pruebas de los dos lados.
 
   /** Arrancando: instala sus dependencias o espera el handshake (y la autorización OAuth). */
   const isBusy = status => status === 'installing' || status === 'starting';
@@ -23,5 +23,5 @@
   /** Detenido o caído; sin conexión (status null) no se puede arrancar. */
   const canStart = status => status === 'stopped' || status === 'error';
 
-  return Object.freeze({ SERVICE_STATUSES, isBusy, isRunning, isActive, canStart });
+  return Object.freeze({ isBusy, isRunning, isActive, canStart });
 });

@@ -49,7 +49,6 @@ export const GROUPS = {
     'tests/browser/browser_inspector.test.js'
   ],
   mcp: [
-    'tests/unit/test_mcp_status.js',
     'tests/unit/test_ui_mcp.js',
     'tests/integration/test_mcp.js',
     'tests/integration/test_mcp_tools.js',
@@ -150,12 +149,13 @@ export function resolveGroupFiles(groupName) {
   if (!GROUPS[normName]) {
     throw new Error(`Grupo desconocido: '${groupName}'. Grupos válidos: ${Object.keys(GROUPS).join(', ')}`);
   }
-  const expectedList = GROUPS[normName];
-  // Filtramos a archivos que existan en el sistema de archivos
-  const existingFiles = expectedList.filter(relPath => {
-    return fs.existsSync(path.resolve(ROOT_DIR, relPath));
-  });
-  return existingFiles.sort();
+  const files = GROUPS[normName];
+  // Un archivo que ya no existe es un grupo desactualizado: se avisa en vez de saltarlo en silencio.
+  const missing = files.filter(relPath => !fs.existsSync(path.resolve(ROOT_DIR, relPath)));
+  if (missing.length > 0) {
+    throw new Error(`El grupo '${normName}' nombra archivos que no existen: ${missing.join(', ')}`);
+  }
+  return [...files].sort();
 }
 
 /**
@@ -334,9 +334,6 @@ export async function run() {
     filesToRun = resolveGroupFiles(args.group);
   } else if (args.level && args.level !== 'all') {
     filesToRun = resolveLevelFiles(args.level);
-    if (filesToRun.length === 0 && args.level === 'browser' && fs.existsSync(path.resolve(ROOT_DIR, 'tests/test_browser_ui.js'))) {
-      filesToRun = ['tests/test_browser_ui.js'];
-    }
   } else {
     // Por defecto o --level=all
     filesToRun = resolveAllFiles();

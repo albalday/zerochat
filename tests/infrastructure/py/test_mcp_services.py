@@ -169,7 +169,7 @@ class ServiceStatusTest(unittest.TestCase):
         for record, alive, exit_code, expected in table:
             with self.subTest(phase=record.phase, alive=alive, exit_code=exit_code):
                 self.assertEqual(zerochat.service_status(record, alive, exit_code), expected)
-        # Los estados que lee js/mcp-status.js (tests/unit/test_mcp_status.js).
+        # Los estados que clasifica js/mcp-status.js (tests/unit/test_ui_mcp.js).
         self.assertEqual({expected[0] for *_, expected in table}, set(CONTRACT["serviceStatuses"]))
 
     def test_detener_o_cerrar_el_gestor_deja_el_servicio_detenido_y_sin_error(self):
