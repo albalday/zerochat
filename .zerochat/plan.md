@@ -45,3 +45,9 @@ Done when: Las tareas del hito están hechas, probadas en el navegador y todos l
 - [x] M63-T15 Storage sin hasBlob, con un único borrado local de conversaciones e hidratación de imágenes en un solo punto (2026-11-13)
 - [x] M63-T16 Sin servidor, una conversación cuya cabecera remota es más reciente que su copia local abre esa copia en vez de avisar de que no está descargada (2026-11-13)
 - [x] M63-T17 Upsert de sesiones compartido en ChatState, refresco de la lista tras una ejecución de servidor vía ConversationService y un único callback de repintado en la barra (2026-11-13)
+- [x] M63-T18 Las herramientas reciben un contexto explícito (signal y, solo las de categoría agent, la conexión del agente) en vez de todos los parámetros del bucle (2026-11-13)
+- [ ] M63-T19 AgentRuntime sin campos, opciones ni callbacks sin consumidor: awaitingUser, reasoningText, totalTimeMs, onDone, appendFinalMessage, toolExecutions como contador y argumentos sin uso
+- [ ] M63-T20 AgentRuntime.execute dividido en paso de inferencia y cierre único; respuesta final y bucle detectado comparten rama
+- [ ] M63-T21 El aviso de bucle lo redacta ChatEngine con i18n; AgentRuntime solo informa del estado loop_detected
+- [ ] M63-T22 ToolExecutor parsea los argumentos una sola vez y separa el protocolo de autorización de la ejecución
+- [ ] M63-T23 Cada herramienta declara el texto de su evidencia visual; ChatEngine deja de listar nombres de herramientas

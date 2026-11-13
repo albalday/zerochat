@@ -42,15 +42,17 @@ test('AgentRuntime - pause_for_user detiene el bucle y conserva assistant y tool
     execute: async () => ({ requiresAuthorization: true, challengeId: 'ch-p1' })
   }));
 
+  // Como la tarjeta de la herramienta en el chat, que pregunta al usuario.
+  const executor = new ToolExecutor(registry);
   const result = await runAgent(t, registry, {
+    dispatchToolCall: (toolCall, context) => executor.executeToolCall(toolCall, { ...context, requestToolAuthorization: async () => 'pause_for_user' }),
     api: {
       streamChatCompletion: async () => ({
         accumulatedText: 'Voy a ejecutar la herramienta.',
         toolCalls: [{ id: 'call_p1', function: { name: 'mcp_test_pause_action', arguments: '{}' } }]
       })
     },
-    messages: [{ role: 'user', content: 'Ejecuta.' }],
-    requestToolAuthorization: async () => 'pause_for_user'
+    messages: [{ role: 'user', content: 'Ejecuta.' }]
   });
 
   assert.equal(result.status, 'completed');
@@ -138,6 +140,35 @@ test('AgentRuntime - no reintenta una compactación fallida durante el mismo cic
 
   assert.equal(result.success, true);
   assert.equal(summaryCalls, 1);
+});
+
+test('AgentRuntime - la conexión del agente solo llega a las herramientas de categoría agent', async t => {
+  const registry = new ToolRegistry();
+  registry.unregisterProvider('builtin');
+  const seen = {};
+  const spy = (name, category) => makeTool({ name, category, execute: async (_args, context) => { seen[name] = context; return { success: true }; } });
+  registry.registerTool(spy('plain_tool', 'general'));
+  registry.registerTool(spy('mcp_tool', 'mcp'));
+  registry.registerTool(spy('spawning_tool', 'agent'));
+  const toolCalls = ['plain_tool', 'mcp_tool', 'spawning_tool'].map(name => ({ id: `call_${name}`, type: 'function', function: { name, arguments: '{}' } }));
+  let requests = 0;
+  const controller = new AbortController();
+
+  await runAgent(t, registry, {
+    api: { streamChatCompletion: async () => (++requests === 1 ? { accumulatedText: '', toolCalls } : { accumulatedText: 'Hecho', toolCalls: [] }) },
+    apiUrl: 'http://main/v1', apiKey: 'secret-key', model: 'main-model',
+    signal: controller.signal,
+    messages: [{ role: 'user', content: 'Conversación privada' }]
+  });
+
+  for (const name of ['plain_tool', 'mcp_tool']) {
+    assert.equal(seen[name].signal, controller.signal);
+    assert.equal(seen[name].agent, undefined);
+    assert.equal(JSON.stringify(seen[name]).includes('secret-key'), false, `${name} no recibe la API key`);
+    assert.equal(seen[name].messages, undefined, `${name} no recibe el historial`);
+  }
+  assert.equal(seen.spawning_tool.agent.apiKey, 'secret-key');
+  assert.equal(seen.spawning_tool.agent.model, 'main-model');
 });
 
 test('AgentRuntime - Tool call normal con resolución y respuesta final', async t => {

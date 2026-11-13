@@ -280,8 +280,11 @@
       try {
         if (context.signal?.aborted) throw new Error('Tool execution cancelled by the user.');
 
+        // La conexión del agente (con su API key) solo llega a las herramientas que lanzan otro agente.
+        const { agent, ...toolContext } = context;
+        if (tool.category === 'agent') toolContext.agent = agent;
         let result = await tool.execute(args, {
-          ...context,
+          ...toolContext,
           language: context.language || 'es',
           services: createToolServices()
         });
@@ -505,7 +508,7 @@
      * Ejecuta en orden las llamadas de un paso hasta que se cancele el turno. Devuelve los
      * resultados, los mensajes tool para el historial y el registro de ejecuciones.
      */
-    async executeToolBatch(toolCalls, { stepIndex, params, signal, dispatchToolCall, createMessageId, callbacks }) {
+    async executeToolBatch(toolCalls, { stepIndex, toolContext, signal, dispatchToolCall, createMessageId, callbacks }) {
       const results = [];
       const toolMessages = [];
       const executions = [];
@@ -515,10 +518,7 @@
         const toolFnName = call.function?.name || 'tool';
         callbacks.onToolStart?.(call, stepIndex);
 
-        const toolContext = { signal, ...params };
-        const execResult = dispatchToolCall
-          ? await dispatchToolCall(call, toolContext)
-          : await this.executor.executeToolCall(call, toolContext);
+        const execResult = await dispatchToolCall(call, toolContext);
         results.push(execResult);
 
         const { content, images } = toToolMessageContent(execResult);
@@ -566,7 +566,7 @@
         signal = null,
         prepareMessages = null,
         resolveToolDefinitions = null,
-        dispatchToolCall = null,
+        dispatchToolCall = (toolCall, context) => this.executor.executeToolCall(toolCall, context),
         summarizeHistory = null,
         contextOptions = {},
         createMessageId = kind => createId(`msg_${kind}`),
@@ -581,6 +581,15 @@
 
       // Sin signal externo se usa uno que nunca se aborta.
       const abortSignal = signal || new AbortController().signal;
+      // Contexto de cada herramienta. `agent` es lo que necesita la que lanza otro agente
+      // (delegate_task): conexión, contexto y despacho de este; ToolExecutor no lo entrega al resto.
+      const toolContext = {
+        signal: abortSignal,
+        agent: {
+          apiUrl, apiType, apiKey, model, temperature, reasoningEffort, contextOptions,
+          summarizeHistory, onBeforeRequest, prepareMessages, resolveToolDefinitions, dispatchToolCall
+        }
+      };
 
       let stepIndex = 0;
       let workingMessages = [...messages];
@@ -729,7 +738,7 @@
           }
 
           const batch = await this.executeToolBatch(stepToolCalls, {
-            stepIndex, params, signal: abortSignal, dispatchToolCall, createMessageId, callbacks
+            stepIndex, toolContext, signal: abortSignal, dispatchToolCall, createMessageId, callbacks
           });
           toolExecutions.push(...batch.executions);
 

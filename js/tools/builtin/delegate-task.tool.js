@@ -113,15 +113,16 @@
    * Un perfil existente que no se puede cargar es un error: no se sustituye en silencio por el principal.
    */
   async function resolveConnection(context) {
+    const { agent } = context;
     const inherited = {
-      apiUrl: context.apiUrl,
-      apiType: context.apiType,
-      apiKey: context.apiKey,
-      model: context.model,
-      temperature: context.temperature,
-      reasoningEffort: context.reasoningEffort,
-      contextOptions: context.contextOptions || {},
-      summarizeHistory: context.summarizeHistory || null
+      apiUrl: agent.apiUrl,
+      apiType: agent.apiType,
+      apiKey: agent.apiKey,
+      model: agent.model,
+      temperature: agent.temperature,
+      reasoningEffort: agent.reasoningEffort,
+      contextOptions: agent.contextOptions || {},
+      summarizeHistory: agent.summarizeHistory || null
     };
     let match;
     try {
@@ -161,7 +162,7 @@
       apiKey: connection.apiKey,
       model: connection.model,
       signal: context.signal || null,
-      onBeforeRequest: context.onBeforeRequest || null
+      onBeforeRequest: agent.onBeforeRequest || null
     });
     return connection;
   }
@@ -171,10 +172,10 @@
     if (normalized.error) return { success: false, error: normalized.error };
     const AgentCore = context.services.agent;
     const registry = AgentCore.registry;
+    // Conexión, contexto y despacho del agente que delega (ToolExecutor solo lo da a esta categoría).
+    const { agent } = context;
 
-    const activeDefinitions = context.resolveToolDefinitions
-      ? await context.resolveToolDefinitions({ stepIndex: 0, workingMessages: [] })
-      : [];
+    const activeDefinitions = await agent.resolveToolDefinitions({ stepIndex: 0, workingMessages: [] });
     const allowed = new Set();
     const tools = activeDefinitions.filter(toolDefinition => {
       const tool = registry.getTool(toolDefinition.function.name);
@@ -196,9 +197,7 @@
       if (!tool || !allowed.has(tool.name)) {
         return { success: false, toolName: name, error: `Tool '${name}' is not available to the subagent: it can only use the read-only tools it was given.` };
       }
-      return context.dispatchToolCall
-        ? context.dispatchToolCall(toolCall, { ...toolContext, cards: progress?.cards || null })
-        : AgentCore.executor.executeToolCall(toolCall, toolContext);
+      return agent.dispatchToolCall(toolCall, { ...toolContext, cards: progress?.cards || null });
     };
 
     const result = await AgentCore.runtime.execute({
@@ -211,10 +210,10 @@
       messages: [{ role: 'user', content: buildSubagentPrompt(normalized.task) }],
       signal: context.signal || null,
       // Mismo prompt de sistema y proyecto que el agente principal; la compactación usa su propia conexión.
-      prepareMessages: context.prepareMessages || null,
+      prepareMessages: agent.prepareMessages || null,
       contextOptions: connection.contextOptions,
       summarizeHistory: connection.summarizeHistory,
-      onBeforeRequest: context.onBeforeRequest || null,
+      onBeforeRequest: agent.onBeforeRequest || null,
       resolveToolDefinitions: () => tools,
       dispatchToolCall: dispatch,
       callbacks: {

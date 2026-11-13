@@ -56,7 +56,7 @@ function createHarness(executed) {
     engine: { createHistorySummarizer: () => async () => 'summary' }
   };
   const resolveToolDefinitions = () => registry.listTools().map(tool => tool.getDefinition());
-  return { registry, runtime, services, context: { services, resolveToolDefinitions } };
+  return { registry, runtime, services, context: { services, agent: { resolveToolDefinitions } } };
 }
 
 test('delegate_task - solo ofrece al subagente herramientas de lectura', async t => {
@@ -73,7 +73,7 @@ test('delegate_task - solo ofrece al subagente herramientas de lectura', async t
 
   const result = await delegateTask.execute({ task: 'Investigate' }, {
     services: { agent: { registry, executor: new ToolExecutor(registry), runtime: new AgentRuntime({ registry, executor: new ToolExecutor(registry) }) }, profiles: { list: () => [] } },
-    resolveToolDefinitions: () => registry.listTools().map(tool => tool.getDefinition())
+    agent: { resolveToolDefinitions: () => registry.listTools().map(tool => tool.getDefinition()) }
   });
 
   assert.equal(result.success, true);
@@ -190,8 +190,11 @@ test('delegate_task - un perfil «Subagente» da al subagente su propio modelo',
   stubApi(t, async params => { requests.push(params); return { accumulatedText: 'Informe', toolCalls: [] }; });
   const result = await delegateTask.execute({ task: 'Investigate' }, {
     ...context,
-    apiUrl: 'http://main/v1', apiType: 'anthropic', apiKey: 'main-key', model: 'main-model', temperature: '0.9',
-    contextOptions: { totalContextLimit: 200000, summarizerAddendum: 'addendum' }
+    agent: {
+      ...context.agent,
+      apiUrl: 'http://main/v1', apiType: 'anthropic', apiKey: 'main-key', model: 'main-model', temperature: '0.9',
+      contextOptions: { totalContextLimit: 200000, summarizerAddendum: 'addendum' }
+    }
   });
 
   assert.equal(result.success, true);
@@ -210,7 +213,7 @@ test('delegate_task - sin perfil «Subagente» usa el modelo principal; uno ileg
   const { services, context } = createHarness([]);
   const requests = [];
   stubApi(t, async params => { requests.push(params); return { accumulatedText: 'Informe', toolCalls: [] }; });
-  const mainContext = { ...context, apiUrl: 'http://main/v1', apiType: 'openai', apiKey: 'main-key', model: 'main-model' };
+  const mainContext = { ...context, agent: { ...context.agent, apiUrl: 'http://main/v1', apiType: 'openai', apiKey: 'main-key', model: 'main-model' } };
 
   services.profiles = { list: () => [{ id: 'profile:Main', name: 'Main', settings: {} }], loadUnlocked: async () => assert.fail('No debe cargar perfiles') };
   assert.equal((await delegateTask.execute({ task: 'Investigate' }, mainContext)).success, true);
