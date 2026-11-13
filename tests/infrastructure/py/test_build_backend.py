@@ -174,6 +174,6 @@ class BackendPackageTest(unittest.TestCase):
             "        importlib.import_module(f'{path.parent.name}.{path.stem}')\n"
         )
         env = {**os.environ, "HOME": str(home), "USERPROFILE": str(home), "ZEROCHAT_DATA_DIR": str(data)}
-        result = subprocess.run([sys.executable, "-I", "-c", script], env=env, capture_output=True, text=True, timeout=60)
+        result = subprocess.run([sys.executable, "-I", "-B", "-c", script], env=env, capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((list(home.iterdir()), list(data.iterdir())), ([], []))
