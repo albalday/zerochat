@@ -65,7 +65,7 @@ def list_directory(path: str = ".", recursive: bool = False, *, ctx: SecurityCon
                             }
                             if recursive:
                                 try:
-                                    entry_data["relative_path"] = str(Path(entry.path).relative_to(target))
+                                    entry_data["relative_path"] = Path(entry.path).relative_to(target).as_posix()
                                 except ValueError:
                                     entry_data["relative_path"] = entry.name
                             entries.append(entry_data)
@@ -283,7 +283,7 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
                         for line_idx, line in enumerate(f, 1):
                             if regex.search(line):
                                 try:
-                                    rel_path = str(fpath.relative_to(target))
+                                    rel_path = fpath.relative_to(target).as_posix()
                                 except ValueError:
                                     rel_path = str(fpath)
                                 matches.append({
@@ -336,7 +336,7 @@ def get_diagnostics(path: str | None = None, *, ctx: SecurityContext) -> str:
             ext = fpath.suffix.lower()
             file_diags: list[dict] = []
             try:
-                rel_display = str(fpath.relative_to(ctx.workspace_dir))
+                rel_display = fpath.relative_to(ctx.workspace_dir).as_posix()
             except ValueError:
                 rel_display = str(fpath)
 
