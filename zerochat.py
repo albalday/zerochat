@@ -35,8 +35,8 @@ import os
 import queue
 import re
 import secrets
-import shutil
 import shlex
+import shutil
 import signal
 import socket
 import sqlite3
@@ -49,12 +49,12 @@ import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
-from urllib.parse import urlencode
 import venv
 import webbrowser
 import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlencode
 
 SOURCE_BACKEND_VERSION = "10.14.0"
 
@@ -112,6 +112,7 @@ CONSOLE_STATUS_IDLE_SECONDS = 8.0
 CONSOLE_CONTROL = None
 NOTICES: list[str] = []
 NOTICES_LOCK = threading.Lock()
+
 class ConsoleControl:
     """Muestra una sola línea de ayuda tras un periodo de inactividad en consola."""
     def __init__(self, server: ThreadingHTTPServer, parser: argparse.ArgumentParser, launch_url=None):
@@ -427,6 +428,7 @@ def check_version():
     except (urllib.error.URLError, TimeoutError, OSError):
         # Modo offline o sin conectividad al comprobar versiones remotas.
         pass
+
 # ==============================================================================
 # Ejecución de comandos y tareas en segundo plano
 # ==============================================================================
@@ -1181,6 +1183,7 @@ def check_command(job_id: int, wait_seconds: int = 0, stop: bool = False, *, ctx
 def job_details(job: CommandJob) -> dict:
     """Estado del comando para su tarjeta en la interfaz, con el final de su salida."""
     return {**job.summary(), "tail": job.tail_text()}
+
 # Visores gráficos que `git difftool` ya sabe lanzar, en orden de preferencia, con el ejecutable que los delata.
 GUI_DIFF_TOOLS = {"vscode": "code", "meld": "meld", "kdiff3": "kdiff3", "kompare": "kompare", "gvimdiff": "gvim"}
 # Respaldo cuando no hay ninguno: visor web que se instala en el entorno aislado de ZeroChat.
@@ -1929,6 +1932,7 @@ def open_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = Fals
     if gui:
         return _open_gui_file_diff(path, ctx, commit_fallback)
     return generate_file_diff(path, ctx, commit_fallback, context_lines=context_lines)
+
 # ==============================================================================
 # Generated from services/ by scripts/build-managed-services.mjs. Do not edit.
 # ==============================================================================
@@ -1945,6 +1949,7 @@ def materialize_managed_services(services_root: Path | None = None) -> None:
         destination.write_text(content, encoding="utf-8")
         if relative_path.startswith("scripts/"):
             destination.chmod(0o755)
+
 # ==============================================================================
 # Motor de Control de Acceso y Seguridad de Herramientas (AccessController)
 # ==============================================================================
@@ -2917,6 +2922,7 @@ class AccessController:
 
 
 ACCESS_CONTROLLER = AccessController()
+
 # ==============================================================================
 # Herramientas Locales Core
 # ==============================================================================
@@ -3734,6 +3740,7 @@ LOCAL_TOOL_HANDLERS = {
     "get_diagnostics": get_diagnostics,
     "browser_action": browser_action
 }
+
 # Configuración del navegador de Playwright MCP (sección Navegador de Ajustes).
 # Modo propio: un motor de Playwright en memoria (--isolated), o con almacenamiento persistente con nombre
 # en ~/zerochat/playwright/profile/<motor>/<nombre>.
@@ -4117,6 +4124,7 @@ class BrowserEngines:
 
 
 BROWSER_ENGINES = BrowserEngines()
+
 # ==============================================================================
 # Identificación con el usuario y la contraseña del sistema (zerochat/login)
 # ==============================================================================
@@ -4261,6 +4269,7 @@ def login(params: dict) -> dict:
             raise LoginError(LOGIN_FAILED_CODE, "Usuario o contraseña incorrectos.")
         LOGIN_FAILURES = 0
     return {"token": current_session_token()}
+
 # ==============================================================================
 # Servidor HTTP JSON-RPC 2.0 y SSE con Autenticación por Token
 # ==============================================================================
@@ -4984,6 +4993,7 @@ class McpServiceManager:
 
 
 GLOBAL_MCP_MANAGER = McpServiceManager()
+
 # Persistencia local de zerochat.py con SQLite embebido para perfiles de conexión generales y conversaciones.
 _STORAGE_LOCK = threading.RLock()
 _INITIALIZED_DB: Path | None = None
@@ -5631,7 +5641,6 @@ def update_security_policy_data(mutator: typing.Callable[[dict | None], dict]) -
         except Exception:
             conn.execute("ROLLBACK;")
             raise
-
 
 DEFAULT_HEARTBEAT_TIMEOUT = 60.0
 DEFAULT_HEARTBEAT_GRACE = 45.0
@@ -6775,6 +6784,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # Silenciar logs ruidosos por defecto
         pass
+
 def is_termux_environment() -> bool:
     """Devuelve si el proceso se ejecuta dentro de la instalación de Termux."""
     termux_prefix = "/data/data/com.termux/files/usr"
@@ -7041,6 +7051,7 @@ def launch_playwright_chromium(url: str) -> subprocess.Popen | None:
     except OSError as error:
         log_event(f"No se pudo abrir {executable} de Playwright ({error}).")
         return None
+
 # ==============================================================================
 # Modo ejecución desatendida (zerochat.py --prompt)
 # ==============================================================================
@@ -8116,7 +8127,6 @@ def main():
 
     if RUN_SESSION:
         finish_run(headless_browser, result_out)
-
 
 if __name__ == "__main__":
     main()
