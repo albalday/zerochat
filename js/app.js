@@ -19,7 +19,6 @@
     ChatProfileRepository: Profiles,
     ChatProviders: Providers,
     ChatMCP: MCP,
-    ChatToolSecurity: ToolSecurity,
     ChatProjectContext: ProjectContext,
     ChatMessageTurns: MessageTurns,
     ChatConversationService: ConversationService,
@@ -41,7 +40,8 @@
     ChatUIConnection: UIConnection,
     ChatRagUI: RagUI,
     ChatRunMode: RunMode,
-    ChatBackendSession: BackendSession
+    ChatBackendSession: BackendSession,
+    ChatServerRun: ServerRun
   } = window;
   const { t } = I18n;
 
@@ -332,15 +332,9 @@
     UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId(), State.get('mcp').serverRuns, getServerCwd());
   }
 
-  function isServerConversation(conversation) {
-    if (!conversation) return false;
-    if (conversation.serverRun) return true;
-    return State.get('mcp').serverRuns.some(run => run.conversationId === conversation.id);
-  }
-
   function applySessionModeAndProfile(conversation) {
     if (!conversation) return;
-    const serverMode = isServerConversation(conversation) && isServerRunAvailable();
+    const serverMode = ServerRun.isServerConversation(conversation) && ServerRun.isAvailable();
     if (serverMode) {
       const profile = conversation.profileId || 'local';
       UIProfiles.setServerMode(true, profile);
@@ -365,16 +359,12 @@
     }
   }
 
-  function isServerRunAvailable() {
-    return State.get('mcp').status === 'connected';
-  }
-
   function isServerRunEnabled() {
-    return isServerRunAvailable() && UIProfiles.isServerMode();
+    return ServerRun.isAvailable() && UIProfiles.isServerMode();
   }
 
   function syncServerRunControl() {
-    if (!isServerRunAvailable()) {
+    if (!ServerRun.isAvailable()) {
       if (UIProfiles.isServerMode()) UIProfiles.setServerMode(false);
       return;
     }
@@ -383,35 +373,22 @@
     if (session) applySessionModeAndProfile(session);
   }
 
-  function getActiveServerRun() {
-    const activeId = getCurrentSessionId();
-    return (State.get('mcp').serverRuns || []).find(
-      run => run.conversationId === activeId && (run.status === 'running' || run.status === 'error')
-    ) || null;
-  }
-
-  function isActiveSessionRunningOnServer() {
-    const activeId = getCurrentSessionId();
-    return (State.get('mcp').serverRuns || []).some(run => run.conversationId === activeId && run.status === 'running');
-  }
-
   function syncLiveServerRun() {
     UIConversation.renderLiveServerRun(
       elements.messagesList,
       elements.welcomeBanner,
-      getActiveServerRun(),
+      ServerRun.getActiveRun(),
       State.get('mcp').focusRun
     );
   }
 
   function syncComposerBusyControls() {
-    const busy = State.get('streaming').isGenerating || isActiveSessionRunningOnServer();
-    UIComposer.syncGenerationControls(elements, busy);
+    UIComposer.syncGenerationControls(elements, ServerRun.isComposerBusy());
   }
 
   function handleStopCurrentGeneration() {
-    if (isActiveSessionRunningOnServer()) {
-      MCP.manager.cancelServerRun(getCurrentSessionId()).catch(error => console.warn('[App] Could not cancel server run:', error));
+    if (ServerRun.isActiveSessionRunning()) {
+      ServerRun.cancelActive().catch(error => console.warn('[App] Could not cancel server run:', error));
       return;
     }
     GenerationController.handleStopGeneration();
@@ -426,7 +403,7 @@
   }
 
   async function handleHistoricalToolAuthorization(decision, { toolName }) {
-    if (isBusy() || isActiveSessionRunningOnServer()) return;
+    if (isBusy() || ServerRun.isActiveSessionRunning()) return;
     const decisionType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;
     if (decisionType === 'deny') {
       const updated = getChatHistory().map(msg => {
@@ -481,12 +458,10 @@
       saveCurrentSession,
       runOnServer,
       getServerRunProfile: () => UIProfiles.getSelectedServerProfile(),
-      startServerRun: ({ conversationId, profile }) => MCP.manager.startServerRun({
+      startServerRun: ({ conversationId, profile }) => ServerRun.start({
         conversationId,
         profile: profile || UIProfiles.getSelectedServerProfile(),
-        toolSecurity: sendOptions.toolDecision
-          ? { ...ToolSecurity.manager.snapshot(), tool_decision: sendOptions.toolDecision }
-          : ToolSecurity.manager.snapshot()
+        toolDecision: sendOptions.toolDecision
       }),
       ...sendOptions
     });
@@ -685,7 +660,7 @@
   function syncAskUserCards() {
     const messages = getChatHistory();
     const last = messages[messages.length - 1];
-    const pending = last?.role === 'tool' && last.name === 'ask_user' && !isBusy() && !isActiveSessionRunningOnServer();
+    const pending = last?.role === 'tool' && last.name === 'ask_user' && !isBusy() && !ServerRun.isActiveSessionRunning();
     const cards = [...elements.messagesList.querySelectorAll('.ask-user-card')];
     cards.forEach((card, index) => {
       const active = pending && index === cards.length - 1;
@@ -695,7 +670,7 @@
   }
 
   async function handleAskUserOption(button) {
-    if (button.disabled || isBusy() || isActiveSessionRunningOnServer()) return;
+    if (button.disabled || isBusy() || ServerRun.isActiveSessionRunning()) return;
     const label = button.getAttribute('data-ask-option');
     if (!label) return;
     // Lo que el usuario ya hubiera escrito acompaña a la opción como aclaración.
@@ -989,9 +964,7 @@
     State.subscribe(state => state.sessions.activeId, () => {
       syncComposerBusyControls();
       syncLiveServerRun();
-      if (MCP.manager.isProxyConnected() && (State.get('mcp').serverRuns || []).length > 0) {
-        MCP.manager.readLiveState().catch(() => {});
-      }
+      ServerRun.refreshLiveState().catch(() => {});
     });
     syncComposerBusyControls();
 
@@ -1000,13 +973,10 @@
 
     State.subscribe(state => state.mcp.focusRun, syncLiveServerRun);
 
-    let previousRunningIds = new Set();
     State.subscribe(
       state => state.mcp.serverRuns,
-      serverRuns => {
-        const currentRunningIds = new Set(serverRuns.filter(run => run.status === 'running').map(run => run.conversationId));
-        const finishedIds = [...previousRunningIds].filter(id => !currentRunningIds.has(id));
-        previousRunningIds = currentRunningIds;
+      (serverRuns, previousRuns) => {
+        const finishedIds = ServerRun.finishedRunIds(previousRuns, serverRuns);
 
         renderSidebarChats();
         syncComposerBusyControls();

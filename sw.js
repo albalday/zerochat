@@ -99,6 +99,7 @@ const PRECACHE_ASSETS = [
   './js/conversation-service.js',
   './js/ui-conversation.js',
   './js/generation-controller.js',
+  './js/server-run.js',
   './js/run-mode.js',
   './js/app.js'
 ];
