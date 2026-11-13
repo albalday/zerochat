@@ -243,6 +243,7 @@ test('Storage Backend - sincroniza conversaciones locales y remotas en getConver
     }]
   ]);
   const backendCalls = [];
+  let refuseDelete = false;
 
   t.mock.method(MCP.manager, 'isProxyConnected', () => connected);
   t.mock.method(MCP.manager, 'requestExternalControl', async (method, params) => {
@@ -267,6 +268,7 @@ test('Storage Backend - sincroniza conversaciones locales y remotas en getConver
       return { renamed: Boolean(existing) };
     }
     if (method === 'zerochat/conversations/delete') {
+      if (refuseDelete) throw new Error('Run in progress');
       if (params.all) backendStore.clear();
       else if (params.project) backendStore.forEach((record, id) => { if (record.project === params.project) backendStore.delete(id); });
       else backendStore.delete(params.id);
@@ -326,6 +328,14 @@ test('Storage Backend - sincroniza conversaciones locales y remotas en getConver
   assert.equal(backendCalls.pop().method, 'zerochat/conversations/rename');
   assert.equal((await Storage.getConversation('dual_conv')).title, 'Nuevo Titulo');
 
+  // Si el servidor rechaza el borrado, la copia local se conserva
+  refuseDelete = true;
+  await assert.rejects(Storage.deleteConversation('dual_conv'), /Run in progress/);
+  connected = false;
+  assert.ok(await Storage.getConversation('dual_conv'));
+  connected = true;
+  refuseDelete = false;
+
   await Storage.deleteConversation('dual_conv');
   assert.equal(backendCalls.pop().method, 'zerochat/conversations/delete');
   assert.equal(await Storage.getConversation('dual_conv'), null);
@@ -347,6 +357,24 @@ test('Storage Backend - sincroniza conversaciones locales y remotas en getConver
   await assert.rejects(Storage.getConversationsList(), /Backend network error/);
   await assert.rejects(Storage.getConversation('l_conv'), /Backend network error/);
   await assert.rejects(Storage.saveConversation({ id: 'err_conv', title: 'Err' }, []), /Backend network error/);
+});
+
+test('Storage IndexedDB - borrar conversaciones borra los blobs que solo ellas usaban', async () => {
+  const image = text => ({ name: `${text}.png`, mimeType: 'image/png', dataUrl: `data:image/png;base64,${Buffer.from(text).toString('base64')}` });
+  const blobIds = async id => (await Storage.getConversation(id)).history[0].images.map(img => img.blobId);
+  await Storage.deleteAllConversations();
+  await Storage.saveConversation({ id: 'blob_a', title: 'A' }, [{ id: 'm1', role: 'user', content: 'a', images: [image('propia'), image('compartida')] }]);
+  await Storage.saveConversation({ id: 'blob_b', title: 'B' }, [{ id: 'm1', role: 'user', content: 'b', images: [image('compartida')] }]);
+  const [own, shared] = await blobIds('blob_a');
+  const loose = (await Storage.saveBlob({ dataUrl: image('suelta').dataUrl, mimeType: 'image/png' })).id;
+
+  await Storage.deleteConversation('blob_a');
+  assert.equal(await Storage.getBlob(own), null);
+  assert.ok(await Storage.getBlob(shared));
+
+  await Storage.deleteAllConversations();
+  assert.equal(await Storage.getBlob(shared), null);
+  assert.ok(await Storage.getBlob(loose), 'Un blob que ninguna conversación referenciaba no se toca');
 });
 
 test('Storage IndexedDB - gestión y deduplicación de blobs desacoplados', async () => {
