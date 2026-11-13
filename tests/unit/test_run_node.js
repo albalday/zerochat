@@ -165,7 +165,7 @@ test('RunNode - ChatCommandCard está registrado en globalThis y parseResult ext
   assert.equal(globalThis.ChatCommandCard.isFailure({ status: 'exited', exitCode: 0 }), false);
 });
 
-test('RunNode - switchToSession y submitComposerText preservan serverRun, profileId y extra', async t => {
+test('RunNode - switchToSession y submitComposerText preservan serverRun y profileId', async t => {
   let capturedOptions = null;
   t.mock.method(MCP.manager, 'connectProxy', async () => ({ success: true }));
   t.mock.method(ToolSecurity.manager, 'setSessionToken', () => {});
@@ -192,8 +192,7 @@ test('RunNode - switchToSession y submitComposerText preservan serverRun, profil
           createdAt: 1000,
           updatedAt: 2000,
           profileId: 'perfil_remoto',
-          serverRun: true,
-          extra: { server_run: true, profile_id: 'perfil_remoto' }
+          serverRun: true
         }
       };
     }
@@ -209,7 +208,6 @@ test('RunNode - switchToSession y submitComposerText preservan serverRun, profil
   assert.ok(sessionEntry);
   assert.equal(sessionEntry.serverRun, true);
   assert.equal(sessionEntry.profileId, 'perfil_remoto');
-  assert.equal(sessionEntry.extra?.server_run, true);
 
   t.mock.method(Engine, 'executeAgentTurnLoop', async () => {
     return {
@@ -223,7 +221,6 @@ test('RunNode - switchToSession y submitComposerText preservan serverRun, profil
   assert.equal(savedPayload.conversation.id, 'conv_server_preserve');
   assert.equal(savedPayload.conversation.serverRun, true);
   assert.equal(savedPayload.conversation.profileId, 'perfil_remoto');
-  assert.equal(savedPayload.conversation.extra?.server_run, true);
 });
 
 

@@ -334,7 +334,7 @@
 
   function isServerConversation(conversation) {
     if (!conversation) return false;
-    if (conversation.serverRun || conversation.extra?.server_run) return true;
+    if (conversation.serverRun) return true;
     const mcpRuns = State.get('mcp')?.serverRuns;
     return Array.isArray(mcpRuns) && mcpRuns.some(run => run?.conversationId === conversation.id);
   }
@@ -343,7 +343,7 @@
     if (!conversation) return;
     const serverMode = isServerConversation(conversation) && isServerRunAvailable();
     if (serverMode) {
-      const profile = conversation.profileId || conversation.extra?.profile_id || 'local';
+      const profile = conversation.profileId || 'local';
       UIProfiles.setServerMode(true, profile);
     } else {
       UIProfiles.setServerMode(false);

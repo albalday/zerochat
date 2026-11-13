@@ -371,12 +371,7 @@
             updatedAt: Date.now(),
             messageCount: loopResult.chatHistory.length,
             profileId: activeProfileId,
-            serverRun: isServerRun,
-            extra: {
-              ...(currentMeta.extra || {}),
-              server_run: isServerRun,
-              ...(activeProfileId ? { profile_id: activeProfileId } : {})
-            }
+            serverRun: isServerRun
           };
           await conversationStore.saveConversation(sessionMeta, loopResult.chatHistory);
         }
@@ -404,24 +399,15 @@
     const switchToSession = async sessionId => {
       const conversation = await conversationStore.getConversation(sessionId);
       if (!conversation) throw new Error(`Conversation not found: ${sessionId}`);
-      const messages = conversation.messages || conversation.history || [];
+      const messages = conversation.history || [];
       const currentList = State.get('sessions')?.list || [];
-      const isServerRun = conversation.serverRun !== undefined
-        ? Boolean(conversation.serverRun)
-        : (conversation.extra?.server_run !== undefined ? Boolean(conversation.extra.server_run) : true);
-      const profileId = conversation.profileId || conversation.extra?.profile_id || null;
       const sessionEntry = {
         id: sessionId,
         title: conversation.title || 'Conversation',
         createdAt: conversation.createdAt || Date.now(),
         updatedAt: conversation.updatedAt || Date.now(),
-        profileId,
-        serverRun: isServerRun,
-        extra: {
-          ...(conversation.extra || {}),
-          server_run: isServerRun,
-          ...(profileId ? { profile_id: profileId } : {})
-        }
+        profileId: conversation.profileId || null,
+        serverRun: conversation.serverRun !== undefined ? Boolean(conversation.serverRun) : true
       };
       const updatedList = currentList.some(s => s.id === sessionId)
         ? currentList.map(s => (s.id === sessionId ? { ...s, ...sessionEntry } : s))

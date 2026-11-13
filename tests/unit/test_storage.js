@@ -164,21 +164,18 @@ test('Storage IndexedDB - preserva íntegros turnos del asistente, herramientas,
       id: sessionId,
       title: 'Chat con perfil',
       profileId: 'deepseek',
-      serverRun: true,
-      extra: { cron: { enabled: true } }
+      serverRun: true
     };
     await Storage.saveConversation(sessionMeta, [{ id: 'u1', role: 'user', content: 'test' }]);
     const loaded = await Storage.getConversation(sessionId);
     assert.equal(loaded.profileId, 'deepseek');
     assert.equal(loaded.serverRun, true);
-    assert.deepEqual(loaded.extra, { cron: { enabled: true } });
 
     const list = await Storage.getConversationsList();
     const item = list.find(c => c.id === sessionId);
     assert.ok(item);
     assert.equal(item.profileId, 'deepseek');
     assert.equal(item.serverRun, true);
-    assert.deepEqual(item.extra, { cron: { enabled: true } });
   }
 });
 

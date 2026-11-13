@@ -5236,16 +5236,13 @@ def _row_to_conversation_header(row: sqlite3.Row) -> dict:
         "updatedAt": row["updated_at"],
         "messageCount": row["message_count"]
     }
-    raw_extra = row["extra_json"]
-    extra = json.loads(raw_extra) if raw_extra else {}
-    if extra:
-        header["extra"] = extra
-        if "profile_id" in extra:
-            header["profileId"] = extra["profile_id"]
-        if "server_run" in extra:
-            header["serverRun"] = bool(extra["server_run"])
-        if extra.get("project"):
-            header["project"] = extra["project"]
+    extra = json.loads(row["extra_json"]) if row["extra_json"] else {}
+    if "profile_id" in extra:
+        header["profileId"] = extra["profile_id"]
+    if "server_run" in extra:
+        header["serverRun"] = bool(extra["server_run"])
+    if extra.get("project"):
+        header["project"] = extra["project"]
     return header
 
 
@@ -5299,11 +5296,8 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
     created_at = int(session_meta.get("createdAt") or now)
     updated_at = int(session_meta.get("updatedAt") or now)
 
-    extra = session_meta.get("extra")
-    if not isinstance(extra, dict):
-        extra = {}
-    else:
-        extra = dict(extra)
+    # extra_json guarda el perfil, el modo servidor y el proyecto; la cabecera los expone como campos propios.
+    extra = {}
     profile_id = session_meta.get("profileId")
     if profile_id and isinstance(profile_id, str) and profile_id.strip():
         extra["profile_id"] = profile_id.strip()
@@ -5324,12 +5318,10 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
             if not title and existing["title"]:
                 title = existing["title"]
             existing_extra = json.loads(existing["extra_json"]) if existing["extra_json"] else {}
-            merged_extra = dict(existing_extra)
-            merged_extra.update(extra)
+            extra = {**existing_extra, **extra}
             # El proyecto se fija al crear la conversación y no cambia después.
             if existing_extra.get("project"):
-                merged_extra["project"] = existing_extra["project"]
-            extra = merged_extra
+                extra["project"] = existing_extra["project"]
 
         extra_json = json.dumps(extra, ensure_ascii=False) if extra else "{}"
 

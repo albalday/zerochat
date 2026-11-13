@@ -397,8 +397,7 @@ class StorageEngineTest(unittest.TestCase):
             "createdAt": 1700000000000,
             "updatedAt": 1700000001000,
             "profileId": "deepseek",
-            "serverRun": True,
-            "extra": {"cron": {"enabled": True}, "tags": ["prod"]}
+            "serverRun": True
         }
         messages = [
             {"id": "system_root", "role": "system", "content": "Prompt del sistema"},
@@ -411,8 +410,6 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(saved["messageCount"], 3)
         self.assertEqual(saved["profileId"], "deepseek")
         self.assertEqual(saved["serverRun"], True)
-        self.assertEqual(saved["extra"]["cron"], {"enabled": True})
-        self.assertEqual(saved["extra"]["tags"], ["prod"])
 
         retrieved = zerochat.get_conversation("session_test_123")
         self.assertIsNotNone(retrieved)
@@ -420,7 +417,6 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(retrieved["title"], "Conversación de prueba")
         self.assertEqual(retrieved["profileId"], "deepseek")
         self.assertEqual(retrieved["serverRun"], True)
-        self.assertEqual(retrieved["extra"]["cron"], {"enabled": True})
         self.assertEqual(len(retrieved["history"]), 3)
         self.assertEqual(retrieved["history"][0]["id"], "system_root")
         self.assertEqual(retrieved["history"][1]["content"], "¿Cómo estás?")
@@ -450,7 +446,7 @@ class StorageEngineTest(unittest.TestCase):
         renamed = zerochat.get_conversation("session_test_123")
         self.assertEqual(renamed["title"], "Título Renombrado")
 
-        # Actualizar mensajes de una conversación existente con metadatos mínimos preserva profileId, serverRun y extra
+        # Actualizar mensajes de una conversación existente con metadatos mínimos preserva profileId y serverRun
         new_messages = [
             {"id": "msg_1", "role": "user", "content": "¿Cómo estás?"},
             {"id": "msg_2", "role": "assistant", "content": "¡Bien!"},
@@ -461,22 +457,20 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(updated["title"], "Título Renombrado")
         self.assertEqual(updated["profileId"], "deepseek")
         self.assertEqual(updated["serverRun"], True)
-        self.assertEqual(updated["extra"]["cron"], {"enabled": True})
         self.assertEqual(len(zerochat.get_conversation("session_test_123")["history"]), 3)
 
         # El proyecto se fija la primera vez y no cambia al guardar desde otro proyecto
         with_project = zerochat.save_conversation({"id": "session_test_123", "project": "/repo/a"}, new_messages)
         self.assertEqual(with_project["project"], "/repo/a")
-        moved = zerochat.save_conversation({"id": "session_test_123", "project": "/repo/b", "extra": {"project": "/repo/b"}}, new_messages)
+        moved = zerochat.save_conversation({"id": "session_test_123", "project": "/repo/b"}, new_messages)
         self.assertEqual(moved["project"], "/repo/a")
         with self.assertRaises(ValueError):
             zerochat.save_conversation({"id": "session_test_123", "project": ["/repo"]}, new_messages)
 
-        # Desactivar explícitamente serverRun lo actualiza sin borrar profileId ni extra
+        # Desactivar explícitamente serverRun lo actualiza sin borrar profileId
         toggled = zerochat.save_conversation({"id": "session_test_123", "serverRun": False}, new_messages)
         self.assertEqual(toggled["serverRun"], False)
         self.assertEqual(toggled["profileId"], "deepseek")
-        self.assertEqual(toggled["extra"]["cron"], {"enabled": True})
 
         # Borrar conversación y verificar borrado en cascada en la tabla messages
         with zerochat.open_storage() as conn:
