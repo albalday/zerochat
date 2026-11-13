@@ -872,6 +872,14 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                         except (ValueError, OSError):
                             pass
                     return {"deleted": True, "count": delete_all_conversations()}, None, ""
+                if "project" in params:
+                    deleted_ids = delete_project_conversations(params.get("project"))
+                    for deleted_id in deleted_ids:
+                        try:
+                            cancel_server_run(deleted_id)
+                        except (ValueError, OSError):
+                            pass
+                    return {"deleted": True, "count": len(deleted_ids)}, None, ""
                 conv_id = params.get("id")
                 if isinstance(conv_id, str) and conv_id.strip():
                     try:

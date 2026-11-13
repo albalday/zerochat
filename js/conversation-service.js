@@ -16,7 +16,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils, I18n, MessageTurns) {
   'use strict';
 
-  const { resolveDep, createId, clone } = Utils;
+  const { resolveDep, createId, clone, projectName } = Utils;
   const { t } = I18n;
 
   const getState = () => resolveDep('ChatState', './state.js');
@@ -396,21 +396,40 @@
     }
   }
 
+  /**
+   * Borra el historial. Con un proyecto abierto que tiene conversaciones pregunta por las suyas, con
+   * una casilla para borrar todas; sin proyecto, pregunta por todas.
+   */
   async function deleteAllSessions(options) {
-    if (getSavedSessions().length === 0) return;
+    const sessions = getSavedSessions();
+    if (sessions.length === 0) return;
     if (await blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
-    if (!await getDialogs().confirm(t('chat_delete_all_confirm'))) return;
+    const project = typeof options.getProject === 'function' ? options.getProject() : '';
+    const projectCount = project ? sessions.filter(session => session.project === project).length : 0;
+    let deleteAll = true;
+    if (projectCount > 0) {
+      const answer = await getDialogs().confirm(t('chat_delete_project_confirm', { name: projectName(project), count: projectCount }), { checkbox: t('chat_delete_all_checkbox') });
+      if (!answer.accepted) return;
+      deleteAll = answer.checkboxChecked;
+    } else if (!await getDialogs().confirm(t('chat_delete_all_confirm'))) {
+      return;
+    }
     if (await blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
 
     try {
-      await getStorage().deleteAllConversations();
+      if (deleteAll) await getStorage().deleteAllConversations();
+      else await getStorage().deleteProjectConversations(project);
     } catch (error) {
-      console.warn('[ConversationService] Could not delete all conversations:', error);
+      console.warn('[ConversationService] Could not delete conversations:', error);
       await getDialogs().alert(t('chat_delete_history_err'), { type: 'error' });
       return;
     }
-    getState().set('sessions', { activeId: null, list: [] });
-    await createNewSession({ ...options, saveCurrent: false });
+    const activeId = getActiveSessionId();
+    const list = deleteAll ? [] : getSavedSessions().filter(session => session.project !== project);
+    const keepActive = list.some(session => session.id === activeId);
+    getState().set('sessions', { activeId: keepActive ? activeId : null, list });
+    if (keepActive) options.renderSidebarChats();
+    else await createNewSession({ ...options, saveCurrent: false });
   }
 
   async function renameSession(sessionId, options) {

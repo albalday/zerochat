@@ -86,6 +86,12 @@
     return url.origin;
   }
 
+  /** Nombre de la carpeta de un proyecto ('/home/yo/app/' -> 'app'). */
+  function projectName(path) {
+    const parts = String(path || '').split(/[\\/]+/).filter(Boolean);
+    return parts[parts.length - 1] || String(path || '');
+  }
+
   /** Parámetros del fragmento de arranque (`#clave=valor&...`). */
   function readLaunchFragment(hash) {
     return new URLSearchParams(String(hash || '').replace(/^#/, ''));
@@ -505,6 +511,7 @@
     SAFE_IMAGE_MIME_TYPES,
     EPHEMERAL_ID_PATTERN,
     readLaunchFragment,
+    projectName,
     normalizeBackendUrl,
     openImageInNewTab,
     isPreviewable,

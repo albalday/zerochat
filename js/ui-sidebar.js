@@ -11,7 +11,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
-  const { escapeHtml } = Utils;
+  const { escapeHtml, projectName } = Utils;
   const { t } = I18n;
 
   const GROUP_LABEL_KEYS = {
@@ -116,8 +116,6 @@
       </div>`;
   }
 
-  /** Nombre de la carpeta de un proyecto ('/home/yo/app' -> 'app'). */
-  const projectName = path => String(path).replace(/[\\/]+$/, '').split(/[\\/]/).pop() || String(path);
 
   const sessionDate = session => new Date(session.updatedAt || session.createdAt || Date.now());
 

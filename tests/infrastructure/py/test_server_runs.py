@@ -510,11 +510,21 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         }), encoding="utf-8")
 
         zerochat.save_conversation({"id": "conv_del_1", "title": "Del 1"}, [])
-        zerochat.save_conversation({"id": "conv_del_2", "title": "Del 2"}, [])
+        zerochat.save_conversation({"id": "conv_del_2", "title": "Del 2", "project": "/repo/b"}, [])
+        zerochat.save_conversation({"id": "conv_del_3", "title": "Del 3", "project": "/repo/c"}, [])
 
         zerochat.ZeroChatServerHandler._dispatch_conversations("zerochat/conversations/delete", {"id": "conv_del_1"})
         self.assertFalse(state_path1.exists())
         self.assertTrue(state_path2.exists())
+
+        # Por proyecto: solo sus conversaciones y sus ejecuciones.
+        result, error, _ = zerochat.ZeroChatServerHandler._dispatch_conversations("zerochat/conversations/delete", {"project": "/repo/c"})
+        self.assertIsNone(error)
+        self.assertEqual(result["count"], 1)
+        self.assertTrue(state_path2.exists())
+        self.assertEqual([c["id"] for c in zerochat.list_conversations()], ["conv_del_2"])
+        _, error, _ = zerochat.ZeroChatServerHandler._dispatch_conversations("zerochat/conversations/delete", {"project": "  "})
+        self.assertEqual(error["code"], -32602)
 
         zerochat.ZeroChatServerHandler._dispatch_conversations("zerochat/conversations/delete", {"all": True})
         self.assertFalse(state_path2.exists())

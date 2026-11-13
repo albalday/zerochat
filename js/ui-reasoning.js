@@ -5,7 +5,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
-  const { escapeHtml } = Utils;
+  const { escapeHtml, projectName } = Utils;
   const { t } = I18n;
 
   const INTENSITY_LEVELS = Object.freeze(['none', 'low', 'medium', 'high', 'xhigh']);
@@ -76,11 +76,6 @@
   }
 
   const shortenHomePath = path => String(path || '').replace(HOME_PREFIX, '~');
-
-  function projectName(cwd) {
-    const parts = String(cwd || '').split(/[\\/]+/).filter(Boolean);
-    return parts[parts.length - 1] || String(cwd || '');
-  }
 
   /** Acciones disponibles para cada estado del modo proyecto (initialize y compact solo si se puede escribir). */
   function getProjectActions(project, { canInitialize = false, canCompact = false } = {}) {

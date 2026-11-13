@@ -273,6 +273,29 @@ test('ConversationService - saveCurrentSession asigna el proyecto al crear la co
   assert.equal((await Storage.getConversation('sess_project')).project, '/repo/a');
 });
 
+test('ConversationService - borrar el historial con un proyecto abierto borra las suyas y, con la casilla, todas', async t => {
+  // setupBranch vacía el almacenamiento y da las opciones de app.js.
+  const options = { ...(await setupBranch(t)).options, getProject: () => '/repo/a' };
+  const sessions = [{ id: 'del_a', title: 'A', project: '/repo/a' }, { id: 'del_b', title: 'B', project: '/repo/b' }, { id: 'del_n', title: 'N' }];
+  for (const session of sessions) await Storage.saveConversation(session, [{ id: `${session.id}_m`, role: 'user', content: 'hola' }]);
+  State.replaceConversation({ sessionId: 'del_b', sessions, messages: [{ id: 'del_b_m', role: 'user', content: 'hola' }] });
+  const { confirms } = useDialogs(t, [{ accepted: false }, { accepted: true, checkboxChecked: false }, { accepted: true, checkboxChecked: true }]);
+  const storedIds = async () => (await Storage.getConversationsList()).map(session => session.id).sort();
+
+  await ConversationService.deleteAllSessions(options);
+  assert.deepEqual(await storedIds(), ['del_a', 'del_b', 'del_n'], 'Cancelar no borra nada');
+  assert.match(confirms[0].message, /1 conversaciones del proyecto a\b/);
+  assert.ok(confirms[0].opts.checkbox, 'Ofrece borrar todo con una casilla');
+
+  await ConversationService.deleteAllSessions(options);
+  assert.deepEqual(await storedIds(), ['del_b', 'del_n']);
+  assert.deepEqual(State.get('sessions').list.map(session => session.id), ['del_b', 'del_n']);
+  assert.equal(State.get('sessions').activeId, 'del_b', 'La conversación abierta de otro proyecto sigue abierta');
+
+  await ConversationService.deleteAllSessions({ ...options, getProject: () => '/repo/b' });
+  assert.deepEqual(await storedIds(), []);
+});
+
 test('ConversationService - saveCurrentSession con overrides persiste serverRun y profileId y se preservan', async t => {
   await Storage.deleteAllConversations();
   State.replaceConversation({

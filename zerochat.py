@@ -5409,6 +5409,21 @@ def delete_conversation(session_id: str) -> bool:
         return cursor.rowcount > 0
 
 
+def delete_project_conversations(project: str) -> list[str]:
+    """Elimina las conversaciones de un proyecto con sus mensajes y devuelve sus identificadores."""
+    if not isinstance(project, str) or not project.strip() or len(project) > MAX_PATH_LENGTH:
+        raise ValueError("El proyecto de las conversaciones debe ser una ruta")
+    with open_storage() as conn:
+        rows = conn.execute(
+            "SELECT id FROM conversations WHERE json_extract(extra_json, '$.project') = ?;",
+            (project.strip(),)
+        ).fetchall()
+        ids = [row["id"] for row in rows]
+        conn.executemany("DELETE FROM conversations WHERE id = ?;", [(conv_id,) for conv_id in ids])
+        conn.commit()
+        return ids
+
+
 def delete_all_conversations() -> int:
     """Elimina todas las conversaciones y sus mensajes en cascada."""
     with open_storage() as conn:
@@ -6410,6 +6425,14 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                         except (ValueError, OSError):
                             pass
                     return {"deleted": True, "count": delete_all_conversations()}, None, ""
+                if "project" in params:
+                    deleted_ids = delete_project_conversations(params.get("project"))
+                    for deleted_id in deleted_ids:
+                        try:
+                            cancel_server_run(deleted_id)
+                        except (ValueError, OSError):
+                            pass
+                    return {"deleted": True, "count": len(deleted_ids)}, None, ""
                 conv_id = params.get("id")
                 if isinstance(conv_id, str) and conv_id.strip():
                     try:

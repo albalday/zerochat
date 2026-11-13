@@ -464,6 +464,23 @@
     return true;
   }
 
+  /** Borra las conversaciones de un proyecto, en este navegador y en el servidor si está conectado. */
+  async function deleteProjectConversations(project) {
+    const ids = (await readLocalConversationsList()).filter(item => item.project === project).map(item => item.id);
+    await attempt('delete the project conversations', async db => {
+      const tx = db.transaction([STORES.conversations, STORES.messages], 'readwrite');
+      for (const id of ids) {
+        tx.objectStore(STORES.conversations).delete(id);
+        await deleteByIndex(tx.objectStore(STORES.messages), 'by_conversation', conversationRange(id));
+      }
+      await transactionDone(tx);
+    });
+    if (isBackendConnected()) {
+      await requestBackend('zerochat/conversations/delete', { project });
+    }
+    return true;
+  }
+
   async function renameConversation(sessionId, newTitle) {
     if (!sessionId || !newTitle) return false;
     const title = newTitle.trim();
@@ -575,6 +592,7 @@
     saveConversation,
     deleteConversation,
     deleteAllConversations,
+    deleteProjectConversations,
     renameConversation,
     saveBlob,
     getBlob,

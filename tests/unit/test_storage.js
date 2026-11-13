@@ -272,6 +272,7 @@ test('Storage Backend - sincroniza conversaciones locales y remotas en getConver
     }
     if (method === 'zerochat/conversations/delete') {
       if (params.all) backendStore.clear();
+      else if (params.project) backendStore.forEach((record, id) => { if (record.project === params.project) backendStore.delete(id); });
       else backendStore.delete(params.id);
       return { deleted: true };
     }
@@ -319,6 +320,13 @@ test('Storage Backend - sincroniza conversaciones locales y remotas en getConver
 
   await Storage.deleteAllConversations();
   assert.deepEqual(backendCalls.pop(), { method: 'zerochat/conversations/delete', params: { all: true } });
+
+  await Storage.saveConversation({ id: 'proj_x', title: 'X', project: '/repo/x' }, []);
+  await Storage.saveConversation({ id: 'proj_y', title: 'Y', project: '/repo/y' }, []);
+  await Storage.deleteProjectConversations('/repo/x');
+  assert.deepEqual(backendCalls.pop(), { method: 'zerochat/conversations/delete', params: { project: '/repo/x' } });
+  assert.equal(await Storage.getConversation('proj_x'), null);
+  assert.ok(await Storage.getConversation('proj_y'));
 
   // 3. Sin fallbacks silenciosos: un fallo del servidor conectado se propaga al llamador
   t.mock.method(MCP.manager, 'requestExternalControl', async () => {
