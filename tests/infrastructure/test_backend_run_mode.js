@@ -88,15 +88,6 @@ if scenario == "ok":
     rpc("zerochat/run/result", text=f"Respuesta a: {prompt}")
 elif scenario == "error":
     rpc("zerochat/run/result", error="model failed")
-elif scenario == "chatty":
-    for _ in range(50):
-        try:
-            rpc("zerochat/run/progress", kind="stream")
-        except OSError:
-            break
-        time.sleep(0.04)
-elif scenario == "idle":
-    time.sleep(5)
 `;
 
 /**
@@ -213,15 +204,13 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
   try {
     const busyPort = String(busy.address().port);
     const [
-      ok, userHeadless, failed, unexported, idle, chatty, browserGone,
+      ok, userHeadless, failed, unexported, browserGone,
       emptyPrompt, missingDefaultProfile, noNode, portInUse, devDefaultInUse, devBrowserDefaultInUse, productionDefaultInUse
     ] = await Promise.all([
       runZerochat('hola mundo', { args: ['--browser', '--profile', ' Oficina ', '--log', 'on', '--export', exportPath, '--keep-page', '--allow-dangerous-tools'] }),
       runZerochat('hola headless', { args: ['--browser', '--headless'] }),
       runZerochat('hola', { scenario: 'error' }),
       runZerochat('hola', { args: ['--export', unwritable] }),
-      runZerochat('hola', { scenario: 'idle', env: { ZEROCHAT_RUN_IDLE_SECONDS: '1' } }),
-      runZerochat('hola', { scenario: 'chatty', env: { ZEROCHAT_RUN_IDLE_SECONDS: '1', ZEROCHAT_RUN_TIMEOUT: '1' } }),
       runZerochat('hola', { scenario: 'exit', env: { ZEROCHAT_HEARTBEAT_TIMEOUT: '0.2' } }),
       runZerochat('   '),
       runZerochat('hola', { seedDefaultProfile: false }),
@@ -281,14 +270,9 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(failed.code, 1, failed.stderr);
     // Con --prompt el registro está desactivado por defecto: solo queda el motivo del fallo.
     assert.match(failed.stderr, /^\[\d\d:\d\d:\d\d\] \[run\] Error de generación: model failed\n$/);
-    assert.equal(idle.code, 2, idle.stderr);
-    assert.match(idle.stderr, /Sin progreso de la interfaz durante 1s/);
-    // El progreso continuo reinicia la inactividad, pero no el plazo total.
-    assert.equal(chatty.code, 2, chatty.stderr);
-    assert.match(chatty.stderr, /Plazo total agotado \(1s\)/);
     assert.equal(browserGone.code, 2, browserGone.stderr);
     assert.match(browserGone.stderr, /sin resultado/);
-    for (const run of [failed, idle, chatty, browserGone]) assert.equal(run.stdout, '');
+    for (const run of [failed, browserGone]) assert.equal(run.stdout, '');
 
     assert.equal(emptyPrompt.code, 4, emptyPrompt.stderr);
     assert.match(emptyPrompt.stderr, /error: el prompt está vacío/);

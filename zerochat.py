@@ -6973,9 +6973,9 @@ def launch_playwright_chromium(url: str) -> subprocess.Popen | None:
 # El servidor arranca y abre el navegador como siempre, con run=<id> en el fragmento: la interfaz
 # pide el prompt, informa del progreso y devuelve el resultado por JSON-RPC zerochat/run/*.
 
-# Plazo total y sin progreso de la interfaz; las variables de entorno solo las usan las pruebas.
-RUN_TOTAL_TIMEOUT = float(os.environ.get("ZEROCHAT_RUN_TIMEOUT", "900"))
-RUN_IDLE_SECONDS = float(os.environ.get("ZEROCHAT_RUN_IDLE_SECONDS", "180"))
+# Plazo total y sin progreso de la interfaz.
+RUN_TOTAL_TIMEOUT = 900.0
+RUN_IDLE_SECONDS = 180.0
 RUN_POLL_SECONDS = 0.2
 RUN_PROGRESS_TEXT_MAX = 500
 RUN_STREAM_TEXT_MAX = 8000
