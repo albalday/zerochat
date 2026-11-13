@@ -8,7 +8,6 @@
   'use strict';
 
   const {
-    ChatUtils: Utils,
     ChatStorage: Storage,
     ChatI18n: I18n,
     ChatDebug: Debug,
@@ -20,7 +19,6 @@
     ChatProfileRepository: Profiles,
     ChatProviders: Providers,
     ChatMCP: MCP,
-    ChatToolSecurity: ToolSecurity,
     ChatProjectContext: ProjectContext,
     ChatMessageTurns: MessageTurns,
     ChatConversationService: ConversationService,
@@ -41,7 +39,9 @@
     ChatUIBrowser: UIBrowser,
     ChatUIConnection: UIConnection,
     ChatRagUI: RagUI,
-    ChatRunMode: RunMode
+    ChatRunMode: RunMode,
+    ChatBackendSession: BackendSession,
+    ChatServerRun: ServerRun
   } = window;
   const { t } = I18n;
 
@@ -332,15 +332,9 @@
     UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId(), State.get('mcp').serverRuns, getServerCwd());
   }
 
-  function isServerConversation(conversation) {
-    if (!conversation) return false;
-    if (conversation.serverRun) return true;
-    return State.get('mcp').serverRuns.some(run => run.conversationId === conversation.id);
-  }
-
   function applySessionModeAndProfile(conversation) {
     if (!conversation) return;
-    const serverMode = isServerConversation(conversation) && isServerRunAvailable();
+    const serverMode = ServerRun.isServerConversation(conversation) && ServerRun.isAvailable();
     if (serverMode) {
       const profile = conversation.profileId || 'local';
       UIProfiles.setServerMode(true, profile);
@@ -365,16 +359,12 @@
     }
   }
 
-  function isServerRunAvailable() {
-    return State.get('mcp').status === 'connected';
-  }
-
   function isServerRunEnabled() {
-    return isServerRunAvailable() && UIProfiles.isServerMode();
+    return ServerRun.isAvailable() && UIProfiles.isServerMode();
   }
 
   function syncServerRunControl() {
-    if (!isServerRunAvailable()) {
+    if (!ServerRun.isAvailable()) {
       if (UIProfiles.isServerMode()) UIProfiles.setServerMode(false);
       return;
     }
@@ -383,35 +373,22 @@
     if (session) applySessionModeAndProfile(session);
   }
 
-  function getActiveServerRun() {
-    const activeId = getCurrentSessionId();
-    return (State.get('mcp').serverRuns || []).find(
-      run => run.conversationId === activeId && (run.status === 'running' || run.status === 'error')
-    ) || null;
-  }
-
-  function isActiveSessionRunningOnServer() {
-    const activeId = getCurrentSessionId();
-    return (State.get('mcp').serverRuns || []).some(run => run.conversationId === activeId && run.status === 'running');
-  }
-
   function syncLiveServerRun() {
     UIConversation.renderLiveServerRun(
       elements.messagesList,
       elements.welcomeBanner,
-      getActiveServerRun(),
+      ServerRun.getActiveRun(),
       State.get('mcp').focusRun
     );
   }
 
   function syncComposerBusyControls() {
-    const busy = State.get('streaming').isGenerating || isActiveSessionRunningOnServer();
-    UIComposer.syncGenerationControls(elements, busy);
+    UIComposer.syncGenerationControls(elements, ServerRun.isComposerBusy());
   }
 
   function handleStopCurrentGeneration() {
-    if (isActiveSessionRunningOnServer()) {
-      MCP.manager.cancelServerRun(getCurrentSessionId()).catch(error => console.warn('[App] Could not cancel server run:', error));
+    if (ServerRun.isActiveSessionRunning()) {
+      ServerRun.cancelActive().catch(error => console.warn('[App] Could not cancel server run:', error));
       return;
     }
     GenerationController.handleStopGeneration();
@@ -426,7 +403,7 @@
   }
 
   async function handleHistoricalToolAuthorization(decision, { toolName }) {
-    if (isBusy() || isActiveSessionRunningOnServer()) return;
+    if (isBusy() || ServerRun.isActiveSessionRunning()) return;
     const decisionType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;
     if (decisionType === 'deny') {
       const updated = getChatHistory().map(msg => {
@@ -481,12 +458,10 @@
       saveCurrentSession,
       runOnServer,
       getServerRunProfile: () => UIProfiles.getSelectedServerProfile(),
-      startServerRun: ({ conversationId, profile }) => MCP.manager.startServerRun({
+      startServerRun: ({ conversationId, profile }) => ServerRun.start({
         conversationId,
         profile: profile || UIProfiles.getSelectedServerProfile(),
-        toolSecurity: sendOptions.toolDecision
-          ? { ...ToolSecurity.manager.snapshot(), tool_decision: sendOptions.toolDecision }
-          : ToolSecurity.manager.snapshot()
+        toolDecision: sendOptions.toolDecision
       }),
       ...sendOptions
     });
@@ -685,7 +660,7 @@
   function syncAskUserCards() {
     const messages = getChatHistory();
     const last = messages[messages.length - 1];
-    const pending = last?.role === 'tool' && last.name === 'ask_user' && !isBusy() && !isActiveSessionRunningOnServer();
+    const pending = last?.role === 'tool' && last.name === 'ask_user' && !isBusy() && !ServerRun.isActiveSessionRunning();
     const cards = [...elements.messagesList.querySelectorAll('.ask-user-card')];
     cards.forEach((card, index) => {
       const active = pending && index === cards.length - 1;
@@ -695,7 +670,7 @@
   }
 
   async function handleAskUserOption(button) {
-    if (button.disabled || isBusy() || isActiveSessionRunningOnServer()) return;
+    if (button.disabled || isBusy() || ServerRun.isActiveSessionRunning()) return;
     const label = button.getAttribute('data-ask-option');
     if (!label) return;
     // Lo que el usuario ya hubiera escrito acompaña a la opción como aclaración.
@@ -989,9 +964,7 @@
     State.subscribe(state => state.sessions.activeId, () => {
       syncComposerBusyControls();
       syncLiveServerRun();
-      if (MCP.manager.isProxyConnected() && (State.get('mcp').serverRuns || []).length > 0) {
-        MCP.manager.readLiveState().catch(() => {});
-      }
+      ServerRun.refreshLiveState().catch(() => {});
     });
     syncComposerBusyControls();
 
@@ -1000,13 +973,10 @@
 
     State.subscribe(state => state.mcp.focusRun, syncLiveServerRun);
 
-    let previousRunningIds = new Set();
     State.subscribe(
       state => state.mcp.serverRuns,
-      serverRuns => {
-        const currentRunningIds = new Set(serverRuns.filter(run => run.status === 'running').map(run => run.conversationId));
-        const finishedIds = [...previousRunningIds].filter(id => !currentRunningIds.has(id));
-        previousRunningIds = currentRunningIds;
+      (serverRuns, previousRuns) => {
+        const finishedIds = ServerRun.finishedRunIds(previousRuns, serverRuns);
 
         renderSidebarChats();
         syncComposerBusyControls();
@@ -1070,88 +1040,9 @@
   // Conexión con el servidor local
   // ==========================================================================
 
-  // El fragmento se usa exclusivamente para el primer arranque desde zerochat.py.
-  // Después la sesión se resuelve mediante una cookie del mismo origen.
-  let runBackendSession = null;
-
-  function persistBackendSessionFromLaunchFragment() {
-    const hashParams = Utils.readLaunchFragment(location.hash);
-    const token = hashParams.get('token');
-    if (!token) return;
-    // zerochat.py abre la página con un servidor de este equipo: el fragmento no admite otro.
-    const host = hashParams.get('host');
-    const port = Number(hashParams.get('port'));
-    const local = ['127.0.0.1', 'localhost'].includes(host) && Number.isInteger(port) && port > 0 && port < 65536;
-    const session = local ? Storage.normalizeBackendSession({ token, url: `http://${host}:${port}` }) : null;
-    // El servidor de --prompt puede estar en otro puerto y termina con la ejecución: su conexión
-    // queda en esta página y la cookie sigue apuntando las demás pestañas al servidor normal.
-    if (hashParams.has('run')) {
-      runBackendSession = session;
-    } else if (session && !Storage.setBackendSession(session)) {
-      console.warn('[App] Could not persist the initial backend session.');
-    }
-    history.replaceState(null, '', location.pathname + location.search);
-  }
-
-  /** Destino de la conexión configurada: el servidor local por defecto o el remoto, con la clave del proxy si lo usa. */
-  function configuredTarget() {
-    const config = getRuntimeConfig();
-    if (config.localBackend) return { url: Defaults.LOCAL_BACKEND_URL, proxyKey: null };
-    return { url: config.backendUrl, proxyKey: config.useProxy ? config.proxyKey : null };
-  }
-
-  /** Clave del proxy para `url`: solo si es la URL configurada y usa el proxy; si no, null. */
-  function proxyKeyFor(url) {
-    const target = configuredTarget();
-    return url === target.url ? target.proxyKey : null;
-  }
-
-  /** Guarda la sesión: en la pestaña de una ejecución solo en memoria, para no pisar la cookie de las demás. */
-  function saveBackendSession(session) {
-    if (runBackendSession) runBackendSession = session;
-    else if (!Storage.setBackendSession(session)) console.warn('[App] Could not persist the backend session.');
-  }
-
-  /** Conecta con el destino configurado, con el token de la sesión si es de esa URL; un 401 pide identificarse. */
-  async function connectConfiguredBackend() {
-    const target = configuredTarget();
-    const session = Storage.getBackendSession();
-    const token = session?.url === target.url ? session.token : null;
-    MCP.manager.setSessionToken(token);
-    if (token) ToolSecurity.manager.setSessionToken(token);
-    const result = await MCP.manager.connectProxy({ ...target, token });
-    await ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
-    return result;
-  }
-
-  /** Se identifica en el destino de la conexión, guarda el token diario en la sesión y conecta con él. */
-  async function loginBackend(user, password) {
-    const { url, proxyKey } = MCP.manager.target;
-    const token = await MCP.manager.login(user, password);
-    saveBackendSession({ token, url });
-    ToolSecurity.manager.setSessionToken(token);
-    const result = await MCP.manager.connectProxy({ url, proxyKey, token });
-    await ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
-    return result;
-  }
-
-  /**
-   * Conecta con zerochat.py si hay sesión guardada (sin ella no sondea el equipo, para no disparar el
-   * aviso de acceso a la red local del navegador); devuelve el resultado de la conexión.
-   */
-  function connectBackend() {
-    persistBackendSessionFromLaunchFragment();
-    const session = runBackendSession || Storage.getBackendSession();
-    if (!session) return Promise.resolve({ success: false });
-    ToolSecurity.manager.setSessionToken(session.token);
-    return MCP.manager.connectProxy({ url: session.url, proxyKey: proxyKeyFor(session.url), token: session.token }).then(async result => {
-      if (result.success) await ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
-      return result;
-    }).catch(error => {
-      console.warn('[App] Could not connect to the local server on startup:', error);
-      return { success: false };
-    });
-  }
+  const backendSession = BackendSession.create({
+    loadSessions: () => ConversationService.loadSessionsFromStorage(getConversationServiceOptions())
+  });
 
   function init() {
     ensureModalsMarkup();
@@ -1188,7 +1079,7 @@
       loginError: elements.loginError,
       loginCancel: elements.loginCancel,
       loginSubmit: elements.loginSubmit
-    }, { connect: connectConfiguredBackend, login: loginBackend });
+    }, { connect: backendSession.connectConfigured, login: backendSession.login });
     UIBrowser.mountProfileBrowser(elements.profileBrowser);
     UIMcp.initMcpUI({
       statusBadge: elements.mcpStatusBadge,
@@ -1206,9 +1097,9 @@
     // Un paquete de perfiles exportado abre la página para importarlos: no arranca el chat.
     if (UIProfiles.startImportMode(elements)) return;
 
-    // connectBackend quita el fragmento de arranque: el modo ejecución se lee antes.
+    // connectStartup quita el fragmento de arranque: el modo ejecución se lee antes.
     const runId = RunMode.readRunId(location.hash);
-    const startupMcpConnection = connectBackend();
+    const startupMcpConnection = backendSession.connectStartup();
     // Sin latido periódico (servidor sin auto-cierre), volver a la pestaña relee el servidor local.
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') MCP.manager.onPageVisible();
@@ -1217,7 +1108,7 @@
     if (runId) {
       RunMode.start(runId, {
         startupConnection: startupMcpConnection,
-        connectBackend,
+        connectBackend: backendSession.connectStartup,
         sessionsLoaded,
         activateSessionProfile: profileId => UIProfiles.activateConnectionProfile(profileId, { sessionOnly: true }),
         exportConversation: async format => (await UITransfer.buildConversationExport(format)).content,

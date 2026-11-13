@@ -88,15 +88,6 @@ if scenario == "ok":
     rpc("zerochat/run/result", text=f"Respuesta a: {prompt}")
 elif scenario == "error":
     rpc("zerochat/run/result", error="model failed")
-elif scenario == "chatty":
-    for _ in range(50):
-        try:
-            rpc("zerochat/run/progress", kind="stream")
-        except OSError:
-            break
-        time.sleep(0.04)
-elif scenario == "idle":
-    time.sleep(5)
 `;
 
 /**
@@ -162,7 +153,7 @@ function launchZerochat(prompt, { scenario = 'ok', env = {}, port, args = [], pr
     fs.writeFileSync(path.join(binDir, 'node'), `#!${pythonBin}
 import os, sys
 if "--version" in sys.argv:
-    print("v22.0.0")
+    print("v22.13.0")
     sys.exit(0)
 ${FAKE_BROWSER}
 `, { mode: 0o755 });
@@ -213,16 +204,14 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
   try {
     const busyPort = String(busy.address().port);
     const [
-      ok, userHeadless, failed, unexported, idle, chatty, browserGone,
+      ok, userHeadless, failed, unexported, browserGone,
       emptyPrompt, missingDefaultProfile, noNode, portInUse, devDefaultInUse, devBrowserDefaultInUse, productionDefaultInUse
     ] = await Promise.all([
       runZerochat('hola mundo', { args: ['--browser', '--profile', ' Oficina ', '--log', 'on', '--export', exportPath, '--keep-page', '--allow-dangerous-tools'] }),
       runZerochat('hola headless', { args: ['--browser', '--headless'] }),
       runZerochat('hola', { scenario: 'error' }),
       runZerochat('hola', { args: ['--export', unwritable] }),
-      runZerochat('hola', { scenario: 'idle', env: { ZEROCHAT_RUN_IDLE_SECONDS: '1' } }),
-      runZerochat('hola', { scenario: 'chatty', env: { ZEROCHAT_RUN_IDLE_SECONDS: '1', ZEROCHAT_RUN_TIMEOUT: '1' } }),
-      runZerochat('hola', { scenario: 'exit', env: { ZEROCHAT_HEARTBEAT_TIMEOUT: '0.2' } }),
+      runZerochat('hola', { scenario: 'exit' }),
       runZerochat('   '),
       runZerochat('hola', { seedDefaultProfile: false }),
       runZerochat('hola', { withNode: false }),
@@ -242,9 +231,13 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(userHeadless.code, 0, userHeadless.stderr);
     assert.equal(userHeadless.info.launcher, 'user-browser');
     assert.deepEqual(userHeadless.info.args, ['--headless', '--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests']);
-    // Por defecto (sin --browser) usa el runner de Node.js en modo desatendido y el perfil local.
+    // Por defecto (sin --browser) usa el runner de Node.js con --permission y el perfil local.
     assert.equal(failed.info.launcher, 'node');
-    assert.match(failed.info.args[0], /(?:run-node|runner)\.js$/);
+    assert.deepEqual(failed.info.args, [
+      '--permission',
+      `--allow-fs-read=${path.join(repoRoot, 'js')}`,
+      path.join(repoRoot, 'js', 'run-node.js')
+    ]);
     // La interfaz es la del arranque normal (la local en desarrollo) con run= en el fragmento.
     assert.equal(ok.info.url, `http://127.0.0.1:${ok.port}/zerochat.html`);
     assert.deepEqual(ok.info.fragment_keys, ['host', 'port', 'run', 'token']);
@@ -281,21 +274,16 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(failed.code, 1, failed.stderr);
     // Con --prompt el registro está desactivado por defecto: solo queda el motivo del fallo.
     assert.match(failed.stderr, /^\[\d\d:\d\d:\d\d\] \[run\] Error de generación: model failed\n$/);
-    assert.equal(idle.code, 2, idle.stderr);
-    assert.match(idle.stderr, /Sin progreso de la interfaz durante 1s/);
-    // El progreso continuo reinicia la inactividad, pero no el plazo total.
-    assert.equal(chatty.code, 2, chatty.stderr);
-    assert.match(chatty.stderr, /Plazo total agotado \(1s\)/);
     assert.equal(browserGone.code, 2, browserGone.stderr);
     assert.match(browserGone.stderr, /sin resultado/);
-    for (const run of [failed, idle, chatty, browserGone]) assert.equal(run.stdout, '');
+    for (const run of [failed, browserGone]) assert.equal(run.stdout, '');
 
     assert.equal(emptyPrompt.code, 4, emptyPrompt.stderr);
     assert.match(emptyPrompt.stderr, /error: el prompt está vacío/);
     assert.equal(missingDefaultProfile.code, 4, missingDefaultProfile.stderr);
     assert.match(missingDefaultProfile.stderr, /no existe el perfil por defecto 'local'/);
     assert.equal(noNode.code, 3, noNode.stderr);
-    assert.match(noNode.stderr, /Node\.js 18\+ es necesario/);
+    assert.match(noNode.stderr, /Se necesita Node\.js 22\.13 o superior/);
     assert.equal(portInUse.code, 3, portInUse.stderr);
     assert.match(portInUse.stderr, /No se pudo escuchar/);
     assert.equal(portInUse.info, null);
@@ -310,6 +298,10 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(productionDefaultInUse.code, 0, productionDefaultInUse.stderr);
     assert.equal(productionDefaultInUse.stdout, 'Respuesta a: hola\n');
     assert.equal(productionDefaultInUse.info.url, 'https://albalday.github.io/zerochat/zerochat.html');
+    assert.equal(productionDefaultInUse.info.launcher, 'node');
+    assert.equal(productionDefaultInUse.info.args.length, 2);
+    assert.equal(productionDefaultInUse.info.args[0], '--permission');
+    assert.match(productionDefaultInUse.info.args[1], /cache[\\/]runner\.js$/);
   } finally {
     busy.close();
   }

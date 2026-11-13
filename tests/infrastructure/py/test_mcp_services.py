@@ -137,7 +137,8 @@ class ManagedServicesTest(unittest.TestCase):
         self.addCleanup(manager.close)
         zerochat.materialize_managed_services(self.root)
         self.assertEqual(json.loads(config.read_text()), definition)
-        self.assertEqual(config.stat().st_mode & 0o777, 0o600)
+        if os.name != "nt":  # Windows no aplica los permisos POSIX de chmod
+            self.assertEqual(config.stat().st_mode & 0o777, 0o600)
         client = Mock(tools=[])
         client.running.return_value = True
         with patch.dict(os.environ, {"SERVICE_API_KEY": "inherited-fixture"}), \
@@ -169,7 +170,7 @@ class ServiceStatusTest(unittest.TestCase):
         for record, alive, exit_code, expected in table:
             with self.subTest(phase=record.phase, alive=alive, exit_code=exit_code):
                 self.assertEqual(zerochat.service_status(record, alive, exit_code), expected)
-        # Los estados que lee js/mcp-status.js (tests/unit/test_mcp_status.js).
+        # Los estados que clasifica js/mcp-status.js (tests/unit/test_ui_mcp.js).
         self.assertEqual({expected[0] for *_, expected in table}, set(CONTRACT["serviceStatuses"]))
 
     def test_detener_o_cerrar_el_gestor_deja_el_servicio_detenido_y_sin_error(self):
@@ -341,6 +342,10 @@ class LocalToolArgumentsTest(unittest.TestCase):
         self.assertEqual(validate("edit_file", {"path": "a", "old_str": "x"}), "Falta el argumento obligatorio: new_str")
         self.assertEqual(validate("edit_file", {"path": "a", "old_str": "x", "new_str": "y", "replace_all": "true"}), "Tipo inválido para 'replace_all'")
         self.assertEqual(validate("run_command", {"command": "pwd", "timeout_seconds": True}), "Tipo inválido para 'timeout_seconds'")
+        # Un tipo que el validador no conoce se rechaza como error de validación, no con una excepción.
+        definition = {"name": "demo_tool", "inputSchema": {"type": "object", "properties": {"items": {"type": "array"}}}}
+        with patch.object(zerochat, "LOCAL_TOOLS_DEFINITIONS", [*zerochat.LOCAL_TOOLS_DEFINITIONS, definition]):
+            self.assertEqual(validate("demo_tool", {"items": []}), "Tipo no admitido en la definición de 'items': array")
 
 
 class StdioClientTest(unittest.TestCase):

@@ -1,0 +1,7 @@
+# Análisis estático del backend (py/): nombres sin definir e imports sin uso.
+src = ["py"]
+include = ["py/**/*.py"]
+target-version = "py310"
+
+[lint]
+select = ["F821", "F401"]

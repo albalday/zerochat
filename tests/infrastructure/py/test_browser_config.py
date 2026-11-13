@@ -42,6 +42,7 @@ class PlaywrightLaunchTest(unittest.TestCase):
     def setUp(self):
         data_dir = use_data_dir(self)
         self.config_file = data_dir / "config" / "browser.json"
+        self.config_file.parent.mkdir()
         self.own = data_dir / "playwright" / "profile"
         self.manager = zerochat.McpServiceManager()
         self.client = Mock(tools=[])
@@ -62,7 +63,7 @@ class PlaywrightLaunchTest(unittest.TestCase):
         return constructor.call_args.args[1][1:]
 
     def own_args(self, engine, storage=None):
-        # El motor propio arranca con el User-Agent activo de las salidas web (ff-server).
+        # El motor propio arranca con el User-Agent activo de las salidas web (web/fetch.py).
         return [f"--browser={engine}", f"--user-data-dir={self.own / engine / storage}" if storage else "--isolated",
                 f"--user-agent={zerochat.SERVICE_USER_AGENT}"]
 
@@ -99,7 +100,7 @@ class PlaywrightLaunchTest(unittest.TestCase):
         # Chromium no es un canal: su ejecutable y su perfil, con el canal chrome; sin Chromium no arranca.
         with patch.object(zerochat, "chromium_install", return_value=("/usr/bin/chromium", Path("/home/u/.config/chromium"))):
             self.assertEqual(self.launch_args({"mode": "user", "userBrowser": "chromium"}), [
-                "--extension", "--browser=chrome", "--executable-path=/usr/bin/chromium", "--user-data-dir=/home/u/.config/chromium"])
+                "--extension", "--browser=chrome", "--executable-path=/usr/bin/chromium", f"--user-data-dir={Path('/home/u/.config/chromium')}"])
         with patch.object(zerochat, "chromium_install", return_value=None), self.assertRaisesRegex(RuntimeError, "Chromium"):
             zerochat.playwright_launch_args({**zerochat.BROWSER_CONFIG_DEFAULTS, "mode": "user", "userBrowser": "chromium"})
 
@@ -116,7 +117,9 @@ class PlaywrightLaunchTest(unittest.TestCase):
         self.assertEqual(self.manager.records["playwright"].browser, {"mode": "own", "engine": "webkit", "headless": False, "storage": "trabajo"})
         for directory in (self.own.parent, self.own, self.own / "webkit", self.own / "webkit" / "trabajo"):
             with self.subTest(directory=directory):
-                self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
+                self.assertTrue(directory.is_dir())
+                if os.name != "nt":  # Windows no aplica los permisos POSIX de chmod
+                    self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
         self.assertEqual(self.launch_args(headless, {"mode": "own", "engine": "webkit"})[-1], "--headless")
         self.assertEqual(self.manager.records["playwright"].browser, {"mode": "own", "engine": "webkit"})
 
@@ -138,7 +141,8 @@ class PlaywrightLaunchTest(unittest.TestCase):
     def test_lo_guardado_se_valida_solo_lo_lee_el_usuario_y_lo_usa_el_siguiente_arranque(self):
         saved = zerochat.save_browser_config({"engine": "webkit", "headless": False})
         self.assertEqual(saved, {"mode": "own", "engine": "webkit", "userBrowser": "chrome", "headless": False, "extensionToken": ""})
-        self.assertEqual(self.config_file.stat().st_mode & 0o777, 0o600)
+        if os.name != "nt":  # Windows no aplica los permisos POSIX de chmod
+            self.assertEqual(self.config_file.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.launch_args(saved), self.own_args("webkit"))
         for raw, message in (
             ([], "objeto"),

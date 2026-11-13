@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import sys
 import tempfile
@@ -34,3 +36,13 @@ class EnvironmentTest(unittest.TestCase):
             with patch.object(zerochat.shutil, "which", side_effect=lambda command: f"/usr/bin/{command}"), \
                     patch.object(zerochat.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="v24.18.1\n")):
                 zerochat.McpServiceManager()._prepare_service("example", {"_directory": service_dir})
+
+
+class SelfTestTest(unittest.TestCase):
+    def test_test_comprueba_las_herramientas_locales_en_una_carpeta_propia(self):
+        use_data_dir(self)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertIs(zerochat.run_self_test(), True)
+        self.assertIn("TEST all local tools ready.", output.getvalue())
+        self.assertNotIn("error", output.getvalue())

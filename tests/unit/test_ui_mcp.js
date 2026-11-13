@@ -5,6 +5,7 @@ const ChatUIMcp = require('../../js/ui-mcp.js');
 const ChatState = require('../../js/state.js');
 const ChatMCP = require('../../js/mcp.js');
 const ChatToolSecurity = require('../../js/tool-security.js');
+const ChatMcpStatus = require('../../js/mcp-status.js');
 
 /** Estado MCP de la prueba, restaurado al terminar junto con las autorizaciones. */
 function setup(t, mcp = {}) {
@@ -15,6 +16,14 @@ function setup(t, mcp = {}) {
     ChatToolSecurity.manager.applyPolicies({ globalMcpPolicy: 'ask', tools: {}, servers: {}, directoryRules: [] });
   });
 }
+
+test('ChatMcpStatus - cada estado de servicio del backend (tests/fixtures/mcp/contract.json) se puede arrancar o está activo, nunca ambos', () => {
+  const { serviceStatuses } = require('../fixtures/mcp/contract.json');
+  for (const status of serviceStatuses) {
+    assert.notEqual(ChatMcpStatus.isActive(status), ChatMcpStatus.canStart(status), status);
+  }
+  assert.deepEqual(serviceStatuses.filter(ChatMcpStatus.isRunning), ['running']);
+});
 
 test('ChatUIMcp - el campo help de service.json solo admite URL HTTP o rutas relativas seguras', () => {
   assert.deepEqual(ChatUIMcp.getServiceHelp({ url: 'https://example.com/help', label: { es: 'Ayuda' } }, 'es'), { url: 'https://example.com/help', label: 'Ayuda' });

@@ -193,50 +193,6 @@ describe('Browser - documents', () => {
     });
   });
 
-  // docx pasa por mammoth y el DOMParser del navegador; el resto de formatos se prueba en Node.
-  test('Browser - docx se convierte a Markdown con formato, listas, tablas e imágenes', async () => {
-    await withTestApp(async page => {
-      const errors = [];
-      page.on('pageerror', error => errors.push(error.message));
-      const files = [
-        ['pandoc.docx', 'pandoc.docx'],
-        ['libreoffice.docx', 'libreoffice.docx'],
-        ['linked-image.docx', 'linked-image.docx'],
-        ['pandoc.docx', 'informe.docm']
-      ].map(([name, as]) => ({ as, base64: fs.readFileSync(path.join(FIXTURES, name)).toString('base64') }));
-      const parsed = await page.evaluate(async files => {
-        const output = {};
-        for (const { as, base64 } of files) {
-          const bytes = Uint8Array.from(atob(base64), char => char.charCodeAt(0));
-          const { text, images } = await ChatOfficeParser.parseOfficeDocument(bytes.buffer, as);
-          output[as] = { text, images: images.map(image => ({ id: image.id, mimeType: image.mimeType, page: image.page, png: image.dataUrl.startsWith('data:image/png;base64,iVBORw0KGgo') })) };
-        }
-        return output;
-      }, files);
-
-      for (const name of ['pandoc.docx', 'libreoffice.docx']) {
-        const { text, images } = parsed[name];
-        assert.match(text, /^# Informe trimestral$/m, name);
-        assert.match(text, /^## Anexo$/m, name);
-        assert.match(text, /\*\*negrita\*\*/, name);
-        assert.match(text, /\[enlace\]\(https:\/\/example\.com\/?\)/, name);
-        assert.match(text, /^- Uno\n- Dos\n {2}- Dos punto uno$/m, name);
-        assert.match(text, /^1\. Primero\n2\. Segundo$/m, name);
-        assert.match(text, /^\| Producto \| Ventas \|\n\| --- \| --- \|\n\| Café \| 120 \|\n\| Té \\\| verde \| 80 \|$/m, name);
-        assert.match(text, /!\[[^\]]+\]\(rag-image:\/\/__DOC_ID__:img_1\)/, name);
-        assert.deepEqual(images, [{ id: 'img_1', mimeType: 'image/png', page: 1, png: true }], name);
-      }
-
-      const linked = parsed['linked-image.docx'];
-      assert.match(linked.text, /\[Image not shown: Logo rojo \(linked external image\)\]/);
-      assert.doesNotMatch(linked.text, /example\.com\/logo\.png/);
-      assert.deepEqual(linked.images, []);
-
-      assert.match(parsed['informe.docm'].text, /^# Informe trimestral$/m, 'Un documento con macros se lee como su formato base');
-      assert.deepEqual(errors, []);
-    });
-  });
-
   test('Browser - la extracción HTML resuelve imágenes relativas y descarta píxeles de seguimiento', async () => {
     await withTestApp(async page => {
       const extracted = await page.evaluate(() => ChatWebBrowser.extractReadableTextFromHtml(`

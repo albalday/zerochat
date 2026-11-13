@@ -10,3 +10,5 @@ services/*/.*/
 services/*/package.json
 services/*/package-lock.json
 services/*/*.jsonl
+test-results/
+todo.txt

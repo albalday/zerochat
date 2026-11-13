@@ -24,32 +24,12 @@
 
 ## M62 Multisesión de un usuario y límites del multiusuario: closed 2026-11-12
 
-## M63 Cambios pequeños y pruebas
+## M63 Cambios pequeños y pruebas: closed 2026-11-13
 
-Goal: Corregir fallos pequeños detectados en el uso tras los últimos hitos y probar a mano lo cambiado.
-Done when: Las tareas del hito están hechas, probadas en el navegador y todos los niveles de §4 pasan en verde.
-- [x] M63-T1 Editar un perfil de servidor sin cambiar nada deja cerrar el editor sin preguntar; Guardar en local sigue importándolo (2026-11-13)
-- [x] M63-T2 En móvil los botones de guardar del editor de perfiles muestran solo el icono para que la cabecera no se desborde (2026-11-13)
-- [x] M63-T3 Cabecera de proyecto destacada en el historial (icono de carpeta, línea separadora, nombre en el color del texto y número de conversaciones) para distinguirla de los chats y de las cabeceras de fecha (2026-11-13)
-- [x] M63-T4 Grupos de proyecto plegables en la vista "Todos": plegados por defecto salvo el de la conversación abierta; el estado plegado se recuerda por navegador (localStorage, tolerante a fallos) y se maneja con teclado (botón con aria-expanded) (2026-11-13)
-- [x] M63-T5 La búsqueda del historial conserva las cabeceras de proyecto: muestra solo los grupos con coincidencias, desplegados mientras haya texto, y "Sin proyecto" al final (2026-11-13)
-- [x] M63-T6 Límites del historial sin borrado: medir con 2000 conversaciones el coste de conversations/list, de la sincronización completa a IndexedDB al conectar y del pintado de la barra; proponer en docs/ los topes o la carga diferida necesarios y abrir sus tareas tras decidir con el usuario (2026-11-13)
-- [x] M63-T7 La barra no pinta las conversaciones de los grupos plegados; desplegar un grupo lo pinta (corrige M63-T4: 270 000 nodos ocultos con 10 000 conversaciones) (2026-11-13)
-- [x] M63-T8 Tope de 50 conversaciones pintadas por grupo con botón "Mostrar N más"; la búsqueda sigue recorriendo todos los títulos (prueba en 50 y 51) (2026-11-13)
-- [x] M63-T9 Borrar historial con un proyecto activo pregunta por las conversaciones de ese proyecto, con casilla para borrar todo; el servidor borra por proyecto y cancela solo las ejecuciones de esas conversaciones (2026-11-13)
-- [x] M63-T10 Al conectar se sincronizan solo las cabeceras: la lista aparece en cuanto llega conversations/list y cada conversación se descarga a IndexedDB al abrirla; sin servidor, una no descargada avisa en vez de abrirse vacía (2026-11-13)
-- [x] M63-T11 La clave del proxy de la conexión remota tiene el botón de ojo para mostrarla u ocultarla, con el mismo manejador que la API key del perfil (2026-11-13)
-- [x] M63-T12 El historial deja de leer y escribir extra en el cliente y el servidor deja de exponerlo en la cabecera: profileId, serverRun y project ya viajan en ella (2026-11-13)
-- [x] M63-T13 ConversationService sin guardas de opciones ni de serverRuns que solo pedían las pruebas, perfil de la sesión resuelto en un solo sitio y cabecera al abrir como fusión de la guardada y la leída (2026-11-13)
-- [x] M63-T14 Borrar una conversación la quita de la barra solo si se borró del almacenamiento; switchToSession devuelve siempre un booleano (2026-11-13)
-- [x] M63-T15 Storage sin hasBlob, con un único borrado local de conversaciones e hidratación de imágenes en un solo punto (2026-11-13)
-- [x] M63-T16 Sin servidor, una conversación cuya cabecera remota es más reciente que su copia local abre esa copia en vez de avisar de que no está descargada (2026-11-13)
-- [x] M63-T17 Upsert de sesiones compartido en ChatState, refresco de la lista tras una ejecución de servidor vía ConversationService y un único callback de repintado en la barra (2026-11-13)
-- [x] M63-T18 Las herramientas reciben un contexto explícito (signal y, solo las de categoría agent, la conexión del agente) en vez de todos los parámetros del bucle (2026-11-13)
-- [x] M63-T19 AgentRuntime sin campos, opciones ni callbacks sin consumidor: awaitingUser, reasoningText, totalTimeMs, onDone, appendFinalMessage, toolExecutions como contador y argumentos sin uso (2026-11-13)
-- [x] M63-T20 AgentRuntime.execute dividido en paso de inferencia y cierre único; respuesta final y bucle detectado comparten rama (2026-11-13)
-- [x] M63-T21 El aviso de bucle lo redacta ChatEngine con i18n; AgentRuntime solo informa del estado loop_detected (2026-11-13)
-- [x] M63-T22 ToolExecutor parsea los argumentos una sola vez y separa el protocolo de autorización de la ejecución (2026-11-13)
-- [x] M63-T23 Cada herramienta declara el texto de su evidencia visual; ChatEngine deja de listar nombres de herramientas (2026-11-13)
-- [x] M63-T24 Auditoría completa de la 10.14.0: revisiones 1 a 4 de la ayuda escritas desde cero y una quinta con el nivel técnico y los consejos de evolución, en español e inglés (2026-11-13)
-- [x] M63-T25 Incorporar a la auditoría los hallazgos comprobados de la revisión paralela con Gemini (F-12 a F-15, ayuda en F-06) y corregir help/remote-proxy.html, que describía la firma de herramientas retirada en M56 (2026-11-13)
+## M64 Modularización del backend Python: closed 2026-11-13
+
+## M65 Aislamiento de las ejecuciones en servidor: closed 2026-11-13
+
+## M66 Coordinadores del frontend: closed 2026-11-13
+
+## M67 Arreglos de estabilización: closed 2026-11-13

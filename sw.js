@@ -4,7 +4,7 @@
  * y actualización en segundo plano (Stale-While-Revalidate).
  */
 
-const CACHE_NAME = 'zerochat-v10.14.0';
+const CACHE_NAME = 'zerochat-v10.15.0';
 
 const PRECACHE_ASSETS = [
   './zerochat.html',
@@ -26,6 +26,7 @@ const PRECACHE_ASSETS = [
   './js/vendor/orama.browser.js',
   './js/utils.js',
   './js/vendor-loader.js',
+  './js/html-document.js',
   './js/defaults.js',
   './js/mcp-status.js',
   './js/i18n.js',
@@ -67,6 +68,7 @@ const PRECACHE_ASSETS = [
   './js/tools/builtin/delegate-task.tool.js',
   './js/tool-security.js',
   './js/agent-core.js',
+  './js/mcp-results.js',
   './js/mcp.js',
   './js/debug.js',
   './js/command-card.js',
@@ -89,6 +91,7 @@ const PRECACHE_ASSETS = [
   './js/ui-telemetry.js',
   './js/ui-mcp.js',
   './js/ui-browser.js',
+  './js/backend-session.js',
   './js/ui-connection.js',
   './js/ui-shell.js',
   './js/data-reset-service.js',
@@ -98,6 +101,7 @@ const PRECACHE_ASSETS = [
   './js/conversation-service.js',
   './js/ui-conversation.js',
   './js/generation-controller.js',
+  './js/server-run.js',
   './js/run-mode.js',
   './js/app.js'
 ];

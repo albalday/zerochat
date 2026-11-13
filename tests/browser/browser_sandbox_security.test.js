@@ -121,6 +121,9 @@ describe('Browser UI - Sandbox Security & Iframe Isolation', () => {
     const escape = await run('return ({}).constructor.constructor("return 42")();');
     assert.equal(escape.success, false);
     assert.match(escape.error, /Dynamic function creation is not allowed/);
+    const asyncEscape = await run('await null; return ({}).constructor.constructor("return 42")();');
+    assert.equal(asyncEscape.success, false, 'El bloqueo sigue tras el primer await');
+    assert.match(asyncEscape.error, /Dynamic function creation is not allowed/);
     assert.equal(await page.evaluate(() => Function.prototype.constructor === Function), true, 'El constructor de la página no cambia');
     assert.match((await run('')).error, /No JavaScript code was provided/);
     assert.match((await run(42)).error, /No JavaScript code was provided/);

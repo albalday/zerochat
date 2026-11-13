@@ -10,11 +10,11 @@
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'), require('./vendor-loader.js'));
+    module.exports = factory(require('./utils.js'), require('./vendor-loader.js'), require('./html-document.js'));
   } else {
-    root.ChatOfficeParser = factory(root.ChatUtils, root.ChatVendorLoader);
+    root.ChatOfficeParser = factory(root.ChatUtils, root.ChatVendorLoader, root.ChatHtmlDocument);
   }
-})(typeof self !== 'undefined' ? self : this, function (Utils, VendorLoader) {
+})(typeof self !== 'undefined' ? self : this, function (Utils, VendorLoader, HtmlDocument) {
   'use strict';
 
   const { bytesToBase64, toVisionImageRecord, IMAGE_MIME_TYPES } = Utils;
@@ -341,7 +341,7 @@
   }
 
   function htmlToMarkdown(html) {
-    const doc = new DOMParser().parseFromString(`<!doctype html><body>${html}</body>`, 'text/html');
+    const doc = HtmlDocument.parseHtml(`<!doctype html><body>${html}</body>`);
     return joinBlocks([...doc.body.children].map(blockMarkdown));
   }
 

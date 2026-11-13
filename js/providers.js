@@ -321,13 +321,13 @@
         if (delta.tool_calls && Array.isArray(delta.tool_calls)) {
           result.toolCallDeltas = delta.tool_calls;
         }
-
-        // Thought signature de Gemini / Google
-        const sig = delta.thought_signature || delta.extra_content?.google?.thought_signature || choice?.thought_signature || parsed.thought_signature;
-        if (sig) {
-          result.thoughtSignature = sig;
-        }
       }
+
+      // Firma del razonamiento de Gemini: puede llegar en un chunk sin delta (de razonamiento o de cierre).
+      const sig = delta?.thought_signature || delta?.extra_content?.google?.thought_signature ||
+        choice?.thought_signature || choice?.extra_content?.google?.thought_signature ||
+        parsed.thought_signature || parsed.extra_content?.google?.thought_signature;
+      if (sig) result.thoughtSignature = sig;
 
       // Usage / Context Caching (OpenAI, Anthropic, Ollama)
       let usage = parsed.usage || parsed.message?.usage;
@@ -624,6 +624,10 @@
   /**
    * Adaptador para Anthropic Claude (/v1/messages).
    */
+  /** Turno user de Claude que solo lleva resultados de herramientas. */
+  const isToolResultTurn = message => message?.role === 'user' && Array.isArray(message.content) &&
+    message.content.length > 0 && message.content.every(part => part.type === 'tool_result');
+
   class ClaudeProviderAdapter extends BaseProviderAdapter {
     constructor() {
       super({
@@ -678,7 +682,7 @@
           const block = { type: 'tool_result', tool_use_id: m.tool_call_id, content: serializeContent(m.content) };
           const previous = formatted[formatted.length - 1];
           // Los resultados de llamadas paralelas van juntos en el turno user que sigue al assistant.
-          if (previous && previous.role === 'user' && Array.isArray(previous.content) && previous.content.every(part => part.type === 'tool_result')) {
+          if (isToolResultTurn(previous)) {
             previous.content.push(block);
           } else {
             formatted.push({ role: 'user', content: [block] });
@@ -702,7 +706,13 @@
             }
             return part;
           }).filter(part => part.type === 'text' || (caps.vision && part.type === 'image'));
-          formatted.push({ ...m, content: claudeParts });
+          const previous = formatted[formatted.length - 1];
+          // La evidencia visual de un lote va en el mismo turno user que sus tool_result, detrás de ellos.
+          if (m.role === 'user' && isToolResultTurn(previous)) {
+            previous.content.push(...claudeParts);
+          } else {
+            formatted.push({ ...m, content: claudeParts });
+          }
         } else {
           formatted.push(m);
         }

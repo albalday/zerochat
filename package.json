@@ -1,12 +1,12 @@
 {
   "name": "zerochat",
   "private": true,
-  "version": "10.14.0",
+  "version": "10.15.0",
   "description": "ZeroChat - Cliente Web Universal de Chat con soporte multimodelo, razonamiento autónomo y RAG local",
   "scripts": {
     "build:vendor": "node scripts/build-vendor.mjs",
     "build:managed-services": "node scripts/build-managed-services.mjs",
-    "build:backend": "npm run build:managed-services && cat $(ls py/*.py | sort) > zerochat.py && chmod +x zerochat.py",
+    "build:backend": "npm run build:managed-services && node scripts/build-backend.mjs",
     "build:sitemap": "node scripts/build-sitemap.mjs",
     "build:runner": "node scripts/build-runner.mjs",
     "build": "npm run build:vendor && npm run build:backend && npm run build:runner",

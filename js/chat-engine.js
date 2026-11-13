@@ -76,8 +76,20 @@
     const messages = [];
     // El razonamiento solo se reenvía en el turno en curso, desde el último mensaje del usuario.
     const currentTurnStart = rawMessages.map(m => m.role).lastIndexOf('user');
+    const { TOOL_EVIDENCE_FLAG } = getContextManager();
+    // La imagen que acompaña al resultado de una herramienta (RAG, descarga o captura del navegador)
+    // se entrega como evidencia visual, sin convertirla en un mensaje visible ni en base64 dentro del
+    // resultado. Se reúne la de toda la racha de resultados y va en un único mensaje user tras ella:
+    // un user entre dos resultados rompería el lote [assistant, tool...] de las llamadas paralelas.
+    let pendingEvidence = [];
+    const flushEvidence = () => {
+      if (pendingEvidence.length === 0) return;
+      messages.push({ role: 'user', content: pendingEvidence, [TOOL_EVIDENCE_FLAG]: true });
+      pendingEvidence = [];
+    };
 
     rawMessages.forEach((m, index) => {
+      if (m.role !== 'tool') flushEvidence();
       if (m.role === 'user') {
         // Aviso de comandos en segundo plano terminados, guardado con el mensaje y no visible en el chat.
         const userText = m.commandNotes ? `${m.commandNotes}\n\n${m.content || ''}` : m.content;
@@ -138,20 +150,14 @@
           content: toolContent
         });
 
-        // La imagen que acompaña al resultado de una herramienta (RAG, descarga o captura del
-        // navegador) se entrega como evidencia visual en el siguiente turno de inferencia, sin
-        // convertirla en un mensaje visible ni en base64 dentro del resultado.
         const image = Array.isArray(m.images) ? m.images.find(item => item?.dataUrl) : null;
         if (image) {
           const provenance = [image.imageRef, image.documentTitle, image.page ? `page ${image.page}` : '', image.url]
             .filter(Boolean).join(' · ');
-          messages.push({
-            role: 'user',
-            content: [
-              { type: 'text', text: `Visual evidence returned by ${toolName}${provenance ? `: ${provenance}` : '.'}` },
-              { type: 'image_url', image_url: { url: image.dataUrl } }
-            ]
-          });
+          pendingEvidence.push(
+            { type: 'text', text: `Visual evidence returned by ${toolName}${provenance ? `: ${provenance}` : '.'}` },
+            { type: 'image_url', image_url: { url: image.dataUrl } }
+          );
         }
       } else if (m.role === 'system') {
         messages.push({
@@ -161,6 +167,7 @@
         });
       }
     });
+    flushEvidence();
 
     // 1. Instrucciones base del sistema (máxima estabilidad de prefijo)
     const baseSystemPrompt = getConfiguredSystemPrompt(appConfig);

@@ -461,26 +461,38 @@
     return true;
   }
 
+  const blobIdsOf = messages => messages.flatMap(msg => (Array.isArray(msg?.images) ? msg.images : [])
+    .map(img => img?.blobId).filter(Boolean));
+
   /**
-   * Borra con sus mensajes las conversaciones `ids` de IndexedDB (todas si es null) y, con el backend
-   * conectado, las que selecciona `params` de zerochat/conversations/delete.
+   * Borra las conversaciones `ids` de IndexedDB (todas si es null) con sus mensajes y los blobs que solo
+   * ellas usaban. Con el backend conectado, primero borra en el servidor las que selecciona `params` de
+   * zerochat/conversations/delete: si lo rechaza, la copia local se conserva.
    */
   async function removeConversations(action, ids, params) {
+    if (isBackendConnected()) await requestBackend('zerochat/conversations/delete', params);
     await attempt(action, async db => {
-      const tx = db.transaction([STORES.conversations, STORES.messages], 'readwrite');
+      const tx = db.transaction([STORES.conversations, STORES.messages, STORES.blobs], 'readwrite');
       const conversations = tx.objectStore(STORES.conversations);
       const messages = tx.objectStore(STORES.messages);
+      const blobs = tx.objectStore(STORES.blobs);
+      const candidates = new Set();
       if (ids === null) {
+        blobIdsOf(await requestResult(messages.getAll())).forEach(blobId => candidates.add(blobId));
         conversations.clear();
         messages.clear();
       }
       for (const id of ids || []) {
+        blobIdsOf(await getAllByIndex(messages, 'by_conversation', conversationRange(id))).forEach(blobId => candidates.add(blobId));
         conversations.delete(id);
         await deleteByIndex(messages, 'by_conversation', conversationRange(id));
       }
+      if (candidates.size > 0) {
+        for (const blobId of blobIdsOf(await requestResult(messages.getAll()))) candidates.delete(blobId);
+        candidates.forEach(blobId => blobs.delete(blobId));
+      }
       await transactionDone(tx);
     });
-    if (isBackendConnected()) await requestBackend('zerochat/conversations/delete', params);
   }
 
   async function deleteConversation(sessionId) {

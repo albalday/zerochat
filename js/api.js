@@ -266,11 +266,29 @@
     } catch (e) { /* bytes residuales no decodificables: no afectan a la respuesta */ }
   }
 
+  const callSignature = call => call.thought_signature || call.extra_content?.google?.thought_signature || '';
+
+  /** Fusiona `extra_content` sin perder la firma de Gemini que trajo un delta anterior. */
+  function mergeExtraContent(previous, next) {
+    if (!previous) return next;
+    const merged = { ...previous, ...next };
+    if (previous.google || next.google) {
+      merged.google = { ...previous.google, ...next.google };
+      const signature = next.google?.thought_signature || previous.google?.thought_signature;
+      if (signature) merged.google.thought_signature = signature;
+    }
+    return merged;
+  }
+
   /** Acumula en `calls` (por índice) un delta de llamada a herramienta y devuelve la llamada. */
   function mergeToolCallDelta(calls, delta, thoughtSignature) {
     let idx = delta.index ?? 0;
-    // Gemini (compatibilidad OpenAI) envía cada llamada paralela completa y sin `index`: un id nuevo es otra llamada.
-    if (delta.index === undefined && delta.id && calls[idx] && calls[idx].id !== delta.id) idx = Object.keys(calls).length;
+    // Gemini (compatibilidad OpenAI) envía cada llamada paralela completa y sin `index`: el delta es de
+    // la llamada con su id o, si es un id nuevo, de otra llamada.
+    if (delta.index === undefined && delta.id && calls[idx] && calls[idx].id !== delta.id) {
+      const existing = Object.keys(calls).find(key => calls[key].id === delta.id);
+      idx = existing ?? Object.keys(calls).length;
+    }
     if (!calls[idx]) {
       calls[idx] = {
         id: delta.id || `call_${Date.now()}_${idx}`,
@@ -283,7 +301,7 @@
     if (delta.function?.name) call.function.name = delta.function.name;
     if (delta.function?.arguments) call.function.arguments += delta.function.arguments;
     if (delta.thought_signature) call.thought_signature = delta.thought_signature;
-    if (delta.extra_content) call.extra_content = delta.extra_content;
+    if (delta.extra_content) call.extra_content = mergeExtraContent(call.extra_content, delta.extra_content);
     if (delta.provider_specific_fields) call.provider_specific_fields = delta.provider_specific_fields;
     if (thoughtSignature && !call.thought_signature) call.thought_signature = thoughtSignature;
     return call;
@@ -318,6 +336,8 @@
     let truncated = false;
     let recoveredReason = '';
     let accumulatedToolCalls = {};
+    // Firma de Gemini del paso, aunque llegue en un chunk sin llamadas: va en la primera llamada del lote.
+    let stepSignature = '';
     let chunkCount = 0;
     const splitReasoningTags = createReasoningTagSplitter();
     let serverCachedTokens = 0;
@@ -422,7 +442,9 @@
     function getFinalToolCalls() {
       const callIndices = Object.keys(accumulatedToolCalls);
       if (callIndices.length > 0) {
-        return callIndices.map(idx => accumulatedToolCalls[idx]);
+        const calls = callIndices.map(idx => accumulatedToolCalls[idx]);
+        if (stepSignature && !calls.some(callSignature)) calls[0].thought_signature = stepSignature;
+        return calls;
       }
       if (parsesTextToolCalls) {
         if (textToolCalls) return textToolCalls;
@@ -458,6 +480,7 @@
 
     function applyChunk(parsed) {
       const chunkData = adapter.parseStreamChunk(parsed, { firstTokenTime, accumulatedReasoning, accumulatedText });
+      if (chunkData.thoughtSignature && !stepSignature) stepSignature = chunkData.thoughtSignature;
 
       if (chunkData.cachedTokens > 0) serverCachedTokens = chunkData.cachedTokens;
       if (chunkData.cacheCreationTokens > 0) serverCacheCreationTokens = chunkData.cacheCreationTokens;

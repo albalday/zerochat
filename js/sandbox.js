@@ -63,7 +63,9 @@
     const failure = error => ({ success: false, result: '', logs, error: (error && error.message) || String(error) });
 
     // Sin Function.prototype.constructor no se escapa con ({}).constructor.constructor('return this')().
+    // Se restaura cuando termina el código, también el asíncrono: no al volver la primera vez.
     const originalConstructor = Function.prototype.constructor;
+    const restoreConstructor = () => { Function.prototype.constructor = originalConstructor; };
     try {
       const trimmed = code.trim();
       const isStatement = /^(?:while|for|if|let|const|var|function|class|try|throw|switch|do)\b/.test(trimmed) ||
@@ -72,15 +74,16 @@
       const source = /\bawait\b/.test(trimmed) ? `"use strict"; return (async function() {\n${body}\n})();` : body;
       const runner = new Function('console', ...blockedGlobals, source);
       let rawResult;
+      Function.prototype.constructor = function () {
+        throw new Error('Dynamic function creation is not allowed in the sandbox.');
+      };
       try {
-        Function.prototype.constructor = function () {
-          throw new Error('Dynamic function creation is not allowed in the sandbox.');
-        };
         rawResult = runner(customConsole, ...blockedGlobals.map(() => undefined));
-      } finally {
-        Function.prototype.constructor = originalConstructor;
+      } catch (error) {
+        restoreConstructor();
+        throw error;
       }
-      return Promise.resolve(rawResult).then(
+      return Promise.resolve(rawResult).finally(restoreConstructor).then(
         value => ({ success: true, result: value !== undefined ? truncate(formatValue(value)) : (logs.length > 0 ? logs.join('\n') : 'undefined'), logs }),
         failure
       );

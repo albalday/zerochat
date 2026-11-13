@@ -1,0 +1,10 @@
+{
+  "include": ["py"],
+  "extraPaths": ["py"],
+  "pythonVersion": "3.10",
+  "typeCheckingMode": "basic",
+  "reportOptionalMemberAccess": "none",
+  "reportArgumentType": "none",
+  "reportOptionalIterable": "none",
+  "reportOptionalOperand": "none"
+}

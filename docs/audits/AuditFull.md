@@ -123,7 +123,7 @@ npm run test:all
 npm run build
 ```
 
-Confirmar que los archivos generados (`zerochat.py`, `py/dd-managed-services.py`, `runner.js`
+Confirmar que los archivos generados (`zerochat.py`, `py/mcp/managed_services.py`, `runner.js`
 y los bundles de `js/vendor/`) están sincronizados, que no hay cambios inesperados y
 que el informe refleja el estado final. La promoción a `master` sigue las reglas
 de `AGENTS.md` y requiere el incremento de versión validado previamente en `dev`.
