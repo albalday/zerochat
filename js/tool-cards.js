@@ -7,6 +7,7 @@
   const { t } = I18n;
   const getRegistry = () => resolveDep('ChatAgentCore', './agent-core.js').registry;
   const getMcp = () => resolveDep('ChatMCP', './mcp.js');
+  const getMcpResults = () => resolveDep('ChatMcpResults', './mcp-results.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getView = name => getRegistry().getTool(name)?.view || null;
 
@@ -340,14 +341,14 @@
         badge.innerHTML = isSuccess
           ? `${ui.CHECK_SVG} <span>${ui.t('tool_status_success')} (${elapsedMs}ms)</span>`
           : `${ui.ERROR_SVG} <span>${ui.t('tool_status_error', { ms: elapsedMs })}</span>`;
-        const mcp = getMcp();
-        const resultText = mcp.getResultText(result);
+        const mcpResults = getMcpResults();
+        const resultText = mcpResults.getResultText(result);
         card.querySelector('.tool-card-result').innerHTML = codeBlock(resultText);
         if (isSuccess) {
           appendFilePreviewAction(card, args, ui.t);
           if (offersFileDiff) appendFileDiffAction(card, resultText, ui.t);
         }
-        const screenshot = mcp.getSafeMcpImageDataUrl(result);
+        const screenshot = mcpResults.getSafeMcpImageDataUrl(result);
         if (!screenshot) return false;
         appendMcpScreenshot(card, screenshot, ui.t);
         return true;
@@ -358,7 +359,7 @@
         const card = renderCard(args, codeBlock(out), badge, ui, true);
         appendFilePreviewAction(card, args, ui.t);
         if (offersFileDiff) appendFileDiffAction(card, out, ui.t);
-        const screenshot = getMcp().getSafeMcpImageFromMessage(message);
+        const screenshot = getMcpResults().getSafeMcpImageFromMessage(message);
         if (screenshot) appendMcpScreenshot(card, screenshot, ui.t);
         return card;
       }

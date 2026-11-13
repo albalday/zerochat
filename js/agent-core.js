@@ -19,6 +19,7 @@
   const getContextManager = () => resolveDep('ChatContextManager', './context-manager.js');
   const getToolSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
   const getMCP = () => resolveDep('ChatMCP', './mcp.js');
+  const getMcpResults = () => resolveDep('ChatMcpResults', './mcp-results.js');
 
   const BUILTIN_TOOL_MODULES = [
     ['ChatBuiltinExecuteJavascriptTool', './tools/builtin/execute-javascript.tool.js'],
@@ -350,7 +351,7 @@
         () => security.authorizeChallenge(challengeId, decision, { signal: context.signal })
       ).catch(err => ({ error: err.message }));
       if (authRes?.error || !authRes?.authorized) return { error: authRes?.error || 'Challenge authorization failed.' };
-      return { result: getMCP().formatToolCallResult(authRes.result, { name: tool.name, args, elapsed: elapsed() }) };
+      return { result: getMcpResults().formatToolCallResult(authRes.result, { name: tool.name, args, elapsed: elapsed() }) };
     }
 
     /**

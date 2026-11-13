@@ -36,7 +36,7 @@ Goal: Que js/app.js y js/mcp.js vuelvan a ser coordinadores: la sesión con el b
 Done when: app.js no contiene la conexión, identificación y guardado de la sesión del backend ni el estado de la ejecución en servidor; mcp.js no contiene el formateo de resultados e imágenes; los módulos nuevos siguen las normas de js/README.md y pasan las pruebas de arquitectura; y todos los niveles de §4 pasan en verde.
 - [x] M66-T1 Sesión con el backend (fragmento de arranque, destino configurado, clave del proxy, conexión, identificación y guardado) de app.js a un módulo de dominio propio (2026-11-13)
 - [x] M66-T2 Control de la ejecución en servidor (disponibilidad, estado vivo, ejecución activa y bloqueo del compositor) de app.js a un módulo propio (2026-11-13)
-- [ ] M66-T3 Formateo de resultados de herramientas e imágenes MCP (formatToolCallResult, formatMcpMarkdown, imágenes seguras) de mcp.js a un módulo propio
+- [x] M66-T3 Formateo de resultados de herramientas e imágenes MCP (formatToolCallResult, formatMcpMarkdown, imágenes seguras) de mcp.js a un módulo propio (2026-11-13)
 
 ## M67 Arreglos de estabilización
 

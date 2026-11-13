@@ -67,6 +67,7 @@ const PRECACHE_ASSETS = [
   './js/tools/builtin/delegate-task.tool.js',
   './js/tool-security.js',
   './js/agent-core.js',
+  './js/mcp-results.js',
   './js/mcp.js',
   './js/debug.js',
   './js/command-card.js',
