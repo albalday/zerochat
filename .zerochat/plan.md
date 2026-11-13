@@ -37,4 +37,4 @@ Done when: Las tareas del hito están hechas, probadas en el navegador y todos l
 - [x] M63-T7 La barra no pinta las conversaciones de los grupos plegados; desplegar un grupo lo pinta (corrige M63-T4: 270 000 nodos ocultos con 10 000 conversaciones) (2026-11-13)
 - [x] M63-T8 Tope de 50 conversaciones pintadas por grupo con botón "Mostrar N más"; la búsqueda sigue recorriendo todos los títulos (prueba en 50 y 51) (2026-11-13)
 - [x] M63-T9 Borrar historial con un proyecto activo pregunta por las conversaciones de ese proyecto, con casilla para borrar todo; el servidor borra por proyecto y cancela solo las ejecuciones de esas conversaciones (2026-11-13)
-- [ ] M63-T10 Al conectar se sincronizan solo las cabeceras: la lista aparece en cuanto llega conversations/list y cada conversación se descarga a IndexedDB al abrirla; sin servidor, una no descargada avisa en vez de abrirse vacía
+- [x] M63-T10 Al conectar se sincronizan solo las cabeceras: la lista aparece en cuanto llega conversations/list y cada conversación se descarga a IndexedDB al abrirla; sin servidor, una no descargada avisa en vez de abrirse vacía (2026-11-13)

@@ -286,17 +286,26 @@ test('Storage Backend - sincroniza conversaciones locales y remotas en getConver
     [{ id: 'm_l1', role: 'user', content: 'Desde local' }]
   );
 
-  // 1. Al conectar y pedir getConversationsList, no sube las locales al backend y descarga remotas a IndexedDB
+  // 1. Al conectar, getConversationsList guarda solo las cabeceras remotas y no sube las locales
   connected = true;
+  backendCalls.length = 0;
   const list = await Storage.getConversationsList();
   assert.deepEqual(list.map(c => c.id), ['l_conv', 'b_conv']);
+  assert.deepEqual(backendCalls.map(call => call.method), ['zerochat/conversations/list'], 'La lista no descarga mensajes');
+  assert.equal(list.find(c => c.id === 'b_conv').messagesPending, true);
   assert.equal(backendStore.has('l_conv'), false, 'Las conversaciones locales no se suben al backend');
 
-  // Al desconectar, b_conv ya quedó guardada en IndexedDB tras la sincronización inicial
+  // Sin servidor, una conversación de la que solo hay cabecera no se abre vacía
+  connected = false;
+  await assert.rejects(Storage.getConversation('b_conv'), error => error.code === Storage.CONVERSATION_NOT_DOWNLOADED);
+
+  // Abrirla conectado la guarda en IndexedDB y después se lee sin servidor
+  connected = true;
+  assert.equal((await Storage.getConversation('b_conv')).history[0].content, 'Desde backend');
   connected = false;
   const cachedRemote = await Storage.getConversation('b_conv');
-  assert.ok(cachedRemote);
   assert.equal(cachedRemote.history[0].content, 'Desde backend');
+  assert.equal(cachedRemote.messagesPending, undefined);
 
   // Estando conectado, una conversación que solo existe en local se abre sin problemas desde IndexedDB
   connected = true;

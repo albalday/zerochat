@@ -157,7 +157,8 @@
       conversation = await getStorage().getConversation(sessionId);
     } catch (error) {
       console.warn('[ConversationService] Could not read conversation:', error);
-      await getDialogs().alert(t('chat_storage_read_error'), { type: 'error' });
+      const notDownloaded = error?.code === getStorage().CONVERSATION_NOT_DOWNLOADED;
+      await getDialogs().alert(t(notDownloaded ? 'chat_not_downloaded' : 'chat_storage_read_error'), { type: 'error' });
       return false;
     }
     if (!conversation) return;

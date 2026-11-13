@@ -198,6 +198,9 @@
 
   const conversationRange = id => IDBKeyRange.bound([id, -Infinity], [id, Infinity]);
 
+  // Código del error al abrir sin servidor una conversación de la que solo se tiene la cabecera.
+  const CONVERSATION_NOT_DOWNLOADED = 'CONVERSATION_NOT_DOWNLOADED';
+
   function toConversationHeader(record) {
     const { id, title, createdAt, updatedAt, messageCount, profileId, serverRun, extra } = record;
     const isServerRun = serverRun !== undefined ? Boolean(serverRun) : (extra?.server_run !== undefined ? Boolean(extra.server_run) : undefined);
@@ -211,7 +214,23 @@
       ...(profileId ? { profileId } : {}),
       ...(isServerRun !== undefined ? { serverRun: isServerRun } : {}),
       ...(project ? { project } : {}),
-      ...(extra ? { extra } : {})
+      ...(extra ? { extra } : {}),
+      ...(record.messagesPending ? { messagesPending: true } : {})
+    };
+  }
+
+  /** Registro de IndexedDB de una conversación con `messageCount` mensajes. */
+  function toConversationRecord(sessionMeta, messageCount, now = Date.now()) {
+    return {
+      id: sessionMeta.id,
+      title: sessionMeta.title || '',
+      createdAt: sessionMeta.createdAt || now,
+      updatedAt: sessionMeta.updatedAt || now,
+      messageCount,
+      ...(sessionMeta.profileId ? { profileId: sessionMeta.profileId } : {}),
+      ...(sessionMeta.serverRun !== undefined ? { serverRun: Boolean(sessionMeta.serverRun) } : {}),
+      ...(sessionMeta.project ? { project: sessionMeta.project } : {}),
+      ...(sessionMeta.extra ? { extra: sessionMeta.extra } : {})
     };
   }
 
@@ -249,6 +268,11 @@
       const messages = await getAllByIndex(tx.objectStore(STORES.messages), 'by_conversation', conversationRange(sessionId));
       return { ...toConversationHeader(conversation), history: messages.map(fromMessageRecord) };
     });
+    if (conversation?.messagesPending) {
+      const error = new Error(`Conversation ${sessionId} has not been downloaded from the server`);
+      error.code = CONVERSATION_NOT_DOWNLOADED;
+      throw error;
+    }
     if (conversation?.history) {
       await hydrateMessageImages(conversation.history);
     }
@@ -257,20 +281,9 @@
 
   function writeLocalConversation(sessionMeta, messages = []) {
     const sessionId = sessionMeta.id;
-    const now = Date.now();
     return attempt('save the conversation', async db => {
       const tx = db.transaction([STORES.conversations, STORES.messages], 'readwrite');
-      tx.objectStore(STORES.conversations).put({
-        id: sessionId,
-        title: sessionMeta.title || '',
-        createdAt: sessionMeta.createdAt || now,
-        updatedAt: sessionMeta.updatedAt || now,
-        messageCount: messages.length,
-        ...(sessionMeta.profileId ? { profileId: sessionMeta.profileId } : {}),
-        ...(sessionMeta.serverRun !== undefined ? { serverRun: Boolean(sessionMeta.serverRun) } : {}),
-        ...(sessionMeta.project ? { project: sessionMeta.project } : {}),
-        ...(sessionMeta.extra ? { extra: sessionMeta.extra } : {})
-      });
+      tx.objectStore(STORES.conversations).put(toConversationRecord(sessionMeta, messages.length));
       const messageStore = tx.objectStore(STORES.messages);
       await deleteByIndex(messageStore, 'by_conversation', conversationRange(sessionId));
       const seenIds = new Set();
@@ -284,10 +297,21 @@
     });
   }
 
+  /** Guarda en una transacción las cabeceras remotas cuyos mensajes se descargarán al abrirlas. */
+  function writePendingHeaders(headers) {
+    return attempt('save the conversation headers', async db => {
+      const tx = db.transaction(STORES.conversations, 'readwrite');
+      const store = tx.objectStore(STORES.conversations);
+      const now = Date.now();
+      for (const header of headers) store.put({ ...toConversationRecord(header, header.messageCount || 0, now), messagesPending: true });
+      await transactionDone(tx);
+    });
+  }
+
   /**
    * Cabeceras de las conversaciones, de la más reciente a la más antigua, sin sus mensajes.
-   * Con el backend conectado, descarga las conversaciones remotas a IndexedDB antes de devolver la lista
-   * sin subir las conversaciones locales al servidor.
+   * Con el backend conectado, guarda en IndexedDB solo las cabeceras remotas nuevas o más recientes,
+   * pendientes de descargar sus mensajes al abrirlas, sin subir las conversaciones locales al servidor.
    */
   async function getConversationsList() {
     const localList = await readLocalConversationsList();
@@ -295,28 +319,34 @@
 
     const { conversations: remoteList = [] } = await requestBackend('zerochat/conversations/list');
     const localMap = new Map(localList.map(item => [item.id, item]));
-
-    let downloaded = false;
-    for (const remote of remoteList) {
+    const stale = remoteList.filter(remote => {
       const local = localMap.get(remote.id);
-      if (!local || (remote.updatedAt || 0) > (local.updatedAt || 0)) {
-        const { conversation: fullRemote } = await requestBackend('zerochat/conversations/get', { id: remote.id });
-        if (fullRemote) {
-          await writeLocalConversation(remote, fullRemote.history);
-          downloaded = true;
-        }
-      }
-    }
-
-    return downloaded ? readLocalConversationsList() : localList;
+      return !local || (remote.updatedAt || 0) > (local.updatedAt || 0);
+    });
+    if (stale.length === 0) return localList;
+    await writePendingHeaders(stale);
+    return readLocalConversationsList();
   }
 
-  /** Conversación completa con sus mensajes en orden; null si no existe. */
+  /** Si la copia local falta o solo tiene la cabecera, hay que guardar la que llega del servidor. */
+  function needsLocalCopy(sessionId) {
+    return attempt('read the conversation', async db => {
+      const record = await requestResult(db.transaction(STORES.conversations, 'readonly').objectStore(STORES.conversations).get(sessionId));
+      return !record || record.messagesPending === true;
+    });
+  }
+
+  /**
+   * Conversación completa con sus mensajes en orden; null si no existe. Con el backend conectado se
+   * descarga y, si aquí solo estaba su cabecera, se guarda; sin él, una que solo tiene la cabecera
+   * lanza un error con el código CONVERSATION_NOT_DOWNLOADED.
+   */
   async function getConversation(sessionId) {
     if (!sessionId) return null;
     if (isBackendConnected()) {
       const result = await requestBackend('zerochat/conversations/get', { id: sessionId });
       if (result?.conversation) {
+        if (await needsLocalCopy(sessionId)) await writeLocalConversation(result.conversation, result.conversation.history || []);
         if (result.conversation.history) {
           await hydrateMessageImages(result.conversation.history);
         }
@@ -592,6 +622,7 @@
     saveConversation,
     deleteConversation,
     deleteAllConversations,
+    CONVERSATION_NOT_DOWNLOADED,
     deleteProjectConversations,
     renameConversation,
     saveBlob,

@@ -59,4 +59,9 @@ Por orden de beneficio y coste; cada punto sería una tarea de M63.
   herramientas al usuario que borrar por antigüedad sin preguntar: "Borrar las conversaciones de este
   proyecto" en el menú de la cabecera de proyecto y, si hace falta, "Borrar las de hace más de N meses".
 
-Decisiones pendientes del usuario: si C descarga solo al abrir o en segundo plano, y si D entra en este hito.
+## Decisión (13-11-2026)
+
+A, B y C (descarga al abrir) hechos en M63-T7, T8 y T10. D: sin borrado automático; el botón de borrar el
+historial pregunta por el proyecto actual o por todo (M63-T9). Con 2000 conversaciones, tras los cambios:
+primera carga 0,3 s sin ninguna descarga (antes 10,9 s), IndexedDB 2,7 MB (antes 7,8 MB) y barra de 1 400
+nodos en la vista de todos (antes 54 000).
