@@ -538,7 +538,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
 
         def renews(path, method, sent_token, status):
             before = zerochat.HEARTBEAT_LAST_SEEN
-            time.sleep(0.01)
+            time.sleep(0.05)  # más que la resolución de time.monotonic en Windows (~16 ms)
             self.assertEqual(post(path, method, sent_token), status)
             self.assertGreater(zerochat.HEARTBEAT_LAST_SEEN, before, (path, method, sent_token))
 
