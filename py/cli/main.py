@@ -9,6 +9,7 @@ import json
 import os
 import signal
 import sys
+import tempfile
 import threading
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -44,7 +45,7 @@ from run_mode.state import (
     run_outcome,
 )
 from run_mode.supervisor import fall_back_when_headless_exits, launch_node_runner, run_supervisor
-from security.context import PROJECT_DIR, project_context
+from security.context import PROJECT_DIR, SecurityContext, project_context
 from security.controller import ACCESS_CONTROLLER
 from security.rules import POLICY_ALLOW
 from server.handler import ZeroChatServerHandler
@@ -65,7 +66,7 @@ from storage.db import (
     mark_conversation_server_run,
 )
 from tools.browser_action import browser_action_availability
-from tools.filesystem import list_directory, read_file
+from tools.filesystem import list_directory, read_file, write_file
 from tools.jobs import cleanup_orphan_jobs, run_command
 
 
@@ -213,12 +214,26 @@ def redirect_log(args):
     return result_out
 
 
-def run_self_test():
-    """--test: comprueba las herramientas locales básicas sin arrancar el servidor."""
-    print(timestamp_message(f"TEST list_directory {'ok' if json.loads(list_directory('.'))['success'] else 'error'}"))
-    print(timestamp_message(f"TEST read_file {'ok' if json.loads(read_file('package.json', max_lines=5))['success'] else 'error'}"))
-    print(timestamp_message(f"TEST run_command {'ok' if json.loads(run_command('echo hello'))['success'] else 'error'}"))
-    print(timestamp_message("TEST all local tools ready."))
+def run_self_test() -> bool:
+    """
+    --test: comprueba las herramientas locales básicas sin arrancar el servidor, en una carpeta temporal
+    propia para no depender de dónde se ejecute. Devuelve si todas funcionan.
+    """
+    with tempfile.TemporaryDirectory(prefix="zerochat-test-") as folder:
+        ctx = SecurityContext(Path(folder).resolve())
+        checks = {
+            "write_file": lambda: write_file("prueba.txt", "hola\n", ctx=ctx),
+            "list_directory": lambda: list_directory(".", ctx=ctx),
+            "read_file": lambda: read_file("prueba.txt", ctx=ctx),
+            "run_command": lambda: run_command("echo hola", ctx=ctx),
+        }
+        passed = True
+        for name, check in checks.items():
+            ok = json.loads(check()).get("success") is True
+            passed = passed and ok
+            print(timestamp_message(f"TEST {name} {'ok' if ok else 'error'}"))
+    print(timestamp_message("TEST all local tools ready." if passed else "TEST some local tools failed."))
+    return passed
 
 
 def prepare_environment(args, is_dev: bool):
@@ -438,8 +453,7 @@ def main():
         return
 
     if args.test:
-        run_self_test()
-        return
+        sys.exit(0 if run_self_test() else 1)
 
     dev_root = get_dev_root()
     static_root = get_static_root()
