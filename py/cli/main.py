@@ -30,8 +30,9 @@ from core.environment import (
     get_static_root,
     get_venv_dir,
     reset_notices,
+    set_active_address,
 )
-from core.logging import CONSOLE_CONTROL, console_log, log_event, timestamp_message
+from core.logging import CONSOLE_CONTROL, console_log, log_event, set_console_control, timestamp_message
 from core.process import _kill_process_tree
 from core.version import DEFAULT_UI_URL, UI_VERSION, VERSION, check_version, is_installed_runtime
 from run_mode.state import (
@@ -43,6 +44,7 @@ from run_mode.state import (
     RunSession,
     run_error,
     run_outcome,
+    set_run_session,
 )
 from run_mode.supervisor import fall_back_when_headless_exits, launch_node_runner, run_supervisor
 from security.context import PROJECT_DIR, SecurityContext, project_context
@@ -54,6 +56,7 @@ from server.state import (
     DEFAULT_HEARTBEAT_TIMEOUT,
     EXIT_ON_CLOSE,
     heartbeat_watchdog,
+    set_exit_on_close,
     stop_zerochat_server,
 )
 from storage.db import (
@@ -102,7 +105,7 @@ def build_parser() -> ZeroChatArgumentParser:
     """Opciones de la línea de órdenes."""
     parser = ZeroChatArgumentParser(description=f"ZeroChat Local Server v{VERSION}")
     # Desde Python 3.14 argparse colorea la ayuda con códigos ANSI; la consola la muestra en texto plano.
-    parser.color = False
+    parser.color = False  # pyright: ignore[reportAttributeAccessIssue] (atributo de Python 3.14)
     parser.add_argument("--port", type=int, default=None, help=f"Puerto de escucha (default: ZEROCHAT_PORT o {DEFAULT_PORT}; con --prompt, si está ocupado se usa otro libre salvo con --browser en desarrollo)")
     parser.add_argument("--host", default=os.environ.get("ZEROCHAT_HOST", DEFAULT_HOST), help=f"Host de escucha (default: {DEFAULT_HOST})")
     parser.add_argument("--ui-url", default=None, help="URL de la interfaz web a abrir (por defecto: interfaz local en desarrollo o GitHub Pages)")
@@ -269,9 +272,7 @@ def reset_session_authorizations():
 
 def open_server(args, local_ui: bool) -> ThreadingHTTPServer:
     """Abre el puerto de escucha; con --prompt, si el puerto por defecto está ocupado, usa uno libre."""
-    global ACTIVE_PORT, ACTIVE_HOST
-    ACTIVE_PORT = args.port if args.port is not None else int(os.environ.get("ZEROCHAT_PORT", DEFAULT_PORT))
-    ACTIVE_HOST = args.host
+    set_active_address(args.host, args.port if args.port is not None else int(os.environ.get("ZEROCHAT_PORT", DEFAULT_PORT)))
     try:
         return ThreadingHTTPServer((ACTIVE_HOST, ACTIVE_PORT), ZeroChatServerHandler)
     except OSError as exc:
@@ -288,7 +289,7 @@ def open_server(args, local_ui: bool) -> ThreadingHTTPServer:
         run_error(f"No se pudo escuchar en {ACTIVE_HOST}: {retry_exc}")
         sys.exit(RUN_EXIT_SETUP)
     log_event(f"El puerto {ACTIVE_PORT} está ocupado; la ejecución usa el {server.server_address[1]}.")
-    ACTIVE_PORT = server.server_address[1]
+    set_active_address(ACTIVE_HOST, server.server_address[1])
     return server
 
 
@@ -338,10 +339,10 @@ def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_cl
 def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, result_out):
     """Abre la interfaz: en modo ejecución, con su supervisor; si no, con el control de consola.
     Devuelve el navegador sin ventana lanzado, si lo hay."""
-    global CONSOLE_CONTROL
     if not RUN_SESSION:
-        CONSOLE_CONTROL = ConsoleControl(server, parser, launch_url=lambda: launch_url(ui_url))
-        CONSOLE_CONTROL.start()
+        console = ConsoleControl(server, parser, launch_url=lambda: launch_url(ui_url))
+        set_console_control(console)
+        console.start()
         if not args.no_browser:
             launch_browser(launch_url(ui_url))
         return None
@@ -390,7 +391,6 @@ def install_signal_handlers(server: ThreadingHTTPServer):
 
 def serve(server: ThreadingHTTPServer):
     """Atiende peticiones hasta la parada y libera después el servidor y la consola."""
-    global CONSOLE_CONTROL
     try:
         server.serve_forever()
     finally:
@@ -398,7 +398,7 @@ def serve(server: ThreadingHTTPServer):
         server.server_close()
         if CONSOLE_CONTROL:
             CONSOLE_CONTROL.close()
-            CONSOLE_CONTROL = None
+            set_console_control(None)
 
 
 def finish_run(headless_browser, result_out):
@@ -415,13 +415,11 @@ def finish_run(headless_browser, result_out):
 
 
 def main():
-    global RUN_SESSION, EXIT_ON_CLOSE
-
     parser = build_parser()
     args = parser.parse_args()
     # Los avisos no persisten entre ejecuciones del servidor.
     reset_notices()
-    RUN_SESSION = run_session_from_args(parser, args)
+    set_run_session(run_session_from_args(parser, args))
     result_out = redirect_log(args)
 
     if getattr(args, "list_profiles", False):
@@ -468,8 +466,8 @@ def main():
 
     ui_url = interface_url(args, static_root)
     # El modo ejecución (que rechaza --keep-server) detecta con el latido que el navegador se cerró sin devolver resultado.
-    EXIT_ON_CLOSE = not args.keep_server
-    print_header(dev_root, ui_url, exposure_warning, EXIT_ON_CLOSE)
+    set_exit_on_close(not args.keep_server)
+    print_header(dev_root, ui_url, exposure_warning, not args.keep_server)
 
     headless_browser = start_interface(args, parser, server, ui_url, result_out)
     if EXIT_ON_CLOSE:

@@ -44,7 +44,7 @@ Done when: Todos los módulos en py/ son código Python válido e importable de 
 - [x] M64-T12 Dividir ff-server.py en py/server/state.py (BrowserLease, live_state, watchdog) y py/server/handler.py (despacho HTTP/JSON-RPC por grupos) (2026-11-13)
 - [x] M64-T13 Mover ConsoleControl a py/cli/console.py y migrar zz-main.py a py/cli/main.py con inicialización explícita del runtime manteniendo los símbolos públicos en zerochat.py (2026-11-13)
 - [x] M64-T14 Retirar el soporte de transición a prefijos aa-..zz-, verificar importación aislada sin side effects de py/, actualizar py/README.md y validar npm run test:all y tests/packaging_smoke_test.py (2026-11-13)
-- [ ] M64-T15 Análisis estático en la CI sobre py/: ruff (nombres no definidos e imports sin uso) y pyright en modo básico, corrigiendo lo que detecten
+- [x] M64-T15 Análisis estático en la CI sobre py/: ruff (nombres no definidos e imports sin uso) y pyright en modo básico, corrigiendo lo que detecten (2026-11-13)
 - [x] M64-T16 zerochat.py --test falla desde M62: run_self_test llama a list_directory, read_file y run_command sin el contexto del proyecto; pasarles project_context(), probar en un directorio cualquiera y añadir una prueba de --test (2026-11-13)
 
 ## M65 Aislamiento de las ejecuciones en servidor: closed 2026-11-13

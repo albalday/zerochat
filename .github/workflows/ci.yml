@@ -47,6 +47,18 @@ jobs:
           python -m twine check dist/*
           python tests/packaging_smoke_test.py dist
 
+  # Análisis estático del backend: nombres sin definir e imports sin uso (ruff) y tipos en modo básico (pyright).
+  static-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install ruff==0.17.5 pyright==1.1.414
+      - run: ruff check
+      - run: pyright
+
   # Rutas propias de Windows y macOS (LogonUserW, Job Object, permisos de los datos) en las pruebas Python.
   platforms:
     runs-on: ${{ matrix.os }}

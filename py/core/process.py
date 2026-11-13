@@ -54,7 +54,7 @@ def _kill_process_tree(target: subprocess.Popen | int, *, grace_seconds: float =
 def _windows_kernel32():
     """kernel32 con los prototipos que usan la huella de arranque y la comprobación de vida de un proceso."""
     from ctypes import wintypes
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # pyright: ignore[reportAttributeAccessIssue] (solo en Windows)
     kernel32.OpenProcess.restype = wintypes.HANDLE
     kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     kernel32.GetExitCodeProcess.restype = wintypes.BOOL
@@ -106,7 +106,7 @@ def _windows_pid_alive(pid: int) -> bool:
     kernel32 = _windows_kernel32()
     handle = kernel32.OpenProcess(_WINDOWS_PROCESS_QUERY, False, pid)
     if not handle:
-        return ctypes.get_last_error() == 5  # ERROR_ACCESS_DENIED: existe, pero es de otra cuenta
+        return ctypes.get_last_error() == 5  # ERROR_ACCESS_DENIED: existe, pero es de otra cuenta  # pyright: ignore[reportAttributeAccessIssue] (solo en Windows)
     try:
         exit_code = wintypes.DWORD()
         return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))) and exit_code.value == 259  # STILL_ACTIVE

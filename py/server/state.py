@@ -22,6 +22,14 @@ HEARTBEAT_WATCHDOG_STOP = threading.Event()
 _SERVER_SHUTTING_DOWN = threading.Event()
 # Si el servidor se detiene al cerrar el navegador, cerrar la pestaña detiene también los comandos.
 EXIT_ON_CLOSE = False
+
+
+def set_exit_on_close(value: bool):
+    """Fija si cerrar el navegador detiene el servidor (sin --keep-server)."""
+    global EXIT_ON_CLOSE
+    EXIT_ON_CLOSE = value
+
+
 # Un navegador lo usa una conversación cada vez; queda libre tras este tiempo sin que lo use. Cubre lo que
 # el modelo tarda en razonar entre dos acciones, no la espera a otra petición del usuario.
 BROWSER_LEASE_IDLE_SECONDS = 60.0

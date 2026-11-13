@@ -7,6 +7,12 @@ import time
 CONSOLE_CONTROL = None
 
 
+def set_console_control(control):
+    """Fija la consola interactiva que recibe las líneas del registro (None para escribir directamente)."""
+    global CONSOLE_CONTROL
+    CONSOLE_CONTROL = control
+
+
 def console_log(message: str, *, flush: bool = True):
     if CONSOLE_CONTROL:
         CONSOLE_CONTROL.log(message, flush=flush)

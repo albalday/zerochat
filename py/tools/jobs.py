@@ -148,7 +148,7 @@ class _WindowsKillOnCloseJob:
                     ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)
                 ]
 
-            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # pyright: ignore[reportAttributeAccessIssue] (solo en Windows)
             kernel32.CreateJobObjectW.restype = wintypes.HANDLE
             kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
             kernel32.SetInformationJobObject.restype = wintypes.BOOL
@@ -173,7 +173,7 @@ class _WindowsKillOnCloseJob:
         if not self._handle:
             return False
         try:
-            return bool(self._kernel32.AssignProcessToJobObject(self._handle, int(proc._handle)))
+            return bool(self._kernel32.AssignProcessToJobObject(self._handle, int(proc._handle)))  # pyright: ignore[reportAttributeAccessIssue] (solo en Windows)
         except (OSError, AttributeError, ValueError):
             return False
 

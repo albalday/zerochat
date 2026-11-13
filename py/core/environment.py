@@ -85,6 +85,12 @@ ACTIVE_PORT = DEFAULT_PORT
 ACTIVE_HOST = DEFAULT_HOST
 
 
+def set_active_address(host: str, port: int):
+    """Fija el host y el puerto en los que escucha este proceso; los lee quien compone la URL de la interfaz."""
+    global ACTIVE_HOST, ACTIVE_PORT
+    ACTIVE_HOST, ACTIVE_PORT = host, port
+
+
 def get_venv_python(venv_dir: Path) -> Path:
     """Devuelve el ejecutable de Python del entorno virtual según el SO."""
     if sys.platform.startswith("win"):

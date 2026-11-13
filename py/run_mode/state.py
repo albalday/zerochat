@@ -336,6 +336,12 @@ class RunSession:
 RUN_SESSION: RunSession | None = None
 
 
+def set_run_session(session: RunSession | None):
+    """Fija la ejecución desatendida de este proceso (None si atiende a la interfaz)."""
+    global RUN_SESSION
+    RUN_SESSION = session
+
+
 def http_body_limit() -> int:
     """Tope del cuerpo que se lee: el general, o el de la exportación mientras se espera (ff-server
     rechaza después cualquier otro método que supere el general)."""
