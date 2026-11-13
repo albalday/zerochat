@@ -32,7 +32,7 @@
       <ul>
         <li><strong>Standard output:</strong> only the model's final answer.</li>
         <li><strong>Standard error:</strong> the reason for a run without an answer. The server log is off by default; with <code>--log on</code> it also goes to standard error.</li>
-        <li><strong>Execution:</strong> by default it uses Node.js 18+ in the background (no graphical browser required); with <code>--browser</code> it uses your default browser (visible, or windowless if you add <code>--headless</code>).</li>
+        <li><strong>Execution:</strong> by default it uses Node.js 22 or later in the background (no graphical browser required); with <code>--browser</code> it uses your default browser (visible, or windowless if you add <code>--headless</code>).</li>
         <li><strong>Working directory:</strong> file and command tools work in the directory you run the command from, as in a normal session.</li>
       </ul>
     </div>
@@ -83,7 +83,7 @@
 
     <div class="card" id="sin-ventana">
       <h2>5. Windowless mode and user browser (<code>--browser</code> / <code>--headless</code>)</h2>
-      <p>By default, <code>--prompt</code> and <code>--conversation</code> run windowless using a Node.js 18+ process and the profiles stored on the local server (<code>~/zerochat/storage/zerochat.db</code>), without needing a graphical session or installed browsers.</p>
+      <p>By default, <code>--prompt</code> and <code>--conversation</code> run windowless using a Node.js 22 or later process and the profiles stored on the local server (<code>~/zerochat/storage/zerochat.db</code>), without needing a graphical session or installed browsers.</p>
       <ul>
         <li><strong><code>--prompt --browser</code>:</strong> opens your default browser in visible mode (with your local profiles, history and rules saved in it). Supports <code>--keep-page</code>.</li>
         <li><strong><code>--prompt --browser --headless</code>:</strong> on Linux, looks up the default browser (<code>xdg-settings</code>) and launches it with <code>--headless</code> on your normal profile; if it is already open or cannot be identified, it opens as a tab the normal way.</li>
@@ -93,7 +93,7 @@
     <div class="card" id="cron">
       <h2>6. Scheduled jobs (cron)</h2>
       <ul>
-        <li><strong>Profile and environment:</strong> save the profile to the server with the <strong>Save to server</strong> button (by default <code>local</code>, or the one passed in <code>--profile</code>) and ensure Node.js 18+ is available. That way <code>--prompt</code> runs directly in the background without a graphical session or conflicts with your open browser.</li>
+        <li><strong>Profile and environment:</strong> save the profile to the server with the <strong>Save to server</strong> button (by default <code>local</code>, or the one passed in <code>--profile</code>) and ensure Node.js 22 or later is available. That way <code>--prompt</code> runs directly in the background without a graphical session or conflicts with your open browser.</li>
         <li><strong>Environment:</strong> cron starts with a minimal <code>PATH</code> in the home directory. Change to the working directory with <code>cd</code> and add to <code>PATH</code> the commands your MCP services need (<code>node</code>, <code>npx</code>, <code>uvx</code>…).</li>
         <li><strong>Result:</strong> cron mails the output (<code>MAILTO</code>); the exit code tells each case apart. <code>flock</code> keeps two runs from overlapping.</li>
       </ul>

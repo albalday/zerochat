@@ -279,7 +279,7 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(missingDefaultProfile.code, 4, missingDefaultProfile.stderr);
     assert.match(missingDefaultProfile.stderr, /no existe el perfil por defecto 'local'/);
     assert.equal(noNode.code, 3, noNode.stderr);
-    assert.match(noNode.stderr, /Node\.js 18\+ es necesario/);
+    assert.match(noNode.stderr, /Se necesita Node\.js 22 o superior/);
     assert.equal(portInUse.code, 3, portInUse.stderr);
     assert.match(portInUse.stderr, /No se pudo escuchar/);
     assert.equal(portInUse.info, null);

@@ -280,6 +280,17 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             self.assertIn("Plazo total agotado", reason)
             self.assertEqual(outcome, (zerochat.RUN_EXIT_TIMEOUT, None))
 
+    def test_el_runner_exige_node_22_o_superior(self):
+        def found(version):
+            result = zerochat.subprocess.CompletedProcess(["node", "--version"], 0, stdout=f"{version}\n", stderr="")
+            with mock.patch.object(zerochat.shutil, "which", return_value="/usr/bin/node"), \
+                 mock.patch.object(zerochat.subprocess, "run", return_value=result):
+                return zerochat.find_node_executable()
+
+        self.assertIsNone(found("v21.7.3"))
+        self.assertEqual(found("v22.0.0"), "/usr/bin/node")
+        self.assertEqual(found("v24.11.1"), "/usr/bin/node")
+
     def test_list_server_runs_orden_focus_proceso_muerto_y_aislamiento_worker(self):
         runs, focus = zerochat.list_server_runs()
         self.assertEqual(runs, [])

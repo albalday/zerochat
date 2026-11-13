@@ -7194,7 +7194,7 @@ def start_server_run(params: dict, ctx: SecurityContext) -> dict:
         raise ValueError("tool_security debe ser un objeto o null.")
 
     if not find_node_executable():
-        raise ValueError("Node.js 18+ es necesario para ejecutar tareas en segundo plano en el servidor (instala Node.js 18+).")
+        raise ValueError(f"Se necesita {NODE_REQUIRED_MESSAGE} para ejecutar tareas en segundo plano en el servidor.")
 
     project = conv.get("project")
     if project and not Path(project).is_dir():
@@ -7505,10 +7505,12 @@ def fall_back_when_headless_exits(proc: subprocess.Popen, url: str):
         launch_browser(url)
 
 
-NODE_MINIMUM_MAJOR = 18
+# Versión mayor mínima de Node.js para el runner: la LTS más antigua con soporte (runner.js usa el global navigator, de Node 21+).
+NODE_MINIMUM_MAJOR = 22
+NODE_REQUIRED_MESSAGE = f"Node.js {NODE_MINIMUM_MAJOR} o superior"
 
 
-def find_node_executable(min_major: int = NODE_MINIMUM_MAJOR) -> str | None:
+def find_node_executable() -> str | None:
     """Localiza un ejecutable de Node.js en PATH y comprueba su versión mínima."""
     executable = shutil.which("node")
     if not executable:
@@ -7518,7 +7520,7 @@ def find_node_executable(min_major: int = NODE_MINIMUM_MAJOR) -> str | None:
         if res.returncode != 0:
             return None
         match = re.search(r"v?(\d+)\.", res.stdout.strip())
-        if not match or int(match.group(1)) < min_major:
+        if not match or int(match.group(1)) < NODE_MINIMUM_MAJOR:
             return None
         return executable
     except (OSError, subprocess.SubprocessError):
@@ -7593,7 +7595,7 @@ def launch_node_runner(url: str) -> subprocess.Popen | None:
     """Abre el runner de Node.js sin ventana en segundo plano."""
     node = find_node_executable()
     if not node:
-        run_error("Node.js 18+ es necesario para la ejecución desatendida. Instala Node.js o usa --browser.")
+        run_error(f"Se necesita {NODE_REQUIRED_MESSAGE} para la ejecución desatendida. Instálalo o usa --browser.")
         return None
     try:
         runner_path = ensure_runner_script()
