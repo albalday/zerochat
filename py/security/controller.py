@@ -1,7 +1,51 @@
-# ==============================================================================
-# Motor de Control de Acceso y Seguridad de Herramientas (AccessController)
-# ==============================================================================
+"""Punto único de decisión de permisos (AccessController): evalúa cada llamada, emite retos de un solo uso y guarda las decisiones por sesión de proyecto y en SQLite."""
 
+from __future__ import annotations
+
+import dataclasses
+import os
+import re
+import secrets
+import threading
+import time
+import typing
+from pathlib import Path
+
+from security.context import SecurityContext, normalize_directory_path
+from security.rules import (
+    AUTHORIZE_DECISIONS,
+    AccessDecision,
+    COMMAND_TOOL,
+    DIRECTORY_PATH_TOOLS,
+    GLOBAL_POLICIES,
+    GLOBAL_POLICY_ALLOW_ALL,
+    GLOBAL_POLICY_ASK,
+    GLOBAL_POLICY_WORKSPACE_TRUST,
+    JOB_CONTROL_TOOL,
+    MAX_COMMAND_PATTERNS,
+    POLICY_ALLOW,
+    POLICY_ASK,
+    POLICY_DENY,
+    SCOPE_PERMANENT,
+    SCOPE_SESSION,
+    WORKSPACE_TRUST_PIPE_FILTERS,
+    cd_target,
+    clean_pattern_list,
+    command_rule_offer,
+    directory_rule_offer,
+    get_command_arg,
+    get_integrated_path_access,
+    get_path_arg,
+    is_workspace_local_command,
+    matches_command_pattern,
+    matches_directory_pattern,
+    normalize_command_pattern,
+    normalize_command_patterns,
+    parse_directory_rule,
+    split_command,
+)
+from storage.db import get_security_policy_data, update_security_policy_data
+from tools.jobs import JOBS
 
 POLICY_STATE_VERSION = 6
 CHALLENGE_TTL_MS = 600_000

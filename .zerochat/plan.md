@@ -38,7 +38,7 @@ Done when: Todos los módulos en py/ son código Python válido e importable de 
 - [x] M64-T6 Dividir ee-browser-config.py y gg-browser.py en py/browser/launch.py, py/browser/config.py y py/browser/engines.py, rompiendo el ciclo con ee-mcp.py mediante callback de estado (2026-11-13)
 - [x] M64-T7 Migrar dd-managed-services.py y ee-mcp.py a py/mcp/ (managed_services.py, stdio_client.py, manager.py), actualizando scripts/build-managed-services.mjs y evitando materializar servicios al importar (2026-11-13)
 - [x] M64-T8 Extraer el transporte HTTP saliente y protección anti-SSRF de ff-server.py a py/web/fetch.py (2026-11-13)
-- [ ] M64-T9 Migrar dd-commands.py a py/tools/jobs.py (sobre core.process y security.context) y dd-diff.py a py/tools/diff.py; después, AccessController y ACCESS_CONTROLLER a py/security/controller.py (consumiendo storage.db y tools.jobs sin ciclos)
+- [x] M64-T9 Migrar dd-commands.py a py/tools/jobs.py (sobre core.process y security.context) y dd-diff.py a py/tools/diff.py; después, AccessController y ACCESS_CONTROLLER a py/security/controller.py (consumiendo storage.db y tools.jobs sin ciclos) (2026-11-13)
 - [ ] M64-T10 Dividir dd-tools.py en py/tools/filesystem.py, py/tools/browser_action.py y py/tools/registry.py, actualizando test_backend_hygiene.js
 - [ ] M64-T11 Migrar ii-run-mode.py a py/run_mode/state.py y py/run_mode/supervisor.py eliminando la referencia circular con ff-server.py
 - [ ] M64-T12 Dividir ff-server.py en py/server/state.py (BrowserLease, live_state, watchdog) y py/server/handler.py (despacho HTTP/JSON-RPC por grupos)

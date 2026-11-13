@@ -1,6 +1,24 @@
-# ==============================================================================
-# Ejecución de comandos y tareas en segundo plano
-# ==============================================================================
+"""Comandos del servidor local (run_command y check_command): tareas con su log, plazos, segundo plano y limpieza de huérfanos."""
+
+from __future__ import annotations
+
+import atexit
+import ctypes
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import tempfile
+import threading
+import time
+from pathlib import Path
+
+from core.environment import DETECTED_OS
+from core.process import _kill_process_tree, _pid_alive, _process_start_token
+from security.context import SecurityContext
+from tools.common import _atomic_write_text, _tool_error
 
 COMMAND_DEFAULT_TIMEOUT = 30
 COMMAND_MAX_TIMEOUT = 600

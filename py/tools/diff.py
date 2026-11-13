@@ -1,3 +1,21 @@
+"""Visor de diferencias (zerochat/diff/open): diff frente a Git HEAD en HTML propio o con git difftool."""
+
+from __future__ import annotations
+
+import base64
+import html
+import os
+import re
+import shlex
+import shutil
+import subprocess
+from pathlib import Path
+
+from core.environment import ensure_virtual_environment, get_venv_dir, get_venv_python
+from core.limits import MAX_PATH_LENGTH
+from security.context import SecurityContext
+
+
 # Visores gráficos que `git difftool` ya sabe lanzar, en orden de preferencia, con el ejecutable que los delata.
 GUI_DIFF_TOOLS = {"vscode": "code", "meld": "meld", "kdiff3": "kdiff3", "kompare": "kompare", "gvimdiff": "gvim"}
 # Respaldo cuando no hay ninguno: visor web que se instala en el entorno aislado de ZeroChat.

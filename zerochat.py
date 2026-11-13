@@ -3144,988 +3144,30 @@ def update_security_policy_data(mutator: typing.Callable[[dict | None], dict]) -
             conn.execute("ROLLBACK;")
             raise
 
-# --- web.fetch ---
-"""Transporte web saliente del servidor (zerochat/web/fetch): anti-SSRF en la URL y en cada redirección, cuerpo acotado, cabeceras de navegador y cadencia por host."""
+# --- tools.common ---
+"""Utilidades comunes de las herramientas locales: el resultado de error y la escritura atómica de archivos."""
 
 
 
 
-METADATA_HOSTS = frozenset({
-    "169.254.169.254",
-    "metadata.google.internal",
-    "instance-data",
-    "100.100.100.200",
-})
-DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-# El User-Agent activo se sustituye por el de la primera petición del frontend (variabilidad de
-# fingerprint); sin frontend (--prompt/--conversation) se queda el valor por defecto.
-ACTIVE_USER_AGENT = DEFAULT_USER_AGENT
+def _tool_error(message: str, **extra) -> str:
+    """Serializa el resultado de error común de las herramientas locales."""
+    return json.dumps({"success": False, "error": message, **extra}, ensure_ascii=False)
 
 
-def capture_frontend_user_agent(user_agent: str) -> None:
-    """Adopta el User-Agent de la primera petición del frontend como User-Agent de las salidas web."""
-    global ACTIVE_USER_AGENT
-    if ACTIVE_USER_AGENT is DEFAULT_USER_AGENT and isinstance(user_agent, str) and user_agent.strip():
-        ACTIVE_USER_AGENT = user_agent.strip()
-        set_service_user_agent(ACTIVE_USER_AGENT)
+def _atomic_write_text(target: Path, text: str):
+    """Sustituye el archivo de una vez para no dejarlo a medias si la escritura falla."""
+    temp_path = target.with_suffix(target.suffix + f".tmp_{os.getpid()}_{time.time_ns()}")
+    with open(temp_path, "w", encoding="utf-8") as f:
+        f.write(text)
+    temp_path.replace(target)
 
+# --- tools.diff ---
+"""Visor de diferencias (zerochat/diff/open): diff frente a Git HEAD en HTML propio o con git difftool."""
 
-# Los motores propios de Playwright arrancan con el User-Agent por defecto hasta que el
-# frontend fija el suyo en la primera petición.
-set_service_user_agent(DEFAULT_USER_AGENT)
-WEB_FETCH_MAX_BYTES = 10 * 1024 * 1024
-WEB_FETCH_MAX_REDIRECTS = 5
-WEB_FETCH_READ_CHUNK = 64 * 1024
-TEXT_CONTENT_TYPE_RE = re.compile(
-    r"^(text/|application/(json|xml|xhtml\+xml|javascript|x-javascript|ecmascript)$|[a-z]+/[^;]*\+(json|xml)$)"
-)
-# Control de cadencia frente a retos anti-bot: mínimo WEB_FETCH_MIN_GAP_S desde la RESPUESTA
-# anterior al mismo host; las peticiones en paralelo se escalonan de WEB_FETCH_PARALLEL_STAGGER_S
-# en WEB_FETCH_PARALLEL_STAGGER_S para que no coincidan. El timestamp se inicializa al arrancar
-# para que la primera petición espere aunque no se haya hecho ninguna antes.
-_WEB_FETCH_LOCK = threading.Lock()
-_LAST_WEB_FETCH_AT: dict[str, float] = {"duckduckgo.com": time.monotonic()}
-_WEB_FETCH_PENDING: dict[str, int] = {}
-WEB_FETCH_HOST_PACING_DOMAINS = ("duckduckgo.com",)
-WEB_FETCH_MIN_GAP_S = 2.0
-WEB_FETCH_PARALLEL_STAGGER_S = 5.0
 
 
-def _is_public_ip(address: str) -> bool:
-    """Una dirección es pública si es global y no multicast; las IPv4 mapeadas en IPv6 se evalúan como IPv4."""
-    ip = ipaddress.ip_address(address.split("%", 1)[0])
-    if ip.version == 6 and ip.ipv4_mapped:
-        ip = ip.ipv4_mapped
-    return ip.is_global and not ip.is_multicast
 
-
-# Una dirección IPv4 en notación numérica: partes decimales o hexadecimales (0x…), de una a cuatro.
-_NUMERIC_HOST = re.compile(r"(?:0x[0-9a-f]*|\d+)(?:\.(?:0x[0-9a-f]*|\d+)){0,3}")
-
-
-def is_dangerous_host(hostname: str) -> bool:
-    """Riesgo de SSRF: metadatos cloud, nombres locales o cualquier dirección resuelta no pública."""
-    clean_host = (hostname or "").strip().lower().strip("[]").rstrip(".")
-    if not clean_host or clean_host in METADATA_HOSTS or clean_host == "localhost":
-        return True
-    if clean_host.endswith((".localhost", ".local", ".internal")):
-        return True
-    if _NUMERIC_HOST.fullmatch(clean_host):
-        # Abreviadas, enteras, hexadecimales u octales (127.1, 2130706433, 0x7f.1, 0177.0.0.1): cada
-        # resolvedor las interpreta a su manera, así que solo se admite la forma canónica.
-        try:
-            ipaddress.IPv4Address(clean_host)
-        except ValueError:
-            return True
-    try:
-        infos = socket.getaddrinfo(clean_host, None, proto=socket.IPPROTO_TCP)
-    except (socket.gaierror, UnicodeError):
-        # Sin resolución no hay conexión posible: la petición fallará por sí misma.
-        return False
-    return any(not _is_public_ip(info[4][0]) for info in infos)
-
-
-def _validate_web_url(url: str) -> str:
-    """Valida esquema y host de una URL de descarga (también de cada redirección)."""
-    parsed = urllib.parse.urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        raise ValueError(f"Protocolo no permitido: '{parsed.scheme}'. Solo se admite http y https.")
-    if not parsed.hostname:
-        raise ValueError("URL sin nombre de host válido.")
-    if is_dangerous_host(parsed.hostname):
-        raise PermissionError("Acceso bloqueado: intento de acceso a servicios internos o metadatos de infraestructura (SSRF).")
-    return url
-
-
-class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Sigue redirecciones solo si el destino supera la misma validación anti-SSRF que la URL pedida."""
-    max_redirections = WEB_FETCH_MAX_REDIRECTS
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        _validate_web_url(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
-_WEB_OPENER = urllib.request.build_opener(_ValidatingRedirectHandler)
-
-
-def _read_limited_body(stream, content_encoding: str, max_bytes: int) -> tuple[bytes, bool]:
-    """Lee el cuerpo ya descomprimido hasta `max_bytes`; indica si había más (truncado)."""
-    encoding = (content_encoding or "").strip().lower()
-    # MAX_WBITS | 32 detecta la cabecera gzip o zlib.
-    decompressor = zlib.decompressobj(zlib.MAX_WBITS | 32) if encoding in ("gzip", "x-gzip", "deflate") else None
-    data = bytearray()
-    while len(data) <= max_bytes:
-        chunk = stream.read(WEB_FETCH_READ_CHUNK)
-        if not chunk:
-            break
-        if decompressor:
-            # La salida se limita al hueco restante: un cuerpo comprimido no puede crecer sin tope.
-            chunk = decompressor.decompress(chunk, max_bytes + 1 - len(data))
-        data += chunk
-    truncated = len(data) > max_bytes
-    return bytes(data[:max_bytes]), truncated
-
-
-def is_text_content_type(content_type: str) -> bool:
-    """Tipos que se devuelven como texto; el resto viaja en base64."""
-    media_type = (content_type or "").split(";", 1)[0].strip().lower()
-    return not media_type or bool(TEXT_CONTENT_TYPE_RE.match(media_type))
-
-
-def fetch_web_resource(params: dict) -> dict:
-    """Descarga de forma segura un recurso web vía HTTP/HTTPS para el cliente web."""
-    url = params.get("url")
-    if not isinstance(url, str) or not url.strip():
-        raise ValueError("URL no válida o ausente.")
-    url = _validate_web_url(url.strip())
-
-    parsed = urllib.parse.urlsplit(url)
-    hostname = (parsed.hostname or "").lower()
-
-    # Hosts sensibles (ej. DuckDuckGo): esperar al menos WEB_FETCH_MIN_GAP_S desde la respuesta
-    # anterior y escalar las peticiones en paralelo de a WEB_FETCH_PARALLEL_STAGGER_S.
-    pacing_domain = next(
-        (domain for domain in WEB_FETCH_HOST_PACING_DOMAINS if hostname == domain or hostname.endswith("." + domain)),
-        None,
-    )
-    if pacing_domain is None:
-        return _fetch_web_resource_unpaced(url, params, hostname, parsed)
-
-    with _WEB_FETCH_LOCK:
-        pending = _WEB_FETCH_PENDING.get(pacing_domain, 0)
-        gap = time.monotonic() - _LAST_WEB_FETCH_AT.get(pacing_domain, 0.0)
-        sleep_needed = max(0.0, WEB_FETCH_MIN_GAP_S - gap) + WEB_FETCH_PARALLEL_STAGGER_S * pending
-        _WEB_FETCH_PENDING[pacing_domain] = pending + 1
-    try:
-        if sleep_needed > 0:
-            time.sleep(sleep_needed)
-        return _fetch_web_resource_unpaced(url, params, hostname, parsed)
-    finally:
-        # El timestamp marca la respuesta (o el intento) terminado: la próxima petición
-        # cuenta los 2 s desde aquí.
-        with _WEB_FETCH_LOCK:
-            _LAST_WEB_FETCH_AT[pacing_domain] = time.monotonic()
-            _WEB_FETCH_PENDING[pacing_domain] = max(0, _WEB_FETCH_PENDING[pacing_domain] - 1)
-
-
-def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed) -> dict:
-    """Cuerpo de fetch_web_resource sin cadencia: cabeceras, descarga y respuesta."""
-    timeout_s = max(0.5, min(float(params.get("timeout_s", 10.0)), 30.0))
-    max_bytes = max(1024, min(int(params.get("max_bytes", 2 * 1024 * 1024)), WEB_FETCH_MAX_BYTES))
-    as_binary = bool(params.get("binary", False))
-    accept = params.get("accept")
-    req_headers = {
-        "User-Agent": ACTIVE_USER_AGENT,
-        "Accept": accept if isinstance(accept, str) and accept else "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
-        "Accept-Encoding": "gzip, deflate",
-        "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="131", "Google Chrome";v="131"',
-        "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"Windows"',
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-        "Upgrade-Insecure-Requests": "1",
-    }
-    if hostname.endswith("duckduckgo.com"):
-        req_headers["Referer"] = f"{parsed.scheme}://{parsed.netloc}/"
-
-    req = urllib.request.Request(url, headers=req_headers)
-    try:
-        with _WEB_OPENER.open(req, timeout=timeout_s) as resp:
-            content_type = resp.headers.get("Content-Type", "")
-            raw_data, truncated = _read_limited_body(resp, resp.headers.get("Content-Encoding", ""), max_bytes)
-            # Las cabeceras de transporte ya no describen el cuerpo descomprimido.
-            resp_headers = {k: v for k, v in resp.getheaders() if k.lower() not in ("content-encoding", "content-length")}
-            # Respuestas 202 u otros retos anti-bot se marcan como error no exitoso.
-            if resp.status == 202:
-                return {
-                    "ok": False,
-                    "status": resp.status,
-                    "error": "HTTP 202: Reto anti-bot o verificación de anomalía detectada por el servidor remoto.",
-                    "text": raw_data.decode("utf-8", errors="replace")
-                }
-            result = {
-                "ok": True,
-                "status": resp.status,
-                "url": resp.geturl(),
-                "content_type": content_type,
-                "headers": resp_headers,
-                "byte_size": len(raw_data),
-                "truncated": truncated
-            }
-            if as_binary or not is_text_content_type(content_type):
-                result["base64"] = base64.b64encode(raw_data).decode("ascii")
-                return result
-            charset = resp.headers.get_content_charset() or "utf-8"
-            try:
-                result["text"] = raw_data.decode(charset, errors="replace")
-            except LookupError:
-                result["text"] = raw_data.decode("utf-8", errors="replace")
-            return result
-    except urllib.error.HTTPError as he:
-        err_body = ""
-        try:
-            err_body = he.read(2048).decode("utf-8", errors="replace")
-        except OSError:
-            pass
-        return {
-            "ok": False,
-            "status": he.code,
-            "error": f"HTTP {he.code}: {he.reason}",
-            "text": err_body
-        }
-    except Exception as exc:
-        return {
-            "ok": False,
-            "status": 0,
-            "error": str(exc)
-        }
-
-CONSOLE_STATUS_IDLE_SECONDS = 8.0
-
-class ConsoleControl:
-    """Muestra una sola línea de ayuda tras un periodo de inactividad en consola."""
-    def __init__(self, server: ThreadingHTTPServer, parser: argparse.ArgumentParser, launch_url=None):
-        self.server = server
-        self.parser = parser
-        # Función que da la URL de la interfaz con el token vigente al pulsar n, no el del arranque.
-        self.launch_url = launch_url
-        self.last_activity = time.monotonic()
-        self.lock = threading.Lock()
-        self.enabled = bool(getattr(sys.stdout, "isatty", lambda: False)())
-        self._keyboard_enabled = bool(getattr(sys.stdin, "isatty", lambda: False)())
-        self._idle_timer: threading.Timer | None = None
-        self._keyboard_stop = threading.Event()
-        self._keyboard_thread: threading.Thread | None = None
-        self._timer_generation = 0
-        self._closed = False
-
-    def start(self):
-        if self.enabled:
-            self._reset_idle_timer()
-        if self._keyboard_enabled:
-            self._keyboard_thread = threading.Thread(target=self._keyboard_loop, name="zerochat-console-input", daemon=True)
-            self._keyboard_thread.start()
-
-    def close(self):
-        with self.lock:
-            self._closed = True
-            self._keyboard_stop.set()
-            if self._idle_timer:
-                self._idle_timer.cancel()
-                self._idle_timer = None
-
-    def _reset_idle_timer(self):
-        with self.lock:
-            if self._closed:
-                return
-            self.last_activity = time.monotonic()
-            self._timer_generation += 1
-            if self._idle_timer:
-                self._idle_timer.cancel()
-            generation = self._timer_generation
-            self._idle_timer = threading.Timer(CONSOLE_STATUS_IDLE_SECONDS, self._show_commands_once, args=(generation,))
-            self._idle_timer.daemon = True
-            self._idle_timer.start()
-
-    def _show_commands_once(self, generation: int):
-        with self.lock:
-            if self._closed or generation != self._timer_generation:
-                return
-            commands = "[h] ayuda · [n] Navegador"
-            if get_notices():
-                commands += " · [i] información"
-            print(f"Comandos de consola: {commands} · [x] salir ordenadamente", flush=True)
-            self._idle_timer = None
-
-    def log(self, message: str, *, flush: bool = True):
-        print(message, flush=flush)
-        if self.enabled:
-            self._reset_idle_timer()
-
-    def show_help(self):
-        print(self.parser.format_help().rstrip(), flush=True)
-
-    def show_notices(self):
-        notices = get_notices()
-        if not notices:
-            return
-        print("Información:", flush=True)
-        for notice in notices:
-            print(f"- {notice}", flush=True)
-
-    def _handle_command(self, command: str):
-        key = command.strip().lower()
-        if key == "h":
-            self.show_help()
-        elif key == "n" and self.launch_url:
-            launch_browser(self.launch_url())
-        elif key == "i":
-            self.show_notices()
-        elif key == "x":
-            self.log(timestamp_message("Deteniendo servidor ZeroChat..."))
-            stop_zerochat_server(self.server)
-
-    def _keyboard_loop(self):
-        """Lee comandos normales terminados con Intro, sin alterar el terminal."""
-        while not self._keyboard_stop.is_set():
-            line = sys.stdin.readline()
-            if not line:
-                return
-            self._handle_command(line)
-
-# ==============================================================================
-# Ejecución de comandos y tareas en segundo plano
-# ==============================================================================
-
-COMMAND_DEFAULT_TIMEOUT = 30
-COMMAND_MAX_TIMEOUT = 600
-COMMAND_MAX_WAIT = 600
-# Lo que espera un comando en segundo plano antes de responder: deja ver un fallo inmediato.
-BACKGROUND_STARTUP_WAIT = 2.5
-MAX_RUNNING_JOBS = 8
-MAX_FINISHED_JOBS = 50
-# El log de cada tarea conserva su comienzo en disco y su final en memoria mientras corre.
-JOB_LOG_HEAD_BYTES = 4 * 1024 * 1024
-JOB_LOG_TAIL_BYTES = 1024 * 1024
-JOB_STOP_GRACE_SECONDS = 3.0
-JOB_DRAIN_SECONDS = 2.0
-JOB_KEY_PATTERN = re.compile(r"[A-Za-z0-9_-]{8,64}")
-# Lo que se lee de cada extremo de la salida nueva antes de recortarla para el modelo.
-MODEL_OUTPUT_READ_BYTES = 64 * 1024
-CARD_TAIL_BYTES = 2048
-JOB_LOG_PAGE_BYTES = 256 * 1024
-REPORT_TAIL_LINES = 20
-REPORT_TAIL_BYTES = 4096
-
-
-def truncate_terminal_output(text: str, max_chars: int = 8000, head_lines: int = 50, tail_lines: int = 30) -> tuple[str, bool]:
-    """Outputs >8,000 characters are truncated to first 50 lines + warning + last 30 lines."""
-    if len(text) <= max_chars:
-        return text, False
-    lines = text.splitlines(keepends=True)
-    if len(lines) <= head_lines + tail_lines:
-        half = max_chars // 2
-        return (
-            text[:half]
-            + f"\n\n[... Output truncated due to length ({len(text)} total characters) ...]\n\n"
-            + text[-half:],
-            True
-        )
-    omitted = len(lines) - head_lines - tail_lines
-    head = "".join(lines[:head_lines])
-    tail = "".join(lines[-tail_lines:])
-    warning = f"\n\n[... Output truncated: omitted {omitted} lines ({len(text)} total characters) ...]\n\n"
-    return head + warning + tail, True
-
-
-def _powershell_executable() -> str:
-    return shutil.which("powershell") or shutil.which("pwsh") or "powershell.exe"
-
-
-def _jobs_base_dir() -> Path:
-    """Directorio común de los logs y registros de comandos de todas las instancias del usuario."""
-    try:
-        owner = str(os.getuid())
-    except AttributeError:
-        owner = re.sub(r"[^A-Za-z0-9_-]", "_", os.environ.get("USERNAME", "user"))
-    base = Path(tempfile.gettempdir()) / f"zerochat-jobs-{owner}"
-    base.mkdir(mode=0o700, exist_ok=True)
-    return base
-
-
-def cleanup_orphan_jobs() -> int:
-    """Mata los comandos de instancias de ZeroChat que murieron sin poder detenerlos (POSIX).
-
-    Solo actúa sobre instancias cuyo proceso ya no existe, y sobre grupos cuyo líder es el
-    proceso registrado o ya no existe: nunca alcanza a otra instancia viva ni a un proceso ajeno.
-    """
-    if DETECTED_OS == "windows" or not hasattr(os, "killpg"):
-        return 0
-    killed = 0
-    try:
-        sessions = [entry for entry in _jobs_base_dir().iterdir() if entry.is_dir()]
-    except OSError:
-        return 0
-    for session in sessions:
-        try:
-            owner = json.loads((session / "owner.json").read_text(encoding="utf-8"))
-            owner_pid = int(owner["pid"])
-        except (OSError, ValueError, KeyError, TypeError):
-            continue
-        if owner_pid == os.getpid() or (_pid_alive(owner_pid) and _process_start_token(owner_pid) == owner.get("start")):
-            continue
-        try:
-            registry = json.loads((session / "jobs.json").read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            registry = {}
-        for entry in registry.values() if isinstance(registry, dict) else ():
-            try:
-                pgid = int(entry["pgid"])
-            except (ValueError, KeyError, TypeError):
-                continue
-            # Mientras el grupo exista, su número no se reasigna; si el líder vive, debe ser el registrado.
-            if _pid_alive(pgid) and _process_start_token(pgid) != entry.get("start"):
-                continue
-            try:
-                os.killpg(pgid, signal.SIGKILL)
-                killed += 1
-            except OSError:
-                pass
-        shutil.rmtree(session, ignore_errors=True)
-    return killed
-
-
-class _WindowsKillOnCloseJob:
-    """Job Object de Windows que mata los comandos si ZeroChat termina, aunque sea de golpe."""
-
-    def __init__(self):
-        self._handle = None
-        self._kernel32 = None
-        try:
-            from ctypes import wintypes
-
-            class BasicLimits(ctypes.Structure):
-                _fields_ = [
-                    ("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
-                    ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
-                    ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
-                    ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD), ("SchedulingClass", wintypes.DWORD)
-                ]
-
-            class IoCounters(ctypes.Structure):
-                _fields_ = [(name, ctypes.c_uint64) for name in (
-                    "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
-                    "ReadTransferCount", "WriteTransferCount", "OtherTransferCount"
-                )]
-
-            class ExtendedLimits(ctypes.Structure):
-                _fields_ = [
-                    ("BasicLimitInformation", BasicLimits), ("IoInfo", IoCounters),
-                    ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
-                    ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)
-                ]
-
-            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-            kernel32.CreateJobObjectW.restype = wintypes.HANDLE
-            kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
-            kernel32.SetInformationJobObject.restype = wintypes.BOOL
-            kernel32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
-            kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
-            kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
-            handle = kernel32.CreateJobObjectW(None, None)
-            if not handle:
-                return
-            limits = ExtendedLimits()
-            limits.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-            # 9 = JobObjectExtendedLimitInformation
-            if not kernel32.SetInformationJobObject(handle, 9, ctypes.byref(limits), ctypes.sizeof(limits)):
-                return
-            self._handle = handle
-            self._kernel32 = kernel32
-        except (OSError, AttributeError, ImportError):
-            self._handle = None
-
-    def assign(self, proc: subprocess.Popen) -> bool:
-        # Un nieto lanzado antes de la asignación podría escapar: el margen es de microsegundos.
-        if not self._handle:
-            return False
-        try:
-            return bool(self._kernel32.AssignProcessToJobObject(self._handle, int(proc._handle)))
-        except (OSError, AttributeError, ValueError):
-            return False
-
-
-def _utf8_boundary(data: bytes) -> int:
-    """Primer byte que comienza un carácter UTF-8, para no partir uno multibyte."""
-    start = 0
-    while start < min(len(data), 3) and (data[start] & 0xC0) == 0x80:
-        start += 1
-    return start
-
-
-def _discarded_marker(count: int) -> bytes:
-    return f"\n[... {count} bytes of output discarded ...]\n".encode("utf-8")
-
-
-def _powershell_runner(command: str) -> str:
-    """Envuelve el comando para que PowerShell devuelva su código de salida real."""
-    return (
-        "$ErrorActionPreference = 'Continue'\n"
-        "$LASTEXITCODE = $null\n"
-        "$__ret = 0\n"
-        "try {\n"
-        "    . {\n"
-        f"{command}\n"
-        "    }\n"
-        "    if ($LASTEXITCODE -ne $null) {\n"
-        "        $__ret = $LASTEXITCODE\n"
-        "    } elseif (-not $?) {\n"
-        "        $__ret = 1\n"
-        "    }\n"
-        "} catch {\n"
-        "    $__ret = 1\n"
-        "    [Console]::Error.WriteLine($_)\n"
-        "}\n"
-        "exit $__ret\n"
-    )
-
-
-class CommandJob:
-    """Un comando lanzado por run_command: su proceso, su log y su estado."""
-
-    def __init__(self, job_id: int, key: str | None, command: str, project: SecurityContext, background: bool, log_path: Path):
-        self.id = job_id
-        self.key = key
-        self.command = command
-        self.cwd = str(project.workspace_dir)
-        self.project = project.key
-        self.background = background
-        self.log_path = log_path
-        self.started_at = time.time()
-        self._started_mono = time.monotonic()
-        self.ended_mono: float | None = None
-        self.ended_at: float | None = None
-        self.exit_code: int | None = None
-        self.status = "running"
-        self.stop_reason: str | None = None
-        self.timeout_seconds: int | None = None
-        # Hasta dónde ha leído el modelo la salida, y si ya ha visto el final.
-        self.model_cursor = 0
-        self.reported = False
-        self.proc: subprocess.Popen | None = None
-        self.leader_start: str | None = None
-        self.runner_path: Path | None = None
-        self.done = threading.Event()
-        self._lock = threading.Lock()
-        self._log = open(log_path, "wb")
-        self._head_len = 0
-        self._tail = bytearray()
-        self._tail_start = 0
-        self._total = 0
-        self._tail_file_offset = 0
-        self._finalized = False
-        self._reader: threading.Thread | None = None
-
-    # --- Salida -------------------------------------------------------------
-
-    def _append(self, chunk: bytes):
-        with self._lock:
-            self._total += len(chunk)
-            room = JOB_LOG_HEAD_BYTES - self._head_len
-            if room > 0:
-                part = chunk[:room]
-                self._log.write(part)
-                self._log.flush()
-                self._head_len += len(part)
-                self._tail_start = self._head_len
-                chunk = chunk[room:]
-            if chunk:
-                self._tail.extend(chunk)
-                overflow = len(self._tail) - JOB_LOG_TAIL_BYTES
-                if overflow > 0:
-                    del self._tail[:overflow]
-                    self._tail_start += overflow
-
-    def _read_output(self, stream):
-        try:
-            while True:
-                chunk = stream.read1(65536) if hasattr(stream, "read1") else stream.read(65536)
-                if not chunk:
-                    break
-                self._append(chunk)
-        except (OSError, ValueError):
-            pass
-
-    def start_reader(self, stream):
-        self._reader = threading.Thread(target=self._read_output, args=(stream,), daemon=True)
-        self._reader.start()
-
-    def _finalize_log(self):
-        """Al terminar, el final retenido en memoria pasa al fichero tras una marca de recorte."""
-        if self._reader:
-            # Un proceso que escape del grupo puede mantener el pipe abierto: no esperar sin límite.
-            self._reader.join(JOB_DRAIN_SECONDS)
-        with self._lock:
-            marker = b""
-            dropped = self._tail_start - self._head_len
-            if dropped > 0:
-                marker = _discarded_marker(dropped)
-                self._log.write(marker)
-            self._tail_file_offset = self._head_len + len(marker)
-            self._log.write(bytes(self._tail))
-            self._log.close()
-            self._tail = bytearray()
-            self._finalized = True
-
-    @property
-    def total(self) -> int:
-        return self._total
-
-    @property
-    def truncated_log(self) -> bool:
-        return self._tail_start > self._head_len
-
-    def read_range(self, start: int, max_bytes: int) -> tuple[str, int]:
-        """Devuelve la salida desde la posición start (como mucho max_bytes) y la posición siguiente.
-
-        Las posiciones cuentan los bytes producidos por el comando; el tramo descartado del medio
-        se sustituye por una marca.
-        """
-        with self._lock:
-            pos = max(0, min(start, self._total))
-            remaining = max(0, max_bytes)
-            pieces: list[bytes] = []
-            if remaining and pos < self._head_len:
-                count = min(remaining, self._head_len - pos)
-                with open(self.log_path, "rb") as handle:
-                    handle.seek(pos)
-                    pieces.append(handle.read(count))
-                pos += count
-                remaining -= count
-            if remaining and self._head_len <= pos < self._tail_start:
-                pieces.append(_discarded_marker(self._tail_start - self._head_len))
-                pos = self._tail_start
-            if remaining and self._tail_start <= pos < self._total:
-                count = min(remaining, self._total - pos)
-                offset = pos - self._tail_start
-                if self._finalized:
-                    with open(self.log_path, "rb") as handle:
-                        handle.seek(self._tail_file_offset + offset)
-                        pieces.append(handle.read(count))
-                else:
-                    pieces.append(bytes(self._tail[offset:offset + count]))
-                pos += count
-        data = b"".join(pieces)
-        if start > 0:
-            data = data[_utf8_boundary(data):]
-        return data.decode("utf-8", errors="replace"), pos
-
-    def output_since(self, start: int) -> str:
-        """La salida desde start, leyendo solo su comienzo y su final si es muy larga."""
-        total = self._total
-        if total - start <= 2 * MODEL_OUTPUT_READ_BYTES:
-            return self.read_range(start, total - start)[0]
-        head, _ = self.read_range(start, MODEL_OUTPUT_READ_BYTES)
-        tail, _ = self.read_range(total - MODEL_OUTPUT_READ_BYTES, MODEL_OUTPUT_READ_BYTES)
-        omitted = total - start - 2 * MODEL_OUTPUT_READ_BYTES
-        return head + f"\n[... {omitted} bytes omitted ...]\n" + tail
-
-    def tail_text(self, max_bytes: int = CARD_TAIL_BYTES) -> str:
-        return self.read_range(max(0, self._total - max_bytes), max_bytes)[0]
-
-    # --- Estado -------------------------------------------------------------
-
-    def elapsed(self) -> float:
-        end = self.ended_mono if self.ended_mono is not None else time.monotonic()
-        return round(end - self._started_mono, 1)
-
-    def summary(self) -> dict:
-        return {
-            "id": self.id,
-            "key": self.key,
-            "command": self.command if len(self.command) <= 300 else self.command[:300] + "…",
-            "cwd": self.cwd,
-            "background": self.background,
-            "status": self.status,
-            "exit_code": self.exit_code,
-            "stop_reason": self.stop_reason,
-            "started_at": int(self.started_at * 1000),
-            "ended_at": int(self.ended_at * 1000) if self.ended_at else None,
-            "elapsed_s": self.elapsed(),
-            "output_bytes": self._total
-        }
-
-
-class JobManager:
-    """
-    Registro de los comandos lanzados en esta sesión del servidor. Cada comando es del proyecto en el que
-    arrancó (su cwd): las consultas indican el proyecto y solo ven los suyos; None (al apagar) los ve todos.
-    """
-
-    def __init__(self):
-        self._jobs: dict[int, CommandJob] = {}
-        self._next_id = 1
-        self._lock = threading.Lock()
-        self._dir: Path | None = None
-        self._windows_job: _WindowsKillOnCloseJob | None = None
-        atexit.register(self.shutdown)
-
-    def _session_dir(self) -> Path:
-        """Directorio de esta instancia, con su huella para que otra pueda limpiarlo si muere."""
-        if self._dir is None:
-            directory = Path(tempfile.mkdtemp(prefix=f"{os.getpid()}-", dir=_jobs_base_dir()))
-            owner = {"pid": os.getpid(), "start": _process_start_token(os.getpid())}
-            (directory / "owner.json").write_text(json.dumps(owner), encoding="utf-8")
-            self._dir = directory
-        return self._dir
-
-    def _write_registry(self):
-        """Apunta en disco los grupos de procesos en marcha para limpiarlos tras un cierre abrupto."""
-        if DETECTED_OS == "windows" or self._dir is None:
-            return
-        with self._lock:
-            entries = {
-                str(job.id): {"pgid": job.proc.pid, "start": job.leader_start}
-                for job in self._jobs.values() if job.proc and job.ended_at is None
-            }
-        try:
-            _atomic_write_text(self._dir / "jobs.json", json.dumps(entries))
-        except OSError:
-            pass
-
-    def _prune(self):
-        finished = [job for job in self._jobs.values() if job.done.is_set()]
-        for job in finished[:max(0, len(finished) - MAX_FINISHED_JOBS)]:
-            del self._jobs[job.id]
-            try:
-                job.log_path.unlink(missing_ok=True)
-            except OSError:
-                pass
-
-    def start(self, command: str, background: bool, project: SecurityContext, key: str | None = None) -> CommandJob:
-        if not isinstance(command, str) or not command.strip():
-            raise ValueError("The command is empty.")
-        if key is not None and not (isinstance(key, str) and JOB_KEY_PATTERN.fullmatch(key)):
-            key = None
-        with self._lock:
-            if sum(1 for job in self._jobs.values() if job.status == "running") >= MAX_RUNNING_JOBS:
-                raise ValueError(
-                    f"Too many commands running ({MAX_RUNNING_JOBS}). "
-                    "Stop one with check_command(job_id, stop=true) before starting another."
-                )
-            self._prune()
-            job_id = self._next_id
-            self._next_id += 1
-            job = CommandJob(job_id, key, command, project, background, self._session_dir() / f"job-{job_id}.log")
-            self._jobs[job_id] = job
-        try:
-            self._launch(job)
-        except Exception:
-            with self._lock:
-                self._jobs.pop(job_id, None)
-            job._log.close()
-            job.log_path.unlink(missing_ok=True)
-            raise
-        return job
-
-    def _launch(self, job: CommandJob):
-        if DETECTED_OS == "windows":
-            job.runner_path = job.log_path.with_suffix(".ps1")
-            job.runner_path.write_text(_powershell_runner(job.command), encoding="utf-8")
-            argv = [_powershell_executable(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(job.runner_path)]
-        else:
-            argv = [shutil.which("bash") or shutil.which("sh") or "/bin/sh", "-c", job.command]
-        job.proc = subprocess.Popen(
-            argv,
-            cwd=job.cwd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            # Una sola salida, en el orden en que la escribe el comando, como en una terminal.
-            stderr=subprocess.STDOUT,
-            start_new_session=DETECTED_OS != "windows" and hasattr(os, "setsid")
-        )
-        if DETECTED_OS == "windows":
-            if self._windows_job is None:
-                self._windows_job = _WindowsKillOnCloseJob()
-            self._windows_job.assign(job.proc)
-        else:
-            job.leader_start = _process_start_token(job.proc.pid)
-        job.start_reader(job.proc.stdout)
-        threading.Thread(target=self._watch, args=(job,), daemon=True).start()
-        self._write_registry()
-
-    def _watch(self, job: CommandJob):
-        proc = job.proc
-        if DETECTED_OS in ("linux", "android") and hasattr(os, "waitid"):
-            # Esperar sin recoger al proceso mantiene reservado su grupo: así se puede matar a lo
-            # que haya dejado en marcha sin riesgo de alcanzar a un grupo nuevo con el mismo número.
-            try:
-                os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOWAIT)
-                os.killpg(proc.pid, signal.SIGKILL)
-            except (OSError, ChildProcessError):
-                pass
-            returncode = proc.wait()
-        else:
-            returncode = proc.wait()
-            if DETECTED_OS != "windows":
-                # En macOS waitid con WNOWAIT no vuelve al terminar el comando. Tras recogerlo, el grupo
-                # sigue reservado mientras le quede algún proceso, que es justo lo que se mata.
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except OSError:
-                    pass
-        job._finalize_log()
-        if proc.stdout:
-            try:
-                proc.stdout.close()
-            except OSError:
-                pass
-        if job.runner_path:
-            job.runner_path.unlink(missing_ok=True)
-        job.ended_mono = time.monotonic()
-        job.ended_at = time.time()
-        job.exit_code = returncode
-        if job.stop_reason == "timeout":
-            job.status = "timeout"
-        elif job.stop_reason:
-            job.status = "stopped"
-        else:
-            job.status = "exited"
-        self._write_registry()
-        job.done.set()
-
-    def get(self, project: str, job_id=None, key=None) -> CommandJob | None:
-        jobs = self.list(project)
-        if isinstance(job_id, int) and not isinstance(job_id, bool):
-            return next((job for job in jobs if job.id == job_id), None)
-        if isinstance(key, str) and key:
-            return next((job for job in jobs if job.key == key), None)
-        return None
-
-    def list(self, project: str | None) -> list[CommandJob]:
-        """Comandos del proyecto con esa clave (SecurityContext.key); None, los de todos."""
-        with self._lock:
-            return [job for job in self._jobs.values() if project is None or job.project == project]
-
-    def stop(self, job: CommandJob, reason: str) -> CommandJob:
-        """Termina el grupo del comando: primero con cortesía y, si no basta, a la fuerza."""
-        if job.done.is_set():
-            return job
-        if job.stop_reason is None:
-            job.stop_reason = reason
-        proc = job.proc
-        if DETECTED_OS == "windows":
-            _kill_process_tree(proc)
-            job.done.wait(JOB_STOP_GRACE_SECONDS)
-            return job
-        try:
-            os.killpg(proc.pid, signal.SIGTERM)
-        except OSError:
-            pass
-        if not job.done.wait(JOB_STOP_GRACE_SECONDS):
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except OSError:
-                pass
-            job.done.wait(JOB_STOP_GRACE_SECONDS)
-        return job
-
-    def report_finished(self, ids: list[int], project: str) -> list[dict]:
-        """Final de los comandos indicados que han terminado sin que el modelo lo haya visto.
-
-        Cada final se entrega una sola vez: queda marcado como visto.
-        """
-        reports = []
-        for job_id in dict.fromkeys(ids):
-            job = self.get(project, job_id=job_id)
-            if job is None or not job.done.is_set() or job.reported:
-                continue
-            job.reported = True
-            job.model_cursor = job.total
-            tail = "\n".join(job.tail_text(REPORT_TAIL_BYTES).rstrip("\n").split("\n")[-REPORT_TAIL_LINES:])
-            reports.append({**job.summary(), "tail": tail, "log_file": str(job.log_path)})
-        return reports
-
-    def running(self, project: str | None) -> list[CommandJob]:
-        return [job for job in self.list(project) if not job.done.is_set()]
-
-    def stop_all(self, reason: str = "shutdown"):
-        threads = [threading.Thread(target=self.stop, args=(job, reason), daemon=True) for job in self.running(None)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join(JOB_STOP_GRACE_SECONDS * 2 + 1)
-
-    def shutdown(self):
-        self.stop_all("shutdown")
-        if self._dir is not None:
-            shutil.rmtree(self._dir, ignore_errors=True)
-
-
-JOBS = JobManager()
-
-
-def _clamp_seconds(value, default: int, minimum: int, maximum: int) -> int:
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        number = default
-    return max(minimum, min(number, maximum))
-
-
-def _job_result(job: CommandJob, note: str | None = None, output_field: str = "output") -> str:
-    """Resultado para el modelo con la salida que aún no ha visto."""
-    start = job.model_cursor
-    total = job.total
-    output, truncated = truncate_terminal_output(job.output_since(start))
-    job.model_cursor = total
-    # Detener un comando a propósito no es un fallo; sí lo son salir con error o agotar el plazo.
-    failed = job.status == "timeout" or (job.status == "exited" and job.exit_code != 0)
-    result = {"success": not failed, "status": job.status, "job_id": job.id}
-    if job.status == "timeout":
-        result["error"] = f"Command timed out after {job.timeout_seconds} s and was killed."
-    if job.status == "running":
-        result["elapsed_s"] = job.elapsed()
-    else:
-        result["exit_code"] = job.exit_code
-        result["duration_s"] = job.elapsed()
-        job.reported = True
-    result[output_field] = output
-    if truncated or job.truncated_log:
-        result["truncated"] = True
-        result["log_file"] = str(job.log_path)
-    if job.status == "stopped":
-        result["stopped_by"] = job.stop_reason
-    if note:
-        result["note"] = note
-    return json.dumps(result, ensure_ascii=False, indent=2)
-
-
-def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, background: bool = False, job_key: str | None = None, *, ctx: SecurityContext) -> str:
-    """Ejecuta un comando en una shell nueva en el directorio del proyecto."""
-    try:
-        job = JOBS.start(command, background=bool(background), project=ctx, key=job_key)
-    except (ValueError, OSError) as exc:
-        return _tool_error(str(exc), os=DETECTED_OS)
-    if background:
-        if not job.done.wait(BACKGROUND_STARTUP_WAIT):
-            return _job_result(job, note=(
-                f"Running in background. Follow it with check_command(job_id={job.id}, wait_seconds=...) "
-                f"and stop it with check_command(job_id={job.id}, stop=true)."
-            ))
-        return _job_result(job)
-    timeout = _clamp_seconds(timeout_seconds, COMMAND_DEFAULT_TIMEOUT, 1, COMMAND_MAX_TIMEOUT)
-    if not job.done.wait(timeout):
-        job.timeout_seconds = timeout
-        JOBS.stop(job, "timeout")
-        return _job_result(job, note=(
-            f"Killed after {timeout} s. If this command is expected to take longer, re-run it with "
-            f"a larger timeout_seconds (max {COMMAND_MAX_TIMEOUT}) or with background=true."
-        ))
-    return _job_result(job)
-
-
-def check_command(job_id: int, wait_seconds: int = 0, stop: bool = False, *, ctx: SecurityContext) -> str:
-    """Estado y salida nueva de un comando lanzado por run_command; puede esperarlo o detenerlo."""
-    job = JOBS.get(ctx.key, job_id=job_id)
-    if job is None:
-        return _tool_error(f"Unknown job_id {job_id}. It may belong to a previous ZeroChat session or to another project.", os=DETECTED_OS)
-    if stop:
-        JOBS.stop(job, "model")
-    else:
-        wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
-        if wait:
-            job.done.wait(wait)
-    return _job_result(job, output_field="new_output")
-
-
-def job_details(job: CommandJob) -> dict:
-    """Estado del comando para su tarjeta en la interfaz, con el final de su salida."""
-    return {**job.summary(), "tail": job.tail_text()}
 
 # Visores gráficos que `git difftool` ya sabe lanzar, en orden de preferencia, con el ejecutable que los delata.
 GUI_DIFF_TOOLS = {"vscode": "code", "meld": "meld", "kdiff3": "kdiff3", "kompare": "kompare", "gvimdiff": "gvim"}
@@ -4876,9 +3918,662 @@ def open_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = Fals
         return _open_gui_file_diff(path, ctx, commit_fallback)
     return generate_file_diff(path, ctx, commit_fallback, context_lines=context_lines)
 
-# ==============================================================================
-# Motor de Control de Acceso y Seguridad de Herramientas (AccessController)
-# ==============================================================================
+# --- tools.jobs ---
+"""Comandos del servidor local (run_command y check_command): tareas con su log, plazos, segundo plano y limpieza de huérfanos."""
+
+
+
+
+COMMAND_DEFAULT_TIMEOUT = 30
+COMMAND_MAX_TIMEOUT = 600
+COMMAND_MAX_WAIT = 600
+# Lo que espera un comando en segundo plano antes de responder: deja ver un fallo inmediato.
+BACKGROUND_STARTUP_WAIT = 2.5
+MAX_RUNNING_JOBS = 8
+MAX_FINISHED_JOBS = 50
+# El log de cada tarea conserva su comienzo en disco y su final en memoria mientras corre.
+JOB_LOG_HEAD_BYTES = 4 * 1024 * 1024
+JOB_LOG_TAIL_BYTES = 1024 * 1024
+JOB_STOP_GRACE_SECONDS = 3.0
+JOB_DRAIN_SECONDS = 2.0
+JOB_KEY_PATTERN = re.compile(r"[A-Za-z0-9_-]{8,64}")
+# Lo que se lee de cada extremo de la salida nueva antes de recortarla para el modelo.
+MODEL_OUTPUT_READ_BYTES = 64 * 1024
+CARD_TAIL_BYTES = 2048
+JOB_LOG_PAGE_BYTES = 256 * 1024
+REPORT_TAIL_LINES = 20
+REPORT_TAIL_BYTES = 4096
+
+
+def truncate_terminal_output(text: str, max_chars: int = 8000, head_lines: int = 50, tail_lines: int = 30) -> tuple[str, bool]:
+    """Outputs >8,000 characters are truncated to first 50 lines + warning + last 30 lines."""
+    if len(text) <= max_chars:
+        return text, False
+    lines = text.splitlines(keepends=True)
+    if len(lines) <= head_lines + tail_lines:
+        half = max_chars // 2
+        return (
+            text[:half]
+            + f"\n\n[... Output truncated due to length ({len(text)} total characters) ...]\n\n"
+            + text[-half:],
+            True
+        )
+    omitted = len(lines) - head_lines - tail_lines
+    head = "".join(lines[:head_lines])
+    tail = "".join(lines[-tail_lines:])
+    warning = f"\n\n[... Output truncated: omitted {omitted} lines ({len(text)} total characters) ...]\n\n"
+    return head + warning + tail, True
+
+
+def _powershell_executable() -> str:
+    return shutil.which("powershell") or shutil.which("pwsh") or "powershell.exe"
+
+
+def _jobs_base_dir() -> Path:
+    """Directorio común de los logs y registros de comandos de todas las instancias del usuario."""
+    try:
+        owner = str(os.getuid())
+    except AttributeError:
+        owner = re.sub(r"[^A-Za-z0-9_-]", "_", os.environ.get("USERNAME", "user"))
+    base = Path(tempfile.gettempdir()) / f"zerochat-jobs-{owner}"
+    base.mkdir(mode=0o700, exist_ok=True)
+    return base
+
+
+def cleanup_orphan_jobs() -> int:
+    """Mata los comandos de instancias de ZeroChat que murieron sin poder detenerlos (POSIX).
+
+    Solo actúa sobre instancias cuyo proceso ya no existe, y sobre grupos cuyo líder es el
+    proceso registrado o ya no existe: nunca alcanza a otra instancia viva ni a un proceso ajeno.
+    """
+    if DETECTED_OS == "windows" or not hasattr(os, "killpg"):
+        return 0
+    killed = 0
+    try:
+        sessions = [entry for entry in _jobs_base_dir().iterdir() if entry.is_dir()]
+    except OSError:
+        return 0
+    for session in sessions:
+        try:
+            owner = json.loads((session / "owner.json").read_text(encoding="utf-8"))
+            owner_pid = int(owner["pid"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if owner_pid == os.getpid() or (_pid_alive(owner_pid) and _process_start_token(owner_pid) == owner.get("start")):
+            continue
+        try:
+            registry = json.loads((session / "jobs.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            registry = {}
+        for entry in registry.values() if isinstance(registry, dict) else ():
+            try:
+                pgid = int(entry["pgid"])
+            except (ValueError, KeyError, TypeError):
+                continue
+            # Mientras el grupo exista, su número no se reasigna; si el líder vive, debe ser el registrado.
+            if _pid_alive(pgid) and _process_start_token(pgid) != entry.get("start"):
+                continue
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+                killed += 1
+            except OSError:
+                pass
+        shutil.rmtree(session, ignore_errors=True)
+    return killed
+
+
+class _WindowsKillOnCloseJob:
+    """Job Object de Windows que mata los comandos si ZeroChat termina, aunque sea de golpe."""
+
+    def __init__(self):
+        self._handle = None
+        self._kernel32 = None
+        try:
+            from ctypes import wintypes
+
+            class BasicLimits(ctypes.Structure):
+                _fields_ = [
+                    ("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                    ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD), ("SchedulingClass", wintypes.DWORD)
+                ]
+
+            class IoCounters(ctypes.Structure):
+                _fields_ = [(name, ctypes.c_uint64) for name in (
+                    "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+                    "ReadTransferCount", "WriteTransferCount", "OtherTransferCount"
+                )]
+
+            class ExtendedLimits(ctypes.Structure):
+                _fields_ = [
+                    ("BasicLimitInformation", BasicLimits), ("IoInfo", IoCounters),
+                    ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)
+                ]
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+            kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+            kernel32.SetInformationJobObject.restype = wintypes.BOOL
+            kernel32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+            kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+            kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+            handle = kernel32.CreateJobObjectW(None, None)
+            if not handle:
+                return
+            limits = ExtendedLimits()
+            limits.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            # 9 = JobObjectExtendedLimitInformation
+            if not kernel32.SetInformationJobObject(handle, 9, ctypes.byref(limits), ctypes.sizeof(limits)):
+                return
+            self._handle = handle
+            self._kernel32 = kernel32
+        except (OSError, AttributeError, ImportError):
+            self._handle = None
+
+    def assign(self, proc: subprocess.Popen) -> bool:
+        # Un nieto lanzado antes de la asignación podría escapar: el margen es de microsegundos.
+        if not self._handle:
+            return False
+        try:
+            return bool(self._kernel32.AssignProcessToJobObject(self._handle, int(proc._handle)))
+        except (OSError, AttributeError, ValueError):
+            return False
+
+
+def _utf8_boundary(data: bytes) -> int:
+    """Primer byte que comienza un carácter UTF-8, para no partir uno multibyte."""
+    start = 0
+    while start < min(len(data), 3) and (data[start] & 0xC0) == 0x80:
+        start += 1
+    return start
+
+
+def _discarded_marker(count: int) -> bytes:
+    return f"\n[... {count} bytes of output discarded ...]\n".encode("utf-8")
+
+
+def _powershell_runner(command: str) -> str:
+    """Envuelve el comando para que PowerShell devuelva su código de salida real."""
+    return (
+        "$ErrorActionPreference = 'Continue'\n"
+        "$LASTEXITCODE = $null\n"
+        "$__ret = 0\n"
+        "try {\n"
+        "    . {\n"
+        f"{command}\n"
+        "    }\n"
+        "    if ($LASTEXITCODE -ne $null) {\n"
+        "        $__ret = $LASTEXITCODE\n"
+        "    } elseif (-not $?) {\n"
+        "        $__ret = 1\n"
+        "    }\n"
+        "} catch {\n"
+        "    $__ret = 1\n"
+        "    [Console]::Error.WriteLine($_)\n"
+        "}\n"
+        "exit $__ret\n"
+    )
+
+
+class CommandJob:
+    """Un comando lanzado por run_command: su proceso, su log y su estado."""
+
+    def __init__(self, job_id: int, key: str | None, command: str, project: SecurityContext, background: bool, log_path: Path):
+        self.id = job_id
+        self.key = key
+        self.command = command
+        self.cwd = str(project.workspace_dir)
+        self.project = project.key
+        self.background = background
+        self.log_path = log_path
+        self.started_at = time.time()
+        self._started_mono = time.monotonic()
+        self.ended_mono: float | None = None
+        self.ended_at: float | None = None
+        self.exit_code: int | None = None
+        self.status = "running"
+        self.stop_reason: str | None = None
+        self.timeout_seconds: int | None = None
+        # Hasta dónde ha leído el modelo la salida, y si ya ha visto el final.
+        self.model_cursor = 0
+        self.reported = False
+        self.proc: subprocess.Popen | None = None
+        self.leader_start: str | None = None
+        self.runner_path: Path | None = None
+        self.done = threading.Event()
+        self._lock = threading.Lock()
+        self._log = open(log_path, "wb")
+        self._head_len = 0
+        self._tail = bytearray()
+        self._tail_start = 0
+        self._total = 0
+        self._tail_file_offset = 0
+        self._finalized = False
+        self._reader: threading.Thread | None = None
+
+    # --- Salida -------------------------------------------------------------
+
+    def _append(self, chunk: bytes):
+        with self._lock:
+            self._total += len(chunk)
+            room = JOB_LOG_HEAD_BYTES - self._head_len
+            if room > 0:
+                part = chunk[:room]
+                self._log.write(part)
+                self._log.flush()
+                self._head_len += len(part)
+                self._tail_start = self._head_len
+                chunk = chunk[room:]
+            if chunk:
+                self._tail.extend(chunk)
+                overflow = len(self._tail) - JOB_LOG_TAIL_BYTES
+                if overflow > 0:
+                    del self._tail[:overflow]
+                    self._tail_start += overflow
+
+    def _read_output(self, stream):
+        try:
+            while True:
+                chunk = stream.read1(65536) if hasattr(stream, "read1") else stream.read(65536)
+                if not chunk:
+                    break
+                self._append(chunk)
+        except (OSError, ValueError):
+            pass
+
+    def start_reader(self, stream):
+        self._reader = threading.Thread(target=self._read_output, args=(stream,), daemon=True)
+        self._reader.start()
+
+    def _finalize_log(self):
+        """Al terminar, el final retenido en memoria pasa al fichero tras una marca de recorte."""
+        if self._reader:
+            # Un proceso que escape del grupo puede mantener el pipe abierto: no esperar sin límite.
+            self._reader.join(JOB_DRAIN_SECONDS)
+        with self._lock:
+            marker = b""
+            dropped = self._tail_start - self._head_len
+            if dropped > 0:
+                marker = _discarded_marker(dropped)
+                self._log.write(marker)
+            self._tail_file_offset = self._head_len + len(marker)
+            self._log.write(bytes(self._tail))
+            self._log.close()
+            self._tail = bytearray()
+            self._finalized = True
+
+    @property
+    def total(self) -> int:
+        return self._total
+
+    @property
+    def truncated_log(self) -> bool:
+        return self._tail_start > self._head_len
+
+    def read_range(self, start: int, max_bytes: int) -> tuple[str, int]:
+        """Devuelve la salida desde la posición start (como mucho max_bytes) y la posición siguiente.
+
+        Las posiciones cuentan los bytes producidos por el comando; el tramo descartado del medio
+        se sustituye por una marca.
+        """
+        with self._lock:
+            pos = max(0, min(start, self._total))
+            remaining = max(0, max_bytes)
+            pieces: list[bytes] = []
+            if remaining and pos < self._head_len:
+                count = min(remaining, self._head_len - pos)
+                with open(self.log_path, "rb") as handle:
+                    handle.seek(pos)
+                    pieces.append(handle.read(count))
+                pos += count
+                remaining -= count
+            if remaining and self._head_len <= pos < self._tail_start:
+                pieces.append(_discarded_marker(self._tail_start - self._head_len))
+                pos = self._tail_start
+            if remaining and self._tail_start <= pos < self._total:
+                count = min(remaining, self._total - pos)
+                offset = pos - self._tail_start
+                if self._finalized:
+                    with open(self.log_path, "rb") as handle:
+                        handle.seek(self._tail_file_offset + offset)
+                        pieces.append(handle.read(count))
+                else:
+                    pieces.append(bytes(self._tail[offset:offset + count]))
+                pos += count
+        data = b"".join(pieces)
+        if start > 0:
+            data = data[_utf8_boundary(data):]
+        return data.decode("utf-8", errors="replace"), pos
+
+    def output_since(self, start: int) -> str:
+        """La salida desde start, leyendo solo su comienzo y su final si es muy larga."""
+        total = self._total
+        if total - start <= 2 * MODEL_OUTPUT_READ_BYTES:
+            return self.read_range(start, total - start)[0]
+        head, _ = self.read_range(start, MODEL_OUTPUT_READ_BYTES)
+        tail, _ = self.read_range(total - MODEL_OUTPUT_READ_BYTES, MODEL_OUTPUT_READ_BYTES)
+        omitted = total - start - 2 * MODEL_OUTPUT_READ_BYTES
+        return head + f"\n[... {omitted} bytes omitted ...]\n" + tail
+
+    def tail_text(self, max_bytes: int = CARD_TAIL_BYTES) -> str:
+        return self.read_range(max(0, self._total - max_bytes), max_bytes)[0]
+
+    # --- Estado -------------------------------------------------------------
+
+    def elapsed(self) -> float:
+        end = self.ended_mono if self.ended_mono is not None else time.monotonic()
+        return round(end - self._started_mono, 1)
+
+    def summary(self) -> dict:
+        return {
+            "id": self.id,
+            "key": self.key,
+            "command": self.command if len(self.command) <= 300 else self.command[:300] + "…",
+            "cwd": self.cwd,
+            "background": self.background,
+            "status": self.status,
+            "exit_code": self.exit_code,
+            "stop_reason": self.stop_reason,
+            "started_at": int(self.started_at * 1000),
+            "ended_at": int(self.ended_at * 1000) if self.ended_at else None,
+            "elapsed_s": self.elapsed(),
+            "output_bytes": self._total
+        }
+
+
+class JobManager:
+    """
+    Registro de los comandos lanzados en esta sesión del servidor. Cada comando es del proyecto en el que
+    arrancó (su cwd): las consultas indican el proyecto y solo ven los suyos; None (al apagar) los ve todos.
+    """
+
+    def __init__(self):
+        self._jobs: dict[int, CommandJob] = {}
+        self._next_id = 1
+        self._lock = threading.Lock()
+        self._dir: Path | None = None
+        self._windows_job: _WindowsKillOnCloseJob | None = None
+        atexit.register(self.shutdown)
+
+    def _session_dir(self) -> Path:
+        """Directorio de esta instancia, con su huella para que otra pueda limpiarlo si muere."""
+        if self._dir is None:
+            directory = Path(tempfile.mkdtemp(prefix=f"{os.getpid()}-", dir=_jobs_base_dir()))
+            owner = {"pid": os.getpid(), "start": _process_start_token(os.getpid())}
+            (directory / "owner.json").write_text(json.dumps(owner), encoding="utf-8")
+            self._dir = directory
+        return self._dir
+
+    def _write_registry(self):
+        """Apunta en disco los grupos de procesos en marcha para limpiarlos tras un cierre abrupto."""
+        if DETECTED_OS == "windows" or self._dir is None:
+            return
+        with self._lock:
+            entries = {
+                str(job.id): {"pgid": job.proc.pid, "start": job.leader_start}
+                for job in self._jobs.values() if job.proc and job.ended_at is None
+            }
+        try:
+            _atomic_write_text(self._dir / "jobs.json", json.dumps(entries))
+        except OSError:
+            pass
+
+    def _prune(self):
+        finished = [job for job in self._jobs.values() if job.done.is_set()]
+        for job in finished[:max(0, len(finished) - MAX_FINISHED_JOBS)]:
+            del self._jobs[job.id]
+            try:
+                job.log_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def start(self, command: str, background: bool, project: SecurityContext, key: str | None = None) -> CommandJob:
+        if not isinstance(command, str) or not command.strip():
+            raise ValueError("The command is empty.")
+        if key is not None and not (isinstance(key, str) and JOB_KEY_PATTERN.fullmatch(key)):
+            key = None
+        with self._lock:
+            if sum(1 for job in self._jobs.values() if job.status == "running") >= MAX_RUNNING_JOBS:
+                raise ValueError(
+                    f"Too many commands running ({MAX_RUNNING_JOBS}). "
+                    "Stop one with check_command(job_id, stop=true) before starting another."
+                )
+            self._prune()
+            job_id = self._next_id
+            self._next_id += 1
+            job = CommandJob(job_id, key, command, project, background, self._session_dir() / f"job-{job_id}.log")
+            self._jobs[job_id] = job
+        try:
+            self._launch(job)
+        except Exception:
+            with self._lock:
+                self._jobs.pop(job_id, None)
+            job._log.close()
+            job.log_path.unlink(missing_ok=True)
+            raise
+        return job
+
+    def _launch(self, job: CommandJob):
+        if DETECTED_OS == "windows":
+            job.runner_path = job.log_path.with_suffix(".ps1")
+            job.runner_path.write_text(_powershell_runner(job.command), encoding="utf-8")
+            argv = [_powershell_executable(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(job.runner_path)]
+        else:
+            argv = [shutil.which("bash") or shutil.which("sh") or "/bin/sh", "-c", job.command]
+        job.proc = subprocess.Popen(
+            argv,
+            cwd=job.cwd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            # Una sola salida, en el orden en que la escribe el comando, como en una terminal.
+            stderr=subprocess.STDOUT,
+            start_new_session=DETECTED_OS != "windows" and hasattr(os, "setsid")
+        )
+        if DETECTED_OS == "windows":
+            if self._windows_job is None:
+                self._windows_job = _WindowsKillOnCloseJob()
+            self._windows_job.assign(job.proc)
+        else:
+            job.leader_start = _process_start_token(job.proc.pid)
+        job.start_reader(job.proc.stdout)
+        threading.Thread(target=self._watch, args=(job,), daemon=True).start()
+        self._write_registry()
+
+    def _watch(self, job: CommandJob):
+        proc = job.proc
+        if DETECTED_OS in ("linux", "android") and hasattr(os, "waitid"):
+            # Esperar sin recoger al proceso mantiene reservado su grupo: así se puede matar a lo
+            # que haya dejado en marcha sin riesgo de alcanzar a un grupo nuevo con el mismo número.
+            try:
+                os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOWAIT)
+                os.killpg(proc.pid, signal.SIGKILL)
+            except (OSError, ChildProcessError):
+                pass
+            returncode = proc.wait()
+        else:
+            returncode = proc.wait()
+            if DETECTED_OS != "windows":
+                # En macOS waitid con WNOWAIT no vuelve al terminar el comando. Tras recogerlo, el grupo
+                # sigue reservado mientras le quede algún proceso, que es justo lo que se mata.
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except OSError:
+                    pass
+        job._finalize_log()
+        if proc.stdout:
+            try:
+                proc.stdout.close()
+            except OSError:
+                pass
+        if job.runner_path:
+            job.runner_path.unlink(missing_ok=True)
+        job.ended_mono = time.monotonic()
+        job.ended_at = time.time()
+        job.exit_code = returncode
+        if job.stop_reason == "timeout":
+            job.status = "timeout"
+        elif job.stop_reason:
+            job.status = "stopped"
+        else:
+            job.status = "exited"
+        self._write_registry()
+        job.done.set()
+
+    def get(self, project: str, job_id=None, key=None) -> CommandJob | None:
+        jobs = self.list(project)
+        if isinstance(job_id, int) and not isinstance(job_id, bool):
+            return next((job for job in jobs if job.id == job_id), None)
+        if isinstance(key, str) and key:
+            return next((job for job in jobs if job.key == key), None)
+        return None
+
+    def list(self, project: str | None) -> list[CommandJob]:
+        """Comandos del proyecto con esa clave (SecurityContext.key); None, los de todos."""
+        with self._lock:
+            return [job for job in self._jobs.values() if project is None or job.project == project]
+
+    def stop(self, job: CommandJob, reason: str) -> CommandJob:
+        """Termina el grupo del comando: primero con cortesía y, si no basta, a la fuerza."""
+        if job.done.is_set():
+            return job
+        if job.stop_reason is None:
+            job.stop_reason = reason
+        proc = job.proc
+        if DETECTED_OS == "windows":
+            _kill_process_tree(proc)
+            job.done.wait(JOB_STOP_GRACE_SECONDS)
+            return job
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except OSError:
+            pass
+        if not job.done.wait(JOB_STOP_GRACE_SECONDS):
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:
+                pass
+            job.done.wait(JOB_STOP_GRACE_SECONDS)
+        return job
+
+    def report_finished(self, ids: list[int], project: str) -> list[dict]:
+        """Final de los comandos indicados que han terminado sin que el modelo lo haya visto.
+
+        Cada final se entrega una sola vez: queda marcado como visto.
+        """
+        reports = []
+        for job_id in dict.fromkeys(ids):
+            job = self.get(project, job_id=job_id)
+            if job is None or not job.done.is_set() or job.reported:
+                continue
+            job.reported = True
+            job.model_cursor = job.total
+            tail = "\n".join(job.tail_text(REPORT_TAIL_BYTES).rstrip("\n").split("\n")[-REPORT_TAIL_LINES:])
+            reports.append({**job.summary(), "tail": tail, "log_file": str(job.log_path)})
+        return reports
+
+    def running(self, project: str | None) -> list[CommandJob]:
+        return [job for job in self.list(project) if not job.done.is_set()]
+
+    def stop_all(self, reason: str = "shutdown"):
+        threads = [threading.Thread(target=self.stop, args=(job, reason), daemon=True) for job in self.running(None)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(JOB_STOP_GRACE_SECONDS * 2 + 1)
+
+    def shutdown(self):
+        self.stop_all("shutdown")
+        if self._dir is not None:
+            shutil.rmtree(self._dir, ignore_errors=True)
+
+
+JOBS = JobManager()
+
+
+def _clamp_seconds(value, default: int, minimum: int, maximum: int) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        number = default
+    return max(minimum, min(number, maximum))
+
+
+def _job_result(job: CommandJob, note: str | None = None, output_field: str = "output") -> str:
+    """Resultado para el modelo con la salida que aún no ha visto."""
+    start = job.model_cursor
+    total = job.total
+    output, truncated = truncate_terminal_output(job.output_since(start))
+    job.model_cursor = total
+    # Detener un comando a propósito no es un fallo; sí lo son salir con error o agotar el plazo.
+    failed = job.status == "timeout" or (job.status == "exited" and job.exit_code != 0)
+    result = {"success": not failed, "status": job.status, "job_id": job.id}
+    if job.status == "timeout":
+        result["error"] = f"Command timed out after {job.timeout_seconds} s and was killed."
+    if job.status == "running":
+        result["elapsed_s"] = job.elapsed()
+    else:
+        result["exit_code"] = job.exit_code
+        result["duration_s"] = job.elapsed()
+        job.reported = True
+    result[output_field] = output
+    if truncated or job.truncated_log:
+        result["truncated"] = True
+        result["log_file"] = str(job.log_path)
+    if job.status == "stopped":
+        result["stopped_by"] = job.stop_reason
+    if note:
+        result["note"] = note
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, background: bool = False, job_key: str | None = None, *, ctx: SecurityContext) -> str:
+    """Ejecuta un comando en una shell nueva en el directorio del proyecto."""
+    try:
+        job = JOBS.start(command, background=bool(background), project=ctx, key=job_key)
+    except (ValueError, OSError) as exc:
+        return _tool_error(str(exc), os=DETECTED_OS)
+    if background:
+        if not job.done.wait(BACKGROUND_STARTUP_WAIT):
+            return _job_result(job, note=(
+                f"Running in background. Follow it with check_command(job_id={job.id}, wait_seconds=...) "
+                f"and stop it with check_command(job_id={job.id}, stop=true)."
+            ))
+        return _job_result(job)
+    timeout = _clamp_seconds(timeout_seconds, COMMAND_DEFAULT_TIMEOUT, 1, COMMAND_MAX_TIMEOUT)
+    if not job.done.wait(timeout):
+        job.timeout_seconds = timeout
+        JOBS.stop(job, "timeout")
+        return _job_result(job, note=(
+            f"Killed after {timeout} s. If this command is expected to take longer, re-run it with "
+            f"a larger timeout_seconds (max {COMMAND_MAX_TIMEOUT}) or with background=true."
+        ))
+    return _job_result(job)
+
+
+def check_command(job_id: int, wait_seconds: int = 0, stop: bool = False, *, ctx: SecurityContext) -> str:
+    """Estado y salida nueva de un comando lanzado por run_command; puede esperarlo o detenerlo."""
+    job = JOBS.get(ctx.key, job_id=job_id)
+    if job is None:
+        return _tool_error(f"Unknown job_id {job_id}. It may belong to a previous ZeroChat session or to another project.", os=DETECTED_OS)
+    if stop:
+        JOBS.stop(job, "model")
+    else:
+        wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
+        if wait:
+            job.done.wait(wait)
+    return _job_result(job, output_field="new_output")
+
+
+def job_details(job: CommandJob) -> dict:
+    """Estado del comando para su tarjeta en la interfaz, con el final de su salida."""
+    return {**job.summary(), "tail": job.tail_text()}
+
+# --- security.controller ---
+"""Punto único de decisión de permisos (AccessController): evalúa cada llamada, emite retos de un solo uso y guarda las decisiones por sesión de proyecto y en SQLite."""
+
+
 
 
 POLICY_STATE_VERSION = 6
@@ -5411,24 +5106,344 @@ class AccessController:
 
 ACCESS_CONTROLLER = AccessController()
 
+# --- web.fetch ---
+"""Transporte web saliente del servidor (zerochat/web/fetch): anti-SSRF en la URL y en cada redirección, cuerpo acotado, cabeceras de navegador y cadencia por host."""
+
+
+
+
+METADATA_HOSTS = frozenset({
+    "169.254.169.254",
+    "metadata.google.internal",
+    "instance-data",
+    "100.100.100.200",
+})
+DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+# El User-Agent activo se sustituye por el de la primera petición del frontend (variabilidad de
+# fingerprint); sin frontend (--prompt/--conversation) se queda el valor por defecto.
+ACTIVE_USER_AGENT = DEFAULT_USER_AGENT
+
+
+def capture_frontend_user_agent(user_agent: str) -> None:
+    """Adopta el User-Agent de la primera petición del frontend como User-Agent de las salidas web."""
+    global ACTIVE_USER_AGENT
+    if ACTIVE_USER_AGENT is DEFAULT_USER_AGENT and isinstance(user_agent, str) and user_agent.strip():
+        ACTIVE_USER_AGENT = user_agent.strip()
+        set_service_user_agent(ACTIVE_USER_AGENT)
+
+
+# Los motores propios de Playwright arrancan con el User-Agent por defecto hasta que el
+# frontend fija el suyo en la primera petición.
+set_service_user_agent(DEFAULT_USER_AGENT)
+WEB_FETCH_MAX_BYTES = 10 * 1024 * 1024
+WEB_FETCH_MAX_REDIRECTS = 5
+WEB_FETCH_READ_CHUNK = 64 * 1024
+TEXT_CONTENT_TYPE_RE = re.compile(
+    r"^(text/|application/(json|xml|xhtml\+xml|javascript|x-javascript|ecmascript)$|[a-z]+/[^;]*\+(json|xml)$)"
+)
+# Control de cadencia frente a retos anti-bot: mínimo WEB_FETCH_MIN_GAP_S desde la RESPUESTA
+# anterior al mismo host; las peticiones en paralelo se escalonan de WEB_FETCH_PARALLEL_STAGGER_S
+# en WEB_FETCH_PARALLEL_STAGGER_S para que no coincidan. El timestamp se inicializa al arrancar
+# para que la primera petición espere aunque no se haya hecho ninguna antes.
+_WEB_FETCH_LOCK = threading.Lock()
+_LAST_WEB_FETCH_AT: dict[str, float] = {"duckduckgo.com": time.monotonic()}
+_WEB_FETCH_PENDING: dict[str, int] = {}
+WEB_FETCH_HOST_PACING_DOMAINS = ("duckduckgo.com",)
+WEB_FETCH_MIN_GAP_S = 2.0
+WEB_FETCH_PARALLEL_STAGGER_S = 5.0
+
+
+def _is_public_ip(address: str) -> bool:
+    """Una dirección es pública si es global y no multicast; las IPv4 mapeadas en IPv6 se evalúan como IPv4."""
+    ip = ipaddress.ip_address(address.split("%", 1)[0])
+    if ip.version == 6 and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return ip.is_global and not ip.is_multicast
+
+
+# Una dirección IPv4 en notación numérica: partes decimales o hexadecimales (0x…), de una a cuatro.
+_NUMERIC_HOST = re.compile(r"(?:0x[0-9a-f]*|\d+)(?:\.(?:0x[0-9a-f]*|\d+)){0,3}")
+
+
+def is_dangerous_host(hostname: str) -> bool:
+    """Riesgo de SSRF: metadatos cloud, nombres locales o cualquier dirección resuelta no pública."""
+    clean_host = (hostname or "").strip().lower().strip("[]").rstrip(".")
+    if not clean_host or clean_host in METADATA_HOSTS or clean_host == "localhost":
+        return True
+    if clean_host.endswith((".localhost", ".local", ".internal")):
+        return True
+    if _NUMERIC_HOST.fullmatch(clean_host):
+        # Abreviadas, enteras, hexadecimales u octales (127.1, 2130706433, 0x7f.1, 0177.0.0.1): cada
+        # resolvedor las interpreta a su manera, así que solo se admite la forma canónica.
+        try:
+            ipaddress.IPv4Address(clean_host)
+        except ValueError:
+            return True
+    try:
+        infos = socket.getaddrinfo(clean_host, None, proto=socket.IPPROTO_TCP)
+    except (socket.gaierror, UnicodeError):
+        # Sin resolución no hay conexión posible: la petición fallará por sí misma.
+        return False
+    return any(not _is_public_ip(info[4][0]) for info in infos)
+
+
+def _validate_web_url(url: str) -> str:
+    """Valida esquema y host de una URL de descarga (también de cada redirección)."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Protocolo no permitido: '{parsed.scheme}'. Solo se admite http y https.")
+    if not parsed.hostname:
+        raise ValueError("URL sin nombre de host válido.")
+    if is_dangerous_host(parsed.hostname):
+        raise PermissionError("Acceso bloqueado: intento de acceso a servicios internos o metadatos de infraestructura (SSRF).")
+    return url
+
+
+class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Sigue redirecciones solo si el destino supera la misma validación anti-SSRF que la URL pedida."""
+    max_redirections = WEB_FETCH_MAX_REDIRECTS
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _validate_web_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_WEB_OPENER = urllib.request.build_opener(_ValidatingRedirectHandler)
+
+
+def _read_limited_body(stream, content_encoding: str, max_bytes: int) -> tuple[bytes, bool]:
+    """Lee el cuerpo ya descomprimido hasta `max_bytes`; indica si había más (truncado)."""
+    encoding = (content_encoding or "").strip().lower()
+    # MAX_WBITS | 32 detecta la cabecera gzip o zlib.
+    decompressor = zlib.decompressobj(zlib.MAX_WBITS | 32) if encoding in ("gzip", "x-gzip", "deflate") else None
+    data = bytearray()
+    while len(data) <= max_bytes:
+        chunk = stream.read(WEB_FETCH_READ_CHUNK)
+        if not chunk:
+            break
+        if decompressor:
+            # La salida se limita al hueco restante: un cuerpo comprimido no puede crecer sin tope.
+            chunk = decompressor.decompress(chunk, max_bytes + 1 - len(data))
+        data += chunk
+    truncated = len(data) > max_bytes
+    return bytes(data[:max_bytes]), truncated
+
+
+def is_text_content_type(content_type: str) -> bool:
+    """Tipos que se devuelven como texto; el resto viaja en base64."""
+    media_type = (content_type or "").split(";", 1)[0].strip().lower()
+    return not media_type or bool(TEXT_CONTENT_TYPE_RE.match(media_type))
+
+
+def fetch_web_resource(params: dict) -> dict:
+    """Descarga de forma segura un recurso web vía HTTP/HTTPS para el cliente web."""
+    url = params.get("url")
+    if not isinstance(url, str) or not url.strip():
+        raise ValueError("URL no válida o ausente.")
+    url = _validate_web_url(url.strip())
+
+    parsed = urllib.parse.urlsplit(url)
+    hostname = (parsed.hostname or "").lower()
+
+    # Hosts sensibles (ej. DuckDuckGo): esperar al menos WEB_FETCH_MIN_GAP_S desde la respuesta
+    # anterior y escalar las peticiones en paralelo de a WEB_FETCH_PARALLEL_STAGGER_S.
+    pacing_domain = next(
+        (domain for domain in WEB_FETCH_HOST_PACING_DOMAINS if hostname == domain or hostname.endswith("." + domain)),
+        None,
+    )
+    if pacing_domain is None:
+        return _fetch_web_resource_unpaced(url, params, hostname, parsed)
+
+    with _WEB_FETCH_LOCK:
+        pending = _WEB_FETCH_PENDING.get(pacing_domain, 0)
+        gap = time.monotonic() - _LAST_WEB_FETCH_AT.get(pacing_domain, 0.0)
+        sleep_needed = max(0.0, WEB_FETCH_MIN_GAP_S - gap) + WEB_FETCH_PARALLEL_STAGGER_S * pending
+        _WEB_FETCH_PENDING[pacing_domain] = pending + 1
+    try:
+        if sleep_needed > 0:
+            time.sleep(sleep_needed)
+        return _fetch_web_resource_unpaced(url, params, hostname, parsed)
+    finally:
+        # El timestamp marca la respuesta (o el intento) terminado: la próxima petición
+        # cuenta los 2 s desde aquí.
+        with _WEB_FETCH_LOCK:
+            _LAST_WEB_FETCH_AT[pacing_domain] = time.monotonic()
+            _WEB_FETCH_PENDING[pacing_domain] = max(0, _WEB_FETCH_PENDING[pacing_domain] - 1)
+
+
+def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed) -> dict:
+    """Cuerpo de fetch_web_resource sin cadencia: cabeceras, descarga y respuesta."""
+    timeout_s = max(0.5, min(float(params.get("timeout_s", 10.0)), 30.0))
+    max_bytes = max(1024, min(int(params.get("max_bytes", 2 * 1024 * 1024)), WEB_FETCH_MAX_BYTES))
+    as_binary = bool(params.get("binary", False))
+    accept = params.get("accept")
+    req_headers = {
+        "User-Agent": ACTIVE_USER_AGENT,
+        "Accept": accept if isinstance(accept, str) and accept else "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, deflate",
+        "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="131", "Google Chrome";v="131"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+    }
+    if hostname.endswith("duckduckgo.com"):
+        req_headers["Referer"] = f"{parsed.scheme}://{parsed.netloc}/"
+
+    req = urllib.request.Request(url, headers=req_headers)
+    try:
+        with _WEB_OPENER.open(req, timeout=timeout_s) as resp:
+            content_type = resp.headers.get("Content-Type", "")
+            raw_data, truncated = _read_limited_body(resp, resp.headers.get("Content-Encoding", ""), max_bytes)
+            # Las cabeceras de transporte ya no describen el cuerpo descomprimido.
+            resp_headers = {k: v for k, v in resp.getheaders() if k.lower() not in ("content-encoding", "content-length")}
+            # Respuestas 202 u otros retos anti-bot se marcan como error no exitoso.
+            if resp.status == 202:
+                return {
+                    "ok": False,
+                    "status": resp.status,
+                    "error": "HTTP 202: Reto anti-bot o verificación de anomalía detectada por el servidor remoto.",
+                    "text": raw_data.decode("utf-8", errors="replace")
+                }
+            result = {
+                "ok": True,
+                "status": resp.status,
+                "url": resp.geturl(),
+                "content_type": content_type,
+                "headers": resp_headers,
+                "byte_size": len(raw_data),
+                "truncated": truncated
+            }
+            if as_binary or not is_text_content_type(content_type):
+                result["base64"] = base64.b64encode(raw_data).decode("ascii")
+                return result
+            charset = resp.headers.get_content_charset() or "utf-8"
+            try:
+                result["text"] = raw_data.decode(charset, errors="replace")
+            except LookupError:
+                result["text"] = raw_data.decode("utf-8", errors="replace")
+            return result
+    except urllib.error.HTTPError as he:
+        err_body = ""
+        try:
+            err_body = he.read(2048).decode("utf-8", errors="replace")
+        except OSError:
+            pass
+        return {
+            "ok": False,
+            "status": he.code,
+            "error": f"HTTP {he.code}: {he.reason}",
+            "text": err_body
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "status": 0,
+            "error": str(exc)
+        }
+
+CONSOLE_STATUS_IDLE_SECONDS = 8.0
+
+class ConsoleControl:
+    """Muestra una sola línea de ayuda tras un periodo de inactividad en consola."""
+    def __init__(self, server: ThreadingHTTPServer, parser: argparse.ArgumentParser, launch_url=None):
+        self.server = server
+        self.parser = parser
+        # Función que da la URL de la interfaz con el token vigente al pulsar n, no el del arranque.
+        self.launch_url = launch_url
+        self.last_activity = time.monotonic()
+        self.lock = threading.Lock()
+        self.enabled = bool(getattr(sys.stdout, "isatty", lambda: False)())
+        self._keyboard_enabled = bool(getattr(sys.stdin, "isatty", lambda: False)())
+        self._idle_timer: threading.Timer | None = None
+        self._keyboard_stop = threading.Event()
+        self._keyboard_thread: threading.Thread | None = None
+        self._timer_generation = 0
+        self._closed = False
+
+    def start(self):
+        if self.enabled:
+            self._reset_idle_timer()
+        if self._keyboard_enabled:
+            self._keyboard_thread = threading.Thread(target=self._keyboard_loop, name="zerochat-console-input", daemon=True)
+            self._keyboard_thread.start()
+
+    def close(self):
+        with self.lock:
+            self._closed = True
+            self._keyboard_stop.set()
+            if self._idle_timer:
+                self._idle_timer.cancel()
+                self._idle_timer = None
+
+    def _reset_idle_timer(self):
+        with self.lock:
+            if self._closed:
+                return
+            self.last_activity = time.monotonic()
+            self._timer_generation += 1
+            if self._idle_timer:
+                self._idle_timer.cancel()
+            generation = self._timer_generation
+            self._idle_timer = threading.Timer(CONSOLE_STATUS_IDLE_SECONDS, self._show_commands_once, args=(generation,))
+            self._idle_timer.daemon = True
+            self._idle_timer.start()
+
+    def _show_commands_once(self, generation: int):
+        with self.lock:
+            if self._closed or generation != self._timer_generation:
+                return
+            commands = "[h] ayuda · [n] Navegador"
+            if get_notices():
+                commands += " · [i] información"
+            print(f"Comandos de consola: {commands} · [x] salir ordenadamente", flush=True)
+            self._idle_timer = None
+
+    def log(self, message: str, *, flush: bool = True):
+        print(message, flush=flush)
+        if self.enabled:
+            self._reset_idle_timer()
+
+    def show_help(self):
+        print(self.parser.format_help().rstrip(), flush=True)
+
+    def show_notices(self):
+        notices = get_notices()
+        if not notices:
+            return
+        print("Información:", flush=True)
+        for notice in notices:
+            print(f"- {notice}", flush=True)
+
+    def _handle_command(self, command: str):
+        key = command.strip().lower()
+        if key == "h":
+            self.show_help()
+        elif key == "n" and self.launch_url:
+            launch_browser(self.launch_url())
+        elif key == "i":
+            self.show_notices()
+        elif key == "x":
+            self.log(timestamp_message("Deteniendo servidor ZeroChat..."))
+            stop_zerochat_server(self.server)
+
+    def _keyboard_loop(self):
+        """Lee comandos normales terminados con Intro, sin alterar el terminal."""
+        while not self._keyboard_stop.is_set():
+            line = sys.stdin.readline()
+            if not line:
+                return
+            self._handle_command(line)
+
 # ==============================================================================
 # Herramientas Locales Core
 # ==============================================================================
 
 BROWSER_ACTIONS = ("navigate", "screenshot", "click", "fill")
-
-
-def _tool_error(message: str, **extra) -> str:
-    """Serializa el resultado de error común de las herramientas locales."""
-    return json.dumps({"success": False, "error": message, **extra}, ensure_ascii=False)
-
-
-def _atomic_write_text(target: Path, text: str):
-    """Sustituye el archivo de una vez para no dejarlo a medias si la escritura falla."""
-    temp_path = target.with_suffix(target.suffix + f".tmp_{os.getpid()}_{time.time_ns()}")
-    with open(temp_path, "w", encoding="utf-8") as f:
-        f.write(text)
-    temp_path.replace(target)
 
 
 IGNORED_WORKSPACE_DIRS = {

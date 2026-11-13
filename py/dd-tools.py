@@ -5,19 +5,6 @@
 BROWSER_ACTIONS = ("navigate", "screenshot", "click", "fill")
 
 
-def _tool_error(message: str, **extra) -> str:
-    """Serializa el resultado de error común de las herramientas locales."""
-    return json.dumps({"success": False, "error": message, **extra}, ensure_ascii=False)
-
-
-def _atomic_write_text(target: Path, text: str):
-    """Sustituye el archivo de una vez para no dejarlo a medias si la escritura falla."""
-    temp_path = target.with_suffix(target.suffix + f".tmp_{os.getpid()}_{time.time_ns()}")
-    with open(temp_path, "w", encoding="utf-8") as f:
-        f.write(text)
-    temp_path.replace(target)
-
-
 IGNORED_WORKSPACE_DIRS = {
     ".git", ".venv", "venv", "node_modules", "__pycache__",
     ".pytest_cache", ".cache", ".gemini", "dist", "build"
