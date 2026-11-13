@@ -8,7 +8,6 @@
   'use strict';
 
   const {
-    ChatUtils: Utils,
     ChatStorage: Storage,
     ChatI18n: I18n,
     ChatDebug: Debug,
@@ -41,7 +40,8 @@
     ChatUIBrowser: UIBrowser,
     ChatUIConnection: UIConnection,
     ChatRagUI: RagUI,
-    ChatRunMode: RunMode
+    ChatRunMode: RunMode,
+    ChatBackendSession: BackendSession
   } = window;
   const { t } = I18n;
 
@@ -1070,88 +1070,9 @@
   // Conexión con el servidor local
   // ==========================================================================
 
-  // El fragmento se usa exclusivamente para el primer arranque desde zerochat.py.
-  // Después la sesión se resuelve mediante una cookie del mismo origen.
-  let runBackendSession = null;
-
-  function persistBackendSessionFromLaunchFragment() {
-    const hashParams = Utils.readLaunchFragment(location.hash);
-    const token = hashParams.get('token');
-    if (!token) return;
-    // zerochat.py abre la página con un servidor de este equipo: el fragmento no admite otro.
-    const host = hashParams.get('host');
-    const port = Number(hashParams.get('port'));
-    const local = ['127.0.0.1', 'localhost'].includes(host) && Number.isInteger(port) && port > 0 && port < 65536;
-    const session = local ? Storage.normalizeBackendSession({ token, url: `http://${host}:${port}` }) : null;
-    // El servidor de --prompt puede estar en otro puerto y termina con la ejecución: su conexión
-    // queda en esta página y la cookie sigue apuntando las demás pestañas al servidor normal.
-    if (hashParams.has('run')) {
-      runBackendSession = session;
-    } else if (session && !Storage.setBackendSession(session)) {
-      console.warn('[App] Could not persist the initial backend session.');
-    }
-    history.replaceState(null, '', location.pathname + location.search);
-  }
-
-  /** Destino de la conexión configurada: el servidor local por defecto o el remoto, con la clave del proxy si lo usa. */
-  function configuredTarget() {
-    const config = getRuntimeConfig();
-    if (config.localBackend) return { url: Defaults.LOCAL_BACKEND_URL, proxyKey: null };
-    return { url: config.backendUrl, proxyKey: config.useProxy ? config.proxyKey : null };
-  }
-
-  /** Clave del proxy para `url`: solo si es la URL configurada y usa el proxy; si no, null. */
-  function proxyKeyFor(url) {
-    const target = configuredTarget();
-    return url === target.url ? target.proxyKey : null;
-  }
-
-  /** Guarda la sesión: en la pestaña de una ejecución solo en memoria, para no pisar la cookie de las demás. */
-  function saveBackendSession(session) {
-    if (runBackendSession) runBackendSession = session;
-    else if (!Storage.setBackendSession(session)) console.warn('[App] Could not persist the backend session.');
-  }
-
-  /** Conecta con el destino configurado, con el token de la sesión si es de esa URL; un 401 pide identificarse. */
-  async function connectConfiguredBackend() {
-    const target = configuredTarget();
-    const session = Storage.getBackendSession();
-    const token = session?.url === target.url ? session.token : null;
-    MCP.manager.setSessionToken(token);
-    if (token) ToolSecurity.manager.setSessionToken(token);
-    const result = await MCP.manager.connectProxy({ ...target, token });
-    await ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
-    return result;
-  }
-
-  /** Se identifica en el destino de la conexión, guarda el token diario en la sesión y conecta con él. */
-  async function loginBackend(user, password) {
-    const { url, proxyKey } = MCP.manager.target;
-    const token = await MCP.manager.login(user, password);
-    saveBackendSession({ token, url });
-    ToolSecurity.manager.setSessionToken(token);
-    const result = await MCP.manager.connectProxy({ url, proxyKey, token });
-    await ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
-    return result;
-  }
-
-  /**
-   * Conecta con zerochat.py si hay sesión guardada (sin ella no sondea el equipo, para no disparar el
-   * aviso de acceso a la red local del navegador); devuelve el resultado de la conexión.
-   */
-  function connectBackend() {
-    persistBackendSessionFromLaunchFragment();
-    const session = runBackendSession || Storage.getBackendSession();
-    if (!session) return Promise.resolve({ success: false });
-    ToolSecurity.manager.setSessionToken(session.token);
-    return MCP.manager.connectProxy({ url: session.url, proxyKey: proxyKeyFor(session.url), token: session.token }).then(async result => {
-      if (result.success) await ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
-      return result;
-    }).catch(error => {
-      console.warn('[App] Could not connect to the local server on startup:', error);
-      return { success: false };
-    });
-  }
+  const backendSession = BackendSession.create({
+    loadSessions: () => ConversationService.loadSessionsFromStorage(getConversationServiceOptions())
+  });
 
   function init() {
     ensureModalsMarkup();
@@ -1188,7 +1109,7 @@
       loginError: elements.loginError,
       loginCancel: elements.loginCancel,
       loginSubmit: elements.loginSubmit
-    }, { connect: connectConfiguredBackend, login: loginBackend });
+    }, { connect: backendSession.connectConfigured, login: backendSession.login });
     UIBrowser.mountProfileBrowser(elements.profileBrowser);
     UIMcp.initMcpUI({
       statusBadge: elements.mcpStatusBadge,
@@ -1206,9 +1127,9 @@
     // Un paquete de perfiles exportado abre la página para importarlos: no arranca el chat.
     if (UIProfiles.startImportMode(elements)) return;
 
-    // connectBackend quita el fragmento de arranque: el modo ejecución se lee antes.
+    // connectStartup quita el fragmento de arranque: el modo ejecución se lee antes.
     const runId = RunMode.readRunId(location.hash);
-    const startupMcpConnection = connectBackend();
+    const startupMcpConnection = backendSession.connectStartup();
     // Sin latido periódico (servidor sin auto-cierre), volver a la pestaña relee el servidor local.
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') MCP.manager.onPageVisible();
@@ -1217,7 +1138,7 @@
     if (runId) {
       RunMode.start(runId, {
         startupConnection: startupMcpConnection,
-        connectBackend,
+        connectBackend: backendSession.connectStartup,
         sessionsLoaded,
         activateSessionProfile: profileId => UIProfiles.activateConnectionProfile(profileId, { sessionOnly: true }),
         exportConversation: async format => (await UITransfer.buildConversationExport(format)).content,
