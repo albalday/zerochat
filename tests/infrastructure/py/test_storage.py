@@ -550,6 +550,34 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(status["existing"], [sha1])
         self.assertEqual(status["missing"], [fake_id])
 
+    def test_borrar_conversaciones_borra_los_blobs_que_solo_ellas_usaban(self):
+        def blob(data):
+            return zerochat.put_blob(data, mime_type="image/png")["id"]
+
+        def save(conv_id, blob_ids, project=None):
+            meta = {"id": conv_id, "title": conv_id, **({"project": project} if project else {})}
+            images = [{"blobId": blob_id, "mimeType": "image/png"} for blob_id in blob_ids]
+            zerochat.save_conversation(meta, [{"id": "m1", "role": "user", "content": "x", "images": images}])
+
+        own, shared, pending = blob(b"propia"), blob(b"compartida"), blob(b"subida sin guardar")
+        save("conv_a", [own, shared])
+        save("conv_b", [shared])
+        # Borrar una conversación borra el blob que solo ella usaba y conserva el compartido y el pendiente.
+        self.assertTrue(zerochat.delete_conversation("conv_a"))
+        self.assertIsNone(zerochat.get_blob(own))
+        self.assertIsNotNone(zerochat.get_blob(shared))
+        self.assertIsNotNone(zerochat.get_blob(pending))
+
+        project_blob = blob(b"del proyecto")
+        save("conv_p", [project_blob, shared], project="/proj")
+        self.assertEqual(zerochat.delete_project_conversations("/proj"), ["conv_p"])
+        self.assertIsNone(zerochat.get_blob(project_blob))
+        self.assertIsNotNone(zerochat.get_blob(shared))
+
+        self.assertEqual(zerochat.delete_all_conversations(), 1)
+        self.assertIsNone(zerochat.get_blob(shared))
+        self.assertIsNotNone(zerochat.get_blob(pending))
+
     def test_blobs_validaciones_y_limites(self):
         # Vacío o no-bytes
         with self.assertRaises(ValueError):

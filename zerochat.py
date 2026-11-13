@@ -5396,36 +5396,59 @@ def rename_conversation(session_id: str, new_title: str) -> bool:
         return cursor.rowcount > 0
 
 
+# Identificadores de blob de las imágenes de los mensajes (messages.extra_json, campo images[].blobId).
+_MESSAGE_BLOB_IDS_SQL = """
+    SELECT DISTINCT json_extract(image.value, '$.blobId') AS blob_id
+    FROM messages, json_each(messages.extra_json, '$.images') AS image
+    WHERE json_valid(messages.extra_json) AND json_extract(image.value, '$.blobId') IS NOT NULL
+"""
+
+
+def _delete_conversations(conn: sqlite3.Connection, where: str, params: tuple) -> list[str]:
+    """
+    Borra en una transacción las conversaciones que cumplen `where`, con sus mensajes en cascada, y los
+    blobs que solo ellas referenciaban. Solo se consideran los blobs de las conversaciones borradas: uno
+    subido para una conversación que aún no se ha guardado no se toca.
+    """
+    conn.isolation_level = None
+    conn.execute("BEGIN IMMEDIATE;")
+    try:
+        ids = [row["id"] for row in conn.execute(f"SELECT id FROM conversations WHERE {where};", params)]
+        if ids:
+            marks = ",".join("?" for _ in ids)
+            candidates = {row["blob_id"] for row in conn.execute(
+                f"{_MESSAGE_BLOB_IDS_SQL} AND messages.conversation_id IN ({marks});", ids)}
+            conn.execute(f"DELETE FROM conversations WHERE id IN ({marks});", ids)
+            if candidates:
+                still_used = {row["blob_id"] for row in conn.execute(_MESSAGE_BLOB_IDS_SQL)}
+                orphans = [(blob_id,) for blob_id in candidates - still_used]
+                conn.executemany("DELETE FROM blobs WHERE id = ?;", orphans)
+        conn.execute("COMMIT;")
+        return ids
+    except Exception:
+        conn.execute("ROLLBACK;")
+        raise
+
+
 def delete_conversation(session_id: str) -> bool:
-    """Elimina una conversación y sus mensajes en cascada."""
+    """Elimina una conversación con sus mensajes y los blobs que solo ella usaba."""
     clean_id = _validate_conversation_id(session_id)
     with open_storage() as conn:
-        cursor = conn.execute("DELETE FROM conversations WHERE id = ?;", (clean_id,))
-        conn.commit()
-        return cursor.rowcount > 0
+        return bool(_delete_conversations(conn, "id = ?", (clean_id,)))
 
 
 def delete_project_conversations(project: str) -> list[str]:
-    """Elimina las conversaciones de un proyecto con sus mensajes y devuelve sus identificadores."""
+    """Elimina las conversaciones de un proyecto con sus mensajes y blobs propios, y devuelve sus identificadores."""
     if not isinstance(project, str) or not project.strip() or len(project) > MAX_PATH_LENGTH:
         raise ValueError("El proyecto de las conversaciones debe ser una ruta")
     with open_storage() as conn:
-        rows = conn.execute(
-            "SELECT id FROM conversations WHERE json_extract(extra_json, '$.project') = ?;",
-            (project.strip(),)
-        ).fetchall()
-        ids = [row["id"] for row in rows]
-        conn.executemany("DELETE FROM conversations WHERE id = ?;", [(conv_id,) for conv_id in ids])
-        conn.commit()
-        return ids
+        return _delete_conversations(conn, "json_extract(extra_json, '$.project') = ?", (project.strip(),))
 
 
 def delete_all_conversations() -> int:
-    """Elimina todas las conversaciones y sus mensajes en cascada."""
+    """Elimina todas las conversaciones con sus mensajes y los blobs que estas usaban."""
     with open_storage() as conn:
-        cursor = conn.execute("DELETE FROM conversations;")
-        conn.commit()
-        return cursor.rowcount
+        return len(_delete_conversations(conn, "1 = 1", ()))
 
 
 def _validate_blob_id(blob_id: str) -> str:
