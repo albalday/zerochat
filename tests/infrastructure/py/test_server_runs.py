@@ -371,7 +371,10 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         zerochat.save_conversation({"id": "conv_gone", "title": "G", "project": os.path.join(project, "borrado")}, [])
         mock_proc = mock.Mock()
         mock_proc.pid = os.getpid()
+        # Popen falso para todo subprocess: la huella de arranque, que fuera de Linux usa ps, se toma antes.
+        start_token = zerochat._process_start_token(os.getpid())
         with mock.patch.object(zerochat, "find_node_executable", return_value="/usr/bin/node"), \
+             mock.patch.object(zerochat, "_process_start_token", return_value=start_token), \
              mock.patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
             zerochat.start_server_run({"conversation_id": "conv_proj", "profile": "valid-profile"}, CTX)
             self.assertEqual(mock_popen.call_args.kwargs["cwd"], project)
@@ -400,7 +403,10 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         mock_proc = mock.Mock()
         mock_proc.pid = os.getpid()
 
+        # Popen falso para todo subprocess: la huella de arranque, que fuera de Linux usa ps, se toma antes.
+        start_token = zerochat._process_start_token(os.getpid())
         with mock.patch.object(zerochat, "find_node_executable", return_value="/usr/bin/node"), \
+             mock.patch.object(zerochat, "_process_start_token", return_value=start_token), \
              mock.patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
             res, err, _ = dispatch_run("zerochat/run/start", {
                 "conversation_id": "conv_val",
