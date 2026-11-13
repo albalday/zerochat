@@ -269,9 +269,6 @@
       error.code = CONVERSATION_NOT_DOWNLOADED;
       throw error;
     }
-    if (conversation?.history) {
-      await hydrateMessageImages(conversation.history);
-    }
     return conversation;
   }
 
@@ -339,13 +336,16 @@
    */
   async function getConversation(sessionId) {
     if (!sessionId) return null;
+    const conversation = await readConversation(sessionId);
+    if (conversation) await hydrateMessageImages(conversation.history);
+    return conversation;
+  }
+
+  async function readConversation(sessionId) {
     if (isBackendConnected()) {
       const result = await requestBackend('zerochat/conversations/get', { id: sessionId });
       if (result?.conversation) {
         if (await needsLocalCopy(sessionId)) await writeLocalConversation(result.conversation, result.conversation.history || []);
-        if (result.conversation.history) {
-          await hydrateMessageImages(result.conversation.history);
-        }
         return result.conversation;
       }
     }
@@ -396,10 +396,8 @@
       if (Array.isArray(msg?.images)) {
         for (const img of msg.images) {
           if (img?.blobId && !img.dataUrl) {
-            let blob = null;
-            if (await hasBlob(img.blobId)) {
-              blob = await getBlob(img.blobId);
-            } else if (isBackendConnected()) {
+            let blob = await getBlob(img.blobId);
+            if (!blob && isBackendConnected()) {
               try {
                 const res = await requestBackend('zerochat/blobs/get', { id: img.blobId });
                 if (res?.blob?.data) {
@@ -462,49 +460,37 @@
     return true;
   }
 
-  /** Elimina una conversación y todos sus mensajes. */
-  async function deleteConversation(sessionId) {
-    if (!sessionId) return false;
-    await attempt('delete the conversation', async db => {
+  /**
+   * Borra con sus mensajes las conversaciones `ids` de IndexedDB (todas si es null) y, con el backend
+   * conectado, las que selecciona `params` de zerochat/conversations/delete.
+   */
+  async function removeConversations(action, ids, params) {
+    await attempt(action, async db => {
       const tx = db.transaction([STORES.conversations, STORES.messages], 'readwrite');
-      tx.objectStore(STORES.conversations).delete(sessionId);
-      await deleteByIndex(tx.objectStore(STORES.messages), 'by_conversation', conversationRange(sessionId));
-      await transactionDone(tx);
-    });
-    if (isBackendConnected()) {
-      await requestBackend('zerochat/conversations/delete', { id: sessionId });
-    }
-    return true;
-  }
-
-  async function deleteAllConversations() {
-    await attempt('delete the conversations', async db => {
-      const tx = db.transaction([STORES.conversations, STORES.messages], 'readwrite');
-      tx.objectStore(STORES.conversations).clear();
-      tx.objectStore(STORES.messages).clear();
-      await transactionDone(tx);
-    });
-    if (isBackendConnected()) {
-      await requestBackend('zerochat/conversations/delete', { all: true });
-    }
-    return true;
-  }
-
-  /** Borra las conversaciones de un proyecto, en este navegador y en el servidor si está conectado. */
-  async function deleteProjectConversations(project) {
-    const ids = (await readLocalConversationsList()).filter(item => item.project === project).map(item => item.id);
-    await attempt('delete the project conversations', async db => {
-      const tx = db.transaction([STORES.conversations, STORES.messages], 'readwrite');
-      for (const id of ids) {
-        tx.objectStore(STORES.conversations).delete(id);
-        await deleteByIndex(tx.objectStore(STORES.messages), 'by_conversation', conversationRange(id));
+      const conversations = tx.objectStore(STORES.conversations);
+      const messages = tx.objectStore(STORES.messages);
+      if (ids === null) {
+        conversations.clear();
+        messages.clear();
+      }
+      for (const id of ids || []) {
+        conversations.delete(id);
+        await deleteByIndex(messages, 'by_conversation', conversationRange(id));
       }
       await transactionDone(tx);
     });
-    if (isBackendConnected()) {
-      await requestBackend('zerochat/conversations/delete', { project });
-    }
-    return true;
+    if (isBackendConnected()) await requestBackend('zerochat/conversations/delete', params);
+  }
+
+  async function deleteConversation(sessionId) {
+    if (sessionId) await removeConversations('delete the conversation', [sessionId], { id: sessionId });
+  }
+
+  const deleteAllConversations = () => removeConversations('delete the conversations', null, { all: true });
+
+  async function deleteProjectConversations(project) {
+    const ids = (await readLocalConversationsList()).filter(item => item.project === project).map(item => item.id);
+    await removeConversations('delete the project conversations', ids, { project });
   }
 
   async function renameConversation(sessionId, newTitle) {
@@ -592,16 +578,6 @@
     });
   }
 
-  /** Comprueba si existe un blob en IndexedDB por su id. */
-  async function hasBlob(id) {
-    if (!id || typeof id !== 'string') return false;
-    return attempt('check blob existence', async db => {
-      const tx = db.transaction(STORES.blobs, 'readonly');
-      const count = await requestResult(tx.objectStore(STORES.blobs).count(id.trim().toLowerCase()));
-      return count > 0;
-    });
-  }
-
   return {
     setStorageItem,
     getStorageItem,
@@ -618,11 +594,10 @@
     saveConversation,
     deleteConversation,
     deleteAllConversations,
-    CONVERSATION_NOT_DOWNLOADED,
     deleteProjectConversations,
+    CONVERSATION_NOT_DOWNLOADED,
     renameConversation,
     saveBlob,
-    getBlob,
-    hasBlob
+    getBlob
   };
 });

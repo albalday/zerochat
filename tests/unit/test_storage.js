@@ -71,8 +71,7 @@ test('Storage IndexedDB - borra conversaciones individuales, todas y el almacena
   await Storage.saveConversation({ id: s1, title: 'Chat 1' }, [{ id: 'm1', content: '1' }]);
   await Storage.saveConversation({ id: s2, title: 'Chat 2' }, [{ id: 'm2', content: '2' }]);
 
-  const del1 = await Storage.deleteConversation(s1);
-  assert.equal(del1, true);
+  await Storage.deleteConversation(s1);
 
   const check1 = await Storage.getConversation(s1);
   assert.equal(check1, null);
@@ -357,10 +356,7 @@ test('Storage IndexedDB - gestión y deduplicación de blobs desacoplados', asyn
   assert.equal(saved.size, Buffer.from(text).length);
   assert.equal(saved.dataUrl, dataUrl);
 
-  // 2. Comprobar existencia y lectura
-  assert.equal(await Storage.hasBlob(expectedSha), true);
-  assert.equal(await Storage.hasBlob('0'.repeat(64)), false);
-
+  // 2. Lectura: un id inexistente da null
   const retrieved = await Storage.getBlob(expectedSha);
   assert.ok(retrieved);
   assert.equal(retrieved.id, expectedSha);
