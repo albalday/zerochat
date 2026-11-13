@@ -182,7 +182,10 @@
     return group.key === project || sessions.some(session => session.id === currentSessionId);
   }
 
-  /** Lista de conversaciones de la vista elegida, agrupada; con texto en el buscador, filtrada por título y sin grupos. */
+  /**
+   * Lista de conversaciones de la vista elegida, agrupada. Con texto en el buscador se filtra por título
+   * y solo quedan las cabeceras de proyecto de los grupos con coincidencias, desplegados.
+   */
   function renderSidebarChats(elements, sessions, currentSessionId, serverRuns = [], project = '') {
     const filter = elements.sidebarSearchInput.value.toLowerCase().trim();
     const showAll = renderProjectFilter(elements.sidebarProjectFilter, project);
@@ -205,7 +208,7 @@
     if (collapsible) renderedProjectKeys = runs.map(({ group }) => group.key);
     elements.sidebarChatsList.innerHTML = runs.map(({ group, sessions: items }) => {
       const chats = items.map(renderItem).join('');
-      if (filter) return chats;
+      if (filter) return (group.kind === 'project' ? renderGroupHeader(group, items.length) : '') + chats;
       if (!collapsible) return renderGroupHeader(group, items.length) + chats;
       const expanded = isGroupExpanded(group, items, project, currentSessionId);
       return renderGroupHeader(group, items.length, expanded) + `<div class="sidebar-group-items"${expanded ? '' : ' hidden'}>${chats}</div>`;

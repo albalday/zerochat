@@ -52,9 +52,10 @@ async function seedSessions(page, sessions, activeId) {
 }
 
 const sidebarTitles = page => page.$$eval('#sidebar-chats-list .sidebar-chat-title', titles => titles.map(title => title.textContent));
+const visibleTitles = page => page.$$eval('#sidebar-chats-list .sidebar-chat-title', titles => titles.filter(title => !title.closest('[hidden]')).map(title => title.textContent));
 const sidebarHeaders = page => page.$$eval('#sidebar-chats-list .sidebar-group-label', labels => labels.map(label => label.textContent));
 
-test('Browser UI - la barra agrupa las conversaciones por fecha, marca la activa y filtra por título sin agrupar', async () => {
+test('Browser UI - la barra agrupa las conversaciones por fecha, marca la activa y filtra por título sin cabeceras de fecha', async () => {
   await withTestApp(async page => {
     await seedSessions(page, [
       { id: 'a', title: 'Hoy <b>', ageMs: 0 },
@@ -70,7 +71,7 @@ test('Browser UI - la barra agrupa las conversaciones por fecha, marca la activa
 
     await page.fill('#sidebar-search-input', 'AYE');
     assert.deepEqual(await sidebarTitles(page), ['Ayer']);
-    assert.deepEqual(await sidebarHeaders(page), [], 'Al filtrar no se agrupa');
+    assert.deepEqual(await sidebarHeaders(page), [], 'Al filtrar no quedan cabeceras de fecha');
 
     await page.fill('#sidebar-search-input', 'nada');
     assert.equal(await page.textContent('#sidebar-chats-list .sidebar-no-chats'), await page.evaluate(() => window.ChatI18n.t('sidebar_no_chats')));
@@ -108,6 +109,15 @@ test('Browser UI - con proyecto la barra muestra sus conversaciones y, con todos
     assert.deepEqual(await sidebarTitles(page), ['A reciente', 'A antigua', 'B', 'Sin proyecto']);
     assert.deepEqual(await sidebarHeaders(page), ['app', 'lib', await page.evaluate(() => window.ChatI18n.t('sidebar_no_project'))]);
 
+    // Al buscar, cada resultado sigue bajo su proyecto, aunque esté plegado.
+    // Sin evento input: la aplicación repintaría sin servidor y ocultaría el selector.
+    const search = text => page.$eval('#sidebar-search-input', (input, text) => { input.value = text; }, text);
+    await search('n');
+    await render('/repo/lib');
+    assert.deepEqual(await visibleTitles(page), ['A reciente', 'A antigua', 'Sin proyecto']);
+    assert.deepEqual(await sidebarHeaders(page), ['app', await page.evaluate(() => window.ChatI18n.t('sidebar_no_project'))]);
+    await search('');
+
     await page.selectOption('#sidebar-project-filter', 'current');
     await render('/repo/vacio');
     assert.deepEqual(await sidebarTitles(page), ['Sin proyecto']);
@@ -118,8 +128,6 @@ test('Browser UI - con proyecto la barra muestra sus conversaciones y, con todos
     assert.equal((await sidebarTitles(page)).length, 4);
   });
 });
-
-const visibleTitles = page => page.$$eval('#sidebar-chats-list .sidebar-chat-title', titles => titles.filter(title => !title.closest('[hidden]')).map(title => title.textContent));
 
 test('Browser UI - en la vista de todos los proyectos se pliegan salvo el actual y el de la conversación abierta, y la elección se recuerda', async () => {
   await withTestApp(async page => {
