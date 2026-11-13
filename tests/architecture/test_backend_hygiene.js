@@ -84,7 +84,7 @@ test('Backend Higiene - el proceso no cambia de directorio ni lee el suyo fuera 
   // El proyecto viaja en el SecurityContext de cada petición: un Path.cwd() olvidado actuaría en otra carpeta.
   // Solo se admite al arrancar: la carpeta inicial del proyecto y la detección del repositorio de desarrollo.
   const allowed = new Set([
-    'py/dd-security.py:PROJECT_DIR = Path.cwd().resolve()',
+    'py/security/context.py:PROJECT_DIR = Path.cwd().resolve()',
     'py/core/environment.py:cwd = Path.cwd().resolve()'
   ]);
   const offenders = [];

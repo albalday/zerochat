@@ -34,11 +34,11 @@ Done when: Todos los módulos en py/ son código Python válido e importable de 
 - [x] M64-T2 Capa base py/core/ (version.py, limits.py, logging.py, process.py unificando _kill_process_tree y _kill_pid_tree) y actualización de scripts/bump-version.mjs (2026-11-13)
 - [x] M64-T3 Migrar cc-environment.py a py/core/environment.py y ee-login.py más la gestión del token diario a py/auth/tokens.py y py/auth/login.py con imports explícitos (2026-11-13)
 - [x] M64-T4 Migrar ee-storage.py a py/storage/db.py usando py/core/limits.py, sin dependencias de herramientas ni efectos laterales al importar (2026-11-13)
-- [ ] M64-T5 Dividir dd-security.py en py/security/context.py, py/security/rules.py (lógica pura) y py/security/controller.py (consumiendo storage.db sin ciclos)
+- [x] M64-T5 Dividir dd-security.py en py/security/context.py y py/security/rules.py (lógica pura); el controlador espera a M64-T9 porque usa JOBS (2026-11-13)
 - [ ] M64-T6 Dividir ee-browser-config.py y gg-browser.py en py/browser/launch.py, py/browser/config.py y py/browser/engines.py, rompiendo el ciclo con ee-mcp.py mediante callback de estado
 - [ ] M64-T7 Migrar dd-managed-services.py y ee-mcp.py a py/mcp/ (managed_services.py, stdio_client.py, manager.py), actualizando scripts/build-managed-services.mjs y evitando materializar servicios al importar
 - [ ] M64-T8 Extraer el transporte HTTP saliente y protección anti-SSRF de ff-server.py a py/web/fetch.py
-- [ ] M64-T9 Migrar dd-commands.py a py/tools/jobs.py (sobre core.process y security.context) y dd-diff.py a py/tools/diff.py
+- [ ] M64-T9 Migrar dd-commands.py a py/tools/jobs.py (sobre core.process y security.context) y dd-diff.py a py/tools/diff.py; después, AccessController y ACCESS_CONTROLLER a py/security/controller.py (consumiendo storage.db y tools.jobs sin ciclos)
 - [ ] M64-T10 Dividir dd-tools.py en py/tools/filesystem.py, py/tools/browser_action.py y py/tools/registry.py, actualizando test_backend_hygiene.js
 - [ ] M64-T11 Migrar ii-run-mode.py a py/run_mode/state.py y py/run_mode/supervisor.py eliminando la referencia circular con ff-server.py
 - [ ] M64-T12 Dividir ff-server.py en py/server/state.py (BrowserLease, live_state, watchdog) y py/server/handler.py (despacho HTTP/JSON-RPC por grupos)
