@@ -6962,102 +6962,11 @@ def launch_node_runner(url: str) -> subprocess.Popen | None:
         run_error(f"No se pudo iniciar el proceso de Node.js ({error}).")
         return None
 
-CONSOLE_STATUS_IDLE_SECONDS = 8.0
+# --- server.handler ---
+"""Servidor HTTP JSON-RPC del backend local: orígenes admitidos, token e identificación, despacho por grupos de métodos y punto único de ejecución de herramientas."""
 
-class ConsoleControl:
-    """Muestra una sola línea de ayuda tras un periodo de inactividad en consola."""
-    def __init__(self, server: ThreadingHTTPServer, parser: argparse.ArgumentParser, launch_url=None):
-        self.server = server
-        self.parser = parser
-        # Función que da la URL de la interfaz con el token vigente al pulsar n, no el del arranque.
-        self.launch_url = launch_url
-        self.last_activity = time.monotonic()
-        self.lock = threading.Lock()
-        self.enabled = bool(getattr(sys.stdout, "isatty", lambda: False)())
-        self._keyboard_enabled = bool(getattr(sys.stdin, "isatty", lambda: False)())
-        self._idle_timer: threading.Timer | None = None
-        self._keyboard_stop = threading.Event()
-        self._keyboard_thread: threading.Thread | None = None
-        self._timer_generation = 0
-        self._closed = False
 
-    def start(self):
-        if self.enabled:
-            self._reset_idle_timer()
-        if self._keyboard_enabled:
-            self._keyboard_thread = threading.Thread(target=self._keyboard_loop, name="zerochat-console-input", daemon=True)
-            self._keyboard_thread.start()
 
-    def close(self):
-        with self.lock:
-            self._closed = True
-            self._keyboard_stop.set()
-            if self._idle_timer:
-                self._idle_timer.cancel()
-                self._idle_timer = None
-
-    def _reset_idle_timer(self):
-        with self.lock:
-            if self._closed:
-                return
-            self.last_activity = time.monotonic()
-            self._timer_generation += 1
-            if self._idle_timer:
-                self._idle_timer.cancel()
-            generation = self._timer_generation
-            self._idle_timer = threading.Timer(CONSOLE_STATUS_IDLE_SECONDS, self._show_commands_once, args=(generation,))
-            self._idle_timer.daemon = True
-            self._idle_timer.start()
-
-    def _show_commands_once(self, generation: int):
-        with self.lock:
-            if self._closed or generation != self._timer_generation:
-                return
-            commands = "[h] ayuda · [n] Navegador"
-            if get_notices():
-                commands += " · [i] información"
-            print(f"Comandos de consola: {commands} · [x] salir ordenadamente", flush=True)
-            self._idle_timer = None
-
-    def log(self, message: str, *, flush: bool = True):
-        print(message, flush=flush)
-        if self.enabled:
-            self._reset_idle_timer()
-
-    def show_help(self):
-        print(self.parser.format_help().rstrip(), flush=True)
-
-    def show_notices(self):
-        notices = get_notices()
-        if not notices:
-            return
-        print("Información:", flush=True)
-        for notice in notices:
-            print(f"- {notice}", flush=True)
-
-    def _handle_command(self, command: str):
-        key = command.strip().lower()
-        if key == "h":
-            self.show_help()
-        elif key == "n" and self.launch_url:
-            launch_browser(self.launch_url())
-        elif key == "i":
-            self.show_notices()
-        elif key == "x":
-            self.log(timestamp_message("Deteniendo servidor ZeroChat..."))
-            stop_zerochat_server(self.server)
-
-    def _keyboard_loop(self):
-        """Lee comandos normales terminados con Intro, sin alterar el terminal."""
-        while not self._keyboard_stop.is_set():
-            line = sys.stdin.readline()
-            if not line:
-                return
-            self._handle_command(line)
-
-# ==============================================================================
-# Servidor HTTP JSON-RPC 2.0 y SSE con Autenticación por Token
-# ==============================================================================
 
 
 def sanitize_log_path(raw_path: str) -> str:
@@ -7082,10 +6991,9 @@ def is_allowed_origin(origin: str | None, require_origin: bool = False) -> bool:
         return True
     return False
 
+
 # zerochat/run/progress ya se registra con su propio texto en dispatch_run.
 QUIET_RPC_METHODS = frozenset({"zerochat/heartbeat", "zerochat/jobs/get", "zerochat/jobs/log", "zerochat/jobs/list", "zerochat/run/progress"})
-
-
 DEV_CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".js": "application/javascript; charset=utf-8",
@@ -7878,6 +7786,99 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # Silenciar logs ruidosos por defecto
         pass
+
+CONSOLE_STATUS_IDLE_SECONDS = 8.0
+
+class ConsoleControl:
+    """Muestra una sola línea de ayuda tras un periodo de inactividad en consola."""
+    def __init__(self, server: ThreadingHTTPServer, parser: argparse.ArgumentParser, launch_url=None):
+        self.server = server
+        self.parser = parser
+        # Función que da la URL de la interfaz con el token vigente al pulsar n, no el del arranque.
+        self.launch_url = launch_url
+        self.last_activity = time.monotonic()
+        self.lock = threading.Lock()
+        self.enabled = bool(getattr(sys.stdout, "isatty", lambda: False)())
+        self._keyboard_enabled = bool(getattr(sys.stdin, "isatty", lambda: False)())
+        self._idle_timer: threading.Timer | None = None
+        self._keyboard_stop = threading.Event()
+        self._keyboard_thread: threading.Thread | None = None
+        self._timer_generation = 0
+        self._closed = False
+
+    def start(self):
+        if self.enabled:
+            self._reset_idle_timer()
+        if self._keyboard_enabled:
+            self._keyboard_thread = threading.Thread(target=self._keyboard_loop, name="zerochat-console-input", daemon=True)
+            self._keyboard_thread.start()
+
+    def close(self):
+        with self.lock:
+            self._closed = True
+            self._keyboard_stop.set()
+            if self._idle_timer:
+                self._idle_timer.cancel()
+                self._idle_timer = None
+
+    def _reset_idle_timer(self):
+        with self.lock:
+            if self._closed:
+                return
+            self.last_activity = time.monotonic()
+            self._timer_generation += 1
+            if self._idle_timer:
+                self._idle_timer.cancel()
+            generation = self._timer_generation
+            self._idle_timer = threading.Timer(CONSOLE_STATUS_IDLE_SECONDS, self._show_commands_once, args=(generation,))
+            self._idle_timer.daemon = True
+            self._idle_timer.start()
+
+    def _show_commands_once(self, generation: int):
+        with self.lock:
+            if self._closed or generation != self._timer_generation:
+                return
+            commands = "[h] ayuda · [n] Navegador"
+            if get_notices():
+                commands += " · [i] información"
+            print(f"Comandos de consola: {commands} · [x] salir ordenadamente", flush=True)
+            self._idle_timer = None
+
+    def log(self, message: str, *, flush: bool = True):
+        print(message, flush=flush)
+        if self.enabled:
+            self._reset_idle_timer()
+
+    def show_help(self):
+        print(self.parser.format_help().rstrip(), flush=True)
+
+    def show_notices(self):
+        notices = get_notices()
+        if not notices:
+            return
+        print("Información:", flush=True)
+        for notice in notices:
+            print(f"- {notice}", flush=True)
+
+    def _handle_command(self, command: str):
+        key = command.strip().lower()
+        if key == "h":
+            self.show_help()
+        elif key == "n" and self.launch_url:
+            launch_browser(self.launch_url())
+        elif key == "i":
+            self.show_notices()
+        elif key == "x":
+            self.log(timestamp_message("Deteniendo servidor ZeroChat..."))
+            stop_zerochat_server(self.server)
+
+    def _keyboard_loop(self):
+        """Lee comandos normales terminados con Intro, sin alterar el terminal."""
+        while not self._keyboard_stop.is_set():
+            line = sys.stdin.readline()
+            if not line:
+                return
+            self._handle_command(line)
 
 # ==============================================================================
 # Punto de Entrada Principal (CLI)

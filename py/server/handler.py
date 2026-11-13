@@ -1,10 +1,86 @@
+"""Servidor HTTP JSON-RPC del backend local: orígenes admitidos, token e identificación, despacho por grupos de métodos y punto único de ejecución de herramientas."""
 
+from __future__ import annotations
+
+import base64
+import hmac
+import inspect
+import json
+import re
+import subprocess
+import time
+import urllib.parse
+from http.server import BaseHTTPRequestHandler
+
+from auth.login import LOGIN_MAX_BODY_BYTES, LoginError, login
+from auth.tokens import current_session_token
+from browser.config import (
+    PLAYWRIGHT_SERVER_ID,
+    SERVICE_LAUNCH,
+    load_browser_config,
+    save_browser_config,
+    validate_profile_browser,
+)
+from browser.engines import BROWSER_ENGINES, clear_own_browser_data
+from core.environment import DETECTED_OS, get_static_root
+from core.limits import MAX_HTTP_BODY_BYTES, MAX_RPC_METHOD_LENGTH, MAX_TOOL_NAME_LENGTH
+from core.logging import format_log_error, log_event
+from core.version import VERSION
+from mcp.manager import GLOBAL_MCP_MANAGER
+from run_mode.state import cancel_server_run, dispatch_run, get_runs_dir, http_body_limit
+from security.context import PROJECT_GONE_CODE, ProjectGoneError, SecurityContext, request_project_context
+from security.controller import ACCESS_CONTROLLER
+from security.rules import COMMAND_TOOL, POLICY_ASK, POLICY_DENY
+from server.state import BROWSER_LEASES, BROWSER_LEASE_IDLE_SECONDS, live_state, mark_browser_active
+from storage.db import (
+    MAX_BLOB_HTTP_BYTES,
+    delete_all_conversations,
+    delete_conversation,
+    delete_general_profile,
+    delete_project_conversations,
+    get_blob,
+    get_conversation,
+    has_blobs,
+    list_conversations,
+    list_general_profiles,
+    put_blob,
+    rename_conversation,
+    save_conversation,
+    save_general_profile,
+)
+from tools.common import _tool_error
+from tools.diff import configure_gui_diff_tool, open_file_diff
+from tools.filesystem import resolve_project_directory
+from tools.jobs import JOBS, JOB_LOG_PAGE_BYTES, job_details
+from tools.registry import LOCAL_TOOLS_DEFINITIONS, LOCAL_TOOL_HANDLERS, validate_local_tool_arguments
+from web.fetch import capture_frontend_user_agent, fetch_web_resource
+
+
+def sanitize_log_path(raw_path: str) -> str:
+    """Oculta tokens de sesión o parámetros sensibles en la query string para logs seguros."""
+    if not raw_path or "?" not in raw_path:
+        return raw_path or "/"
+    path, query = raw_path.split("?", 1)
+    safe_query = re.sub(r'(token=)[^&]+', r'\1***', query, flags=re.IGNORECASE)
+    return f"{path}?{safe_query}"
+
+
+def is_allowed_origin(origin: str | None, require_origin: bool = False) -> bool:
+    """Verifica si el origen CORS está autorizado."""
+    if origin is None or origin == "null":
+        return not require_origin
+    origin_lower = origin.lower()
+    if origin_lower == "https://albalday.github.io" or origin_lower.startswith("https://albalday.github.io/"):
+        return True
+    if origin_lower == "http://127.0.0.1" or origin_lower.startswith("http://127.0.0.1:"):
+        return True
+    if origin_lower == "http://localhost" or origin_lower.startswith("http://localhost:"):
+        return True
+    return False
 
 
 # zerochat/run/progress ya se registra con su propio texto en dispatch_run.
 QUIET_RPC_METHODS = frozenset({"zerochat/heartbeat", "zerochat/jobs/get", "zerochat/jobs/log", "zerochat/jobs/list", "zerochat/run/progress"})
-
-
 DEV_CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".js": "application/javascript; charset=utf-8",
