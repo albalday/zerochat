@@ -52,7 +52,6 @@ async function seedSessions(page, sessions, activeId) {
 }
 
 const sidebarTitles = page => page.$$eval('#sidebar-chats-list .sidebar-chat-title', titles => titles.map(title => title.textContent));
-const visibleTitles = page => page.$$eval('#sidebar-chats-list .sidebar-chat-title', titles => titles.filter(title => !title.closest('[hidden]')).map(title => title.textContent));
 const sidebarHeaders = page => page.$$eval('#sidebar-chats-list .sidebar-group-label', labels => labels.map(label => label.textContent));
 
 test('Browser UI - la barra agrupa las conversaciones por fecha, marca la activa y filtra por título sin cabeceras de fecha', async () => {
@@ -106,7 +105,8 @@ test('Browser UI - con proyecto la barra muestra sus conversaciones y, con todos
 
     await page.selectOption('#sidebar-project-filter', 'all');
     await render('/repo/app');
-    assert.deepEqual(await sidebarTitles(page), ['A reciente', 'A antigua', 'B', 'Sin proyecto']);
+    // Los proyectos plegados no pintan sus conversaciones.
+    assert.deepEqual(await sidebarTitles(page), ['A reciente', 'A antigua']);
     assert.deepEqual(await sidebarHeaders(page), ['app', 'lib', await page.evaluate(() => window.ChatI18n.t('sidebar_no_project'))]);
 
     // Al buscar, cada resultado sigue bajo su proyecto, aunque esté plegado.
@@ -114,7 +114,7 @@ test('Browser UI - con proyecto la barra muestra sus conversaciones y, con todos
     const search = text => page.$eval('#sidebar-search-input', (input, text) => { input.value = text; }, text);
     await search('n');
     await render('/repo/lib');
-    assert.deepEqual(await visibleTitles(page), ['A reciente', 'A antigua', 'Sin proyecto']);
+    assert.deepEqual(await sidebarTitles(page), ['A reciente', 'A antigua', 'Sin proyecto']);
     assert.deepEqual(await sidebarHeaders(page), ['app', await page.evaluate(() => window.ChatI18n.t('sidebar_no_project'))]);
     await search('');
 
@@ -131,39 +131,38 @@ test('Browser UI - con proyecto la barra muestra sus conversaciones y, con todos
 
 test('Browser UI - en la vista de todos los proyectos se pliegan salvo el actual y el de la conversación abierta, y la elección se recuerda', async () => {
   await withTestApp(async page => {
+    // Plegar repinta desde el estado de la aplicación: las conversaciones y el proyecto van en él.
     const render = currentSessionId => page.evaluate(currentSessionId => {
-      const elements = {
-        sidebarChatsList: document.getElementById('sidebar-chats-list'),
-        sidebarSearchInput: document.getElementById('sidebar-search-input'),
-        sidebarProjectFilter: document.getElementById('sidebar-project-filter')
-      };
-      elements.sidebarProjectFilter.value = 'all';
       const now = Date.now();
-      const sessions = [
+      const list = [
         { id: 'a1', title: 'A', project: '/repo/app', updatedAt: now },
         { id: 'b1', title: 'B', project: '/repo/lib', updatedAt: now - 1000 },
         { id: 'c1', title: 'C', project: '/repo/web', updatedAt: now - 2000 },
         { id: 'n1', title: 'N', updatedAt: now - 3000 }
       ];
-      window.ChatUISidebar.renderSidebarChats(elements, sessions, currentSessionId, [], '/repo/app');
+      window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), activeId: currentSessionId, list });
+      window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo/app' } });
+      const filter = document.getElementById('sidebar-project-filter');
+      filter.value = 'all';
+      filter.dispatchEvent(new Event('change'));
     }, currentSessionId);
     const expandedHeaders = () => page.$$eval('.sidebar-group-toggle', toggles => toggles.map(toggle => `${toggle.textContent}:${toggle.getAttribute('aria-expanded')}`));
 
     await render('c1');
-    assert.deepEqual(await visibleTitles(page), ['A', 'C']);
+    assert.deepEqual(await sidebarTitles(page), ['A', 'C']);
     assert.deepEqual(await expandedHeaders(), ['app1:true', 'lib1:false', 'web1:true', `${await page.evaluate(() => window.ChatI18n.t('sidebar_no_project'))}1:false`]);
 
     await page.click('.sidebar-group-toggle[data-group-key="/repo/lib"]');
     await page.click('.sidebar-group-toggle[data-group-key="/repo/app"]');
-    assert.deepEqual(await visibleTitles(page), ['B', 'C']);
+    assert.deepEqual(await sidebarTitles(page), ['B', 'C']);
     assert.deepEqual(JSON.parse(await page.evaluate(() => window.ChatStorage.getStorageItem('sidebar_project_groups'))), { '/repo/lib': true, '/repo/app': false });
 
     // Al volver a pintar (otra conversación abierta) se respeta lo elegido.
     await render('a1');
-    assert.deepEqual(await visibleTitles(page), ['B']);
+    assert.deepEqual(await sidebarTitles(page), ['B']);
     await page.focus('.sidebar-group-toggle[data-group-key=""]');
     await page.keyboard.press('Enter');
-    assert.deepEqual(await visibleTitles(page), ['B', 'N']);
+    assert.deepEqual(await sidebarTitles(page), ['B', 'N']);
   });
 });
 

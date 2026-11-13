@@ -839,6 +839,7 @@
       onNewSession: createNewSession,
       onSearchInput: renderSidebarChats,
       onProjectFilterChange: renderSidebarChats,
+      renderList: renderSidebarChats,
       loadProjectGroups: () => {
         try {
           const choices = JSON.parse(Storage.getStorageItem(PROJECT_GROUPS_STORAGE_KEY) || '{}');

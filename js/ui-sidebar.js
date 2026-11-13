@@ -207,11 +207,12 @@
     const runs = toRuns(matching);
     if (collapsible) renderedProjectKeys = runs.map(({ group }) => group.key);
     elements.sidebarChatsList.innerHTML = runs.map(({ group, sessions: items }) => {
-      const chats = items.map(renderItem).join('');
-      if (filter) return (group.kind === 'project' ? renderGroupHeader(group, items.length) : '') + chats;
-      if (!collapsible) return renderGroupHeader(group, items.length) + chats;
+      const chats = () => items.map(renderItem).join('');
+      if (filter) return (group.kind === 'project' ? renderGroupHeader(group, items.length) : '') + chats();
+      if (!collapsible) return renderGroupHeader(group, items.length) + chats();
+      // Un grupo plegado no pinta sus conversaciones: con miles serían miles de nodos ocultos.
       const expanded = isGroupExpanded(group, items, project, currentSessionId);
-      return renderGroupHeader(group, items.length, expanded) + `<div class="sidebar-group-items"${expanded ? '' : ' hidden'}>${chats}</div>`;
+      return renderGroupHeader(group, items.length, expanded) + (expanded ? chats() : '');
     }).join('');
   }
 
@@ -225,9 +226,9 @@
   /**
    * Conecta la barra. `callbacks` aporta las acciones de las conversaciones (onSwitchSession,
    * onRenameSession, onDeleteSession, onExportSession, onNewSession, onSearchInput,
-   * onProjectFilterChange, onDeleteAllSessions), los proyectos plegados (loadProjectGroups, que devuelve
-   * las elecciones guardadas, y onProjectGroupsChange, que las recibe para guardarlas) y la navegación
-   * de ajustes (onOpenSettingsMode, onBackToChats, onSelectSettingsSection).
+   * onProjectFilterChange, onDeleteAllSessions), el repintado de la lista (renderList), los proyectos
+   * plegados (loadProjectGroups, que devuelve las elecciones guardadas, y onProjectGroupsChange, que las
+   * recibe para guardarlas) y la navegación de ajustes (onOpenSettingsMode, onBackToChats, onSelectSettingsSection).
    */
   function mount(elements, callbacks) {
     cleanups.forEach(cleanup => cleanup());
@@ -265,13 +266,13 @@
     listen(list, 'click', event => {
       const toggle = event.target.closest('.sidebar-group-toggle');
       if (toggle) {
-        const expanded = toggle.getAttribute('aria-expanded') !== 'true';
-        toggle.setAttribute('aria-expanded', String(expanded));
-        toggle.nextElementSibling.hidden = !expanded;
+        const key = toggle.dataset.groupKey;
         // Solo se guardan las elecciones de proyectos que aún tienen conversaciones.
-        projectGroupChoices = Object.fromEntries(Object.entries({ ...projectGroupChoices, [toggle.dataset.groupKey]: expanded })
-          .filter(([key]) => renderedProjectKeys.includes(key)));
+        projectGroupChoices = Object.fromEntries(Object.entries({ ...projectGroupChoices, [key]: toggle.getAttribute('aria-expanded') !== 'true' })
+          .filter(([groupKey]) => renderedProjectKeys.includes(groupKey)));
         callbacks.onProjectGroupsChange(projectGroupChoices);
+        callbacks.renderList();
+        list.querySelector(`.sidebar-group-toggle[data-group-key="${CSS.escape(key)}"]`)?.focus();
         return;
       }
       const item = event.target.closest('.sidebar-chat-item');
