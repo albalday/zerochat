@@ -219,7 +219,7 @@
       callbacks: {
         onStepStart: stepIndex => progress?.setStep(stepIndex + 1),
         onStepDone: (_stepIndex, step) => {
-          progress?.setText(step.type === 'tool_execution' ? step.assistantMsg.content || '' : '');
+          progress?.setText(step.type === 'tool_execution' ? step.text : '');
         }
       }
     });

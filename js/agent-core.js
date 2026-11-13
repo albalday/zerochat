@@ -542,6 +542,35 @@
       return TOOL_CALL_TEXT.test(trimmed) || Boolean(this.registry.getTool(trimmed.match(/^([a-z_]+)\(/)?.[1]));
     }
 
+    /**
+     * Pide un paso al modelo y devuelve su texto, sus llamadas a herramientas y sus métricas. Lanza
+     * el error del proveedor; al cancelar devuelve lo recibido hasta entonces.
+     */
+    async requestStep(request, stepIndex, callbacks) {
+      let streamedText = '';
+      let streamError = null;
+      const result = await getAPI().streamChatCompletion({
+        ...request,
+        onGenerationStatus: status => callbacks.onGenerationStatus?.(status),
+        onReasoningChunk: (chunk, accumulated) => callbacks.onReasoningChunk?.(chunk, accumulated, stepIndex),
+        onLog: logData => callbacks.onLog?.(logData),
+        onChunk: (fullTextSoFar, delta, stats) => {
+          streamedText = fullTextSoFar;
+          callbacks.onChunk?.(fullTextSoFar, delta, stats, stepIndex);
+        },
+        onError: error => { streamError = error; }
+      });
+      if (streamError) throw streamError;
+      return {
+        text: result.accumulatedText || streamedText,
+        toolCalls: result.toolCalls || [],
+        reasoningReplay: result.reasoningReplay || null,
+        stats: result.stats,
+        truncated: result.truncated === true,
+        reasoningRejected: result.recoveredReason === 'reasoning_rejected'
+      };
+    }
+
     async execute(params = {}) {
       const {
         apiUrl,
@@ -562,7 +591,6 @@
         callbacks = {}
       } = params;
 
-      const API = getAPI();
       const ContextManager = getContextManager();
       const startTime = performance.now();
 
@@ -580,7 +608,7 @@
 
       let stepIndex = 0;
       let workingMessages = [...messages];
-      let finalAccumulatedText = '';
+      let finalText = '';
       let lastStats = null;
       let toolCallCount = 0;
       const trackToolBatch = this.createLoopGuard();
@@ -593,126 +621,85 @@
       // primer rechazo, el resto del turno se envía sin él.
       let stepReasoningEffort = reasoningEffort;
 
-      while (true) {
-        if (abortSignal.aborted) {
-          status = 'cancelled';
-          executionError = createCancelledError();
-          break;
-        }
+      /** Cierra el turno con el último mensaje del asistente. */
+      const finish = (type, text) => {
+        finalText = text;
+        workingMessages.push({ id: createMessageId('final', { stepIndex }), role: 'assistant', content: text });
+        callbacks.onStepDone?.(stepIndex, { type, text });
+      };
 
-        callbacks.onStepStart?.(stepIndex);
+      try {
+        while (true) {
+          if (abortSignal.aborted) throw createCancelledError();
+          callbacks.onStepStart?.(stepIndex);
 
-        // La compactación sustituye de una vez el punto de control anterior y el diálogo posterior.
-        const compactionOptions = { ...contextOptions, model, providerType: apiType };
-        if (!compressionUnavailable && summarizeHistory && ContextManager.shouldCompress(workingMessages, compactionOptions)) {
-          callbacks.onCompactionStart?.(stepIndex);
-          const compacted = await ContextManager.compressHistory({
-            messages: workingMessages,
-            summarizeFn: summarizeHistory,
-            options: compactionOptions
-          });
-          if (compacted.compressed) {
-            workingMessages = compacted.messages;
-          } else {
-            // Un resumen que falla no avanzará en esta ejecución: repetirlo en cada paso solo añade llamadas.
-            compressionUnavailable = true;
+          // La compactación sustituye de una vez el punto de control anterior y el diálogo posterior.
+          const compactionOptions = { ...contextOptions, model, providerType: apiType };
+          if (!compressionUnavailable && summarizeHistory && ContextManager.shouldCompress(workingMessages, compactionOptions)) {
+            callbacks.onCompactionStart?.(stepIndex);
+            const compacted = await ContextManager.compressHistory({
+              messages: workingMessages,
+              summarizeFn: summarizeHistory,
+              options: compactionOptions
+            });
+            if (compacted.compressed) {
+              workingMessages = compacted.messages;
+            } else {
+              // Un resumen que falla no avanzará en esta ejecución: repetirlo en cada paso solo añade llamadas.
+              compressionUnavailable = true;
+            }
           }
-        }
 
-        const stepMessages = prepareMessages ? await prepareMessages(workingMessages) : workingMessages;
-        const activeToolDefs = resolveToolDefinitions ? await resolveToolDefinitions() : [];
-
-        let currentStepText = '';
-        let stepReasoningReplay = null;
-        let stepToolCalls = null;
-        let stepStats = null;
-        let streamError = null;
-
-        try {
-          const streamResult = await API.streamChatCompletion({
+          const step = await this.requestStep({
             apiUrl,
             apiType,
             apiKey,
             model,
-            messages: stepMessages,
+            messages: prepareMessages ? await prepareMessages(workingMessages) : workingMessages,
             temperature,
             reasoningEffort: stepReasoningEffort,
-            tools: activeToolDefs,
+            tools: resolveToolDefinitions ? await resolveToolDefinitions() : [],
             signal: abortSignal,
-            onBeforeRequest,
-            onGenerationStatus: status => callbacks.onGenerationStatus?.(status),
+            onBeforeRequest
+          }, stepIndex, callbacks);
 
-            onReasoningChunk: (chunk, accumulated) => callbacks.onReasoningChunk?.(chunk, accumulated, stepIndex),
-            onLog: logData => callbacks.onLog?.(logData),
-            onChunk: (fullTextSoFar, delta, stats) => {
-              currentStepText = fullTextSoFar;
-              callbacks.onChunk?.(fullTextSoFar, delta, stats, stepIndex);
-            },
-            onError: error => { streamError = error; }
-          });
-
-          if (streamError) {
-            status = abortSignal.aborted ? 'cancelled' : 'error';
-            executionError = abortSignal.aborted ? createCancelledError() : streamError;
-            break;
-          }
-
-          currentStepText = streamResult.accumulatedText || currentStepText;
-          stepReasoningReplay = streamResult.reasoningReplay || null;
-          stepToolCalls = streamResult.toolCalls;
-          stepStats = streamResult.stats;
-          if (streamResult.truncated) truncated = true;
-          if (streamResult.recoveredReason === 'reasoning_rejected' && stepReasoningEffort) {
+          let { text, toolCalls } = step;
+          if (step.truncated) truncated = true;
+          if (step.reasoningRejected && stepReasoningEffort) {
             stepReasoningEffort = '';
             callbacks.onLog?.({ type: 'warning', text: 'The server rejected the reasoning parameter: the rest of this turn is sent without it.' });
           }
-
           if (abortSignal.aborted) {
-            if (!currentStepText) {
-              status = 'cancelled';
-              executionError = createCancelledError();
-              break;
-            }
+            if (!text) throw createCancelledError();
             // Al detener se conserva como respuesta el texto recibido, sin ejecutar herramientas.
-            stepToolCalls = null;
+            toolCalls = [];
           }
+          lastStats = step.stats || lastStats;
 
-          lastStats = stepStats || lastStats;
-
-          // Caso A: Sin llamadas a herramientas -> Turno final
-          if (!stepToolCalls || stepToolCalls.length === 0) {
-            if (!currentStepText?.trim() && workingMessages.at(-1)?.role === 'tool') {
+          // Sin llamadas a herramientas, el paso es la respuesta final.
+          if (toolCalls.length === 0) {
+            if (!text.trim() && workingMessages.at(-1)?.role === 'tool') {
               callbacks.onLog?.({ type: 'warning', text: 'Model ended the tool loop without producing a response.' });
             }
-
-            finalAccumulatedText = currentStepText;
-            workingMessages.push({ id: createMessageId('final', { stepIndex }), role: 'assistant', content: currentStepText });
-            callbacks.onStepDone?.(stepIndex, { type: 'final_response', text: currentStepText, stats: lastStats });
-            status = 'completed';
+            finish('final_response', text);
             break;
           }
 
           // El nombre que se guarda y se reenvía es el registrado, aunque el modelo use un alias.
-          for (const call of stepToolCalls) {
+          for (const call of toolCalls) {
             const tool = this.registry.getTool(call.function?.name);
             if (tool) call.function.name = tool.name;
           }
-          if (this.isToolCallText(currentStepText || '')) currentStepText = '';
+          if (this.isToolCallText(text)) text = '';
 
-          const loopPeriod = trackToolBatch(currentStepText, stepToolCalls);
-
-          if (loopPeriod > 0) {
+          if (trackToolBatch(text, toolCalls) > 0) {
             status = 'loop_detected';
             callbacks.onLoopDetected?.();
-            currentStepText = `${currentStepText || ''}\n\n> ⚠️ *[Infinite Loop Protection]*: Tools were invoked in a repeating pattern with the same arguments without progress. Halting agent turn loop.`;
-            finalAccumulatedText = currentStepText;
-            const finalMsg = { id: createMessageId('final', { stepIndex }), role: 'assistant', content: currentStepText };
-            workingMessages.push(finalMsg);
-            callbacks.onStepDone?.(stepIndex, { type: 'loop_detected', text: currentStepText, assistantMsg: finalMsg });
+            finish('loop_detected', `${text}\n\n> ⚠️ *[Infinite Loop Protection]*: Tools were invoked in a repeating pattern with the same arguments without progress. Halting agent turn loop.`);
             break;
           }
 
-          const batch = await this.executeToolBatch(stepToolCalls, {
+          const batch = await this.executeToolBatch(toolCalls, {
             stepIndex, toolContext, signal: abortSignal, dispatchToolCall, createMessageId, callbacks
           });
           toolCallCount += batch.results.length;
@@ -721,33 +708,29 @@
           const assistantMsg = {
             id: createMessageId('assistant', { stepIndex }),
             role: 'assistant',
-            content: currentStepText || null,
-            tool_calls: stepToolCalls
+            content: text || null,
+            tool_calls: toolCalls
           };
           // Solo vive durante el turno: buildEffectiveMessages lo reenvía y el historial devuelto lo omite.
-          if (stepReasoningReplay) assistantMsg.reasoningReplay = stepReasoningReplay;
+          if (step.reasoningReplay) assistantMsg.reasoningReplay = step.reasoningReplay;
           workingMessages.push(assistantMsg, ...batch.toolMessages);
-          callbacks.onStepDone?.(stepIndex, { type: 'tool_execution', assistantMsg });
+          callbacks.onStepDone?.(stepIndex, { type: 'tool_execution', text });
 
           stepIndex++;
 
           // Una herramienta puede ceder el turno al usuario (ask_user) o requerir aprobación interactiva:
           // el bucle termina y la respuesta del usuario llega como el siguiente mensaje.
-          if (batch.results.some(r => r.endTurn === true || (r.success && r.result?.endTurn === true))) {
-            status = 'completed';
-            break;
-          }
-        } catch (err) {
-          status = abortSignal.aborted ? 'cancelled' : 'error';
-          executionError = abortSignal.aborted ? createCancelledError() : err;
-          break;
+          if (batch.results.some(r => r.endTurn === true || (r.success && r.result?.endTurn === true))) break;
         }
+      } catch (err) {
+        status = abortSignal.aborted ? 'cancelled' : 'error';
+        executionError = abortSignal.aborted ? createCancelledError() : err;
       }
 
       // `status`: completed, loop_detected, cancelled o error (con `error`).
       return {
         status,
-        finalText: finalAccumulatedText,
+        finalText,
         stepsCount: stepIndex,
         truncated,
         toolCallCount,

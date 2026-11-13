@@ -364,14 +364,9 @@
         },
         onStepDone: (turnIndex, step) => {
           const block = turnBlocks.get(turnIndex);
-          if (step.type === 'tool_execution') {
-            getTurnMarkdown(turnIndex).text = step.assistantMsg?.content || '';
-          } else if (step.type === 'loop_detected') {
-            getTurnMarkdown(turnIndex).text = step.text || step.assistantMsg?.content || '';
-          }
-          const text = (step.type === 'final_response' || step.type === 'loop_detected') ? step.text : step.assistantMsg?.content;
-          if (text) {
-            block.render(text);
+          getTurnMarkdown(turnIndex).text = step.text;
+          if (step.text) {
+            block.render(step.text);
           } else {
             block.remove();
             turnBlocks.delete(turnIndex);
@@ -397,13 +392,10 @@
     if (interrupted) turnBlocks.get(result.stepsCount)?.remove();
     if (cancelled) return { cancelled: true, chatHistory: history };
     if (result.error) return { error: result.error, chatHistory: history };
-    const turnTexts = [...turnMarkdown.entries()]
+    // Texto y herramientas de cada paso, en orden; el último paso aporta la respuesta final.
+    const accumulatedMarkdown = [...turnMarkdown.entries()]
       .sort(([left], [right]) => left - right)
       .flatMap(([, turn]) => [turn.text, ...turn.toolBlocks])
-      .filter(Boolean);
-    const hasFinalInTurn = result.finalText && turnTexts.some(txt => txt && txt.includes(result.finalText));
-    const accumulatedMarkdown = turnTexts
-      .concat(hasFinalInTurn ? [] : (result.finalText ? [result.finalText] : []))
       .filter(Boolean)
       .join('\n\n');
     return {
