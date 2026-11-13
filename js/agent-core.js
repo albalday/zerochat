@@ -587,6 +587,8 @@
         summarizeHistory = null,
         contextOptions = {},
         createMessageId = kind => createId(`msg_${kind}`),
+        // Aviso que cierra el turno al detectar un bucle; lo redacta quien lanza el agente.
+        loopNotice = '',
         onBeforeRequest = null,
         callbacks = {}
       } = params;
@@ -694,8 +696,7 @@
 
           if (trackToolBatch(text, toolCalls) > 0) {
             status = 'loop_detected';
-            callbacks.onLoopDetected?.();
-            finish('loop_detected', `${text}\n\n> ⚠️ *[Infinite Loop Protection]*: Tools were invoked in a repeating pattern with the same arguments without progress. Halting agent turn loop.`);
+            finish('loop_detected', [text, loopNotice].filter(Boolean).join('\n\n'));
             break;
           }
 

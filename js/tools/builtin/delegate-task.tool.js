@@ -216,6 +216,7 @@
       onBeforeRequest: agent.onBeforeRequest || null,
       resolveToolDefinitions: () => tools,
       dispatchToolCall: dispatch,
+      loopNotice: '[The subagent was stopped: it repeated the same tool calls without progress. The report above may be incomplete.]',
       callbacks: {
         onStepStart: stepIndex => progress?.setStep(stepIndex + 1),
         onStepDone: (_stepIndex, step) => {
@@ -232,7 +233,7 @@
     if (report.length > MAX_REPORT_LENGTH) {
       report = `${report.slice(0, MAX_REPORT_LENGTH)}\n\n[Report truncated at ${MAX_REPORT_LENGTH} characters.]`;
     }
-    return { success: true, report, steps, toolCalls: result.toolCallCount, loopDetected: result.status === 'loop_detected' };
+    return { success: true, report, steps, toolCalls: result.toolCallCount };
   }
 
   function clip(text, max) {

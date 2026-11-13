@@ -311,6 +311,7 @@
       summarizeHistory: createHistorySummarizer({ ...llm, signal: params.signal, onBeforeRequest }),
       onBeforeRequest,
       onGenerationStatus,
+      loopNotice: `> ⚠️ *${I18n.t('agent_loop_warning_notice')}*`,
       createMessageId: (kind, info) => {
         if (kind === 'final') return `${assistantMsgId}_final`;
         if (kind === 'assistant') return `${assistantMsgId}_turn_${info.stepIndex}_assistant`;
@@ -364,6 +365,10 @@
         },
         onStepDone: (turnIndex, step) => {
           const block = turnBlocks.get(turnIndex);
+          if (step.type === 'loop_detected') {
+            onGenerationStatus?.({ phase: 'error', text: I18n.t('generation_status_loop_detected') });
+            onLog?.('error', '[Loop protection]: tools were called repeatedly with the same arguments. Stopping the agent loop.');
+          }
           getTurnMarkdown(turnIndex).text = step.text;
           if (step.text) {
             block.render(step.text);
@@ -372,10 +377,6 @@
             turnBlocks.delete(turnIndex);
           }
           view.scrollToBottom();
-        },
-        onLoopDetected: () => {
-          onGenerationStatus?.({ phase: 'error', text: I18n.t('generation_status_loop_detected') });
-          onLog?.('error', '[Loop protection]: tools were called repeatedly with the same arguments. Stopping the agent loop.');
         }
       }
     });

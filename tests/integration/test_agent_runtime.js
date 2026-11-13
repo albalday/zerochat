@@ -470,14 +470,15 @@ test('AgentRuntime - detiene el quinto lote idéntico consecutivo sin ejecutarlo
   const api = scriptedApi(Array.from({ length: 10 }, () => ({ tool: 'repeat', args: { value: 1 } })));
   const result = await runAgent(t, registry, {
     api,
+    loopNotice: 'Aviso de bucle',
     messages: [{ role: 'user', content: 'Repite.' }]
   });
 
   assert.equal(result.status, 'loop_detected');
   assert.equal(counts.repeat, 4);
   assert.equal(api.requests.length, 5);
-  assert.match(result.finalText, /Infinite Loop Protection/);
-  assert.equal(result.history.at(-1).role, 'assistant');
+  assert.equal(result.finalText, 'Aviso de bucle');
+  assert.deepEqual({ role: result.history.at(-1).role, content: result.history.at(-1).content }, { role: 'assistant', content: 'Aviso de bucle' });
   assertNoSynthesis(api);
 });
 
