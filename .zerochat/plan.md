@@ -64,6 +64,11 @@ Done when: Las tareas del hito están hechas, probadas en el navegador y todos l
 - [x] M63-T34 Retirar del repositorio la copia de la verificación de Google en js/ y test-results/, añadirlos a .gitignore y decidir con el usuario si todo.txt sigue versionado (auditoría F-11) (2026-11-13)
 - [x] M63-T35 Trabajos de CI en windows-latest y macos-latest para las pruebas Python de infraestructura y uno con el Node mínimo que fije M65 para test_run_node.js; cada fallo que aparezca se abre como tarea propia (auditoría F-09) (2026-11-13)
 - [x] M63-T36 Retirar ZEROCHAT_HEARTBEAT_TIMEOUT, _GRACE y _POLL, variables de entorno que solo usan las pruebas: el auto-cierre por latido se prueba en proceso con un servidor real y plazos pasados como parámetros (2026-11-13)
+- [ ] M63-T37 Windows: _pid_alive (py/dd-commands.py) usa os.kill(pid, 0), que en Windows envía Ctrl+C a la consola del proceso y corta zerochat (en CI, KeyboardInterrupt en list_server_runs); comprobarlo con OpenProcess y GetExitCodeProcess, prueba que no envía señal, y volver a ejecutar el trabajo de Windows abriendo una tarea por cada fallo nuevo (CI de M63-T35)
+- [ ] M63-T38 runner.js falla al cargar en Node 18 y 20: js/defaults.js lee el global navigator, que Node solo tiene desde la 21; el idioma por defecto sin navigator no debe romper el runner, y el trabajo node-minimum de la CI pasa (CI de M63-T35)
+- [ ] M63-T39 macOS: con /var enlazado a /private/var, la regla de directorio del proyecto, el entorno virtual y el directorio de datos de Playwright no resuelven las rutas igual que las reglas de directorio (4 fallos en test_security, test_environment y test_browser_config); decidir si falla el código o la prueba y corregirlo (CI de M63-T35)
+- [ ] M63-T40 macOS: test_start_server_run_arranca_en_el_proyecto_de_la_conversacion y test_start_cancel_y_dispatch_server_run fallan con "'Mock' object does not support the context manager protocol" (CI de M63-T35)
+- [ ] M63-T41 macOS: al agotar el plazo, run_command no mata a los procesos descendientes (estado exited en lugar de timeout en test_el_plazo_agotado_mata_tambien_a_los_descendientes) (CI de M63-T35)
 
 ## M64 Modularización del backend Python
 
