@@ -55,16 +55,6 @@ def sanitize_log_path(raw_path: str) -> str:
     return f"{path}?{safe_query}"
 
 
-def format_log_error(msg: str, max_len: int = 160) -> str:
-    """Limpia y trunca mensajes de error para mantener el log en una sola línea legible."""
-    if not msg:
-        return ""
-    cleaned = " ".join(str(msg).strip().splitlines())
-    if len(cleaned) > max_len:
-        return cleaned[:max_len - 3] + "..."
-    return cleaned
-
-
 def is_allowed_origin(origin: str | None, require_origin: bool = False) -> bool:
     """Verifica si el origen CORS está autorizado."""
     if origin is None or origin == "null":
@@ -718,3 +708,9 @@ class McpServiceManager:
 
 
 GLOBAL_MCP_MANAGER = McpServiceManager()
+
+
+@on_playwright_status
+def _playwright_service_running() -> bool:
+    return any(server["id"] == PLAYWRIGHT_SERVER_ID and server["status"] in ("running", "starting", "installing")
+               for server in GLOBAL_MCP_MANAGER.list_servers())

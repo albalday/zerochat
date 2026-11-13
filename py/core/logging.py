@@ -22,3 +22,13 @@ def timestamp_message(message: str) -> str:
 def log_event(message: str):
     """Registra en consola un evento con la hora local."""
     console_log(timestamp_message(message))
+
+
+def format_log_error(msg: str, max_len: int = 160) -> str:
+    """Limpia y trunca mensajes de error para mantener el log en una sola línea legible."""
+    if not msg:
+        return ""
+    cleaned = " ".join(str(msg).strip().splitlines())
+    if len(cleaned) > max_len:
+        return cleaned[:max_len - 3] + "..."
+    return cleaned

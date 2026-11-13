@@ -1,3 +1,20 @@
+"""Apertura de la interfaz en el navegador del usuario, en Termux o sin ventana para la ejecución desatendida."""
+
+from __future__ import annotations
+
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+import traceback
+import webbrowser
+from pathlib import Path
+
+from browser.engines import playwright_engine_cache
+from core.logging import console_log, log_event
+
+
 def is_termux_environment() -> bool:
     """Devuelve si el proceso se ejecuta dentro de la instalación de Termux."""
     termux_prefix = "/data/data/com.termux/files/usr"
@@ -145,9 +162,6 @@ def launch_browser(url: str) -> bool:
             console_log("  Termux detectado. Prueba este comando exacto:", flush=True)
             console_log(f"  {manual_command}", flush=True)
         return False
-
-
-
 
 
 def default_browser_executable() -> str | None:
