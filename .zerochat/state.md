@@ -1,4 +1,4 @@
 # Current state
-- Milestone: none open (M67 closed 2026-11-13)
-- Next task: none pending; ask the user for the next milestone
+- Milestone: M68 Arreglos pequeños 2
+- Next task: M68-T1 Icono de nuevo chat en cada cabecera de proyecto del historial
 - Last updated: 2026-11-13

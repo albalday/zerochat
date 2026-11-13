@@ -33,3 +33,10 @@
 ## M66 Coordinadores del frontend: closed 2026-11-13
 
 ## M67 Arreglos de estabilización: closed 2026-11-13
+
+## M68 Arreglos pequeños 2
+
+Goal: Agilizar el cambio de proyecto desde el historial y aprovechar todo el ancho del móvil en el panel lateral de chats.
+Done when: Cada cabecera de proyecto del historial muestra a su derecha un icono de nuevo chat que cambia el servidor a ese proyecto y abre un chat vacío sin cambiar el perfil activo; en móvil el panel lateral del historial ocupa todo el ancho de la pantalla; español e inglés sincronizados y pasan las pruebas aplicables (§4).
+- [ ] M68-T1 Icono de nuevo chat a la derecha de cada cabecera de proyecto en el historial (`js/ui-sidebar.js` `renderGroupHeader`, `css/components/sidebar.css`): al pulsarlo (sin plegar/desplegar el grupo) cambia el servidor a esa carpeta (`MCP.manager.setProjectDirectory`, con el mismo aviso que `followConversationProject` en `js/app.js` si ya no existe) y abre un chat nuevo vacío conservando el perfil activo; título accesible en `js/i18n.js` (es/en)
+- [ ] M68-T2 Panel lateral del historial a pantalla completa en móvil (`css/components/sidebar.css`, media query móvil: hoy `width: 82vw; max-width: 320px`) usando todo el ancho de la pantalla
