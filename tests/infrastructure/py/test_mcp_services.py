@@ -137,7 +137,8 @@ class ManagedServicesTest(unittest.TestCase):
         self.addCleanup(manager.close)
         zerochat.materialize_managed_services(self.root)
         self.assertEqual(json.loads(config.read_text()), definition)
-        self.assertEqual(config.stat().st_mode & 0o777, 0o600)
+        if os.name != "nt":  # Windows no aplica los permisos POSIX de chmod
+            self.assertEqual(config.stat().st_mode & 0o777, 0o600)
         client = Mock(tools=[])
         client.running.return_value = True
         with patch.dict(os.environ, {"SERVICE_API_KEY": "inherited-fixture"}), \

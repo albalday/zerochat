@@ -50,7 +50,8 @@ class OpenBrowserTest(unittest.TestCase):
         with self.subTest("prefix_absoluto_sin_path"):
             with patch.object(zerochat.Path, "is_file", return_value=True):
                 popen = self.open_on("linux", TERMUX_PREFIX, lambda cmd: None)
-            self.assertEqual(popen.call_args.args[0], [TERMUX_BIN + "termux-open-url", URL])
+            # La ruta se compone con Path: en el anfitrión de la prueba lleva su separador.
+            self.assertEqual(popen.call_args.args[0], [str(zerochat.Path(TERMUX_BIN) / "termux-open-url"), URL])
 
         with self.subTest("comando_manual"):
             url = "https://albalday.github.io/zerochat/zerochat.html#token=test-token&host=127.0.0.1&port=6388"
