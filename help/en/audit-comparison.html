@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Review 3: Comparison · ZeroChat 10.x Docs</title>
-  <meta name="description" content="Comparison of ZeroChat 10.14.0 with Open WebUI, LM Studio, the llama.cpp interface and Jan: MCP, tool permissions, background work and history, with dated sources.">
+  <meta name="description" content="Comparison of ZeroChat 10.15.0 with Open WebUI, LM Studio, the llama.cpp interface and Jan: MCP, tool permissions, background work and history, with dated sources.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -26,7 +26,7 @@
 
     <main>
       <div class="alert alert-info">
-        <p><strong>Validity and method:</strong> the ZeroChat data was checked in its code (version 10.14.0, commit <code>bc942cf</code>). The rest comes from each product's official public documentation, consulted on 13 November 2026. What that documentation does not state is marked "not stated", not "no". The other products were neither installed nor measured.</p>
+        <p><strong>Validity and method:</strong> the ZeroChat data was checked in its code (version 10.15.0, commit <code>ab1a340</code>). The rest comes from each product's official public documentation, consulted on 13 November 2026. What that documentation does not state is marked "not stated", not "no". The other products were neither installed nor measured.</p>
       </div>
       <div class="card">
         <h2>1. What is compared</h2>
@@ -79,7 +79,7 @@
           <li><strong>A server with no dependencies</strong>: one Python file; it also runs on Android with Termux.</li>
           <li><strong>Editable interceptor</strong> for the exact JSON sent to the model.</li>
         </ul>
-        <p><strong>Trade-offs:</strong> lexical-only RAG, one person per server, more concepts to learn than in any of the alternatives, and a server-side JavaScript sandbox still to be fixed (Review 1, F-01).</p>
+        <p><strong>Trade-offs:</strong> lexical-only RAG, one person per server, more concepts to learn than in any of the alternatives and, in server runs, a JavaScript sandbox that does not isolate and from which permissions can be changed (Review 1, F-01).</p>
       </div>
       <div class="card">
         <h2>5. When to choose each</h2>
@@ -105,7 +105,7 @@
         <h2>Authorship and verification environment</h2>
         <div class="alert alert-info">
           <ul>
-            <li><strong>Review and writing:</strong> Claude Fable 5.2 in Claude Code, from the cited sources and the ZeroChat code at commit <code>bc942cf</code>.</li>
+            <li><strong>Review and writing:</strong> Claude Fable 5.2 in Claude Code, from the cited sources and the ZeroChat code at commit <code>ab1a340</code>.</li>
           </ul>
         </div>
       </div>

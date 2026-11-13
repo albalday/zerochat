@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Revisión 4: Evolución según Git · ZeroChat 10.x Docs</title>
-  <meta name="description" content="Historia de ZeroChat según Git hasta la 10.14.0: 251 commits y 19 hitos desde la 9.11.0, las fases de la serie 10 y qué garantías llegaron con prueba y cuáles no.">
+  <meta name="description" content="Historia de ZeroChat según Git hasta la 10.15.0: 313 commits y 24 hitos desde la 9.11.0, las fases de la serie 10 y qué garantías llegaron con prueba.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -21,7 +21,7 @@
         </div>
       </div>
       <h1>Revisión 4: Evolución según Git</h1>
-      <p class="subtitle">1.495 commits en 80 días y una serie 10 que cambió la arquitectura en una semana. Actualizada el 13 de noviembre de 2026.</p>
+      <p class="subtitle">1.557 commits en 80 días y una serie 10 que cambió la arquitectura en una semana. Actualizada el 13 de noviembre de 2026.</p>
     </header>
 
     <main>
@@ -33,13 +33,13 @@
       <div class="card">
         <h2>1. Cifras</h2>
         <ul>
-          <li><strong>1.495 commits</strong> entre el 26 de agosto y el 13 de noviembre de 2026, con actividad en 68 de esos 80 días.</li>
-          <li><strong>251 commits desde la 9.11.0</strong> (<code>170ee03</code>), con 19 hitos cerrados (M44 a M62) y más de 20 versiones: de la 9.11.1 a la 9.11.5 y de la 10.0.0 a la 10.14.0.</li>
-          <li><strong>Quince versiones menores de la serie 10 en siete días</strong> (del 7 al 13 de noviembre), todas publicables en PyPI.</li>
-          <li>El ritmo se acelera al final: 21, 33, 43 y 27 commits del 10 al 13 de noviembre.</li>
-          <li>De los 251 commits, 115 declaran coautor: 95 Claude Opus 5.5, 13 Claude Fable 5.2 y 7 Claude Sonnet 5.5. Los otros 136 no lo declaran.</li>
-          <li>En código, pruebas y scripts: 133 archivos cambiados, 14.635 líneas añadidas y 4.795 eliminadas.</li>
-          <li>La suite pasó de 702 casos a 809; el backend, de 4.909 a 7.995 líneas.</li>
+          <li><strong>1.557 commits</strong> entre el 26 de agosto y el 13 de noviembre de 2026, con actividad en 68 de esos 80 días.</li>
+          <li><strong>313 commits desde la 9.11.0</strong> (<code>170ee03</code>), con 24 hitos cerrados (M44 a M67) y más de 20 versiones: de la 9.11.1 a la 9.11.5 y de la 10.0.0 a la 10.15.0.</li>
+          <li><strong>Dieciséis versiones menores de la serie 10 en siete días</strong> (del 7 al 13 de noviembre), todas publicables en PyPI.</li>
+          <li>El ritmo se acelera al final: 21, 33, 43 y 89 commits del 10 al 13 de noviembre. El último día reúne la revisión de la 10.14.0, sus correcciones y cuatro hitos.</li>
+          <li>De los 313 commits, 175 declaran coautor: 155 Claude Opus 5.5, 13 Claude Fable 5.2 y 7 Claude Sonnet 5.5. Los otros 138 no lo declaran.</li>
+          <li>En código, pruebas y scripts: 179 archivos cambiados, 19.379 líneas añadidas y 7.269 eliminadas.</li>
+          <li>La suite pasó de 702 casos a 832; el backend, de 4.909 a 8.676 líneas y de 13 archivos concatenados a 30 módulos en 11 paquetes.</li>
         </ul>
       </div>
       <div class="card">
@@ -60,6 +60,8 @@
         <p>M62 define «sesión = proyecto»: el proceso deja de cambiar de directorio, cada petición lleva su proyecto y los permisos de sesión, retos, comandos y navegadores se separan. El multiusuario se decide fuera del proceso y solo se documenta.</p>
         <h3>Ajuste con medidas (13 de noviembre, 10.14)</h3>
         <p>M63 mide el historial con 10.000 conversaciones antes de decidir (<code>8edaade</code>), corrige el pintado de la barra y sincroniza solo cabeceras; después simplifica <code>AgentRuntime</code>, <code>ToolExecutor</code> y <code>ConversationService</code> retirando parámetros y guardas sin consumidor.</p>
+        <h3>Auditoría, correcciones y backend en paquetes (13 de noviembre, 10.15)</h3>
+        <p>La revisión de la 10.14.0 (<code>9d63888</code>) se convierte en tareas el mismo día. El final de M63 corrige once de sus hallazgos en otros tantos commits, cada uno con su prueba, y añade Windows y macOS a la CI; esos trabajos encuentran a su vez diez fallos propios de cada sistema, que se corrigen hasta dejarla en verde (<code>2be8019</code>). M65 lanza el runner de Node con su modelo de permisos y acota su descarga (<code>3917c5a</code>), y decide mantener <code>execute_javascript</code> en el servidor como riesgo conocido. M64 reorganiza <code>py/</code> en paquetes con un compilador propio y añade análisis estático, en dieciséis tareas; M66 saca de <code>app.js</code> y <code>mcp.js</code> tres responsabilidades, y M67 corrige tres fallos de los bucles largos y de la ejecución en Node.</p>
       </div>
       <div class="card">
         <h2>3. Normas y pruebas en el tiempo</h2>
@@ -72,23 +74,28 @@
               <tr><td><code>ChatToolSecurity</code> sin persistencia local</td><td>11/11 (<code>8e52e60</code>)</td><td>Ya existía (<code>test_persistence_boundary.js</code>)</td><td>0 días</td><td>Una prueba de arquitectura anterior cubrió una norma nueva</td></tr>
               <tr><td>El proceso no cambia de directorio</td><td>12/11 (<code>ee5c667</code>)</td><td>12/11 (<code>ee5c667</code>)</td><td>0 días</td><td>Norma y prueba en el mismo commit</td></tr>
               <tr><td>Tope de conversaciones pintadas por grupo</td><td>13/11</td><td>13/11</td><td>0 días</td><td>Nació de una medida, con su borde en 50 y 51</td></tr>
-              <tr><td>El sandbox de Node aísla del proceso</td><td>11/11 (<code>9685350</code>)</td><td>11/11, incompleta</td><td>Sin cerrar</td><td>La prueba cubre una variante del escape y no las demás (Revisión 1, F-01)</td></tr>
-              <tr><td><code>runner.js</code> sincronizado con <code>js/</code></td><td>No escrita</td><td>No existe</td><td>Sin cerrar</td><td>Único artefacto generado sin prueba de sincronía (F-04)</td></tr>
-              <tr><td>Los adjuntos se borran con su conversación</td><td>No escrita</td><td>No existe</td><td>Sin cerrar</td><td>El almacén de blobs se diseñó para guardar y no para borrar (F-05)</td></tr>
-              <tr><td>Los permisos de sesión se olvidan al rotar el token</td><td>Escrita en <code>py/README.md</code></td><td>Solo al arrancar</td><td>Sin cerrar</td><td>La prueba de la rotación cubre el token, no los permisos (F-12)</td></tr>
+              <tr><td>El sandbox de Node aísla del proceso</td><td>11/11 (<code>9685350</code>)</td><td>No existe</td><td>Sin cerrar</td><td>Aceptado como riesgo conocido el 13/11 (M65-D2); la prueba no cubre el escape (Revisión 1, F-01)</td></tr>
+              <tr><td><code>runner.js</code> sincronizado con <code>js/</code> y lanzado con permisos restringidos</td><td>13/11 (<code>3917c5a</code>)</td><td>13/11 (<code>3917c5a</code>)</td><td>0 días</td><td>Norma y prueba en el mismo commit</td></tr>
+              <tr><td>El runner no puede cambiar los permisos</td><td>No escrita</td><td>No existe</td><td>Sin cerrar</td><td>El runner usa el mismo token que la interfaz (F-01, F-02)</td></tr>
+              <tr><td>Los adjuntos se borran con su conversación</td><td>13/11 (<code>bddcfac</code>)</td><td>13/11 (<code>bddcfac</code>)</td><td>0 días</td><td>En SQLite y, un commit después, en IndexedDB</td></tr>
+              <tr><td>Los permisos de sesión se olvidan al rotar el token</td><td>12/11, en <code>py/README.md</code></td><td>13/11 (<code>3383753</code>)</td><td>1 día</td><td>La prueba simula el cambio de fecha con el servidor en marcha</td></tr>
+              <tr><td>Imports del backend solo por nombre, sin ciclos ni módulos sueltos</td><td>13/11 (<code>c2ffec7</code>)</td><td>13/11 (<code>c2ffec7</code>)</td><td>0 días</td><td>El compilador y su prueba llegaron antes que el primer traslado</td></tr>
+              <tr><td>El análisis de HTML en Node está acotado</td><td>No escrita</td><td>No existe</td><td>Sin cerrar</td><td>El analizador llegó con pruebas de contenido, no de tamaño ni de profundidad (F-04)</td></tr>
             </tbody>
           </table>
         </div>
-        <p><strong>Interpretación:</strong> la lección de la 9.0.0 se mantiene donde hay una norma escrita: llega con su prueba el mismo día o al siguiente. Los huecos de la serie 10 son sobre todo de otro tipo. No son normas sin prueba, sino garantías que nadie llegó a escribir porque la función se entregó en uno o dos días: que el sandbox aísle, que el runner esté al día, que borrar libere espacio. La excepción es la rotación de los permisos de sesión: escrita en el README y probada solo en el arranque.</p>
+        <p><strong>Interpretación:</strong> la lección de la 9.0.0 se mantiene donde hay una norma escrita: llega con su prueba el mismo día o al siguiente. Lo que sigue abierto es de otro tipo. No son normas sin prueba, sino garantías que nadie ha llegado a escribir, y las tres están en el mismo sitio: el proceso de Node que ejecuta el agente en el servidor. Que su sandbox aísle, que no pueda cambiar los permisos y que una página hostil no lo bloquee.</p>
       </div>
       <div class="card">
         <h2>4. Qué aporta la historia</h2>
         <ul>
           <li><strong>Especificar antes rinde.</strong> M61 (permisos) y M62 (multisesión) partieron de una especificación y de decisiones registradas; son las zonas con mejor cobertura de la serie.</li>
           <li><strong>Medir antes de limitar.</strong> M63 midió con 10.000 conversaciones y descubrió que el cuello de botella no era el que se suponía: la barra, no la base de datos.</li>
-          <li><strong>Lo que se entrega en un día se rehace en una semana.</strong> El prefijo <code>Z-</code> de los perfiles duró cuatro días; la firma HMAC en el cliente, retirada en M56, aún deja restos; la evaluación de permisos en el frontend se escribió y se eliminó en la misma serie.</li>
+          <li><strong>Lo que se entrega en un día se rehace en una semana.</strong> El prefijo <code>Z-</code> de los perfiles duró cuatro días; la firma HMAC en el cliente, retirada en M56, aún deja una frase en la ayuda; la evaluación de permisos en el frontend se escribió y se eliminó en la misma serie.</li>
           <li><strong>Cada entorno nuevo duplica las garantías que hay que probar.</strong> El sandbox del navegador tenía sus pruebas de seguridad; al llevarlo a Node se copió la interfaz, no el nivel de aislamiento.</li>
           <li><strong>La limpieza continua funciona.</strong> M53 y M63 retiraron pruebas y código sin consumidor a los pocos días de escribirse, sin esperar a una gran limpieza como la de la 9.0.0.</li>
+          <li><strong>Probar en otro sistema encuentra lo que la lectura no ve.</strong> Añadir Windows y macOS a la CI destapó diez fallos en un día, entre ellos uno que cortaba el servidor en Windows al comprobar si un proceso seguía vivo.</li>
+          <li><strong>Una mitigación también necesita su prueba de ataque.</strong> El modelo de permisos del runner se probó por sus argumentos de arranque, no intentando lo que debía impedir; por eso no se vio que el token del propio runner lo rodea.</li>
         </ul>
         <p><strong>Interpretación:</strong> el proyecto ha demostrado que puede cambiar de arquitectura en una semana sin romper la suite. El riesgo ya no es acumular deuda antigua, sino que la velocidad deje garantías sin formular en las piezas más recientes.</p>
       </div>
@@ -112,7 +119,8 @@
               <tr><td>11/11</td><td>v10.10.0 – 10.11.0</td><td><code>161cbe7</code>, <code>d5fc8bc</code></td><td><code>execute_javascript</code> y <code>render_chart</code> en Node; frontend sin evaluación de permisos</td></tr>
               <tr><td>12/11</td><td>v10.12.0</td><td><code>04f6bdc</code></td><td>Integridad del sistema de permisos</td></tr>
               <tr><td>12/11</td><td>v10.13.0</td><td><code>ddad4b9</code></td><td>Multisesión por proyecto</td></tr>
-              <tr><td>13/11</td><td>v10.14.0</td><td><code>bc942cf</code></td><td>Historial acotado y simplificación del agente; versión revisada</td></tr>
+              <tr><td>13/11</td><td>v10.14.0</td><td><code>bc942cf</code></td><td>Historial acotado y simplificación del agente</td></tr>
+              <tr><td>13/11</td><td>v10.15.0</td><td><code>ab1a340</code></td><td>Backend en paquetes con análisis estático, CI en tres sistemas y runner con permisos restringidos; versión revisada</td></tr>
             </tbody>
           </table>
         </div>
@@ -121,7 +129,7 @@
         <h2>Autoría y entorno de verificación</h2>
         <div class="alert alert-info">
           <ul>
-            <li><strong>Revisión y redacción:</strong> Claude Fable 5.2 en Claude Code, a partir del registro de Git hasta el commit <code>bc942cf</code> y de la memoria de proyecto en <code>.zerochat/</code>.</li>
+            <li><strong>Revisión y redacción:</strong> Claude Fable 5.2 en Claude Code, a partir del registro de Git hasta el commit <code>ab1a340</code> y de la memoria de proyecto en <code>.zerochat/</code>.</li>
           </ul>
         </div>
       </div>
