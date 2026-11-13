@@ -269,6 +269,21 @@ class OrphanJobsTest(unittest.TestCase):
         self.assertFalse(own.exists())
 
 
+class ProcessAliveTest(unittest.TestCase):
+    def test_distingue_un_proceso_vivo_de_uno_terminado_sin_enviarle_senales_en_windows(self):
+        finished = subprocess.Popen([zerochat.sys.executable, "-c", "pass"])
+        finished.wait()
+        real_kill = os.kill
+        with patch.object(zerochat.os, "kill", side_effect=real_kill) as kill:
+            self.assertTrue(zerochat._pid_alive(os.getpid()))
+            self.assertFalse(zerochat._pid_alive(finished.pid))
+        # En Windows, os.kill(pid, 0) envía Ctrl+C a la consola del proceso: no debe usarse.
+        if os.name == "nt":
+            kill.assert_not_called()
+        for invalid in (0, -1, True, "1", None):
+            self.assertFalse(zerochat._pid_alive(invalid), invalid)
+
+
 @unittest.skipUnless(os.name == "nt", "Job Object de Windows")
 class WindowsJobObjectTest(unittest.TestCase):
     def test_cada_comando_queda_en_un_job_object_que_lo_mata_si_zerochat_termina(self):
@@ -277,7 +292,7 @@ class WindowsJobObjectTest(unittest.TestCase):
 
         use_data_dir(self)
         use_fresh_jobs(self)
-        job = zerochat.JOBS.start("Start-Sleep -Seconds 30", background=True, cwd=str(Path.cwd()))
+        job = zerochat.JOBS.start("Start-Sleep -Seconds 30", background=True, project=zerochat.SecurityContext(Path.cwd()))
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         kernel32.IsProcessInJob.argtypes = [wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL)]
         inside = wintypes.BOOL(False)
