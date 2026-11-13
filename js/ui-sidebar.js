@@ -126,7 +126,8 @@
   }
 
   /**
-   * Conversaciones en el orden en que se muestran, cada una con su grupo ({ key, label, title }):
+   * Conversaciones en el orden en que se muestran, cada una con su grupo ({ key, kind, label, title },
+   * de tipo 'date' o 'project'):
    * sin proyecto, todas por fecha; con proyecto, las suyas por fecha y después las que no tienen
    * ninguno; y al ver todos, por proyecto (el de conversación más reciente primero) con las que no
    * tienen ninguno al final. Las listas llegan de la más reciente a la más antigua.
@@ -134,18 +135,37 @@
   function groupSessions(sessions, project, showAll) {
     const byDate = session => {
       const category = getChronologicalCategory(sessionDate(session));
-      return { session, group: { key: category, label: t(GROUP_LABEL_KEYS[category]) } };
+      return { session, group: { key: category, kind: 'date', label: t(GROUP_LABEL_KEYS[category]) } };
     };
-    const noProject = { key: '', label: t('sidebar_no_project') };
+    const noProject = { key: '', kind: 'project', label: t('sidebar_no_project') };
     const orphans = sessions.filter(session => !session.project).map(session => ({ session, group: noProject }));
     if (!project) return sessions.map(byDate);
     if (!showAll) return [...sessions.filter(session => session.project === project).map(byDate), ...orphans];
     const projects = [...new Set(sessions.map(session => session.project).filter(Boolean))];
     return [
       ...projects.flatMap(path => sessions.filter(session => session.project === path)
-        .map(session => ({ session, group: { key: path, label: projectName(path), title: path } }))),
+        .map(session => ({ session, group: { key: path, kind: 'project', label: projectName(path), title: path } }))),
       ...orphans
     ];
+  }
+
+  /** Agrupa las conversaciones consecutivas del mismo grupo: [{ group, sessions }]. */
+  function toRuns(entries) {
+    const runs = [];
+    for (const { session, group } of entries) {
+      const last = runs[runs.length - 1];
+      if (last && last.group.key === group.key) last.sessions.push(session);
+      else runs.push({ group, sessions: [session] });
+    }
+    return runs;
+  }
+
+  /** Cabecera de un grupo: la de proyecto lleva carpeta y número de conversaciones para distinguirse de las de fecha. */
+  function renderGroupHeader(group, count) {
+    const label = `<span class="sidebar-group-label">${escapeHtml(group.label)}</span>`;
+    if (group.kind !== 'project') return `<div class="sidebar-group-header">${label}</div>`;
+    const title = group.title ? ` title="${escapeHtml(group.title)}"` : '';
+    return `<div class="sidebar-group-header sidebar-project-header"${title}>${Icons.get('folder', { size: 14 })}${label}<span class="sidebar-group-count">${count}</span></div>`;
   }
 
   /** Lista de conversaciones de la vista elegida, agrupada; con texto en el buscador, filtrada por título y sin grupos. */
@@ -165,15 +185,10 @@
         if (run?.conversationId && run.status) runStatusMap.set(run.conversationId, run.status);
       });
     }
-    let currentGroup = null;
-    elements.sidebarChatsList.innerHTML = matching.map(({ session, group }) => {
-      let header = '';
-      if (!filter && group.key !== currentGroup) {
-        currentGroup = group.key;
-        header = `<div class="sidebar-group-header"${group.title ? ` title="${escapeHtml(group.title)}"` : ''}>${escapeHtml(group.label)}</div>`;
-      }
-      return header + renderChatItem(session, sessionDate(session), session.id === currentSessionId, runStatusMap.get(session.id) || null);
-    }).join('');
+    const renderItem = session => renderChatItem(session, sessionDate(session), session.id === currentSessionId, runStatusMap.get(session.id) || null);
+    elements.sidebarChatsList.innerHTML = toRuns(matching).map(({ group, sessions: items }) =>
+      (filter ? '' : renderGroupHeader(group, items.length)) + items.map(renderItem).join('')
+    ).join('');
   }
 
   function closeChatMenus(list) {

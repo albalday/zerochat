@@ -52,7 +52,7 @@ async function seedSessions(page, sessions, activeId) {
 }
 
 const sidebarTitles = page => page.$$eval('#sidebar-chats-list .sidebar-chat-title', titles => titles.map(title => title.textContent));
-const sidebarHeaders = page => page.$$eval('#sidebar-chats-list .sidebar-group-header', headers => headers.map(header => header.textContent));
+const sidebarHeaders = page => page.$$eval('#sidebar-chats-list .sidebar-group-label', labels => labels.map(label => label.textContent));
 
 test('Browser UI - la barra agrupa las conversaciones por fecha, marca la activa y filtra por título sin agrupar', async () => {
   await withTestApp(async page => {
