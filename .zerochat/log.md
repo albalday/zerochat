@@ -140,3 +140,4 @@
 - 2026-11-13 M63-D11 Las correcciones de la auditoría 10.14.0 en M63 y M65 se hacen antes de M64, para no mezclar correcciones con traslados de código y que los traslados queden protegidos por sus pruebas; orden: M63, M65, M64, M66
 - 2026-11-13 M63-D12 SERVICE_STATUSES de js/mcp-status.js se retira porque solo lo leía una prueba borrada; el contrato JS-Python de estados de servicio lo comprueba una prueba de los predicados contra contract.json (M63-T30) (M63-T30)
 - 2026-11-13 M63-D13 Los plazos del modo desatendido (900 s y 180 s) son constantes: sin variables de entorno solo para pruebas, que los parchean en run_supervisor; no se añade opción de CLI mientras nadie la pida (M63-T31) (M63-T31)
+- 2026-11-13 M63-D14 La verificación de Google solo vive en la raíz y test-results/ deja de versionarse; todo.txt se mantiene versionado hasta que el usuario decida (M63-T34) (M63-T34)

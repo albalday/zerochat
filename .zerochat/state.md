@@ -1,4 +1,4 @@
 # Current state
 - Milestone: M63 Cambios pequeños y pruebas
-- Next task: M63-T34
+- Next task: M63-T35
 - Last updated: 2026-11-13
