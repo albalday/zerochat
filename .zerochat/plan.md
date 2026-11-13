@@ -24,56 +24,7 @@
 
 ## M62 Multisesión de un usuario y límites del multiusuario: closed 2026-11-12
 
-## M63 Cambios pequeños y pruebas
-
-Goal: Corregir fallos pequeños detectados en el uso tras los últimos hitos y probar a mano lo cambiado.
-Done when: Las tareas del hito están hechas, probadas en el navegador y todos los niveles de §4 pasan en verde.
-- [x] M63-T1 Editar un perfil de servidor sin cambiar nada deja cerrar el editor sin preguntar; Guardar en local sigue importándolo (2026-11-13)
-- [x] M63-T2 En móvil los botones de guardar del editor de perfiles muestran solo el icono para que la cabecera no se desborde (2026-11-13)
-- [x] M63-T3 Cabecera de proyecto destacada en el historial (icono de carpeta, línea separadora, nombre en el color del texto y número de conversaciones) para distinguirla de los chats y de las cabeceras de fecha (2026-11-13)
-- [x] M63-T4 Grupos de proyecto plegables en la vista "Todos": plegados por defecto salvo el de la conversación abierta; el estado plegado se recuerda por navegador (localStorage, tolerante a fallos) y se maneja con teclado (botón con aria-expanded) (2026-11-13)
-- [x] M63-T5 La búsqueda del historial conserva las cabeceras de proyecto: muestra solo los grupos con coincidencias, desplegados mientras haya texto, y "Sin proyecto" al final (2026-11-13)
-- [x] M63-T6 Límites del historial sin borrado: medir con 2000 conversaciones el coste de conversations/list, de la sincronización completa a IndexedDB al conectar y del pintado de la barra; proponer en docs/ los topes o la carga diferida necesarios y abrir sus tareas tras decidir con el usuario (2026-11-13)
-- [x] M63-T7 La barra no pinta las conversaciones de los grupos plegados; desplegar un grupo lo pinta (corrige M63-T4: 270 000 nodos ocultos con 10 000 conversaciones) (2026-11-13)
-- [x] M63-T8 Tope de 50 conversaciones pintadas por grupo con botón "Mostrar N más"; la búsqueda sigue recorriendo todos los títulos (prueba en 50 y 51) (2026-11-13)
-- [x] M63-T9 Borrar historial con un proyecto activo pregunta por las conversaciones de ese proyecto, con casilla para borrar todo; el servidor borra por proyecto y cancela solo las ejecuciones de esas conversaciones (2026-11-13)
-- [x] M63-T10 Al conectar se sincronizan solo las cabeceras: la lista aparece en cuanto llega conversations/list y cada conversación se descarga a IndexedDB al abrirla; sin servidor, una no descargada avisa en vez de abrirse vacía (2026-11-13)
-- [x] M63-T11 La clave del proxy de la conexión remota tiene el botón de ojo para mostrarla u ocultarla, con el mismo manejador que la API key del perfil (2026-11-13)
-- [x] M63-T12 El historial deja de leer y escribir extra en el cliente y el servidor deja de exponerlo en la cabecera: profileId, serverRun y project ya viajan en ella (2026-11-13)
-- [x] M63-T13 ConversationService sin guardas de opciones ni de serverRuns que solo pedían las pruebas, perfil de la sesión resuelto en un solo sitio y cabecera al abrir como fusión de la guardada y la leída (2026-11-13)
-- [x] M63-T14 Borrar una conversación la quita de la barra solo si se borró del almacenamiento; switchToSession devuelve siempre un booleano (2026-11-13)
-- [x] M63-T15 Storage sin hasBlob, con un único borrado local de conversaciones e hidratación de imágenes en un solo punto (2026-11-13)
-- [x] M63-T16 Sin servidor, una conversación cuya cabecera remota es más reciente que su copia local abre esa copia en vez de avisar de que no está descargada (2026-11-13)
-- [x] M63-T17 Upsert de sesiones compartido en ChatState, refresco de la lista tras una ejecución de servidor vía ConversationService y un único callback de repintado en la barra (2026-11-13)
-- [x] M63-T18 Las herramientas reciben un contexto explícito (signal y, solo las de categoría agent, la conexión del agente) en vez de todos los parámetros del bucle (2026-11-13)
-- [x] M63-T19 AgentRuntime sin campos, opciones ni callbacks sin consumidor: awaitingUser, reasoningText, totalTimeMs, onDone, appendFinalMessage, toolExecutions como contador y argumentos sin uso (2026-11-13)
-- [x] M63-T20 AgentRuntime.execute dividido en paso de inferencia y cierre único; respuesta final y bucle detectado comparten rama (2026-11-13)
-- [x] M63-T21 El aviso de bucle lo redacta ChatEngine con i18n; AgentRuntime solo informa del estado loop_detected (2026-11-13)
-- [x] M63-T22 ToolExecutor parsea los argumentos una sola vez y separa el protocolo de autorización de la ejecución (2026-11-13)
-- [x] M63-T23 Cada herramienta declara el texto de su evidencia visual; ChatEngine deja de listar nombres de herramientas (2026-11-13)
-- [x] M63-T24 Auditoría completa de la 10.14.0: revisiones 1 a 4 de la ayuda escritas desde cero y una quinta con el nivel técnico y los consejos de evolución, en español e inglés (2026-11-13)
-- [x] M63-T25 Incorporar a la auditoría los hallazgos comprobados de la revisión paralela con Gemini (F-12 a F-15, ayuda en F-06) y corregir help/remote-proxy.html, que describía la firma de herramientas retirada en M56 (2026-11-13)
-- [x] M63-T26 Al rotar el token diario con el servidor en marcha se olvidan también las autorizaciones de sesión, bajo el mismo cerrojo; prueba con la fecha simulada: un permiso de sesión del día anterior vuelve a pedir confirmación (auditoría F-12) (2026-11-13)
-- [x] M63-T27 Borrar conversaciones en SQLite elimina en la misma transacción los blobs que ninguna otra conversación referencia; prueba: se borra el de la única que lo usa y se conserva el compartido (auditoría F-05) (2026-11-13)
-- [x] M63-T28 removeConversations confirma primero el borrado en el servidor y después borra la copia de IndexedDB y sus blobs sin referencias; prueba: un rechazo del servidor deja la conversación en el navegador (auditoría F-05, F-13) (2026-11-13)
-- [x] M63-T29 Retirar las cabeceras CORS X-ZeroChat-Tool-* y la descripción de la firma HMAC de js/tools/README.md; prueba: las cabeceras permitidas son exactamente las que envía la interfaz (auditoría F-06) (2026-11-13)
-- [x] M63-T30 test-runner falla si un archivo de grupo no existe, sin las referencias a test_mcp_status.js y test_browser_ui.js; test_ui_mcp.js compara SERVICE_STATUSES con tests/fixtures/mcp/contract.json (auditoría F-07) (2026-11-13)
-- [x] M63-T31 Plazos del modo desatendido sin variables de entorno que solo usan las pruebas: decidir entre opción documentada de la CLI o parche de las constantes desde la prueba (auditoría F-08) (2026-11-13)
-- [x] M63-T32 El sandbox del navegador restaura Function.prototype.constructor al resolverse la promesa del código, no en el finally síncrono; prueba: un escape por el constructor tras un await devuelve error (auditoría F-14) (2026-11-13)
-- [x] M63-T33 validate_local_tool_arguments rechaza con error de validación un tipo de argumento que no conoce en lugar de lanzar TypeError; prueba con una definición de tipo no admitido (auditoría F-15) (2026-11-13)
-- [x] M63-T34 Retirar del repositorio la copia de la verificación de Google en js/ y test-results/, añadirlos a .gitignore y decidir con el usuario si todo.txt sigue versionado (auditoría F-11) (2026-11-13)
-- [x] M63-T35 Trabajos de CI en windows-latest y macos-latest para las pruebas Python de infraestructura y uno con el Node mínimo que fije M65 para test_run_node.js; cada fallo que aparezca se abre como tarea propia (auditoría F-09) (2026-11-13)
-- [x] M63-T36 Retirar ZEROCHAT_HEARTBEAT_TIMEOUT, _GRACE y _POLL, variables de entorno que solo usan las pruebas: el auto-cierre por latido se prueba en proceso con un servidor real y plazos pasados como parámetros (2026-11-13)
-- [x] M63-T37 Windows: _pid_alive (py/dd-commands.py) usa os.kill(pid, 0), que en Windows envía Ctrl+C a la consola del proceso y corta zerochat (en CI, KeyboardInterrupt en list_server_runs); comprobarlo con OpenProcess y GetExitCodeProcess, prueba que no envía señal, y volver a ejecutar el trabajo de Windows abriendo una tarea por cada fallo nuevo (CI de M63-T35) (2026-11-13)
-- [x] M63-T38 El runner de Node exige Node 22, la LTS más antigua con soporte, en lugar de 18: con 18 y 20 runner.js fallaba al cargar porque js/defaults.js lee el global navigator (Node 21+); sin código de compatibilidad, con un único mínimo en el backend, mensaje claro, prueba en el borde 21/22, ayuda y trabajo node-minimum de la CI en Node 22 (CI de M63-T35) (2026-11-13)
-- [x] M63-T39 Rutas canónicas: con /var enlazado a /private/var (macOS) o con nombres cortos 8.3 como RUNNER~1 (Windows), la regla de directorio del proyecto, la oferta de reglas, los cd de run_command, el entorno virtual y el directorio de datos de Playwright no resuelven las rutas igual que las reglas de directorio (fallos en test_security, test_environment y test_browser_config); decidir si falla el código o la prueba y corregirlo (CI de M63-T35) (2026-11-13)
-- [x] M63-T40 macOS y Windows: test_start_server_run_arranca_en_el_proyecto_de_la_conversacion y test_start_cancel_y_dispatch_server_run fallan con "'Mock' object does not support the context manager protocol" (CI de M63-T35) (2026-11-13)
-- [x] M63-T41 macOS: al agotar el plazo, run_command no mata a los procesos descendientes (estado exited en lugar de timeout en test_el_plazo_agotado_mata_tambien_a_los_descendientes) (CI de M63-T35) (2026-11-13)
-- [x] M63-T42 Windows: search_files devuelve rutas con barra invertida (sub\\inside.py) mientras las demás herramientas y los patrones usan /; fijar un único formato para el modelo (CI de M63-T35) (2026-11-13)
-- [x] M63-T43 Windows: is_dangerous_host no reconoce 127.1 ni 2130706433 porque getaddrinfo de Windows no resuelve esas notaciones (la conexión también falla, sin SSRF real); la prueba debe comprobar que la URL no llega a la red, no cómo se clasifica (CI de M63-T35) (2026-11-13)
-- [x] M63-T44 Windows: pruebas que suponen POSIX: modos 0600 y 0700 de ficheros y directorios (3 pruebas, Windows no aplica chmod) y separadores de ruta en el lanzador de Termux y en el perfil del navegador del usuario; ajustar las expectativas a cada sistema (CI de M63-T35) (2026-11-13)
-- [x] M63-T45 Windows: _process_start_token devuelve None (sin /proc ni ps), así que cancelar una ejecución en servidor o limpiar comandos huérfanos no distingue un PID reutilizado y puede matar un proceso ajeno; huella de arranque con GetProcessTimes y prueba de PID reutilizado en Windows (CI de M63-T35) (2026-11-13)
-- [x] M63-T46 La prueba de presencia del latido (M63-T36) espera 10 ms entre peticiones, menos que la resolución de time.monotonic en Windows (~16 ms), y la marca de tiempo no avanza; esperar más que esa resolución (CI de M63-T35) (2026-11-13)
+## M63 Cambios pequeños y pruebas: closed 2026-11-13
 
 ## M64 Modularización del backend Python
 
