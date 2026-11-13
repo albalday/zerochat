@@ -175,7 +175,7 @@
     // Conexión, contexto y despacho del agente que delega (ToolExecutor solo lo da a esta categoría).
     const { agent } = context;
 
-    const activeDefinitions = await agent.resolveToolDefinitions({ stepIndex: 0, workingMessages: [] });
+    const activeDefinitions = await agent.resolveToolDefinitions();
     const allowed = new Set();
     const tools = activeDefinitions.filter(toolDefinition => {
       const tool = registry.getTool(toolDefinition.function.name);
@@ -232,7 +232,7 @@
     if (report.length > MAX_REPORT_LENGTH) {
       report = `${report.slice(0, MAX_REPORT_LENGTH)}\n\n[Report truncated at ${MAX_REPORT_LENGTH} characters.]`;
     }
-    return { success: true, report, steps, toolCalls: result.toolExecutions.length, loopDetected: result.loopDetected === true };
+    return { success: true, report, steps, toolCalls: result.toolCallCount, loopDetected: result.status === 'loop_detected' };
   }
 
   function clip(text, max) {

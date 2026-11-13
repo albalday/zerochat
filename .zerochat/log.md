@@ -131,3 +131,4 @@
 - 2026-11-13 M63-D3 La cabecera de una conversación expone profileId, serverRun y project como campos propios y no lleva extra; el servidor deja de aceptar una bolsa extra libre, sin productor real (M63-T12)
 - 2026-11-13 M63-D4 Una cabecera remota más reciente deja pendiente la copia local sin borrar sus mensajes; sin servidor se abre esa copia y CONVERSATION_NOT_DOWNLOADED queda para las que no tienen mensajes locales. Matiza M63-D2 (M63-T16)
 - 2026-11-13 M63-D5 El contexto de una herramienta es explícito: del bucle solo recibe signal, y context.agent (conexión, contexto y despacho del agente) solo las de categoría agent; así la API key y el historial no llegan a las MCP ni al resto (M63-T18)
+- 2026-11-13 M63-D6 El resultado de AgentRuntime se reduce a status (completed, loop_detected, cancelled, error), error, finalText, history, stepsCount, toolCallCount, truncated y stats; el mensaje final se añade siempre al historial (M63-T19)

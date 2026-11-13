@@ -425,7 +425,6 @@ test('ChatEngine - executeAgentTurnLoop envía al proveedor la instantánea del 
       appConfig: { apiUrl: 'http://localhost:1234/v1', model: 'test-model', enabledTools: {} },
       projectContext: READY_PROJECT
     });
-    assert.equal(res.success, true);
     assert.match(sentSystem, /rooted at \/home\/u\/repo/);
   } finally {
     ChatAPI.streamChatCompletion = originalStream;

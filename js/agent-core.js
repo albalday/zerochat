@@ -506,46 +506,34 @@
 
     /**
      * Ejecuta en orden las llamadas de un paso hasta que se cancele el turno. Devuelve los
-     * resultados, los mensajes tool para el historial y el registro de ejecuciones.
+     * resultados y los mensajes tool para el historial.
      */
     async executeToolBatch(toolCalls, { stepIndex, toolContext, signal, dispatchToolCall, createMessageId, callbacks }) {
       const results = [];
       const toolMessages = [];
-      const executions = [];
 
       for (const [toolIndex, call] of toolCalls.entries()) {
         if (signal.aborted) break;
-        const toolFnName = call.function?.name || 'tool';
-        callbacks.onToolStart?.(call, stepIndex);
+        callbacks.onToolStart?.(call);
 
         const execResult = await dispatchToolCall(call, toolContext);
         results.push(execResult);
 
         const { content, images } = toToolMessageContent(execResult);
-        callbacks.onToolComplete?.(call, execResult, content, stepIndex);
-
-        executions.push({
-          step: stepIndex,
-          toolName: toolFnName,
-          args: execResult.args || call.function?.arguments,
-          result: execResult.result,
-          success: execResult.success,
-          executionTimeMs: execResult.executionTimeMs || 0,
-          error: execResult.error || null
-        });
+        callbacks.onToolComplete?.(execResult, stepIndex);
 
         const toolMessage = {
           id: createMessageId('tool', { stepIndex, toolCall: call, toolIndex }),
           role: 'tool',
           tool_call_id: call.id || createId('call'),
-          name: toolFnName,
+          name: call.function?.name || 'tool',
           content
         };
         if (images) toolMessage.images = images;
         toolMessages.push(toolMessage);
       }
 
-      return { results, toolMessages, executions };
+      return { results, toolMessages };
     }
 
     /** Texto de un paso con herramientas que solo repite la llamada emitida como texto. */
@@ -570,7 +558,6 @@
         summarizeHistory = null,
         contextOptions = {},
         createMessageId = kind => createId(`msg_${kind}`),
-        appendFinalMessage = false,
         onBeforeRequest = null,
         callbacks = {}
       } = params;
@@ -594,14 +581,12 @@
       let stepIndex = 0;
       let workingMessages = [...messages];
       let finalAccumulatedText = '';
-      let finalReasoningText = '';
       let lastStats = null;
-      const toolExecutions = [];
+      let toolCallCount = 0;
       const trackToolBatch = this.createLoopGuard();
       let compressionUnavailable = false;
       let status = 'completed';
       let executionError = null;
-      let yieldedToUser = false;
       // Algún paso del turno terminó en el límite de tokens de salida.
       let truncated = false;
       // Un servidor que rechaza el parámetro de razonamiento lo rechazaría en cada paso: tras el
@@ -634,11 +619,10 @@
           }
         }
 
-        const stepMessages = prepareMessages ? (await prepareMessages(workingMessages)).messages : workingMessages;
-        const activeToolDefs = resolveToolDefinitions ? await resolveToolDefinitions({ stepIndex, workingMessages }) : [];
+        const stepMessages = prepareMessages ? await prepareMessages(workingMessages) : workingMessages;
+        const activeToolDefs = resolveToolDefinitions ? await resolveToolDefinitions() : [];
 
         let currentStepText = '';
-        let currentStepReasoning = '';
         let stepReasoningReplay = null;
         let stepToolCalls = null;
         let stepStats = null;
@@ -658,10 +642,7 @@
             onBeforeRequest,
             onGenerationStatus: status => callbacks.onGenerationStatus?.(status),
 
-            onReasoningChunk: (chunk, accumulated) => {
-              currentStepReasoning = accumulated;
-              callbacks.onReasoningChunk?.(chunk, accumulated, stepIndex);
-            },
+            onReasoningChunk: (chunk, accumulated) => callbacks.onReasoningChunk?.(chunk, accumulated, stepIndex),
             onLog: logData => callbacks.onLog?.(logData),
             onChunk: (fullTextSoFar, delta, stats) => {
               currentStepText = fullTextSoFar;
@@ -677,7 +658,6 @@
           }
 
           currentStepText = streamResult.accumulatedText || currentStepText;
-          currentStepReasoning = streamResult.accumulatedReasoning || currentStepReasoning;
           stepReasoningReplay = streamResult.reasoningReplay || null;
           stepToolCalls = streamResult.toolCalls;
           stepStats = streamResult.stats;
@@ -698,9 +678,6 @@
           }
 
           lastStats = stepStats || lastStats;
-          if (currentStepReasoning) {
-            finalReasoningText += (finalReasoningText ? '\n' : '') + currentStepReasoning;
-          }
 
           // Caso A: Sin llamadas a herramientas -> Turno final
           if (!stepToolCalls || stepToolCalls.length === 0) {
@@ -709,9 +686,7 @@
             }
 
             finalAccumulatedText = currentStepText;
-            if (appendFinalMessage) {
-              workingMessages.push({ id: createMessageId('final', { stepIndex }), role: 'assistant', content: currentStepText });
-            }
+            workingMessages.push({ id: createMessageId('final', { stepIndex }), role: 'assistant', content: currentStepText });
             callbacks.onStepDone?.(stepIndex, { type: 'final_response', text: currentStepText, stats: lastStats });
             status = 'completed';
             break;
@@ -728,11 +703,11 @@
 
           if (loopPeriod > 0) {
             status = 'loop_detected';
-            callbacks.onLoopDetected?.(stepToolCalls[0], loopPeriod, stepIndex);
+            callbacks.onLoopDetected?.();
             currentStepText = `${currentStepText || ''}\n\n> ⚠️ *[Infinite Loop Protection]*: Tools were invoked in a repeating pattern with the same arguments without progress. Halting agent turn loop.`;
             finalAccumulatedText = currentStepText;
             const finalMsg = { id: createMessageId('final', { stepIndex }), role: 'assistant', content: currentStepText };
-            if (appendFinalMessage) workingMessages.push(finalMsg);
+            workingMessages.push(finalMsg);
             callbacks.onStepDone?.(stepIndex, { type: 'loop_detected', text: currentStepText, assistantMsg: finalMsg });
             break;
           }
@@ -740,7 +715,7 @@
           const batch = await this.executeToolBatch(stepToolCalls, {
             stepIndex, toolContext, signal: abortSignal, dispatchToolCall, createMessageId, callbacks
           });
-          toolExecutions.push(...batch.executions);
+          toolCallCount += batch.results.length;
 
           // Cada assistant con tool_calls va seguido de los mensajes tool de sus resultados.
           const assistantMsg = {
@@ -759,7 +734,6 @@
           // Una herramienta puede ceder el turno al usuario (ask_user) o requerir aprobación interactiva:
           // el bucle termina y la respuesta del usuario llega como el siguiente mensaje.
           if (batch.results.some(r => r.endTurn === true || (r.success && r.result?.endTurn === true))) {
-            yieldedToUser = true;
             status = 'completed';
             break;
           }
@@ -770,22 +744,15 @@
         }
       }
 
-      const totalElapsedMs = Math.round(performance.now() - startTime);
-      callbacks.onDone?.(finalAccumulatedText, lastStats, stepIndex);
-
+      // `status`: completed, loop_detected, cancelled o error (con `error`).
       return {
-        success: status === 'completed' || status === 'loop_detected',
         status,
         finalText: finalAccumulatedText,
-        reasoningText: finalReasoningText,
         stepsCount: stepIndex,
-        loopDetected: status === 'loop_detected',
         truncated,
-        awaitingUser: yieldedToUser,
-        toolExecutions,
+        toolCallCount,
         history: workingMessages.map(withoutReasoningReplay),
         stats: {
-          totalTimeMs: totalElapsedMs,
           tokens: lastStats?.tokens || 0,
           tokensPerSec: lastStats?.tokensPerSec || 0,
           cachedTokens: lastStats?.cachedTokens || 0,
@@ -795,7 +762,7 @@
           totalTokens: lastStats?.totalTokens || 0,
           reasoningTokens: lastStats?.reasoningTokens || 0,
           ttftSec: lastStats?.ttftSec || 0,
-          totalSec: lastStats?.totalSec || ((totalElapsedMs / 1000).toFixed(2)),
+          totalSec: lastStats?.totalSec || ((performance.now() - startTime) / 1000).toFixed(2),
           isEstimated: lastStats?.isEstimated ?? true
         },
         error: executionError

@@ -56,9 +56,7 @@ test('AgentRuntime - pause_for_user detiene el bucle y conserva assistant y tool
   });
 
   assert.equal(result.status, 'completed');
-  assert.equal(result.awaitingUser, true);
-  assert.equal(result.toolExecutions.length, 1);
-  assert.equal(result.toolExecutions[0].success, false);
+  assert.equal(result.toolCallCount, 1);
   assert.equal(result.history.length, 3); // user, assistant, tool
   assert.equal(result.history[1].role, 'assistant');
   assert.equal(result.history[1].tool_calls[0].function.name, 'mcp_test_pause_action');
@@ -89,7 +87,6 @@ test('AgentRuntime - compacta con el límite de contexto configurado y conserva 
       }
     },
     messages: history,
-    appendFinalMessage: true,
     contextOptions: { totalContextLimit: 300, compressionThresholdRatio: 0.5 },
     summarizeHistory: async ({ messages }) => {
       summaryCalls++;
@@ -138,7 +135,7 @@ test('AgentRuntime - no reintenta una compactación fallida durante el mismo cic
     }
   });
 
-  assert.equal(result.success, true);
+  assert.equal(result.status, 'completed');
   assert.equal(summaryCalls, 1);
 });
 
@@ -224,14 +221,11 @@ test('AgentRuntime - Tool call normal con resolución y respuesta final', async 
     messages: [{ role: 'user', content: '¿Cuánto es 15 + 27?' }]
   });
 
-  assert.equal(result.success, true);
   assert.equal(result.status, 'completed');
   assert.equal(result.stepsCount, 1);
-  assert.equal(result.toolExecutions.length, 1);
-  assert.equal(result.toolExecutions[0].toolName, 'calculate_sum');
-  assert.equal(result.toolExecutions[0].result.sum, 42);
+  assert.equal(result.toolCallCount, 1);
   assert.match(result.finalText, /42/);
-  assert.equal(result.history.length, 3); // user, assistant(call), tool(res)
+  assert.deepEqual(result.history.map(m => m.role), ['user', 'assistant', 'tool', 'assistant']);
 });
 
 test('AgentRuntime - reenvía el razonamiento de cada paso dentro del turno y no lo guarda en el historial', async t => {
@@ -256,7 +250,7 @@ test('AgentRuntime - reenvía el razonamiento de cada paso dentro del turno y no
         return { accumulatedText: 'Hecho.', toolCalls: [] };
       }
     },
-    prepareMessages: messages => ({ messages: ChatEngine.buildEffectiveMessages(messages, require('../../js/config-store.js').normalize({})) }),
+    prepareMessages: messages => ChatEngine.buildEffectiveMessages(messages, require('../../js/config-store.js').normalize({})),
     messages: [{ role: 'user', content: 'Busca.' }]
   });
 
@@ -326,12 +320,10 @@ test('AgentRuntime - Múltiples pasos agénticos secuenciales', async t => {
     messages: [{ role: 'user', content: 'Dame los pedidos del usuario activo' }]
   });
 
-  assert.equal(result.success, true);
   assert.equal(result.status, 'completed');
   assert.equal(result.stepsCount, 2);
-  assert.equal(result.toolExecutions.length, 2);
-  assert.equal(result.toolExecutions[0].toolName, 'get_user_id');
-  assert.equal(result.toolExecutions[1].toolName, 'get_user_orders');
+  assert.equal(result.toolCallCount, 2);
+  assert.deepEqual(result.history.filter(m => m.role === 'tool').map(m => m.name), ['get_user_id', 'get_user_orders']);
   assert.equal(result.finalText, 'El usuario tiene 2 pedidos registrados.');
 });
 
@@ -369,10 +361,8 @@ test('AgentRuntime - Error de herramienta capturado y recuperación en siguiente
     messages: [{ role: 'user', content: 'Consulta la base de datos' }]
   });
 
-  assert.equal(result.success, true);
   assert.equal(result.status, 'completed');
-  assert.equal(result.toolExecutions[0].success, false);
-  assert.match(result.toolExecutions[0].error, /base de datos/);
+  assert.match(result.history.find(m => m.role === 'tool').content, /"success":false.*base de datos/);
   assert.equal(attempts, 1);
   assert.match(result.finalText, /error en el servicio/);
 });
@@ -397,7 +387,6 @@ test('AgentRuntime - Cancelación manual mediante AbortSignal', async t => {
     messages: [{ role: 'user', content: 'Hola' }]
   });
 
-  assert.equal(result.success, false);
   assert.equal(result.status, 'cancelled');
   assert.match(result.error.message, /cancelled/);
 });
@@ -414,7 +403,7 @@ test('AgentRuntime - detener durante el stream conserva el texto recibido sin ej
         return { accumulatedText: text, toolCalls: [{ id: 'c1', function: { name: 'dummy_tool', arguments: '{}' } }], stats: null };
       }
     };
-    return runAgent(t, registry, { api, signal: controller.signal, appendFinalMessage: true, messages: [{ role: 'user', content: 'Hola' }] });
+    return runAgent(t, registry, { api, signal: controller.signal, messages: [{ role: 'user', content: 'Hola' }] });
   };
 
   const partial = await stopAfter('Respuesta a medias');
@@ -479,18 +468,12 @@ test('AgentRuntime - permite ciclos de programación test -> editar -> test cuan
 test('AgentRuntime - detiene el quinto lote idéntico consecutivo sin ejecutarlo ni sintetizar', async t => {
   const { registry, counts } = countingRegistry(['repeat']);
   const api = scriptedApi(Array.from({ length: 10 }, () => ({ tool: 'repeat', args: { value: 1 } })));
-  let loopPeriod = null;
   const result = await runAgent(t, registry, {
     api,
-    messages: [{ role: 'user', content: 'Repite.' }],
-    appendFinalMessage: true,
-    callbacks: { onLoopDetected: (_call, period) => { loopPeriod = period; } }
+    messages: [{ role: 'user', content: 'Repite.' }]
   });
 
   assert.equal(result.status, 'loop_detected');
-  assert.equal(result.loopDetected, true);
-  assert.equal(result.success, true);
-  assert.equal(loopPeriod, 1);
   assert.equal(counts.repeat, 4);
   assert.equal(api.requests.length, 5);
   assert.match(result.finalText, /Infinite Loop Protection/);
@@ -503,15 +486,12 @@ test('AgentRuntime - detiene dos lotes alternados tras cinco ciclos', async t =>
   const steps = [];
   for (let i = 0; i < 8; i++) steps.push({ tool: 'a', args: { n: 1 } }, { tool: 'b', args: { n: 2 } });
   const api = scriptedApi(steps);
-  let loopPeriod = null;
   const result = await runAgent(t, registry, {
     api,
-    messages: [{ role: 'user', content: 'Alterna.' }],
-    callbacks: { onLoopDetected: (_call, period) => { loopPeriod = period; } }
+    messages: [{ role: 'user', content: 'Alterna.' }]
   });
 
   assert.equal(result.status, 'loop_detected');
-  assert.equal(loopPeriod, 2);
   assert.equal(api.requests.length, 10);
   assert.equal(counts.a, 5);
   assert.equal(counts.b, 4);
@@ -597,7 +577,6 @@ test('AgentRuntime - Clean termination when model returns empty text after tools
     messages: [{ role: 'user', content: 'Get the stock price' }]
   });
 
-  assert.equal(result.success, true);
   assert.equal(result.status, 'completed');
   // No third API call — model terminated abruptly, no synthesis
   assert.equal(step, 2);
@@ -658,11 +637,11 @@ test('AgentRuntime - Ejecución de múltiples tool calls simultáneas en el mism
     messages: [{ role: 'user', content: 'Dame métricas A y B' }]
   });
 
-  assert.equal(result.success, true);
+  assert.equal(result.status, 'completed');
   assert.equal(executedCalls.length, 2);
   assert.deepEqual(executedCalls[0], { tool: 'a', args: { year: 2019 } });
   assert.deepEqual(executedCalls[1], { tool: 'b', args: { year: 2020 } });
-  assert.equal(result.toolExecutions.length, 2);
+  assert.equal(result.toolCallCount, 2);
   assert.equal(result.finalText, 'Métricas recuperadas: 100 y 200.');
 });
 
@@ -681,13 +660,10 @@ test('AgentRuntime - una herramienta con endTurn cede el turno sin más peticion
           };
         }
       },
-      messages: [{ role: 'user', content: 'Revisa el proyecto' }],
-      appendFinalMessage: true
+      messages: [{ role: 'user', content: 'Revisa el proyecto' }]
     });
     assert.equal(requests, 1, 'no hay más pasos tras ceder el turno');
     assert.equal(result.status, 'completed');
-    assert.equal(result.awaitingUser, true);
-    assert.equal(result.success, true);
     const last = result.history[result.history.length - 1];
     assert.equal(last.role, 'tool');
     assert.equal(last.name, 'ask_user');
@@ -708,11 +684,9 @@ test('AgentRuntime - una pregunta inválida no cede el turno y el modelo puede c
         return { accumulatedText: 'Respuesta directa.', toolCalls: [], stats: null };
       }
     },
-    messages: [{ role: 'user', content: 'Hola' }],
-    appendFinalMessage: true
+    messages: [{ role: 'user', content: 'Hola' }]
   });
   assert.equal(requests, 2);
-  assert.equal(result.awaitingUser, false);
   assert.equal(result.finalText, 'Respuesta directa.');
 });
 
@@ -736,14 +710,11 @@ test('AgentRuntime - execute_javascript ejecuta cálculos mediante ChatSandbox n
         return { accumulatedText: 'El resultado es 256.', toolCalls: [], stats: null };
       }
     },
-    messages: [{ role: 'user', content: '¿Cuánto es 2 a la 8?' }],
-    appendFinalMessage: true
+    messages: [{ role: 'user', content: '¿Cuánto es 2 a la 8?' }]
   });
 
   assert.equal(step, 2);
-  assert.equal(result.toolExecutions.length, 1);
-  assert.equal(result.toolExecutions[0].success, true);
-  assert.equal(result.toolExecutions[0].result.result, '256');
+  assert.equal(result.toolCallCount, 1);
   const toolMsg = result.history.find(m => m.role === 'tool');
   assert.equal(toolMsg.content, '256');
   assert.equal(result.finalText, 'El resultado es 256.');
@@ -776,15 +747,11 @@ test('AgentRuntime - render_chart ejecuta y persiste datos de gráficos en Node 
         return { accumulatedText: 'Gráfico mostrado correctamente.', toolCalls: [], stats: null };
       }
     },
-    messages: [{ role: 'user', content: 'Muestra la distribución' }],
-    appendFinalMessage: true
+    messages: [{ role: 'user', content: 'Muestra la distribución' }]
   });
 
   assert.equal(step, 2);
-  assert.equal(result.toolExecutions.length, 1);
-  assert.equal(result.toolExecutions[0].success, true);
-  assert.equal(result.toolExecutions[0].result.type, 'pie');
-  assert.equal(result.toolExecutions[0].result.title, 'Distribución');
+  assert.equal(result.toolCallCount, 1);
   const toolMsg = result.history.find(m => m.role === 'tool');
   assert.equal(toolMsg.content, JSON.stringify({ success: true, type: 'pie', title: 'Distribución' }));
   assert.equal(result.finalText, 'Gráfico mostrado correctamente.');

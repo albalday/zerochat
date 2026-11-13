@@ -260,7 +260,7 @@
    * de tarjetas `cards` de AgentCore.dispatchToolCall). En la interfaz la crea
    * ChatUIConversation.createTurnView.
    * @param {Object} params - Parámetros de ejecución.
-   * @returns {Promise<{ success: boolean, finalAssistantText: string, accumulatedMarkdown: string, stats: Object, chatHistory?: Array, cancelled?: boolean, error?: any }>}
+   * @returns {Promise<{ finalAssistantText?: string, accumulatedMarkdown?: string, loopDetected?: boolean, truncated?: boolean, stats?: Object, chatHistory: Array, cancelled?: boolean, error?: any }>}
    */
   async function executeAgentTurnLoop(params) {
     const {
@@ -303,7 +303,6 @@
       reasoningEffort: appConfig.reasoningEffort,
       messages: chatHistory,
       signal: params.signal,
-      appendFinalMessage: true,
       contextOptions: {
         totalContextLimit: appConfig.modelContextLimit || appConfig.contextLimitOverride,
         // En modo proyecto el resumen marca lo pendiente de registrar; nunca escribe en el proyecto.
@@ -317,12 +316,10 @@
         if (kind === 'assistant') return `${assistantMsgId}_turn_${info.stepIndex}_assistant`;
         return `${assistantMsgId}_turn_${info.stepIndex}_tool_${info.toolCall?.id || info.toolIndex}_${Date.now()}`;
       },
-      prepareMessages: messages => ({
-        messages: buildEffectiveMessages(messages, appConfig, {
-          currentRagSystemContext,
-          projectContext,
-          projectDirectory
-        })
+      prepareMessages: messages => buildEffectiveMessages(messages, appConfig, {
+        currentRagSystemContext,
+        projectContext,
+        projectDirectory
       }),
       resolveToolDefinitions: () => AgentCore.registry.getActiveDefinitions(appConfig),
       dispatchToolCall: async (toolCall, context) => AgentCore.dispatchToolCall(toolCall, {
@@ -362,8 +359,8 @@
         onToolStart: toolCall => {
           onGenerationStatus?.({ phase: 'tool', text: I18n.t('generation_status_tool', { name: toolCall.function.name }) });
         },
-        onToolComplete: (toolCall, execution, _content, turnIndex) => {
-          if (execution?.markdownBlock) getTurnMarkdown(turnIndex).toolBlocks.push(execution.markdownBlock);
+        onToolComplete: (execution, turnIndex) => {
+          if (execution.markdownBlock) getTurnMarkdown(turnIndex).toolBlocks.push(execution.markdownBlock);
         },
         onStepDone: (turnIndex, step) => {
           const block = turnBlocks.get(turnIndex);
@@ -384,11 +381,6 @@
         onLoopDetected: () => {
           onGenerationStatus?.({ phase: 'error', text: I18n.t('generation_status_loop_detected') });
           onLog?.('error', '[Loop protection]: tools were called repeatedly with the same arguments. Stopping the agent loop.');
-        },
-        onDone: finalText => {
-          const block = turnBlocks.get(Math.max(...turnBlocks.keys(), 0));
-          if (block && finalText) block.render(finalText);
-          view.scrollToBottom();
         }
       }
     });
@@ -403,8 +395,8 @@
       chatHistory.push(...history);
     }
     if (interrupted) turnBlocks.get(result.stepsCount)?.remove();
-    if (cancelled) return { success: false, cancelled: true, chatHistory: history };
-    if (result.error) return { success: false, error: result.error, chatHistory: history };
+    if (cancelled) return { cancelled: true, chatHistory: history };
+    if (result.error) return { error: result.error, chatHistory: history };
     const turnTexts = [...turnMarkdown.entries()]
       .sort(([left], [right]) => left - right)
       .flatMap(([, turn]) => [turn.text, ...turn.toolBlocks])
@@ -415,8 +407,7 @@
       .filter(Boolean)
       .join('\n\n');
     return {
-      success: result.success,
-      loopDetected: result.loopDetected,
+      loopDetected: result.status === 'loop_detected',
       truncated: result.truncated,
       finalAssistantText: result.finalText || '',
       accumulatedMarkdown,

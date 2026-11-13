@@ -118,8 +118,7 @@ test('delegate_task - el subagente trabaja con contexto propio y devuelve solo s
   const result = await runtime.execute({
     ...context,
     signal: controller.signal,
-    messages: [{ role: 'user', content: 'Conversación privada del agente principal' }],
-    appendFinalMessage: true
+    messages: [{ role: 'user', content: 'Conversación privada del agente principal' }]
   });
 
   assert.equal(result.status, 'completed');
