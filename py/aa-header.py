@@ -57,8 +57,4 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 
-DEFAULT_PORT = 6388
-DEFAULT_HOST = "127.0.0.1"
 CONSOLE_STATUS_IDLE_SECONDS = 8.0
-NOTICES: list[str] = []
-NOTICES_LOCK = threading.Lock()

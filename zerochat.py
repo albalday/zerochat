@@ -56,13 +56,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlencode
 
-# --- core.environment ---
-"""Entorno de ejecución: sistema operativo, directorios de datos y de desarrollo y entorno virtual."""
-
-
-
-DETECTED_OS = "windows" if sys.platform.startswith("win") else ("macos" if sys.platform == "darwin" else ("android" if "ANDROID_ROOT" in os.environ else "linux"))
-
 # --- core.limits ---
 """Topes compartidos por varios módulos: tamaño de las peticiones HTTP, rutas, comandos y nombres JSON-RPC."""
 
@@ -96,6 +89,321 @@ def timestamp_message(message: str) -> str:
 def log_event(message: str):
     """Registra en consola un evento con la hora local."""
     console_log(timestamp_message(message))
+
+# --- core.environment ---
+"""Entorno de ejecución: sistema operativo, directorios de datos y de desarrollo y entorno virtual."""
+
+
+
+
+DETECTED_OS = "windows" if sys.platform.startswith("win") else ("macos" if sys.platform == "darwin" else ("android" if "ANDROID_ROOT" in os.environ else "linux"))
+DEFAULT_PORT = 6388
+DEFAULT_HOST = "127.0.0.1"
+NOTICES: list[str] = []
+NOTICES_LOCK = threading.Lock()
+
+
+@functools.lru_cache(maxsize=1)
+def get_dev_root() -> Path | None:
+    """
+    Detecta si zerochat.py se está ejecutando en el directorio de desarrollo del repositorio.
+    Comprueba si existen zerochat.html, js/ y css/ en el directorio del script o en cwd.
+    Se calcula una vez, al arrancar: la interfaz servida no depende del proyecto de cada pestaña.
+    """
+    script_dir = Path(__file__).resolve().parent
+    cwd = Path.cwd().resolve()
+    for candidate in (script_dir, cwd):
+        if (candidate / "zerochat.html").is_file() and (candidate / "js").is_dir() and (candidate / "css").is_dir():
+            return candidate
+    return None
+
+
+def get_static_root() -> Path | None:
+    """La interfaz local solo se sirve al ejecutar el repositorio de desarrollo."""
+    return get_dev_root()
+
+
+def get_data_dir() -> Path:
+    """Devuelve el directorio local que concentra el estado y los MCP de ZeroChat."""
+    configured = os.environ.get("ZEROCHAT_DATA_DIR", "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return (Path.home() / "zerochat").resolve()
+
+
+def get_venv_dir() -> Path:
+    """Devuelve el entorno aislado usado exclusivamente por los MCP Python."""
+    return get_data_dir() / ".venv"
+
+
+def reset_notices():
+    """Reinicia los avisos transitorios de la ejecución actual."""
+    with NOTICES_LOCK:
+        NOTICES.clear()
+
+
+def add_notice(message: str):
+    """Añade un aviso para la consola interactiva de la ejecución actual."""
+    if not isinstance(message, str) or not message.strip():
+        raise ValueError("El aviso debe ser texto no vacío")
+    with NOTICES_LOCK:
+        NOTICES.append(message.strip())
+
+
+def get_notices() -> tuple[str, ...]:
+    """Devuelve una instantánea inmutable de los avisos actuales."""
+    with NOTICES_LOCK:
+        return tuple(NOTICES)
+
+
+def _write_private_text(target: Path, text: str):
+    """Escribe un secreto con permisos 0o600 desde su creación y lo sustituye de una vez."""
+    tmp_file = target.with_name(f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp_file.unlink(missing_ok=True)
+    fd = os.open(tmp_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+    tmp_file.replace(target)
+
+
+ACTIVE_PORT = DEFAULT_PORT
+ACTIVE_HOST = DEFAULT_HOST
+
+
+def get_venv_python(venv_dir: Path) -> Path:
+    """Devuelve el ejecutable de Python del entorno virtual según el SO."""
+    if sys.platform.startswith("win"):
+        return venv_dir / "Scripts" / "python.exe"
+    return venv_dir / "bin" / "python"
+
+
+def ensure_virtual_environment():
+    """
+    Crea ~/zerochat/.venv para dependencias MCP en ambos modos de distribución.
+    El servidor conserva el intérprete con el que fue iniciado; el entorno se usa
+    exclusivamente al lanzar procesos MCP Python.
+    """
+    venv_dir = get_venv_dir()
+    if get_venv_python(venv_dir).exists():
+        return
+    log_event(f"[zerochat] Inicializando entorno virtual en {venv_dir}...")
+    try:
+        venv.create(venv_dir, with_pip=True, clear=False)
+        log_event("[zerochat] Entorno virtual preparado con éxito.")
+    except Exception as err:
+        log_event(f"[zerochat] Advertencia al crear venv: {err}. Continuando con intérprete actual.")
+
+# --- auth.tokens ---
+"""Token diario de sesión: se guarda en los datos del usuario, caduca al cambiar el día y avisa a quien guarda lo que vale solo para su sesión."""
+
+
+
+
+
+def get_daily_token() -> str:
+    """Devuelve un token de sesión diario persistido en ~/zerochat/config/token.json."""
+    config_dir = get_data_dir() / "config"
+    config_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    token_file = config_dir / "token.json"
+    if os.name != "nt":
+        # Corrige también directorios y tokens creados por versiones anteriores con la umask.
+        config_dir.chmod(0o700)
+        if token_file.exists():
+            token_file.chmod(0o600)
+    today = datetime.date.today().isoformat()
+    if token_file.exists():
+        try:
+            data = json.loads(token_file.read_text(encoding="utf-8"))
+            if data.get("date") == today and data.get("token") and isinstance(data["token"], str):
+                return data["token"]
+        except (OSError, json.JSONDecodeError):
+            pass
+    token = secrets.token_urlsafe(32)
+    try:
+        _write_private_text(token_file, json.dumps({"token": token, "date": today}, indent=2))
+    except OSError as err:
+        log_event(f"[zerochat] Advertencia: no se pudo guardar el token diario en {token_file}: {err}")
+    return token
+
+
+# Lo que caduca con cada token (las autorizaciones de sesión): lo registran las capas que lo guardan.
+TOKEN_ROTATION_HOOKS: list = []
+
+
+def on_token_rotation(hook):
+    """Registra una función que se llama, sin argumentos, cada vez que se carga un token nuevo."""
+    TOKEN_ROTATION_HOOKS.append(hook)
+    return hook
+
+
+# Token de sesión en memoria y su día; main() lo carga al arrancar y current_session_token() lo renueva.
+SESSION_TOKEN = ""
+SESSION_TOKEN_DATE = ""
+SESSION_TOKEN_LOCK = threading.Lock()
+
+
+def current_session_token() -> str:
+    """
+    Token diario vigente: al cambiar el día carga o genera el nuevo, también con el servidor en marcha.
+    Cada token abre una sesión: al cargarlo se olvidan, bajo el mismo cerrojo, las autorizaciones de sesión.
+    """
+    global SESSION_TOKEN, SESSION_TOKEN_DATE
+    today = datetime.date.today().isoformat()
+    with SESSION_TOKEN_LOCK:
+        if SESSION_TOKEN_DATE != today:
+            SESSION_TOKEN = get_daily_token()
+            SESSION_TOKEN_DATE = today
+            for hook in TOKEN_ROTATION_HOOKS:
+                hook()
+        return SESSION_TOKEN
+
+# --- auth.login ---
+"""Identificación con la cuenta del sistema que ejecuta zerochat (PAM o LogonUserW) para obtener el token diario."""
+
+
+
+
+
+# Tras LOGIN_MAX_FAILURES fallos seguidos, los intentos se rechazan sin comprobarlos durante el bloqueo.
+LOGIN_MAX_FAILURES = 5
+LOGIN_LOCKOUT_SECONDS = 900.0
+LOGIN_MAX_FIELD_LENGTH = 512
+# Sin token solo se lee un cuerpo de este tamaño, el justo para zerochat/login.
+LOGIN_MAX_BODY_BYTES = 4096
+LOGIN_FAILED_CODE = -32001
+LOGIN_LOCKED_CODE = -32002
+LOGIN_PAM_SERVICE = "login"
+LOGIN_LOCK = threading.Lock()
+LOGIN_FAILURES = 0
+LOGIN_LOCKED_UNTIL = 0.0
+
+
+class LoginError(Exception):
+    """Identificación rechazada: `code` es el error JSON-RPC y `data`, lo que necesita la interfaz."""
+    def __init__(self, code: int, message: str, data: dict | None = None):
+        super().__init__(message)
+        self.code = code
+        self.data = data
+
+
+def system_account() -> str:
+    """Cuenta que ejecuta zerochat.py, la única que puede identificarse."""
+    if os.name == "nt":
+        return getpass.getuser()
+    import pwd
+    return pwd.getpwuid(os.getuid()).pw_name
+
+
+def _pam_authenticate(user: str, password: str) -> bool:
+    """PAM en Linux y macOS: un proceso sin privilegios comprueba su propia cuenta (unix_chkpwd en Linux)."""
+    libpam_path = ctypes.util.find_library("pam")
+    if not libpam_path:
+        raise RuntimeError("PAM no está disponible en este sistema.")
+    libpam = ctypes.CDLL(libpam_path)
+    libc = ctypes.CDLL(ctypes.util.find_library("c"))
+    libc.calloc.restype = ctypes.c_void_p
+    libc.calloc.argtypes = [ctypes.c_size_t, ctypes.c_size_t]
+    libc.strdup.restype = ctypes.c_void_p
+    libc.strdup.argtypes = [ctypes.c_char_p]
+
+    class PamMessage(ctypes.Structure):
+        _fields_ = [("msg_style", ctypes.c_int), ("msg", ctypes.c_char_p)]
+
+    class PamResponse(ctypes.Structure):
+        _fields_ = [("resp", ctypes.c_void_p), ("resp_retcode", ctypes.c_int)]
+
+    conv_func = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.POINTER(PamMessage)),
+                                 ctypes.POINTER(ctypes.POINTER(PamResponse)), ctypes.c_void_p)
+
+    class PamConv(ctypes.Structure):
+        _fields_ = [("conv", conv_func), ("appdata_ptr", ctypes.c_void_p)]
+
+    login_name = user.encode("utf-8")
+    secret = password.encode("utf-8")
+
+    def conversation(count, messages, response, _appdata):
+        # PAM libera las respuestas: se reservan con la libc, no con Python.
+        replies = libc.calloc(count, ctypes.sizeof(PamResponse))
+        if not replies:
+            return 5  # PAM_BUF_ERR
+        array = ctypes.cast(replies, ctypes.POINTER(PamResponse))
+        for index in range(count):
+            style = messages[index].contents.msg_style
+            if style == 1:  # PAM_PROMPT_ECHO_OFF: la contraseña
+                array[index].resp = libc.strdup(secret)
+            elif style == 2:  # PAM_PROMPT_ECHO_ON: el usuario
+                array[index].resp = libc.strdup(login_name)
+        response[0] = array
+        return 0
+
+    libpam.pam_start.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(PamConv), ctypes.POINTER(ctypes.c_void_p)]
+    libpam.pam_authenticate.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    libpam.pam_acct_mgmt.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    libpam.pam_end.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    callback = conv_func(conversation)
+    conv = PamConv(callback, None)
+    handle = ctypes.c_void_p()
+    status = libpam.pam_start(LOGIN_PAM_SERVICE.encode("ascii"), login_name, ctypes.byref(conv), ctypes.byref(handle))
+    if status != 0:
+        raise RuntimeError(f"PAM no pudo iniciarse (código {status}).")
+    try:
+        status = libpam.pam_authenticate(handle, 0)
+        if status == 0:
+            # Una cuenta caducada o bloqueada no se identifica aunque la contraseña sea correcta.
+            status = libpam.pam_acct_mgmt(handle, 0)
+    finally:
+        libpam.pam_end(handle, status)
+    return status == 0
+
+
+def _windows_logon(user: str, password: str) -> bool:
+    """LogonUserW de advapi32 con un inicio de sesión de red, que comprueba la contraseña sin cargar el perfil."""
+    from ctypes import wintypes
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    advapi32.LogonUserW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
+    advapi32.LogonUserW.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    token = wintypes.HANDLE()
+    # LOGON32_LOGON_NETWORK (3) y LOGON32_PROVIDER_DEFAULT (0).
+    if not advapi32.LogonUserW(user, None, password, 3, 0, ctypes.byref(token)):
+        return False
+    kernel32.CloseHandle(token)
+    return True
+
+
+def check_system_password(user: str, password: str) -> bool:
+    """Comprueba la contraseña de una cuenta del sistema."""
+    return _windows_logon(user, password) if os.name == "nt" else _pam_authenticate(user, password)
+
+
+def login(params: dict) -> dict:
+    """
+    zerochat/login: con la cuenta que ejecuta zerochat.py y su contraseña devuelve el token diario.
+    Tras LOGIN_MAX_FAILURES fallos seguidos rechaza los intentos sin comprobarlos durante
+    LOGIN_LOCKOUT_SECONDS; los intentos van de uno en uno.
+    """
+    global LOGIN_FAILURES, LOGIN_LOCKED_UNTIL
+    user = params.get("user")
+    password = params.get("password")
+    if not all(isinstance(value, str) and 0 < len(value) <= LOGIN_MAX_FIELD_LENGTH for value in (user, password)):
+        raise LoginError(-32602, f"user y password deben ser textos de 1 a {LOGIN_MAX_FIELD_LENGTH} caracteres.")
+    with LOGIN_LOCK:
+        remaining = LOGIN_LOCKED_UNTIL - time.monotonic()
+        if remaining > 0:
+            raise LoginError(LOGIN_LOCKED_CODE, "Demasiados intentos fallidos: espera para volver a intentarlo.", {"retryAfter": math.ceil(remaining)})
+        account = system_account()
+        same_account = user.casefold() == account.casefold() if os.name == "nt" else user == account
+        # La contraseña se comprueba también con otro usuario, para que la respuesta no delate la cuenta.
+        valid = check_system_password(account, password)
+        if not (valid and same_account):
+            LOGIN_FAILURES += 1
+            if LOGIN_FAILURES >= LOGIN_MAX_FAILURES:
+                LOGIN_FAILURES = 0
+                LOGIN_LOCKED_UNTIL = time.monotonic() + LOGIN_LOCKOUT_SECONDS
+            raise LoginError(LOGIN_FAILED_CODE, "Usuario o contraseña incorrectos.")
+        LOGIN_FAILURES = 0
+    return {"token": current_session_token()}
 
 # --- core.process ---
 """Procesos del sistema: si siguen vivos, su huella de arranque y la terminación de su árbol."""
@@ -226,6 +534,7 @@ def _pid_alive(pid: int) -> bool:
 
 
 
+
 SOURCE_BACKEND_VERSION = "10.14.0"
 
 
@@ -279,11 +588,79 @@ UI_VERSION = _read_ui_version()
 DEFAULT_UI_URL = "https://albalday.github.io/zerochat/zerochat.html"
 REMOTE_SCRIPT_URL = "https://raw.githubusercontent.com/albalday/zerochat/master/zerochat.py"
 
-DEFAULT_PORT = 6388
-DEFAULT_HOST = "127.0.0.1"
+
+def parse_version(ver: str) -> tuple[int, ...]:
+    """Convierte una cadena de versión semántica en tupla de enteros para comparación."""
+    parts = []
+    for piece in ver.split("."):
+        clean = "".join(filter(str.isdigit, piece))
+        if clean:
+            parts.append(int(clean))
+    return tuple(parts)
+
+
+def _read_remote_content(url: str) -> str:
+    """Lee una cabecera acotada de un recurso publicado de ZeroChat."""
+    req = urllib.request.Request(url, headers={"User-Agent": f"ZeroChat/{VERSION}"})
+    with urllib.request.urlopen(req, timeout=3) as resp:
+        return resp.read(4096).decode("utf-8", errors="ignore")
+
+
+def _read_remote_ui_version() -> str | None:
+    """Extrae la versión del título de la interfaz servida por GitHub Pages."""
+    content = _read_remote_content(DEFAULT_UI_URL)
+    match = re.search(r"<title>\s*ZeroChat\s+v(\d+\.\d+\.\d+)\s*</title>", content, re.IGNORECASE)
+    return match.group(1) if match else None
+
+
+def _read_remote_backend_version() -> str | None:
+    """Extrae la versión estática del ejecutable publicado en GitHub."""
+    content = _read_remote_content(REMOTE_SCRIPT_URL)
+    match = re.search(r'^SOURCE_BACKEND_VERSION\s*=\s*["\'](\d+\.\d+\.\d+)["\']', content, re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def has_new_backend_version(remote_version: str, local_version: str = VERSION) -> bool:
+    """Compara solo major.minor: los parches pertenecen a la interfaz web."""
+    return parse_version(compatibility_version(remote_version)) > parse_version(compatibility_version(local_version))
+
+
+def check_version():
+    """Informa de la versión de Pages y de actualizaciones del ejecutable."""
+    if get_dev_root() is not None:
+        return
+    try:
+        installed = is_installed_runtime()
+        remote_ui_version = _read_remote_ui_version()
+        if remote_ui_version:
+            notice = f"Interfaz web en GitHub Pages: v{remote_ui_version}."
+            if remote_ui_version != UI_VERSION:
+                notice += f" El ejecutable incluye la referencia v{UI_VERSION}; la interfaz remota se cargará al abrir el navegador."
+            add_notice(notice)
+
+        remote_backend_version = _read_remote_backend_version()
+        if remote_backend_version and has_new_backend_version(remote_backend_version):
+            notice = f"Nueva versión del servidor disponible (local: {VERSION}, remota: {compatibility_version(remote_backend_version)})."
+            if installed:
+                notice += f" Actualiza cuando quieras con: {sys.executable} -m pip install --upgrade --no-cache-dir zerochat"
+            else:
+                notice += f" Actualiza con: curl -sSL {REMOTE_SCRIPT_URL} -o zerochat.py"
+            add_notice(notice)
+    except (urllib.error.URLError, TimeoutError, OSError):
+        # Modo offline o sin conectividad al comprobar versiones remotas.
+        pass
+
+
+def is_installed_runtime() -> bool:
+    """Identifica el ejecutable instalado desde PyPI, sin confundirlo con el repositorio."""
+    if get_dev_root() is not None:
+        return False
+    try:
+        return importlib.metadata.version("zerochat") == BACKEND_PACKAGE_VERSION
+    except importlib.metadata.PackageNotFoundError:
+        return False
+
 CONSOLE_STATUS_IDLE_SECONDS = 8.0
-NOTICES: list[str] = []
-NOTICES_LOCK = threading.Lock()
 
 class ConsoleControl:
     """Muestra una sola línea de ayuda tras un periodo de inactividad en consola."""
@@ -375,212 +752,6 @@ class ConsoleControl:
             if not line:
                 return
             self._handle_command(line)
-
-@functools.lru_cache(maxsize=1)
-def get_dev_root() -> Path | None:
-    """
-    Detecta si zerochat.py se está ejecutando en el directorio de desarrollo del repositorio.
-    Comprueba si existen zerochat.html, js/ y css/ en el directorio del script o en cwd.
-    Se calcula una vez, al arrancar: la interfaz servida no depende del proyecto de cada pestaña.
-    """
-    script_dir = Path(__file__).resolve().parent
-    cwd = Path.cwd().resolve()
-    for candidate in (script_dir, cwd):
-        if (candidate / "zerochat.html").is_file() and (candidate / "js").is_dir() and (candidate / "css").is_dir():
-            return candidate
-    return None
-
-
-def get_static_root() -> Path | None:
-    """La interfaz local solo se sirve al ejecutar el repositorio de desarrollo."""
-    return get_dev_root()
-
-
-def is_installed_runtime() -> bool:
-    """Identifica el ejecutable instalado desde PyPI, sin confundirlo con el repositorio."""
-    if get_dev_root() is not None:
-        return False
-    try:
-        return importlib.metadata.version("zerochat") == BACKEND_PACKAGE_VERSION
-    except importlib.metadata.PackageNotFoundError:
-        return False
-
-
-def get_data_dir() -> Path:
-    """Devuelve el directorio local que concentra el estado y los MCP de ZeroChat."""
-    configured = os.environ.get("ZEROCHAT_DATA_DIR", "").strip()
-    if configured:
-        return Path(configured).expanduser().resolve()
-    return (Path.home() / "zerochat").resolve()
-
-
-def get_venv_dir() -> Path:
-    """Devuelve el entorno aislado usado exclusivamente por los MCP Python."""
-    return get_data_dir() / ".venv"
-
-
-def reset_notices():
-    """Reinicia los avisos transitorios de la ejecución actual."""
-    with NOTICES_LOCK:
-        NOTICES.clear()
-
-
-def add_notice(message: str):
-    """Añade un aviso para la consola interactiva de la ejecución actual."""
-    if not isinstance(message, str) or not message.strip():
-        raise ValueError("El aviso debe ser texto no vacío")
-    with NOTICES_LOCK:
-        NOTICES.append(message.strip())
-
-
-def get_notices() -> tuple[str, ...]:
-    """Devuelve una instantánea inmutable de los avisos actuales."""
-    with NOTICES_LOCK:
-        return tuple(NOTICES)
-
-
-def _write_private_text(target: Path, text: str):
-    """Escribe un secreto con permisos 0o600 desde su creación y lo sustituye de una vez."""
-    tmp_file = target.with_name(f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-    tmp_file.unlink(missing_ok=True)
-    fd = os.open(tmp_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(text)
-    tmp_file.replace(target)
-
-
-def get_daily_token() -> str:
-    """Devuelve un token de sesión diario persistido en ~/zerochat/config/token.json."""
-    config_dir = get_data_dir() / "config"
-    config_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    token_file = config_dir / "token.json"
-    if os.name != "nt":
-        # Corrige también directorios y tokens creados por versiones anteriores con la umask.
-        config_dir.chmod(0o700)
-        if token_file.exists():
-            token_file.chmod(0o600)
-    today = datetime.date.today().isoformat()
-    if token_file.exists():
-        try:
-            data = json.loads(token_file.read_text(encoding="utf-8"))
-            if data.get("date") == today and data.get("token") and isinstance(data["token"], str):
-                return data["token"]
-        except (OSError, json.JSONDecodeError):
-            pass
-    token = secrets.token_urlsafe(32)
-    try:
-        _write_private_text(token_file, json.dumps({"token": token, "date": today}, indent=2))
-    except OSError as err:
-        log_event(f"[zerochat] Advertencia: no se pudo guardar el token diario en {token_file}: {err}")
-    return token
-
-
-# Token de sesión en memoria y su día; main() lo carga al arrancar y current_session_token() lo renueva.
-SESSION_TOKEN = ""
-SESSION_TOKEN_DATE = ""
-SESSION_TOKEN_LOCK = threading.Lock()
-
-
-def current_session_token() -> str:
-    """
-    Token diario vigente: al cambiar el día carga o genera el nuevo, también con el servidor en marcha.
-    Cada token abre una sesión: al cargarlo se olvidan, bajo el mismo cerrojo, las autorizaciones de sesión.
-    """
-    global SESSION_TOKEN, SESSION_TOKEN_DATE
-    today = datetime.date.today().isoformat()
-    with SESSION_TOKEN_LOCK:
-        if SESSION_TOKEN_DATE != today:
-            SESSION_TOKEN = get_daily_token()
-            SESSION_TOKEN_DATE = today
-            reset_session_authorizations()
-        return SESSION_TOKEN
-ACTIVE_PORT = DEFAULT_PORT
-ACTIVE_HOST = DEFAULT_HOST
-
-
-def get_venv_python(venv_dir: Path) -> Path:
-    """Devuelve el ejecutable de Python del entorno virtual según el SO."""
-    if sys.platform.startswith("win"):
-        return venv_dir / "Scripts" / "python.exe"
-    return venv_dir / "bin" / "python"
-
-
-def ensure_virtual_environment():
-    """
-    Crea ~/zerochat/.venv para dependencias MCP en ambos modos de distribución.
-    El servidor conserva el intérprete con el que fue iniciado; el entorno se usa
-    exclusivamente al lanzar procesos MCP Python.
-    """
-    venv_dir = get_venv_dir()
-    if get_venv_python(venv_dir).exists():
-        return
-    log_event(f"[zerochat] Inicializando entorno virtual en {venv_dir}...")
-    try:
-        venv.create(venv_dir, with_pip=True, clear=False)
-        log_event("[zerochat] Entorno virtual preparado con éxito.")
-    except Exception as err:
-        log_event(f"[zerochat] Advertencia al crear venv: {err}. Continuando con intérprete actual.")
-
-def parse_version(ver: str) -> tuple[int, ...]:
-    """Convierte una cadena de versión semántica en tupla de enteros para comparación."""
-    parts = []
-    for piece in ver.split("."):
-        clean = "".join(filter(str.isdigit, piece))
-        if clean:
-            parts.append(int(clean))
-    return tuple(parts)
-
-
-def _read_remote_content(url: str) -> str:
-    """Lee una cabecera acotada de un recurso publicado de ZeroChat."""
-    req = urllib.request.Request(url, headers={"User-Agent": f"ZeroChat/{VERSION}"})
-    with urllib.request.urlopen(req, timeout=3) as resp:
-        return resp.read(4096).decode("utf-8", errors="ignore")
-
-
-def _read_remote_ui_version() -> str | None:
-    """Extrae la versión del título de la interfaz servida por GitHub Pages."""
-    content = _read_remote_content(DEFAULT_UI_URL)
-    match = re.search(r"<title>\s*ZeroChat\s+v(\d+\.\d+\.\d+)\s*</title>", content, re.IGNORECASE)
-    return match.group(1) if match else None
-
-
-def _read_remote_backend_version() -> str | None:
-    """Extrae la versión estática del ejecutable publicado en GitHub."""
-    content = _read_remote_content(REMOTE_SCRIPT_URL)
-    match = re.search(r'^SOURCE_BACKEND_VERSION\s*=\s*["\'](\d+\.\d+\.\d+)["\']', content, re.MULTILINE)
-    return match.group(1) if match else None
-
-
-def has_new_backend_version(remote_version: str, local_version: str = VERSION) -> bool:
-    """Compara solo major.minor: los parches pertenecen a la interfaz web."""
-    return parse_version(compatibility_version(remote_version)) > parse_version(compatibility_version(local_version))
-
-
-def check_version():
-    """Informa de la versión de Pages y de actualizaciones del ejecutable."""
-    if get_dev_root() is not None:
-        return
-    try:
-        installed = is_installed_runtime()
-        remote_ui_version = _read_remote_ui_version()
-        if remote_ui_version:
-            notice = f"Interfaz web en GitHub Pages: v{remote_ui_version}."
-            if remote_ui_version != UI_VERSION:
-                notice += f" El ejecutable incluye la referencia v{UI_VERSION}; la interfaz remota se cargará al abrir el navegador."
-            add_notice(notice)
-
-        remote_backend_version = _read_remote_backend_version()
-        if remote_backend_version and has_new_backend_version(remote_backend_version):
-            notice = f"Nueva versión del servidor disponible (local: {VERSION}, remota: {compatibility_version(remote_backend_version)})."
-            if installed:
-                notice += f" Actualiza cuando quieras con: {sys.executable} -m pip install --upgrade --no-cache-dir zerochat"
-            else:
-                notice += f" Actualiza con: curl -sSL {REMOTE_SCRIPT_URL} -o zerochat.py"
-            add_notice(notice)
-    except (urllib.error.URLError, TimeoutError, OSError):
-        # Modo offline o sin conectividad al comprobar versiones remotas.
-        pass
 
 # ==============================================================================
 # Ejecución de comandos y tareas en segundo plano
@@ -4169,151 +4340,6 @@ class BrowserEngines:
 
 
 BROWSER_ENGINES = BrowserEngines()
-
-# ==============================================================================
-# Identificación con el usuario y la contraseña del sistema (zerochat/login)
-# ==============================================================================
-
-# Tras LOGIN_MAX_FAILURES fallos seguidos, los intentos se rechazan sin comprobarlos durante el bloqueo.
-LOGIN_MAX_FAILURES = 5
-LOGIN_LOCKOUT_SECONDS = 900.0
-LOGIN_MAX_FIELD_LENGTH = 512
-# Sin token solo se lee un cuerpo de este tamaño, el justo para zerochat/login.
-LOGIN_MAX_BODY_BYTES = 4096
-LOGIN_FAILED_CODE = -32001
-LOGIN_LOCKED_CODE = -32002
-LOGIN_PAM_SERVICE = "login"
-LOGIN_LOCK = threading.Lock()
-LOGIN_FAILURES = 0
-LOGIN_LOCKED_UNTIL = 0.0
-
-
-class LoginError(Exception):
-    """Identificación rechazada: `code` es el error JSON-RPC y `data`, lo que necesita la interfaz."""
-    def __init__(self, code: int, message: str, data: dict | None = None):
-        super().__init__(message)
-        self.code = code
-        self.data = data
-
-
-def system_account() -> str:
-    """Cuenta que ejecuta zerochat.py, la única que puede identificarse."""
-    if os.name == "nt":
-        return getpass.getuser()
-    import pwd
-    return pwd.getpwuid(os.getuid()).pw_name
-
-
-def _pam_authenticate(user: str, password: str) -> bool:
-    """PAM en Linux y macOS: un proceso sin privilegios comprueba su propia cuenta (unix_chkpwd en Linux)."""
-    libpam_path = ctypes.util.find_library("pam")
-    if not libpam_path:
-        raise RuntimeError("PAM no está disponible en este sistema.")
-    libpam = ctypes.CDLL(libpam_path)
-    libc = ctypes.CDLL(ctypes.util.find_library("c"))
-    libc.calloc.restype = ctypes.c_void_p
-    libc.calloc.argtypes = [ctypes.c_size_t, ctypes.c_size_t]
-    libc.strdup.restype = ctypes.c_void_p
-    libc.strdup.argtypes = [ctypes.c_char_p]
-
-    class PamMessage(ctypes.Structure):
-        _fields_ = [("msg_style", ctypes.c_int), ("msg", ctypes.c_char_p)]
-
-    class PamResponse(ctypes.Structure):
-        _fields_ = [("resp", ctypes.c_void_p), ("resp_retcode", ctypes.c_int)]
-
-    conv_func = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.POINTER(PamMessage)),
-                                 ctypes.POINTER(ctypes.POINTER(PamResponse)), ctypes.c_void_p)
-
-    class PamConv(ctypes.Structure):
-        _fields_ = [("conv", conv_func), ("appdata_ptr", ctypes.c_void_p)]
-
-    login_name = user.encode("utf-8")
-    secret = password.encode("utf-8")
-
-    def conversation(count, messages, response, _appdata):
-        # PAM libera las respuestas: se reservan con la libc, no con Python.
-        replies = libc.calloc(count, ctypes.sizeof(PamResponse))
-        if not replies:
-            return 5  # PAM_BUF_ERR
-        array = ctypes.cast(replies, ctypes.POINTER(PamResponse))
-        for index in range(count):
-            style = messages[index].contents.msg_style
-            if style == 1:  # PAM_PROMPT_ECHO_OFF: la contraseña
-                array[index].resp = libc.strdup(secret)
-            elif style == 2:  # PAM_PROMPT_ECHO_ON: el usuario
-                array[index].resp = libc.strdup(login_name)
-        response[0] = array
-        return 0
-
-    libpam.pam_start.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(PamConv), ctypes.POINTER(ctypes.c_void_p)]
-    libpam.pam_authenticate.argtypes = [ctypes.c_void_p, ctypes.c_int]
-    libpam.pam_acct_mgmt.argtypes = [ctypes.c_void_p, ctypes.c_int]
-    libpam.pam_end.argtypes = [ctypes.c_void_p, ctypes.c_int]
-    callback = conv_func(conversation)
-    conv = PamConv(callback, None)
-    handle = ctypes.c_void_p()
-    status = libpam.pam_start(LOGIN_PAM_SERVICE.encode("ascii"), login_name, ctypes.byref(conv), ctypes.byref(handle))
-    if status != 0:
-        raise RuntimeError(f"PAM no pudo iniciarse (código {status}).")
-    try:
-        status = libpam.pam_authenticate(handle, 0)
-        if status == 0:
-            # Una cuenta caducada o bloqueada no se identifica aunque la contraseña sea correcta.
-            status = libpam.pam_acct_mgmt(handle, 0)
-    finally:
-        libpam.pam_end(handle, status)
-    return status == 0
-
-
-def _windows_logon(user: str, password: str) -> bool:
-    """LogonUserW de advapi32 con un inicio de sesión de red, que comprueba la contraseña sin cargar el perfil."""
-    from ctypes import wintypes
-    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    advapi32.LogonUserW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
-    advapi32.LogonUserW.restype = wintypes.BOOL
-    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-    token = wintypes.HANDLE()
-    # LOGON32_LOGON_NETWORK (3) y LOGON32_PROVIDER_DEFAULT (0).
-    if not advapi32.LogonUserW(user, None, password, 3, 0, ctypes.byref(token)):
-        return False
-    kernel32.CloseHandle(token)
-    return True
-
-
-def check_system_password(user: str, password: str) -> bool:
-    """Comprueba la contraseña de una cuenta del sistema."""
-    return _windows_logon(user, password) if os.name == "nt" else _pam_authenticate(user, password)
-
-
-def login(params: dict) -> dict:
-    """
-    zerochat/login: con la cuenta que ejecuta zerochat.py y su contraseña devuelve el token diario.
-    Tras LOGIN_MAX_FAILURES fallos seguidos rechaza los intentos sin comprobarlos durante
-    LOGIN_LOCKOUT_SECONDS; los intentos van de uno en uno.
-    """
-    global LOGIN_FAILURES, LOGIN_LOCKED_UNTIL
-    user = params.get("user")
-    password = params.get("password")
-    if not all(isinstance(value, str) and 0 < len(value) <= LOGIN_MAX_FIELD_LENGTH for value in (user, password)):
-        raise LoginError(-32602, f"user y password deben ser textos de 1 a {LOGIN_MAX_FIELD_LENGTH} caracteres.")
-    with LOGIN_LOCK:
-        remaining = LOGIN_LOCKED_UNTIL - time.monotonic()
-        if remaining > 0:
-            raise LoginError(LOGIN_LOCKED_CODE, "Demasiados intentos fallidos: espera para volver a intentarlo.", {"retryAfter": math.ceil(remaining)})
-        account = system_account()
-        same_account = user.casefold() == account.casefold() if os.name == "nt" else user == account
-        # La contraseña se comprueba también con otro usuario, para que la respuesta no delate la cuenta.
-        valid = check_system_password(account, password)
-        if not (valid and same_account):
-            LOGIN_FAILURES += 1
-            if LOGIN_FAILURES >= LOGIN_MAX_FAILURES:
-                LOGIN_FAILURES = 0
-                LOGIN_LOCKED_UNTIL = time.monotonic() + LOGIN_LOCKOUT_SECONDS
-            raise LoginError(LOGIN_FAILED_CODE, "Usuario o contraseña incorrectos.")
-        LOGIN_FAILURES = 0
-    return {"token": current_session_token()}
 
 # ==============================================================================
 # Servidor HTTP JSON-RPC 2.0 y SSE con Autenticación por Token
@@ -7907,6 +7933,7 @@ def prepare_environment(args, is_dev: bool):
         threading.Thread(target=check_version, daemon=True).start()
 
 
+@on_token_rotation
 def reset_session_authorizations():
     """Borra las autorizaciones de sesión y los retos pendientes, y vuelve a aplicar la capa de la ejecución."""
     ACCESS_CONTROLLER.clear_session()

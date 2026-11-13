@@ -1,6 +1,17 @@
-# ==============================================================================
-# Identificación con el usuario y la contraseña del sistema (zerochat/login)
-# ==============================================================================
+"""Identificación con la cuenta del sistema que ejecuta zerochat (PAM o LogonUserW) para obtener el token diario."""
+
+from __future__ import annotations
+
+import ctypes
+import ctypes.util
+import getpass
+import math
+import os
+import threading
+import time
+
+from auth.tokens import current_session_token
+
 
 # Tras LOGIN_MAX_FAILURES fallos seguidos, los intentos se rechazan sin comprobarlos durante el bloqueo.
 LOGIN_MAX_FAILURES = 5

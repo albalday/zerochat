@@ -172,6 +172,7 @@ def prepare_environment(args, is_dev: bool):
         threading.Thread(target=check_version, daemon=True).start()
 
 
+@on_token_rotation
 def reset_session_authorizations():
     """Borra las autorizaciones de sesión y los retos pendientes, y vuelve a aplicar la capa de la ejecución."""
     ACCESS_CONTROLLER.clear_session()

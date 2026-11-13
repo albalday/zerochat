@@ -85,7 +85,7 @@ test('Backend Higiene - el proceso no cambia de directorio ni lee el suyo fuera 
   // Solo se admite al arrancar: la carpeta inicial del proyecto y la detección del repositorio de desarrollo.
   const allowed = new Set([
     'py/dd-security.py:PROJECT_DIR = Path.cwd().resolve()',
-    'py/cc-environment.py:cwd = Path.cwd().resolve()'
+    'py/core/environment.py:cwd = Path.cwd().resolve()'
   ]);
   const offenders = [];
   for (const file of listPyFiles(PY_DIR)) {
