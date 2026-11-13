@@ -315,7 +315,7 @@
           </div>
           <div id="setting-proxy-key-field" class="form-field" hidden>
             <label for="setting-proxy-key"><strong data-i18n="connection_proxy_key">Clave del proxy</strong></label>
-            <input type="password" id="setting-proxy-key" autocomplete="new-password" spellcheck="false">
+            <div class="input-password-wrapper"><input type="password" id="setting-proxy-key" autocomplete="new-password" spellcheck="false"><button type="button" class="btn-toggle-visibility" aria-pressed="false" data-i18n-title="btn_toggle_key_title" title="Mostrar/Ocultar clave"><svg class="ui-icon icon-reveal" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><use href="#icon-eye"></use></svg><svg class="ui-icon icon-conceal" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><use href="#icon-eye-off"></use></svg></button></div>
           </div>
           </div>
           <div class="form-field">

@@ -82,6 +82,13 @@ test('Browser UI - Conectar pide identificarse ante un 401 y guarda el token dia
 
     // Sin token, el servidor responde 401 y se abre la identificación.
     await page.fill('#setting-proxy-key', 'clave-caddy');
+    // El ojo muestra la clave escrita y la vuelve a ocultar.
+    const eye = page.locator('#setting-proxy-key-field .btn-toggle-visibility');
+    await eye.click();
+    assert.equal(await page.getAttribute('#setting-proxy-key', 'type'), 'text');
+    assert.equal(await eye.getAttribute('aria-pressed'), 'true');
+    await eye.click();
+    assert.equal(await page.getAttribute('#setting-proxy-key', 'type'), 'password');
     await page.click('#btn-backend-connect');
     await page.waitForFunction(() => document.getElementById('login-dialog').open);
     assert.equal(await page.evaluate(() => window.ChatState.get('mcp').status), 'login_required');

@@ -1721,7 +1721,7 @@
       field_api_key_hint: 'Optional when using a local server (LM Studio / Ollama / LocalAI).',
       field_api_key_required_hint: 'Required for this provider.',
       field_api_key_free_help: 'How to get a free API key',
-      btn_toggle_key_title: 'Show/Hide API Key',
+      btn_toggle_key_title: 'Show/Hide key',
       field_model: 'Model Name',
       field_model_hint: 'Select from the server model list or type any custom name.',
       field_model_placeholder: 'Type or click Query to discover models...',

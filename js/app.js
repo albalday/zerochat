@@ -183,7 +183,6 @@
     btnCloseSettings: 'btn-close-settings',
     btnSaveSettings: 'btn-save-settings',
     btnClearAllData: 'btn-clear-all-data',
-    btnToggleKey: 'btn-toggle-key',
     profilesDialog: 'profiles-dialog',
     btnCloseProfiles: 'btn-close-profiles',
     settingProfileName: 'setting-profile-name',
@@ -810,6 +809,15 @@
   }
 
   function setupEventListeners() {
+    // Ojo de los campos de clave: muestra u oculta el texto del campo que acompaña.
+    document.addEventListener('click', event => {
+      const button = event.target.closest('.btn-toggle-visibility');
+      const input = button?.closest('.input-password-wrapper')?.querySelector('input');
+      if (!input) return;
+      const reveal = input.type === 'password';
+      input.type = reveal ? 'text' : 'password';
+      button.setAttribute('aria-pressed', String(reveal));
+    });
     UIShell.mount({
       elements,
       onDismissProfiles: () => UIProfiles.closeProfilesModal(false)

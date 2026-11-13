@@ -937,6 +937,11 @@ input.form-input:focus-visible,
   padding-right: 2.5rem;
 }
 
+.btn-toggle-visibility[aria-pressed="true"] .icon-reveal,
+.btn-toggle-visibility[aria-pressed="false"] .icon-conceal {
+  display: none;
+}
+
 .btn-toggle-visibility {
   position: absolute;
   right: 0.5rem;
