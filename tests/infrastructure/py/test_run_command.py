@@ -282,6 +282,23 @@ class BackgroundCommandTest(unittest.TestCase):
         self.assertEqual((result["status"], result["returned_because"]), ("running", "pattern_matched"))
         check(job["job_id"], stop=True)
 
+    def test_un_comando_identico_a_otro_en_marcha_no_se_relanza_y_se_indica_cual_seguir(self):
+        first = run("exec sleep 100", background=True)
+        again = run("  exec sleep 100 ", timeout_seconds=1)
+        self.assertIs(again["success"], False)
+        self.assertIn(f"already running as job_id {first['job_id']}", again["error"])
+        self.assertEqual(len(zerochat.JOBS.running(str(self.project))), 1, "No se lanza un segundo proceso")
+        # En otro proyecto es otro comando.
+        other = zerochat.SecurityContext(self.data_dir.resolve())
+        elsewhere = json.loads(zerochat.run_command("exec sleep 100", background=True, ctx=other))
+        self.assertEqual(elsewhere["status"], "running")
+        json.loads(zerochat.check_command(elsewhere["job_id"], stop=True, ctx=other))
+        # Detenido el primero, se puede lanzar de nuevo.
+        check(first["job_id"], stop=True)
+        relaunched = run("exec sleep 100", background=True)
+        self.assertEqual(relaunched["status"], "running")
+        check(relaunched["job_id"], stop=True)
+
     def test_cada_proyecto_solo_ve_y_detiene_sus_comandos(self):
         other = zerochat.SecurityContext(self.data_dir.resolve())
         alive = run("exec sleep 100", background=True)

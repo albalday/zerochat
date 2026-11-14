@@ -5759,6 +5759,16 @@ class JobManager:
         if key is not None and not (isinstance(key, str) and JOB_KEY_PATTERN.fullmatch(key)):
             key = None
         with self._lock:
+            # Relanzar lo que ya está en marcha duplica el trabajo (dos envíos a la misma cola, dos
+            # servidores en el mismo puerto): se sigue el que hay.
+            same = next((job for job in self._jobs.values()
+                         if job.status == "running" and job.project == project.key and job.command.strip() == command.strip()), None)
+            if same is not None:
+                raise ValueError(
+                    f"This command is already running as job_id {same.id} (for {int(same.elapsed())} s). Do not run it again: "
+                    f"follow it with check_command(job_id={same.id}, wait_seconds=600), or stop it first with "
+                    f"check_command(job_id={same.id}, stop=true) if you really need a new run."
+                )
             if sum(1 for job in self._jobs.values() if job.status == "running") >= MAX_RUNNING_JOBS:
                 raise ValueError(
                     f"Too many commands running ({MAX_RUNNING_JOBS}). "
