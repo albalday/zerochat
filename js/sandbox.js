@@ -166,72 +166,107 @@
     });
   }
 
+  const NODE_SANDBOX_CHILD_SCRIPT = [
+    'const vm = require("node:vm");',
+    'for (const k of ["fetch", "WebSocket", "XMLHttpRequest", "EventSource"]) { try { delete globalThis[k]; } catch { /* ignore non-configurable */ } }',
+    'function formatValue(v) {',
+    '  if (v === null) return "null";',
+    '  if (v === undefined) return "undefined";',
+    '  if (typeof v === "bigint") return v.toString();',
+    '  if (typeof v !== "object") return String(v);',
+    '  try { return JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x), 2); } catch { return String(v); }',
+    '}',
+    'const truncate = (t, m) => (t.length > m ? `${t.slice(0, m)}... [output truncated]` : t);',
+    '(async () => {',
+    '  const chunks = [];',
+    '  for await (const c of process.stdin) chunks.push(c);',
+    '  const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));',
+    '  const code = String(payload.code ?? "");',
+    '  const timeoutMs = Number(payload.timeoutMs) || 2500;',
+    '  const maxOut = Number(payload.maxOutputLength) || 30000;',
+    '  const maxLogs = Number(payload.maxLogEntries) || 200;',
+    '  const logs = [];',
+    '  const addLog = (p, args) => { if (logs.length < maxLogs) logs.push(truncate(p ? `[${p}] ${args.map(formatValue).join(" ")}` : args.map(formatValue).join(" "), maxOut)); };',
+    '  const customConsole = { log: (...a) => addLog("", a), info: (...a) => addLog("INFO", a), warn: (...a) => addLog("WARN", a), error: (...a) => addLog("ERROR", a) };',
+    '  const trimmed = code.trim();',
+    '  const isStmt = /^(?:while|for|if|let|const|var|function|class|try|throw|switch|do)\\b/.test(trimmed) || trimmed.includes(";") || trimmed.includes("\\n") || trimmed.includes("return");',
+    '  const body = isStmt ? `"use strict";\\n${trimmed}` : `"use strict"; return (${trimmed});`;',
+    '  const wrapper = /\\bawait\\b/.test(trimmed) ? `(async function() {\\n${body}\\n})()` : `(function() {\\n${body}\\n})()`;',
+    '  const sandboxContext = Object.assign(Object.create(null), { console: customConsole, Math, JSON, Date, RegExp, Array, Object, String, Number, Boolean, Symbol, BigInt, Map, Set, WeakMap, WeakSet, Promise, Error, TypeError, RangeError, SyntaxError, URIError, parseInt, parseFloat, isNaN, isFinite, encodeURI, decodeURI, encodeURIComponent, decodeURIComponent });',
+    '  const context = vm.createContext(sandboxContext);',
+    '  vm.runInContext(\'Function.prototype.constructor = function () { throw new Error("Dynamic function creation is not allowed in the sandbox."); };\', context);',
+    '  const keepAlive = setTimeout(() => {}, timeoutMs + 2000);',
+    '  try {',
+    '    const value = await Promise.resolve(new vm.Script(wrapper).runInContext(context, { timeout: timeoutMs, breakOnSigint: true }));',
+    '    process.stdout.write(JSON.stringify({ success: true, result: value !== undefined ? truncate(formatValue(value), maxOut) : (logs.length > 0 ? logs.join("\\n") : "undefined"), logs }));',
+    '  } catch (err) {',
+    '    const isTimeout = err && (err.code === "ERR_SCRIPT_EXECUTION_TIMEOUT" || /timed out/i.test(err.message || ""));',
+    '    process.stdout.write(JSON.stringify({ success: false, result: "", logs, error: isTimeout ? `Execution timed out after ${timeoutMs}ms and was terminated.` : ((err && err.message) || String(err)) }));',
+    '  } finally {',
+    '    clearTimeout(keepAlive);',
+    '  }',
+    '})();'
+  ].join('\n');
+
   function executeInNode(code, timeoutMs) {
-    const vm = require('node:vm');
-    const logs = [];
-    const formatValue = value => {
-      if (value === null) return 'null';
-      if (value === undefined) return 'undefined';
-      if (typeof value === 'bigint') return value.toString();
-      if (typeof value !== 'object') return String(value);
-      try {
-        return JSON.stringify(value, (_key, item) => (typeof item === 'bigint' ? item.toString() : item), 2);
-      } catch (_) {
-        return String(value);
-      }
-    };
-    const truncate = text => (text.length > MAX_OUTPUT_LENGTH ? `${text.slice(0, MAX_OUTPUT_LENGTH)}... [output truncated]` : text);
-    const addLog = (prefix, args) => {
-      if (logs.length >= MAX_LOG_ENTRIES) return;
-      const text = args.map(formatValue).join(' ');
-      logs.push(truncate(prefix ? `[${prefix}] ${text}` : text));
-    };
-    const customConsole = {
-      log: (...args) => { addLog('', args); },
-      info: (...args) => { addLog('INFO', args); },
-      warn: (...args) => { addLog('WARN', args); },
-      error: (...args) => { addLog('ERROR', args); }
-    };
-    const failure = error => ({ success: false, result: '', logs, error: (error && error.message) || String(error) });
-
-    const trimmed = code.trim();
-    const isStatement = /^(?:while|for|if|let|const|var|function|class|try|throw|switch|do)\b/.test(trimmed) ||
-      trimmed.includes(';') || trimmed.includes('\n') || trimmed.includes('return');
-    const body = isStatement ? `"use strict";\n${trimmed}` : `"use strict"; return (${trimmed});`;
-    const isAsync = /\bawait\b/.test(trimmed);
-    const wrapper = isAsync ? `(async function() {\n${body}\n})()` : `(function() {\n${body}\n})()`;
-
-    const sandboxContext = Object.create(null);
-    Object.assign(sandboxContext, {
-      console: customConsole,
-      Math, JSON, Date, RegExp, Array, Object, String, Number, Boolean, Symbol, BigInt,
-      Map, Set, WeakMap, WeakSet, Promise,
-      Error, TypeError, RangeError, SyntaxError, URIError,
-      parseInt, parseFloat, isNaN, isFinite,
-      encodeURI, decodeURI, encodeURIComponent, decodeURIComponent
-    });
-
-    const context = vm.createContext(sandboxContext);
-    vm.runInContext('Function.prototype.constructor = function () { throw new Error("Dynamic function creation is not allowed in the sandbox."); };', context);
-
-    let execution;
-    try {
-      const script = new vm.Script(wrapper);
-      const rawResult = script.runInContext(context, { timeout: timeoutMs, breakOnSigint: true });
-      execution = Promise.resolve(rawResult).then(
-        value => ({
-          success: true,
-          result: value !== undefined ? truncate(formatValue(value)) : (logs.length > 0 ? logs.join('\n') : 'undefined'),
-          logs
-        }),
-        failure
+    const mcpManager = globalThis.ChatMCP?.manager;
+    if (mcpManager?.isProxyConnected?.()) {
+      return mcpManager.requestExternalControl(
+        'zerochat/sandbox/execute',
+        { code, timeout_ms: timeoutMs },
+        { timeoutMs: timeoutMs + 5000 }
       );
-    } catch (err) {
-      const isTimeout = err?.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT' || /timed out/i.test(err?.message || '');
-      const errMsg = isTimeout ? `Execution timed out after ${timeoutMs}ms and was terminated.` : ((err && err.message) || String(err));
-      execution = Promise.resolve({ success: false, result: '', logs, error: errMsg });
     }
-    return withTimeout(execution, timeoutMs);
+    const { spawn } = require('node:child_process');
+    const env = process.platform === 'win32' && process.env.SYSTEMROOT
+      ? { SYSTEMROOT: process.env.SYSTEMROOT }
+      : {};
+    let child = null;
+    const execution = new Promise(resolve => {
+      child = spawn(process.execPath, ['--permission', '-e', NODE_SANDBOX_CHILD_SCRIPT], {
+        env,
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+      const stdoutChunks = [];
+      const stderrChunks = [];
+      let settled = false;
+      const finish = payload => {
+        if (settled) return;
+        settled = true;
+        resolve(payload);
+      };
+      child.stdout.on('data', chunk => stdoutChunks.push(chunk));
+      child.stderr.on('data', chunk => stderrChunks.push(chunk));
+      child.on('error', err => finish({ success: false, result: '', logs: [], error: err?.message || String(err) }));
+      child.on('close', exitCode => {
+        const raw = Buffer.concat(stdoutChunks).toString('utf8').trim();
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object' && 'success' in parsed) {
+              finish(parsed);
+              return;
+            }
+          } catch (_) { /* fall through to stderr */ }
+        }
+        const stderrText = Buffer.concat(stderrChunks).toString('utf8').trim();
+        finish({
+          success: false,
+          result: '',
+          logs: [],
+          error: stderrText || raw || `Sandbox exited with code ${exitCode}`
+        });
+      });
+      child.stdin.end(JSON.stringify({
+        code,
+        timeoutMs,
+        maxOutputLength: MAX_OUTPUT_LENGTH,
+        maxLogEntries: MAX_LOG_ENTRIES
+      }));
+    });
+    return withTimeout(execution, timeoutMs, () => {
+      try { child?.kill('SIGKILL'); } catch { /* process already exited */ }
+    });
   }
 
   function executeInIframe(code, timeoutMs) {

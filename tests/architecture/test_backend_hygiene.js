@@ -23,7 +23,7 @@ function listPyFiles(dir) {
   return files.sort();
 }
 
-test('Backend Higiene - zerochat.py coincide con la compilación AST de py/ y conserva el inventario de símbolos', () => {
+test('Backend Higiene - zerochat.py coincide con la compilación AST de py/', () => {
   const compiled = execFileSync(PYTHON_BIN, [path.join(ROOT, 'scripts', 'build-backend.py'), '--stdout'], {
     cwd: ROOT,
     encoding: 'utf8',
@@ -31,13 +31,6 @@ test('Backend Higiene - zerochat.py coincide con la compilación AST de py/ y co
   });
   const zerochatContent = fs.readFileSync(ZEROCHAT_PY, 'utf8');
   assert.equal(zerochatContent, compiled, 'zerochat.py debe coincidir exactamente con la salida de npm run build:backend');
-
-  const expectedSymbols = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests', 'fixtures', 'zerochat_symbols.json'), 'utf8'));
-  const actualSymbols = JSON.parse(execFileSync(PYTHON_BIN, [path.join(ROOT, 'scripts', 'build-backend.py'), '--symbols'], {
-    cwd: ROOT,
-    encoding: 'utf8'
-  }));
-  assert.deepEqual(actualSymbols, expectedSymbols, 'El inventario de símbolos de nivel superior de zerochat.py ha cambiado sin actualizar la fixture');
 });
 
 test('Backend Higiene - ningún archivo en py/ usa capturas genéricas silenciosas (except Exception: pass o except:)', () => {

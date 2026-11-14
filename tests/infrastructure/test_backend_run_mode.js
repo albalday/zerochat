@@ -8,7 +8,8 @@ const path = require('node:path');
 const { tokenDataDir, freePort } = require('../helpers/backend-env.js');
 
 // Modo ejecución de zerochat.py (--prompt): el arranque normal abre el navegador con xdg-open; un
-// xdg-open falso en el PATH hace de interfaz por JSON-RPC y deja en INFO lo que observó.
+// xdg-open falso en el PATH hace de interfaz por JSON-RPC y deja en INFO lo que observó. Su configuración
+// va en fake-ui.json a su lado y no en el entorno, porque el runner de Node arranca sin heredarlo.
 
 const repoRoot = path.resolve(__dirname, '../..');
 const backendPath = path.join(repoRoot, 'zerochat.py');
@@ -24,11 +25,12 @@ test.after(() => {
 });
 
 const FAKE_BROWSER = `
-import json, os, sys, time, urllib.error, urllib.parse, urllib.request
+import json, sys, time, urllib.error, urllib.parse, urllib.request
 from pathlib import Path
 url = sys.argv[-1]
 fragment = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).fragment))
-scenario = os.environ["FAKE_UI_SCENARIO"]
+config = json.loads(Path(sys.argv[0]).with_name("fake-ui.json").read_text(encoding="utf-8"))
+scenario = config["scenario"]
 info = {"url": url.split("#", 1)[0], "fragment_keys": sorted(fragment), "launcher": Path(sys.argv[0]).name, "args": sys.argv[1:-1]}
 
 def rpc(method, run_id=fragment["run"], **params):
@@ -57,7 +59,7 @@ def rpc_status(method, size, **params):
         return err.code
 
 def save():
-    Path(os.environ["FAKE_UI_INFO"]).write_text(json.dumps(info), encoding="utf-8")
+    Path(config["info"]).write_text(json.dumps(info), encoding="utf-8")
 
 info["wrong_run_id"] = rpc("zerochat/run/prompt", run_id="x" * 32).get("error", {}).get("message")
 delivered = rpc("zerochat/run/prompt")["result"]
@@ -167,6 +169,7 @@ sys.exit(0)
   }
 
   const infoPath = path.join(work, 'info.json');
+  fs.writeFileSync(path.join(binDir, 'fake-ui.json'), JSON.stringify({ scenario, info: infoPath }));
   return Promise.resolve(port === null ? null : port || freePort()).then(listenPort => new Promise(resolve => {
     const portArgs = listenPort === null ? [] : ['--port', String(listenPort)];
     const proc = spawn('python3', [script, '--no-venv', ...portArgs, '--prompt', prompt, ...args], {
@@ -176,8 +179,6 @@ sys.exit(0)
         PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
         XDG_DATA_HOME: path.join(work, 'share'),
         ZEROCHAT_DATA_DIR: dataDir,
-        FAKE_UI_SCENARIO: scenario,
-        FAKE_UI_INFO: infoPath,
         ...env
       },
       stdio: ['ignore', 'pipe', 'pipe']

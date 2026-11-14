@@ -1,6 +1,8 @@
 import email.message
 import gzip
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -60,6 +62,39 @@ class WebFetchTest(unittest.TestCase):
         bomb = gzip.compress(b"\0" * (50 * 1024 * 1024))
         data, truncated = zerochat._read_limited_body(io.BytesIO(bomb), "gzip", limit)
         self.assertEqual((len(data), truncated), (limit, True))
+
+    def test_se_siguen_web_fetch_max_redirects_redirecciones_y_una_mas_es_error(self):
+        class Chain(BaseHTTPRequestHandler):
+            # /r/<n> redirige a /r/<n-1>; /r/0 responde.
+            def do_GET(self):
+                remaining = int(self.path.rsplit("/", 1)[1])
+                if remaining:
+                    self.send_response(302)
+                    self.send_header("Location", f"/r/{remaining - 1}")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"ok")
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Chain)
+        self.addCleanup(server.server_close)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        base = f"http://127.0.0.1:{server.server_address[1]}/r"
+        limit = zerochat.WEB_FETCH_MAX_REDIRECTS
+        with patch.object(zerochat, "is_dangerous_host", return_value=False):
+            followed = zerochat.fetch_web_resource({"url": f"{base}/{limit}"})
+            refused = zerochat.fetch_web_resource({"url": f"{base}/{limit + 1}"})
+        self.assertEqual((followed["ok"], followed["text"], followed["url"]), (True, "ok", f"{base}/0"))
+        self.assertEqual((refused["ok"], refused["status"]), (False, 302))
+        self.assertIn("infinite loop", refused["error"])
 
     def test_solo_los_tipos_textuales_viajan_como_texto(self):
         # El resto (PDF, imágenes) viaja en base64.

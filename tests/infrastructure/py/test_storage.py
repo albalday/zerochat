@@ -25,8 +25,9 @@ class StorageEngineTest(unittest.TestCase):
         self.assertIn("conversations", tables)
         self.assertIn("messages", tables)
         self.assertIn("blobs", tables)
+        self.assertIn("conversation_blobs", tables)
         self.assertIn("security_policies", tables)
-        self.assertEqual(migrations, {1, 2, 3, 4, 5})
+        self.assertEqual(migrations, {1, 2, 3, 4, 5, 6})
         self.assertIn("extra_json", columns)
 
     def test_migracion_v4_aplica_a_base_existente(self):
@@ -73,11 +74,11 @@ class StorageEngineTest(unittest.TestCase):
         conn.commit()
         conn.close()
 
-        # Al abrir con zerochat.open_storage, se deben aplicar las migraciones 4 y 5 sin errores
+        # Al abrir con zerochat.open_storage, se deben aplicar las migraciones 4, 5 y 6 sin errores
         with zerochat.open_storage() as conn:
             migrations = {row["version"] for row in conn.execute("SELECT version FROM schema_migrations;").fetchall()}
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(conversations);").fetchall()}
-        self.assertEqual(migrations, {1, 2, 3, 4, 5})
+        self.assertEqual(migrations, {1, 2, 3, 4, 5, 6})
         self.assertIn("extra_json", columns)
 
         # list_conversations y save_conversation funcionan correctamente tras la migración
@@ -577,6 +578,31 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(zerochat.delete_all_conversations(), 1)
         self.assertIsNone(zerochat.get_blob(shared))
         self.assertIsNotNone(zerochat.get_blob(pending))
+
+    def test_guardar_conversacion_recoge_blobs_sin_referencia(self):
+        def blob(data):
+            return zerochat.put_blob(data, mime_type="image/png")["id"]
+
+        own, shared = blob(b"solo-en-mensaje"), blob(b"compartido-en-otra")
+        zerochat.save_conversation(
+            {"id": "conv_edit", "title": "Edit"},
+            [
+                {"id": "m1", "role": "user", "content": "con imagen", "images": [{"blobId": own, "mimeType": "image/png"}]},
+                {"id": "m2", "role": "user", "content": "compartida", "images": [{"blobId": shared, "mimeType": "image/png"}]},
+            ],
+        )
+        zerochat.save_conversation(
+            {"id": "conv_other", "title": "Other"},
+            [{"id": "m3", "role": "user", "content": "otra", "images": [{"blobId": shared, "mimeType": "image/png"}]}],
+        )
+
+        # Al guardar quitando los mensajes con imagen, desaparece el blob propio y se conserva el compartido.
+        zerochat.save_conversation(
+            {"id": "conv_edit", "title": "Edit"},
+            [{"id": "m4", "role": "user", "content": "sin imagenes"}],
+        )
+        self.assertIsNone(zerochat.get_blob(own))
+        self.assertIsNotNone(zerochat.get_blob(shared))
 
     def test_blobs_validaciones_y_limites(self):
         # Vacío o no-bytes

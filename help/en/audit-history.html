@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Review 4: Evolution according to Git · ZeroChat 10.x Docs</title>
-  <meta name="description" content="History of ZeroChat according to Git up to 10.14.0: 251 commits and 19 milestones since 9.11.0, the phases of the 10 series and which guarantees arrived with a test.">
+  <meta name="description" content="History of ZeroChat according to Git up to 10.16.0: 328 commits and 25 milestones since 9.11.0, the phases of the 10 series and which guarantees arrived with a test.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -21,7 +21,7 @@
         </div>
       </div>
       <h1>Review 4: Evolution according to Git</h1>
-      <p class="subtitle">1,495 commits in 80 days and a 10 series that changed the architecture in a week. Updated on 13 November 2026.</p>
+      <p class="subtitle">1,572 commits in 81 days and a 10 series that changed the architecture in a week. Updated on 14 November 2026.</p>
     </header>
 
     <main>
@@ -33,13 +33,13 @@
       <div class="card">
         <h2>1. Figures</h2>
         <ul>
-          <li><strong>1,495 commits</strong> between 26 August and 13 November 2026, with activity on 68 of those 80 days.</li>
-          <li><strong>251 commits since 9.11.0</strong> (<code>170ee03</code>), with 19 closed milestones (M44 to M62) and more than 20 versions: 9.11.1 to 9.11.5 and 10.0.0 to 10.14.0.</li>
-          <li><strong>Fifteen minor versions of the 10 series in seven days</strong> (7 to 13 November), all publishable on PyPI.</li>
-          <li>The pace speeds up at the end: 21, 33, 43 and 27 commits from 10 to 13 November.</li>
-          <li>Of the 251 commits, 115 declare a co-author: 95 Claude Opus 5.5, 13 Claude Fable 5.2 and 7 Claude Sonnet 5.5. The other 136 declare none.</li>
-          <li>In code, tests and scripts: 133 files changed, 14,635 lines added and 4,795 removed.</li>
-          <li>The suite went from 702 cases to 809; the backend from 4,909 to 7,995 lines.</li>
+          <li><strong>1,572 commits</strong> between 26 August and 14 November 2026, with activity on 69 of those 81 days.</li>
+          <li><strong>328 commits since 9.11.0</strong> (<code>170ee03</code>), with 25 milestones (M44 to M68) and more than 20 versions: 9.11.1 to 9.11.5 and 10.0.0 to 10.16.0.</li>
+          <li><strong>Seventeen minor versions of the 10 series in eight days</strong> (7 to 14 November), all publishable on PyPI.</li>
+          <li>The pace speeds up at the end: 21, 33, 43 and 92 commits from 10 to 13 November. The 13th holds the review of 10.14.0, its fixes, four milestones and the review of 10.15.0; the 14th, with 12, milestone M68.</li>
+          <li>Of the 328 commits, 187 declare a co-author: 165 Claude Opus 5.5, 15 Claude Fable 5.2 and 7 Claude Sonnet 5.5. The other 141 declare none.</li>
+          <li>In code, tests and scripts: 186 files changed, 20,442 lines added and 7,696 removed.</li>
+          <li>The suite went from 702 cases to 847; the backend from 4,909 to 9,188 lines and from 13 concatenated files to 31 modules in 11 packages.</li>
         </ul>
       </div>
       <div class="card">
@@ -60,6 +60,10 @@
         <p>M62 defines "session = project": the process stops changing directory, each request carries its project, and session permissions, challenges, commands and browsers are separated. Multi-user is decided to live outside the process and is only documented.</p>
         <h3>Adjusting with measurements (13 November, 10.14)</h3>
         <p>M63 measures the history with 10,000 conversations before deciding (<code>8edaade</code>), fixes the sidebar painting and synchronizes headers only; it then simplifies <code>AgentRuntime</code>, <code>ToolExecutor</code> and <code>ConversationService</code> by removing parameters and guards with no consumer.</p>
+        <h3>Audit, fixes and a backend in packages (13 November, 10.15)</h3>
+        <p>The review of 10.14.0 (<code>9d63888</code>) becomes tasks the same day. The end of M63 fixes eleven of its findings in as many commits, each with its test, and adds Windows and macOS to CI; those jobs in turn find ten failures specific to each system, fixed until CI is green (<code>2be8019</code>). M65 launches the Node runner with its permission model and bounds its download (<code>3917c5a</code>), and decides to keep <code>execute_javascript</code> on the server as a known risk. M64 reorganizes <code>py/</code> into packages with its own compiler and adds static analysis, in sixteen tasks; M66 moves three responsibilities out of <code>app.js</code> and <code>mcp.js</code>, and M67 fixes three failures of long loops and of execution in Node.</p>
+        <h3>The runner with its own credential (14 November, 10.16)</h3>
+        <p>M68 gives the Node runner its own token that only serves its run (<code>TokenGrant</code>), moves <code>execute_javascript</code> to a separate Node process with no environment or token and kills it by signal when the timeout expires, starts the runner with an empty environment and bounds the HTML parser in depth. Elsewhere, it collects unused attachments when a conversation is saved, the backend reads another module's state through functions, and <code>app.js</code> and <code>mcp.js</code> drop below a thousand lines. In the interface, each project in the history has its new-chat icon and the history takes the whole screen on mobile.</p>
       </div>
       <div class="card">
         <h2>3. Rules and tests over time</h2>
@@ -72,24 +76,24 @@
               <tr><td><code>ChatToolSecurity</code> with no local persistence</td><td>11/11 (<code>8e52e60</code>)</td><td>Already existed (<code>test_persistence_boundary.js</code>)</td><td>0 days</td><td>An earlier architecture test covered a new rule</td></tr>
               <tr><td>The process never changes directory</td><td>12/11 (<code>ee5c667</code>)</td><td>12/11 (<code>ee5c667</code>)</td><td>0 days</td><td>Rule and test in the same commit</td></tr>
               <tr><td>Cap on painted conversations per group</td><td>13/11</td><td>13/11</td><td>0 days</td><td>Born from a measurement, with its edge at 50 and 51</td></tr>
-              <tr><td>The Node sandbox isolates from the process</td><td>11/11 (<code>9685350</code>)</td><td>11/11, incomplete</td><td>Not closed</td><td>The test covers one variant of the escape and not the others (Review 1, F-01)</td></tr>
-              <tr><td><code>runner.js</code> in sync with <code>js/</code></td><td>Not written</td><td>Does not exist</td><td>Not closed</td><td>The only generated artifact with no sync test (F-04)</td></tr>
-              <tr><td>Attachments are deleted with their conversation</td><td>Not written</td><td>Does not exist</td><td>Not closed</td><td>The blob store was designed to save, not to delete (F-05)</td></tr>
-              <tr><td>Session permissions are forgotten when the token rotates</td><td>Written in <code>py/README.md</code></td><td>Only at startup</td><td>Not closed</td><td>The rotation test covers the token, not the permissions (F-12)</td></tr>
+              <tr><td><code>runner.js</code> in sync with <code>js/</code> and launched with restricted permissions</td><td>13/11 (<code>3917c5a</code>)</td><td>13/11 (<code>3917c5a</code>)</td><td>0 days</td><td>Rule and test in the same commit</td></tr>
+              <tr><td>Attachments are deleted with their conversation</td><td>13/11 (<code>bddcfac</code>)</td><td>13/11 (<code>bddcfac</code>)</td><td>0 days</td><td>In SQLite and, one commit later, in IndexedDB</td></tr>
+              <tr><td>Session permissions are forgotten when the token rotates</td><td>12/11, in <code>py/README.md</code></td><td>13/11 (<code>3383753</code>)</td><td>1 day</td><td>The test simulates the date change with the server running</td></tr>
+              <tr><td>Backend imports by name only, with no cycles or loose modules</td><td>13/11 (<code>c2ffec7</code>)</td><td>13/11 (<code>c2ffec7</code>)</td><td>0 days</td><td>The compiler and its test arrived before the first move</td></tr>
             </tbody>
           </table>
         </div>
         <p>Dates in day/month format.</p>
-        <p><strong>Interpretation:</strong> the 9.0.0 lesson holds wherever a rule is written: it arrives with its test the same day or the next. The gaps of the 10 series are mostly of a different kind. They are not rules without a test but guarantees nobody got to write down, because the feature shipped in one or two days: that the sandbox isolates, that the runner is current, that deleting frees space. The exception is the rotation of session permissions: written in the README and tested only at startup.</p>
+        <p><strong>Interpretation:</strong> the 9.0.0 lesson holds wherever a rule is written: it arrives with its test the same day or the next.</p>
       </div>
       <div class="card">
         <h2>4. What history teaches</h2>
         <ul>
           <li><strong>Specifying first pays off.</strong> M61 (permissions) and M62 (multi-session) started from a specification and recorded decisions; they are the best-covered areas of the series.</li>
           <li><strong>Measure before limiting.</strong> M63 measured with 10,000 conversations and found the bottleneck was not the assumed one: the sidebar, not the database.</li>
-          <li><strong>What ships in a day is redone within a week.</strong> The <code>Z-</code> profile prefix lasted four days; the client HMAC signature, removed in M56, still leaves traces; permission evaluation in the frontend was written and removed within the same series.</li>
-          <li><strong>Each new environment doubles the guarantees to test.</strong> The browser sandbox had its security tests; taking it to Node copied the interface, not the level of isolation.</li>
+          <li><strong>What ships in a day is redone within a week.</strong> The <code>Z-</code> profile prefix lasted four days; the client HMAC signature was removed in M56; permission evaluation in the frontend was written and removed within the same series.</li>
           <li><strong>Continuous cleanup works.</strong> M53 and M63 removed tests and code with no consumer a few days after they were written, without waiting for a great cleanup like that of 9.0.0.</li>
+          <li><strong>Testing on another system finds what reading does not.</strong> Adding Windows and macOS to CI uncovered ten failures in a day, among them one that stopped the server on Windows when checking whether a process was still alive.</li>
         </ul>
         <p><strong>Interpretation:</strong> the project has shown it can change architecture in a week without breaking the suite. The risk is no longer accumulating old debt, but speed leaving guarantees unstated in the newest parts.</p>
       </div>
@@ -113,7 +117,9 @@
               <tr><td>11/11</td><td>v10.10.0 – 10.11.0</td><td><code>161cbe7</code>, <code>d5fc8bc</code></td><td><code>execute_javascript</code> and <code>render_chart</code> in Node; frontend with no permission evaluation</td></tr>
               <tr><td>12/11</td><td>v10.12.0</td><td><code>04f6bdc</code></td><td>Integrity of the permission system</td></tr>
               <tr><td>12/11</td><td>v10.13.0</td><td><code>ddad4b9</code></td><td>Multi-session by project</td></tr>
-              <tr><td>13/11</td><td>v10.14.0</td><td><code>bc942cf</code></td><td>Bounded history and agent simplification; reviewed version</td></tr>
+              <tr><td>13/11</td><td>v10.14.0</td><td><code>bc942cf</code></td><td>Bounded history and agent simplification</td></tr>
+              <tr><td>13/11</td><td>v10.15.0</td><td><code>ab1a340</code></td><td>Backend in packages with static analysis, CI on three systems and a runner with restricted permissions</td></tr>
+              <tr><td>14/11</td><td>v10.16.0</td><td><code>865cbba</code></td><td>Runner with its own credential and JavaScript sandbox in a separate process; reviewed version</td></tr>
             </tbody>
           </table>
         </div>
@@ -122,7 +128,7 @@
         <h2>Authorship and verification environment</h2>
         <div class="alert alert-info">
           <ul>
-            <li><strong>Review and writing:</strong> Claude Fable 5.2 in Claude Code, from the Git log up to commit <code>bc942cf</code> and the project memory in <code>.zerochat/</code>.</li>
+            <li><strong>Review and writing:</strong> Claude Fable 5.2 in Claude Code, from the Git log up to commit <code>ab1a340</code> and the project memory in <code>.zerochat/</code>. Update to 10.16.0 (<code>865cbba</code>): Claude Opus 5.5 in Claude Code.</li>
           </ul>
         </div>
       </div>
@@ -140,7 +146,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat 10.x · Review 4 (History) · 13 November 2026</p>
+      <p>ZeroChat 10.x · Review 4 (History) · 14 November 2026</p>
     </footer>
   </div>
 </body>

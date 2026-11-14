@@ -23,7 +23,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#0d1117">
   <meta name="description" content="ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación">
-  <title>ZeroChat v10.15.0</title>
+  <title>ZeroChat v10.16.0</title>
   <link rel="manifest" href="manifest.webmanifest">
   <!-- Carga concurrente paralela de hojas de estilo (elimina la cascada bloqueante de @import en móvil) -->
   <link rel="stylesheet" href="css/tokens.css">
@@ -88,9 +88,6 @@
       <symbol id="icon-sparkles" viewBox="0 0 24 24"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"></path><path d="M19 17v4"></path><path d="M21 19h-4"></path></symbol>
     </defs>
   </svg>
-
-  <!-- Backdrop oscuro para drawer mobile -->
-  <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
 
   <!-- Barra Lateral Izquierda: Chats y Configuración -->
   <aside id="chat-sidebar" class="chat-sidebar" aria-label="Chats y Configuración" data-i18n-aria="sidebar_title">
@@ -354,14 +351,14 @@
         <p class="welcome-desc" data-i18n="welcome_desc">
           Entorno conversacional y agente autónomo local.
         </p>
-        <div class="welcome-status-badge">
+        <div id="welcome-project" class="welcome-status-badge">
           <span class="status-dot"></span>
-          <span data-i18n="welcome_status">Chat vacío · A la espera de un comando</span>
+          <span id="welcome-project-text">Sin proyecto · Modo proyecto: activado</span>
         </div>
         <a id="welcome-help-link" class="welcome-status-badge welcome-help-link" href="help/index.html" target="_blank" rel="noopener noreferrer" data-i18n-title="welcome_help_title" data-i18n-href="welcome_help_href" title="Abrir centro de ayuda y documentación online">
           <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg>
           <span data-i18n="welcome_help_link">Ayuda y Documentación</span>
-          <span id="welcome-version" class="welcome-version">(v10.15.0)</span>
+          <span id="welcome-version" class="welcome-version">(v10.16.0)</span>
           <svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-external-link"></use></svg>
         </a>
       </div>
@@ -761,6 +758,7 @@
   <script defer src="js/tool-security.js"></script>
   <script defer src="js/agent-core.js"></script>
   <script defer src="js/mcp-results.js"></script>
+  <script defer src="js/mcp-external.js"></script>
   <script defer src="js/mcp.js"></script>
   <script defer src="js/debug.js"></script>
   <script defer src="js/command-card.js"></script>
@@ -776,6 +774,7 @@
   <script defer src="js/model-catalog.js"></script>
   <script defer src="js/chat-engine.js"></script>
   <script defer src="js/ui-reasoning.js"></script>
+  <script defer src="js/ui-project.js"></script>
   <script defer src="js/ui-inspector.js"></script>
   <script defer src="js/ui-sidebar.js"></script>
   <script defer src="js/pwa-install.js"></script>

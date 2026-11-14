@@ -86,6 +86,21 @@ STORAGE_MIGRATIONS = [
             updated_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_security_policies_user ON security_policies(user_id);
+    """),
+    (6, "006_create_conversation_blobs_table", """
+        CREATE TABLE IF NOT EXISTS conversation_blobs (
+            conversation_id TEXT NOT NULL,
+            blob_id TEXT NOT NULL,
+            FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+            PRIMARY KEY (conversation_id, blob_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_conversation_blobs_blob_id ON conversation_blobs(blob_id);
+        INSERT OR IGNORE INTO conversation_blobs (conversation_id, blob_id)
+        SELECT DISTINCT messages.conversation_id, TRIM(json_extract(image.value, '$.blobId'))
+        FROM messages, json_each(messages.extra_json, '$.images') AS image
+        WHERE json_valid(messages.extra_json)
+            AND json_extract(image.value, '$.blobId') IS NOT NULL
+            AND TRIM(json_extract(image.value, '$.blobId')) != '';
     """)
 ]
 
@@ -375,6 +390,40 @@ def get_conversation(session_id: str) -> dict | None:
         return {**header, "history": [_row_to_message(row) for row in msg_rows]}
 
 
+def _extract_message_blob_ids(messages: list[dict]) -> set[str]:
+    """Extrae los identificadores de blob no vacíos referenciados por las imágenes de los mensajes."""
+    blob_ids: set[str] = set()
+    for msg in messages:
+        images = msg.get("images")
+        if not isinstance(images, list):
+            continue
+        for image in images:
+            if isinstance(image, dict):
+                blob_id = image.get("blobId")
+                if isinstance(blob_id, str) and blob_id.strip():
+                    blob_ids.add(blob_id.strip())
+    return blob_ids
+
+
+def _delete_orphan_blobs(conn: sqlite3.Connection, candidates: set[str]):
+    """Elimina de `blobs` los candidatos que ya no referencia ninguna conversación."""
+    if not candidates:
+        return
+    candidate_list = list(candidates)
+    still_used: set[str] = set()
+    for start in range(0, len(candidate_list), 500):
+        batch = candidate_list[start:start + 500]
+        marks = ",".join("?" for _ in batch)
+        rows = conn.execute(
+            f"SELECT DISTINCT blob_id FROM conversation_blobs WHERE blob_id IN ({marks});",
+            batch,
+        ).fetchall()
+        still_used.update(row["blob_id"] for row in rows)
+    orphans = [(blob_id,) for blob_id in candidates - still_used]
+    if orphans:
+        conn.executemany("DELETE FROM blobs WHERE id = ?;", orphans)
+
+
 def save_conversation(session_meta: dict, messages: list[dict] | None = None) -> dict:
     """Guarda o actualiza una conversación y sustituye sus mensajes atómicamente."""
     if not isinstance(session_meta, dict):
@@ -383,6 +432,10 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
         messages = []
     if not isinstance(messages, list):
         raise ValueError("Los mensajes de la conversación deben ser una lista")
+    for msg in messages:
+        if not isinstance(msg, dict):
+            raise ValueError("Cada mensaje debe ser un objeto")
+    new_blob_ids = _extract_message_blob_ids(messages)
 
     session_id = _validate_conversation_id(session_meta.get("id"))
     raw_title = session_meta.get("title")
@@ -431,11 +484,16 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
                 extra_json = excluded.extra_json;
         """, (session_id, title, created_at, updated_at, len(messages), extra_json))
 
+        old_blob_ids = {
+            row["blob_id"]
+            for row in conn.execute(
+                "SELECT blob_id FROM conversation_blobs WHERE conversation_id = ?;",
+                (session_id,),
+            )
+        }
         conn.execute("DELETE FROM messages WHERE conversation_id = ?;", (session_id,))
 
         for pos, msg in enumerate(messages):
-            if not isinstance(msg, dict):
-                raise ValueError("Cada mensaje debe ser un objeto")
             msg_id = str(msg.get("id") or "").strip() or f"msg_{session_id}_{pos}"
             role = str(msg.get("role") or "user").strip()
             content = "" if msg.get("content") is None else str(msg.get("content"))
@@ -446,6 +504,14 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
                 INSERT INTO messages (conversation_id, position, id, role, content, extra_json)
                 VALUES (?, ?, ?, ?, ?, ?);
             """, (session_id, pos, msg_id, role, content, extra_json))
+
+        conn.execute("DELETE FROM conversation_blobs WHERE conversation_id = ?;", (session_id,))
+        if new_blob_ids:
+            conn.executemany(
+                "INSERT OR IGNORE INTO conversation_blobs (conversation_id, blob_id) VALUES (?, ?);",
+                [(session_id, blob_id) for blob_id in new_blob_ids],
+            )
+        _delete_orphan_blobs(conn, old_blob_ids - new_blob_ids)
 
         conn.commit()
         row = conn.execute("SELECT * FROM conversations WHERE id = ?;", (session_id,)).fetchone()
@@ -488,14 +554,6 @@ def rename_conversation(session_id: str, new_title: str) -> bool:
         return cursor.rowcount > 0
 
 
-# Identificadores de blob de las imágenes de los mensajes (messages.extra_json, campo images[].blobId).
-_MESSAGE_BLOB_IDS_SQL = """
-    SELECT DISTINCT json_extract(image.value, '$.blobId') AS blob_id
-    FROM messages, json_each(messages.extra_json, '$.images') AS image
-    WHERE json_valid(messages.extra_json) AND json_extract(image.value, '$.blobId') IS NOT NULL
-"""
-
-
 def _delete_conversations(conn: sqlite3.Connection, where: str, params: tuple) -> list[str]:
     """
     Borra en una transacción las conversaciones que cumplen `where`, con sus mensajes en cascada, y los
@@ -508,13 +566,15 @@ def _delete_conversations(conn: sqlite3.Connection, where: str, params: tuple) -
         ids = [row["id"] for row in conn.execute(f"SELECT id FROM conversations WHERE {where};", params)]
         if ids:
             marks = ",".join("?" for _ in ids)
-            candidates = {row["blob_id"] for row in conn.execute(
-                f"{_MESSAGE_BLOB_IDS_SQL} AND messages.conversation_id IN ({marks});", ids)}
+            candidates = {
+                row["blob_id"]
+                for row in conn.execute(
+                    f"SELECT DISTINCT blob_id FROM conversation_blobs WHERE conversation_id IN ({marks});",
+                    ids,
+                )
+            }
             conn.execute(f"DELETE FROM conversations WHERE id IN ({marks});", ids)
-            if candidates:
-                still_used = {row["blob_id"] for row in conn.execute(_MESSAGE_BLOB_IDS_SQL)}
-                orphans = [(blob_id,) for blob_id in candidates - still_used]
-                conn.executemany("DELETE FROM blobs WHERE id = ?;", orphans)
+            _delete_orphan_blobs(conn, candidates)
         conn.execute("COMMIT;")
         return ids
     except Exception:

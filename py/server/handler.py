@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import hmac
 import inspect
 import json
 import re
@@ -13,7 +12,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler
 
 from auth.login import LOGIN_MAX_BODY_BYTES, LoginError, login
-from auth.tokens import current_session_token
+from auth.tokens import TokenGrant, resolve_token
 from browser.config import (
     PLAYWRIGHT_SERVER_ID,
     SERVICE_LAUNCH,
@@ -53,6 +52,7 @@ from tools.diff import configure_gui_diff_tool, open_file_diff
 from tools.filesystem import resolve_project_directory
 from tools.jobs import JOBS, JOB_LOG_PAGE_BYTES, job_details
 from tools.registry import LOCAL_TOOLS_DEFINITIONS, LOCAL_TOOL_HANDLERS, validate_local_tool_arguments
+from tools.sandbox import execute_js_sandbox
 from web.fetch import capture_frontend_user_agent, fetch_web_resource
 
 
@@ -181,9 +181,9 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, X-ZeroChat-Token, X-ZeroChat-Client, X-ZeroChat-Proxy, X-ZeroChat-Blob, X-ZeroChat-Project")
         self.send_header("Access-Control-Allow-Private-Network", "true")
 
-    def verify_token(self) -> bool:
+    def _resolve_grant(self) -> TokenGrant | None:
         """
-        Comprueba el token diario vigente, solo en cabeceras HTTP: el de un día anterior se rechaza.
+        Comprueba la credencial en cabeceras HTTP y devuelve su TokenGrant o None.
         X-ZeroChat-Token va antes que Authorization, que tras el proxy inverso lleva la clave del proxy.
         """
         token_candidate = self.headers.get("X-ZeroChat-Token", "").strip()
@@ -191,7 +191,11 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             auth_header = self.headers.get("Authorization", "")
             if auth_header.startswith("Bearer "):
                 token_candidate = auth_header[7:].strip()
-        return bool(token_candidate) and hmac.compare_digest(token_candidate.encode(), current_session_token().encode())
+        return resolve_token(token_candidate)
+
+    def verify_token(self) -> bool:
+        """Comprueba si hay una credencial vigente en cabeceras HTTP."""
+        return self._resolve_grant() is not None
 
     def do_OPTIONS(self):
         t0 = time.monotonic()
@@ -515,6 +519,15 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 return None, {"code": -32602, "message": str(exc)}, ""
             except Exception as exc:
                 return None, {"code": -32603, "message": f"Error en transporte web: {exc}"}, str(exc)
+        if method == "zerochat/sandbox/execute":
+            try:
+                code = params.get("code") if isinstance(params, dict) else ""
+                timeout_ms = params.get("timeout_ms") if isinstance(params, dict) else None
+                return execute_js_sandbox(code, timeout_ms=timeout_ms), None, ""
+            except ValueError as exc:
+                return None, {"code": -32602, "message": str(exc)}, ""
+            except Exception as exc:
+                return None, {"code": -32603, "message": f"Error en sandbox JS: {exc}"}, str(exc)
         if method.startswith("zerochat/jobs/"):
             return self._dispatch_jobs(method, params, ctx)
         if method.startswith("zerochat/run/"):
@@ -820,7 +833,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
         capture_frontend_user_agent(self.headers.get("User-Agent", ""))
         mark_browser_active()
-        if not self.verify_token():
+        grant = self._resolve_grant()
+        if grant is None:
             # Sin token válido solo cabe identificarse para obtenerlo.
             if self._serve_login(safe_path, t0):
                 return
@@ -839,6 +853,15 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         req_id = req.get("id")
         method = req["method"]
         params = req.get("params", {})
+
+        if not grant.allows(req_path, method, params):
+            self._log_req("POST", f"{safe_path} [rpc: {method}]")
+            self._reject(403, {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32000, "message": "Forbidden: method not permitted for this token"}
+            }, safe_path, t0, f"Método '{method}' no permitido para el token ({grant.kind})")
+            return
 
         # Etiqueta de seguimiento para la petición y respuesta (sin datos sensibles)
         action_tag = f"[tools/call: {params['name']}]" if method == "tools/call" else f"[rpc: {method}]"

@@ -321,6 +321,7 @@ class RunSession:
         self.reasoning_text = ""
         self.pending: dict | None = None
         self.error: str | None = None
+        self.runner_token: str | None = None
         if self.conversation_id:
             write_run_state(self)
 
@@ -340,6 +341,11 @@ def set_run_session(session: RunSession | None):
     """Fija la ejecución desatendida de este proceso (None si atiende a la interfaz)."""
     global RUN_SESSION
     RUN_SESSION = session
+
+
+def current_run_session() -> RunSession | None:
+    """Ejecución desatendida de este proceso, o None si atiende a la interfaz."""
+    return RUN_SESSION
 
 
 def http_body_limit() -> int:
@@ -387,10 +393,15 @@ def dispatch_run(method: str, params: dict, ctx: SecurityContext) -> tuple[dict 
             session.prompt_delivered = True
         session.touch()
         export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
+        delivered_security = (
+            {k: v for k, v in session.tool_security.items() if k != "tool_decision"}
+            if isinstance(session.tool_security, dict) and "tool_decision" in session.tool_security
+            else session.tool_security
+        )
         return {"prompt": session.prompt, "conversation_id": session.conversation_id, "profile": session.profile,
                 "profile_data": session.profile_data,
                 "export": export_format, "keep_page": session.keep_page,
-                "allow_dangerous_tools": session.allow_dangerous_tools, "tool_security": session.tool_security}, None, ""
+                "allow_dangerous_tools": session.allow_dangerous_tools, "tool_security": delivered_security}, None, ""
     if method == "zerochat/run/progress":
         kind = params.get("kind")
         text = params.get("text", "")

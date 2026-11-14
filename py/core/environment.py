@@ -19,6 +19,13 @@ NOTICES_LOCK = threading.Lock()
 
 
 @functools.lru_cache(maxsize=1)
+def minimal_child_env() -> dict[str, str]:
+    """Entorno vacío para procesos de Node que ejecutan código no confiable (solo SYSTEMROOT en Windows)."""
+    if DETECTED_OS == "windows" and "SYSTEMROOT" in os.environ:
+        return {"SYSTEMROOT": os.environ["SYSTEMROOT"]}
+    return {}
+
+
 def get_dev_root() -> Path | None:
     """
     Detecta si zerochat.py se está ejecutando en el directorio de desarrollo del repositorio.
@@ -89,6 +96,11 @@ def set_active_address(host: str, port: int):
     """Fija el host y el puerto en los que escucha este proceso; los lee quien compone la URL de la interfaz."""
     global ACTIVE_HOST, ACTIVE_PORT
     ACTIVE_HOST, ACTIVE_PORT = host, port
+
+
+def active_address() -> tuple[str, int]:
+    """Host y puerto en los que escucha este proceso."""
+    return ACTIVE_HOST, ACTIVE_PORT
 
 
 def get_venv_python(venv_dir: Path) -> Path:

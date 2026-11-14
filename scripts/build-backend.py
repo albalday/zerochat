@@ -8,7 +8,6 @@ import ast
 from collections import defaultdict
 from dataclasses import dataclass, field
 import heapq
-import json
 from pathlib import Path
 import re
 import stat
@@ -42,6 +41,7 @@ class ModuleInfo:
     source: str
     tree: ast.Module
     defined_symbols: set[str] = field(default_factory=set)
+    rebound_globals: set[str] = field(default_factory=set)
     internal_imports: list[tuple[str, str]] = field(default_factory=list)
     stripped_lines: set[int] = field(default_factory=set)
     main_guard_source: str = ""
@@ -61,6 +61,11 @@ def extract_top_level_symbols(tree: ast.Module) -> set[str]:
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
             names.add(node.target.id)
     return names
+
+
+def extract_rebound_globals(tree: ast.Module) -> set[str]:
+    """Devuelve los nombres que el módulo reasigna con una declaración `global`."""
+    return {name for node in ast.walk(tree) if isinstance(node, ast.Global) for name in node.names}
 
 
 def _is_main_guard(node: ast.stmt) -> bool:
@@ -122,6 +127,7 @@ def _discover_modules(py_dir: Path) -> tuple[dict[str, ModuleInfo], set[str]]:
                 source=source,
                 tree=tree,
                 defined_symbols=extract_top_level_symbols(tree),
+                rebound_globals=extract_rebound_globals(tree),
             )
 
     return package_modules, package_dirs
@@ -219,6 +225,11 @@ def _topological_order(package_modules: dict[str, ModuleInfo]) -> list[ModuleInf
             if symbol not in target.defined_symbols:
                 raise BackendBuildError(
                     f"Módulo '{mod_id}' importa '{symbol}' desde '{target_mod}', pero no está definido en su nivel superior."
+                )
+            if symbol in target.rebound_globals:
+                raise BackendBuildError(
+                    f"Módulo '{mod_id}' importa '{symbol}' desde '{target_mod}', que lo reasigna con 'global': "
+                    "como paquete conservaría el valor inicial. Léelo con una función de su módulo."
                 )
             if target_mod == mod_id:
                 raise BackendBuildError(f"Dependencia circular: '{mod_id}' se importa a sí mismo.")
@@ -378,7 +389,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--py-dir", type=Path, default=DEFAULT_PY_DIR)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--stdout", action="store_true", help="Imprime el código compilado sin escribir fichero.")
-    parser.add_argument("--symbols", action="store_true", help="Imprime en JSON los símbolos de nivel superior.")
     args = parser.parse_args(argv)
 
     try:
@@ -387,10 +397,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error compilando backend: {err}", file=sys.stderr)
         return 1
 
-    if args.symbols:
-        symbols = sorted(extract_top_level_symbols(ast.parse(compiled)))
-        sys.stdout.write(json.dumps(symbols, indent=2) + "\n")
-        return 0
     if args.stdout:
         sys.stdout.write(compiled)
         return 0

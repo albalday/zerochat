@@ -10,7 +10,7 @@ import os
 import threading
 import time
 
-from auth.tokens import current_session_token
+from auth.tokens import issue_login_token
 
 
 # Tras LOGIN_MAX_FAILURES fallos seguidos, los intentos se rechazan sin comprobarlos durante el bloqueo.
@@ -152,4 +152,4 @@ def login(params: dict) -> dict:
                 LOGIN_LOCKED_UNTIL = time.monotonic() + LOGIN_LOCKOUT_SECONDS
             raise LoginError(LOGIN_FAILED_CODE, "Usuario o contraseña incorrectos.")
         LOGIN_FAILURES = 0
-    return {"token": current_session_token()}
+    return {"token": issue_login_token()}

@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import signal
@@ -349,6 +350,18 @@ class LocalToolArgumentsTest(unittest.TestCase):
 
 
 class StdioClientTest(unittest.TestCase):
+    def test_un_mensaje_de_max_mcp_message_chars_cabe_y_uno_mas_se_descarta(self):
+        limit = zerochat.StdioMcpClient.max_message_chars
+        self.assertEqual(limit, zerochat.MAX_MCP_MESSAGE_CHARS)
+        line, tail = zerochat._read_bounded_line(io.StringIO("a" * limit + "\n" + "{}\n"), limit)
+        self.assertEqual((len(line), tail), (limit + 1, None))
+        # El exceso se consume hasta el salto de línea: el mensaje siguiente llega entero.
+        stream = io.StringIO("a" * limit + "b\n" + "{}\n")
+        line, tail = zerochat._read_bounded_line(stream, limit)
+        self.assertEqual(len(line), limit)
+        self.assertIsNotNone(tail, "El exceso debe marcarse para descartar el mensaje")
+        self.assertEqual(zerochat._read_bounded_line(stream, limit), ("{}\n", None))
+
     def test_detener_en_windows_elimina_el_arbol_de_procesos_sin_senales_posix(self):
         client = zerochat.StdioMcpClient(sys.executable, [], str(use_data_dir(self)), dict(os.environ))
         client.process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(100)"])

@@ -32,9 +32,21 @@ class LoginTest(unittest.TestCase):
         except zerochat.LoginError as exc:
             return exc
 
-    def test_la_cuenta_que_ejecuta_zerochat_recibe_el_token_diario(self):
+    def test_la_cuenta_que_ejecuta_zerochat_recibe_un_token_remoto_propio(self):
+        local_token = zerochat.get_daily_token()
         result = self.attempt()
-        self.assertEqual(result, {"token": json.loads(self.token_file.read_text(encoding="utf-8"))["token"]})
+        remote_token = result.get("token", "")
+        self.assertTrue(len(remote_token) >= 32)
+        self.assertNotEqual(remote_token, local_token)
+        grant = zerochat.resolve_token(remote_token)
+        self.assertIsNotNone(grant)
+        self.assertEqual(grant.kind, "remote")
+
+        tokens = [remote_token]
+        for _ in range(zerochat.MAX_REMOTE_TOKENS):
+            tokens.append(self.attempt()["token"])
+        self.assertIsNone(zerochat.resolve_token(tokens[0]))
+        self.assertIsNotNone(zerochat.resolve_token(tokens[-1]))
 
     def test_otro_usuario_falla_como_una_contrasena_erronea_sin_delatar_la_cuenta(self):
         result = self.attempt(user="root")

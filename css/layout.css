@@ -123,6 +123,12 @@
   box-shadow: 0 0 6px var(--success);
 }
 
+/* Con el modo proyecto desactivado el punto se apaga */
+.welcome-status-badge[data-project-mode-off] .status-dot {
+  background-color: var(--text-muted);
+  box-shadow: none;
+}
+
 /* ==========================================================================
    Responsive
    ========================================================================== */

@@ -8,40 +8,18 @@
   'use strict';
 
   const {
-    ChatStorage: Storage,
-    ChatI18n: I18n,
-    ChatDebug: Debug,
-    ChatState: State,
-    ChatEngine: Engine,
-    ChatDefaults: Defaults,
-    ChatDialogs: Dialogs,
-    ChatConfig: Config,
-    ChatProfileRepository: Profiles,
-    ChatProviders: Providers,
-    ChatMCP: MCP,
-    ChatProjectContext: ProjectContext,
-    ChatMessageTurns: MessageTurns,
-    ChatConversationService: ConversationService,
-    ChatGenerationController: GenerationController,
-    ChatUIReasoning: UIReasoning,
-    ChatUIInspector: UIInspector,
-    ChatModelCatalog: ModelCatalog,
-    ChatUISidebar: UISidebar,
-    ChatUISettings: UISettings,
-    ChatUIShell: UIShell,
-    ChatUITransfer: UITransfer,
-    ChatUIProfiles: UIProfiles,
-    ChatUIComposer: UIComposer,
-    ChatUICommandJobs: UICommandJobs,
-    ChatUIConversation: UIConversation,
-    ChatUITelemetry: UITelemetry,
-    ChatUIMcp: UIMcp,
-    ChatUIBrowser: UIBrowser,
-    ChatUIConnection: UIConnection,
-    ChatRagUI: RagUI,
-    ChatRunMode: RunMode,
-    ChatBackendSession: BackendSession,
-    ChatServerRun: ServerRun
+    ChatStorage: Storage, ChatI18n: I18n, ChatDebug: Debug, ChatState: State,
+    ChatEngine: Engine, ChatDefaults: Defaults, ChatDialogs: Dialogs, ChatConfig: Config,
+    ChatProfileRepository: Profiles, ChatProviders: Providers, ChatMCP: MCP,
+    ChatUIProject: UIProject, ChatMessageTurns: MessageTurns,
+    ChatConversationService: ConversationService, ChatGenerationController: GenerationController,
+    ChatUIReasoning: UIReasoning, ChatUIInspector: UIInspector, ChatModelCatalog: ModelCatalog,
+    ChatUISidebar: UISidebar, ChatUISettings: UISettings, ChatUIShell: UIShell,
+    ChatUITransfer: UITransfer, ChatUIProfiles: UIProfiles, ChatUIComposer: UIComposer,
+    ChatUICommandJobs: UICommandJobs, ChatUIConversation: UIConversation,
+    ChatUITelemetry: UITelemetry, ChatUIMcp: UIMcp, ChatUIBrowser: UIBrowser,
+    ChatUIConnection: UIConnection, ChatRagUI: RagUI, ChatRunMode: RunMode,
+    ChatBackendSession: BackendSession, ChatServerRun: ServerRun
   } = window;
   const { t } = I18n;
 
@@ -80,7 +58,6 @@
     btnRagBack: 'btn-rag-back',
     btnRagBranches: 'btn-rag-branches',
     btnRagActivate: 'btn-rag-activate',
-    sidebarBackdrop: 'sidebar-backdrop',
     chatContainer: 'chat-container',
     // Modal de exportación
     exportModal: 'export-modal',
@@ -138,6 +115,8 @@
     messagesList: 'messages-list',
     btnScrollBottom: 'btn-scroll-bottom',
     welcomeBanner: 'welcome-banner',
+    welcomeProject: 'welcome-project',
+    welcomeProjectText: 'welcome-project-text',
     chatForm: 'chat-form',
     userInput: 'user-input',
     btnSend: 'btn-send',
@@ -284,9 +263,7 @@
   // Conversación
   // ==========================================================================
 
-  function resetComposerInput(text = '') {
-    UIComposer.setPromptValue(elements, text);
-  }
+  const resetComposerInput = (text = '') => UIComposer.setPromptValue(elements, text);
 
   function getConversationServiceOptions() {
     return {
@@ -302,7 +279,7 @@
       },
       onSessionSwitched: conversation => {
         applySessionModeAndProfile(conversation);
-        followConversationProject(conversation).catch(error => console.warn('[App] Could not open the conversation project:', error));
+        UIProject.followConversationProject(conversation).catch(error => console.warn('[App] Could not open the conversation project:', error));
       },
       isServerMode: () => isServerRunEnabled(),
       getProject: () => getServerCwd(),
@@ -323,45 +300,16 @@
   });
 
   /** Directorio del proyecto en el servidor local; vacío sin servidor conectado. */
-  function getServerCwd() {
-    const mcp = State.get('mcp');
-    return mcp.status === 'connected' ? mcp.serverInfo?.cwd || '' : '';
-  }
-
-  function renderSidebarChats() {
-    UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId(), State.get('mcp').serverRuns, getServerCwd());
-  }
+  const getServerCwd = () => (State.get('mcp').status === 'connected' ? State.get('mcp').serverInfo?.cwd || '' : '');
+  const renderSidebarChats = () => UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId(), State.get('mcp').serverRuns, getServerCwd());
 
   function applySessionModeAndProfile(conversation) {
     if (!conversation) return;
     const serverMode = ServerRun.isServerConversation(conversation) && ServerRun.isAvailable();
-    if (serverMode) {
-      const profile = conversation.profileId || 'local';
-      UIProfiles.setServerMode(true, profile);
-    } else {
-      UIProfiles.setServerMode(false);
-    }
+    UIProfiles.setServerMode(serverMode, serverMode ? (conversation.profileId || 'local') : undefined);
   }
 
-  /**
-   * Abrir una conversación de otro proyecto lleva el servidor a su carpeta. Si ya no existe, se avisa y
-   * la conversación se queda sin herramientas locales (localToolsAvailable), nunca en otra carpeta.
-   */
-  async function followConversationProject(conversation) {
-    const project = conversation?.project;
-    const cwd = getServerCwd();
-    if (!project || !cwd || project === cwd) return;
-    try {
-      await MCP.manager.setProjectDirectory(project);
-    } catch (error) {
-      const reason = String(error?.message || error).replace(/^Error MCP \(-?\d+\): /, '');
-      await Dialogs.alert(t('conversation_project_unavailable', { project, error: reason }), { type: 'warning' });
-    }
-  }
-
-  function isServerRunEnabled() {
-    return ServerRun.isAvailable() && UIProfiles.isServerMode();
-  }
+  const isServerRunEnabled = () => ServerRun.isAvailable() && UIProfiles.isServerMode();
 
   function syncServerRunControl() {
     if (!ServerRun.isAvailable()) {
@@ -373,18 +321,10 @@
     if (session) applySessionModeAndProfile(session);
   }
 
-  function syncLiveServerRun() {
-    UIConversation.renderLiveServerRun(
-      elements.messagesList,
-      elements.welcomeBanner,
-      ServerRun.getActiveRun(),
-      State.get('mcp').focusRun
-    );
-  }
-
-  function syncComposerBusyControls() {
-    UIComposer.syncGenerationControls(elements, ServerRun.isComposerBusy());
-  }
+  const syncLiveServerRun = () => UIConversation.renderLiveServerRun(
+    elements.messagesList, elements.welcomeBanner, ServerRun.getActiveRun(), State.get('mcp').focusRun
+  );
+  const syncComposerBusyControls = () => UIComposer.syncGenerationControls(elements, ServerRun.isComposerBusy());
 
   function handleStopCurrentGeneration() {
     if (ServerRun.isActiveSessionRunning()) {
@@ -394,19 +334,11 @@
     GenerationController.handleStopGeneration();
   }
 
-  function removeMessage(wrapper) {
-    UIConversation.removeMessage(wrapper, {
-      messagesList: elements.messagesList,
-      welcomeBanner: elements.welcomeBanner,
-      saveSession: saveCurrentSession
-    });
-  }
-
   async function handleHistoricalToolAuthorization(decision, { toolName }) {
     if (isBusy() || ServerRun.isActiveSessionRunning()) return;
     const decisionType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;
-    if (decisionType === 'deny') {
-      const updated = getChatHistory().map(msg => {
+    const nextMessages = decisionType === 'deny'
+      ? getChatHistory().map(msg => {
         if (msg.role !== 'tool') return msg;
         try {
           if (JSON.parse(msg.content || '{}')?.awaitingApproval) {
@@ -414,24 +346,19 @@
           }
         } catch (_) { /* texto plano */ }
         return msg;
-      });
-      State.replaceMessages(updated);
-      renderSessionMessages(getChatHistory());
-      await saveCurrentSession();
-      await handleSendMessage({ resume: true });
-      return;
-    }
-
-    const cleaned = RunMode.prepareConversationForContinuation(getChatHistory());
-    State.replaceMessages(cleaned);
+      })
+      : RunMode.prepareConversationForContinuation(getChatHistory());
+    State.replaceMessages(nextMessages);
     renderSessionMessages(getChatHistory());
     await saveCurrentSession();
-    await handleSendMessage({ resume: true, toolDecision: { toolName, decision } });
+    await handleSendMessage({ resume: true, ...(decisionType === 'deny' ? {} : { toolDecision: { toolName, decision } }) });
   }
 
   const messageCallbacks = {
     onReuse: text => resetComposerInput(text),
-    onDelete: removeMessage,
+    onDelete: wrapper => UIConversation.removeMessage(wrapper, {
+      messagesList: elements.messagesList, welcomeBanner: elements.welcomeBanner, saveSession: saveCurrentSession
+    }),
     onBranch: createConversationBranch,
     onToolAuthorization: handleHistoricalToolAuthorization
   };
@@ -544,113 +471,8 @@
     }
   }
 
-  // ==========================================================================
-  // Razonamiento y modo proyecto
-  // ==========================================================================
-
   const isBusy = () => State.isConversationBusy();
-
-  const projectPanelHandlers = {
-    toggle(enabled) {
-      Config.updateRuntime({ projectMode: Boolean(enabled) });
-    },
-    async decline() {
-      const cwd = State.get('project').cwd;
-      if (!cwd) return;
-      const confirmed = await Dialogs.confirm(t('project_decline_confirm', { cwd }));
-      // El servidor puede haber cambiado de directorio mientras se esperaba la respuesta.
-      if (!confirmed || State.get('project').cwd !== cwd) return;
-      Config.updateRuntime({ projectDeclined: [...getRuntimeConfig().projectDeclined, cwd] });
-    },
-    reactivate() {
-      const cwd = State.get('project').cwd;
-      Config.updateRuntime({ projectDeclined: getRuntimeConfig().projectDeclined.filter(path => path !== cwd) });
-    },
-    async reload() {
-      try {
-        await ProjectContext.refresh();
-      } catch (error) {
-        console.warn('[App] Could not refresh project context:', error);
-      }
-      renderProjectPanel();
-      const reloadBtn = elements.projectModePanel?.querySelector('[data-project-action="reload"]');
-      if (reloadBtn) reloadBtn.textContent = t('project_action_reloaded');
-    },
-    async changeDirectory() {
-      try {
-        const result = await ProjectContext.changeDirectory({
-          askPath: cwd => Dialogs.prompt(t('project_directory_prompt'), cwd, { title: t('project_directory_title') }),
-          isBusy
-        });
-        if (result?.reason === 'error') {
-          await Dialogs.alert(t('project_directory_error', { error: result.error }), { type: 'error' });
-        }
-        // La conversación abierta es de su proyecto: en la carpeta nueva se empieza otra.
-        const { activeId, list } = State.get('sessions');
-        const project = list.find(session => session.id === activeId)?.project;
-        if (result?.ok && project && project !== result.cwd) await createNewSession();
-      } catch (error) {
-        console.error('[App] Project directory change failed:', error);
-        await Dialogs.alert(error?.message || String(error), { type: 'error' });
-      }
-    },
-    async initialize() {
-      try {
-        await ProjectContext.initialize({
-          askConfirmation: ({ cwd, rule }) => Dialogs.confirm(t('project_initialize_confirm', { cwd, dir: rule.slice(3) })),
-          isBusy,
-          startConversation: async () => {
-            if (getChatHistory().some(message => message.role !== 'system')) await createNewSession();
-          },
-          sendPrompt: async prompt => {
-            UIReasoning.closeReasoningMenu(elements);
-            await submitComposerText(prompt);
-          }
-        });
-      } catch (error) {
-        console.error('[App] Project initialization failed:', error);
-        await Dialogs.alert(error?.message || String(error), { type: 'error' });
-      }
-    },
-    async compact() {
-      try {
-        await ProjectContext.compact({
-          askConfirmation: ({ name }) => Dialogs.confirm(t('project_compact_confirm', { name })),
-          isBusy,
-          startConversation: async () => {
-            if (getChatHistory().some(message => message.role !== 'system')) await createNewSession();
-          },
-          sendPrompt: async prompt => {
-            UIReasoning.closeReasoningMenu(elements);
-            await submitComposerText(prompt);
-          }
-        });
-      } catch (error) {
-        console.error('[App] Project compaction failed:', error);
-        await Dialogs.alert(error?.message || String(error), { type: 'error' });
-      }
-    }
-  };
-
-  function refreshProjectContext() {
-    ProjectContext.refresh().catch(error => console.warn('[App] Could not refresh project context:', error));
-  }
-
-  /** El indicador del botón siempre; el panel solo con el modal abierto (renderizado bajo demanda). */
-  function renderProjectPanel() {
-    const config = getRuntimeConfig();
-    const project = State.get('project');
-    UIReasoning.syncProjectIndicator(elements, config, project);
-    if (!elements.reasoningModal || elements.reasoningModal.hidden) return;
-    UIReasoning.renderProjectPanel(elements, {
-      config,
-      project,
-      canInitialize: ProjectContext.canInitialize(),
-      canCompact: ProjectContext.canCompact(),
-      canChangeDirectory: ProjectContext.canChangeDirectory(),
-      busy: isBusy()
-    });
-  }
+  const renderProjectPanel = () => UIProject.renderProjectPanel(elements);
 
   // ==========================================================================
   // Preguntas del agente (ask_user)
@@ -691,17 +513,11 @@
     if (persist) Config.updateRuntime({ enableDebugMessages: value });
   }
 
-  function openDebugInterceptorModal({ endpoint, payload }) {
-    return Debug.openInterceptorModal({
-      endpoint,
-      payload,
-      onSyncDebugState: enabled => syncDebugMessagesState(enabled)
-    });
-  }
+  const openDebugInterceptorModal = ({ endpoint, payload }) => Debug.openInterceptorModal({
+    endpoint, payload, onSyncDebugState: enabled => syncDebugMessagesState(enabled)
+  });
 
-  function applyTheme(theme) {
-    UISettings.applyTheme(elements, theme);
-  }
+  const applyTheme = theme => UISettings.applyTheme(elements, theme);
 
   function applyLanguage(lang) {
     UISettings.applyLanguage(elements, lang);
@@ -760,14 +576,8 @@
   }
 
   function openSettingsSection(sectionId = 'model') {
-    if (sectionId === 'encryption' || sectionId === 'rag') {
-      showSidebarNav(sectionId);
-      return;
-    }
-    if (sectionId === 'rag-manage') {
-      RagUI.openManageModal();
-      return;
-    }
+    if (sectionId === 'encryption' || sectionId === 'rag') return showSidebarNav(sectionId);
+    if (sectionId === 'rag-manage') return RagUI.openManageModal();
     UISettings.openSettingsSection(elements, getRuntimeConfig(), sectionId);
     if (sectionId === 'mcp') {
       UIMcp.verifyActiveConnection().catch(error => console.warn('[App] Could not verify the MCP connection:', error));
@@ -778,9 +588,7 @@
   // Escuchadores de Eventos
   // ==========================================================================
 
-  function updateNewTabLink() {
-    elements.btnSidebarNewTab.href = location.pathname + location.search;
-  }
+  const updateNewTabLink = () => { elements.btnSidebarNewTab.href = location.pathname + location.search; };
 
   function setupEventListeners() {
     // Ojo de los campos de clave: muestra u oculta el texto del campo que acompaña.
@@ -819,6 +627,7 @@
       onDeleteSession: sessionId => ConversationService.deleteSession(sessionId, getConversationServiceOptions()),
       onExportSession: sessionId => UITransfer.openExportModal(sessionId),
       onNewSession: createNewSession,
+      onNewProjectSession: project => UIProject.createProjectSession(project, createNewSession).catch(error => console.warn('[App] Could not open a chat in the project:', error)),
       renderList: renderSidebarChats,
       loadProjectGroups: () => {
         try {
@@ -867,7 +676,7 @@
     // Razonamiento (Thinking)
     UIReasoning.mount(elements, {
       onSelectLevel: level => Config.updateRuntime({ reasoningEffort: level }),
-      handlers: projectPanelHandlers
+      handlers: UIProject.createPanelHandlers({ elements, createNewSession, getChatHistory, submitComposerText })
     });
     elements.btnReasoning.addEventListener('click', event => {
       event.stopPropagation();
@@ -996,26 +805,9 @@
       }
     );
 
-    // Si la carpeta del proyecto desaparece, la pestaña vuelve al proyecto por defecto y se avisa una vez.
-    MCP.manager.onProjectLost = async ({ project, fallback }) => {
-      await Dialogs.alert(t('project_folder_missing', { project, fallback }), { type: 'warning' });
-    };
     // La barra muestra las conversaciones del proyecto actual: se repinta al conectar o cambiar de proyecto.
     State.subscribe(state => ({ cwd: state.mcp.status === 'connected' ? state.mcp.serverInfo?.cwd || '' : '' }), renderSidebarChats);
-    // El proyecto depende del servidor local: se recalcula al conectar, cambiar de cwd o de herramientas.
-    State.subscribe(
-      state => ({ status: state.mcp.status, cwd: state.mcp.serverInfo?.cwd || '', tools: state.mcp.tools.length }),
-      refreshProjectContext
-    );
-    State.subscribe('project', renderProjectPanel);
-    // Al terminar un turno el agente puede haber creado o actualizado los ficheros del proyecto.
-    State.subscribe(state => ({ generating: state.streaming.isGenerating }), ({ generating }) => {
-      if (!generating && getRuntimeConfig().projectMode === true) refreshProjectContext();
-      // «Cambiar…» solo está activo sin generación en curso.
-      renderProjectPanel();
-    });
-    // Estado inicial coherente con la configuración aunque el servidor no llegue a conectar.
-    refreshProjectContext();
+    UIProject.subscribe(elements);
 
     // La conversación se pinta tras actualizar el estado: se sincroniza en la siguiente vuelta.
     const scheduleAskUserSync = () => setTimeout(syncAskUserCards, 0);
@@ -1028,11 +820,6 @@
           .catch(error => console.error('[App] Provider cleanup failed:', error));
       }
       updateUIFromConfig();
-      if (nextConfig.projectMode !== previousConfig.projectMode ||
-          JSON.stringify(nextConfig.projectDeclined) !== JSON.stringify(previousConfig.projectDeclined)) {
-        refreshProjectContext();
-      }
-      renderProjectPanel();
     });
   }
 
@@ -1061,37 +848,23 @@
     RagUI.initRagUI();
     UIBrowser.mountBrowserUI(elements.settingsBrowser, openSettingsSection);
     UIConnection.mount({
-      openButton: elements.btnOpenConnection,
-      local: elements.settingLocalBackend,
-      remoteFields: elements.connectionRemoteFields,
-      url: elements.settingBackendUrl,
-      useProxy: elements.settingUseProxy,
-      proxyKeyField: elements.settingProxyKeyField,
-      proxyKey: elements.settingProxyKey,
-      connect: elements.btnBackendConnect,
-      status: elements.backendConnectionStatus,
-      error: elements.backendConnectionError,
-      loginDialog: elements.loginDialog,
-      loginForm: elements.loginForm,
-      loginDesc: elements.loginDesc,
-      loginUser: elements.loginUser,
-      loginPassword: elements.loginPassword,
-      loginError: elements.loginError,
-      loginCancel: elements.loginCancel,
-      loginSubmit: elements.loginSubmit
+      openButton: elements.btnOpenConnection, local: elements.settingLocalBackend,
+      remoteFields: elements.connectionRemoteFields, url: elements.settingBackendUrl,
+      useProxy: elements.settingUseProxy, proxyKeyField: elements.settingProxyKeyField,
+      proxyKey: elements.settingProxyKey, connect: elements.btnBackendConnect,
+      status: elements.backendConnectionStatus, error: elements.backendConnectionError,
+      loginDialog: elements.loginDialog, loginForm: elements.loginForm,
+      loginDesc: elements.loginDesc, loginUser: elements.loginUser,
+      loginPassword: elements.loginPassword, loginError: elements.loginError,
+      loginCancel: elements.loginCancel, loginSubmit: elements.loginSubmit
     }, { connect: backendSession.connectConfigured, login: backendSession.login });
     UIBrowser.mountProfileBrowser(elements.profileBrowser);
     UIMcp.initMcpUI({
-      statusBadge: elements.mcpStatusBadge,
-      statusText: elements.mcpStatusText,
-      serverDetails: elements.mcpServerDetails,
-      commandSnippet: elements.mcpTerminalCommand,
-      btnCopyCmd: elements.btnMcpCopyCmd,
-      bootstrapCard: elements.mcpBootstrapCard,
-      toolsContainer: elements.mcpToolsContainer,
-      serversList: elements.mcpServersList,
-      savedAuthsList: elements.mcpSavedAuthsList,
-      btnClearAuths: elements.btnMcpClearAuths
+      statusBadge: elements.mcpStatusBadge, statusText: elements.mcpStatusText,
+      serverDetails: elements.mcpServerDetails, commandSnippet: elements.mcpTerminalCommand,
+      btnCopyCmd: elements.btnMcpCopyCmd, bootstrapCard: elements.mcpBootstrapCard,
+      toolsContainer: elements.mcpToolsContainer, serversList: elements.mcpServersList,
+      savedAuthsList: elements.mcpSavedAuthsList, btnClearAuths: elements.btnMcpClearAuths
     });
 
     // Un paquete de perfiles exportado abre la página para importarlos: no arranca el chat.
@@ -1137,10 +910,7 @@
   function promptServiceWorkerUpdate() {
     serviceWorkerUpdatePrompt ||= (async () => {
       const accepted = await Dialogs.confirm(t('pwa_update_available'), {
-        type: 'info',
-        title: t('pwa_update_title'),
-        acceptText: t('pwa_update_reload'),
-        cancelText: t('pwa_update_later')
+        type: 'info', title: t('pwa_update_title'), acceptText: t('pwa_update_reload'), cancelText: t('pwa_update_later')
       });
       if (accepted) location.reload();
       return accepted;
@@ -1154,6 +924,7 @@
     if (document.readyState !== 'complete') {
       await new Promise(resolve => window.addEventListener('load', resolve, { once: true }));
     }
+    const isSettled = w => ['installed', 'activated', 'redundant'].includes(w.state);
     try {
       const registration = await navigator.serviceWorker.register('./sw.js', { scope: './' });
       registration.addEventListener('updatefound', () => {
@@ -1165,12 +936,8 @@
       if (registration.waiting) return await promptServiceWorkerUpdate();
       await registration.update().catch(() => {});
       const worker = registration.installing;
-      if (worker && !['installed', 'activated', 'redundant'].includes(worker.state)) {
-        await new Promise(resolve => {
-          worker.addEventListener('statechange', () => {
-            if (['installed', 'activated', 'redundant'].includes(worker.state)) resolve();
-          });
-        });
+      if (worker && !isSettled(worker)) {
+        await new Promise(resolve => worker.addEventListener('statechange', () => { if (isSettled(worker)) resolve(); }));
       }
       if (registration.waiting || (worker?.state === 'installed' && navigator.serviceWorker.controller)) {
         return await promptServiceWorkerUpdate();
@@ -1181,9 +948,6 @@
     }
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
 })();

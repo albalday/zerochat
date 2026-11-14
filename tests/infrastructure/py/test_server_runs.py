@@ -303,9 +303,12 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         with mock.patch.object(zerochat, "find_node_executable", return_value="/usr/bin/node"), \
              mock.patch.object(zerochat, "ensure_runner_script", return_value=cache_runner), \
              mock.patch("subprocess.Popen", return_value=mock.Mock()) as popen:
-            zerochat.launch_node_runner(url)
+            with mock.patch.dict(os.environ, {"ZEROCHAT_SECRET_TEST": "super-secret-value"}):
+                zerochat.launch_node_runner(url)
             cmd = popen.call_args.args[0]
             self.assertEqual(cmd, ["/usr/bin/node", "--permission", str(cache_runner), url])
+            # El runner no hereda claves ni tokens del entorno de quien lanzó el servidor.
+            self.assertNotIn("ZEROCHAT_SECRET_TEST", popen.call_args.kwargs["env"])
             self.assertFalse(any(flag.startswith(forbidden + ("--allow-fs-read",)) for flag in cmd))
 
         with mock.patch.object(zerochat, "find_node_executable", return_value="/usr/bin/node"), \

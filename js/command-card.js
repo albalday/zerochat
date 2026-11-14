@@ -24,6 +24,7 @@
   const LOG_PAGE_BYTES = 256 * 1024;
   const MAX_LOG_CHARS = 512 * 1024;
   const FINAL_STATUSES = new Set(['exited', 'timeout', 'stopped', 'error', 'unavailable']);
+  const COMMAND_TOOLS = new Set(['run_command', 'check_command']);
 
   const controllers = new WeakMap();
 
@@ -492,10 +493,44 @@
     };
   }
 
+  /**
+   * Nota en inglés para el modelo con los comandos en segundo plano de esta conversación que
+   * han terminado sin que los haya visto terminar. Vacía si no hay ninguno.
+   */
+  async function buildCommandNotes(messages, requestReport) {
+    const lastStatus = new Map();
+    for (const message of messages) {
+      if (message.role !== 'tool' || !COMMAND_TOOLS.has(message.name)) continue;
+      const data = parseResult(message.content);
+      if (data && Number.isInteger(data.job_id)) lastStatus.set(data.job_id, data.status);
+    }
+    const ids = [...lastStatus].filter(([, status]) => status === 'running').map(([id]) => id).slice(-100);
+    if (!ids.length) return '';
+    let reports = [];
+    try {
+      reports = (await requestReport(ids))?.reports || [];
+    } catch (_) {
+      return '';
+    }
+    if (!reports.length) return '';
+    const lines = ['Background commands that finished since your last turn:'];
+    for (const report of reports) {
+      const duration = formatDuration(report.elapsed_s);
+      const outcome = report.status === 'stopped'
+        ? `was stopped by ${report.stop_reason === 'user' ? 'the user' : 'ZeroChat'} after ${duration}`
+        : `exited with code ${report.exit_code} after ${duration}`;
+      lines.push(`- job_id ${report.id} \`${String(report.command || '').split('\n')[0]}\` ${outcome}.`);
+      if (report.tail) lines.push('  Last lines:', ...String(report.tail).split('\n').map(line => `    ${line}`));
+    }
+    lines.push('For more output, read the log file with read_file or search_files: ' + reports.map(report => `job_id ${report.id}: ${report.log_file}`).join('; ') + '.');
+    return lines.join('\n');
+  }
+
   return {
     createView,
     parseResult,
     formatDuration,
+    buildCommandNotes,
     initialState,
     withDetails,
     withResult,

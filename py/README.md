@@ -22,14 +22,14 @@ Este documento contiene las especificaciones de arquitectura, entorno local y em
   | `server/` | Estado del servidor en marcha (`state.py`: latido, apagado, préstamo del navegador y estado vivo) y servidor HTTP JSON-RPC (`handler.py`: orígenes, token, identificación y despacho por grupos de métodos). |
   | `cli/` | Punto de entrada (`main.py`) y consola interactiva (`console.py`). |
 * **Imports entre módulos propios:** solo `from paquete.modulo import nombre`, en el nivel superior y sin alias. Sin ciclos: cuando una capa inferior necesita avisar a una superior, esta se registra con un gancho (`on_token_rotation`, `on_playwright_status`).
-* **Estado de otro módulo:** una variable de nivel superior solo la reasigna su propio módulo, mediante una función (`set_active_address`, `set_console_control`, `set_run_session`, `set_exit_on_close`); nadie usa `global` sobre lo que otro define.
+* **Estado de otro módulo:** una variable de nivel superior solo la reasigna su propio módulo, mediante una función (`set_active_address`, `set_console_control`, `set_run_session`, `set_exit_on_close`); nadie usa `global` sobre lo que otro define. Los demás la leen con otra función de ese módulo (`active_address`, `current_console_control`, `current_run_session`, `heartbeat_initialized`), nunca importando el nombre, que como paquete conservaría el valor inicial; `build-backend.py` rechaza ese import.
 * **Análisis estático:** `ruff check` (nombres sin definir e imports sin uso, `ruff.toml`) y `pyright` en modo básico (`pyrightconfig.json`) pasan sobre `py/` en la CI. En pyright se desactivan las reglas de precisión de `Optional` y de tipos de argumento, que aquí solo dan falsos positivos sobre valores ya validados; lo que existe solo en Windows o en una versión de Python se marca con `pyright: ignore` y su motivo.
 * **Punto de entrada:** `py/cli/main.py` contiene `main()` y el bloque `if __name__ == "__main__"`, que el compilador emite al final de `zerochat.py`; la consola interactiva está en `py/cli/console.py`.
 * **Proceso de compilación:** Cualquier cambio en `py/` requiere reconstruir el ejecutable unificado con:
   ```bash
   npm run build:backend
   ```
-  Este script sincroniza los servicios gestionados y compila `py/` en `zerochat.py` con `scripts/build-backend.py`: un único espacio de nombres plano (las pruebas sustituyen símbolos de `zerochat` y hay instancias únicas compartidas), con los módulos en orden de dependencias, los imports de la biblioteca estándar deduplicados y error ante ciclos o símbolos repetidos. `tests/fixtures/zerochat_symbols.json` guarda el inventario de nombres de nivel superior: un traslado lo conserva y un cambio deliberado lo actualiza. `zerochat.py` es un archivo autogenerado y debe mantenerse estrictamente sincronizado con `py/`.
+  Este script sincroniza los servicios gestionados y compila `py/` en `zerochat.py` con `scripts/build-backend.py`: un único espacio de nombres plano (las pruebas sustituyen símbolos de `zerochat` y hay instancias únicas compartidas), con los módulos en orden de dependencias, los imports de la biblioteca estándar deduplicados y error ante ciclos o símbolos repetidos. `zerochat.py` es un archivo autogenerado y debe mantenerse estrictamente sincronizado con `py/`.
 
 ---
 

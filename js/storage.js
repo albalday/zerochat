@@ -230,20 +230,34 @@
     };
   }
 
+  const blobIdsOf = messages => messages.flatMap(msg => (Array.isArray(msg?.images) ? msg.images : [])
+    .map(img => img?.blobId).filter(Boolean));
+
+  async function deleteOrphanBlobs(tx, candidates) {
+    if (candidates.size === 0) return;
+    const byBlobId = tx.objectStore(STORES.messages).index('by_blobId');
+    const blobs = tx.objectStore(STORES.blobs);
+    await Promise.all(Array.from(candidates, async blobId => {
+      if ((await requestResult(byBlobId.getKey(blobId))) === undefined) blobs.delete(blobId);
+    }));
+  }
+
   function toMessageRecord(message, conversationId, position, messageId) {
+    const blobIds = Array.from(new Set(blobIdsOf([message])));
     const record = {
       id: `${conversationId}:${position}`,
       messageId,
       conversationId,
       position,
       role: message.role || 'user',
-      content: message.content !== undefined ? message.content : ''
+      content: message.content !== undefined ? message.content : '',
+      ...(blobIds.length > 0 ? { blobIds } : {})
     };
     for (const field of OPTIONAL_MESSAGE_FIELDS) if (message[field]) record[field] = message[field];
     return record;
   }
 
-  const fromMessageRecord = ({ id, messageId, conversationId, position, ...message }) => ({
+  const fromMessageRecord = ({ id, messageId, conversationId, position, blobIds, ...message }) => ({
     id: messageId || id,
     ...message
   });
@@ -276,9 +290,12 @@
   function writeLocalConversation(sessionMeta, messages = []) {
     const sessionId = sessionMeta.id;
     return attempt('save the conversation', async db => {
-      const tx = db.transaction([STORES.conversations, STORES.messages], 'readwrite');
+      const tx = db.transaction([STORES.conversations, STORES.messages, STORES.blobs], 'readwrite');
       tx.objectStore(STORES.conversations).put(toConversationRecord(sessionMeta, messages.length));
       const messageStore = tx.objectStore(STORES.messages);
+      const existingMessages = await getAllByIndex(messageStore, 'by_conversation', conversationRange(sessionId));
+      const newBlobIds = new Set(blobIdsOf(messages));
+      const candidates = new Set(blobIdsOf(existingMessages).filter(blobId => !newBlobIds.has(blobId)));
       await deleteByIndex(messageStore, 'by_conversation', conversationRange(sessionId));
       const seenIds = new Set();
       messages.forEach((message, position) => {
@@ -286,6 +303,7 @@
         seenIds.add(messageId);
         messageStore.put(toMessageRecord(message, sessionId, position, messageId));
       });
+      await deleteOrphanBlobs(tx, candidates);
       await transactionDone(tx);
       return true;
     });
@@ -461,9 +479,6 @@
     return true;
   }
 
-  const blobIdsOf = messages => messages.flatMap(msg => (Array.isArray(msg?.images) ? msg.images : [])
-    .map(img => img?.blobId).filter(Boolean));
-
   /**
    * Borra las conversaciones `ids` de IndexedDB (todas si es null) con sus mensajes y los blobs que solo
    * ellas usaban. Con el backend conectado, primero borra en el servidor las que selecciona `params` de
@@ -475,7 +490,6 @@
       const tx = db.transaction([STORES.conversations, STORES.messages, STORES.blobs], 'readwrite');
       const conversations = tx.objectStore(STORES.conversations);
       const messages = tx.objectStore(STORES.messages);
-      const blobs = tx.objectStore(STORES.blobs);
       const candidates = new Set();
       if (ids === null) {
         blobIdsOf(await requestResult(messages.getAll())).forEach(blobId => candidates.add(blobId));
@@ -487,10 +501,7 @@
         conversations.delete(id);
         await deleteByIndex(messages, 'by_conversation', conversationRange(id));
       }
-      if (candidates.size > 0) {
-        for (const blobId of blobIdsOf(await requestResult(messages.getAll()))) candidates.delete(blobId);
-        candidates.forEach(blobId => blobs.delete(blobId));
-      }
+      await deleteOrphanBlobs(tx, candidates);
       await transactionDone(tx);
     });
   }

@@ -795,5 +795,18 @@ class SessionLifecycleTest(HandlerTestCase):
         set_tool(self.controller, "t", zerochat.POLICY_DENY)
         self.assertEqual(tool_entry(self.controller, "t", project_b)["policy"], "deny")
 
+class RpcValidationTest(unittest.TestCase):
+    def test_el_metodo_y_el_nombre_de_herramienta_admiten_128_caracteres_y_no_129(self):
+        validate = zerochat.ZeroChatServerHandler._validate_rpc
+        for limit, request in (
+            (zerochat.MAX_RPC_METHOD_LENGTH, lambda size: {"jsonrpc": "2.0", "id": 1, "method": "m" * size}),
+            (zerochat.MAX_TOOL_NAME_LENGTH, lambda size: {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                                         "params": {"name": "t" * size, "arguments": {}}}),
+        ):
+            with self.subTest(limit=limit, request=request(1)["method"]):
+                self.assertIsNone(validate(request(limit)))
+                self.assertIsNotNone(validate(request(limit + 1)))
+
+
 if __name__ == "__main__":
     unittest.main()

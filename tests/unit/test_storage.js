@@ -377,6 +377,26 @@ test('Storage IndexedDB - borrar conversaciones borra los blobs que solo ellas u
   assert.ok(await Storage.getBlob(loose), 'Un blob que ninguna conversación referenciaba no se toca');
 });
 
+test('Storage IndexedDB - guardar una conversación recoge los blobs sin referencia y conserva el compartido', async () => {
+  const image = text => ({ name: `${text}.png`, mimeType: 'image/png', dataUrl: `data:image/png;base64,${Buffer.from(text).toString('base64')}` });
+  const blobIds = async id => (await Storage.getConversation(id)).history.flatMap(msg => (msg.images || []).map(img => img.blobId));
+  await Storage.deleteAllConversations();
+  await Storage.saveConversation({ id: 'edit_a', title: 'A' }, [
+    { id: 'm1', role: 'user', content: 'solo', images: [image('propio-edit')] },
+    { id: 'm2', role: 'user', content: 'compartido', images: [image('compartido-edit')] }
+  ]);
+  await Storage.saveConversation({ id: 'edit_b', title: 'B' }, [
+    { id: 'm3', role: 'user', content: 'b', images: [image('compartido-edit')] }
+  ]);
+  const [own, shared] = await blobIds('edit_a');
+
+  await Storage.saveConversation({ id: 'edit_a', title: 'A' }, [
+    { id: 'm4', role: 'user', content: 'sin imagenes' }
+  ]);
+  assert.equal(await Storage.getBlob(own), null);
+  assert.ok(await Storage.getBlob(shared));
+});
+
 test('Storage IndexedDB - gestión y deduplicación de blobs desacoplados', async () => {
   const text = 'Hello ZeroChat Blob!';
   const base64Data = Buffer.from(text).toString('base64');

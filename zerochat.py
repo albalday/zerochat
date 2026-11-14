@@ -81,6 +81,11 @@ def set_console_control(control):
     CONSOLE_CONTROL = control
 
 
+def current_console_control():
+    """Consola interactiva que recibe el registro, o None."""
+    return CONSOLE_CONTROL
+
+
 def console_log(message: str, *, flush: bool = True):
     if CONSOLE_CONTROL:
         CONSOLE_CONTROL.log(message, flush=flush)
@@ -121,6 +126,13 @@ NOTICES_LOCK = threading.Lock()
 
 
 @functools.lru_cache(maxsize=1)
+def minimal_child_env() -> dict[str, str]:
+    """Entorno vacío para procesos de Node que ejecutan código no confiable (solo SYSTEMROOT en Windows)."""
+    if DETECTED_OS == "windows" and "SYSTEMROOT" in os.environ:
+        return {"SYSTEMROOT": os.environ["SYSTEMROOT"]}
+    return {}
+
+
 def get_dev_root() -> Path | None:
     """
     Detecta si zerochat.py se está ejecutando en el directorio de desarrollo del repositorio.
@@ -193,6 +205,11 @@ def set_active_address(host: str, port: int):
     ACTIVE_HOST, ACTIVE_PORT = host, port
 
 
+def active_address() -> tuple[str, int]:
+    """Host y puerto en los que escucha este proceso."""
+    return ACTIVE_HOST, ACTIVE_PORT
+
+
 def get_venv_python(venv_dir: Path) -> Path:
     """Devuelve el ejecutable de Python del entorno virtual según el SO."""
     if sys.platform.startswith("win"):
@@ -217,10 +234,64 @@ def ensure_virtual_environment():
         log_event(f"[zerochat] Advertencia al crear venv: {err}. Continuando con intérprete actual.")
 
 # --- auth.tokens ---
-"""Token diario de sesión: se guarda en los datos del usuario, caduca al cambiar el día y avisa a quien guarda lo que vale solo para su sesión."""
+"""Gestión de tokens de sesión y credenciales de ejecución: token local diario, sesiones remotas (login) y tokens acotados del runner."""
 
 
 
+
+
+MAX_REMOTE_TOKENS = 16
+RUNNER_EXTERNAL_METHODS = frozenset({
+    "initialize",
+    "notifications/initialized",
+    "tools/list",
+    "tools/call",
+})
+RUNNER_ALLOWED_METHODS = frozenset({
+    "initialize",
+    "notifications/initialized",
+    "tools/list",
+    "tools/call",
+    "zerochat/run/prompt",
+    "zerochat/run/progress",
+    "zerochat/run/export",
+    "zerochat/run/result",
+    "zerochat/web/fetch",
+    "zerochat/jobs/stop",
+    "zerochat/heartbeat",
+    "zerochat/external/servers/start",
+    "zerochat/external/servers/stop",
+    "zerochat/sandbox/execute",
+})
+
+
+@dataclasses.dataclass(frozen=True)
+class TokenGrant:
+    """Credencial autenticada con su tipo, fecha de emisión y alcance sobre la API."""
+    token: str
+    kind: str  # "local" | "remote" | "runner"
+    date: str
+    created_at: float
+    run_id: str | None = None
+    conversation_id: str | None = None
+
+    def allows(self, req_path: str, method: str, params: dict | None = None) -> bool:
+        """Indica si esta credencial autoriza el método JSON-RPC solicitado en la ruta dada."""
+        if self.kind in ("local", "remote"):
+            return True
+        if self.kind != "runner":
+            return False
+        if "/mcp/external" in req_path:
+            return method in RUNNER_EXTERNAL_METHODS
+        if method in RUNNER_ALLOWED_METHODS:
+            return True
+        if self.conversation_id and isinstance(params, dict):
+            if method == "zerochat/conversations/get":
+                return params.get("id") == self.conversation_id
+            if method == "zerochat/conversations/save":
+                conv = params.get("conversation")
+                return isinstance(conv, dict) and conv.get("id") == self.conversation_id
+        return False
 
 
 def get_daily_token() -> str:
@@ -259,26 +330,101 @@ def on_token_rotation(hook):
     return hook
 
 
-# Token de sesión en memoria y su día; main() lo carga al arrancar y current_session_token() lo renueva.
+# Token local diario, sesiones remotas y tokens de runner activos en memoria bajo el mismo cerrojo.
 SESSION_TOKEN = ""
 SESSION_TOKEN_DATE = ""
+ACTIVE_GRANTS: dict[str, TokenGrant] = {}
 SESSION_TOKEN_LOCK = threading.Lock()
+
+
+def _refresh_daily_locked(today: str) -> str:
+    """Renueva el token local al cambiar de día, limpia sesiones remotas caducadas y avisa a los hooks."""
+    global SESSION_TOKEN, SESSION_TOKEN_DATE
+    if SESSION_TOKEN_DATE != today:
+        SESSION_TOKEN = get_daily_token()
+        SESSION_TOKEN_DATE = today
+        expired = [tok for tok, grant in ACTIVE_GRANTS.items() if grant.kind == "remote" and grant.date != today]
+        for tok in expired:
+            ACTIVE_GRANTS.pop(tok, None)
+        for hook in TOKEN_ROTATION_HOOKS:
+            hook()
+    return SESSION_TOKEN
 
 
 def current_session_token() -> str:
     """
-    Token diario vigente: al cambiar el día carga o genera el nuevo, también con el servidor en marcha.
-    Cada token abre una sesión: al cargarlo se olvidan, bajo el mismo cerrojo, las autorizaciones de sesión.
+    Token diario vigente para el navegador local: al cambiar el día carga o genera el nuevo.
     """
-    global SESSION_TOKEN, SESSION_TOKEN_DATE
     today = datetime.date.today().isoformat()
     with SESSION_TOKEN_LOCK:
-        if SESSION_TOKEN_DATE != today:
-            SESSION_TOKEN = get_daily_token()
-            SESSION_TOKEN_DATE = today
-            for hook in TOKEN_ROTATION_HOOKS:
-                hook()
-        return SESSION_TOKEN
+        return _refresh_daily_locked(today)
+
+
+def issue_login_token() -> str:
+    """Emite una credencial independiente de usuario para una sesión remota autenticada por zerochat/login."""
+    today = datetime.date.today().isoformat()
+    with SESSION_TOKEN_LOCK:
+        _refresh_daily_locked(today)
+        remote_grants = [g for g in ACTIVE_GRANTS.values() if g.kind == "remote"]
+        while len(remote_grants) >= MAX_REMOTE_TOKENS:
+            oldest = min(remote_grants, key=lambda g: g.created_at)
+            ACTIVE_GRANTS.pop(oldest.token, None)
+            remote_grants.remove(oldest)
+        token = secrets.token_urlsafe(32)
+        ACTIVE_GRANTS[token] = TokenGrant(
+            token=token,
+            kind="remote",
+            date=today,
+            created_at=time.monotonic(),
+        )
+        return token
+
+
+def issue_runner_token(run_id: str, conversation_id: str | None = None) -> str:
+    """Emite una credencial acotada para el proceso runner de Node.js ligada a su ejecución."""
+    today = datetime.date.today().isoformat()
+    with SESSION_TOKEN_LOCK:
+        _refresh_daily_locked(today)
+        token = secrets.token_urlsafe(32)
+        ACTIVE_GRANTS[token] = TokenGrant(
+            token=token,
+            kind="runner",
+            date=today,
+            created_at=time.monotonic(),
+            run_id=run_id,
+            conversation_id=conversation_id,
+        )
+        return token
+
+
+def revoke_token(token: str | None) -> bool:
+    """Revoca una credencial emitida en memoria (sesión remota o runner)."""
+    if not token:
+        return False
+    with SESSION_TOKEN_LOCK:
+        return ACTIVE_GRANTS.pop(token, None) is not None
+
+
+def resolve_token(token_candidate: str) -> TokenGrant | None:
+    """Valida una credencial en tiempo constante y devuelve su TokenGrant o None."""
+    if not token_candidate or not isinstance(token_candidate, str):
+        return None
+    today = datetime.date.today().isoformat()
+    candidate_bytes = token_candidate.encode()
+    with SESSION_TOKEN_LOCK:
+        local_token = _refresh_daily_locked(today)
+        if local_token and hmac.compare_digest(candidate_bytes, local_token.encode()):
+            return TokenGrant(token=local_token, kind="local", date=SESSION_TOKEN_DATE, created_at=0.0)
+        matched: TokenGrant | None = None
+        for grant in ACTIVE_GRANTS.values():
+            if hmac.compare_digest(candidate_bytes, grant.token.encode()):
+                matched = grant
+        if matched is None:
+            return None
+        if matched.kind == "remote" and matched.date != today:
+            ACTIVE_GRANTS.pop(matched.token, None)
+            return None
+        return matched
 
 # --- auth.login ---
 """Identificación con la cuenta del sistema que ejecuta zerochat (PAM o LogonUserW) para obtener el token diario."""
@@ -426,7 +572,7 @@ def login(params: dict) -> dict:
                 LOGIN_LOCKED_UNTIL = time.monotonic() + LOGIN_LOCKOUT_SECONDS
             raise LoginError(LOGIN_FAILED_CODE, "Usuario o contraseña incorrectos.")
         LOGIN_FAILURES = 0
-    return {"token": current_session_token()}
+    return {"token": issue_login_token()}
 
 # --- browser.config ---
 """Navegador de Playwright MCP: configuración guardada, navegador de cada perfil y argumentos de arranque."""
@@ -1235,7 +1381,7 @@ def _pid_alive(pid: int) -> bool:
 
 
 
-SOURCE_BACKEND_VERSION = "10.15.0"
+SOURCE_BACKEND_VERSION = "10.16.0"
 
 
 def _read_source_version(filename: str) -> str | None:
@@ -2581,6 +2727,21 @@ STORAGE_MIGRATIONS = [
             updated_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_security_policies_user ON security_policies(user_id);
+    """),
+    (6, "006_create_conversation_blobs_table", """
+        CREATE TABLE IF NOT EXISTS conversation_blobs (
+            conversation_id TEXT NOT NULL,
+            blob_id TEXT NOT NULL,
+            FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+            PRIMARY KEY (conversation_id, blob_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_conversation_blobs_blob_id ON conversation_blobs(blob_id);
+        INSERT OR IGNORE INTO conversation_blobs (conversation_id, blob_id)
+        SELECT DISTINCT messages.conversation_id, TRIM(json_extract(image.value, '$.blobId'))
+        FROM messages, json_each(messages.extra_json, '$.images') AS image
+        WHERE json_valid(messages.extra_json)
+            AND json_extract(image.value, '$.blobId') IS NOT NULL
+            AND TRIM(json_extract(image.value, '$.blobId')) != '';
     """)
 ]
 
@@ -2870,6 +3031,40 @@ def get_conversation(session_id: str) -> dict | None:
         return {**header, "history": [_row_to_message(row) for row in msg_rows]}
 
 
+def _extract_message_blob_ids(messages: list[dict]) -> set[str]:
+    """Extrae los identificadores de blob no vacíos referenciados por las imágenes de los mensajes."""
+    blob_ids: set[str] = set()
+    for msg in messages:
+        images = msg.get("images")
+        if not isinstance(images, list):
+            continue
+        for image in images:
+            if isinstance(image, dict):
+                blob_id = image.get("blobId")
+                if isinstance(blob_id, str) and blob_id.strip():
+                    blob_ids.add(blob_id.strip())
+    return blob_ids
+
+
+def _delete_orphan_blobs(conn: sqlite3.Connection, candidates: set[str]):
+    """Elimina de `blobs` los candidatos que ya no referencia ninguna conversación."""
+    if not candidates:
+        return
+    candidate_list = list(candidates)
+    still_used: set[str] = set()
+    for start in range(0, len(candidate_list), 500):
+        batch = candidate_list[start:start + 500]
+        marks = ",".join("?" for _ in batch)
+        rows = conn.execute(
+            f"SELECT DISTINCT blob_id FROM conversation_blobs WHERE blob_id IN ({marks});",
+            batch,
+        ).fetchall()
+        still_used.update(row["blob_id"] for row in rows)
+    orphans = [(blob_id,) for blob_id in candidates - still_used]
+    if orphans:
+        conn.executemany("DELETE FROM blobs WHERE id = ?;", orphans)
+
+
 def save_conversation(session_meta: dict, messages: list[dict] | None = None) -> dict:
     """Guarda o actualiza una conversación y sustituye sus mensajes atómicamente."""
     if not isinstance(session_meta, dict):
@@ -2878,6 +3073,10 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
         messages = []
     if not isinstance(messages, list):
         raise ValueError("Los mensajes de la conversación deben ser una lista")
+    for msg in messages:
+        if not isinstance(msg, dict):
+            raise ValueError("Cada mensaje debe ser un objeto")
+    new_blob_ids = _extract_message_blob_ids(messages)
 
     session_id = _validate_conversation_id(session_meta.get("id"))
     raw_title = session_meta.get("title")
@@ -2926,11 +3125,16 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
                 extra_json = excluded.extra_json;
         """, (session_id, title, created_at, updated_at, len(messages), extra_json))
 
+        old_blob_ids = {
+            row["blob_id"]
+            for row in conn.execute(
+                "SELECT blob_id FROM conversation_blobs WHERE conversation_id = ?;",
+                (session_id,),
+            )
+        }
         conn.execute("DELETE FROM messages WHERE conversation_id = ?;", (session_id,))
 
         for pos, msg in enumerate(messages):
-            if not isinstance(msg, dict):
-                raise ValueError("Cada mensaje debe ser un objeto")
             msg_id = str(msg.get("id") or "").strip() or f"msg_{session_id}_{pos}"
             role = str(msg.get("role") or "user").strip()
             content = "" if msg.get("content") is None else str(msg.get("content"))
@@ -2941,6 +3145,14 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
                 INSERT INTO messages (conversation_id, position, id, role, content, extra_json)
                 VALUES (?, ?, ?, ?, ?, ?);
             """, (session_id, pos, msg_id, role, content, extra_json))
+
+        conn.execute("DELETE FROM conversation_blobs WHERE conversation_id = ?;", (session_id,))
+        if new_blob_ids:
+            conn.executemany(
+                "INSERT OR IGNORE INTO conversation_blobs (conversation_id, blob_id) VALUES (?, ?);",
+                [(session_id, blob_id) for blob_id in new_blob_ids],
+            )
+        _delete_orphan_blobs(conn, old_blob_ids - new_blob_ids)
 
         conn.commit()
         row = conn.execute("SELECT * FROM conversations WHERE id = ?;", (session_id,)).fetchone()
@@ -2983,14 +3195,6 @@ def rename_conversation(session_id: str, new_title: str) -> bool:
         return cursor.rowcount > 0
 
 
-# Identificadores de blob de las imágenes de los mensajes (messages.extra_json, campo images[].blobId).
-_MESSAGE_BLOB_IDS_SQL = """
-    SELECT DISTINCT json_extract(image.value, '$.blobId') AS blob_id
-    FROM messages, json_each(messages.extra_json, '$.images') AS image
-    WHERE json_valid(messages.extra_json) AND json_extract(image.value, '$.blobId') IS NOT NULL
-"""
-
-
 def _delete_conversations(conn: sqlite3.Connection, where: str, params: tuple) -> list[str]:
     """
     Borra en una transacción las conversaciones que cumplen `where`, con sus mensajes en cascada, y los
@@ -3003,13 +3207,15 @@ def _delete_conversations(conn: sqlite3.Connection, where: str, params: tuple) -
         ids = [row["id"] for row in conn.execute(f"SELECT id FROM conversations WHERE {where};", params)]
         if ids:
             marks = ",".join("?" for _ in ids)
-            candidates = {row["blob_id"] for row in conn.execute(
-                f"{_MESSAGE_BLOB_IDS_SQL} AND messages.conversation_id IN ({marks});", ids)}
+            candidates = {
+                row["blob_id"]
+                for row in conn.execute(
+                    f"SELECT DISTINCT blob_id FROM conversation_blobs WHERE conversation_id IN ({marks});",
+                    ids,
+                )
+            }
             conn.execute(f"DELETE FROM conversations WHERE id IN ({marks});", ids)
-            if candidates:
-                still_used = {row["blob_id"] for row in conn.execute(_MESSAGE_BLOB_IDS_SQL)}
-                orphans = [(blob_id,) for blob_id in candidates - still_used]
-                conn.executemany("DELETE FROM blobs WHERE id = ?;", orphans)
+            _delete_orphan_blobs(conn, candidates)
         conn.execute("COMMIT;")
         return ids
     except Exception:
@@ -3455,6 +3661,7 @@ class RunSession:
         self.reasoning_text = ""
         self.pending: dict | None = None
         self.error: str | None = None
+        self.runner_token: str | None = None
         if self.conversation_id:
             write_run_state(self)
 
@@ -3474,6 +3681,11 @@ def set_run_session(session: RunSession | None):
     """Fija la ejecución desatendida de este proceso (None si atiende a la interfaz)."""
     global RUN_SESSION
     RUN_SESSION = session
+
+
+def current_run_session() -> RunSession | None:
+    """Ejecución desatendida de este proceso, o None si atiende a la interfaz."""
+    return RUN_SESSION
 
 
 def http_body_limit() -> int:
@@ -3521,10 +3733,15 @@ def dispatch_run(method: str, params: dict, ctx: SecurityContext) -> tuple[dict 
             session.prompt_delivered = True
         session.touch()
         export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
+        delivered_security = (
+            {k: v for k, v in session.tool_security.items() if k != "tool_decision"}
+            if isinstance(session.tool_security, dict) and "tool_decision" in session.tool_security
+            else session.tool_security
+        )
         return {"prompt": session.prompt, "conversation_id": session.conversation_id, "profile": session.profile,
                 "profile_data": session.profile_data,
                 "export": export_format, "keep_page": session.keep_page,
-                "allow_dangerous_tools": session.allow_dangerous_tools, "tool_security": session.tool_security}, None, ""
+                "allow_dangerous_tools": session.allow_dangerous_tools, "tool_security": delivered_security}, None, ""
     if method == "zerochat/run/progress":
         kind = params.get("kind")
         text = params.get("text", "")
@@ -5747,6 +5964,7 @@ class ProjectSession:
     servers: dict[str, dict] = dataclasses.field(default_factory=dict)
     command_patterns: list[str] = dataclasses.field(default_factory=list)
     challenges: dict[str, dict] = dataclasses.field(default_factory=dict)
+    one_time_tools: set[str] = dataclasses.field(default_factory=set)
 
     def entries(self, kind: str) -> dict[str, dict]:
         return self.tools if kind == "tools" else self.servers
@@ -6045,6 +6263,38 @@ class AccessController:
         with self._lock:
             self.sessions.clear()
 
+    def apply_tool_decision(self, tool_decision: dict | None, context: SecurityContext, server_id: str = "") -> None:
+        """Aplica en AccessController la decisión aprobada por el usuario antes de reanudar una ejecución."""
+        if not isinstance(tool_decision, dict):
+            return
+        tool_name = tool_decision.get("toolName")
+        if not isinstance(tool_name, str) or not tool_name.strip():
+            return
+        tool_name = tool_name.strip()
+        raw_dec = tool_decision.get("decision")
+        if isinstance(raw_dec, dict):
+            dec_type = raw_dec.get("decision")
+            raw_pattern = raw_dec.get("commandPattern")
+            raw_dir_rule = raw_dec.get("directoryRule")
+        else:
+            dec_type = raw_dec
+            raw_pattern = None
+            raw_dir_rule = None
+        if not isinstance(dec_type, str) or dec_type not in AUTHORIZE_DECISIONS:
+            return
+        if dec_type == "allow_once":
+            with self._lock:
+                self._session(context).one_time_tools.add(tool_name)
+            return
+        pattern = normalize_command_pattern(raw_pattern) if (raw_pattern and tool_name == COMMAND_TOOL) else None
+        rules = self._validate_directory_rules([raw_dir_rule], context) if raw_dir_rule else []
+        challenge = {
+            "toolName": tool_name,
+            "serverName": server_id or "mcp-proxy",
+            "serverId": server_id,
+        }
+        self._record_decision(challenge, dec_type, pattern, rules, context)
+
     def create_challenge(self, tool_name: str, args: dict, decision: AccessDecision, *, context: SecurityContext,
                          server_name: str = "", server_id: str = "", origin: str = "local",
                          job_key: str | None = None, conversation_id: str = "") -> dict:
@@ -6179,6 +6429,12 @@ class AccessController:
         8. Por defecto -> ask (solicitar confirmación), con la regla sugerida si la hay.
         """
         status, reason, details, offer = self._evaluate(tool_name, dict(raw_args or {}), context, server_id)
+        if status == POLICY_ASK:
+            with self._lock:
+                one_time = self._session(context).one_time_tools
+                if tool_name in one_time:
+                    one_time.discard(tool_name)
+                    status, reason, details, offer = POLICY_ALLOW, "one_time_allow_rule", "", None
         return AccessDecision(allowed=status == POLICY_ALLOW, status=status, reason=reason,
                               requires_approval=status == POLICY_ASK, tool_id=tool_name, server_name=server_name,
                               server_id=server_id, details=details, rule_offer=offer)
@@ -6315,6 +6571,11 @@ def mark_browser_active():
     global HEARTBEAT_LAST_SEEN, HEARTBEAT_INITIALIZED
     HEARTBEAT_LAST_SEEN = time.monotonic()
     HEARTBEAT_INITIALIZED = True
+
+
+def heartbeat_initialized() -> bool:
+    """Si el navegador ha dado ya alguna señal de vida."""
+    return HEARTBEAT_INITIALIZED
 
 
 def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -> dict:
@@ -6686,6 +6947,193 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
 
     return None
 
+# --- tools.sandbox ---
+"""Ejecución aislada de JavaScript en un subproceso Node sin credenciales ni permisos."""
+
+
+
+
+DEFAULT_SANDBOX_TIMEOUT_MS = 2500
+MAX_SANDBOX_TIMEOUT_MS = 30000
+MAX_SANDBOX_OUTPUT_LENGTH = 30000
+MAX_SANDBOX_LOG_ENTRIES = 200
+
+_NODE_SANDBOX_SCRIPT = r"""
+const vm = require("node:vm");
+
+for (const key of ["fetch", "WebSocket", "XMLHttpRequest", "EventSource"]) {
+  try { delete globalThis[key]; } catch {}
+}
+
+function formatValue(value) {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value !== "object") return String(value);
+  try {
+    return JSON.stringify(value, (_k, item) => (typeof item === "bigint" ? item.toString() : item), 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function truncate(text, maxLen) {
+  return text.length > maxLen ? `${text.slice(0, maxLen)}... [output truncated]` : text;
+}
+
+async function readStdin() {
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+(async () => {
+  const started = Date.now();
+  const payload = JSON.parse(await readStdin());
+  const code = String(payload.code ?? "");
+  const timeoutMs = Number(payload.timeoutMs) || 2500;
+  const maxOutputLength = Number(payload.maxOutputLength) || 30000;
+  const maxLogEntries = Number(payload.maxLogEntries) || 200;
+  const logs = [];
+  const addLog = (prefix, args) => {
+    if (logs.length >= maxLogEntries) return;
+    const text = args.map(formatValue).join(" ");
+    logs.push(truncate(prefix ? `[${prefix}] ${text}` : text, maxOutputLength));
+  };
+  const customConsole = {
+    log: (...args) => addLog("", args),
+    info: (...args) => addLog("INFO", args),
+    warn: (...args) => addLog("WARN", args),
+    error: (...args) => addLog("ERROR", args),
+  };
+  const trimmed = code.trim();
+  const isStatement = /^(?:while|for|if|let|const|var|function|class|try|throw|switch|do)\b/.test(trimmed) ||
+    trimmed.includes(";") || trimmed.includes("\n") || trimmed.includes("return");
+  const body = isStatement ? `"use strict";\n${trimmed}` : `"use strict"; return (${trimmed});`;
+  const isAsync = /\bawait\b/.test(trimmed);
+  const wrapper = isAsync ? `(async function() {\n${body}\n})()` : `(function() {\n${body}\n})()`;
+
+  const sandboxContext = Object.create(null);
+  Object.assign(sandboxContext, {
+    console: customConsole,
+    Math, JSON, Date, RegExp, Array, Object, String, Number, Boolean, Symbol, BigInt,
+    Map, Set, WeakMap, WeakSet, Promise,
+    Error, TypeError, RangeError, SyntaxError, URIError,
+    parseInt, parseFloat, isNaN, isFinite,
+    encodeURI, decodeURI, encodeURIComponent, decodeURIComponent,
+  });
+  const context = vm.createContext(sandboxContext);
+  vm.runInContext(
+    'Function.prototype.constructor = function () { throw new Error("Dynamic function creation is not allowed in the sandbox."); };',
+    context
+  );
+  const keepAlive = setTimeout(() => {}, timeoutMs + 2000);
+  try {
+    const script = new vm.Script(wrapper);
+    const value = await Promise.resolve(script.runInContext(context, { timeout: timeoutMs, breakOnSigint: true }));
+    const out = {
+      success: true,
+      result: value !== undefined ? truncate(formatValue(value), maxOutputLength) : (logs.length > 0 ? logs.join("\n") : "undefined"),
+      logs,
+      executionTimeMs: Date.now() - started,
+    };
+    process.stdout.write(JSON.stringify(out));
+  } catch (err) {
+    const isTimeout = err && (err.code === "ERR_SCRIPT_EXECUTION_TIMEOUT" || /timed out/i.test(err.message || ""));
+    const message = isTimeout
+      ? `Execution timed out after ${timeoutMs}ms and was terminated.`
+      : (err && err.message ? err.message : String(err));
+    process.stdout.write(JSON.stringify({
+      success: false,
+      result: "",
+      logs,
+      executionTimeMs: Date.now() - started,
+      error: message,
+    }));
+  } finally {
+    clearTimeout(keepAlive);
+  }
+})();
+""".strip()
+
+
+def _normalize_timeout_ms(timeout_ms: int | float | None) -> int:
+    """Valida y acota el timeout del sandbox en milisegundos."""
+    if timeout_ms is None:
+        return DEFAULT_SANDBOX_TIMEOUT_MS
+    if isinstance(timeout_ms, bool) or not isinstance(timeout_ms, (int, float)) or timeout_ms <= 0:
+        raise ValueError("timeout_ms debe ser un número positivo")
+    return min(int(timeout_ms), MAX_SANDBOX_TIMEOUT_MS)
+
+
+def execute_js_sandbox(code: str, timeout_ms: int | float | None = None) -> dict:
+    """Ejecuta código JavaScript en un subproceso Node aislado con `--permission` y sin entorno."""
+    if not isinstance(code, str) or not code.strip():
+        return {
+            "success": False,
+            "result": "",
+            "logs": [],
+            "executionTimeMs": 0,
+            "error": "No code provided to execute.",
+        }
+    resolved_timeout = _normalize_timeout_ms(timeout_ms)
+    node_path = find_node_executable()
+    if not node_path:
+        raise RuntimeError(NODE_REQUIRED_MESSAGE)
+
+    payload = json.dumps({
+        "code": code,
+        "timeoutMs": resolved_timeout,
+        "maxOutputLength": MAX_SANDBOX_OUTPUT_LENGTH,
+        "maxLogEntries": MAX_SANDBOX_LOG_ENTRIES,
+    })
+    started = time.monotonic()
+    popen_kwargs = {
+        "stdin": subprocess.PIPE,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+        "env": minimal_child_env(),
+    }
+    if DETECTED_OS != "windows":
+        popen_kwargs["start_new_session"] = True
+    proc = subprocess.Popen([node_path, "--permission", "-e", _NODE_SANDBOX_SCRIPT], **popen_kwargs)
+    try:
+        stdout, stderr = proc.communicate(input=payload, timeout=(resolved_timeout + 250) / 1000.0)
+    except subprocess.TimeoutExpired:
+        _kill_process_tree(proc.pid, grace_seconds=0.05)
+        try:
+            proc.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:
+            pass
+        return {
+            "success": False,
+            "result": "",
+            "logs": [],
+            "executionTimeMs": int((time.monotonic() - started) * 1000),
+            "error": f"Execution timed out after {resolved_timeout}ms and was terminated.",
+        }
+
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    raw = (stdout or "").strip()
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict) and "success" in parsed:
+                return parsed
+        except json.JSONDecodeError:
+            pass
+    err_detail = (stderr or raw or f"Sandbox exited with code {proc.returncode}").strip()
+    return {
+        "success": False,
+        "result": "",
+        "logs": [],
+        "executionTimeMs": elapsed_ms,
+        "error": err_detail,
+    }
+
 # --- web.fetch ---
 """Transporte web saliente del servidor (zerochat/web/fetch): anti-SSRF en la URL y en cada redirección, cuerpo acotado, cabeceras de navegador y cadencia por host."""
 
@@ -6958,6 +7406,8 @@ def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc
             session.status = "error"
             session.error = session.stop_reason or ("El runner se cerró sin resultado." if proc else "La ejecución se interrumpió sin resultado.")
             write_run_state(session)
+    if session.runner_token:
+        revoke_token(session.runner_token)
     stop_zerochat_server(server)
 
 
@@ -6967,7 +7417,7 @@ def fall_back_when_headless_exits(proc: subprocess.Popen, url: str):
     ya está en marcha): si acaba antes de que conecte la interfaz, se abre la pestaña normal.
     """
     proc.wait()
-    if not HEARTBEAT_INITIALIZED and not _SERVER_SHUTTING_DOWN.is_set():
+    if not heartbeat_initialized() and not _SERVER_SHUTTING_DOWN.is_set():
         log_event("El navegador sin ventana terminó sin abrir la interfaz (¿ya estaba abierto?); se abre una pestaña de la forma normal.")
         launch_browser(url)
 
@@ -7060,7 +7510,7 @@ def ensure_runner_script() -> Path:
 
 
 def launch_node_runner(url: str) -> subprocess.Popen | None:
-    """Abre el runner de Node.js sin ventana en segundo plano con el modelo de permisos de Node."""
+    """Abre el runner de Node.js sin ventana en segundo plano con el modelo de permisos de Node y sin heredar el entorno."""
     node = find_node_executable()
     if not node:
         run_error(f"Se necesita {NODE_REQUIRED_MESSAGE} para la ejecución desatendida. Instálalo o usa --browser.")
@@ -7079,6 +7529,7 @@ def launch_node_runner(url: str) -> subprocess.Popen | None:
     try:
         return subprocess.Popen(
             cmd,
+            env=minimal_child_env(),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -7220,9 +7671,9 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, X-ZeroChat-Token, X-ZeroChat-Client, X-ZeroChat-Proxy, X-ZeroChat-Blob, X-ZeroChat-Project")
         self.send_header("Access-Control-Allow-Private-Network", "true")
 
-    def verify_token(self) -> bool:
+    def _resolve_grant(self) -> TokenGrant | None:
         """
-        Comprueba el token diario vigente, solo en cabeceras HTTP: el de un día anterior se rechaza.
+        Comprueba la credencial en cabeceras HTTP y devuelve su TokenGrant o None.
         X-ZeroChat-Token va antes que Authorization, que tras el proxy inverso lleva la clave del proxy.
         """
         token_candidate = self.headers.get("X-ZeroChat-Token", "").strip()
@@ -7230,7 +7681,11 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             auth_header = self.headers.get("Authorization", "")
             if auth_header.startswith("Bearer "):
                 token_candidate = auth_header[7:].strip()
-        return bool(token_candidate) and hmac.compare_digest(token_candidate.encode(), current_session_token().encode())
+        return resolve_token(token_candidate)
+
+    def verify_token(self) -> bool:
+        """Comprueba si hay una credencial vigente en cabeceras HTTP."""
+        return self._resolve_grant() is not None
 
     def do_OPTIONS(self):
         t0 = time.monotonic()
@@ -7554,6 +8009,15 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 return None, {"code": -32602, "message": str(exc)}, ""
             except Exception as exc:
                 return None, {"code": -32603, "message": f"Error en transporte web: {exc}"}, str(exc)
+        if method == "zerochat/sandbox/execute":
+            try:
+                code = params.get("code") if isinstance(params, dict) else ""
+                timeout_ms = params.get("timeout_ms") if isinstance(params, dict) else None
+                return execute_js_sandbox(code, timeout_ms=timeout_ms), None, ""
+            except ValueError as exc:
+                return None, {"code": -32602, "message": str(exc)}, ""
+            except Exception as exc:
+                return None, {"code": -32603, "message": f"Error en sandbox JS: {exc}"}, str(exc)
         if method.startswith("zerochat/jobs/"):
             return self._dispatch_jobs(method, params, ctx)
         if method.startswith("zerochat/run/"):
@@ -7859,7 +8323,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
         capture_frontend_user_agent(self.headers.get("User-Agent", ""))
         mark_browser_active()
-        if not self.verify_token():
+        grant = self._resolve_grant()
+        if grant is None:
             # Sin token válido solo cabe identificarse para obtenerlo.
             if self._serve_login(safe_path, t0):
                 return
@@ -7878,6 +8343,15 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         req_id = req.get("id")
         method = req["method"]
         params = req.get("params", {})
+
+        if not grant.allows(req_path, method, params):
+            self._log_req("POST", f"{safe_path} [rpc: {method}]")
+            self._reject(403, {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32000, "message": "Forbidden: method not permitted for this token"}
+            }, safe_path, t0, f"Método '{method}' no permitido para el token ({grant.kind})")
+            return
 
         # Etiqueta de seguimiento para la petición y respuesta (sin datos sensibles)
         action_tag = f"[tools/call: {params['name']}]" if method == "tools/call" else f"[rpc: {method}]"
@@ -8056,10 +8530,11 @@ def redirect_log(args):
     """Todo el registro pasa por stdout: con --prompt va a stderr para dejar stdout a la respuesta,
     y con --log off se descarta. Devuelve el stdout original, el de la respuesta."""
     result_out = sys.stdout
-    log_enabled = args.log == "on" if args.log else RUN_SESSION is None
+    session = current_run_session()
+    log_enabled = args.log == "on" if args.log else session is None
     if not log_enabled:
         sys.stdout = open(os.devnull, "w", encoding="utf-8")
-    elif RUN_SESSION:
+    elif session:
         sys.stdout = sys.stderr
     return result_out
 
@@ -8108,35 +8583,55 @@ def prepare_environment(args, is_dev: bool):
 def reset_session_authorizations():
     """Borra las autorizaciones de sesión y los retos pendientes, y vuelve a aplicar la capa de la ejecución."""
     ACCESS_CONTROLLER.clear_session()
-    if RUN_SESSION is not None:
-        if RUN_SESSION.tool_security:
-            ACCESS_CONTROLLER.apply_session_overlay(RUN_SESSION.tool_security, project_context())
-        if RUN_SESSION.allow_dangerous_tools:
+    session = current_run_session()
+    if session is not None:
+        ctx = project_context()
+        if session.tool_security:
+            ACCESS_CONTROLLER.apply_session_overlay(session.tool_security, ctx)
+            tool_decision = session.tool_security.get("tool_decision")
+            if isinstance(tool_decision, dict):
+                tool_name = tool_decision.get("toolName") or ""
+                server_id = GLOBAL_MCP_MANAGER.server_of(tool_name) or ""
+                ACCESS_CONTROLLER.apply_tool_decision(tool_decision, ctx, server_id=server_id)
+        if session.allow_dangerous_tools:
             ACCESS_CONTROLLER.apply_session_overlay({
+                "globalMcpPolicy": GLOBAL_POLICY_ALLOW_ALL,
                 "tools": {name: {"policy": POLICY_ALLOW} for name in ("write_file", "edit_file", "run_command")}
-            }, project_context())
+            }, ctx)
+        elif session.conversation_id is None:
+            permanent_tools = ACCESS_CONTROLLER.export_state(ctx).get("tools") or {}
+            ACCESS_CONTROLLER.apply_session_overlay({
+                "tools": {
+                    name: {"policy": POLICY_ALLOW}
+                    for name in LOCAL_TOOL_HANDLERS
+                    if name not in ("write_file", "edit_file", "run_command")
+                    and (permanent_tools.get(name) or {}).get("policy") != POLICY_DENY
+                }
+            }, ctx)
 
 
 def open_server(args, local_ui: bool) -> ThreadingHTTPServer:
     """Abre el puerto de escucha; con --prompt, si el puerto por defecto está ocupado, usa uno libre."""
-    set_active_address(args.host, args.port if args.port is not None else int(os.environ.get("ZEROCHAT_PORT", DEFAULT_PORT)))
+    host = args.host
+    port = args.port if args.port is not None else int(os.environ.get("ZEROCHAT_PORT", DEFAULT_PORT))
+    set_active_address(host, port)
     try:
-        return ThreadingHTTPServer((ACTIVE_HOST, ACTIVE_PORT), ZeroChatServerHandler)
+        return ThreadingHTTPServer((host, port), ZeroChatServerHandler)
     except OSError as exc:
-        if not RUN_SESSION:
+        if not current_run_session():
             raise
         if args.port is not None or local_ui:
             hint = "" if args.port is not None else " (en desarrollo la interfaz local necesita ese puerto: cierra el zerochat que lo usa)"
-            run_error(f"No se pudo escuchar en {ACTIVE_HOST}:{ACTIVE_PORT}: {exc}{hint}")
+            run_error(f"No se pudo escuchar en {host}:{port}: {exc}{hint}")
             sys.exit(RUN_EXIT_SETUP)
     # Otro zerochat (u otro programa) usa el puerto por defecto: la ejecución usa uno libre.
     try:
-        server = ThreadingHTTPServer((ACTIVE_HOST, 0), ZeroChatServerHandler)
+        server = ThreadingHTTPServer((host, 0), ZeroChatServerHandler)
     except OSError as retry_exc:
-        run_error(f"No se pudo escuchar en {ACTIVE_HOST}: {retry_exc}")
+        run_error(f"No se pudo escuchar en {host}: {retry_exc}")
         sys.exit(RUN_EXIT_SETUP)
-    log_event(f"El puerto {ACTIVE_PORT} está ocupado; la ejecución usa el {server.server_address[1]}.")
-    set_active_address(ACTIVE_HOST, server.server_address[1])
+    log_event(f"El puerto {port} está ocupado; la ejecución usa el {server.server_address[1]}.")
+    set_active_address(host, server.server_address[1])
     return server
 
 
@@ -8145,16 +8640,19 @@ def interface_url(args, static_root) -> str:
     if args.ui_url:
         return args.ui_url
     if static_root:
-        return f"http://{ACTIVE_HOST}:{ACTIVE_PORT}/zerochat.html"
+        host, port = active_address()
+        return f"http://{host}:{port}/zerochat.html"
     return DEFAULT_UI_URL
 
 
-def launch_url(ui_url: str) -> str:
+def launch_url(ui_url: str, token: str | None = None) -> str:
     """URL con que zerochat abre el navegador: el token vigente y el servidor van en el fragmento."""
-    browser_host = ACTIVE_HOST if ACTIVE_HOST in {"127.0.0.1", "localhost"} else "127.0.0.1"
-    fragment = {'token': current_session_token(), 'host': browser_host, 'port': ACTIVE_PORT}
-    if RUN_SESSION:
-        fragment['run'] = RUN_SESSION.run_id
+    host, port = active_address()
+    browser_host = host if host in {"127.0.0.1", "localhost"} else "127.0.0.1"
+    fragment = {'token': token if token is not None else current_session_token(), 'host': browser_host, 'port': port}
+    session = current_run_session()
+    if session:
+        fragment['run'] = session.run_id
     return f"{ui_url}#{urlencode(fragment)}"
 
 
@@ -8171,7 +8669,8 @@ def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_cl
         print("  Modo de ejecución     : Paquete PyPI (GitHub Pages)")
     else:
         print("  Modo de ejecución     : Producción (Web universal)")
-    print(f"  Servidor HTTP         : http://{ACTIVE_HOST}:{ACTIVE_PORT}")
+    host, port = active_address()
+    print(f"  Servidor HTTP         : http://{host}:{port}")
     if exposure_warning:
         print(f"  AVISO                 : {exposure_warning}")
     print("  Token de sesión (diario): configurado")
@@ -8186,22 +8685,24 @@ def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_cl
 def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, result_out):
     """Abre la interfaz: en modo ejecución, con su supervisor; si no, con el control de consola.
     Devuelve el navegador sin ventana lanzado, si lo hay."""
-    if not RUN_SESSION:
+    session = current_run_session()
+    if not session:
         console = ConsoleControl(server, parser, launch_url=lambda: launch_url(ui_url))
         set_console_control(console)
         console.start()
         if not args.no_browser:
             launch_browser(launch_url(ui_url))
         return None
-    target_url = launch_url(ui_url)
     if not args.browser:
-        runner_proc = launch_node_runner(target_url)
+        session.runner_token = issue_runner_token(session.run_id, session.conversation_id)
+        runner_proc = launch_node_runner(launch_url(ui_url, token=session.runner_token))
         if runner_proc is None:
             server.server_close()
             sys.stdout = result_out
             sys.exit(RUN_EXIT_SETUP)
-        threading.Thread(target=run_supervisor, args=(server, RUN_SESSION, runner_proc), daemon=True).start()
+        threading.Thread(target=run_supervisor, args=(server, session, runner_proc), daemon=True).start()
         return runner_proc
+    target_url = launch_url(ui_url)
     headless_browser = launch_headless_browser(target_url) if args.headless else None
     if headless_browser is None and not launch_browser(target_url):
         run_error("No se pudo abrir el navegador.")
@@ -8210,7 +8711,7 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, resu
         sys.exit(RUN_EXIT_SETUP)
     if headless_browser is not None:
         threading.Thread(target=fall_back_when_headless_exits, args=(headless_browser, target_url), daemon=True).start()
-    threading.Thread(target=run_supervisor, args=(server, RUN_SESSION, None, headless_browser), daemon=True).start()
+    threading.Thread(target=run_supervisor, args=(server, session, None, headless_browser), daemon=True).start()
     return headless_browser
 
 
@@ -8243,8 +8744,9 @@ def serve(server: ThreadingHTTPServer):
     finally:
         stop_zerochat_server(server)
         server.server_close()
-        if CONSOLE_CONTROL:
-            CONSOLE_CONTROL.close()
+        console = current_console_control()
+        if console:
+            console.close()
             set_console_control(None)
 
 
@@ -8253,7 +8755,7 @@ def finish_run(headless_browser, result_out):
     # Firefox sin ventana sigue vivo al cerrar la página; uno ya abierto solo recibió la pestaña.
     if headless_browser is not None and headless_browser.poll() is None:
         _kill_process_tree(headless_browser)
-    code, text = run_outcome(RUN_SESSION)
+    code, text = run_outcome(current_run_session())
     sys.stdout = result_out
     if text is not None:
         result_out.write(text if text.endswith("\n") else text + "\n")
@@ -8307,22 +8809,23 @@ def main():
 
     # La interfaz local de desarrollo en el navegador del usuario tiene el puerto en su origen: en otro no vería los datos guardados.
     server = open_server(args, local_ui=static_root is not None and not args.ui_url and args.browser)
-    exposure_warning = remote_exposure_warning(ACTIVE_HOST)
+    exposure_warning = remote_exposure_warning(active_address()[0])
     if exposure_warning:
         add_notice(exposure_warning)
 
     ui_url = interface_url(args, static_root)
     # El modo ejecución (que rechaza --keep-server) detecta con el latido que el navegador se cerró sin devolver resultado.
-    set_exit_on_close(not args.keep_server)
-    print_header(dev_root, ui_url, exposure_warning, not args.keep_server)
+    exit_on_close = not args.keep_server
+    set_exit_on_close(exit_on_close)
+    print_header(dev_root, ui_url, exposure_warning, exit_on_close)
 
     headless_browser = start_interface(args, parser, server, ui_url, result_out)
-    if EXIT_ON_CLOSE:
+    if exit_on_close:
         start_heartbeat_watchdog(server, require_initial=not args.no_browser)
     install_signal_handlers(server)
     serve(server)
 
-    if RUN_SESSION:
+    if current_run_session():
         finish_run(headless_browser, result_out)
 
 if __name__ == "__main__":

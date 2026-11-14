@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Revisión 1: Infraestructura y normas · ZeroChat 10.x Docs</title>
-  <meta name="description" content="Revisión de ZeroChat 10.14.0: normas de AGENTS.md frente a sus pruebas, seguridad del servidor local, riesgos aceptados y quince hallazgos, entre ellos el sandbox de Node.">
+  <meta name="description" content="Revisión de ZeroChat 10.16.0: normas de AGENTS.md frente a sus pruebas, seguridad del servidor local, credencial y sandbox del runner de Node y riesgos aceptados.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -21,15 +21,14 @@
         </div>
       </div>
       <h1>Revisión 1: Infraestructura y normas</h1>
-      <p class="subtitle">Qué protege una prueba y qué no en la serie 10.x: SQLite, permisos en el backend y ejecución en Node. Actualizada el 13 de noviembre de 2026.</p>
+      <p class="subtitle">Qué protege una prueba y qué no en la serie 10.x: backend en paquetes, permisos y ejecución en Node. Actualizada el 14 de noviembre de 2026.</p>
     </header>
 
     <main>
       <div class="card">
         <h2>Alcance y método</h2>
-        <p>Revisión de la versión <strong>10.14.0</strong> en la rama <code>dev</code> (commit <code>bc942cf</code>), escrita desde cero sobre el código actual y sin partir de las conclusiones de la revisión anterior (9.11.0, commit <code>170ee03</code>). Entre las dos hay 251 commits y 19 hitos cerrados (M44 a M62), con M63 abierto. Sigue el procedimiento <code>docs/audits/AuditFull.md</code>.</p>
-        <p>La serie 10.x cambia el alcance de la infraestructura: el servidor local ya no es solo un puente de herramientas. Guarda perfiles, conversaciones, adjuntos y permisos en SQLite, decide él solo la autorización de cada herramienta y ejecuta turnos completos del agente en segundo plano con un proceso de Node.js. Esta revisión se centra en esas piezas nuevas.</p>
-        <p>Incluye cuatro hallazgos de una revisión paralela hecha con Gemini sobre el mismo commit (F-12 a F-15 y la ampliación de F-06), comprobados uno a uno en el código antes de incorporarlos.</p>
+        <p>Revisión de la versión <strong>10.16.0</strong> en la rama <code>dev</code> (commit <code>865cbba</code>), escrita sobre el código actual según el procedimiento <code>docs/audits/AuditFull.md</code>. Sustituye a la revisión de la 10.14.0 (commit <code>bc942cf</code>): entre las dos hay 77 commits, cuatro hitos cerrados (M64 a M67) y el hito M68, además del final de M63.</p>
+        <p>Esos commits se han revisado uno a uno contra los hallazgos de la revisión anterior. Lo que quedó corregido no aparece aquí como hallazgo: esta página describe el estado actual, y los hallazgos están numerados de nuevo. La historia de las correcciones está en la <a href="audit-history.html">Revisión 4</a>.</p>
         <p>Cada afirmación indica su procedencia:</p>
         <ul>
           <li><strong>[test]</strong> una prueba automatizada la protege;</li>
@@ -44,19 +43,19 @@
           <table>
             <thead><tr><th>Comando</th><th>Resultado</th></tr></thead>
             <tbody>
-              <tr><td><code>npm run test:all</code></td><td>809 casos: 660 de <code>node --test</code> y 149 de <code>unittest</code>; todos correctos y 1 omitido (Job Object, solo en Windows)</td></tr>
-              <tr><td><code>npm run test:unit</code></td><td>213/213</td></tr>
-              <tr><td><code>npm run test:integration</code></td><td>279/279</td></tr>
-              <tr><td><code>npm run test:infrastructure</code></td><td>26/26 de Node y 149 de Python en 14 archivos (1 omitido)</td></tr>
+              <tr><td><code>npm run test:all</code></td><td>847 casos: 673 de <code>node --test</code> y 174 de <code>unittest</code>, con 1 omitido (Job Object, solo en Windows). Todos correctos salvo una prueba que falla de forma intermitente al ejecutarse junto a las de navegador (apartado 5); por niveles, todos correctos</td></tr>
+              <tr><td><code>npm run test:unit</code></td><td>225/225</td></tr>
+              <tr><td><code>npm run test:integration</code></td><td>280/280</td></tr>
+              <tr><td><code>npm run test:infrastructure</code></td><td>26/26 de Node y 174 de Python en 16 archivos (1 omitido)</td></tr>
               <tr><td><code>npm run test:architecture</code></td><td>40/40 en 14 archivos</td></tr>
               <tr><td><code>npm run test:browser</code></td><td>102/102 en Chromium headless</td></tr>
-              <tr><td><code>npm run build</code></td><td>Sin diferencias en <code>zerochat.py</code>, <code>py/dd-managed-services.py</code>, <code>runner.js</code> ni los bundles de <code>js/vendor/</code></td></tr>
-              <tr><td><code>git status --short</code></td><td>Antes de empezar, solo <code>todo.txt</code> modificado (ajeno a la revisión)</td></tr>
+              <tr><td><code>npm run build</code></td><td>Sin diferencias en <code>zerochat.py</code>, <code>py/mcp/managed_services.py</code>, <code>runner.js</code> ni los bundles de <code>js/vendor/</code></td></tr>
+              <tr><td><code>git status --short</code></td><td>Árbol limpio antes y después</td></tr>
             </tbody>
           </table>
         </div>
-        <p>Tamaño: 66 módulos JavaScript en <code>js/</code> (29.934 líneas) y 12 herramientas nativas en <code>js/tools/builtin/</code> (970 líneas); 16 módulos Python en <code>py/</code> (7.995 líneas, frente a 13 y 4.909 en la 9.11.0); 14 hojas de estilo (8.751 líneas); 890 claves de traducción en cada idioma; 3 bundles de terceros en <code>js/vendor/</code> y un cuarto artefacto generado, <code>runner.js</code>. [cmd]</p>
-        <p>El backend ha crecido un 63 % en tres semanas y es donde se concentra el riesgo nuevo: almacenamiento, permisos y ejecución desatendida.</p>
+        <p>Tamaño: 72 módulos JavaScript en <code>js/</code> (30.699 líneas) y 12 herramientas nativas en <code>js/tools/builtin/</code> (970 líneas); 31 módulos Python en 11 paquetes de <code>py/</code> (9.188 líneas), que se compilan en un <code>zerochat.py</code> de 8.832; 14 hojas de estilo (8.775 líneas); 894 claves de traducción en cada idioma; 3 bundles de terceros en <code>js/vendor/</code> y un cuarto artefacto generado, <code>runner.js</code>. [cmd]</p>
+        <p><code>ruff</code> y <code>pyright</code> no están instalados en el entorno de esta revisión; se ejecutan en la CI, en Linux, Windows y macOS.</p>
       </div>
       <div class="card">
         <h2>2. Normas y pruebas</h2>
@@ -66,29 +65,29 @@
             <thead><tr><th>Norma</th><th>Protección</th><th>Estado hoy</th></tr></thead>
             <tbody>
               <tr><td colspan="3"><strong>§2 Calidad del código</strong></td></tr>
-              <tr><td>Única fuente por decisión y pruebas que importan esa fuente</td><td>[test] parcial: <code>tests/fixtures/mcp/</code> lo comprueban las dos suites para motores, navegadores, tokens, almacenamientos y nombres públicos; los estados de servicio solo los comprueba Python (F-07); en el resto, [lectura]</td><td>Cumple salvo F-07</td></tr>
+              <tr><td>Única fuente por decisión y pruebas que importan esa fuente</td><td>[test] parcial: <code>tests/fixtures/mcp/</code> lo comprueban las dos suites para motores, navegadores, tokens, almacenamientos, nombres públicos y estados de servicio; en el resto, [lectura]</td><td>Cumple</td></tr>
               <tr><td>Dependencias con <code>resolveDep</code> o la fábrica UMD</td><td>[test] <code>test_code_hygiene.js</code></td><td>Cumple</td></tr>
-              <tr><td>Separar dominio, persistencia, adaptadores y presentación</td><td>[test] <code>test_persistence_boundary.js</code>, <code>test_state_contract.js</code>; adaptadores de entorno navegador/Node, [lectura]</td><td>Cumple</td></tr>
+              <tr><td>Separar dominio, persistencia, adaptadores y presentación</td><td>[test] <code>test_persistence_boundary.js</code>, <code>test_state_contract.js</code>; en el backend, el compilador rechaza ciclos entre módulos e imports fuera del patrón [test] <code>py/test_build_backend.py</code></td><td>Cumple</td></tr>
               <tr><td>Errores explícitos</td><td>[test] <code>test_error_handling.js</code> y <code>test_backend_hygiene.js</code></td><td>Cumple</td></tr>
-              <tr><td>Sin código especulativo ni de compatibilidad hacia atrás</td><td>[sin prueba] en general; [test] parcial con las funciones y variables sin uso de <code>test_code_hygiene.js</code></td><td>Revisión de cada diff; M63-T13 y T19 retiraron varios casos</td></tr>
-              <tr><td>Eliminar lo huérfano tras una retirada</td><td>[test] en JavaScript, i18n, iconos y CSS; [sin prueba] en cabeceras HTTP, documentación, páginas de ayuda y listas del ejecutor de pruebas</td><td>No cumple en F-06 y F-07</td></tr>
-              <tr><td>Sin código de producción que solo usan las pruebas</td><td>[test] <code>test_code_hygiene.js</code> en JavaScript; [sin prueba] en <code>py/</code></td><td>No cumple en F-08</td></tr>
+              <tr><td>Sin código especulativo ni de compatibilidad hacia atrás</td><td>[sin prueba] en general; [test] parcial con las funciones y variables sin uso de <code>test_code_hygiene.js</code> y los imports sin uso de <code>ruff</code> en la CI</td><td>Revisión de cada diff</td></tr>
+              <tr><td>Eliminar lo huérfano tras una retirada</td><td>[test] en JavaScript, i18n, iconos, CSS, cabeceras CORS y grupos del ejecutor de pruebas; [sin prueba] en documentación y páginas de ayuda</td><td>Cumple [lectura]: no quedan referencias a los módulos con prefijo retirados en M64</td></tr>
+              <tr><td>Sin código de producción que solo usan las pruebas</td><td>[test] <code>test_code_hygiene.js</code> en JavaScript; [sin prueba] en <code>py/</code></td><td>Cumple [lectura]: las variables de entorno de plazos y latido se retiraron</td></tr>
               <tr><td colspan="3"><strong>§3 Seguridad</strong></td></tr>
               <tr><td>Datos externos fuera de <code>innerHTML</code>, lista cerrada de usos</td><td>[test] <code>test_html_sinks.js</code> (94 usos en 24 archivos) y pruebas de inyección</td><td>Cumple</td></tr>
-              <tr><td>Comandos, sandbox y datos sensibles con pruebas de límites y autorización</td><td>[test] <code>py/test_security.py</code> (38 casos), <code>py/test_run_command.py</code>, <code>py/test_login.py</code>, <code>browser_sandbox_security.test.js</code>, <code>test_sandbox_node.js</code></td><td>No cumple en el sandbox de Node (F-01, F-02)</td></tr>
+              <tr><td>Comandos, sandbox y datos sensibles con pruebas de límites y autorización</td><td>[test] <code>py/test_security.py</code> (40 casos), <code>py/test_run_command.py</code>, <code>py/test_login.py</code>, <code>py/test_token.py</code>, <code>py/test_sandbox.py</code>, <code>browser_sandbox_security.test.js</code>, <code>test_sandbox_node.js</code></td><td>Cumple</td></tr>
               <tr><td>Token de sesión obligatorio y escucha en <code>127.0.0.1</code></td><td>[test] <code>test_local_server.js</code>, <code>py/test_token.py</code>, <code>py/test_network.py</code></td><td>Cumple</td></tr>
               <tr><td colspan="3"><strong>§4 Pruebas</strong></td></tr>
-              <tr><td>Cada comportamiento se prueba una vez, en el nivel más bajo</td><td>[lectura]; podas de M53 y M63</td><td>Cumple</td></tr>
-              <tr><td>Todo tope probado en <code>N</code> y <code>N+1</code> con su aviso</td><td>[test] tope a tope: cuerpo de 1 MiB, exportación de 64 MB, blobs, nombres y títulos, 500 entradas de política, 16 sesiones de proyecto, 50 patrones, TTL del reto, 50 conversaciones por grupo; [sin prueba] de que todo tope nuevo la tenga</td><td>Sin prueba localizada para <code>MAX_FINISHED_JOBS</code>, <code>WEB_FETCH_MAX_REDIRECTS</code>, <code>MAX_MCP_MESSAGE_CHARS</code> y los 128 caracteres de método y herramienta [cmd]</td></tr>
+              <tr><td>Cada comportamiento se prueba una vez, en el nivel más bajo</td><td>[lectura]</td><td>Cumple: los plazos y el latido pasaron de pruebas con proceso real a pruebas en proceso</td></tr>
+              <tr><td>Todo tope probado en <code>N</code> y <code>N+1</code> con su aviso</td><td>[test] tope a tope: cuerpo de 1 MiB, exportación de 64 MB, descarga del runner de 4 MiB, blobs, nombres y títulos, 500 entradas de política, 16 sesiones de proyecto, 50 patrones, TTL del reto, 50 conversaciones por grupo, 50 comandos terminados, 5 redirecciones, mensajes MCP de 16 MiB, 128 caracteres de método y de herramienta, profundidad del analizador HTML; [sin prueba] de que todo tope nuevo la tenga</td><td>Cumple</td></tr>
               <tr><td colspan="3"><strong>§5 Git y versiones</strong></td></tr>
               <tr><td>Versiones solo con <code>npm run bump</code></td><td>[test] <code>test_versioning.js</code></td><td>Cumple</td></tr>
-              <tr><td>Promoción a <code>master</code> solo desde <code>dev</code>, con bump y suite en verde</td><td>[sin prueba]: es un procedimiento</td><td><code>master</code> está en la 10.13.0, 28 commits por detrás de <code>dev</code></td></tr>
+              <tr><td>Promoción a <code>master</code> solo desde <code>dev</code>, con bump y suite en verde</td><td>[sin prueba]: es un procedimiento</td><td>Cumple: <code>master</code> está en la 10.16.0 [cmd]</td></tr>
               <tr><td colspan="3"><strong>§6 Finalización</strong></td></tr>
-              <tr><td>Español e inglés sincronizados</td><td>[test] <code>test_i18n.js</code> y <code>test_help_pages.js</code></td><td>Cumple: 890/890 claves</td></tr>
+              <tr><td>Español e inglés sincronizados</td><td>[test] <code>test_i18n.js</code> y <code>test_help_pages.js</code></td><td>Cumple: 894/894 claves</td></tr>
               <tr><td><code>sitemap.xml</code> regenerado</td><td>[test] <code>test_help_pages.js</code></td><td>Cumple</td></tr>
               <tr><td>Backend recompilado tras cambiar <code>py/</code></td><td>[test] <code>test_backend_hygiene.js</code></td><td>Cumple</td></tr>
-              <tr><td>Artefactos generados sincronizados</td><td>[test] <code>zerochat.py</code> y los bundles de <code>js/vendor/</code>; [cmd] <code>runner.js</code></td><td>Cumple hoy; sin vigilancia en <code>runner.js</code> (F-04)</td></tr>
-              <tr><td>Memoria de proyecto (<code>.zerochat/</code>) al día</td><td>[sin prueba]; <code>task.py</code> la actualiza de forma atómica y tiene su prueba</td><td>Cumple en M63</td></tr>
+              <tr><td>Artefactos generados sincronizados</td><td>[test] <code>zerochat.py</code>, <code>runner.js</code> y los bundles de <code>js/vendor/</code></td><td>Cumple</td></tr>
+              <tr><td>Memoria de proyecto (<code>.zerochat/</code>) al día</td><td>[sin prueba]; <code>task.py</code> la actualiza de forma atómica y tiene su prueba</td><td>Cumple en M64 a M68 [lectura]</td></tr>
               <tr><td colspan="3"><strong>README de subsistema</strong></td></tr>
               <tr><td>Eventos enlazados una vez en <code>mount()</code> y diálogos siempre esperados</td><td>[test] <code>test_ui_listeners.js</code>, <code>test_code_hygiene.js</code></td><td>Cumple</td></tr>
               <tr><td>Mensajes al modelo en inglés y texto visible con <code>ChatI18n</code></td><td>[test] <code>test_english_literals.js</code>, <code>test_i18n_literals.js</code></td><td>Cumple</td></tr>
@@ -98,34 +97,38 @@
               <tr><td>Solo las librerías de arranque entran en el precache</td><td>[test] <code>test_vendor_loading.js</code></td><td>Cumple</td></tr>
               <tr><td>Orden del prompt de sistema para la caché de contexto</td><td>[test] <code>test_context_cache_architecture.js</code></td><td>Cumple</td></tr>
               <tr><td>Proveedores que extienden <code>BaseProviderAdapter</code></td><td>[test] <code>test_providers.js</code></td><td>Cumple</td></tr>
-              <tr><td>El backend es el único que decide permisos; el navegador no guarda políticas</td><td>[test] <code>test_persistence_boundary.js</code> y <code>py/test_security.py</code>; que el frontend no evalúe, [lectura]</td><td>Cumple</td></tr>
+              <tr><td>El backend es el único que decide permisos; el navegador no guarda políticas</td><td>[test] <code>test_persistence_boundary.js</code>, <code>py/test_security.py</code> y, para el runner, <code>py/test_token.py</code>; que el frontend no evalúe, [lectura]</td><td>Cumple</td></tr>
               <tr><td>Punto único de ejecución de herramientas y retos de un solo uso</td><td>[test] <code>py/test_security.py</code></td><td>Cumple</td></tr>
-              <tr><td>Las autorizaciones de sesión se olvidan al arrancar o al rotar el token</td><td>[test] al arrancar; [sin prueba] al rotar con el servidor en marcha</td><td>No cumple al rotar (F-12)</td></tr>
+              <tr><td>Las autorizaciones de sesión se olvidan al arrancar o al rotar el token</td><td>[test] <code>py/test_security.py</code>, con la fecha simulada</td><td>Cumple</td></tr>
               <tr><td>El proceso no cambia de directorio; el proyecto viaja en cada petición</td><td>[test] <code>test_backend_hygiene.js</code>, <code>py/test_security.py</code></td><td>Cumple</td></tr>
-              <tr><td>SQLite y ficheros de ejecución con permisos <code>0600</code> en directorios <code>0700</code></td><td>[test] <code>py/test_storage.py</code>, <code>py/test_server_runs.py</code></td><td>Cumple en Linux; sin equivalente probado en Windows</td></tr>
-              <tr><td>Backend: <code>zz-main.py</code> último y paridad de definiciones y manejadores</td><td>[test] <code>test_backend_hygiene.js</code></td><td>Cumple</td></tr>
+              <tr><td>SQLite y ficheros de ejecución con permisos <code>0600</code> en directorios <code>0700</code></td><td>[test] <code>py/test_storage.py</code>, <code>py/test_server_runs.py</code>, también en Windows y macOS en la CI</td><td>Cumple</td></tr>
+              <tr><td>Backend en paquetes: solo <code>from paquete.modulo import nombre</code>, sin ciclos, sin módulos sueltos y sin escribir en disco al importar</td><td>[test] <code>py/test_build_backend.py</code>, <code>test_backend_hygiene.js</code></td><td>Cumple</td></tr>
+              <tr><td>Una variable de nivel superior solo la reasigna su módulo, con una función, y los demás la leen con otra función de ese módulo</td><td>[test] <code>py/test_build_backend.py</code>: el compilador rechaza importar un nombre que su módulo reasigna con <code>global</code></td><td>Cumple</td></tr>
+              <tr><td>Análisis estático del backend</td><td>[test] solo en la CI: <code>ruff</code> con dos reglas (nombres sin definir e imports sin uso) y <code>pyright</code> básico con cuatro reglas desactivadas</td><td>Cumple en la CI; no forma parte de los niveles de <code>npm run test</code></td></tr>
+              <tr><td>Paridad de definiciones y manejadores de herramientas locales</td><td>[test] <code>test_backend_hygiene.js</code></td><td>Cumple</td></tr>
               <tr><td>El wheel solo contiene el ejecutable</td><td>[test] <code>tests/packaging_smoke_test.py</code> en la release</td><td>Cumple</td></tr>
             </tbody>
           </table>
         </div>
-        <p>Recuento: de 33 normas, <strong>22 están protegidas por pruebas</strong>, 6 lo están en parte y <strong>5 no tienen prueba automatizada</strong> o hoy se incumplen en algún punto. El patrón de los incumplimientos es claro: las pruebas de higiene cubren muy bien JavaScript, CSS e i18n, y poco el backend Python, los artefactos generados y los scripts de desarrollo, que es justo lo que más ha crecido en la serie 10.x.</p>
+        <p>Recuento: de 37 normas, <strong>28 están protegidas por pruebas</strong>, 6 lo están en parte y <strong>3 no tienen prueba automatizada</strong> (una norma de método de pruebas y dos procedimientos). Hoy no se incumple ninguna. El backend Python tiene compilador con reglas de importación, análisis estático y pruebas en tres sistemas, y el proceso de Node que ejecuta el agente en el servidor tiene una credencial propia y limitada, con su prueba.</p>
       </div>
       <div class="card">
         <h2>3. Seguridad del servidor local</h2>
         <ul>
-          <li><strong>Token diario obligatorio</strong>, solo en cabeceras, comparado en tiempo constante; caduca al cambiar el día con el servidor en marcha. [test] <code>test_local_server.js</code>, <code>py/test_token.py</code></li>
-          <li><strong>Identificación con la cuenta del sistema</strong> (PAM o <code>LogonUserW</code>), cuerpo de 4096 bytes como máximo y bloqueo de 15 minutos tras 5 fallos. [test] <code>py/test_login.py</code></li>
-          <li><strong>Orígenes CORS de lista cerrada</strong> (<code>albalday.github.io</code>, <code>127.0.0.1</code> y <code>localhost</code>) y API solo por POST. [test] <code>test_local_server.js</code></li>
-          <li><strong>Motor de permisos en el backend</strong>: jerarquía de evaluación única, reglas de directorio con resolución de enlaces simbólicos, <code>run_command</code> validado subcomando a subcomando y patrones comparados argumento a argumento. [test] <code>py/test_security.py</code></li>
+          <li><strong>Token diario</strong> obligatorio, solo en cabeceras, comparado en tiempo constante; caduca al cambiar el día con el servidor en marcha y, al rotar, se olvidan las autorizaciones de sesión. [test] <code>test_local_server.js</code>, <code>py/test_token.py</code>, <code>py/test_security.py</code></li>
+          <li><strong>Identificación</strong> con la cuenta del sistema (PAM o <code>LogonUserW</code>), cuerpo de 4096 bytes como máximo y bloqueo de 15 minutos tras 5 fallos. [test] <code>py/test_login.py</code></li>
+          <li><strong>Orígenes CORS</strong> de lista cerrada y API solo por POST; las cabeceras admitidas son exactamente las que envía la interfaz. [test] <code>test_local_server.js</code></li>
+          <li><strong>Motor de permisos en el backend:</strong> jerarquía de evaluación única, reglas de directorio con resolución de enlaces simbólicos, <code>run_command</code> validado subcomando a subcomando y patrones comparados argumento a argumento. [test] <code>py/test_security.py</code></li>
           <li><strong>Retos de autorización</strong> de un solo uso, con TTL de 10 minutos y ligados al proyecto; un fallo de persistencia no ejecuta la herramienta. [test] <code>py/test_security.py</code></li>
-          <li><strong>Políticas corruptas o ilegibles</strong>: el error se propaga y nunca se sustituye por el estado por defecto. [test] <code>py/test_security.py</code></li>
-          <li><strong>Aislamiento por proyecto</strong>: permisos de sesión, retos y comandos pertenecen a su proyecto, con un tope de 16 sesiones. [test] <code>py/test_security.py</code>, <code>py/test_run_command.py</code></li>
-          <li><strong>Transporte web</strong> con protección anti-SSRF en la URL y en cada redirección, y cuerpo acotado también frente a bombas de compresión. [test] <code>py/test_network.py</code></li>
-          <li><strong>Cuerpo HTTP acotado</strong> a 1 MiB, con excepciones explícitas para blobs y exportación, cada una con su borde probado. [test] <code>test_local_server.js</code>, <code>test_backend_run_mode.js</code></li>
-          <li><strong>Sandbox de JavaScript en el navegador</strong>: <code>iframe</code> de origen opaco sin red. [test] <code>browser_sandbox_security.test.js</code></li>
-          <li><strong>Sandbox de JavaScript en Node</strong> (ejecuciones en servidor): <strong>no aísla</strong>; ver F-01 y F-02.</li>
-          <li><strong>Runner de Node</strong>: descargado de GitHub Pages y ejecutado sin comprobación de integridad; ver F-03.</li>
-          <li><strong>Rotación del token con el servidor en marcha</strong>: el token cambia, pero los permisos concedidos «para esta sesión» siguen vigentes; ver F-12.</li>
+          <li><strong>Políticas corruptas o ilegibles:</strong> el error se propaga y nunca se sustituye por el estado por defecto. [test] <code>py/test_security.py</code></li>
+          <li><strong>Aislamiento por proyecto:</strong> permisos de sesión, retos y comandos pertenecen a su proyecto, con un tope de 16 sesiones. [test] <code>py/test_security.py</code>, <code>py/test_run_command.py</code></li>
+          <li><strong>Transporte web</strong> con protección anti-SSRF en la URL y en cada redirección, rechazo de IPv4 numéricas no canónicas antes de resolverlas y cuerpo acotado también frente a bombas de compresión. [test] <code>py/test_network.py</code></li>
+          <li><strong>Cuerpo HTTP</strong> acotado a 1 MiB, con excepciones explícitas para blobs y exportación, cada una con su borde probado. [test] <code>test_local_server.js</code>, <code>test_backend_run_mode.js</code></li>
+          <li><strong>Sandbox de JavaScript en el navegador:</strong> iframe de origen opaco sin red; el bloqueo del constructor de funciones se mantiene hasta que termina el código asíncrono. [test] <code>browser_sandbox_security.test.js</code></li>
+          <li><strong>Runner de Node:</strong> se lanza con el modelo de permisos de Node (<code>--permission</code>: sin escritura ni lectura de disco fuera de su script, sin procesos, workers ni inspector) y un entorno vacío, exige Node 22.13 y su descarga tiene tope de 4 MiB, con las ramas de descarga, 304, caché y fallo de red probadas. [test] <code>py/test_server_runs.py</code>, <code>test_backend_run_mode.js</code></li>
+          <li><strong>Credencial del runner:</strong> cada ejecución recibe un token propio que solo admite <code>tools/call</code>, <code>zerochat/run/*</code> y su conversación, se revoca al terminar y el backend rechaza en <code>zerochat/security/*</code> y <code>zerochat/profiles/*</code>. Un fallo dentro del runner no da acceso a los permisos ni a los perfiles. [test] <code>py/test_token.py</code></li>
+          <li><strong>Sandbox de JavaScript en el servidor:</strong> <code>execute_javascript</code> se ejecuta en un proceso de Node aparte (<code>zerochat/sandbox/execute</code>), con <code>--permission</code>, sin entorno ni token, y se termina por señal al vencer el plazo, también con un bucle asíncrono sin fin. [test] <code>py/test_sandbox.py</code>, <code>test_sandbox_node.js</code></li>
+          <li><strong>Analizador HTML del runner</strong> (<code>js/html-document.js</code>): recorridos iterativos con tope de profundidad y expresión de etiqueta sin retroceso, con el borde y el tiempo probados. [test] <code>test_html_document.js</code></li>
         </ul>
       </div>
       <div class="card">
@@ -134,7 +137,8 @@
           <table>
             <thead><tr><th>Riesgo</th><th>Situación</th></tr></thead>
             <tbody>
-              <tr><td>Origen compartido <code>albalday.github.io</code></td><td>Otras páginas del mismo origen podrían leer la cookie de sesión, <code>localStorage</code> e IndexedDB. Aceptado mientras ese origen solo publique páginas propias. Desde la 10.8 ese origen sirve además el código que el servidor ejecuta con Node (F-03), por lo que el riesgo pesa más que antes.</td></tr>
+              <tr><td><code>execute_javascript</code> en las ejecuciones en servidor</td><td>Dentro de su proceso el código corre en <code>node:vm</code>, que no es una barrera de seguridad. Lo que contiene un escape es el proceso: sin disco, sin entorno y sin credencial del backend. El contexto no expone <code>fetch</code> ni <code>require</code>, pero el modelo de permisos de Node no limita la red hasta Node 25: un código que escapara del contexto podría abrir conexiones, sin credenciales que enviar. [lectura]</td></tr>
+              <tr><td>Origen compartido <code>albalday.github.io</code></td><td>Otras páginas del mismo origen podrían leer la cookie de sesión, <code>localStorage</code> e IndexedDB. Aceptado mientras ese origen solo publique páginas propias. Ese origen sirve además <code>runner.js</code>, que el servidor descarga y ejecuta con Node sin comprobar su huella (M68-D6): comparte la confianza que ya se da a la interfaz, que tiene más alcance, y su credencial es la limitada del runner.</td></tr>
               <tr><td>Claves de API de los perfiles del servidor en claro</td><td>Se guardan en SQLite (<code>0600</code>) sin cifrar, porque las ejecuciones desatendidas las necesitan sin intervención, y se devuelven a cualquier cliente identificado. Quien lee los ficheros de la cuenta lee las claves.</td></tr>
               <tr><td>Política de seguridad de contenido permisiva</td><td><code>zerochat.html</code> declara <code>script-src</code> con <code>'unsafe-inline'</code> y <code>'unsafe-eval'</code>: la defensa contra inyección de marcado es la lista cerrada de <code>innerHTML</code>, no la CSP. [lectura]</td></tr>
               <tr><td>Una conversación abierta en dos pestañas</td><td>No hay control de concurrencia: gana el último que guarda. Documentado en <code>py/README.md</code>.</td></tr>
@@ -148,42 +152,30 @@
       </div>
       <div class="card">
         <h2>5. Hallazgos</h2>
-        <div class="table-responsive">
-          <table>
-            <thead><tr><th>Id</th><th>Hallazgo y evidencia</th><th>Riesgo y prioridad</th><th>Propuesta y prueba</th></tr></thead>
-            <tbody>
-              <tr><td>F-01</td><td><code>execute_javascript</code> en Node no aísla el código. <code>executeInNode</code> (<code>js/sandbox.js</code>) entrega al contexto de <code>node:vm</code> objetos del proceso anfitrión (<code>Object</code>, <code>Math</code>, la consola…); a través de ellos el código alcanza el constructor de funciones del anfitrión y, con él, <code>process</code>. Comprobado en esta revisión: el código del sandbox obtuvo el PID y el directorio del proceso y ejecutó un comando del sistema. La herramienta es de categoría <code>computation</code> y no pasa por el motor de permisos, de modo que en una ejecución en servidor o con <code>--prompt</code> sin <code>--allow-dangerous-tools</code> el modelo, o un texto inyectado en una página que lea, puede ejecutar comandos saltándose las políticas. <code>test_sandbox_node.js</code> solo prueba una variante del escape.</td><td>Seguridad; <strong>alta</strong></td><td>Ejecutar el código en un proceso hijo de Node con el modelo de permisos (<code>--permission</code>, sin disco, procesos ni workers) y matarlo al vencer el plazo; mientras tanto, retirar la herramienta del runner. Prueba: los escapes por objetos heredados devuelven error y no hay acceso a <code>process</code>.</td></tr>
-              <tr><td>F-02</td><td>Un bucle asíncrono sin fin en ese mismo sandbox no se interrumpe: el plazo de <code>node:vm</code> solo cubre la parte síncrona y el temporizador de respaldo no llega a dispararse. Comprobado: con un plazo de 500 ms la llamada no había vuelto a los 8 s. Solo lo corta el supervisor a los 180 s sin progreso, y la ejecución termina sin respuesta.</td><td>Estabilidad; media</td><td>La misma separación en proceso de F-01, con terminación por señal. Prueba: el bucle asíncrono devuelve el error de plazo en el tiempo previsto.</td></tr>
-              <tr><td>F-03</td><td><code>ensure_runner_script</code> (<code>py/ii-run-mode.py</code>) descarga <code>runner.js</code> de GitHub Pages y lo ejecuta con Node con todos los privilegios de la cuenta, sin comprobar integridad ni tamaño. Hasta la 10.7 el código servido por ese origen solo podía actuar a través del motor de permisos; ahora se ejecuta fuera de él. Ninguna prueba recorre la descarga, la respuesta 304, el uso de la caché ni el fallo de red.</td><td>Seguridad (cadena de suministro); media</td><td>Lanzar el runner con <code>--permission</code> (solo necesita red), tope de tamaño en la descarga y, si se quiere, una huella publicada junto al artefacto. Prueba: las cuatro ramas de la descarga con un servidor local.</td></tr>
-              <tr><td>F-04</td><td><code>runner.js</code> es un artefacto generado (<code>npm run build:runner</code>) que se publica y que los servidores ejecutan, y ninguna prueba comprueba que coincide con el código de <code>js/</code>, a diferencia de <code>zerochat.py</code> y de los bundles. Hoy coincide [cmd]. Si se queda atrás, las ejecuciones en servidor usan un agente distinto del de la interfaz sin ningún aviso.</td><td>Estabilidad; media</td><td>Un caso en <code>test_vendor_build.js</code> que regenere el runner en un directorio temporal y lo compare. El procedimiento de auditoría ya lo incluye en su lista de artefactos.</td></tr>
-              <tr><td>F-05</td><td>Los adjuntos e imágenes guardados aparte (blobs) no se borran nunca: no hay ningún <code>DELETE</code> sobre la tabla <code>blobs</code> en <code>py/ee-storage.py</code> ni borrado en el almacén <code>blobs</code> de <code>js/storage.js</code>. Borrar una conversación, un proyecto o todo el historial conserva sus blobs, de hasta 50 MB cada uno.</td><td>Datos y disco; media</td><td>Al borrar conversaciones, eliminar en la misma transacción los blobs que ninguna otra referencia, en SQLite y en IndexedDB. Prueba: se borra el blob de la única conversación que lo usa y se conserva el compartido.</td></tr>
-              <tr><td>F-06</td><td>Restos de la firma de llamadas retirada en M56: <code>send_cors_headers</code> (<code>py/ff-server.py</code>) sigue autorizando cuatro cabeceras <code>X-ZeroChat-Tool-*</code> que ningún cliente envía, y <code>js/tools/README.md</code> aún describe la firma HMAC en el cliente. La ayuda de usuario también la describía: <code>help/remote-proxy.html</code> y su traducción hablaban de «herramientas firmadas» y de un desfase de reloj de 30 s (aportado por la revisión con Gemini).</td><td>Deuda técnica; media por afectar a la ayuda</td><td><strong>Ayuda corregida en esta revisión</strong>: ahora describe los permisos en el servidor y la caducidad de las autorizaciones pendientes. Quedan las cabeceras y el README. Prueba: la lista de cabeceras permitidas es exactamente la que envía la interfaz.</td></tr>
-              <tr><td>F-07</td><td><code>scripts/test-runner.mjs</code> nombra dos archivos que no existen (<code>tests/unit/test_mcp_status.js</code> en el grupo <code>mcp</code> y <code>tests/test_browser_ui.js</code> como respaldo) y descarta en silencio los archivos de grupo ausentes. Al borrarse esa prueba, <code>SERVICE_STATUSES</code> de <code>js/mcp-status.js</code> dejó de compararse con el contrato común, que ahora solo comprueba Python.</td><td>Deuda técnica; baja</td><td>El ejecutor falla si un archivo de grupo no existe; una aserción en <code>test_ui_mcp.js</code> compara los estados con el fixture.</td></tr>
-              <tr><td>F-08</td><td><code>RUN_TOTAL_TIMEOUT</code> y <code>RUN_IDLE_SECONDS</code> se leen de variables de entorno que, según el propio comentario y <code>py/README.md</code>, «solo usan las pruebas»: es código de producción al servicio de las pruebas (<code>AGENTS.md</code> §2).</td><td>Norma; baja</td><td>Convertirlas en opciones documentadas del modo desatendido, que tienen uso real en tareas largas, o parchear las constantes desde la prueba.</td></tr>
-              <tr><td>F-09</td><td>La CI solo usa <code>ubuntu-latest</code> con Node 22 y Python 3.12. No se ejecutan las rutas de Windows (<code>LogonUserW</code>, Job Object, permisos de los ficheros de datos) ni macOS, y el mínimo declarado del runner (Node 18) no se prueba.</td><td>Estabilidad; media</td><td>Una matriz con <code>windows-latest</code> y <code>macos-latest</code> para las pruebas Python de infraestructura, y un trabajo con Node 18 para <code>test_run_node.js</code>.</td></tr>
-              <tr><td>F-10</td><td>Los coordinadores siguen creciendo: <code>js/app.js</code> ha pasado de 1.020 a 1.298 líneas y <code>js/mcp.js</code> de 1.058 a 1.233; <code>py/ff-server.py</code> tiene 1.131 y <code>py/dd-security.py</code> 972.</td><td>Deuda técnica; baja</td><td>Separar al tocarlos: la sesión con el backend fuera de <code>app.js</code> y el reparto de métodos JSON-RPC de <code>ff-server.py</code> en una tabla por dominio.</td></tr>
-              <tr><td>F-12</td><td>Al cambiar el día con el servidor en marcha, <code>current_session_token()</code> (<code>py/cc-environment.py</code>) genera el token nuevo pero no llama a <code>reset_session_authorizations()</code>, que solo se ejecuta al arrancar (<code>py/zz-main.py</code>). <code>py/README.md</code> promete olvidarlas «al arrancar o rotar el token» y el navegador relee el estado contando con ello. Con <code>--keep-server</code> durante varios días, los permisos concedidos «para esta sesión» sobreviven al cambio de día. <code>py/test_token.py</code> prueba la rotación del token, no la de los permisos. Aportado por la revisión con Gemini.</td><td>Seguridad; media</td><td>Olvidar las autorizaciones de sesión en la misma rotación, bajo el mismo cerrojo. Prueba: con la fecha simulada, un permiso de sesión concedido el día anterior vuelve a pedir confirmación.</td></tr>
-              <tr><td>F-13</td><td><code>removeConversations</code> (<code>js/storage.js</code>) borra primero la copia de IndexedDB y después pide el borrado al servidor. Si el servidor lo rechaza (por ejemplo, por una ejecución en marcha), la conversación desaparece del navegador y sigue en el servidor hasta la próxima sincronización, y el usuario recibe un error sobre algo que ya no ve. Aportado por la revisión con Gemini.</td><td>Datos; media</td><td>Con servidor, confirmar primero el borrado remoto y solo entonces borrar la copia local. Prueba: un rechazo del servidor deja la conversación en IndexedDB.</td></tr>
-              <tr><td>F-14</td><td>El sandbox del navegador restaura <code>Function.prototype.constructor</code> en un <code>finally</code> síncrono (<code>js/sandbox.js</code>), antes de que termine el código asíncrono del modelo: tras el primer <code>await</code> el bloqueo ya no está. Lo contiene el <code>iframe</code> de origen opaco sin red, pero es una asimetría con la versión de Node. Aportado por la revisión con Gemini.</td><td>Seguridad; baja</td><td>Restaurar al resolverse la promesa del código. Prueba: un escape por el constructor después de un <code>await</code> devuelve error.</td></tr>
-              <tr><td>F-15</td><td><code>validate_local_tool_arguments</code> (<code>py/ee-mcp.py</code>) solo conoce los tipos <code>string</code>, <code>integer</code> y <code>boolean</code>; un argumento declarado con otro tipo acabaría en <code>isinstance(value, None)</code> y en una excepción, no en un rechazo. Hoy ninguna herramienta local lo declara [cmd]. Aportado por la revisión con Gemini.</td><td>Estabilidad; baja</td><td>Rechazar de forma explícita un tipo desconocido. Prueba: una definición con un tipo no admitido devuelve el error de validación.</td></tr>
-              <tr><td>F-11</td><td>El repositorio versiona archivos de trabajo: <code>todo.txt</code>, <code>test-results/.last-run.json</code> y una copia de la verificación de Google dentro de <code>js/</code>, idéntica a la de la raíz.</td><td>Presentación; baja</td><td>Retirarlos del índice y añadirlos a <code>.gitignore</code>.</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <p>Según el procedimiento, <strong>F-01 debe resolverse o aceptarse de forma expresa antes de la próxima versión mayor</strong>. Como afecta a una función ya publicada, conviene no esperar a ella.</p>
+        <p>No hay hallazgos abiertos: ninguna norma se incumple hoy y la suite está en verde. Lo que queda son los riesgos aceptados (apartado 4) y las observaciones siguientes, que no llegan al umbral de un hallazgo.</p>
+        <h3>Observaciones menores</h3>
+        <ul>
+          <li>La CI usa <code>node-version: 22</code>, la última 22.x, y no el mínimo declarado (22.13). Ninguna prueba lanza el runner real con <code>--permission</code>: las de arranque sustituyen a Node por un guion. En esta revisión arrancó sin errores con Node 24. [cmd]</li>
+          <li>El compilador detecta símbolos repetidos entre módulos, pero no dos imports con el mismo alias y distinto origen, ni un import que coincida con un símbolo propio. Hoy no hay ninguno. [cmd]</li>
+          <li>Entre paquetes, <code>security</code> y <code>tools</code> se importan mutuamente; entre módulos no hay ciclo. [cmd]</li>
+          <li>La evidencia visual de un lote de herramientas viaja marcada con un campo interno del mensaje que se retira al ensamblar el contexto. Hoy hay un único camino y la marca no llega al proveedor [lectura]; un segundo camino tendría que retirarla también.</li>
+          <li>Guardar una conversación recoge los adjuntos que deja de usar, pero solo entre los que tenía antes (<code>save_conversation</code> en <code>py/storage/db.py</code>). <code>syncPendingBlobs</code> (<code>js/storage.js</code>) sube los adjuntos justo antes de guardar, de modo que, si el guardado falla después de subirlos, quedan en el servidor sin ninguna conversación que los use y nada los recoge. [lectura]</li>
+          <li><code>browser_action navega y hace una captura</code> (<code>test_local_server.js</code>) falló en tres de las cuatro últimas ejecuciones de <code>npm run test:all</code>: Chromium responde «Unable to capture screenshot» cuando coincide con las pruebas de navegador, que ese comando lanza a la vez. Pasa en <code>npm run test:infrastructure</code> y en seis ejecuciones simultáneas del mismo archivo. [cmd]</li>
+          <li>La prueba que compara <code>runner.js</code> con su compilación solo está en el nivel de infraestructura: un cambio en <code>js/</code> validado con <code>test:unit</code> no la ejecuta. [cmd]</li>
+        </ul>
       </div>
       <div class="card">
         <h2>6. Dictamen</h2>
-        <p><strong>Infraestructura con un núcleo de permisos sólido y un borde nuevo sin la misma protección.</strong> El paso de la autorización al backend está bien hecho: un único punto de decisión, estado en SQLite con transacciones, retos de un solo uso, fallos que se propagan en lugar de degradar a «permitir» y 38 pruebas que lo demuestran. La ejecución en Node, en cambio, llegó en dos días y dejó tres huecos en la misma zona: un sandbox que no aísla, un runner que se descarga y se ejecuta sin verificación y un artefacto generado sin prueba de sincronía. Ninguno afecta a quien usa ZeroChat solo desde el navegador; los tres afectan a las ejecuciones en servidor, que son la novedad principal de la serie 10.x. Un segundo patrón, que señaló la revisión con Gemini, es el ciclo de vida: varias piezas solo limpian en el caso feliz (los permisos de sesión al arrancar pero no al rotar el token, los adjuntos nunca, la copia local antes de que el servidor confirme).</p>
+        <p><strong>El backend está ordenado y vigilado, y el proceso de Node ya no tiene la credencial de la interfaz.</strong> Los cambios de esta serie son pequeños, llegan con la prueba que los vigila y varios quitan código en lugar de añadirlo (las variables de entorno solo para pruebas, la lista de estados sin consumidor, el inventario de símbolos). La reorganización de <code>py/</code> en paquetes se hizo en traslados sucesivos protegidos por la suite, con un compilador que impone el patrón de imports, rechaza ciclos y obliga a leer el estado de otro módulo con una función. En el servidor, el runner trabaja con un token limitado a su ejecución y el JavaScript del modelo corre en un proceso aparte sin entorno ni credencial: un fallo dentro de cualquiera de los dos ya no alcanza los permisos ni los perfiles. Quedan dos riesgos conocidos: que <code>runner.js</code> llegue de GitHub Pages sin huella, aceptado en M68-D6, y que el proceso del sandbox tenga red, que el modelo de permisos de Node no limita hasta la versión 25.</p>
       </div>
       <div class="card" id="autoria">
         <h2>Autoría y entorno de verificación</h2>
         <div class="alert alert-info">
           <ul>
-            <li><strong>Revisión y redacción:</strong> Claude Fable 5.2 en Claude Code, a partir de las instrucciones del responsable del proyecto y del procedimiento de <code>docs/audits/AuditFull.md</code>.</li>
+            <li><strong>Revisión y redacción:</strong> Claude Fable 5.2 en Claude Code, a partir de las instrucciones del responsable del proyecto y del procedimiento de <code>docs/audits/AuditFull.md</code>. Actualización a la 10.16.0: Claude Opus 5.5 en Claude Code.</li>
             <li><strong>Entorno:</strong> Linux x86_64, Node.js 24.22.1, Python 3.14.8, Playwright 1.62.1 con Chromium headless.</li>
-            <li><strong>Reproducción:</strong> los comandos de la línea base. F-01 y F-02 se comprobaron ejecutando <code>ChatSandbox.execute</code> desde Node; el código concreto no se publica aquí.</li>
-            <li><strong>Revisión paralela:</strong> F-12 a F-15 y la parte de la ayuda de F-06 proceden de una auditoría hecha con Gemini sobre el mismo commit; se han comprobado en el código antes de incluirlos. Esa revisión no detectó F-01 ni F-02.</li>
+            <li><strong>Reproducción:</strong> los comandos de la línea base.</li>
+            <li><strong>Sin comprobar:</strong> el runner con Node 22.13 exacto.</li>
           </ul>
         </div>
       </div>
@@ -201,7 +193,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat 10.x · Revisión 1 (Infraestructura y normas) · 13 de noviembre de 2026</p>
+      <p>ZeroChat 10.x · Revisión 1 (Infraestructura y normas) · 14 de noviembre de 2026</p>
     </footer>
   </div>
 </body>
