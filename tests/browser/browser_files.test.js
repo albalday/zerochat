@@ -80,4 +80,50 @@ describe('Browser UI - navegador de ficheros', { concurrency: 2 }, () => {
       await gone.close();
     }
   });
+
+  test('Browser UI - la lista de ficheros pone las carpetas primero y se recorre con las migas y el botón Atrás', async () => {
+    const tree = {
+      '': [
+        { name: 'src', type: 'dir', size: null, modified: Date.UTC(2026, 10, 1) },
+        { name: 'README.md', type: 'file', size: 2048, modified: Date.UTC(2026, 10, 2) }
+      ],
+      src: [{ name: 'util', type: 'dir', size: null, modified: Date.UTC(2026, 10, 3) }],
+      'src/util': []
+    };
+    const files = await openFilesPage((method, params) => ({ path: params.path, entries: tree[params.path], total: tree[params.path].length, truncated: false }));
+    const { page } = files;
+    try {
+      const rows = () => page.locator('#files-list .files-entry').evaluateAll(items => items.map(item => ({
+        name: item.querySelector('.files-entry-name').textContent,
+        link: item.querySelector('.files-entry-name').tagName === 'A',
+        icon: Boolean(item.querySelector('.files-entry-icon svg')),
+        size: item.querySelector('.files-entry-size').textContent
+      })));
+      const crumbs = () => page.locator('#files-breadcrumbs').evaluate(nav => Array.from(nav.querySelectorAll('.files-crumb'), node => node.textContent));
+      await page.waitForFunction(() => document.querySelectorAll('#files-list .files-entry').length === 2);
+      assert.deepEqual(await rows(), [
+        { name: 'src', link: true, icon: true, size: '' },
+        { name: 'README.md', link: false, icon: false, size: '2 KB' }
+      ]);
+      assert.deepEqual(await crumbs(), ['app']);
+
+      await page.locator('#files-list a.files-entry-name', { hasText: 'src' }).click();
+      await page.waitForFunction(() => document.querySelector('#files-list .files-entry-name')?.textContent === 'util');
+      await page.locator('#files-list a.files-entry-name', { hasText: 'util' }).click();
+      await page.waitForFunction(() => /vacía/.test(document.getElementById('files-status').textContent));
+      assert.match(page.url(), /path=src%2Futil$/);
+      assert.deepEqual(await crumbs(), ['app', 'src', 'util']);
+
+      // Las migas suben, y Atrás vuelve a la carpeta anterior.
+      await page.locator('#files-breadcrumbs .files-crumb', { hasText: 'src' }).click();
+      await page.waitForFunction(() => document.querySelector('#files-list .files-entry-name')?.textContent === 'util');
+      await page.goBack();
+      await page.waitForFunction(() => /vacía/.test(document.getElementById('files-status').textContent));
+      assert.match(page.url(), /path=src%2Futil$/);
+      assert.deepEqual(files.calls.map(call => call.params.path), ['', 'src', 'src/util', 'src', 'src/util']);
+      assert.deepEqual(files.errors, []);
+    } finally {
+      await files.close();
+    }
+  });
 });

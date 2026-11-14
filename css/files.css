@@ -50,3 +50,84 @@ body.files-page {
 .files-list {
   list-style: none;
 }
+
+.files-breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.35rem;
+  margin-top: 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.files-crumb {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.files-crumb:hover {
+  text-decoration: underline;
+}
+
+.files-crumb-current {
+  color: var(--text-main);
+}
+
+.files-entry {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.45rem 0.5rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.files-entry:hover {
+  background: var(--bg-hover);
+}
+
+.files-entry-icon {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+
+.files-entry-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-main);
+  text-decoration: none;
+}
+
+a.files-entry-name {
+  font-weight: 500;
+}
+
+a.files-entry-name:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.files-entry-size,
+.files-entry-date {
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-align: right;
+}
+
+/* En el móvil la fecha baja a una segunda línea, bajo el nombre. */
+@media (max-width: 34rem) {
+  .files-entry {
+    grid-template-columns: 1.25rem minmax(0, 1fr) auto;
+    row-gap: 0.1rem;
+  }
+
+  .files-entry-date {
+    grid-column: 2 / -1;
+    text-align: left;
+  }
+}

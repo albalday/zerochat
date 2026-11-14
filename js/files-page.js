@@ -6,13 +6,13 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./defaults.js'), require('./storage.js'), require('./backend-session.js'), require('./mcp.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'), require('./defaults.js'), require('./storage.js'), require('./backend-session.js'), require('./mcp.js'));
   } else {
-    root.ChatFilesPage = factory(root.ChatUtils, root.ChatI18n, root.ChatDefaults, root.ChatStorage, root.ChatBackendSession, root.ChatMCP);
+    root.ChatFilesPage = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons, root.ChatDefaults, root.ChatStorage, root.ChatBackendSession, root.ChatMCP);
   }
-}(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Defaults, Storage, BackendSession, MCP) {
+}(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, Defaults, Storage, BackendSession, MCP) {
   'use strict';
-  const { projectName } = Utils;
+  const { projectName, formatBytes } = Utils;
   const { t } = I18n;
   const PROJECT_GONE_CODE = -32003;
 
@@ -27,6 +27,17 @@
     const params = new URLSearchParams({ project });
     if (path) params.set('path', path);
     return `?${params.toString()}`;
+  }
+
+  /** Migas de una carpeta: el proyecto y cada carpeta del camino, con la ruta a la que llevan. */
+  function breadcrumbs(project, path) {
+    const parts = path ? path.split('/') : [];
+    return [{ label: projectName(project), path: '' }, ...parts.map((part, index) => ({ label: part, path: parts.slice(0, index + 1).join('/') }))];
+  }
+
+  /** Ruta de una entrada dentro de la carpeta `path`. */
+  function childPath(path, name) {
+    return path ? `${path}/${name}` : name;
   }
 
   /** Clave del texto que explica por qué no se puede mostrar el proyecto. */
@@ -62,6 +73,67 @@
     else document.documentElement.removeAttribute('data-theme');
   }
 
+  let folderIcon = null;
+  /** Icono de carpeta, el único de la lista: se crea una vez y se clona en cada fila. */
+  function folderIconNode(doc) {
+    if (!folderIcon) {
+      const template = doc.createElement('template');
+      template.innerHTML = Icons.get('folder', { size: 16 });
+      folderIcon = template.content.firstElementChild;
+    }
+    return folderIcon.cloneNode(true);
+  }
+
+  function formatDate(ms) {
+    return new Date(ms).toLocaleString(I18n.getLanguage(), { dateStyle: 'short', timeStyle: 'short' });
+  }
+
+  function link(doc, project, path, label, className) {
+    const anchor = doc.createElement('a');
+    anchor.className = className;
+    anchor.href = pageUrl(project, path);
+    anchor.dataset.path = path;
+    anchor.textContent = label;
+    return anchor;
+  }
+
+  function renderBreadcrumbs(page, path) {
+    const { elements, project } = page;
+    const doc = elements.breadcrumbs.ownerDocument;
+    const crumbs = breadcrumbs(project, path);
+    elements.breadcrumbs.replaceChildren(...crumbs.flatMap((crumb, index) => {
+      const last = index === crumbs.length - 1;
+      const node = last ? Object.assign(doc.createElement('span'), { className: 'files-crumb files-crumb-current', textContent: crumb.label })
+        : link(doc, project, crumb.path, crumb.label, 'files-crumb');
+      return index ? [Object.assign(doc.createElement('span'), { className: 'files-crumb-separator', textContent: '/' }), node] : [node];
+    }));
+  }
+
+  /** Una fila por entrada: las carpetas llevan a su lista; los ficheros, su tamaño y su fecha. */
+  function renderListing(page, listing) {
+    const { elements, project } = page;
+    const doc = elements.list.ownerDocument;
+    renderBreadcrumbs(page, listing.path);
+    const rows = listing.entries.map(entry => {
+      const item = doc.createElement('li');
+      item.className = `files-entry files-entry-${entry.type === 'dir' ? 'dir' : 'file'}`;
+      const icon = doc.createElement('span');
+      icon.className = 'files-entry-icon';
+      if (entry.type === 'dir') icon.appendChild(folderIconNode(doc));
+      const name = entry.type === 'dir'
+        ? link(doc, project, childPath(listing.path, entry.name), entry.name, 'files-entry-name')
+        : Object.assign(doc.createElement('span'), { className: 'files-entry-name', textContent: entry.name });
+      name.title = entry.name;
+      const size = Object.assign(doc.createElement('span'), { className: 'files-entry-size', textContent: entry.type === 'dir' ? '' : formatBytes(entry.size) });
+      const date = Object.assign(doc.createElement('span'), { className: 'files-entry-date', textContent: formatDate(entry.modified) });
+      item.append(icon, name, size, date);
+      return item;
+    });
+    elements.list.replaceChildren(...rows);
+    if (!listing.entries.length) showStatus(elements, t('files_empty'));
+    else if (listing.truncated) showStatus(elements, t('files_truncated', { shown: listing.entries.length, total: listing.total }));
+  }
+
   function showStatus(elements, text, isError = false) {
     elements.status.textContent = text;
     elements.status.classList.toggle('files-status-error', isError);
@@ -71,6 +143,7 @@
   function mount(doc = document) {
     const elements = {
       title: doc.getElementById('files-project'),
+      breadcrumbs: doc.getElementById('files-breadcrumbs'),
       status: doc.getElementById('files-status'),
       list: doc.getElementById('files-list')
     };
@@ -94,14 +167,27 @@
       try {
         const listing = await client.list(path);
         showStatus(elements, '');
+        renderListing(page, listing);
+        doc.defaultView.scrollTo(0, 0);
         return listing;
       } catch (error) {
         const key = errorKey(error);
+        elements.list.replaceChildren();
+        renderBreadcrumbs(page, path);
         showStatus(elements, key ? t(key) : error.message, true);
         return null;
       }
     };
     page.load = load;
+    // Las carpetas se recorren en la misma pestaña, con el historial del navegador: atrás vuelve a la anterior.
+    doc.addEventListener('click', event => {
+      const anchor = event.target.closest('a[data-path]');
+      if (!anchor || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      doc.defaultView.history.pushState(null, '', anchor.href);
+      load(anchor.dataset.path);
+    });
+    doc.defaultView.addEventListener('popstate', () => load(readPageParams(location.search).path));
     load(readPageParams(location.search).path);
     return page;
   }
@@ -110,5 +196,5 @@
     document.addEventListener('DOMContentLoaded', () => mount());
   }
 
-  return { readPageParams, pageUrl, errorKey, mount };
+  return { readPageParams, pageUrl, breadcrumbs, childPath, errorKey, mount };
 }));
