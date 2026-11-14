@@ -68,7 +68,7 @@
 
     <div class="card" id="codigos">
       <h2>4. Plazos y códigos de salida</h2>
-      <p>La ejecución se corta a los 15 minutos, o tras 3 minutos sin progreso de la interfaz (cada paso, herramienta o fragmento de respuesta cuenta como progreso).</p>
+      <p>La ejecución se corta a los 15 minutos, o tras 10 minutos sin progreso de la interfaz (cada paso, herramienta o fragmento de respuesta cuenta como progreso). El tiempo que el agente pasa esperando con <code>check_command</code> no cuenta como inactividad y alarga los 15 minutos en lo que dure la espera. Para tareas más largas o que deban repetirse, prográmalas por fuera (apartado 6).</p>
       <div class="table-responsive"><table>
         <thead><tr><th>Código</th><th>Significado</th></tr></thead>
         <tbody>

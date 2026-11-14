@@ -68,7 +68,7 @@
 
     <div class="card" id="codigos">
       <h2>4. Time limits and exit codes</h2>
-      <p>The run is cut off after 15 minutes, or after 3 minutes without progress from the interface (each step, tool or answer fragment counts as progress).</p>
+      <p>The run is cut off after 15 minutes, or after 10 minutes without progress from the interface (each step, tool or answer fragment counts as progress). The time the agent spends waiting with <code>check_command</code> does not count as inactivity and extends the 15 minutes by the length of the wait. For longer tasks or ones that must repeat, schedule them outside (section 6).</p>
       <div class="table-responsive"><table>
         <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
         <tbody>

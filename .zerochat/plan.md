@@ -46,4 +46,4 @@ Done when: `check_command` vuelve antes de tiempo cuando la salida nueva cumple 
 - [x] M69-T4 Tarjeta viva para `check_command` (`js/mcp.js`, `js/command-card.js`): mientras espera muestra la salida nueva, el tiempo transcurrido y el patrón, y su botón corta la espera sin detener el comando; pruebas en `tests/browser/` (2026-11-14)
 - [x] M69-T5 Última línea de salida de cada comando en marcha en el latido (recortada, con su tope en el borde) y en la tarjeta plegada de `run_command` (2026-11-14)
 - [x] M69-T6 El aviso de comandos en marcha del final del chat (`js/ui-command-jobs.js`) se actualiza cuando un comando termina, con código de salida, duración y últimas líneas, aunque el turno haya acabado (2026-11-14)
-- [ ] M69-T7 Ayuda bilingüe y contratos (`py/README.md`): esperas de `check_command`, y cómo planificar tareas largas por fuera con `zerochat --prompt` y `cron`
+- [x] M69-T7 Ayuda bilingüe y contratos (`py/README.md`): esperas de `check_command`, y cómo planificar tareas largas por fuera con `zerochat --prompt` y `cron` (2026-11-14)
