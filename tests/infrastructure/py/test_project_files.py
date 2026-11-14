@@ -14,11 +14,11 @@ class ProjectFilesTest(unittest.TestCase):
         self.root = (data_dir / "proyecto").resolve()
         (self.root / "src").mkdir(parents=True)
         (self.root / "Docs").mkdir()
-        (self.root / "README.md").write_text("# Hola\n", encoding="utf-8")
-        (self.root / "src" / "main.py").write_text("print('hola')\n", encoding="utf-8")
+        (self.root / "README.md").write_text("# Hola\n", encoding="utf-8", newline="\n")
+        (self.root / "src" / "main.py").write_text("print('hola')\n", encoding="utf-8", newline="\n")
         self.outside = (data_dir / "fuera").resolve()
         self.outside.mkdir()
-        (self.outside / "secreto.txt").write_text("no\n", encoding="utf-8")
+        (self.outside / "secreto.txt").write_text("no\n", encoding="utf-8", newline="\n")
         self.ctx = zerochat.SecurityContext(self.root)
 
     def call(self, method, **params):
@@ -42,7 +42,7 @@ class ProjectFilesTest(unittest.TestCase):
         many = self.root / "muchos"
         many.mkdir()
         for i in range(4):
-            (many / f"f{i}.txt").write_text("x", encoding="utf-8")
+            (many / f"f{i}.txt").write_text("x", encoding="utf-8", newline="\n")
         for limit, truncated in ((4, False), (3, True)):
             with self.subTest(limit=limit), patch.object(zerochat, "MAX_LIST_ENTRIES", limit):
                 listing, _ = self.call("zerochat/files/list", path="muchos")
@@ -69,7 +69,7 @@ class ProjectFilesTest(unittest.TestCase):
         (self.root / "latin1.txt").write_bytes("canción".encode("latin-1"))
         # Un carácter de varios bytes partido en el borde del comienzo examinado no lo hace binario.
         cut = "a" * (zerochat.TEXT_SNIFF_BYTES - 1) + "ñ" + "b"
-        (self.root / "partido.txt").write_text(cut, encoding="utf-8")
+        (self.root / "partido.txt").write_text(cut, encoding="utf-8", newline="\n")
         text, _ = self.call("zerochat/files/read", path="src/main.py")
         self.assertEqual((text["binary"], text["text"], text["path"]), (False, "print('hola')\n", "src/main.py"))
         for name, binary in (("dato.bin", True), ("latin1.txt", True), ("partido.txt", False)):
@@ -79,7 +79,7 @@ class ProjectFilesTest(unittest.TestCase):
                 self.assertEqual("text" in result, not binary)
 
     def test_un_texto_mayor_que_el_tope_de_la_vista_no_se_devuelve_y_se_descarga(self):
-        (self.root / "grande.txt").write_text("a" * 10, encoding="utf-8")
+        (self.root / "grande.txt").write_text("a" * 10, encoding="utf-8", newline="\n")
         for limit, too_large in ((10, False), (9, True)):
             with self.subTest(limit=limit), patch.object(zerochat, "MAX_TEXT_VIEW_BYTES", limit):
                 result, _ = self.call("zerochat/files/read", path="grande.txt")
