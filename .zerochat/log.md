@@ -176,3 +176,4 @@
 - 2026-11-14 M68-D11 M68 cerrado a petición del usuario y archivado en .zerochat/archive/M68.md; se abre M69 Esperas y comandos a la vista con el planteamiento de docs/M69-notificaciones.md (M68)
 - 2026-11-14 M69-D1 Esperas de M69: check_command sin job_id es la espera sin shell; el plazo máximo de una espera sigue en 600 s; el botón de la tarjeta corta solo la espera; el fin de un comando se refleja en el aviso del final del chat, sin marcar el historial; en las ejecuciones con --prompt o --conversation el tiempo de espera se suma al plazo total de 900 s y el corte por inactividad sube de 180 s a 600 s (M69-T1)
 - 2026-11-14 M69-D2 M69 cerrado a petición del usuario y archivado en .zerochat/archive/M69.md; se publica como 10.17.0 (M69)
+- 2026-11-14 M70-D1 Se abre M70 Arreglos de run_command a petición del usuario, con cinco tareas sacadas del análisis de la conversación «Ejecuta bego-plata» (M70)

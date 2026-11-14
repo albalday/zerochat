@@ -1,4 +1,4 @@
 # Current state
-- Milestone: none (M69 closed 2026-11-14)
-- Next task: none pending
+- Milestone: M70 Arreglos de run_command
+- Next task: M70-T1
 - Last updated: 2026-11-14
