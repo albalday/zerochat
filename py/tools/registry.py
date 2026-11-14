@@ -9,6 +9,7 @@ from tools.filesystem import edit_file, get_diagnostics, list_directory, read_fi
 from tools.jobs import (
     COMMAND_DEFAULT_TIMEOUT,
     COMMAND_MAX_TIMEOUT,
+    CHECK_PATTERN_MAX_CHARS,
     COMMAND_MAX_WAIT,
     check_command,
     run_command,
@@ -121,13 +122,22 @@ LOCAL_TOOLS_DEFINITIONS = [
     },
     {
         "name": "check_command",
-        "description": "Check a command started by run_command: returns its status and the output produced since the last check. Use wait_seconds to wait for it to finish, or stop=true to terminate it.",
+        "description": (
+            "Check a command started by run_command: returns its status and the output produced since the last check. "
+            "Use wait_seconds to wait for it to finish, add pattern to return as soon as a new output line matches it "
+            "(for example 'error|listening on'), or stop=true to terminate it."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "job_id": {"type": "integer", "description": "job_id returned by run_command"},
                 "wait_seconds": {"type": "integer", "description": f"Seconds to wait for the command to finish before returning (default 0, max {COMMAND_MAX_WAIT})", "default": 0},
-                "stop": {"type": "boolean", "description": "Terminate the command and its child processes", "default": False}
+                "stop": {"type": "boolean", "description": "Terminate the command and its child processes", "default": False},
+                "pattern": {
+                    "type": "string",
+                    "maxLength": CHECK_PATTERN_MAX_CHARS,
+                    "description": "Case-insensitive regular expression matched against each new output line; with wait_seconds, returns as soon as a line matches"
+                }
             },
             "required": ["job_id"]
         }

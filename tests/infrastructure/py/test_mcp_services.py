@@ -343,6 +343,9 @@ class LocalToolArgumentsTest(unittest.TestCase):
         self.assertEqual(validate("edit_file", {"path": "a", "old_str": "x"}), "Falta el argumento obligatorio: new_str")
         self.assertEqual(validate("edit_file", {"path": "a", "old_str": "x", "new_str": "y", "replace_all": "true"}), "Tipo inválido para 'replace_all'")
         self.assertEqual(validate("run_command", {"command": "pwd", "timeout_seconds": True}), "Tipo inválido para 'timeout_seconds'")
+        limit = zerochat.CHECK_PATTERN_MAX_CHARS
+        self.assertIsNone(validate("check_command", {"job_id": 1, "pattern": "a" * limit}))
+        self.assertEqual(validate("check_command", {"job_id": 1, "pattern": "a" * (limit + 1)}), "'pattern' excede el tamaño máximo permitido")
         # Un tipo que el validador no conoce se rechaza como error de validación, no con una excepción.
         definition = {"name": "demo_tool", "inputSchema": {"type": "object", "properties": {"items": {"type": "array"}}}}
         with patch.object(zerochat, "LOCAL_TOOLS_DEFINITIONS", [*zerochat.LOCAL_TOOLS_DEFINITIONS, definition]):

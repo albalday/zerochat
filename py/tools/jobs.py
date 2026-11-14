@@ -38,6 +38,9 @@ MODEL_OUTPUT_READ_BYTES = 64 * 1024
 CARD_TAIL_BYTES = 2048
 JOB_LOG_PAGE_BYTES = 256 * 1024
 REPORT_TAIL_LINES = 20
+# check_command(pattern): longitud máxima de la expresión y de la línea que se devuelve al coincidir.
+CHECK_PATTERN_MAX_CHARS = 200
+MATCHED_LINE_MAX_CHARS = 500
 REPORT_TAIL_BYTES = 4096
 
 
@@ -240,6 +243,8 @@ class CommandJob:
         self.runner_path: Path | None = None
         self.done = threading.Event()
         self._lock = threading.Lock()
+        # Avisa a quien espera en check_command de que hay salida nueva o de que el comando terminó.
+        self._changed = threading.Condition(self._lock)
         self._log = open(log_path, "wb")
         self._head_len = 0
         self._tail = bytearray()
@@ -268,6 +273,7 @@ class CommandJob:
                 if overflow > 0:
                     del self._tail[:overflow]
                     self._tail_start += overflow
+            self._changed.notify_all()
 
     def _read_output(self, stream):
         try:
@@ -352,6 +358,15 @@ class CommandJob:
         tail, _ = self.read_range(total - MODEL_OUTPUT_READ_BYTES, MODEL_OUTPUT_READ_BYTES)
         omitted = total - start - 2 * MODEL_OUTPUT_READ_BYTES
         return head + f"\n[... {omitted} bytes omitted ...]\n" + tail
+
+    def wait_change(self, seen_total: int, timeout: float):
+        """Espera como mucho timeout segundos a que haya salida más allá de seen_total o a que el comando termine."""
+        with self._changed:
+            self._changed.wait_for(lambda: self._total > seen_total or self.done.is_set(), timeout)
+
+    def notify_finished(self):
+        with self._changed:
+            self._changed.notify_all()
 
     def tail_text(self, max_bytes: int = CARD_TAIL_BYTES) -> str:
         return self.read_range(max(0, self._total - max_bytes), max_bytes)[0]
@@ -516,6 +531,7 @@ class JobManager:
             job.status = "exited"
         self._write_registry()
         job.done.set()
+        job.notify_finished()
 
     def get(self, project: str, job_id=None, key=None) -> CommandJob | None:
         jobs = self.list(project)
@@ -596,7 +612,7 @@ def _clamp_seconds(value, default: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(number, maximum))
 
 
-def _job_result(job: CommandJob, note: str | None = None, output_field: str = "output") -> str:
+def _job_result(job: CommandJob, note: str | None = None, output_field: str = "output", extra: dict | None = None) -> str:
     """Resultado para el modelo con la salida que aún no ha visto."""
     start = job.model_cursor
     total = job.total
@@ -619,6 +635,8 @@ def _job_result(job: CommandJob, note: str | None = None, output_field: str = "o
         result["log_file"] = str(job.log_path)
     if job.status == "stopped":
         result["stopped_by"] = job.stop_reason
+    if extra:
+        result.update(extra)
     if note:
         result["note"] = note
     return json.dumps(result, ensure_ascii=False, indent=2)
@@ -648,18 +666,60 @@ def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, ba
     return _job_result(job)
 
 
-def check_command(job_id: int, wait_seconds: int = 0, stop: bool = False, *, ctx: SecurityContext) -> str:
-    """Estado y salida nueva de un comando lanzado por run_command; puede esperarlo o detenerlo."""
+def _wait_job(job: CommandJob, wait: float, regex: re.Pattern | None) -> tuple[str, str | None]:
+    """Espera a que termine el comando, a que una línea nueva de su salida cumpla regex o a que pase wait.
+
+    Recorre la salida que el modelo aún no ha visto, línea a línea; la última línea, si no está completa,
+    solo se compara cuando el comando termina. Devuelve el motivo y la línea que coincidió.
+    """
+    deadline = time.monotonic() + wait
+    pos = job.model_cursor
+    partial = ""
+    while True:
+        finished = job.done.is_set()
+        total = job.total
+        if regex is not None and total > pos:
+            text, pos = job.read_range(pos, total - pos)
+            lines = (partial + text).split("\n")
+            partial = lines.pop()
+            for line in lines:
+                if regex.search(line):
+                    return "pattern_matched", line
+        if finished and (regex is None or pos >= job.total):
+            if regex is not None and partial and regex.search(partial):
+                return "pattern_matched", partial
+            return "command_finished", None
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return "wait_elapsed", None
+        if regex is None:
+            job.done.wait(remaining)
+        else:
+            job.wait_change(pos, remaining)
+
+
+def check_command(job_id: int, wait_seconds: int = 0, stop: bool = False, pattern: str | None = None, *, ctx: SecurityContext) -> str:
+    """Estado y salida nueva de un comando lanzado por run_command; puede esperarlo, con un patrón, o detenerlo."""
     job = JOBS.get(ctx.key, job_id=job_id)
     if job is None:
         return _tool_error(f"Unknown job_id {job_id}. It may belong to a previous ZeroChat session or to another project.", os=DETECTED_OS)
+    regex = None
+    if pattern:
+        try:
+            regex = re.compile(pattern, re.IGNORECASE)
+        except re.error as exc:
+            return _tool_error(f"Invalid pattern: {exc}. Use a regular expression such as 'error|listening on'.", os=DETECTED_OS)
     if stop:
         JOBS.stop(job, "model")
-    else:
-        wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
-        if wait:
-            job.done.wait(wait)
-    return _job_result(job, output_field="new_output")
+        return _job_result(job, output_field="new_output")
+    wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
+    if not wait and regex is None:
+        return _job_result(job, output_field="new_output")
+    reason, line = _wait_job(job, wait, regex)
+    extra = {"returned_because": reason}
+    if line is not None:
+        extra["matched_line"] = line if len(line) <= MATCHED_LINE_MAX_CHARS else line[:MATCHED_LINE_MAX_CHARS] + "…"
+    return _job_result(job, output_field="new_output", extra=extra)
 
 
 def job_details(job: CommandJob) -> dict:

@@ -34,7 +34,7 @@ check_command(job_id, wait_seconds=300, pattern="error|listening on")
 
 Vuelve en cuanto una línea nueva de la salida cumple `pattern` (expresión regular, sin
 distinguir mayúsculas, como `grep -iE`), además de por tiempo o por fin del comando. El
-resultado dice por qué volvió (`matched`, `exited`, `timeout`) y trae la línea que
+resultado dice por qué volvió (`returned_because`: `pattern_matched`, `command_finished` o `wait_elapsed`) y trae la línea que
 coincidió. Patrón de longitud acotada y error claro si no es una expresión válida.
 
 ### 3.2 Espera sin shell

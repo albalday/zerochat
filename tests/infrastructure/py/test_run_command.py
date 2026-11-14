@@ -170,6 +170,39 @@ class BackgroundCommandTest(unittest.TestCase):
         self.assertIs(unknown["success"], False)
         self.assertIn("Unknown job_id", unknown["error"])
 
+    def test_check_command_vuelve_en_cuanto_una_linea_nueva_cumple_el_patron(self):
+        server = run("echo arrancando; sleep 0.3; echo 'Server listening on 8080'; exec sleep 100", background=True)
+        started = time.monotonic()
+        matched = check(server["job_id"], wait_seconds=30, pattern="LISTENING ON")
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertEqual((matched["status"], matched["returned_because"], matched["matched_line"]),
+                         ("running", "pattern_matched", "Server listening on 8080"))
+        self.assertEqual(matched["new_output"], "Server listening on 8080\n")
+        # Solo cuenta la salida nueva: la línea ya vista no vuelve a coincidir.
+        started = time.monotonic()
+        again = check(server["job_id"], wait_seconds=1, pattern="listening")
+        self.assertGreaterEqual(time.monotonic() - started, 0.9)
+        self.assertEqual((again["returned_because"], again["new_output"]), ("wait_elapsed", ""))
+        self.assertNotIn("matched_line", again)
+        check(server["job_id"], stop=True)
+
+    def test_check_command_con_patron_vuelve_al_terminar_el_comando_y_compara_su_ultima_linea(self):
+        finished = run("echo uno; sleep 0.3; echo dos", background=True)
+        result = check(finished["job_id"], wait_seconds=10, pattern="error")
+        self.assertEqual((result["status"], result["returned_because"]), ("exited", "command_finished"))
+        self.assertNotIn("matched_line", result)
+        # Una última línea sin salto de línea se compara cuando el comando termina.
+        unterminated = run("sleep 0.3; printf 'fatal error: disk full'", background=True)
+        result = check(unterminated["job_id"], wait_seconds=10, pattern="fatal")
+        self.assertEqual((result["returned_because"], result["matched_line"]), ("pattern_matched", "fatal error: disk full"))
+
+    def test_check_command_rechaza_un_patron_que_no_es_una_expresion_regular(self):
+        job = run("exec sleep 100", background=True)
+        invalid = check(job["job_id"], wait_seconds=1, pattern="error(")
+        self.assertIs(invalid["success"], False)
+        self.assertIn("Invalid pattern", invalid["error"])
+        check(job["job_id"], stop=True)
+
     def test_cada_proyecto_solo_ve_y_detiene_sus_comandos(self):
         other = zerochat.SecurityContext(self.data_dir.resolve())
         alive = run("exec sleep 100", background=True)
