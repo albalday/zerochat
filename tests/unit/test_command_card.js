@@ -63,7 +63,6 @@ test('CommandCard - los detalles del servidor solo cambian los campos que traen'
 test('CommandCard - la insignia de cada final', () => {
   const cases = [
     [{ status: 'exited', exitCode: 0, elapsed: 72 }, 'status-success', 'Terminado · 1:12'],
-    [{ status: 'timeout', elapsed: 600 }, 'status-error', 'Plazo agotado · 10:00'],
     [{ status: 'stopped', elapsed: 5 }, 'status-stopped', 'Detenido · 5.0 s'],
     [{ status: 'unavailable', elapsed: 5 }, 'status-stopped', 'Estado no disponible']
   ];

@@ -5536,7 +5536,6 @@ class CommandJob:
         self.exit_code: int | None = None
         self.status = "running"
         self.stop_reason: str | None = None
-        self.timeout_seconds: int | None = None
         # Hasta dónde ha leído el modelo la salida, y si ya ha visto el final.
         self.model_cursor = 0
         self.reported = False
@@ -5837,9 +5836,7 @@ class JobManager:
         job.ended_mono = time.monotonic()
         job.ended_at = time.time()
         job.exit_code = returncode
-        if job.stop_reason == "timeout":
-            job.status = "timeout"
-        elif job.stop_reason:
+        if job.stop_reason:
             job.status = "stopped"
         else:
             job.status = "exited"
@@ -5965,10 +5962,8 @@ def _job_result(job: CommandJob, note: str | None = None, output_field: str = "o
     output, truncated = truncate_terminal_output(job.output_since(start))
     job.model_cursor = total
     # Detener un comando a propósito no es un fallo; sí lo son salir con error o agotar el plazo.
-    failed = job.status == "timeout" or (job.status == "exited" and job.exit_code != 0)
+    failed = job.status == "exited" and job.exit_code != 0
     result = {"success": not failed, "status": job.status, "job_id": job.id}
-    if job.status == "timeout":
-        result["error"] = f"Command timed out after {job.timeout_seconds} s and was killed."
     if job.status == "running":
         result["elapsed_s"] = job.elapsed()
     else:
@@ -6003,11 +5998,12 @@ def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, ba
         return _job_result(job)
     timeout = _clamp_seconds(timeout_seconds, COMMAND_DEFAULT_TIMEOUT, 1, COMMAND_MAX_TIMEOUT)
     if not job.done.wait(timeout):
-        job.timeout_seconds = timeout
-        JOBS.stop(job, "timeout")
+        # No se mata: lo hecho no se pierde y relanzarlo no lo duplica.
+        job.background = True
         return _job_result(job, note=(
-            f"Killed after {timeout} s. If this command is expected to take longer, re-run it with "
-            f"a larger timeout_seconds (max {COMMAND_MAX_TIMEOUT}) or with background=true."
+            f"Still running after {timeout} s, so it was moved to the background instead of being killed. "
+            f"Do not run it again. Follow it with check_command(job_id={job.id}, wait_seconds=600) "
+            f"and stop it with check_command(job_id={job.id}, stop=true)."
         ))
     return _job_result(job)
 
@@ -7005,7 +7001,8 @@ LOCAL_TOOLS_DEFINITIONS = [
             "Each call starts a fresh shell in the project directory: cd, export or source/activate do not carry over to later calls, "
             "so chain them with && in the same command. "
         ) + (
-            "By default it waits up to timeout_seconds and kills the command if it has not finished. "
+            "It waits up to timeout_seconds; a command still running then is not killed: it keeps running in the background "
+            "and the result gives its job_id. "
             "Use background=true for servers, watchers or anything that does not finish on its own; "
             f"then follow or stop it with check_command. Host OS: {DETECTED_OS}."
         ),
@@ -7021,7 +7018,7 @@ LOCAL_TOOLS_DEFINITIONS = [
                         else "Shell command to run (e.g. git status, npm test)"
                     )
                 },
-                "timeout_seconds": {"type": "integer", "description": f"Seconds to wait before killing the command (default {COMMAND_DEFAULT_TIMEOUT}, max {COMMAND_MAX_TIMEOUT}). Ignored with background=true.", "default": COMMAND_DEFAULT_TIMEOUT},
+                "timeout_seconds": {"type": "integer", "description": f"Seconds to wait for the command before moving it to the background (default {COMMAND_DEFAULT_TIMEOUT}, max {COMMAND_MAX_TIMEOUT}). Ignored with background=true.", "default": COMMAND_DEFAULT_TIMEOUT},
                 "background": {"type": "boolean", "description": "Return after a few seconds and keep the command running; returns a job_id for check_command.", "default": False}
             },
             "required": ["command"]

@@ -98,7 +98,8 @@ LOCAL_TOOLS_DEFINITIONS = [
             "Each call starts a fresh shell in the project directory: cd, export or source/activate do not carry over to later calls, "
             "so chain them with && in the same command. "
         ) + (
-            "By default it waits up to timeout_seconds and kills the command if it has not finished. "
+            "It waits up to timeout_seconds; a command still running then is not killed: it keeps running in the background "
+            "and the result gives its job_id. "
             "Use background=true for servers, watchers or anything that does not finish on its own; "
             f"then follow or stop it with check_command. Host OS: {DETECTED_OS}."
         ),
@@ -114,7 +115,7 @@ LOCAL_TOOLS_DEFINITIONS = [
                         else "Shell command to run (e.g. git status, npm test)"
                     )
                 },
-                "timeout_seconds": {"type": "integer", "description": f"Seconds to wait before killing the command (default {COMMAND_DEFAULT_TIMEOUT}, max {COMMAND_MAX_TIMEOUT}). Ignored with background=true.", "default": COMMAND_DEFAULT_TIMEOUT},
+                "timeout_seconds": {"type": "integer", "description": f"Seconds to wait for the command before moving it to the background (default {COMMAND_DEFAULT_TIMEOUT}, max {COMMAND_MAX_TIMEOUT}). Ignored with background=true.", "default": COMMAND_DEFAULT_TIMEOUT},
                 "background": {"type": "boolean", "description": "Return after a few seconds and keep the command running; returns a job_id for check_command.", "default": False}
             },
             "required": ["command"]

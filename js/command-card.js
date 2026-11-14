@@ -23,7 +23,7 @@
   const FIRST_LOG_POLL_MS = 700;
   const LOG_PAGE_BYTES = 256 * 1024;
   const MAX_LOG_CHARS = 512 * 1024;
-  const FINAL_STATUSES = new Set(['exited', 'timeout', 'stopped', 'error', 'unavailable']);
+  const FINAL_STATUSES = new Set(['exited', 'stopped', 'error', 'unavailable']);
   const COMMAND_TOOLS = new Set(['run_command', 'check_command']);
 
   const controllers = new WeakMap();
@@ -59,7 +59,7 @@
   }
 
   function isFailure(state) {
-    return state.status === 'timeout' || state.status === 'error' || (state.status === 'exited' && state.exitCode !== 0);
+    return state.status === 'error' || (state.status === 'exited' && state.exitCode !== 0);
   }
 
   /** Estado de una tarjeta nueva: el comando en marcha desde ahora, aún sin confirmar por el servidor. */
@@ -161,8 +161,6 @@
         return state.exitCode === 0
           ? { className: 'status-success', icon: 'check', text: t('command_status_done', { time }) }
           : { className: 'status-error', icon: 'x-circle', text: t('command_status_exit_code', { code: state.exitCode, time }) };
-      case 'timeout':
-        return { className: 'status-error', icon: 'x-circle', text: t('command_status_timeout', { time }) };
       case 'stopped':
         return { className: 'status-stopped', icon: 'stop', text: t('command_status_stopped', { time }) };
       case 'error':

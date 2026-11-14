@@ -91,15 +91,19 @@ class RunCommandTest(unittest.TestCase):
         self.assertEqual(zerochat.get_dev_root(), dev_root)
         self.assertNotIn("resolve_project_directory", zerochat.LOCAL_TOOL_HANDLERS)
 
-    def test_el_plazo_agotado_mata_tambien_a_los_descendientes(self):
-        pid_file = self.data_dir / "timeout.pid"
+    def test_un_comando_que_agota_su_plazo_pasa_a_segundo_plano_y_detenerlo_mata_a_sus_descendientes(self):
+        pid_file = self.data_dir / "descendiente.pid"
         started = time.monotonic()
         result = run(f"sh -c 'echo $$ > {pid_file}; exec sleep 100' & echo antes; sleep 100", timeout_seconds=1)
-        self.assertEqual((result["success"], result["status"]), (False, "timeout"))
-        self.assertIn("timed out after 1 s", result["error"])
-        self.assertIn("background=true", result["note"])
-        self.assertEqual(result["output"], "antes\n")
         self.assertLess(time.monotonic() - started, 6)
+        self.assertEqual((result["success"], result["status"], result["output"]), (True, "running", "antes\n"))
+        self.assertIn("moved to the background", result["note"])
+        self.assertIn(f"check_command(job_id={result['job_id']}", result["note"])
+        job = zerochat.JOBS.get(str(self.project), job_id=result["job_id"])
+        self.assertEqual((job.background, job.done.is_set()), (True, False))
+        self.assertIn(result["job_id"], [item["id"] for item in zerochat.live_state(zerochat.project_context())["jobs"] if item["background"]])
+        stopped = check(result["job_id"], stop=True)
+        self.assertEqual((stopped["status"], stopped["stopped_by"]), ("stopped", "model"))
         wait_dead(int(pid_file.read_text().strip()))
 
         # Lo que deja en marcha un comando que ya ha terminado no sobrevive como huérfano.
