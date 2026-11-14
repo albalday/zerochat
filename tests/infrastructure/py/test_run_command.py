@@ -190,6 +190,9 @@ class BackgroundCommandTest(unittest.TestCase):
         self.assertGreaterEqual(time.monotonic() - started, 0.9)
         self.assertEqual((again["returned_because"], again["new_output"]), ("wait_elapsed", ""))
         self.assertNotIn("matched_line", again)
+        # Sin salida nueva, la nota sugiere que el progreso puede ir a otro sitio; con salida, no hace falta.
+        self.assertIn("No new output while waiting", again["note"])
+        self.assertNotIn("note", matched)
         check(server["job_id"], stop=True)
 
     def test_check_command_con_patron_vuelve_al_terminar_el_comando_y_compara_su_ultima_linea(self):

@@ -6005,8 +6005,8 @@ def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, ba
     if background:
         if not job.done.wait(BACKGROUND_STARTUP_WAIT):
             return _job_result(job, note=(
-                f"Running in background. Follow it with check_command(job_id={job.id}, wait_seconds=...) "
-                f"and stop it with check_command(job_id={job.id}, stop=true)."
+                f"Running in background. Follow it with check_command(job_id={job.id}, wait_seconds=600, pattern='error|Traceback'), "
+                f"which returns when it finishes, prints an error or after 600 s, and stop it with check_command(job_id={job.id}, stop=true)."
             ))
         return _job_result(job)
     timeout = _clamp_seconds(timeout_seconds, COMMAND_DEFAULT_TIMEOUT, 1, COMMAND_MAX_TIMEOUT)
@@ -6112,6 +6112,11 @@ def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool =
     finally:
         JOBS.close_wait(job_key)
     extra = {"returned_because": reason, "waited_s": round(time.monotonic() - started, 1)}
+    if reason == "wait_elapsed" and job.total == job.model_cursor and not job.done.is_set():
+        extra["note"] = (
+            "No new output while waiting. The command may still be working without printing, or write its progress "
+            "to a log file: read that file with read_file. It is still running: wait again or check that file."
+        )
     if line is not None:
         extra["matched_line"] = line if len(line) <= MATCHED_LINE_MAX_CHARS else line[:MATCHED_LINE_MAX_CHARS] + "…"
     return _job_result(job, output_field="new_output", extra=extra)
@@ -7016,8 +7021,9 @@ LOCAL_TOOLS_DEFINITIONS = [
         ) + (
             "It waits up to timeout_seconds; a command still running then is not killed: it keeps running in the background "
             "and the result gives its job_id. "
-            "Use background=true for servers, watchers or anything that does not finish on its own; "
-            f"then follow or stop it with check_command. Host OS: {DETECTED_OS}."
+            "Use background=true from the start for anything that takes minutes (generations, builds, training, long test suites) "
+            "and for servers or watchers that do not finish on its own; then follow it with check_command. "
+            f"Never run a command again while it is still running. Host OS: {DETECTED_OS}."
         ),
         "inputSchema": {
             "type": "object",
@@ -7041,8 +7047,10 @@ LOCAL_TOOLS_DEFINITIONS = [
         "name": "check_command",
         "description": (
             "Check a command started by run_command: returns its status and the output produced since the last check. "
-            "Use wait_seconds to wait for it to finish, add pattern to return as soon as a new output line matches it "
-            "(for example 'error|listening on'), or stop=true to terminate it. "
+            "Use wait_seconds to wait for it to finish, add pattern to return as soon as a new output line matches it, "
+            "or stop=true to terminate it. Example: check_command(job_id=4, wait_seconds=600, pattern='error|Traceback') "
+            "returns when the command finishes, prints an error, or after 600 s. To follow a long command until it finishes "
+            "(also when the user asks to be told when it ends), call it again with wait_seconds=600 each time it returns still running. "
             "Without job_id it just waits wait_seconds, with no shell, and returns early if a background command finishes: "
             "use it instead of sleep."
         ),

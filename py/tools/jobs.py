@@ -707,8 +707,8 @@ def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, ba
     if background:
         if not job.done.wait(BACKGROUND_STARTUP_WAIT):
             return _job_result(job, note=(
-                f"Running in background. Follow it with check_command(job_id={job.id}, wait_seconds=...) "
-                f"and stop it with check_command(job_id={job.id}, stop=true)."
+                f"Running in background. Follow it with check_command(job_id={job.id}, wait_seconds=600, pattern='error|Traceback'), "
+                f"which returns when it finishes, prints an error or after 600 s, and stop it with check_command(job_id={job.id}, stop=true)."
             ))
         return _job_result(job)
     timeout = _clamp_seconds(timeout_seconds, COMMAND_DEFAULT_TIMEOUT, 1, COMMAND_MAX_TIMEOUT)
@@ -814,6 +814,11 @@ def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool =
     finally:
         JOBS.close_wait(job_key)
     extra = {"returned_because": reason, "waited_s": round(time.monotonic() - started, 1)}
+    if reason == "wait_elapsed" and job.total == job.model_cursor and not job.done.is_set():
+        extra["note"] = (
+            "No new output while waiting. The command may still be working without printing, or write its progress "
+            "to a log file: read that file with read_file. It is still running: wait again or check that file."
+        )
     if line is not None:
         extra["matched_line"] = line if len(line) <= MATCHED_LINE_MAX_CHARS else line[:MATCHED_LINE_MAX_CHARS] + "…"
     return _job_result(job, output_field="new_output", extra=extra)
