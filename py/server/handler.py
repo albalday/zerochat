@@ -51,6 +51,7 @@ from tools.common import _tool_error
 from tools.diff import configure_gui_diff_tool, open_file_diff
 from tools.filesystem import resolve_project_directory
 from tools.jobs import JOBS, JOB_LOG_PAGE_BYTES, job_details
+from tools.project_files import dispatch_files
 from tools.registry import LOCAL_TOOLS_DEFINITIONS, LOCAL_TOOL_HANDLERS, validate_local_tool_arguments
 from tools.sandbox import execute_js_sandbox
 from web.fetch import capture_frontend_user_agent, fetch_web_resource
@@ -536,6 +537,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 return None, {"code": -32603, "message": f"Error en sandbox JS: {exc}"}, str(exc)
         if method.startswith("zerochat/jobs/"):
             return self._dispatch_jobs(method, params, ctx)
+        if method.startswith("zerochat/files/"):
+            return dispatch_files(method, params, ctx)
         if method.startswith("zerochat/run/"):
             return dispatch_run(method, params, ctx)
         if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):
