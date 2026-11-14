@@ -221,18 +221,47 @@ test('Browser UI - abrir una conversación de otro proyecto lleva el servidor a 
   });
 });
 
-test('Browser UI - en móvil abrir la barra deja el chat inerte detrás del fondo y el fondo la cierra', async () => {
+test('Browser UI - el icono de la cabecera de un proyecto abre un chat nuevo en su carpeta sin plegarlo ni cambiar el perfil', async () => {
+  await withTestApp(async page => {
+    await page.evaluate(async () => {
+      await window.ChatStorage.saveConversation({ id: 'p_b', title: 'B', project: '/repo/b', createdAt: Date.now(), updatedAt: Date.now() }, [{ id: 'p_b_m', role: 'user', content: 'hola' }]);
+      window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), list: await window.ChatStorage.getConversationsList() });
+      window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo/a' } });
+      window.ChatMCP.manager.setProjectDirectory = async path => {
+        window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), serverInfo: { name: 'ZeroChat', cwd: path } });
+        return { cwd: path };
+      };
+    });
+    await page.selectOption('#sidebar-project-filter', 'all');
+    const previousId = await page.evaluate(() => window.ChatState.get('sessions').activeId);
+    const before = await page.evaluate(() => ({ profile: window.ChatUIProfiles.getSelectedServerProfile(), serverMode: window.ChatUIProfiles.isServerMode() }));
+    await page.click('.btn-project-new-chat[data-project="/repo/b"]');
+    await page.waitForFunction(() => window.ChatState.get('mcp').serverInfo.cwd === '/repo/b');
+    const after = await page.evaluate(() => ({
+      activeId: window.ChatState.get('sessions').activeId,
+      profile: window.ChatUIProfiles.getSelectedServerProfile(),
+      serverMode: window.ChatUIProfiles.isServerMode()
+    }));
+    assert.notEqual(after.activeId, previousId);
+    assert.deepEqual({ profile: after.profile, serverMode: after.serverMode }, before);
+    // Pulsar el icono no pliega ni despliega: no queda ninguna elección guardada.
+    assert.equal(await page.evaluate(() => window.ChatStorage.getStorageItem('sidebar_project_groups')), null);
+  });
+});
+
+test('Browser UI - en móvil la barra ocupa toda la pantalla y deja el chat inerte hasta cerrarla', async () => {
   await withTestApp({ viewport: { width: 390, height: 800 }, isMobile: true }, async page => {
     const state = () => page.evaluate(() => ({
       visible: document.getElementById('chat-sidebar').classList.contains('sidebar-visible'),
       inert: document.getElementById('chat-container').hasAttribute('inert'),
-      backdrop: document.getElementById('sidebar-backdrop').classList.contains('visible'),
       toggleHidden: document.getElementById('btn-toggle-sidebar').hidden
     }));
     await page.click('#btn-toggle-sidebar');
-    assert.deepEqual(await state(), { visible: true, inert: true, backdrop: true, toggleHidden: true });
-    await page.locator('#sidebar-backdrop').click({ position: { x: 380, y: 400 } });
-    assert.deepEqual(await state(), { visible: false, inert: false, backdrop: false, toggleHidden: false });
+    assert.deepEqual(await state(), { visible: true, inert: true, toggleHidden: true });
+    await page.waitForFunction(() => document.getElementById('chat-sidebar').getBoundingClientRect().left === 0);
+    assert.equal(await page.evaluate(() => document.getElementById('chat-sidebar').getBoundingClientRect().width), 390);
+    await page.click('#btn-close-sidebar');
+    assert.deepEqual(await state(), { visible: false, inert: false, toggleHidden: false });
   });
 });
 

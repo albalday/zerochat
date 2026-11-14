@@ -80,7 +80,6 @@
     btnRagBack: 'btn-rag-back',
     btnRagBranches: 'btn-rag-branches',
     btnRagActivate: 'btn-rag-activate',
-    sidebarBackdrop: 'sidebar-backdrop',
     chatContainer: 'chat-container',
     // Modal de exportación
     exportModal: 'export-modal',
@@ -347,8 +346,12 @@
    * Abrir una conversación de otro proyecto lleva el servidor a su carpeta. Si ya no existe, se avisa y
    * la conversación se queda sin herramientas locales (localToolsAvailable), nunca en otra carpeta.
    */
-  async function followConversationProject(conversation) {
-    const project = conversation?.project;
+  function followConversationProject(conversation) {
+    return openProjectDirectory(conversation?.project);
+  }
+
+  /** Lleva el servidor a la carpeta `project` (si hay servidor y es otra) y avisa si ya no existe. */
+  async function openProjectDirectory(project) {
     const cwd = getServerCwd();
     if (!project || !cwd || project === cwd) return;
     try {
@@ -357,6 +360,15 @@
       const reason = String(error?.message || error).replace(/^Error MCP \(-?\d+\): /, '');
       await Dialogs.alert(t('conversation_project_unavailable', { project, error: reason }), { type: 'warning' });
     }
+  }
+
+  /**
+   * Chat nuevo en otro proyecto desde su cabecera del historial: primero el chat vacío (si una generación
+   * lo impide, el servidor no cambia de carpeta) y después la carpeta, que el chat toma al guardarse.
+   * El perfil activo no cambia.
+   */
+  async function createProjectSession(project) {
+    if (await createNewSession()) await openProjectDirectory(project);
   }
 
   function isServerRunEnabled() {
@@ -819,6 +831,7 @@
       onDeleteSession: sessionId => ConversationService.deleteSession(sessionId, getConversationServiceOptions()),
       onExportSession: sessionId => UITransfer.openExportModal(sessionId),
       onNewSession: createNewSession,
+      onNewProjectSession: project => createProjectSession(project).catch(error => console.warn('[App] Could not open a chat in the project:', error)),
       renderList: renderSidebarChats,
       loadProjectGroups: () => {
         try {

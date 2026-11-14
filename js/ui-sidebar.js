@@ -32,7 +32,7 @@
 
   const isMobile = () => window.innerWidth <= 768;
 
-  /** Abre la barra; en móvil el chat queda inerte detrás del fondo y el foco pasa a la barra. */
+  /** Abre la barra; en móvil ocupa toda la pantalla, el chat queda inerte detrás y el foco pasa a la barra. */
   function openSidebar(elements) {
     elements.chatSidebar.classList.remove('sidebar-hidden');
     elements.chatSidebar.classList.add('sidebar-visible');
@@ -40,7 +40,6 @@
     elements.btnToggleSidebar.hidden = true;
     if (!isMobile()) return;
     elements.chatContainer.setAttribute('inert', '');
-    elements.sidebarBackdrop.classList.add('visible');
     requestAnimationFrame(() => {
       elements.chatSidebar.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')?.focus();
     });
@@ -52,7 +51,6 @@
     elements.chatSidebar.hidden = true;
     elements.btnToggleSidebar.hidden = false;
     elements.chatContainer.removeAttribute('inert');
-    elements.sidebarBackdrop.classList.remove('visible');
   }
 
   function toggleSidebar(elements) {
@@ -166,15 +164,22 @@
 
   /**
    * Cabecera de un grupo: la de proyecto lleva carpeta y número de conversaciones para distinguirse de
-   * las de fecha. Con `expanded` booleano es un botón que pliega o despliega el grupo.
+   * las de fecha, y a su derecha un botón que abre un chat nuevo en ese proyecto. Con `expanded`
+   * booleano la cabecera es un botón que pliega o despliega el grupo.
    */
   function renderGroupHeader(group, count, expanded = null) {
     const label = `<span class="sidebar-group-label">${escapeHtml(group.label)}</span>`;
     if (group.kind !== 'project') return `<div class="sidebar-group-header">${label}</div>`;
     const title = group.title ? ` title="${escapeHtml(group.title)}"` : '';
     const content = `${Icons.get('folder', { size: 14 })}${label}<span class="sidebar-group-count">${count}</span>`;
-    if (expanded === null) return `<div class="sidebar-group-header sidebar-project-header"${title}>${content}</div>`;
-    return `<button type="button" class="sidebar-group-header sidebar-project-header sidebar-group-toggle" data-group-key="${escapeHtml(group.key)}" aria-expanded="${expanded}"${title}>${Icons.get('chevron-right', { size: 14, className: 'sidebar-group-chevron' })}${content}</button>`;
+    const header = expanded === null
+      ? `<div class="sidebar-group-header sidebar-project-header"${title}>${content}</div>`
+      : `<button type="button" class="sidebar-group-header sidebar-project-header sidebar-group-toggle" data-group-key="${escapeHtml(group.key)}" aria-expanded="${expanded}"${title}>${Icons.get('chevron-right', { size: 14, className: 'sidebar-group-chevron' })}${content}</button>`;
+    const newChatLabel = escapeHtml(t('sidebar_project_new_chat_title', { name: group.label }));
+    const newChat = group.key
+      ? `<button type="button" class="btn-project-new-chat" data-project="${escapeHtml(group.key)}" title="${newChatLabel}" aria-label="${newChatLabel}">${Icons.get('square-pen', { size: 14 })}</button>`
+      : '';
+    return `<div class="sidebar-project-group">${header}${newChat}</div>`;
   }
 
   /** Un proyecto de la vista de todos se ve desplegado si el usuario lo eligió o, si no, si es el actual o tiene la conversación abierta. */
@@ -227,7 +232,8 @@
 
   /**
    * Conecta la barra. `callbacks` aporta las acciones de las conversaciones (onSwitchSession,
-   * onRenameSession, onDeleteSession, onExportSession, onNewSession, onDeleteAllSessions), el
+   * onRenameSession, onDeleteSession, onExportSession, onNewSession, onNewProjectSession, que recibe la
+   * carpeta del proyecto, y onDeleteAllSessions), el
    * repintado de la lista (renderList, también al buscar o cambiar el filtro de proyecto), los proyectos
    * plegados (loadProjectGroups, que devuelve las elecciones guardadas, y onProjectGroupsChange, que las
    * recibe para guardarlas) y la navegación de ajustes (onOpenSettingsMode, onBackToChats, onSelectSettingsSection).
@@ -244,7 +250,6 @@
 
     listen(elements.btnToggleSidebar, 'click', () => toggleSidebar(elements));
     listen(elements.btnCloseSidebar, 'click', () => closeSidebar(elements));
-    listen(elements.sidebarBackdrop, 'click', () => closeSidebar(elements));
     listen(elements.btnCloseSidebarSettings, 'click', () => closeSidebar(elements));
     listen(elements.btnSidebarNewChat, 'click', () => callbacks.onNewSession());
     listen(elements.sidebarSearchInput, 'input', () => callbacks.renderList());
@@ -275,6 +280,11 @@
         callbacks.renderList();
         (list.querySelector(`.sidebar-show-more[data-group-key="${CSS.escape(key)}"]`)
           || list.querySelector(`[data-session-id="${CSS.escape(lastId)}"]`)?.nextElementSibling?.querySelector('.btn-chat-menu'))?.focus();
+        return;
+      }
+      const newProjectChat = event.target.closest('.btn-project-new-chat');
+      if (newProjectChat) {
+        callbacks.onNewProjectSession(newProjectChat.dataset.project);
         return;
       }
       const toggle = event.target.closest('.sidebar-group-toggle');

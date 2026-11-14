@@ -443,23 +443,58 @@
   user-select: none;
 }
 
-/* Cabecera de proyecto: carpeta, nombre legible y número de conversaciones, separada por una línea */
+/* Fila de un proyecto, separada por una línea: su cabecera y, a la derecha, el botón de chat nuevo */
+.sidebar-project-group {
+  display: flex;
+  align-items: stretch;
+  margin-top: 0.4rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.sidebar-chats-list > .sidebar-project-group:first-child {
+  margin-top: 0;
+  border-top: none;
+}
+
+/* Cabecera de proyecto: carpeta, nombre legible y número de conversaciones */
 .sidebar-project-header {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  margin-top: 0.4rem;
   padding: 0.55rem 0.5rem 0.4rem;
-  border-top: 1px solid var(--border-color);
   font-size: 0.8rem;
   text-transform: none;
   letter-spacing: normal;
   color: var(--text-main);
 }
 
-.sidebar-chats-list > .sidebar-project-header:first-child {
-  margin-top: 0;
-  border-top: none;
+/* «Sin proyecto» no lleva botón: reserva su hueco para alinear los contadores */
+.sidebar-project-group > .sidebar-project-header:only-child {
+  margin-right: 32px;
+}
+
+.btn-project-new-chat {
+  flex: 0 0 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.btn-project-new-chat:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-main);
+}
+
+.btn-project-new-chat:focus-visible {
+  outline: 2px solid var(--input-border-focus);
+  outline-offset: -2px;
 }
 
 .sidebar-project-header .ui-icon {
@@ -487,11 +522,8 @@
 
 /* En la vista de todos, la cabecera de proyecto pliega y despliega sus conversaciones */
 .sidebar-group-toggle {
-  width: 100%;
   background: none;
-  border-right: none;
-  border-bottom: none;
-  border-left: none;
+  border: none;
   border-radius: 0;
   font-family: inherit;
   text-align: left;
@@ -695,6 +727,15 @@
   .sidebar-chat-item {
     padding-right: 0.45rem;
   }
+
+  .btn-project-new-chat {
+    flex-basis: 44px;
+    min-height: 44px;
+  }
+
+  .sidebar-project-group > .sidebar-project-header:only-child {
+    margin-right: 44px;
+  }
 }
 
 /* Pie de Barra Lateral (sin enmarcado) */
@@ -781,9 +822,10 @@
     left: 0;
     bottom: 0;
     z-index: var(--z-sidebar);
-    box-shadow: var(--shadow-lg);
-    width: 82vw;
-    max-width: 320px;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    border-right: none;
     padding-top: env(safe-area-inset-top, 0px);
   }
 
@@ -794,28 +836,4 @@
     visibility: hidden;
     pointer-events: none;
   }
-}
-
-/* Backdrop oscuro detrás del sidebar en móvil */
-.sidebar-backdrop {
-  display: none;
-  position: fixed;
-  inset: 0;
-  z-index: calc(var(--z-sidebar) - 1);
-  background-color: var(--overlay-backdrop);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
-  transition: opacity 0.22s ease;
-}
-
-@media (max-width: 768px) {
-  .sidebar-backdrop.visible {
-    display: block;
-    animation: fadeInBackdrop 0.22s ease both;
-  }
-}
-
-@keyframes fadeInBackdrop {
-  from { opacity: 0; }
-  to   { opacity: 1; }
 }
