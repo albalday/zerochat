@@ -181,3 +181,4 @@
 - 2026-11-14 M70-D3 Un run_command idéntico a otro en marcha en el mismo proyecto no se lanza: devuelve un error con el job_id del que sigue, en lugar de solo avisar, porque el duplicado es el daño (dos envíos a la cola de ComfyUI); para otra ejecución se detiene antes la primera (M70-T4)
 - 2026-11-14 M70-D4 M70 cerrado a petición del usuario y archivado en .zerochat/archive/M70.md (M70)
 - 2026-11-14 M71-D1 Navegador de ficheros del proyecto en una página propia (files.html) que reutiliza la sesión guardada; lo usa la persona, no el modelo, así que lo limita la carpeta del proyecto y no el motor de permisos, como el visor de diferencias; ejecutar comandos y editar ficheros quedan para un hito posterior, pendiente de decidir si pasan por el motor de permisos (M71)
+- 2026-11-14 M71-D2 M71 cerrado a petición del usuario y archivado en .zerochat/archive/M71.md; se publica con M70 como 10.18.0 (M71)
