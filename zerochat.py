@@ -5793,6 +5793,9 @@ class JobManager:
             stdout=subprocess.PIPE,
             # Una sola salida, en el orden en que la escribe el comando, como en una terminal.
             stderr=subprocess.STDOUT,
+            # La salida va a un pipe, no a una terminal: sin esto Python la retiene en el búfer hasta salir
+            # y ni la tarjeta, ni check_command, ni su pattern ven nada mientras el programa trabaja.
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
             start_new_session=DETECTED_OS != "windows" and hasattr(os, "setsid")
         )
         if DETECTED_OS == "windows":

@@ -275,6 +275,13 @@ class BackgroundCommandTest(unittest.TestCase):
                 self.assertEqual(published["last_line"], expected)
                 check(job["job_id"], stop=True)
 
+    def test_la_salida_de_un_programa_python_llega_mientras_sigue_en_marcha(self):
+        # print sin flush: con la salida en un pipe, Python la retendría en el búfer hasta salir.
+        job = run("python3 -c \"import time; time.sleep(0.5); print('cargando modelo'); time.sleep(100)\"", background=True)
+        result = check(job["job_id"], wait_seconds=10, pattern="cargando")
+        self.assertEqual((result["status"], result["returned_because"]), ("running", "pattern_matched"))
+        check(job["job_id"], stop=True)
+
     def test_cada_proyecto_solo_ve_y_detiene_sus_comandos(self):
         other = zerochat.SecurityContext(self.data_dir.resolve())
         alive = run("exec sleep 100", background=True)
