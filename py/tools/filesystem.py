@@ -82,8 +82,69 @@ def list_directory(path: str = ".", recursive: bool = False, *, ctx: SecurityCon
         return _tool_error(str(e))
 
 
-def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: int = 500, max_bytes: int = 100000, *, ctx: SecurityContext) -> str:
-    """Read text content from a local file in streaming mode with safe ranges and bounds."""
+# Códigos de control de terminal (colores, movimiento del cursor) que un log trae y el modelo no necesita.
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-Z\\-_]")
+READ_TAIL_BLOCK_BYTES = 64 * 1024
+MAX_READ_LINES = 2000
+
+
+def _terminal_line(line: str) -> str:
+    """Una línea como la deja una terminal: sin códigos de color y, si se reescribe con \\r, su último tramo."""
+    ending = "\n" if line.endswith("\n") else ""
+    text = ANSI_ESCAPE_RE.sub("", line[:-1] if ending else line).rstrip("\r")
+    return text[text.rfind("\r") + 1:] + ending
+
+
+def _count_lines(target: Path) -> int:
+    lines = 0
+    last = b""
+    with open(target, "rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            lines += chunk.count(b"\n")
+            last = chunk[-1:]
+    return lines + (1 if last and last != b"\n" else 0)
+
+
+def _read_tail(target: Path, tail_lines: int, max_bytes: int) -> str:
+    """Las últimas tail_lines líneas, leyendo el fichero desde el final por bloques y sin pasar de max_bytes."""
+    file_size = target.stat().st_size
+    wanted = max(1, min(int(tail_lines), MAX_READ_LINES))
+    data = b""
+    with open(target, "rb") as handle:
+        position = file_size
+        # Una línea más de las pedidas: la primera del bloque puede estar a medias.
+        while position > 0 and data.count(b"\n") <= wanted and len(data) < max_bytes:
+            step = min(READ_TAIL_BLOCK_BYTES, position)
+            position -= step
+            handle.seek(position)
+            data = handle.read(step) + data
+    truncated_bytes = len(data) > max_bytes
+    if truncated_bytes:
+        data = data[-max_bytes:]
+    # Solo \n separa líneas: splitlines también parte en \r y desharía las barras de progreso.
+    parts = data.decode("utf-8", errors="replace").split("\n")
+    lines = [part + "\n" for part in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
+    if (position > 0 or truncated_bytes) and lines:
+        lines = lines[1:]
+    lines = lines[-wanted:]
+    total_lines = _count_lines(target)
+    start_line = total_lines - len(lines) + 1
+    return json.dumps({
+        "success": True,
+        "path": str(target),
+        "size_bytes": file_size,
+        "total_lines": total_lines,
+        "start_line": start_line,
+        "end_line": total_lines,
+        "lines_returned": len(lines),
+        "truncated": start_line > 1,
+        "content": "".join(_terminal_line(line) for line in lines)
+    }, ensure_ascii=False, indent=2)
+
+
+def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: int = 500, max_bytes: int = 100000,
+              tail_lines: int | None = None, *, ctx: SecurityContext) -> str:
+    """Read text content from a local file in streaming mode with safe ranges and bounds, or its last lines."""
     try:
         target = ctx.absolute(path)
         if not target.exists():
@@ -93,15 +154,17 @@ def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: i
 
         file_size = target.stat().st_size
         safe_max_bytes = max(1024, min(int(max_bytes), 2000000))
+        if tail_lines is not None:
+            return _read_tail(target, tail_lines, safe_max_bytes)
         safe_start_line = max(1, int(start_line))
 
         if end_line is not None:
             safe_end_line = max(safe_start_line, int(end_line))
-            target_line_count = min(safe_end_line - safe_start_line + 1, 2000)
+            target_line_count = min(safe_end_line - safe_start_line + 1, MAX_READ_LINES)
             safe_end_line = safe_start_line + target_line_count - 1
         else:
             safe_end_line = None
-            target_line_count = max(1, min(int(max_lines), 2000))
+            target_line_count = max(1, min(int(max_lines), MAX_READ_LINES))
 
         selected_lines = []
         current_bytes = 0

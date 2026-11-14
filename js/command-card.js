@@ -16,13 +16,20 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
-  const { resolveDep, escapeHtml, formatBytes } = Utils;
+  const { resolveDep, escapeHtml } = Utils;
 
   // Solo una tarjeta desplegada pide su log, y con este intervalo.
   const LOG_POLL_MS = 2000;
   const FIRST_LOG_POLL_MS = 700;
+  // La tarjeta enseña el final del log, como una terminal pequeña; el log entero se abre aparte.
+  const CARD_LOG_LINES = 40;
+  // Al desplegarla basta con el final del log para llenar esas líneas.
+  const FIRST_LOG_BYTES = 16 * 1024;
   const LOG_PAGE_BYTES = 256 * 1024;
-  const MAX_LOG_CHARS = 512 * 1024;
+  // Lo que la tarjeta retiene del log para pintar sus últimas líneas.
+  const MAX_LOG_CHARS = 64 * 1024;
+  // Tope de páginas al abrir el log completo (el servidor guarda unos 5 MB por comando).
+  const MAX_FULL_LOG_PAGES = 64;
   const FINAL_STATUSES = new Set(['exited', 'stopped', 'error', 'unavailable']);
   const COMMAND_TOOLS = new Set(['run_command', 'check_command']);
 
@@ -130,14 +137,56 @@
 
   /** Primera página del log: desde donde empiezan sus últimos LOG_PAGE_BYTES, con un aviso de lo omitido. */
   function firstLogPage(outputBytes) {
-    const offset = Math.max(0, (Number(outputBytes) || 0) - LOG_PAGE_BYTES);
-    return { offset, text: offset > 0 ? `${t('command_log_earlier', { size: formatBytes(offset) })}\n` : '' };
+    const offset = Math.max(0, (Number(outputBytes) || 0) - FIRST_LOG_BYTES);
+    return { offset, earlier: offset > 0 };
   }
 
-  /** Log mostrado tras añadirle una página: solo sus últimos MAX_LOG_CHARS caracteres. */
+  /** Log retenido tras añadirle una página: sus últimos MAX_LOG_CHARS caracteres, y si se ha recortado. */
   function appendLog(text, page) {
     const log = text + page;
-    return log.length > MAX_LOG_CHARS ? log.slice(-MAX_LOG_CHARS) : log;
+    return log.length > MAX_LOG_CHARS ? { text: log.slice(-MAX_LOG_CHARS), trimmed: true } : { text: log, trimmed: false };
+  }
+
+  /**
+   * Final de la salida como lo enseña una terminal: las últimas CARD_LOG_LINES líneas y, de una barra
+   * de progreso que se reescribe con \r, su último tramo. Avisa si hay salida anterior.
+   */
+  function terminalTail(text, earlier = false) {
+    const lines = String(text || '').split('\n').map(line => {
+      const clean = line.replace(/\r+$/, '');
+      return clean.slice(clean.lastIndexOf('\r') + 1);
+    });
+    if (lines.length && lines[lines.length - 1] === '') lines.pop();
+    const shown = lines.slice(-CARD_LOG_LINES).join('\n');
+    return earlier || lines.length > CARD_LOG_LINES ? `${t('command_log_earlier')}\n${shown}` : shown;
+  }
+
+  /**
+   * Abre en una pestaña nueva el log completo que guarda el servidor, pedido por páginas. La pestaña
+   * se abre al pulsar, para que el navegador no la bloquee, y recibe el log cuando llega.
+   */
+  async function openFullLog(ref) {
+    const win = window.open('', '_blank');
+    if (!win) return;
+    win.document.title = t('command_action_full_log');
+    win.document.body.textContent = t('command_log_loading');
+    try {
+      const parts = [];
+      let offset = 0;
+      for (let page = 0; page < MAX_FULL_LOG_PAGES; page++) {
+        const chunk = await getMcp().requestExternalControl('zerochat/jobs/log', { ...ref, offset, limit: LOG_PAGE_BYTES });
+        parts.push(String(chunk?.text || ''));
+        const next = Number(chunk?.next) || offset;
+        if (next <= offset || next >= Number(chunk?.total)) break;
+        offset = next;
+      }
+      const url = URL.createObjectURL(new Blob([parts.join('')], { type: 'text/plain;charset=utf-8' }));
+      win.location.href = url;
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (error) {
+      win.close();
+      await getDialogs().alert(t('command_log_open_error', { error: error?.message || String(error) }), { type: 'error' });
+    }
   }
 
   /**
@@ -190,7 +239,7 @@
    * Tarjeta de comando: título, insignia, log y un botón que pide `stop()` a su controlador (detener
    * el comando en run_command, cortar la espera en check_command).
    */
-  function buildCardShell(ui, { titleHtml, actionLabel, collapsed = false }) {
+  function buildCardShell(ui, { titleHtml, actionLabel, collapsed = false, fullLog = false }) {
     const card = ui.createCardWrapper('mcp-card command-card-wrapper');
     card.innerHTML = getToolCards().renderCardHtml({
       className: 'command-card',
@@ -199,14 +248,17 @@
       badgeHtml: '<span class="tool-card-badge"></span>',
       bodyHtml: `<pre class="tool-card-code command-card-log" tabindex="0" hidden><code></code></pre>`
         + `<div class="command-card-actions">`
+        + (fullLog ? `<button type="button" class="btn-command-action" data-command-action="log" hidden>${icon('file-text')}<span>${escapeHtml(t('command_action_full_log'))}</span></button>` : '')
         + `<button type="button" class="btn-command-action btn-command-stop" data-command-action="stop" hidden>${icon('stop')}<span>${escapeHtml(actionLabel)}</span></button>`
         + `</div>`
     });
     card.addEventListener('click', event => {
-      const button = event.target.closest('[data-command-action="stop"]');
+      const button = event.target.closest('[data-command-action]');
       if (!button || !card.contains(button)) return;
       event.stopPropagation();
-      controllers.get(card)?.stop();
+      const controller = controllers.get(card);
+      if (button.dataset.commandAction === 'log') controller?.openFullLog();
+      else controller?.stop();
     });
     return card;
   }
@@ -216,6 +268,7 @@
     const firstLine = command.split('\n')[0] + (command.includes('\n') ? ' …' : '');
     return buildCardShell(ui, {
       collapsed,
+      fullLog: true,
       actionLabel: t('command_action_stop'),
       titleHtml: `${icon('terminal', 14)}<code class="command-card-command" title="${escapeHtml(command)}">${escapeHtml(firstLine)}</code>`
         + '<span class="command-card-last-line" hidden></span>'
@@ -273,7 +326,7 @@
       this.card = card;
       this.state = initialState();
       this.logTimer = null;
-      this.log = { loaded: false, next: 0, loading: false };
+      this.log = { loaded: false, next: 0, loading: false, text: '', earlier: false };
       controllers.set(card, this);
       // El log se pide al desplegar la tarjeta, la despliegue quien la despliegue.
       new MutationObserver(() => {
@@ -307,7 +360,13 @@
       if (Number.isInteger(state.id)) card.dataset.jobId = String(state.id);
       this.renderBadge();
       card.querySelector('[data-command-action="stop"]').hidden = !canStop(state, card.dataset.invocationId);
+      // El log completo lo guarda el servidor mientras ZeroChat no se reinicie.
+      card.querySelector('[data-command-action="log"]').hidden = !(Number.isInteger(state.id) && state.status !== 'error' && state.status !== 'unavailable');
       this.renderLastLine();
+    }
+
+    openFullLog() {
+      if (Number.isInteger(this.state.id)) openFullLog({ id: this.state.id });
     }
 
     renderLastLine() {
@@ -433,10 +492,11 @@
       }
     }
 
-    showText(text) {
+    showText(text, earlier = false) {
       const logEl = this.card.querySelector('.command-card-log');
-      logEl.querySelector('code').textContent = text || '';
-      logEl.hidden = !text;
+      const shown = text ? terminalTail(text, earlier) : '';
+      logEl.querySelector('code').textContent = shown;
+      logEl.hidden = !shown;
     }
 
     showFallback() {
@@ -464,20 +524,24 @@
       this.log.loading = true;
       const initial = !this.log.loaded;
       try {
-        let text = logEl.querySelector('code').textContent;
         if (initial) {
           const details = await mcp.requestExternalControl('zerochat/jobs/get', ref);
           this.applyDetails(details);
           const first = firstLogPage(details?.output_bytes);
           this.log.next = first.offset;
-          text = first.text;
+          this.log.text = '';
+          this.log.earlier = first.earlier;
         }
         const atBottom = logEl.hidden || logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 24;
         const page = await mcp.requestExternalControl('zerochat/jobs/log', { ...ref, offset: this.log.next, limit: LOG_PAGE_BYTES });
         this.state.confirmed = true;
         this.log.next = Number(page?.next) || this.log.next;
         this.log.loaded = true;
-        this.showText(appendLog(text, String(page?.text || '')));
+        const kept = appendLog(this.log.text, String(page?.text || ''));
+        this.log.text = kept.text;
+        this.log.earlier = this.log.earlier || kept.trimmed;
+        this.showText(this.log.text, this.log.earlier);
+        this.render();
         if (atBottom) logEl.scrollTop = logEl.scrollHeight;
         return page?.done === true;
       } catch (_) {
@@ -599,6 +663,7 @@
       this.logTimer = null;
       this.logNext = null;
       this.logText = '';
+      this.logEarlier = false;
       controllers.set(card, this);
     }
 
@@ -636,10 +701,11 @@
       this.card.querySelector('[data-command-action="stop"]').hidden = !canEnd;
     }
 
-    showText(text) {
+    showText(text, earlier = false) {
       const logEl = this.card.querySelector('.command-card-log');
-      logEl.querySelector('code').textContent = text || '';
-      logEl.hidden = !text;
+      const shown = text ? terminalTail(text, earlier) : '';
+      logEl.querySelector('code').textContent = shown;
+      logEl.hidden = !shown;
     }
 
     /** La salida nueva del comando que se espera: desde donde iba al empezar la espera. */
@@ -657,8 +723,10 @@
             const page = await mcp.requestExternalControl('zerochat/jobs/log', { ...ref, offset: this.logNext, limit: LOG_PAGE_BYTES });
             this.logNext = Number(page?.next) || this.logNext;
             if (page?.text) {
-              this.logText = appendLog(this.logText, String(page.text));
-              if (!this.state.returned) this.showText(this.logText);
+              const kept = appendLog(this.logText, String(page.text));
+              this.logText = kept.text;
+              this.logEarlier = this.logEarlier || kept.trimmed;
+              if (!this.state.returned) this.showText(this.logText, this.logEarlier);
             }
           }
         } catch (_) {
@@ -686,7 +754,8 @@
       this.stopTimers();
       this.state = { ...this.state, returned: true, result: data, elapsed: (Date.now() - this.state.startedAt) / 1000 };
       const output = data ? [data.new_output || '', data.error ? `\n${data.error}` : ''].join('').trim() : String(fallbackError || '');
-      this.showText(output || this.logText);
+      if (output) this.showText(output);
+      else this.showText(this.logText, this.logEarlier);
       this.render();
     }
   }
@@ -771,6 +840,7 @@
     hasLeftRunning,
     getBadgeView,
     firstLogPage,
+    terminalTail,
     appendLog,
     fallbackLog
   };

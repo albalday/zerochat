@@ -29,7 +29,7 @@ LOCAL_TOOLS_DEFINITIONS = [
     },
     {
         "name": "read_file",
-        "description": "Read a text file, whole or by line range.",
+        "description": "Read a text file, whole or by line range, or only its last lines with tail_lines (like tail -n): use tail_lines for logs that keep growing.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -37,7 +37,11 @@ LOCAL_TOOLS_DEFINITIONS = [
                 "start_line": {"type": "integer", "description": "First line (1-based)", "default": 1},
                 "end_line": {"type": "integer", "description": "Last line (inclusive)"},
                 "max_lines": {"type": "integer", "description": "Line cap if no end_line", "default": 500},
-                "max_bytes": {"type": "integer", "description": "Byte cap", "default": 100000}
+                "max_bytes": {"type": "integer", "description": "Byte cap", "default": 100000},
+                "tail_lines": {
+                    "type": "integer",
+                    "description": "Return only the last N lines (max 2000), without terminal color codes and keeping the last state of progress bars; start_line and end_line are ignored"
+                }
             },
             "required": ["path"]
         }

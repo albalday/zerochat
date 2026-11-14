@@ -567,7 +567,7 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
     }));
     assert.match(running.badge, /En segundo plano · 0?:?0?\d/);
     assert.deepEqual([running.expanded, running.status, running.title, running.logStart, running.buttons, running.stopVisible, running.groupRunning],
-      [true, 'running', 'npm run dev', 'linea 1\nlinea 2\n', ['stop'], true, true]);
+      [true, 'running', 'npm run dev', 'linea 1\nlinea 2\n', ['log', 'stop'], true, true]);
     const calls = await page.evaluate(() => window.__jobCalls);
     assert.ok(calls.some(call => call.method === 'zerochat/jobs/get' && call.params.id === 7));
     assert.ok(calls.some(call => call.method === 'zerochat/jobs/log' && call.params.id === 7));
@@ -587,8 +587,15 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
     await page.clock.runFor(2000);
     await page.waitForFunction(() => {
       const log = window.__commandCard.querySelector('.command-card-log').textContent;
-      return log.endsWith(window.__job.log.split('\n').slice(-2).join('\n'));
+      return log.endsWith(window.__job.log.trimEnd().split('\n').pop());
     });
+
+    // «Ver log completo» abre una pestaña con todo el log que guarda el servidor, no solo las últimas líneas.
+    const [popup] = await Promise.all([page.waitForEvent('popup'), card.locator('[data-command-action="log"]').click()]);
+    await popup.waitForURL(/^blob:/);
+    const fullLog = await popup.evaluate(() => document.body.innerText);
+    assert.ok(fullLog.startsWith('linea 1\nlinea 2\n') && /linea \d+\n?$/.test(fullLog), fullLog.slice(-80));
+    await popup.close();
 
     await card.locator('[data-command-action="stop"]').click();
     await page.waitForFunction(() => /Detenido/.test(window.__commandCard.querySelector('.tool-card-badge').textContent));

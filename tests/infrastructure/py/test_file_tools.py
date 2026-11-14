@@ -88,6 +88,36 @@ class ReadFileTest(unittest.TestCase):
                 self.assertIs(result["truncated"], True)
 
 
+    def test_read_file_tail_lines_devuelve_el_final_limpio_de_un_log_vivo(self):
+        log = use_data_dir(self) / "comfyui.log"
+        log.write_bytes(
+            b"\x1b[32m[INFO]\x1b[0m arrancando\n"
+            b"\x1b[32m[INFO]\x1b[0m got prompt\n"
+            b"  5%|5         | 1/20\r 10%|1         | 2/20\r\n"
+            b"\x1b[31m[ERROR]\x1b[0m out of memory"
+        )
+        result = json.loads(zerochat.read_file(str(log), tail_lines=3, ctx=CTX))
+        self.assertEqual(result["content"], "[INFO] got prompt\n 10%|1         | 2/20\n[ERROR] out of memory")
+        self.assertEqual((result["total_lines"], result["start_line"], result["end_line"], result["lines_returned"], result["truncated"]),
+                         (4, 2, 4, 3, True))
+        # Más líneas de las que tiene: todo, sin truncar.
+        whole = json.loads(zerochat.read_file(str(log), tail_lines=50, ctx=CTX))
+        self.assertEqual((whole["start_line"], whole["lines_returned"], whole["truncated"]), (1, 4, False))
+
+    def test_read_file_tail_lines_lee_desde_el_final_sin_partir_lineas_entre_bloques(self):
+        big = use_data_dir(self) / "big.log"
+        # Más de un bloque de lectura: las líneas pedidas cruzan la frontera de bloque.
+        big.write_text("".join(f"paso {i:06d} " + "x" * 90 + "\n" for i in range(1, 3001)), encoding="utf-8")
+        result = json.loads(zerochat.read_file(str(big), tail_lines=2, ctx=CTX))
+        self.assertEqual([line[:11] for line in result["content"].splitlines()], ["paso 002999", "paso 003000"])
+        self.assertEqual((result["total_lines"], result["start_line"]), (3000, 2999))
+        # El tope de bytes manda sobre las líneas pedidas, y nunca se devuelve una línea a medias.
+        capped = json.loads(zerochat.read_file(str(big), tail_lines=2000, max_bytes=1024, ctx=CTX))
+        self.assertTrue(all(line.startswith("paso ") for line in capped["content"].splitlines()))
+        self.assertLess(capped["lines_returned"], 11)
+        self.assertEqual(capped["end_line"], 3000)
+
+
 class EditFileTest(unittest.TestCase):
     def setUp(self):
         self.path = use_data_dir(self) / "edit.txt"
