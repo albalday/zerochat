@@ -43,8 +43,8 @@ def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc
             return
         if proc is not None and proc.poll() is not None and not session.finished.wait(0.2):
             break
-        if time.monotonic() >= deadline:
-            session.stop_reason = f"Plazo total agotado ({RUN_TOTAL_TIMEOUT:.0f}s)."
+        if time.monotonic() >= deadline + session.waited_seconds():
+            session.stop_reason = f"Plazo total agotado ({RUN_TOTAL_TIMEOUT:.0f}s, sin contar las esperas)."
             break
         if session.idle_seconds() > RUN_IDLE_SECONDS:
             session.stop_reason = f"Sin progreso de la interfaz durante {RUN_IDLE_SECONDS:.0f}s."

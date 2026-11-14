@@ -125,12 +125,14 @@ LOCAL_TOOLS_DEFINITIONS = [
         "description": (
             "Check a command started by run_command: returns its status and the output produced since the last check. "
             "Use wait_seconds to wait for it to finish, add pattern to return as soon as a new output line matches it "
-            "(for example 'error|listening on'), or stop=true to terminate it."
+            "(for example 'error|listening on'), or stop=true to terminate it. "
+            "Without job_id it just waits wait_seconds, with no shell, and returns early if a background command finishes: "
+            "use it instead of sleep."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "job_id": {"type": "integer", "description": "job_id returned by run_command"},
+                "job_id": {"type": "integer", "description": "job_id returned by run_command; omit it to just wait"},
                 "wait_seconds": {"type": "integer", "description": f"Seconds to wait for the command to finish before returning (default 0, max {COMMAND_MAX_WAIT})", "default": 0},
                 "stop": {"type": "boolean", "description": "Terminate the command and its child processes", "default": False},
                 "pattern": {
@@ -138,8 +140,7 @@ LOCAL_TOOLS_DEFINITIONS = [
                     "maxLength": CHECK_PATTERN_MAX_CHARS,
                     "description": "Case-insensitive regular expression matched against each new output line; with wait_seconds, returns as soon as a line matches"
                 }
-            },
-            "required": ["job_id"]
+            }
         }
     },
     {

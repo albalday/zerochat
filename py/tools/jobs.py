@@ -406,6 +406,8 @@ class JobManager:
         self._lock = threading.Lock()
         self._dir: Path | None = None
         self._windows_job: _WindowsKillOnCloseJob | None = None
+        # Avisa a check_command sin job_id de que ha terminado algún comando.
+        self._finished = threading.Condition()
         atexit.register(self.shutdown)
 
     def _session_dir(self) -> Path:
@@ -532,6 +534,14 @@ class JobManager:
         self._write_registry()
         job.done.set()
         job.notify_finished()
+        with self._finished:
+            self._finished.notify_all()
+
+    def wait_any_finished(self, jobs: list[CommandJob], timeout: float) -> list[CommandJob]:
+        """Espera como mucho timeout segundos a que termine alguno de jobs; devuelve los terminados."""
+        with self._finished:
+            self._finished.wait_for(lambda: any(job.done.is_set() for job in jobs), timeout)
+        return [job for job in jobs if job.done.is_set()]
 
     def get(self, project: str, job_id=None, key=None) -> CommandJob | None:
         jobs = self.list(project)
@@ -698,8 +708,35 @@ def _wait_job(job: CommandJob, wait: float, regex: re.Pattern | None) -> tuple[s
             job.wait_change(pos, remaining)
 
 
-def check_command(job_id: int, wait_seconds: int = 0, stop: bool = False, pattern: str | None = None, *, ctx: SecurityContext) -> str:
-    """Estado y salida nueva de un comando lanzado por run_command; puede esperarlo, con un patrón, o detenerlo."""
+def _plain_wait(wait_seconds, ctx: SecurityContext) -> str:
+    """check_command sin job_id: espera sin lanzar ningún proceso; vuelve antes si termina un comando del proyecto."""
+    wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
+    if not wait:
+        return _tool_error(f"Without job_id, check_command waits: give wait_seconds (1 to {COMMAND_MAX_WAIT}).", os=DETECTED_OS)
+    running = JOBS.running(ctx.key)
+    started = time.monotonic()
+    finished = JOBS.wait_any_finished(running, wait)
+    result = {
+        "success": True,
+        "waited_s": round(time.monotonic() - started, 1),
+        "returned_because": "command_finished" if finished else "wait_elapsed",
+    }
+    if finished:
+        result["finished_jobs"] = [
+            {"job_id": job.id, "command": job.command.split("\n")[0][:200], "status": job.status, "exit_code": job.exit_code}
+            for job in finished
+        ]
+        result["note"] = "Read their output with check_command(job_id=...)."
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool = False, pattern: str | None = None, *, ctx: SecurityContext) -> str:
+    """Estado y salida nueva de un comando lanzado por run_command; puede esperarlo, con un patrón, o detenerlo.
+    Sin job_id, solo espera."""
+    if job_id is None:
+        if stop or pattern:
+            return _tool_error("stop and pattern need the job_id of a command.", os=DETECTED_OS)
+        return _plain_wait(wait_seconds, ctx)
     job = JOBS.get(ctx.key, job_id=job_id)
     if job is None:
         return _tool_error(f"Unknown job_id {job_id}. It may belong to a previous ZeroChat session or to another project.", os=DETECTED_OS)

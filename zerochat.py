@@ -3371,7 +3371,7 @@ def update_security_policy_data(mutator: typing.Callable[[dict | None], dict]) -
 
 # Plazo total y sin progreso de la interfaz.
 RUN_TOTAL_TIMEOUT = 900.0
-RUN_IDLE_SECONDS = 180.0
+RUN_IDLE_SECONDS = 600.0
 RUN_POLL_SECONDS = 0.2
 RUN_PROGRESS_TEXT_MAX = 500
 RUN_STREAM_TEXT_MAX = 8000
@@ -3647,6 +3647,9 @@ class RunSession:
             self.tool_security = None
         self.lock = threading.Lock()
         self.last_activity = time.monotonic()
+        # Esperas de check_command: no cuentan como inactividad y alargan el plazo total.
+        self._waiting_since: float | None = None
+        self._waited = 0.0
         self.prompt_delivered = False
         self.result: dict | None = None
         self.stop_reason: str | None = None
@@ -3671,7 +3674,27 @@ class RunSession:
 
     def idle_seconds(self) -> float:
         with self.lock:
+            if self._waiting_since is not None:
+                return 0.0
             return time.monotonic() - self.last_activity
+
+    def begin_wait(self):
+        with self.lock:
+            self._waiting_since = time.monotonic()
+
+    def end_wait(self):
+        with self.lock:
+            now = time.monotonic()
+            if self._waiting_since is not None:
+                self._waited += now - self._waiting_since
+            self._waiting_since = None
+            self.last_activity = now
+
+    def waited_seconds(self) -> float:
+        """Tiempo total en esperas de check_command, incluida la que esté en curso."""
+        with self.lock:
+            ongoing = time.monotonic() - self._waiting_since if self._waiting_since is not None else 0.0
+            return self._waited + ongoing
 
 
 RUN_SESSION: RunSession | None = None
@@ -5681,6 +5704,8 @@ class JobManager:
         self._lock = threading.Lock()
         self._dir: Path | None = None
         self._windows_job: _WindowsKillOnCloseJob | None = None
+        # Avisa a check_command sin job_id de que ha terminado algún comando.
+        self._finished = threading.Condition()
         atexit.register(self.shutdown)
 
     def _session_dir(self) -> Path:
@@ -5807,6 +5832,14 @@ class JobManager:
         self._write_registry()
         job.done.set()
         job.notify_finished()
+        with self._finished:
+            self._finished.notify_all()
+
+    def wait_any_finished(self, jobs: list[CommandJob], timeout: float) -> list[CommandJob]:
+        """Espera como mucho timeout segundos a que termine alguno de jobs; devuelve los terminados."""
+        with self._finished:
+            self._finished.wait_for(lambda: any(job.done.is_set() for job in jobs), timeout)
+        return [job for job in jobs if job.done.is_set()]
 
     def get(self, project: str, job_id=None, key=None) -> CommandJob | None:
         jobs = self.list(project)
@@ -5973,8 +6006,35 @@ def _wait_job(job: CommandJob, wait: float, regex: re.Pattern | None) -> tuple[s
             job.wait_change(pos, remaining)
 
 
-def check_command(job_id: int, wait_seconds: int = 0, stop: bool = False, pattern: str | None = None, *, ctx: SecurityContext) -> str:
-    """Estado y salida nueva de un comando lanzado por run_command; puede esperarlo, con un patrón, o detenerlo."""
+def _plain_wait(wait_seconds, ctx: SecurityContext) -> str:
+    """check_command sin job_id: espera sin lanzar ningún proceso; vuelve antes si termina un comando del proyecto."""
+    wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
+    if not wait:
+        return _tool_error(f"Without job_id, check_command waits: give wait_seconds (1 to {COMMAND_MAX_WAIT}).", os=DETECTED_OS)
+    running = JOBS.running(ctx.key)
+    started = time.monotonic()
+    finished = JOBS.wait_any_finished(running, wait)
+    result = {
+        "success": True,
+        "waited_s": round(time.monotonic() - started, 1),
+        "returned_because": "command_finished" if finished else "wait_elapsed",
+    }
+    if finished:
+        result["finished_jobs"] = [
+            {"job_id": job.id, "command": job.command.split("\n")[0][:200], "status": job.status, "exit_code": job.exit_code}
+            for job in finished
+        ]
+        result["note"] = "Read their output with check_command(job_id=...)."
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool = False, pattern: str | None = None, *, ctx: SecurityContext) -> str:
+    """Estado y salida nueva de un comando lanzado por run_command; puede esperarlo, con un patrón, o detenerlo.
+    Sin job_id, solo espera."""
+    if job_id is None:
+        if stop or pattern:
+            return _tool_error("stop and pattern need the job_id of a command.", os=DETECTED_OS)
+        return _plain_wait(wait_seconds, ctx)
     job = JOBS.get(ctx.key, job_id=job_id)
     if job is None:
         return _tool_error(f"Unknown job_id {job_id}. It may belong to a previous ZeroChat session or to another project.", os=DETECTED_OS)
@@ -6921,12 +6981,14 @@ LOCAL_TOOLS_DEFINITIONS = [
         "description": (
             "Check a command started by run_command: returns its status and the output produced since the last check. "
             "Use wait_seconds to wait for it to finish, add pattern to return as soon as a new output line matches it "
-            "(for example 'error|listening on'), or stop=true to terminate it."
+            "(for example 'error|listening on'), or stop=true to terminate it. "
+            "Without job_id it just waits wait_seconds, with no shell, and returns early if a background command finishes: "
+            "use it instead of sleep."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "job_id": {"type": "integer", "description": "job_id returned by run_command"},
+                "job_id": {"type": "integer", "description": "job_id returned by run_command; omit it to just wait"},
                 "wait_seconds": {"type": "integer", "description": f"Seconds to wait for the command to finish before returning (default 0, max {COMMAND_MAX_WAIT})", "default": 0},
                 "stop": {"type": "boolean", "description": "Terminate the command and its child processes", "default": False},
                 "pattern": {
@@ -6934,8 +6996,7 @@ LOCAL_TOOLS_DEFINITIONS = [
                     "maxLength": CHECK_PATTERN_MAX_CHARS,
                     "description": "Case-insensitive regular expression matched against each new output line; with wait_seconds, returns as soon as a line matches"
                 }
-            },
-            "required": ["job_id"]
+            }
         }
     },
     {
@@ -7467,8 +7528,8 @@ def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc
             return
         if proc is not None and proc.poll() is not None and not session.finished.wait(0.2):
             break
-        if time.monotonic() >= deadline:
-            session.stop_reason = f"Plazo total agotado ({RUN_TOTAL_TIMEOUT:.0f}s)."
+        if time.monotonic() >= deadline + session.waited_seconds():
+            session.stop_reason = f"Plazo total agotado ({RUN_TOTAL_TIMEOUT:.0f}s, sin contar las esperas)."
             break
         if session.idle_seconds() > RUN_IDLE_SECONDS:
             session.stop_reason = f"Sin progreso de la interfaz durante {RUN_IDLE_SECONDS:.0f}s."
@@ -7929,9 +7990,15 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             message = (f"The browser is in use by another conversation. It is released after {int(BROWSER_LEASE_IDLE_SECONDS)} "
                        "seconds without use; tell the user or try again later.")
             return {"content": [{"type": "text", "text": _tool_error(message)}], "isError": True}, None, message
+        # En una ejecución desatendida, esperar en check_command no es inactividad ni gasta el plazo total.
+        session = current_run_session() if origin == "local" and tool_name == JOB_CONTROL_TOOL else None
+        if session is not None:
+            session.begin_wait()
         try:
             return cls._run_tool(origin, tool_name, args, ctx)
         finally:
+            if session is not None:
+                session.end_wait()
             # El plazo cuenta desde que la acción termina: lo que tarde no acorta lo que el modelo puede razonar después.
             if browser:
                 BROWSER_LEASES.acquire(browser, conversation_id)

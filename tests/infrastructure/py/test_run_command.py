@@ -203,6 +203,28 @@ class BackgroundCommandTest(unittest.TestCase):
         self.assertIn("Invalid pattern", invalid["error"])
         check(job["job_id"], stop=True)
 
+    def test_check_command_sin_job_id_espera_sin_shell_y_vuelve_antes_si_termina_un_comando(self):
+        def wait(**kwargs):
+            return json.loads(zerochat.check_command(**kwargs, ctx=zerochat.project_context()))
+
+        started = time.monotonic()
+        idle = wait(wait_seconds=1)
+        self.assertGreaterEqual(time.monotonic() - started, 0.9)
+        self.assertEqual((idle["success"], idle["returned_because"]), (True, "wait_elapsed"))
+        self.assertEqual(zerochat.JOBS.list(str(self.project)), [], "La espera no lanza ningún proceso")
+
+        job = run("sleep 0.5; echo fin", background=True)
+        started = time.monotonic()
+        woken = wait(wait_seconds=30)
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertEqual(woken["returned_because"], "command_finished")
+        self.assertEqual([(item["job_id"], item["status"], item["exit_code"]) for item in woken["finished_jobs"]],
+                         [(job["job_id"], "exited", 0)])
+
+        for kwargs in ({}, {"wait_seconds": 0}, {"wait_seconds": 1, "stop": True}, {"wait_seconds": 1, "pattern": "x"}):
+            with self.subTest(kwargs=kwargs):
+                self.assertIs(wait(**kwargs)["success"], False)
+
     def test_cada_proyecto_solo_ve_y_detiene_sus_comandos(self):
         other = zerochat.SecurityContext(self.data_dir.resolve())
         alive = run("exec sleep 100", background=True)
