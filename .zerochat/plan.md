@@ -37,3 +37,7 @@
 ## M68 Arreglos pequeños 2: closed 2026-11-14
 
 ## M69 Esperas y comandos a la vista: closed 2026-11-14
+
+## M70 Arreglos de run_command: closed 2026-11-14
+
+## M71 Navegador de ficheros del proyecto: closed 2026-11-14

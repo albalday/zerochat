@@ -426,6 +426,9 @@
    */
   function toToolMessageContent(execResult) {
     const { success, result, resultText, tool, args } = execResult;
+    // Una herramienta que se ejecutó y falló entrega su propio texto: la salida y el aviso de un
+    // comando con error o con el plazo agotado son lo que el modelo necesita para corregirse.
+    if (!success && result && !execResult.awaitingApproval && typeof resultText === 'string' && resultText) return { content: resultText, images: null };
     if (!success || result === undefined) {
       const payload = { success: false, error: execResult.error || 'Unknown error executing tool.' };
       if (execResult.awaitingApproval) {

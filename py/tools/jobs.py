@@ -238,7 +238,6 @@ class CommandJob:
         self.exit_code: int | None = None
         self.status = "running"
         self.stop_reason: str | None = None
-        self.timeout_seconds: int | None = None
         # Hasta dónde ha leído el modelo la salida, y si ya ha visto el final.
         self.model_cursor = 0
         self.reported = False
@@ -462,6 +461,16 @@ class JobManager:
         if key is not None and not (isinstance(key, str) and JOB_KEY_PATTERN.fullmatch(key)):
             key = None
         with self._lock:
+            # Relanzar lo que ya está en marcha duplica el trabajo (dos envíos a la misma cola, dos
+            # servidores en el mismo puerto): se sigue el que hay.
+            same = next((job for job in self._jobs.values()
+                         if job.status == "running" and job.project == project.key and job.command.strip() == command.strip()), None)
+            if same is not None:
+                raise ValueError(
+                    f"This command is already running as job_id {same.id} (for {int(same.elapsed())} s). Do not run it again: "
+                    f"follow it with check_command(job_id={same.id}, wait_seconds=600), or stop it first with "
+                    f"check_command(job_id={same.id}, stop=true) if you really need a new run."
+                )
             if sum(1 for job in self._jobs.values() if job.status == "running") >= MAX_RUNNING_JOBS:
                 raise ValueError(
                     f"Too many commands running ({MAX_RUNNING_JOBS}). "
@@ -496,6 +505,9 @@ class JobManager:
             stdout=subprocess.PIPE,
             # Una sola salida, en el orden en que la escribe el comando, como en una terminal.
             stderr=subprocess.STDOUT,
+            # La salida va a un pipe, no a una terminal: sin esto Python la retiene en el búfer hasta salir
+            # y ni la tarjeta, ni check_command, ni su pattern ven nada mientras el programa trabaja.
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
             start_new_session=DETECTED_OS != "windows" and hasattr(os, "setsid")
         )
         if DETECTED_OS == "windows":
@@ -539,9 +551,7 @@ class JobManager:
         job.ended_mono = time.monotonic()
         job.ended_at = time.time()
         job.exit_code = returncode
-        if job.stop_reason == "timeout":
-            job.status = "timeout"
-        elif job.stop_reason:
+        if job.stop_reason:
             job.status = "stopped"
         else:
             job.status = "exited"
@@ -667,10 +677,8 @@ def _job_result(job: CommandJob, note: str | None = None, output_field: str = "o
     output, truncated = truncate_terminal_output(job.output_since(start))
     job.model_cursor = total
     # Detener un comando a propósito no es un fallo; sí lo son salir con error o agotar el plazo.
-    failed = job.status == "timeout" or (job.status == "exited" and job.exit_code != 0)
+    failed = job.status == "exited" and job.exit_code != 0
     result = {"success": not failed, "status": job.status, "job_id": job.id}
-    if job.status == "timeout":
-        result["error"] = f"Command timed out after {job.timeout_seconds} s and was killed."
     if job.status == "running":
         result["elapsed_s"] = job.elapsed()
     else:
@@ -699,17 +707,18 @@ def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, ba
     if background:
         if not job.done.wait(BACKGROUND_STARTUP_WAIT):
             return _job_result(job, note=(
-                f"Running in background. Follow it with check_command(job_id={job.id}, wait_seconds=...) "
-                f"and stop it with check_command(job_id={job.id}, stop=true)."
+                f"Running in background. Follow it with check_command(job_id={job.id}, wait_seconds=600, pattern='error|Traceback'), "
+                f"which returns when it finishes, prints an error or after 600 s, and stop it with check_command(job_id={job.id}, stop=true)."
             ))
         return _job_result(job)
     timeout = _clamp_seconds(timeout_seconds, COMMAND_DEFAULT_TIMEOUT, 1, COMMAND_MAX_TIMEOUT)
     if not job.done.wait(timeout):
-        job.timeout_seconds = timeout
-        JOBS.stop(job, "timeout")
+        # No se mata: lo hecho no se pierde y relanzarlo no lo duplica.
+        job.background = True
         return _job_result(job, note=(
-            f"Killed after {timeout} s. If this command is expected to take longer, re-run it with "
-            f"a larger timeout_seconds (max {COMMAND_MAX_TIMEOUT}) or with background=true."
+            f"Still running after {timeout} s, so it was moved to the background instead of being killed. "
+            f"Do not run it again. Follow it with check_command(job_id={job.id}, wait_seconds=600) "
+            f"and stop it with check_command(job_id={job.id}, stop=true)."
         ))
     return _job_result(job)
 
@@ -805,6 +814,11 @@ def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool =
     finally:
         JOBS.close_wait(job_key)
     extra = {"returned_because": reason, "waited_s": round(time.monotonic() - started, 1)}
+    if reason == "wait_elapsed" and job.total == job.model_cursor and not job.done.is_set():
+        extra["note"] = (
+            "No new output while waiting. The command may still be working without printing, or write its progress "
+            "to a log file: read that file with read_file. It is still running: wait again or check that file."
+        )
     if line is not None:
         extra["matched_line"] = line if len(line) <= MATCHED_LINE_MAX_CHARS else line[:MATCHED_LINE_MAX_CHARS] + "…"
     return _job_result(job, output_field="new_output", extra=extra)

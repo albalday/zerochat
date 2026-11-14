@@ -13,7 +13,9 @@ const read = file => fs.readFileSync(file, 'utf8');
 const relative = file => path.relative(ROOT, file);
 const CSS = new Map(listSourceFiles(path.join(ROOT, 'css'), '.css').map(file => [file, read(file)]));
 const JS = new Map(listSourceFiles(path.join(ROOT, 'js'), '.js').map(file => [file, read(file)]));
-const HTML = read(path.join(ROOT, 'zerochat.html'));
+// Páginas de la aplicación: la del chat y el navegador de ficheros del proyecto.
+const PAGES = ['zerochat.html', 'files.html'];
+const HTML = PAGES.map(page => read(path.join(ROOT, page))).join('\n');
 const allCss = [...CSS.values()].join('\n');
 const allJs = [...JS.values()].join('\n');
 
@@ -63,7 +65,9 @@ test('Estilos - los elementos se ocultan con hidden, no con style.display ni est
       if (!match[1].startsWith('background-color:')) offenders.push(`${relative(file)}: style="${match[1]}"`);
     }
   }
-  if (/\sstyle="/.test(HTML)) offenders.push('zerochat.html: style="…"');
+  for (const page of PAGES) {
+    if (/\sstyle="/.test(read(path.join(ROOT, page)))) offenders.push(`${page}: style="…"`);
+  }
   for (const [file, source] of CSS) {
     if (/\[style[*^$~|]?=/.test(source)) offenders.push(`${relative(file)}: selector [style]`);
   }

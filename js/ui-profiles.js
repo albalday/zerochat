@@ -21,7 +21,6 @@
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
   const getProviders = () => resolveDep('ChatProviders', './providers.js');
   const getWebLLM = () => resolveDep('ChatWebLLM', './providers-webllm.js');
-  const getExport = () => resolveDep('ChatExport', './export.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getUIBrowser = () => resolveDep('ChatUIBrowser', './ui-browser.js');
   const getMCP = () => resolveDep('ChatMCP', './mcp.js');
@@ -783,7 +782,7 @@
       const encrypted = await ProfileBackup.encryptProfiles(profiles, keyMaterial);
       const date = new Date().toISOString().slice(0, 10);
       const htmlBundle = getProfileExportBundle().generateExportHTML(encrypted, { profileCount: profiles.length, appLocation: window.location });
-      if (!getExport().downloadFile(htmlBundle, `zerochat_profiles_${date}.html`, 'text/html')) {
+      if (!Utils.downloadFile(htmlBundle, `zerochat_profiles_${date}.html`, 'text/html')) {
         throw new Error('The file could not be downloaded.');
       }
       showProfileFeedback(t('msg_profiles_exported_html'), 'success');

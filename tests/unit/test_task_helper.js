@@ -128,3 +128,19 @@ test('task.py - rechaza IDs de tarea inválidos', () => {
     env.cleanup();
   }
 });
+
+test('task.py - una siguiente tarea con barras invertidas se copia tal cual en state.md', () => {
+  const env = setupMockZerochatDir();
+  try {
+    const plan = fs.readFileSync(path.join(env.dir, 'plan.md'), 'utf-8')
+      .replace('- [ ] M1-T2 Second task', '- [ ] M1-T2 Pintar `\\r` y `\\1` como en una terminal');
+    fs.writeFileSync(path.join(env.dir, 'plan.md'), plan, 'utf-8');
+    runTaskScript(['done', 'M1-T1', '--date', '2026-10-15'], { dir: env.dir });
+
+    const state = fs.readFileSync(path.join(env.dir, 'state.md'), 'utf-8');
+    assert.ok(state.includes('- Next task: M1-T2 Pintar `\\r` y `\\1` como en una terminal\n'), state);
+    assert.ok(!state.includes('\r'), 'Sin retornos de carro de verdad');
+  } finally {
+    env.cleanup();
+  }
+});

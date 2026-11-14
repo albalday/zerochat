@@ -761,7 +761,7 @@
         const table = tableContainer?.querySelector('.markdown-table');
         if (!table) return;
         const csv = tableToCsv(table);
-        resolveDep('ChatExport', './export.js').downloadFile(csv, 'tabla.csv', 'text/csv;charset=utf-8');
+        Utils.downloadFile(csv, 'tabla.csv', 'text/csv;charset=utf-8');
       });
     });
   }

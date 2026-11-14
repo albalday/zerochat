@@ -91,15 +91,19 @@ class RunCommandTest(unittest.TestCase):
         self.assertEqual(zerochat.get_dev_root(), dev_root)
         self.assertNotIn("resolve_project_directory", zerochat.LOCAL_TOOL_HANDLERS)
 
-    def test_el_plazo_agotado_mata_tambien_a_los_descendientes(self):
-        pid_file = self.data_dir / "timeout.pid"
+    def test_un_comando_que_agota_su_plazo_pasa_a_segundo_plano_y_detenerlo_mata_a_sus_descendientes(self):
+        pid_file = self.data_dir / "descendiente.pid"
         started = time.monotonic()
         result = run(f"sh -c 'echo $$ > {pid_file}; exec sleep 100' & echo antes; sleep 100", timeout_seconds=1)
-        self.assertEqual((result["success"], result["status"]), (False, "timeout"))
-        self.assertIn("timed out after 1 s", result["error"])
-        self.assertIn("background=true", result["note"])
-        self.assertEqual(result["output"], "antes\n")
         self.assertLess(time.monotonic() - started, 6)
+        self.assertEqual((result["success"], result["status"], result["output"]), (True, "running", "antes\n"))
+        self.assertIn("moved to the background", result["note"])
+        self.assertIn(f"check_command(job_id={result['job_id']}", result["note"])
+        job = zerochat.JOBS.get(str(self.project), job_id=result["job_id"])
+        self.assertEqual((job.background, job.done.is_set()), (True, False))
+        self.assertIn(result["job_id"], [item["id"] for item in zerochat.live_state(zerochat.project_context())["jobs"] if item["background"]])
+        stopped = check(result["job_id"], stop=True)
+        self.assertEqual((stopped["status"], stopped["stopped_by"]), ("stopped", "model"))
         wait_dead(int(pid_file.read_text().strip()))
 
         # Lo que deja en marcha un comando que ya ha terminado no sobrevive como huérfano.
@@ -186,6 +190,9 @@ class BackgroundCommandTest(unittest.TestCase):
         self.assertGreaterEqual(time.monotonic() - started, 0.9)
         self.assertEqual((again["returned_because"], again["new_output"]), ("wait_elapsed", ""))
         self.assertNotIn("matched_line", again)
+        # Sin salida nueva, la nota sugiere que el progreso puede ir a otro sitio; con salida, no hace falta.
+        self.assertIn("No new output while waiting", again["note"])
+        self.assertNotIn("note", matched)
         check(server["job_id"], stop=True)
 
     def test_check_command_con_patron_vuelve_al_terminar_el_comando_y_compara_su_ultima_linea(self):
@@ -270,6 +277,30 @@ class BackgroundCommandTest(unittest.TestCase):
                     time.sleep(0.05)
                 self.assertEqual(published["last_line"], expected)
                 check(job["job_id"], stop=True)
+
+    def test_la_salida_de_un_programa_python_llega_mientras_sigue_en_marcha(self):
+        # print sin flush: con la salida en un pipe, Python la retendría en el búfer hasta salir.
+        job = run("python3 -c \"import time; time.sleep(0.5); print('cargando modelo'); time.sleep(100)\"", background=True)
+        result = check(job["job_id"], wait_seconds=10, pattern="cargando")
+        self.assertEqual((result["status"], result["returned_because"]), ("running", "pattern_matched"))
+        check(job["job_id"], stop=True)
+
+    def test_un_comando_identico_a_otro_en_marcha_no_se_relanza_y_se_indica_cual_seguir(self):
+        first = run("exec sleep 100", background=True)
+        again = run("  exec sleep 100 ", timeout_seconds=1)
+        self.assertIs(again["success"], False)
+        self.assertIn(f"already running as job_id {first['job_id']}", again["error"])
+        self.assertEqual(len(zerochat.JOBS.running(str(self.project))), 1, "No se lanza un segundo proceso")
+        # En otro proyecto es otro comando.
+        other = zerochat.SecurityContext(self.data_dir.resolve())
+        elsewhere = json.loads(zerochat.run_command("exec sleep 100", background=True, ctx=other))
+        self.assertEqual(elsewhere["status"], "running")
+        json.loads(zerochat.check_command(elsewhere["job_id"], stop=True, ctx=other))
+        # Detenido el primero, se puede lanzar de nuevo.
+        check(first["job_id"], stop=True)
+        relaunched = run("exec sleep 100", background=True)
+        self.assertEqual(relaunched["status"], "running")
+        check(relaunched["job_id"], stop=True)
 
     def test_cada_proyecto_solo_ve_y_detiene_sus_comandos(self):
         other = zerochat.SecurityContext(self.data_dir.resolve())

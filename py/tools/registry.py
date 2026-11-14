@@ -29,7 +29,7 @@ LOCAL_TOOLS_DEFINITIONS = [
     },
     {
         "name": "read_file",
-        "description": "Read a text file, whole or by line range.",
+        "description": "Read a text file, whole or by line range, or only its last lines with tail_lines (like tail -n): use tail_lines for logs that keep growing.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -37,7 +37,11 @@ LOCAL_TOOLS_DEFINITIONS = [
                 "start_line": {"type": "integer", "description": "First line (1-based)", "default": 1},
                 "end_line": {"type": "integer", "description": "Last line (inclusive)"},
                 "max_lines": {"type": "integer", "description": "Line cap if no end_line", "default": 500},
-                "max_bytes": {"type": "integer", "description": "Byte cap", "default": 100000}
+                "max_bytes": {"type": "integer", "description": "Byte cap", "default": 100000},
+                "tail_lines": {
+                    "type": "integer",
+                    "description": "Return only the last N lines (max 2000), without terminal color codes and keeping the last state of progress bars; start_line and end_line are ignored"
+                }
             },
             "required": ["path"]
         }
@@ -98,9 +102,11 @@ LOCAL_TOOLS_DEFINITIONS = [
             "Each call starts a fresh shell in the project directory: cd, export or source/activate do not carry over to later calls, "
             "so chain them with && in the same command. "
         ) + (
-            "By default it waits up to timeout_seconds and kills the command if it has not finished. "
-            "Use background=true for servers, watchers or anything that does not finish on its own; "
-            f"then follow or stop it with check_command. Host OS: {DETECTED_OS}."
+            "It waits up to timeout_seconds; a command still running then is not killed: it keeps running in the background "
+            "and the result gives its job_id. "
+            "Use background=true from the start for anything that takes minutes (generations, builds, training, long test suites) "
+            "and for servers or watchers that do not finish on its own; then follow it with check_command. "
+            f"Never run a command again while it is still running. Host OS: {DETECTED_OS}."
         ),
         "inputSchema": {
             "type": "object",
@@ -114,7 +120,7 @@ LOCAL_TOOLS_DEFINITIONS = [
                         else "Shell command to run (e.g. git status, npm test)"
                     )
                 },
-                "timeout_seconds": {"type": "integer", "description": f"Seconds to wait before killing the command (default {COMMAND_DEFAULT_TIMEOUT}, max {COMMAND_MAX_TIMEOUT}). Ignored with background=true.", "default": COMMAND_DEFAULT_TIMEOUT},
+                "timeout_seconds": {"type": "integer", "description": f"Seconds to wait for the command before moving it to the background (default {COMMAND_DEFAULT_TIMEOUT}, max {COMMAND_MAX_TIMEOUT}). Ignored with background=true.", "default": COMMAND_DEFAULT_TIMEOUT},
                 "background": {"type": "boolean", "description": "Return after a few seconds and keep the command running; returns a job_id for check_command.", "default": False}
             },
             "required": ["command"]
@@ -124,8 +130,10 @@ LOCAL_TOOLS_DEFINITIONS = [
         "name": "check_command",
         "description": (
             "Check a command started by run_command: returns its status and the output produced since the last check. "
-            "Use wait_seconds to wait for it to finish, add pattern to return as soon as a new output line matches it "
-            "(for example 'error|listening on'), or stop=true to terminate it. "
+            "Use wait_seconds to wait for it to finish, add pattern to return as soon as a new output line matches it, "
+            "or stop=true to terminate it. Example: check_command(job_id=4, wait_seconds=600, pattern='error|Traceback') "
+            "returns when the command finishes, prints an error, or after 600 s. To follow a long command until it finishes "
+            "(also when the user asks to be told when it ends), call it again with wait_seconds=600 each time it returns still running. "
             "Without job_id it just waits wait_seconds, with no shell, and returns early if a background command finishes: "
             "use it instead of sleep."
         ),

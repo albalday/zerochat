@@ -63,7 +63,6 @@ test('CommandCard - los detalles del servidor solo cambian los campos que traen'
 test('CommandCard - la insignia de cada final', () => {
   const cases = [
     [{ status: 'exited', exitCode: 0, elapsed: 72 }, 'status-success', 'Terminado · 1:12'],
-    [{ status: 'timeout', elapsed: 600 }, 'status-error', 'Plazo agotado · 10:00'],
     [{ status: 'stopped', elapsed: 5 }, 'status-stopped', 'Detenido · 5.0 s'],
     [{ status: 'unavailable', elapsed: 5 }, 'status-stopped', 'Estado no disponible']
   ];
@@ -96,18 +95,29 @@ test('CommandCard - solo un comando devuelto en segundo plano que deja de figura
   assert.equal(CommandCard.hasLeftRunning(CommandCard.withResult(CommandCard.initialState(), { status: 'running' }), new Set()), false);
 });
 
-test('CommandCard - la primera página del log empieza en sus últimos 256 KiB y avisa de lo omitido', () => {
-  const PAGE = 256 * 1024;
-  assert.deepEqual(CommandCard.firstLogPage(undefined), { offset: 0, text: '' });
-  assert.deepEqual(CommandCard.firstLogPage(PAGE), { offset: 0, text: '' });
-  assert.deepEqual(CommandCard.firstLogPage(PAGE + 1), { offset: 1, text: '[… 1 B anteriores omitidos …]\n' });
+test('CommandCard - al desplegarla, el log empieza en sus últimos 16 KiB y recuerda si había salida anterior', () => {
+  const FIRST = 16 * 1024;
+  assert.deepEqual(CommandCard.firstLogPage(undefined), { offset: 0, earlier: false });
+  assert.deepEqual(CommandCard.firstLogPage(FIRST), { offset: 0, earlier: false });
+  assert.deepEqual(CommandCard.firstLogPage(FIRST + 1), { offset: 1, earlier: true });
 });
 
-test('CommandCard - el log mostrado conserva sus últimos 512 Ki caracteres', () => {
-  const MAX = 512 * 1024;
+test('CommandCard - la tarjeta retiene los últimos 64 Ki caracteres del log y dice si ha recortado', () => {
+  const MAX = 64 * 1024;
   const log = 'a'.repeat(MAX - 1);
-  assert.equal(CommandCard.appendLog(log, 'b'), `${log}b`);
-  assert.equal(CommandCard.appendLog(log, 'bc'), `${log.slice(1)}bc`);
+  assert.deepEqual(CommandCard.appendLog(log, 'b'), { text: `${log}b`, trimmed: false });
+  assert.deepEqual(CommandCard.appendLog(log, 'bc'), { text: `${log.slice(1)}bc`, trimmed: true });
+});
+
+test('CommandCard - la tarjeta enseña las últimas 40 líneas como una terminal, con el último tramo de cada barra de progreso', () => {
+  const lines = n => Array.from({ length: n }, (_, i) => `linea ${i + 1}`).join('\n') + '\n';
+  assert.equal(CommandCard.terminalTail(lines(40)), lines(40).trimEnd());
+  // 41 líneas: la primera sale y se avisa de la salida anterior.
+  assert.equal(CommandCard.terminalTail(lines(41)), `[… salida anterior omitida …]\n${lines(41).trimEnd().split('\n').slice(1).join('\n')}`);
+  // Aunque quepan, se avisa si el log ya venía recortado.
+  assert.equal(CommandCard.terminalTail('fin\n', true), '[… salida anterior omitida …]\nfin');
+  assert.equal(CommandCard.terminalTail(' 10%|█ | 2/20\r 15%|█▌ | 3/20\r\nhecho\n'), ' 15%|█▌ | 3/20\nhecho');
+  assert.equal(CommandCard.terminalTail('linea\r\n'), 'linea', 'Un \\r\\n de Windows no borra la línea');
 });
 
 test('CommandCard - sin log en el servidor queda la salida que vio el modelo, una vez devuelta la herramienta', t => {

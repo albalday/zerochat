@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import base64
+import codecs
 import contextlib
 import ctypes
 import ctypes.util
@@ -1381,7 +1382,7 @@ def _pid_alive(pid: int) -> bool:
 
 
 
-SOURCE_BACKEND_VERSION = "10.17.0"
+SOURCE_BACKEND_VERSION = "10.18.0"
 
 
 def _read_source_version(filename: str) -> str | None:
@@ -4975,8 +4976,69 @@ def list_directory(path: str = ".", recursive: bool = False, *, ctx: SecurityCon
         return _tool_error(str(e))
 
 
-def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: int = 500, max_bytes: int = 100000, *, ctx: SecurityContext) -> str:
-    """Read text content from a local file in streaming mode with safe ranges and bounds."""
+# Códigos de control de terminal (colores, movimiento del cursor) que un log trae y el modelo no necesita.
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-Z\\-_]")
+READ_TAIL_BLOCK_BYTES = 64 * 1024
+MAX_READ_LINES = 2000
+
+
+def _terminal_line(line: str) -> str:
+    """Una línea como la deja una terminal: sin códigos de color y, si se reescribe con \\r, su último tramo."""
+    ending = "\n" if line.endswith("\n") else ""
+    text = ANSI_ESCAPE_RE.sub("", line[:-1] if ending else line).rstrip("\r")
+    return text[text.rfind("\r") + 1:] + ending
+
+
+def _count_lines(target: Path) -> int:
+    lines = 0
+    last = b""
+    with open(target, "rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            lines += chunk.count(b"\n")
+            last = chunk[-1:]
+    return lines + (1 if last and last != b"\n" else 0)
+
+
+def _read_tail(target: Path, tail_lines: int, max_bytes: int) -> str:
+    """Las últimas tail_lines líneas, leyendo el fichero desde el final por bloques y sin pasar de max_bytes."""
+    file_size = target.stat().st_size
+    wanted = max(1, min(int(tail_lines), MAX_READ_LINES))
+    data = b""
+    with open(target, "rb") as handle:
+        position = file_size
+        # Una línea más de las pedidas: la primera del bloque puede estar a medias.
+        while position > 0 and data.count(b"\n") <= wanted and len(data) < max_bytes:
+            step = min(READ_TAIL_BLOCK_BYTES, position)
+            position -= step
+            handle.seek(position)
+            data = handle.read(step) + data
+    truncated_bytes = len(data) > max_bytes
+    if truncated_bytes:
+        data = data[-max_bytes:]
+    # Solo \n separa líneas: splitlines también parte en \r y desharía las barras de progreso.
+    parts = data.decode("utf-8", errors="replace").split("\n")
+    lines = [part + "\n" for part in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
+    if (position > 0 or truncated_bytes) and lines:
+        lines = lines[1:]
+    lines = lines[-wanted:]
+    total_lines = _count_lines(target)
+    start_line = total_lines - len(lines) + 1
+    return json.dumps({
+        "success": True,
+        "path": str(target),
+        "size_bytes": file_size,
+        "total_lines": total_lines,
+        "start_line": start_line,
+        "end_line": total_lines,
+        "lines_returned": len(lines),
+        "truncated": start_line > 1,
+        "content": "".join(_terminal_line(line) for line in lines)
+    }, ensure_ascii=False, indent=2)
+
+
+def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: int = 500, max_bytes: int = 100000,
+              tail_lines: int | None = None, *, ctx: SecurityContext) -> str:
+    """Read text content from a local file in streaming mode with safe ranges and bounds, or its last lines."""
     try:
         target = ctx.absolute(path)
         if not target.exists():
@@ -4986,15 +5048,17 @@ def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: i
 
         file_size = target.stat().st_size
         safe_max_bytes = max(1024, min(int(max_bytes), 2000000))
+        if tail_lines is not None:
+            return _read_tail(target, tail_lines, safe_max_bytes)
         safe_start_line = max(1, int(start_line))
 
         if end_line is not None:
             safe_end_line = max(safe_start_line, int(end_line))
-            target_line_count = min(safe_end_line - safe_start_line + 1, 2000)
+            target_line_count = min(safe_end_line - safe_start_line + 1, MAX_READ_LINES)
             safe_end_line = safe_start_line + target_line_count - 1
         else:
             safe_end_line = None
-            target_line_count = max(1, min(int(max_lines), 2000))
+            target_line_count = max(1, min(int(max_lines), MAX_READ_LINES))
 
         selected_lines = []
         current_bytes = 0
@@ -5536,7 +5600,6 @@ class CommandJob:
         self.exit_code: int | None = None
         self.status = "running"
         self.stop_reason: str | None = None
-        self.timeout_seconds: int | None = None
         # Hasta dónde ha leído el modelo la salida, y si ya ha visto el final.
         self.model_cursor = 0
         self.reported = False
@@ -5760,6 +5823,16 @@ class JobManager:
         if key is not None and not (isinstance(key, str) and JOB_KEY_PATTERN.fullmatch(key)):
             key = None
         with self._lock:
+            # Relanzar lo que ya está en marcha duplica el trabajo (dos envíos a la misma cola, dos
+            # servidores en el mismo puerto): se sigue el que hay.
+            same = next((job for job in self._jobs.values()
+                         if job.status == "running" and job.project == project.key and job.command.strip() == command.strip()), None)
+            if same is not None:
+                raise ValueError(
+                    f"This command is already running as job_id {same.id} (for {int(same.elapsed())} s). Do not run it again: "
+                    f"follow it with check_command(job_id={same.id}, wait_seconds=600), or stop it first with "
+                    f"check_command(job_id={same.id}, stop=true) if you really need a new run."
+                )
             if sum(1 for job in self._jobs.values() if job.status == "running") >= MAX_RUNNING_JOBS:
                 raise ValueError(
                     f"Too many commands running ({MAX_RUNNING_JOBS}). "
@@ -5794,6 +5867,9 @@ class JobManager:
             stdout=subprocess.PIPE,
             # Una sola salida, en el orden en que la escribe el comando, como en una terminal.
             stderr=subprocess.STDOUT,
+            # La salida va a un pipe, no a una terminal: sin esto Python la retiene en el búfer hasta salir
+            # y ni la tarjeta, ni check_command, ni su pattern ven nada mientras el programa trabaja.
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
             start_new_session=DETECTED_OS != "windows" and hasattr(os, "setsid")
         )
         if DETECTED_OS == "windows":
@@ -5837,9 +5913,7 @@ class JobManager:
         job.ended_mono = time.monotonic()
         job.ended_at = time.time()
         job.exit_code = returncode
-        if job.stop_reason == "timeout":
-            job.status = "timeout"
-        elif job.stop_reason:
+        if job.stop_reason:
             job.status = "stopped"
         else:
             job.status = "exited"
@@ -5965,10 +6039,8 @@ def _job_result(job: CommandJob, note: str | None = None, output_field: str = "o
     output, truncated = truncate_terminal_output(job.output_since(start))
     job.model_cursor = total
     # Detener un comando a propósito no es un fallo; sí lo son salir con error o agotar el plazo.
-    failed = job.status == "timeout" or (job.status == "exited" and job.exit_code != 0)
+    failed = job.status == "exited" and job.exit_code != 0
     result = {"success": not failed, "status": job.status, "job_id": job.id}
-    if job.status == "timeout":
-        result["error"] = f"Command timed out after {job.timeout_seconds} s and was killed."
     if job.status == "running":
         result["elapsed_s"] = job.elapsed()
     else:
@@ -5997,17 +6069,18 @@ def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, ba
     if background:
         if not job.done.wait(BACKGROUND_STARTUP_WAIT):
             return _job_result(job, note=(
-                f"Running in background. Follow it with check_command(job_id={job.id}, wait_seconds=...) "
-                f"and stop it with check_command(job_id={job.id}, stop=true)."
+                f"Running in background. Follow it with check_command(job_id={job.id}, wait_seconds=600, pattern='error|Traceback'), "
+                f"which returns when it finishes, prints an error or after 600 s, and stop it with check_command(job_id={job.id}, stop=true)."
             ))
         return _job_result(job)
     timeout = _clamp_seconds(timeout_seconds, COMMAND_DEFAULT_TIMEOUT, 1, COMMAND_MAX_TIMEOUT)
     if not job.done.wait(timeout):
-        job.timeout_seconds = timeout
-        JOBS.stop(job, "timeout")
+        # No se mata: lo hecho no se pierde y relanzarlo no lo duplica.
+        job.background = True
         return _job_result(job, note=(
-            f"Killed after {timeout} s. If this command is expected to take longer, re-run it with "
-            f"a larger timeout_seconds (max {COMMAND_MAX_TIMEOUT}) or with background=true."
+            f"Still running after {timeout} s, so it was moved to the background instead of being killed. "
+            f"Do not run it again. Follow it with check_command(job_id={job.id}, wait_seconds=600) "
+            f"and stop it with check_command(job_id={job.id}, stop=true)."
         ))
     return _job_result(job)
 
@@ -6103,6 +6176,11 @@ def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool =
     finally:
         JOBS.close_wait(job_key)
     extra = {"returned_because": reason, "waited_s": round(time.monotonic() - started, 1)}
+    if reason == "wait_elapsed" and job.total == job.model_cursor and not job.done.is_set():
+        extra["note"] = (
+            "No new output while waiting. The command may still be working without printing, or write its progress "
+            "to a log file: read that file with read_file. It is still running: wait again or check that file."
+        )
     if line is not None:
         extra["matched_line"] = line if len(line) <= MATCHED_LINE_MAX_CHARS else line[:MATCHED_LINE_MAX_CHARS] + "…"
     return _job_result(job, output_field="new_output", extra=extra)
@@ -6917,6 +6995,143 @@ class ConsoleControl:
                 return
             self._handle_command(line)
 
+# --- tools.project_files ---
+"""Navegador de ficheros del proyecto para la interfaz: lista, lee y descarga sin salir de su carpeta.
+
+Lo usa la persona, no el modelo: lo limita la carpeta del proyecto de la petición, no el motor de permisos.
+"""
+
+
+
+
+# Entradas de una carpeta en una respuesta: una carpeta con más (node_modules) avisa de las que faltan.
+MAX_LIST_ENTRIES = 2000
+# Bytes del comienzo que deciden si un fichero es texto: un byte nulo o un UTF-8 no válido lo hacen binario.
+TEXT_SNIFF_BYTES = 8192
+# Un texto más grande no se abre en una pestaña: se descarga.
+MAX_TEXT_VIEW_BYTES = 2 * 1024 * 1024
+DOWNLOAD_PAGE_BYTES = 512 * 1024
+MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024
+
+
+def _project_root(ctx: SecurityContext) -> Path:
+    return ctx.workspace_dir.resolve()
+
+
+def _inside(ctx: SecurityContext, path) -> tuple[Path, Path]:
+    """La ruta pedida, resuelta con sus enlaces simbólicos, y la raíz; ValueError si sale de la carpeta del proyecto."""
+    root = _project_root(ctx)
+    if path in (None, ""):
+        return root, root
+    if not isinstance(path, str):
+        raise ValueError("path debe ser una cadena.")
+    target = ctx.absolute(path)
+    if target != root and root not in target.parents:
+        raise ValueError("La ruta queda fuera de la carpeta del proyecto.")
+    return target, root
+
+
+def _relative(target: Path, root: Path) -> str:
+    return "" if target == root else target.relative_to(root).as_posix()
+
+
+def list_project_dir(params: dict, ctx: SecurityContext) -> dict:
+    """Carpetas primero y después ficheros, por nombre, con su tamaño y fecha; como mucho MAX_LIST_ENTRIES."""
+    target, root = _inside(ctx, params.get("path"))
+    if not target.is_dir():
+        raise ValueError("La carpeta no existe.")
+    entries = []
+    with os.scandir(target) as items:
+        for item in items:
+            try:
+                is_dir = item.is_dir()
+                info = item.stat()
+            except OSError:
+                continue
+            entries.append({
+                "name": item.name,
+                "type": "dir" if is_dir else "file",
+                "size": None if is_dir else info.st_size,
+                "modified": int(info.st_mtime * 1000),
+            })
+    entries.sort(key=lambda entry: (entry["type"] != "dir", entry["name"].lower(), entry["name"]))
+    return {
+        "path": _relative(target, root),
+        "entries": entries[:MAX_LIST_ENTRIES],
+        "total": len(entries),
+        "truncated": len(entries) > MAX_LIST_ENTRIES,
+    }
+
+
+def _regular_file(params: dict, ctx: SecurityContext) -> tuple[Path, Path]:
+    target, root = _inside(ctx, params.get("path"))
+    if not target.is_file():
+        raise ValueError("El fichero no existe.")
+    return target, root
+
+
+def read_project_file(params: dict, ctx: SecurityContext) -> dict:
+    """El texto de un fichero, o que es binario o demasiado grande para abrirlo (entonces se descarga)."""
+    target, root = _regular_file(params, ctx)
+    size = target.stat().st_size
+    result = {"path": _relative(target, root), "size": size}
+    with open(target, "rb") as handle:
+        head = handle.read(TEXT_SNIFF_BYTES)
+    try:
+        # Incremental: un carácter de varios bytes cortado al final del comienzo no lo hace binario.
+        codecs.getincrementaldecoder("utf-8")().decode(head, final=len(head) == size)
+    except UnicodeDecodeError:
+        return {**result, "binary": True}
+    if b"\0" in head:
+        return {**result, "binary": True}
+    if size > MAX_TEXT_VIEW_BYTES:
+        return {**result, "binary": False, "too_large": True}
+    try:
+        text = target.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        return {**result, "binary": True}
+    return {**result, "binary": False, "text": text}
+
+
+def download_project_file(params: dict, ctx: SecurityContext) -> dict:
+    """Una página del fichero en base64 desde offset; la interfaz las pide hasta done."""
+    target, root = _regular_file(params, ctx)
+    size = target.stat().st_size
+    if size > MAX_DOWNLOAD_BYTES:
+        raise ValueError(f"El fichero ocupa más de {MAX_DOWNLOAD_BYTES // (1024 * 1024)} MB y no se descarga desde aquí.")
+    offset = params.get("offset", 0)
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0 or offset > size:
+        raise ValueError("offset debe ser un entero entre 0 y el tamaño del fichero.")
+    with open(target, "rb") as handle:
+        handle.seek(offset)
+        chunk = handle.read(DOWNLOAD_PAGE_BYTES)
+    following = offset + len(chunk)
+    return {
+        "path": _relative(target, root),
+        "name": target.name,
+        "size": size,
+        "data": base64.b64encode(chunk).decode("ascii"),
+        "next": following,
+        "done": following >= size,
+    }
+
+
+def dispatch_files(method: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
+    """zerochat/files/list, zerochat/files/read y zerochat/files/download sobre la carpeta del proyecto."""
+    params = params if isinstance(params, dict) else {}
+    handlers = {
+        "zerochat/files/list": list_project_dir,
+        "zerochat/files/read": read_project_file,
+        "zerochat/files/download": download_project_file,
+    }
+    handler = handlers.get(method)
+    if handler is None:
+        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
+    try:
+        return handler(params, ctx), None, ""
+    except (ValueError, OSError) as exc:
+        return None, {"code": -32602, "message": str(exc)}, str(exc)
+
 # --- tools.registry ---
 """Registro de las herramientas locales: definiciones publicadas al modelo, manejadores y validación de argumentos contra su esquema."""
 
@@ -6936,7 +7151,7 @@ LOCAL_TOOLS_DEFINITIONS = [
     },
     {
         "name": "read_file",
-        "description": "Read a text file, whole or by line range.",
+        "description": "Read a text file, whole or by line range, or only its last lines with tail_lines (like tail -n): use tail_lines for logs that keep growing.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -6944,7 +7159,11 @@ LOCAL_TOOLS_DEFINITIONS = [
                 "start_line": {"type": "integer", "description": "First line (1-based)", "default": 1},
                 "end_line": {"type": "integer", "description": "Last line (inclusive)"},
                 "max_lines": {"type": "integer", "description": "Line cap if no end_line", "default": 500},
-                "max_bytes": {"type": "integer", "description": "Byte cap", "default": 100000}
+                "max_bytes": {"type": "integer", "description": "Byte cap", "default": 100000},
+                "tail_lines": {
+                    "type": "integer",
+                    "description": "Return only the last N lines (max 2000), without terminal color codes and keeping the last state of progress bars; start_line and end_line are ignored"
+                }
             },
             "required": ["path"]
         }
@@ -7005,9 +7224,11 @@ LOCAL_TOOLS_DEFINITIONS = [
             "Each call starts a fresh shell in the project directory: cd, export or source/activate do not carry over to later calls, "
             "so chain them with && in the same command. "
         ) + (
-            "By default it waits up to timeout_seconds and kills the command if it has not finished. "
-            "Use background=true for servers, watchers or anything that does not finish on its own; "
-            f"then follow or stop it with check_command. Host OS: {DETECTED_OS}."
+            "It waits up to timeout_seconds; a command still running then is not killed: it keeps running in the background "
+            "and the result gives its job_id. "
+            "Use background=true from the start for anything that takes minutes (generations, builds, training, long test suites) "
+            "and for servers or watchers that do not finish on its own; then follow it with check_command. "
+            f"Never run a command again while it is still running. Host OS: {DETECTED_OS}."
         ),
         "inputSchema": {
             "type": "object",
@@ -7021,7 +7242,7 @@ LOCAL_TOOLS_DEFINITIONS = [
                         else "Shell command to run (e.g. git status, npm test)"
                     )
                 },
-                "timeout_seconds": {"type": "integer", "description": f"Seconds to wait before killing the command (default {COMMAND_DEFAULT_TIMEOUT}, max {COMMAND_MAX_TIMEOUT}). Ignored with background=true.", "default": COMMAND_DEFAULT_TIMEOUT},
+                "timeout_seconds": {"type": "integer", "description": f"Seconds to wait for the command before moving it to the background (default {COMMAND_DEFAULT_TIMEOUT}, max {COMMAND_MAX_TIMEOUT}). Ignored with background=true.", "default": COMMAND_DEFAULT_TIMEOUT},
                 "background": {"type": "boolean", "description": "Return after a few seconds and keep the command running; returns a job_id for check_command.", "default": False}
             },
             "required": ["command"]
@@ -7031,8 +7252,10 @@ LOCAL_TOOLS_DEFINITIONS = [
         "name": "check_command",
         "description": (
             "Check a command started by run_command: returns its status and the output produced since the last check. "
-            "Use wait_seconds to wait for it to finish, add pattern to return as soon as a new output line matches it "
-            "(for example 'error|listening on'), or stop=true to terminate it. "
+            "Use wait_seconds to wait for it to finish, add pattern to return as soon as a new output line matches it, "
+            "or stop=true to terminate it. Example: check_command(job_id=4, wait_seconds=600, pattern='error|Traceback') "
+            "returns when the command finishes, prints an error, or after 600 s. To follow a long command until it finishes "
+            "(also when the user asks to be told when it ends), call it again with wait_seconds=600 each time it returns still running. "
             "Without job_id it just waits wait_seconds, with no shell, and returns early if a background command finishes: "
             "use it instead of sleep."
         ),
@@ -7807,9 +8030,10 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         except ValueError:
             return False
 
-        # Whitelist de archivos y carpetas autorizados para servir la interfaz web
+        # Whitelist de archivos y carpetas autorizados para servir la interfaz web: sus dos páginas
+        # (el chat y el navegador de ficheros del proyecto) y sus recursos.
         is_allowed_static = (
-            clean_rel == "zerochat.html" or
+            clean_rel in ("zerochat.html", "files.html") or
             clean_rel in ("manifest.webmanifest", "sw.js", "favicon.ico") or
             clean_rel.startswith("js/") or
             clean_rel.startswith("css/") or
@@ -8210,6 +8434,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 return None, {"code": -32603, "message": f"Error en sandbox JS: {exc}"}, str(exc)
         if method.startswith("zerochat/jobs/"):
             return self._dispatch_jobs(method, params, ctx)
+        if method.startswith("zerochat/files/"):
+            return dispatch_files(method, params, ctx)
         if method.startswith("zerochat/run/"):
             return dispatch_run(method, params, ctx)
         if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):

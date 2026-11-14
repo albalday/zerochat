@@ -71,7 +71,7 @@
         }
       },
       formatDuration: () => '',
-      isFailure: state => state?.status === 'timeout' || state?.status === 'error' || (state?.status === 'exited' && state?.exitCode !== 0),
+      isFailure: state => state?.status === 'error' || (state?.status === 'exited' && state?.exitCode !== 0),
       createView: () => ({ createLiveCard: () => null, renderHistoryCard: () => null }),
       createWaitView: () => ({ createLiveCard: () => null, renderHistoryCard: () => null })
     };

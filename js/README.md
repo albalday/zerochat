@@ -15,6 +15,7 @@ Este documento contiene las especificaciones técnicas y normas de desarrollo pa
   * El contexto que `ChatToolCards` entrega a las vistas (`markdown`, `t`, `charts`, `createCardWrapper`, iconos de estado).
   * Los elementos de `ELEMENT_IDS` en `app.js`.
   * El marcado de diálogos insertado al arrancar por `ensureDialogMarkup()` de cada módulo. Ningún módulo inserta marcado al cargarse ni comprueba si un elemento existe antes de usarlo.
+* **Páginas de la aplicación:** `zerochat.html` y `files.html`, el navegador de ficheros del proyecto que abre el icono de carpeta de cada cabecera de proyecto del historial. `files.html` no carga la aplicación: con `utils.js`, `storage.js`, el cliente MCP y `backend-session.js` conecta con la sesión de la cookie y la clave del proxy guardada (`BackendSession.sessionConnection`, `Utils.normalizeConnectionSettings`, las mismas reglas que la aplicación) y envía el proyecto de su URL (`?project=&path=`) en `X-ZeroChat-Project`. `js/files-page.js` solo se monta en su página; `zerochat.html` lo carga para construir la URL (`FilesPage.pageUrl`). Las carpetas se recorren con `history.pushState`; un fichero de texto se abre en otra pestaña con `Utils.openTextInNewTab` y uno binario o grande se descarga por páginas con `Utils.downloadFile`. Las pruebas de estilos miran las dos páginas.
 
 ---
 

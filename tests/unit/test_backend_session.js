@@ -19,3 +19,16 @@ test('BackendSession.parseLaunchSession solo adopta un servidor de este equipo c
     assert.deepEqual(BackendSession.parseLaunchSession(hash), expected, hash);
   }
 });
+
+test('BackendSession.sessionConnection usa la sesión guardada y la clave del proxy solo si es del destino configurado', () => {
+  const LOCAL = 'http://127.0.0.1:6388';
+  const remote = { localBackend: false, backendUrl: 'https://casa.example.org/', useProxy: true, proxyKey: '  clave  ' };
+  assert.equal(BackendSession.sessionConnection(null, remote, LOCAL), null);
+  assert.deepEqual(BackendSession.sessionConnection({ url: 'https://casa.example.org', token: 'tok' }, remote, LOCAL),
+    { url: 'https://casa.example.org', token: 'tok', proxyKey: 'clave' });
+  // Una sesión de otro servidor no recibe la clave del proxy configurado.
+  assert.deepEqual(BackendSession.sessionConnection({ url: LOCAL, token: 'tok' }, remote, LOCAL), { url: LOCAL, token: 'tok', proxyKey: null });
+  // Sin configuración guardada, el destino es el servidor local.
+  assert.deepEqual(BackendSession.connectionTarget({}, LOCAL), { url: LOCAL, proxyKey: null });
+  assert.deepEqual(BackendSession.connectionTarget({ ...remote, useProxy: false }, LOCAL), { url: 'https://casa.example.org', proxyKey: null });
+});

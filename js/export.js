@@ -22,24 +22,6 @@
   const HTML_EXPORT_REMOVED = 'script, #welcome-banner, .message-actions, .btn-copy-code, .btn-preview-code, .table-actions, .btn-tool-collapse';
   const HTML_EXPORT_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data: http: https:";
 
-  /** Descarga `content` como archivo; devuelve false si el navegador no lo permite. */
-  function downloadFile(content, filename, mimeType) {
-    try {
-      const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-      return true;
-    } catch (error) {
-      console.error('[ChatExport] Download failed:', error);
-      return false;
-    }
-  }
-
   /** Conversación en Markdown: los mensajes del usuario y las respuestas, sin el prompt de sistema. */
   function buildMarkdownExport(chatHistory, { title = DEFAULT_TITLE, model = '' } = {}) {
     let md = `# ${title}\n\n*${t('export_date')}: ${new Date().toLocaleString()}*\n*${t('export_model')}: ${model || t('not_specified')}*\n\n---\n\n`;
@@ -163,7 +145,6 @@ ${HTML_EXPORT_CSS}
   }
 
   return {
-    downloadFile,
     buildMarkdownExport,
     buildJsonExport,
     buildConversationExport,

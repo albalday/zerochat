@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const AgentCore = require('../../js/agent-core.js');
 const ConfigStore = require('../../js/config-store.js');
 
-const { Tool, ToolRegistry, ToolExecutor } = AgentCore;
+const { Tool, ToolRegistry, ToolExecutor, AgentRuntime } = AgentCore;
 const makeTool = ({ name, description, parameters, ...options }) => new Tool({ definition: { name, description, parameters }, ...options });
 const call = (name, args = {}) => ({ id: `call_${name}`, type: 'function', function: { name, arguments: typeof args === 'string' ? args : JSON.stringify(args) } });
 
@@ -189,4 +189,32 @@ test('AgentCore - las definiciones y la guía del prompt siguen los interruptore
     .map(d => d.function.name).filter(name => ['browser_action', 'playwright_browser_click'].includes(name));
   assert.deepEqual(profileTools({ mode: 'user', userBrowser: 'chromium' }), ['playwright_browser_click']);
   assert.deepEqual(profileTools({ mode: 'own', engine: 'opera' }), []);
+});
+
+test('AgentCore - una herramienta que se ejecuta y falla entrega al modelo su propio texto, no un error genérico', async () => {
+  const registry = new ToolRegistry();
+  // Como run_command del servidor local: un resultado MCP con isError, cuyo texto lleva la salida y el aviso.
+  const commandText = JSON.stringify({ success: false, status: 'timeout', job_id: 3, output: 'Arrancando ComfyUI...', note: 'Killed after 30 s. Re-run it with background=true.' });
+  registry.registerTool(makeTool({
+    name: 'run_command',
+    category: 'mcp',
+    execute: async () => ({ success: false, isError: true, content: commandText }),
+    result: { toModel: (_args, result) => result.content }
+  }));
+  const runtime = new AgentRuntime({ registry, executor: new ToolExecutor(registry) });
+  const batch = (toolCalls) => runtime.executeToolBatch(toolCalls, {
+    stepIndex: 0,
+    toolContext: {},
+    signal: new AbortController().signal,
+    dispatchToolCall: (toolCall, context) => runtime.executor.dispatchToolCall(toolCall, context),
+    createMessageId: () => 'msg',
+    callbacks: {}
+  });
+
+  const { toolMessages } = await batch([call('run_command', { command: './myui run bego-plata' })]);
+  assert.equal(toolMessages[0].content, commandText);
+
+  // Una llamada que no llegó a ejecutarse sigue devolviendo su error.
+  const { toolMessages: missing } = await batch([call('no_existe')]);
+  assert.deepEqual(JSON.parse(missing[0].content), { success: false, error: "Tool 'no_existe' is not registered." });
 });

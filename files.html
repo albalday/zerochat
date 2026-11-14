@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<!-- Navegador de ficheros del proyecto: se abre desde la cabecera de cada proyecto del historial de ZeroChat. -->
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src http: https:; object-src 'none'; base-uri 'self'; frame-src 'none';">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="ZeroChat - Ficheros del proyecto">
+  <title>ZeroChat · Ficheros</title>
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/files.css">
+</head>
+<body class="files-page">
+  <header class="files-header">
+    <h1 class="files-project" id="files-project" data-i18n="files_title">Ficheros</h1>
+    <nav class="files-breadcrumbs" id="files-breadcrumbs" aria-label="Ruta"></nav>
+  </header>
+  <main class="files-main">
+    <p class="files-status" id="files-status" role="status" hidden></p>
+    <ul class="files-list" id="files-list"></ul>
+  </main>
+  <script defer src="js/utils.js"></script>
+  <script defer src="js/defaults.js"></script>
+  <script defer src="js/i18n.js"></script>
+  <script defer src="js/icons.js"></script>
+  <script defer src="js/storage-db.js"></script>
+  <script defer src="js/storage.js"></script>
+  <script defer src="js/mcp-status.js"></script>
+  <script defer src="js/mcp-results.js"></script>
+  <script defer src="js/mcp.js"></script>
+  <script defer src="js/backend-session.js"></script>
+  <script defer src="js/files-page.js"></script>
+</body>
+</html>

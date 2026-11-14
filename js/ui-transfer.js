@@ -63,7 +63,7 @@
 
   async function downloadConversation(format) {
     const { title, content, extension, mimeType } = await buildConversationExport(format, targetSessionId());
-    getExport().downloadFile(content, `${fileBaseName(title)}.${extension}`, mimeType);
+    Utils.downloadFile(content, `${fileBaseName(title)}.${extension}`, mimeType);
     closeExportModal();
   }
 

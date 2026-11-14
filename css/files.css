@@ -1,0 +1,156 @@
+/* ==========================================================================
+   Navegador de ficheros del proyecto (files.html): una lista sencilla, legible en el móvil
+   ========================================================================== */
+
+/* La página se desplaza como un documento, no como la aplicación de chat. */
+html:has(.files-page),
+body.files-page {
+  height: auto;
+  min-height: 100%;
+}
+
+body.files-page {
+  display: block;
+  width: auto;
+  overflow: auto;
+}
+
+.files-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0.85rem 1rem 0.6rem;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.files-project {
+  font-size: 1.05rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-main {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 0.5rem 0.5rem 2rem;
+}
+
+.files-status {
+  padding: 0.75rem 0.5rem;
+  color: var(--text-muted);
+}
+
+.files-status.files-status-error {
+  color: var(--danger);
+}
+
+.files-list {
+  list-style: none;
+}
+
+.files-breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.35rem;
+  margin-top: 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.files-crumb {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.files-crumb:hover {
+  text-decoration: underline;
+}
+
+.files-crumb-current {
+  color: var(--text-main);
+}
+
+.files-entry {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.45rem 0.5rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.files-entry:hover {
+  background: var(--bg-hover);
+}
+
+.files-entry-icon {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+
+.files-entry-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-main);
+  text-decoration: none;
+}
+
+a.files-entry-name {
+  font-weight: 500;
+}
+
+a.files-entry-name:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.files-entry-size,
+.files-entry-date {
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-align: right;
+}
+
+/* En el móvil la fecha baja a una segunda línea, bajo el nombre. */
+@media (max-width: 34rem) {
+  .files-entry {
+    grid-template-columns: 1.25rem minmax(0, 1fr) auto;
+    row-gap: 0.1rem;
+  }
+
+  .files-entry-date {
+    grid-column: 2 / -1;
+    text-align: left;
+  }
+}
+
+/* Un fichero es un botón con aspecto de enlace: lo abre en una pestaña o lo descarga. */
+button.files-entry-open {
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+button.files-entry-open:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+button.files-entry-open:focus-visible,
+a.files-entry-name:focus-visible,
+.files-crumb:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
