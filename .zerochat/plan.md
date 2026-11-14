@@ -50,4 +50,4 @@ Done when: Cada cabecera de proyecto del historial muestra a su derecha un icono
 - [x] M68-T10 Pruebas de borde `N` y `N+1` para `MAX_FINISHED_JOBS`, `WEB_FETCH_MAX_REDIRECTS`, `MAX_MCP_MESSAGE_CHARS` y los 128 caracteres de método y de nombre de herramienta (auditoría F-07) (2026-11-14)
 - [x] M68-T11 Retirar el inventario de símbolos `tests/fixtures/zerochat_symbols.json` y la opción `--symbols` de `scripts/build-backend.py`, o reducirlo a los nombres que las pruebas sustituyen (auditoría F-08) (2026-11-14)
 - [ ] M68-T12 Seguir separando responsabilidades de `js/app.js` y `js/mcp.js` hasta dejarlos por debajo de mil líneas, sin cambiar el comportamiento; decidir antes qué sale de cada uno (auditoría F-09)
-- [ ] M68-T13 Corregir en `help/tools-agent.html` y su traducción la frase del «sello temporal de un solo uso»: describir los permisos y los retos del servidor (auditoría F-10)
+- [x] M68-T13 Corregir en `help/tools-agent.html` y su traducción la frase del «sello temporal de un solo uso»: describir los permisos y los retos del servidor (auditoría F-10) (2026-11-14)
