@@ -52,3 +52,4 @@ Done when: Cada cabecera de proyecto del historial muestra a su derecha un icono
 - [x] M68-T12 Seguir separando responsabilidades de `js/app.js` y `js/mcp.js` hasta dejarlos por debajo de mil líneas, sin cambiar el comportamiento; decidir antes qué sale de cada uno (auditoría F-09) (2026-11-14)
 - [x] M68-T13 Corregir en `help/tools-agent.html` y su traducción la frase del «sello temporal de un solo uso»: describir los permisos y los retos del servidor (auditoría F-10) (2026-11-14)
 - [x] M68-T14 Actualizar las cinco revisiones de la auditoría de la 10.15.0 (help/audit-*.html y help/en/) al estado tras M68: retirar F-01 a F-10, ya corregidos, y rehacer las cifras, normas y valoraciones que dependían de ellos (2026-11-14)
+- [x] M68-T15 browser_action espera dos fotogramas antes de capturar: con la máquina cargada Chromium devolvía «Unable to capture screenshot» y fallaba de forma intermitente test_local_server.js en npm run test:all (2026-11-14)
