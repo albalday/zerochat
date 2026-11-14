@@ -44,6 +44,12 @@
     const I18n = require('./i18n.js');
     globalThis.ChatI18n = I18n;
 
+    const McpStatus = require('./mcp-status.js');
+    globalThis.ChatMcpStatus = McpStatus;
+
+    const McpExternal = require('./mcp-external.js');
+    globalThis.ChatMcpExternal = McpExternal;
+
     let authorizationResponder = null;
     const HeadlessToolCards = {
       setAuthorizationResponder: responder => {
