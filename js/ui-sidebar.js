@@ -11,7 +11,8 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
-  const { escapeHtml, projectName } = Utils;
+  const { escapeHtml, projectName, resolveDep } = Utils;
+  const getFilesPage = () => resolveDep('ChatFilesPage', './files-page.js');
   const { t } = I18n;
 
   const GROUP_LABEL_KEYS = {
@@ -175,11 +176,13 @@
     const header = expanded === null
       ? `<div class="sidebar-group-header sidebar-project-header"${title}>${content}</div>`
       : `<button type="button" class="sidebar-group-header sidebar-project-header sidebar-group-toggle" data-group-key="${escapeHtml(group.key)}" aria-expanded="${expanded}"${title}>${Icons.get('chevron-right', { size: 14, className: 'sidebar-group-chevron' })}${content}</button>`;
+    if (!group.key) return `<div class="sidebar-project-group">${header}</div>`;
     const newChatLabel = escapeHtml(t('sidebar_project_new_chat_title', { name: group.label }));
-    const newChat = group.key
-      ? `<button type="button" class="btn-project-new-chat" data-project="${escapeHtml(group.key)}" title="${newChatLabel}" aria-label="${newChatLabel}">${Icons.get('square-pen', { size: 14 })}</button>`
-      : '';
-    return `<div class="sidebar-project-group">${header}${newChat}</div>`;
+    const filesLabel = escapeHtml(t('sidebar_project_files_title', { name: group.label }));
+    // Los ficheros del proyecto se abren en una pestaña propia (files.html), sin salir del chat.
+    const files = `<a class="btn-project-files" href="files.html${escapeHtml(getFilesPage().pageUrl(group.key, ''))}" target="_blank" rel="noopener" title="${filesLabel}" aria-label="${filesLabel}">${Icons.get('folder', { size: 14 })}</a>`;
+    const newChat = `<button type="button" class="btn-project-new-chat" data-project="${escapeHtml(group.key)}" title="${newChatLabel}" aria-label="${newChatLabel}">${Icons.get('square-pen', { size: 14 })}</button>`;
+    return `<div class="sidebar-project-group">${header}${files}${newChat}</div>`;
   }
 
   /** Un proyecto de la vista de todos se ve desplegado si el usuario lo eligió o, si no, si es el actual o tiene la conversación abierta. */

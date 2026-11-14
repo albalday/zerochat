@@ -235,6 +235,13 @@ test('Browser UI - el icono de la cabecera de un proyecto abre un chat nuevo en 
     await page.selectOption('#sidebar-project-filter', 'all');
     const previousId = await page.evaluate(() => window.ChatState.get('sessions').activeId);
     const before = await page.evaluate(() => ({ profile: window.ChatUIProfiles.getSelectedServerProfile(), serverMode: window.ChatUIProfiles.isServerMode() }));
+    // Junto al de chat nuevo, el de carpeta abre los ficheros del proyecto en una pestaña propia.
+    const filesLink = await page.evaluate(() => {
+      const button = document.querySelector('.btn-project-new-chat[data-project="/repo/b"]');
+      const link = button.previousElementSibling;
+      return { cls: link.className, href: link.getAttribute('href'), target: link.target, rel: link.rel, label: link.getAttribute('aria-label'), icon: Boolean(link.querySelector('svg')) };
+    });
+    assert.deepEqual(filesLink, { cls: 'btn-project-files', href: 'files.html?project=%2Frepo%2Fb', target: '_blank', rel: 'noopener', label: 'Ficheros de b', icon: true });
     await page.click('.btn-project-new-chat[data-project="/repo/b"]');
     await page.waitForFunction(() => window.ChatState.get('mcp').serverInfo.cwd === '/repo/b');
     const after = await page.evaluate(() => ({
