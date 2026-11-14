@@ -263,6 +263,47 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       await dialogSeen;
       assert.equal(beforeUnload, 'beforeunload');
 
+      // Un comando que termina con el turno ya acabado: su línea pasa a su final, con sus últimas líneas.
+      await page.evaluate(() => {
+        window.__getCalls = [];
+        window.ChatMCP.manager.requestExternalControl = async (method, params) => {
+          window.__listCalls++;
+          if (method === 'zerochat/jobs/get') {
+            window.__getCalls.push(params.id);
+            return { id: params.id, status: 'exited', exit_code: 1, elapsed_s: 70, tail: 'uno\ndos\ntres\ncuatro\n\ncinco\nERROR: 2 tests failed\n' };
+          }
+          return { jobs: window.__running };
+        };
+        window.ChatMCP.manager.applyLiveState({ jobs: window.__running.filter(job => job.id !== 2) });
+      });
+      await page.waitForFunction(() => document.querySelector('.command-jobs-card li[data-job-id="2"] .command-jobs-tail'));
+      const finished = await notice.evaluate(el => ({
+        title: el.querySelector('.command-jobs-card-title').textContent.trim(),
+        finishedTime: el.querySelector('li[data-job-id="2"] .command-jobs-time').textContent,
+        tail: el.querySelector('li[data-job-id="2"] .command-jobs-tail').textContent,
+        runningTime: el.querySelector('li[data-job-id="1"] .command-jobs-time').textContent,
+        runningTail: Boolean(el.querySelector('li[data-job-id="1"] .command-jobs-tail')),
+        hintShown: !el.querySelector('.command-jobs-hint').hidden
+      }));
+      assert.deepEqual(finished, {
+        title: 'Comandos en segundo plano en marcha: 1',
+        finishedTime: 'Código 1 · 1:10',
+        tail: 'dos\ntres\ncuatro\ncinco\nERROR: 2 tests failed',
+        runningTime: shown.items[0][1],
+        runningTail: false,
+        hintShown: true
+      });
+      assert.deepEqual(await page.evaluate(() => window.__getCalls), [2], 'Solo pregunta por el que ha terminado, una vez');
+
+      // Cuando terminan todos, el título lo dice y la indicación de que siguen en marcha desaparece.
+      await page.evaluate(() => window.ChatMCP.manager.applyLiveState({ jobs: [] }));
+      await page.waitForFunction(() => document.querySelector('.command-jobs-card li[data-job-id="1"] .command-jobs-tail'));
+      const allDone = await notice.evaluate(el => ({
+        title: el.querySelector('.command-jobs-card-title').textContent.trim(),
+        hintShown: !el.querySelector('.command-jobs-hint').hidden
+      }));
+      assert.deepEqual(allDone, { title: 'Comandos en segundo plano terminados: 2', hintShown: false });
+
       // El turno siguiente sustituye el aviso; sin comandos en marcha, no queda ninguno.
       await page.evaluate(() => {
         window.__running = window.__running.filter(job => job.id !== 2);
