@@ -321,7 +321,8 @@ def update_state_content(state_content: str, next_task_str: str, today_str: str)
     if re.search(r"^-\s*Next task:.*$", state_content, re.MULTILINE):
         state_content = re.sub(
             r"^-\s*Next task:.*$",
-            f"- Next task: {next_task_str}",
+            # Función, no texto: una descripción con \r o \1 no debe leerse como escape de re.sub.
+            lambda _match: f"- Next task: {next_task_str}",
             state_content,
             flags=re.MULTILINE
         )
@@ -331,7 +332,7 @@ def update_state_content(state_content: str, next_task_str: str, today_str: str)
     if re.search(r"^-\s*Last updated:.*$", state_content, re.MULTILINE):
         state_content = re.sub(
             r"^-\s*Last updated:.*$",
-            f"- Last updated: {today_str}",
+            lambda _match: f"- Last updated: {today_str}",
             state_content,
             flags=re.MULTILINE
         )
