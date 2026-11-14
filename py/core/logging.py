@@ -13,6 +13,11 @@ def set_console_control(control):
     CONSOLE_CONTROL = control
 
 
+def current_console_control():
+    """Consola interactiva que recibe el registro, o None."""
+    return CONSOLE_CONTROL
+
+
 def console_log(message: str, *, flush: bool = True):
     if CONSOLE_CONTROL:
         CONSOLE_CONTROL.log(message, flush=flush)

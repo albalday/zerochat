@@ -98,6 +98,11 @@ def set_active_address(host: str, port: int):
     ACTIVE_HOST, ACTIVE_PORT = host, port
 
 
+def active_address() -> tuple[str, int]:
+    """Host y puerto en los que escucha este proceso."""
+    return ACTIVE_HOST, ACTIVE_PORT
+
+
 def get_venv_python(venv_dir: Path) -> Path:
     """Devuelve el ejecutable de Python del entorno virtual según el SO."""
     if sys.platform.startswith("win"):

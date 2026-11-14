@@ -25,7 +25,7 @@ from run_mode.state import (
     run_error,
     write_run_state,
 )
-from server.state import HEARTBEAT_INITIALIZED, _SERVER_SHUTTING_DOWN, stop_zerochat_server
+from server.state import _SERVER_SHUTTING_DOWN, heartbeat_initialized, stop_zerochat_server
 from web.fetch import _read_limited_body
 
 
@@ -65,7 +65,7 @@ def fall_back_when_headless_exits(proc: subprocess.Popen, url: str):
     ya está en marcha): si acaba antes de que conecte la interfaz, se abre la pestaña normal.
     """
     proc.wait()
-    if not HEARTBEAT_INITIALIZED and not _SERVER_SHUTTING_DOWN.is_set():
+    if not heartbeat_initialized() and not _SERVER_SHUTTING_DOWN.is_set():
         log_event("El navegador sin ventana terminó sin abrir la interfaz (¿ya estaba abierto?); se abre una pestaña de la forma normal.")
         launch_browser(url)
 

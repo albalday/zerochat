@@ -19,10 +19,9 @@ from auth.tokens import current_session_token, issue_runner_token, on_token_rota
 from browser.launch import launch_browser, launch_headless_browser
 from cli.console import ConsoleControl
 from core.environment import (
-    ACTIVE_HOST,
-    ACTIVE_PORT,
     DEFAULT_HOST,
     DEFAULT_PORT,
+    active_address,
     add_notice,
     ensure_virtual_environment,
     get_data_dir,
@@ -32,7 +31,7 @@ from core.environment import (
     reset_notices,
     set_active_address,
 )
-from core.logging import CONSOLE_CONTROL, console_log, log_event, set_console_control, timestamp_message
+from core.logging import console_log, current_console_control, log_event, set_console_control, timestamp_message
 from core.process import _kill_process_tree
 from core.version import DEFAULT_UI_URL, UI_VERSION, VERSION, check_version, is_installed_runtime
 from run_mode.state import (
@@ -40,8 +39,8 @@ from run_mode.state import (
     RUN_EXIT_ARGS,
     RUN_EXIT_SETUP,
     RUN_EXPORT_FORMATS,
-    RUN_SESSION,
     RunSession,
+    current_run_session,
     run_error,
     run_outcome,
     set_run_session,
@@ -55,7 +54,6 @@ from server.handler import ZeroChatServerHandler
 from server.state import (
     DEFAULT_HEARTBEAT_GRACE,
     DEFAULT_HEARTBEAT_TIMEOUT,
-    EXIT_ON_CLOSE,
     heartbeat_watchdog,
     set_exit_on_close,
     stop_zerochat_server,
@@ -211,10 +209,11 @@ def redirect_log(args):
     """Todo el registro pasa por stdout: con --prompt va a stderr para dejar stdout a la respuesta,
     y con --log off se descarta. Devuelve el stdout original, el de la respuesta."""
     result_out = sys.stdout
-    log_enabled = args.log == "on" if args.log else RUN_SESSION is None
+    session = current_run_session()
+    log_enabled = args.log == "on" if args.log else session is None
     if not log_enabled:
         sys.stdout = open(os.devnull, "w", encoding="utf-8")
-    elif RUN_SESSION:
+    elif session:
         sys.stdout = sys.stderr
     return result_out
 
@@ -263,21 +262,22 @@ def prepare_environment(args, is_dev: bool):
 def reset_session_authorizations():
     """Borra las autorizaciones de sesión y los retos pendientes, y vuelve a aplicar la capa de la ejecución."""
     ACCESS_CONTROLLER.clear_session()
-    if RUN_SESSION is not None:
+    session = current_run_session()
+    if session is not None:
         ctx = project_context()
-        if RUN_SESSION.tool_security:
-            ACCESS_CONTROLLER.apply_session_overlay(RUN_SESSION.tool_security, ctx)
-            tool_decision = RUN_SESSION.tool_security.get("tool_decision")
+        if session.tool_security:
+            ACCESS_CONTROLLER.apply_session_overlay(session.tool_security, ctx)
+            tool_decision = session.tool_security.get("tool_decision")
             if isinstance(tool_decision, dict):
                 tool_name = tool_decision.get("toolName") or ""
                 server_id = GLOBAL_MCP_MANAGER.server_of(tool_name) or ""
                 ACCESS_CONTROLLER.apply_tool_decision(tool_decision, ctx, server_id=server_id)
-        if RUN_SESSION.allow_dangerous_tools:
+        if session.allow_dangerous_tools:
             ACCESS_CONTROLLER.apply_session_overlay({
                 "globalMcpPolicy": GLOBAL_POLICY_ALLOW_ALL,
                 "tools": {name: {"policy": POLICY_ALLOW} for name in ("write_file", "edit_file", "run_command")}
             }, ctx)
-        elif RUN_SESSION.conversation_id is None:
+        elif session.conversation_id is None:
             permanent_tools = ACCESS_CONTROLLER.export_state(ctx).get("tools") or {}
             ACCESS_CONTROLLER.apply_session_overlay({
                 "tools": {
@@ -291,24 +291,26 @@ def reset_session_authorizations():
 
 def open_server(args, local_ui: bool) -> ThreadingHTTPServer:
     """Abre el puerto de escucha; con --prompt, si el puerto por defecto está ocupado, usa uno libre."""
-    set_active_address(args.host, args.port if args.port is not None else int(os.environ.get("ZEROCHAT_PORT", DEFAULT_PORT)))
+    host = args.host
+    port = args.port if args.port is not None else int(os.environ.get("ZEROCHAT_PORT", DEFAULT_PORT))
+    set_active_address(host, port)
     try:
-        return ThreadingHTTPServer((ACTIVE_HOST, ACTIVE_PORT), ZeroChatServerHandler)
+        return ThreadingHTTPServer((host, port), ZeroChatServerHandler)
     except OSError as exc:
-        if not RUN_SESSION:
+        if not current_run_session():
             raise
         if args.port is not None or local_ui:
             hint = "" if args.port is not None else " (en desarrollo la interfaz local necesita ese puerto: cierra el zerochat que lo usa)"
-            run_error(f"No se pudo escuchar en {ACTIVE_HOST}:{ACTIVE_PORT}: {exc}{hint}")
+            run_error(f"No se pudo escuchar en {host}:{port}: {exc}{hint}")
             sys.exit(RUN_EXIT_SETUP)
     # Otro zerochat (u otro programa) usa el puerto por defecto: la ejecución usa uno libre.
     try:
-        server = ThreadingHTTPServer((ACTIVE_HOST, 0), ZeroChatServerHandler)
+        server = ThreadingHTTPServer((host, 0), ZeroChatServerHandler)
     except OSError as retry_exc:
-        run_error(f"No se pudo escuchar en {ACTIVE_HOST}: {retry_exc}")
+        run_error(f"No se pudo escuchar en {host}: {retry_exc}")
         sys.exit(RUN_EXIT_SETUP)
-    log_event(f"El puerto {ACTIVE_PORT} está ocupado; la ejecución usa el {server.server_address[1]}.")
-    set_active_address(ACTIVE_HOST, server.server_address[1])
+    log_event(f"El puerto {port} está ocupado; la ejecución usa el {server.server_address[1]}.")
+    set_active_address(host, server.server_address[1])
     return server
 
 
@@ -317,16 +319,19 @@ def interface_url(args, static_root) -> str:
     if args.ui_url:
         return args.ui_url
     if static_root:
-        return f"http://{ACTIVE_HOST}:{ACTIVE_PORT}/zerochat.html"
+        host, port = active_address()
+        return f"http://{host}:{port}/zerochat.html"
     return DEFAULT_UI_URL
 
 
 def launch_url(ui_url: str, token: str | None = None) -> str:
     """URL con que zerochat abre el navegador: el token vigente y el servidor van en el fragmento."""
-    browser_host = ACTIVE_HOST if ACTIVE_HOST in {"127.0.0.1", "localhost"} else "127.0.0.1"
-    fragment = {'token': token if token is not None else current_session_token(), 'host': browser_host, 'port': ACTIVE_PORT}
-    if RUN_SESSION:
-        fragment['run'] = RUN_SESSION.run_id
+    host, port = active_address()
+    browser_host = host if host in {"127.0.0.1", "localhost"} else "127.0.0.1"
+    fragment = {'token': token if token is not None else current_session_token(), 'host': browser_host, 'port': port}
+    session = current_run_session()
+    if session:
+        fragment['run'] = session.run_id
     return f"{ui_url}#{urlencode(fragment)}"
 
 
@@ -343,7 +348,8 @@ def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_cl
         print("  Modo de ejecución     : Paquete PyPI (GitHub Pages)")
     else:
         print("  Modo de ejecución     : Producción (Web universal)")
-    print(f"  Servidor HTTP         : http://{ACTIVE_HOST}:{ACTIVE_PORT}")
+    host, port = active_address()
+    print(f"  Servidor HTTP         : http://{host}:{port}")
     if exposure_warning:
         print(f"  AVISO                 : {exposure_warning}")
     print("  Token de sesión (diario): configurado")
@@ -358,7 +364,8 @@ def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_cl
 def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, result_out):
     """Abre la interfaz: en modo ejecución, con su supervisor; si no, con el control de consola.
     Devuelve el navegador sin ventana lanzado, si lo hay."""
-    if not RUN_SESSION:
+    session = current_run_session()
+    if not session:
         console = ConsoleControl(server, parser, launch_url=lambda: launch_url(ui_url))
         set_console_control(console)
         console.start()
@@ -366,13 +373,13 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, resu
             launch_browser(launch_url(ui_url))
         return None
     if not args.browser:
-        RUN_SESSION.runner_token = issue_runner_token(RUN_SESSION.run_id, RUN_SESSION.conversation_id)
-        runner_proc = launch_node_runner(launch_url(ui_url, token=RUN_SESSION.runner_token))
+        session.runner_token = issue_runner_token(session.run_id, session.conversation_id)
+        runner_proc = launch_node_runner(launch_url(ui_url, token=session.runner_token))
         if runner_proc is None:
             server.server_close()
             sys.stdout = result_out
             sys.exit(RUN_EXIT_SETUP)
-        threading.Thread(target=run_supervisor, args=(server, RUN_SESSION, runner_proc), daemon=True).start()
+        threading.Thread(target=run_supervisor, args=(server, session, runner_proc), daemon=True).start()
         return runner_proc
     target_url = launch_url(ui_url)
     headless_browser = launch_headless_browser(target_url) if args.headless else None
@@ -383,7 +390,7 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, resu
         sys.exit(RUN_EXIT_SETUP)
     if headless_browser is not None:
         threading.Thread(target=fall_back_when_headless_exits, args=(headless_browser, target_url), daemon=True).start()
-    threading.Thread(target=run_supervisor, args=(server, RUN_SESSION, None, headless_browser), daemon=True).start()
+    threading.Thread(target=run_supervisor, args=(server, session, None, headless_browser), daemon=True).start()
     return headless_browser
 
 
@@ -416,8 +423,9 @@ def serve(server: ThreadingHTTPServer):
     finally:
         stop_zerochat_server(server)
         server.server_close()
-        if CONSOLE_CONTROL:
-            CONSOLE_CONTROL.close()
+        console = current_console_control()
+        if console:
+            console.close()
             set_console_control(None)
 
 
@@ -426,7 +434,7 @@ def finish_run(headless_browser, result_out):
     # Firefox sin ventana sigue vivo al cerrar la página; uno ya abierto solo recibió la pestaña.
     if headless_browser is not None and headless_browser.poll() is None:
         _kill_process_tree(headless_browser)
-    code, text = run_outcome(RUN_SESSION)
+    code, text = run_outcome(current_run_session())
     sys.stdout = result_out
     if text is not None:
         result_out.write(text if text.endswith("\n") else text + "\n")
@@ -480,22 +488,23 @@ def main():
 
     # La interfaz local de desarrollo en el navegador del usuario tiene el puerto en su origen: en otro no vería los datos guardados.
     server = open_server(args, local_ui=static_root is not None and not args.ui_url and args.browser)
-    exposure_warning = remote_exposure_warning(ACTIVE_HOST)
+    exposure_warning = remote_exposure_warning(active_address()[0])
     if exposure_warning:
         add_notice(exposure_warning)
 
     ui_url = interface_url(args, static_root)
     # El modo ejecución (que rechaza --keep-server) detecta con el latido que el navegador se cerró sin devolver resultado.
-    set_exit_on_close(not args.keep_server)
-    print_header(dev_root, ui_url, exposure_warning, not args.keep_server)
+    exit_on_close = not args.keep_server
+    set_exit_on_close(exit_on_close)
+    print_header(dev_root, ui_url, exposure_warning, exit_on_close)
 
     headless_browser = start_interface(args, parser, server, ui_url, result_out)
-    if EXIT_ON_CLOSE:
+    if exit_on_close:
         start_heartbeat_watchdog(server, require_initial=not args.no_browser)
     install_signal_handlers(server)
     serve(server)
 
-    if RUN_SESSION:
+    if current_run_session():
         finish_run(headless_browser, result_out)
 
 

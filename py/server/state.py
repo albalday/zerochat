@@ -67,6 +67,11 @@ def mark_browser_active():
     HEARTBEAT_INITIALIZED = True
 
 
+def heartbeat_initialized() -> bool:
+    """Si el navegador ha dado ya alguna señal de vida."""
+    return HEARTBEAT_INITIALIZED
+
+
 def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -> dict:
     """
     Estado del servidor que la interfaz sigue en vivo, en initialize y en cada zerochat/heartbeat:

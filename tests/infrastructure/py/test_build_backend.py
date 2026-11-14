@@ -153,6 +153,33 @@ class BuildBackendCompilerTest(unittest.TestCase):
             build_mod.compile_backend(py_collision)
         self.assertIn("SHARED", str(cm_col.exception))
 
+    def test_rechaza_importar_un_nombre_que_su_modulo_reasigna_con_global(self):
+        state = (
+            "ACTIVE = False\n\n"
+            "def activate():\n"
+            "    global ACTIVE\n"
+            "    ACTIVE = True\n\n"
+            "def is_active() -> bool:\n"
+            "    return ACTIVE\n"
+        )
+        py_by_name = self._write_tree({
+            "core/__init__.py": "",
+            "core/state.py": state,
+            "app/__init__.py": "",
+            "app/mod.py": "from core.state import ACTIVE\n",
+        })
+        with self.assertRaises(build_mod.BackendBuildError) as cm:
+            build_mod.compile_backend(py_by_name)
+        self.assertIn("ACTIVE", str(cm.exception))
+
+        py_by_function = self._write_tree({
+            "core/__init__.py": "",
+            "core/state.py": state,
+            "app/__init__.py": "",
+            "app/mod.py": "from core.state import is_active\n",
+        })
+        self.assertIn("return ACTIVE", build_mod.compile_backend(py_by_function))
+
 
 if __name__ == "__main__":
     unittest.main()
