@@ -1,4 +1,4 @@
 # Current state
-- Milestone: M68 Arreglos pequeños 2
-- Next task: none pending
+- Milestone: M69 Esperas y comandos a la vista
+- Next task: M69-T2
 - Last updated: 2026-11-14
