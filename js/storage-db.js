@@ -12,7 +12,7 @@
   'use strict';
 
   const DB_NAME = 'ZeroChatDB';
-  const DB_VERSION = 6;
+  const DB_VERSION = 7;
   const STORES = Object.freeze({
     conversations: 'conversations',
     messages: 'messages',
@@ -30,8 +30,10 @@
     Array.from(db.objectStoreNames).forEach(name => db.deleteObjectStore(name));
 
     db.createObjectStore(STORES.conversations, { keyPath: 'id' }).createIndex('by_updatedAt', 'updatedAt');
-    // Los mensajes se leen en orden por [conversationId, position].
-    db.createObjectStore(STORES.messages, { keyPath: 'id' }).createIndex('by_conversation', ['conversationId', 'position']);
+    // Los mensajes se leen en orden por [conversationId, position] y se indexan por blobIds para recoger huérfanos.
+    const messageStore = db.createObjectStore(STORES.messages, { keyPath: 'id' });
+    messageStore.createIndex('by_conversation', ['conversationId', 'position']);
+    messageStore.createIndex('by_blobId', 'blobIds', { multiEntry: true });
     db.createObjectStore(STORES.blobs, { keyPath: 'id' }).createIndex('by_createdAt', 'createdAt');
 
     db.createObjectStore(STORES.ragBranches, { keyPath: 'id' });
