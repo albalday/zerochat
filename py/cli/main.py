@@ -15,7 +15,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlencode
 
-from auth.tokens import current_session_token, on_token_rotation
+from auth.tokens import current_session_token, issue_runner_token, on_token_rotation
 from browser.launch import launch_browser, launch_headless_browser
 from cli.console import ConsoleControl
 from core.environment import (
@@ -46,10 +46,11 @@ from run_mode.state import (
     run_outcome,
     set_run_session,
 )
+from mcp.manager import GLOBAL_MCP_MANAGER
 from run_mode.supervisor import fall_back_when_headless_exits, launch_node_runner, run_supervisor
 from security.context import PROJECT_DIR, SecurityContext, project_context
 from security.controller import ACCESS_CONTROLLER
-from security.rules import POLICY_ALLOW
+from security.rules import GLOBAL_POLICY_ALLOW_ALL, POLICY_ALLOW, POLICY_DENY
 from server.handler import ZeroChatServerHandler
 from server.state import (
     DEFAULT_HEARTBEAT_GRACE,
@@ -71,6 +72,7 @@ from storage.db import (
 from tools.browser_action import browser_action_availability
 from tools.filesystem import list_directory, read_file, write_file
 from tools.jobs import cleanup_orphan_jobs, run_command
+from tools.registry import LOCAL_TOOL_HANDLERS
 
 
 def is_loopback_host(host: str) -> bool:
@@ -262,12 +264,29 @@ def reset_session_authorizations():
     """Borra las autorizaciones de sesión y los retos pendientes, y vuelve a aplicar la capa de la ejecución."""
     ACCESS_CONTROLLER.clear_session()
     if RUN_SESSION is not None:
+        ctx = project_context()
         if RUN_SESSION.tool_security:
-            ACCESS_CONTROLLER.apply_session_overlay(RUN_SESSION.tool_security, project_context())
+            ACCESS_CONTROLLER.apply_session_overlay(RUN_SESSION.tool_security, ctx)
+            tool_decision = RUN_SESSION.tool_security.get("tool_decision")
+            if isinstance(tool_decision, dict):
+                tool_name = tool_decision.get("toolName") or ""
+                server_id = GLOBAL_MCP_MANAGER.server_of(tool_name) or ""
+                ACCESS_CONTROLLER.apply_tool_decision(tool_decision, ctx, server_id=server_id)
         if RUN_SESSION.allow_dangerous_tools:
             ACCESS_CONTROLLER.apply_session_overlay({
+                "globalMcpPolicy": GLOBAL_POLICY_ALLOW_ALL,
                 "tools": {name: {"policy": POLICY_ALLOW} for name in ("write_file", "edit_file", "run_command")}
-            }, project_context())
+            }, ctx)
+        elif RUN_SESSION.conversation_id is None:
+            permanent_tools = ACCESS_CONTROLLER.export_state(ctx).get("tools") or {}
+            ACCESS_CONTROLLER.apply_session_overlay({
+                "tools": {
+                    name: {"policy": POLICY_ALLOW}
+                    for name in LOCAL_TOOL_HANDLERS
+                    if name not in ("write_file", "edit_file", "run_command")
+                    and (permanent_tools.get(name) or {}).get("policy") != POLICY_DENY
+                }
+            }, ctx)
 
 
 def open_server(args, local_ui: bool) -> ThreadingHTTPServer:
@@ -302,10 +321,10 @@ def interface_url(args, static_root) -> str:
     return DEFAULT_UI_URL
 
 
-def launch_url(ui_url: str) -> str:
+def launch_url(ui_url: str, token: str | None = None) -> str:
     """URL con que zerochat abre el navegador: el token vigente y el servidor van en el fragmento."""
     browser_host = ACTIVE_HOST if ACTIVE_HOST in {"127.0.0.1", "localhost"} else "127.0.0.1"
-    fragment = {'token': current_session_token(), 'host': browser_host, 'port': ACTIVE_PORT}
+    fragment = {'token': token if token is not None else current_session_token(), 'host': browser_host, 'port': ACTIVE_PORT}
     if RUN_SESSION:
         fragment['run'] = RUN_SESSION.run_id
     return f"{ui_url}#{urlencode(fragment)}"
@@ -346,15 +365,16 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, resu
         if not args.no_browser:
             launch_browser(launch_url(ui_url))
         return None
-    target_url = launch_url(ui_url)
     if not args.browser:
-        runner_proc = launch_node_runner(target_url)
+        RUN_SESSION.runner_token = issue_runner_token(RUN_SESSION.run_id, RUN_SESSION.conversation_id)
+        runner_proc = launch_node_runner(launch_url(ui_url, token=RUN_SESSION.runner_token))
         if runner_proc is None:
             server.server_close()
             sys.stdout = result_out
             sys.exit(RUN_EXIT_SETUP)
         threading.Thread(target=run_supervisor, args=(server, RUN_SESSION, runner_proc), daemon=True).start()
         return runner_proc
+    target_url = launch_url(ui_url)
     headless_browser = launch_headless_browser(target_url) if args.headless else None
     if headless_browser is None and not launch_browser(target_url):
         run_error("No se pudo abrir el navegador.")

@@ -10,8 +10,9 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
+from auth.tokens import revoke_token
 from browser.launch import launch_browser
-from core.environment import _write_private_text, get_data_dir, get_dev_root
+from core.environment import _write_private_text, get_data_dir, get_dev_root, minimal_child_env
 from core.logging import log_event
 from core.version import DEFAULT_UI_URL, VERSION
 from run_mode.state import (
@@ -53,6 +54,8 @@ def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc
             session.status = "error"
             session.error = session.stop_reason or ("El runner se cerró sin resultado." if proc else "La ejecución se interrumpió sin resultado.")
             write_run_state(session)
+    if session.runner_token:
+        revoke_token(session.runner_token)
     stop_zerochat_server(server)
 
 
@@ -155,7 +158,7 @@ def ensure_runner_script() -> Path:
 
 
 def launch_node_runner(url: str) -> subprocess.Popen | None:
-    """Abre el runner de Node.js sin ventana en segundo plano con el modelo de permisos de Node."""
+    """Abre el runner de Node.js sin ventana en segundo plano con el modelo de permisos de Node y sin heredar el entorno."""
     node = find_node_executable()
     if not node:
         run_error(f"Se necesita {NODE_REQUIRED_MESSAGE} para la ejecución desatendida. Instálalo o usa --browser.")
@@ -174,6 +177,7 @@ def launch_node_runner(url: str) -> subprocess.Popen | None:
     try:
         return subprocess.Popen(
             cmd,
+            env=minimal_child_env(),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

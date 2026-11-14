@@ -327,7 +327,8 @@
     if (imagesFound.length > 0) headerInfo += `[Images found on page: ${imagesFound.length}]\n`;
     headerInfo += '\n--- Page content ---\n';
 
-    const fullOutput = headerInfo + text;
+    const suffix = doc.truncated && doc.truncationNotice ? `\n\n${doc.truncationNotice}` : '';
+    const fullOutput = headerInfo + text + suffix;
     if (fullOutput.length > MAX_CONTENT_LENGTH) {
       return fullOutput.slice(0, MAX_CONTENT_LENGTH) + TRUNCATION_NOTICE;
     }

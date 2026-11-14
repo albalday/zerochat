@@ -19,6 +19,8 @@
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  const MAX_DEPTH = 512;
+  const DEPTH_TRUNCATION_NOTICE = '[... HTML nesting depth truncated at the limit ...]';
   const VOID_ELEMENTS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
   // Contenido sin marcado: hasta su etiqueta de cierre. `title` y `textarea` decodifican entidades.
   const RAW_TEXT_ELEMENTS = new Set(['script', 'style']);
@@ -95,11 +97,18 @@
     });
   }
 
-  function* descendants(node) {
-    for (const child of node.childNodes) {
-      if (child.nodeType !== 1) continue;
-      yield child;
-      yield* descendants(child);
+  function* descendants(root) {
+    const stack = [];
+    for (let i = root.childNodes.length - 1; i >= 0; i--) {
+      if (root.childNodes[i].nodeType === 1) stack.push(root.childNodes[i]);
+    }
+    while (stack.length > 0) {
+      const current = stack.pop();
+      yield current;
+      const children = current.childNodes;
+      for (let i = children.length - 1; i >= 0; i--) {
+        if (children[i].nodeType === 1) stack.push(children[i]);
+      }
     }
   }
 
@@ -154,7 +163,23 @@
     }
 
     get textContent() {
-      return this.childNodes.map(child => child.textContent).join('');
+      const parts = [];
+      const stack = [];
+      for (let i = this.childNodes.length - 1; i >= 0; i--) {
+        stack.push(this.childNodes[i]);
+      }
+      while (stack.length > 0) {
+        const node = stack.pop();
+        if (node.nodeType === 3) {
+          parts.push(node.data);
+        } else {
+          const children = node.childNodes;
+          for (let i = children.length - 1; i >= 0; i--) {
+            stack.push(children[i]);
+          }
+        }
+      }
+      return parts.join('');
     }
 
     get innerText() {
@@ -191,9 +216,22 @@
     }
 
     cloneNode(deep = false) {
-      const clone = new LiteElement(this.localName, new Map(this.attributes), this.ownerDocument);
-      if (deep) this.childNodes.forEach(child => clone.appendChild(child.cloneNode(true)));
-      return clone;
+      const rootClone = new LiteElement(this.localName, new Map(this.attributes), this.ownerDocument);
+      if (!deep || this.childNodes.length === 0) return rootClone;
+      const stack = [{ source: this, target: rootClone }];
+      while (stack.length > 0) {
+        const { source, target } = stack.pop();
+        for (const child of source.childNodes) {
+          if (child.nodeType === 3) {
+            target.appendChild(new LiteText(child.data, child.ownerDocument));
+          } else if (child.nodeType === 1) {
+            const childClone = new LiteElement(child.localName, new Map(child.attributes), child.ownerDocument);
+            target.appendChild(childClone);
+            if (child.childNodes.length > 0) stack.push({ source: child, target: childClone });
+          }
+        }
+      }
+      return rootClone;
     }
   }
 
@@ -203,6 +241,8 @@
       this.documentElement = this.appendChild(this.createElement('html'));
       this.head = this.documentElement.appendChild(this.createElement('head'));
       this.body = null;
+      this.truncated = false;
+      this.truncationNotice = '';
     }
 
     createElement(name) {
@@ -251,28 +291,96 @@
       else parent.appendChild(doc.createTextNode(text));
     };
 
-    const tokens = /<!--[\s\S]*?(?:-->|$)|<![^>]*>|<\?[^>]*>|<\/([a-z][^\s/>]*)[^>]*>|<([a-z][^\s/>]*)((?:[^>"']|"[^"]*"|'[^']*')*?)(\/?)>|[^<]+|</gi;
-    let match;
-    while ((match = tokens.exec(source)) !== null) {
-      const [token, closingName, openingName, attributeSource, selfClosing] = match;
-      if (closingName) {
-        const name = closingName.toLowerCase();
-        if (name === 'body' || name === 'html') continue;
-        if (name === 'head') { headOpen = false; continue; }
-        if (name === 'p' && doc.body && findOpen(['p']) === -1) {
-          current().appendChild(doc.createElement('p'));
-          continue;
-        }
-        const index = findOpen([name]);
-        if (index > 0) closeUntil(index);
-        continue;
+    const isAsciiLetter = (code) => (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+    const isTagNameEnd = (ch) => ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '\f' || ch === '/' || ch === '>';
+    const len = source.length;
+    let pos = 0;
+
+    while (pos < len) {
+      const lt = source.indexOf('<', pos);
+      if (lt === -1) {
+        appendText(decodeEntities(source.slice(pos)));
+        break;
       }
-      if (!openingName) {
-        if (token[0] !== '<' || token === '<') appendText(decodeEntities(token));
+      if (lt > pos) {
+        appendText(decodeEntities(source.slice(pos, lt)));
+        pos = lt;
+      }
+
+      if (source.startsWith('<!--', pos)) {
+        const end = source.indexOf('-->', pos + 4);
+        pos = end === -1 ? len : end + 3;
         continue;
       }
 
-      const name = openingName.toLowerCase();
+      const nextCode = pos + 1 < len ? source.charCodeAt(pos + 1) : 0;
+      if (nextCode === 33 || nextCode === 63) { // '!' o '?'
+        const end = source.indexOf('>', pos + 2);
+        if (end === -1) {
+          appendText('<');
+          pos += 1;
+        } else {
+          pos = end + 1;
+        }
+        continue;
+      }
+
+      if (nextCode === 47) { // '/'
+        if (pos + 2 < len && isAsciiLetter(source.charCodeAt(pos + 2))) {
+          const gt = source.indexOf('>', pos + 2);
+          if (gt !== -1) {
+            let nameEnd = pos + 2;
+            while (nameEnd < gt && !isTagNameEnd(source[nameEnd])) nameEnd++;
+            const name = source.slice(pos + 2, nameEnd).toLowerCase();
+            pos = gt + 1;
+            if (name === 'body' || name === 'html') continue;
+            if (name === 'head') { headOpen = false; continue; }
+            if (name === 'p' && doc.body && findOpen(['p']) === -1) {
+              current().appendChild(doc.createElement('p'));
+              continue;
+            }
+            const index = findOpen([name]);
+            if (index > 0) closeUntil(index);
+            continue;
+          }
+        }
+        appendText('<');
+        pos += 1;
+        continue;
+      }
+
+      if (!isAsciiLetter(nextCode)) {
+        appendText('<');
+        pos += 1;
+        continue;
+      }
+
+      let nameEnd = pos + 1;
+      while (nameEnd < len && !isTagNameEnd(source[nameEnd])) nameEnd++;
+      const name = source.slice(pos + 1, nameEnd).toLowerCase();
+
+      let cursor = nameEnd;
+      let quote = '';
+      while (cursor < len) {
+        const ch = source[cursor];
+        if (quote) {
+          if (ch === quote) quote = '';
+        } else if (ch === '"' || ch === "'") {
+          quote = ch;
+        } else if (ch === '>') {
+          break;
+        }
+        cursor++;
+      }
+      if (cursor >= len) {
+        appendText(decodeEntities(source.slice(pos)));
+        break;
+      }
+
+      const selfClosing = cursor > nameEnd && source[cursor - 1] === '/';
+      const attributeSource = source.slice(nameEnd, selfClosing ? cursor - 1 : cursor);
+      pos = cursor + 1;
+
       const attributes = parseAttributes(attributeSource);
       if (name === 'html') continue;
       if (name === 'head') { if (!doc.body) headOpen = true; continue; }
@@ -296,14 +404,21 @@
 
       if (RAW_TEXT_ELEMENTS.has(name) || ESCAPABLE_RAW_TEXT_ELEMENTS.has(name)) {
         const end = new RegExp(`</${name}\\s*>`, 'ig');
-        end.lastIndex = tokens.lastIndex;
+        end.lastIndex = pos;
         const found = end.exec(source);
-        const content = source.slice(tokens.lastIndex, found ? found.index : source.length);
+        const content = source.slice(pos, found ? found.index : len);
         if (content) element.appendChild(doc.createTextNode(RAW_TEXT_ELEMENTS.has(name) ? content : decodeEntities(content)));
-        tokens.lastIndex = found ? end.lastIndex : source.length;
+        pos = found ? end.lastIndex : len;
         continue;
       }
-      if (!inHead && !VOID_ELEMENTS.has(name) && !selfClosing) stack.push(element);
+      if (!inHead && !VOID_ELEMENTS.has(name) && !selfClosing) {
+        if (stack.length - 1 < MAX_DEPTH) {
+          stack.push(element);
+        } else {
+          doc.truncated = true;
+          doc.truncationNotice = DEPTH_TRUNCATION_NOTICE;
+        }
+      }
     }
     startBody();
     return doc;
@@ -315,5 +430,5 @@
     return parseLiteHtml(html);
   }
 
-  return { parseHtml };
+  return { parseHtml, MAX_DEPTH, DEPTH_TRUNCATION_NOTICE };
 }));

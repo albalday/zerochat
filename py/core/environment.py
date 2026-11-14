@@ -19,6 +19,13 @@ NOTICES_LOCK = threading.Lock()
 
 
 @functools.lru_cache(maxsize=1)
+def minimal_child_env() -> dict[str, str]:
+    """Entorno vacío para procesos de Node que ejecutan código no confiable (solo SYSTEMROOT en Windows)."""
+    if DETECTED_OS == "windows" and "SYSTEMROOT" in os.environ:
+        return {"SYSTEMROOT": os.environ["SYSTEMROOT"]}
+    return {}
+
+
 def get_dev_root() -> Path | None:
     """
     Detecta si zerochat.py se está ejecutando en el directorio de desarrollo del repositorio.

@@ -71,6 +71,10 @@ test('Sandbox Node - un plazo vencido termina la ejecución y devuelve error con
   const asyncHang = await ChatSandbox.execute('return new Promise(() => {});', 100);
   assert.equal(asyncHang.success, false);
   assert.match(asyncHang.error, /timed out after 100ms/);
+
+  const asyncLoop = await ChatSandbox.execute('while (true) { await Promise.resolve(); }', 100);
+  assert.equal(asyncLoop.success, false);
+  assert.match(asyncLoop.error, /timed out after 100ms/);
 });
 
 test('Sandbox Node - aísla el entorno de Node (sin process ni require), bloquea escapes de constructor y valida código', async () => {

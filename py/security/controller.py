@@ -67,6 +67,7 @@ class ProjectSession:
     servers: dict[str, dict] = dataclasses.field(default_factory=dict)
     command_patterns: list[str] = dataclasses.field(default_factory=list)
     challenges: dict[str, dict] = dataclasses.field(default_factory=dict)
+    one_time_tools: set[str] = dataclasses.field(default_factory=set)
 
     def entries(self, kind: str) -> dict[str, dict]:
         return self.tools if kind == "tools" else self.servers
@@ -365,6 +366,38 @@ class AccessController:
         with self._lock:
             self.sessions.clear()
 
+    def apply_tool_decision(self, tool_decision: dict | None, context: SecurityContext, server_id: str = "") -> None:
+        """Aplica en AccessController la decisión aprobada por el usuario antes de reanudar una ejecución."""
+        if not isinstance(tool_decision, dict):
+            return
+        tool_name = tool_decision.get("toolName")
+        if not isinstance(tool_name, str) or not tool_name.strip():
+            return
+        tool_name = tool_name.strip()
+        raw_dec = tool_decision.get("decision")
+        if isinstance(raw_dec, dict):
+            dec_type = raw_dec.get("decision")
+            raw_pattern = raw_dec.get("commandPattern")
+            raw_dir_rule = raw_dec.get("directoryRule")
+        else:
+            dec_type = raw_dec
+            raw_pattern = None
+            raw_dir_rule = None
+        if not isinstance(dec_type, str) or dec_type not in AUTHORIZE_DECISIONS:
+            return
+        if dec_type == "allow_once":
+            with self._lock:
+                self._session(context).one_time_tools.add(tool_name)
+            return
+        pattern = normalize_command_pattern(raw_pattern) if (raw_pattern and tool_name == COMMAND_TOOL) else None
+        rules = self._validate_directory_rules([raw_dir_rule], context) if raw_dir_rule else []
+        challenge = {
+            "toolName": tool_name,
+            "serverName": server_id or "mcp-proxy",
+            "serverId": server_id,
+        }
+        self._record_decision(challenge, dec_type, pattern, rules, context)
+
     def create_challenge(self, tool_name: str, args: dict, decision: AccessDecision, *, context: SecurityContext,
                          server_name: str = "", server_id: str = "", origin: str = "local",
                          job_key: str | None = None, conversation_id: str = "") -> dict:
@@ -499,6 +532,12 @@ class AccessController:
         8. Por defecto -> ask (solicitar confirmación), con la regla sugerida si la hay.
         """
         status, reason, details, offer = self._evaluate(tool_name, dict(raw_args or {}), context, server_id)
+        if status == POLICY_ASK:
+            with self._lock:
+                one_time = self._session(context).one_time_tools
+                if tool_name in one_time:
+                    one_time.discard(tool_name)
+                    status, reason, details, offer = POLICY_ALLOW, "one_time_allow_rule", "", None
         return AccessDecision(allowed=status == POLICY_ALLOW, status=status, reason=reason,
                               requires_approval=status == POLICY_ASK, tool_id=tool_name, server_name=server_name,
                               server_id=server_id, details=details, rule_offer=offer)

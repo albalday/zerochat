@@ -166,3 +166,6 @@
 - 2026-11-13 M68-D1 La auditoría de la 10.15.0 sustituye a la de la 10.14.0 con hallazgos renumerados y sin los ya corregidos; sus diez hallazgos no se planifican hasta que el usuario decida el hito (M68-T3)
 - 2026-11-13 M68-D2 Los diez hallazgos de la auditoría de la 10.15.0 se corrigen en M68 por decisión del usuario (M68-T4 a T13); matiza M68-D1
 - 2026-11-14 M68-D3 En móvil el historial ocupa toda la pantalla y se retira el fondo oscuro (sidebar-backdrop), que quedaba tapado y sin uso; se cierra con su botón (M68-T2)
+- 2026-11-14 M68-D4 Infraestructura de tokens de sesión con TokenGrant (local, remote desde zerochat/login, runner acotado a métodos MCP/run/conversación propia) y tool_decision aplicado en AccessController (M68-T4)
+- 2026-11-14 M68-D5 execute_javascript en Node delega en subproceso aislado node --permission con env={} vía zerochat/sandbox/execute en el backend Python y mata por señal al vencer timeout (M68-T5)
+- 2026-11-14 M68-D6 No se comprueba la integridad de runner.js: comparte con la interfaz la confianza en GitHub Pages, y la interfaz tiene más alcance (token completo frente al limitado de T4); fijar su huella al backend obligaría a publicar en PyPI con cada cambio de JS. El runner arranca con entorno mínimo, lo único en que estaba peor que la interfaz (process.env es legible con --permission) (M68-T6)
