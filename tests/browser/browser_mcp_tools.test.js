@@ -618,6 +618,18 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
       window.__commandCard = card;
     });
     await page.waitForFunction(() => /^En segundo plano · /.test(window.__commandCard.querySelector('.tool-card-badge').textContent.trim()));
+    // Plegada, muestra la última línea de salida que trae el latido; desplegada no, porque se ve el log.
+    const lastLine = await page.evaluate(() => {
+      const card = window.__commandCard;
+      const element = card.querySelector('.command-card-last-line');
+      card.querySelector('.tool-execution-card').classList.add('collapsed');
+      window.ChatMCP.manager.applyLiveState({ jobs: [{ id: 11, command: 'npm run watch', status: 'running', started_at: Date.now(), background: true, last_line: 'compilando 3/10' }] });
+      const folded = { text: element.textContent, shown: getComputedStyle(element).display !== 'none' && !element.hidden };
+      card.querySelector('.tool-execution-card').classList.remove('collapsed');
+      return { folded, expandedShown: getComputedStyle(element).display !== 'none' };
+    });
+    assert.deepEqual(lastLine, { folded: { text: 'compilando 3/10', shown: true }, expandedShown: false });
+
     // Plegada (tras volver a la vista), solo pregunta por el final.
     const before = await page.evaluate(() => {
       window.__commandCard.querySelector('.tool-execution-card').classList.add('collapsed');
@@ -627,6 +639,7 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
       return before;
     });
     await page.waitForFunction(() => window.__commandCard.querySelector('.tool-card-badge').textContent.trim() === 'Terminado · 42 s');
+    assert.equal(await page.evaluate(() => window.__commandCard.querySelector('.command-card-last-line').hidden), true, 'Un comando terminado no muestra última línea');
     const viaHeartbeat = await page.evaluate(before => window.__jobCalls.slice(before).map(call => [call.method, call.params.id]), before);
     // Después vuelve a leer la lista de comandos en marcha, ya sin este.
     assert.deepEqual(viaHeartbeat, [['zerochat/jobs/get', 11], ['zerochat/jobs/list', undefined]]);

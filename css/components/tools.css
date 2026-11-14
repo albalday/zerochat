@@ -1455,6 +1455,22 @@
   flex-shrink: 0;
 }
 
+/* Última línea de salida de un comando en marcha: solo con la tarjeta plegada, donde no se ve el log */
+.command-card-last-line {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.command-card:not(.collapsed) .command-card-last-line {
+  display: none;
+}
+
 .command-card-log {
   font-size: 0.78rem;
   white-space: pre-wrap;

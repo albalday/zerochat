@@ -248,6 +248,29 @@ class BackgroundCommandTest(unittest.TestCase):
         self.assertEqual(check(server["job_id"])["status"], "running")
         check(server["job_id"], stop=True)
 
+    def test_el_latido_publica_la_ultima_linea_de_cada_comando_en_marcha_recortada_en_el_borde(self):
+        limit = zerochat.LAST_LINE_MAX_CHARS
+        cases = [
+            ("printf 'uno\\ndos\\n\\n'", "dos"),
+            # Una barra de progreso que se reescribe con \r: su último tramo.
+            ("printf 'descargando 10%%\\rdescargando 55%%\\r'", "descargando 55%"),
+            (f"head -c {limit} /dev/zero | tr '\\0' a; echo", "a" * limit),
+            (f"head -c {limit + 1} /dev/zero | tr '\\0' a; echo", "a" * (limit - 1) + "…"),
+        ]
+        ctx = zerochat.project_context()
+        for command, expected in cases:
+            with self.subTest(command=command):
+                job = run(f"{command}; exec sleep 100", background=True)
+                deadline = time.monotonic() + 5
+                published = None
+                while time.monotonic() < deadline:
+                    published = next(item for item in zerochat.live_state(ctx)["jobs"] if item["id"] == job["job_id"])
+                    if published["last_line"]:
+                        break
+                    time.sleep(0.05)
+                self.assertEqual(published["last_line"], expected)
+                check(job["job_id"], stop=True)
+
     def test_cada_proyecto_solo_ve_y_detiene_sus_comandos(self):
         other = zerochat.SecurityContext(self.data_dir.resolve())
         alive = run("exec sleep 100", background=True)

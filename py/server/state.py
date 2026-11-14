@@ -76,7 +76,7 @@ def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -
     """
     Estado del servidor que la interfaz sigue en vivo, en initialize y en cada zerochat/heartbeat:
     cwd, el proyecto de la pestaña que pregunta (su cabecera X-ZeroChat-Project); jobs, los comandos en
-    marcha, para mostrarlos y avisar antes de cerrar si se detendrían; exit_on_close; playwright, si
+    marcha con su última línea de salida, para mostrarlos y avisar antes de cerrar si se detendrían; exit_on_close; playwright, si
     se puede navegar aunque se haya instalado o quitado durante la sesión; servers, los servicios
     MCP externos aunque otra pestaña los cambie o su proceso muera; runs, lista ligera de ejecuciones
     en segundo plano; y focus_run, estado detallado de la ejecución enfocada por el usuario.
@@ -84,7 +84,7 @@ def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -
     runs, focus_run = list_server_runs(focus_conversation_id)
     return {
         "cwd": str(ctx.workspace_dir),
-        "jobs": [job.summary() for job in JOBS.running(ctx.key)],
+        "jobs": [{**job.summary(), "last_line": job.last_line()} for job in JOBS.running(ctx.key)],
         "exit_on_close": EXIT_ON_CLOSE,
         "playwright": playwright_status(),
         "servers": GLOBAL_MCP_MANAGER.list_servers(),

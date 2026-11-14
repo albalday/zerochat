@@ -469,7 +469,8 @@
           .map(job => ({
             id: job.id,
             command: typeof job.command === 'string' ? job.command : '',
-            startedAt: Number.isFinite(job.started_at) ? job.started_at : Date.now()
+            startedAt: Number.isFinite(job.started_at) ? job.started_at : Date.now(),
+            lastLine: typeof job.last_line === 'string' ? job.last_line : ''
           }));
         if (JSON.stringify(jobs) !== JSON.stringify(current.commandJobs)) next.commandJobs = jobs;
       }

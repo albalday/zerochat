@@ -220,7 +220,13 @@
       collapsed,
       actionLabel: t('command_action_stop'),
       titleHtml: `${icon('terminal', 14)}<code class="command-card-command" title="${escapeHtml(command)}">${escapeHtml(firstLine)}</code>`
+        + '<span class="command-card-last-line" hidden></span>'
     });
+  }
+
+  /** Última línea de salida que publica el latido para el comando `id`, o vacía. */
+  function lastLineOf(id) {
+    return getState().get('mcp').commandJobs.find(job => job.id === id)?.lastLine || '';
   }
 
   // Tarjetas de comandos en marcha: un único reloj para todas y una única suscripción al latido.
@@ -247,6 +253,10 @@
         for (const item of tracked) {
           if (hasLeftRunning(item.state, running)) item.refreshStatus();
         }
+      });
+      // Plegada, la tarjeta de un comando en marcha muestra su última línea de salida.
+      getState().subscribe(state => ({ lines: JSON.stringify(state.mcp.commandJobs.map(job => [job.id, job.lastLine])) }), () => {
+        for (const item of tracked) item.renderLastLine();
       });
     }
   }
@@ -299,6 +309,15 @@
       if (Number.isInteger(state.id)) card.dataset.jobId = String(state.id);
       this.renderBadge();
       card.querySelector('[data-command-action="stop"]').hidden = !canStop(state, card.dataset.invocationId);
+      this.renderLastLine();
+    }
+
+    renderLastLine() {
+      const element = this.card.querySelector('.command-card-last-line');
+      const text = this.state.status === 'running' && Number.isInteger(this.state.id) ? lastLineOf(this.state.id) : '';
+      element.textContent = text;
+      element.title = text;
+      element.hidden = !text;
     }
 
     applyDetails(details) {

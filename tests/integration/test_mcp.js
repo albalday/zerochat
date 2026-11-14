@@ -910,7 +910,7 @@ test('MCP - applyLiveState publica el estado vivo del servidor y solo escribe lo
     const writes = [];
     const unsubscribe = ChatState.subscribe('mcp', value => writes.push(value));
     const jobs = [
-      { id: 1, key: 'inv-a', command: 'npm run dev', status: 'running', started_at: 1000, background: true, elapsed_s: 3 },
+      { id: 1, key: 'inv-a', command: 'npm run dev', status: 'running', started_at: 1000, background: true, elapsed_s: 3, last_line: 'ready in 300 ms' },
       { id: 2, command: 'npm test', status: 'exited', started_at: 2000, background: true },
       { id: 4, command: 'npm run build', status: 'running', started_at: 3000, background: false },
       { id: 'x', command: 'malo', status: 'running', background: true }
@@ -920,7 +920,7 @@ test('MCP - applyLiveState publica el estado vivo del servidor y solo escribe lo
     assert.equal(writes.length, 1, 'Un latido es una sola escritura');
     const mcp = ChatState.get('mcp');
     // Solo los de segundo plano: un comando esperado ya se ve en su tarjeta.
-    assert.deepEqual(mcp.commandJobs, [{ id: 1, command: 'npm run dev', startedAt: 1000 }]);
+    assert.deepEqual(mcp.commandJobs, [{ id: 1, command: 'npm run dev', startedAt: 1000, lastLine: 'ready in 300 ms' }]);
     assert.equal(mcp.exitOnClose, true);
     assert.equal(mcp.serverInfo.cwd, '/otro');
     assert.equal(refreshSec.mock.callCount(), 1);

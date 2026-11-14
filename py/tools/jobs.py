@@ -41,6 +41,8 @@ REPORT_TAIL_LINES = 20
 # check_command(pattern): longitud máxima de la expresión y de la línea que se devuelve al coincidir.
 CHECK_PATTERN_MAX_CHARS = 200
 MATCHED_LINE_MAX_CHARS = 500
+# Última línea de salida de cada comando en marcha en el latido, para su tarjeta plegada.
+LAST_LINE_MAX_CHARS = 200
 # Cada cuánto comprueba una espera de check_command si la persona la ha cortado.
 WAIT_SLICE_SECONDS = 0.25
 REPORT_TAIL_BYTES = 4096
@@ -372,6 +374,14 @@ class CommandJob:
 
     def tail_text(self, max_bytes: int = CARD_TAIL_BYTES) -> str:
         return self.read_range(max(0, self._total - max_bytes), max_bytes)[0]
+
+    def last_line(self) -> str:
+        """Última línea no vacía de la salida; de una barra de progreso que se reescribe con \\r, su último tramo."""
+        for line in reversed(self.tail_text().split("\n")):
+            text = line.rstrip("\r").rsplit("\r", 1)[-1].strip()
+            if text:
+                return text if len(text) <= LAST_LINE_MAX_CHARS else text[:LAST_LINE_MAX_CHARS - 1] + "…"
+        return ""
 
     # --- Estado -------------------------------------------------------------
 
