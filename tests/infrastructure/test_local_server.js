@@ -354,7 +354,7 @@ describe('Servidor local zerochat.py', () => {
     assert.equal(htmlRes.status, 200, 'Debe servir zerochat.html con 200 OK');
     assert.match(htmlRes.headers.get('content-type') || '', /text\/html/);
     assert.ok((await htmlRes.text()).includes('ZeroChat'), 'El contenido debe ser el HTML de ZeroChat');
-    for (const [file, type] of [['js/app.js', /javascript/], ['css/tokens.css', /text\/css/], ['manifest.webmanifest', /manifest/]]) {
+    for (const [file, type] of [['files.html', /text\/html/], ['js/app.js', /javascript/], ['css/tokens.css', /text\/css/], ['manifest.webmanifest', /manifest/]]) {
       const res = await fetch(`${baseUrl}/${file}`);
       assert.equal(res.status, 200, file);
       assert.match(res.headers.get('content-type') || '', type, file);

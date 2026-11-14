@@ -8030,9 +8030,10 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         except ValueError:
             return False
 
-        # Whitelist de archivos y carpetas autorizados para servir la interfaz web
+        # Whitelist de archivos y carpetas autorizados para servir la interfaz web: sus dos páginas
+        # (el chat y el navegador de ficheros del proyecto) y sus recursos.
         is_allowed_static = (
-            clean_rel == "zerochat.html" or
+            clean_rel in ("zerochat.html", "files.html") or
             clean_rel in ("manifest.webmanifest", "sw.js", "favicon.ico") or
             clean_rel.startswith("js/") or
             clean_rel.startswith("css/") or
