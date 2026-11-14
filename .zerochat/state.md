@@ -1,4 +1,4 @@
 # Current state
-- Milestone: M69 Esperas y comandos a la vista
+- Milestone: none (M69 closed 2026-11-14)
 - Next task: none pending
 - Last updated: 2026-11-14
