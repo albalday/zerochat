@@ -1382,7 +1382,7 @@ def _pid_alive(pid: int) -> bool:
 
 
 
-SOURCE_BACKEND_VERSION = "10.17.0"
+SOURCE_BACKEND_VERSION = "10.18.0"
 
 
 def _read_source_version(filename: str) -> str | None:
