@@ -137,6 +137,8 @@
     messagesList: 'messages-list',
     btnScrollBottom: 'btn-scroll-bottom',
     welcomeBanner: 'welcome-banner',
+    welcomeProject: 'welcome-project',
+    welcomeProjectText: 'welcome-project-text',
     chatForm: 'chat-form',
     userInput: 'user-input',
     btnSend: 'btn-send',
@@ -653,6 +655,7 @@
     const config = getRuntimeConfig();
     const project = State.get('project');
     UIReasoning.syncProjectIndicator(elements, config, project);
+    UIReasoning.syncWelcomeProject(elements, config, project);
     if (!elements.reasoningModal || elements.reasoningModal.hidden) return;
     UIReasoning.renderProjectPanel(elements, {
       config,

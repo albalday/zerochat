@@ -113,6 +113,16 @@
     button.setAttribute('title', text ? `${baseTitle} · ${text}` : baseTitle);
   }
 
+  /** Página de un chat vacío: proyecto del servidor (ruta completa en el tooltip) y modo proyecto activado o no. */
+  function syncWelcomeProject(elements, config, project) {
+    const enabled = config.projectMode === true;
+    const cwd = String(project.cwd || '');
+    const place = cwd ? t('welcome_project', { name: projectName(cwd) }) : t('welcome_no_project');
+    elements.welcomeProjectText.textContent = `${place} · ${t(enabled ? 'welcome_project_mode_on' : 'welcome_project_mode_off')}`;
+    elements.welcomeProject.title = cwd;
+    elements.welcomeProject.toggleAttribute('data-project-mode-off', !enabled);
+  }
+
   /** Pie del modal: interruptor del modo proyecto, su estado, el directorio y las acciones del estado. */
   function renderProjectPanel(elements, { config, project, canInitialize, canCompact, canChangeDirectory, busy }) {
     const enabled = config.projectMode === true;
@@ -203,6 +213,7 @@
     toggleReasoningMenu,
     updateReasoningUI,
     renderProjectPanel,
-    syncProjectIndicator
+    syncProjectIndicator,
+    syncWelcomeProject
   };
 });

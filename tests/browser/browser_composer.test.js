@@ -68,11 +68,17 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
     assert.equal(indicator.dot, true);
     assert.match(indicator.title, /zerochat/);
     assert.match(indicator.label, /zerochat/);
+    // La página del chat vacío dice en qué proyecto se está y si el modo proyecto está activado.
+    const welcome = () => page.evaluate(() => ({ text: document.getElementById('welcome-project-text').textContent, title: document.getElementById('welcome-project').title }));
+    const expectedWelcome = (place, mode) => page.evaluate(([place, mode]) => `${window.ChatI18n.t(place, { name: 'zerochat' })} · ${window.ChatI18n.t(mode)}`, [place, mode]);
+    assert.deepEqual(await welcome(), { text: await expectedWelcome('welcome_project', 'welcome_project_mode_on'), title: '/home/u/zerochat' });
 
     await page.locator('#project-mode-panel .switch').click();
     assert.equal(await page.evaluate(() => window.ChatConfig.getActive().projectMode), false);
     await page.waitForFunction(() => window.ChatState.get('project').status === 'disabled');
     assert.equal(await page.locator('#btn-reasoning').getAttribute('data-project-indicator'), null, 'Desactivado no hay indicador');
+    // Sin servidor, al recalcular ya no hay carpeta.
+    assert.equal((await welcome()).text, await expectedWelcome('welcome_no_project', 'welcome_project_mode_off'));
     await page.locator('#project-mode-panel .switch').click();
     await page.waitForFunction(() => window.ChatState.get('project').status === 'unavailable');
 

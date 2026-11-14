@@ -40,7 +40,10 @@
       // Estado de Bienvenida inicial
       welcome_heading: 'ZeroChat',
       welcome_desc: 'Entorno conversacional y agente autónomo local.',
-      welcome_status: 'Chat vacío · A la espera de un comando',
+      welcome_project: 'Proyecto {name}',
+      welcome_no_project: 'Sin proyecto',
+      welcome_project_mode_on: 'Modo proyecto: activado',
+      welcome_project_mode_off: 'Modo proyecto: desactivado',
       welcome_help_link: 'Ayuda y Documentación',
       welcome_help_title: 'Abrir centro de ayuda y documentación online',
       welcome_help_href: 'help/index.html',
@@ -968,7 +971,10 @@
       // Welcome state
       welcome_heading: 'ZeroChat',
       welcome_desc: 'Conversational environment & local autonomous agent.',
-      welcome_status: 'Empty chat · Awaiting a command',
+      welcome_project: 'Project {name}',
+      welcome_no_project: 'No project',
+      welcome_project_mode_on: 'Project mode: on',
+      welcome_project_mode_off: 'Project mode: off',
       welcome_help_link: 'Help & Documentation',
       welcome_help_title: 'Open online help and documentation center',
       welcome_help_href: 'help/en/index.html',
