@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Review 5: Technical level and evolution · ZeroChat 10.x Docs</title>
-  <meta name="description" content="Assessment of the technical level of ZeroChat 10.15.0 by area, its structural weaknesses and advice on evolution ordered by time frame.">
+  <meta name="description" content="Assessment of the technical level of ZeroChat 10.16.0 by area, its structural weaknesses and advice on evolution ordered by time frame.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -21,13 +21,13 @@
         </div>
       </div>
       <h1>Review 5: Technical level and evolution</h1>
-      <p class="subtitle">A reasoned opinion on the technical quality of ZeroChat 10.15.0 and advice for its next stage. Written on 13 November 2026.</p>
+      <p class="subtitle">A reasoned opinion on the technical quality of ZeroChat 10.16.0 and advice for its next stage. Written on 13 November and updated on 14 November 2026.</p>
     </header>
 
     <main>
       <div class="card">
         <h2>What this page is</h2>
-        <p>The four previous reviews describe verified facts. This one is an <strong>opinion</strong>: an assessment of the technical level of ZeroChat 10.15.0 and some advice on where to take it. It rests on those reviews and on reading the code, but its conclusions are debatable and should be read that way.</p>
+        <p>The four previous reviews describe verified facts. This one is an <strong>opinion</strong>: an assessment of the technical level of ZeroChat 10.16.0 and some advice on where to take it. It rests on those reviews and on reading the code, but its conclusions are debatable and should be read that way.</p>
         <p>The yardstick is twofold: what can be expected from a personal project maintained by one person with coding agents, and what would be demanded of a product that runs commands on its user's machine.</p>
       </div>
       <div class="card">
@@ -36,12 +36,12 @@
           <table>
             <thead><tr><th>Area</th><th>Level</th><th>Why</th></tr></thead>
             <tbody>
-              <tr><td>Tests and executable rules</td><td>Very high</td><td>832 tests that run in under a minute and, above all, 14 files of architecture tests that turn the rules into something that fails. It is the most distinctive trait of the project and uncommon even in professional teams. The backend is now tested on Linux, Windows and macOS. It lacks coverage measurement and testing mitigations by attempting the attack.</td></tr>
+              <tr><td>Tests and executable rules</td><td>Very high</td><td>847 tests that run in under a minute and, above all, 14 files of architecture tests that turn the rules into something that fails. It is the most distinctive trait of the project and uncommon even in professional teams. The backend is now tested on Linux, Windows and macOS. It lacks coverage measurement and a test that launches the real runner with its permissions.</td></tr>
               <tr><td>Permission engine</td><td>High</td><td>A single decision point on the server, transactional state, single-use challenges, commands validated subcommand by subcommand and failures that never degrade to "allow". It is designed the way someone who knows the problem would design it.</td></tr>
-              <tr><td>Perimeter security</td><td>High, with one gap</td><td>Daily token, PAM sign-in with no dependencies, anti-SSRF on every redirect and a closed <code>innerHTML</code> list. The gap is in server runs: the Node process runs with restricted permissions, but it shares the full token, and from its JavaScript sandbox injected text can go as far as changing permissions.</td></tr>
-              <tr><td>Frontend architecture</td><td>High</td><td>70 modules with no bundle, state in slices with mutators, persistence and DOM boundaries watched by tests, and an agent loop that runs the same in the browser and in Node thanks to adapters. Trade-offs: no type analysis and two coordinators above 1,100 lines.</td></tr>
-              <tr><td>Backend architecture</td><td>High</td><td>It is still a single dependency-free file acting as HTTP server, process manager, permission engine and SQLite store, but it is now generated from 30 modules in 11 packages with real imports, no cycles, and <code>ruff</code> and <code>pyright</code> in CI. It is the clearest structural improvement of the series. One seam remains: the generated file is a single namespace, and part of the state only works that way.</td></tr>
-              <tr><td>Data model</td><td>Medium</td><td>The data lives twice (SQLite and IndexedDB) and the relationship between the two copies has been redefined several times in a week. Deletion is now consistent: the server first, and attachments go with their conversation. There is still no concurrency control between tabs and no server backup. It is the least settled area.</td></tr>
+              <tr><td>Perimeter security</td><td>High</td><td>Daily token, PAM sign-in with no dependencies, anti-SSRF on every redirect and a closed <code>innerHTML</code> list. In server runs, the Node process runs with restricted permissions and a credential limited to its run, and the model's JavaScript goes in a separate process with no credential. What remains are known risks: <code>runner.js</code> comes without a hash from the same origin as the interface, and that separate process has network access.</td></tr>
+              <tr><td>Frontend architecture</td><td>High</td><td>72 modules with no bundle, state in slices with mutators, persistence and DOM boundaries watched by tests, and an agent loop that runs the same in the browser and in Node thanks to adapters. Trade-off: no type analysis.</td></tr>
+              <tr><td>Backend architecture</td><td>High</td><td>It is still a single dependency-free file acting as HTTP server, process manager, permission engine and SQLite store, but it is now generated from 31 modules in 11 packages with real imports, no cycles, and <code>ruff</code> and <code>pyright</code> in CI, and it behaves the same imported as a package as compiled. It is the clearest structural improvement of the series.</td></tr>
+              <tr><td>Data model</td><td>Medium</td><td>The data lives twice (SQLite and IndexedDB) and the relationship between the two copies has been redefined several times in a week. Deletion is now consistent: the server first, and each attachment is collected when no saved message uses it. There is still no concurrency control between tabs and no server backup. It is the least settled area.</td></tr>
               <tr><td>Development process</td><td>High</td><td>Versioned project memory, recorded decisions, 300-line tasks, periodic audits and continuous cleanup. The findings of the previous review became tasks and were fixed the same day, each with its test. The risk lies in the pace: sixteen minor versions in seven days leave no time for real use to find the faults.</td></tr>
               <tr><td>Product and user experience</td><td>Medium-high</td><td>It covers a lot and covers it well, but each series adds concepts: local and server profiles, a project per tab, three permission scopes, two execution environments. The entry curve grows faster than the help that explains it.</td></tr>
               <tr><td>Documentation</td><td>High</td><td>Bilingual help with its sync test, READMEs with contracts per subsystem and a decision log that lets you reconstruct the why of almost everything.</td></tr>
@@ -52,7 +52,7 @@
       <div class="card">
         <h2>2. Overall opinion</h2>
         <p><strong>The technical level is high, and in testing and permission discipline it is above what most projects of its size show.</strong> It is not a prototype that grew: it is a system with defined boundaries that cleans itself up and can change architecture in a week without breaking. That is hard to achieve, and harder with almost all the code written by agents.</p>
-        <p>That last point is the key to understanding it. Quality is not guaranteed by whoever writes each line, but by the set of rules that fail when broken. Where those rules exist, the code is consistent; where they have not been stated yet, the gaps appear, and they appear fast because the delivery pace is very high. The Node sandbox is the example: it shipped in one day, with a test that seemed to cover it, in the only part of the frontend that had no security rule of its own.</p>
+        <p>That last point is the key to understanding it. Quality is not guaranteed by whoever writes each line, but by the set of rules that fail when broken. Where those rules exist, the code is consistent; where they have not been stated yet, the gaps appear, and they appear fast because the delivery pace is very high.</p>
         <p>There are five underlying weaknesses, and none is about craft but about structure:</p>
         <ul>
           <li><strong>Static verification is partial.</strong> The backend has <code>ruff</code> with two rules and <code>pyright</code> in basic mode; the 30,000 lines of JavaScript still have no checked types, and their contracts between modules are watched only by tests.</li>
@@ -64,12 +64,10 @@
       </div>
       <div class="card">
         <h2>3. Advice on evolution</h2>
-        <h3>Now: close what the 10 series left open</h3>
+        <h3>Now: test server mode as it is used</h3>
         <ol>
-          <li><strong>Give the runner its own credential.</strong> A run token that only serves to call tools and follow its conversation, and that the server rejects when changing policies, authorizing challenges or reading profiles. It is the change that removes the most risk with the least code, because it covers any failure inside the runner and not only the sandbox.</li>
-          <li><strong>Truly isolate the model's JavaScript on the server.</strong> A separate process, without the runner's token or environment and killed by signal when the timeout expires, solves F-01 and F-03 at once. Until then, removing the tool from server runs costs one line.</li>
-          <li><strong>Bound the server's HTML parser</strong> in size, time and depth, with its edge tests. It is new code that processes foreign pages inside the process most worth protecting.</li>
-          <li><strong>Test mitigations by attempting the attack.</strong> A test that launches the real runner with its permissions and checks what it cannot do, plus the caps that still lack their edge case.</li>
+          <li><strong>Test the real runner.</strong> A test that launches <code>runner.js</code> with <code>--permission</code> and its credential, and checks what it cannot do: today the startup tests replace Node with a script.</li>
+          <li><strong>Cut the sandbox's network when possible.</strong> From Node 25 the permission model limits the network; raising the minimum for the sandbox process, or checking its version, would close the one thing it keeps.</li>
         </ol>
         <h3>Next: give ground to what grew fast</h3>
         <ol>
@@ -78,7 +76,7 @@
           <li><strong>Server backup.</strong> Now that history lives in <code>~/zerochat/storage/</code>, a command to export and restore it is worth more than any new feature.</li>
           <li><strong>Agent evaluations.</strong> A small, reproducible battery of tasks, run with <code>zerochat --prompt</code> against several local models, measuring successes, steps and context used. The current tests prove the code does what it says; none proves the agent solves tasks. No per-model tuning: the battery measures the product, it does not tweak templates.</li>
           <li><strong>A stable channel.</strong> Keep publishing as often as wanted on a development channel and promote to stable every week or two, with a changelog. Sixteen versions in seven days are too many for someone installing from PyPI.</li>
-          <li><strong>Finish the backend in packages.</strong> Read shared state through functions so that <code>py/</code> behaves the same imported as compiled, remove the symbol inventory that protected the moves and widen the static analysis rules little by little.</li>
+          <li><strong>Widen the backend's static analysis.</strong> <code>ruff</code> uses two rules and <code>pyright</code> the basic mode with four rules disabled; widen them little by little, and bring them into the <code>npm run test</code> levels so they do not depend only on CI.</li>
         </ol>
         <h3>Later: decisions about direction</h3>
         <ol>
@@ -98,8 +96,8 @@
         <h2>Authorship and verification environment</h2>
         <div class="alert alert-info">
           <ul>
-            <li><strong>Opinion and writing:</strong> Claude Fable 5.2 in Claude Code, at the project owner's request.</li>
-            <li><strong>Basis:</strong> reviews 1 to 4 and reading the code at commit <code>ab1a340</code>, including the 62 commits made after the previous review. Coverage was not measured and no systematic comparison with other projects was made.</li>
+            <li><strong>Opinion and writing:</strong> Claude Fable 5.2 in Claude Code, at the project owner's request. Update to 10.16.0: Claude Opus 5.5 in Claude Code.</li>
+            <li><strong>Basis:</strong> reviews 1 to 4 and reading the code at commit <code>865cbba</code> of 10.16.0, including the 77 commits made after the previous review. Coverage was not measured and no systematic comparison with other projects was made.</li>
           </ul>
         </div>
       </div>
@@ -117,7 +115,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat 10.x · Review 5 (Technical level and evolution) · 13 November 2026</p>
+      <p>ZeroChat 10.x · Review 5 (Technical level and evolution) · 14 November 2026</p>
     </footer>
   </div>
 </body>

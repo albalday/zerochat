@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Review 2: Features · ZeroChat 10.x Docs</title>
-  <meta name="description" content="Capabilities of ZeroChat 10.15.0 with the test protecting each one: conversations in SQLite, server runs, permissions, projects and the two execution environments.">
+  <meta name="description" content="Capabilities of ZeroChat 10.16.0 with the test protecting each one: conversations in SQLite, server runs, permissions, projects and the two execution environments.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -21,13 +21,13 @@
         </div>
       </div>
       <h1>Review 2: Features</h1>
-      <p class="subtitle">What ZeroChat 10.15.0 does, which test backs it and what changes when running on the server. Updated on 13 November 2026.</p>
+      <p class="subtitle">What ZeroChat 10.16.0 does, which test backs it and what changes when running on the server. Updated on 14 November 2026.</p>
     </header>
 
     <main>
       <div class="card">
         <h2>1. Goal and method</h2>
-        <p>ZeroChat aims to be the single frontend for local models served separately through OpenAI-compatible APIs (vLLM, llama.cpp, LM Studio, SGLang) or Ollama. The review walks through the capabilities of version <strong>10.15.0</strong> (commit <code>ab1a340</code>) in the code, not in the documentation.</p>
+        <p>ZeroChat aims to be the single frontend for local models served separately through OpenAI-compatible APIs (vLLM, llama.cpp, LM Studio, SGLang) or Ollama. The review walks through the capabilities of version <strong>10.16.0</strong> (commit <code>865cbba</code>) in the code, not in the documentation.</p>
         <p>The 10.x series turns the local server into the home of the work: it stores conversations and profiles, runs agent turns in the background even with the browser closed, decides permissions and separates state by project. The web interface becomes a view that can be opened from several devices.</p>
         <p>Each capability states what protects it: <strong>[test]</strong> an automated test or <strong>[reading]</strong> code review.</p>
       </div>
@@ -41,16 +41,16 @@
               <tr><td>Context, cache and reasoning</td><td>Published or manual context size, history compaction, a stable prefix for the cache and reasoning in its own block, forwarded between steps.</td><td>[test] <code>test_context_manager.js</code>, <code>test_token_telemetry.js</code>, <code>test_context_cache_architecture.js</code>, <code>test_agent_runtime.js</code></td><td>The model server must separate reasoning in its response.</td></tr>
               <tr><td>Agent and tools</td><td>12 native tools, native or in-text calls, an agent with no step cap and loop detection, and read-only subagents.</td><td>[test] <code>test_builtin_tools.js</code>, <code>test_text_tool_calls.js</code>, <code>test_agent_core.js</code>, <code>test_agent_runtime.js</code>, <code>test_delegate_task.js</code></td><td>A loop with ever-changing arguments needs Stop.</td></tr>
               <tr><td>Local server</td><td>Files, <code>run_command</code> with a live card and background mode, diagnostics, a built-in HTML diff viewer and managed MCP services.</td><td>[test] <code>py/test_run_command.py</code>, <code>py/test_file_tools.py</code>, <code>py/test_diff_tool.py</code>, <code>py/test_mcp_services.py</code></td><td>Up to 8 commands running at once.</td></tr>
-              <tr><td>Permissions</td><td>Policies per tool and service, directory rules, command patterns with per-argument wildcards in three scopes (session, project and global) and an authorization card with an editable pattern.</td><td>[test] <code>py/test_security.py</code>, <code>test_tool_security.js</code>, <code>browser_mcp_tools.test.js</code></td><td><code>execute_javascript</code> stays outside the permission engine and, on the server, its code can change the policies (Review 1, F-01).</td></tr>
-              <tr><td>Conversations on the server</td><td>History in SQLite synchronized with IndexedDB: headers arrive on connect and each conversation is downloaded when opened; attachments and images stored separately, sent only once and deleted with the last conversation that uses them. With the server, deletion is confirmed there first.</td><td>[test] <code>py/test_storage.py</code>, <code>test_storage.js</code>, <code>test_conversation_service.js</code>, <code>test_blob_sync.js</code>, <code>browser_sidebar.test.js</code></td><td>Without the server only conversations already downloaded in that browser open; an attachment that stops being used when a conversation is edited is not deleted until the whole conversation is (F-05).</td></tr>
-              <tr><td>Server runs</td><td>An agent turn runs in the background on the server, in a Node process with restricted permissions; progress arrives with the heartbeat, the sidebar marks the ones running or waiting for an answer, and they resume after <code>ask_user</code> or an authorization.</td><td>[test] <code>py/test_server_runs.py</code>, <code>test_backend_run_mode.js</code>, <code>test_run_node.js</code>, <code>browser_run_mode.test.js</code></td><td>Needs Node.js 22.13 or later; no RAG or WebLLM.</td></tr>
+              <tr><td>Permissions</td><td>Policies per tool and service, directory rules, command patterns with per-argument wildcards in three scopes (session, project and global) and an authorization card with an editable pattern.</td><td>[test] <code>py/test_security.py</code>, <code>test_tool_security.js</code>, <code>browser_mcp_tools.test.js</code></td><td><code>execute_javascript</code> stays outside the permission engine: it is computation with no access to the machine.</td></tr>
+              <tr><td>Conversations on the server</td><td>History in SQLite synchronized with IndexedDB: headers arrive on connect and each conversation is downloaded when opened; attachments and images stored separately, sent only once and deleted as soon as no saved message uses them. With the server, deletion is confirmed there first.</td><td>[test] <code>py/test_storage.py</code>, <code>test_storage.js</code>, <code>test_conversation_service.js</code>, <code>test_blob_sync.js</code>, <code>browser_sidebar.test.js</code></td><td>Without the server only conversations already downloaded in that browser open.</td></tr>
+              <tr><td>Server runs</td><td>An agent turn runs in the background on the server, in a Node process with restricted permissions and its own credential, which cannot change permissions or read profiles; progress arrives with the heartbeat, the sidebar marks the ones running or waiting for an answer, and they resume after <code>ask_user</code> or an authorization.</td><td>[test] <code>py/test_server_runs.py</code>, <code>py/test_token.py</code>, <code>test_backend_run_mode.js</code>, <code>test_run_node.js</code>, <code>browser_run_mode.test.js</code></td><td>Needs Node.js 22.13 or later; no RAG or WebLLM.</td></tr>
               <tr><td>Command line</td><td><code>zerochat --prompt</code> and <code>--conversation</code> with profile, export and exit codes; <code>--list-profiles</code> and <code>--list-conversations</code>.</td><td>[test] <code>test_backend_run_mode.js</code>, <code>test_run_mode.js</code>, <code>py/test_storage.py</code>, <code>py/test_server_runs.py</code></td><td>A 900 s total deadline and 180 s without progress, both fixed.</td></tr>
               <tr><td>Projects and multi-session</td><td>Each conversation belongs to a project; opening it switches to its folder. Session permissions, challenges and commands do not mix between projects, and several tabs or devices share the state of theirs.</td><td>[test] <code>py/test_security.py</code>, <code>py/test_run_command.py</code>, <code>test_conversation_service.js</code></td><td>The same conversation in two tabs is not synchronized.</td></tr>
               <tr><td>History</td><td>Collapsible project groups, a search that keeps the headers, 50 painted conversations per group with "Show more", and deletion by project or of everything.</td><td>[test] <code>test_ui_sidebar.js</code>, <code>browser_sidebar.test.js</code>; measured with 10,000 conversations in <code>docs/audits/M63-historial.md</code></td><td>No automatic deletion by age.</td></tr>
               <tr><td>Profiles</td><td>Local and server profiles saved independently, import, MCP services and browser per profile; each conversation remembers its profile.</td><td>[test] <code>test_profiles.js</code>, <code>test_ui_profiles.js</code>, <code>browser_profiles_settings.test.js</code></td><td>Server profile keys are stored in clear text.</td></tr>
               <tr><td>Model browsing</td><td><code>browser_action</code> or Playwright MCP with its own engines or the user's browser; a browser is used by one conversation at a time and released after one idle minute.</td><td>[test] <code>py/test_browser.py</code>, <code>py/test_browser_config.py</code>, <code>py/test_security.py</code></td><td>No queue: another conversation gets an error until it is free.</td></tr>
               <tr><td>Documents</td><td>Word, PowerPoint, Excel, OpenDocument, <code>.doc</code>, <code>.xls</code> and PDF as attachments and in RAG; WebP images converted to JPEG for models that cannot read them.</td><td>[test] <code>test_office_parser.js</code>, <code>test_office_documents.js</code>, <code>test_file_parser.js</code>, <code>browser_documents.test.js</code></td><td>Caps per sheet and per file, with a notice.</td></tr>
-              <tr><td>Web</td><td>DuckDuckGo search and page reading through the local server, with browser headers and pacing between requests, or through Jina Reader without it. Since 10.15.0 it also works in server runs, with the project's own HTML parser.</td><td>[test] <code>test_web_tools.js</code>, <code>py/test_network.py</code></td><td>Anti-bot challenges are reported, not bypassed. On the server, a hostile page can block the parsing (F-04).</td></tr>
+              <tr><td>Web</td><td>DuckDuckGo search and page reading through the local server, with browser headers and pacing between requests, or through Jina Reader without it. Since 10.15.0 it also works in server runs, with the project's own HTML parser, bounded in depth and time.</td><td>[test] <code>test_web_tools.js</code>, <code>test_html_document.js</code>, <code>py/test_network.py</code></td><td>Anti-bot challenges are reported, not bypassed.</td></tr>
               <tr><td>Remote connection</td><td>SSH tunnel or reverse proxy with its key, and sign-in with the system account.</td><td>[test] <code>browser_connection.test.js</code>, <code>py/test_login.py</code>, <code>test_local_server.js</code></td><td>One system account per server.</td></tr>
               <tr><td>Project mode</td><td>Memory in <code>.zerochat/</code> that the model maintains with <code>task.py</code>, with its own panel and compaction after approval.</td><td>[test] <code>test_project_context.js</code>, <code>test_task_helper.js</code></td><td>Depends on the model following the protocol.</td></tr>
               <tr><td>RAG, debugging and WebLLM</td><td>A lexical Orama index in IndexedDB, an editable interceptor for every request and in-browser inference with WebGPU.</td><td>[test] <code>test_rag_index.js</code>, <code>test_rag_service.js</code>, <code>test_api_utils.js</code>, <code>test_webllm.js</code></td><td>Browser only; RAG without embeddings.</td></tr>
@@ -68,8 +68,8 @@
               <tr><td>Providers</td><td>All, including WebLLM</td><td>Remote APIs and model servers; no WebLLM</td></tr>
               <tr><td>Machine tools and MCP</td><td>Yes, with authorization challenges on screen</td><td>Yes; a challenge pauses the run until it is answered</td></tr>
               <tr><td>RAG</td><td>Yes</td><td>No</td></tr>
-              <tr><td><code>execute_javascript</code></td><td>Opaque-origin <code>iframe</code> with no network</td><td><code>node:vm</code>, which does not isolate, inside a process with no disk access but holding the server token (F-01)</td></tr>
-              <tr><td>Reading pages and Word files</td><td>The browser's <code>DOMParser</code></td><td>The project's own lightweight HTML parser (F-04)</td></tr>
+              <tr><td><code>execute_javascript</code></td><td>Opaque-origin <code>iframe</code> with no network</td><td>Separate Node process with no disk, environment or token, killed by signal when the timeout expires</td></tr>
+              <tr><td>Reading pages and Word files</td><td>The browser's <code>DOMParser</code></td><td>The project's own lightweight HTML parser, bounded in depth</td></tr>
               <tr><td><code>render_chart</code></td><td>Painted immediately</td><td>Recorded and painted when the chat is opened</td></tr>
               <tr><td>Continues with the browser closed</td><td>No</td><td>Yes</td></tr>
             </tbody>
@@ -96,10 +96,8 @@
       </div>
       <div class="card">
         <h2>5. Consistency with the help</h2>
-        <p>The help was checked against the code on the pages about the local server and MCP, running from the command line, conversations, profiles, project management, tools and remote connection. They match 10.15.0 in options, limits and names, including the new Node.js 22.13 minimum, with one exception. [reading]</p>
+        <p>The help was checked against the code on the pages about the local server and MCP, running from the command line, conversations, profiles, project management, tools and remote connection. They match the code in options, limits and names, including the Node.js 22.13 minimum. [reading]</p>
         <ul>
-          <li><code>tools-agent.html</code> and its translation say that calls to the local server "include authorization and a temporary single-use signature". That signature was the call signing removed in M56; today the server decides authorization with its policies and challenges (Review 1, F-10).</li>
-          <li><code>tools-agent.html</code> warns that the sandbox "is not a security barrier". That is true, but on the server the consequence differs from the browser, because the code can go as far as changing permissions, and the page does not tell them apart (F-01).</li>
           <li>A table comparing execution in the browser and on the server is missing (section 3).</li>
         </ul>
         <p><code>test_help_pages.js</code> checks that every page has its linked translation, the 10.x version series, a unique title and description, and an up-to-date sitemap. [test]</p>
@@ -118,13 +116,13 @@
       </div>
       <div class="card">
         <h2>7. Verdict</h2>
-        <p><strong>A working environment that lives on the server, with one execution environment more mature than the other.</strong> ZeroChat 10.15.0 lets you start a task, close the browser and pick it up from another device, with history and permissions in one place and separated by project. In this version server runs gained page and Word reading, tool batches with images and a process with restricted permissions. It is still the environment with fewer guarantees: its JavaScript sandbox does not isolate and its HTML parser is unbounded. The price of the whole is a product that is harder to explain and two environments that must be kept equivalent.</p>
+        <p><strong>A working environment that lives on the server, with one execution environment more mature than the other.</strong> ZeroChat 10.16.0 lets you start a task, close the browser and pick it up from another device, with history and permissions in one place and separated by project. In this version server runs gained page and Word reading, tool batches with images and a process with restricted permissions. In 10.16.0 it matches the browser where security matters: the runner has a credential limited to its run and the model's JavaScript runs in a separate process with no credential; it still lacks RAG and WebLLM. The price of the whole is a product that is harder to explain and two environments that must be kept equivalent.</p>
       </div>
       <div class="card" id="authorship">
         <h2>Authorship and verification environment</h2>
         <div class="alert alert-info">
           <ul>
-            <li><strong>Review and writing:</strong> Claude Fable 5.2 in Claude Code, from the code at commit <code>ab1a340</code> and the test suite.</li>
+            <li><strong>Review and writing:</strong> Claude Fable 5.2 in Claude Code, from the code at commit <code>ab1a340</code> and the test suite. Update to 10.16.0 (<code>865cbba</code>): Claude Opus 5.5 in Claude Code.</li>
           </ul>
         </div>
       </div>
@@ -142,7 +140,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat 10.x · Review 2 (Features) · 13 November 2026</p>
+      <p>ZeroChat 10.x · Review 2 (Features) · 14 November 2026</p>
     </footer>
   </div>
 </body>
