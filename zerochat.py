@@ -1381,7 +1381,7 @@ def _pid_alive(pid: int) -> bool:
 
 
 
-SOURCE_BACKEND_VERSION = "10.16.0"
+SOURCE_BACKEND_VERSION = "10.17.0"
 
 
 def _read_source_version(filename: str) -> str | None:
@@ -3371,7 +3371,7 @@ def update_security_policy_data(mutator: typing.Callable[[dict | None], dict]) -
 
 # Plazo total y sin progreso de la interfaz.
 RUN_TOTAL_TIMEOUT = 900.0
-RUN_IDLE_SECONDS = 180.0
+RUN_IDLE_SECONDS = 600.0
 RUN_POLL_SECONDS = 0.2
 RUN_PROGRESS_TEXT_MAX = 500
 RUN_STREAM_TEXT_MAX = 8000
@@ -3647,6 +3647,9 @@ class RunSession:
             self.tool_security = None
         self.lock = threading.Lock()
         self.last_activity = time.monotonic()
+        # Esperas de check_command: no cuentan como inactividad y alargan el plazo total.
+        self._waiting_since: float | None = None
+        self._waited = 0.0
         self.prompt_delivered = False
         self.result: dict | None = None
         self.stop_reason: str | None = None
@@ -3671,7 +3674,27 @@ class RunSession:
 
     def idle_seconds(self) -> float:
         with self.lock:
+            if self._waiting_since is not None:
+                return 0.0
             return time.monotonic() - self.last_activity
+
+    def begin_wait(self):
+        with self.lock:
+            self._waiting_since = time.monotonic()
+
+    def end_wait(self):
+        with self.lock:
+            now = time.monotonic()
+            if self._waiting_since is not None:
+                self._waited += now - self._waiting_since
+            self._waiting_since = None
+            self.last_activity = now
+
+    def waited_seconds(self) -> float:
+        """Tiempo total en esperas de check_command, incluida la que esté en curso."""
+        with self.lock:
+            ongoing = time.monotonic() - self._waiting_since if self._waiting_since is not None else 0.0
+            return self._waited + ongoing
 
 
 RUN_SESSION: RunSession | None = None
@@ -3977,6 +4000,9 @@ try {
         if (req.url && req.url !== page.url()) {
           await page.goto(req.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
         }
+        // Con la máquina cargada, Chromium puede no haber pintado aún ningún fotograma:
+        // esperar dos fotogramas garantiza que hay algo que capturar.
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         const buf = await page.screenshot({ fullPage: false });
         console.log(JSON.stringify({
           success: true,
@@ -5310,6 +5336,13 @@ MODEL_OUTPUT_READ_BYTES = 64 * 1024
 CARD_TAIL_BYTES = 2048
 JOB_LOG_PAGE_BYTES = 256 * 1024
 REPORT_TAIL_LINES = 20
+# check_command(pattern): longitud máxima de la expresión y de la línea que se devuelve al coincidir.
+CHECK_PATTERN_MAX_CHARS = 200
+MATCHED_LINE_MAX_CHARS = 500
+# Última línea de salida de cada comando en marcha en el latido, para su tarjeta plegada.
+LAST_LINE_MAX_CHARS = 200
+# Cada cuánto comprueba una espera de check_command si la persona la ha cortado.
+WAIT_SLICE_SECONDS = 0.25
 REPORT_TAIL_BYTES = 4096
 
 
@@ -5512,6 +5545,8 @@ class CommandJob:
         self.runner_path: Path | None = None
         self.done = threading.Event()
         self._lock = threading.Lock()
+        # Avisa a quien espera en check_command de que hay salida nueva o de que el comando terminó.
+        self._changed = threading.Condition(self._lock)
         self._log = open(log_path, "wb")
         self._head_len = 0
         self._tail = bytearray()
@@ -5540,6 +5575,7 @@ class CommandJob:
                 if overflow > 0:
                     del self._tail[:overflow]
                     self._tail_start += overflow
+            self._changed.notify_all()
 
     def _read_output(self, stream):
         try:
@@ -5625,8 +5661,25 @@ class CommandJob:
         omitted = total - start - 2 * MODEL_OUTPUT_READ_BYTES
         return head + f"\n[... {omitted} bytes omitted ...]\n" + tail
 
+    def wait_change(self, seen_total: int, timeout: float):
+        """Espera como mucho timeout segundos a que haya salida más allá de seen_total o a que el comando termine."""
+        with self._changed:
+            self._changed.wait_for(lambda: self._total > seen_total or self.done.is_set(), timeout)
+
+    def notify_finished(self):
+        with self._changed:
+            self._changed.notify_all()
+
     def tail_text(self, max_bytes: int = CARD_TAIL_BYTES) -> str:
         return self.read_range(max(0, self._total - max_bytes), max_bytes)[0]
+
+    def last_line(self) -> str:
+        """Última línea no vacía de la salida; de una barra de progreso que se reescribe con \\r, su último tramo."""
+        for line in reversed(self.tail_text().split("\n")):
+            text = line.rstrip("\r").rsplit("\r", 1)[-1].strip()
+            if text:
+                return text if len(text) <= LAST_LINE_MAX_CHARS else text[:LAST_LINE_MAX_CHARS - 1] + "…"
+        return ""
 
     # --- Estado -------------------------------------------------------------
 
@@ -5663,6 +5716,10 @@ class JobManager:
         self._lock = threading.Lock()
         self._dir: Path | None = None
         self._windows_job: _WindowsKillOnCloseJob | None = None
+        # Avisa a check_command sin job_id de que ha terminado algún comando.
+        self._finished = threading.Condition()
+        # Esperas de check_command en curso, por la clave de su invocación: la persona puede cortarlas.
+        self._waits: dict[str, threading.Event] = {}
         atexit.register(self.shutdown)
 
     def _session_dir(self) -> Path:
@@ -5788,6 +5845,39 @@ class JobManager:
             job.status = "exited"
         self._write_registry()
         job.done.set()
+        job.notify_finished()
+        with self._finished:
+            self._finished.notify_all()
+
+    def wait_any_finished(self, jobs: list[CommandJob], timeout: float, cancel: threading.Event) -> list[CommandJob]:
+        """Espera como mucho timeout segundos a que termine alguno de jobs o se corte la espera; devuelve los terminados."""
+        with self._finished:
+            self._finished.wait_for(lambda: cancel.is_set() or any(job.done.is_set() for job in jobs), timeout)
+        return [job for job in jobs if job.done.is_set()]
+
+    def open_wait(self, key: str | None) -> threading.Event:
+        """Registra una espera que se puede cortar con cancel_wait(key); sin clave no se puede cortar."""
+        event = threading.Event()
+        if key:
+            with self._lock:
+                self._waits[key] = event
+        return event
+
+    def close_wait(self, key: str | None):
+        if key:
+            with self._lock:
+                self._waits.pop(key, None)
+
+    def cancel_wait(self, key) -> bool:
+        """Corta la espera de check_command con esa clave; devuelve si había una en curso."""
+        with self._lock:
+            event = self._waits.get(key) if isinstance(key, str) else None
+        if event is None:
+            return False
+        event.set()
+        with self._finished:
+            self._finished.notify_all()
+        return True
 
     def get(self, project: str, job_id=None, key=None) -> CommandJob | None:
         jobs = self.list(project)
@@ -5868,7 +5958,7 @@ def _clamp_seconds(value, default: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(number, maximum))
 
 
-def _job_result(job: CommandJob, note: str | None = None, output_field: str = "output") -> str:
+def _job_result(job: CommandJob, note: str | None = None, output_field: str = "output", extra: dict | None = None) -> str:
     """Resultado para el modelo con la salida que aún no ha visto."""
     start = job.model_cursor
     total = job.total
@@ -5891,6 +5981,8 @@ def _job_result(job: CommandJob, note: str | None = None, output_field: str = "o
         result["log_file"] = str(job.log_path)
     if job.status == "stopped":
         result["stopped_by"] = job.stop_reason
+    if extra:
+        result.update(extra)
     if note:
         result["note"] = note
     return json.dumps(result, ensure_ascii=False, indent=2)
@@ -5920,18 +6012,100 @@ def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, ba
     return _job_result(job)
 
 
-def check_command(job_id: int, wait_seconds: int = 0, stop: bool = False, *, ctx: SecurityContext) -> str:
-    """Estado y salida nueva de un comando lanzado por run_command; puede esperarlo o detenerlo."""
+def _wait_job(job: CommandJob, wait: float, regex: re.Pattern | None, cancel: threading.Event) -> tuple[str, str | None]:
+    """Espera a que termine el comando, a que una línea nueva de su salida cumpla regex o a que pase wait.
+
+    Recorre la salida que el modelo aún no ha visto, línea a línea; la última línea, si no está completa,
+    solo se compara cuando el comando termina. Devuelve el motivo y la línea que coincidió.
+    """
+    deadline = time.monotonic() + wait
+    pos = job.model_cursor
+    partial = ""
+    while True:
+        finished = job.done.is_set()
+        total = job.total
+        if regex is not None and total > pos:
+            text, pos = job.read_range(pos, total - pos)
+            lines = (partial + text).split("\n")
+            partial = lines.pop()
+            for line in lines:
+                if regex.search(line):
+                    return "pattern_matched", line
+        if finished and (regex is None or pos >= job.total):
+            if regex is not None and partial and regex.search(partial):
+                return "pattern_matched", partial
+            return "command_finished", None
+        if cancel.is_set():
+            return "wait_ended_by_user", None
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return "wait_elapsed", None
+        if regex is None:
+            job.done.wait(min(remaining, WAIT_SLICE_SECONDS))
+        else:
+            job.wait_change(pos, min(remaining, WAIT_SLICE_SECONDS))
+
+
+def _plain_wait(wait_seconds, cancel: threading.Event, ctx: SecurityContext) -> str:
+    """check_command sin job_id: espera sin lanzar ningún proceso; vuelve antes si termina un comando del proyecto."""
+    wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
+    if not wait:
+        return _tool_error(f"Without job_id, check_command waits: give wait_seconds (1 to {COMMAND_MAX_WAIT}).", os=DETECTED_OS)
+    running = JOBS.running(ctx.key)
+    started = time.monotonic()
+    finished = JOBS.wait_any_finished(running, wait, cancel)
+    reason = "command_finished" if finished else ("wait_ended_by_user" if cancel.is_set() else "wait_elapsed")
+    result = {
+        "success": True,
+        "waited_s": round(time.monotonic() - started, 1),
+        "returned_because": reason,
+    }
+    if finished:
+        result["finished_jobs"] = [
+            {"job_id": job.id, "command": job.command.split("\n")[0][:200], "status": job.status, "exit_code": job.exit_code}
+            for job in finished
+        ]
+        result["note"] = "Read their output with check_command(job_id=...)."
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool = False, pattern: str | None = None,
+                  job_key: str | None = None, *, ctx: SecurityContext) -> str:
+    """Estado y salida nueva de un comando lanzado por run_command; puede esperarlo, con un patrón, o detenerlo.
+    Sin job_id, solo espera. La persona puede cortar la espera con zerochat/jobs/end_wait y la clave de la invocación."""
+    if job_id is None:
+        if stop or pattern:
+            return _tool_error("stop and pattern need the job_id of a command.", os=DETECTED_OS)
+        cancel = JOBS.open_wait(job_key)
+        try:
+            return _plain_wait(wait_seconds, cancel, ctx)
+        finally:
+            JOBS.close_wait(job_key)
     job = JOBS.get(ctx.key, job_id=job_id)
     if job is None:
         return _tool_error(f"Unknown job_id {job_id}. It may belong to a previous ZeroChat session or to another project.", os=DETECTED_OS)
+    regex = None
+    if pattern:
+        try:
+            regex = re.compile(pattern, re.IGNORECASE)
+        except re.error as exc:
+            return _tool_error(f"Invalid pattern: {exc}. Use a regular expression such as 'error|listening on'.", os=DETECTED_OS)
     if stop:
         JOBS.stop(job, "model")
-    else:
-        wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
-        if wait:
-            job.done.wait(wait)
-    return _job_result(job, output_field="new_output")
+        return _job_result(job, output_field="new_output")
+    wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
+    if not wait and regex is None:
+        return _job_result(job, output_field="new_output")
+    cancel = JOBS.open_wait(job_key)
+    started = time.monotonic()
+    try:
+        reason, line = _wait_job(job, wait, regex, cancel)
+    finally:
+        JOBS.close_wait(job_key)
+    extra = {"returned_because": reason, "waited_s": round(time.monotonic() - started, 1)}
+    if line is not None:
+        extra["matched_line"] = line if len(line) <= MATCHED_LINE_MAX_CHARS else line[:MATCHED_LINE_MAX_CHARS] + "…"
+    return _job_result(job, output_field="new_output", extra=extra)
 
 
 def job_details(job: CommandJob) -> dict:
@@ -6582,7 +6756,7 @@ def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -
     """
     Estado del servidor que la interfaz sigue en vivo, en initialize y en cada zerochat/heartbeat:
     cwd, el proyecto de la pestaña que pregunta (su cabecera X-ZeroChat-Project); jobs, los comandos en
-    marcha, para mostrarlos y avisar antes de cerrar si se detendrían; exit_on_close; playwright, si
+    marcha con su última línea de salida, para mostrarlos y avisar antes de cerrar si se detendrían; exit_on_close; playwright, si
     se puede navegar aunque se haya instalado o quitado durante la sesión; servers, los servicios
     MCP externos aunque otra pestaña los cambie o su proceso muera; runs, lista ligera de ejecuciones
     en segundo plano; y focus_run, estado detallado de la ejecución enfocada por el usuario.
@@ -6590,7 +6764,7 @@ def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -
     runs, focus_run = list_server_runs(focus_conversation_id)
     return {
         "cwd": str(ctx.workspace_dir),
-        "jobs": [job.summary() for job in JOBS.running(ctx.key)],
+        "jobs": [{**job.summary(), "last_line": job.last_line()} for job in JOBS.running(ctx.key)],
         "exit_on_close": EXIT_ON_CLOSE,
         "playwright": playwright_status(),
         "servers": GLOBAL_MCP_MANAGER.list_servers(),
@@ -6855,15 +7029,25 @@ LOCAL_TOOLS_DEFINITIONS = [
     },
     {
         "name": "check_command",
-        "description": "Check a command started by run_command: returns its status and the output produced since the last check. Use wait_seconds to wait for it to finish, or stop=true to terminate it.",
+        "description": (
+            "Check a command started by run_command: returns its status and the output produced since the last check. "
+            "Use wait_seconds to wait for it to finish, add pattern to return as soon as a new output line matches it "
+            "(for example 'error|listening on'), or stop=true to terminate it. "
+            "Without job_id it just waits wait_seconds, with no shell, and returns early if a background command finishes: "
+            "use it instead of sleep."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "job_id": {"type": "integer", "description": "job_id returned by run_command"},
+                "job_id": {"type": "integer", "description": "job_id returned by run_command; omit it to just wait"},
                 "wait_seconds": {"type": "integer", "description": f"Seconds to wait for the command to finish before returning (default 0, max {COMMAND_MAX_WAIT})", "default": 0},
-                "stop": {"type": "boolean", "description": "Terminate the command and its child processes", "default": False}
-            },
-            "required": ["job_id"]
+                "stop": {"type": "boolean", "description": "Terminate the command and its child processes", "default": False},
+                "pattern": {
+                    "type": "string",
+                    "maxLength": CHECK_PATTERN_MAX_CHARS,
+                    "description": "Case-insensitive regular expression matched against each new output line; with wait_seconds, returns as soon as a line matches"
+                }
+            }
         }
     },
     {
@@ -7395,8 +7579,8 @@ def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc
             return
         if proc is not None and proc.poll() is not None and not session.finished.wait(0.2):
             break
-        if time.monotonic() >= deadline:
-            session.stop_reason = f"Plazo total agotado ({RUN_TOTAL_TIMEOUT:.0f}s)."
+        if time.monotonic() >= deadline + session.waited_seconds():
+            session.stop_reason = f"Plazo total agotado ({RUN_TOTAL_TIMEOUT:.0f}s, sin contar las esperas)."
             break
         if session.idle_seconds() > RUN_IDLE_SECONDS:
             session.stop_reason = f"Sin progreso de la interfaz durante {RUN_IDLE_SECONDS:.0f}s."
@@ -7857,9 +8041,15 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             message = (f"The browser is in use by another conversation. It is released after {int(BROWSER_LEASE_IDLE_SECONDS)} "
                        "seconds without use; tell the user or try again later.")
             return {"content": [{"type": "text", "text": _tool_error(message)}], "isError": True}, None, message
+        # En una ejecución desatendida, esperar en check_command no es inactividad ni gasta el plazo total.
+        session = current_run_session() if origin == "local" and tool_name == JOB_CONTROL_TOOL else None
+        if session is not None:
+            session.begin_wait()
         try:
             return cls._run_tool(origin, tool_name, args, ctx)
         finally:
+            if session is not None:
+                session.end_wait()
             # El plazo cuenta desde que la acción termina: lo que tarde no acorta lo que el modelo puede razonar después.
             if browser:
                 BROWSER_LEASES.acquire(browser, conversation_id)
@@ -8239,6 +8429,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             if not isinstance(ids, list) or len(ids) > 100 or any(isinstance(i, bool) or not isinstance(i, int) for i in ids):
                 return None, {"code": -32602, "message": "ids debe ser una lista de hasta 100 enteros."}, ""
             return {"reports": JOBS.report_finished(ids, project)}, None, ""
+        if method == "zerochat/jobs/end_wait":
+            return {"ended": JOBS.cancel_wait(params.get("key"))}, None, ""
         job = JOBS.get(project, job_id=params.get("id"), key=params.get("key"))
         if method in ("zerochat/jobs/get", "zerochat/jobs/log", "zerochat/jobs/stop") and job is None:
             return None, {"code": -32602, "message": "Comando no encontrado: puede pertenecer a una sesión anterior de ZeroChat."}, ""

@@ -26,10 +26,10 @@ from core.limits import MAX_HTTP_BODY_BYTES, MAX_RPC_METHOD_LENGTH, MAX_TOOL_NAM
 from core.logging import format_log_error, log_event
 from core.version import VERSION
 from mcp.manager import GLOBAL_MCP_MANAGER
-from run_mode.state import cancel_server_run, dispatch_run, get_runs_dir, http_body_limit
+from run_mode.state import cancel_server_run, current_run_session, dispatch_run, get_runs_dir, http_body_limit
 from security.context import PROJECT_GONE_CODE, ProjectGoneError, SecurityContext, request_project_context
 from security.controller import ACCESS_CONTROLLER
-from security.rules import COMMAND_TOOL, POLICY_ASK, POLICY_DENY
+from security.rules import COMMAND_TOOL, JOB_CONTROL_TOOL, POLICY_ASK, POLICY_DENY
 from server.state import BROWSER_LEASES, BROWSER_LEASE_IDLE_SECONDS, live_state, mark_browser_active
 from storage.db import (
     MAX_BLOB_HTTP_BYTES,
@@ -367,9 +367,15 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             message = (f"The browser is in use by another conversation. It is released after {int(BROWSER_LEASE_IDLE_SECONDS)} "
                        "seconds without use; tell the user or try again later.")
             return {"content": [{"type": "text", "text": _tool_error(message)}], "isError": True}, None, message
+        # En una ejecución desatendida, esperar en check_command no es inactividad ni gasta el plazo total.
+        session = current_run_session() if origin == "local" and tool_name == JOB_CONTROL_TOOL else None
+        if session is not None:
+            session.begin_wait()
         try:
             return cls._run_tool(origin, tool_name, args, ctx)
         finally:
+            if session is not None:
+                session.end_wait()
             # El plazo cuenta desde que la acción termina: lo que tarde no acorta lo que el modelo puede razonar después.
             if browser:
                 BROWSER_LEASES.acquire(browser, conversation_id)
@@ -749,6 +755,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             if not isinstance(ids, list) or len(ids) > 100 or any(isinstance(i, bool) or not isinstance(i, int) for i in ids):
                 return None, {"code": -32602, "message": "ids debe ser una lista de hasta 100 enteros."}, ""
             return {"reports": JOBS.report_finished(ids, project)}, None, ""
+        if method == "zerochat/jobs/end_wait":
+            return {"ended": JOBS.cancel_wait(params.get("key"))}, None, ""
         job = JOBS.get(project, job_id=params.get("id"), key=params.get("key"))
         if method in ("zerochat/jobs/get", "zerochat/jobs/log", "zerochat/jobs/stop") and job is None:
             return None, {"code": -32602, "message": "Comando no encontrado: puede pertenecer a una sesión anterior de ZeroChat."}, ""

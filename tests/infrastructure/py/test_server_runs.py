@@ -282,6 +282,28 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             self.assertIn("Plazo total agotado", reason)
             self.assertEqual(outcome, (zerochat.RUN_EXIT_TIMEOUT, None))
 
+            # Una espera de check_command más larga que los dos plazos no es inactividad ni gasta el plazo
+            # total: al acabar, la inactividad cuenta desde ese momento.
+            session = zerochat.RunSession(prompt="hola")
+            session.begin_wait()
+            threading.Timer(0.9, session.end_wait).start()
+            started = time.monotonic()
+            zerochat.run_supervisor(mock.Mock(), session)
+            self.assertGreaterEqual(time.monotonic() - started, 1.05)
+            self.assertIn("Sin progreso de la interfaz", session.stop_reason)
+            self.assertGreaterEqual(session.waited_seconds(), 0.85)
+
+    def test_en_una_ejecucion_el_servidor_cuenta_como_espera_el_tiempo_dentro_de_check_command(self):
+        session = zerochat.RunSession(prompt="hola")
+        zerochat.RUN_SESSION = session
+        self.addCleanup(setattr, zerochat, "RUN_SESSION", None)
+        result, error, _ = zerochat.ZeroChatServerHandler._execute_tool(
+            "local", "check_command", {"wait_seconds": 1}, zerochat.project_context())
+        self.assertIsNone(error)
+        self.assertIn("wait_elapsed", result["content"][0]["text"])
+        self.assertGreaterEqual(session.waited_seconds(), 0.9)
+        self.assertLess(session.idle_seconds(), 0.5)
+
     def test_el_runner_exige_node_22_13_o_superior(self):
         def found(version):
             result = zerochat.subprocess.CompletedProcess(["node", "--version"], 0, stdout=f"{version}\n", stderr="")

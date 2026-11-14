@@ -31,7 +31,7 @@ from storage.db import (
 
 # Plazo total y sin progreso de la interfaz.
 RUN_TOTAL_TIMEOUT = 900.0
-RUN_IDLE_SECONDS = 180.0
+RUN_IDLE_SECONDS = 600.0
 RUN_POLL_SECONDS = 0.2
 RUN_PROGRESS_TEXT_MAX = 500
 RUN_STREAM_TEXT_MAX = 8000
@@ -307,6 +307,9 @@ class RunSession:
             self.tool_security = None
         self.lock = threading.Lock()
         self.last_activity = time.monotonic()
+        # Esperas de check_command: no cuentan como inactividad y alargan el plazo total.
+        self._waiting_since: float | None = None
+        self._waited = 0.0
         self.prompt_delivered = False
         self.result: dict | None = None
         self.stop_reason: str | None = None
@@ -331,7 +334,27 @@ class RunSession:
 
     def idle_seconds(self) -> float:
         with self.lock:
+            if self._waiting_since is not None:
+                return 0.0
             return time.monotonic() - self.last_activity
+
+    def begin_wait(self):
+        with self.lock:
+            self._waiting_since = time.monotonic()
+
+    def end_wait(self):
+        with self.lock:
+            now = time.monotonic()
+            if self._waiting_since is not None:
+                self._waited += now - self._waiting_since
+            self._waiting_since = None
+            self.last_activity = now
+
+    def waited_seconds(self) -> float:
+        """Tiempo total en esperas de check_command, incluida la que esté en curso."""
+        with self.lock:
+            ongoing = time.monotonic() - self._waiting_since if self._waiting_since is not None else 0.0
+            return self._waited + ongoing
 
 
 RUN_SESSION: RunSession | None = None

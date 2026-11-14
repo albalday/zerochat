@@ -45,6 +45,7 @@
   const EXTERNAL_ID = 'mcp_external';
   const DEFAULT_TIMEOUT_MS = 15000;
   const LOCAL_COMMAND_TOOL = 'run_command';
+  const LOCAL_WAIT_TOOL = 'check_command';
 
   /**
    * Las herramientas del servidor local actúan en su directorio: solo están disponibles con el servidor
@@ -270,10 +271,10 @@
    * el comando sigue vivo aunque se cancele la petición, y el servidor conoce la clave de la
    * invocación antes de devolver su job_id.
    */
-  async function withCommandJobStop(client, jobKey, signal, run) {
+  async function withCommandJobStop(client, jobKey, signal, run, stopMethod = 'zerochat/jobs/stop') {
     if (!jobKey) return run();
     const stopJob = () => {
-      client.request('zerochat/jobs/stop', { key: jobKey }).catch(() => {});
+      client.request(stopMethod, { key: jobKey }).catch(() => {});
     };
     signal?.addEventListener('abort', stopJob, { once: true });
     try {
@@ -329,6 +330,8 @@
         const toolName = external ? rt.metadata?.originalName : rt.name;
         // run_command del servidor local: tarjeta propia y detención del comando al abortar.
         const isLocalCommand = isProxy && toolName === LOCAL_COMMAND_TOOL;
+        // check_command: su tarjeta muestra la espera y abortar el turno corta la espera, no el comando.
+        const isLocalWait = isProxy && toolName === LOCAL_WAIT_TOOL;
         const isBrowserAction = isProxy && toolName === BROWSER_ACTION_TOOL;
         const usesBrowser = isBrowserAction || (external && sourceServer === PLAYWRIGHT_SERVER_ID);
         const namespacedName = publicToolName(isProxy ? null : sourceServer, toolName);
@@ -339,6 +342,8 @@
           // El nombre público ya identifica el servidor; repetirlo en la descripción gasta contexto.
           definition: { name: namespacedName, description: rt.description || toolName, parameters: rt.inputSchema },
           category: 'mcp',
+          // Una espera tiene que verse sin desplegarla.
+          displayMode: isLocalWait ? 'expanded' : undefined,
           isAvailable: () => (!isProxy || localToolsAvailable()) && (!isBrowserAction || browserActionAvailable()),
           settings: { showInSettings: true },
           metadata: {
@@ -351,7 +356,7 @@
             description: rt.description || ''
           },
           execute: async (args, context) => {
-            const jobKey = isLocalCommand ? context.invocationId : null;
+            const jobKey = isLocalCommand || isLocalWait ? context.invocationId : null;
             // Un navegador lo usa una conversación cada vez: el servidor necesita saber cuál lo pide.
             const conversationId = usesBrowser ? getState().get('sessions').activeId : null;
             const meta = { ...(jobKey ? { zerochatJobKey: jobKey } : {}), ...(conversationId ? { zerochatConversationId: conversationId } : {}) };
@@ -360,7 +365,7 @@
                 signal: context.signal,
                 timeoutMs: options.timeoutMs,
                 meta: Object.keys(meta).length ? meta : undefined
-              }));
+              }), isLocalWait ? 'zerochat/jobs/end_wait' : undefined);
             } catch (error) {
               if (isProxy && isTransportFailure(error)) await this.onTransportFailure?.(error);
               throw error;
@@ -372,7 +377,9 @@
           },
           view: isLocalCommand
             ? getCommandCard().createView()
-            : getToolCards().createMcpToolView(toolName, serverName, isProxy && FILE_WRITE_TOOLS.has(toolName))
+            : isLocalWait
+              ? getCommandCard().createWaitView()
+              : getToolCards().createMcpToolView(toolName, serverName, isProxy && FILE_WRITE_TOOLS.has(toolName))
         }));
       }
 
@@ -462,7 +469,8 @@
           .map(job => ({
             id: job.id,
             command: typeof job.command === 'string' ? job.command : '',
-            startedAt: Number.isFinite(job.started_at) ? job.started_at : Date.now()
+            startedAt: Number.isFinite(job.started_at) ? job.started_at : Date.now(),
+            lastLine: typeof job.last_line === 'string' ? job.last_line : ''
           }));
         if (JSON.stringify(jobs) !== JSON.stringify(current.commandJobs)) next.commandJobs = jobs;
       }

@@ -618,6 +618,18 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
       window.__commandCard = card;
     });
     await page.waitForFunction(() => /^En segundo plano · /.test(window.__commandCard.querySelector('.tool-card-badge').textContent.trim()));
+    // Plegada, muestra la última línea de salida que trae el latido; desplegada no, porque se ve el log.
+    const lastLine = await page.evaluate(() => {
+      const card = window.__commandCard;
+      const element = card.querySelector('.command-card-last-line');
+      card.querySelector('.tool-execution-card').classList.add('collapsed');
+      window.ChatMCP.manager.applyLiveState({ jobs: [{ id: 11, command: 'npm run watch', status: 'running', started_at: Date.now(), background: true, last_line: 'compilando 3/10' }] });
+      const folded = { text: element.textContent, shown: getComputedStyle(element).display !== 'none' && !element.hidden };
+      card.querySelector('.tool-execution-card').classList.remove('collapsed');
+      return { folded, expandedShown: getComputedStyle(element).display !== 'none' };
+    });
+    assert.deepEqual(lastLine, { folded: { text: 'compilando 3/10', shown: true }, expandedShown: false });
+
     // Plegada (tras volver a la vista), solo pregunta por el final.
     const before = await page.evaluate(() => {
       window.__commandCard.querySelector('.tool-execution-card').classList.add('collapsed');
@@ -627,10 +639,96 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
       return before;
     });
     await page.waitForFunction(() => window.__commandCard.querySelector('.tool-card-badge').textContent.trim() === 'Terminado · 42 s');
+    assert.equal(await page.evaluate(() => window.__commandCard.querySelector('.command-card-last-line').hidden), true, 'Un comando terminado no muestra última línea');
     const viaHeartbeat = await page.evaluate(before => window.__jobCalls.slice(before).map(call => [call.method, call.params.id]), before);
     // Después vuelve a leer la lista de comandos en marcha, ya sin este.
     assert.deepEqual(viaHeartbeat, [['zerochat/jobs/get', 11], ['zerochat/jobs/list', undefined]]);
 
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - la tarjeta de check_command muestra la salida nueva mientras espera y corta la espera sin detener el comando', { timeout: 30000 }, async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+    await page.clock.install();
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+
+    await page.evaluate(async () => {
+      const provider = new window.ChatMCP.McpToolProvider({ id: 'mcp_proxy', name: 'ZeroChat', initialize: async () => ({ success: true }), listTools: async () => [{ name: 'check_command' }] }, { id: 'mcp_prov_wait_card_test' });
+      await provider.discoverTools();
+      window.ChatAgentCore.registry.registerProvider(provider);
+      // Servidor simulado: el comando 7 lleva escritas dos líneas y escribe una más en cada consulta del log.
+      const job = { id: 7, log: 'antes 1\nantes 2\n' };
+      window.__waitCalls = [];
+      window.ChatMCP.manager.requestExternalControl = async (method, params) => {
+        window.__waitCalls.push({ method, params });
+        if (method === 'zerochat/jobs/end_wait') return { ended: true };
+        if (method === 'zerochat/jobs/get') return { id: job.id, status: 'running', output_bytes: job.log.length };
+        if (method === 'zerochat/jobs/log') {
+          job.log += `nueva ${job.log.split('\n').length - 2}\n`;
+          return { text: job.log.slice(params.offset), next: job.log.length, total: job.log.length, done: false };
+        }
+        throw new Error(`Método inesperado ${method}`);
+      };
+      const container = document.createElement('div');
+      container.id = 'wait-card-test';
+      document.getElementById('chat-messages')?.appendChild(container) || document.body.appendChild(container);
+      const args = { job_id: 7, wait_seconds: 300, pattern: 'listening' };
+      const card = window.ChatToolCards.createLiveToolCard('check_command', args);
+      card.dataset.invocationId = 'inv-espera-1';
+      window.ChatToolCards.appendToolCard(container, card);
+      window.__waitCard = card;
+      window.__waitArgs = args;
+    });
+
+    await page.clock.runFor(3000);
+    await page.waitForFunction(() => /nueva 1\n/.test(window.__waitCard.querySelector('.command-card-log').textContent));
+    const waiting = await page.evaluate(() => {
+      const card = window.__waitCard;
+      return {
+        title: card.querySelector('.tool-card-title, .tool-execution-card').textContent.includes('Esperando al comando 7'),
+        pattern: card.querySelector('.command-card-command').textContent,
+        badge: card.querySelector('.tool-card-badge').textContent.trim(),
+        log: card.querySelector('.command-card-log').textContent,
+        endButton: card.querySelector('[data-command-action="stop"]').textContent.trim(),
+        endVisible: !card.querySelector('[data-command-action="stop"]').hidden,
+        // Mientras espera está en la zona visible de su grupo, no en el historial plegado.
+        inView: card.parentElement.classList.contains('tool-call-group-active-cards')
+      };
+    });
+    assert.deepEqual([waiting.title, waiting.pattern, waiting.endButton, waiting.endVisible, waiting.inView], [true, 'listening', 'Dejar de esperar', true, true]);
+    assert.match(waiting.badge, /^Esperando · \d\.\d s de 5:00$/);
+    // Solo la salida nueva: lo escrito antes de empezar a esperar no aparece.
+    assert.ok(waiting.log.startsWith('nueva 1\n') && !waiting.log.includes('antes'), waiting.log);
+
+    await page.locator('#wait-card-test [data-command-action="stop"]').click();
+    await page.waitForFunction(() => window.__waitCalls.some(call => call.method === 'zerochat/jobs/end_wait'));
+    const endCall = await page.evaluate(() => window.__waitCalls.find(call => call.method === 'zerochat/jobs/end_wait').params);
+    assert.deepEqual(endCall, { key: 'inv-espera-1' });
+    assert.equal(await page.evaluate(() => window.__waitCalls.filter(call => call.method === 'zerochat/jobs/stop').length), 0, 'Cortar la espera no detiene el comando');
+
+    // La herramienta vuelve con la espera cortada: la tarjeta lo dice y deja de consultar el log.
+    await page.evaluate(() => {
+      const result = { content: JSON.stringify({ success: true, status: 'running', job_id: 7, returned_because: 'wait_ended_by_user', waited_s: 4, new_output: 'nueva 1\nnueva 2\n' }) };
+      window.ChatToolCards.updateLiveToolCard(window.__waitCard, 'check_command', window.__waitArgs, result, 4000);
+    });
+    const ended = await page.evaluate(() => ({
+      badge: window.__waitCard.querySelector('.tool-card-badge').textContent.trim(),
+      endHidden: window.__waitCard.querySelector('[data-command-action="stop"]').hidden,
+      log: window.__waitCard.querySelector('.command-card-log').textContent,
+      calls: window.__waitCalls.length
+    }));
+    assert.deepEqual([ended.badge, ended.endHidden, ended.log], ['Espera cortada · 4.0 s', true, 'nueva 1\nnueva 2']);
+    await page.clock.runFor(5000);
+    assert.equal(await page.evaluate(() => window.__waitCalls.length), ended.calls, 'Una espera terminada deja de consultarse');
     assert.deepEqual(errors, []);
   } finally {
     await browser.close();

@@ -1455,6 +1455,22 @@
   flex-shrink: 0;
 }
 
+/* Última línea de salida de un comando en marcha: solo con la tarjeta plegada, donde no se ve el log */
+.command-card-last-line {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.command-card:not(.collapsed) .command-card-last-line {
+  display: none;
+}
+
 .command-card-log {
   font-size: 0.78rem;
   white-space: pre-wrap;
@@ -1621,6 +1637,27 @@ button.command-jobs-link:focus-visible {
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
   white-space: nowrap;
+}
+
+/* Final de un comando del aviso: su estado y sus últimas líneas de salida */
+.command-jobs-time.command-jobs-status-success {
+  color: var(--success);
+}
+
+.command-jobs-time.command-jobs-status-error {
+  color: var(--danger);
+}
+
+.command-jobs-tail {
+  margin: 0.2rem 0 0.35rem;
+  padding: 0.35rem 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  background: var(--bg-surface-subtle);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .command-jobs-hint {

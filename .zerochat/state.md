@@ -1,4 +1,4 @@
 # Current state
-- Milestone: M68 Arreglos pequeños 2
+- Milestone: none (M69 closed 2026-11-14)
 - Next task: none pending
 - Last updated: 2026-11-14

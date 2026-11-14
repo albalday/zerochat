@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -169,6 +170,106 @@ class BackgroundCommandTest(unittest.TestCase):
         unknown = check(9999)
         self.assertIs(unknown["success"], False)
         self.assertIn("Unknown job_id", unknown["error"])
+
+    def test_check_command_vuelve_en_cuanto_una_linea_nueva_cumple_el_patron(self):
+        server = run("echo arrancando; sleep 0.3; echo 'Server listening on 8080'; exec sleep 100", background=True)
+        started = time.monotonic()
+        matched = check(server["job_id"], wait_seconds=30, pattern="LISTENING ON")
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertLess(matched["waited_s"], 5)
+        self.assertEqual((matched["status"], matched["returned_because"], matched["matched_line"]),
+                         ("running", "pattern_matched", "Server listening on 8080"))
+        self.assertEqual(matched["new_output"], "Server listening on 8080\n")
+        # Solo cuenta la salida nueva: la línea ya vista no vuelve a coincidir.
+        started = time.monotonic()
+        again = check(server["job_id"], wait_seconds=1, pattern="listening")
+        self.assertGreaterEqual(time.monotonic() - started, 0.9)
+        self.assertEqual((again["returned_because"], again["new_output"]), ("wait_elapsed", ""))
+        self.assertNotIn("matched_line", again)
+        check(server["job_id"], stop=True)
+
+    def test_check_command_con_patron_vuelve_al_terminar_el_comando_y_compara_su_ultima_linea(self):
+        finished = run("echo uno; sleep 0.3; echo dos", background=True)
+        result = check(finished["job_id"], wait_seconds=10, pattern="error")
+        self.assertEqual((result["status"], result["returned_because"]), ("exited", "command_finished"))
+        self.assertNotIn("matched_line", result)
+        # Una última línea sin salto de línea se compara cuando el comando termina.
+        unterminated = run("sleep 0.3; printf 'fatal error: disk full'", background=True)
+        result = check(unterminated["job_id"], wait_seconds=10, pattern="fatal")
+        self.assertEqual((result["returned_because"], result["matched_line"]), ("pattern_matched", "fatal error: disk full"))
+
+    def test_check_command_rechaza_un_patron_que_no_es_una_expresion_regular(self):
+        job = run("exec sleep 100", background=True)
+        invalid = check(job["job_id"], wait_seconds=1, pattern="error(")
+        self.assertIs(invalid["success"], False)
+        self.assertIn("Invalid pattern", invalid["error"])
+        check(job["job_id"], stop=True)
+
+    def test_check_command_sin_job_id_espera_sin_shell_y_vuelve_antes_si_termina_un_comando(self):
+        def wait(**kwargs):
+            return json.loads(zerochat.check_command(**kwargs, ctx=zerochat.project_context()))
+
+        started = time.monotonic()
+        idle = wait(wait_seconds=1)
+        self.assertGreaterEqual(time.monotonic() - started, 0.9)
+        self.assertEqual((idle["success"], idle["returned_because"]), (True, "wait_elapsed"))
+        self.assertEqual(zerochat.JOBS.list(str(self.project)), [], "La espera no lanza ningún proceso")
+
+        job = run("sleep 0.5; echo fin", background=True)
+        started = time.monotonic()
+        woken = wait(wait_seconds=30)
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertEqual(woken["returned_because"], "command_finished")
+        self.assertEqual([(item["job_id"], item["status"], item["exit_code"]) for item in woken["finished_jobs"]],
+                         [(job["job_id"], "exited", 0)])
+
+        for kwargs in ({}, {"wait_seconds": 0}, {"wait_seconds": 1, "stop": True}, {"wait_seconds": 1, "pattern": "x"}):
+            with self.subTest(kwargs=kwargs):
+                self.assertIs(wait(**kwargs)["success"], False)
+
+    def test_la_persona_corta_una_espera_por_la_clave_de_la_invocacion_sin_detener_el_comando(self):
+        server = run("exec sleep 100", background=True)
+        ctx = zerochat.project_context()
+        end_wait = lambda key: zerochat.ZeroChatServerHandler._dispatch_jobs("zerochat/jobs/end_wait", {"key": key}, ctx)[0]
+        for kwargs in ({"wait_seconds": 30}, {"job_id": server["job_id"], "wait_seconds": 30, "pattern": "nunca"}):
+            with self.subTest(kwargs=kwargs):
+                key = "espera-cortada-1"
+                results = []
+                waiter = threading.Thread(target=lambda: results.append(json.loads(zerochat.check_command(**kwargs, job_key=key, ctx=ctx))))
+                started = time.monotonic()
+                waiter.start()
+                deadline = time.monotonic() + 5
+                while not end_wait(key)["ended"] and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                waiter.join(5)
+                self.assertLess(time.monotonic() - started, 5)
+                self.assertEqual(results[0]["returned_because"], "wait_ended_by_user")
+                self.assertIs(end_wait(key)["ended"], False, "Una espera terminada ya no se puede cortar")
+        self.assertEqual(check(server["job_id"])["status"], "running")
+        check(server["job_id"], stop=True)
+
+    def test_el_latido_publica_la_ultima_linea_de_cada_comando_en_marcha_recortada_en_el_borde(self):
+        limit = zerochat.LAST_LINE_MAX_CHARS
+        cases = [
+            ("printf 'uno\\ndos\\n\\n'", "dos"),
+            # Una barra de progreso que se reescribe con \r: su último tramo.
+            ("printf 'descargando 10%%\\rdescargando 55%%\\r'", "descargando 55%"),
+            (f"head -c {limit} /dev/zero | tr '\\0' a; echo", "a" * limit),
+            (f"head -c {limit + 1} /dev/zero | tr '\\0' a; echo", "a" * (limit - 1) + "…"),
+        ]
+        ctx = zerochat.project_context()
+        for command, expected in cases:
+            with self.subTest(command=command):
+                job = run(f"{command}; exec sleep 100", background=True)
+                deadline = time.monotonic() + 5
+                published = None
+                while time.monotonic() < deadline:
+                    published = next(item for item in zerochat.live_state(ctx)["jobs"] if item["id"] == job["job_id"])
+                    if published["last_line"]:
+                        break
+                    time.sleep(0.05)
+                self.assertEqual(published["last_line"], expected)
+                check(job["job_id"], stop=True)
 
     def test_cada_proyecto_solo_ve_y_detiene_sus_comandos(self):
         other = zerochat.SecurityContext(self.data_dir.resolve())

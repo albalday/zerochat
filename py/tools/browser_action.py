@@ -106,6 +106,9 @@ try {
         if (req.url && req.url !== page.url()) {
           await page.goto(req.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
         }
+        // Con la máquina cargada, Chromium puede no haber pintado aún ningún fotograma:
+        // esperar dos fotogramas garantiza que hay algo que capturar.
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         const buf = await page.screenshot({ fullPage: false });
         console.log(JSON.stringify({
           success: true,
