@@ -8,6 +8,9 @@ const CACHE_NAME = 'zerochat-v10.17.0';
 
 const PRECACHE_ASSETS = [
   './zerochat.html',
+  './files.html',
+  './css/files.css',
+  './js/files-page.js',
   './manifest.webmanifest',
   './css/tokens.css',
   './css/base.css',

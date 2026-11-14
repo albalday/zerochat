@@ -86,6 +86,19 @@
     return url.origin;
   }
 
+  /**
+   * Ajustes de conexión de la configuración, normalizados: servidor local o remoto, su URL y la clave del
+   * proxy. Los usan la configuración de la aplicación y las páginas que conectan sin cargarla (files.html).
+   */
+  function normalizeConnectionSettings(config) {
+    return {
+      localBackend: config?.localBackend !== false,
+      backendUrl: normalizeBackendUrl(config?.backendUrl) || '',
+      useProxy: config?.useProxy === true,
+      proxyKey: typeof config?.proxyKey === 'string' ? config.proxyKey.trim() : ''
+    };
+  }
+
   /** Nombre de la carpeta de un proyecto ('/home/yo/app/' -> 'app'). */
   function projectName(path) {
     const parts = String(path || '').split(/[\\/]+/).filter(Boolean);
@@ -513,6 +526,7 @@
     readLaunchFragment,
     projectName,
     normalizeBackendUrl,
+    normalizeConnectionSettings,
     openImageInNewTab,
     isPreviewable,
     openDocumentInNewTab,

@@ -921,6 +921,7 @@
 
   return {
     McpClient,
+    proxyHeaders,
     McpToolProvider,
     McpManager,
     probeConnection,

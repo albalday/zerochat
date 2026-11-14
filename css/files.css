@@ -1,0 +1,52 @@
+/* ==========================================================================
+   Navegador de ficheros del proyecto (files.html): una lista sencilla, legible en el móvil
+   ========================================================================== */
+
+/* La página se desplaza como un documento, no como la aplicación de chat. */
+html:has(.files-page),
+body.files-page {
+  height: auto;
+  min-height: 100%;
+}
+
+body.files-page {
+  display: block;
+  width: auto;
+  overflow: auto;
+}
+
+.files-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0.85rem 1rem 0.6rem;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.files-project {
+  font-size: 1.05rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-main {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 0.5rem 0.5rem 2rem;
+}
+
+.files-status {
+  padding: 0.75rem 0.5rem;
+  color: var(--text-muted);
+}
+
+.files-status.files-status-error {
+  color: var(--danger);
+}
+
+.files-list {
+  list-style: none;
+}

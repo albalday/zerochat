@@ -56,10 +56,7 @@
     next.enableRawLogs = next.enableRawLogs === true;
     next.enableDebugMessages = next.enableDebugMessages === true;
     next.enableContextCache = next.enableContextCache !== false;
-    next.localBackend = next.localBackend !== false;
-    next.backendUrl = Utils.normalizeBackendUrl(next.backendUrl) || '';
-    next.useProxy = next.useProxy === true;
-    next.proxyKey = typeof next.proxyKey === 'string' ? next.proxyKey.trim() : '';
+    Object.assign(next, Utils.normalizeConnectionSettings(next));
     next.projectMode = next.projectMode !== false;
     next.projectDeclined = normalizeDeclinedProjects(next.projectDeclined);
     next.activeRagBranchIds = normalizeBranchIds(next.activeRagBranchIds);

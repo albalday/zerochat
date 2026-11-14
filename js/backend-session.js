@@ -13,7 +13,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { resolveDep, readLaunchFragment } = Utils;
+  const { resolveDep, readLaunchFragment, normalizeConnectionSettings } = Utils;
   const getStorage = () => resolveDep('ChatStorage', './storage.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
   const getDefaults = () => resolveDep('ChatDefaults', './defaults.js');
@@ -39,11 +39,26 @@
     };
   }
 
-  /** Destino de la conexión configurada: el servidor local por defecto o el remoto, con la clave del proxy si lo usa. */
+  /** Destino de una configuración: el servidor local (`localUrl`) o el remoto, con la clave del proxy si lo usa. */
+  function connectionTarget(config, localUrl) {
+    const settings = normalizeConnectionSettings(config);
+    if (settings.localBackend) return { url: localUrl, proxyKey: null };
+    return { url: settings.backendUrl, proxyKey: settings.useProxy ? settings.proxyKey : null };
+  }
+
+  /**
+   * Conexión de una sesión guardada: su URL y su token, con la clave del proxy solo si la sesión es del
+   * destino configurado. Null sin sesión.
+   */
+  function sessionConnection(session, config, localUrl) {
+    if (!session) return null;
+    const target = connectionTarget(config, localUrl);
+    return { url: session.url, token: session.token, proxyKey: session.url === target.url ? target.proxyKey : null };
+  }
+
+  /** Destino de la conexión configurada en esta página. */
   function configuredTarget() {
-    const config = getConfig().getActive();
-    if (config.localBackend) return { url: getDefaults().LOCAL_BACKEND_URL, proxyKey: null };
-    return { url: config.backendUrl, proxyKey: config.useProxy ? config.proxyKey : null };
+    return connectionTarget(getConfig().getActive(), getDefaults().LOCAL_BACKEND_URL);
   }
 
   /**
@@ -80,12 +95,10 @@
      */
     function connectStartup() {
       adoptLaunchFragment();
-      const session = runSession || getStorage().getBackendSession();
-      if (!session) return Promise.resolve({ success: false });
-      getToolSecurity().setSessionToken(session.token);
-      const target = configuredTarget();
-      const proxyKey = session.url === target.url ? target.proxyKey : null;
-      return getMcpManager().connectProxy({ url: session.url, proxyKey, token: session.token }).then(async result => {
+      const connection = sessionConnection(runSession || getStorage().getBackendSession(), getConfig().getActive(), getDefaults().LOCAL_BACKEND_URL);
+      if (!connection) return Promise.resolve({ success: false });
+      getToolSecurity().setSessionToken(connection.token);
+      return getMcpManager().connectProxy(connection).then(async result => {
         if (result.success) await loadSessions();
         return result;
       }).catch(error => {
@@ -122,5 +135,5 @@
     return { connectStartup, connectConfigured, login };
   }
 
-  return { parseLaunchSession, create };
+  return { parseLaunchSession, connectionTarget, sessionConnection, create };
 }));
