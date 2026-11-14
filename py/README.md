@@ -29,7 +29,7 @@ Este documento contiene las especificaciones de arquitectura, entorno local y em
   ```bash
   npm run build:backend
   ```
-  Este script sincroniza los servicios gestionados y compila `py/` en `zerochat.py` con `scripts/build-backend.py`: un único espacio de nombres plano (las pruebas sustituyen símbolos de `zerochat` y hay instancias únicas compartidas), con los módulos en orden de dependencias, los imports de la biblioteca estándar deduplicados y error ante ciclos o símbolos repetidos. `tests/fixtures/zerochat_symbols.json` guarda el inventario de nombres de nivel superior: un traslado lo conserva y un cambio deliberado lo actualiza. `zerochat.py` es un archivo autogenerado y debe mantenerse estrictamente sincronizado con `py/`.
+  Este script sincroniza los servicios gestionados y compila `py/` en `zerochat.py` con `scripts/build-backend.py`: un único espacio de nombres plano (las pruebas sustituyen símbolos de `zerochat` y hay instancias únicas compartidas), con los módulos en orden de dependencias, los imports de la biblioteca estándar deduplicados y error ante ciclos o símbolos repetidos. `zerochat.py` es un archivo autogenerado y debe mantenerse estrictamente sincronizado con `py/`.
 
 ---
 

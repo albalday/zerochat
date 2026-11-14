@@ -8,7 +8,6 @@ import ast
 from collections import defaultdict
 from dataclasses import dataclass, field
 import heapq
-import json
 from pathlib import Path
 import re
 import stat
@@ -390,7 +389,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--py-dir", type=Path, default=DEFAULT_PY_DIR)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--stdout", action="store_true", help="Imprime el código compilado sin escribir fichero.")
-    parser.add_argument("--symbols", action="store_true", help="Imprime en JSON los símbolos de nivel superior.")
     args = parser.parse_args(argv)
 
     try:
@@ -399,10 +397,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error compilando backend: {err}", file=sys.stderr)
         return 1
 
-    if args.symbols:
-        symbols = sorted(extract_top_level_symbols(ast.parse(compiled)))
-        sys.stdout.write(json.dumps(symbols, indent=2) + "\n")
-        return 0
     if args.stdout:
         sys.stdout.write(compiled)
         return 0
