@@ -16,7 +16,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
-  const { resolveDep, escapeHtml } = Utils;
+  const { resolveDep, escapeHtml, openTextInNewTab } = Utils;
 
   // Solo una tarjeta desplegada pide su log, y con este intervalo.
   const LOG_POLL_MS = 2000;
@@ -161,16 +161,9 @@
     return earlier || lines.length > CARD_LOG_LINES ? `${t('command_log_earlier')}\n${shown}` : shown;
   }
 
-  /**
-   * Abre en una pestaña nueva el log completo que guarda el servidor, pedido por páginas. La pestaña
-   * se abre al pulsar, para que el navegador no la bloquee, y recibe el log cuando llega.
-   */
+  /** Abre en una pestaña nueva el log completo que guarda el servidor, pedido por páginas. */
   async function openFullLog(ref) {
-    const win = window.open('', '_blank');
-    if (!win) return;
-    win.document.title = t('command_action_full_log');
-    win.document.body.textContent = t('command_log_loading');
-    try {
+    const load = async () => {
       const parts = [];
       let offset = 0;
       for (let page = 0; page < MAX_FULL_LOG_PAGES; page++) {
@@ -180,11 +173,11 @@
         if (next <= offset || next >= Number(chunk?.total)) break;
         offset = next;
       }
-      const url = URL.createObjectURL(new Blob([parts.join('')], { type: 'text/plain;charset=utf-8' }));
-      win.location.href = url;
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      return parts.join('');
+    };
+    try {
+      await openTextInNewTab(load, { title: t('command_action_full_log'), loading: t('command_log_loading') });
     } catch (error) {
-      win.close();
       await getDialogs().alert(t('command_log_open_error', { error: error?.message || String(error) }), { type: 'error' });
     }
   }

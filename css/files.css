@@ -131,3 +131,26 @@ a.files-entry-name:hover {
     text-align: left;
   }
 }
+
+/* Un fichero es un botón con aspecto de enlace: lo abre en una pestaña o lo descarga. */
+button.files-entry-open {
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+button.files-entry-open:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+button.files-entry-open:focus-visible,
+a.files-entry-name:focus-visible,
+.files-crumb:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}

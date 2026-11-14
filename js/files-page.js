@@ -12,7 +12,7 @@
   }
 }(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, Defaults, Storage, BackendSession, MCP) {
   'use strict';
-  const { projectName, formatBytes } = Utils;
+  const { projectName, formatBytes, openTextInNewTab, downloadFile } = Utils;
   const { t } = I18n;
   const PROJECT_GONE_CODE = -32003;
 
@@ -122,7 +122,8 @@
       if (entry.type === 'dir') icon.appendChild(folderIconNode(doc));
       const name = entry.type === 'dir'
         ? link(doc, project, childPath(listing.path, entry.name), entry.name, 'files-entry-name')
-        : Object.assign(doc.createElement('span'), { className: 'files-entry-name', textContent: entry.name });
+        : Object.assign(doc.createElement('button'), { type: 'button', className: 'files-entry-name files-entry-open', textContent: entry.name });
+      if (entry.type !== 'dir') name.dataset.file = childPath(listing.path, entry.name);
       name.title = entry.name;
       const size = Object.assign(doc.createElement('span'), { className: 'files-entry-size', textContent: entry.type === 'dir' ? '' : formatBytes(entry.size) });
       const date = Object.assign(doc.createElement('span'), { className: 'files-entry-date', textContent: formatDate(entry.modified) });
@@ -132,6 +133,52 @@
     elements.list.replaceChildren(...rows);
     if (!listing.entries.length) showStatus(elements, t('files_empty'));
     else if (listing.truncated) showStatus(elements, t('files_truncated', { shown: listing.entries.length, total: listing.total }));
+  }
+
+  /** Bytes de un fichero, pedidos por páginas en base64 hasta que el servidor dice que ha terminado. */
+  async function fetchFileBytes(client, path) {
+    const pieces = [];
+    let offset = 0;
+    let name = path.split('/').pop();
+    for (;;) {
+      const page = await client.download(path, offset);
+      name = page.name || name;
+      const binary = atob(page.data || '');
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      pieces.push(bytes);
+      if (page.done || page.next <= offset) break;
+      offset = page.next;
+    }
+    return { name, blob: new Blob(pieces, { type: 'application/octet-stream' }) };
+  }
+
+  /**
+   * Un fichero de texto se abre en una pestaña nueva; uno binario o demasiado grande para leerlo así, se
+   * descarga. La pestaña se abre al pulsar (si no, el navegador la bloquearía) y se cierra si toca descargar.
+   */
+  async function openFile(page, path) {
+    const { client, elements } = page;
+    try {
+      let download = false;
+      await openTextInNewTab(async () => {
+        const result = await client.read(path);
+        if (result.binary || result.too_large) {
+          download = true;
+          return null;
+        }
+        return result.text;
+      }, { title: path.split('/').pop(), loading: t('files_loading') });
+      if (download) {
+        showStatus(elements, t('files_downloading', { name: path.split('/').pop() }));
+        const file = await fetchFileBytes(client, path);
+        downloadFile(file.blob, file.name);
+        showStatus(elements, '');
+      }
+    } catch (error) {
+      const key = errorKey(error);
+      showStatus(elements, key ? t(key) : error.message, true);
+    }
   }
 
   function showStatus(elements, text, isError = false) {
@@ -181,6 +228,11 @@
     page.load = load;
     // Las carpetas se recorren en la misma pestaña, con el historial del navegador: atrás vuelve a la anterior.
     doc.addEventListener('click', event => {
+      const fileButton = event.target.closest('button[data-file]');
+      if (fileButton) {
+        openFile(page, fileButton.dataset.file);
+        return;
+      }
       const anchor = event.target.closest('a[data-path]');
       if (!anchor || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       event.preventDefault();

@@ -126,4 +126,41 @@ describe('Browser UI - navegador de ficheros', { concurrency: 2 }, () => {
       await files.close();
     }
   });
+
+  test('Browser UI - un fichero de texto se abre en otra pestaña y uno binario se descarga', async () => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3, 250, 251]);
+    const files = await openFilesPage((method, params) => {
+      if (method === 'zerochat/files/list') {
+        return { path: '', total: 2, truncated: false, entries: [
+          { name: 'README.md', type: 'file', size: 7, modified: Date.UTC(2026, 10, 2) },
+          { name: 'logo.png', type: 'file', size: png.length, modified: Date.UTC(2026, 10, 2) }
+        ] };
+      }
+      if (method === 'zerochat/files/read') {
+        return params.path === 'README.md' ? { path: 'README.md', size: 7, binary: false, text: '# Hola\n' } : { path: params.path, size: png.length, binary: true };
+      }
+      // Dos páginas: el cliente las une en orden.
+      const half = params.offset === 0 ? png.subarray(0, 6) : png.subarray(6);
+      return { path: params.path, name: 'logo.png', size: png.length, data: half.toString('base64'), next: params.offset + half.length, done: params.offset > 0 };
+    });
+    const { page } = files;
+    try {
+      await page.waitForFunction(() => document.querySelectorAll('#files-list button[data-file]').length === 2);
+      const [popup] = await Promise.all([page.waitForEvent('popup'), page.locator('button[data-file="README.md"]').click()]);
+      await popup.waitForURL(/^blob:/);
+      assert.equal(await popup.evaluate(() => document.body.innerText), '# Hola\n');
+      await popup.close();
+
+      const [download] = await Promise.all([page.waitForEvent('download'), page.locator('button[data-file="logo.png"]').click()]);
+      assert.equal(download.suggestedFilename(), 'logo.png');
+      const stream = await download.createReadStream();
+      const chunks = [];
+      for await (const chunk of stream) chunks.push(chunk);
+      assert.deepEqual(Buffer.concat(chunks), png);
+      assert.deepEqual(files.calls.filter(call => call.method === 'zerochat/files/download').map(call => call.params.offset), [0, 6]);
+      assert.deepEqual(files.errors, []);
+    } finally {
+      await files.close();
+    }
+  });
 });

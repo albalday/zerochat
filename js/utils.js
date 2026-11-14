@@ -180,6 +180,50 @@
     return ['html', 'htm', 'svg'].includes(String(kind || '').trim().toLowerCase());
   }
 
+  /** Descarga `content` (texto, Blob o bytes) como archivo; devuelve false si el navegador no lo permite. */
+  function downloadFile(content, filename, mimeType) {
+    try {
+      const url = URL.createObjectURL(content instanceof Blob ? content : new Blob([content], { type: mimeType }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      return true;
+    } catch (error) {
+      console.error('[ChatUtils] Download failed:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Abre una pestaña al pulsar, para que el navegador no la bloquee como ventana emergente, y le pone
+   * como texto plano lo que devuelva `load`. Si `load` devuelve null, la pestaña se cierra sin más (quien
+   * llama ha decidido otra cosa, como descargar); si falla, se cierra y el error sigue.
+   */
+  async function openTextInNewTab(load, { title = '', loading = '' } = {}) {
+    const win = window.open('', '_blank');
+    if (!win) return false;
+    win.document.title = title;
+    win.document.body.textContent = loading;
+    try {
+      const text = await load();
+      if (text === null) {
+        win.close();
+        return false;
+      }
+      const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+      win.location.href = url;
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      return true;
+    } catch (error) {
+      win.close();
+      throw error;
+    }
+  }
+
   // Permisos del documento previsualizado: sin allow-same-origin su origen es opaco, así que sus
   // scripts no leen las cookies (token del servidor local) ni el almacenamiento de ZeroChat.
   const PREVIEW_SANDBOX = 'allow-scripts allow-forms allow-modals allow-popups';
@@ -530,6 +574,8 @@
     openImageInNewTab,
     isPreviewable,
     openDocumentInNewTab,
+    openTextInNewTab,
+    downloadFile,
     makeImageOpenable,
     parseRagImageRef,
     setText,
