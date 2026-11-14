@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -175,6 +176,7 @@ class BackgroundCommandTest(unittest.TestCase):
         started = time.monotonic()
         matched = check(server["job_id"], wait_seconds=30, pattern="LISTENING ON")
         self.assertLess(time.monotonic() - started, 5)
+        self.assertLess(matched["waited_s"], 5)
         self.assertEqual((matched["status"], matched["returned_because"], matched["matched_line"]),
                          ("running", "pattern_matched", "Server listening on 8080"))
         self.assertEqual(matched["new_output"], "Server listening on 8080\n")
@@ -224,6 +226,27 @@ class BackgroundCommandTest(unittest.TestCase):
         for kwargs in ({}, {"wait_seconds": 0}, {"wait_seconds": 1, "stop": True}, {"wait_seconds": 1, "pattern": "x"}):
             with self.subTest(kwargs=kwargs):
                 self.assertIs(wait(**kwargs)["success"], False)
+
+    def test_la_persona_corta_una_espera_por_la_clave_de_la_invocacion_sin_detener_el_comando(self):
+        server = run("exec sleep 100", background=True)
+        ctx = zerochat.project_context()
+        end_wait = lambda key: zerochat.ZeroChatServerHandler._dispatch_jobs("zerochat/jobs/end_wait", {"key": key}, ctx)[0]
+        for kwargs in ({"wait_seconds": 30}, {"job_id": server["job_id"], "wait_seconds": 30, "pattern": "nunca"}):
+            with self.subTest(kwargs=kwargs):
+                key = "espera-cortada-1"
+                results = []
+                waiter = threading.Thread(target=lambda: results.append(json.loads(zerochat.check_command(**kwargs, job_key=key, ctx=ctx))))
+                started = time.monotonic()
+                waiter.start()
+                deadline = time.monotonic() + 5
+                while not end_wait(key)["ended"] and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                waiter.join(5)
+                self.assertLess(time.monotonic() - started, 5)
+                self.assertEqual(results[0]["returned_because"], "wait_ended_by_user")
+                self.assertIs(end_wait(key)["ended"], False, "Una espera terminada ya no se puede cortar")
+        self.assertEqual(check(server["job_id"])["status"], "running")
+        check(server["job_id"], stop=True)
 
     def test_cada_proyecto_solo_ve_y_detiene_sus_comandos(self):
         other = zerochat.SecurityContext(self.data_dir.resolve())

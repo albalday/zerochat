@@ -172,26 +172,36 @@
     }
   }
 
-  function renderBadge(state) {
-    const view = getBadgeView(state);
+  /** Insignia de una vista ({ className, icon, text }), con un título opcional al pasar el ratón. */
+  function renderBadgeView(view, title = '') {
     const svg = view.icon === 'spinner'
       ? Icons.get('spinner', { size: 12, strokeWidth: 2.5, className: 'ui-icon-spin' })
       : icon(view.icon, 12);
-    return `<span class="tool-card-badge ${view.className}">${svg} <span>${escapeHtml(view.text)}</span></span>`;
+    return `<span class="tool-card-badge ${view.className}"${title ? ` title="${escapeHtml(title)}"` : ''}>${svg} <span>${escapeHtml(view.text)}</span></span>`;
   }
 
-  function buildCard(args, ui, { collapsed = false } = {}) {
-    const command = typeof args?.command === 'string' ? args.command : '';
-    const firstLine = command.split('\n')[0] + (command.includes('\n') ? ' …' : '');
+  function renderBadge(state) {
+    return renderBadgeView(getBadgeView(state));
+  }
+
+  function replaceBadge(card, html) {
+    card.querySelector('.tool-card-badge').outerHTML = html;
+  }
+
+  /**
+   * Tarjeta de comando: título, insignia, log y un botón que pide `stop()` a su controlador (detener
+   * el comando en run_command, cortar la espera en check_command).
+   */
+  function buildCardShell(ui, { titleHtml, actionLabel, collapsed = false }) {
     const card = ui.createCardWrapper('mcp-card command-card-wrapper');
     card.innerHTML = getToolCards().renderCardHtml({
       className: 'command-card',
       collapsed,
-      titleHtml: `${icon('terminal', 14)}<code class="command-card-command" title="${escapeHtml(command)}">${escapeHtml(firstLine)}</code>`,
+      titleHtml,
       badgeHtml: '<span class="tool-card-badge"></span>',
       bodyHtml: `<pre class="tool-card-code command-card-log" tabindex="0" hidden><code></code></pre>`
         + `<div class="command-card-actions">`
-        + `<button type="button" class="btn-command-action btn-command-stop" data-command-action="stop" hidden>${icon('stop')}<span>${escapeHtml(t('command_action_stop'))}</span></button>`
+        + `<button type="button" class="btn-command-action btn-command-stop" data-command-action="stop" hidden>${icon('stop')}<span>${escapeHtml(actionLabel)}</span></button>`
         + `</div>`
     });
     card.addEventListener('click', event => {
@@ -201,6 +211,16 @@
       controllers.get(card)?.stop();
     });
     return card;
+  }
+
+  function buildCard(args, ui, { collapsed = false } = {}) {
+    const command = typeof args?.command === 'string' ? args.command : '';
+    const firstLine = command.split('\n')[0] + (command.includes('\n') ? ' …' : '');
+    return buildCardShell(ui, {
+      collapsed,
+      actionLabel: t('command_action_stop'),
+      titleHtml: `${icon('terminal', 14)}<code class="command-card-command" title="${escapeHtml(command)}">${escapeHtml(firstLine)}</code>`
+    });
   }
 
   // Tarjetas de comandos en marcha: un único reloj para todas y una única suscripción al latido.
@@ -271,7 +291,7 @@
     }
 
     renderBadge() {
-      this.card.querySelector('.tool-card-badge').outerHTML = renderBadge(this.state);
+      replaceBadge(this.card, renderBadge(this.state));
     }
 
     render() {
@@ -493,6 +513,197 @@
     };
   }
 
+  // --- check_command: la espera a la vista ---------------------------------------------
+
+  const WAIT_REASON_VIEWS = {
+    pattern_matched: { className: 'status-success', icon: 'check', key: 'wait_status_matched' },
+    command_finished: { className: 'status-success', icon: 'check', key: 'wait_status_finished' },
+    wait_elapsed: { className: 'status-stopped', icon: 'clock', key: 'wait_status_elapsed' },
+    wait_ended_by_user: { className: 'status-stopped', icon: 'stop', key: 'wait_status_ended' }
+  };
+
+  /** Resultado de check_command (texto JSON del servidor) como objeto, o null si no lo es. */
+  function parseWaitResult(raw) {
+    const text = typeof raw === 'string' ? raw : (typeof raw?.content === 'string' ? raw.content : null);
+    if (!text) return null;
+    try {
+      const data = JSON.parse(text);
+      return data && typeof data === 'object' && typeof data.success === 'boolean' ? data : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /** Lo que pide la llamada: a qué comando, cuánto tiempo y con qué patrón. */
+  function waitRequest(args) {
+    const jobId = Number.isInteger(args?.job_id) ? args.job_id : null;
+    // El servidor acota la espera; aquí solo se muestra lo pedido.
+    const seconds = Math.max(0, Math.floor(Number(args?.wait_seconds) || 0));
+    const pattern = typeof args?.pattern === 'string' && args.pattern ? args.pattern : '';
+    const stop = args?.stop === true && jobId !== null;
+    return { jobId, seconds, pattern, stop, waits: !stop && (seconds > 0 || (jobId !== null && pattern !== '')) };
+  }
+
+  function waitTitle(request) {
+    if (request.jobId === null) return t('wait_title_plain', { time: formatDuration(request.seconds) });
+    if (request.stop) return t('wait_title_stop', { id: request.jobId });
+    return t(request.waits ? 'wait_title_job' : 'wait_title_check', { id: request.jobId });
+  }
+
+  /** Insignia de la espera: en curso, por qué volvió o que falló. */
+  function getWaitBadgeView(state) {
+    if (!state.returned) {
+      const elapsed = (Date.now() - state.startedAt) / 1000;
+      return {
+        className: 'status-loading',
+        icon: 'spinner',
+        text: t('wait_status_waiting', { time: formatDuration(elapsed), total: formatDuration(state.request.seconds) })
+      };
+    }
+    const data = state.result;
+    if (!data || data.success === false) {
+      return { className: 'status-error', icon: 'x-circle', text: t('wait_status_failed') };
+    }
+    const time = formatDuration(Number.isFinite(data.waited_s) ? data.waited_s : state.elapsed);
+    const view = WAIT_REASON_VIEWS[data.returned_because];
+    if (view) return { className: view.className, icon: view.icon, text: t(view.key, { time }) };
+    return { className: 'status-success', icon: 'check', text: t(state.request.stop ? 'wait_status_stopped' : 'wait_status_checked') };
+  }
+
+  /**
+   * Controlador de la tarjeta de check_command: mientras espera cuenta el tiempo y, si espera a un
+   * comando, muestra su salida nueva según llega; su botón corta la espera, no el comando.
+   */
+  class WaitCardController {
+    constructor(card, args) {
+      this.card = card;
+      this.state = { request: waitRequest(args), startedAt: Date.now(), elapsed: 0, returned: false, result: null };
+      this.clockTimer = null;
+      this.logTimer = null;
+      this.logNext = null;
+      this.logText = '';
+      controllers.set(card, this);
+    }
+
+    start() {
+      this.render();
+      if (!this.state.request.waits) return;
+      // La tarjeta entra en el historial plegado de su grupo: mientras espera pasa a la zona visible.
+      setTimeout(() => {
+        if (!this.card.isConnected || this.state.returned) return;
+        getToolCards().reactivateToolCard(this.card);
+        const messagesList = this.card.closest('#messages-list');
+        if (messagesList) getConversation().scrollToBottom(messagesList);
+      }, 0);
+      this.clockTimer = setInterval(() => {
+        if (!this.card.isConnected) this.stopTimers();
+        else this.render();
+      }, 1000);
+      if (this.state.request.jobId !== null) this.logTimer = setTimeout(() => this.pollLog(), FIRST_LOG_POLL_MS);
+    }
+
+    stopTimers() {
+      if (this.clockTimer !== null) clearInterval(this.clockTimer);
+      if (this.logTimer !== null) clearTimeout(this.logTimer);
+      this.clockTimer = null;
+      this.logTimer = null;
+    }
+
+    renderBadge() {
+      replaceBadge(this.card, renderBadgeView(getWaitBadgeView(this.state), this.state.result?.matched_line || ''));
+    }
+
+    render() {
+      this.renderBadge();
+      const canEnd = !this.state.returned && this.state.request.waits && Boolean(this.card.dataset.invocationId);
+      this.card.querySelector('[data-command-action="stop"]').hidden = !canEnd;
+    }
+
+    showText(text) {
+      const logEl = this.card.querySelector('.command-card-log');
+      logEl.querySelector('code').textContent = text || '';
+      logEl.hidden = !text;
+    }
+
+    /** La salida nueva del comando que se espera: desde donde iba al empezar la espera. */
+    async pollLog() {
+      this.logTimer = null;
+      if (this.state.returned || !this.card.isConnected) return;
+      const mcp = getMcp();
+      const ref = { id: this.state.request.jobId };
+      if (!document.hidden) {
+        try {
+          if (this.logNext === null) {
+            const details = await mcp.requestExternalControl('zerochat/jobs/get', ref);
+            this.logNext = Number(details?.output_bytes) || 0;
+          } else {
+            const page = await mcp.requestExternalControl('zerochat/jobs/log', { ...ref, offset: this.logNext, limit: LOG_PAGE_BYTES });
+            this.logNext = Number(page?.next) || this.logNext;
+            if (page?.text) {
+              this.logText = appendLog(this.logText, String(page.text));
+              if (!this.state.returned) this.showText(this.logText);
+            }
+          }
+        } catch (_) {
+          // El comando ya no existe: queda lo que devuelva la herramienta.
+        }
+      }
+      if (!this.state.returned) this.logTimer = setTimeout(() => this.pollLog(), LOG_POLL_MS);
+    }
+
+    /** Corta la espera: la herramienta vuelve enseguida con lo que haya. */
+    async stop() {
+      const key = this.card.dataset.invocationId;
+      const button = this.card.querySelector('[data-command-action="stop"]');
+      if (!key || this.state.returned) return;
+      button.disabled = true;
+      try {
+        await getMcp().requestExternalControl('zerochat/jobs/end_wait', { key });
+      } catch (error) {
+        button.disabled = false;
+        await getDialogs().alert(t('wait_end_error', { error: error?.message || String(error) }), { type: 'error' });
+      }
+    }
+
+    applyResult(data, fallbackError = '') {
+      this.stopTimers();
+      this.state = { ...this.state, returned: true, result: data, elapsed: (Date.now() - this.state.startedAt) / 1000 };
+      const output = data ? [data.new_output || '', data.error ? `\n${data.error}` : ''].join('').trim() : String(fallbackError || '');
+      this.showText(output || this.logText);
+      this.render();
+    }
+  }
+
+  function createWaitView() {
+    const build = (args, ui, collapsed) => {
+      const request = waitRequest(args);
+      const pattern = request.pattern ? ` <code class="command-card-command" title="${escapeHtml(request.pattern)}">${escapeHtml(request.pattern)}</code>` : '';
+      return buildCardShell(ui, {
+        collapsed,
+        actionLabel: t('wait_action_end'),
+        titleHtml: `${icon('clock', 14)}<span>${escapeHtml(waitTitle(request))}</span>${pattern}`
+      });
+    };
+    return {
+      createLiveCard: (args, ui) => {
+        const card = build(args, ui, false);
+        new WaitCardController(card, args).start();
+        return card;
+      },
+      updateLiveCard: (card, args, result) => {
+        const controller = controllers.get(card) || new WaitCardController(card, args);
+        controller.applyResult(parseWaitResult(result), result.error || result.content || '');
+        return false;
+      },
+      renderHistoricalCard: (args, message, ui) => {
+        const card = build(args, ui, true);
+        const controller = new WaitCardController(card, args);
+        controller.applyResult(parseWaitResult(message?.content), typeof message?.content === 'string' ? message.content : '');
+        return card;
+      }
+    };
+  }
+
   /**
    * Nota en inglés para el modelo con los comandos en segundo plano de esta conversación que
    * han terminado sin que los haya visto terminar. Vacía si no hay ninguno.
@@ -528,6 +739,10 @@
 
   return {
     createView,
+    createWaitView,
+    parseWaitResult,
+    waitRequest,
+    getWaitBadgeView,
     parseResult,
     formatDuration,
     buildCommandNotes,

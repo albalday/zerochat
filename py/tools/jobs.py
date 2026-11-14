@@ -41,6 +41,8 @@ REPORT_TAIL_LINES = 20
 # check_command(pattern): longitud máxima de la expresión y de la línea que se devuelve al coincidir.
 CHECK_PATTERN_MAX_CHARS = 200
 MATCHED_LINE_MAX_CHARS = 500
+# Cada cuánto comprueba una espera de check_command si la persona la ha cortado.
+WAIT_SLICE_SECONDS = 0.25
 REPORT_TAIL_BYTES = 4096
 
 
@@ -408,6 +410,8 @@ class JobManager:
         self._windows_job: _WindowsKillOnCloseJob | None = None
         # Avisa a check_command sin job_id de que ha terminado algún comando.
         self._finished = threading.Condition()
+        # Esperas de check_command en curso, por la clave de su invocación: la persona puede cortarlas.
+        self._waits: dict[str, threading.Event] = {}
         atexit.register(self.shutdown)
 
     def _session_dir(self) -> Path:
@@ -537,11 +541,35 @@ class JobManager:
         with self._finished:
             self._finished.notify_all()
 
-    def wait_any_finished(self, jobs: list[CommandJob], timeout: float) -> list[CommandJob]:
-        """Espera como mucho timeout segundos a que termine alguno de jobs; devuelve los terminados."""
+    def wait_any_finished(self, jobs: list[CommandJob], timeout: float, cancel: threading.Event) -> list[CommandJob]:
+        """Espera como mucho timeout segundos a que termine alguno de jobs o se corte la espera; devuelve los terminados."""
         with self._finished:
-            self._finished.wait_for(lambda: any(job.done.is_set() for job in jobs), timeout)
+            self._finished.wait_for(lambda: cancel.is_set() or any(job.done.is_set() for job in jobs), timeout)
         return [job for job in jobs if job.done.is_set()]
+
+    def open_wait(self, key: str | None) -> threading.Event:
+        """Registra una espera que se puede cortar con cancel_wait(key); sin clave no se puede cortar."""
+        event = threading.Event()
+        if key:
+            with self._lock:
+                self._waits[key] = event
+        return event
+
+    def close_wait(self, key: str | None):
+        if key:
+            with self._lock:
+                self._waits.pop(key, None)
+
+    def cancel_wait(self, key) -> bool:
+        """Corta la espera de check_command con esa clave; devuelve si había una en curso."""
+        with self._lock:
+            event = self._waits.get(key) if isinstance(key, str) else None
+        if event is None:
+            return False
+        event.set()
+        with self._finished:
+            self._finished.notify_all()
+        return True
 
     def get(self, project: str, job_id=None, key=None) -> CommandJob | None:
         jobs = self.list(project)
@@ -676,7 +704,7 @@ def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, ba
     return _job_result(job)
 
 
-def _wait_job(job: CommandJob, wait: float, regex: re.Pattern | None) -> tuple[str, str | None]:
+def _wait_job(job: CommandJob, wait: float, regex: re.Pattern | None, cancel: threading.Event) -> tuple[str, str | None]:
     """Espera a que termine el comando, a que una línea nueva de su salida cumpla regex o a que pase wait.
 
     Recorre la salida que el modelo aún no ha visto, línea a línea; la última línea, si no está completa,
@@ -699,27 +727,30 @@ def _wait_job(job: CommandJob, wait: float, regex: re.Pattern | None) -> tuple[s
             if regex is not None and partial and regex.search(partial):
                 return "pattern_matched", partial
             return "command_finished", None
+        if cancel.is_set():
+            return "wait_ended_by_user", None
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return "wait_elapsed", None
         if regex is None:
-            job.done.wait(remaining)
+            job.done.wait(min(remaining, WAIT_SLICE_SECONDS))
         else:
-            job.wait_change(pos, remaining)
+            job.wait_change(pos, min(remaining, WAIT_SLICE_SECONDS))
 
 
-def _plain_wait(wait_seconds, ctx: SecurityContext) -> str:
+def _plain_wait(wait_seconds, cancel: threading.Event, ctx: SecurityContext) -> str:
     """check_command sin job_id: espera sin lanzar ningún proceso; vuelve antes si termina un comando del proyecto."""
     wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
     if not wait:
         return _tool_error(f"Without job_id, check_command waits: give wait_seconds (1 to {COMMAND_MAX_WAIT}).", os=DETECTED_OS)
     running = JOBS.running(ctx.key)
     started = time.monotonic()
-    finished = JOBS.wait_any_finished(running, wait)
+    finished = JOBS.wait_any_finished(running, wait, cancel)
+    reason = "command_finished" if finished else ("wait_ended_by_user" if cancel.is_set() else "wait_elapsed")
     result = {
         "success": True,
         "waited_s": round(time.monotonic() - started, 1),
-        "returned_because": "command_finished" if finished else "wait_elapsed",
+        "returned_because": reason,
     }
     if finished:
         result["finished_jobs"] = [
@@ -730,13 +761,18 @@ def _plain_wait(wait_seconds, ctx: SecurityContext) -> str:
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
-def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool = False, pattern: str | None = None, *, ctx: SecurityContext) -> str:
+def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool = False, pattern: str | None = None,
+                  job_key: str | None = None, *, ctx: SecurityContext) -> str:
     """Estado y salida nueva de un comando lanzado por run_command; puede esperarlo, con un patrón, o detenerlo.
-    Sin job_id, solo espera."""
+    Sin job_id, solo espera. La persona puede cortar la espera con zerochat/jobs/end_wait y la clave de la invocación."""
     if job_id is None:
         if stop or pattern:
             return _tool_error("stop and pattern need the job_id of a command.", os=DETECTED_OS)
-        return _plain_wait(wait_seconds, ctx)
+        cancel = JOBS.open_wait(job_key)
+        try:
+            return _plain_wait(wait_seconds, cancel, ctx)
+        finally:
+            JOBS.close_wait(job_key)
     job = JOBS.get(ctx.key, job_id=job_id)
     if job is None:
         return _tool_error(f"Unknown job_id {job_id}. It may belong to a previous ZeroChat session or to another project.", os=DETECTED_OS)
@@ -752,8 +788,13 @@ def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool =
     wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
     if not wait and regex is None:
         return _job_result(job, output_field="new_output")
-    reason, line = _wait_job(job, wait, regex)
-    extra = {"returned_because": reason}
+    cancel = JOBS.open_wait(job_key)
+    started = time.monotonic()
+    try:
+        reason, line = _wait_job(job, wait, regex, cancel)
+    finally:
+        JOBS.close_wait(job_key)
+    extra = {"returned_because": reason, "waited_s": round(time.monotonic() - started, 1)}
     if line is not None:
         extra["matched_line"] = line if len(line) <= MATCHED_LINE_MAX_CHARS else line[:MATCHED_LINE_MAX_CHARS] + "…"
     return _job_result(job, output_field="new_output", extra=extra)

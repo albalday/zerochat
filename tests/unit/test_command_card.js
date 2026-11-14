@@ -117,3 +117,39 @@ test('CommandCard - sin log en el servidor queda la salida que vio el modelo, un
   assert.equal(CommandCard.fallbackLog(CommandCard.withResult(CommandCard.initialState(), { status: 'exited', exit_code: 0, output: '' })),
     'El log ya no está disponible: ZeroChat se ha reiniciado o el comando se ha descartado.');
 });
+
+test('CommandCard - la espera de check_command: a qué comando, cuánto tiempo y si espera de verdad', () => {
+  const cases = [
+    [{ wait_seconds: 120 }, { jobId: null, seconds: 120, pattern: '', stop: false, waits: true }],
+    [{ job_id: 7, wait_seconds: 30, pattern: 'error' }, { jobId: 7, seconds: 30, pattern: 'error', stop: false, waits: true }],
+    [{ job_id: 7, pattern: 'error' }, { jobId: 7, seconds: 0, pattern: 'error', stop: false, waits: true }],
+    [{ job_id: 7 }, { jobId: 7, seconds: 0, pattern: '', stop: false, waits: false }],
+    [{ job_id: 7, wait_seconds: 30, stop: true }, { jobId: 7, seconds: 30, pattern: '', stop: true, waits: false }]
+  ];
+  for (const [args, expected] of cases) {
+    assert.deepEqual(CommandCard.waitRequest(args), expected, JSON.stringify(args));
+  }
+});
+
+test('CommandCard - la insignia de la espera cuenta el tiempo y, al volver, dice por qué', t => {
+  useClock(t);
+  const request = CommandCard.waitRequest({ job_id: 7, wait_seconds: 300, pattern: 'listening' });
+  const view = state => {
+    const result = CommandCard.getWaitBadgeView({ request, startedAt: NOW - 45_000, elapsed: 45, returned: true, ...state });
+    return [result.className, result.text];
+  };
+  assert.deepEqual(view({ returned: false }), ['status-loading', 'Esperando · 45 s de 5:00']);
+  const cases = [
+    ['pattern_matched', 'status-success', 'Encontrado · 12 s'],
+    ['command_finished', 'status-success', 'El comando terminó · 12 s'],
+    ['wait_elapsed', 'status-stopped', 'Espera completa · 12 s'],
+    ['wait_ended_by_user', 'status-stopped', 'Espera cortada · 12 s']
+  ];
+  for (const [reason, className, text] of cases) {
+    assert.deepEqual(view({ result: { success: true, returned_because: reason, waited_s: 12 } }), [className, text], reason);
+  }
+  assert.deepEqual(view({ result: { success: false, error: 'Unknown job_id 7.' } }), ['status-error', 'Error']);
+  assert.deepEqual(view({ result: null }), ['status-error', 'Error']);
+  assert.equal(CommandCard.parseWaitResult('{"success":true,"returned_because":"wait_elapsed"}').returned_because, 'wait_elapsed');
+  assert.equal(CommandCard.parseWaitResult('no es json'), null);
+});

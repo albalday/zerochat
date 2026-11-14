@@ -755,6 +755,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             if not isinstance(ids, list) or len(ids) > 100 or any(isinstance(i, bool) or not isinstance(i, int) for i in ids):
                 return None, {"code": -32602, "message": "ids debe ser una lista de hasta 100 enteros."}, ""
             return {"reports": JOBS.report_finished(ids, project)}, None, ""
+        if method == "zerochat/jobs/end_wait":
+            return {"ended": JOBS.cancel_wait(params.get("key"))}, None, ""
         job = JOBS.get(project, job_id=params.get("id"), key=params.get("key"))
         if method in ("zerochat/jobs/get", "zerochat/jobs/log", "zerochat/jobs/stop") and job is None:
             return None, {"code": -32602, "message": "Comando no encontrado: puede pertenecer a una sesión anterior de ZeroChat."}, ""
