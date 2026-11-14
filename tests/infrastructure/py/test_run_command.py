@@ -195,6 +195,24 @@ class BackgroundCommandTest(unittest.TestCase):
         self.assertEqual(zerochat.JOBS.report_finished([unseen["job_id"]], str(self.project)), [])
         self.assertEqual(check(unseen["job_id"])["new_output"], "")
 
+    def test_se_conservan_max_finished_jobs_comandos_terminados_y_al_pasar_se_borra_el_mas_antiguo_con_su_log(self):
+        ctx = zerochat.project_context()
+        limit = zerochat.MAX_FINISHED_JOBS
+        jobs = []
+        for _ in range(limit + 1):
+            job = zerochat.JOBS.start("exit 0", False, ctx)
+            self.assertTrue(job.done.wait(5))
+            jobs.append(job)
+        # Al lanzar el último había exactamente el tope de terminados: no se descartó ninguno.
+        self.assertEqual([job.id for job in zerochat.JOBS.list(ctx.key)], [job.id for job in jobs])
+        self.assertTrue(jobs[0].log_path.exists())
+        # Con uno más terminado, el siguiente arranque descarta el más antiguo y su log.
+        newest = zerochat.JOBS.start("exit 0", False, ctx)
+        self.assertTrue(newest.done.wait(5))
+        self.assertIsNone(zerochat.JOBS.get(ctx.key, job_id=jobs[0].id))
+        self.assertFalse(jobs[0].log_path.exists())
+        self.assertIsNotNone(zerochat.JOBS.get(ctx.key, job_id=jobs[1].id))
+
     def test_hay_un_limite_de_comandos_simultaneos_y_al_apagar_se_detienen_y_se_borran_los_logs(self):
         with patch.object(zerochat, "MAX_RUNNING_JOBS", 1):
             busy = run("sleep 100", background=True)
