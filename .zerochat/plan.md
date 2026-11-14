@@ -49,4 +49,4 @@ Done when: `zerochat/files/list`, `zerochat/files/read` y `zerochat/files/downlo
 - [x] M71-T3 Lista navegable: migas para subir, carpetas primero con su icono, ficheros con tamaño y fecha, navegación con el historial del navegador (atrás y adelante) y diseño que funcione en el móvil (2026-11-14)
 - [x] M71-T4 Abrir y descargar: un fichero de texto se abre en una pestaña nueva como texto plano; uno binario o demasiado grande se descarga por páginas; pruebas en `tests/browser/` (2026-11-14)
 - [x] M71-T5 Icono de carpeta en la cabecera de cada proyecto del historial, junto al de nuevo chat (`js/ui-sidebar.js`), que abre `files.html` de ese proyecto en una pestaña nueva; título accesible en es/en (2026-11-14)
-- [ ] M71-T6 Ayuda bilingüe del navegador de ficheros y contratos en `py/README.md` y `js/README.md`
+- [x] M71-T6 Ayuda bilingüe del navegador de ficheros y contratos en `py/README.md` y `js/README.md` (2026-11-14)
