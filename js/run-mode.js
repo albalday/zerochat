@@ -20,7 +20,6 @@
   const getMcpManager = () => resolveDep('ChatMCP', './mcp.js').manager;
   const getProfiles = () => resolveDep('ChatProfileRepository', './profile-repository.js');
   const getToolCards = () => resolveDep('ChatToolCards', './tool-cards.js');
-  const getToolSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
 
   // El streaming informa como mucho cada este intervalo; el resto de avisos, siempre.
   const STREAM_PROGRESS_INTERVAL_MS = 2000;
@@ -134,22 +133,10 @@
   }
 
   /**
-   * Hidrata en ChatToolSecurity las políticas de herramientas enviadas para la sesión.
-   */
-  function hydrateToolSecurity(toolSecurity) {
-    if (!toolSecurity) return;
-    const security = getToolSecurity()?.manager;
-    if (!security) return;
-    const data = typeof toolSecurity === 'string' ? JSON.parse(toolSecurity) : toolSecurity;
-    if (typeof data !== 'object' || data === null) return;
-    security.applyPolicies(data);
-  }
-
-  /**
    * Contesta cada petición de autorización:
    * - Si `toolDecision` es de esa misma llamada (nombre y argumentos), contesta con la decisión del usuario una sola vez.
-   * - En modo conversación (pauseOnApproval = true sin allowDangerous): devuelve 'pause_for_user'
-   *   y emite un aviso de tipo 'user_request'.
+   * - En modo conversación (pauseOnApproval = true): devuelve 'pause_for_user' y emite un aviso de tipo
+   *   'user_request'; la persona contesta después, así que nunca se aprueba sola.
    * - En modo clásico (pauseOnApproval = false): permitida para la sesión, salvo las herramientas que
    *   escriben o ejecutan sin allowDangerous, que se deniegan.
    */
@@ -162,7 +149,7 @@
         report({ kind: 'approval_allowed', text: toolName });
         return decision;
       }
-      if (pauseOnApproval && !allowDangerous) {
+      if (pauseOnApproval) {
         report({ kind: 'user_request', text: toolName });
         return 'pause_for_user';
       }
@@ -220,7 +207,7 @@
         allow_dangerous_tools: allowDangerous,
         conversation_id: conversationId,
         new_conversation_id: newConversationId,
-        tool_security: toolSecurity
+        tool_decision: toolDecision
       } = await send('zerochat/run/prompt');
       keepPage = keepPageRequested === true;
 
@@ -248,12 +235,9 @@
         report({ kind: 'profile', text: match.name });
       }
 
-      const parsedSecurity = typeof toolSecurity === 'string' ? JSON.parse(toolSecurity) : toolSecurity;
-      if (parsedSecurity) hydrateToolSecurity(parsedSecurity);
-
       answerToolApprovals(allowDangerous === true, report, {
         pauseOnApproval: isConversationMode,
-        toolDecision: parsedSecurity?.tool_decision
+        toolDecision
       });
 
       if (isConversationMode) {
@@ -331,7 +315,6 @@
     pendingAskUserQuestion,
     pendingToolApproval,
     prepareConversationForContinuation,
-    hydrateToolSecurity,
     answerToolApprovals,
     start
   };

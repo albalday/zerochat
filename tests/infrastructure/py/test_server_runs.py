@@ -45,7 +45,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         session = zerochat.RunSession(
             conversation_id=conv_id,
             run_id="run_custom_test_abc",
-            tool_security={"directoryRules": ["R:/workspace"]}
+            tool_security={"directoryRules": ["R:/workspace"], "tool_decision": {"toolName": "write_file", "args": {}, "decision": "allow_once"}}
         )
         state_path = zerochat.get_run_state_path(conv_id)
         self.assertTrue(state_path.exists())
@@ -61,12 +61,14 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertIsNone(data["error"])
         self.assertEqual(data["pid"], os.getpid())
 
-        # zerochat/run/prompt entrega conversation_id y tool_security
+        # zerochat/run/prompt entrega conversation_id y, de tool_security, solo la decisión de la tarjeta pausada:
+        # las políticas las aplica este servidor.
         zerochat.RUN_SESSION = session
         prompt_res, err, _ = dispatch_run("zerochat/run/prompt", {"run_id": session.run_id})
         self.assertIsNone(err)
         self.assertEqual(prompt_res["conversation_id"], conv_id)
-        self.assertEqual(prompt_res["tool_security"], {"directoryRules": ["R:/workspace"]})
+        self.assertEqual(prompt_res["tool_decision"], {"toolName": "write_file", "args": {}, "decision": "allow_once"})
+        self.assertNotIn("tool_security", prompt_res)
 
         # zerochat/run/progress actualiza situación y streaming de texto y razonamiento
         prog_res, err, _ = dispatch_run("zerochat/run/progress", {
@@ -206,6 +208,12 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertIsNone(session.prompt)
         self.assertEqual(session.conversation_id, "conv_con_user")
         self.assertEqual(session.profile, "local")
+
+        # --conversation no se aprueba solo: con --allow-dangerous-tools es un error de argumentos, con o sin --prompt.
+        for extra in ([], ["--prompt", "sigue"]):
+            with self.subTest(extra=extra), self.assertRaises(SystemExit) as cm:
+                zerochat.run_session_from_args(parser, parser.parse_args(["--conversation", "conv_con_user", "--allow-dangerous-tools", *extra]))
+            self.assertEqual(cm.exception.code, zerochat.RUN_EXIT_ARGS)
 
         # Conversación con profileId resuelve su propio perfil general sin --profile explícito
         zerochat.save_general_profile({"name": "test-cron-profile", "settings": {}})

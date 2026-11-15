@@ -111,7 +111,7 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt o --conversation, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
     parser.add_argument("--browser", action="store_true", help="Con --prompt o --conversation, abrir el navegador predeterminado del usuario en lugar del proceso Node.js sin ventana")
     parser.add_argument("--keep-page", action="store_true", help="Página: con --browser, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")
-    parser.add_argument("--allow-dangerous-tools", action="store_true", help="Con --prompt o --conversation, aprobar también las herramientas que escriben o ejecutan (write_file, edit_file, run_command); las demás se aprueban siempre para la sesión")
+    parser.add_argument("--allow-dangerous-tools", action="store_true", help="Con --prompt sin --conversation, aprobar también las herramientas que escriben o ejecutan (write_file, edit_file, run_command); las demás se aprueban siempre para la sesión. Con --conversation nada se aprueba solo: la ejecución se pausa y pregunta")
     parser.add_argument("--headless", action="store_true", help="Con --browser, abrir el navegador predeterminado sin ventana (si ya está abierto puede verse la pestaña)")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     return parser
@@ -119,6 +119,8 @@ def build_parser() -> ZeroChatArgumentParser:
 
 def _check_run_flags(parser: ZeroChatArgumentParser, args):
     """Combinaciones de opciones que no admiten --prompt ni --conversation."""
+    if args.allow_dangerous_tools and args.conversation is not None:
+        parser.error("--conversation no aprueba nada sin preguntar: si una herramienta pide permiso, la ejecución se pausa (needs_input); --allow-dangerous-tools solo se usa con --prompt sin --conversation")
     if args.no_browser:
         parser.error("--prompt y --conversation ejecutan la interfaz de forma autónoma: no se combina con --no-browser")
     if args.keep_server:

@@ -71,7 +71,7 @@ test('RunMode.answerToolApprovals permite para la sesión salvo las herramientas
   }
 });
 
-test('RunMode.answerToolApprovals en modo conversación pausa para el usuario salvo con allowDangerous o la decisión del usuario para esa misma llamada (un solo uso)', t => {
+test('RunMode.answerToolApprovals en modo conversación pausa para el usuario salvo con la decisión del usuario para esa misma llamada (un solo uso)', t => {
   const ToolCards = require('../../js/tool-cards.js');
   let responder = null;
   t.mock.method(ToolCards, 'setAuthorizationResponder', fn => { responder = fn; });
@@ -93,12 +93,6 @@ test('RunMode.answerToolApprovals en modo conversación pausa para el usuario sa
     { kind: 'user_request', text: 'run_command' }
   ]);
 
-  const dangerousEvents = [];
-  RunMode.answerToolApprovals(true, event => dangerousEvents.push(event), { pauseOnApproval: true });
-  assert.equal(responder('write_file', {}), 'allow_session');
-  assert.deepEqual(dangerousEvents, [
-    { kind: 'approval_allowed', text: 'write_file' }
-  ]);
 });
 
 test('RunMode.pendingToolApproval detecta herramientas pendientes de aprobación en el final del turno', () => {
@@ -130,29 +124,4 @@ test('RunMode.prepareConversationForContinuation retira el paso incompleto con a
   // Si no está esperando aprobación, conserva el historial intacto
   const normalHistory = [user, { role: 'assistant', content: 'respuesta' }];
   assert.deepEqual(RunMode.prepareConversationForContinuation(normalHistory), normalHistory);
-});
-
-test('RunMode.hydrateToolSecurity aplica políticas reales en ToolSecurityManager sin persistir', () => {
-  const ToolSecurity = require('../../js/tool-security.js');
-  const manager = ToolSecurity.manager;
-  manager.applyPolicies({ globalMcpPolicy: 'ask', tools: {}, servers: {}, directoryRules: [] });
-  try {
-    RunMode.hydrateToolSecurity({
-      globalMcpPolicy: 'workspace_trust',
-      tools: {
-        write_file: { policy: 'allow', scope: 'session' }
-      },
-      commandPatterns: { global: ['git'], projects: {}, session: [] },
-      directoryRules: ['R:/tmp/project'],
-      servers: { memory: { policy: 'allow', scope: 'session' } }
-    });
-
-    assert.equal(manager.getGlobalMcpPolicy(), 'workspace_trust');
-    assert.equal(manager.getToolPolicy('write_file'), 'allow');
-    assert.deepEqual(manager.getCommandPatterns().global, ['git']);
-    assert.ok(manager.getDirectoryRules().includes('R:/tmp/project'));
-    assert.equal(manager.getServerPolicy('memory'), 'allow');
-  } finally {
-    manager.applyPolicies({ globalMcpPolicy: 'ask', tools: {}, servers: {}, directoryRules: [] });
-  }
 });

@@ -4013,16 +4013,14 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
         session.prompt_delivered = True
     session.touch()
     export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
-    delivered_security = (
-        {k: v for k, v in session.tool_security.items() if k != "tool_decision"}
-        if isinstance(session.tool_security, dict) and "tool_decision" in session.tool_security
-        else session.tool_security
-    )
+    # Las políticas de tool_security las aplica este servidor (reset_session_authorizations); el runner solo
+    # necesita la decisión de la tarjeta pausada, para contestar con ella el reto de esa misma llamada.
+    tool_decision = session.tool_security.get("tool_decision") if isinstance(session.tool_security, dict) else None
     return rpc_result({"prompt": session.prompt, "conversation_id": session.conversation_id,
                        "new_conversation_id": session.new_conversation_id, "profile": session.profile,
                        "profile_data": session.profile_data,
                        "export": export_format, "keep_page": session.keep_page,
-                       "allow_dangerous_tools": session.allow_dangerous_tools, "tool_security": delivered_security})
+                       "allow_dangerous_tools": session.allow_dangerous_tools, "tool_decision": tool_decision})
 
 
 def _capped(text: str, limit: int) -> str:
@@ -8896,7 +8894,7 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt o --conversation, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
     parser.add_argument("--browser", action="store_true", help="Con --prompt o --conversation, abrir el navegador predeterminado del usuario en lugar del proceso Node.js sin ventana")
     parser.add_argument("--keep-page", action="store_true", help="Página: con --browser, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")
-    parser.add_argument("--allow-dangerous-tools", action="store_true", help="Con --prompt o --conversation, aprobar también las herramientas que escriben o ejecutan (write_file, edit_file, run_command); las demás se aprueban siempre para la sesión")
+    parser.add_argument("--allow-dangerous-tools", action="store_true", help="Con --prompt sin --conversation, aprobar también las herramientas que escriben o ejecutan (write_file, edit_file, run_command); las demás se aprueban siempre para la sesión. Con --conversation nada se aprueba solo: la ejecución se pausa y pregunta")
     parser.add_argument("--headless", action="store_true", help="Con --browser, abrir el navegador predeterminado sin ventana (si ya está abierto puede verse la pestaña)")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     return parser
@@ -8904,6 +8902,8 @@ def build_parser() -> ZeroChatArgumentParser:
 
 def _check_run_flags(parser: ZeroChatArgumentParser, args):
     """Combinaciones de opciones que no admiten --prompt ni --conversation."""
+    if args.allow_dangerous_tools and args.conversation is not None:
+        parser.error("--conversation no aprueba nada sin preguntar: si una herramienta pide permiso, la ejecución se pausa (needs_input); --allow-dangerous-tools solo se usa con --prompt sin --conversation")
     if args.no_browser:
         parser.error("--prompt y --conversation ejecutan la interfaz de forma autónoma: no se combina con --no-browser")
     if args.keep_server:

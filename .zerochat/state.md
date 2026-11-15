@@ -1,4 +1,4 @@
 # Current state
 - Milestone: M73 Arreglos de seguridad
-- Next task: M73-T16 Repasar los permisos de `--prompt` y `--conversation` con el usuario: qué aprueba cada modo sin preguntar (`answerToolApprovals` en `js/run-mode.js`: `allow_session` para todo salvo las herramientas peligrosas en modo clásico), qué hace `--allow-dangerous-tools` y qué capa de seguridad aplica `tool_security`; decidir qué cambia y registrarlo
+- Next task: M73-T17 Fallo intermitente en infraestructura: «zerochat.py --prompt: arranque normal…» (tests/infrastructure/test_backend_run_mode.js) acaba a veces con «Fatal Python error: _enter_buffered_busy: could not acquire lock for <stdout> at interpreter shutdown, possibly due to daemon threads»; un hilo daemon escribe en stdout mientras sale el intérprete. Visto 1 de 6 pasadas
 - Last updated: 2026-11-15

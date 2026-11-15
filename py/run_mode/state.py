@@ -420,16 +420,14 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
         session.prompt_delivered = True
     session.touch()
     export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
-    delivered_security = (
-        {k: v for k, v in session.tool_security.items() if k != "tool_decision"}
-        if isinstance(session.tool_security, dict) and "tool_decision" in session.tool_security
-        else session.tool_security
-    )
+    # Las políticas de tool_security las aplica este servidor (reset_session_authorizations); el runner solo
+    # necesita la decisión de la tarjeta pausada, para contestar con ella el reto de esa misma llamada.
+    tool_decision = session.tool_security.get("tool_decision") if isinstance(session.tool_security, dict) else None
     return rpc_result({"prompt": session.prompt, "conversation_id": session.conversation_id,
                        "new_conversation_id": session.new_conversation_id, "profile": session.profile,
                        "profile_data": session.profile_data,
                        "export": export_format, "keep_page": session.keep_page,
-                       "allow_dangerous_tools": session.allow_dangerous_tools, "tool_security": delivered_security})
+                       "allow_dangerous_tools": session.allow_dangerous_tools, "tool_decision": tool_decision})
 
 
 def _capped(text: str, limit: int) -> str:
