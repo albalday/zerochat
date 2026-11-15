@@ -40,6 +40,22 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         file_mode = stat.S_IMODE(state_path.stat().st_mode)
         self.assertEqual(file_mode, 0o600)
 
+    def test_el_runner_recibe_los_perfiles_sin_clave_y_pide_solo_la_del_que_activa(self):
+        saved = zerochat.save_general_profile({"name": "Otro", "settings": {"model": "m", "apiKey": "sk-otro"}})
+        zerochat.RUN_SESSION = session = zerochat.RunSession(prompt="hola")
+        prompt_res, err, _ = dispatch_run("zerochat/run/prompt", {"run_id": session.run_id})
+        self.assertIsNone(err)
+        self.assertEqual([(item["name"], item["settings"]) for item in prompt_res["profiles"]], [("Otro", {"model": "m"})])
+
+        profile_res, err, _ = dispatch_run("zerochat/run/profile", {"run_id": session.run_id, "id": saved["id"]})
+        self.assertIsNone(err)
+        self.assertEqual(profile_res["profile"]["settings"]["apiKey"], "sk-otro")
+        for params in ({"run_id": session.run_id, "id": "profile:no-existe"}, {"run_id": session.run_id}, {"run_id": "otro", "id": saved["id"]}):
+            with self.subTest(params=params):
+                result, err, _ = dispatch_run("zerochat/run/profile", params)
+                self.assertIsNone(result)
+                self.assertEqual(err["code"], -32602)
+
     def test_fichero_situacion_estructura_y_ciclo_de_vida(self):
         conv_id = "session_test_run_123"
         session = zerochat.RunSession(

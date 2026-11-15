@@ -346,4 +346,24 @@ test('ProfileRepository - registerSessionProfile registra perfil volátil para e
   assert.throws(() => repository.registerSessionProfile({ name: '' }), /The profile name cannot be empty/);
 });
 
+test('ProfileRepository - un perfil de sesión sin clave la pide a su cargador la primera vez que se carga', async () => {
+  const repository = Profiles;
+  const requested = [];
+  repository.setSessionKeyLoader(async id => {
+    requested.push(id);
+    return { id, name: 'Otro', settings: { apiType: 'openai', model: 'm', apiKey: 'sk-otro' } };
+  });
+  repository.registerSessionProfile({ id: 'profile:otro', name: 'Otro', settings: { apiType: 'openai', model: 'm' } }, { keyless: true });
+  assert.ok(!repository.get('profile:otro').settings.apiKey);
+  assert.equal((await repository.loadUnlocked('profile:otro')).settings.apiKey, 'sk-otro');
+  assert.equal((await repository.loadUnlocked('profile:otro')).settings.apiKey, 'sk-otro');
+  assert.deepEqual(requested, ['profile:otro'], 'solo la pide una vez');
+
+  // Si el servidor devuelve otro perfil, no se usa.
+  repository.registerSessionProfile({ id: 'profile:raro', name: 'Raro', settings: {} }, { keyless: true });
+  repository.setSessionKeyLoader(async () => ({ id: 'profile:otro', name: 'Otro', settings: { apiKey: 'sk-otro' } }));
+  await assert.rejects(repository.loadUnlocked('profile:raro'), /did not return the profile Raro/);
+  repository.setSessionKeyLoader(null);
+  repository.clearSessionProfile();
+});
 

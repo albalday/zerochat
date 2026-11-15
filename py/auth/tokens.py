@@ -28,6 +28,7 @@ RUNNER_ALLOWED_METHODS = frozenset({
     "tools/list",
     "tools/call",
     "zerochat/run/prompt",
+    "zerochat/run/profile",
     "zerochat/run/progress",
     "zerochat/run/export",
     "zerochat/run/result",

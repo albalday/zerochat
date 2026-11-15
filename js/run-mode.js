@@ -210,19 +210,19 @@
 
       // Los perfiles del servidor quedan en memoria para esta ejecución: el de la ejecución y los que
       // switch_model puede activar si el usuario los nombra. La credencial del runner no los puede listar.
+      // Llegan sin API key: la de uno se pide al servidor al activarlo; la del de la ejecución viene en profile_data.
+      getProfiles().setSessionKeyLoader(async id => (await send('zerochat/run/profile', { id }))?.profile);
       for (const serverProfile of Array.isArray(serverProfiles) ? serverProfiles : []) {
         try {
-          getProfiles().registerSessionProfile(serverProfile);
+          getProfiles().registerSessionProfile(serverProfile, { keyless: true });
         } catch (error) {
           console.warn('[RunMode] Skipping an invalid server profile:', error);
         }
       }
+      if (profileData) getProfiles().registerSessionProfile(profileData);
 
       if (profile) {
-        let match = getProfiles().findByName(profile) || getProfiles().get(profile);
-        if (!match && profileData && (profileData.name === profile || profileData.id === profile)) {
-          match = getProfiles().registerSessionProfile(profileData);
-        }
+        const match = getProfiles().findByName(profile) || getProfiles().get(profile);
         if (!match) throw new Error(`Profile not found: ${profile}`);
         const { unavailable } = await activateSessionProfile(match.id);
         if (unavailable.length > 0) throw new Error(`MCP servers of the profile are not available: ${unavailable.join(', ')}`);

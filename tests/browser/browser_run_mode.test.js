@@ -78,13 +78,15 @@ async function routeBackend(page, prompt, { profile, profileData = null, serverP
           conversation_id: conversationId,
           profile: profile ?? null,
           profile_data: profileData ?? null,
-          // Como el backend real: la credencial del runner no puede listar los perfiles, que llegan aquí.
-          profiles: serverProfiles,
+          // Como el backend real: la credencial del runner no puede listar los perfiles, que llegan aquí sin
+          // su API key; la pide con zerochat/run/profile al activar uno.
+          profiles: serverProfiles.map(({ settings, ...rest }) => ({ ...rest, settings: { ...settings, apiKey: undefined } })),
           export: exportFormat ?? null,
           keep_page: keepPage,
           allow_dangerous_tools: allowDangerous
         });
       }
+      if (method === 'zerochat/run/profile') return reply({ profile: serverProfiles.find(item => item.id === params.id) });
       if (method === 'zerochat/run/result') receiveResult();
       return reply({ ok: true });
     }
@@ -213,6 +215,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     await serverRun.page.evaluate(() => {
       window.ChatAPI.streamChatCompletion = async params => {
         window.__model = params.model;
+        window.__apiKey = params.apiKey;
         return { accumulatedText: 'servidor ok', toolCalls: null, stats: null };
       };
     });
@@ -220,6 +223,8 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     await serverRun.page.waitForFunction(() => window.__closed === true);
     assert.deepEqual(resultOf(serverRun.backend), { run_id: RUN_ID, text: 'servidor ok' });
     assert.equal(await serverRun.page.evaluate(() => window.__model), 'server-llama');
+    assert.equal(await serverRun.page.evaluate(() => window.__apiKey), 'sk-server-key', 'la clave se pide al servidor al activar el perfil');
+    assert.ok(serverRun.backend.calls.some(call => call.method === 'zerochat/run/profile' && call.params.id === 'profile:server-local'));
   });
 
   test('Browser UI - el modo ejecución arranca solo los servicios MCP del perfil y Playwright MCP si es la herramienta de navegación o el perfil lo exige, y falla si alguno no está configurado', async () => {

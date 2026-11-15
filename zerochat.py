@@ -293,6 +293,7 @@ RUNNER_ALLOWED_METHODS = frozenset({
     "tools/list",
     "tools/call",
     "zerochat/run/prompt",
+    "zerochat/run/profile",
     "zerochat/run/progress",
     "zerochat/run/export",
     "zerochat/run/result",
@@ -4065,10 +4066,27 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
     return rpc_result({"prompt": session.prompt, "conversation_id": session.conversation_id,
                        "new_conversation_id": session.new_conversation_id, "profile": session.profile,
                        "profile_data": session.profile_data,
-                       # Para switch_model: el runner no puede listar los perfiles con su credencial.
-                       "profiles": list_general_profiles(),
+                       # Para switch_model, que busca por nombre: el runner no puede listar los perfiles con su credencial.
+                       # Van sin API key; la del que active la pide con zerochat/run/profile.
+                       "profiles": [_without_api_key(profile) for profile in list_general_profiles()],
                        "export": export_format, "keep_page": session.keep_page,
                        "allow_dangerous_tools": session.allow_dangerous_tools})
+
+
+def _without_api_key(profile: dict) -> dict:
+    settings = {key: value for key, value in (profile.get("settings") or {}).items() if key != "apiKey"}
+    return {**profile, "settings": settings}
+
+
+def _rpc_profile(params: dict, session: RunSession) -> RpcOutcome:
+    """Un perfil del servidor con su API key, para el runner que lo activa con switch_model; queda en el registro."""
+    profile_id = params.get("id")
+    profile = get_general_profile(profile_id) if isinstance(profile_id, str) else None
+    if profile is None:
+        return rpc_error(INVALID_PARAMS, "Perfil del servidor no encontrado.")
+    session.touch()
+    log_event(f"[run] Se entrega al runner el perfil {profile['name']} con su clave")
+    return rpc_result({"profile": profile})
 
 
 def _capped(text: str, limit: int) -> str:
@@ -4152,6 +4170,7 @@ def _rpc_result(params: dict, session: RunSession) -> RpcOutcome:
 RUN_CONTROL_METHODS = {"zerochat/run/start": _rpc_start, "zerochat/run/cancel": _rpc_cancel}
 RUN_SESSION_METHODS = {
     "zerochat/run/prompt": _rpc_prompt,
+    "zerochat/run/profile": _rpc_profile,
     "zerochat/run/progress": _rpc_progress,
     "zerochat/run/export": _rpc_export,
     "zerochat/run/result": _rpc_result,
