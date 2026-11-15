@@ -146,7 +146,7 @@ LOCAL_TOOLS_DEFINITIONS = [
                 "pattern": {
                     "type": "string",
                     "maxLength": CHECK_PATTERN_MAX_CHARS,
-                    "description": "Case-insensitive regular expression matched against each new output line; with wait_seconds, returns as soon as a line matches"
+                    "description": "One or more texts separated by |, searched case-insensitively as plain text (not a regular expression) in each new output line; with wait_seconds, returns as soon as a line contains one"
                 }
             }
         }

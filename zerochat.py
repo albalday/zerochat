@@ -6096,8 +6096,20 @@ def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, ba
     return _job_result(job)
 
 
-def _wait_job(job: CommandJob, wait: float, regex: re.Pattern | None, cancel: threading.Event) -> tuple[str, str | None]:
-    """Espera a que termine el comando, a que una línea nueva de su salida cumpla regex o a que pase wait.
+def _pattern_terms(pattern: str) -> tuple[str, ...]:
+    """Textos de un pattern de check_command ('error|listening on'), en minúsculas y sin los vacíos."""
+    return tuple(term.strip().lower() for term in pattern.split("|") if term.strip())
+
+
+def _line_matches(line: str, terms: tuple[str, ...]) -> bool:
+    """Si la línea contiene alguno de los textos, sin distinguir mayúsculas. Es texto, no una expresión
+    regular: el tiempo es lineal y ninguna entrada puede bloquear el servidor (re no suelta el GIL)."""
+    lowered = line.lower()
+    return any(term in lowered for term in terms)
+
+
+def _wait_job(job: CommandJob, wait: float, terms: tuple[str, ...] | None, cancel: threading.Event) -> tuple[str, str | None]:
+    """Espera a que termine el comando, a que una línea nueva de su salida contenga alguno de terms o a que pase wait.
 
     Recorre la salida que el modelo aún no ha visto, línea a línea; la última línea, si no está completa,
     solo se compara cuando el comando termina. Devuelve el motivo y la línea que coincidió.
@@ -6108,15 +6120,15 @@ def _wait_job(job: CommandJob, wait: float, regex: re.Pattern | None, cancel: th
     while True:
         finished = job.done.is_set()
         total = job.total
-        if regex is not None and total > pos:
+        if terms is not None and total > pos:
             text, pos = job.read_range(pos, total - pos)
             lines = (partial + text).split("\n")
             partial = lines.pop()
             for line in lines:
-                if regex.search(line):
+                if _line_matches(line, terms):
                     return "pattern_matched", line
-        if finished and (regex is None or pos >= job.total):
-            if regex is not None and partial and regex.search(partial):
+        if finished and (terms is None or pos >= job.total):
+            if terms is not None and partial and _line_matches(partial, terms):
                 return "pattern_matched", partial
             return "command_finished", None
         if cancel.is_set():
@@ -6124,7 +6136,7 @@ def _wait_job(job: CommandJob, wait: float, regex: re.Pattern | None, cancel: th
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return "wait_elapsed", None
-        if regex is None:
+        if terms is None:
             job.done.wait(min(remaining, WAIT_SLICE_SECONDS))
         else:
             job.wait_change(pos, min(remaining, WAIT_SLICE_SECONDS))
@@ -6168,22 +6180,21 @@ def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool =
     job = JOBS.get(ctx.key, job_id=job_id)
     if job is None:
         return _tool_error(f"Unknown job_id {job_id}. It may belong to a previous ZeroChat session or to another project.", os=DETECTED_OS)
-    regex = None
+    terms = None
     if pattern:
-        try:
-            regex = re.compile(pattern, re.IGNORECASE)
-        except re.error as exc:
-            return _tool_error(f"Invalid pattern: {exc}. Use a regular expression such as 'error|listening on'.", os=DETECTED_OS)
+        terms = _pattern_terms(pattern)
+        if not terms:
+            return _tool_error("pattern needs at least one text, such as 'error|listening on'.", os=DETECTED_OS)
     if stop:
         JOBS.stop(job, "model")
         return _job_result(job, output_field="new_output")
     wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
-    if not wait and regex is None:
+    if not wait and terms is None:
         return _job_result(job, output_field="new_output")
     cancel = JOBS.open_wait(job_key)
     started = time.monotonic()
     try:
-        reason, line = _wait_job(job, wait, regex, cancel)
+        reason, line = _wait_job(job, wait, terms, cancel)
     finally:
         JOBS.close_wait(job_key)
     extra = {"returned_because": reason, "waited_s": round(time.monotonic() - started, 1)}
@@ -7270,7 +7281,7 @@ LOCAL_TOOLS_DEFINITIONS = [
                 "pattern": {
                     "type": "string",
                     "maxLength": CHECK_PATTERN_MAX_CHARS,
-                    "description": "Case-insensitive regular expression matched against each new output line; with wait_seconds, returns as soon as a line matches"
+                    "description": "One or more texts separated by |, searched case-insensitively as plain text (not a regular expression) in each new output line; with wait_seconds, returns as soon as a line contains one"
                 }
             }
         }

@@ -205,11 +205,21 @@ class BackgroundCommandTest(unittest.TestCase):
         result = check(unterminated["job_id"], wait_seconds=10, pattern="fatal")
         self.assertEqual((result["returned_because"], result["matched_line"]), ("pattern_matched", "fatal error: disk full"))
 
-    def test_check_command_rechaza_un_patron_que_no_es_una_expresion_regular(self):
-        job = run("exec sleep 100", background=True)
-        invalid = check(job["job_id"], wait_seconds=1, pattern="error(")
-        self.assertIs(invalid["success"], False)
-        self.assertIn("Invalid pattern", invalid["error"])
+    def test_el_patron_son_textos_y_no_una_expresion_regular(self):
+        # Como expresión regular, (a+)+$ contra 40 «a» y un «!» tardaría horas y bloquearía todo el servidor.
+        job = run("sleep 0.5; printf 'a%.0s' $(seq 40); printf '!\\n'; sleep 1.5; printf 'fatal error(42)\\n'; exec sleep 100", background=True)
+        started = time.monotonic()
+        none = check(job["job_id"], wait_seconds=1, pattern="(a+)+$")
+        self.assertLess(time.monotonic() - started, 3)
+        self.assertEqual((none["returned_because"], none["new_output"]), ("wait_elapsed", "a" * 40 + "!\n"))
+        # Los caracteres especiales se buscan tal cual, sin distinguir mayúsculas.
+        literal = check(job["job_id"], wait_seconds=10, pattern="(a+)+$|ERROR(")
+        self.assertEqual((literal["returned_because"], literal["matched_line"]), ("pattern_matched", "fatal error(42)"))
+        for empty in ("|", " | "):
+            with self.subTest(pattern=empty):
+                invalid = check(job["job_id"], wait_seconds=1, pattern=empty)
+                self.assertIs(invalid["success"], False)
+                self.assertIn("at least one text", invalid["error"])
         check(job["job_id"], stop=True)
 
     def test_check_command_sin_job_id_espera_sin_shell_y_vuelve_antes_si_termina_un_comando(self):
