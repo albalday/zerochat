@@ -663,3 +663,25 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
 
         zerochat.dispatch_conversations("zerochat/conversations/delete", {"all": True})
         self.assertFalse(state_path2.exists())
+
+
+class FinishRunOutputTest(unittest.TestCase):
+    """Al terminar, la salida de la respuesta solo lleva la respuesta y el registro calla: un hilo en segundo plano
+    que escribiera mientras se cierra el intérprete lo haría abortar (_enter_buffered_busy)."""
+
+    def test_tras_la_respuesta_ninguna_linea_del_registro_llega_a_ninguna_salida(self):
+        session = zerochat.RunSession(prompt="hola")
+        session.result = {"text": "respuesta"}
+        log, answer = io.StringIO(), io.StringIO()
+        with mock.patch.object(zerochat, "RUN_SESSION", session), mock.patch.object(zerochat, "_MUTED", False), \
+             mock.patch.object(sys, "stdout", log):
+            with self.assertRaises(SystemExit) as exit_info:
+                zerochat.finish_run(None, answer)
+            late = threading.Thread(target=zerochat.log_event, args=("línea tardía",))
+            late.start()
+            late.join()
+            zerochat.run_error("error tardío")
+        self.assertEqual(exit_info.exception.code, zerochat.RUN_EXIT_DONE)
+        self.assertEqual(answer.getvalue(), "respuesta\n")
+        self.assertIn("Ejecución terminada", log.getvalue())
+        self.assertNotIn("tardía", log.getvalue())

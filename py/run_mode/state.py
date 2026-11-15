@@ -18,7 +18,7 @@ from pathlib import Path
 
 from core.environment import DETECTED_OS, _write_private_text, get_data_dir
 from core.limits import MAX_HTTP_BODY_BYTES
-from core.logging import log_event, timestamp_message
+from core.logging import console_error, log_event, timestamp_message
 from core.process import _kill_process_tree, _pid_alive, _process_start_token
 from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, RpcOutcome, dispatch_table, rpc_error, rpc_result
 from security.context import SecurityContext
@@ -539,7 +539,7 @@ def run_error(message: str):
             session.status = "error"
             session.error = message
             write_run_state(session)
-    print(timestamp_message(f"[run] {message}"), file=sys.stderr, flush=True)
+    console_error(timestamp_message(f"[run] {message}"))
 
 
 def run_outcome(session: RunSession) -> tuple[int, str | None]:

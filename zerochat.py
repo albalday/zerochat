@@ -77,6 +77,9 @@ MAX_TOOL_NAME_LENGTH = 128
 
 
 CONSOLE_CONTROL = None
+# Una línea del registro se escribe entera o no se escribe: al salir, mute_console espera a la que esté en curso.
+_WRITE_LOCK = threading.Lock()
+_MUTED = False
 
 
 def set_console_control(control):
@@ -91,10 +94,32 @@ def current_console_control():
 
 
 def console_log(message: str, *, flush: bool = True):
-    if CONSOLE_CONTROL:
-        CONSOLE_CONTROL.log(message, flush=flush)
-    else:
-        print(message, flush=flush)
+    with _WRITE_LOCK:
+        if _MUTED:
+            return
+        if CONSOLE_CONTROL:
+            CONSOLE_CONTROL.log(message, flush=flush)
+        else:
+            print(message, flush=flush)
+
+
+def console_error(message: str):
+    """Una línea en stderr aunque el registro esté desactivado, con el mismo cierre que console_log."""
+    with _WRITE_LOCK:
+        if not _MUTED:
+            print(message, file=sys.stderr, flush=True)
+
+
+def mute_console():
+    """
+    Al salir, el registro calla: los hilos en segundo plano que sigan vivos (peticiones del runner, servicios MCP)
+    no escriben mientras se cierra el intérprete, que abortaría si uno tuviera tomada la salida al vaciarla.
+    """
+    global _MUTED
+    with _WRITE_LOCK:
+        _MUTED = True
+        sys.stdout.flush()
+        sys.stderr.flush()
 
 
 def timestamp_message(message: str) -> str:
@@ -4132,7 +4157,7 @@ def run_error(message: str):
             session.status = "error"
             session.error = message
             write_run_state(session)
-    print(timestamp_message(f"[run] {message}"), file=sys.stderr, flush=True)
+    console_error(timestamp_message(f"[run] {message}"))
 
 
 def run_outcome(session: RunSession) -> tuple[int, str | None]:
@@ -9148,7 +9173,7 @@ def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_cl
     print("=" * 64, flush=True)
 
 
-def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, result_out):
+def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str):
     """Abre la interfaz: en modo ejecución, con su supervisor; si no, con el control de consola.
     Devuelve el navegador sin ventana lanzado, si lo hay."""
     session = current_run_session()
@@ -9164,7 +9189,7 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, resu
         runner_proc = launch_node_runner(launch_url(ui_url, token=session.runner_token))
         if runner_proc is None:
             server.server_close()
-            sys.stdout = result_out
+            mute_console()
             sys.exit(RUN_EXIT_SETUP)
         threading.Thread(target=run_supervisor, args=(server, session, runner_proc), daemon=True).start()
         return runner_proc
@@ -9173,7 +9198,7 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, resu
     if headless_browser is None and not launch_browser(target_url):
         run_error("No se pudo abrir el navegador.")
         server.server_close()
-        sys.stdout = result_out
+        mute_console()
         sys.exit(RUN_EXIT_SETUP)
     if headless_browser is not None:
         threading.Thread(target=fall_back_when_headless_exits, args=(headless_browser, target_url), daemon=True).start()
@@ -9222,7 +9247,8 @@ def finish_run(headless_browser, result_out):
     if headless_browser is not None and headless_browser.poll() is None:
         _kill_process_tree(headless_browser)
     code, text = run_outcome(current_run_session())
-    sys.stdout = result_out
+    # El registro sigue donde estaba (stderr o nada): result_out solo recibe la respuesta.
+    mute_console()
     if text is not None:
         result_out.write(text if text.endswith("\n") else text + "\n")
         result_out.flush()
@@ -9285,7 +9311,7 @@ def main():
     set_exit_on_close(exit_on_close)
     print_header(dev_root, ui_url, exposure_warning, exit_on_close)
 
-    headless_browser = start_interface(args, parser, server, ui_url, result_out)
+    headless_browser = start_interface(args, parser, server, ui_url)
     if exit_on_close:
         start_heartbeat_watchdog(server, require_initial=not args.no_browser)
     install_signal_handlers(server)

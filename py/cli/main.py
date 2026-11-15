@@ -31,7 +31,7 @@ from core.environment import (
     reset_notices,
     set_active_address,
 )
-from core.logging import console_log, current_console_control, log_event, set_console_control, timestamp_message
+from core.logging import console_log, current_console_control, log_event, mute_console, set_console_control, timestamp_message
 from core.process import _kill_process_tree
 from core.version import DEFAULT_UI_URL, UI_VERSION, VERSION, check_version, is_installed_runtime
 from run_mode.state import (
@@ -365,7 +365,7 @@ def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_cl
     print("=" * 64, flush=True)
 
 
-def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, result_out):
+def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str):
     """Abre la interfaz: en modo ejecución, con su supervisor; si no, con el control de consola.
     Devuelve el navegador sin ventana lanzado, si lo hay."""
     session = current_run_session()
@@ -381,7 +381,7 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, resu
         runner_proc = launch_node_runner(launch_url(ui_url, token=session.runner_token))
         if runner_proc is None:
             server.server_close()
-            sys.stdout = result_out
+            mute_console()
             sys.exit(RUN_EXIT_SETUP)
         threading.Thread(target=run_supervisor, args=(server, session, runner_proc), daemon=True).start()
         return runner_proc
@@ -390,7 +390,7 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, resu
     if headless_browser is None and not launch_browser(target_url):
         run_error("No se pudo abrir el navegador.")
         server.server_close()
-        sys.stdout = result_out
+        mute_console()
         sys.exit(RUN_EXIT_SETUP)
     if headless_browser is not None:
         threading.Thread(target=fall_back_when_headless_exits, args=(headless_browser, target_url), daemon=True).start()
@@ -439,7 +439,8 @@ def finish_run(headless_browser, result_out):
     if headless_browser is not None and headless_browser.poll() is None:
         _kill_process_tree(headless_browser)
     code, text = run_outcome(current_run_session())
-    sys.stdout = result_out
+    # El registro sigue donde estaba (stderr o nada): result_out solo recibe la respuesta.
+    mute_console()
     if text is not None:
         result_out.write(text if text.endswith("\n") else text + "\n")
         result_out.flush()
@@ -502,7 +503,7 @@ def main():
     set_exit_on_close(exit_on_close)
     print_header(dev_root, ui_url, exposure_warning, exit_on_close)
 
-    headless_browser = start_interface(args, parser, server, ui_url, result_out)
+    headless_browser = start_interface(args, parser, server, ui_url)
     if exit_on_close:
         start_heartbeat_watchdog(server, require_initial=not args.no_browser)
     install_signal_handlers(server)
