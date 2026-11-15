@@ -71,7 +71,7 @@ test('RunMode.answerToolApprovals permite para la sesión salvo las herramientas
   }
 });
 
-test('RunMode.answerToolApprovals en modo conversación pausa para el usuario salvo con allowDangerous o la decisión del usuario (un solo uso)', t => {
+test('RunMode.answerToolApprovals en modo conversación pausa para el usuario salvo con allowDangerous o la decisión del usuario para esa misma llamada (un solo uso)', t => {
   const ToolCards = require('../../js/tool-cards.js');
   let responder = null;
   t.mock.method(ToolCards, 'setAuthorizationResponder', fn => { responder = fn; });
@@ -79,12 +79,15 @@ test('RunMode.answerToolApprovals en modo conversación pausa para el usuario sa
   const events = [];
   RunMode.answerToolApprovals(false, event => events.push(event), {
     pauseOnApproval: true,
-    toolDecision: { toolName: 'write_file', decision: { decision: 'allow_always', directoryRule: 'W:src/**' } }
+    toolDecision: { toolName: 'write_file', args: { path: 'src/a.js', content: '1' }, decision: { decision: 'allow_always', directoryRule: 'W:src/**' } }
   });
-  assert.deepEqual(responder('write_file'), { decision: 'allow_always', directoryRule: 'W:src/**' }, 'la primera llamada recibe la decisión del usuario');
-  assert.equal(responder('write_file'), 'pause_for_user', 'segunda llamada vuelve a pausar');
-  assert.equal(responder('run_command'), 'pause_for_user');
+  // Otra llamada a la misma herramienta no recibe la decisión: era para la llamada aprobada.
+  assert.equal(responder('write_file', { path: 'src/b.js', content: '1' }), 'pause_for_user');
+  assert.deepEqual(responder('write_file', { content: '1', path: 'src/a.js' }), { decision: 'allow_always', directoryRule: 'W:src/**' }, 'la llamada aprobada la recibe, con las claves en otro orden');
+  assert.equal(responder('write_file', { path: 'src/a.js', content: '1' }), 'pause_for_user', 'y solo una vez');
+  assert.equal(responder('run_command', {}), 'pause_for_user');
   assert.deepEqual(events, [
+    { kind: 'user_request', text: 'write_file' },
     { kind: 'approval_allowed', text: 'write_file' },
     { kind: 'user_request', text: 'write_file' },
     { kind: 'user_request', text: 'run_command' }
@@ -92,7 +95,7 @@ test('RunMode.answerToolApprovals en modo conversación pausa para el usuario sa
 
   const dangerousEvents = [];
   RunMode.answerToolApprovals(true, event => dangerousEvents.push(event), { pauseOnApproval: true });
-  assert.equal(responder('write_file'), 'allow_session');
+  assert.equal(responder('write_file', {}), 'allow_session');
   assert.deepEqual(dangerousEvents, [
     { kind: 'approval_allowed', text: 'write_file' }
   ]);

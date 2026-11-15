@@ -78,3 +78,15 @@ test('UIConnection - un bloqueo por intentos fallidos indica los minutos de espe
   assert.equal(locked(1), ChatI18n.t('login_locked', { minutes: 1 }));
   assert.equal(ChatUIConnection.loginErrorMessage(new Error('Failed to fetch')), 'Failed to fetch');
 });
+
+test('Utils.matchesToolDecision solo acepta la llamada aprobada, con los argumentos en cualquier orden', () => {
+  const decision = { toolName: 'run_command', args: { command: 'npm test', timeout_seconds: 60 }, decision: 'allow_once' };
+  assert.strictEqual(ChatUtils.matchesToolDecision(decision, 'run_command', { timeout_seconds: 60, command: 'npm test' }), true);
+  assert.strictEqual(ChatUtils.matchesToolDecision(decision, 'run_command', { command: 'rm -rf build', timeout_seconds: 60 }), false);
+  assert.strictEqual(ChatUtils.matchesToolDecision(decision, 'run_command', { command: 'npm test' }), false);
+  assert.strictEqual(ChatUtils.matchesToolDecision(decision, 'write_file', { command: 'npm test', timeout_seconds: 60 }), false);
+  // Sin argumentos aprobados no vale para ninguna llamada.
+  assert.strictEqual(ChatUtils.matchesToolDecision({ toolName: 'run_command', decision: 'allow_once' }, 'run_command', {}), false);
+  assert.strictEqual(ChatUtils.matchesToolDecision(null, 'run_command', {}), false);
+  assert.strictEqual(ChatUtils.canonicalJson({ b: [{ d: 1, c: 2 }], a: 1 }), '{"a":1,"b":[{"c":2,"d":1}]}');
+});

@@ -17,7 +17,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
-  const { resolveDep, escapeHtml } = Utils;
+  const { resolveDep, escapeHtml, matchesToolDecision } = Utils;
   const { t } = I18n;
 
   const getState = () => resolveDep('ChatState', './state.js');
@@ -180,13 +180,13 @@
       resolveDep('ChatMCP', './mcp.js').manager.cancelServerRun(generationSessionId).catch(() => {});
     }
 
-    // Al reanudar un paso pausado, la decisión del usuario contesta el siguiente reto del backend
-    // para esa herramienta; el backend la registra al resolver el reto.
+    // Al reanudar un paso pausado, la decisión del usuario contesta el reto del backend de esa misma
+    // llamada; el backend la registra al resolver el reto (salvo «solo esta vez», que no guarda nada).
     const toolDecision = options.toolDecision;
     if (toolDecision) {
       const ToolCards = resolveDep('ChatToolCards', './tool-cards.js');
-      ToolCards.setAuthorizationResponder(toolName => {
-        if (toolName !== toolDecision.toolName) return null;
+      ToolCards.setAuthorizationResponder((toolName, args) => {
+        if (!matchesToolDecision(toolDecision, toolName, args)) return null;
         ToolCards.setAuthorizationResponder(null);
         return toolDecision.decision;
       });

@@ -15,7 +15,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { resolveDep, EPHEMERAL_ID_PATTERN, readLaunchFragment } = Utils;
+  const { resolveDep, EPHEMERAL_ID_PATTERN, readLaunchFragment, matchesToolDecision } = Utils;
   const getState = () => resolveDep('ChatState', './state.js');
   const getMcpManager = () => resolveDep('ChatMCP', './mcp.js').manager;
   const getProfiles = () => resolveDep('ChatProfileRepository', './profile-repository.js');
@@ -147,7 +147,7 @@
 
   /**
    * Contesta cada petición de autorización:
-   * - Si `toolDecision` es de esa herramienta, contesta con la decisión del usuario una sola vez.
+   * - Si `toolDecision` es de esa misma llamada (nombre y argumentos), contesta con la decisión del usuario una sola vez.
    * - En modo conversación (pauseOnApproval = true sin allowDangerous): devuelve 'pause_for_user'
    *   y emite un aviso de tipo 'user_request'.
    * - En modo clásico (pauseOnApproval = false): permitida para la sesión, salvo las herramientas que
@@ -155,8 +155,8 @@
    */
   function answerToolApprovals(allowDangerous, report, { pauseOnApproval = false, toolDecision = null } = {}) {
     let pendingDecision = toolDecision && typeof toolDecision.toolName === 'string' ? toolDecision : null;
-    getToolCards().setAuthorizationResponder(toolName => {
-      if (pendingDecision?.toolName === toolName) {
+    getToolCards().setAuthorizationResponder((toolName, args) => {
+      if (matchesToolDecision(pendingDecision, toolName, args)) {
         const { decision } = pendingDecision;
         pendingDecision = null;
         report({ kind: 'approval_allowed', text: toolName });

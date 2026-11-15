@@ -76,12 +76,23 @@ class DailyTokenTest(unittest.TestCase):
         zerochat.revoke_token(runner_token)
         self.assertIsNone(zerochat.resolve_token(runner_token))
 
-    def test_tool_decision_allow_once_autoriza_una_sola_invocacion(self):
+    def test_permitir_solo_esta_vez_no_guarda_nada_ni_al_reanudar_ni_al_rotar_el_token(self):
+        # Antes se guardaba por nombre: la primera llamada a run_command pasaba con cualquier argumento.
         controller = zerochat.AccessController()
         ctx = zerochat.SecurityContext(self.config_dir)
-        controller.apply_tool_decision({"toolName": "run_command", "decision": "allow_once"}, ctx)
-        first = controller.evaluate_authorization("run_command", {"command": "echo hi"}, ctx)
-        self.assertTrue(first.allowed)
-        second = controller.evaluate_authorization("run_command", {"command": "echo hi"}, ctx)
-        self.assertFalse(second.allowed)
-        self.assertTrue(second.requires_approval)
+        once = {"toolName": "run_command", "args": {"command": "npm test"}, "decision": "allow_once"}
+        controller.apply_tool_decision(once, ctx)
+        for args in ({"command": "npm test"}, {"command": "rm -rf build"}):
+            with self.subTest(args=args):
+                decision = controller.evaluate_authorization("run_command", args, ctx)
+                self.assertEqual((decision.allowed, decision.requires_approval), (False, True))
+        # La rotación del token vuelve a aplicar la capa de la ejecución: tampoco concede «solo esta vez».
+        session = zerochat.RunSession(prompt="hola", tool_security={"tool_decision": once})
+        with mock.patch.object(zerochat, "RUN_SESSION", session), \
+                mock.patch.object(zerochat, "ACCESS_CONTROLLER", controller), \
+                mock.patch.object(zerochat, "project_context", return_value=ctx):
+            zerochat.reset_session_authorizations()
+        self.assertTrue(controller.evaluate_authorization("run_command", {"command": "npm test"}, ctx).requires_approval)
+        # Las decisiones que sí se guardan siguen aplicándose al reanudar.
+        controller.apply_tool_decision({"toolName": "run_command", "decision": {"decision": "allow_session", "commandPattern": "npm test"}}, ctx)
+        self.assertTrue(controller.evaluate_authorization("run_command", {"command": "npm test"}, ctx).allowed)

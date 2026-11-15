@@ -467,17 +467,7 @@
         const trimmed = rawArgs.trim();
         try { args = JSON.parse(trimmed); } catch (_) { args = trimmed; }
       }
-      const canonicalize = value => {
-        if (Array.isArray(value)) return value.map(canonicalize);
-        if (value && typeof value === 'object') {
-          return Object.keys(value).sort().reduce((result, key) => {
-            result[key] = canonicalize(value[key]);
-            return result;
-          }, {});
-        }
-        return value;
-      };
-      args = typeof args === 'string' ? args : JSON.stringify(canonicalize(args));
+      args = typeof args === 'string' ? args : Utils.canonicalJson(args);
       return `${toolCall.function?.name || ''}:${args}`;
     }
 

@@ -6227,7 +6227,6 @@ class ProjectSession:
     servers: dict[str, dict] = dataclasses.field(default_factory=dict)
     command_patterns: list[str] = dataclasses.field(default_factory=list)
     challenges: dict[str, dict] = dataclasses.field(default_factory=dict)
-    one_time_tools: set[str] = dataclasses.field(default_factory=set)
 
     def entries(self, kind: str) -> dict[str, dict]:
         return self.tools if kind == "tools" else self.servers
@@ -6543,11 +6542,9 @@ class AccessController:
             dec_type = raw_dec
             raw_pattern = None
             raw_dir_rule = None
-        if not isinstance(dec_type, str) or dec_type not in AUTHORIZE_DECISIONS:
-            return
-        if dec_type == "allow_once":
-            with self._lock:
-                self._session(context).one_time_tools.add(tool_name)
+        # «Solo esta vez» no guarda nada, ni en sesión ni de forma permanente: al reanudar, el runner contesta
+        # con ella el reto de esa misma llamada, que se ejecuta y se consume. Tampoco vuelve con la rotación del token.
+        if not isinstance(dec_type, str) or dec_type not in AUTHORIZE_DECISIONS or dec_type == "allow_once":
             return
         pattern = normalize_command_pattern(raw_pattern) if (raw_pattern and tool_name == COMMAND_TOOL) else None
         rules = self._validate_directory_rules([raw_dir_rule], context) if raw_dir_rule else []
@@ -6692,12 +6689,6 @@ class AccessController:
         8. Por defecto -> ask (solicitar confirmación), con la regla sugerida si la hay.
         """
         status, reason, details, offer = self._evaluate(tool_name, dict(raw_args or {}), context, server_id)
-        if status == POLICY_ASK:
-            with self._lock:
-                one_time = self._session(context).one_time_tools
-                if tool_name in one_time:
-                    one_time.discard(tool_name)
-                    status, reason, details, offer = POLICY_ALLOW, "one_time_allow_rule", "", None
         return AccessDecision(allowed=status == POLICY_ALLOW, status=status, reason=reason,
                               requires_approval=status == POLICY_ASK, tool_id=tool_name, server_name=server_name,
                               server_id=server_id, details=details, rule_offer=offer)

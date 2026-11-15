@@ -31,7 +31,10 @@
   // Quien contesta las autorizaciones sin usuario (el modo ejecución); null, las contesta el usuario.
   let authorizationResponder = null;
 
-  /** `responder(toolName)` devuelve la decisión de cada petición de autorización en vez de esperar un clic. */
+  /**
+   * `responder(toolName, args)` devuelve la decisión de cada petición de autorización en vez de esperar
+   * un clic, o null para que la conteste el usuario.
+   */
   function setAuthorizationResponder(responder) {
     authorizationResponder = responder;
   }
@@ -760,7 +763,7 @@
         }
       }
       if (authorizationResponder && !options.interactive) {
-        const autoDecision = authorizationResponder(toolName);
+        const autoDecision = authorizationResponder(toolName, options.args);
         if (autoDecision) handleDecision(autoDecision);
       }
     });

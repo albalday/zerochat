@@ -339,7 +339,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     const { page, backend } = await openRun(browser, server, null, {
       conversationId: 'conv_resume_e2e',
       initialConversation,
-      toolSecurity: { tool_decision: { toolName: 'write_file', decision: 'allow_once' } }
+      toolSecurity: { tool_decision: { toolName: 'write_file', args: { path: 'a.txt', content: '1' }, decision: 'allow_once' } }
     });
     await page.evaluate(() => {
       window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
@@ -559,7 +559,8 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     await page.locator('.tool-card-auth-prompt .btn-auth-allow-once').click();
     await page.waitForFunction(() => document.querySelector('.server-run-live-wrapper') !== null);
     assert.equal(startCalls.length, 2);
-    assert.deepEqual(startCalls[1].tool_security.tool_decision, { toolName: 'write_file', decision: 'allow_once' });
+    // La decisión viaja con los argumentos de la llamada aprobada: solo vale para ella.
+    assert.deepEqual(startCalls[1].tool_security.tool_decision, { toolName: 'write_file', args: { path: 'out.txt', content: 'hola' }, decision: 'allow_once' });
 
     // Ahora el servidor pausa en ask_user y el usuario responde pulsando una opción.
     const convAfterResume = savedConversations.get(activeConvId);
