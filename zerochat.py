@@ -54,6 +54,7 @@ import urllib.request
 import venv
 import webbrowser
 import zlib
+from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable
@@ -5448,6 +5449,45 @@ def resolve_project_directory(path, ctx: SecurityContext) -> dict:
     return {"cwd": str(target)}
 
 
+def _walk_project_files(target: Path) -> Iterator[Path]:
+    """Ficheros bajo target en orden, sin los directorios ignorados ni los ocultos, y sin los enlaces simbólicos
+    que salen de target (no se lee nada fuera de la carpeta que se autorizó)."""
+    for root, dirs, files in os.walk(target):
+        dirs[:] = [d for d in dirs if d not in IGNORED_WORKSPACE_DIRS and not d.startswith(".")]
+        for fname in sorted(files):
+            fpath = Path(root) / fname
+            try:
+                if fpath.is_symlink() and not fpath.resolve().is_relative_to(target):
+                    continue
+            except (OSError, ValueError):
+                continue
+            yield fpath
+
+
+SEARCH_MAX_FILE_BYTES = 2 * 1024 * 1024
+SEARCH_LINE_CHARS = 300
+
+
+def _search_lines(fpath: Path, target: Path, regex: re.Pattern, limit: int) -> list[dict]:
+    """Hasta limit líneas de fpath que casan con regex; un fichero que no se puede leer no tiene ninguna."""
+    try:
+        rel_path = fpath.relative_to(target).as_posix()
+    except ValueError:
+        rel_path = str(fpath)
+    found = []
+    try:
+        with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+            for line_idx, line in enumerate(f, 1):
+                if regex.search(line):
+                    found.append({"file": str(fpath), "relative_path": rel_path, "line_number": line_idx,
+                                  "content": line.rstrip("\r\n")[:SEARCH_LINE_CHARS]})
+                    if len(found) >= limit:
+                        break
+    except OSError:
+        pass
+    return found
+
+
 def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100, *, ctx: SecurityContext) -> str:
     """Recursively search for plain text or regular expressions across project files."""
     try:
@@ -5471,54 +5511,17 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
 
         matches = []
         files_searched = 0
-        max_file_size = 2 * 1024 * 1024
-        truncated = False
-
-        for root, dirs, files in os.walk(target):
-            dirs[:] = [d for d in dirs if d not in IGNORED_WORKSPACE_DIRS and not d.startswith(".")]
-
-            for fname in sorted(files):
-                if file_pattern and not fnmatch.fnmatch(fname, file_pattern):
+        for fpath in _walk_project_files(target):
+            if file_pattern and not fnmatch.fnmatch(fpath.name, file_pattern):
+                continue
+            try:
+                if fpath.stat().st_size > SEARCH_MAX_FILE_BYTES:
                     continue
-
-                fpath = Path(root) / fname
-                try:
-                    if fpath.is_symlink():
-                        try:
-                            if not fpath.resolve().is_relative_to(target):
-                                continue
-                        except (OSError, ValueError):
-                            continue
-                    stat = fpath.stat()
-                    if stat.st_size > max_file_size:
-                        continue
-                except OSError:
-                    continue
-
-                files_searched += 1
-                try:
-                    with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
-                        for line_idx, line in enumerate(f, 1):
-                            if regex.search(line):
-                                try:
-                                    rel_path = fpath.relative_to(target).as_posix()
-                                except ValueError:
-                                    rel_path = str(fpath)
-                                matches.append({
-                                    "file": str(fpath),
-                                    "relative_path": rel_path,
-                                    "line_number": line_idx,
-                                    "content": line.rstrip("\r\n")[:300]
-                                })
-                                if len(matches) >= safe_max_results:
-                                    truncated = True
-                                    break
-                except (PermissionError, OSError):
-                    continue
-
-                if truncated:
-                    break
-            if truncated:
+            except OSError:
+                continue
+            files_searched += 1
+            matches.extend(_search_lines(fpath, target, regex, safe_max_results - len(matches)))
+            if len(matches) >= safe_max_results:
                 break
 
         payload = {
@@ -5528,7 +5531,7 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
             "file_pattern": file_pattern,
             "files_searched": files_searched,
             "total_matches": len(matches),
-            "truncated": truncated,
+            "truncated": len(matches) >= safe_max_results,
             "matches": matches
         }
         if warning:
@@ -5539,6 +5542,66 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
         return _tool_error(str(e))
 
 
+def _diagnostic(file: str, line: int, column: int, message: str) -> dict:
+    return {"file": file, "line": line, "column": column, "severity": "error", "message": message}
+
+
+def _python_diagnostics(fpath: Path, display: str) -> list[dict]:
+    try:
+        compile(fpath.read_text(encoding="utf-8", errors="replace"), str(fpath), "exec")
+    except SyntaxError as e:
+        return [_diagnostic(display, e.lineno or 1, e.offset or 1, f"SyntaxError: {e.msg}")]
+    return []
+
+
+def _js_diagnostics(fpath: Path, display: str) -> list[dict]:
+    """node --check, si hay node; sin él no se comprueba nada."""
+    node_bin = shutil.which("node")
+    if not node_bin:
+        return []
+    try:
+        res = subprocess.run([node_bin, "--check", str(fpath)], capture_output=True, text=True, timeout=10)
+    except (subprocess.SubprocessError, OSError):
+        return []
+    if res.returncode == 0:
+        return []
+    stderr = res.stderr or ""
+    line_match = re.search(r':(\d+)\n([^\n]+)\n(\s*)\^', stderr)
+    line = int(line_match.group(1)) if line_match else 1
+    col = len(line_match.group(3)) + 1 if line_match else 1
+    msg_match = re.search(r'(SyntaxError:[^\n]+)', stderr)
+    msg = msg_match.group(1) if msg_match else (stderr.strip().splitlines()[-1] if stderr.strip() else "Syntax error")
+    return [_diagnostic(display, line, col, msg)]
+
+
+def _json_diagnostics(fpath: Path, display: str) -> list[dict]:
+    try:
+        json.loads(fpath.read_text(encoding="utf-8", errors="replace"))
+    except json.JSONDecodeError as e:
+        return [_diagnostic(display, e.lineno, e.colno, f"JSONDecodeError: {e.msg}")]
+    return []
+
+
+# Comprobación de sintaxis por extensión: un lenguaje nuevo es una entrada más.
+DIAGNOSTIC_CHECKS = {
+    ".py": _python_diagnostics,
+    ".js": _js_diagnostics, ".mjs": _js_diagnostics, ".cjs": _js_diagnostics,
+    ".json": _json_diagnostics,
+}
+DIAGNOSTICS_MAX_FILES = 200
+
+
+def _file_diagnostics(fpath: Path, workspace_dir: Path) -> list[dict]:
+    check = DIAGNOSTIC_CHECKS.get(fpath.suffix.lower())
+    if check is None:
+        return []
+    try:
+        display = fpath.relative_to(workspace_dir).as_posix()
+    except ValueError:
+        display = str(fpath)
+    return check(fpath, display)
+
+
 def get_diagnostics(path: str | None = None, *, ctx: SecurityContext) -> str:
     """Retrieve syntax diagnostics and code errors for a file or the entire workspace."""
     try:
@@ -5547,89 +5610,13 @@ def get_diagnostics(path: str | None = None, *, ctx: SecurityContext) -> str:
         if not target.exists():
             return _tool_error(f"Path '{path}' does not exist.")
 
-        diagnostics: list[dict] = []
-        files_checked = 0
-
-        def check_single_file(fpath: Path) -> list[dict]:
-            ext = fpath.suffix.lower()
-            file_diags: list[dict] = []
-            try:
-                rel_display = fpath.relative_to(ctx.workspace_dir).as_posix()
-            except ValueError:
-                rel_display = str(fpath)
-
-            if ext == ".py":
-                try:
-                    content = fpath.read_text(encoding="utf-8", errors="replace")
-                    compile(content, str(fpath), "exec")
-                except (SyntaxError, IndentationError) as e:
-                    file_diags.append({
-                        "file": rel_display,
-                        "line": e.lineno or 1,
-                        "column": e.offset or 1,
-                        "severity": "error",
-                        "message": f"SyntaxError: {e.msg}"
-                    })
-            elif ext in (".js", ".mjs", ".cjs"):
-                node_bin = shutil.which("node")
-                if node_bin:
-                    try:
-                        res = subprocess.run([node_bin, "--check", str(fpath)], capture_output=True, text=True, timeout=10)
-                        if res.returncode != 0:
-                            stderr = res.stderr or ""
-                            line_match = re.search(r':(\d+)\n([^\n]+)\n(\s*)\^', stderr)
-                            line = int(line_match.group(1)) if line_match else 1
-                            col = len(line_match.group(3)) + 1 if line_match else 1
-                            msg_match = re.search(r'(SyntaxError:[^\n]+)', stderr)
-                            msg = msg_match.group(1) if msg_match else (stderr.strip().splitlines()[-1] if stderr.strip() else "Syntax error")
-                            file_diags.append({
-                                "file": rel_display,
-                                "line": line,
-                                "column": col,
-                                "severity": "error",
-                                "message": msg
-                            })
-                    except (subprocess.SubprocessError, OSError):
-                        pass
-            elif ext == ".json":
-                try:
-                    content = fpath.read_text(encoding="utf-8", errors="replace")
-                    json.loads(content)
-                except json.JSONDecodeError as e:
-                    file_diags.append({
-                        "file": rel_display,
-                        "line": e.lineno,
-                        "column": e.colno,
-                        "severity": "error",
-                        "message": f"JSONDecodeError: {e.msg}"
-                    })
-            return file_diags
-
         if target.is_file():
-            files_checked = 1
-            diagnostics.extend(check_single_file(target))
+            checked = [target]
         else:
-            max_scan = 200
-            for root, dirs, files in os.walk(target):
-                dirs[:] = [d for d in dirs if d not in IGNORED_WORKSPACE_DIRS and not d.startswith(".")]
-                for fname in sorted(files):
-                    fp = Path(root) / fname
-                    try:
-                        if fp.is_symlink():
-                            try:
-                                if not fp.resolve().is_relative_to(target):
-                                    continue
-                            except (OSError, ValueError):
-                                continue
-                    except OSError:
-                        continue
-                    if fp.suffix.lower() in (".py", ".js", ".mjs", ".cjs", ".json"):
-                        files_checked += 1
-                        diagnostics.extend(check_single_file(fp))
-                        if files_checked >= max_scan:
-                            break
-                if files_checked >= max_scan:
-                    break
+            checkable = (fp for fp in _walk_project_files(target) if fp.suffix.lower() in DIAGNOSTIC_CHECKS)
+            checked = list(itertools.islice(checkable, DIAGNOSTICS_MAX_FILES))
+        files_checked = len(checked)
+        diagnostics = [diag for fp in checked for diag in _file_diagnostics(fp, ctx.workspace_dir)]
 
         msg = f"Found {len(diagnostics)} issue(s)." if diagnostics else "No diagnostic issues found."
 
@@ -8941,35 +8928,8 @@ def build_parser() -> ZeroChatArgumentParser:
     return parser
 
 
-def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | None:
-    """Valida las combinaciones de opciones y devuelve la sesión de --prompt o --conversation, si la hay."""
-    if args.prompt is None and args.conversation is None:
-        if args.browser or args.headless or args.keep_page or args.allow_dangerous_tools or args.profile is not None or args.export is not None:
-            parser.error("--browser, --headless, --keep-page, --allow-dangerous-tools, --profile y --export solo se usan con --prompt o --conversation")
-        return None
-    prompt = None
-    if args.prompt is not None:
-        prompt = args.prompt.strip()
-        if not prompt:
-            parser.error("el prompt está vacío")
-    conversation_id = None
-    conv = None
-    if args.conversation is not None:
-        raw_conv = args.conversation.strip()
-        if not raw_conv:
-            parser.error("el identificador de la conversación no puede estar vacío")
-        try:
-            conversation_id = _validate_conversation_id(raw_conv)
-        except ValueError as exc:
-            parser.error(str(exc))
-        conv = get_conversation(conversation_id)
-        if conv is None:
-            parser.error(f"no existe la conversación '{conversation_id}'")
-        if prompt is None:
-            history = conv.get("history") or []
-            has_user_or_tool = any(m.get("role") in ("user", "tool") for m in history)
-            if not has_user_or_tool:
-                parser.error(f"la conversación '{conversation_id}' no tiene turnos para continuar")
+def _check_run_flags(parser: ZeroChatArgumentParser, args):
+    """Combinaciones de opciones que no admiten --prompt ni --conversation."""
     if args.no_browser:
         parser.error("--prompt y --conversation ejecutan la interfaz de forma autónoma: no se combina con --no-browser")
     if args.keep_server:
@@ -8978,41 +8938,81 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
         parser.error("--headless solo se usa con --browser (--prompt y --conversation ya se ejecutan sin ventana con Node.js)")
     if args.keep_page and (not args.browser or args.headless):
         parser.error("--keep-page necesita la ventana del navegador del usuario (--browser sin --headless)")
-    profile_data = None
+
+
+def _run_prompt(parser: ZeroChatArgumentParser, args) -> str | None:
+    if args.prompt is None:
+        return None
+    prompt = args.prompt.strip()
+    if not prompt:
+        parser.error("el prompt está vacío")
+    return prompt
+
+
+def _run_conversation(parser: ZeroChatArgumentParser, args, prompt: str | None) -> tuple[str | None, dict | None]:
+    """La conversación de --conversation: existe y, sin --prompt, tiene un turno que continuar."""
+    if args.conversation is None:
+        return None, None
+    raw_conv = args.conversation.strip()
+    if not raw_conv:
+        parser.error("el identificador de la conversación no puede estar vacío")
+    try:
+        conversation_id = _validate_conversation_id(raw_conv)
+    except ValueError as exc:
+        parser.error(str(exc))
+    conv = get_conversation(conversation_id)
+    if conv is None:
+        parser.error(f"no existe la conversación '{conversation_id}'")
+    if prompt is None and not any(m.get("role") in ("user", "tool") for m in conv.get("history") or []):
+        parser.error(f"la conversación '{conversation_id}' no tiene turnos para continuar")
+    return conversation_id, conv
+
+
+def _run_profile(parser: ZeroChatArgumentParser, args, conv: dict | None) -> tuple[str, dict | None]:
+    """El perfil de la ejecución: el de --profile, el de la conversación o DEFAULT_RUN_PROFILE.
+
+    Un --profile que no existe en el servidor se pasa por su nombre; el de la conversación y el por defecto tienen que existir.
+    """
     if args.profile is not None:
         clean_profile = args.profile.strip()
         if not clean_profile:
             parser.error("--profile no puede estar vacío")
-        general_match = get_general_profile_by_name(clean_profile) or get_general_profile(clean_profile)
-        profile_name = general_match["name"] if general_match else clean_profile
-        profile_data = general_match
-    elif conversation_id:
-        conv_profile = conv.get("profileId") if conv else None
-        if conv_profile:
-            match = get_general_profile_by_name(conv_profile) or get_general_profile(conv_profile)
-            if not match:
-                parser.error(f"no existe el perfil '{conv_profile}' en el servidor; créalo o indica uno con --profile")
-            profile_name = match["name"]
-            profile_data = match
-        else:
-            default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
-            if default_match is None:
-                parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
-            profile_name = default_match["name"]
-            profile_data = default_match
-    else:
-        default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
-        if default_match is None:
-            parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
-        profile_name = default_match["name"]
-        profile_data = default_match
-    export_path = None
-    if args.export is not None:
-        export_path = Path(args.export).expanduser().absolute()
-        if export_path.suffix.lower() not in RUN_EXPORT_FORMATS:
-            parser.error(f"--export necesita una de estas extensiones: {', '.join(RUN_EXPORT_FORMATS)}")
-        if not export_path.parent.is_dir():
-            parser.error(f"--export: no existe el directorio {export_path.parent}")
+        match = get_general_profile_by_name(clean_profile) or get_general_profile(clean_profile)
+        return (match["name"] if match else clean_profile), match
+    conv_profile = conv.get("profileId") if conv else None
+    if conv_profile:
+        match = get_general_profile_by_name(conv_profile) or get_general_profile(conv_profile)
+        if not match:
+            parser.error(f"no existe el perfil '{conv_profile}' en el servidor; créalo o indica uno con --profile")
+        return match["name"], match
+    match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
+    if match is None:
+        parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
+    return match["name"], match
+
+
+def _run_export_path(parser: ZeroChatArgumentParser, args) -> Path | None:
+    if args.export is None:
+        return None
+    export_path = Path(args.export).expanduser().absolute()
+    if export_path.suffix.lower() not in RUN_EXPORT_FORMATS:
+        parser.error(f"--export necesita una de estas extensiones: {', '.join(RUN_EXPORT_FORMATS)}")
+    if not export_path.parent.is_dir():
+        parser.error(f"--export: no existe el directorio {export_path.parent}")
+    return export_path
+
+
+def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | None:
+    """Valida las combinaciones de opciones y devuelve la sesión de --prompt o --conversation, si la hay."""
+    if args.prompt is None and args.conversation is None:
+        if args.browser or args.headless or args.keep_page or args.allow_dangerous_tools or args.profile is not None or args.export is not None:
+            parser.error("--browser, --headless, --keep-page, --allow-dangerous-tools, --profile y --export solo se usan con --prompt o --conversation")
+        return None
+    prompt = _run_prompt(parser, args)
+    conversation_id, conv = _run_conversation(parser, args, prompt)
+    _check_run_flags(parser, args)
+    profile_name, profile_data = _run_profile(parser, args, conv)
+    export_path = _run_export_path(parser, args)
     if conversation_id:
         mark_conversation_server_run(conversation_id, profile_name)
     return RunSession(prompt, profile_name, export_path, args.keep_page, args.allow_dangerous_tools, conversation_id=conversation_id, profile_data=profile_data)

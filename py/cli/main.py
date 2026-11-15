@@ -117,35 +117,8 @@ def build_parser() -> ZeroChatArgumentParser:
     return parser
 
 
-def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | None:
-    """Valida las combinaciones de opciones y devuelve la sesión de --prompt o --conversation, si la hay."""
-    if args.prompt is None and args.conversation is None:
-        if args.browser or args.headless or args.keep_page or args.allow_dangerous_tools or args.profile is not None or args.export is not None:
-            parser.error("--browser, --headless, --keep-page, --allow-dangerous-tools, --profile y --export solo se usan con --prompt o --conversation")
-        return None
-    prompt = None
-    if args.prompt is not None:
-        prompt = args.prompt.strip()
-        if not prompt:
-            parser.error("el prompt está vacío")
-    conversation_id = None
-    conv = None
-    if args.conversation is not None:
-        raw_conv = args.conversation.strip()
-        if not raw_conv:
-            parser.error("el identificador de la conversación no puede estar vacío")
-        try:
-            conversation_id = _validate_conversation_id(raw_conv)
-        except ValueError as exc:
-            parser.error(str(exc))
-        conv = get_conversation(conversation_id)
-        if conv is None:
-            parser.error(f"no existe la conversación '{conversation_id}'")
-        if prompt is None:
-            history = conv.get("history") or []
-            has_user_or_tool = any(m.get("role") in ("user", "tool") for m in history)
-            if not has_user_or_tool:
-                parser.error(f"la conversación '{conversation_id}' no tiene turnos para continuar")
+def _check_run_flags(parser: ZeroChatArgumentParser, args):
+    """Combinaciones de opciones que no admiten --prompt ni --conversation."""
     if args.no_browser:
         parser.error("--prompt y --conversation ejecutan la interfaz de forma autónoma: no se combina con --no-browser")
     if args.keep_server:
@@ -154,41 +127,81 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
         parser.error("--headless solo se usa con --browser (--prompt y --conversation ya se ejecutan sin ventana con Node.js)")
     if args.keep_page and (not args.browser or args.headless):
         parser.error("--keep-page necesita la ventana del navegador del usuario (--browser sin --headless)")
-    profile_data = None
+
+
+def _run_prompt(parser: ZeroChatArgumentParser, args) -> str | None:
+    if args.prompt is None:
+        return None
+    prompt = args.prompt.strip()
+    if not prompt:
+        parser.error("el prompt está vacío")
+    return prompt
+
+
+def _run_conversation(parser: ZeroChatArgumentParser, args, prompt: str | None) -> tuple[str | None, dict | None]:
+    """La conversación de --conversation: existe y, sin --prompt, tiene un turno que continuar."""
+    if args.conversation is None:
+        return None, None
+    raw_conv = args.conversation.strip()
+    if not raw_conv:
+        parser.error("el identificador de la conversación no puede estar vacío")
+    try:
+        conversation_id = _validate_conversation_id(raw_conv)
+    except ValueError as exc:
+        parser.error(str(exc))
+    conv = get_conversation(conversation_id)
+    if conv is None:
+        parser.error(f"no existe la conversación '{conversation_id}'")
+    if prompt is None and not any(m.get("role") in ("user", "tool") for m in conv.get("history") or []):
+        parser.error(f"la conversación '{conversation_id}' no tiene turnos para continuar")
+    return conversation_id, conv
+
+
+def _run_profile(parser: ZeroChatArgumentParser, args, conv: dict | None) -> tuple[str, dict | None]:
+    """El perfil de la ejecución: el de --profile, el de la conversación o DEFAULT_RUN_PROFILE.
+
+    Un --profile que no existe en el servidor se pasa por su nombre; el de la conversación y el por defecto tienen que existir.
+    """
     if args.profile is not None:
         clean_profile = args.profile.strip()
         if not clean_profile:
             parser.error("--profile no puede estar vacío")
-        general_match = get_general_profile_by_name(clean_profile) or get_general_profile(clean_profile)
-        profile_name = general_match["name"] if general_match else clean_profile
-        profile_data = general_match
-    elif conversation_id:
-        conv_profile = conv.get("profileId") if conv else None
-        if conv_profile:
-            match = get_general_profile_by_name(conv_profile) or get_general_profile(conv_profile)
-            if not match:
-                parser.error(f"no existe el perfil '{conv_profile}' en el servidor; créalo o indica uno con --profile")
-            profile_name = match["name"]
-            profile_data = match
-        else:
-            default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
-            if default_match is None:
-                parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
-            profile_name = default_match["name"]
-            profile_data = default_match
-    else:
-        default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
-        if default_match is None:
-            parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
-        profile_name = default_match["name"]
-        profile_data = default_match
-    export_path = None
-    if args.export is not None:
-        export_path = Path(args.export).expanduser().absolute()
-        if export_path.suffix.lower() not in RUN_EXPORT_FORMATS:
-            parser.error(f"--export necesita una de estas extensiones: {', '.join(RUN_EXPORT_FORMATS)}")
-        if not export_path.parent.is_dir():
-            parser.error(f"--export: no existe el directorio {export_path.parent}")
+        match = get_general_profile_by_name(clean_profile) or get_general_profile(clean_profile)
+        return (match["name"] if match else clean_profile), match
+    conv_profile = conv.get("profileId") if conv else None
+    if conv_profile:
+        match = get_general_profile_by_name(conv_profile) or get_general_profile(conv_profile)
+        if not match:
+            parser.error(f"no existe el perfil '{conv_profile}' en el servidor; créalo o indica uno con --profile")
+        return match["name"], match
+    match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
+    if match is None:
+        parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
+    return match["name"], match
+
+
+def _run_export_path(parser: ZeroChatArgumentParser, args) -> Path | None:
+    if args.export is None:
+        return None
+    export_path = Path(args.export).expanduser().absolute()
+    if export_path.suffix.lower() not in RUN_EXPORT_FORMATS:
+        parser.error(f"--export necesita una de estas extensiones: {', '.join(RUN_EXPORT_FORMATS)}")
+    if not export_path.parent.is_dir():
+        parser.error(f"--export: no existe el directorio {export_path.parent}")
+    return export_path
+
+
+def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | None:
+    """Valida las combinaciones de opciones y devuelve la sesión de --prompt o --conversation, si la hay."""
+    if args.prompt is None and args.conversation is None:
+        if args.browser or args.headless or args.keep_page or args.allow_dangerous_tools or args.profile is not None or args.export is not None:
+            parser.error("--browser, --headless, --keep-page, --allow-dangerous-tools, --profile y --export solo se usan con --prompt o --conversation")
+        return None
+    prompt = _run_prompt(parser, args)
+    conversation_id, conv = _run_conversation(parser, args, prompt)
+    _check_run_flags(parser, args)
+    profile_name, profile_data = _run_profile(parser, args, conv)
+    export_path = _run_export_path(parser, args)
     if conversation_id:
         mark_conversation_server_run(conversation_id, profile_name)
     return RunSession(prompt, profile_name, export_path, args.keep_page, args.allow_dangerous_tools, conversation_id=conversation_id, profile_data=profile_data)
