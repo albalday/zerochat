@@ -19,6 +19,7 @@ from core.environment import DETECTED_OS, _write_private_text, get_data_dir
 from core.limits import MAX_HTTP_BODY_BYTES
 from core.logging import log_event, timestamp_message
 from core.process import _kill_process_tree, _pid_alive, _process_start_token
+from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, RpcOutcome, dispatch_table, rpc_error, rpc_result
 from security.context import SecurityContext
 from storage.db import (
     _validate_conversation_id,
@@ -380,118 +381,145 @@ def http_body_limit() -> int:
     return MAX_HTTP_BODY_BYTES
 
 
-def dispatch_run(method: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
-    """Métodos zerochat/run/* que usa la interfaz abierta por el modo ejecución."""
+def _rpc_start(params: dict, ctx: SecurityContext, session: RunSession | None) -> RpcOutcome:
+    if session is not None:
+        return rpc_error(METHOD_NOT_FOUND, "No disponible dentro de un proceso de ejecución.")
+    try:
+        return rpc_result(start_server_run(params, ctx))
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+    except OSError as exc:
+        return rpc_error(INTERNAL_ERROR, f"Error al iniciar ejecución en servidor: {exc}", str(exc))
+
+
+def _rpc_cancel(params: dict, ctx: SecurityContext, session: RunSession | None) -> RpcOutcome:
+    if session is not None:
+        return rpc_error(METHOD_NOT_FOUND, "No disponible dentro de un proceso de ejecución.")
+    try:
+        return rpc_result(cancel_server_run(params.get("conversation_id")))
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+    except OSError as exc:
+        return rpc_error(INTERNAL_ERROR, f"Error al cancelar ejecución en servidor: {exc}", str(exc))
+
+
+def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
+    with session.lock:
+        if session.prompt_delivered:
+            return rpc_error(INVALID_PARAMS, "El prompt ya se entregó.")
+        session.prompt_delivered = True
+    session.touch()
+    export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
+    delivered_security = (
+        {k: v for k, v in session.tool_security.items() if k != "tool_decision"}
+        if isinstance(session.tool_security, dict) and "tool_decision" in session.tool_security
+        else session.tool_security
+    )
+    return rpc_result({"prompt": session.prompt, "conversation_id": session.conversation_id, "profile": session.profile,
+                       "profile_data": session.profile_data,
+                       "export": export_format, "keep_page": session.keep_page,
+                       "allow_dangerous_tools": session.allow_dangerous_tools, "tool_security": delivered_security})
+
+
+def _capped(text: str, limit: int) -> str:
+    return text[:limit] + ("…" if len(text) > limit else "")
+
+
+def _rpc_progress(params: dict, session: RunSession) -> RpcOutcome:
+    kind = params.get("kind")
+    text = params.get("text", "")
+    if not isinstance(kind, str) or not RUN_PROGRESS_KIND_PATTERN.fullmatch(kind) or not isinstance(text, str):
+        return rpc_error(INVALID_PARAMS, "Progreso no válido.")
+    assistant_text = params.get("assistant_text")
+    reasoning_text = params.get("reasoning_text")
+    if assistant_text is not None and not isinstance(assistant_text, str):
+        return rpc_error(INVALID_PARAMS, "assistant_text debe ser una cadena.")
+    if reasoning_text is not None and not isinstance(reasoning_text, str):
+        return rpc_error(INVALID_PARAMS, "reasoning_text debe ser una cadena.")
+    session.touch()
+    truncated_step = _capped(text, RUN_PROGRESS_TEXT_MAX)
+    log_event(f"[run] {kind}{': ' + truncated_step if truncated_step else ''}")
+    with session.lock:
+        session.step_text = truncated_step
+        if assistant_text is not None:
+            session.assistant_text = _capped(assistant_text, RUN_STREAM_TEXT_MAX)
+        if reasoning_text is not None:
+            session.reasoning_text = _capped(reasoning_text, RUN_STREAM_TEXT_MAX)
+        write_run_state(session)
+    return rpc_result({"ok": True})
+
+
+def _rpc_export(params: dict, session: RunSession) -> RpcOutcome:
+    content = params.get("content")
+    if session.export_path is None or not isinstance(content, str):
+        return rpc_error(INVALID_PARAMS, "Exportación no pedida o sin contenido.")
+    with session.lock:
+        if session.exported:
+            return rpc_error(INVALID_PARAMS, "La exportación ya se recibió.")
+        try:
+            session.export_path.write_text(content, encoding="utf-8")
+        except OSError as exc:
+            session.export_error = f"No se pudo escribir {session.export_path}: {exc}"
+            return rpc_error(INTERNAL_ERROR, session.export_error)
+        session.exported = True
+    session.touch()
+    log_event(f"[run] Conversación exportada en {session.export_path}")
+    return rpc_result({"ok": True})
+
+
+def _rpc_result(params: dict, session: RunSession) -> RpcOutcome:
+    text = params.get("text")
+    error = params.get("error")
+    needs_input = params.get("needs_input")
+    is_text = isinstance(text, str) and error is None and needs_input is None
+    is_error = isinstance(error, str) and bool(error) and text is None and needs_input is None
+    is_needs_input = isinstance(needs_input, dict) and text is None and error is None
+    if not (is_text or is_error or is_needs_input):
+        return rpc_error(INVALID_PARAMS, "El resultado lleva text o error.")
+    with session.lock:
+        if session.result is not None:
+            return rpc_error(INVALID_PARAMS, "El resultado ya se recibió.")
+        if is_text:
+            session.result = {"text": text}
+            session.status = "completed"
+            remove_run_state(session.conversation_id)
+        elif is_needs_input:
+            session.result = {"needs_input": needs_input}
+            session.status = "needs_input"
+            session.pending = needs_input
+            write_run_state(session)
+        else:
+            session.result = {"error": error}
+            session.status = "error"
+            session.error = error
+            write_run_state(session)
+    session.finished.set()
+    return rpc_result({"ok": True})
+
+
+# La interfaz del servidor principal lanza y detiene ejecuciones; la de una ejecución (con su run_id) le
+# pide el prompt e informa del progreso, la exportación y el resultado.
+RUN_CONTROL_METHODS = {"zerochat/run/start": _rpc_start, "zerochat/run/cancel": _rpc_cancel}
+RUN_SESSION_METHODS = {
+    "zerochat/run/prompt": _rpc_prompt,
+    "zerochat/run/progress": _rpc_progress,
+    "zerochat/run/export": _rpc_export,
+    "zerochat/run/result": _rpc_result,
+}
+
+
+def dispatch_run(method: str, params: dict, ctx: SecurityContext) -> RpcOutcome:
+    """Métodos zerochat/run/*: el control de ejecuciones y los de la interfaz abierta por el modo ejecución."""
     params = params if isinstance(params, dict) else {}
     session = RUN_SESSION
-    if method == "zerochat/run/start":
-        if session is not None:
-            return None, {"code": -32601, "message": "No disponible dentro de un proceso de ejecución."}, ""
-        try:
-            return start_server_run(params, ctx), None, ""
-        except ValueError as exc:
-            return None, {"code": -32602, "message": str(exc)}, ""
-        except OSError as exc:
-            return None, {"code": -32603, "message": f"Error al iniciar ejecución en servidor: {exc}"}, str(exc)
-    if method == "zerochat/run/cancel":
-        if session is not None:
-            return None, {"code": -32601, "message": "No disponible dentro de un proceso de ejecución."}, ""
-        try:
-            conv_id = params.get("conversation_id")
-            return cancel_server_run(conv_id), None, ""
-        except ValueError as exc:
-            return None, {"code": -32602, "message": str(exc)}, ""
-        except OSError as exc:
-            return None, {"code": -32603, "message": f"Error al cancelar ejecución en servidor: {exc}"}, str(exc)
-
+    if method in RUN_CONTROL_METHODS:
+        return RUN_CONTROL_METHODS[method](params, ctx, session)
     if session is None:
-        return None, {"code": -32601, "message": "El servidor no está en modo ejecución."}, ""
+        return rpc_error(METHOD_NOT_FOUND, "El servidor no está en modo ejecución.")
     run_id = params.get("run_id")
     if not isinstance(run_id, str) or not hmac.compare_digest(run_id, session.run_id):
-        return None, {"code": -32602, "message": "run_id no válido."}, ""
-    if method == "zerochat/run/prompt":
-        with session.lock:
-            if session.prompt_delivered:
-                return None, {"code": -32602, "message": "El prompt ya se entregó."}, ""
-            session.prompt_delivered = True
-        session.touch()
-        export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
-        delivered_security = (
-            {k: v for k, v in session.tool_security.items() if k != "tool_decision"}
-            if isinstance(session.tool_security, dict) and "tool_decision" in session.tool_security
-            else session.tool_security
-        )
-        return {"prompt": session.prompt, "conversation_id": session.conversation_id, "profile": session.profile,
-                "profile_data": session.profile_data,
-                "export": export_format, "keep_page": session.keep_page,
-                "allow_dangerous_tools": session.allow_dangerous_tools, "tool_security": delivered_security}, None, ""
-    if method == "zerochat/run/progress":
-        kind = params.get("kind")
-        text = params.get("text", "")
-        if not isinstance(kind, str) or not RUN_PROGRESS_KIND_PATTERN.fullmatch(kind) or not isinstance(text, str):
-            return None, {"code": -32602, "message": "Progreso no válido."}, ""
-        assistant_text = params.get("assistant_text")
-        reasoning_text = params.get("reasoning_text")
-        if assistant_text is not None and not isinstance(assistant_text, str):
-            return None, {"code": -32602, "message": "assistant_text debe ser una cadena."}, ""
-        if reasoning_text is not None and not isinstance(reasoning_text, str):
-            return None, {"code": -32602, "message": "reasoning_text debe ser una cadena."}, ""
-        session.touch()
-        truncated_step = text[:RUN_PROGRESS_TEXT_MAX] + "…" if len(text) > RUN_PROGRESS_TEXT_MAX else text
-        log_event(f"[run] {kind}{': ' + truncated_step if truncated_step else ''}")
-        with session.lock:
-            session.step_text = truncated_step
-            if assistant_text is not None:
-                session.assistant_text = assistant_text[:RUN_STREAM_TEXT_MAX] + ("…" if len(assistant_text) > RUN_STREAM_TEXT_MAX else "")
-            if reasoning_text is not None:
-                session.reasoning_text = reasoning_text[:RUN_STREAM_TEXT_MAX] + ("…" if len(reasoning_text) > RUN_STREAM_TEXT_MAX else "")
-            write_run_state(session)
-        return {"ok": True}, None, ""
-    if method == "zerochat/run/export":
-        content = params.get("content")
-        if session.export_path is None or not isinstance(content, str):
-            return None, {"code": -32602, "message": "Exportación no pedida o sin contenido."}, ""
-        with session.lock:
-            if session.exported:
-                return None, {"code": -32602, "message": "La exportación ya se recibió."}, ""
-            try:
-                session.export_path.write_text(content, encoding="utf-8")
-            except OSError as exc:
-                session.export_error = f"No se pudo escribir {session.export_path}: {exc}"
-                return None, {"code": -32603, "message": session.export_error}, ""
-            session.exported = True
-        session.touch()
-        log_event(f"[run] Conversación exportada en {session.export_path}")
-        return {"ok": True}, None, ""
-    if method == "zerochat/run/result":
-        text = params.get("text")
-        error = params.get("error")
-        needs_input = params.get("needs_input")
-        is_text = isinstance(text, str) and error is None and needs_input is None
-        is_error = isinstance(error, str) and bool(error) and text is None and needs_input is None
-        is_needs_input = isinstance(needs_input, dict) and text is None and error is None
-        if not (is_text or is_error or is_needs_input):
-            return None, {"code": -32602, "message": "El resultado lleva text o error."}, ""
-        with session.lock:
-            if session.result is not None:
-                return None, {"code": -32602, "message": "El resultado ya se recibió."}, ""
-            if is_text:
-                session.result = {"text": text}
-                session.status = "completed"
-                remove_run_state(session.conversation_id)
-            elif is_needs_input:
-                session.result = {"needs_input": needs_input}
-                session.status = "needs_input"
-                session.pending = needs_input
-                write_run_state(session)
-            else:
-                session.result = {"error": error}
-                session.status = "error"
-                session.error = error
-                write_run_state(session)
-        session.finished.set()
-        return {"ok": True}, None, ""
-    return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
+        return rpc_error(INVALID_PARAMS, "run_id no válido.")
+    return dispatch_table(RUN_SESSION_METHODS, method, params, session)
 
 
 def run_error(message: str):

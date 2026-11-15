@@ -247,7 +247,7 @@ class BackgroundCommandTest(unittest.TestCase):
     def test_la_persona_corta_una_espera_por_la_clave_de_la_invocacion_sin_detener_el_comando(self):
         server = run("exec sleep 100", background=True)
         ctx = zerochat.project_context()
-        end_wait = lambda key: zerochat.ZeroChatServerHandler._dispatch_jobs("zerochat/jobs/end_wait", {"key": key}, ctx)[0]
+        end_wait = lambda key: zerochat.dispatch_jobs("zerochat/jobs/end_wait", {"key": key}, ctx)[0]
         for kwargs in ({"wait_seconds": 30}, {"job_id": server["job_id"], "wait_seconds": 30, "pattern": "nunca"}):
             with self.subTest(kwargs=kwargs):
                 key = "espera-cortada-1"

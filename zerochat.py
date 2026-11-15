@@ -56,6 +56,7 @@ import webbrowser
 import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Callable
 from urllib.parse import urlencode
 
 # --- core.limits ---
@@ -1387,6 +1388,57 @@ def _pid_alive(pid: int) -> bool:
         return False
     return True
 
+# --- core.rpc ---
+"""Respuestas de los métodos JSON-RPC del servidor: (resultado, error JSON-RPC, detalle para el registro)."""
+
+
+
+METHOD_NOT_FOUND = -32601
+INVALID_PARAMS = -32602
+INTERNAL_ERROR = -32603
+
+RpcOutcome = tuple[dict | None, dict | None, str]
+
+
+def rpc_result(result) -> RpcOutcome:
+    return result, None, ""
+
+
+def rpc_error(code: int, message: str, detail: str = "") -> RpcOutcome:
+    return None, {"code": code, "message": message}, detail
+
+
+def rpc_not_supported(method: str) -> RpcOutcome:
+    return rpc_error(METHOD_NOT_FOUND, f"Método '{method}' no soportado.")
+
+
+def dispatch_table(handlers: dict[str, Callable[..., RpcOutcome]], method: str, *args) -> RpcOutcome:
+    """Atiende el método con su función de la tabla, que recibe *args; sin ella, «no soportado»."""
+    handler = handlers.get(method)
+    return handler(*args) if handler else rpc_not_supported(method)
+
+# --- browser.rpc ---
+"""Métodos JSON-RPC de la sección Navegador de Ajustes: configuración, datos y motores propios de Playwright."""
+
+
+
+
+BROWSER_METHODS = {
+    "zerochat/browser/config/get": lambda _params: rpc_result(load_browser_config()),
+    "zerochat/browser/config/set": lambda params: rpc_result(save_browser_config(params.get("config"))),
+    "zerochat/browser/data/clear": lambda params: rpc_result(clear_own_browser_data(params.get("engine"))),
+    "zerochat/browser/engines/list": lambda _params: rpc_result(BROWSER_ENGINES.list()),
+    "zerochat/browser/engines/install": lambda params: rpc_result(BROWSER_ENGINES.install(params.get("engine"))),
+    "zerochat/browser/engines/remove": lambda params: rpc_result(BROWSER_ENGINES.remove(params.get("engine"))),
+}
+
+
+def dispatch_browser(method: str, params: dict) -> RpcOutcome:
+    try:
+        return dispatch_table(BROWSER_METHODS, method, params)
+    except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+
 # --- core.version ---
 """Versiones del backend y de la interfaz, y direcciones desde las que se publican."""
 
@@ -2219,6 +2271,49 @@ GLOBAL_MCP_MANAGER = McpServiceManager()
 def _playwright_service_running() -> bool:
     return any(server["id"] == PLAYWRIGHT_SERVER_ID and server["status"] in ("running", "starting", "installing")
                for server in GLOBAL_MCP_MANAGER.list_servers())
+
+# --- mcp.rpc ---
+"""Métodos JSON-RPC de los servicios MCP externos: arrancar, detener y configurar desde la interfaz."""
+
+
+
+SERVER_CONTROL_METHODS = frozenset({
+    "zerochat/external/servers/start",
+    "zerochat/external/servers/stop",
+    "zerochat/external/servers/configure",
+})
+
+
+def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
+    server_id = params.get("serverId")
+    opts = params.get("options", {})
+    remember = params.get("remember")
+    browser = params.get("browser")
+    starting = method == "zerochat/external/servers/start"
+    if not isinstance(server_id, str) or not server_id:
+        return rpc_error(INVALID_PARAMS, "serverId debe ser un texto no vacío.")
+    if not isinstance(opts, dict):
+        return rpc_error(INVALID_PARAMS, "options debe ser un objeto.")
+    # Al arrancar, el cliente decide siempre si el servicio se recuerda para la siguiente sesión.
+    if starting and not isinstance(remember, bool):
+        return rpc_error(INVALID_PARAMS, "remember es obligatorio al arrancar y debe ser un booleano.")
+    if starting and browser is not None:
+        if server_id not in SERVICE_LAUNCH:
+            return rpc_error(INVALID_PARAMS, f"{server_id} no admite elegir navegador.")
+        try:
+            browser = validate_profile_browser(browser)
+        except ValueError as exc:
+            return rpc_error(INVALID_PARAMS, str(exc))
+    try:
+        if starting:
+            servers = GLOBAL_MCP_MANAGER.start(server_id, remember, browser)
+        elif method == "zerochat/external/servers/stop":
+            servers = GLOBAL_MCP_MANAGER.stop(server_id)
+        else:
+            servers = GLOBAL_MCP_MANAGER.configure(server_id, opts)
+    except KeyError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc.args[0]) if exc.args else str(exc))
+    return rpc_result({"servers": servers})
 
 # --- security.context ---
 """Proyecto de cada petición (SecurityContext): carpeta canónica, rutas resueltas contra ella y clave de su sesión."""
@@ -3732,118 +3827,145 @@ def http_body_limit() -> int:
     return MAX_HTTP_BODY_BYTES
 
 
-def dispatch_run(method: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
-    """Métodos zerochat/run/* que usa la interfaz abierta por el modo ejecución."""
+def _rpc_start(params: dict, ctx: SecurityContext, session: RunSession | None) -> RpcOutcome:
+    if session is not None:
+        return rpc_error(METHOD_NOT_FOUND, "No disponible dentro de un proceso de ejecución.")
+    try:
+        return rpc_result(start_server_run(params, ctx))
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+    except OSError as exc:
+        return rpc_error(INTERNAL_ERROR, f"Error al iniciar ejecución en servidor: {exc}", str(exc))
+
+
+def _rpc_cancel(params: dict, ctx: SecurityContext, session: RunSession | None) -> RpcOutcome:
+    if session is not None:
+        return rpc_error(METHOD_NOT_FOUND, "No disponible dentro de un proceso de ejecución.")
+    try:
+        return rpc_result(cancel_server_run(params.get("conversation_id")))
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+    except OSError as exc:
+        return rpc_error(INTERNAL_ERROR, f"Error al cancelar ejecución en servidor: {exc}", str(exc))
+
+
+def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
+    with session.lock:
+        if session.prompt_delivered:
+            return rpc_error(INVALID_PARAMS, "El prompt ya se entregó.")
+        session.prompt_delivered = True
+    session.touch()
+    export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
+    delivered_security = (
+        {k: v for k, v in session.tool_security.items() if k != "tool_decision"}
+        if isinstance(session.tool_security, dict) and "tool_decision" in session.tool_security
+        else session.tool_security
+    )
+    return rpc_result({"prompt": session.prompt, "conversation_id": session.conversation_id, "profile": session.profile,
+                       "profile_data": session.profile_data,
+                       "export": export_format, "keep_page": session.keep_page,
+                       "allow_dangerous_tools": session.allow_dangerous_tools, "tool_security": delivered_security})
+
+
+def _capped(text: str, limit: int) -> str:
+    return text[:limit] + ("…" if len(text) > limit else "")
+
+
+def _rpc_progress(params: dict, session: RunSession) -> RpcOutcome:
+    kind = params.get("kind")
+    text = params.get("text", "")
+    if not isinstance(kind, str) or not RUN_PROGRESS_KIND_PATTERN.fullmatch(kind) or not isinstance(text, str):
+        return rpc_error(INVALID_PARAMS, "Progreso no válido.")
+    assistant_text = params.get("assistant_text")
+    reasoning_text = params.get("reasoning_text")
+    if assistant_text is not None and not isinstance(assistant_text, str):
+        return rpc_error(INVALID_PARAMS, "assistant_text debe ser una cadena.")
+    if reasoning_text is not None and not isinstance(reasoning_text, str):
+        return rpc_error(INVALID_PARAMS, "reasoning_text debe ser una cadena.")
+    session.touch()
+    truncated_step = _capped(text, RUN_PROGRESS_TEXT_MAX)
+    log_event(f"[run] {kind}{': ' + truncated_step if truncated_step else ''}")
+    with session.lock:
+        session.step_text = truncated_step
+        if assistant_text is not None:
+            session.assistant_text = _capped(assistant_text, RUN_STREAM_TEXT_MAX)
+        if reasoning_text is not None:
+            session.reasoning_text = _capped(reasoning_text, RUN_STREAM_TEXT_MAX)
+        write_run_state(session)
+    return rpc_result({"ok": True})
+
+
+def _rpc_export(params: dict, session: RunSession) -> RpcOutcome:
+    content = params.get("content")
+    if session.export_path is None or not isinstance(content, str):
+        return rpc_error(INVALID_PARAMS, "Exportación no pedida o sin contenido.")
+    with session.lock:
+        if session.exported:
+            return rpc_error(INVALID_PARAMS, "La exportación ya se recibió.")
+        try:
+            session.export_path.write_text(content, encoding="utf-8")
+        except OSError as exc:
+            session.export_error = f"No se pudo escribir {session.export_path}: {exc}"
+            return rpc_error(INTERNAL_ERROR, session.export_error)
+        session.exported = True
+    session.touch()
+    log_event(f"[run] Conversación exportada en {session.export_path}")
+    return rpc_result({"ok": True})
+
+
+def _rpc_result(params: dict, session: RunSession) -> RpcOutcome:
+    text = params.get("text")
+    error = params.get("error")
+    needs_input = params.get("needs_input")
+    is_text = isinstance(text, str) and error is None and needs_input is None
+    is_error = isinstance(error, str) and bool(error) and text is None and needs_input is None
+    is_needs_input = isinstance(needs_input, dict) and text is None and error is None
+    if not (is_text or is_error or is_needs_input):
+        return rpc_error(INVALID_PARAMS, "El resultado lleva text o error.")
+    with session.lock:
+        if session.result is not None:
+            return rpc_error(INVALID_PARAMS, "El resultado ya se recibió.")
+        if is_text:
+            session.result = {"text": text}
+            session.status = "completed"
+            remove_run_state(session.conversation_id)
+        elif is_needs_input:
+            session.result = {"needs_input": needs_input}
+            session.status = "needs_input"
+            session.pending = needs_input
+            write_run_state(session)
+        else:
+            session.result = {"error": error}
+            session.status = "error"
+            session.error = error
+            write_run_state(session)
+    session.finished.set()
+    return rpc_result({"ok": True})
+
+
+# La interfaz del servidor principal lanza y detiene ejecuciones; la de una ejecución (con su run_id) le
+# pide el prompt e informa del progreso, la exportación y el resultado.
+RUN_CONTROL_METHODS = {"zerochat/run/start": _rpc_start, "zerochat/run/cancel": _rpc_cancel}
+RUN_SESSION_METHODS = {
+    "zerochat/run/prompt": _rpc_prompt,
+    "zerochat/run/progress": _rpc_progress,
+    "zerochat/run/export": _rpc_export,
+    "zerochat/run/result": _rpc_result,
+}
+
+
+def dispatch_run(method: str, params: dict, ctx: SecurityContext) -> RpcOutcome:
+    """Métodos zerochat/run/*: el control de ejecuciones y los de la interfaz abierta por el modo ejecución."""
     params = params if isinstance(params, dict) else {}
     session = RUN_SESSION
-    if method == "zerochat/run/start":
-        if session is not None:
-            return None, {"code": -32601, "message": "No disponible dentro de un proceso de ejecución."}, ""
-        try:
-            return start_server_run(params, ctx), None, ""
-        except ValueError as exc:
-            return None, {"code": -32602, "message": str(exc)}, ""
-        except OSError as exc:
-            return None, {"code": -32603, "message": f"Error al iniciar ejecución en servidor: {exc}"}, str(exc)
-    if method == "zerochat/run/cancel":
-        if session is not None:
-            return None, {"code": -32601, "message": "No disponible dentro de un proceso de ejecución."}, ""
-        try:
-            conv_id = params.get("conversation_id")
-            return cancel_server_run(conv_id), None, ""
-        except ValueError as exc:
-            return None, {"code": -32602, "message": str(exc)}, ""
-        except OSError as exc:
-            return None, {"code": -32603, "message": f"Error al cancelar ejecución en servidor: {exc}"}, str(exc)
-
+    if method in RUN_CONTROL_METHODS:
+        return RUN_CONTROL_METHODS[method](params, ctx, session)
     if session is None:
-        return None, {"code": -32601, "message": "El servidor no está en modo ejecución."}, ""
+        return rpc_error(METHOD_NOT_FOUND, "El servidor no está en modo ejecución.")
     run_id = params.get("run_id")
     if not isinstance(run_id, str) or not hmac.compare_digest(run_id, session.run_id):
-        return None, {"code": -32602, "message": "run_id no válido."}, ""
-    if method == "zerochat/run/prompt":
-        with session.lock:
-            if session.prompt_delivered:
-                return None, {"code": -32602, "message": "El prompt ya se entregó."}, ""
-            session.prompt_delivered = True
-        session.touch()
-        export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
-        delivered_security = (
-            {k: v for k, v in session.tool_security.items() if k != "tool_decision"}
-            if isinstance(session.tool_security, dict) and "tool_decision" in session.tool_security
-            else session.tool_security
-        )
-        return {"prompt": session.prompt, "conversation_id": session.conversation_id, "profile": session.profile,
-                "profile_data": session.profile_data,
-                "export": export_format, "keep_page": session.keep_page,
-                "allow_dangerous_tools": session.allow_dangerous_tools, "tool_security": delivered_security}, None, ""
-    if method == "zerochat/run/progress":
-        kind = params.get("kind")
-        text = params.get("text", "")
-        if not isinstance(kind, str) or not RUN_PROGRESS_KIND_PATTERN.fullmatch(kind) or not isinstance(text, str):
-            return None, {"code": -32602, "message": "Progreso no válido."}, ""
-        assistant_text = params.get("assistant_text")
-        reasoning_text = params.get("reasoning_text")
-        if assistant_text is not None and not isinstance(assistant_text, str):
-            return None, {"code": -32602, "message": "assistant_text debe ser una cadena."}, ""
-        if reasoning_text is not None and not isinstance(reasoning_text, str):
-            return None, {"code": -32602, "message": "reasoning_text debe ser una cadena."}, ""
-        session.touch()
-        truncated_step = text[:RUN_PROGRESS_TEXT_MAX] + "…" if len(text) > RUN_PROGRESS_TEXT_MAX else text
-        log_event(f"[run] {kind}{': ' + truncated_step if truncated_step else ''}")
-        with session.lock:
-            session.step_text = truncated_step
-            if assistant_text is not None:
-                session.assistant_text = assistant_text[:RUN_STREAM_TEXT_MAX] + ("…" if len(assistant_text) > RUN_STREAM_TEXT_MAX else "")
-            if reasoning_text is not None:
-                session.reasoning_text = reasoning_text[:RUN_STREAM_TEXT_MAX] + ("…" if len(reasoning_text) > RUN_STREAM_TEXT_MAX else "")
-            write_run_state(session)
-        return {"ok": True}, None, ""
-    if method == "zerochat/run/export":
-        content = params.get("content")
-        if session.export_path is None or not isinstance(content, str):
-            return None, {"code": -32602, "message": "Exportación no pedida o sin contenido."}, ""
-        with session.lock:
-            if session.exported:
-                return None, {"code": -32602, "message": "La exportación ya se recibió."}, ""
-            try:
-                session.export_path.write_text(content, encoding="utf-8")
-            except OSError as exc:
-                session.export_error = f"No se pudo escribir {session.export_path}: {exc}"
-                return None, {"code": -32603, "message": session.export_error}, ""
-            session.exported = True
-        session.touch()
-        log_event(f"[run] Conversación exportada en {session.export_path}")
-        return {"ok": True}, None, ""
-    if method == "zerochat/run/result":
-        text = params.get("text")
-        error = params.get("error")
-        needs_input = params.get("needs_input")
-        is_text = isinstance(text, str) and error is None and needs_input is None
-        is_error = isinstance(error, str) and bool(error) and text is None and needs_input is None
-        is_needs_input = isinstance(needs_input, dict) and text is None and error is None
-        if not (is_text or is_error or is_needs_input):
-            return None, {"code": -32602, "message": "El resultado lleva text o error."}, ""
-        with session.lock:
-            if session.result is not None:
-                return None, {"code": -32602, "message": "El resultado ya se recibió."}, ""
-            if is_text:
-                session.result = {"text": text}
-                session.status = "completed"
-                remove_run_state(session.conversation_id)
-            elif is_needs_input:
-                session.result = {"needs_input": needs_input}
-                session.status = "needs_input"
-                session.pending = needs_input
-                write_run_state(session)
-            else:
-                session.result = {"error": error}
-                session.status = "error"
-                session.error = error
-                write_run_state(session)
-        session.finished.set()
-        return {"ok": True}, None, ""
-    return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
+        return rpc_error(INVALID_PARAMS, "run_id no válido.")
+    return dispatch_table(RUN_SESSION_METHODS, method, params, session)
 
 
 def run_error(message: str):
@@ -3899,6 +4021,141 @@ def find_node_executable() -> str | None:
         return executable
     except (OSError, subprocess.SubprocessError):
         return None
+
+# --- storage.rpc ---
+"""Métodos JSON-RPC de los datos guardados en SQLite: perfiles del servidor, conversaciones y blobs."""
+
+
+
+
+
+def _guarded(handlers: dict, method: str, params: dict, failure: str) -> RpcOutcome:
+    """Atiende el método con su tabla; un ValueError es un parámetro no válido y otro fallo, un error interno."""
+    try:
+        return dispatch_table(handlers, method, params)
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+    except Exception as exc:
+        return rpc_error(INTERNAL_ERROR, f"{failure}: {exc}", str(exc))
+
+
+# --- Perfiles del servidor -------------------------------------------------------------
+
+
+def _save_profile(params: dict) -> RpcOutcome:
+    profile_data = params.get("profile")
+    if not isinstance(profile_data, dict):
+        return rpc_error(INVALID_PARAMS, "profile debe ser un objeto.")
+    return rpc_result({"profile": save_general_profile(profile_data)})
+
+
+def _delete_profile(params: dict) -> RpcOutcome:
+    profile_id = params.get("id")
+    if not isinstance(profile_id, str) or not profile_id.strip():
+        return rpc_error(INVALID_PARAMS, "id debe ser un texto no vacío.")
+    return rpc_result({"deleted": delete_general_profile(profile_id)})
+
+
+PROFILE_METHODS = {
+    "zerochat/profiles/list": lambda _params: rpc_result({"profiles": list_general_profiles()}),
+    "zerochat/profiles/save": _save_profile,
+    "zerochat/profiles/delete": _delete_profile,
+}
+
+
+def dispatch_profiles(method: str, params: dict) -> RpcOutcome:
+    """Perfiles generales almacenados en SQLite en el backend local."""
+    return _guarded(PROFILE_METHODS, method, params if isinstance(params, dict) else {}, "Error en gestión de perfiles")
+
+
+# --- Conversaciones --------------------------------------------------------------------
+
+
+def _cancel_runs(conversation_ids):
+    """Borrar una conversación detiene su ejecución en servidor, si la hay."""
+    for conversation_id in conversation_ids:
+        try:
+            cancel_server_run(conversation_id)
+        except (ValueError, OSError):
+            pass
+
+
+def _rpc_delete_conversations(params: dict) -> RpcOutcome:
+    if params.get("all") is True:
+        _cancel_runs(urllib.parse.unquote(run_file.stem) for run_file in get_runs_dir().glob("*.json"))
+        return rpc_result({"deleted": True, "count": delete_all_conversations()})
+    if "project" in params:
+        deleted_ids = delete_project_conversations(params.get("project"))
+        _cancel_runs(deleted_ids)
+        return rpc_result({"deleted": True, "count": len(deleted_ids)})
+    conv_id = params.get("id")
+    if isinstance(conv_id, str) and conv_id.strip():
+        _cancel_runs([conv_id])
+    return rpc_result({"deleted": delete_conversation(params.get("id"))})
+
+
+CONVERSATION_METHODS = {
+    "zerochat/conversations/list": lambda _params: rpc_result({"conversations": list_conversations()}),
+    "zerochat/conversations/get": lambda params: rpc_result({"conversation": get_conversation(params.get("id"))}),
+    "zerochat/conversations/save": lambda params: rpc_result(
+        {"conversation": save_conversation(params.get("conversation"), params.get("messages"))}),
+    "zerochat/conversations/rename": lambda params: rpc_result(
+        {"renamed": rename_conversation(params.get("id"), params.get("title"))}),
+    "zerochat/conversations/delete": _rpc_delete_conversations,
+}
+
+
+def dispatch_conversations(method: str, params: dict) -> RpcOutcome:
+    """Conversaciones y mensajes almacenados en SQLite en el backend local."""
+    return _guarded(CONVERSATION_METHODS, method, params, "Error en gestión de conversaciones")
+
+
+# --- Blobs (imágenes y adjuntos, aparte de los mensajes) ----------------------------------
+
+
+def _put_blob(params: dict) -> RpcOutcome:
+    raw_data = params.get("data")
+    if not raw_data or not isinstance(raw_data, str):
+        raise ValueError("El parámetro 'data' debe ser una cadena en base64 no vacía")
+    mime_type = params.get("mimeType") or "application/octet-stream"
+    if raw_data.startswith("data:") and ";base64," in raw_data:
+        header, b64_part = raw_data.split(";base64,", 1)
+        if not params.get("mimeType"):
+            mime_type = header[5:]
+        raw_data = b64_part
+    try:
+        data_bytes = base64.b64decode(raw_data)
+    except Exception as decode_err:
+        raise ValueError(f"Error decodificando base64: {decode_err}")
+    saved = put_blob(data_bytes, mime_type=mime_type, blob_id=params.get("id"))
+    return rpc_result({"id": saved["id"], "mimeType": saved["mime_type"], "size": saved["size"]})
+
+
+def _get_blob(params: dict) -> RpcOutcome:
+    blob = get_blob(params.get("id"))
+    if not blob:
+        return rpc_result({"blob": None})
+    return rpc_result({
+        "blob": {
+            "id": blob["id"],
+            "mimeType": blob["mime_type"],
+            "size": blob["size"],
+            "data": base64.b64encode(blob["data"]).decode("ascii"),
+            "createdAt": blob["created_at"],
+        }
+    })
+
+
+BLOB_METHODS = {
+    "zerochat/blobs/has": lambda params: rpc_result(has_blobs(params.get("ids") if params.get("ids") is not None else [])),
+    "zerochat/blobs/put": _put_blob,
+    "zerochat/blobs/get": _get_blob,
+}
+
+
+def dispatch_blobs(method: str, params: dict) -> RpcOutcome:
+    """Blobs desacoplados de los mensajes (imágenes y adjuntos) en SQLite."""
+    return _guarded(BLOB_METHODS, method, params if isinstance(params, dict) else {}, "Error en gestión de blobs")
 
 # --- tools.common ---
 """Utilidades comunes de las herramientas locales: el resultado de error y la escritura atómica de archivos."""
@@ -7008,6 +7265,59 @@ class ConsoleControl:
                 return
             self._handle_command(line)
 
+# --- tools.jobs_rpc ---
+"""Métodos JSON-RPC de los comandos del proyecto para la interfaz: lista, tarjetas, log, detener y cortar esperas."""
+
+
+
+
+def _report(params: dict, project: str) -> RpcOutcome:
+    ids = params.get("ids")
+    if not isinstance(ids, list) or len(ids) > 100 or any(isinstance(i, bool) or not isinstance(i, int) for i in ids):
+        return rpc_error(INVALID_PARAMS, "ids debe ser una lista de hasta 100 enteros.")
+    return rpc_result({"reports": JOBS.report_finished(ids, project)})
+
+
+def _log(params: dict, job) -> RpcOutcome:
+    offset = params.get("offset", 0)
+    limit = params.get("limit", JOB_LOG_PAGE_BYTES)
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+        return rpc_error(INVALID_PARAMS, "offset debe ser un entero no negativo.")
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+        return rpc_error(INVALID_PARAMS, "limit debe ser un entero positivo.")
+    text, next_offset = job.read_range(offset, min(limit, JOB_LOG_PAGE_BYTES))
+    return rpc_result({"text": text, "next": next_offset, "total": job.total, "done": job.done.is_set()})
+
+
+def _stop(_params: dict, job) -> RpcOutcome:
+    JOBS.stop(job, "user")
+    return rpc_result(job_details(job))
+
+
+PROJECT_JOB_METHODS = {
+    "zerochat/jobs/list": lambda _params, project: rpc_result({"jobs": [job.summary() for job in JOBS.list(project)]}),
+    "zerochat/jobs/report": _report,
+    "zerochat/jobs/end_wait": lambda params, _project: rpc_result({"ended": JOBS.cancel_wait(params.get("key"))}),
+}
+# Métodos sobre un comando concreto, que se localiza por su id o por la clave de la invocación.
+SINGLE_JOB_METHODS = {
+    "zerochat/jobs/get": lambda _params, job: rpc_result(job_details(job)),
+    "zerochat/jobs/log": _log,
+    "zerochat/jobs/stop": _stop,
+}
+
+
+def dispatch_jobs(method: str, params: dict, ctx: SecurityContext) -> RpcOutcome:
+    """Comandos del proyecto de la petición: tarjetas, log y botón de detener de la interfaz."""
+    if method in PROJECT_JOB_METHODS:
+        return dispatch_table(PROJECT_JOB_METHODS, method, params, ctx.key)
+    if method not in SINGLE_JOB_METHODS:
+        return rpc_not_supported(method)
+    job = JOBS.get(ctx.key, job_id=params.get("id"), key=params.get("key"))
+    if job is None:
+        return rpc_error(INVALID_PARAMS, "Comando no encontrado: puede pertenecer a una sesión anterior de ZeroChat.")
+    return dispatch_table(SINGLE_JOB_METHODS, method, params, job)
+
 # --- tools.project_files ---
 """Navegador de ficheros del proyecto para la interfaz: lista, lee y descarga sin salir de su carpeta.
 
@@ -7366,6 +7676,181 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
             return f"Acción de navegador no permitida: {arguments.get('action')}"
 
     return None
+
+# --- server.tool_calls ---
+"""Punto único de ejecución de herramientas (tools/call de los dos endpoints) y métodos de permisos.
+
+Autorizar un reto ejecuta la herramienta pendiente, por eso los métodos zerochat/security/* viven junto a la ejecución.
+"""
+
+
+
+
+# Un reto que no existe, ya se usó o es de otro proyecto.
+CHALLENGE_NOT_FOUND = -32002
+
+
+def tool_exception_result(ex: Exception) -> dict:
+    return {"content": [{"type": "text", "text": _tool_error(str(ex))}], "isError": True}
+
+
+def execute_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
+                 conversation_id: str = "") -> tuple[dict | None, dict | None, str]:
+    """
+    Punto único de ejecución de herramientas locales y externas. Un navegador se reserva aquí, al
+    ejecutar, para la conversación que lo usa: pedirlo sin llegar a ejecutar no lo ocupa.
+    """
+    if origin == "local":
+        browser = tool_name if tool_name == "browser_action" else None
+    else:
+        browser = PLAYWRIGHT_SERVER_ID if GLOBAL_MCP_MANAGER.server_of(tool_name) == PLAYWRIGHT_SERVER_ID else None
+    if browser and not BROWSER_LEASES.acquire(browser, conversation_id):
+        message = (f"The browser is in use by another conversation. It is released after {int(BROWSER_LEASE_IDLE_SECONDS)} "
+                   "seconds without use; tell the user or try again later.")
+        return {"content": [{"type": "text", "text": _tool_error(message)}], "isError": True}, None, message
+    # En una ejecución desatendida, esperar en check_command no es inactividad ni gasta el plazo total.
+    session = current_run_session() if origin == "local" and tool_name == JOB_CONTROL_TOOL else None
+    if session is not None:
+        session.begin_wait()
+    try:
+        return run_tool(origin, tool_name, args, ctx)
+    finally:
+        if session is not None:
+            session.end_wait()
+        # El plazo cuenta desde que la acción termina: lo que tarde no acorta lo que el modelo puede razonar después.
+        if browser:
+            BROWSER_LEASES.acquire(browser, conversation_id)
+
+
+def run_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
+    """Ejecuta la herramienta y normaliza su resultado: (result, error JSON-RPC, detalle de error)."""
+    if origin == "external":
+        try:
+            result = GLOBAL_MCP_MANAGER.call(tool_name, args)
+        except Exception as ex:
+            return tool_exception_result(ex), None, str(ex)
+        tool_error_info = ""
+        if isinstance(result, dict) and result.get("isError"):
+            c_list = result.get("content", [])
+            if c_list and isinstance(c_list, list) and isinstance(c_list[0], dict):
+                tool_error_info = c_list[0].get("text", "Error en herramienta MCP externa")
+            else:
+                tool_error_info = "Error en herramienta MCP externa"
+        return result, None, tool_error_info
+
+    handler = LOCAL_TOOL_HANDLERS.get(tool_name)
+    if not handler:
+        return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
+    try:
+        # Solo las herramientas que actúan en el proyecto declaran ctx.
+        takes_project = "ctx" in inspect.signature(handler).parameters
+        tool_output_json = handler(**dict(args), **({"ctx": ctx} if takes_project else {}))
+    except Exception as ex:
+        return tool_exception_result(ex), None, str(ex)
+    tool_error_info = ""
+    try:
+        parsed_out = json.loads(tool_output_json)
+        if isinstance(parsed_out, dict) and parsed_out.get("success") is False:
+            tool_error_info = str(parsed_out.get("error", "Error en herramienta local"))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+    return {"content": [{"type": "text", "text": tool_output_json}], "isError": bool(tool_error_info)}, None, tool_error_info
+
+
+def with_job_key(args: dict, job_key: str | None) -> dict:
+    return {**args, "job_key": job_key} if job_key else args
+
+
+def authorize_or_challenge(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
+                           job_key: str | None = None, conversation_id: str = "") -> tuple[dict | None, dict | None, str] | None:
+    """Evalúa la política de seguridad y devuelve respuesta de denegación o reto si procede."""
+    if origin == "external":
+        server_id = GLOBAL_MCP_MANAGER.server_of(tool_name) or ""
+        server_name = server_id or "external"
+    else:
+        server_id = ""
+        server_name = "mcp-proxy"
+    decision = ACCESS_CONTROLLER.evaluate_authorization(
+        tool_name, args, context=ctx, server_name=server_name, server_id=server_id
+    )
+    if decision.status == POLICY_DENY:
+        err_msg = f"Bloqueado por política de seguridad: {decision.reason}"
+        return {"content": [{"type": "text", "text": f"Error: {err_msg}"}], "isError": True, "securityStatus": "deny", "reason": decision.reason}, None, err_msg
+    if decision.status == POLICY_ASK:
+        ch = ACCESS_CONTROLLER.create_challenge(
+            tool_name, args, decision, server_name=server_name, server_id=server_id, origin=origin,
+            context=ctx, job_key=job_key, conversation_id=conversation_id
+        )
+        return {
+            "requiresAuthorization": True,
+            "challengeId": ch["id"],
+            "toolName": tool_name,
+            "serverName": server_name,
+            "serverId": server_id,
+            "arguments": args,
+            "ruleOffer": decision.rule_offer,
+            "details": decision.details,
+            "content": [{"type": "text", "text": "Esta herramienta requiere autorización del usuario."}],
+            "isError": False
+        }, None, ""
+    return None
+
+
+def call_tool(origin: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
+    """tools/call de los dos endpoints: evalúa, emite un reto o ejecuta por el punto único."""
+    tool_name = params.get("name", "")
+    if origin == "local" and tool_name not in LOCAL_TOOL_HANDLERS:
+        return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
+    raw_args = params.get("arguments")
+    args = dict(raw_args) if isinstance(raw_args, dict) else {}
+    meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
+    # Ni la clave del trabajo ni la conversación son argumentos del modelo: no se evalúan ni se muestran en el reto.
+    job_key = meta.get("zerochatJobKey") if origin == "local" and tool_name == COMMAND_TOOL else None
+    conversation_id = str(meta.get("zerochatConversationId") or "")
+    gate = authorize_or_challenge(origin, tool_name, args, ctx, job_key, conversation_id)
+    return gate if gate is not None else execute_tool(origin, tool_name, with_job_key(args, job_key), ctx, conversation_id)
+
+
+def _authorize(params: dict, ctx: SecurityContext) -> RpcOutcome:
+    """Resuelve un reto: lo deniega o, si se permite, ejecuta la herramienta pendiente por el punto único."""
+    challenge_id = params.get("challengeId")
+    if not challenge_id or not isinstance(challenge_id, str):
+        return rpc_error(INVALID_PARAMS, "challengeId es obligatorio")
+    decision = params.get("decision", "deny")
+    if not isinstance(decision, str):
+        return rpc_error(INVALID_PARAMS, "decision debe ser un texto")
+    if decision == "deny":
+        ACCESS_CONTROLLER.revoke_challenge(challenge_id, context=ctx)
+        return rpc_result({"authorized": False, "status": "deny"})
+    ch = ACCESS_CONTROLLER.authorize_challenge(
+        challenge_id, decision, context=ctx,
+        command_pattern=params.get("commandPattern"), directory_rule=params.get("directoryRule")
+    )
+    if not ch:
+        return rpc_error(CHALLENGE_NOT_FOUND, "Reto no encontrado o no válido")
+    t_origin = ch.get("origin") or "local"
+    t_args = ch["arguments"] if isinstance(ch.get("arguments"), dict) else {}
+    exec_res, exec_err, tool_err = execute_tool(t_origin, ch["toolName"], with_job_key(t_args, ch.get("jobKey")), ctx, ch.get("conversationId") or "")
+    if exec_err:
+        return None, exec_err, tool_err
+    return {"authorized": True, "result": exec_res}, None, tool_err
+
+
+SECURITY_METHODS = {
+    "zerochat/security/get": lambda _params, ctx: rpc_result({"policies": ACCESS_CONTROLLER.export_state(ctx)}),
+    "zerochat/security/update": lambda params, ctx: rpc_result({"policies": ACCESS_CONTROLLER.import_state(params, context=ctx)}),
+    "zerochat/security/authorize": _authorize,
+}
+
+
+def dispatch_security(method: str, params: dict, ctx: SecurityContext) -> RpcOutcome:
+    """Políticas y reglas de seguridad almacenadas en el backend local, y resolución de retos."""
+    try:
+        return dispatch_table(SECURITY_METHODS, method, params if isinstance(params, dict) else {}, ctx)
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+    except Exception as exc:
+        return rpc_error(INTERNAL_ERROR, f"Error de seguridad: {exc}", str(exc))
 
 # --- tools.sandbox_script ---
 """Proceso hijo de execute_javascript en Node. Generated from scripts/sandbox-child.js by scripts/build-sandbox-script.mjs. Do not edit."""
@@ -7867,6 +8352,152 @@ def launch_node_runner(url: str) -> subprocess.Popen | None:
         run_error(f"No se pudo iniciar el proceso de Node.js ({error}).")
         return None
 
+# --- server.rpc ---
+"""Métodos JSON-RPC de los dos endpoints del servidor: una tabla por método exacto y otra por grupo (prefijo).
+
+Cada método vive junto a su dominio (storage/rpc.py, tools/jobs_rpc.py, run_mode/state.py…); aquí solo se
+decide quién atiende cada uno.
+"""
+
+
+
+
+def initialize_result(server_info: dict) -> dict:
+    return {
+        "protocolVersion": "2024-11-05",
+        "serverInfo": server_info,
+        "capabilities": {
+            "tools": {"listChanged": True}
+        }
+    }
+
+
+def rpc_login(params: dict) -> RpcOutcome:
+    """zerochat/login: identificación con la cuenta del sistema; se atiende también sin token."""
+    try:
+        return rpc_result(login(params))
+    except LoginError as exc:
+        error = {"code": exc.code, "message": str(exc)}
+        if exc.data:
+            error["data"] = exc.data
+        return None, error, ""
+    except (RuntimeError, OSError) as exc:
+        return rpc_error(INTERNAL_ERROR, f"No se pudo comprobar la contraseña: {exc}", str(exc))
+
+
+def _initialize(_params: dict, ctx: SecurityContext) -> RpcOutcome:
+    server_info = {
+        "name": "ZeroChat Local Server",
+        "version": VERSION,
+        "cwd": str(ctx.workspace_dir),
+        "os": DETECTED_OS
+    }
+    return rpc_result({**initialize_result(server_info), "liveState": live_state(ctx)})
+
+
+def _heartbeat(params: dict, ctx: SecurityContext) -> RpcOutcome:
+    return rpc_result(live_state(ctx, params.get("focus_conversation_id")))
+
+
+def _set_project_directory(params: dict, ctx: SecurityContext) -> RpcOutcome:
+    # Lo invoca la interfaz a petición del usuario: no es una herramienta del modelo.
+    try:
+        return rpc_result(resolve_project_directory(params.get("path"), ctx))
+    except (ValueError, OSError) as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+
+
+def _open_diff(params: dict, ctx: SecurityContext) -> RpcOutcome:
+    try:
+        return rpc_result(open_file_diff(params.get("path"), ctx, bool(params.get("commit_fallback")), bool(params.get("gui"))))
+    except (ValueError, RuntimeError) as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+    except Exception as exc:
+        return rpc_error(INTERNAL_ERROR, f"Error al abrir el visor de diffs: {exc}", str(exc))
+
+
+def _configure_diff(params: dict, _ctx: SecurityContext) -> RpcOutcome:
+    try:
+        return rpc_result(configure_gui_diff_tool(params.get("tool")))
+    except (ValueError, RuntimeError) as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+    except Exception as exc:
+        return rpc_error(INTERNAL_ERROR, f"Error configurando el visor de diffs: {exc}", str(exc))
+
+
+def _web_fetch(params: dict, _ctx: SecurityContext) -> RpcOutcome:
+    try:
+        return rpc_result(fetch_web_resource(params))
+    except (ValueError, PermissionError) as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+    except Exception as exc:
+        return rpc_error(INTERNAL_ERROR, f"Error en transporte web: {exc}", str(exc))
+
+
+def _sandbox_execute(params: dict, _ctx: SecurityContext) -> RpcOutcome:
+    try:
+        return rpc_result(execute_js_sandbox(params.get("code"), timeout_ms=params.get("timeout_ms")))
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+    except Exception as exc:
+        return rpc_error(INTERNAL_ERROR, f"Error en sandbox JS: {exc}", str(exc))
+
+
+LOCAL_METHODS = {
+    "initialize": _initialize,
+    "zerochat/heartbeat": _heartbeat,
+    "zerochat/login": lambda params, _ctx: rpc_login(params),
+    "tools/list": lambda _params, _ctx: rpc_result({"tools": [dict(definition) for definition in LOCAL_TOOLS_DEFINITIONS]}),
+    "tools/call": lambda params, ctx: call_tool("local", params, ctx),
+    "zerochat/project/set_directory": _set_project_directory,
+    "zerochat/diff/open": _open_diff,
+    "zerochat/diff/configure": _configure_diff,
+    "zerochat/web/fetch": _web_fetch,
+    "zerochat/sandbox/execute": _sandbox_execute,
+}
+
+
+def _server_control(method: str, params: dict, _ctx: SecurityContext) -> RpcOutcome:
+    return dispatch_server_control(method, params) if method in SERVER_CONTROL_METHODS else rpc_not_supported(method)
+
+
+# Grupos de métodos, por prefijo: cada despachador recibe (method, params, ctx).
+LOCAL_METHOD_GROUPS = (
+    ("zerochat/jobs/", dispatch_jobs),
+    ("zerochat/files/", dispatch_files),
+    ("zerochat/run/", dispatch_run),
+    ("zerochat/external/servers/", _server_control),
+    ("zerochat/browser/", lambda method, params, _ctx: dispatch_browser(method, params)),
+    ("zerochat/profiles/", lambda method, params, _ctx: dispatch_profiles(method, params)),
+    ("zerochat/conversations/", lambda method, params, _ctx: dispatch_conversations(method, params)),
+    ("zerochat/blobs/", lambda method, params, _ctx: dispatch_blobs(method, params)),
+    ("zerochat/security/", dispatch_security),
+)
+
+
+def dispatch_local(method: str, params: dict, ctx: SecurityContext) -> RpcOutcome:
+    """Endpoint local: (resultado, error JSON-RPC, detalle de error de herramienta)."""
+    if method in LOCAL_METHODS:
+        return LOCAL_METHODS[method](params, ctx)
+    for prefix, dispatcher in LOCAL_METHOD_GROUPS:
+        if method.startswith(prefix):
+            return dispatcher(method, params, ctx)
+    return rpc_not_supported(method)
+
+
+EXTERNAL_METHODS = {
+    "initialize": lambda _params, _ctx: rpc_result(initialize_result({"name": "ZeroChat External MCP Host", "version": VERSION})),
+    "tools/list": lambda _params, _ctx: rpc_result({"tools": GLOBAL_MCP_MANAGER.tools()}),
+    "tools/call": lambda params, ctx: call_tool("external", params, ctx),
+}
+
+
+def dispatch_external(method: str, params: dict, ctx: SecurityContext) -> RpcOutcome:
+    """Endpoint /mcp/external: las herramientas de los servicios MCP externos."""
+    if method in EXTERNAL_METHODS:
+        return dispatch_table(EXTERNAL_METHODS, method, params, ctx)
+    return rpc_error(METHOD_NOT_FOUND, f"Método '{method}' no soportado en /mcp/external.")
+
 # --- server.handler ---
 """Servidor HTTP JSON-RPC del backend local: orígenes admitidos, token e identificación, despacho por grupos de métodos y punto único de ejecución de herramientas."""
 
@@ -8170,383 +8801,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 return tool_args_error, tool_args_error
         return None
 
-    @staticmethod
-    def _initialize_result(server_info: dict) -> dict:
-        return {
-            "protocolVersion": "2024-11-05",
-            "serverInfo": server_info,
-            "capabilities": {
-                "tools": {"listChanged": True}
-            }
-        }
-
-    @staticmethod
-    def _tool_exception_result(ex: Exception) -> dict:
-        return {"content": [{"type": "text", "text": _tool_error(str(ex))}], "isError": True}
-
-    @classmethod
-    def _execute_tool(cls, origin: str, tool_name: str, args: dict, ctx: SecurityContext,
-                      conversation_id: str = "") -> tuple[dict | None, dict | None, str]:
-        """
-        Punto único de ejecución de herramientas locales y externas. Un navegador se reserva aquí, al
-        ejecutar, para la conversación que lo usa: pedirlo sin llegar a ejecutar no lo ocupa.
-        """
-        if origin == "local":
-            browser = tool_name if tool_name == "browser_action" else None
-        else:
-            browser = PLAYWRIGHT_SERVER_ID if GLOBAL_MCP_MANAGER.server_of(tool_name) == PLAYWRIGHT_SERVER_ID else None
-        if browser and not BROWSER_LEASES.acquire(browser, conversation_id):
-            message = (f"The browser is in use by another conversation. It is released after {int(BROWSER_LEASE_IDLE_SECONDS)} "
-                       "seconds without use; tell the user or try again later.")
-            return {"content": [{"type": "text", "text": _tool_error(message)}], "isError": True}, None, message
-        # En una ejecución desatendida, esperar en check_command no es inactividad ni gasta el plazo total.
-        session = current_run_session() if origin == "local" and tool_name == JOB_CONTROL_TOOL else None
-        if session is not None:
-            session.begin_wait()
-        try:
-            return cls._run_tool(origin, tool_name, args, ctx)
-        finally:
-            if session is not None:
-                session.end_wait()
-            # El plazo cuenta desde que la acción termina: lo que tarde no acorta lo que el modelo puede razonar después.
-            if browser:
-                BROWSER_LEASES.acquire(browser, conversation_id)
-
-    @classmethod
-    def _run_tool(cls, origin: str, tool_name: str, args: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
-        """Ejecuta la herramienta y normaliza su resultado: (result, error JSON-RPC, detalle de error)."""
-        if origin == "external":
-            try:
-                result = GLOBAL_MCP_MANAGER.call(tool_name, args)
-            except Exception as ex:
-                return cls._tool_exception_result(ex), None, str(ex)
-            tool_error_info = ""
-            if isinstance(result, dict) and result.get("isError"):
-                c_list = result.get("content", [])
-                if c_list and isinstance(c_list, list) and isinstance(c_list[0], dict):
-                    tool_error_info = c_list[0].get("text", "Error en herramienta MCP externa")
-                else:
-                    tool_error_info = "Error en herramienta MCP externa"
-            return result, None, tool_error_info
-
-        handler = LOCAL_TOOL_HANDLERS.get(tool_name)
-        if not handler:
-            return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
-        try:
-            # Solo las herramientas que actúan en el proyecto declaran ctx.
-            takes_project = "ctx" in inspect.signature(handler).parameters
-            tool_output_json = handler(**dict(args), **({"ctx": ctx} if takes_project else {}))
-        except Exception as ex:
-            return cls._tool_exception_result(ex), None, str(ex)
-        tool_error_info = ""
-        try:
-            parsed_out = json.loads(tool_output_json)
-            if isinstance(parsed_out, dict) and parsed_out.get("success") is False:
-                tool_error_info = str(parsed_out.get("error", "Error en herramienta local"))
-        except (json.JSONDecodeError, TypeError, ValueError):
-            pass
-        return {"content": [{"type": "text", "text": tool_output_json}], "isError": bool(tool_error_info)}, None, tool_error_info
-
-    @staticmethod
-    def _with_job_key(args: dict, job_key: str | None) -> dict:
-        return {**args, "job_key": job_key} if job_key else args
-
-    @staticmethod
-    def _authorize_or_challenge(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
-                                job_key: str | None = None, conversation_id: str = "") -> tuple[dict | None, dict | None, str] | None:
-        """Evalúa la política de seguridad y devuelve respuesta de denegación o reto si procede."""
-        if origin == "external":
-            server_id = GLOBAL_MCP_MANAGER.server_of(tool_name) or ""
-            server_name = server_id or "external"
-        else:
-            server_id = ""
-            server_name = "mcp-proxy"
-        decision = ACCESS_CONTROLLER.evaluate_authorization(
-            tool_name, args, context=ctx, server_name=server_name, server_id=server_id
-        )
-        if decision.status == POLICY_DENY:
-            err_msg = f"Bloqueado por política de seguridad: {decision.reason}"
-            return {"content": [{"type": "text", "text": f"Error: {err_msg}"}], "isError": True, "securityStatus": "deny", "reason": decision.reason}, None, err_msg
-        if decision.status == POLICY_ASK:
-            ch = ACCESS_CONTROLLER.create_challenge(
-                tool_name, args, decision, server_name=server_name, server_id=server_id, origin=origin,
-                context=ctx, job_key=job_key, conversation_id=conversation_id
-            )
-            return {
-                "requiresAuthorization": True,
-                "challengeId": ch["id"],
-                "toolName": tool_name,
-                "serverName": server_name,
-                "serverId": server_id,
-                "arguments": args,
-                "ruleOffer": decision.rule_offer,
-                "details": decision.details,
-                "content": [{"type": "text", "text": "Esta herramienta requiere autorización del usuario."}],
-                "isError": False
-            }, None, ""
-        return None
-
-    @classmethod
-    def _call_tool(cls, origin: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
-        """tools/call de los dos endpoints: evalúa, emite un reto o ejecuta por el punto único."""
-        tool_name = params.get("name", "")
-        if origin == "local" and tool_name not in LOCAL_TOOL_HANDLERS:
-            return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
-        raw_args = params.get("arguments")
-        args = dict(raw_args) if isinstance(raw_args, dict) else {}
-        meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
-        # Ni la clave del trabajo ni la conversación son argumentos del modelo: no se evalúan ni se muestran en el reto.
-        job_key = meta.get("zerochatJobKey") if origin == "local" and tool_name == COMMAND_TOOL else None
-        conversation_id = str(meta.get("zerochatConversationId") or "")
-        gate = cls._authorize_or_challenge(origin, tool_name, args, ctx, job_key, conversation_id)
-        return gate if gate is not None else cls._execute_tool(origin, tool_name, cls._with_job_key(args, job_key), ctx, conversation_id)
-
-    def _dispatch_external(self, method: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
-        """Atiende /mcp/external. Devuelve (result, error JSON-RPC, detalle de error de herramienta)."""
-        if method == "initialize":
-            return self._initialize_result({"name": "ZeroChat External MCP Host", "version": VERSION}), None, ""
-        if method == "tools/list":
-            return {"tools": GLOBAL_MCP_MANAGER.tools()}, None, ""
-        if method == "tools/call":
-            return self._call_tool("external", params, ctx)
-        return None, {"code": -32601, "message": f"Método '{method}' no soportado en /mcp/external."}, ""
-
-    def _dispatch_local(self, method: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
-        """Atiende el endpoint local. Devuelve (result, error JSON-RPC, detalle de error de herramienta)."""
-        if method == "initialize":
-            server_info = {
-                "name": "ZeroChat Local Server",
-                "version": VERSION,
-                "cwd": str(ctx.workspace_dir),
-                "os": DETECTED_OS
-            }
-            return {**self._initialize_result(server_info), "liveState": live_state(ctx)}, None, ""
-        if method == "zerochat/heartbeat":
-            focus_id = params.get("focus_conversation_id") if isinstance(params, dict) else None
-            return live_state(ctx, focus_id), None, ""
-        if method == "zerochat/login":
-            return self._login(params)
-        if method == "tools/list":
-            return {"tools": [dict(definition) for definition in LOCAL_TOOLS_DEFINITIONS]}, None, ""
-        if method == "tools/call":
-            return self._call_tool("local", params, ctx)
-        if method == "zerochat/project/set_directory":
-            # Lo invoca la interfaz a petición del usuario: no es una herramienta del modelo.
-            try:
-                return resolve_project_directory(params.get("path"), ctx), None, ""
-            except (ValueError, OSError) as exc:
-                return None, {"code": -32602, "message": str(exc)}, ""
-        if method == "zerochat/diff/open":
-            try:
-                return open_file_diff(params.get("path"), ctx, bool(params.get("commit_fallback")), bool(params.get("gui"))), None, ""
-            except (ValueError, RuntimeError) as exc:
-                return None, {"code": -32602, "message": str(exc)}, ""
-            except Exception as exc:
-                return None, {"code": -32603, "message": f"Error al abrir el visor de diffs: {exc}"}, str(exc)
-        if method == "zerochat/diff/configure":
-            try:
-                return configure_gui_diff_tool(params.get("tool")), None, ""
-            except (ValueError, RuntimeError) as exc:
-                return None, {"code": -32602, "message": str(exc)}, ""
-            except Exception as exc:
-                return None, {"code": -32603, "message": f"Error configurando el visor de diffs: {exc}"}, str(exc)
-        if method == "zerochat/web/fetch":
-            try:
-                return fetch_web_resource(params), None, ""
-            except (ValueError, PermissionError) as exc:
-                return None, {"code": -32602, "message": str(exc)}, ""
-            except Exception as exc:
-                return None, {"code": -32603, "message": f"Error en transporte web: {exc}"}, str(exc)
-        if method == "zerochat/sandbox/execute":
-            try:
-                code = params.get("code") if isinstance(params, dict) else ""
-                timeout_ms = params.get("timeout_ms") if isinstance(params, dict) else None
-                return execute_js_sandbox(code, timeout_ms=timeout_ms), None, ""
-            except ValueError as exc:
-                return None, {"code": -32602, "message": str(exc)}, ""
-            except Exception as exc:
-                return None, {"code": -32603, "message": f"Error en sandbox JS: {exc}"}, str(exc)
-        if method.startswith("zerochat/jobs/"):
-            return self._dispatch_jobs(method, params, ctx)
-        if method.startswith("zerochat/files/"):
-            return dispatch_files(method, params, ctx)
-        if method.startswith("zerochat/run/"):
-            return dispatch_run(method, params, ctx)
-        if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):
-            return self._dispatch_server_control(method, params)
-        if method.startswith("zerochat/browser/"):
-            return self._dispatch_browser(method, params)
-        if method.startswith("zerochat/profiles/"):
-            return self._dispatch_profiles(method, params)
-        if method.startswith("zerochat/conversations/"):
-            return self._dispatch_conversations(method, params)
-        if method.startswith("zerochat/blobs/"):
-            return self._dispatch_blobs(method, params)
-        if method.startswith("zerochat/security/"):
-            return self._dispatch_security(method, params, ctx)
-        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
-
-    @classmethod
-    def _dispatch_security(cls, method: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
-        """Gestión de políticas y reglas de seguridad almacenadas en el backend local."""
-        params = params if isinstance(params, dict) else {}
-        try:
-            if method == "zerochat/security/get":
-                return {"policies": ACCESS_CONTROLLER.export_state(ctx)}, None, ""
-            if method == "zerochat/security/update":
-                updated = ACCESS_CONTROLLER.import_state(params, context=ctx)
-                return {"policies": updated}, None, ""
-            if method == "zerochat/security/authorize":
-                challenge_id = params.get("challengeId")
-                if not challenge_id or not isinstance(challenge_id, str):
-                    return None, {"code": -32602, "message": "challengeId es obligatorio"}, ""
-                decision = params.get("decision", "deny")
-                if not isinstance(decision, str):
-                    return None, {"code": -32602, "message": "decision debe ser un texto"}, ""
-                if decision == "deny":
-                    ACCESS_CONTROLLER.revoke_challenge(challenge_id, context=ctx)
-                    return {"authorized": False, "status": "deny"}, None, ""
-
-                ch = ACCESS_CONTROLLER.authorize_challenge(
-                    challenge_id, decision, context=ctx,
-                    command_pattern=params.get("commandPattern"), directory_rule=params.get("directoryRule")
-                )
-                if not ch:
-                    return None, {"code": -32002, "message": "Reto no encontrado o no válido"}, ""
-                t_origin = ch.get("origin") or "local"
-                t_name = ch["toolName"]
-                t_args = ch["arguments"] if isinstance(ch.get("arguments"), dict) else {}
-                exec_res, exec_err, tool_err = cls._execute_tool(t_origin, t_name, cls._with_job_key(t_args, ch.get("jobKey")), ctx, ch.get("conversationId") or "")
-                if exec_err:
-                    return None, exec_err, tool_err
-                return {"authorized": True, "result": exec_res}, None, tool_err
-        except ValueError as exc:
-            return None, {"code": -32602, "message": str(exc)}, ""
-        except Exception as exc:
-            return None, {"code": -32603, "message": f"Error de seguridad: {exc}"}, str(exc)
-        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
-
-    @staticmethod
-    def _dispatch_profiles(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
-        """Gestión de perfiles generales almacenados en SQLite en el backend local."""
-        params = params if isinstance(params, dict) else {}
-        try:
-            if method == "zerochat/profiles/list":
-                return {"profiles": list_general_profiles()}, None, ""
-            if method == "zerochat/profiles/save":
-                profile_data = params.get("profile")
-                if not isinstance(profile_data, dict):
-                    return None, {"code": -32602, "message": "profile debe ser un objeto."}, ""
-                return {"profile": save_general_profile(profile_data)}, None, ""
-            if method == "zerochat/profiles/delete":
-                profile_id = params.get("id")
-                if not isinstance(profile_id, str) or not profile_id.strip():
-                    return None, {"code": -32602, "message": "id debe ser un texto no vacío."}, ""
-                return {"deleted": delete_general_profile(profile_id)}, None, ""
-        except ValueError as exc:
-            return None, {"code": -32602, "message": str(exc)}, ""
-        except Exception as exc:
-            return None, {"code": -32603, "message": f"Error en gestión de perfiles: {exc}"}, str(exc)
-        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
-
-    @staticmethod
-    def _dispatch_conversations(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
-        """Gestión de conversaciones y mensajes almacenados en SQLite en el backend local."""
-        try:
-            if method == "zerochat/conversations/list":
-                return {"conversations": list_conversations()}, None, ""
-            if method == "zerochat/conversations/get":
-                return {"conversation": get_conversation(params.get("id"))}, None, ""
-            if method == "zerochat/conversations/save":
-                return {"conversation": save_conversation(params.get("conversation"), params.get("messages"))}, None, ""
-            if method == "zerochat/conversations/rename":
-                return {"renamed": rename_conversation(params.get("id"), params.get("title"))}, None, ""
-            if method == "zerochat/conversations/delete":
-                if params.get("all") is True:
-                    for run_file in get_runs_dir().glob("*.json"):
-                        try:
-                            cancel_server_run(urllib.parse.unquote(run_file.stem))
-                        except (ValueError, OSError):
-                            pass
-                    return {"deleted": True, "count": delete_all_conversations()}, None, ""
-                if "project" in params:
-                    deleted_ids = delete_project_conversations(params.get("project"))
-                    for deleted_id in deleted_ids:
-                        try:
-                            cancel_server_run(deleted_id)
-                        except (ValueError, OSError):
-                            pass
-                    return {"deleted": True, "count": len(deleted_ids)}, None, ""
-                conv_id = params.get("id")
-                if isinstance(conv_id, str) and conv_id.strip():
-                    try:
-                        cancel_server_run(conv_id)
-                    except (ValueError, OSError):
-                        pass
-                return {"deleted": delete_conversation(params.get("id"))}, None, ""
-        except ValueError as exc:
-            return None, {"code": -32602, "message": str(exc)}, ""
-        except Exception as exc:
-            return None, {"code": -32603, "message": f"Error en gestión de conversaciones: {exc}"}, str(exc)
-        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
-
-    @staticmethod
-    def _dispatch_blobs(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
-        """Gestión de blobs desacoplados de mensajes (imágenes y adjuntos) en SQLite."""
-        params = params if isinstance(params, dict) else {}
-        try:
-            if method == "zerochat/blobs/has":
-                ids = params.get("ids")
-                if ids is None:
-                    ids = []
-                return has_blobs(ids), None, ""
-            if method == "zerochat/blobs/put":
-                raw_data = params.get("data")
-                if not raw_data or not isinstance(raw_data, str):
-                    raise ValueError("El parámetro 'data' debe ser una cadena en base64 no vacía")
-                mime_type = params.get("mimeType") or "application/octet-stream"
-                if raw_data.startswith("data:") and ";base64," in raw_data:
-                    header, b64_part = raw_data.split(";base64,", 1)
-                    if not params.get("mimeType"):
-                        mime_type = header[5:]
-                    raw_data = b64_part
-                try:
-                    data_bytes = base64.b64decode(raw_data)
-                except Exception as decode_err:
-                    raise ValueError(f"Error decodificando base64: {decode_err}")
-                saved = put_blob(data_bytes, mime_type=mime_type, blob_id=params.get("id"))
-                return {"id": saved["id"], "mimeType": saved["mime_type"], "size": saved["size"]}, None, ""
-            if method == "zerochat/blobs/get":
-                blob = get_blob(params.get("id"))
-                if not blob:
-                    return {"blob": None}, None, ""
-                return {
-                    "blob": {
-                        "id": blob["id"],
-                        "mimeType": blob["mime_type"],
-                        "size": blob["size"],
-                        "data": base64.b64encode(blob["data"]).decode("ascii"),
-                        "createdAt": blob["created_at"],
-                    }
-                }, None, ""
-        except ValueError as exc:
-            return None, {"code": -32602, "message": str(exc)}, ""
-        except Exception as exc:
-            return None, {"code": -32603, "message": f"Error en gestión de blobs: {exc}"}, str(exc)
-        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
-
-    @staticmethod
-    def _login(params: dict) -> tuple[dict | None, dict | None, str]:
-        try:
-            return login(params), None, ""
-        except LoginError as exc:
-            error = {"code": exc.code, "message": str(exc)}
-            if exc.data:
-                error["data"] = exc.data
-            return None, error, ""
-        except (RuntimeError, OSError) as exc:
-            return None, {"code": -32603, "message": f"No se pudo comprobar la contraseña: {exc}"}, str(exc)
-
     def _serve_login(self, safe_path: str, t0: float) -> bool:
         """Sin token solo se atiende zerochat/login, con un cuerpo pequeño; devuelve False si la petición es otra."""
         try:
@@ -8563,7 +8817,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return False
         log_detail = f"{safe_path} [rpc: zerochat/login]"
         self._log_req("POST", log_detail)
-        self._send_rpc_response(req.get("id"), self._login(req.get("params", {})), log_detail, t0)
+        self._send_rpc_response(req.get("id"), rpc_login(req.get("params", {})), log_detail, t0)
         return True
 
     def _send_rpc_response(self, req_id, outcome: tuple[dict | None, dict | None, str], log_detail: str, t0: float, quiet: bool = False):
@@ -8577,89 +8831,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             error_info = tool_error_info
         if self._send_json_response(200, response_payload) and not quiet:
             self._log_res(200, log_detail, (time.monotonic() - t0) * 1000, error_info=error_info)
-
-    @staticmethod
-    def _dispatch_jobs(method: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
-        """Control de los comandos del proyecto de la petición desde la interfaz: tarjetas, log y botón de detener."""
-        project = ctx.key
-        if method == "zerochat/jobs/list":
-            return {"jobs": [job.summary() for job in JOBS.list(project)]}, None, ""
-        if method == "zerochat/jobs/report":
-            ids = params.get("ids")
-            if not isinstance(ids, list) or len(ids) > 100 or any(isinstance(i, bool) or not isinstance(i, int) for i in ids):
-                return None, {"code": -32602, "message": "ids debe ser una lista de hasta 100 enteros."}, ""
-            return {"reports": JOBS.report_finished(ids, project)}, None, ""
-        if method == "zerochat/jobs/end_wait":
-            return {"ended": JOBS.cancel_wait(params.get("key"))}, None, ""
-        job = JOBS.get(project, job_id=params.get("id"), key=params.get("key"))
-        if method in ("zerochat/jobs/get", "zerochat/jobs/log", "zerochat/jobs/stop") and job is None:
-            return None, {"code": -32602, "message": "Comando no encontrado: puede pertenecer a una sesión anterior de ZeroChat."}, ""
-        if method == "zerochat/jobs/get":
-            return job_details(job), None, ""
-        if method == "zerochat/jobs/log":
-            offset = params.get("offset", 0)
-            limit = params.get("limit", JOB_LOG_PAGE_BYTES)
-            if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
-                return None, {"code": -32602, "message": "offset debe ser un entero no negativo."}, ""
-            if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
-                return None, {"code": -32602, "message": "limit debe ser un entero positivo."}, ""
-            text, next_offset = job.read_range(offset, min(limit, JOB_LOG_PAGE_BYTES))
-            return {"text": text, "next": next_offset, "total": job.total, "done": job.done.is_set()}, None, ""
-        if method == "zerochat/jobs/stop":
-            JOBS.stop(job, "user")
-            return job_details(job), None, ""
-        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
-
-    @staticmethod
-    def _dispatch_browser(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
-        """Configuración, datos y motores propios de Playwright para la sección Navegador de Ajustes."""
-        try:
-            if method == "zerochat/browser/config/get":
-                return load_browser_config(), None, ""
-            if method == "zerochat/browser/config/set":
-                return save_browser_config(params.get("config")), None, ""
-            if method == "zerochat/browser/data/clear":
-                return clear_own_browser_data(params.get("engine")), None, ""
-            if method == "zerochat/browser/engines/list":
-                return BROWSER_ENGINES.list(), None, ""
-            if method == "zerochat/browser/engines/install":
-                return BROWSER_ENGINES.install(params.get("engine")), None, ""
-            if method == "zerochat/browser/engines/remove":
-                return BROWSER_ENGINES.remove(params.get("engine")), None, ""
-        except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
-            return None, {"code": -32602, "message": str(exc)}, ""
-        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
-
-    @staticmethod
-    def _dispatch_server_control(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
-        server_id = params.get("serverId")
-        opts = params.get("options", {})
-        remember = params.get("remember")
-        browser = params.get("browser")
-        if not isinstance(server_id, str) or not server_id:
-            return None, {"code": -32602, "message": "serverId debe ser un texto no vacío."}, ""
-        if not isinstance(opts, dict):
-            return None, {"code": -32602, "message": "options debe ser un objeto."}, ""
-        # Al arrancar, el cliente decide siempre si el servicio se recuerda para la siguiente sesión.
-        if method.endswith("/start") and not isinstance(remember, bool):
-            return None, {"code": -32602, "message": "remember es obligatorio al arrancar y debe ser un booleano."}, ""
-        if method.endswith("/start") and browser is not None:
-            if server_id not in SERVICE_LAUNCH:
-                return None, {"code": -32602, "message": f"{server_id} no admite elegir navegador."}, ""
-            try:
-                browser = validate_profile_browser(browser)
-            except ValueError as exc:
-                return None, {"code": -32602, "message": str(exc)}, ""
-        try:
-            if method.endswith("/start"):
-                servers = GLOBAL_MCP_MANAGER.start(server_id, remember, browser)
-            elif method.endswith("/stop"):
-                servers = GLOBAL_MCP_MANAGER.stop(server_id)
-            else:
-                servers = GLOBAL_MCP_MANAGER.configure(server_id, opts)
-        except KeyError as exc:
-            return None, {"code": -32602, "message": str(exc.args[0]) if exc.args else str(exc)}, ""
-        return {"servers": servers}, None, ""
 
     def do_POST(self):
         t0 = time.monotonic()
@@ -8730,9 +8901,9 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return
         try:
             if "/mcp/external" in req_path:
-                outcome = self._dispatch_external(method, params, ctx)
+                outcome = dispatch_external(method, params, ctx)
             else:
-                outcome = self._dispatch_local(method, params, ctx)
+                outcome = dispatch_local(method, params, ctx)
         except Exception as ex:
             outcome = None, {"code": -32603, "message": f"Error interno: {ex}"}, ""
         self._send_rpc_response(req_id, outcome, log_detail, t0, quiet)

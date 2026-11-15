@@ -297,7 +297,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         session = zerochat.RunSession(prompt="hola")
         zerochat.RUN_SESSION = session
         self.addCleanup(setattr, zerochat, "RUN_SESSION", None)
-        result, error, _ = zerochat.ZeroChatServerHandler._execute_tool(
+        result, error, _ = zerochat.execute_tool(
             "local", "check_command", {"wait_seconds": 1}, zerochat.project_context())
         self.assertIsNone(error)
         self.assertIn("wait_elapsed", result["content"][0]["text"])
@@ -667,7 +667,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(state_focused["focus_run"]["assistant_text"], "Live test")
 
         handler = mock.Mock(spec=zerochat.ZeroChatServerHandler)
-        outcome = zerochat.ZeroChatServerHandler._dispatch_local(handler, "zerochat/heartbeat", {
+        outcome = zerochat.dispatch_local("zerochat/heartbeat", {
             "focus_conversation_id": "conv_hb"
         }, zerochat.project_context())
         result, error, _ = outcome
@@ -764,18 +764,18 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         zerochat.save_conversation({"id": "conv_del_2", "title": "Del 2", "project": "/repo/b"}, [])
         zerochat.save_conversation({"id": "conv_del_3", "title": "Del 3", "project": "/repo/c"}, [])
 
-        zerochat.ZeroChatServerHandler._dispatch_conversations("zerochat/conversations/delete", {"id": "conv_del_1"})
+        zerochat.dispatch_conversations("zerochat/conversations/delete", {"id": "conv_del_1"})
         self.assertFalse(state_path1.exists())
         self.assertTrue(state_path2.exists())
 
         # Por proyecto: solo sus conversaciones y sus ejecuciones.
-        result, error, _ = zerochat.ZeroChatServerHandler._dispatch_conversations("zerochat/conversations/delete", {"project": "/repo/c"})
+        result, error, _ = zerochat.dispatch_conversations("zerochat/conversations/delete", {"project": "/repo/c"})
         self.assertIsNone(error)
         self.assertEqual(result["count"], 1)
         self.assertTrue(state_path2.exists())
         self.assertEqual([c["id"] for c in zerochat.list_conversations()], ["conv_del_2"])
-        _, error, _ = zerochat.ZeroChatServerHandler._dispatch_conversations("zerochat/conversations/delete", {"project": "  "})
+        _, error, _ = zerochat.dispatch_conversations("zerochat/conversations/delete", {"project": "  "})
         self.assertEqual(error["code"], -32602)
 
-        zerochat.ZeroChatServerHandler._dispatch_conversations("zerochat/conversations/delete", {"all": True})
+        zerochat.dispatch_conversations("zerochat/conversations/delete", {"all": True})
         self.assertFalse(state_path2.exists())
