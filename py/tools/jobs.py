@@ -19,6 +19,7 @@ from core.environment import DETECTED_OS
 from core.process import _kill_process_tree, _pid_alive, _process_start_token
 from security.context import SecurityContext
 from tools.common import _atomic_write_text, _tool_error
+from tools.job_waits import WAITS, _pattern_terms, _wait_job
 
 COMMAND_DEFAULT_TIMEOUT = 30
 COMMAND_MAX_TIMEOUT = 600
@@ -43,8 +44,6 @@ CHECK_PATTERN_MAX_CHARS = 200
 MATCHED_LINE_MAX_CHARS = 500
 # Última línea de salida de cada comando en marcha en el latido, para su tarjeta plegada.
 LAST_LINE_MAX_CHARS = 200
-# Cada cuánto comprueba una espera de check_command si la persona la ha cortado.
-WAIT_SLICE_SECONDS = 0.25
 REPORT_TAIL_BYTES = 4096
 
 
@@ -417,10 +416,6 @@ class JobManager:
         self._lock = threading.Lock()
         self._dir: Path | None = None
         self._windows_job: _WindowsKillOnCloseJob | None = None
-        # Avisa a check_command sin job_id de que ha terminado algún comando.
-        self._finished = threading.Condition()
-        # Esperas de check_command en curso, por la clave de su invocación: la persona puede cortarlas.
-        self._waits: dict[str, threading.Event] = {}
         atexit.register(self.shutdown)
 
     def _session_dir(self) -> Path:
@@ -558,38 +553,6 @@ class JobManager:
         self._write_registry()
         job.done.set()
         job.notify_finished()
-        with self._finished:
-            self._finished.notify_all()
-
-    def wait_any_finished(self, jobs: list[CommandJob], timeout: float, cancel: threading.Event) -> list[CommandJob]:
-        """Espera como mucho timeout segundos a que termine alguno de jobs o se corte la espera; devuelve los terminados."""
-        with self._finished:
-            self._finished.wait_for(lambda: cancel.is_set() or any(job.done.is_set() for job in jobs), timeout)
-        return [job for job in jobs if job.done.is_set()]
-
-    def open_wait(self, key: str | None) -> threading.Event:
-        """Registra una espera que se puede cortar con cancel_wait(key); sin clave no se puede cortar."""
-        event = threading.Event()
-        if key:
-            with self._lock:
-                self._waits[key] = event
-        return event
-
-    def close_wait(self, key: str | None):
-        if key:
-            with self._lock:
-                self._waits.pop(key, None)
-
-    def cancel_wait(self, key) -> bool:
-        """Corta la espera de check_command con esa clave; devuelve si había una en curso."""
-        with self._lock:
-            event = self._waits.get(key) if isinstance(key, str) else None
-        if event is None:
-            return False
-        event.set()
-        with self._finished:
-            self._finished.notify_all()
-        return True
 
     def get(self, project: str, job_id=None, key=None) -> CommandJob | None:
         jobs = self.list(project)
@@ -723,87 +686,13 @@ def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, ba
     return _job_result(job)
 
 
-def _pattern_terms(pattern: str) -> tuple[str, ...]:
-    """Textos de un pattern de check_command ('error|listening on'), en minúsculas y sin los vacíos."""
-    return tuple(term.strip().lower() for term in pattern.split("|") if term.strip())
-
-
-def _line_matches(line: str, terms: tuple[str, ...]) -> bool:
-    """Si la línea contiene alguno de los textos, sin distinguir mayúsculas. Es texto, no una expresión
-    regular: el tiempo es lineal y ninguna entrada puede bloquear el servidor (re no suelta el GIL)."""
-    lowered = line.lower()
-    return any(term in lowered for term in terms)
-
-
-def _wait_job(job: CommandJob, wait: float, terms: tuple[str, ...] | None, cancel: threading.Event) -> tuple[str, str | None]:
-    """Espera a que termine el comando, a que una línea nueva de su salida contenga alguno de terms o a que pase wait.
-
-    Recorre la salida que el modelo aún no ha visto, línea a línea; la última línea, si no está completa,
-    solo se compara cuando el comando termina. Devuelve el motivo y la línea que coincidió.
-    """
-    deadline = time.monotonic() + wait
-    pos = job.model_cursor
-    partial = ""
-    while True:
-        finished = job.done.is_set()
-        total = job.total
-        if terms is not None and total > pos:
-            text, pos = job.read_range(pos, total - pos)
-            lines = (partial + text).split("\n")
-            partial = lines.pop()
-            for line in lines:
-                if _line_matches(line, terms):
-                    return "pattern_matched", line
-        if finished and (terms is None or pos >= job.total):
-            if terms is not None and partial and _line_matches(partial, terms):
-                return "pattern_matched", partial
-            return "command_finished", None
-        if cancel.is_set():
-            return "wait_ended_by_user", None
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return "wait_elapsed", None
-        if terms is None:
-            job.done.wait(min(remaining, WAIT_SLICE_SECONDS))
-        else:
-            job.wait_change(pos, min(remaining, WAIT_SLICE_SECONDS))
-
-
-def _plain_wait(wait_seconds, cancel: threading.Event, ctx: SecurityContext) -> str:
-    """check_command sin job_id: espera sin lanzar ningún proceso; vuelve antes si termina un comando del proyecto."""
-    wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
-    if not wait:
-        return _tool_error(f"Without job_id, check_command waits: give wait_seconds (1 to {COMMAND_MAX_WAIT}).", os=DETECTED_OS)
-    running = JOBS.running(ctx.key)
-    started = time.monotonic()
-    finished = JOBS.wait_any_finished(running, wait, cancel)
-    reason = "command_finished" if finished else ("wait_ended_by_user" if cancel.is_set() else "wait_elapsed")
-    result = {
-        "success": True,
-        "waited_s": round(time.monotonic() - started, 1),
-        "returned_because": reason,
-    }
-    if finished:
-        result["finished_jobs"] = [
-            {"job_id": job.id, "command": job.command.split("\n")[0][:200], "status": job.status, "exit_code": job.exit_code}
-            for job in finished
-        ]
-        result["note"] = "Read their output with check_command(job_id=...)."
-    return json.dumps(result, ensure_ascii=False, indent=2)
-
-
 def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool = False, pattern: str | None = None,
                   job_key: str | None = None, *, ctx: SecurityContext) -> str:
     """Estado y salida nueva de un comando lanzado por run_command; puede esperarlo, con un patrón, o detenerlo.
-    Sin job_id, solo espera. La persona puede cortar la espera con zerochat/jobs/end_wait y la clave de la invocación."""
+    wait_seconds es un máximo: la espera vuelve en cuanto el comando termina. La persona puede cortarla con
+    zerochat/jobs/end_wait y la clave de la invocación."""
     if job_id is None:
-        if stop or pattern:
-            return _tool_error("stop and pattern need the job_id of a command.", os=DETECTED_OS)
-        cancel = JOBS.open_wait(job_key)
-        try:
-            return _plain_wait(wait_seconds, cancel, ctx)
-        finally:
-            JOBS.close_wait(job_key)
+        return _tool_error("job_id is required: give the job_id returned by run_command.", os=DETECTED_OS)
     job = JOBS.get(ctx.key, job_id=job_id)
     if job is None:
         return _tool_error(f"Unknown job_id {job_id}. It may belong to a previous ZeroChat session or to another project.", os=DETECTED_OS)
@@ -818,12 +707,12 @@ def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool =
     wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
     if not wait and terms is None:
         return _job_result(job, output_field="new_output")
-    cancel = JOBS.open_wait(job_key)
+    cancel = WAITS.open(job_key)
     started = time.monotonic()
     try:
         reason, line = _wait_job(job, wait, terms, cancel)
     finally:
-        JOBS.close_wait(job_key)
+        WAITS.close(job_key)
     extra = {"returned_because": reason, "waited_s": round(time.monotonic() - started, 1)}
     if reason == "wait_elapsed" and job.total == job.model_cursor and not job.done.is_set():
         extra["note"] = (

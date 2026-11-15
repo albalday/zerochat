@@ -619,9 +619,10 @@
   }
 
   function waitTitle(request) {
-    if (request.jobId === null) return t('wait_title_plain', { time: formatDuration(request.seconds) });
-    if (request.stop) return t('wait_title_stop', { id: request.jobId });
-    return t(request.waits ? 'wait_title_job' : 'wait_title_check', { id: request.jobId });
+    // Sin job_id el servidor rechaza la llamada: el título no inventa un número.
+    const id = request.jobId ?? '?';
+    if (request.stop) return t('wait_title_stop', { id });
+    return t(request.waits ? 'wait_title_job' : 'wait_title_check', { id });
   }
 
   /** Insignia de la espera: en curso, por qué volvió o que falló. */

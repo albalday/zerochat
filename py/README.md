@@ -17,7 +17,7 @@ Este documento contiene las especificaciones de arquitectura, entorno local y em
   | `browser/` | Configuración del navegador de Playwright MCP (`config.py`), sus motores y los navegadores del sistema (`engines.py`) y la apertura de la interfaz (`launch.py`). Si Playwright MCP está en marcha lo dice la función que el gestor de MCP registra con `on_playwright_status`. |
   | `mcp/` | Archivos de los servicios gestionados (`managed_services.py`, generado por `scripts/build-managed-services.mjs` desde `services/`), cliente stdio (`stdio_client.py`) y gestor (`manager.py`), que se crea al importar sin tocar el disco y copia los servicios la primera vez que los carga. |
   | `web/` | Transporte web saliente de `zerochat/web/fetch` (`fetch.py`). |
-  | `tools/` | Herramientas locales: utilidades comunes (`common.py`), archivos (`filesystem.py`), `browser_action.py`, comandos (`jobs.py`), visor de diferencias (`diff.py`) y registro con definiciones, manejadores y validación de argumentos (`registry.py`). |
+  | `tools/` | Herramientas locales: utilidades comunes (`common.py`), archivos (`filesystem.py`), `browser_action.py`, comandos (`jobs.py`, y sus esperas en `job_waits.py`), visor de diferencias (`diff.py`) y registro con definiciones, manejadores y validación de argumentos (`registry.py`). |
   | `run_mode/` | Ejecución desatendida: estado, ficheros y arranque en segundo plano (`state.py`) y supervisión del runner (`supervisor.py`). |
   | `server/` | Estado del servidor en marcha (`state.py`: latido, apagado, préstamo del navegador y estado vivo) y servidor HTTP JSON-RPC (`handler.py`: orígenes, token, identificación y despacho por grupos de métodos). |
   | `cli/` | Punto de entrada (`main.py`) y consola interactiva (`console.py`). |

@@ -130,25 +130,25 @@ LOCAL_TOOLS_DEFINITIONS = [
         "name": "check_command",
         "description": (
             "Check a command started by run_command: returns its status and the output produced since the last check. "
-            "Use wait_seconds to wait for it to finish, add pattern to return as soon as a new output line matches it, "
+            "Use wait_seconds to wait for it to finish (a maximum: it returns as soon as the command ends), add pattern to "
+            "return as soon as a new output line matches it, "
             "or stop=true to terminate it. Example: check_command(job_id=4, wait_seconds=600, pattern='error|Traceback') "
             "returns when the command finishes, prints an error, or after 600 s. To follow a long command until it finishes "
-            "(also when the user asks to be told when it ends), call it again with wait_seconds=600 each time it returns still running. "
-            "Without job_id it just waits wait_seconds, with no shell, and returns early if a background command finishes: "
-            "use it instead of sleep."
+            "(also when the user asks to be told when it ends), call it again with wait_seconds=600 each time it returns still running."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "job_id": {"type": "integer", "description": "job_id returned by run_command; omit it to just wait"},
-                "wait_seconds": {"type": "integer", "description": f"Seconds to wait for the command to finish before returning (default 0, max {COMMAND_MAX_WAIT})", "default": 0},
+                "job_id": {"type": "integer", "description": "job_id returned by run_command"},
+                "wait_seconds": {"type": "integer", "description": f"Maximum seconds to wait for the command to finish; returns earlier when it does (default 0, max {COMMAND_MAX_WAIT})", "default": 0},
                 "stop": {"type": "boolean", "description": "Terminate the command and its child processes", "default": False},
                 "pattern": {
                     "type": "string",
                     "maxLength": CHECK_PATTERN_MAX_CHARS,
                     "description": "One or more texts separated by |, searched case-insensitively as plain text (not a regular expression) in each new output line; with wait_seconds, returns as soon as a line contains one"
                 }
-            }
+            },
+            "required": ["job_id"]
         }
     },
     {

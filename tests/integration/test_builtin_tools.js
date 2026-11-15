@@ -87,6 +87,40 @@ test('Builtin Tools - las herramientas de conocimiento usan las ramas activas de
   assert.match(getTool('read_knowledge_chunk').toMarkdown({ chunkId: 'c9' }, {}), /\(c9\)/);
 });
 
+test('Builtin Tools - wait espera unos segundos o hasta una hora local, y se corta con el turno', async t => {
+  const tool = getTool('wait');
+  assert.equal(AgentCore.registry.getTool('sleep'), tool, 'Los modelos la llaman también sleep');
+  for (const args of [{}, { seconds: 5, until: '10:00' }, { seconds: 0 }, { seconds: 86401 }, { until: '24:00' }, { until: '9.30' }]) {
+    const result = await tool.execute(args, {});
+    assert.equal(result.success, false, JSON.stringify(args));
+  }
+
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: new Date(2026, 10, 15, 10, 0, 0).getTime() });
+  const settle = async ms => {
+    for (let step = 0; step < ms; step += 1000) {
+      t.mock.timers.tick(1000);
+      await Promise.resolve();
+    }
+  };
+  const bySeconds = tool.execute({ seconds: 90 }, {});
+  await settle(90000);
+  const seconds = await bySeconds;
+  assert.deepEqual(seconds, { success: true, until: '10:01:30', waited_s: 90 });
+  assert.deepEqual(JSON.parse(tool.toModel({}, seconds)), { success: true, until: '10:01:30', waited_s: 90, note: 'Wait finished, continue.' });
+
+  // Una hora que ya ha pasado hoy (son las 10:01:30) es la de mañana.
+  const tomorrow = tool.execute({ until: '9:30' }, {});
+  const untilTomorrow = (23 * 3600 + 28 * 60 + 30) * 1000;
+  await settle(untilTomorrow);
+  assert.deepEqual(await tomorrow, { success: true, until: '09:30:00', waited_s: untilTomorrow / 1000 });
+
+  const controller = new AbortController();
+  const stopped = tool.execute({ until: '12:00:30' }, { signal: controller.signal });
+  await settle(5000);
+  controller.abort();
+  await assert.rejects(stopped, /cancelled by the user/);
+});
+
 test('Builtin Tools - ask_user valida opciones y cede el turno', async () => {
   const tool = getTool('ask_user');
 

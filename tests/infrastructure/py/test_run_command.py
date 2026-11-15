@@ -222,33 +222,27 @@ class BackgroundCommandTest(unittest.TestCase):
                 self.assertIn("at least one text", invalid["error"])
         check(job["job_id"], stop=True)
 
-    def test_check_command_sin_job_id_espera_sin_shell_y_vuelve_antes_si_termina_un_comando(self):
-        def wait(**kwargs):
-            return json.loads(zerochat.check_command(**kwargs, ctx=zerochat.project_context()))
-
-        started = time.monotonic()
-        idle = wait(wait_seconds=1)
-        self.assertGreaterEqual(time.monotonic() - started, 0.9)
-        self.assertEqual((idle["success"], idle["returned_because"]), (True, "wait_elapsed"))
-        self.assertEqual(zerochat.JOBS.list(str(self.project)), [], "La espera no lanza ningún proceso")
-
+    def test_wait_seconds_es_un_maximo_y_sin_job_id_no_se_espera(self):
+        # La espera vuelve en cuanto termina el comando, sin agotar el plazo pedido.
         job = run("sleep 0.5; echo fin", background=True)
         started = time.monotonic()
-        woken = wait(wait_seconds=30)
+        finished = check(job["job_id"], wait_seconds=30)
         self.assertLess(time.monotonic() - started, 5)
-        self.assertEqual(woken["returned_because"], "command_finished")
-        self.assertEqual([(item["job_id"], item["status"], item["exit_code"]) for item in woken["finished_jobs"]],
-                         [(job["job_id"], "exited", 0)])
-
-        for kwargs in ({}, {"wait_seconds": 0}, {"wait_seconds": 1, "stop": True}, {"wait_seconds": 1, "pattern": "x"}):
+        self.assertEqual((finished["returned_because"], finished["status"], finished["new_output"]), ("command_finished", "exited", "fin\n"))
+        # Esperar sin comando es cosa de la herramienta wait de la interfaz, no del servidor.
+        for kwargs in ({}, {"wait_seconds": 1}, {"wait_seconds": 1, "pattern": "x"}):
             with self.subTest(kwargs=kwargs):
-                self.assertIs(wait(**kwargs)["success"], False)
+                started = time.monotonic()
+                result = json.loads(zerochat.check_command(**kwargs, ctx=zerochat.project_context()))
+                self.assertLess(time.monotonic() - started, 0.5)
+                self.assertIs(result["success"], False)
+                self.assertIn("job_id is required", result["error"])
 
     def test_la_persona_corta_una_espera_por_la_clave_de_la_invocacion_sin_detener_el_comando(self):
         server = run("exec sleep 100", background=True)
         ctx = zerochat.project_context()
         end_wait = lambda key: zerochat.dispatch_jobs("zerochat/jobs/end_wait", {"key": key}, ctx)[0]
-        for kwargs in ({"wait_seconds": 30}, {"job_id": server["job_id"], "wait_seconds": 30, "pattern": "nunca"}):
+        for kwargs in ({"job_id": server["job_id"], "wait_seconds": 30}, {"job_id": server["job_id"], "wait_seconds": 30, "pattern": "nunca"}):
             with self.subTest(kwargs=kwargs):
                 key = "espera-cortada-1"
                 results = []
@@ -316,7 +310,7 @@ class BackgroundCommandTest(unittest.TestCase):
         # Como en uso real: la interfaz manda la clave en _meta.zerochatJobKey y no como argumento.
         ctx = zerochat.project_context()
         server = run("exec sleep 100", background=True)
-        for arguments in ({"wait_seconds": 30}, {"job_id": server["job_id"], "wait_seconds": 30, "pattern": "nunca"}):
+        for arguments in ({"job_id": server["job_id"], "wait_seconds": 30}, {"job_id": server["job_id"], "wait_seconds": 30, "pattern": "nunca"}):
             with self.subTest(arguments=arguments):
                 key = "espera-por-tools-call-1"
                 results = []

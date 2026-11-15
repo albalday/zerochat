@@ -141,7 +141,9 @@
       { globalName: 'ChatBuiltinListDocumentsTool', name: 'list_documents' },
       { globalName: 'ChatBuiltinSearchKnowledgeBaseTool', name: 'search_knowledge_base' },
       { globalName: 'ChatBuiltinReadKnowledgeChunkTool', name: 'read_knowledge_chunk' },
-      { globalName: 'ChatBuiltinReadKnowledgeImageTool', name: 'read_knowledge_image' }
+      { globalName: 'ChatBuiltinReadKnowledgeImageTool', name: 'read_knowledge_image' },
+      // Esperar sin nadie delante no tiene sentido: es una espera optimista del chat abierto.
+      { globalName: 'ChatBuiltinWaitTool', name: 'wait' }
     ];
     for (const { globalName, name } of disabledTools) {
       if (!globalThis[globalName]) {

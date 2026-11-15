@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from core.rpc import INVALID_PARAMS, RpcOutcome, dispatch_table, rpc_error, rpc_not_supported, rpc_result
 from security.context import SecurityContext
+from tools.job_waits import WAITS
 from tools.jobs import JOBS, JOB_LOG_PAGE_BYTES, job_details
 
 
@@ -33,7 +34,7 @@ def _stop(_params: dict, job) -> RpcOutcome:
 PROJECT_JOB_METHODS = {
     "zerochat/jobs/list": lambda _params, project: rpc_result({"jobs": [job.summary() for job in JOBS.list(project)]}),
     "zerochat/jobs/report": _report,
-    "zerochat/jobs/end_wait": lambda params, _project: rpc_result({"ended": JOBS.cancel_wait(params.get("key"))}),
+    "zerochat/jobs/end_wait": lambda params, _project: rpc_result({"ended": WAITS.cancel(params.get("key"))}),
 }
 # Métodos sobre un comando concreto, que se localiza por su id o por la clave de la invocación.
 SINGLE_JOB_METHODS = {

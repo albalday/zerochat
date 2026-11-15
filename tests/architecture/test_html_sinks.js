@@ -26,6 +26,7 @@ const REVIEWED_USES = {
   'js/tools/builtin/read-knowledge-image.tool.js': 1,
   'js/tools/builtin/render-chart.tool.js': 2,
   'js/tools/builtin/search-web.tool.js': 4,
+  'js/tools/builtin/wait.tool.js': 2,
   'js/ui-browser.js': 2,
   'js/ui-command-jobs.js': 1,
   'js/ui-conversation.js': 11,

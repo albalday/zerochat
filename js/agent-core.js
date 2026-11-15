@@ -33,6 +33,7 @@
     ['ChatBuiltinReadKnowledgeChunkTool', './tools/builtin/read-knowledge-chunk.tool.js'],
     ['ChatBuiltinReadKnowledgeImageTool', './tools/builtin/read-knowledge-image.tool.js'],
     ['ChatBuiltinAskUserTool', './tools/builtin/ask-user.tool.js'],
+    ['ChatBuiltinWaitTool', './tools/builtin/wait.tool.js'],
     ['ChatBuiltinDelegateTaskTool', './tools/builtin/delegate-task.tool.js']
   ];
 

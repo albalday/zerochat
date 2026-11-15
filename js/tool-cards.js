@@ -71,10 +71,10 @@
   }
 
   function appendToolCard(container, card, options = {}) {
-    // Las visualizaciones y las preguntas al usuario son resultado principal, no ruido de ejecución.
+    // Las visualizaciones, las preguntas al usuario y las esperas son resultado principal, no ruido de ejecución.
     // El subagente ya agrupa sus propias herramientas: dentro de un grupo quedaría doblemente
     // enmarcado y, mientras se ejecuta, el grupo no podría ocultarlo.
-    if (card.querySelector('.chat-chart-card, .ask-user-card, .subagent-card')) {
+    if (card.querySelector('.chat-chart-card, .ask-user-card, .subagent-card, .wait-tool-card')) {
       container.appendChild(card);
       return null;
     }

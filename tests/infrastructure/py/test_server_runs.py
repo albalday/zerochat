@@ -297,8 +297,11 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         session = zerochat.RunSession(prompt="hola")
         zerochat.RUN_SESSION = session
         self.addCleanup(setattr, zerochat, "RUN_SESSION", None)
+        ctx = zerochat.project_context()
+        job = json.loads(zerochat.run_command("exec sleep 100", background=True, ctx=ctx))
+        self.addCleanup(zerochat.check_command, job["job_id"], stop=True, ctx=ctx)
         result, error, _ = zerochat.execute_tool(
-            "local", "check_command", {"wait_seconds": 1}, zerochat.project_context())
+            "local", "check_command", {"job_id": job["job_id"], "wait_seconds": 1}, ctx)
         self.assertIsNone(error)
         self.assertIn("wait_elapsed", result["content"][0]["text"])
         self.assertGreaterEqual(session.waited_seconds(), 0.9)
