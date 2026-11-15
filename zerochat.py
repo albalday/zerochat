@@ -7804,8 +7804,9 @@ def call_tool(origin: str, params: dict, ctx: SecurityContext) -> tuple[dict | N
     raw_args = params.get("arguments")
     args = dict(raw_args) if isinstance(raw_args, dict) else {}
     meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
-    # Ni la clave del trabajo ni la conversación son argumentos del modelo: no se evalúan ni se muestran en el reto.
-    job_key = meta.get("zerochatJobKey") if origin == "local" and tool_name == COMMAND_TOOL else None
+    # Ni la clave de la invocación ni la conversación son argumentos del modelo: no se evalúan ni se muestran en
+    # el reto. Con ella se detiene un run_command y se corta la espera de un check_command (zerochat/jobs/*).
+    job_key = meta.get("zerochatJobKey") if origin == "local" and tool_name in (COMMAND_TOOL, JOB_CONTROL_TOOL) else None
     conversation_id = str(meta.get("zerochatConversationId") or "")
     gate = authorize_or_challenge(origin, tool_name, args, ctx, job_key, conversation_id)
     return gate if gate is not None else execute_tool(origin, tool_name, with_job_key(args, job_key), ctx, conversation_id)

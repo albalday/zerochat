@@ -312,6 +312,28 @@ class BackgroundCommandTest(unittest.TestCase):
         self.assertEqual(relaunched["status"], "running")
         check(relaunched["job_id"], stop=True)
 
+    def test_la_espera_que_llega_por_tools_call_se_corta_con_la_clave_de_su_invocacion(self):
+        # Como en uso real: la interfaz manda la clave en _meta.zerochatJobKey y no como argumento.
+        ctx = zerochat.project_context()
+        server = run("exec sleep 100", background=True)
+        for arguments in ({"wait_seconds": 30}, {"job_id": server["job_id"], "wait_seconds": 30, "pattern": "nunca"}):
+            with self.subTest(arguments=arguments):
+                key = "espera-por-tools-call-1"
+                results = []
+                call = {"name": "check_command", "arguments": arguments, "_meta": {"zerochatJobKey": key}}
+                waiter = threading.Thread(target=lambda: results.append(zerochat.dispatch_local("tools/call", call, ctx)))
+                started = time.monotonic()
+                waiter.start()
+                deadline = time.monotonic() + 5
+                while not zerochat.dispatch_jobs("zerochat/jobs/end_wait", {"key": key}, ctx)[0]["ended"] and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                waiter.join(5)
+                self.assertLess(time.monotonic() - started, 5, "La espera no se cortó")
+                result, error, _ = results[0]
+                self.assertIsNone(error)
+                self.assertEqual(json.loads(result["content"][0]["text"])["returned_because"], "wait_ended_by_user")
+        check(server["job_id"], stop=True)
+
     def test_cada_proyecto_solo_ve_y_detiene_sus_comandos(self):
         other = zerochat.SecurityContext(self.data_dir.resolve())
         alive = run("exec sleep 100", background=True)
