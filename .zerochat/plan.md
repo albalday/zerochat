@@ -1,42 +1,6 @@
 # Plan
 
-<!-- Hitos M1 a M51 archivados en .zerochat/archive/ -->
-
-## M52 Robustez del transporte web en servidor: cabeceras de navegación y cadencia frente a retos anti-bot: closed 2026-11-08
-
-## M53 Simplificación de la suite de pruebas, retirada de tests obsoletos y optimización de WebLLM: closed 2026-11-09
-
-## M54 Mejoras al modo proyecto: normalización modal del panel de razonamiento y simplificación de memoria: closed 2026-11-09
-
-## M55 Mejoras simples: closed 2026-11-10
-
-## M56 Migración del control de acceso a MCPs y ejecuciones al backend y desacoplo para evolución multiusuario: closed 2026-11-10
-
-## M57 Bucle agéntico desatendido en Node.js para --prompt y --conversation: closed 2026-11-10
-
-## M58 Soporte de ejecución de JavaScript (execute_javascript) en Node.js desatendido: closed 2026-11-11
-
-## M59 Habilitar render_chart en Node.js desatendido para visualización en cliente: closed 2026-11-11
-
-## M60 Frontend sin evaluación de permisos: closed 2026-11-11
-
-## M61 Integridad del sistema de permisos: closed 2026-11-12
-
-## M62 Multisesión de un usuario y límites del multiusuario: closed 2026-11-12
-
-## M63 Cambios pequeños y pruebas: closed 2026-11-13
-
-## M64 Modularización del backend Python: closed 2026-11-13
-
-## M65 Aislamiento de las ejecuciones en servidor: closed 2026-11-13
-
-## M66 Coordinadores del frontend: closed 2026-11-13
-
-## M67 Arreglos de estabilización: closed 2026-11-13
-
-## M68 Arreglos pequeños 2: closed 2026-11-14
-
-## M69 Esperas y comandos a la vista: closed 2026-11-14
+<!-- Hitos M1 a M69 archivados en .zerochat/archive/ -->
 
 ## M70 Arreglos de run_command: closed 2026-11-14
 
@@ -54,3 +18,11 @@ Done when: `service.json` incluye `version` y soporta `builtin: true` (nombres d
 - [ ] M72-T6 [Posible] search_files usa la consulta del modelo como expresión regular de Python: re no suelta el GIL y una consulta como (a+)+$ contra una línea larga bloquearía el servidor. Decidir al extraerla (M72-T4): buscar en un proceso aparte con plazo, rechazar grupos repetidos anidados o dejarlo si el servicio MCP propio ya lo aísla
 
 ## M73 Arreglos de seguridad: closed 2026-11-15
+
+## M74 Arreglos multiplataforma de la 10.19.0
+
+Goal: Que la CI de Windows y macOS vuelva a verde tras M73 y que el runner de Node de `--prompt`, `--conversation` y «Ejecutar en servidor» funcione en las tres plataformas, para publicar la 10.19.1.
+Done when: el motivo por el que termina el runner de Node aparece en el error de la ejecución; las ejecuciones con Node real pasan en Linux, Windows y macOS; las pruebas de infraestructura pasan en las tres plataformas sin saltarse ninguna nueva; la 10.19.1 está en master y en PyPI con la CI en verde.
+- [x] M74-T1 El error «el runner se cerró sin resultado» lleva las últimas líneas de la salida de error del runner de Node, que hoy se descarta (stderr a DEVNULL en `launch_node_runner`); prueba (2026-11-15)
+- [ ] M74-T2 El runner de Node termina sin resultado en Windows y macOS (código 2 en las pruebas con Node real de `test_runner_loader.py`): diagnosticar con M74-T1 en la CI y corregir
+- [ ] M74-T3 Pruebas de infraestructura que fallan en Windows: tope de tamaño del cargador en el borde exacto, espera de `check_command` contada en una ejecución y carpeta temporal del modo desarrollo que no se puede borrar

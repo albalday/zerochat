@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import threading
@@ -269,10 +270,29 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         mock_proc = mock.Mock()
         mock_proc.poll.return_value = 1  # Navegador terminó
 
-        zerochat.run_supervisor(mock_server, session, browser_proc=mock_proc)
+        # Parar el servidor de verdad marcaría el apagado global para el resto de la suite.
+        with mock.patch.object(zerochat, "stop_zerochat_server"):
+            zerochat.run_supervisor(mock_server, session, browser_proc=mock_proc)
         data = json.loads(state_path.read_text("utf-8"))
         self.assertEqual(data["status"], "error")
         self.assertIn("cerró", data["error"])
+
+    def test_un_runner_que_termina_sin_resultado_deja_en_el_error_el_final_de_su_salida_de_error(self):
+        limit = zerochat.RUNNER_ERROR_TAIL_BYTES
+        for written, kept in ((limit, limit), (limit + 1, limit), (0, 0)):
+            with self.subTest(written=written), tempfile.TemporaryFile() as log:
+                text = ("x" * (written - 6) + "Error!") if written else ""
+                proc = subprocess.Popen([sys.executable, "-c", f"import sys; sys.stderr.write({text!r}); sys.exit(3)"], stderr=log)
+                proc.wait()
+                session = zerochat.RunSession(conversation_id="session_runner_exit")
+                with mock.patch.object(zerochat, "stop_zerochat_server"):
+                    zerochat.run_supervisor(mock.Mock(), session, runner_proc=proc, runner_log=log)
+                prefix = "El runner de Node.js terminó con el código 3 sin resultado"
+                error = json.loads(zerochat.get_run_state_path("session_runner_exit").read_text("utf-8"))["error"]
+                if kept:
+                    self.assertEqual(error, f"{prefix}: {text[-kept:]}")
+                else:
+                    self.assertEqual(error, f"{prefix}.")
 
     def test_supervisor_corta_por_inactividad_y_por_plazo_total_aunque_haya_progreso(self):
         def supervise(keep_progressing):
@@ -319,7 +339,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         zerochat.RUN_SESSION = session
         self.addCleanup(setattr, zerochat, "RUN_SESSION", None)
         ctx = zerochat.project_context()
-        job = json.loads(zerochat.run_command("exec sleep 100", background=True, ctx=ctx))
+        sleeper = f'"{sys.executable}" -c "import time; time.sleep(100)"'
+        job = json.loads(zerochat.run_command(sleeper, background=True, ctx=ctx))
         self.addCleanup(zerochat.check_command, job["job_id"], stop=True, ctx=ctx)
         result, error, _ = zerochat.execute_tool(
             "local", "check_command", {"job_id": job["job_id"], "wait_seconds": 1}, ctx)
@@ -345,7 +366,9 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         cache_dir = self.data_dir / "cache" / "runner"
         with mock.patch.object(zerochat, "find_node_executable", return_value="/usr/bin/node"), \
              mock.patch("subprocess.Popen", return_value=mock.Mock()) as popen:
-            zerochat.launch_node_runner(url)
+            _proc, stderr_log = zerochat.launch_node_runner(url)
+        self.addCleanup(stderr_log.close)
+        self.assertIs(popen.call_args.kwargs["stderr"], stderr_log)
         # Del disco solo toca su caché; ni procesos, ni workers, ni inspector.
         self.assertEqual(popen.call_args.args[0], [
             "/usr/bin/node", "--permission", f"--allow-fs-read={cache_dir}", f"--allow-fs-write={cache_dir}",

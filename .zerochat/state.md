@@ -1,4 +1,4 @@
 # Current state
-- Milestone: M72 Extracción de herramientas locales a servicios MCP propios con versión independiente
-- Next task: M72-T1
+- Milestone: M74 Arreglos multiplataforma de la 10.19.0
+- Next task: M74-T2
 - Last updated: 2026-11-15

@@ -378,12 +378,13 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str):
         return None
     if not args.browser:
         session.runner_token = issue_runner_token(session.run_id, session.conversation_id or session.new_conversation_id)
-        runner_proc = launch_node_runner(launch_url(ui_url, token=session.runner_token))
-        if runner_proc is None:
+        runner = launch_node_runner(launch_url(ui_url, token=session.runner_token))
+        if runner is None:
             server.server_close()
             mute_console()
             sys.exit(RUN_EXIT_SETUP)
-        threading.Thread(target=run_supervisor, args=(server, session, runner_proc), daemon=True).start()
+        runner_proc, runner_log = runner
+        threading.Thread(target=run_supervisor, args=(server, session, runner_proc, None, runner_log), daemon=True).start()
         return runner_proc
     target_url = launch_url(ui_url)
     headless_browser = launch_headless_browser(target_url) if args.headless else None
