@@ -8201,7 +8201,10 @@ def ensure_runner_script() -> Path:
 
 
 def launch_node_runner(url: str) -> subprocess.Popen | None:
-    """Abre el runner de Node.js sin ventana en segundo plano con el modelo de permisos de Node y sin heredar el entorno."""
+    """Abre el runner de Node.js sin ventana en segundo plano con el modelo de permisos de Node.
+
+    Hereda el entorno de quien lanza zerochat (NODE_EXTRA_CA_CERTS, TZ, LANG...): ejecuta código propio, no el del
+    modelo, que va al sandbox sin entorno; un runner.js alterado vendría con una interfaz alterada que ya puede más."""
     node = find_node_executable()
     if not node:
         run_error(f"Se necesita {NODE_REQUIRED_MESSAGE} para la ejecución desatendida. Instálalo o usa --browser.")
@@ -8220,7 +8223,6 @@ def launch_node_runner(url: str) -> subprocess.Popen | None:
     try:
         return subprocess.Popen(
             cmd,
-            env=minimal_child_env(),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
