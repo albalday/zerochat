@@ -2,6 +2,9 @@ import email.message
 import gzip
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
+import os
+from pathlib import Path
+import tempfile
 import threading
 import time
 import unittest
@@ -13,16 +16,68 @@ from backend import zerochat
 
 class LoopbackTest(unittest.TestCase):
     def test_solo_fuera_de_loopback_se_avisa_de_la_exposicion_remota(self):
-        for host in ("127.0.0.1", "127.0.0.2", "localhost", "LOCALHOST", "::1", "[::1]"):
+        for host in ("127.0.0.1", "127.0.0.2", "localhost", "LOCALHOST", "::1", "[::1]", "::ffff:127.0.0.1"):
             with self.subTest(host=host):
                 self.assertTrue(zerochat.is_loopback_host(host))
                 self.assertIsNone(zerochat.remote_exposure_warning(host))
-        for host in ("0.0.0.0", "::", "192.168.1.10", "mi-equipo.local", ""):
+        for host in ("0.0.0.0", "::", "192.168.1.10", "::ffff:192.168.1.10", "mi-equipo.local", ""):
             with self.subTest(host=host):
                 self.assertFalse(zerochat.is_loopback_host(host))
                 warning = zerochat.remote_exposure_warning(host)
                 self.assertIn("ejecutar comandos", warning)
                 self.assertIn("sin cifrar", warning)
+
+
+
+class DevelopmentStaticFilesTest(unittest.TestCase):
+    """Servidor de desarrollo: solo cuando zerochat.py está en el repositorio y sin salir de su raíz."""
+
+    def make_repo(self, base: Path) -> Path:
+        (base / "js").mkdir(parents=True)
+        (base / "css").mkdir()
+        (base / "zerochat.html").write_text("<html></html>", encoding="utf-8")
+        return base
+
+    def test_el_modo_desarrollo_depende_de_donde_esta_zerochat_py_y_no_de_la_carpeta_actual(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            looks_like_dev = self.make_repo(Path(tmp, "parece-el-repo").resolve())
+            installed = Path(tmp, "site-packages").resolve()
+            installed.mkdir()
+            cwd = os.getcwd()
+            self.addCleanup(os.chdir, cwd)
+            os.chdir(looks_like_dev)
+            # Un zerochat instalado, arrancado dentro de una carpeta que parece el repositorio, no sirve nada.
+            with patch.object(zerochat, "__file__", str(installed / "zerochat.py")):
+                self.assertIsNone(zerochat.get_dev_root())
+                self.assertIsNone(zerochat.get_static_root())
+            with patch.object(zerochat, "__file__", str(looks_like_dev / "zerochat.py")):
+                self.assertEqual(zerochat.get_dev_root(), looks_like_dev)
+
+    def test_se_sirve_lo_que_hay_bajo_la_raiz_salvo_ocultos_y_lo_que_sale_de_ella(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.make_repo(Path(tmp, "repo").resolve())
+            outside = Path(tmp, "fuera.txt")
+            outside.write_text("no", encoding="utf-8")
+            (root / "todo.txt").write_text("notas", encoding="utf-8")
+            (root / "js" / "app.js").write_text("//", encoding="utf-8")
+            (root / ".git").mkdir()
+            (root / ".git" / "config").write_text("x", encoding="utf-8")
+            (root / ".env").write_text("CLAVE=1", encoding="utf-8")
+            os.symlink(outside, root / "js" / "enlace.txt")
+            served = lambda rel: zerochat.static_file_target(root, rel)
+            self.assertEqual(served("/js/app.js"), root / "js" / "app.js")
+            self.assertEqual(served("/todo.txt?v=1"), root / "todo.txt")
+            for rel in ("/.git/config", "/.env", "/js/../.env", "/js/enlace.txt", "/../fuera.txt", "/js", "/", "/no-existe.js"):
+                with self.subTest(rel=rel):
+                    self.assertIsNone(served(rel))
+
+    def test_una_url_con_un_segmento_de_puntos_se_reconoce_tambien_codificada(self):
+        for path in ("/js/../todo.txt", "/..", "/js/%2e%2e/x", "/js/%2E%2E/x", "/js\\..\\x", "/a/..?b=c"):
+            with self.subTest(path=path):
+                self.assertTrue(zerochat.has_dot_segment(path))
+        for path in ("/", "/zerochat.html", "/js/app.min.js", "/files.html?path=../x", "/a..b/c", "/mcp/external"):
+            with self.subTest(path=path):
+                self.assertFalse(zerochat.has_dot_segment(path))
 
 
 class WebFetchTest(unittest.TestCase):

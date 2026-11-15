@@ -1,5 +1,6 @@
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
+const http = require('node:http');
 const { spawn, execSync } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -360,9 +361,32 @@ describe('Servidor local zerochat.py', () => {
       assert.match(res.headers.get('content-type') || '', type, file);
       await res.text();
     }
-    const traversalRes = await fetch(`${baseUrl}/../package.json`);
-    assert.notEqual(traversalRes.status, 200, 'No debe permitir acceso fuera de la raíz');
-    await traversalRes.text();
+    // Sin lista de ficheros: se sirve lo que hay bajo la raíz, salvo lo oculto.
+    for (const [file, status] of [['package.json', 200], ['.zerochat/plan.md', 404], ['.git/HEAD', 404]]) {
+      const res = await fetch(`${baseUrl}/${file}`);
+      assert.equal(res.status, status, file);
+      await res.text();
+    }
+  });
+
+  test('una URL con un segmento .. recibe 400 en cualquier método, antes del token y del origen', async () => {
+    // fetch normaliza la ruta antes de enviarla: estas peticiones van tal cual por http.request.
+    const raw = (method, rawPath, headers = {}) => new Promise((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port: Number(new URL(baseUrl).port), method, path: rawPath, headers }, res => {
+        let body = '';
+        res.on('data', chunk => { body += chunk; });
+        res.on('end', () => resolve({ status: res.statusCode, body }));
+      });
+      req.on('error', reject);
+      req.end(method === 'POST' ? '{"jsonrpc":"2.0","id":1,"method":"zerochat/heartbeat"}' : undefined);
+    });
+    for (const [method, rawPath] of [['GET', '/js/../package.json'], ['GET', '/js/%2e%2e/package.json'], ['GET', '/js\\..\\package.json'],
+      ['POST', '/mcp/../mcp/external'], ['OPTIONS', '/js/../x']]) {
+      const res = await raw(method, rawPath, { Origin: 'http://evil.example', 'Content-Type': 'application/json', 'X-ZeroChat-Token': testToken });
+      assert.deepEqual([res.status, res.body], [400, '{"error": "Invalid path"}'], `${method} ${rawPath}`);
+    }
+    // Un .. en la consulta no es una ruta.
+    assert.equal((await raw('GET', '/files.html?path=../x')).status, 200);
   });
 });
 

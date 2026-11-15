@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import ipaddress
 import os
 import sys
 import threading
@@ -28,21 +29,32 @@ def minimal_child_env() -> dict[str, str]:
 
 def get_dev_root() -> Path | None:
     """
-    Detecta si zerochat.py se está ejecutando en el directorio de desarrollo del repositorio.
-    Comprueba si existen zerochat.html, js/ y css/ en el directorio del script o en cwd.
-    Se calcula una vez, al arrancar: la interfaz servida no depende del proyecto de cada pestaña.
+    Raíz del repositorio de desarrollo si este zerochat.py está en ella (junto a zerochat.html, js/ y css/).
+    Solo cuenta la carpeta del propio script, no la carpeta desde la que se arranca: un zerochat instalado
+    nunca entra en modo desarrollo, aunque se lance dentro de una carpeta que lo parezca.
     """
     script_dir = Path(__file__).resolve().parent
-    cwd = Path.cwd().resolve()
-    for candidate in (script_dir, cwd):
-        if (candidate / "zerochat.html").is_file() and (candidate / "js").is_dir() and (candidate / "css").is_dir():
-            return candidate
+    if (script_dir / "zerochat.html").is_file() and (script_dir / "js").is_dir() and (script_dir / "css").is_dir():
+        return script_dir
     return None
 
 
 def get_static_root() -> Path | None:
     """La interfaz local solo se sirve al ejecutar el repositorio de desarrollo."""
     return get_dev_root()
+
+
+def is_loopback_host(host: str) -> bool:
+    """Indica si un host o una dirección es del propio equipo (también ::ffff:127.0.0.1)."""
+    value = (host or "").strip().strip("[]").lower()
+    if value == "localhost":
+        return True
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    mapped = getattr(address, "ipv4_mapped", None)
+    return address.is_loopback or bool(mapped and mapped.is_loopback)
 
 
 def get_data_dir() -> Path:

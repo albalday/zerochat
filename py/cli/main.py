@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import datetime
-import ipaddress
 import json
 import os
 import signal
@@ -27,6 +26,7 @@ from core.environment import (
     get_data_dir,
     get_dev_root,
     get_static_root,
+    is_loopback_host,
     get_venv_dir,
     reset_notices,
     set_active_address,
@@ -71,17 +71,6 @@ from tools.browser_action import browser_action_availability
 from tools.filesystem import list_directory, read_file, write_file
 from tools.jobs import cleanup_orphan_jobs, run_command
 from tools.registry import LOCAL_TOOL_HANDLERS
-
-
-def is_loopback_host(host: str) -> bool:
-    """Indica si el host de escucha solo acepta conexiones del propio equipo."""
-    value = (host or "").strip().strip("[]").lower()
-    if value == "localhost":
-        return True
-    try:
-        return ipaddress.ip_address(value).is_loopback
-    except ValueError:
-        return False
 
 
 def remote_exposure_warning(host: str) -> str | None:

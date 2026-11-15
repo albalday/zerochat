@@ -10,6 +10,7 @@ import subprocess
 import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
+from pathlib import Path
 
 from auth.login import LOGIN_MAX_BODY_BYTES, LoginError, login
 from auth.tokens import TokenGrant, resolve_token
@@ -21,7 +22,7 @@ from browser.config import (
     validate_profile_browser,
 )
 from browser.engines import BROWSER_ENGINES, clear_own_browser_data
-from core.environment import DETECTED_OS, get_static_root
+from core.environment import DETECTED_OS, get_static_root, is_loopback_host
 from core.limits import MAX_HTTP_BODY_BYTES, MAX_RPC_METHOD_LENGTH, MAX_TOOL_NAME_LENGTH
 from core.logging import format_log_error, log_event
 from core.version import VERSION
@@ -64,6 +65,31 @@ def sanitize_log_path(raw_path: str) -> str:
     path, query = raw_path.split("?", 1)
     safe_query = re.sub(r'(token=)[^&]+', r'\1***', query, flags=re.IGNORECASE)
     return f"{path}?{safe_query}"
+
+
+def has_dot_segment(raw_path: str) -> bool:
+    """Una URL cuya ruta tiene un segmento `..`, también codificado o con barra invertida: ninguna de ZeroChat lo lleva."""
+    path = urllib.parse.unquote(raw_path.split("?", 1)[0].split("#", 1)[0])
+    return ".." in re.split(r"[/\\]", path)
+
+
+def static_file_target(root: Path, rel_path: str) -> Path | None:
+    """
+    Fichero que sirve el servidor de desarrollo para rel_path: lo que hay bajo la raíz del repositorio,
+    salvo ficheros ocultos (.git, .env, .zerochat) y rutas que al resolverse salen de ella (enlaces simbólicos).
+    """
+    clean_rel = rel_path.split("?", 1)[0].lstrip("/")
+    if not clean_rel:
+        return None
+    base = root.resolve()
+    target = (base / clean_rel).resolve()
+    try:
+        parts = target.relative_to(base).parts
+    except ValueError:
+        return None
+    if any(part.startswith(".") for part in parts) or not target.is_file():
+        return None
+    return target
 
 
 def is_allowed_origin(origin: str | None, require_origin: bool = False) -> bool:
@@ -119,41 +145,15 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         log_event(f"<-- {status_text} {detail}{err_suffix} ({duration_ms:.1f}ms)")
 
     def serve_static_file(self, rel_path: str) -> bool:
-        """Sirve recursos estáticos solo desde el repositorio de desarrollo."""
+        """
+        La interfaz del repositorio de desarrollo, sin token: solo en desarrollo (get_static_root) y solo
+        a clientes del propio equipo, aunque el servidor escuche en otra dirección con --host.
+        """
         static_root = get_static_root()
-        if not static_root:
+        if not static_root or not is_loopback_host(self.client_address[0]):
             return False
-
-        clean_rel = rel_path.split("?", 1)[0].lstrip("/")
-        if not clean_rel:
-            return False
-
-        target_path = (static_root / clean_rel).resolve()
-        try:
-            rel_parts = target_path.relative_to(static_root.resolve()).parts
-        except ValueError:
-            return False
-
-        # Whitelist de archivos y carpetas autorizados para servir la interfaz web: sus dos páginas
-        # (el chat y el navegador de ficheros del proyecto) y sus recursos.
-        is_allowed_static = (
-            clean_rel in ("zerochat.html", "files.html") or
-            clean_rel in ("manifest.webmanifest", "sw.js", "favicon.ico") or
-            clean_rel.startswith("js/") or
-            clean_rel.startswith("css/") or
-            clean_rel.startswith("help/")
-        )
-        if not is_allowed_static:
-            return False
-
-        # Protección: bloquear archivos ocultos, datos y dependencias locales.
-        for part in rel_parts:
-            if part.startswith(".") and part != ".":
-                return False
-            if part in ("zerochat", "node_modules", ".git", "tests"):
-                return False
-
-        if not target_path.is_file():
+        target_path = static_file_target(static_root, rel_path)
+        if target_path is None:
             return False
 
         ext = target_path.suffix.lower()
@@ -167,7 +167,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
-        if clean_rel == "sw.js":
+        if target_path == static_root.resolve() / "sw.js":
             self.send_header("Service-Worker-Allowed", "/")
         self.send_cors_headers()
         self.end_headers()
@@ -199,9 +199,21 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         """Comprueba si hay una credencial vigente en cabeceras HTTP."""
         return self._resolve_grant() is not None
 
+    def _reject_dot_segment(self, verb: str, safe_path: str, t0: float) -> bool:
+        """Responde 400 a una URL con `..` antes de mirar el origen, el token o el cuerpo; devuelve si lo hizo."""
+        if not has_dot_segment(self.path):
+            return False
+        self._log_req(verb, safe_path)
+        # El cuerpo de un POST no se lee: la conexión no se reutiliza.
+        self.close_connection = True
+        self._reject(400, {"error": "Invalid path"}, safe_path, t0, "Ruta con un segmento '..'")
+        return True
+
     def do_OPTIONS(self):
         t0 = time.monotonic()
         safe_path = sanitize_log_path(self.path)
+        if self._reject_dot_segment("OPTIONS", safe_path, t0):
+            return
         origin = self.headers.get("Origin")
         if not is_allowed_origin(origin, require_origin=True):
             self._log_req("OPTIONS", safe_path)
@@ -233,6 +245,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         """Solo la interfaz servida en desarrollo y el favicon: la API va por POST."""
         t0 = time.monotonic()
         safe_path = sanitize_log_path(self.path)
+        if self._reject_dot_segment("GET", safe_path, t0):
+            return
         path_clean = self.path.split("?", 1)[0].rstrip("/")
         self._log_req("GET", safe_path)
 
@@ -834,6 +848,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         t0 = time.monotonic()
         safe_path = sanitize_log_path(self.path)
+        if self._reject_dot_segment("POST", safe_path, t0):
+            return
         req_path = self.path.split("?", 1)[0].rstrip("/")
         origin = self.headers.get("Origin")
         if not is_allowed_origin(origin):
