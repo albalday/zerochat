@@ -375,7 +375,7 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, resu
             launch_browser(launch_url(ui_url))
         return None
     if not args.browser:
-        session.runner_token = issue_runner_token(session.run_id, session.conversation_id)
+        session.runner_token = issue_runner_token(session.run_id, session.conversation_id or session.new_conversation_id)
         runner_proc = launch_node_runner(launch_url(ui_url, token=session.runner_token))
         if runner_proc is None:
             server.server_close()

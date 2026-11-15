@@ -188,7 +188,8 @@
    * { started, unavailable }, `submitComposerText` envía el prompt
    * como el usuario (o continúa con `{ resume: true }`) y devuelve { text } o { error },
    * `stopGeneration` la detiene, `exportConversation` da la conversación activa en un formato de
-   * ChatExport y `switchToSession` cambia a una conversación existente.
+   * ChatExport y `switchToSession` cambia a una conversación existente. `startNewSession`, solo en el
+   * runner de Node, abre sin --conversation la conversación nueva cuyo id eligió el servidor.
    */
   async function start(runId, {
     startupConnection,
@@ -198,7 +199,8 @@
     submitComposerText,
     stopGeneration,
     exportConversation,
-    switchToSession
+    switchToSession,
+    startNewSession = null
   }) {
     const send = (method, params = {}) => getMcpManager().requestExternalControl(method, { run_id: runId, ...params });
     const report = createProgressReporter(event => {
@@ -217,6 +219,7 @@
         keep_page: keepPageRequested,
         allow_dangerous_tools: allowDangerous,
         conversation_id: conversationId,
+        new_conversation_id: newConversationId,
         tool_security: toolSecurity
       } = await send('zerochat/run/prompt');
       keepPage = keepPageRequested === true;
@@ -255,6 +258,9 @@
 
       if (isConversationMode) {
         await switchToSession(conversationId);
+      } else if (newConversationId && startNewSession) {
+        // El runner de Node solo puede guardar la conversación que eligió el servidor.
+        startNewSession(newConversationId);
       }
 
       let generated = null;

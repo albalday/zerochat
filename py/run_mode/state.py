@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 import urllib.parse
+import uuid
 from pathlib import Path
 
 from core.environment import DETECTED_OS, _write_private_text, get_data_dir
@@ -291,6 +292,9 @@ class RunSession:
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
         self.conversation_id = conversation_id
+        # Sin --conversation, la conversación nueva que guarda la ejecución: la elige el servidor para atar a ella la
+        # credencial del runner, que no puede escribir en ninguna otra (mismo formato que createId('session')).
+        self.new_conversation_id = None if conversation_id else f"session_{uuid.uuid4()}"
         self.prompt = prompt
         # Perfil (nombre o id) que la interfaz usa solo en esta ejecución; por defecto, local del servidor.
         self.profile = profile
@@ -421,7 +425,8 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
         if isinstance(session.tool_security, dict) and "tool_decision" in session.tool_security
         else session.tool_security
     )
-    return rpc_result({"prompt": session.prompt, "conversation_id": session.conversation_id, "profile": session.profile,
+    return rpc_result({"prompt": session.prompt, "conversation_id": session.conversation_id,
+                       "new_conversation_id": session.new_conversation_id, "profile": session.profile,
                        "profile_data": session.profile_data,
                        "export": export_format, "keep_page": session.keep_page,
                        "allow_dangerous_tools": session.allow_dangerous_tools, "tool_security": delivered_security})

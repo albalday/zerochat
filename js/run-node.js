@@ -433,6 +433,10 @@
       });
     };
 
+    const startNewSession = sessionId => {
+      State.replaceConversation({ sessionId, messages: [], sessions: [] });
+    };
+
     const startupConnection = connectBackend();
 
     return RunMode.start(runId, {
@@ -443,7 +447,8 @@
       submitComposerText,
       stopGeneration,
       exportConversation,
-      switchToSession
+      switchToSession,
+      startNewSession
     });
   }
 

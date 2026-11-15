@@ -1,11 +1,13 @@
 import json
+import socket
 import subprocess
+import sys
 import threading
 import unittest
 from functools import partial
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler, ThreadingHTTPServer
 
-from backend import use_data_dir, zerochat
+from backend import ZEROCHAT_PY, use_data_dir, zerochat
 
 # Una interfaz mínima: js/run-node.js con dependencias en dos niveles, una que sube de carpeta, y una librería
 # que se pide al usarla (como ChatVendorLoader). startHeadlessRun imprime lo que ve y termina.
@@ -98,3 +100,65 @@ class RunnerLoaderTest(unittest.TestCase):
                 self.assertEqual(result.returncode, code, result.stderr)
                 if code:
                     self.assertIn(f"exceed {zerochat.RUNNER_MAX_BYTES} bytes", result.stderr)
+
+
+class FakeModel(BaseHTTPRequestHandler):
+    """API compatible con OpenAI que responde siempre lo mismo, en streaming o no."""
+    REPLY = "Hola desde el modelo falso"
+
+    def log_message(self, *_args):
+        pass
+
+    def _send(self, content_type: str, body: bytes):
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        self._send("application/json", json.dumps({"data": [{"id": "fake"}]}).encode())
+
+    def do_POST(self):
+        request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        if not request.get("stream"):
+            message = {"role": "assistant", "content": self.REPLY}
+            self._send("application/json", json.dumps({"choices": [{"index": 0, "message": message, "finish_reason": "stop"}]}).encode())
+            return
+        chunks = [{"choices": [{"index": 0, "delta": {"content": self.REPLY}}]},
+                  {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}]
+        self._send("text/event-stream", b"".join(f"data: {json.dumps(chunk)}\n\n".encode() for chunk in chunks) + b"data: [DONE]\n\n")
+
+
+class RealNodeRunTest(unittest.TestCase):
+    """--prompt y --conversation de principio a fin con Node real: el cargador baja la interfaz del propio servidor
+    de desarrollo y el runner, con su credencial limitada, guarda la conversación."""
+
+    def setUp(self):
+        use_data_dir(self)
+        model = ThreadingHTTPServer(("127.0.0.1", 0), FakeModel)
+        threading.Thread(target=model.serve_forever, daemon=True).start()
+        self.addCleanup(model.server_close)
+        self.addCleanup(model.shutdown)
+        api_url = f"http://127.0.0.1:{model.server_address[1]}/v1"
+        zerochat.save_general_profile({"name": "local", "settings": {"apiType": "openai", "apiUrl": api_url, "model": "fake"}})
+
+    def run_zerochat(self, *args):
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+        return subprocess.run([sys.executable, str(ZEROCHAT_PY), "--no-venv", "--port", str(port), *args],
+                              capture_output=True, text=True, timeout=120)
+
+    def test_prompt_guarda_una_conversacion_nueva_que_luego_continua(self):
+        first = self.run_zerochat("--prompt", "di hola")
+        self.assertEqual((first.returncode, first.stdout), (0, FakeModel.REPLY + "\n"), first.stderr)
+        saved = zerochat.list_conversations()
+        self.assertEqual(len(saved), 1)
+        conversation_id = saved[0]["id"]
+        self.assertRegex(conversation_id, r"^session_[0-9a-f-]{36}$")
+
+        second = self.run_zerochat("--conversation", conversation_id, "--prompt", "otra vez")
+        self.assertEqual((second.returncode, second.stdout), (0, FakeModel.REPLY + "\n"), second.stderr)
+        history = zerochat.get_conversation(conversation_id)["history"]
+        self.assertEqual([message["role"] for message in history], ["user", "assistant", "user", "assistant"])
