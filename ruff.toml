@@ -1,4 +1,4 @@
-# Análisis estático del backend (py/): fallos (F, E9, PLE, B) y seguridad (S).
+# Análisis estático del backend (py/): fallos (F, E9, PLE, B), seguridad (S) y complejidad (C901).
 # Un aviso que se revisa y no es un fallo lleva `# noqa: <regla>` en su línea, con el motivo; los S608 de
 # storage/db.py solo interpolan marcadores "?" o cláusulas fijas del propio módulo.
 src = ["py"]
@@ -6,6 +6,10 @@ include = ["py/**/*.py"]
 target-version = "py310"
 
 [lint]
-select = ["F", "E9", "PLE", "B", "S"]
+select = ["F", "E9", "PLE", "B", "S", "C901"]
 # Ejecutar procesos es la función de este backend: S603, S606 y S607 avisan de cualquier llamada a subprocess.
 ignore = ["S603", "S606", "S607"]
+
+# Ninguna función pasa de 12 caminos: la que crece se divide, no se marca con noqa.
+[lint.mccabe]
+max-complexity = 12

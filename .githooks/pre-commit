@@ -1,0 +1,9 @@
+#!/bin/sh
+# Antes de cada commit que toca el backend o su configuración de análisis, ruff y pyright (npm run lint),
+# los mismos que la CI. Analizan el árbol de trabajo, no solo lo preparado. Se salta con git commit --no-verify.
+if git diff --cached --name-only | grep -qE '^(py/|ruff\.toml$|pyrightconfig\.json$)'; then
+  if ! npm run --silent lint; then
+    echo "pre-commit: npm run lint ha fallado; corrige los avisos antes del commit." >&2
+    exit 1
+  fi
+fi

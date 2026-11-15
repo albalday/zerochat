@@ -12,6 +12,8 @@
     "build:runner": "npm run build:sandbox && node scripts/build-runner.mjs",
     "build": "npm run build:vendor && npm run build:backend && npm run build:runner",
     "bump": "node scripts/bump-version.mjs",
+    "lint": "uvx ruff@0.17.5 check && npx --yes pyright@1.1.414",
+    "prepare": "node scripts/install-git-hooks.mjs",
     "test": "node scripts/test-runner.mjs",
     "test:all": "node scripts/test-runner.mjs --all",
     "test:changed": "node scripts/test-runner.mjs --changed",
