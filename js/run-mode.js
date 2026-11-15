@@ -20,7 +20,6 @@
   const getMcpManager = () => resolveDep('ChatMCP', './mcp.js').manager;
   const getProfiles = () => resolveDep('ChatProfileRepository', './profile-repository.js');
   const getToolCards = () => resolveDep('ChatToolCards', './tool-cards.js');
-  const getToolSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
 
   // El streaming informa como mucho cada este intervalo; el resto de avisos, siempre.
   const STREAM_PROGRESS_INTERVAL_MS = 2000;
@@ -134,35 +133,15 @@
   }
 
   /**
-   * Hidrata en ChatToolSecurity las políticas de herramientas enviadas para la sesión.
-   */
-  function hydrateToolSecurity(toolSecurity) {
-    if (!toolSecurity) return;
-    const security = getToolSecurity()?.manager;
-    if (!security) return;
-    const data = typeof toolSecurity === 'string' ? JSON.parse(toolSecurity) : toolSecurity;
-    if (typeof data !== 'object' || data === null) return;
-    security.applyPolicies(data);
-  }
-
-  /**
    * Contesta cada petición de autorización:
-   * - Si `toolDecision` es de esa herramienta, contesta con la decisión del usuario una sola vez.
-   * - En modo conversación (pauseOnApproval = true sin allowDangerous): devuelve 'pause_for_user'
-   *   y emite un aviso de tipo 'user_request'.
+   * - En modo conversación (pauseOnApproval = true): devuelve 'pause_for_user' y emite un aviso de tipo
+   *   'user_request'; la persona contesta después, así que nunca se aprueba sola.
    * - En modo clásico (pauseOnApproval = false): permitida para la sesión, salvo las herramientas que
    *   escriben o ejecutan sin allowDangerous, que se deniegan.
    */
-  function answerToolApprovals(allowDangerous, report, { pauseOnApproval = false, toolDecision = null } = {}) {
-    let pendingDecision = toolDecision && typeof toolDecision.toolName === 'string' ? toolDecision : null;
+  function answerToolApprovals(allowDangerous, report, { pauseOnApproval = false } = {}) {
     getToolCards().setAuthorizationResponder(toolName => {
-      if (pendingDecision?.toolName === toolName) {
-        const { decision } = pendingDecision;
-        pendingDecision = null;
-        report({ kind: 'approval_allowed', text: toolName });
-        return decision;
-      }
-      if (pauseOnApproval && !allowDangerous) {
+      if (pauseOnApproval) {
         report({ kind: 'user_request', text: toolName });
         return 'pause_for_user';
       }
@@ -188,7 +167,8 @@
    * { started, unavailable }, `submitComposerText` envía el prompt
    * como el usuario (o continúa con `{ resume: true }`) y devuelve { text } o { error },
    * `stopGeneration` la detiene, `exportConversation` da la conversación activa en un formato de
-   * ChatExport y `switchToSession` cambia a una conversación existente.
+   * ChatExport y `switchToSession` cambia a una conversación existente. `startNewSession`, solo en el
+   * runner de Node, abre sin --conversation la conversación nueva cuyo id eligió el servidor.
    */
   async function start(runId, {
     startupConnection,
@@ -198,7 +178,8 @@
     submitComposerText,
     stopGeneration,
     exportConversation,
-    switchToSession
+    switchToSession,
+    startNewSession = null
   }) {
     const send = (method, params = {}) => getMcpManager().requestExternalControl(method, { run_id: runId, ...params });
     const report = createProgressReporter(event => {
@@ -213,11 +194,12 @@
         prompt,
         profile,
         profile_data: profileData,
+        profiles: serverProfiles,
         export: exportFormat,
         keep_page: keepPageRequested,
         allow_dangerous_tools: allowDangerous,
         conversation_id: conversationId,
-        tool_security: toolSecurity
+        new_conversation_id: newConversationId
       } = await send('zerochat/run/prompt');
       keepPage = keepPageRequested === true;
 
@@ -226,35 +208,35 @@
         throw new Error('The local server returned no prompt.');
       }
 
+      // Los perfiles del servidor quedan en memoria para esta ejecución: el de la ejecución y los que
+      // switch_model puede activar si el usuario los nombra. La credencial del runner no los puede listar.
+      // Llegan sin API key: la de uno se pide al servidor al activarlo; la del de la ejecución viene en profile_data.
+      getProfiles().setSessionKeyLoader(async id => (await send('zerochat/run/profile', { id }))?.profile);
+      for (const serverProfile of Array.isArray(serverProfiles) ? serverProfiles : []) {
+        try {
+          getProfiles().registerSessionProfile(serverProfile, { keyless: true });
+        } catch (error) {
+          console.warn('[RunMode] Skipping an invalid server profile:', error);
+        }
+      }
+      if (profileData) getProfiles().registerSessionProfile(profileData);
+
       if (profile) {
-        let match = getProfiles().findByName(profile) || getProfiles().get(profile);
-        if (!match && profileData && (profileData.name === profile || profileData.id === profile)) {
-          match = getProfiles().registerSessionProfile(profileData);
-        }
-        if (!match) {
-          const serverProfiles = await getMcpManager().listServerProfiles();
-          const target = String(profile).trim().toLowerCase();
-          const serverMatch = serverProfiles.find(item => item.id === profile || String(item.name || '').trim().toLowerCase() === target);
-          if (serverMatch) {
-            match = getProfiles().registerSessionProfile(serverMatch);
-          }
-        }
+        const match = getProfiles().findByName(profile) || getProfiles().get(profile);
         if (!match) throw new Error(`Profile not found: ${profile}`);
         const { unavailable } = await activateSessionProfile(match.id);
         if (unavailable.length > 0) throw new Error(`MCP servers of the profile are not available: ${unavailable.join(', ')}`);
         report({ kind: 'profile', text: match.name });
       }
 
-      const parsedSecurity = typeof toolSecurity === 'string' ? JSON.parse(toolSecurity) : toolSecurity;
-      if (parsedSecurity) hydrateToolSecurity(parsedSecurity);
-
-      answerToolApprovals(allowDangerous === true, report, {
-        pauseOnApproval: isConversationMode,
-        toolDecision: parsedSecurity?.tool_decision
-      });
+      // La llamada que la persona aprobó al reanudar no llega aquí como reto: la ejecuta el servidor.
+      answerToolApprovals(allowDangerous === true, report, { pauseOnApproval: isConversationMode });
 
       if (isConversationMode) {
         await switchToSession(conversationId);
+      } else if (newConversationId && startNewSession) {
+        // El runner de Node solo puede guardar la conversación que eligió el servidor.
+        startNewSession(newConversationId);
       }
 
       let generated = null;
@@ -325,7 +307,6 @@
     pendingAskUserQuestion,
     pendingToolApproval,
     prepareConversationForContinuation,
-    hydrateToolSecurity,
     answerToolApprovals,
     start
   };

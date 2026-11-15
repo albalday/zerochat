@@ -185,17 +185,17 @@ class StorageEngineTest(unittest.TestCase):
             "description": "Perfil general via RPC",
             "settings": {"apiUrl": "https://api.anthropic.com/v1", "model": "claude-3-5-sonnet", "apiKey": "sk-ant-test"}
         }
-        res, err, _ = handler._dispatch_profiles("zerochat/profiles/save", {"profile": payload})
+        res, err, _ = zerochat.dispatch_profiles("zerochat/profiles/save", {"profile": payload})
         self.assertIsNone(err)
         self.assertEqual(res["profile"]["name"], "Claude Sonnet")
         prof_id = res["profile"]["id"]
 
-        res, err, _ = handler._dispatch_profiles("zerochat/profiles/list", {})
+        res, err, _ = zerochat.dispatch_profiles("zerochat/profiles/list", {})
         self.assertIsNone(err)
         self.assertEqual(len(res["profiles"]), 1)
         self.assertEqual(res["profiles"][0]["settings"]["apiKey"], "sk-ant-test")
 
-        res, err, _ = handler._dispatch_profiles("zerochat/profiles/delete", {"id": prof_id})
+        res, err, _ = zerochat.dispatch_profiles("zerochat/profiles/delete", {"id": prof_id})
         self.assertIsNone(err)
         self.assertTrue(res["deleted"])
 
@@ -207,7 +207,7 @@ class StorageEngineTest(unittest.TestCase):
             "conversation": {"id": "rpc_conv_1", "title": "Conversación RPC", "createdAt": 1700000000000, "updatedAt": 1700000001000},
             "messages": [{"id": "m1", "role": "user", "content": "Hola desde RPC"}]
         }
-        res, err, _ = handler._dispatch_local("zerochat/conversations/save", payload1, zerochat.project_context())
+        res, err, _ = zerochat.dispatch_local("zerochat/conversations/save", payload1, zerochat.project_context())
         self.assertIsNone(err)
         self.assertEqual(res["conversation"]["id"], "rpc_conv_1")
         self.assertEqual(res["conversation"]["title"], "Conversación RPC")
@@ -223,57 +223,57 @@ class StorageEngineTest(unittest.TestCase):
             },
             "messages": [{"id": "m2", "role": "user", "content": "Otro mensaje"}]
         }
-        res, err, _ = handler._dispatch_conversations("zerochat/conversations/save", payload2)
+        res, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save", payload2)
         self.assertIsNone(err)
         self.assertEqual(res["conversation"]["id"], "rpc_conv_2")
         self.assertEqual(res["conversation"]["messageCount"], 1)
 
         # 3. Listar conversaciones
-        res, err, _ = handler._dispatch_local("zerochat/conversations/list", {}, zerochat.project_context())
+        res, err, _ = zerochat.dispatch_local("zerochat/conversations/list", {}, zerochat.project_context())
         self.assertIsNone(err)
         self.assertEqual(len(res["conversations"]), 2)
         self.assertEqual(res["conversations"][0]["id"], "rpc_conv_2")
 
         # 4. Obtener conversación completa por id
-        res, err, _ = handler._dispatch_local("zerochat/conversations/get", {"id": "rpc_conv_1"}, zerochat.project_context())
+        res, err, _ = zerochat.dispatch_local("zerochat/conversations/get", {"id": "rpc_conv_1"}, zerochat.project_context())
         self.assertIsNone(err)
         self.assertIsNotNone(res["conversation"])
         self.assertEqual(res["conversation"]["id"], "rpc_conv_1")
         self.assertEqual(len(res["conversation"]["history"]), 1)
         self.assertEqual(res["conversation"]["history"][0]["content"], "Hola desde RPC")
 
-        res_inexist, err_inexist, _ = handler._dispatch_conversations("zerochat/conversations/get", {"id": "inexistente"})
+        res_inexist, err_inexist, _ = zerochat.dispatch_conversations("zerochat/conversations/get", {"id": "inexistente"})
         self.assertIsNone(err_inexist)
         self.assertIsNone(res_inexist["conversation"])
 
         # 5. Renombrar conversación
-        res, err, _ = handler._dispatch_local("zerochat/conversations/rename", {"id": "rpc_conv_1", "title": "Título Modificado"}, zerochat.project_context())
+        res, err, _ = zerochat.dispatch_local("zerochat/conversations/rename", {"id": "rpc_conv_1", "title": "Título Modificado"}, zerochat.project_context())
         self.assertIsNone(err)
         self.assertTrue(res["renamed"])
 
-        res, _, _ = handler._dispatch_conversations("zerochat/conversations/get", {"id": "rpc_conv_1"})
+        res, _, _ = zerochat.dispatch_conversations("zerochat/conversations/get", {"id": "rpc_conv_1"})
         self.assertEqual(res["conversation"]["title"], "Título Modificado")
 
-        res_ren_inexist, err, _ = handler._dispatch_conversations("zerochat/conversations/rename", {"id": "inexistente", "title": "Nuevo"})
+        res_ren_inexist, err, _ = zerochat.dispatch_conversations("zerochat/conversations/rename", {"id": "inexistente", "title": "Nuevo"})
         self.assertIsNone(err)
         self.assertFalse(res_ren_inexist["renamed"])
 
         # 6. Borrar una conversación
-        res, err, _ = handler._dispatch_local("zerochat/conversations/delete", {"id": "rpc_conv_1"}, zerochat.project_context())
+        res, err, _ = zerochat.dispatch_local("zerochat/conversations/delete", {"id": "rpc_conv_1"}, zerochat.project_context())
         self.assertIsNone(err)
         self.assertTrue(res["deleted"])
 
-        res_del_inexist, err, _ = handler._dispatch_conversations("zerochat/conversations/delete", {"id": "rpc_conv_1"})
+        res_del_inexist, err, _ = zerochat.dispatch_conversations("zerochat/conversations/delete", {"id": "rpc_conv_1"})
         self.assertIsNone(err)
         self.assertFalse(res_del_inexist["deleted"])
 
         # 7. Borrar todas las conversaciones
-        res, err, _ = handler._dispatch_conversations("zerochat/conversations/delete", {"all": True})
+        res, err, _ = zerochat.dispatch_conversations("zerochat/conversations/delete", {"all": True})
         self.assertIsNone(err)
         self.assertTrue(res["deleted"])
         self.assertEqual(res["count"], 1)
 
-        res_empty, _, _ = handler._dispatch_conversations("zerochat/conversations/list", {})
+        res_empty, _, _ = zerochat.dispatch_conversations("zerochat/conversations/list", {})
         self.assertEqual(len(res_empty["conversations"]), 0)
 
     def test_rpc_dispatch_conversations_validaciones(self):
@@ -282,24 +282,24 @@ class StorageEngineTest(unittest.TestCase):
         # get: id vacío o ausente (-32602)
         for bad_id in ({}, {"id": ""}, {"id": "   "}, {"id": 123}):
             with self.subTest(bad_id=bad_id):
-                _, err, _ = handler._dispatch_conversations("zerochat/conversations/get", bad_id)
+                _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/get", bad_id)
                 self.assertIsNotNone(err)
                 self.assertEqual(err["code"], -32602)
 
         # save: conversation no objeto o ausente (-32602)
         for bad_conv in ({}, {"conversation": None}, {"conversation": "no-dict"}):
             with self.subTest(bad_conv=bad_conv):
-                _, err, _ = handler._dispatch_conversations("zerochat/conversations/save", bad_conv)
+                _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save", bad_conv)
                 self.assertIsNotNone(err)
                 self.assertEqual(err["code"], -32602)
 
         # save: messages no lista (-32602)
-        _, err, _ = handler._dispatch_conversations("zerochat/conversations/save", {"conversation": {"id": "x"}, "messages": "no-lista"})
+        _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save", {"conversation": {"id": "x"}, "messages": "no-lista"})
         self.assertIsNotNone(err)
         self.assertEqual(err["code"], -32602)
 
         # save: límite de título N+1 (-32602)
-        _, err, _ = handler._dispatch_conversations("zerochat/conversations/save", {
+        _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save", {
             "conversation": {"id": "x", "title": "t" * (zerochat.MAX_CONVERSATION_TITLE_LENGTH + 1)}
         })
         self.assertIsNotNone(err)
@@ -314,12 +314,12 @@ class StorageEngineTest(unittest.TestCase):
             {"id": "x", "title": 123}
         ):
             with self.subTest(bad_rename=bad_rename):
-                _, err, _ = handler._dispatch_conversations("zerochat/conversations/rename", bad_rename)
+                _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/rename", bad_rename)
                 self.assertIsNotNone(err)
                 self.assertEqual(err["code"], -32602)
 
         # rename: título N+1 (-32602)
-        _, err, _ = handler._dispatch_conversations("zerochat/conversations/rename", {
+        _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/rename", {
             "id": "x",
             "title": "t" * (zerochat.MAX_CONVERSATION_TITLE_LENGTH + 1)
         })
@@ -329,12 +329,12 @@ class StorageEngineTest(unittest.TestCase):
         # delete: id vacío sin all=True (-32602)
         for bad_delete in ({}, {"id": ""}, {"id": "   "}, {"id": 123}):
             with self.subTest(bad_delete=bad_delete):
-                _, err, _ = handler._dispatch_conversations("zerochat/conversations/delete", bad_delete)
+                _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/delete", bad_delete)
                 self.assertIsNotNone(err)
                 self.assertEqual(err["code"], -32602)
 
         # método no soportado (-32601)
-        _, err, _ = handler._dispatch_conversations("zerochat/conversations/desconocido", {})
+        _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/desconocido", {})
         self.assertIsNotNone(err)
         self.assertEqual(err["code"], -32601)
 
@@ -653,7 +653,7 @@ class StorageEngineTest(unittest.TestCase):
         expected_id = zerochat.hashlib.sha256(raw).hexdigest()
 
         # zerochat/blobs/put
-        res, err, _ = handler._dispatch_local("zerochat/blobs/put", {
+        res, err, _ = zerochat.dispatch_local("zerochat/blobs/put", {
             "mimeType": "image/png",
             "data": f"data:image/png;base64,{b64}"
         }, zerochat.project_context())
@@ -663,17 +663,17 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(res["size"], len(raw))
 
         # zerochat/blobs/get
-        res, err, _ = handler._dispatch_local("zerochat/blobs/get", {"id": expected_id}, zerochat.project_context())
+        res, err, _ = zerochat.dispatch_local("zerochat/blobs/get", {"id": expected_id}, zerochat.project_context())
         self.assertIsNone(err)
         self.assertEqual(res["blob"]["id"], expected_id)
         self.assertEqual(res["blob"]["data"], b64)
 
         # zerochat/blobs/has
-        res, err, _ = handler._dispatch_local("zerochat/blobs/has", {"ids": [expected_id, "0" * 64]}, zerochat.project_context())
+        res, err, _ = zerochat.dispatch_local("zerochat/blobs/has", {"ids": [expected_id, "0" * 64]}, zerochat.project_context())
         self.assertIsNone(err)
         self.assertEqual(res["existing"], [expected_id])
         self.assertEqual(res["missing"], ["0" * 64])
 
         # Error en put sin data
-        res, err, _ = handler._dispatch_local("zerochat/blobs/put", {}, zerochat.project_context())
+        res, err, _ = zerochat.dispatch_local("zerochat/blobs/put", {}, zerochat.project_context())
         self.assertEqual(err["code"], -32602)

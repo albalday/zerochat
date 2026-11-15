@@ -197,7 +197,8 @@ def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed) -
     if hostname.endswith("duckduckgo.com"):
         req_headers["Referer"] = f"{parsed.scheme}://{parsed.netloc}/"
 
-    req = urllib.request.Request(url, headers=req_headers)
+    # El esquema (http/https) se valida antes, también en cada redirección.
+    req = urllib.request.Request(url, headers=req_headers)  # noqa: S310
     try:
         with _WEB_OPENER.open(req, timeout=timeout_s) as resp:
             content_type = resp.headers.get("Content-Type", "")

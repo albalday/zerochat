@@ -17,7 +17,7 @@ const CORS = {
  * Servidor local falso: registra las llamadas zerochat/run/* y los servicios MCP externos que se
  * arrancan, y retiene el prompt hasta `release`.
  */
-async function routeBackend(page, prompt, { profile, profileData = null, serverProfiles = [], exportFormat, keepPage = false, allowDangerous = false, externalServers = [], conversationId = null, toolSecurity = null, initialConversation = null } = {}) {
+async function routeBackend(page, prompt, { profile, profileData = null, serverProfiles = [], exportFormat, keepPage = false, allowDangerous = false, externalServers = [], conversationId = null, initialConversation = null } = {}) {
   const calls = [];
   const started = [];
   const saved = [];
@@ -41,7 +41,6 @@ async function routeBackend(page, prompt, { profile, profileData = null, serverP
       });
     }
     if (method === 'zerochat/heartbeat') return reply(liveState());
-    if (method === 'zerochat/profiles/list') return reply({ profiles: serverProfiles });
     if (method === 'zerochat/conversations/list') {
       return reply({ conversations: initialConversation ? [{ id: initialConversation.id, title: initialConversation.title, updatedAt: Date.now(), messageCount: initialConversation.history.length }] : [] });
     }
@@ -79,12 +78,15 @@ async function routeBackend(page, prompt, { profile, profileData = null, serverP
           conversation_id: conversationId,
           profile: profile ?? null,
           profile_data: profileData ?? null,
+          // Como el backend real: la credencial del runner no puede listar los perfiles, que llegan aquí sin
+          // su API key; la pide con zerochat/run/profile al activar uno.
+          profiles: serverProfiles.map(({ settings, ...rest }) => ({ ...rest, settings: { ...settings, apiKey: undefined } })),
           export: exportFormat ?? null,
           keep_page: keepPage,
-          allow_dangerous_tools: allowDangerous,
-          tool_security: toolSecurity
+          allow_dangerous_tools: allowDangerous
         });
       }
+      if (method === 'zerochat/run/profile') return reply({ profile: serverProfiles.find(item => item.id === params.id) });
       if (method === 'zerochat/run/result') receiveResult();
       return reply({ ok: true });
     }
@@ -200,7 +202,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     await missing.page.waitForFunction(() => window.__closed === true);
     assert.deepEqual(resultOf(missing.backend), { run_id: RUN_ID, error: 'Profile not found: No existe' });
 
-    // Perfil del servidor (no está en localStorage del navegador y se resuelve desde el backend)
+    // Perfil del servidor (no está en localStorage del navegador y llega con zerochat/run/prompt)
     const serverRun = await openRun(browser, server, 'Hola desde servidor', {
       profile: 'local',
       seedProfiles: false,
@@ -213,6 +215,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     await serverRun.page.evaluate(() => {
       window.ChatAPI.streamChatCompletion = async params => {
         window.__model = params.model;
+        window.__apiKey = params.apiKey;
         return { accumulatedText: 'servidor ok', toolCalls: null, stats: null };
       };
     });
@@ -220,6 +223,8 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     await serverRun.page.waitForFunction(() => window.__closed === true);
     assert.deepEqual(resultOf(serverRun.backend), { run_id: RUN_ID, text: 'servidor ok' });
     assert.equal(await serverRun.page.evaluate(() => window.__model), 'server-llama');
+    assert.equal(await serverRun.page.evaluate(() => window.__apiKey), 'sk-server-key', 'la clave se pide al servidor al activar el perfil');
+    assert.ok(serverRun.backend.calls.some(call => call.method === 'zerochat/run/profile' && call.params.id === 'profile:server-local'));
   });
 
   test('Browser UI - el modo ejecución arranca solo los servicios MCP del perfil y Playwright MCP si es la herramienta de navegación o el perfil lo exige, y falla si alguno no está configurado', async () => {
@@ -313,7 +318,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     assert.deepEqual(resultOf(ask.backend), { run_id: RUN_ID, error: 'The run needs the user: ¿A o B?' });
   });
 
-  test('Browser UI - el modo ejecución con conversation_id reanuda un paso pausado con la decisión del usuario (un solo uso) y devuelve needs_input al volver a pedir permiso', async () => {
+  test('Browser UI - el modo ejecución con conversation_id retira el paso pausado, vuelve a llamar al modelo y devuelve needs_input al pedir permiso', async () => {
     const initialConversation = {
       id: 'conv_resume_e2e',
       title: 'Conversación pausada',
@@ -338,28 +343,16 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     };
     const { page, backend } = await openRun(browser, server, null, {
       conversationId: 'conv_resume_e2e',
-      initialConversation,
-      toolSecurity: { tool_decision: { toolName: 'write_file', decision: 'allow_once' } }
+      initialConversation
     });
     await page.evaluate(() => {
       window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
-      let step = 0;
-      window.ChatAPI.streamChatCompletion = async () => {
-        step += 1;
-        if (step === 1) {
-          return {
-            accumulatedText: 'Escribiendo el primero',
-            toolCalls: [{ id: 'call_w1', type: 'function', function: { name: 'write_file', arguments: '{"path":"a.txt","content":"1"}' } }],
-            stats: null
-          };
-        }
-        // En el segundo paso vuelve a llamar a write_file: la decisión ya se consumió y debe pausar con needs_input.
-        return {
-          accumulatedText: 'Intentando el segundo',
-          toolCalls: [{ id: 'call_w2', type: 'function', function: { name: 'write_file', arguments: '{"path":"b.txt","content":"2"}' } }],
-          stats: null
-        };
-      };
+      // El modelo vuelve a generar el paso pausado: su reto pausa otra vez, porque el runner nunca aprueba solo.
+      window.ChatAPI.streamChatCompletion = async () => ({
+        accumulatedText: 'Escribiendo el primero',
+        toolCalls: [{ id: 'call_w1', type: 'function', function: { name: 'write_file', arguments: '{"path":"a.txt","content":"1"}' } }],
+        stats: null
+      });
     });
     backend.release();
     await page.waitForFunction(() => window.__closed === true);
@@ -559,7 +552,8 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     await page.locator('.tool-card-auth-prompt .btn-auth-allow-once').click();
     await page.waitForFunction(() => document.querySelector('.server-run-live-wrapper') !== null);
     assert.equal(startCalls.length, 2);
-    assert.deepEqual(startCalls[1].tool_security.tool_decision, { toolName: 'write_file', decision: 'allow_once' });
+    // La decisión viaja con los argumentos de la llamada aprobada: solo vale para ella.
+    assert.deepEqual(startCalls[1].tool_security.tool_decision, { toolName: 'write_file', args: { path: 'out.txt', content: 'hola' }, decision: 'allow_once' });
 
     // Ahora el servidor pausa en ask_user y el usuario responde pulsando una opción.
     const convAfterResume = savedConversations.get(activeConvId);

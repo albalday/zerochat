@@ -67,7 +67,6 @@ class ProjectSession:
     servers: dict[str, dict] = dataclasses.field(default_factory=dict)
     command_patterns: list[str] = dataclasses.field(default_factory=list)
     challenges: dict[str, dict] = dataclasses.field(default_factory=dict)
-    one_time_tools: set[str] = dataclasses.field(default_factory=set)
 
     def entries(self, kind: str) -> dict[str, dict]:
         return self.tools if kind == "tools" else self.servers
@@ -235,22 +234,30 @@ class AccessController:
         clean_patterns = normalize_command_patterns(state["commandPatterns"]) if "commandPatterns" in state else None
 
         def mutator(current: dict) -> dict:
-            if clean_global is not None:
-                current["globalMcpPolicy"] = clean_global
-            if clean_rules is not None:
-                current["directoryRules"] = clean_rules
-            if added_rules:
-                current["directoryRules"] = self._append_rules(current["directoryRules"], added_rules)
-            if clean_tools is not None:
-                current["tools"] = self._apply_entry_patch(current.get("tools"), clean_tools)
-            if clean_servers is not None:
-                current["servers"] = self._apply_entry_patch(current.get("servers"), clean_servers)
-            if clean_patterns is not None:
-                current["commandPatterns"] = clean_patterns
+            self._apply_state_patch(current, clean_global, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns)
             self._check_entry_limit(current)
             return current
         self._update_permanent(mutator)
-        # Lo guardado vale para todos los proyectos: sustituye o revoca lo equivalente en la sesión de cada uno.
+        self._forget_session_overrides(clean_global, clean_rules, added_rules, clean_tools, clean_servers)
+        return self.export_state(context)
+
+    def _apply_state_patch(self, current: dict, clean_global, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns):
+        """Aplica sobre el estado guardado los apartados del parche que vienen (None es «no cambiar»)."""
+        if clean_global is not None:
+            current["globalMcpPolicy"] = clean_global
+        if clean_rules is not None:
+            current["directoryRules"] = clean_rules
+        if added_rules:
+            current["directoryRules"] = self._append_rules(current["directoryRules"], added_rules)
+        if clean_tools is not None:
+            current["tools"] = self._apply_entry_patch(current.get("tools"), clean_tools)
+        if clean_servers is not None:
+            current["servers"] = self._apply_entry_patch(current.get("servers"), clean_servers)
+        if clean_patterns is not None:
+            current["commandPatterns"] = clean_patterns
+
+    def _forget_session_overrides(self, clean_global, clean_rules, added_rules, clean_tools, clean_servers):
+        """Lo guardado vale para todos los proyectos: sustituye o revoca lo equivalente en la sesión de cada uno."""
         with self._lock:
             for session in self.sessions.values():
                 if clean_global is not None:
@@ -262,7 +269,6 @@ class AccessController:
                 for kind, patch in (("tools", clean_tools), ("servers", clean_servers)):
                     for item_id in patch or {}:
                         session.entries(kind).pop(item_id, None)
-        return self.export_state(context)
 
     @staticmethod
     def _append_rules(rules: list[str], new_rules: list[str]) -> list[str]:
@@ -383,11 +389,9 @@ class AccessController:
             dec_type = raw_dec
             raw_pattern = None
             raw_dir_rule = None
-        if not isinstance(dec_type, str) or dec_type not in AUTHORIZE_DECISIONS:
-            return
-        if dec_type == "allow_once":
-            with self._lock:
-                self._session(context).one_time_tools.add(tool_name)
+        # «Solo esta vez» no guarda nada, ni en sesión ni de forma permanente: al reanudar, el runner contesta
+        # con ella el reto de esa misma llamada, que se ejecuta y se consume. Tampoco vuelve con la rotación del token.
+        if not isinstance(dec_type, str) or dec_type not in AUTHORIZE_DECISIONS or dec_type == "allow_once":
             return
         pattern = normalize_command_pattern(raw_pattern) if (raw_pattern and tool_name == COMMAND_TOOL) else None
         rules = self._validate_directory_rules([raw_dir_rule], context) if raw_dir_rule else []
@@ -480,34 +484,47 @@ class AccessController:
         """
         tool, server_name, server_id = challenge["toolName"], challenge["serverName"], challenge["serverId"]
         if decision == "allow_session":
-            with self._lock:
-                session = self._session(context)
-                if pattern:
-                    session.command_patterns = self._limit_patterns(
-                        clean_pattern_list(session.command_patterns + [pattern], "commandPatterns.session"))
-                else:
-                    session.tools[tool] = self._make_entry("tools", POLICY_ALLOW, SCOPE_SESSION, server_name, tool)
+            self._allow_for_session(context, tool, server_name, pattern)
         permanent = decision in ("allow_project", "allow_always", "allow_server_always")
         if not permanent and not rules:
             return
         project = context.key
 
         def mutator(state: dict) -> dict:
-            saved = state["commandPatterns"]
-            if pattern and decision == "allow_project":
-                projects = {**saved["projects"], project: [*(saved["projects"].get(project) or []), pattern]}
-                state["commandPatterns"] = normalize_command_patterns({**saved, "projects": projects})
-            elif pattern and decision == "allow_always":
-                state["commandPatterns"] = normalize_command_patterns({**saved, "global": [*saved["global"], pattern]})
-            elif decision == "allow_always":
-                state["tools"][tool] = self._make_entry("tools", POLICY_ALLOW, SCOPE_PERMANENT, server_name, tool)
-            elif decision == "allow_server_always":
-                state["servers"][server_id] = self._make_entry("servers", POLICY_ALLOW, SCOPE_PERMANENT, server_name or server_id)
+            self._store_decision(state, decision, pattern, project, tool, server_name, server_id)
             if rules:
                 state["directoryRules"] = self._append_rules(state["directoryRules"], rules)
             self._check_entry_limit(state)
             return state
         self._update_permanent(mutator)
+        self._drop_superseded_session_entries(decision, pattern, tool, server_id, rules)
+
+    def _allow_for_session(self, context: SecurityContext, tool: str, server_name: str, pattern: str | None):
+        """«Permitir en la sesión»: el patrón de comando aprobado o, sin él, la herramienta."""
+        with self._lock:
+            session = self._session(context)
+            if pattern:
+                session.command_patterns = self._limit_patterns(
+                    clean_pattern_list(session.command_patterns + [pattern], "commandPatterns.session"))
+            else:
+                session.tools[tool] = self._make_entry("tools", POLICY_ALLOW, SCOPE_SESSION, server_name, tool)
+
+    def _store_decision(self, state: dict, decision: str, pattern: str | None, project: str, tool: str,
+                        server_name: str, server_id: str):
+        """Guarda una decisión permanente: el patrón del proyecto o global, la herramienta o el servidor."""
+        saved = state["commandPatterns"]
+        if pattern and decision == "allow_project":
+            projects = {**saved["projects"], project: [*(saved["projects"].get(project) or []), pattern]}
+            state["commandPatterns"] = normalize_command_patterns({**saved, "projects": projects})
+        elif pattern and decision == "allow_always":
+            state["commandPatterns"] = normalize_command_patterns({**saved, "global": [*saved["global"], pattern]})
+        elif decision == "allow_always":
+            state["tools"][tool] = self._make_entry("tools", POLICY_ALLOW, SCOPE_PERMANENT, server_name, tool)
+        elif decision == "allow_server_always":
+            state["servers"][server_id] = self._make_entry("servers", POLICY_ALLOW, SCOPE_PERMANENT, server_name or server_id)
+
+    def _drop_superseded_session_entries(self, decision: str, pattern: str | None, tool: str, server_id: str, rules: list[str]):
+        """Lo que se acaba de guardar sustituye a lo equivalente en la sesión de cada proyecto."""
         with self._lock:
             for session in self.sessions.values():
                 if decision == "allow_always" and not pattern:
@@ -532,12 +549,6 @@ class AccessController:
         8. Por defecto -> ask (solicitar confirmación), con la regla sugerida si la hay.
         """
         status, reason, details, offer = self._evaluate(tool_name, dict(raw_args or {}), context, server_id)
-        if status == POLICY_ASK:
-            with self._lock:
-                one_time = self._session(context).one_time_tools
-                if tool_name in one_time:
-                    one_time.discard(tool_name)
-                    status, reason, details, offer = POLICY_ALLOW, "one_time_allow_rule", "", None
         return AccessDecision(allowed=status == POLICY_ALLOW, status=status, reason=reason,
                               requires_approval=status == POLICY_ASK, tool_id=tool_name, server_name=server_name,
                               server_id=server_id, details=details, rule_offer=offer)

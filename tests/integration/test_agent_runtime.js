@@ -758,3 +758,44 @@ test('AgentRuntime - render_chart ejecuta y persiste datos de gráficos en Node 
   assert.equal(result.finalText, 'Gráfico mostrado correctamente.');
 });
 
+
+test('AgentRuntime - resolveConnection cambia de modelo desde el siguiente paso sin reenviarle el razonamiento del anterior', async t => {
+  const ChatEngine = require('../../js/chat-engine.js');
+  const registry = new ToolRegistry();
+  let connection = { model: 'a', reasoningEffort: 'high' };
+  registry.registerTool(makeTool({ name: 'switch', execute: async () => { connection = { model: 'b', apiKey: 'kb', reasoningEffort: 'low' }; return { ok: true }; } }));
+  registry.registerTool(makeTool({ name: 'lookup', execute: async () => ({ ok: true }) }));
+
+  const sent = [];
+  const result = await runAgent(t, registry, {
+    api: {
+      streamChatCompletion: async params => {
+        sent.push(params);
+        const name = ['lookup', 'switch'][sent.length - 1];
+        if (!name) return { accumulatedText: 'Hecho.', toolCalls: [] };
+        return {
+          accumulatedText: '',
+          reasoningReplay: { field: 'reasoning_content', text: `plan ${sent.length}` },
+          toolCalls: [{ id: `call_${sent.length}`, type: 'function', function: { name, arguments: '{}' } }]
+        };
+      }
+    },
+    model: 'a',
+    apiKey: 'ka',
+    reasoningEffort: 'high',
+    resolveConnection: () => connection,
+    prepareMessages: messages => ChatEngine.buildEffectiveMessages(messages, require('../../js/config-store.js').normalize({})),
+    messages: [{ role: 'user', content: 'Busca y cambia.' }]
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.deepEqual(sent.map(params => [params.model, params.apiKey, params.reasoningEffort]), [['a', 'ka', 'high'], ['a', 'ka', 'high'], ['b', 'kb', 'low']]);
+  assert.deepEqual(sent[1].messages.filter(m => m.role === 'assistant').map(m => m.reasoning_content), ['plan 1']);
+  assert.equal(sent[2].messages.some(m => 'reasoning_content' in m), false);
+  // Para el modelo nuevo, lo anterior al cambio es un turno cerrado: un mensaje de usuario que no se guarda.
+  const roles = messages => messages.filter(m => m.role !== 'system').map(m => m.role);
+  assert.deepEqual(roles(sent[1].messages), ['user', 'assistant', 'tool']);
+  assert.deepEqual(roles(sent[2].messages), ['user', 'assistant', 'tool', 'assistant', 'tool', 'user']);
+  assert.match(sent[2].messages.at(-1).content, /switched the model/);
+  assert.deepEqual(result.history.map(m => m.role), ['user', 'assistant', 'tool', 'assistant', 'tool', 'assistant']);
+});

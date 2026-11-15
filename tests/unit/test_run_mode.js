@@ -71,31 +71,16 @@ test('RunMode.answerToolApprovals permite para la sesión salvo las herramientas
   }
 });
 
-test('RunMode.answerToolApprovals en modo conversación pausa para el usuario salvo con allowDangerous o la decisión del usuario (un solo uso)', t => {
+test('RunMode.answerToolApprovals en modo conversación siempre pausa para el usuario', t => {
   const ToolCards = require('../../js/tool-cards.js');
   let responder = null;
   t.mock.method(ToolCards, 'setAuthorizationResponder', fn => { responder = fn; });
 
   const events = [];
-  RunMode.answerToolApprovals(false, event => events.push(event), {
-    pauseOnApproval: true,
-    toolDecision: { toolName: 'write_file', decision: { decision: 'allow_always', directoryRule: 'W:src/**' } }
-  });
-  assert.deepEqual(responder('write_file'), { decision: 'allow_always', directoryRule: 'W:src/**' }, 'la primera llamada recibe la decisión del usuario');
-  assert.equal(responder('write_file'), 'pause_for_user', 'segunda llamada vuelve a pausar');
-  assert.equal(responder('run_command'), 'pause_for_user');
-  assert.deepEqual(events, [
-    { kind: 'approval_allowed', text: 'write_file' },
-    { kind: 'user_request', text: 'write_file' },
-    { kind: 'user_request', text: 'run_command' }
-  ]);
-
-  const dangerousEvents = [];
-  RunMode.answerToolApprovals(true, event => dangerousEvents.push(event), { pauseOnApproval: true });
-  assert.equal(responder('write_file'), 'allow_session');
-  assert.deepEqual(dangerousEvents, [
-    { kind: 'approval_allowed', text: 'write_file' }
-  ]);
+  RunMode.answerToolApprovals(true, event => events.push(event), { pauseOnApproval: true });
+  assert.equal(responder('read_file', {}), 'pause_for_user');
+  assert.equal(responder('write_file', { path: 'a.js', content: '1' }), 'pause_for_user');
+  assert.deepEqual(events, [{ kind: 'user_request', text: 'read_file' }, { kind: 'user_request', text: 'write_file' }]);
 });
 
 test('RunMode.pendingToolApproval detecta herramientas pendientes de aprobación en el final del turno', () => {
@@ -127,29 +112,4 @@ test('RunMode.prepareConversationForContinuation retira el paso incompleto con a
   // Si no está esperando aprobación, conserva el historial intacto
   const normalHistory = [user, { role: 'assistant', content: 'respuesta' }];
   assert.deepEqual(RunMode.prepareConversationForContinuation(normalHistory), normalHistory);
-});
-
-test('RunMode.hydrateToolSecurity aplica políticas reales en ToolSecurityManager sin persistir', () => {
-  const ToolSecurity = require('../../js/tool-security.js');
-  const manager = ToolSecurity.manager;
-  manager.applyPolicies({ globalMcpPolicy: 'ask', tools: {}, servers: {}, directoryRules: [] });
-  try {
-    RunMode.hydrateToolSecurity({
-      globalMcpPolicy: 'workspace_trust',
-      tools: {
-        write_file: { policy: 'allow', scope: 'session' }
-      },
-      commandPatterns: { global: ['git'], projects: {}, session: [] },
-      directoryRules: ['R:/tmp/project'],
-      servers: { memory: { policy: 'allow', scope: 'session' } }
-    });
-
-    assert.equal(manager.getGlobalMcpPolicy(), 'workspace_trust');
-    assert.equal(manager.getToolPolicy('write_file'), 'allow');
-    assert.deepEqual(manager.getCommandPatterns().global, ['git']);
-    assert.ok(manager.getDirectoryRules().includes('R:/tmp/project'));
-    assert.equal(manager.getServerPolicy('memory'), 'allow');
-  } finally {
-    manager.applyPolicies({ globalMcpPolicy: 'ask', tools: {}, servers: {}, directoryRules: [] });
-  }
 });

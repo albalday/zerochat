@@ -136,11 +136,17 @@
     return clone(document);
   }
 
-  let sessionProfile = null;
+  // Perfiles del servidor que una ejecución en el servidor usa solo en memoria: el suyo y los que
+  // switch_model puede activar. No se guardan ni aparecen en list().
+  const sessionProfiles = new Map();
+  // Los que llegan sin su API key (`{ keyless: true }`): load() la pide a sessionKeyLoader la primera vez que
+  // se usan, para que del servidor solo salga la clave del perfil que se activa.
+  const keylessSessionProfiles = new Set();
+  let sessionKeyLoader = null;
 
-  function registerSessionProfile(profile) {
+  function registerSessionProfile(profile, { keyless = false } = {}) {
     if (!profile || typeof profile !== 'object') {
-      sessionProfile = null;
+      clearSessionProfile();
       return null;
     }
     const name = String(profile.name || '').trim();
@@ -150,12 +156,25 @@
       : (typeof profile.settings?.apiKey === 'string' ? profile.settings.apiKey : '');
     const sourceSettings = profile.settings || {};
     const settings = { ...sourceSettings, apiKey: rawApiKey };
-    sessionProfile = normalizeRecord({ ...profile, settings }, true);
-    return clone(sessionProfile);
+    const record = normalizeRecord({ ...profile, settings }, true);
+    sessionProfiles.set(record.id, record);
+    if (keyless) keylessSessionProfiles.add(record.id);
+    else keylessSessionProfiles.delete(record.id);
+    return clone(record);
+  }
+
+  /** `loader(id)` devuelve el perfil completo, con su API key, de un perfil de sesión registrado sin ella. */
+  function setSessionKeyLoader(loader) {
+    sessionKeyLoader = typeof loader === 'function' ? loader : null;
+  }
+
+  function listSessionProfiles() {
+    return [...sessionProfiles.values()].map(clone);
   }
 
   function clearSessionProfile() {
-    sessionProfile = null;
+    sessionProfiles.clear();
+    keylessSessionProfiles.clear();
   }
 
   function list() {
@@ -164,15 +183,20 @@
 
   function get(id) {
     const cleanId = String(id || '');
-    if (sessionProfile && (sessionProfile.id === cleanId || sessionProfile.name === cleanId)) {
-      return clone(sessionProfile);
-    }
+    const session = sessionProfiles.get(cleanId) || [...sessionProfiles.values()].find(profile => profile.name === cleanId);
+    if (session) return clone(session);
     return list().find(profile => profile.id === cleanId) || null;
   }
 
   async function load(id, keyMaterial = null) {
     const profile = get(id);
     if (!profile) return null;
+    if (keylessSessionProfiles.has(profile.id) && sessionKeyLoader) {
+      const full = await sessionKeyLoader(profile.id);
+      if (full?.id !== profile.id) throw new Error(`The local server did not return the profile ${profile.name}.`);
+      registerSessionProfile(full);
+      return load(profile.id, keyMaterial);
+    }
     const cloned = clone(profile);
     if (cloned.general) {
       cloned.settings = cloned.settings || {};
@@ -208,9 +232,8 @@
   function findByName(name) {
     const cleanName = String(name || '').trim();
     if (!cleanName) return null;
-    if (sessionProfile && sessionProfile.name === cleanName) {
-      return clone(sessionProfile);
-    }
+    const session = [...sessionProfiles.values()].find(profile => profile.name === cleanName);
+    if (session) return clone(session);
     return list().find(profile => profile.name === cleanName) || null;
   }
 
@@ -330,6 +353,6 @@
   return {
     STORAGE_KEY, SCHEMA_VERSION, PROFILE_FIELDS, MAX_PROFILE_MCP_SERVERS, STORAGE_PROFILE_FIELDS, READONLY_PROFILE_ID, MIRROR_PROFILE: clone(MIRROR_PROFILE), NEW_PROFILE_SETTINGS: clone(NEW_PROFILE_SETTINGS),
     initialize, list, get, load, setPasswordPrompt, loadUnlocked, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported,
-    importServerProfile, registerSessionProfile, clearSessionProfile
+    importServerProfile, registerSessionProfile, setSessionKeyLoader, listSessionProfiles, clearSessionProfile
   };
 }));

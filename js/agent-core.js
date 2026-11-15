@@ -33,6 +33,8 @@
     ['ChatBuiltinReadKnowledgeChunkTool', './tools/builtin/read-knowledge-chunk.tool.js'],
     ['ChatBuiltinReadKnowledgeImageTool', './tools/builtin/read-knowledge-image.tool.js'],
     ['ChatBuiltinAskUserTool', './tools/builtin/ask-user.tool.js'],
+    ['ChatBuiltinWaitTool', './tools/builtin/wait.tool.js'],
+    ['ChatBuiltinSwitchModelTool', './tools/builtin/switch-model.tool.js'],
     ['ChatBuiltinDelegateTaskTool', './tools/builtin/delegate-task.tool.js']
   ];
 
@@ -63,6 +65,9 @@
 
   // Texto que acompaña a una llamada emitida como texto: no es respuesta para el usuario.
   const TOOL_CALL_TEXT = /^(?:<\||<tool_call|<function_call|call:|\{"name"|```json\n\{"name")/;
+
+  // Mensaje de usuario que solo ve el proveedor tras un cambio de modelo con switch_model.
+  const MODEL_SWITCH_NOTE = '[The user\'s instruction switched the model at this point. Continue the task where it left off.]';
 
   const createCancelledError = () => new Error('Agent execution cancelled by the user.');
 
@@ -467,17 +472,7 @@
         const trimmed = rawArgs.trim();
         try { args = JSON.parse(trimmed); } catch (_) { args = trimmed; }
       }
-      const canonicalize = value => {
-        if (Array.isArray(value)) return value.map(canonicalize);
-        if (value && typeof value === 'object') {
-          return Object.keys(value).sort().reduce((result, key) => {
-            result[key] = canonicalize(value[key]);
-            return result;
-          }, {});
-        }
-        return value;
-      };
-      args = typeof args === 'string' ? args : JSON.stringify(canonicalize(args));
+      args = typeof args === 'string' ? args : Utils.canonicalJson(args);
       return `${toolCall.function?.name || ''}:${args}`;
     }
 
@@ -601,6 +596,9 @@
         dispatchToolCall = (toolCall, context) => this.executor.executeToolCall(toolCall, context),
         summarizeHistory = null,
         contextOptions = {},
+        // Conexión de cada paso (switch_model): si se da, se pide antes de cada llamada al modelo y sus
+        // campos sustituyen a los de arriba.
+        resolveConnection = null,
         createMessageId = kind => createId(`msg_${kind}`),
         // Aviso que cierra el turno al detectar un bucle; lo redacta quien lanza el agente.
         loopNotice = '',
@@ -615,13 +613,12 @@
       const abortSignal = signal || new AbortController().signal;
       // Contexto de cada herramienta. `agent` es lo que necesita la que lanza otro agente
       // (delegate_task): conexión, contexto y despacho de este; ToolExecutor no lo entrega al resto.
-      const toolContext = {
-        signal: abortSignal,
-        agent: {
-          apiUrl, apiType, apiKey, model, temperature, reasoningEffort, contextOptions,
-          summarizeHistory, onBeforeRequest, prepareMessages, resolveToolDefinitions, dispatchToolCall
-        }
+      let connection = { apiUrl, apiType, apiKey, model, temperature, reasoningEffort, contextOptions, summarizeHistory };
+      const toolContext = { signal: abortSignal, agent: null };
+      const setAgentContext = () => {
+        toolContext.agent = { ...connection, onBeforeRequest, prepareMessages, resolveToolDefinitions, dispatchToolCall };
       };
+      setAgentContext();
 
       let stepIndex = 0;
       let workingMessages = [...messages];
@@ -638,6 +635,31 @@
       // primer rechazo, el resto del turno se envía sin él.
       let stepReasoningEffort = reasoningEffort;
 
+      // Mensajes tras los que se cambió de modelo: a continuación se envía MODEL_SWITCH_NOTE, que no se guarda.
+      const switchBoundaries = new Set();
+      const withSwitchBoundaries = messages => (switchBoundaries.size === 0
+        ? messages
+        : messages.flatMap(message => (switchBoundaries.has(message) ? [message, { role: 'user', content: MODEL_SWITCH_NOTE }] : [message])));
+
+      /** Toma la conexión vigente: otro modelo, u otro nivel de razonamiento, vale desde este paso. */
+      const refreshConnection = async () => {
+        if (!resolveConnection) return;
+        const next = { ...connection, ...(await resolveConnection()) };
+        const sameModel = ['apiUrl', 'apiType', 'model'].every(key => next[key] === connection[key]);
+        if (!sameModel) {
+          // El razonamiento que se reenvía y un resumen que falló son del modelo anterior.
+          workingMessages = workingMessages.map(withoutReasoningReplay);
+          compressionUnavailable = false;
+          // Para el modelo nuevo, lo anterior es un turno cerrado (como al cambiar en el selector): un
+          // proveedor que valida las llamadas del turno en curso (las firmas de Gemini 3) no recibe como
+          // suyas las del otro modelo.
+          if (workingMessages.length > 0) switchBoundaries.add(workingMessages.at(-1));
+        }
+        if (!sameModel || next.reasoningEffort !== connection.reasoningEffort) stepReasoningEffort = next.reasoningEffort;
+        connection = next;
+        setAgentContext();
+      };
+
       /** Cierra el turno con el último mensaje del asistente. */
       const finish = (type, text) => {
         finalText = text;
@@ -648,15 +670,16 @@
       try {
         while (true) {
           if (abortSignal.aborted) throw createCancelledError();
+          await refreshConnection();
           callbacks.onStepStart?.(stepIndex);
 
           // La compactación sustituye de una vez el punto de control anterior y el diálogo posterior.
-          const compactionOptions = { ...contextOptions, model, providerType: apiType };
-          if (!compressionUnavailable && summarizeHistory && ContextManager.shouldCompress(workingMessages, compactionOptions)) {
+          const compactionOptions = { ...connection.contextOptions, model: connection.model, providerType: connection.apiType };
+          if (!compressionUnavailable && connection.summarizeHistory && ContextManager.shouldCompress(workingMessages, compactionOptions)) {
             callbacks.onCompactionStart?.(stepIndex);
             const compacted = await ContextManager.compressHistory({
               messages: workingMessages,
-              summarizeFn: summarizeHistory,
+              summarizeFn: connection.summarizeHistory,
               options: compactionOptions
             });
             if (compacted.compressed) {
@@ -668,12 +691,12 @@
           }
 
           const step = await this.requestStep({
-            apiUrl,
-            apiType,
-            apiKey,
-            model,
-            messages: prepareMessages ? await prepareMessages(workingMessages) : workingMessages,
-            temperature,
+            apiUrl: connection.apiUrl,
+            apiType: connection.apiType,
+            apiKey: connection.apiKey,
+            model: connection.model,
+            messages: prepareMessages ? await prepareMessages(withSwitchBoundaries(workingMessages)) : withSwitchBoundaries(workingMessages),
+            temperature: connection.temperature,
             reasoningEffort: stepReasoningEffort,
             tools: resolveToolDefinitions ? await resolveToolDefinitions() : [],
             signal: abortSignal,

@@ -60,6 +60,26 @@ def service_status(record: McpServiceRecord, alive: bool, exit_code: int | None)
     return "error", "MCP process is not responding"
 
 
+def _npm_install_needed(marker: Path, package_dir: Path, package: str, version: str) -> bool:
+    """Falta la instalación, o la registrada en marker es de otro paquete o versión."""
+    if not marker.exists() or not package_dir.is_dir():
+        return True
+    try:
+        installation = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return True
+    return installation.get("package") != package or installation.get("version") != version
+
+
+def _install_playwright_browser(service_dir: Path, browser: str, node: str):
+    playwright_cli = service_dir / "node_modules" / "playwright" / "cli.js"
+    if not playwright_cli.is_file():
+        raise RuntimeError("No se encontró Playwright después de instalar el servicio MCP")
+    result = subprocess.run([node, str(playwright_cli), "install", browser], cwd=service_dir, capture_output=True, text=True, timeout=600)
+    if result.returncode != 0:
+        raise RuntimeError(f"Fallo instalando el navegador {browser} de Playwright: {result.stderr or result.stdout}")
+
+
 class McpServiceManager:
     def __init__(self, services_root: Path | None = None):
         # Crearlo no toca el disco: el gestor global existe desde que se importa zerochat.
@@ -178,65 +198,15 @@ class McpServiceManager:
         service_dir = server["_directory"]
         installer_file = service_dir / "installer.json"
         node = shutil.which("node") or "node"
-        npm = shutil.which("npm") or "npm"
 
         if installer_file.exists():
             self._trace(server_id, f"reading installer: {installer_file.name}")
-            marker = service_dir / ".installed.json"
             try:
                 installer = json.loads(installer_file.read_text(encoding="utf-8"))
             except Exception as e:
-                raise RuntimeError(f"Error leyendo installer.json: {e}")
-            kind = installer.get("type", "npm")
-            if kind == "npm":
-                product = installer.get("product", {})
-                package = product.get("package")
-                version = product.get("version")
-                if not package or not version:
-                    raise RuntimeError("El instalador npm debe definir package y version")
-                if not shutil.which("node") or not shutil.which("npm"):
-                    raise RuntimeError("Node.js y npm son necesarios para instalar este servicio MCP")
-
-                self._check_node_requirement(server_id, installer, node)
-
-                package_dir = service_dir / "node_modules" / Path(*package.split("/"))
-                needs_install = not marker.exists() or not package_dir.is_dir()
-                if not needs_install:
-                    try:
-                        installation = json.loads(marker.read_text(encoding="utf-8"))
-                        if installation.get("package") != package or installation.get("version") != version:
-                            needs_install = True
-                    except (OSError, json.JSONDecodeError):
-                        needs_install = True
-
-                if needs_install:
-                    self.records[server_id].phase = "installing"
-                    self._trace(server_id, f"installing npm package: {package}@{version}")
-                    manifest = service_dir / "package.json"
-                    manifest.write_text(json.dumps({"private": True, "dependencies": {package: version}}, indent=2), encoding="utf-8")
-                    res = subprocess.run([npm, "install", "--ignore-scripts", "--no-audit", "--no-fund"], cwd=service_dir, capture_output=True, text=True, timeout=600)
-                    if res.returncode != 0:
-                        raise RuntimeError(f"Fallo instalando dependencias npm: {res.stderr or res.stdout}")
-                    self._trace(server_id, f"npm package installed: {package}@{version}")
-                    installation = {"type": "npm", "package": package, "version": version, "nodeExecutable": node}
-                    browser = product.get("browser")
-                    if browser:
-                        playwright_cli = service_dir / "node_modules" / "playwright" / "cli.js"
-                        if not playwright_cli.is_file():
-                            raise RuntimeError("No se encontró Playwright después de instalar el servicio MCP")
-                        browser_result = subprocess.run(
-                            [node, str(playwright_cli), "install", browser], cwd=service_dir,
-                            capture_output=True, text=True, timeout=600
-                        )
-                        if browser_result.returncode != 0:
-                            raise RuntimeError(
-                                f"Fallo instalando el navegador {browser} de Playwright: "
-                                f"{browser_result.stderr or browser_result.stdout}"
-                            )
-                        installation["browser"] = browser
-                    marker.write_text(json.dumps(installation, indent=2), encoding="utf-8")
-                else:
-                    self._trace(server_id, f"npm package already installed: {package}@{version}")
+                raise RuntimeError(f"Error leyendo installer.json: {e}") from e
+            if installer.get("type", "npm") == "npm":
+                self._prepare_npm_service(server_id, service_dir, installer, node)
 
         venv_python = get_venv_python(get_venv_dir())
         return {
@@ -244,6 +214,38 @@ class McpServiceManager:
             "pythonExecutable": str(venv_python) if venv_python.is_file() else sys.executable,
             "nodeExecutable": node
         }
+
+    def _prepare_npm_service(self, server_id: str, service_dir: Path, installer: dict, node: str):
+        """Instala el paquete npm del servicio (y su navegador de Playwright) si falta o cambió de versión."""
+        product = installer.get("product", {})
+        package = product.get("package")
+        version = product.get("version")
+        if not package or not version:
+            raise RuntimeError("El instalador npm debe definir package y version")
+        if not shutil.which("node") or not shutil.which("npm"):
+            raise RuntimeError("Node.js y npm son necesarios para instalar este servicio MCP")
+        self._check_node_requirement(server_id, installer, node)
+
+        marker = service_dir / ".installed.json"
+        package_dir = service_dir / "node_modules" / Path(*package.split("/"))
+        if not _npm_install_needed(marker, package_dir, package, version):
+            self._trace(server_id, f"npm package already installed: {package}@{version}")
+            return
+        self.records[server_id].phase = "installing"
+        self._trace(server_id, f"installing npm package: {package}@{version}")
+        manifest = service_dir / "package.json"
+        manifest.write_text(json.dumps({"private": True, "dependencies": {package: version}}, indent=2), encoding="utf-8")
+        npm = shutil.which("npm") or "npm"
+        res = subprocess.run([npm, "install", "--ignore-scripts", "--no-audit", "--no-fund"], cwd=service_dir, capture_output=True, text=True, timeout=600)
+        if res.returncode != 0:
+            raise RuntimeError(f"Fallo instalando dependencias npm: {res.stderr or res.stdout}")
+        self._trace(server_id, f"npm package installed: {package}@{version}")
+        installation = {"type": "npm", "package": package, "version": version, "nodeExecutable": node}
+        browser = product.get("browser")
+        if browser:
+            _install_playwright_browser(service_dir, browser, node)
+            installation["browser"] = browser
+        marker.write_text(json.dumps(installation, indent=2), encoding="utf-8")
 
     def _check_node_requirement(self, server_id: str, installer: dict, node: str):
         """Comprueba la versión mínima de Node.js que declara el instalador."""

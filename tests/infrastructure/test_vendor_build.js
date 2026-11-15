@@ -49,13 +49,14 @@ test('build:vendor exige versiones exactas para las librerías empaquetadas', as
   }
 });
 
-test('build:runner reproduce exactamente el runner.js versionado', () => {
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-runner-'));
+test('build:sandbox reproduce exactamente los dos módulos generados del proceso hijo de execute_javascript', () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-sandbox-'));
   try {
-    const outFile = path.join(outDir, 'runner.js');
-    execFileSync('node', ['scripts/build-runner.mjs', '--outfile', outFile], { cwd: root, stdio: 'pipe' });
-    assert.ok(fs.readFileSync(outFile).equals(fs.readFileSync(path.join(root, 'runner.js'))),
-      'runner.js no coincide con la salida de npm run build:runner');
+    execFileSync('node', ['scripts/build-sandbox-script.mjs', '--outdir', outDir], { cwd: root, stdio: 'pipe' });
+    for (const file of ['py/tools/sandbox_script.py', 'js/sandbox-node-script.js']) {
+      assert.ok(fs.readFileSync(path.join(outDir, file)).equals(fs.readFileSync(path.join(root, file))),
+        `${file} no coincide con la salida de npm run build:sandbox`);
+    }
   } finally {
     fs.rmSync(outDir, { recursive: true, force: true });
   }

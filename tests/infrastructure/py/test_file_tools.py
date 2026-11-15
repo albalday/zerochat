@@ -68,6 +68,29 @@ class ExternalSymlinkTest(unittest.TestCase):
         self.assertEqual((result["success"], result["error_count"]), (True, 0))
 
 
+class DiagnosticsTest(unittest.TestCase):
+    def setUp(self):
+        self.project = use_data_dir(self) / "proj"
+        (self.project / "sub").mkdir(parents=True)
+        (self.project / "ok.py").write_text("x = 1\n", encoding="utf-8")
+        (self.project / "sub" / "bad.py").write_text("def f(:\n", encoding="utf-8")
+        (self.project / "bad.json").write_text('{"a": }', encoding="utf-8")
+        (self.project / ".hidden").mkdir()
+        (self.project / ".hidden" / "bad.py").write_text("def f(:\n", encoding="utf-8")
+
+    def test_senala_errores_de_python_y_json_sin_entrar_en_carpetas_ocultas(self):
+        result = json.loads(zerochat.get_diagnostics(path=str(self.project), ctx=CTX))
+        self.assertEqual(result["files_checked"], 3)
+        self.assertEqual(sorted(diag["message"].split(":")[0] for diag in result["diagnostics"]), ["JSONDecodeError", "SyntaxError"])
+
+    def test_un_fichero_se_comprueba_solo_y_la_carpeta_hasta_200(self):
+        single = json.loads(zerochat.get_diagnostics(path=str(self.project / "sub" / "bad.py"), ctx=CTX))
+        self.assertEqual((single["files_checked"], single["diagnostics"][0]["line"]), (1, 1))
+        for index in range(210):
+            (self.project / f"f{index:03}.json").write_text("{}", encoding="utf-8")
+        self.assertEqual(json.loads(zerochat.get_diagnostics(path=str(self.project), ctx=CTX))["files_checked"], 200)
+
+
 class ReadFileTest(unittest.TestCase):
     def test_read_file_devuelve_el_rango_de_lineas_pedido(self):
         text_file = use_data_dir(self) / "text.txt"

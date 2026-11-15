@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import fnmatch
+import itertools
 import json
 import os
 import re
 import shutil
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 from core.limits import MAX_PATH_LENGTH
@@ -20,6 +22,53 @@ IGNORED_WORKSPACE_DIRS = {
 }
 
 
+LIST_DIRECTORY_MAX_ENTRIES = 1000
+
+
+def _directory_entry(entry: os.DirEntry, target: Path, recursive: bool) -> dict:
+    """Datos de una entrada de list_directory; OSError si desaparece o no se puede leer."""
+    stat = entry.stat(follow_symlinks=False)
+    is_dir = entry.is_dir(follow_symlinks=False)
+    try:
+        resolved_path = str(Path(entry.path).resolve())
+    except (OSError, RuntimeError):
+        resolved_path = str(Path(entry.path).absolute())
+    data = {
+        "name": entry.name,
+        "path": resolved_path,
+        "type": "directory" if is_dir else "file",
+        "size_bytes": None if is_dir else stat.st_size,
+        "is_symlink": entry.is_symlink()
+    }
+    if recursive:
+        try:
+            data["relative_path"] = Path(entry.path).relative_to(target).as_posix()
+        except ValueError:
+            data["relative_path"] = entry.name
+    return data
+
+
+def _scan_directory(current: Path, target: Path, depth: int, max_depth: int, recursive: bool, entries: list[dict]):
+    """Añade a entries el contenido de current, carpetas primero, sin seguir enlaces y hasta el tope de entradas."""
+    if depth > max_depth or len(entries) >= LIST_DIRECTORY_MAX_ENTRIES:
+        return
+    try:
+        with os.scandir(current) as it:
+            items = sorted(it, key=lambda e: (not e.is_dir(follow_symlinks=False), e.name.lower()))
+    except OSError:
+        return
+    for entry in items:
+        if len(entries) >= LIST_DIRECTORY_MAX_ENTRIES:
+            break
+        try:
+            data = _directory_entry(entry, target, recursive)
+            entries.append(data)
+            if recursive and data["type"] == "directory" and not data["is_symlink"]:
+                _scan_directory(Path(entry.path), target, depth + 1, max_depth, recursive, entries)
+        except OSError:
+            continue
+
+
 def list_directory(path: str = ".", recursive: bool = False, *, ctx: SecurityContext) -> str:
     """List files and directories in a local directory with safe bounded recursive traversal."""
     try:
@@ -28,49 +77,8 @@ def list_directory(path: str = ".", recursive: bool = False, *, ctx: SecurityCon
             return _tool_error(f"Path '{path}' does not exist.")
         if not target.is_dir():
             return _tool_error(f"Path '{path}' is not a directory.")
-
-        max_depth = 3 if recursive else 1
-        entries = []
-
-        def _scan(current_path: Path, current_depth: int):
-            if current_depth > max_depth or len(entries) >= 1000:
-                return
-            try:
-                with os.scandir(current_path) as it:
-                    items = list(it)
-                    items.sort(key=lambda e: (not e.is_dir(follow_symlinks=False), e.name.lower()))
-                    for entry in items:
-                        if len(entries) >= 1000:
-                            break
-                        try:
-                            stat = entry.stat(follow_symlinks=False)
-                            is_dir = entry.is_dir(follow_symlinks=False)
-                            try:
-                                resolved_path = str(Path(entry.path).resolve())
-                            except (OSError, RuntimeError):
-                                resolved_path = str(Path(entry.path).absolute())
-                            entry_data = {
-                                "name": entry.name,
-                                "path": resolved_path,
-                                "type": "directory" if is_dir else "file",
-                                "size_bytes": None if is_dir else stat.st_size,
-                                "is_symlink": entry.is_symlink()
-                            }
-                            if recursive:
-                                try:
-                                    entry_data["relative_path"] = Path(entry.path).relative_to(target).as_posix()
-                                except ValueError:
-                                    entry_data["relative_path"] = entry.name
-                            entries.append(entry_data)
-                            if recursive and is_dir and not entry.is_symlink():
-                                _scan(Path(entry.path), current_depth + 1)
-                        except (PermissionError, FileNotFoundError, OSError):
-                            continue
-            except (PermissionError, FileNotFoundError, OSError):
-                pass
-
-        _scan(target, 1)
-
+        entries: list[dict] = []
+        _scan_directory(target, target, 1, 3 if recursive else 1, recursive, entries)
         return json.dumps({
             "success": True,
             "path": str(target),
@@ -142,6 +150,35 @@ def _read_tail(target: Path, tail_lines: int, max_bytes: int) -> str:
     }, ensure_ascii=False, indent=2)
 
 
+# Pasado el rango pedido, read_file sigue contando líneas para total_lines hasta este número más allá del inicio.
+READ_COUNT_AHEAD_LINES = 50000
+
+
+def _read_line_range(target: Path, start: int, count: int, max_bytes: int) -> tuple[list[str], int, bool]:
+    """Hasta count líneas desde start sin pasar de max_bytes (la última, cortada). Devuelve las líneas, las que
+    se han contado (todas, o hasta READ_COUNT_AHEAD_LINES más allá de start) y si se cortó por bytes."""
+    selected: list[str] = []
+    used = 0
+    total_lines = 0
+    with open(target, "r", encoding="utf-8", errors="replace") as f:
+        for line_no, line in enumerate(f, 1):
+            total_lines = line_no
+            if line_no < start:
+                continue
+            if len(selected) >= count:
+                if line_no > start + READ_COUNT_AHEAD_LINES:
+                    break
+                continue
+            encoded = line.encode("utf-8")
+            if used + len(encoded) > max_bytes:
+                if max_bytes > used:
+                    selected.append(encoded[:max_bytes - used].decode("utf-8", errors="ignore"))
+                return selected, total_lines, True
+            selected.append(line)
+            used += len(encoded)
+    return selected, total_lines, False
+
+
 def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: int = 500, max_bytes: int = 100000,
               tail_lines: int | None = None, *, ctx: SecurityContext) -> str:
     """Read text content from a local file in streaming mode with safe ranges and bounds, or its last lines."""
@@ -156,67 +193,23 @@ def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: i
         safe_max_bytes = max(1024, min(int(max_bytes), 2000000))
         if tail_lines is not None:
             return _read_tail(target, tail_lines, safe_max_bytes)
-        safe_start_line = max(1, int(start_line))
-
+        start = max(1, int(start_line))
         if end_line is not None:
-            safe_end_line = max(safe_start_line, int(end_line))
-            target_line_count = min(safe_end_line - safe_start_line + 1, MAX_READ_LINES)
-            safe_end_line = safe_start_line + target_line_count - 1
+            count = min(max(start, int(end_line)) - start + 1, MAX_READ_LINES)
         else:
-            safe_end_line = None
-            target_line_count = max(1, min(int(max_lines), MAX_READ_LINES))
+            count = max(1, min(int(max_lines), MAX_READ_LINES))
 
-        selected_lines = []
-        current_bytes = 0
-        truncated_bytes = False
-        total_lines = 0
-        reached_end_bound = False
-
-        with open(target, "r", encoding="utf-8", errors="replace") as f:
-            for line_no, line in enumerate(f, 1):
-                total_lines = line_no
-                if line_no < safe_start_line:
-                    continue
-                if safe_end_line is not None and line_no > safe_end_line:
-                    reached_end_bound = True
-                    if line_no > safe_start_line + 50000:
-                        break
-                    continue
-                if safe_end_line is None and len(selected_lines) >= target_line_count:
-                    reached_end_bound = True
-                    if line_no > safe_start_line + 50000:
-                        break
-                    continue
-
-                if not reached_end_bound:
-                    line_bytes = len(line.encode("utf-8"))
-                    if current_bytes + line_bytes > safe_max_bytes:
-                        remaining_budget = max(0, safe_max_bytes - current_bytes)
-                        if remaining_budget > 0:
-                            encoded = line.encode("utf-8")[:remaining_budget]
-                            selected_lines.append(encoded.decode("utf-8", errors="ignore"))
-                        truncated_bytes = True
-                        reached_end_bound = True
-                        break
-                    else:
-                        selected_lines.append(line)
-                        current_bytes += line_bytes
-
-        content = "".join(selected_lines)
-        last_returned_line = safe_start_line + len(selected_lines) - 1 if selected_lines else safe_start_line - 1
-
-        is_truncated = truncated_bytes or (safe_end_line is not None and safe_end_line < total_lines) or (safe_end_line is None and (safe_start_line + target_line_count - 1) < total_lines)
-
+        selected, total_lines, truncated_bytes = _read_line_range(target, start, count, safe_max_bytes)
         return json.dumps({
             "success": True,
             "path": str(target),
             "size_bytes": file_size,
             "total_lines": total_lines,
-            "start_line": safe_start_line,
-            "end_line": last_returned_line,
-            "lines_returned": len(selected_lines),
-            "truncated": is_truncated,
-            "content": content
+            "start_line": start,
+            "end_line": start + len(selected) - 1,
+            "lines_returned": len(selected),
+            "truncated": truncated_bytes or start + count - 1 < total_lines,
+            "content": "".join(selected)
         }, ensure_ascii=False, indent=2)
     except Exception as e:
         return _tool_error(str(e))
@@ -286,6 +279,45 @@ def resolve_project_directory(path, ctx: SecurityContext) -> dict:
     return {"cwd": str(target)}
 
 
+def _walk_project_files(target: Path) -> Iterator[Path]:
+    """Ficheros bajo target en orden, sin los directorios ignorados ni los ocultos, y sin los enlaces simbólicos
+    que salen de target (no se lee nada fuera de la carpeta que se autorizó)."""
+    for root, dirs, files in os.walk(target):
+        dirs[:] = [d for d in dirs if d not in IGNORED_WORKSPACE_DIRS and not d.startswith(".")]
+        for fname in sorted(files):
+            fpath = Path(root) / fname
+            try:
+                if fpath.is_symlink() and not fpath.resolve().is_relative_to(target):
+                    continue
+            except (OSError, ValueError):
+                continue
+            yield fpath
+
+
+SEARCH_MAX_FILE_BYTES = 2 * 1024 * 1024
+SEARCH_LINE_CHARS = 300
+
+
+def _search_lines(fpath: Path, target: Path, regex: re.Pattern, limit: int) -> list[dict]:
+    """Hasta limit líneas de fpath que casan con regex; un fichero que no se puede leer no tiene ninguna."""
+    try:
+        rel_path = fpath.relative_to(target).as_posix()
+    except ValueError:
+        rel_path = str(fpath)
+    found = []
+    try:
+        with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+            for line_idx, line in enumerate(f, 1):
+                if regex.search(line):
+                    found.append({"file": str(fpath), "relative_path": rel_path, "line_number": line_idx,
+                                  "content": line.rstrip("\r\n")[:SEARCH_LINE_CHARS]})
+                    if len(found) >= limit:
+                        break
+    except OSError:
+        pass
+    return found
+
+
 def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100, *, ctx: SecurityContext) -> str:
     """Recursively search for plain text or regular expressions across project files."""
     try:
@@ -309,54 +341,17 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
 
         matches = []
         files_searched = 0
-        max_file_size = 2 * 1024 * 1024
-        truncated = False
-
-        for root, dirs, files in os.walk(target):
-            dirs[:] = [d for d in dirs if d not in IGNORED_WORKSPACE_DIRS and not d.startswith(".")]
-
-            for fname in sorted(files):
-                if file_pattern and not fnmatch.fnmatch(fname, file_pattern):
+        for fpath in _walk_project_files(target):
+            if file_pattern and not fnmatch.fnmatch(fpath.name, file_pattern):
+                continue
+            try:
+                if fpath.stat().st_size > SEARCH_MAX_FILE_BYTES:
                     continue
-
-                fpath = Path(root) / fname
-                try:
-                    if fpath.is_symlink():
-                        try:
-                            if not fpath.resolve().is_relative_to(target):
-                                continue
-                        except (OSError, ValueError):
-                            continue
-                    stat = fpath.stat()
-                    if stat.st_size > max_file_size:
-                        continue
-                except OSError:
-                    continue
-
-                files_searched += 1
-                try:
-                    with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
-                        for line_idx, line in enumerate(f, 1):
-                            if regex.search(line):
-                                try:
-                                    rel_path = fpath.relative_to(target).as_posix()
-                                except ValueError:
-                                    rel_path = str(fpath)
-                                matches.append({
-                                    "file": str(fpath),
-                                    "relative_path": rel_path,
-                                    "line_number": line_idx,
-                                    "content": line.rstrip("\r\n")[:300]
-                                })
-                                if len(matches) >= safe_max_results:
-                                    truncated = True
-                                    break
-                except (PermissionError, OSError):
-                    continue
-
-                if truncated:
-                    break
-            if truncated:
+            except OSError:
+                continue
+            files_searched += 1
+            matches.extend(_search_lines(fpath, target, regex, safe_max_results - len(matches)))
+            if len(matches) >= safe_max_results:
                 break
 
         payload = {
@@ -366,7 +361,7 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
             "file_pattern": file_pattern,
             "files_searched": files_searched,
             "total_matches": len(matches),
-            "truncated": truncated,
+            "truncated": len(matches) >= safe_max_results,
             "matches": matches
         }
         if warning:
@@ -377,6 +372,66 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
         return _tool_error(str(e))
 
 
+def _diagnostic(file: str, line: int, column: int, message: str) -> dict:
+    return {"file": file, "line": line, "column": column, "severity": "error", "message": message}
+
+
+def _python_diagnostics(fpath: Path, display: str) -> list[dict]:
+    try:
+        compile(fpath.read_text(encoding="utf-8", errors="replace"), str(fpath), "exec")
+    except SyntaxError as e:
+        return [_diagnostic(display, e.lineno or 1, e.offset or 1, f"SyntaxError: {e.msg}")]
+    return []
+
+
+def _js_diagnostics(fpath: Path, display: str) -> list[dict]:
+    """node --check, si hay node; sin él no se comprueba nada."""
+    node_bin = shutil.which("node")
+    if not node_bin:
+        return []
+    try:
+        res = subprocess.run([node_bin, "--check", str(fpath)], capture_output=True, text=True, timeout=10)
+    except (subprocess.SubprocessError, OSError):
+        return []
+    if res.returncode == 0:
+        return []
+    stderr = res.stderr or ""
+    line_match = re.search(r':(\d+)\n([^\n]+)\n(\s*)\^', stderr)
+    line = int(line_match.group(1)) if line_match else 1
+    col = len(line_match.group(3)) + 1 if line_match else 1
+    msg_match = re.search(r'(SyntaxError:[^\n]+)', stderr)
+    msg = msg_match.group(1) if msg_match else (stderr.strip().splitlines()[-1] if stderr.strip() else "Syntax error")
+    return [_diagnostic(display, line, col, msg)]
+
+
+def _json_diagnostics(fpath: Path, display: str) -> list[dict]:
+    try:
+        json.loads(fpath.read_text(encoding="utf-8", errors="replace"))
+    except json.JSONDecodeError as e:
+        return [_diagnostic(display, e.lineno, e.colno, f"JSONDecodeError: {e.msg}")]
+    return []
+
+
+# Comprobación de sintaxis por extensión: un lenguaje nuevo es una entrada más.
+DIAGNOSTIC_CHECKS = {
+    ".py": _python_diagnostics,
+    ".js": _js_diagnostics, ".mjs": _js_diagnostics, ".cjs": _js_diagnostics,
+    ".json": _json_diagnostics,
+}
+DIAGNOSTICS_MAX_FILES = 200
+
+
+def _file_diagnostics(fpath: Path, workspace_dir: Path) -> list[dict]:
+    check = DIAGNOSTIC_CHECKS.get(fpath.suffix.lower())
+    if check is None:
+        return []
+    try:
+        display = fpath.relative_to(workspace_dir).as_posix()
+    except ValueError:
+        display = str(fpath)
+    return check(fpath, display)
+
+
 def get_diagnostics(path: str | None = None, *, ctx: SecurityContext) -> str:
     """Retrieve syntax diagnostics and code errors for a file or the entire workspace."""
     try:
@@ -385,89 +440,13 @@ def get_diagnostics(path: str | None = None, *, ctx: SecurityContext) -> str:
         if not target.exists():
             return _tool_error(f"Path '{path}' does not exist.")
 
-        diagnostics: list[dict] = []
-        files_checked = 0
-
-        def check_single_file(fpath: Path) -> list[dict]:
-            ext = fpath.suffix.lower()
-            file_diags: list[dict] = []
-            try:
-                rel_display = fpath.relative_to(ctx.workspace_dir).as_posix()
-            except ValueError:
-                rel_display = str(fpath)
-
-            if ext == ".py":
-                try:
-                    content = fpath.read_text(encoding="utf-8", errors="replace")
-                    compile(content, str(fpath), "exec")
-                except (SyntaxError, IndentationError) as e:
-                    file_diags.append({
-                        "file": rel_display,
-                        "line": e.lineno or 1,
-                        "column": e.offset or 1,
-                        "severity": "error",
-                        "message": f"SyntaxError: {e.msg}"
-                    })
-            elif ext in (".js", ".mjs", ".cjs"):
-                node_bin = shutil.which("node")
-                if node_bin:
-                    try:
-                        res = subprocess.run([node_bin, "--check", str(fpath)], capture_output=True, text=True, timeout=10)
-                        if res.returncode != 0:
-                            stderr = res.stderr or ""
-                            line_match = re.search(r':(\d+)\n([^\n]+)\n(\s*)\^', stderr)
-                            line = int(line_match.group(1)) if line_match else 1
-                            col = len(line_match.group(3)) + 1 if line_match else 1
-                            msg_match = re.search(r'(SyntaxError:[^\n]+)', stderr)
-                            msg = msg_match.group(1) if msg_match else (stderr.strip().splitlines()[-1] if stderr.strip() else "Syntax error")
-                            file_diags.append({
-                                "file": rel_display,
-                                "line": line,
-                                "column": col,
-                                "severity": "error",
-                                "message": msg
-                            })
-                    except (subprocess.SubprocessError, OSError):
-                        pass
-            elif ext == ".json":
-                try:
-                    content = fpath.read_text(encoding="utf-8", errors="replace")
-                    json.loads(content)
-                except json.JSONDecodeError as e:
-                    file_diags.append({
-                        "file": rel_display,
-                        "line": e.lineno,
-                        "column": e.colno,
-                        "severity": "error",
-                        "message": f"JSONDecodeError: {e.msg}"
-                    })
-            return file_diags
-
         if target.is_file():
-            files_checked = 1
-            diagnostics.extend(check_single_file(target))
+            checked = [target]
         else:
-            max_scan = 200
-            for root, dirs, files in os.walk(target):
-                dirs[:] = [d for d in dirs if d not in IGNORED_WORKSPACE_DIRS and not d.startswith(".")]
-                for fname in sorted(files):
-                    fp = Path(root) / fname
-                    try:
-                        if fp.is_symlink():
-                            try:
-                                if not fp.resolve().is_relative_to(target):
-                                    continue
-                            except (OSError, ValueError):
-                                continue
-                    except OSError:
-                        continue
-                    if fp.suffix.lower() in (".py", ".js", ".mjs", ".cjs", ".json"):
-                        files_checked += 1
-                        diagnostics.extend(check_single_file(fp))
-                        if files_checked >= max_scan:
-                            break
-                if files_checked >= max_scan:
-                    break
+            checkable = (fp for fp in _walk_project_files(target) if fp.suffix.lower() in DIAGNOSTIC_CHECKS)
+            checked = list(itertools.islice(checkable, DIAGNOSTICS_MAX_FILES))
+        files_checked = len(checked)
+        diagnostics = [diag for fp in checked for diag in _file_diagnostics(fp, ctx.workspace_dir)]
 
         msg = f"Found {len(diagnostics)} issue(s)." if diagnostics else "No diagnostic issues found."
 

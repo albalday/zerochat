@@ -205,40 +205,44 @@ class BackgroundCommandTest(unittest.TestCase):
         result = check(unterminated["job_id"], wait_seconds=10, pattern="fatal")
         self.assertEqual((result["returned_because"], result["matched_line"]), ("pattern_matched", "fatal error: disk full"))
 
-    def test_check_command_rechaza_un_patron_que_no_es_una_expresion_regular(self):
-        job = run("exec sleep 100", background=True)
-        invalid = check(job["job_id"], wait_seconds=1, pattern="error(")
-        self.assertIs(invalid["success"], False)
-        self.assertIn("Invalid pattern", invalid["error"])
+    def test_el_patron_son_textos_y_no_una_expresion_regular(self):
+        # Como expresión regular, (a+)+$ contra 40 «a» y un «!» tardaría horas y bloquearía todo el servidor.
+        job = run("sleep 0.5; printf 'a%.0s' $(seq 40); printf '!\\n'; sleep 1.5; printf 'fatal error(42)\\n'; exec sleep 100", background=True)
+        started = time.monotonic()
+        none = check(job["job_id"], wait_seconds=1, pattern="(a+)+$")
+        self.assertLess(time.monotonic() - started, 3)
+        self.assertEqual((none["returned_because"], none["new_output"]), ("wait_elapsed", "a" * 40 + "!\n"))
+        # Los caracteres especiales se buscan tal cual, sin distinguir mayúsculas.
+        literal = check(job["job_id"], wait_seconds=10, pattern="(a+)+$|ERROR(")
+        self.assertEqual((literal["returned_because"], literal["matched_line"]), ("pattern_matched", "fatal error(42)"))
+        for empty in ("|", " | "):
+            with self.subTest(pattern=empty):
+                invalid = check(job["job_id"], wait_seconds=1, pattern=empty)
+                self.assertIs(invalid["success"], False)
+                self.assertIn("at least one text", invalid["error"])
         check(job["job_id"], stop=True)
 
-    def test_check_command_sin_job_id_espera_sin_shell_y_vuelve_antes_si_termina_un_comando(self):
-        def wait(**kwargs):
-            return json.loads(zerochat.check_command(**kwargs, ctx=zerochat.project_context()))
-
-        started = time.monotonic()
-        idle = wait(wait_seconds=1)
-        self.assertGreaterEqual(time.monotonic() - started, 0.9)
-        self.assertEqual((idle["success"], idle["returned_because"]), (True, "wait_elapsed"))
-        self.assertEqual(zerochat.JOBS.list(str(self.project)), [], "La espera no lanza ningún proceso")
-
+    def test_wait_seconds_es_un_maximo_y_sin_job_id_no_se_espera(self):
+        # La espera vuelve en cuanto termina el comando, sin agotar el plazo pedido.
         job = run("sleep 0.5; echo fin", background=True)
         started = time.monotonic()
-        woken = wait(wait_seconds=30)
+        finished = check(job["job_id"], wait_seconds=30)
         self.assertLess(time.monotonic() - started, 5)
-        self.assertEqual(woken["returned_because"], "command_finished")
-        self.assertEqual([(item["job_id"], item["status"], item["exit_code"]) for item in woken["finished_jobs"]],
-                         [(job["job_id"], "exited", 0)])
-
-        for kwargs in ({}, {"wait_seconds": 0}, {"wait_seconds": 1, "stop": True}, {"wait_seconds": 1, "pattern": "x"}):
+        self.assertEqual((finished["returned_because"], finished["status"], finished["new_output"]), ("command_finished", "exited", "fin\n"))
+        # Esperar sin comando es cosa de la herramienta wait de la interfaz, no del servidor.
+        for kwargs in ({}, {"wait_seconds": 1}, {"wait_seconds": 1, "pattern": "x"}):
             with self.subTest(kwargs=kwargs):
-                self.assertIs(wait(**kwargs)["success"], False)
+                started = time.monotonic()
+                result = json.loads(zerochat.check_command(**kwargs, ctx=zerochat.project_context()))
+                self.assertLess(time.monotonic() - started, 0.5)
+                self.assertIs(result["success"], False)
+                self.assertIn("job_id is required", result["error"])
 
     def test_la_persona_corta_una_espera_por_la_clave_de_la_invocacion_sin_detener_el_comando(self):
         server = run("exec sleep 100", background=True)
         ctx = zerochat.project_context()
-        end_wait = lambda key: zerochat.ZeroChatServerHandler._dispatch_jobs("zerochat/jobs/end_wait", {"key": key}, ctx)[0]
-        for kwargs in ({"wait_seconds": 30}, {"job_id": server["job_id"], "wait_seconds": 30, "pattern": "nunca"}):
+        end_wait = lambda key: zerochat.dispatch_jobs("zerochat/jobs/end_wait", {"key": key}, ctx)[0]
+        for kwargs in ({"job_id": server["job_id"], "wait_seconds": 30}, {"job_id": server["job_id"], "wait_seconds": 30, "pattern": "nunca"}):
             with self.subTest(kwargs=kwargs):
                 key = "espera-cortada-1"
                 results = []
@@ -301,6 +305,28 @@ class BackgroundCommandTest(unittest.TestCase):
         relaunched = run("exec sleep 100", background=True)
         self.assertEqual(relaunched["status"], "running")
         check(relaunched["job_id"], stop=True)
+
+    def test_la_espera_que_llega_por_tools_call_se_corta_con_la_clave_de_su_invocacion(self):
+        # Como en uso real: la interfaz manda la clave en _meta.zerochatJobKey y no como argumento.
+        ctx = zerochat.project_context()
+        server = run("exec sleep 100", background=True)
+        for arguments in ({"job_id": server["job_id"], "wait_seconds": 30}, {"job_id": server["job_id"], "wait_seconds": 30, "pattern": "nunca"}):
+            with self.subTest(arguments=arguments):
+                key = "espera-por-tools-call-1"
+                results = []
+                call = {"name": "check_command", "arguments": arguments, "_meta": {"zerochatJobKey": key}}
+                waiter = threading.Thread(target=lambda: results.append(zerochat.dispatch_local("tools/call", call, ctx)))
+                started = time.monotonic()
+                waiter.start()
+                deadline = time.monotonic() + 5
+                while not zerochat.dispatch_jobs("zerochat/jobs/end_wait", {"key": key}, ctx)[0]["ended"] and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                waiter.join(5)
+                self.assertLess(time.monotonic() - started, 5, "La espera no se cortó")
+                result, error, _ = results[0]
+                self.assertIsNone(error)
+                self.assertEqual(json.loads(result["content"][0]["text"])["returned_because"], "wait_ended_by_user")
+        check(server["job_id"], stop=True)
 
     def test_cada_proyecto_solo_ve_y_detiene_sus_comandos(self):
         other = zerochat.SecurityContext(self.data_dir.resolve())

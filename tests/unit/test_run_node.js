@@ -105,7 +105,9 @@ test('RunNode - herramientas excluidas de Node se declaran no disponibles y devu
     'ChatBuiltinListDocumentsTool',
     'ChatBuiltinSearchKnowledgeBaseTool',
     'ChatBuiltinReadKnowledgeChunkTool',
-    'ChatBuiltinReadKnowledgeImageTool'
+    'ChatBuiltinReadKnowledgeImageTool',
+    // Esperar solo tiene sentido con el chat abierto.
+    'ChatBuiltinWaitTool'
   ];
 
   for (const globalName of disabledToolGlobals) {

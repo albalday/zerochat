@@ -1,4 +1,3 @@
-import gzip
 import io
 import json
 import os
@@ -9,7 +8,6 @@ import tempfile
 import threading
 import time
 import unittest
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 from backend import use_data_dir, zerochat
 from pathlib import Path
@@ -42,12 +40,28 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         file_mode = stat.S_IMODE(state_path.stat().st_mode)
         self.assertEqual(file_mode, 0o600)
 
+    def test_el_runner_recibe_los_perfiles_sin_clave_y_pide_solo_la_del_que_activa(self):
+        saved = zerochat.save_general_profile({"name": "Otro", "settings": {"model": "m", "apiKey": "sk-otro"}})
+        zerochat.RUN_SESSION = session = zerochat.RunSession(prompt="hola")
+        prompt_res, err, _ = dispatch_run("zerochat/run/prompt", {"run_id": session.run_id})
+        self.assertIsNone(err)
+        self.assertEqual([(item["name"], item["settings"]) for item in prompt_res["profiles"]], [("Otro", {"model": "m"})])
+
+        profile_res, err, _ = dispatch_run("zerochat/run/profile", {"run_id": session.run_id, "id": saved["id"]})
+        self.assertIsNone(err)
+        self.assertEqual(profile_res["profile"]["settings"]["apiKey"], "sk-otro")
+        for params in ({"run_id": session.run_id, "id": "profile:no-existe"}, {"run_id": session.run_id}, {"run_id": "otro", "id": saved["id"]}):
+            with self.subTest(params=params):
+                result, err, _ = dispatch_run("zerochat/run/profile", params)
+                self.assertIsNone(result)
+                self.assertEqual(err["code"], -32602)
+
     def test_fichero_situacion_estructura_y_ciclo_de_vida(self):
         conv_id = "session_test_run_123"
         session = zerochat.RunSession(
             conversation_id=conv_id,
             run_id="run_custom_test_abc",
-            tool_security={"directoryRules": ["R:/workspace"]}
+            tool_security={"directoryRules": ["R:/workspace"], "tool_decision": {"toolName": "write_file", "args": {}, "decision": "allow_once"}}
         )
         state_path = zerochat.get_run_state_path(conv_id)
         self.assertTrue(state_path.exists())
@@ -63,12 +77,13 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertIsNone(data["error"])
         self.assertEqual(data["pid"], os.getpid())
 
-        # zerochat/run/prompt entrega conversation_id y tool_security
+        # zerochat/run/prompt entrega conversation_id y nada de tool_security, que aplica este servidor.
         zerochat.RUN_SESSION = session
         prompt_res, err, _ = dispatch_run("zerochat/run/prompt", {"run_id": session.run_id})
         self.assertIsNone(err)
         self.assertEqual(prompt_res["conversation_id"], conv_id)
-        self.assertEqual(prompt_res["tool_security"], {"directoryRules": ["R:/workspace"]})
+        self.assertNotIn("tool_security", prompt_res)
+        self.assertNotIn("tool_decision", prompt_res)
 
         # zerochat/run/progress actualiza situación y streaming de texto y razonamiento
         prog_res, err, _ = dispatch_run("zerochat/run/progress", {
@@ -209,6 +224,12 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(session.conversation_id, "conv_con_user")
         self.assertEqual(session.profile, "local")
 
+        # --conversation no se aprueba solo: con --allow-dangerous-tools es un error de argumentos, con o sin --prompt.
+        for extra in ([], ["--prompt", "sigue"]):
+            with self.subTest(extra=extra), self.assertRaises(SystemExit) as cm:
+                zerochat.run_session_from_args(parser, parser.parse_args(["--conversation", "conv_con_user", "--allow-dangerous-tools", *extra]))
+            self.assertEqual(cm.exception.code, zerochat.RUN_EXIT_ARGS)
+
         # Conversación con profileId resuelve su propio perfil general sin --profile explícito
         zerochat.save_general_profile({"name": "test-cron-profile", "settings": {}})
         zerochat.save_conversation({"id": "conv_con_perfil", "title": "Con perfil propio", "profileId": "test-cron-profile"}, [
@@ -297,8 +318,11 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         session = zerochat.RunSession(prompt="hola")
         zerochat.RUN_SESSION = session
         self.addCleanup(setattr, zerochat, "RUN_SESSION", None)
-        result, error, _ = zerochat.ZeroChatServerHandler._execute_tool(
-            "local", "check_command", {"wait_seconds": 1}, zerochat.project_context())
+        ctx = zerochat.project_context()
+        job = json.loads(zerochat.run_command("exec sleep 100", background=True, ctx=ctx))
+        self.addCleanup(zerochat.check_command, job["job_id"], stop=True, ctx=ctx)
+        result, error, _ = zerochat.execute_tool(
+            "local", "check_command", {"job_id": job["job_id"], "wait_seconds": 1}, ctx)
         self.assertIsNone(error)
         self.assertIn("wait_elapsed", result["content"][0]["text"])
         self.assertGreaterEqual(session.waited_seconds(), 0.9)
@@ -317,143 +341,18 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(found("v24.0.0"), "/usr/bin/node")
 
     def test_launch_node_runner_usa_modelo_de_permisos(self):
-        cache_runner = self.data_dir / "cache" / "runner.js"
-        dev_runner = self.data_dir / "repo" / "js" / "run-node.js"
         url = "http://127.0.0.1:9999/zerochat.html#run=r1"
-        forbidden = ("--allow-fs-write", "--allow-child-process", "--allow-worker", "--allow-inspector")
-
+        cache_dir = self.data_dir / "cache" / "runner"
         with mock.patch.object(zerochat, "find_node_executable", return_value="/usr/bin/node"), \
-             mock.patch.object(zerochat, "ensure_runner_script", return_value=cache_runner), \
-             mock.patch("subprocess.Popen", return_value=mock.Mock()) as popen:
-            with mock.patch.dict(os.environ, {"ZEROCHAT_SECRET_TEST": "super-secret-value"}):
-                zerochat.launch_node_runner(url)
-            cmd = popen.call_args.args[0]
-            self.assertEqual(cmd, ["/usr/bin/node", "--permission", str(cache_runner), url])
-            # El runner no hereda claves ni tokens del entorno de quien lanzó el servidor.
-            self.assertNotIn("ZEROCHAT_SECRET_TEST", popen.call_args.kwargs["env"])
-            self.assertFalse(any(flag.startswith(forbidden + ("--allow-fs-read",)) for flag in cmd))
-
-        with mock.patch.object(zerochat, "find_node_executable", return_value="/usr/bin/node"), \
-             mock.patch.object(zerochat, "ensure_runner_script", return_value=dev_runner), \
              mock.patch("subprocess.Popen", return_value=mock.Mock()) as popen:
             zerochat.launch_node_runner(url)
-            cmd = popen.call_args.args[0]
-            self.assertEqual(
-                cmd,
-                ["/usr/bin/node", "--permission", f"--allow-fs-read={dev_runner.parent}", str(dev_runner), url]
-            )
-            self.assertFalse(any(flag.startswith(forbidden) for flag in cmd))
-
-    def test_ensure_runner_script_descarga_304_cache_fallo_red_y_tope_tamano(self):
-        state = {
-            "status": 200, "body": b"console.log('v1');", "etag": '"etag-v1"',
-            "gzip": False, "send_length": True, "seen_inm": []
-        }
-
-        class Handler(BaseHTTPRequestHandler):
-            def do_GET(self):
-                if self.path != "/runner.js":
-                    self.send_response(404)
-                    self.end_headers()
-                    return
-                state["seen_inm"].append(self.headers.get("If-None-Match"))
-                if state["status"] == 304:
-                    self.send_response(304)
-                    self.end_headers()
-                    return
-                if state["status"] != 200:
-                    self.send_response(state["status"])
-                    self.end_headers()
-                    return
-                payload = gzip.compress(state["body"]) if state["gzip"] else state["body"]
-                self.send_response(200)
-                self.send_header("Content-Type", "application/javascript; charset=utf-8")
-                if state["gzip"]:
-                    self.send_header("Content-Encoding", "gzip")
-                elif state["send_length"]:
-                    self.send_header("Content-Length", str(len(payload)))
-                if state["etag"]:
-                    self.send_header("ETag", state["etag"])
-                self.end_headers()
-                try:
-                    self.wfile.write(payload)
-                except (BrokenPipeError, ConnectionResetError):
-                    pass
-
-            def log_message(self, format, *args):
-                pass
-
-        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        server_closed = False
-        try:
-            threading.Thread(target=server.serve_forever, daemon=True).start()
-            base_url = f"http://127.0.0.1:{server.server_address[1]}/zerochat.html"
-            runner_path = self.data_dir / "cache" / "runner.js"
-            etag_path = self.data_dir / "cache" / "runner.etag"
-
-            with mock.patch.object(zerochat, "get_dev_root", return_value=None), \
-                 mock.patch.object(zerochat, "DEFAULT_UI_URL", base_url):
-                # 1. Descarga inicial desde servidor local con ETag.
-                result = zerochat.ensure_runner_script()
-                self.assertEqual(result, runner_path)
-                self.assertEqual(runner_path.read_text("utf-8"), "console.log('v1');")
-                self.assertEqual(etag_path.read_text("utf-8"), '"etag-v1"')
-                if os.name != "nt":
-                    self.assertEqual(stat.S_IMODE(runner_path.parent.stat().st_mode), 0o700)
-                    self.assertEqual(stat.S_IMODE(runner_path.stat().st_mode), 0o755)
-
-                # 2. Comprobación condicional 304 Not Modified conserva la copia en caché.
-                state["status"] = 304
-                self.assertEqual(zerochat.ensure_runner_script(), runner_path)
-                self.assertEqual(state["seen_inm"][-1], '"etag-v1"')
-                self.assertEqual(runner_path.read_text("utf-8"), "console.log('v1');")
-
-                # 3. Error HTTP del servidor usa la copia en caché.
-                state["status"] = 503
-                self.assertEqual(zerochat.ensure_runner_script(), runner_path)
-                self.assertEqual(runner_path.read_text("utf-8"), "console.log('v1');")
-
-                # 4. Tope de tamaño en el borde exacto N y N+1 (Content-Length, flujo sin cabecera y gzip).
-                limit = zerochat.RUNNER_MAX_BYTES
-                state.update({"status": 200, "body": b"//" + b"a" * (limit - 2), "etag": None, "gzip": False, "send_length": True})
-                self.assertEqual(zerochat.ensure_runner_script(), runner_path)
-                self.assertEqual(runner_path.stat().st_size, limit)
-                self.assertFalse(etag_path.exists())
-
-                for use_gzip, send_length in ((False, True), (False, False), (True, True)):
-                    state.update({
-                        "status": 200, "body": b"//" + b"b" * (limit - 1),
-                        "etag": '"bad"', "gzip": use_gzip, "send_length": send_length
-                    })
-                    with self.assertRaises(RuntimeError):
-                        zerochat.ensure_runner_script()
-                    self.assertEqual(runner_path.stat().st_size, limit)
-                    self.assertFalse(etag_path.exists())
-
-                runner_path.unlink()
-                state.update({"status": 200, "body": b"//" + b"b" * (limit - 1), "etag": None, "gzip": False, "send_length": True})
-                with self.assertRaises(RuntimeError):
-                    zerochat.ensure_runner_script()
-                self.assertFalse(runner_path.exists())
-
-                # 5. Fallo de red: usa caché si existe y falla si no hay copia local.
-                state.update({"status": 200, "body": b"console.log('cached');", "etag": None, "gzip": False})
-                zerochat.ensure_runner_script()
-                server.shutdown()
-                server.server_close()
-                server_closed = True
-
-                self.assertEqual(zerochat.ensure_runner_script(), runner_path)
-                self.assertEqual(runner_path.read_text("utf-8"), "console.log('cached');")
-
-                runner_path.unlink()
-                with self.assertRaises(RuntimeError):
-                    zerochat.ensure_runner_script()
-                self.assertFalse(runner_path.exists())
-        finally:
-            if not server_closed:
-                server.shutdown()
-                server.server_close()
+        # Del disco solo toca su caché; ni procesos, ni workers, ni inspector.
+        self.assertEqual(popen.call_args.args[0], [
+            "/usr/bin/node", "--permission", f"--allow-fs-read={cache_dir}", f"--allow-fs-write={cache_dir}",
+            "-e", zerochat.RUNNER_LOADER_SCRIPT, str(cache_dir / "modules.json"), url,
+        ])
+        if os.name != "nt":
+            self.assertEqual(stat.S_IMODE(cache_dir.stat().st_mode), 0o700)
 
     def test_list_server_runs_orden_focus_proceso_muerto_y_aislamiento_worker(self):
         runs, focus = zerochat.list_server_runs()
@@ -667,7 +566,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(state_focused["focus_run"]["assistant_text"], "Live test")
 
         handler = mock.Mock(spec=zerochat.ZeroChatServerHandler)
-        outcome = zerochat.ZeroChatServerHandler._dispatch_local(handler, "zerochat/heartbeat", {
+        outcome = zerochat.dispatch_local("zerochat/heartbeat", {
             "focus_conversation_id": "conv_hb"
         }, zerochat.project_context())
         result, error, _ = outcome
@@ -764,18 +663,40 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         zerochat.save_conversation({"id": "conv_del_2", "title": "Del 2", "project": "/repo/b"}, [])
         zerochat.save_conversation({"id": "conv_del_3", "title": "Del 3", "project": "/repo/c"}, [])
 
-        zerochat.ZeroChatServerHandler._dispatch_conversations("zerochat/conversations/delete", {"id": "conv_del_1"})
+        zerochat.dispatch_conversations("zerochat/conversations/delete", {"id": "conv_del_1"})
         self.assertFalse(state_path1.exists())
         self.assertTrue(state_path2.exists())
 
         # Por proyecto: solo sus conversaciones y sus ejecuciones.
-        result, error, _ = zerochat.ZeroChatServerHandler._dispatch_conversations("zerochat/conversations/delete", {"project": "/repo/c"})
+        result, error, _ = zerochat.dispatch_conversations("zerochat/conversations/delete", {"project": "/repo/c"})
         self.assertIsNone(error)
         self.assertEqual(result["count"], 1)
         self.assertTrue(state_path2.exists())
         self.assertEqual([c["id"] for c in zerochat.list_conversations()], ["conv_del_2"])
-        _, error, _ = zerochat.ZeroChatServerHandler._dispatch_conversations("zerochat/conversations/delete", {"project": "  "})
+        _, error, _ = zerochat.dispatch_conversations("zerochat/conversations/delete", {"project": "  "})
         self.assertEqual(error["code"], -32602)
 
-        zerochat.ZeroChatServerHandler._dispatch_conversations("zerochat/conversations/delete", {"all": True})
+        zerochat.dispatch_conversations("zerochat/conversations/delete", {"all": True})
         self.assertFalse(state_path2.exists())
+
+
+class FinishRunOutputTest(unittest.TestCase):
+    """Al terminar, la salida de la respuesta solo lleva la respuesta y el registro calla: un hilo en segundo plano
+    que escribiera mientras se cierra el intérprete lo haría abortar (_enter_buffered_busy)."""
+
+    def test_tras_la_respuesta_ninguna_linea_del_registro_llega_a_ninguna_salida(self):
+        session = zerochat.RunSession(prompt="hola")
+        session.result = {"text": "respuesta"}
+        log, answer = io.StringIO(), io.StringIO()
+        with mock.patch.object(zerochat, "RUN_SESSION", session), mock.patch.object(zerochat, "_MUTED", False), \
+             mock.patch.object(sys, "stdout", log):
+            with self.assertRaises(SystemExit) as exit_info:
+                zerochat.finish_run(None, answer)
+            late = threading.Thread(target=zerochat.log_event, args=("línea tardía",))
+            late.start()
+            late.join()
+            zerochat.run_error("error tardío")
+        self.assertEqual(exit_info.exception.code, zerochat.RUN_EXIT_DONE)
+        self.assertEqual(answer.getvalue(), "respuesta\n")
+        self.assertIn("Ejecución terminada", log.getvalue())
+        self.assertNotIn("tardía", log.getvalue())

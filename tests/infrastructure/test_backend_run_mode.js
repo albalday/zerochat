@@ -9,7 +9,7 @@ const { tokenDataDir, freePort } = require('../helpers/backend-env.js');
 
 // Modo ejecución de zerochat.py (--prompt): el arranque normal abre el navegador con xdg-open; un
 // xdg-open falso en el PATH hace de interfaz por JSON-RPC y deja en INFO lo que observó. Su configuración
-// va en fake-ui.json a su lado y no en el entorno, porque el runner de Node arranca sin heredarlo.
+// va en fake-ui.json a su lado. El node falso hace lo mismo: recibe la URL como último argumento.
 
 const repoRoot = path.resolve(__dirname, '../..');
 const backendPath = path.join(repoRoot, 'zerochat.py');
@@ -137,10 +137,6 @@ function launchZerochat(prompt, { scenario = 'ok', env = {}, port, args = [], pr
     fs.copyFileSync(ensureTemplateDb(), path.join(storageDir, 'zerochat.db'));
     fs.chmodSync(path.join(storageDir, 'zerochat.db'), 0o600);
   }
-  const cacheDir = path.join(dataDir, 'cache');
-  fs.mkdirSync(cacheDir, { mode: 0o700, recursive: true });
-  fs.copyFileSync(path.join(repoRoot, 'runner.js'), path.join(cacheDir, 'runner.js'));
-  fs.chmodSync(path.join(cacheDir, 'runner.js'), 0o755);
   const binDir = path.join(work, 'bin');
   fs.mkdirSync(binDir);
   for (const name of ['xdg-open', 'user-browser']) {
@@ -234,11 +230,9 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.deepEqual(userHeadless.info.args, ['--headless', '--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests']);
     // Por defecto (sin --browser) usa el runner de Node.js con --permission y el perfil local.
     assert.equal(failed.info.launcher, 'node');
-    assert.deepEqual(failed.info.args, [
-      '--permission',
-      `--allow-fs-read=${path.join(repoRoot, 'js')}`,
-      path.join(repoRoot, 'js', 'run-node.js')
-    ]);
+    // La orden exacta la comprueba py/test_server_runs.py; aquí, que es la del cargador también en desarrollo.
+    assert.equal(failed.info.args[0], '--permission');
+    assert.match(failed.info.args.at(-1), /cache[\\/]runner[\\/]modules\.json$/);
     // La interfaz es la del arranque normal (la local en desarrollo) con run= en el fragmento.
     assert.equal(ok.info.url, `http://127.0.0.1:${ok.port}/zerochat.html`);
     assert.deepEqual(ok.info.fragment_keys, ['host', 'port', 'run', 'token']);
@@ -300,9 +294,8 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(productionDefaultInUse.stdout, 'Respuesta a: hola\n');
     assert.equal(productionDefaultInUse.info.url, 'https://albalday.github.io/zerochat/zerochat.html');
     assert.equal(productionDefaultInUse.info.launcher, 'node');
-    assert.equal(productionDefaultInUse.info.args.length, 2);
     assert.equal(productionDefaultInUse.info.args[0], '--permission');
-    assert.match(productionDefaultInUse.info.args[1], /cache[\\/]runner\.js$/);
+    assert.match(productionDefaultInUse.info.args.at(-1), /cache[\\/]runner[\\/]modules\.json$/);
   } finally {
     busy.close();
   }

@@ -468,3 +468,86 @@ test('ChatEngine - antepone al mensaje del usuario la nota de comandos terminado
   assert.equal(users[2].content, 'sin nota');
 });
 
+
+test('ChatEngine - switch_model cambia de perfil y de razonamiento desde el siguiente paso, solo con perfiles que nombró el usuario', async t => {
+  const Profiles = require('../../js/profile-repository.js');
+  const State = require('../../js/state.js');
+  const Storage = require('../../js/storage.js');
+  const profile = (id, name, model, reasoningEffort) => ({
+    id, name, version: 1, settings: { apiUrl: `http://${id}/v1`, apiType: 'openai', model, reasoningEffort, apiKey: `key-${id}` }
+  });
+  const profiles = [profile('argon', 'Argon', 'argon-1', 'medium'), profile('gemini', 'Gemini', 'gemini-x', 'low'), profile('otro', 'Otro', 'otro-1', 'low')];
+  t.mock.method(Profiles, 'list', () => profiles);
+  t.mock.method(Profiles, 'get', id => profiles.find(item => item.id === id) || null);
+  t.mock.method(Profiles, 'loadUnlocked', async id => profiles.find(item => item.id === id) || null);
+  t.mock.method(Storage, 'saveRuntimeConfigV2', () => {});
+  const previousConfig = State.get('config');
+  t.after(() => State.set('config', previousConfig));
+  State.set('config', config({ apiUrl: 'http://inicio/v1', model: 'inicio-1', reasoningEffort: 'medium' }));
+
+  const calls = [
+    { profile: 'argon', reasoning: 'high' },
+    { profile: 'Otro' },
+    { profile: 'Desconocido' },
+    { profile: 'Gemini', reasoning: 'medium' }
+  ];
+  const sent = [];
+  t.mock.method(ChatAPI, 'streamChatCompletion', async params => {
+    sent.push({ model: params.model, apiKey: params.apiKey, apiUrl: params.apiUrl, reasoningEffort: params.reasoningEffort });
+    const args = calls[sent.length - 1];
+    if (!args) return { accumulatedText: 'Hecho.', toolCalls: [], stats: null };
+    return { accumulatedText: '', toolCalls: [{ id: `call_${sent.length}`, type: 'function', function: { name: 'switch_model', arguments: JSON.stringify(args) } }], stats: null };
+  });
+
+  const activated = [];
+  const result = await runTurn({
+    apiKey: 'key-inicio',
+    appConfig: State.get('config'),
+    chatHistory: [{ role: 'user', content: 'Analiza con el perfil Argon y razonamiento alto; luego ejecútalo con gemini y razonamiento normal.' }],
+    activateProfile: async id => {
+      activated.push(id);
+      ChatConfig.activateProfile(id, { sessionOnly: true });
+    }
+  });
+
+  assert.equal(result.finalAssistantText, 'Hecho.');
+  assert.deepEqual(sent, [
+    { model: 'inicio-1', apiKey: 'key-inicio', apiUrl: 'http://inicio/v1', reasoningEffort: 'medium' },
+    { model: 'argon-1', apiKey: 'key-argon', apiUrl: 'http://argon/v1', reasoningEffort: 'high' },
+    { model: 'argon-1', apiKey: 'key-argon', apiUrl: 'http://argon/v1', reasoningEffort: 'high' },
+    { model: 'argon-1', apiKey: 'key-argon', apiUrl: 'http://argon/v1', reasoningEffort: 'high' },
+    { model: 'gemini-x', apiKey: 'key-gemini', apiUrl: 'http://gemini/v1', reasoningEffort: 'medium' }
+  ]);
+  assert.deepEqual(activated, ['argon', 'gemini']);
+  const toolResults = result.chatHistory.filter(message => message.role === 'tool').map(message => JSON.parse(message.content));
+  assert.deepEqual(toolResults[0], { success: true, profile: 'Argon', model: 'argon-1', reasoning: 'high', note: 'From your next step on you run with this profile and reasoning level.' });
+  assert.match(toolResults[1].error, /has not named the "Otro" profile/);
+  // Un nombre que no existe no revela cuáles sí.
+  assert.equal(toolResults[2].error, 'There is no profile named "Desconocido". Ask the user for the exact profile name.');
+  assert.equal(toolResults[3].model, 'gemini-x');
+  assert.equal(ChatConfig.getActive().activeProfile.name, 'Gemini');
+});
+
+test('ChatEngine - switch_model sin activateProfile solo cambia el razonamiento', async t => {
+  const State = require('../../js/state.js');
+  const Storage = require('../../js/storage.js');
+  t.mock.method(Storage, 'saveRuntimeConfigV2', () => {});
+  const previousConfig = State.get('config');
+  t.after(() => State.set('config', previousConfig));
+  State.set('config', config({ model: 'inicio-1', reasoningEffort: 'medium', sessionOnly: true }));
+  const efforts = [];
+  t.mock.method(ChatAPI, 'streamChatCompletion', async params => {
+    efforts.push(params.reasoningEffort);
+    const args = [{ reasoning: 'xhigh' }, { profile: 'Argon' }][efforts.length - 1];
+    if (!args) return { accumulatedText: 'Hecho.', toolCalls: [], stats: null };
+    return { accumulatedText: '', toolCalls: [{ id: `call_${efforts.length}`, type: 'function', function: { name: 'switch_model', arguments: JSON.stringify(args) } }], stats: null };
+  });
+  const Profiles = require('../../js/profile-repository.js');
+  t.mock.method(Profiles, 'list', () => [{ id: 'argon', name: 'Argon', settings: {} }]);
+
+  const result = await runTurn({ appConfig: State.get('config'), chatHistory: [{ role: 'user', content: 'Piensa al máximo y luego usa Argon.' }] });
+  assert.deepEqual(efforts, ['medium', 'xhigh', 'xhigh']);
+  const toolResults = result.chatHistory.filter(message => message.role === 'tool').map(message => JSON.parse(message.content));
+  assert.equal(toolResults[0].reasoning, 'xhigh');
+  assert.equal(toolResults[1].error, 'Switching the profile is not available here.');
+});

@@ -86,6 +86,32 @@
     return url.origin;
   }
 
+  /** JSON de un valor con las claves de sus objetos ordenadas: dos valores iguales dan el mismo texto. */
+  function canonicalJson(value) {
+    const canonicalize = item => {
+      if (Array.isArray(item)) return item.map(canonicalize);
+      if (item && typeof item === 'object') {
+        return Object.keys(item).sort().reduce((result, key) => {
+          result[key] = canonicalize(item[key]);
+          return result;
+        }, {});
+      }
+      return item;
+    };
+    return JSON.stringify(canonicalize(value));
+  }
+
+  /**
+   * La decisión de una tarjeta pausada (`{ toolName, args, decision }`) vale solo para la misma llamada:
+   * mismo nombre y mismos argumentos, con las claves ordenadas. Al reanudar, el modelo vuelve a generar
+   * el paso, y si pide otra cosa se pregunta de nuevo.
+   */
+  function matchesToolDecision(toolDecision, toolName, args) {
+    if (!toolDecision || toolDecision.toolName !== toolName) return false;
+    if (!toolDecision.args || typeof toolDecision.args !== 'object') return false;
+    return canonicalJson(toolDecision.args) === canonicalJson(args || {});
+  }
+
   /**
    * Ajustes de conexión de la configuración, normalizados: servidor local o remoto, su URL y la clave del
    * proxy. Los usan la configuración de la aplicación y las páginas que conectan sin cargarla (files.html).
@@ -571,6 +597,8 @@
     projectName,
     normalizeBackendUrl,
     normalizeConnectionSettings,
+    canonicalJson,
+    matchesToolDecision,
     openImageInNewTab,
     isPreviewable,
     openDocumentInNewTab,

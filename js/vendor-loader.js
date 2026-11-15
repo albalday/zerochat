@@ -5,7 +5,8 @@
  * `ZeroChat<Id>` (convención que impone `npm run build:vendor`). En el navegador se inyecta
  * una sola vez como `<script>` clásico, lo que funciona también en file://; fuera de
  * PRECACHE_ASSETS, el service worker la guarda en caché la primera vez que se descarga.
- * En Node se evalúa el mismo bundle en el contexto global.
+ * En Node se evalúa el mismo bundle en el contexto global: en el runner lo descarga su cargador
+ * (`ChatRunnerSource`, py/run_mode/runner_loader.py) y, cargado desde el disco, se lee junto al módulo.
  */
 
 (function (root, factory) {
@@ -14,6 +15,10 @@
     const path = require('node:path');
     const vm = require('node:vm');
     const runBundle = async (src) => {
+      if (typeof globalThis.ChatRunnerSource === 'function') {
+        vm.runInThisContext(await globalThis.ChatRunnerSource(src), { filename: src });
+        return;
+      }
       const filename = path.join(__dirname, '..', src);
       vm.runInThisContext(fs.readFileSync(filename, 'utf8'), { filename });
     };

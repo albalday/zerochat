@@ -34,7 +34,7 @@
             const responder = getResponder();
             if (responder) {
               const toolName = toolCall?.function?.name || toolCall?.name || authorization?.name || name;
-              const decision = responder(toolName);
+              const decision = responder(toolName, authorization?.args || args);
               if (decision) return decision;
             }
             return 'deny';

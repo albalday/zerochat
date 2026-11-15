@@ -130,25 +130,25 @@ LOCAL_TOOLS_DEFINITIONS = [
         "name": "check_command",
         "description": (
             "Check a command started by run_command: returns its status and the output produced since the last check. "
-            "Use wait_seconds to wait for it to finish, add pattern to return as soon as a new output line matches it, "
+            "Use wait_seconds to wait for it to finish (a maximum: it returns as soon as the command ends), add pattern to "
+            "return as soon as a new output line matches it, "
             "or stop=true to terminate it. Example: check_command(job_id=4, wait_seconds=600, pattern='error|Traceback') "
             "returns when the command finishes, prints an error, or after 600 s. To follow a long command until it finishes "
-            "(also when the user asks to be told when it ends), call it again with wait_seconds=600 each time it returns still running. "
-            "Without job_id it just waits wait_seconds, with no shell, and returns early if a background command finishes: "
-            "use it instead of sleep."
+            "(also when the user asks to be told when it ends), call it again with wait_seconds=600 each time it returns still running."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "job_id": {"type": "integer", "description": "job_id returned by run_command; omit it to just wait"},
-                "wait_seconds": {"type": "integer", "description": f"Seconds to wait for the command to finish before returning (default 0, max {COMMAND_MAX_WAIT})", "default": 0},
+                "job_id": {"type": "integer", "description": "job_id returned by run_command"},
+                "wait_seconds": {"type": "integer", "description": f"Maximum seconds to wait for the command to finish; returns earlier when it does (default 0, max {COMMAND_MAX_WAIT})", "default": 0},
                 "stop": {"type": "boolean", "description": "Terminate the command and its child processes", "default": False},
                 "pattern": {
                     "type": "string",
                     "maxLength": CHECK_PATTERN_MAX_CHARS,
-                    "description": "Case-insensitive regular expression matched against each new output line; with wait_seconds, returns as soon as a line matches"
+                    "description": "One or more texts separated by |, searched case-insensitively as plain text (not a regular expression) in each new output line; with wait_seconds, returns as soon as a line contains one"
                 }
-            }
+            },
+            "required": ["job_id"]
         }
     },
     {
@@ -194,6 +194,25 @@ LOCAL_TOOL_HANDLERS = {
 }
 
 
+ARGUMENT_TYPES = {"string": str, "integer": int, "boolean": bool}
+
+
+def _argument_error(name: str, value, prop: dict | None) -> str | None:
+    """Por qué no vale un argumento según su propiedad del esquema, o None si vale."""
+    if prop is None:
+        return f"Argumento no permitido: {name}"
+    expected_type = ARGUMENT_TYPES.get(prop.get("type"))
+    if expected_type is None:
+        return f"Tipo no admitido en la definición de '{name}': {prop.get('type')}"
+    # bool es subclase de int: un booleano no vale como entero.
+    if not isinstance(value, expected_type) or (expected_type is not bool and isinstance(value, bool)):
+        return f"Tipo inválido para '{name}'"
+    max_length = prop.get("maxLength")
+    if max_length is not None and len(value) > max_length:
+        return f"'{name}' excede el tamaño máximo permitido"
+    return None
+
+
 def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None:
     """Valida tipos y límites de las herramientas locales a partir de su definición canónica."""
     definition = next((item for item in LOCAL_TOOLS_DEFINITIONS if item["name"] == tool_name), None)
@@ -202,25 +221,10 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
 
     schema = definition.get("inputSchema", {})
     properties = schema.get("properties", {})
-    type_map = {"string": str, "integer": int, "boolean": bool}
-
     for name, value in arguments.items():
-        prop = properties.get(name)
-        if prop is None:
-            return f"Argumento no permitido: {name}"
-        expected_type_name = prop.get("type")
-        expected_type = type_map.get(expected_type_name)
-        if expected_type is None:
-            return f"Tipo no admitido en la definición de '{name}': {expected_type_name}"
-        if expected_type is bool:
-            if not isinstance(value, bool):
-                return f"Tipo inválido para '{name}'"
-        else:
-            if isinstance(value, bool) or not isinstance(value, expected_type):
-                return f"Tipo inválido para '{name}'"
-        max_length = prop.get("maxLength")
-        if max_length is not None and len(value) > max_length:
-            return f"'{name}' excede el tamaño máximo permitido"
+        error = _argument_error(name, value, properties.get(name))
+        if error:
+            return error
 
     for name in schema.get("required", ()):
         if name not in arguments:

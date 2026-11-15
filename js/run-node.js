@@ -131,6 +131,9 @@
     const DelegateTaskTool = require('./tools/builtin/delegate-task.tool.js');
     globalThis.ChatBuiltinDelegateTaskTool = DelegateTaskTool;
 
+    const SwitchModelTool = require('./tools/builtin/switch-model.tool.js');
+    globalThis.ChatBuiltinSwitchModelTool = SwitchModelTool;
+
     const ExecuteJavascriptTool = require('./tools/builtin/execute-javascript.tool.js');
     globalThis.ChatBuiltinExecuteJavascriptTool = ExecuteJavascriptTool;
 
@@ -141,7 +144,9 @@
       { globalName: 'ChatBuiltinListDocumentsTool', name: 'list_documents' },
       { globalName: 'ChatBuiltinSearchKnowledgeBaseTool', name: 'search_knowledge_base' },
       { globalName: 'ChatBuiltinReadKnowledgeChunkTool', name: 'read_knowledge_chunk' },
-      { globalName: 'ChatBuiltinReadKnowledgeImageTool', name: 'read_knowledge_image' }
+      { globalName: 'ChatBuiltinReadKnowledgeImageTool', name: 'read_knowledge_image' },
+      // Esperar sin nadie delante no tiene sentido: es una espera optimista del chat abierto.
+      { globalName: 'ChatBuiltinWaitTool', name: 'wait' }
     ];
     for (const { globalName, name } of disabledTools) {
       if (!globalThis[globalName]) {
@@ -155,6 +160,7 @@
     }
 
     if (!globalThis.ChatSandbox) {
+      globalThis.ChatSandboxNodeScript = require('./sandbox-node-script.js');
       globalThis.ChatSandbox = require('./sandbox.js');
     }
     if (!globalThis.ChatRagService) {
@@ -355,6 +361,10 @@
         apiKey: activeProfile?.settings?.apiKey || '',
         chatHistory: State.get('messages'),
         appConfig: activeConfig,
+        activateProfile: async (profileId, profile) => {
+          if (profile?.settings?.apiType === 'webllm') throw new Error('WebLLM / WebGPU profiles are not supported in the headless Node.js runner.');
+          await activateSessionProfile(profileId);
+        },
         assistantMsgId: `asst_${Date.now()}`,
         signal: currentAbortController.signal,
         view,
@@ -430,6 +440,10 @@
       });
     };
 
+    const startNewSession = sessionId => {
+      State.replaceConversation({ sessionId, messages: [], sessions: [] });
+    };
+
     const startupConnection = connectBackend();
 
     return RunMode.start(runId, {
@@ -440,7 +454,8 @@
       submitComposerText,
       stopGeneration,
       exportConversation,
-      switchToSession
+      switchToSession,
+      startNewSession
     });
   }
 

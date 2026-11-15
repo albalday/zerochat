@@ -1,0 +1,56 @@
+"""Métodos JSON-RPC de los comandos del proyecto para la interfaz: lista, tarjetas, log, detener y cortar esperas."""
+
+from __future__ import annotations
+
+from core.rpc import INVALID_PARAMS, RpcOutcome, dispatch_table, rpc_error, rpc_not_supported, rpc_result
+from security.context import SecurityContext
+from tools.job_waits import WAITS
+from tools.jobs import JOBS, JOB_LOG_PAGE_BYTES, job_details
+
+
+def _report(params: dict, project: str) -> RpcOutcome:
+    ids = params.get("ids")
+    if not isinstance(ids, list) or len(ids) > 100 or any(isinstance(i, bool) or not isinstance(i, int) for i in ids):
+        return rpc_error(INVALID_PARAMS, "ids debe ser una lista de hasta 100 enteros.")
+    return rpc_result({"reports": JOBS.report_finished(ids, project)})
+
+
+def _log(params: dict, job) -> RpcOutcome:
+    offset = params.get("offset", 0)
+    limit = params.get("limit", JOB_LOG_PAGE_BYTES)
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+        return rpc_error(INVALID_PARAMS, "offset debe ser un entero no negativo.")
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+        return rpc_error(INVALID_PARAMS, "limit debe ser un entero positivo.")
+    text, next_offset = job.read_range(offset, min(limit, JOB_LOG_PAGE_BYTES))
+    return rpc_result({"text": text, "next": next_offset, "total": job.total, "done": job.done.is_set()})
+
+
+def _stop(_params: dict, job) -> RpcOutcome:
+    JOBS.stop(job, "user")
+    return rpc_result(job_details(job))
+
+
+PROJECT_JOB_METHODS = {
+    "zerochat/jobs/list": lambda _params, project: rpc_result({"jobs": [job.summary() for job in JOBS.list(project)]}),
+    "zerochat/jobs/report": _report,
+    "zerochat/jobs/end_wait": lambda params, _project: rpc_result({"ended": WAITS.cancel(params.get("key"))}),
+}
+# Métodos sobre un comando concreto, que se localiza por su id o por la clave de la invocación.
+SINGLE_JOB_METHODS = {
+    "zerochat/jobs/get": lambda _params, job: rpc_result(job_details(job)),
+    "zerochat/jobs/log": _log,
+    "zerochat/jobs/stop": _stop,
+}
+
+
+def dispatch_jobs(method: str, params: dict, ctx: SecurityContext) -> RpcOutcome:
+    """Comandos del proyecto de la petición: tarjetas, log y botón de detener de la interfaz."""
+    if method in PROJECT_JOB_METHODS:
+        return dispatch_table(PROJECT_JOB_METHODS, method, params, ctx.key)
+    if method not in SINGLE_JOB_METHODS:
+        return rpc_not_supported(method)
+    job = JOBS.get(ctx.key, job_id=params.get("id"), key=params.get("key"))
+    if job is None:
+        return rpc_error(INVALID_PARAMS, "Comando no encontrado: puede pertenecer a una sesión anterior de ZeroChat.")
+    return dispatch_table(SINGLE_JOB_METHODS, method, params, job)

@@ -128,6 +128,30 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
     });
   });
 
+  test('Browser UI - la tarjeta de wait dice hasta qué hora espera, queda fuera de los grupos y el historial dice cuándo terminó', async () => {
+    await withTestApp(async page => {
+      const result = await page.evaluate(() => {
+        const cards = window.ChatToolCards;
+        const container = document.createElement('div');
+        const args = { until: '23:59:30' };
+        const card = cards.createLiveToolCard('wait', args);
+        const group = cards.appendToolCard(container, card);
+        const waiting = card.querySelector('.tool-card-badge').textContent.trim();
+        cards.updateLiveToolCard(card, 'wait', args, { success: true, until: '23:59:30', waited_s: 60 }, 60000);
+        return {
+          waiting,
+          inGroup: group !== null || Boolean(card.closest('.tool-call-group')),
+          collapsible: Boolean(card.querySelector('.btn-tool-collapse')),
+          done: card.querySelector('.tool-card-badge').textContent.trim()
+        };
+      });
+      assert.equal(result.waiting, 'Esperando hasta las 23:59:30 para continuar');
+      assert.equal(result.inGroup, false, 'Una espera tiene que verse sin abrir el grupo de herramientas');
+      assert.equal(result.collapsible, false);
+      assert.match(result.done, /Espera terminada a las 23:59:30/);
+    });
+  });
+
   test('Browser UI - la tarjeta de delegate_task escapa el encargo y el historial restaura el informe o el error', async () => {
     await withTestApp(async page => {
       const result = await page.evaluate(() => {

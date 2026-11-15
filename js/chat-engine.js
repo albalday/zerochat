@@ -32,6 +32,14 @@
     return resolveDep('ChatContextManager', './context-manager.js');
   }
 
+  function getConfig() {
+    return resolveDep('ChatConfig', './config-store.js');
+  }
+
+  function getProfiles() {
+    return resolveDep('ChatProfileRepository', './profile-repository.js');
+  }
+
 
   const { serializeContent, resolveDep } = Utils;
 
@@ -250,6 +258,8 @@
    * (`createBlock({ reset }) → { render(text, options), remove() }`, `scrollToBottom()` y la vista
    * de tarjetas `cards` de AgentCore.dispatchToolCall). En la interfaz la crea
    * ChatUIConversation.createTurnView.
+   * `params.activateProfile(profileId)` activa un perfil como el selector de quien lanza el turno; sin
+   * ella, switch_model solo cambia el nivel de razonamiento.
    * @param {Object} params - Parámetros de ejecución.
    * @returns {Promise<{ finalAssistantText?: string, accumulatedMarkdown?: string, loopDetected?: boolean, truncated?: boolean, stats?: Object, chatHistory: Array, cancelled?: boolean, error?: any }>}
    */
@@ -267,7 +277,8 @@
       onStats,
       onBeforeRequest,
       onGenerationStatus,
-      onProgress
+      onProgress,
+      activateProfile = null
     } = params;
     const AgentCore = getAgentCore();
     const turnBlocks = new Map();
@@ -280,26 +291,53 @@
       return turnMarkdown.get(turnIndex);
     };
 
-    const llm = {
-      apiUrl: appConfig.apiUrl,
-      apiType: appConfig.apiType,
-      apiKey: params.apiKey,
-      model: appConfig.model
-    };
     const summarizerAddendum = getProjectContext().SUMMARIZER_PROJECT_ADDENDUM;
+    /** Conexión del agente con una configuración: la del turno o la que deja switch_model. */
+    const connectionFor = (config, apiKey) => {
+      const llm = { apiUrl: config.apiUrl, apiType: config.apiType, apiKey, model: config.model };
+      return {
+        ...llm,
+        temperature: config.temperature,
+        reasoningEffort: config.reasoningEffort,
+        contextOptions: {
+          totalContextLimit: config.modelContextLimit || config.contextLimitOverride,
+          // En modo proyecto el resumen marca lo pendiente de registrar; nunca escribe en el proyecto.
+          ...(projectContext?.status === 'ready' ? { summarizerAddendum } : {})
+        },
+        summarizeHistory: createHistorySummarizer({ ...llm, signal: params.signal, onBeforeRequest })
+      };
+    };
+    // Configuración vigente del turno: switch_model la cambia y vale desde el siguiente paso.
+    const turn = { appConfig, connection: connectionFor(appConfig, params.apiKey) };
+    const modelSwitch = {
+      // Solo los mensajes del usuario pueden nombrar un perfil; en un turno no llegan otros nuevos.
+      userMessages: chatHistory.filter(message => message?.role === 'user'),
+      apply: async ({ profileId, reasoningEffort }) => {
+        const Config = getConfig();
+        let apiKey = turn.connection.apiKey;
+        if (profileId) {
+          if (typeof activateProfile !== 'function') throw new Error('Switching the profile is not available here.');
+          const profile = await getProfiles().loadUnlocked(profileId);
+          if (!profile) throw new Error('The profile no longer exists.');
+          await activateProfile(profileId, profile);
+          apiKey = profile.settings?.apiKey || '';
+        }
+        if (reasoningEffort) Config.updateRuntime({ reasoningEffort });
+        turn.appConfig = Config.getActive();
+        turn.connection = connectionFor(turn.appConfig, apiKey);
+        return {
+          profile: turn.appConfig.activeProfile?.name || '',
+          model: turn.appConfig.model,
+          reasoningEffort: turn.appConfig.reasoningEffort
+        };
+      }
+    };
 
     const result = await AgentCore.runtime.execute({
-      ...llm,
-      temperature: appConfig.temperature,
-      reasoningEffort: appConfig.reasoningEffort,
+      ...turn.connection,
+      resolveConnection: () => turn.connection,
       messages: chatHistory,
       signal: params.signal,
-      contextOptions: {
-        totalContextLimit: appConfig.modelContextLimit || appConfig.contextLimitOverride,
-        // En modo proyecto el resumen marca lo pendiente de registrar; nunca escribe en el proyecto.
-        ...(projectContext?.status === 'ready' ? { summarizerAddendum } : {})
-      },
-      summarizeHistory: createHistorySummarizer({ ...llm, signal: params.signal, onBeforeRequest }),
       onBeforeRequest,
       onGenerationStatus,
       loopNotice: `> ⚠️ *${I18n.t('agent_loop_warning_notice')}*`,
@@ -308,17 +346,18 @@
         if (kind === 'assistant') return `${assistantMsgId}_turn_${info.stepIndex}_assistant`;
         return `${assistantMsgId}_turn_${info.stepIndex}_tool_${info.toolCall?.id || info.toolIndex}_${Date.now()}`;
       },
-      prepareMessages: messages => buildEffectiveMessages(messages, appConfig, {
+      prepareMessages: messages => buildEffectiveMessages(messages, turn.appConfig, {
         currentRagSystemContext,
         projectContext,
         projectDirectory
       }),
-      resolveToolDefinitions: () => AgentCore.registry.getActiveDefinitions(appConfig),
+      resolveToolDefinitions: () => AgentCore.registry.getActiveDefinitions(turn.appConfig),
       dispatchToolCall: async (toolCall, context) => AgentCore.dispatchToolCall(toolCall, {
         cards: view.cards,
         onLog,
         language: appConfig.language,
         activeRagBranchIds: appConfig.activeRagBranchIds,
+        modelSwitch,
         ...context
       }),
       callbacks: {

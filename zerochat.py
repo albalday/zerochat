@@ -51,11 +51,14 @@ import typing
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 import venv
 import webbrowser
 import zlib
+from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Callable
 from urllib.parse import urlencode
 
 # --- core.limits ---
@@ -74,6 +77,9 @@ MAX_TOOL_NAME_LENGTH = 128
 
 
 CONSOLE_CONTROL = None
+# Una línea del registro se escribe entera o no se escribe: al salir, mute_console espera a la que esté en curso.
+_WRITE_LOCK = threading.Lock()
+_MUTED = False
 
 
 def set_console_control(control):
@@ -88,10 +94,32 @@ def current_console_control():
 
 
 def console_log(message: str, *, flush: bool = True):
-    if CONSOLE_CONTROL:
-        CONSOLE_CONTROL.log(message, flush=flush)
-    else:
-        print(message, flush=flush)
+    with _WRITE_LOCK:
+        if _MUTED:
+            return
+        if CONSOLE_CONTROL:
+            CONSOLE_CONTROL.log(message, flush=flush)
+        else:
+            print(message, flush=flush)
+
+
+def console_error(message: str):
+    """Una línea en stderr aunque el registro esté desactivado, con el mismo cierre que console_log."""
+    with _WRITE_LOCK:
+        if not _MUTED:
+            print(message, file=sys.stderr, flush=True)
+
+
+def mute_console():
+    """
+    Al salir, el registro calla: los hilos en segundo plano que sigan vivos (peticiones del runner, servicios MCP)
+    no escriben mientras se cierra el intérprete, que abortaría si uno tuviera tomada la salida al vaciarla.
+    """
+    global _MUTED
+    with _WRITE_LOCK:
+        _MUTED = True
+        sys.stdout.flush()
+        sys.stderr.flush()
 
 
 def timestamp_message(message: str) -> str:
@@ -136,21 +164,32 @@ def minimal_child_env() -> dict[str, str]:
 
 def get_dev_root() -> Path | None:
     """
-    Detecta si zerochat.py se está ejecutando en el directorio de desarrollo del repositorio.
-    Comprueba si existen zerochat.html, js/ y css/ en el directorio del script o en cwd.
-    Se calcula una vez, al arrancar: la interfaz servida no depende del proyecto de cada pestaña.
+    Raíz del repositorio de desarrollo si este zerochat.py está en ella (junto a zerochat.html, js/ y css/).
+    Solo cuenta la carpeta del propio script, no la carpeta desde la que se arranca: un zerochat instalado
+    nunca entra en modo desarrollo, aunque se lance dentro de una carpeta que lo parezca.
     """
     script_dir = Path(__file__).resolve().parent
-    cwd = Path.cwd().resolve()
-    for candidate in (script_dir, cwd):
-        if (candidate / "zerochat.html").is_file() and (candidate / "js").is_dir() and (candidate / "css").is_dir():
-            return candidate
+    if (script_dir / "zerochat.html").is_file() and (script_dir / "js").is_dir() and (script_dir / "css").is_dir():
+        return script_dir
     return None
 
 
 def get_static_root() -> Path | None:
     """La interfaz local solo se sirve al ejecutar el repositorio de desarrollo."""
     return get_dev_root()
+
+
+def is_loopback_host(host: str) -> bool:
+    """Indica si un host o una dirección es del propio equipo (también ::ffff:127.0.0.1)."""
+    value = (host or "").strip().strip("[]").lower()
+    if value == "localhost":
+        return True
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    mapped = getattr(address, "ipv4_mapped", None)
+    return address.is_loopback or bool(mapped and mapped.is_loopback)
 
 
 def get_data_dir() -> Path:
@@ -254,6 +293,7 @@ RUNNER_ALLOWED_METHODS = frozenset({
     "tools/list",
     "tools/call",
     "zerochat/run/prompt",
+    "zerochat/run/profile",
     "zerochat/run/progress",
     "zerochat/run/export",
     "zerochat/run/result",
@@ -1037,6 +1077,55 @@ def browser_launch_diagnostics(attempts: list[str]) -> str:
     return "\n  ".join(lines)
 
 
+def _spawn_detached(args: list[str]):
+    """Lanza el abridor sin atarlo a la terminal; OSError si no se puede iniciar."""
+    subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+def _open_in_termux(url: str):
+    termux_open_url = get_termux_open_url_executable()
+    if not termux_open_url:
+        raise FileNotFoundError(
+            "Termux fue detectado, pero no se encontró termux-open-url.\n  "
+            + browser_launch_diagnostics(["termux-open-url: no localizado"])
+        )
+    try:
+        _spawn_detached([termux_open_url, url])
+    except OSError as error:
+        raise RuntimeError(
+            f"termux-open-url no pudo iniciarse: {type(error).__name__}: {error}\n  "
+            + browser_launch_diagnostics(["termux-open-url: error al iniciar"])
+        ) from error
+
+
+def _system_openers(url: str) -> list[tuple[str, list[str] | None]]:
+    """Abridores del sistema por orden: (nombre, orden). Una orden None es os.startfile."""
+    if sys.platform.startswith("linux"):
+        return [("xdg-open", ["xdg-open", url]), ("gio", ["gio", "open", url])]
+    if sys.platform == "darwin":
+        return [("open", ["open", url])] if shutil.which("open") else []
+    if sys.platform == "win32":
+        return [("os.startfile", None)]
+    return []
+
+
+def _open_with_system(url: str, attempts: list[str]) -> bool:
+    """Prueba los abridores del sistema y anota en attempts por qué falla cada uno."""
+    for name, args in _system_openers(url):
+        if args is not None and not shutil.which(args[0]):
+            attempts.append(f"{name}: no encontrado")
+            continue
+        try:
+            if args is None:
+                os.startfile(url)  # pyright: ignore[reportAttributeAccessIssue] - solo existe en Windows
+            else:
+                _spawn_detached(args)
+            return True
+        except OSError as error:
+            attempts.append(f"{name}: {type(error).__name__}: {error}")
+    return False
+
+
 def open_browser(url: str) -> bool:
     """
     Abre la URL en el navegador predeterminado del usuario respetando el entorno del sistema.
@@ -1044,61 +1133,12 @@ def open_browser(url: str) -> bool:
     Linux prioriza xdg-open o gio para respetar el gestor de ventanas y mimeapps.list,
     desacoplando el proceso hijo para evitar ruidos en la terminal.
     """
-    attempts = []
     if is_termux_environment():
-        termux_open_url = get_termux_open_url_executable()
-        if not termux_open_url:
-            raise FileNotFoundError(
-                "Termux fue detectado, pero no se encontró termux-open-url.\n  "
-                + browser_launch_diagnostics(["termux-open-url: no localizado"])
-            )
-        try:
-            subprocess.Popen(
-                [termux_open_url, url],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-            return True
-        except OSError as error:
-            raise RuntimeError(
-                f"termux-open-url no pudo iniciarse: {type(error).__name__}: {error}\n  "
-                + browser_launch_diagnostics(["termux-open-url: error al iniciar"])
-            ) from error
-    elif sys.platform.startswith("linux"):
-        for cmd in ("xdg-open", "gio"):
-            if shutil.which(cmd):
-                try:
-                    args = ["gio", "open", url] if cmd == "gio" else ["xdg-open", url]
-                    subprocess.Popen(
-                        args,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        start_new_session=True,
-                    )
-                    return True
-                except OSError as error:
-                    attempts.append(f"{cmd}: {type(error).__name__}: {error}")
-            else:
-                attempts.append(f"{cmd}: no encontrado")
-    elif sys.platform == "darwin":
-        if shutil.which("open"):
-            try:
-                subprocess.Popen(
-                    ["open", url],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
-                return True
-            except OSError as error:
-                attempts.append(f"open: {type(error).__name__}: {error}")
-    elif sys.platform == "win32":
-        try:
-            os.startfile(url)
-            return True
-        except OSError as error:
-            attempts.append(f"os.startfile: {type(error).__name__}: {error}")
+        _open_in_termux(url)
+        return True
+    attempts: list[str] = []
+    if _open_with_system(url, attempts):
+        return True
 
     try:
         if webbrowser.open(url):
@@ -1159,7 +1199,7 @@ def default_browser_executable() -> str | None:
             return None
         exec_line = next((line[5:] for line in lines if line.startswith("Exec=")), "")
         try:
-            tokens = [token for token in shlex.split(exec_line) if token != "env" and "=" not in token]
+            tokens = [token for token in shlex.split(exec_line) if token != "env" and "=" not in token]  # noqa: S105 - palabras de Exec=, no una contraseña
         except ValueError:
             return None
         # Flatpak o Snap envuelven el navegador: no admiten sus opciones directamente.
@@ -1376,13 +1416,64 @@ def _pid_alive(pid: int) -> bool:
         return False
     return True
 
+# --- core.rpc ---
+"""Respuestas de los métodos JSON-RPC del servidor: (resultado, error JSON-RPC, detalle para el registro)."""
+
+
+
+METHOD_NOT_FOUND = -32601
+INVALID_PARAMS = -32602
+INTERNAL_ERROR = -32603
+
+RpcOutcome = tuple[dict | None, dict | None, str]
+
+
+def rpc_result(result) -> RpcOutcome:
+    return result, None, ""
+
+
+def rpc_error(code: int, message: str, detail: str = "") -> RpcOutcome:
+    return None, {"code": code, "message": message}, detail
+
+
+def rpc_not_supported(method: str) -> RpcOutcome:
+    return rpc_error(METHOD_NOT_FOUND, f"Método '{method}' no soportado.")
+
+
+def dispatch_table(handlers: dict[str, Callable[..., RpcOutcome]], method: str, *args) -> RpcOutcome:
+    """Atiende el método con su función de la tabla, que recibe *args; sin ella, «no soportado»."""
+    handler = handlers.get(method)
+    return handler(*args) if handler else rpc_not_supported(method)
+
+# --- browser.rpc ---
+"""Métodos JSON-RPC de la sección Navegador de Ajustes: configuración, datos y motores propios de Playwright."""
+
+
+
+
+BROWSER_METHODS = {
+    "zerochat/browser/config/get": lambda _params: rpc_result(load_browser_config()),
+    "zerochat/browser/config/set": lambda params: rpc_result(save_browser_config(params.get("config"))),
+    "zerochat/browser/data/clear": lambda params: rpc_result(clear_own_browser_data(params.get("engine"))),
+    "zerochat/browser/engines/list": lambda _params: rpc_result(BROWSER_ENGINES.list()),
+    "zerochat/browser/engines/install": lambda params: rpc_result(BROWSER_ENGINES.install(params.get("engine"))),
+    "zerochat/browser/engines/remove": lambda params: rpc_result(BROWSER_ENGINES.remove(params.get("engine"))),
+}
+
+
+def dispatch_browser(method: str, params: dict) -> RpcOutcome:
+    try:
+        return dispatch_table(BROWSER_METHODS, method, params)
+    except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+
 # --- core.version ---
 """Versiones del backend y de la interfaz, y direcciones desde las que se publican."""
 
 
 
 
-SOURCE_BACKEND_VERSION = "10.18.0"
+SOURCE_BACKEND_VERSION = "10.19.0"
 
 
 def _read_source_version(filename: str) -> str | None:
@@ -1448,8 +1539,9 @@ def parse_version(ver: str) -> tuple[int, ...]:
 
 def _read_remote_content(url: str) -> str:
     """Lee una cabecera acotada de un recurso publicado de ZeroChat."""
-    req = urllib.request.Request(url, headers={"User-Agent": f"ZeroChat/{VERSION}"})
-    with urllib.request.urlopen(req, timeout=3) as resp:
+    # Solo se llama con las URL https fijas de este módulo.
+    req = urllib.request.Request(url, headers={"User-Agent": f"ZeroChat/{VERSION}"})  # noqa: S310
+    with urllib.request.urlopen(req, timeout=3) as resp:  # noqa: S310
         return resp.read(4096).decode("utf-8", errors="ignore")
 
 
@@ -1840,6 +1932,26 @@ def service_status(record: McpServiceRecord, alive: bool, exit_code: int | None)
     return "error", "MCP process is not responding"
 
 
+def _npm_install_needed(marker: Path, package_dir: Path, package: str, version: str) -> bool:
+    """Falta la instalación, o la registrada en marker es de otro paquete o versión."""
+    if not marker.exists() or not package_dir.is_dir():
+        return True
+    try:
+        installation = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return True
+    return installation.get("package") != package or installation.get("version") != version
+
+
+def _install_playwright_browser(service_dir: Path, browser: str, node: str):
+    playwright_cli = service_dir / "node_modules" / "playwright" / "cli.js"
+    if not playwright_cli.is_file():
+        raise RuntimeError("No se encontró Playwright después de instalar el servicio MCP")
+    result = subprocess.run([node, str(playwright_cli), "install", browser], cwd=service_dir, capture_output=True, text=True, timeout=600)
+    if result.returncode != 0:
+        raise RuntimeError(f"Fallo instalando el navegador {browser} de Playwright: {result.stderr or result.stdout}")
+
+
 class McpServiceManager:
     def __init__(self, services_root: Path | None = None):
         # Crearlo no toca el disco: el gestor global existe desde que se importa zerochat.
@@ -1958,65 +2070,15 @@ class McpServiceManager:
         service_dir = server["_directory"]
         installer_file = service_dir / "installer.json"
         node = shutil.which("node") or "node"
-        npm = shutil.which("npm") or "npm"
 
         if installer_file.exists():
             self._trace(server_id, f"reading installer: {installer_file.name}")
-            marker = service_dir / ".installed.json"
             try:
                 installer = json.loads(installer_file.read_text(encoding="utf-8"))
             except Exception as e:
-                raise RuntimeError(f"Error leyendo installer.json: {e}")
-            kind = installer.get("type", "npm")
-            if kind == "npm":
-                product = installer.get("product", {})
-                package = product.get("package")
-                version = product.get("version")
-                if not package or not version:
-                    raise RuntimeError("El instalador npm debe definir package y version")
-                if not shutil.which("node") or not shutil.which("npm"):
-                    raise RuntimeError("Node.js y npm son necesarios para instalar este servicio MCP")
-
-                self._check_node_requirement(server_id, installer, node)
-
-                package_dir = service_dir / "node_modules" / Path(*package.split("/"))
-                needs_install = not marker.exists() or not package_dir.is_dir()
-                if not needs_install:
-                    try:
-                        installation = json.loads(marker.read_text(encoding="utf-8"))
-                        if installation.get("package") != package or installation.get("version") != version:
-                            needs_install = True
-                    except (OSError, json.JSONDecodeError):
-                        needs_install = True
-
-                if needs_install:
-                    self.records[server_id].phase = "installing"
-                    self._trace(server_id, f"installing npm package: {package}@{version}")
-                    manifest = service_dir / "package.json"
-                    manifest.write_text(json.dumps({"private": True, "dependencies": {package: version}}, indent=2), encoding="utf-8")
-                    res = subprocess.run([npm, "install", "--ignore-scripts", "--no-audit", "--no-fund"], cwd=service_dir, capture_output=True, text=True, timeout=600)
-                    if res.returncode != 0:
-                        raise RuntimeError(f"Fallo instalando dependencias npm: {res.stderr or res.stdout}")
-                    self._trace(server_id, f"npm package installed: {package}@{version}")
-                    installation = {"type": "npm", "package": package, "version": version, "nodeExecutable": node}
-                    browser = product.get("browser")
-                    if browser:
-                        playwright_cli = service_dir / "node_modules" / "playwright" / "cli.js"
-                        if not playwright_cli.is_file():
-                            raise RuntimeError("No se encontró Playwright después de instalar el servicio MCP")
-                        browser_result = subprocess.run(
-                            [node, str(playwright_cli), "install", browser], cwd=service_dir,
-                            capture_output=True, text=True, timeout=600
-                        )
-                        if browser_result.returncode != 0:
-                            raise RuntimeError(
-                                f"Fallo instalando el navegador {browser} de Playwright: "
-                                f"{browser_result.stderr or browser_result.stdout}"
-                            )
-                        installation["browser"] = browser
-                    marker.write_text(json.dumps(installation, indent=2), encoding="utf-8")
-                else:
-                    self._trace(server_id, f"npm package already installed: {package}@{version}")
+                raise RuntimeError(f"Error leyendo installer.json: {e}") from e
+            if installer.get("type", "npm") == "npm":
+                self._prepare_npm_service(server_id, service_dir, installer, node)
 
         venv_python = get_venv_python(get_venv_dir())
         return {
@@ -2024,6 +2086,38 @@ class McpServiceManager:
             "pythonExecutable": str(venv_python) if venv_python.is_file() else sys.executable,
             "nodeExecutable": node
         }
+
+    def _prepare_npm_service(self, server_id: str, service_dir: Path, installer: dict, node: str):
+        """Instala el paquete npm del servicio (y su navegador de Playwright) si falta o cambió de versión."""
+        product = installer.get("product", {})
+        package = product.get("package")
+        version = product.get("version")
+        if not package or not version:
+            raise RuntimeError("El instalador npm debe definir package y version")
+        if not shutil.which("node") or not shutil.which("npm"):
+            raise RuntimeError("Node.js y npm son necesarios para instalar este servicio MCP")
+        self._check_node_requirement(server_id, installer, node)
+
+        marker = service_dir / ".installed.json"
+        package_dir = service_dir / "node_modules" / Path(*package.split("/"))
+        if not _npm_install_needed(marker, package_dir, package, version):
+            self._trace(server_id, f"npm package already installed: {package}@{version}")
+            return
+        self.records[server_id].phase = "installing"
+        self._trace(server_id, f"installing npm package: {package}@{version}")
+        manifest = service_dir / "package.json"
+        manifest.write_text(json.dumps({"private": True, "dependencies": {package: version}}, indent=2), encoding="utf-8")
+        npm = shutil.which("npm") or "npm"
+        res = subprocess.run([npm, "install", "--ignore-scripts", "--no-audit", "--no-fund"], cwd=service_dir, capture_output=True, text=True, timeout=600)
+        if res.returncode != 0:
+            raise RuntimeError(f"Fallo instalando dependencias npm: {res.stderr or res.stdout}")
+        self._trace(server_id, f"npm package installed: {package}@{version}")
+        installation = {"type": "npm", "package": package, "version": version, "nodeExecutable": node}
+        browser = product.get("browser")
+        if browser:
+            _install_playwright_browser(service_dir, browser, node)
+            installation["browser"] = browser
+        marker.write_text(json.dumps(installation, indent=2), encoding="utf-8")
 
     def _check_node_requirement(self, server_id: str, installer: dict, node: str):
         """Comprueba la versión mínima de Node.js que declara el instalador."""
@@ -2208,6 +2302,185 @@ GLOBAL_MCP_MANAGER = McpServiceManager()
 def _playwright_service_running() -> bool:
     return any(server["id"] == PLAYWRIGHT_SERVER_ID and server["status"] in ("running", "starting", "installing")
                for server in GLOBAL_MCP_MANAGER.list_servers())
+
+# --- mcp.rpc ---
+"""Métodos JSON-RPC de los servicios MCP externos: arrancar, detener y configurar desde la interfaz."""
+
+
+
+SERVER_CONTROL_METHODS = frozenset({
+    "zerochat/external/servers/start",
+    "zerochat/external/servers/stop",
+    "zerochat/external/servers/configure",
+})
+
+
+def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
+    server_id = params.get("serverId")
+    opts = params.get("options", {})
+    remember = params.get("remember")
+    browser = params.get("browser")
+    starting = method == "zerochat/external/servers/start"
+    if not isinstance(server_id, str) or not server_id:
+        return rpc_error(INVALID_PARAMS, "serverId debe ser un texto no vacío.")
+    if not isinstance(opts, dict):
+        return rpc_error(INVALID_PARAMS, "options debe ser un objeto.")
+    # Al arrancar, el cliente decide siempre si el servicio se recuerda para la siguiente sesión.
+    if starting and not isinstance(remember, bool):
+        return rpc_error(INVALID_PARAMS, "remember es obligatorio al arrancar y debe ser un booleano.")
+    if starting and browser is not None:
+        if server_id not in SERVICE_LAUNCH:
+            return rpc_error(INVALID_PARAMS, f"{server_id} no admite elegir navegador.")
+        try:
+            browser = validate_profile_browser(browser)
+        except ValueError as exc:
+            return rpc_error(INVALID_PARAMS, str(exc))
+    try:
+        if starting:
+            servers = GLOBAL_MCP_MANAGER.start(server_id, remember, browser)
+        elif method == "zerochat/external/servers/stop":
+            servers = GLOBAL_MCP_MANAGER.stop(server_id)
+        else:
+            servers = GLOBAL_MCP_MANAGER.configure(server_id, opts)
+    except KeyError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc.args[0]) if exc.args else str(exc))
+    return rpc_result({"servers": servers})
+
+# --- run_mode.runner_loader ---
+"""Cargador del runner de Node.js: descarga los módulos de la interfaz como un navegador y los ejecuta.
+
+El servidor lo lanza con `node --permission -e RUNNER_LOADER_SCRIPT <caché> <url de la interfaz>`. Desde la
+carpeta de la interfaz (GitHub Pages en producción, este servidor en desarrollo) descarga `js/run-node.js` y,
+siguiendo sus `require('./…')`, los módulos que usa, en paralelo; los ejecuta con un `require` mínimo que los
+busca en lo descargado (los de Node, como `node:crypto`, van al `require` real). Lo que se ejecuta es lo que se
+publica: no hay empaquetado ni copia versionada.
+
+Cada descarga completa sustituye la caché (un JSON con la carpeta de origen y los ficheros). Solo se usa si la
+interfaz no responde, para seguir funcionando sin conexión con un modelo local; una respuesta de error de la
+interfaz (un 404) es un fallo, no un motivo para ejecutar la copia anterior. Las librerías de terceros que se
+cargan bajo demanda (`ChatVendorLoader`) siguen el mismo camino con `globalThis.ChatRunnerSource`.
+"""
+
+
+# Tope de lo descargado en una ejecución: la interfaz completa ocupa unas pocas centenas de KiB.
+RUNNER_MAX_BYTES = 16 * 1024 * 1024
+
+RUNNER_LOADER_SCRIPT = r"""
+'use strict';
+const fs = require('node:fs');
+const vm = require('node:vm');
+
+const [cacheFile, uiUrl] = process.argv.slice(1);
+const base = new URL('.', uiUrl.split('#')[0]).href;
+const ENTRY = 'js/run-node.js';
+const MAX_BYTES = __MAX_BYTES__;
+const REQUIRE_RE = /require\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)/g;
+
+function resolveKey(from, spec) {
+  const href = new URL(spec, base + from).href;
+  if (!href.startsWith(base)) throw new Error(`Module outside the interface folder: ${spec}`);
+  return href.slice(base.length);
+}
+
+// Solo un fallo de red (fetch lanza) permite usar la caché: una respuesta de error o un tope superado, no.
+async function download(key) {
+  let response;
+  try {
+    response = await fetch(base + key);
+  } catch (cause) {
+    const error = new Error(`${base + key}: ${cause.cause?.code || cause.message}`);
+    error.offline = true;
+    throw error;
+  }
+  if (!response.ok) throw new Error(`${base + key}: HTTP ${response.status}`);
+  return response.text();
+}
+
+async function downloadGraph() {
+  const files = {};
+  const seen = new Set([ENTRY]);
+  let pending = [ENTRY];
+  let total = 0;
+  while (pending.length) {
+    const texts = await Promise.all(pending.map(key => download(key)));
+    const next = [];
+    pending.forEach((key, index) => {
+      files[key] = texts[index];
+      total += texts[index].length;
+      for (const match of texts[index].matchAll(REQUIRE_RE)) {
+        const dep = resolveKey(key, match[1]);
+        if (!seen.has(dep)) {
+          seen.add(dep);
+          next.push(dep);
+        }
+      }
+    });
+    if (total > MAX_BYTES) throw new Error(`The runner modules exceed ${MAX_BYTES} bytes.`);
+    pending = next;
+  }
+  return files;
+}
+
+function readCache() {
+  try {
+    const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+    return cached && cached.base === base && cached.files && typeof cached.files === 'object' ? cached.files : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(files) {
+  try {
+    fs.writeFileSync(cacheFile + '.tmp', JSON.stringify({ base, files }), { mode: 0o600 });
+    fs.renameSync(cacheFile + '.tmp', cacheFile);
+  } catch (error) {
+    console.error(`[RunnerLoader] Could not update the cache: ${error.message}`);
+  }
+}
+
+function execute(files) {
+  const modules = new Map();
+  const load = key => {
+    if (modules.has(key)) return modules.get(key).exports;
+    if (typeof files[key] !== 'string') throw new Error(`Module not downloaded: ${key}`);
+    const module = { exports: {} };
+    modules.set(key, module);
+    const filename = base + key;
+    const wrapper = vm.runInThisContext(`(function (exports, require, module, __filename, __dirname) {${files[key]}\n})`, { filename });
+    const localRequire = spec => (spec.startsWith('.') ? load(resolveKey(key, spec)) : require(spec));
+    wrapper.call(module.exports, module.exports, localRequire, module, filename, new URL('.', filename).href);
+    return module.exports;
+  };
+  return load(ENTRY);
+}
+
+(async () => {
+  let files;
+  try {
+    files = await downloadGraph();
+    writeCache(files);
+  } catch (error) {
+    files = error.offline ? readCache() : null;
+    if (!files) throw error;
+    console.error(`[RunnerLoader] ${base} is unreachable (${error.message}); using the cached copy.`);
+  }
+  // Las librerías de terceros se piden al usarlas: se descargan igual y se añaden a la caché.
+  globalThis.ChatRunnerSource = async key => {
+    try {
+      files[key] = await download(key);
+      writeCache(files);
+    } catch (error) {
+      if (!error.offline || typeof files[key] !== 'string') throw error;
+    }
+    return files[key];
+  };
+  await execute(files).startHeadlessRun([uiUrl]);
+})().catch(error => {
+  console.error('[RunnerLoader] Fatal error:', error);
+  process.exit(1);
+});
+""".replace("__MAX_BYTES__", str(RUNNER_MAX_BYTES))
 
 # --- security.context ---
 """Proyecto de cada petición (SecurityContext): carpeta canónica, rutas resueltas contra ella y clave de su sesión."""
@@ -2531,7 +2804,7 @@ def matches_command_pattern(command: str, pattern: str) -> bool:
     if not words or len(args) < len(words) or (len(args) > len(words) and not rest):
         return False
     first = next((args[0][len(d):] for d in SYSTEM_BIN_DIRS if args[0].startswith(d)), args[0])
-    for (regex, wildcard), arg in zip(words, [first, *args[1:]]):
+    for (regex, wildcard), arg in zip(words, [first, *args[1:]], strict=False):
         if not regex.fullmatch(arg) or (wildcard and COMMAND_WILDCARD_UNSAFE.search(arg)):
             return False
     # Los argumentos del '*' final no tienen texto fijo que los acote: tampoco pueden salir del proyecto.
@@ -3057,7 +3330,7 @@ def _delete_orphan_blobs(conn: sqlite3.Connection, candidates: set[str]):
         batch = candidate_list[start:start + 500]
         marks = ",".join("?" for _ in batch)
         rows = conn.execute(
-            f"SELECT DISTINCT blob_id FROM conversation_blobs WHERE blob_id IN ({marks});",
+            f"SELECT DISTINCT blob_id FROM conversation_blobs WHERE blob_id IN ({marks});",  # noqa: S608
             batch,
         ).fetchall()
         still_used.update(row["blob_id"] for row in rows)
@@ -3066,28 +3339,8 @@ def _delete_orphan_blobs(conn: sqlite3.Connection, candidates: set[str]):
         conn.executemany("DELETE FROM blobs WHERE id = ?;", orphans)
 
 
-def save_conversation(session_meta: dict, messages: list[dict] | None = None) -> dict:
-    """Guarda o actualiza una conversación y sustituye sus mensajes atómicamente."""
-    if not isinstance(session_meta, dict):
-        raise ValueError("Los metadatos de la conversación deben ser un objeto")
-    if messages is None:
-        messages = []
-    if not isinstance(messages, list):
-        raise ValueError("Los mensajes de la conversación deben ser una lista")
-    for msg in messages:
-        if not isinstance(msg, dict):
-            raise ValueError("Cada mensaje debe ser un objeto")
-    new_blob_ids = _extract_message_blob_ids(messages)
-
-    session_id = _validate_conversation_id(session_meta.get("id"))
-    raw_title = session_meta.get("title")
-    title = _validate_conversation_title("" if raw_title is None else raw_title, allow_empty=True)
-
-    now = int(time.time() * 1000)
-    created_at = int(session_meta.get("createdAt") or now)
-    updated_at = int(session_meta.get("updatedAt") or now)
-
-    # extra_json guarda el perfil, el modo servidor y el proyecto; la cabecera los expone como campos propios.
+def _conversation_extra(session_meta: dict) -> dict:
+    """Campos de extra_json que trae la petición: el perfil, el modo servidor y el proyecto."""
     extra = {}
     profile_id = session_meta.get("profileId")
     if profile_id and isinstance(profile_id, str) and profile_id.strip():
@@ -3100,22 +3353,77 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
             raise ValueError("El proyecto de la conversación debe ser una ruta")
         if project.strip():
             extra["project"] = project.strip()
+    return extra
+
+
+def _merge_saved_header(existing, session_meta: dict, created_at: int, title: str, extra: dict) -> tuple[int, str, dict]:
+    """Completa la cabecera con la guardada: su fecha de creación y su título si la petición no los trae, y su
+    extra_json debajo del nuevo. El proyecto se fija al crear la conversación y no cambia después."""
+    if not session_meta.get("createdAt") and existing["created_at"]:
+        created_at = int(existing["created_at"])
+    if not title and existing["title"]:
+        title = existing["title"]
+    existing_extra = json.loads(existing["extra_json"]) if existing["extra_json"] else {}
+    extra = {**existing_extra, **extra}
+    if existing_extra.get("project"):
+        extra["project"] = existing_extra["project"]
+    return created_at, title, extra
+
+
+def _replace_messages(conn: sqlite3.Connection, session_id: str, messages: list[dict]):
+    conn.execute("DELETE FROM messages WHERE conversation_id = ?;", (session_id,))
+    for pos, msg in enumerate(messages):
+        msg_id = str(msg.get("id") or "").strip() or f"msg_{session_id}_{pos}"
+        role = str(msg.get("role") or "user").strip()
+        content = "" if msg.get("content") is None else str(msg.get("content"))
+        extra = {k: v for k, v in msg.items() if k not in ("id", "role", "content", "conversationId", "position")}
+        conn.execute("""
+            INSERT INTO messages (conversation_id, position, id, role, content, extra_json)
+            VALUES (?, ?, ?, ?, ?, ?);
+        """, (session_id, pos, msg_id, role, content, json.dumps(extra) if extra else "{}"))
+
+
+def _replace_conversation_blobs(conn: sqlite3.Connection, session_id: str, blob_ids: set[str]):
+    """Sustituye los blobs que referencia la conversación y borra los que ya no referencia nadie."""
+    old_blob_ids = {
+        row["blob_id"]
+        for row in conn.execute("SELECT blob_id FROM conversation_blobs WHERE conversation_id = ?;", (session_id,))
+    }
+    conn.execute("DELETE FROM conversation_blobs WHERE conversation_id = ?;", (session_id,))
+    if blob_ids:
+        conn.executemany(
+            "INSERT OR IGNORE INTO conversation_blobs (conversation_id, blob_id) VALUES (?, ?);",
+            [(session_id, blob_id) for blob_id in blob_ids],
+        )
+    _delete_orphan_blobs(conn, old_blob_ids - blob_ids)
+
+
+def save_conversation(session_meta: dict, messages: list[dict] | None = None) -> dict:
+    """Guarda o actualiza una conversación y sustituye sus mensajes atómicamente."""
+    if not isinstance(session_meta, dict):
+        raise ValueError("Los metadatos de la conversación deben ser un objeto")
+    if messages is None:
+        messages = []
+    if not isinstance(messages, list):
+        raise ValueError("Los mensajes de la conversación deben ser una lista")
+    if not all(isinstance(msg, dict) for msg in messages):
+        raise ValueError("Cada mensaje debe ser un objeto")
+    new_blob_ids = _extract_message_blob_ids(messages)
+
+    session_id = _validate_conversation_id(session_meta.get("id"))
+    raw_title = session_meta.get("title")
+    title = _validate_conversation_title("" if raw_title is None else raw_title, allow_empty=True)
+
+    now = int(time.time() * 1000)
+    created_at = int(session_meta.get("createdAt") or now)
+    updated_at = int(session_meta.get("updatedAt") or now)
+    # extra_json guarda el perfil, el modo servidor y el proyecto; la cabecera los expone como campos propios.
+    extra = _conversation_extra(session_meta)
 
     with open_storage() as conn:
         existing = conn.execute("SELECT created_at, extra_json, title FROM conversations WHERE id = ?;", (session_id,)).fetchone()
         if existing:
-            if not session_meta.get("createdAt") and existing["created_at"]:
-                created_at = int(existing["created_at"])
-            if not title and existing["title"]:
-                title = existing["title"]
-            existing_extra = json.loads(existing["extra_json"]) if existing["extra_json"] else {}
-            extra = {**existing_extra, **extra}
-            # El proyecto se fija al crear la conversación y no cambia después.
-            if existing_extra.get("project"):
-                extra["project"] = existing_extra["project"]
-
-        extra_json = json.dumps(extra, ensure_ascii=False) if extra else "{}"
-
+            created_at, title, extra = _merge_saved_header(existing, session_meta, created_at, title, extra)
         conn.execute("""
             INSERT INTO conversations (id, title, created_at, updated_at, message_count, extra_json)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -3124,37 +3432,9 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
                 updated_at = excluded.updated_at,
                 message_count = excluded.message_count,
                 extra_json = excluded.extra_json;
-        """, (session_id, title, created_at, updated_at, len(messages), extra_json))
-
-        old_blob_ids = {
-            row["blob_id"]
-            for row in conn.execute(
-                "SELECT blob_id FROM conversation_blobs WHERE conversation_id = ?;",
-                (session_id,),
-            )
-        }
-        conn.execute("DELETE FROM messages WHERE conversation_id = ?;", (session_id,))
-
-        for pos, msg in enumerate(messages):
-            msg_id = str(msg.get("id") or "").strip() or f"msg_{session_id}_{pos}"
-            role = str(msg.get("role") or "user").strip()
-            content = "" if msg.get("content") is None else str(msg.get("content"))
-            extra = {k: v for k, v in msg.items() if k not in ("id", "role", "content", "conversationId", "position")}
-            extra_json = json.dumps(extra) if extra else "{}"
-
-            conn.execute("""
-                INSERT INTO messages (conversation_id, position, id, role, content, extra_json)
-                VALUES (?, ?, ?, ?, ?, ?);
-            """, (session_id, pos, msg_id, role, content, extra_json))
-
-        conn.execute("DELETE FROM conversation_blobs WHERE conversation_id = ?;", (session_id,))
-        if new_blob_ids:
-            conn.executemany(
-                "INSERT OR IGNORE INTO conversation_blobs (conversation_id, blob_id) VALUES (?, ?);",
-                [(session_id, blob_id) for blob_id in new_blob_ids],
-            )
-        _delete_orphan_blobs(conn, old_blob_ids - new_blob_ids)
-
+        """, (session_id, title, created_at, updated_at, len(messages), json.dumps(extra, ensure_ascii=False) if extra else "{}"))
+        _replace_messages(conn, session_id, messages)
+        _replace_conversation_blobs(conn, session_id, new_blob_ids)
         conn.commit()
         row = conn.execute("SELECT * FROM conversations WHERE id = ?;", (session_id,)).fetchone()
         return _row_to_conversation_header(row)
@@ -3205,17 +3485,17 @@ def _delete_conversations(conn: sqlite3.Connection, where: str, params: tuple) -
     conn.isolation_level = None
     conn.execute("BEGIN IMMEDIATE;")
     try:
-        ids = [row["id"] for row in conn.execute(f"SELECT id FROM conversations WHERE {where};", params)]
+        ids = [row["id"] for row in conn.execute(f"SELECT id FROM conversations WHERE {where};", params)]  # noqa: S608
         if ids:
             marks = ",".join("?" for _ in ids)
             candidates = {
                 row["blob_id"]
                 for row in conn.execute(
-                    f"SELECT DISTINCT blob_id FROM conversation_blobs WHERE conversation_id IN ({marks});",
+                    f"SELECT DISTINCT blob_id FROM conversation_blobs WHERE conversation_id IN ({marks});",  # noqa: S608
                     ids,
                 )
             }
-            conn.execute(f"DELETE FROM conversations WHERE id IN ({marks});", ids)
+            conn.execute(f"DELETE FROM conversations WHERE id IN ({marks});", ids)  # noqa: S608
             _delete_orphan_blobs(conn, candidates)
         conn.execute("COMMIT;")
         return ids
@@ -3312,7 +3592,7 @@ def has_blobs(blob_ids: list[str]) -> dict:
     unique_ids = list(dict.fromkeys(clean_ids))
     with open_storage() as conn:
         placeholders = ",".join("?" for _ in unique_ids)
-        rows = conn.execute(f"SELECT id FROM blobs WHERE id IN ({placeholders});", unique_ids).fetchall()
+        rows = conn.execute(f"SELECT id FROM blobs WHERE id IN ({placeholders});", unique_ids).fetchall()  # noqa: S608
         existing_set = {row["id"] for row in rows}
         return {
             "existing": [bid for bid in unique_ids if bid in existing_set],
@@ -3510,10 +3790,8 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
     return runs, focus_run
 
 
-def start_server_run(params: dict, ctx: SecurityContext) -> dict:
-    """Inicia una ejecución en segundo plano para una conversación, en su proyecto o, si no tiene, en el de la petición."""
-    if not isinstance(params, dict):
-        raise ValueError("Parámetros no válidos.")
+def _run_target(params: dict) -> tuple[str, dict, str]:
+    """La conversación de la ejecución y el nombre de su perfil: el pedido o, si no, el de la conversación."""
     conv_id = params.get("conversation_id")
     if not isinstance(conv_id, str) or not conv_id.strip():
         raise ValueError("conversation_id requerido.")
@@ -3521,27 +3799,35 @@ def start_server_run(params: dict, ctx: SecurityContext) -> dict:
     conv = get_conversation(clean_conv_id)
     if conv is None:
         raise ValueError(f"Conversación '{clean_conv_id}' no encontrada.")
-
     profile = params.get("profile")
     if not isinstance(profile, str) or not profile.strip():
         conv_profile = conv.get("profileId")
-        if isinstance(conv_profile, str) and conv_profile.strip():
-            profile = conv_profile.strip()
-        else:
+        if not isinstance(conv_profile, str) or not conv_profile.strip():
             raise ValueError("profile requerido.")
+        profile = conv_profile.strip()
     profile_entry = get_general_profile(profile) or get_general_profile_by_name(profile)
     if not profile_entry:
         raise ValueError(f"Perfil del servidor '{profile}' no encontrado.")
-    profile_name = profile_entry.get("name", profile.strip())
+    return clean_conv_id, conv, profile_entry.get("name", profile.strip())
 
+
+def _check_no_active_run(state_path: Path, conv_id: str):
+    """Una conversación solo tiene una ejecución en marcha; un estado ilegible no cuenta como tal."""
+    try:
+        existing = json.loads(state_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return
+    if isinstance(existing, dict) and existing.get("status") == "running" and _run_process_alive(existing):
+        raise ValueError(f"Ya hay una ejecución en marcha para la conversación '{conv_id}'.")
+
+
+def start_server_run(params: dict, ctx: SecurityContext) -> dict:
+    """Inicia una ejecución en segundo plano para una conversación, en su proyecto o, si no tiene, en el de la petición."""
+    if not isinstance(params, dict):
+        raise ValueError("Parámetros no válidos.")
+    clean_conv_id, conv, profile_name = _run_target(params)
     state_path = get_run_state_path(clean_conv_id)
-    if state_path.exists():
-        try:
-            existing = json.loads(state_path.read_text(encoding="utf-8"))
-            if isinstance(existing, dict) and existing.get("status") == "running" and _run_process_alive(existing):
-                raise ValueError(f"Ya hay una ejecución en marcha para la conversación '{clean_conv_id}'.")
-        except (json.JSONDecodeError, OSError):
-            pass
+    _check_no_active_run(state_path, clean_conv_id)
 
     prompt = params.get("prompt")
     if prompt is not None and not isinstance(prompt, str):
@@ -3617,6 +3903,18 @@ def cancel_server_run(conversation_id: str) -> dict:
     return {"cancelled": True}
 
 
+def _approved_call(tool_security) -> tuple[str, dict] | None:
+    """(nombre, argumentos) de tool_decision, la llamada que la persona aprobó al reanudar; None sin aprobación."""
+    decision = tool_security.get("tool_decision") if isinstance(tool_security, dict) else None
+    if not isinstance(decision, dict):
+        return None
+    tool_name, args, choice = decision.get("toolName"), decision.get("args"), decision.get("decision")
+    choice = choice.get("decision") if isinstance(choice, dict) else choice
+    if not isinstance(tool_name, str) or not tool_name or not isinstance(args, dict) or choice in (None, "deny"):
+        return None
+    return tool_name, args
+
+
 class RunSession:
     """Estado de la ejecución: prompt, opciones, último progreso, exportación, resultado y motivo de un final sin él."""
     def __init__(self, prompt: str | None = None, profile: str | None = None, export_path: Path | None = None, keep_page: bool = False,
@@ -3625,6 +3923,9 @@ class RunSession:
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
         self.conversation_id = conversation_id
+        # Sin --conversation, la conversación nueva que guarda la ejecución: la elige el servidor para atar a ella la
+        # credencial del runner, que no puede escribir en ninguna otra (mismo formato que createId('session')).
+        self.new_conversation_id = None if conversation_id else f"session_{uuid.uuid4()}"
         self.prompt = prompt
         # Perfil (nombre o id) que la interfaz usa solo en esta ejecución; por defecto, local del servidor.
         self.profile = profile
@@ -3646,6 +3947,7 @@ class RunSession:
                 self.tool_security = None
         else:
             self.tool_security = None
+        self._approved_call = _approved_call(self.tool_security)
         self.lock = threading.Lock()
         self.last_activity = time.monotonic()
         # Esperas de check_command: no cuentan como inactividad y alargan el plazo total.
@@ -3691,6 +3993,15 @@ class RunSession:
             self._waiting_since = None
             self.last_activity = now
 
+    def take_approved_call(self, tool_name: str, args: dict) -> bool:
+        """Si es la llamada que la persona aprobó en la tarjeta pausada (mismo nombre y argumentos), la consume:
+        su reto lo contesta este servidor, una sola vez, porque la credencial del runner no puede resolver retos."""
+        with self.lock:
+            if self._approved_call is None or self._approved_call != (tool_name, args):
+                return False
+            self._approved_call = None
+            return True
+
     def waited_seconds(self) -> float:
         """Tiempo total en esperas de check_command, incluida la que esté en curso."""
         with self.lock:
@@ -3721,118 +4032,163 @@ def http_body_limit() -> int:
     return MAX_HTTP_BODY_BYTES
 
 
-def dispatch_run(method: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
-    """Métodos zerochat/run/* que usa la interfaz abierta por el modo ejecución."""
+def _rpc_start(params: dict, ctx: SecurityContext, session: RunSession | None) -> RpcOutcome:
+    if session is not None:
+        return rpc_error(METHOD_NOT_FOUND, "No disponible dentro de un proceso de ejecución.")
+    try:
+        return rpc_result(start_server_run(params, ctx))
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+    except OSError as exc:
+        return rpc_error(INTERNAL_ERROR, f"Error al iniciar ejecución en servidor: {exc}", str(exc))
+
+
+def _rpc_cancel(params: dict, ctx: SecurityContext, session: RunSession | None) -> RpcOutcome:
+    if session is not None:
+        return rpc_error(METHOD_NOT_FOUND, "No disponible dentro de un proceso de ejecución.")
+    try:
+        return rpc_result(cancel_server_run(params.get("conversation_id")))
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+    except OSError as exc:
+        return rpc_error(INTERNAL_ERROR, f"Error al cancelar ejecución en servidor: {exc}", str(exc))
+
+
+def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
+    with session.lock:
+        if session.prompt_delivered:
+            return rpc_error(INVALID_PARAMS, "El prompt ya se entregó.")
+        session.prompt_delivered = True
+    session.touch()
+    export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
+    # tool_security lo aplica este servidor: las políticas (reset_session_authorizations) y la llamada aprobada en la
+    # tarjeta pausada (take_approved_call), así que el runner no recibe nada de él.
+    return rpc_result({"prompt": session.prompt, "conversation_id": session.conversation_id,
+                       "new_conversation_id": session.new_conversation_id, "profile": session.profile,
+                       "profile_data": session.profile_data,
+                       # Para switch_model, que busca por nombre: el runner no puede listar los perfiles con su credencial.
+                       # Van sin API key; la del que active la pide con zerochat/run/profile.
+                       "profiles": [_without_api_key(profile) for profile in list_general_profiles()],
+                       "export": export_format, "keep_page": session.keep_page,
+                       "allow_dangerous_tools": session.allow_dangerous_tools})
+
+
+def _without_api_key(profile: dict) -> dict:
+    settings = {key: value for key, value in (profile.get("settings") or {}).items() if key != "apiKey"}
+    return {**profile, "settings": settings}
+
+
+def _rpc_profile(params: dict, session: RunSession) -> RpcOutcome:
+    """Un perfil del servidor con su API key, para el runner que lo activa con switch_model; queda en el registro."""
+    profile_id = params.get("id")
+    profile = get_general_profile(profile_id) if isinstance(profile_id, str) else None
+    if profile is None:
+        return rpc_error(INVALID_PARAMS, "Perfil del servidor no encontrado.")
+    session.touch()
+    log_event(f"[run] Se entrega al runner el perfil {profile['name']} con su clave")
+    return rpc_result({"profile": profile})
+
+
+def _capped(text: str, limit: int) -> str:
+    return text[:limit] + ("…" if len(text) > limit else "")
+
+
+def _rpc_progress(params: dict, session: RunSession) -> RpcOutcome:
+    kind = params.get("kind")
+    text = params.get("text", "")
+    if not isinstance(kind, str) or not RUN_PROGRESS_KIND_PATTERN.fullmatch(kind) or not isinstance(text, str):
+        return rpc_error(INVALID_PARAMS, "Progreso no válido.")
+    assistant_text = params.get("assistant_text")
+    reasoning_text = params.get("reasoning_text")
+    if assistant_text is not None and not isinstance(assistant_text, str):
+        return rpc_error(INVALID_PARAMS, "assistant_text debe ser una cadena.")
+    if reasoning_text is not None and not isinstance(reasoning_text, str):
+        return rpc_error(INVALID_PARAMS, "reasoning_text debe ser una cadena.")
+    session.touch()
+    truncated_step = _capped(text, RUN_PROGRESS_TEXT_MAX)
+    log_event(f"[run] {kind}{': ' + truncated_step if truncated_step else ''}")
+    with session.lock:
+        session.step_text = truncated_step
+        if assistant_text is not None:
+            session.assistant_text = _capped(assistant_text, RUN_STREAM_TEXT_MAX)
+        if reasoning_text is not None:
+            session.reasoning_text = _capped(reasoning_text, RUN_STREAM_TEXT_MAX)
+        write_run_state(session)
+    return rpc_result({"ok": True})
+
+
+def _rpc_export(params: dict, session: RunSession) -> RpcOutcome:
+    content = params.get("content")
+    if session.export_path is None or not isinstance(content, str):
+        return rpc_error(INVALID_PARAMS, "Exportación no pedida o sin contenido.")
+    with session.lock:
+        if session.exported:
+            return rpc_error(INVALID_PARAMS, "La exportación ya se recibió.")
+        try:
+            session.export_path.write_text(content, encoding="utf-8")
+        except OSError as exc:
+            session.export_error = f"No se pudo escribir {session.export_path}: {exc}"
+            return rpc_error(INTERNAL_ERROR, session.export_error)
+        session.exported = True
+    session.touch()
+    log_event(f"[run] Conversación exportada en {session.export_path}")
+    return rpc_result({"ok": True})
+
+
+def _rpc_result(params: dict, session: RunSession) -> RpcOutcome:
+    text = params.get("text")
+    error = params.get("error")
+    needs_input = params.get("needs_input")
+    is_text = isinstance(text, str) and error is None and needs_input is None
+    is_error = isinstance(error, str) and bool(error) and text is None and needs_input is None
+    is_needs_input = isinstance(needs_input, dict) and text is None and error is None
+    if not (is_text or is_error or is_needs_input):
+        return rpc_error(INVALID_PARAMS, "El resultado lleva text o error.")
+    with session.lock:
+        if session.result is not None:
+            return rpc_error(INVALID_PARAMS, "El resultado ya se recibió.")
+        if is_text:
+            session.result = {"text": text}
+            session.status = "completed"
+            remove_run_state(session.conversation_id)
+        elif is_needs_input:
+            session.result = {"needs_input": needs_input}
+            session.status = "needs_input"
+            session.pending = needs_input
+            write_run_state(session)
+        else:
+            session.result = {"error": error}
+            session.status = "error"
+            session.error = error
+            write_run_state(session)
+    session.finished.set()
+    return rpc_result({"ok": True})
+
+
+# La interfaz del servidor principal lanza y detiene ejecuciones; la de una ejecución (con su run_id) le
+# pide el prompt e informa del progreso, la exportación y el resultado.
+RUN_CONTROL_METHODS = {"zerochat/run/start": _rpc_start, "zerochat/run/cancel": _rpc_cancel}
+RUN_SESSION_METHODS = {
+    "zerochat/run/prompt": _rpc_prompt,
+    "zerochat/run/profile": _rpc_profile,
+    "zerochat/run/progress": _rpc_progress,
+    "zerochat/run/export": _rpc_export,
+    "zerochat/run/result": _rpc_result,
+}
+
+
+def dispatch_run(method: str, params: dict, ctx: SecurityContext) -> RpcOutcome:
+    """Métodos zerochat/run/*: el control de ejecuciones y los de la interfaz abierta por el modo ejecución."""
     params = params if isinstance(params, dict) else {}
     session = RUN_SESSION
-    if method == "zerochat/run/start":
-        if session is not None:
-            return None, {"code": -32601, "message": "No disponible dentro de un proceso de ejecución."}, ""
-        try:
-            return start_server_run(params, ctx), None, ""
-        except ValueError as exc:
-            return None, {"code": -32602, "message": str(exc)}, ""
-        except OSError as exc:
-            return None, {"code": -32603, "message": f"Error al iniciar ejecución en servidor: {exc}"}, str(exc)
-    if method == "zerochat/run/cancel":
-        if session is not None:
-            return None, {"code": -32601, "message": "No disponible dentro de un proceso de ejecución."}, ""
-        try:
-            conv_id = params.get("conversation_id")
-            return cancel_server_run(conv_id), None, ""
-        except ValueError as exc:
-            return None, {"code": -32602, "message": str(exc)}, ""
-        except OSError as exc:
-            return None, {"code": -32603, "message": f"Error al cancelar ejecución en servidor: {exc}"}, str(exc)
-
+    if method in RUN_CONTROL_METHODS:
+        return RUN_CONTROL_METHODS[method](params, ctx, session)
     if session is None:
-        return None, {"code": -32601, "message": "El servidor no está en modo ejecución."}, ""
+        return rpc_error(METHOD_NOT_FOUND, "El servidor no está en modo ejecución.")
     run_id = params.get("run_id")
     if not isinstance(run_id, str) or not hmac.compare_digest(run_id, session.run_id):
-        return None, {"code": -32602, "message": "run_id no válido."}, ""
-    if method == "zerochat/run/prompt":
-        with session.lock:
-            if session.prompt_delivered:
-                return None, {"code": -32602, "message": "El prompt ya se entregó."}, ""
-            session.prompt_delivered = True
-        session.touch()
-        export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
-        delivered_security = (
-            {k: v for k, v in session.tool_security.items() if k != "tool_decision"}
-            if isinstance(session.tool_security, dict) and "tool_decision" in session.tool_security
-            else session.tool_security
-        )
-        return {"prompt": session.prompt, "conversation_id": session.conversation_id, "profile": session.profile,
-                "profile_data": session.profile_data,
-                "export": export_format, "keep_page": session.keep_page,
-                "allow_dangerous_tools": session.allow_dangerous_tools, "tool_security": delivered_security}, None, ""
-    if method == "zerochat/run/progress":
-        kind = params.get("kind")
-        text = params.get("text", "")
-        if not isinstance(kind, str) or not RUN_PROGRESS_KIND_PATTERN.fullmatch(kind) or not isinstance(text, str):
-            return None, {"code": -32602, "message": "Progreso no válido."}, ""
-        assistant_text = params.get("assistant_text")
-        reasoning_text = params.get("reasoning_text")
-        if assistant_text is not None and not isinstance(assistant_text, str):
-            return None, {"code": -32602, "message": "assistant_text debe ser una cadena."}, ""
-        if reasoning_text is not None and not isinstance(reasoning_text, str):
-            return None, {"code": -32602, "message": "reasoning_text debe ser una cadena."}, ""
-        session.touch()
-        truncated_step = text[:RUN_PROGRESS_TEXT_MAX] + "…" if len(text) > RUN_PROGRESS_TEXT_MAX else text
-        log_event(f"[run] {kind}{': ' + truncated_step if truncated_step else ''}")
-        with session.lock:
-            session.step_text = truncated_step
-            if assistant_text is not None:
-                session.assistant_text = assistant_text[:RUN_STREAM_TEXT_MAX] + ("…" if len(assistant_text) > RUN_STREAM_TEXT_MAX else "")
-            if reasoning_text is not None:
-                session.reasoning_text = reasoning_text[:RUN_STREAM_TEXT_MAX] + ("…" if len(reasoning_text) > RUN_STREAM_TEXT_MAX else "")
-            write_run_state(session)
-        return {"ok": True}, None, ""
-    if method == "zerochat/run/export":
-        content = params.get("content")
-        if session.export_path is None or not isinstance(content, str):
-            return None, {"code": -32602, "message": "Exportación no pedida o sin contenido."}, ""
-        with session.lock:
-            if session.exported:
-                return None, {"code": -32602, "message": "La exportación ya se recibió."}, ""
-            try:
-                session.export_path.write_text(content, encoding="utf-8")
-            except OSError as exc:
-                session.export_error = f"No se pudo escribir {session.export_path}: {exc}"
-                return None, {"code": -32603, "message": session.export_error}, ""
-            session.exported = True
-        session.touch()
-        log_event(f"[run] Conversación exportada en {session.export_path}")
-        return {"ok": True}, None, ""
-    if method == "zerochat/run/result":
-        text = params.get("text")
-        error = params.get("error")
-        needs_input = params.get("needs_input")
-        is_text = isinstance(text, str) and error is None and needs_input is None
-        is_error = isinstance(error, str) and bool(error) and text is None and needs_input is None
-        is_needs_input = isinstance(needs_input, dict) and text is None and error is None
-        if not (is_text or is_error or is_needs_input):
-            return None, {"code": -32602, "message": "El resultado lleva text o error."}, ""
-        with session.lock:
-            if session.result is not None:
-                return None, {"code": -32602, "message": "El resultado ya se recibió."}, ""
-            if is_text:
-                session.result = {"text": text}
-                session.status = "completed"
-                remove_run_state(session.conversation_id)
-            elif is_needs_input:
-                session.result = {"needs_input": needs_input}
-                session.status = "needs_input"
-                session.pending = needs_input
-                write_run_state(session)
-            else:
-                session.result = {"error": error}
-                session.status = "error"
-                session.error = error
-                write_run_state(session)
-        session.finished.set()
-        return {"ok": True}, None, ""
-    return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
+        return rpc_error(INVALID_PARAMS, "run_id no válido.")
+    return dispatch_table(RUN_SESSION_METHODS, method, params, session)
 
 
 def run_error(message: str):
@@ -3843,7 +4199,7 @@ def run_error(message: str):
             session.status = "error"
             session.error = message
             write_run_state(session)
-    print(timestamp_message(f"[run] {message}"), file=sys.stderr, flush=True)
+    console_error(timestamp_message(f"[run] {message}"))
 
 
 def run_outcome(session: RunSession) -> tuple[int, str | None]:
@@ -3888,6 +4244,141 @@ def find_node_executable() -> str | None:
         return executable
     except (OSError, subprocess.SubprocessError):
         return None
+
+# --- storage.rpc ---
+"""Métodos JSON-RPC de los datos guardados en SQLite: perfiles del servidor, conversaciones y blobs."""
+
+
+
+
+
+def _guarded(handlers: dict, method: str, params: dict, failure: str) -> RpcOutcome:
+    """Atiende el método con su tabla; un ValueError es un parámetro no válido y otro fallo, un error interno."""
+    try:
+        return dispatch_table(handlers, method, params)
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+    except Exception as exc:
+        return rpc_error(INTERNAL_ERROR, f"{failure}: {exc}", str(exc))
+
+
+# --- Perfiles del servidor -------------------------------------------------------------
+
+
+def _save_profile(params: dict) -> RpcOutcome:
+    profile_data = params.get("profile")
+    if not isinstance(profile_data, dict):
+        return rpc_error(INVALID_PARAMS, "profile debe ser un objeto.")
+    return rpc_result({"profile": save_general_profile(profile_data)})
+
+
+def _delete_profile(params: dict) -> RpcOutcome:
+    profile_id = params.get("id")
+    if not isinstance(profile_id, str) or not profile_id.strip():
+        return rpc_error(INVALID_PARAMS, "id debe ser un texto no vacío.")
+    return rpc_result({"deleted": delete_general_profile(profile_id)})
+
+
+PROFILE_METHODS = {
+    "zerochat/profiles/list": lambda _params: rpc_result({"profiles": list_general_profiles()}),
+    "zerochat/profiles/save": _save_profile,
+    "zerochat/profiles/delete": _delete_profile,
+}
+
+
+def dispatch_profiles(method: str, params: dict) -> RpcOutcome:
+    """Perfiles generales almacenados en SQLite en el backend local."""
+    return _guarded(PROFILE_METHODS, method, params if isinstance(params, dict) else {}, "Error en gestión de perfiles")
+
+
+# --- Conversaciones --------------------------------------------------------------------
+
+
+def _cancel_runs(conversation_ids):
+    """Borrar una conversación detiene su ejecución en servidor, si la hay."""
+    for conversation_id in conversation_ids:
+        try:
+            cancel_server_run(conversation_id)
+        except (ValueError, OSError):
+            pass
+
+
+def _rpc_delete_conversations(params: dict) -> RpcOutcome:
+    if params.get("all") is True:
+        _cancel_runs(urllib.parse.unquote(run_file.stem) for run_file in get_runs_dir().glob("*.json"))
+        return rpc_result({"deleted": True, "count": delete_all_conversations()})
+    if "project" in params:
+        deleted_ids = delete_project_conversations(params.get("project"))
+        _cancel_runs(deleted_ids)
+        return rpc_result({"deleted": True, "count": len(deleted_ids)})
+    conv_id = params.get("id")
+    if isinstance(conv_id, str) and conv_id.strip():
+        _cancel_runs([conv_id])
+    return rpc_result({"deleted": delete_conversation(params.get("id"))})
+
+
+CONVERSATION_METHODS = {
+    "zerochat/conversations/list": lambda _params: rpc_result({"conversations": list_conversations()}),
+    "zerochat/conversations/get": lambda params: rpc_result({"conversation": get_conversation(params.get("id"))}),
+    "zerochat/conversations/save": lambda params: rpc_result(
+        {"conversation": save_conversation(params.get("conversation"), params.get("messages"))}),
+    "zerochat/conversations/rename": lambda params: rpc_result(
+        {"renamed": rename_conversation(params.get("id"), params.get("title"))}),
+    "zerochat/conversations/delete": _rpc_delete_conversations,
+}
+
+
+def dispatch_conversations(method: str, params: dict) -> RpcOutcome:
+    """Conversaciones y mensajes almacenados en SQLite en el backend local."""
+    return _guarded(CONVERSATION_METHODS, method, params, "Error en gestión de conversaciones")
+
+
+# --- Blobs (imágenes y adjuntos, aparte de los mensajes) ----------------------------------
+
+
+def _put_blob(params: dict) -> RpcOutcome:
+    raw_data = params.get("data")
+    if not raw_data or not isinstance(raw_data, str):
+        raise ValueError("El parámetro 'data' debe ser una cadena en base64 no vacía")
+    mime_type = params.get("mimeType") or "application/octet-stream"
+    if raw_data.startswith("data:") and ";base64," in raw_data:
+        header, b64_part = raw_data.split(";base64,", 1)
+        if not params.get("mimeType"):
+            mime_type = header[5:]
+        raw_data = b64_part
+    try:
+        data_bytes = base64.b64decode(raw_data)
+    except Exception as decode_err:
+        raise ValueError(f"Error decodificando base64: {decode_err}") from decode_err
+    saved = put_blob(data_bytes, mime_type=mime_type, blob_id=params.get("id"))
+    return rpc_result({"id": saved["id"], "mimeType": saved["mime_type"], "size": saved["size"]})
+
+
+def _get_blob(params: dict) -> RpcOutcome:
+    blob = get_blob(params.get("id"))
+    if not blob:
+        return rpc_result({"blob": None})
+    return rpc_result({
+        "blob": {
+            "id": blob["id"],
+            "mimeType": blob["mime_type"],
+            "size": blob["size"],
+            "data": base64.b64encode(blob["data"]).decode("ascii"),
+            "createdAt": blob["created_at"],
+        }
+    })
+
+
+BLOB_METHODS = {
+    "zerochat/blobs/has": lambda params: rpc_result(has_blobs(params.get("ids") if params.get("ids") is not None else [])),
+    "zerochat/blobs/put": _put_blob,
+    "zerochat/blobs/get": _get_blob,
+}
+
+
+def dispatch_blobs(method: str, params: dict) -> RpcOutcome:
+    """Blobs desacoplados de los mensajes (imágenes y adjuntos) en SQLite."""
+    return _guarded(BLOB_METHODS, method, params if isinstance(params, dict) else {}, "Error en gestión de blobs")
 
 # --- tools.common ---
 """Utilidades comunes de las herramientas locales: el resultado de error y la escritura atómica de archivos."""
@@ -4256,118 +4747,118 @@ def _configured_gui_diff_tool(git_bin: str, repo_root: Path) -> str:
     return ""
 
 
-def _open_gui_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = False) -> dict:
-    """Abre un visor externo de diffs (git difftool) en una ventana del sistema operativo."""
+# Árbol vacío de Git: la base del diff del primer commit de un archivo.
+GIT_EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+# Un archivo que no está en HEAD se compara entero con /dev/null.
+NEW_FILE_REVISIONS = ["--no-index"]
+
+
+def _git_succeeds(git_bin: str, repo_root: Path, *args: str) -> bool:
+    return subprocess.run(
+        [git_bin, *args], cwd=str(repo_root), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, check=False
+    ).returncode == 0
+
+
+def _git_tracked_file(path: str, ctx: SecurityContext) -> tuple[Path, str, Path]:
+    """Valida el archivo del diff y devuelve (archivo, git, raíz de su repositorio)."""
     if not isinstance(path, str) or not path.strip():
         raise ValueError("La ruta del archivo está vacía.")
     if len(path) > MAX_PATH_LENGTH:
         raise ValueError("La ruta del archivo excede el tamaño máximo permitido.")
-
     target = ctx.absolute(path)
     if not target.exists():
         raise ValueError(f"El archivo '{path}' no existe.")
     if not target.is_file():
         raise ValueError(f"'{path}' no es un archivo regular.")
-
     git_bin = shutil.which("git")
     if not git_bin:
         raise RuntimeError("Git no está instalado o no se encuentra en el PATH del sistema.")
-
     try:
         res = subprocess.run(
-            [git_bin, "rev-parse", "--show-toplevel"],
-            cwd=str(target.parent),
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False
+            [git_bin, "rev-parse", "--show-toplevel"], cwd=str(target.parent), capture_output=True, text=True, timeout=5, check=False
         )
     except Exception as err:
-        raise RuntimeError(f"Error comprobando repositorio Git: {err}")
-
+        raise RuntimeError(f"Error comprobando repositorio Git: {err}") from err
     if res.returncode != 0:
         raise ValueError(f"El archivo '{target.name}' no pertenece a ningún repositorio Git.")
+    return target, git_bin, Path(res.stdout.strip()).resolve()
 
-    repo_root = Path(res.stdout.strip()).resolve()
+
+def _repo_relative(target: Path, repo_root: Path) -> str | None:
+    try:
+        return target.relative_to(repo_root).as_posix()
+    except ValueError:
+        return None
+
+
+def _working_tree_state(git_bin: str, repo_root: Path, target: Path, rel_path: str | None) -> tuple[bool, bool]:
+    """(está en HEAD, tiene cambios sin confirmar). Un archivo que no está en HEAD cuenta como cambiado entero."""
+    if rel_path is None or not _git_succeeds(git_bin, repo_root, "rev-parse", "--verify", "HEAD"):
+        return False, True
+    if not _git_succeeds(git_bin, repo_root, "cat-file", "-e", f"HEAD:{rel_path}"):
+        return False, True
+    diff_check = subprocess.run([git_bin, "diff", "--quiet", "HEAD", "--", str(target)], cwd=str(repo_root), timeout=5, check=False)
+    return True, diff_check.returncode != 0
+
+
+def _last_commit_of(git_bin: str, repo_root: Path, rel_path: str) -> str:
+    res = subprocess.run(
+        [git_bin, "log", "-n", "1", "--format=%H", "--", rel_path], cwd=str(repo_root), capture_output=True, text=True, timeout=5, check=False
+    )
+    return res.stdout.strip() if res.returncode == 0 else ""
+
+
+def _commit_range(git_bin: str, repo_root: Path, commit: str) -> list[str]:
+    """Las dos revisiones del diff de un commit: su padre, o el árbol vacío si es el primero, y él mismo."""
+    parent = f"{commit}~1"
+    return [parent if _git_succeeds(git_bin, repo_root, "rev-parse", "--verify", parent) else GIT_EMPTY_TREE, commit]
+
+
+def _no_diff_result(target: Path, in_head: bool, last_commit: str) -> dict:
+    return {
+        "success": True,
+        "has_diff": False,
+        "in_head": in_head,
+        "has_commit_history": bool(last_commit),
+        "last_commit": last_commit or None,
+        "path": str(target)
+    }
+
+
+def _diff_revisions(git_bin: str, repo_root: Path, target: Path, rel_path: str | None,
+                    commit_fallback: bool) -> tuple[list[str] | None, bool, str]:
+    """Qué comparar: los argumentos de revisión de git diff/difftool (sin el archivo), si está en HEAD y el commit.
+
+    Con cambios sin confirmar se compara con HEAD (o con nada si el archivo es nuevo); sin ellos, con commit_fallback,
+    el último commit del archivo. None si no hay nada que comparar.
+    """
+    in_head, changed = _working_tree_state(git_bin, repo_root, target, rel_path)
+    if changed:
+        return (["HEAD"] if in_head else NEW_FILE_REVISIONS), in_head, ""
+    last_commit = _last_commit_of(git_bin, repo_root, rel_path or target.name)
+    if not commit_fallback or not last_commit:
+        return None, in_head, last_commit
+    return _commit_range(git_bin, repo_root, last_commit), in_head, last_commit
+
+
+def _diff_command(base: list[str], target: Path, *, prefix: list[str]) -> list[str]:
+    """git diff/difftool con las revisiones de _diff_revisions; un archivo nuevo se compara con /dev/null."""
+    if base == NEW_FILE_REVISIONS:
+        return [*prefix, "--no-index", "--", os.devnull, str(target)]
+    return [*prefix, *base, "--", str(target)]
+
+
+def _open_gui_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = False) -> dict:
+    """Abre un visor externo de diffs (git difftool) en una ventana del sistema operativo."""
+    target, git_bin, repo_root = _git_tracked_file(path, ctx)
     if not _configured_gui_diff_tool(git_bin, repo_root):
         return {"success": False, "setup": detect_gui_diff_tool()}
-
-    has_head = subprocess.run(
-        [git_bin, "rev-parse", "--verify", "HEAD"],
-        cwd=str(repo_root),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        timeout=5,
-        check=False
-    ).returncode == 0
-
-    in_head = False
-    has_working_tree_diff = True
-    if has_head:
-        try:
-            rel_path = target.relative_to(repo_root).as_posix()
-            in_head = subprocess.run(
-                [git_bin, "cat-file", "-e", f"HEAD:{rel_path}"],
-                cwd=str(repo_root),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=5,
-                check=False
-            ).returncode == 0
-            if in_head:
-                diff_check = subprocess.run(
-                    [git_bin, "diff", "--quiet", "HEAD", "--", str(target)],
-                    cwd=str(repo_root),
-                    timeout=5,
-                    check=False
-                )
-                has_working_tree_diff = (diff_check.returncode != 0)
-        except ValueError:
-            in_head = False
-
-    cmd = [git_bin, "difftool", "--no-prompt", "--gui"]
-
-    mode = "working_tree"
-    last_commit = ""
-    if has_working_tree_diff:
-        if in_head:
-            cmd.extend(["HEAD", "--", str(target)])
-        else:
-            cmd.extend(["--no-index", "--", os.devnull, str(target)])
-    else:
-        rel_path = target.relative_to(repo_root).as_posix()
-        log_res = subprocess.run(
-            [git_bin, "log", "-n", "1", "--format=%H", "--", rel_path],
-            cwd=str(repo_root),
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False
-        )
-        last_commit = log_res.stdout.strip() if log_res.returncode == 0 else ""
-        if not commit_fallback or not last_commit:
-            return {
-                "success": True,
-                "has_diff": False,
-                "in_head": in_head,
-                "has_commit_history": bool(last_commit),
-                "last_commit": last_commit or None,
-                "path": str(target)
-            }
-
-        mode = "commit"
-        parent_check = subprocess.run(
-            [git_bin, "rev-parse", "--verify", f"{last_commit}~1"],
-            cwd=str(repo_root),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=5,
-            check=False
-        )
-        if parent_check.returncode == 0:
-            cmd.extend([f"{last_commit}~1", last_commit, "--", str(target)])
-        else:
-            cmd.extend(["4b825dc642cb6eb9a060e54bf8d69288fbee4904", last_commit, "--", str(target)])
+    rel_path = _repo_relative(target, repo_root)
+    base, in_head, last_commit = _diff_revisions(git_bin, repo_root, target, rel_path, commit_fallback)
+    if base is None:
+        return _no_diff_result(target, in_head, last_commit)
+    mode = "commit" if last_commit else "working_tree"
+    cmd = _diff_command(base, target, prefix=[git_bin, "difftool", "--no-prompt", "--gui"])
 
     popen_kwargs = {
         "cwd": str(repo_root),
@@ -4725,160 +5216,25 @@ def render_diff_html(
 
 def generate_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = False, context_lines: int = DIFF_CONTEXT_LINES) -> dict:
     """Calcula y devuelve el diff de un archivo frente a Git HEAD o su último commit, incluyendo HTML."""
-    if not isinstance(path, str) or not path.strip():
-        raise ValueError("La ruta del archivo está vacía.")
-    if len(path) > MAX_PATH_LENGTH:
-        raise ValueError("La ruta del archivo excede el tamaño máximo permitido.")
-
-    target = ctx.absolute(path)
-    if not target.exists():
-        raise ValueError(f"El archivo '{path}' no existe.")
-    if not target.is_file():
-        raise ValueError(f"'{path}' no es un archivo regular.")
-
-    git_bin = shutil.which("git")
-    if not git_bin:
-        raise RuntimeError("Git no está instalado o no se encuentra en el PATH del sistema.")
-
-    try:
-        res = subprocess.run(
-            [git_bin, "rev-parse", "--show-toplevel"],
-            cwd=str(target.parent),
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False
-        )
-    except Exception as err:
-        raise RuntimeError(f"Error comprobando repositorio Git: {err}")
-
-    if res.returncode != 0:
-        raise ValueError(f"El archivo '{target.name}' no pertenece a ningún repositorio Git.")
-
-    repo_root = Path(res.stdout.strip()).resolve()
-    has_head = subprocess.run(
-        [git_bin, "rev-parse", "--verify", "HEAD"],
-        cwd=str(repo_root),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        timeout=5,
-        check=False
-    ).returncode == 0
-
-    in_head = False
-    has_working_tree_diff = True
-    rel_path = target.name
-    try:
-        rel_path = target.relative_to(repo_root).as_posix()
-    except ValueError:
-        pass
-
-    if has_head:
-        try:
-            in_head = subprocess.run(
-                [git_bin, "cat-file", "-e", f"HEAD:{rel_path}"],
-                cwd=str(repo_root),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=5,
-                check=False
-            ).returncode == 0
-            if in_head:
-                diff_check = subprocess.run(
-                    [git_bin, "diff", "--quiet", "HEAD", "--", str(target)],
-                    cwd=str(repo_root),
-                    timeout=5,
-                    check=False
-                )
-                has_working_tree_diff = (diff_check.returncode != 0)
-        except ValueError:
-            in_head = False
-
-    mode = "working_tree"
-    last_commit = ""
-    diff_text = ""
-
-    if has_working_tree_diff:
-        if in_head:
-            cmd = [git_bin, "diff", f"-U{context_lines}", "HEAD", "--", str(target)]
-        else:
-            cmd = [git_bin, "diff", f"-U{context_lines}", "--no-index", "--", os.devnull, str(target)]
-        diff_res = subprocess.run(cmd, cwd=str(repo_root), capture_output=True, text=True, timeout=10, check=False)
-        diff_text = diff_res.stdout
-    else:
-        # No hay cambios pendientes en el árbol de trabajo. Comprobar historial del archivo.
-        log_res = subprocess.run(
-            [git_bin, "log", "-n", "1", "--format=%H", "--", rel_path],
-            cwd=str(repo_root),
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False
-        )
-        last_commit = log_res.stdout.strip() if log_res.returncode == 0 else ""
-        if not commit_fallback or not last_commit:
-            return {
-                "success": True,
-                "has_diff": False,
-                "in_head": in_head,
-                "has_commit_history": bool(last_commit),
-                "last_commit": last_commit or None,
-                "path": str(target)
-            }
-
-        mode = "commit"
-        parent_check = subprocess.run(
-            [git_bin, "rev-parse", "--verify", f"{last_commit}~1"],
-            cwd=str(repo_root),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=5,
-            check=False
-        )
-        if parent_check.returncode == 0:
-            cmd = [git_bin, "diff", f"-U{context_lines}", f"{last_commit}~1", last_commit, "--", str(target)]
-        else:
-            cmd = [git_bin, "diff", f"-U{context_lines}", "4b825dc642cb6eb9a060e54bf8d69288fbee4904", last_commit, "--", str(target)]
-        diff_res = subprocess.run(cmd, cwd=str(repo_root), capture_output=True, text=True, timeout=10, check=False)
-        diff_text = diff_res.stdout
-
+    target, git_bin, repo_root = _git_tracked_file(path, ctx)
+    rel_path = _repo_relative(target, repo_root)
+    base, in_head, last_commit = _diff_revisions(git_bin, repo_root, target, rel_path, commit_fallback)
+    if base is None:
+        return _no_diff_result(target, in_head, last_commit)
+    mode = "commit" if last_commit else "working_tree"
+    cmd = _diff_command(base, target, prefix=[git_bin, "diff", f"-U{context_lines}"])
+    diff_text = subprocess.run(cmd, cwd=str(repo_root), capture_output=True, text=True, timeout=10, check=False).stdout
     if not diff_text.strip():
-        return {
-            "success": True,
-            "has_diff": False,
-            "in_head": in_head,
-            "has_commit_history": bool(last_commit),
-            "last_commit": last_commit or None,
-            "path": str(target)
-        }
-
-    full_file_bytes = None
-    if mode == "commit" and last_commit:
-        show_res = subprocess.run(
-            [git_bin, "show", f"{last_commit}:{rel_path}"],
-            cwd=str(repo_root),
-            capture_output=True,
-            timeout=5,
-            check=False
-        )
-        if show_res.returncode == 0:
-            full_file_bytes = show_res.stdout
-    if full_file_bytes is None:
-        try:
-            if target.is_file() and target.stat().st_size <= 5_000_000:
-                full_file_bytes = target.read_bytes()
-        except (OSError, PermissionError):
-            full_file_bytes = None
-
+        return _no_diff_result(target, in_head, last_commit)
+    rel_path = rel_path or target.name
     html_content = render_diff_html(
         diff_text=diff_text,
         filename=target.name,
         rel_path=rel_path,
         mode=mode,
         commit=last_commit or None,
-        full_file_bytes=full_file_bytes
+        full_file_bytes=_full_file_bytes(git_bin, repo_root, target, rel_path, last_commit)
     )
-
     return {
         "success": True,
         "has_diff": True,
@@ -4889,6 +5245,20 @@ def generate_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = 
         "diff": diff_text,
         "html": html_content
     }
+
+
+def _full_file_bytes(git_bin: str, repo_root: Path, target: Path, rel_path: str, commit: str) -> bytes | None:
+    """El archivo entero para el visor: el del commit si se muestra uno, si no el del disco (hasta 5 MB)."""
+    if commit:
+        show_res = subprocess.run([git_bin, "show", f"{commit}:{rel_path}"], cwd=str(repo_root), capture_output=True, timeout=5, check=False)
+        if show_res.returncode == 0:
+            return show_res.stdout
+    try:
+        if target.is_file() and target.stat().st_size <= 5_000_000:
+            return target.read_bytes()
+    except OSError:
+        pass
+    return None
 
 
 def open_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = False, gui: bool = False, context_lines: int = DIFF_CONTEXT_LINES) -> dict:
@@ -4914,6 +5284,53 @@ IGNORED_WORKSPACE_DIRS = {
 }
 
 
+LIST_DIRECTORY_MAX_ENTRIES = 1000
+
+
+def _directory_entry(entry: os.DirEntry, target: Path, recursive: bool) -> dict:
+    """Datos de una entrada de list_directory; OSError si desaparece o no se puede leer."""
+    stat = entry.stat(follow_symlinks=False)
+    is_dir = entry.is_dir(follow_symlinks=False)
+    try:
+        resolved_path = str(Path(entry.path).resolve())
+    except (OSError, RuntimeError):
+        resolved_path = str(Path(entry.path).absolute())
+    data = {
+        "name": entry.name,
+        "path": resolved_path,
+        "type": "directory" if is_dir else "file",
+        "size_bytes": None if is_dir else stat.st_size,
+        "is_symlink": entry.is_symlink()
+    }
+    if recursive:
+        try:
+            data["relative_path"] = Path(entry.path).relative_to(target).as_posix()
+        except ValueError:
+            data["relative_path"] = entry.name
+    return data
+
+
+def _scan_directory(current: Path, target: Path, depth: int, max_depth: int, recursive: bool, entries: list[dict]):
+    """Añade a entries el contenido de current, carpetas primero, sin seguir enlaces y hasta el tope de entradas."""
+    if depth > max_depth or len(entries) >= LIST_DIRECTORY_MAX_ENTRIES:
+        return
+    try:
+        with os.scandir(current) as it:
+            items = sorted(it, key=lambda e: (not e.is_dir(follow_symlinks=False), e.name.lower()))
+    except OSError:
+        return
+    for entry in items:
+        if len(entries) >= LIST_DIRECTORY_MAX_ENTRIES:
+            break
+        try:
+            data = _directory_entry(entry, target, recursive)
+            entries.append(data)
+            if recursive and data["type"] == "directory" and not data["is_symlink"]:
+                _scan_directory(Path(entry.path), target, depth + 1, max_depth, recursive, entries)
+        except OSError:
+            continue
+
+
 def list_directory(path: str = ".", recursive: bool = False, *, ctx: SecurityContext) -> str:
     """List files and directories in a local directory with safe bounded recursive traversal."""
     try:
@@ -4922,49 +5339,8 @@ def list_directory(path: str = ".", recursive: bool = False, *, ctx: SecurityCon
             return _tool_error(f"Path '{path}' does not exist.")
         if not target.is_dir():
             return _tool_error(f"Path '{path}' is not a directory.")
-
-        max_depth = 3 if recursive else 1
-        entries = []
-
-        def _scan(current_path: Path, current_depth: int):
-            if current_depth > max_depth or len(entries) >= 1000:
-                return
-            try:
-                with os.scandir(current_path) as it:
-                    items = list(it)
-                    items.sort(key=lambda e: (not e.is_dir(follow_symlinks=False), e.name.lower()))
-                    for entry in items:
-                        if len(entries) >= 1000:
-                            break
-                        try:
-                            stat = entry.stat(follow_symlinks=False)
-                            is_dir = entry.is_dir(follow_symlinks=False)
-                            try:
-                                resolved_path = str(Path(entry.path).resolve())
-                            except (OSError, RuntimeError):
-                                resolved_path = str(Path(entry.path).absolute())
-                            entry_data = {
-                                "name": entry.name,
-                                "path": resolved_path,
-                                "type": "directory" if is_dir else "file",
-                                "size_bytes": None if is_dir else stat.st_size,
-                                "is_symlink": entry.is_symlink()
-                            }
-                            if recursive:
-                                try:
-                                    entry_data["relative_path"] = Path(entry.path).relative_to(target).as_posix()
-                                except ValueError:
-                                    entry_data["relative_path"] = entry.name
-                            entries.append(entry_data)
-                            if recursive and is_dir and not entry.is_symlink():
-                                _scan(Path(entry.path), current_depth + 1)
-                        except (PermissionError, FileNotFoundError, OSError):
-                            continue
-            except (PermissionError, FileNotFoundError, OSError):
-                pass
-
-        _scan(target, 1)
-
+        entries: list[dict] = []
+        _scan_directory(target, target, 1, 3 if recursive else 1, recursive, entries)
         return json.dumps({
             "success": True,
             "path": str(target),
@@ -5036,6 +5412,35 @@ def _read_tail(target: Path, tail_lines: int, max_bytes: int) -> str:
     }, ensure_ascii=False, indent=2)
 
 
+# Pasado el rango pedido, read_file sigue contando líneas para total_lines hasta este número más allá del inicio.
+READ_COUNT_AHEAD_LINES = 50000
+
+
+def _read_line_range(target: Path, start: int, count: int, max_bytes: int) -> tuple[list[str], int, bool]:
+    """Hasta count líneas desde start sin pasar de max_bytes (la última, cortada). Devuelve las líneas, las que
+    se han contado (todas, o hasta READ_COUNT_AHEAD_LINES más allá de start) y si se cortó por bytes."""
+    selected: list[str] = []
+    used = 0
+    total_lines = 0
+    with open(target, "r", encoding="utf-8", errors="replace") as f:
+        for line_no, line in enumerate(f, 1):
+            total_lines = line_no
+            if line_no < start:
+                continue
+            if len(selected) >= count:
+                if line_no > start + READ_COUNT_AHEAD_LINES:
+                    break
+                continue
+            encoded = line.encode("utf-8")
+            if used + len(encoded) > max_bytes:
+                if max_bytes > used:
+                    selected.append(encoded[:max_bytes - used].decode("utf-8", errors="ignore"))
+                return selected, total_lines, True
+            selected.append(line)
+            used += len(encoded)
+    return selected, total_lines, False
+
+
 def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: int = 500, max_bytes: int = 100000,
               tail_lines: int | None = None, *, ctx: SecurityContext) -> str:
     """Read text content from a local file in streaming mode with safe ranges and bounds, or its last lines."""
@@ -5050,67 +5455,23 @@ def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: i
         safe_max_bytes = max(1024, min(int(max_bytes), 2000000))
         if tail_lines is not None:
             return _read_tail(target, tail_lines, safe_max_bytes)
-        safe_start_line = max(1, int(start_line))
-
+        start = max(1, int(start_line))
         if end_line is not None:
-            safe_end_line = max(safe_start_line, int(end_line))
-            target_line_count = min(safe_end_line - safe_start_line + 1, MAX_READ_LINES)
-            safe_end_line = safe_start_line + target_line_count - 1
+            count = min(max(start, int(end_line)) - start + 1, MAX_READ_LINES)
         else:
-            safe_end_line = None
-            target_line_count = max(1, min(int(max_lines), MAX_READ_LINES))
+            count = max(1, min(int(max_lines), MAX_READ_LINES))
 
-        selected_lines = []
-        current_bytes = 0
-        truncated_bytes = False
-        total_lines = 0
-        reached_end_bound = False
-
-        with open(target, "r", encoding="utf-8", errors="replace") as f:
-            for line_no, line in enumerate(f, 1):
-                total_lines = line_no
-                if line_no < safe_start_line:
-                    continue
-                if safe_end_line is not None and line_no > safe_end_line:
-                    reached_end_bound = True
-                    if line_no > safe_start_line + 50000:
-                        break
-                    continue
-                if safe_end_line is None and len(selected_lines) >= target_line_count:
-                    reached_end_bound = True
-                    if line_no > safe_start_line + 50000:
-                        break
-                    continue
-
-                if not reached_end_bound:
-                    line_bytes = len(line.encode("utf-8"))
-                    if current_bytes + line_bytes > safe_max_bytes:
-                        remaining_budget = max(0, safe_max_bytes - current_bytes)
-                        if remaining_budget > 0:
-                            encoded = line.encode("utf-8")[:remaining_budget]
-                            selected_lines.append(encoded.decode("utf-8", errors="ignore"))
-                        truncated_bytes = True
-                        reached_end_bound = True
-                        break
-                    else:
-                        selected_lines.append(line)
-                        current_bytes += line_bytes
-
-        content = "".join(selected_lines)
-        last_returned_line = safe_start_line + len(selected_lines) - 1 if selected_lines else safe_start_line - 1
-
-        is_truncated = truncated_bytes or (safe_end_line is not None and safe_end_line < total_lines) or (safe_end_line is None and (safe_start_line + target_line_count - 1) < total_lines)
-
+        selected, total_lines, truncated_bytes = _read_line_range(target, start, count, safe_max_bytes)
         return json.dumps({
             "success": True,
             "path": str(target),
             "size_bytes": file_size,
             "total_lines": total_lines,
-            "start_line": safe_start_line,
-            "end_line": last_returned_line,
-            "lines_returned": len(selected_lines),
-            "truncated": is_truncated,
-            "content": content
+            "start_line": start,
+            "end_line": start + len(selected) - 1,
+            "lines_returned": len(selected),
+            "truncated": truncated_bytes or start + count - 1 < total_lines,
+            "content": "".join(selected)
         }, ensure_ascii=False, indent=2)
     except Exception as e:
         return _tool_error(str(e))
@@ -5180,6 +5541,45 @@ def resolve_project_directory(path, ctx: SecurityContext) -> dict:
     return {"cwd": str(target)}
 
 
+def _walk_project_files(target: Path) -> Iterator[Path]:
+    """Ficheros bajo target en orden, sin los directorios ignorados ni los ocultos, y sin los enlaces simbólicos
+    que salen de target (no se lee nada fuera de la carpeta que se autorizó)."""
+    for root, dirs, files in os.walk(target):
+        dirs[:] = [d for d in dirs if d not in IGNORED_WORKSPACE_DIRS and not d.startswith(".")]
+        for fname in sorted(files):
+            fpath = Path(root) / fname
+            try:
+                if fpath.is_symlink() and not fpath.resolve().is_relative_to(target):
+                    continue
+            except (OSError, ValueError):
+                continue
+            yield fpath
+
+
+SEARCH_MAX_FILE_BYTES = 2 * 1024 * 1024
+SEARCH_LINE_CHARS = 300
+
+
+def _search_lines(fpath: Path, target: Path, regex: re.Pattern, limit: int) -> list[dict]:
+    """Hasta limit líneas de fpath que casan con regex; un fichero que no se puede leer no tiene ninguna."""
+    try:
+        rel_path = fpath.relative_to(target).as_posix()
+    except ValueError:
+        rel_path = str(fpath)
+    found = []
+    try:
+        with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+            for line_idx, line in enumerate(f, 1):
+                if regex.search(line):
+                    found.append({"file": str(fpath), "relative_path": rel_path, "line_number": line_idx,
+                                  "content": line.rstrip("\r\n")[:SEARCH_LINE_CHARS]})
+                    if len(found) >= limit:
+                        break
+    except OSError:
+        pass
+    return found
+
+
 def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100, *, ctx: SecurityContext) -> str:
     """Recursively search for plain text or regular expressions across project files."""
     try:
@@ -5203,54 +5603,17 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
 
         matches = []
         files_searched = 0
-        max_file_size = 2 * 1024 * 1024
-        truncated = False
-
-        for root, dirs, files in os.walk(target):
-            dirs[:] = [d for d in dirs if d not in IGNORED_WORKSPACE_DIRS and not d.startswith(".")]
-
-            for fname in sorted(files):
-                if file_pattern and not fnmatch.fnmatch(fname, file_pattern):
+        for fpath in _walk_project_files(target):
+            if file_pattern and not fnmatch.fnmatch(fpath.name, file_pattern):
+                continue
+            try:
+                if fpath.stat().st_size > SEARCH_MAX_FILE_BYTES:
                     continue
-
-                fpath = Path(root) / fname
-                try:
-                    if fpath.is_symlink():
-                        try:
-                            if not fpath.resolve().is_relative_to(target):
-                                continue
-                        except (OSError, ValueError):
-                            continue
-                    stat = fpath.stat()
-                    if stat.st_size > max_file_size:
-                        continue
-                except OSError:
-                    continue
-
-                files_searched += 1
-                try:
-                    with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
-                        for line_idx, line in enumerate(f, 1):
-                            if regex.search(line):
-                                try:
-                                    rel_path = fpath.relative_to(target).as_posix()
-                                except ValueError:
-                                    rel_path = str(fpath)
-                                matches.append({
-                                    "file": str(fpath),
-                                    "relative_path": rel_path,
-                                    "line_number": line_idx,
-                                    "content": line.rstrip("\r\n")[:300]
-                                })
-                                if len(matches) >= safe_max_results:
-                                    truncated = True
-                                    break
-                except (PermissionError, OSError):
-                    continue
-
-                if truncated:
-                    break
-            if truncated:
+            except OSError:
+                continue
+            files_searched += 1
+            matches.extend(_search_lines(fpath, target, regex, safe_max_results - len(matches)))
+            if len(matches) >= safe_max_results:
                 break
 
         payload = {
@@ -5260,7 +5623,7 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
             "file_pattern": file_pattern,
             "files_searched": files_searched,
             "total_matches": len(matches),
-            "truncated": truncated,
+            "truncated": len(matches) >= safe_max_results,
             "matches": matches
         }
         if warning:
@@ -5271,6 +5634,66 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
         return _tool_error(str(e))
 
 
+def _diagnostic(file: str, line: int, column: int, message: str) -> dict:
+    return {"file": file, "line": line, "column": column, "severity": "error", "message": message}
+
+
+def _python_diagnostics(fpath: Path, display: str) -> list[dict]:
+    try:
+        compile(fpath.read_text(encoding="utf-8", errors="replace"), str(fpath), "exec")
+    except SyntaxError as e:
+        return [_diagnostic(display, e.lineno or 1, e.offset or 1, f"SyntaxError: {e.msg}")]
+    return []
+
+
+def _js_diagnostics(fpath: Path, display: str) -> list[dict]:
+    """node --check, si hay node; sin él no se comprueba nada."""
+    node_bin = shutil.which("node")
+    if not node_bin:
+        return []
+    try:
+        res = subprocess.run([node_bin, "--check", str(fpath)], capture_output=True, text=True, timeout=10)
+    except (subprocess.SubprocessError, OSError):
+        return []
+    if res.returncode == 0:
+        return []
+    stderr = res.stderr or ""
+    line_match = re.search(r':(\d+)\n([^\n]+)\n(\s*)\^', stderr)
+    line = int(line_match.group(1)) if line_match else 1
+    col = len(line_match.group(3)) + 1 if line_match else 1
+    msg_match = re.search(r'(SyntaxError:[^\n]+)', stderr)
+    msg = msg_match.group(1) if msg_match else (stderr.strip().splitlines()[-1] if stderr.strip() else "Syntax error")
+    return [_diagnostic(display, line, col, msg)]
+
+
+def _json_diagnostics(fpath: Path, display: str) -> list[dict]:
+    try:
+        json.loads(fpath.read_text(encoding="utf-8", errors="replace"))
+    except json.JSONDecodeError as e:
+        return [_diagnostic(display, e.lineno, e.colno, f"JSONDecodeError: {e.msg}")]
+    return []
+
+
+# Comprobación de sintaxis por extensión: un lenguaje nuevo es una entrada más.
+DIAGNOSTIC_CHECKS = {
+    ".py": _python_diagnostics,
+    ".js": _js_diagnostics, ".mjs": _js_diagnostics, ".cjs": _js_diagnostics,
+    ".json": _json_diagnostics,
+}
+DIAGNOSTICS_MAX_FILES = 200
+
+
+def _file_diagnostics(fpath: Path, workspace_dir: Path) -> list[dict]:
+    check = DIAGNOSTIC_CHECKS.get(fpath.suffix.lower())
+    if check is None:
+        return []
+    try:
+        display = fpath.relative_to(workspace_dir).as_posix()
+    except ValueError:
+        display = str(fpath)
+    return check(fpath, display)
+
+
 def get_diagnostics(path: str | None = None, *, ctx: SecurityContext) -> str:
     """Retrieve syntax diagnostics and code errors for a file or the entire workspace."""
     try:
@@ -5279,89 +5702,13 @@ def get_diagnostics(path: str | None = None, *, ctx: SecurityContext) -> str:
         if not target.exists():
             return _tool_error(f"Path '{path}' does not exist.")
 
-        diagnostics: list[dict] = []
-        files_checked = 0
-
-        def check_single_file(fpath: Path) -> list[dict]:
-            ext = fpath.suffix.lower()
-            file_diags: list[dict] = []
-            try:
-                rel_display = fpath.relative_to(ctx.workspace_dir).as_posix()
-            except ValueError:
-                rel_display = str(fpath)
-
-            if ext == ".py":
-                try:
-                    content = fpath.read_text(encoding="utf-8", errors="replace")
-                    compile(content, str(fpath), "exec")
-                except (SyntaxError, IndentationError) as e:
-                    file_diags.append({
-                        "file": rel_display,
-                        "line": e.lineno or 1,
-                        "column": e.offset or 1,
-                        "severity": "error",
-                        "message": f"SyntaxError: {e.msg}"
-                    })
-            elif ext in (".js", ".mjs", ".cjs"):
-                node_bin = shutil.which("node")
-                if node_bin:
-                    try:
-                        res = subprocess.run([node_bin, "--check", str(fpath)], capture_output=True, text=True, timeout=10)
-                        if res.returncode != 0:
-                            stderr = res.stderr or ""
-                            line_match = re.search(r':(\d+)\n([^\n]+)\n(\s*)\^', stderr)
-                            line = int(line_match.group(1)) if line_match else 1
-                            col = len(line_match.group(3)) + 1 if line_match else 1
-                            msg_match = re.search(r'(SyntaxError:[^\n]+)', stderr)
-                            msg = msg_match.group(1) if msg_match else (stderr.strip().splitlines()[-1] if stderr.strip() else "Syntax error")
-                            file_diags.append({
-                                "file": rel_display,
-                                "line": line,
-                                "column": col,
-                                "severity": "error",
-                                "message": msg
-                            })
-                    except (subprocess.SubprocessError, OSError):
-                        pass
-            elif ext == ".json":
-                try:
-                    content = fpath.read_text(encoding="utf-8", errors="replace")
-                    json.loads(content)
-                except json.JSONDecodeError as e:
-                    file_diags.append({
-                        "file": rel_display,
-                        "line": e.lineno,
-                        "column": e.colno,
-                        "severity": "error",
-                        "message": f"JSONDecodeError: {e.msg}"
-                    })
-            return file_diags
-
         if target.is_file():
-            files_checked = 1
-            diagnostics.extend(check_single_file(target))
+            checked = [target]
         else:
-            max_scan = 200
-            for root, dirs, files in os.walk(target):
-                dirs[:] = [d for d in dirs if d not in IGNORED_WORKSPACE_DIRS and not d.startswith(".")]
-                for fname in sorted(files):
-                    fp = Path(root) / fname
-                    try:
-                        if fp.is_symlink():
-                            try:
-                                if not fp.resolve().is_relative_to(target):
-                                    continue
-                            except (OSError, ValueError):
-                                continue
-                    except OSError:
-                        continue
-                    if fp.suffix.lower() in (".py", ".js", ".mjs", ".cjs", ".json"):
-                        files_checked += 1
-                        diagnostics.extend(check_single_file(fp))
-                        if files_checked >= max_scan:
-                            break
-                if files_checked >= max_scan:
-                    break
+            checkable = (fp for fp in _walk_project_files(target) if fp.suffix.lower() in DIAGNOSTIC_CHECKS)
+            checked = list(itertools.islice(checkable, DIAGNOSTICS_MAX_FILES))
+        files_checked = len(checked)
+        diagnostics = [diag for fp in checked for diag in _file_diagnostics(fp, ctx.workspace_dir)]
 
         msg = f"Found {len(diagnostics)} issue(s)." if diagnostics else "No diagnostic issues found."
 
@@ -5375,6 +5722,95 @@ def get_diagnostics(path: str | None = None, *, ctx: SecurityContext) -> str:
         }, ensure_ascii=False, indent=2)
     except Exception as e:
         return _tool_error(str(e))
+
+# --- tools.job_waits ---
+"""Esperas de check_command a un comando: vuelven cuando termina, cuando una línea nueva de su salida contiene un
+texto o al agotar el plazo, que es un máximo. La persona puede cortarlas con la clave de la invocación."""
+
+
+
+# Cada cuánto comprueba una espera si la persona la ha cortado.
+WAIT_SLICE_SECONDS = 0.25
+
+
+class CancellableWaits:
+    """Esperas en curso, por la clave de su invocación: zerochat/jobs/end_wait corta la de esa clave."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._waits: dict[str, threading.Event] = {}
+
+    def open(self, key: str | None) -> threading.Event:
+        """Registra una espera que se puede cortar con cancel(key); sin clave no se puede cortar."""
+        event = threading.Event()
+        if key:
+            with self._lock:
+                self._waits[key] = event
+        return event
+
+    def close(self, key: str | None):
+        if key:
+            with self._lock:
+                self._waits.pop(key, None)
+
+    def cancel(self, key) -> bool:
+        """Corta la espera con esa clave; devuelve si había una en curso."""
+        with self._lock:
+            event = self._waits.get(key) if isinstance(key, str) else None
+        if event is None:
+            return False
+        event.set()
+        return True
+
+
+WAITS = CancellableWaits()
+
+
+def _pattern_terms(pattern: str) -> tuple[str, ...]:
+    """Textos de un pattern de check_command ('error|listening on'), en minúsculas y sin los vacíos."""
+    return tuple(term.strip().lower() for term in pattern.split("|") if term.strip())
+
+
+def _line_matches(line: str, terms: tuple[str, ...]) -> bool:
+    """Si la línea contiene alguno de los textos, sin distinguir mayúsculas. Es texto, no una expresión
+    regular: el tiempo es lineal y ninguna entrada puede bloquear el servidor (re no suelta el GIL)."""
+    lowered = line.lower()
+    return any(term in lowered for term in terms)
+
+
+def _wait_job(job, wait: float, terms: tuple[str, ...] | None, cancel: threading.Event) -> tuple[str, str | None]:
+    """Espera a que termine el comando (CommandJob), a que una línea nueva de su salida contenga alguno de terms
+    o a que pase wait.
+
+    Recorre la salida que el modelo aún no ha visto, línea a línea; la última línea, si no está completa,
+    solo se compara cuando el comando termina. Devuelve el motivo y la línea que coincidió.
+    """
+    deadline = time.monotonic() + wait
+    pos = job.model_cursor
+    partial = ""
+    while True:
+        finished = job.done.is_set()
+        total = job.total
+        if terms is not None and total > pos:
+            text, pos = job.read_range(pos, total - pos)
+            lines = (partial + text).split("\n")
+            partial = lines.pop()
+            for line in lines:
+                if _line_matches(line, terms):
+                    return "pattern_matched", line
+        if finished and (terms is None or pos >= job.total):
+            if terms is not None and partial and _line_matches(partial, terms):
+                return "pattern_matched", partial
+            return "command_finished", None
+        if cancel.is_set():
+            return "wait_ended_by_user", None
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return "wait_elapsed", None
+        if terms is None:
+            job.done.wait(min(remaining, WAIT_SLICE_SECONDS))
+        else:
+            job.wait_change(pos, min(remaining, WAIT_SLICE_SECONDS))
 
 # --- tools.jobs ---
 """Comandos del servidor local (run_command y check_command): tareas con su log, plazos, segundo plano y limpieza de huérfanos."""
@@ -5405,8 +5841,6 @@ CHECK_PATTERN_MAX_CHARS = 200
 MATCHED_LINE_MAX_CHARS = 500
 # Última línea de salida de cada comando en marcha en el latido, para su tarjeta plegada.
 LAST_LINE_MAX_CHARS = 200
-# Cada cuánto comprueba una espera de check_command si la persona la ha cortado.
-WAIT_SLICE_SECONDS = 0.25
 REPORT_TAIL_BYTES = 4096
 
 
@@ -5779,10 +6213,6 @@ class JobManager:
         self._lock = threading.Lock()
         self._dir: Path | None = None
         self._windows_job: _WindowsKillOnCloseJob | None = None
-        # Avisa a check_command sin job_id de que ha terminado algún comando.
-        self._finished = threading.Condition()
-        # Esperas de check_command en curso, por la clave de su invocación: la persona puede cortarlas.
-        self._waits: dict[str, threading.Event] = {}
         atexit.register(self.shutdown)
 
     def _session_dir(self) -> Path:
@@ -5920,38 +6350,6 @@ class JobManager:
         self._write_registry()
         job.done.set()
         job.notify_finished()
-        with self._finished:
-            self._finished.notify_all()
-
-    def wait_any_finished(self, jobs: list[CommandJob], timeout: float, cancel: threading.Event) -> list[CommandJob]:
-        """Espera como mucho timeout segundos a que termine alguno de jobs o se corte la espera; devuelve los terminados."""
-        with self._finished:
-            self._finished.wait_for(lambda: cancel.is_set() or any(job.done.is_set() for job in jobs), timeout)
-        return [job for job in jobs if job.done.is_set()]
-
-    def open_wait(self, key: str | None) -> threading.Event:
-        """Registra una espera que se puede cortar con cancel_wait(key); sin clave no se puede cortar."""
-        event = threading.Event()
-        if key:
-            with self._lock:
-                self._waits[key] = event
-        return event
-
-    def close_wait(self, key: str | None):
-        if key:
-            with self._lock:
-                self._waits.pop(key, None)
-
-    def cancel_wait(self, key) -> bool:
-        """Corta la espera de check_command con esa clave; devuelve si había una en curso."""
-        with self._lock:
-            event = self._waits.get(key) if isinstance(key, str) else None
-        if event is None:
-            return False
-        event.set()
-        with self._finished:
-            self._finished.notify_all()
-        return True
 
     def get(self, project: str, job_id=None, key=None) -> CommandJob | None:
         jobs = self.list(project)
@@ -6085,96 +6483,33 @@ def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, ba
     return _job_result(job)
 
 
-def _wait_job(job: CommandJob, wait: float, regex: re.Pattern | None, cancel: threading.Event) -> tuple[str, str | None]:
-    """Espera a que termine el comando, a que una línea nueva de su salida cumpla regex o a que pase wait.
-
-    Recorre la salida que el modelo aún no ha visto, línea a línea; la última línea, si no está completa,
-    solo se compara cuando el comando termina. Devuelve el motivo y la línea que coincidió.
-    """
-    deadline = time.monotonic() + wait
-    pos = job.model_cursor
-    partial = ""
-    while True:
-        finished = job.done.is_set()
-        total = job.total
-        if regex is not None and total > pos:
-            text, pos = job.read_range(pos, total - pos)
-            lines = (partial + text).split("\n")
-            partial = lines.pop()
-            for line in lines:
-                if regex.search(line):
-                    return "pattern_matched", line
-        if finished and (regex is None or pos >= job.total):
-            if regex is not None and partial and regex.search(partial):
-                return "pattern_matched", partial
-            return "command_finished", None
-        if cancel.is_set():
-            return "wait_ended_by_user", None
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return "wait_elapsed", None
-        if regex is None:
-            job.done.wait(min(remaining, WAIT_SLICE_SECONDS))
-        else:
-            job.wait_change(pos, min(remaining, WAIT_SLICE_SECONDS))
-
-
-def _plain_wait(wait_seconds, cancel: threading.Event, ctx: SecurityContext) -> str:
-    """check_command sin job_id: espera sin lanzar ningún proceso; vuelve antes si termina un comando del proyecto."""
-    wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
-    if not wait:
-        return _tool_error(f"Without job_id, check_command waits: give wait_seconds (1 to {COMMAND_MAX_WAIT}).", os=DETECTED_OS)
-    running = JOBS.running(ctx.key)
-    started = time.monotonic()
-    finished = JOBS.wait_any_finished(running, wait, cancel)
-    reason = "command_finished" if finished else ("wait_ended_by_user" if cancel.is_set() else "wait_elapsed")
-    result = {
-        "success": True,
-        "waited_s": round(time.monotonic() - started, 1),
-        "returned_because": reason,
-    }
-    if finished:
-        result["finished_jobs"] = [
-            {"job_id": job.id, "command": job.command.split("\n")[0][:200], "status": job.status, "exit_code": job.exit_code}
-            for job in finished
-        ]
-        result["note"] = "Read their output with check_command(job_id=...)."
-    return json.dumps(result, ensure_ascii=False, indent=2)
-
-
 def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool = False, pattern: str | None = None,
                   job_key: str | None = None, *, ctx: SecurityContext) -> str:
     """Estado y salida nueva de un comando lanzado por run_command; puede esperarlo, con un patrón, o detenerlo.
-    Sin job_id, solo espera. La persona puede cortar la espera con zerochat/jobs/end_wait y la clave de la invocación."""
+    wait_seconds es un máximo: la espera vuelve en cuanto el comando termina. La persona puede cortarla con
+    zerochat/jobs/end_wait y la clave de la invocación."""
     if job_id is None:
-        if stop or pattern:
-            return _tool_error("stop and pattern need the job_id of a command.", os=DETECTED_OS)
-        cancel = JOBS.open_wait(job_key)
-        try:
-            return _plain_wait(wait_seconds, cancel, ctx)
-        finally:
-            JOBS.close_wait(job_key)
+        return _tool_error("job_id is required: give the job_id returned by run_command.", os=DETECTED_OS)
     job = JOBS.get(ctx.key, job_id=job_id)
     if job is None:
         return _tool_error(f"Unknown job_id {job_id}. It may belong to a previous ZeroChat session or to another project.", os=DETECTED_OS)
-    regex = None
+    terms = None
     if pattern:
-        try:
-            regex = re.compile(pattern, re.IGNORECASE)
-        except re.error as exc:
-            return _tool_error(f"Invalid pattern: {exc}. Use a regular expression such as 'error|listening on'.", os=DETECTED_OS)
+        terms = _pattern_terms(pattern)
+        if not terms:
+            return _tool_error("pattern needs at least one text, such as 'error|listening on'.", os=DETECTED_OS)
     if stop:
         JOBS.stop(job, "model")
         return _job_result(job, output_field="new_output")
     wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
-    if not wait and regex is None:
+    if not wait and terms is None:
         return _job_result(job, output_field="new_output")
-    cancel = JOBS.open_wait(job_key)
+    cancel = WAITS.open(job_key)
     started = time.monotonic()
     try:
-        reason, line = _wait_job(job, wait, regex, cancel)
+        reason, line = _wait_job(job, wait, terms, cancel)
     finally:
-        JOBS.close_wait(job_key)
+        WAITS.close(job_key)
     extra = {"returned_because": reason, "waited_s": round(time.monotonic() - started, 1)}
     if reason == "wait_elapsed" and job.total == job.model_cursor and not job.done.is_set():
         extra["note"] = (
@@ -6216,7 +6551,6 @@ class ProjectSession:
     servers: dict[str, dict] = dataclasses.field(default_factory=dict)
     command_patterns: list[str] = dataclasses.field(default_factory=list)
     challenges: dict[str, dict] = dataclasses.field(default_factory=dict)
-    one_time_tools: set[str] = dataclasses.field(default_factory=set)
 
     def entries(self, kind: str) -> dict[str, dict]:
         return self.tools if kind == "tools" else self.servers
@@ -6384,22 +6718,30 @@ class AccessController:
         clean_patterns = normalize_command_patterns(state["commandPatterns"]) if "commandPatterns" in state else None
 
         def mutator(current: dict) -> dict:
-            if clean_global is not None:
-                current["globalMcpPolicy"] = clean_global
-            if clean_rules is not None:
-                current["directoryRules"] = clean_rules
-            if added_rules:
-                current["directoryRules"] = self._append_rules(current["directoryRules"], added_rules)
-            if clean_tools is not None:
-                current["tools"] = self._apply_entry_patch(current.get("tools"), clean_tools)
-            if clean_servers is not None:
-                current["servers"] = self._apply_entry_patch(current.get("servers"), clean_servers)
-            if clean_patterns is not None:
-                current["commandPatterns"] = clean_patterns
+            self._apply_state_patch(current, clean_global, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns)
             self._check_entry_limit(current)
             return current
         self._update_permanent(mutator)
-        # Lo guardado vale para todos los proyectos: sustituye o revoca lo equivalente en la sesión de cada uno.
+        self._forget_session_overrides(clean_global, clean_rules, added_rules, clean_tools, clean_servers)
+        return self.export_state(context)
+
+    def _apply_state_patch(self, current: dict, clean_global, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns):
+        """Aplica sobre el estado guardado los apartados del parche que vienen (None es «no cambiar»)."""
+        if clean_global is not None:
+            current["globalMcpPolicy"] = clean_global
+        if clean_rules is not None:
+            current["directoryRules"] = clean_rules
+        if added_rules:
+            current["directoryRules"] = self._append_rules(current["directoryRules"], added_rules)
+        if clean_tools is not None:
+            current["tools"] = self._apply_entry_patch(current.get("tools"), clean_tools)
+        if clean_servers is not None:
+            current["servers"] = self._apply_entry_patch(current.get("servers"), clean_servers)
+        if clean_patterns is not None:
+            current["commandPatterns"] = clean_patterns
+
+    def _forget_session_overrides(self, clean_global, clean_rules, added_rules, clean_tools, clean_servers):
+        """Lo guardado vale para todos los proyectos: sustituye o revoca lo equivalente en la sesión de cada uno."""
         with self._lock:
             for session in self.sessions.values():
                 if clean_global is not None:
@@ -6411,7 +6753,6 @@ class AccessController:
                 for kind, patch in (("tools", clean_tools), ("servers", clean_servers)):
                     for item_id in patch or {}:
                         session.entries(kind).pop(item_id, None)
-        return self.export_state(context)
 
     @staticmethod
     def _append_rules(rules: list[str], new_rules: list[str]) -> list[str]:
@@ -6532,11 +6873,9 @@ class AccessController:
             dec_type = raw_dec
             raw_pattern = None
             raw_dir_rule = None
-        if not isinstance(dec_type, str) or dec_type not in AUTHORIZE_DECISIONS:
-            return
-        if dec_type == "allow_once":
-            with self._lock:
-                self._session(context).one_time_tools.add(tool_name)
+        # «Solo esta vez» no guarda nada, ni en sesión ni de forma permanente: al reanudar, el runner contesta
+        # con ella el reto de esa misma llamada, que se ejecuta y se consume. Tampoco vuelve con la rotación del token.
+        if not isinstance(dec_type, str) or dec_type not in AUTHORIZE_DECISIONS or dec_type == "allow_once":
             return
         pattern = normalize_command_pattern(raw_pattern) if (raw_pattern and tool_name == COMMAND_TOOL) else None
         rules = self._validate_directory_rules([raw_dir_rule], context) if raw_dir_rule else []
@@ -6629,34 +6968,47 @@ class AccessController:
         """
         tool, server_name, server_id = challenge["toolName"], challenge["serverName"], challenge["serverId"]
         if decision == "allow_session":
-            with self._lock:
-                session = self._session(context)
-                if pattern:
-                    session.command_patterns = self._limit_patterns(
-                        clean_pattern_list(session.command_patterns + [pattern], "commandPatterns.session"))
-                else:
-                    session.tools[tool] = self._make_entry("tools", POLICY_ALLOW, SCOPE_SESSION, server_name, tool)
+            self._allow_for_session(context, tool, server_name, pattern)
         permanent = decision in ("allow_project", "allow_always", "allow_server_always")
         if not permanent and not rules:
             return
         project = context.key
 
         def mutator(state: dict) -> dict:
-            saved = state["commandPatterns"]
-            if pattern and decision == "allow_project":
-                projects = {**saved["projects"], project: [*(saved["projects"].get(project) or []), pattern]}
-                state["commandPatterns"] = normalize_command_patterns({**saved, "projects": projects})
-            elif pattern and decision == "allow_always":
-                state["commandPatterns"] = normalize_command_patterns({**saved, "global": [*saved["global"], pattern]})
-            elif decision == "allow_always":
-                state["tools"][tool] = self._make_entry("tools", POLICY_ALLOW, SCOPE_PERMANENT, server_name, tool)
-            elif decision == "allow_server_always":
-                state["servers"][server_id] = self._make_entry("servers", POLICY_ALLOW, SCOPE_PERMANENT, server_name or server_id)
+            self._store_decision(state, decision, pattern, project, tool, server_name, server_id)
             if rules:
                 state["directoryRules"] = self._append_rules(state["directoryRules"], rules)
             self._check_entry_limit(state)
             return state
         self._update_permanent(mutator)
+        self._drop_superseded_session_entries(decision, pattern, tool, server_id, rules)
+
+    def _allow_for_session(self, context: SecurityContext, tool: str, server_name: str, pattern: str | None):
+        """«Permitir en la sesión»: el patrón de comando aprobado o, sin él, la herramienta."""
+        with self._lock:
+            session = self._session(context)
+            if pattern:
+                session.command_patterns = self._limit_patterns(
+                    clean_pattern_list(session.command_patterns + [pattern], "commandPatterns.session"))
+            else:
+                session.tools[tool] = self._make_entry("tools", POLICY_ALLOW, SCOPE_SESSION, server_name, tool)
+
+    def _store_decision(self, state: dict, decision: str, pattern: str | None, project: str, tool: str,
+                        server_name: str, server_id: str):
+        """Guarda una decisión permanente: el patrón del proyecto o global, la herramienta o el servidor."""
+        saved = state["commandPatterns"]
+        if pattern and decision == "allow_project":
+            projects = {**saved["projects"], project: [*(saved["projects"].get(project) or []), pattern]}
+            state["commandPatterns"] = normalize_command_patterns({**saved, "projects": projects})
+        elif pattern and decision == "allow_always":
+            state["commandPatterns"] = normalize_command_patterns({**saved, "global": [*saved["global"], pattern]})
+        elif decision == "allow_always":
+            state["tools"][tool] = self._make_entry("tools", POLICY_ALLOW, SCOPE_PERMANENT, server_name, tool)
+        elif decision == "allow_server_always":
+            state["servers"][server_id] = self._make_entry("servers", POLICY_ALLOW, SCOPE_PERMANENT, server_name or server_id)
+
+    def _drop_superseded_session_entries(self, decision: str, pattern: str | None, tool: str, server_id: str, rules: list[str]):
+        """Lo que se acaba de guardar sustituye a lo equivalente en la sesión de cada proyecto."""
         with self._lock:
             for session in self.sessions.values():
                 if decision == "allow_always" and not pattern:
@@ -6681,12 +7033,6 @@ class AccessController:
         8. Por defecto -> ask (solicitar confirmación), con la regla sugerida si la hay.
         """
         status, reason, details, offer = self._evaluate(tool_name, dict(raw_args or {}), context, server_id)
-        if status == POLICY_ASK:
-            with self._lock:
-                one_time = self._session(context).one_time_tools
-                if tool_name in one_time:
-                    one_time.discard(tool_name)
-                    status, reason, details, offer = POLICY_ALLOW, "one_time_allow_rule", "", None
         return AccessDecision(allowed=status == POLICY_ALLOW, status=status, reason=reason,
                               requires_approval=status == POLICY_ASK, tool_id=tool_name, server_name=server_name,
                               server_id=server_id, details=details, rule_offer=offer)
@@ -6995,6 +7341,146 @@ class ConsoleControl:
                 return
             self._handle_command(line)
 
+# --- run_mode.supervisor ---
+"""Supervisión de la ejecución desatendida: plazos, final del runner o del navegador, y arranque del runner de Node."""
+
+
+
+
+
+def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc: subprocess.Popen | None = None, browser_proc: subprocess.Popen | None = None):
+    """Detiene el servidor al recibir el resultado, si termina el runner propio o al agotar los plazos."""
+    proc = runner_proc if runner_proc is not None else browser_proc
+    deadline = time.monotonic() + RUN_TOTAL_TIMEOUT
+    while not session.finished.wait(RUN_POLL_SECONDS):
+        # El latido o una señal ya detienen el servidor: el resultado queda vacío.
+        if _SERVER_SHUTTING_DOWN.is_set():
+            return
+        if proc is not None and proc.poll() is not None and not session.finished.wait(0.2):
+            break
+        if time.monotonic() >= deadline + session.waited_seconds():
+            session.stop_reason = f"Plazo total agotado ({RUN_TOTAL_TIMEOUT:.0f}s, sin contar las esperas)."
+            break
+        if session.idle_seconds() > RUN_IDLE_SECONDS:
+            session.stop_reason = f"Sin progreso de la interfaz durante {RUN_IDLE_SECONDS:.0f}s."
+            break
+    if session.result is None and session.conversation_id:
+        with session.lock:
+            session.status = "error"
+            session.error = session.stop_reason or ("El runner se cerró sin resultado." if proc else "La ejecución se interrumpió sin resultado.")
+            write_run_state(session)
+    if session.runner_token:
+        revoke_token(session.runner_token)
+    stop_zerochat_server(server)
+
+
+def fall_back_when_headless_exits(proc: subprocess.Popen, url: str):
+    """
+    Un navegador sin ventana termina enseguida si su perfil ya está abierto (Firefox avisa de que
+    ya está en marcha): si acaba antes de que conecte la interfaz, se abre la pestaña normal.
+    """
+    proc.wait()
+    if not heartbeat_initialized() and not _SERVER_SHUTTING_DOWN.is_set():
+        log_event("El navegador sin ventana terminó sin abrir la interfaz (¿ya estaba abierto?); se abre una pestaña de la forma normal.")
+        launch_browser(url)
+
+
+def _runner_cache_file() -> Path:
+    """La caché de los módulos del runner, en una carpeta privada que es lo único del disco que puede tocar."""
+    cache_dir = get_data_dir() / "cache" / "runner"
+    cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.name != "nt":
+        try:
+            cache_dir.chmod(0o700)
+        except OSError:
+            pass
+    return cache_dir / "modules.json"
+
+
+def launch_node_runner(url: str) -> subprocess.Popen | None:
+    """Abre el runner de Node.js sin ventana en segundo plano con el modelo de permisos de Node.
+
+    El cargador (runner_loader.py) descarga los módulos de la interfaz de url y solo puede leer y escribir su caché.
+    Hereda el entorno de quien lanza zerochat (NODE_EXTRA_CA_CERTS, TZ, LANG...): ejecuta código propio, no el del
+    modelo, que va al sandbox sin entorno; un runner alterado vendría con una interfaz alterada que ya puede más."""
+    node = find_node_executable()
+    if not node:
+        run_error(f"Se necesita {NODE_REQUIRED_MESSAGE} para la ejecución desatendida. Instálalo o usa --browser.")
+        return None
+    try:
+        cache_file = _runner_cache_file()
+    except OSError as exc:
+        run_error(f"No se pudo preparar la caché del runner de Node.js: {exc}")
+        return None
+    log_event("Iniciando runner de Node.js...")
+    cache_dir = cache_file.parent
+    cmd = [node, "--permission", f"--allow-fs-read={cache_dir}", f"--allow-fs-write={cache_dir}",
+           "-e", RUNNER_LOADER_SCRIPT, str(cache_file), url]
+    try:
+        return subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as error:
+        run_error(f"No se pudo iniciar el proceso de Node.js ({error}).")
+        return None
+
+# --- tools.jobs_rpc ---
+"""Métodos JSON-RPC de los comandos del proyecto para la interfaz: lista, tarjetas, log, detener y cortar esperas."""
+
+
+
+
+def _report(params: dict, project: str) -> RpcOutcome:
+    ids = params.get("ids")
+    if not isinstance(ids, list) or len(ids) > 100 or any(isinstance(i, bool) or not isinstance(i, int) for i in ids):
+        return rpc_error(INVALID_PARAMS, "ids debe ser una lista de hasta 100 enteros.")
+    return rpc_result({"reports": JOBS.report_finished(ids, project)})
+
+
+def _log(params: dict, job) -> RpcOutcome:
+    offset = params.get("offset", 0)
+    limit = params.get("limit", JOB_LOG_PAGE_BYTES)
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+        return rpc_error(INVALID_PARAMS, "offset debe ser un entero no negativo.")
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+        return rpc_error(INVALID_PARAMS, "limit debe ser un entero positivo.")
+    text, next_offset = job.read_range(offset, min(limit, JOB_LOG_PAGE_BYTES))
+    return rpc_result({"text": text, "next": next_offset, "total": job.total, "done": job.done.is_set()})
+
+
+def _stop(_params: dict, job) -> RpcOutcome:
+    JOBS.stop(job, "user")
+    return rpc_result(job_details(job))
+
+
+PROJECT_JOB_METHODS = {
+    "zerochat/jobs/list": lambda _params, project: rpc_result({"jobs": [job.summary() for job in JOBS.list(project)]}),
+    "zerochat/jobs/report": _report,
+    "zerochat/jobs/end_wait": lambda params, _project: rpc_result({"ended": WAITS.cancel(params.get("key"))}),
+}
+# Métodos sobre un comando concreto, que se localiza por su id o por la clave de la invocación.
+SINGLE_JOB_METHODS = {
+    "zerochat/jobs/get": lambda _params, job: rpc_result(job_details(job)),
+    "zerochat/jobs/log": _log,
+    "zerochat/jobs/stop": _stop,
+}
+
+
+def dispatch_jobs(method: str, params: dict, ctx: SecurityContext) -> RpcOutcome:
+    """Comandos del proyecto de la petición: tarjetas, log y botón de detener de la interfaz."""
+    if method in PROJECT_JOB_METHODS:
+        return dispatch_table(PROJECT_JOB_METHODS, method, params, ctx.key)
+    if method not in SINGLE_JOB_METHODS:
+        return rpc_not_supported(method)
+    job = JOBS.get(ctx.key, job_id=params.get("id"), key=params.get("key"))
+    if job is None:
+        return rpc_error(INVALID_PARAMS, "Comando no encontrado: puede pertenecer a una sesión anterior de ZeroChat.")
+    return dispatch_table(SINGLE_JOB_METHODS, method, params, job)
+
 # --- tools.project_files ---
 """Navegador de ficheros del proyecto para la interfaz: lista, lee y descarga sin salir de su carpeta.
 
@@ -7252,25 +7738,25 @@ LOCAL_TOOLS_DEFINITIONS = [
         "name": "check_command",
         "description": (
             "Check a command started by run_command: returns its status and the output produced since the last check. "
-            "Use wait_seconds to wait for it to finish, add pattern to return as soon as a new output line matches it, "
+            "Use wait_seconds to wait for it to finish (a maximum: it returns as soon as the command ends), add pattern to "
+            "return as soon as a new output line matches it, "
             "or stop=true to terminate it. Example: check_command(job_id=4, wait_seconds=600, pattern='error|Traceback') "
             "returns when the command finishes, prints an error, or after 600 s. To follow a long command until it finishes "
-            "(also when the user asks to be told when it ends), call it again with wait_seconds=600 each time it returns still running. "
-            "Without job_id it just waits wait_seconds, with no shell, and returns early if a background command finishes: "
-            "use it instead of sleep."
+            "(also when the user asks to be told when it ends), call it again with wait_seconds=600 each time it returns still running."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "job_id": {"type": "integer", "description": "job_id returned by run_command; omit it to just wait"},
-                "wait_seconds": {"type": "integer", "description": f"Seconds to wait for the command to finish before returning (default 0, max {COMMAND_MAX_WAIT})", "default": 0},
+                "job_id": {"type": "integer", "description": "job_id returned by run_command"},
+                "wait_seconds": {"type": "integer", "description": f"Maximum seconds to wait for the command to finish; returns earlier when it does (default 0, max {COMMAND_MAX_WAIT})", "default": 0},
                 "stop": {"type": "boolean", "description": "Terminate the command and its child processes", "default": False},
                 "pattern": {
                     "type": "string",
                     "maxLength": CHECK_PATTERN_MAX_CHARS,
-                    "description": "Case-insensitive regular expression matched against each new output line; with wait_seconds, returns as soon as a line matches"
+                    "description": "One or more texts separated by |, searched case-insensitively as plain text (not a regular expression) in each new output line; with wait_seconds, returns as soon as a line contains one"
                 }
-            }
+            },
+            "required": ["job_id"]
         }
     },
     {
@@ -7316,6 +7802,25 @@ LOCAL_TOOL_HANDLERS = {
 }
 
 
+ARGUMENT_TYPES = {"string": str, "integer": int, "boolean": bool}
+
+
+def _argument_error(name: str, value, prop: dict | None) -> str | None:
+    """Por qué no vale un argumento según su propiedad del esquema, o None si vale."""
+    if prop is None:
+        return f"Argumento no permitido: {name}"
+    expected_type = ARGUMENT_TYPES.get(prop.get("type"))
+    if expected_type is None:
+        return f"Tipo no admitido en la definición de '{name}': {prop.get('type')}"
+    # bool es subclase de int: un booleano no vale como entero.
+    if not isinstance(value, expected_type) or (expected_type is not bool and isinstance(value, bool)):
+        return f"Tipo inválido para '{name}'"
+    max_length = prop.get("maxLength")
+    if max_length is not None and len(value) > max_length:
+        return f"'{name}' excede el tamaño máximo permitido"
+    return None
+
+
 def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None:
     """Valida tipos y límites de las herramientas locales a partir de su definición canónica."""
     definition = next((item for item in LOCAL_TOOLS_DEFINITIONS if item["name"] == tool_name), None)
@@ -7324,25 +7829,10 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
 
     schema = definition.get("inputSchema", {})
     properties = schema.get("properties", {})
-    type_map = {"string": str, "integer": int, "boolean": bool}
-
     for name, value in arguments.items():
-        prop = properties.get(name)
-        if prop is None:
-            return f"Argumento no permitido: {name}"
-        expected_type_name = prop.get("type")
-        expected_type = type_map.get(expected_type_name)
-        if expected_type is None:
-            return f"Tipo no admitido en la definición de '{name}': {expected_type_name}"
-        if expected_type is bool:
-            if not isinstance(value, bool):
-                return f"Tipo inválido para '{name}'"
-        else:
-            if isinstance(value, bool) or not isinstance(value, expected_type):
-                return f"Tipo inválido para '{name}'"
-        max_length = prop.get("maxLength")
-        if max_length is not None and len(value) > max_length:
-            return f"'{name}' excede el tamaño máximo permitido"
+        error = _argument_error(name, value, properties.get(name))
+        if error:
+            return error
 
     for name in schema.get("required", ()):
         if name not in arguments:
@@ -7353,6 +7843,193 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
             return f"Acción de navegador no permitida: {arguments.get('action')}"
 
     return None
+
+# --- server.tool_calls ---
+"""Punto único de ejecución de herramientas (tools/call de los dos endpoints) y métodos de permisos.
+
+Autorizar un reto ejecuta la herramienta pendiente, por eso los métodos zerochat/security/* viven junto a la ejecución.
+"""
+
+
+
+
+# Un reto que no existe, ya se usó o es de otro proyecto.
+CHALLENGE_NOT_FOUND = -32002
+
+
+def tool_exception_result(ex: Exception) -> dict:
+    return {"content": [{"type": "text", "text": _tool_error(str(ex))}], "isError": True}
+
+
+def execute_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
+                 conversation_id: str = "") -> tuple[dict | None, dict | None, str]:
+    """
+    Punto único de ejecución de herramientas locales y externas. Un navegador se reserva aquí, al
+    ejecutar, para la conversación que lo usa: pedirlo sin llegar a ejecutar no lo ocupa.
+    """
+    if origin == "local":
+        browser = tool_name if tool_name == "browser_action" else None
+    else:
+        browser = PLAYWRIGHT_SERVER_ID if GLOBAL_MCP_MANAGER.server_of(tool_name) == PLAYWRIGHT_SERVER_ID else None
+    if browser and not BROWSER_LEASES.acquire(browser, conversation_id):
+        message = (f"The browser is in use by another conversation. It is released after {int(BROWSER_LEASE_IDLE_SECONDS)} "
+                   "seconds without use; tell the user or try again later.")
+        return {"content": [{"type": "text", "text": _tool_error(message)}], "isError": True}, None, message
+    # En una ejecución desatendida, esperar en check_command no es inactividad ni gasta el plazo total.
+    session = current_run_session() if origin == "local" and tool_name == JOB_CONTROL_TOOL else None
+    if session is not None:
+        session.begin_wait()
+    try:
+        return run_tool(origin, tool_name, args, ctx)
+    finally:
+        if session is not None:
+            session.end_wait()
+        # El plazo cuenta desde que la acción termina: lo que tarde no acorta lo que el modelo puede razonar después.
+        if browser:
+            BROWSER_LEASES.acquire(browser, conversation_id)
+
+
+def run_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
+    """Ejecuta la herramienta y normaliza su resultado: (result, error JSON-RPC, detalle de error)."""
+    if origin == "external":
+        try:
+            result = GLOBAL_MCP_MANAGER.call(tool_name, args)
+        except Exception as ex:
+            return tool_exception_result(ex), None, str(ex)
+        tool_error_info = ""
+        if isinstance(result, dict) and result.get("isError"):
+            c_list = result.get("content", [])
+            if c_list and isinstance(c_list, list) and isinstance(c_list[0], dict):
+                tool_error_info = c_list[0].get("text", "Error en herramienta MCP externa")
+            else:
+                tool_error_info = "Error en herramienta MCP externa"
+        return result, None, tool_error_info
+
+    handler = LOCAL_TOOL_HANDLERS.get(tool_name)
+    if not handler:
+        return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
+    try:
+        # Solo las herramientas que actúan en el proyecto declaran ctx.
+        takes_project = "ctx" in inspect.signature(handler).parameters
+        tool_output_json = handler(**dict(args), **({"ctx": ctx} if takes_project else {}))
+    except Exception as ex:
+        return tool_exception_result(ex), None, str(ex)
+    tool_error_info = ""
+    try:
+        parsed_out = json.loads(tool_output_json)
+        if isinstance(parsed_out, dict) and parsed_out.get("success") is False:
+            tool_error_info = str(parsed_out.get("error", "Error en herramienta local"))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+    return {"content": [{"type": "text", "text": tool_output_json}], "isError": bool(tool_error_info)}, None, tool_error_info
+
+
+def with_job_key(args: dict, job_key: str | None) -> dict:
+    return {**args, "job_key": job_key} if job_key else args
+
+
+def authorize_or_challenge(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
+                           job_key: str | None = None, conversation_id: str = "") -> tuple[dict | None, dict | None, str] | None:
+    """Evalúa la política de seguridad y devuelve respuesta de denegación o reto si procede."""
+    if origin == "external":
+        server_id = GLOBAL_MCP_MANAGER.server_of(tool_name) or ""
+        server_name = server_id or "external"
+    else:
+        server_id = ""
+        server_name = "mcp-proxy"
+    decision = ACCESS_CONTROLLER.evaluate_authorization(
+        tool_name, args, context=ctx, server_name=server_name, server_id=server_id
+    )
+    if decision.status == POLICY_DENY:
+        err_msg = f"Bloqueado por política de seguridad: {decision.reason}"
+        return {"content": [{"type": "text", "text": f"Error: {err_msg}"}], "isError": True, "securityStatus": "deny", "reason": decision.reason}, None, err_msg
+    if decision.status == POLICY_ASK:
+        session = current_run_session()
+        if session is not None and session.take_approved_call(tool_name, args):
+            log_event(f"[run] {tool_name}: se ejecuta la llamada que la persona aprobó al reanudar")
+            return None
+        ch =ACCESS_CONTROLLER.create_challenge(
+            tool_name, args, decision, server_name=server_name, server_id=server_id, origin=origin,
+            context=ctx, job_key=job_key, conversation_id=conversation_id
+        )
+        return {
+            "requiresAuthorization": True,
+            "challengeId": ch["id"],
+            "toolName": tool_name,
+            "serverName": server_name,
+            "serverId": server_id,
+            "arguments": args,
+            "ruleOffer": decision.rule_offer,
+            "details": decision.details,
+            "content": [{"type": "text", "text": "Esta herramienta requiere autorización del usuario."}],
+            "isError": False
+        }, None, ""
+    return None
+
+
+def call_tool(origin: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
+    """tools/call de los dos endpoints: evalúa, emite un reto o ejecuta por el punto único."""
+    tool_name = params.get("name", "")
+    if origin == "local" and tool_name not in LOCAL_TOOL_HANDLERS:
+        return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
+    raw_args = params.get("arguments")
+    args = dict(raw_args) if isinstance(raw_args, dict) else {}
+    meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
+    # Ni la clave de la invocación ni la conversación son argumentos del modelo: no se evalúan ni se muestran en
+    # el reto. Con ella se detiene un run_command y se corta la espera de un check_command (zerochat/jobs/*).
+    job_key = meta.get("zerochatJobKey") if origin == "local" and tool_name in (COMMAND_TOOL, JOB_CONTROL_TOOL) else None
+    conversation_id = str(meta.get("zerochatConversationId") or "")
+    gate = authorize_or_challenge(origin, tool_name, args, ctx, job_key, conversation_id)
+    return gate if gate is not None else execute_tool(origin, tool_name, with_job_key(args, job_key), ctx, conversation_id)
+
+
+def _authorize(params: dict, ctx: SecurityContext) -> RpcOutcome:
+    """Resuelve un reto: lo deniega o, si se permite, ejecuta la herramienta pendiente por el punto único."""
+    challenge_id = params.get("challengeId")
+    if not challenge_id or not isinstance(challenge_id, str):
+        return rpc_error(INVALID_PARAMS, "challengeId es obligatorio")
+    decision = params.get("decision", "deny")
+    if not isinstance(decision, str):
+        return rpc_error(INVALID_PARAMS, "decision debe ser un texto")
+    if decision == "deny":
+        ACCESS_CONTROLLER.revoke_challenge(challenge_id, context=ctx)
+        return rpc_result({"authorized": False, "status": "deny"})
+    ch = ACCESS_CONTROLLER.authorize_challenge(
+        challenge_id, decision, context=ctx,
+        command_pattern=params.get("commandPattern"), directory_rule=params.get("directoryRule")
+    )
+    if not ch:
+        return rpc_error(CHALLENGE_NOT_FOUND, "Reto no encontrado o no válido")
+    t_origin = ch.get("origin") or "local"
+    t_args = ch["arguments"] if isinstance(ch.get("arguments"), dict) else {}
+    exec_res, exec_err, tool_err = execute_tool(t_origin, ch["toolName"], with_job_key(t_args, ch.get("jobKey")), ctx, ch.get("conversationId") or "")
+    if exec_err:
+        return None, exec_err, tool_err
+    return {"authorized": True, "result": exec_res}, None, tool_err
+
+
+SECURITY_METHODS = {
+    "zerochat/security/get": lambda _params, ctx: rpc_result({"policies": ACCESS_CONTROLLER.export_state(ctx)}),
+    "zerochat/security/update": lambda params, ctx: rpc_result({"policies": ACCESS_CONTROLLER.import_state(params, context=ctx)}),
+    "zerochat/security/authorize": _authorize,
+}
+
+
+def dispatch_security(method: str, params: dict, ctx: SecurityContext) -> RpcOutcome:
+    """Políticas y reglas de seguridad almacenadas en el backend local, y resolución de retos."""
+    try:
+        return dispatch_table(SECURITY_METHODS, method, params if isinstance(params, dict) else {}, ctx)
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+    except Exception as exc:
+        return rpc_error(INTERNAL_ERROR, f"Error de seguridad: {exc}", str(exc))
+
+# --- tools.sandbox_script ---
+"""Proceso hijo de execute_javascript en Node. Generated from scripts/sandbox-child.js by scripts/build-sandbox-script.mjs. Do not edit."""
+
+
+NODE_SANDBOX_ARGS = ["--permission","--disallow-code-generation-from-strings"]
+NODE_SANDBOX_SCRIPT = "'use strict';\n// Proceso hijo de execute_javascript en Node: ejecuta el c\u00f3digo del modelo en un contexto de node:vm.\n// Fuente \u00fanica: scripts/build-sandbox-script.mjs genera de aqu\u00ed py/tools/sandbox_script.py y\n// js/sandbox-node-script.js. Se lanza con `node --permission --disallow-code-generation-from-strings -e`.\n//\n// node:vm no es una frontera de seguridad, as\u00ed que hay tres capas:\n//  1. El contexto no recibe ning\u00fan objeto de este proceso: trae sus propios Object, Array, Promise\u2026, y\n//     console y el formato del resultado se definen dentro. Entre los dos lados solo cruzan cadenas, y\n//     el resultado se recoge por sondeo: ni siquiera se espera su promesa, que entregar\u00eda funciones de\n//     este lado a su `then`.\n//  2. Nadie genera c\u00f3digo desde cadenas: ni el contexto (codeGeneration) ni este proceso (el indicador\n//     de arranque). Si un objeto de aqu\u00ed se filtrara (un error de import()), su constructor de funciones\n//     no servir\u00eda para ejecutar nada.\n//  3. Antes de ejecutar el c\u00f3digo, este proceso se queda sin process, require ni module en su global.\nconst vm = require('node:vm');\n\nconst POLL_MS = 5;\nconst stdin = process.stdin;\nconst writeOut = process.stdout.write.bind(process.stdout);\n\nasync function readStdin() {\n  const chunks = [];\n  for await (const chunk of stdin) chunks.push(chunk);\n  return Buffer.concat(chunks).toString('utf8');\n}\n\nconst positiveInt = (value, fallback) => (Number.isInteger(value) && value > 0 ? value : fallback);\n\n// Se ejecuta dentro del contexto: todo lo que crea pertenece al contexto. Guarda las funciones que usa\n// antes de que el c\u00f3digo del modelo pueda cambiarlas.\nconst prelude = (maxOutputLength, maxLogEntries) => `(() => {\n  \"use strict\";\n  const stringify = JSON.stringify;\n  const toText = String;\n  const resolved = Promise.resolve.bind(Promise);\n  const then = Function.prototype.call.bind(Promise.prototype.then);\n  const push = Function.prototype.call.bind(Array.prototype.push);\n  const join = Function.prototype.call.bind(Array.prototype.join);\n  const map = Function.prototype.call.bind(Array.prototype.map);\n  const slice = Function.prototype.call.bind(String.prototype.slice);\n  const maxOut = ${maxOutputLength};\n  const maxLogs = ${maxLogEntries};\n  const logs = [];\n  let outcome;\n\n  function formatValue(value) {\n    if (value === null) return \"null\";\n    if (value === undefined) return \"undefined\";\n    if (typeof value === \"bigint\") return value.toString();\n    if (typeof value !== \"object\") return toText(value);\n    try {\n      return stringify(value, (_key, item) => (typeof item === \"bigint\" ? item.toString() : item), 2);\n    } catch {\n      return toText(value);\n    }\n  }\n  const truncate = text => (text.length > maxOut ? slice(text, 0, maxOut) + \"... [output truncated]\" : text);\n  function addLog(prefix, args) {\n    if (logs.length >= maxLogs) return;\n    const text = join(map(args, formatValue), \" \");\n    push(logs, truncate(prefix ? \"[\" + prefix + \"] \" + text : text));\n  }\n  const finish = value => {\n    outcome = stringify({\n      success: true,\n      result: value !== undefined ? truncate(formatValue(value)) : (logs.length > 0 ? join(logs, \"\\\\n\") : \"undefined\"),\n      logs\n    });\n  };\n  const fail = error => {\n    let message;\n    try {\n      message = error && error.message ? toText(error.message) : toText(error);\n    } catch {\n      message = \"Error\";\n    }\n    outcome = stringify({ success: false, result: \"\", logs, error: message });\n  };\n\n  globalThis.console = {\n    log: (...args) => addLog(\"\", args),\n    info: (...args) => addLog(\"INFO\", args),\n    warn: (...args) => addLog(\"WARN\", args),\n    error: (...args) => addLog(\"ERROR\", args)\n  };\n  Object.defineProperty(globalThis, \"__sandbox\", {\n    value: Object.freeze({\n      run(fn) {\n        try {\n          then(resolved(fn()), finish, fail);\n        } catch (error) {\n          fail(error);\n        }\n      },\n      outcome: () => outcome\n    })\n  });\n})();`;\n\n(async () => {\n  const started = Date.now();\n  const payload = JSON.parse(await readStdin());\n  const code = String(payload.code ?? '');\n  const timeoutMs = positiveInt(payload.timeoutMs, 2500);\n  const maxOutputLength = positiveInt(payload.maxOutputLength, 30000);\n  const maxLogEntries = positiveInt(payload.maxLogEntries, 200);\n\n  const respond = result => writeOut(JSON.stringify({ ...result, executionTimeMs: Date.now() - started }));\n  const failure = error => respond({ success: false, result: '', logs: [], error });\n\n  // Capa 3: lo que un c\u00f3digo que alcanzara este global usar\u00eda para abrir una conexi\u00f3n o cargar m\u00f3dulos.\n  for (const key of ['process', 'require', 'module', 'exports', '__filename', '__dirname', 'fetch', 'WebSocket', 'XMLHttpRequest', 'EventSource']) {\n    delete globalThis[key];\n  }\n\n  const trimmed = code.trim();\n  const isStatement = /^(?:while|for|if|let|const|var|function|class|try|throw|switch|do)\\b/.test(trimmed)\n    || trimmed.includes(';') || trimmed.includes('\\n') || trimmed.includes('return');\n  const body = isStatement ? `\"use strict\";\\n${trimmed}` : `\"use strict\"; return (${trimmed});`;\n  const wrapper = `__sandbox.run(${/\\bawait\\b/.test(trimmed) ? 'async ' : ''}function () {\\n${body}\\n});`;\n\n  const context = vm.createContext(Object.create(null), { codeGeneration: { strings: false, wasm: false } });\n  vm.runInContext(prelude(maxOutputLength, maxLogEntries), context);\n  try {\n    new vm.Script(wrapper).runInContext(context, { timeout: timeoutMs });\n  } catch (err) {\n    const timedOut = err && err.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT';\n    failure(timedOut ? `Execution timed out after ${timeoutMs}ms and was terminated.` : (err && err.message ? String(err.message) : String(err)));\n    return;\n  }\n\n  // El resultado es una cadena que deja el contexto; quien lanza este proceso lo mata al vencer el plazo.\n  const readOutcome = new vm.Script('__sandbox.outcome()');\n  const poll = setInterval(() => {\n    let raw;\n    try {\n      raw = readOutcome.runInContext(context, { timeout: 100 });\n    } catch {\n      return;\n    }\n    if (typeof raw !== 'string') return;\n    clearInterval(poll);\n    let parsed;\n    try {\n      parsed = JSON.parse(raw);\n    } catch {\n      parsed = null;\n    }\n    if (!parsed || typeof parsed !== 'object') {\n      failure('The sandbox returned an unreadable result.');\n      return;\n    }\n    const logs = Array.isArray(parsed.logs) ? parsed.logs.filter(item => typeof item === 'string').slice(0, maxLogEntries) : [];\n    if (parsed.success === true) respond({ success: true, result: String(parsed.result ?? ''), logs });\n    else respond({ success: false, result: '', logs, error: String(parsed.error ?? 'Error') });\n  }, POLL_MS);\n})();"
 
 # --- tools.sandbox ---
 """Ejecución aislada de JavaScript en un subproceso Node sin credenciales ni permisos."""
@@ -7365,105 +8042,6 @@ MAX_SANDBOX_TIMEOUT_MS = 30000
 MAX_SANDBOX_OUTPUT_LENGTH = 30000
 MAX_SANDBOX_LOG_ENTRIES = 200
 
-_NODE_SANDBOX_SCRIPT = r"""
-const vm = require("node:vm");
-
-for (const key of ["fetch", "WebSocket", "XMLHttpRequest", "EventSource"]) {
-  try { delete globalThis[key]; } catch {}
-}
-
-function formatValue(value) {
-  if (value === null) return "null";
-  if (value === undefined) return "undefined";
-  if (typeof value === "bigint") return value.toString();
-  if (typeof value !== "object") return String(value);
-  try {
-    return JSON.stringify(value, (_k, item) => (typeof item === "bigint" ? item.toString() : item), 2);
-  } catch {
-    return String(value);
-  }
-}
-
-function truncate(text, maxLen) {
-  return text.length > maxLen ? `${text.slice(0, maxLen)}... [output truncated]` : text;
-}
-
-async function readStdin() {
-  const chunks = [];
-  for await (const chunk of process.stdin) chunks.push(chunk);
-  return Buffer.concat(chunks).toString("utf8");
-}
-
-(async () => {
-  const started = Date.now();
-  const payload = JSON.parse(await readStdin());
-  const code = String(payload.code ?? "");
-  const timeoutMs = Number(payload.timeoutMs) || 2500;
-  const maxOutputLength = Number(payload.maxOutputLength) || 30000;
-  const maxLogEntries = Number(payload.maxLogEntries) || 200;
-  const logs = [];
-  const addLog = (prefix, args) => {
-    if (logs.length >= maxLogEntries) return;
-    const text = args.map(formatValue).join(" ");
-    logs.push(truncate(prefix ? `[${prefix}] ${text}` : text, maxOutputLength));
-  };
-  const customConsole = {
-    log: (...args) => addLog("", args),
-    info: (...args) => addLog("INFO", args),
-    warn: (...args) => addLog("WARN", args),
-    error: (...args) => addLog("ERROR", args),
-  };
-  const trimmed = code.trim();
-  const isStatement = /^(?:while|for|if|let|const|var|function|class|try|throw|switch|do)\b/.test(trimmed) ||
-    trimmed.includes(";") || trimmed.includes("\n") || trimmed.includes("return");
-  const body = isStatement ? `"use strict";\n${trimmed}` : `"use strict"; return (${trimmed});`;
-  const isAsync = /\bawait\b/.test(trimmed);
-  const wrapper = isAsync ? `(async function() {\n${body}\n})()` : `(function() {\n${body}\n})()`;
-
-  const sandboxContext = Object.create(null);
-  Object.assign(sandboxContext, {
-    console: customConsole,
-    Math, JSON, Date, RegExp, Array, Object, String, Number, Boolean, Symbol, BigInt,
-    Map, Set, WeakMap, WeakSet, Promise,
-    Error, TypeError, RangeError, SyntaxError, URIError,
-    parseInt, parseFloat, isNaN, isFinite,
-    encodeURI, decodeURI, encodeURIComponent, decodeURIComponent,
-  });
-  const context = vm.createContext(sandboxContext);
-  vm.runInContext(
-    'Function.prototype.constructor = function () { throw new Error("Dynamic function creation is not allowed in the sandbox."); };',
-    context
-  );
-  const keepAlive = setTimeout(() => {}, timeoutMs + 2000);
-  try {
-    const script = new vm.Script(wrapper);
-    const value = await Promise.resolve(script.runInContext(context, { timeout: timeoutMs, breakOnSigint: true }));
-    const out = {
-      success: true,
-      result: value !== undefined ? truncate(formatValue(value), maxOutputLength) : (logs.length > 0 ? logs.join("\n") : "undefined"),
-      logs,
-      executionTimeMs: Date.now() - started,
-    };
-    process.stdout.write(JSON.stringify(out));
-  } catch (err) {
-    const isTimeout = err && (err.code === "ERR_SCRIPT_EXECUTION_TIMEOUT" || /timed out/i.test(err.message || ""));
-    const message = isTimeout
-      ? `Execution timed out after ${timeoutMs}ms and was terminated.`
-      : (err && err.message ? err.message : String(err));
-    process.stdout.write(JSON.stringify({
-      success: false,
-      result: "",
-      logs,
-      executionTimeMs: Date.now() - started,
-      error: message,
-    }));
-  } finally {
-    clearTimeout(keepAlive);
-  }
-})();
-""".strip()
-
-
 def _normalize_timeout_ms(timeout_ms: int | float | None) -> int:
     """Valida y acota el timeout del sandbox en milisegundos."""
     if timeout_ms is None:
@@ -7474,7 +8052,7 @@ def _normalize_timeout_ms(timeout_ms: int | float | None) -> int:
 
 
 def execute_js_sandbox(code: str, timeout_ms: int | float | None = None) -> dict:
-    """Ejecuta código JavaScript en un subproceso Node aislado con `--permission` y sin entorno."""
+    """Ejecuta código JavaScript en un subproceso de Node sin entorno, con el script y los indicadores de tools.sandbox_script."""
     if not isinstance(code, str) or not code.strip():
         return {
             "success": False,
@@ -7506,7 +8084,7 @@ def execute_js_sandbox(code: str, timeout_ms: int | float | None = None) -> dict
     }
     if DETECTED_OS != "windows":
         popen_kwargs["start_new_session"] = True
-    proc = subprocess.Popen([node_path, "--permission", "-e", _NODE_SANDBOX_SCRIPT], **popen_kwargs)
+    proc = subprocess.Popen([node_path, *NODE_SANDBOX_ARGS, "-e", NODE_SANDBOX_SCRIPT], **popen_kwargs)
     try:
         stdout, stderr = proc.communicate(input=payload, timeout=(resolved_timeout + 250) / 1000.0)
     except subprocess.TimeoutExpired:
@@ -7729,7 +8307,8 @@ def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed) -
     if hostname.endswith("duckduckgo.com"):
         req_headers["Referer"] = f"{parsed.scheme}://{parsed.netloc}/"
 
-    req = urllib.request.Request(url, headers=req_headers)
+    # El esquema (http/https) se valida antes, también en cada redirección.
+    req = urllib.request.Request(url, headers=req_headers)  # noqa: S310
     try:
         with _WEB_OPENER.open(req, timeout=timeout_s) as resp:
             content_type = resp.headers.get("Content-Type", "")
@@ -7781,170 +8360,151 @@ def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed) -
             "error": str(exc)
         }
 
-# --- run_mode.supervisor ---
-"""Supervisión de la ejecución desatendida: plazos, final del runner o del navegador, y descarga y arranque de runner.js con Node."""
+# --- server.rpc ---
+"""Métodos JSON-RPC de los dos endpoints del servidor: una tabla por método exacto y otra por grupo (prefijo).
+
+Cada método vive junto a su dominio (storage/rpc.py, tools/jobs_rpc.py, run_mode/state.py…); aquí solo se
+decide quién atiende cada uno.
+"""
 
 
 
 
-
-# Tope de descarga para runner.js (evita agotar memoria o disco con respuestas desbordadas).
-RUNNER_MAX_BYTES = 4 * 1024 * 1024
-
-
-def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc: subprocess.Popen | None = None, browser_proc: subprocess.Popen | None = None):
-    """Detiene el servidor al recibir el resultado, si termina el runner propio o al agotar los plazos."""
-    proc = runner_proc if runner_proc is not None else browser_proc
-    deadline = time.monotonic() + RUN_TOTAL_TIMEOUT
-    while not session.finished.wait(RUN_POLL_SECONDS):
-        # El latido o una señal ya detienen el servidor: el resultado queda vacío.
-        if _SERVER_SHUTTING_DOWN.is_set():
-            return
-        if proc is not None and proc.poll() is not None and not session.finished.wait(0.2):
-            break
-        if time.monotonic() >= deadline + session.waited_seconds():
-            session.stop_reason = f"Plazo total agotado ({RUN_TOTAL_TIMEOUT:.0f}s, sin contar las esperas)."
-            break
-        if session.idle_seconds() > RUN_IDLE_SECONDS:
-            session.stop_reason = f"Sin progreso de la interfaz durante {RUN_IDLE_SECONDS:.0f}s."
-            break
-    if session.result is None and session.conversation_id:
-        with session.lock:
-            session.status = "error"
-            session.error = session.stop_reason or ("El runner se cerró sin resultado." if proc else "La ejecución se interrumpió sin resultado.")
-            write_run_state(session)
-    if session.runner_token:
-        revoke_token(session.runner_token)
-    stop_zerochat_server(server)
+def initialize_result(server_info: dict) -> dict:
+    return {
+        "protocolVersion": "2024-11-05",
+        "serverInfo": server_info,
+        "capabilities": {
+            "tools": {"listChanged": True}
+        }
+    }
 
 
-def fall_back_when_headless_exits(proc: subprocess.Popen, url: str):
-    """
-    Un navegador sin ventana termina enseguida si su perfil ya está abierto (Firefox avisa de que
-    ya está en marcha): si acaba antes de que conecte la interfaz, se abre la pestaña normal.
-    """
-    proc.wait()
-    if not heartbeat_initialized() and not _SERVER_SHUTTING_DOWN.is_set():
-        log_event("El navegador sin ventana terminó sin abrir la interfaz (¿ya estaba abierto?); se abre una pestaña de la forma normal.")
-        launch_browser(url)
-
-
-def _read_bounded_runner(resp) -> str:
-    """Lee runner.js de la respuesta HTTP con tope RUNNER_MAX_BYTES y validación UTF-8."""
-    raw_length = resp.headers.get("Content-Length")
-    encoding = (resp.headers.get("Content-Encoding") or "").strip().lower()
-    if raw_length and not encoding:
-        try:
-            if int(raw_length) > RUNNER_MAX_BYTES:
-                raise RuntimeError(f"runner.js supera el tamaño máximo permitido ({RUNNER_MAX_BYTES} bytes).")
-        except ValueError:
-            pass
-    content, truncated = _read_limited_body(resp, encoding, RUNNER_MAX_BYTES)
-    if truncated:
-        raise RuntimeError(f"runner.js supera el tamaño máximo permitido ({RUNNER_MAX_BYTES} bytes).")
-    if not content:
-        raise RuntimeError("runner.js descargado está vacío.")
+def rpc_login(params: dict) -> RpcOutcome:
+    """zerochat/login: identificación con la cuenta del sistema; se atiende también sin token."""
     try:
-        return content.decode("utf-8")
-    except UnicodeDecodeError as err:
-        raise RuntimeError(f"runner.js descargado no es UTF-8 válido: {err}") from err
+        return rpc_result(login(params))
+    except LoginError as exc:
+        error = {"code": exc.code, "message": str(exc)}
+        if exc.data:
+            error["data"] = exc.data
+        return None, error, ""
+    except (RuntimeError, OSError) as exc:
+        return rpc_error(INTERNAL_ERROR, f"No se pudo comprobar la contraseña: {exc}", str(exc))
 
 
-def ensure_runner_script() -> Path:
-    """
-    Obtiene la ruta al runner de Node.js: en entorno de desarrollo local usa js/run-node.js o runner.js;
-    en producción lo descarga o actualiza desde GitHub Pages con comprobación condicional ETag/304
-    en ~/zerochat/cache/runner.js.
-    """
-    dev_root = get_dev_root()
-    if dev_root is not None:
-        local_run_node = dev_root / "js" / "run-node.js"
-        if local_run_node.is_file():
-            return local_run_node
-        local_runner = dev_root / "runner.js"
-        if local_runner.is_file():
-            return local_runner
+def _initialize(_params: dict, ctx: SecurityContext) -> RpcOutcome:
+    server_info = {
+        "name": "ZeroChat Local Server",
+        "version": VERSION,
+        "cwd": str(ctx.workspace_dir),
+        "os": DETECTED_OS
+    }
+    return rpc_result({**initialize_result(server_info), "liveState": live_state(ctx)})
 
-    cache_dir = get_data_dir() / "cache"
-    cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if os.name != "nt":
-        try:
-            cache_dir.chmod(0o700)
-        except OSError:
-            pass
-    runner_path = cache_dir / "runner.js"
-    etag_path = cache_dir / "runner.etag"
 
-    runner_url = DEFAULT_UI_URL.rsplit("/", 1)[0] + "/runner.js"
+def _heartbeat(params: dict, ctx: SecurityContext) -> RpcOutcome:
+    return rpc_result(live_state(ctx, params.get("focus_conversation_id")))
 
+
+def _set_project_directory(params: dict, ctx: SecurityContext) -> RpcOutcome:
+    # Lo invoca la interfaz a petición del usuario: no es una herramienta del modelo.
     try:
-        req = urllib.request.Request(runner_url, headers={"User-Agent": f"ZeroChat/{VERSION}"})
-        if runner_path.is_file() and etag_path.is_file():
-            try:
-                current_etag = etag_path.read_text(encoding="utf-8").strip()
-                if current_etag:
-                    req.add_header("If-None-Match", current_etag)
-            except OSError:
-                pass
-
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            runner_text = _read_bounded_runner(resp)
-            etag = resp.headers.get("ETag")
-            _write_private_text(runner_path, runner_text)
-            if os.name != "nt":
-                try:
-                    runner_path.chmod(0o755)
-                except OSError:
-                    pass
-            if etag:
-                _write_private_text(etag_path, etag)
-            else:
-                etag_path.unlink(missing_ok=True)
-    except urllib.error.HTTPError as err:
-        if err.code == 304 and runner_path.is_file():
-            pass
-        elif runner_path.is_file():
-            log_event(f"No se pudo comprobar actualización de runner.js ({err}); usando versión en caché.")
-        else:
-            raise RuntimeError(f"Error descargando runner.js desde {runner_url}: {err}") from err
-    except (urllib.error.URLError, TimeoutError, OSError) as err:
-        if runner_path.is_file():
-            log_event(f"No se pudo comprobar actualización de runner.js ({err}); usando versión en caché.")
-        else:
-            raise RuntimeError(f"No se pudo descargar runner.js ({err}) y no hay copia en caché.") from err
-
-    return runner_path
+        return rpc_result(resolve_project_directory(params.get("path"), ctx))
+    except (ValueError, OSError) as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
 
 
-def launch_node_runner(url: str) -> subprocess.Popen | None:
-    """Abre el runner de Node.js sin ventana en segundo plano con el modelo de permisos de Node y sin heredar el entorno."""
-    node = find_node_executable()
-    if not node:
-        run_error(f"Se necesita {NODE_REQUIRED_MESSAGE} para la ejecución desatendida. Instálalo o usa --browser.")
-        return None
+def _open_diff(params: dict, ctx: SecurityContext) -> RpcOutcome:
     try:
-        runner_path = ensure_runner_script()
+        return rpc_result(open_file_diff(params.get("path"), ctx, bool(params.get("commit_fallback")), bool(params.get("gui"))))
+    except (ValueError, RuntimeError) as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
     except Exception as exc:
-        run_error(f"No se pudo preparar el runner de Node.js: {exc}")
-        return None
-    log_event(f"Iniciando runner de Node.js ({runner_path.name})...")
-    cmd = [node, "--permission"]
-    if runner_path.name == "run-node.js":
-        # En desarrollo js/run-node.js carga sus módulos por require() dentro de js/.
-        cmd.append(f"--allow-fs-read={runner_path.parent}")
-    cmd.extend([str(runner_path), url])
+        return rpc_error(INTERNAL_ERROR, f"Error al abrir el visor de diffs: {exc}", str(exc))
+
+
+def _configure_diff(params: dict, _ctx: SecurityContext) -> RpcOutcome:
     try:
-        return subprocess.Popen(
-            cmd,
-            env=minimal_child_env(),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-    except OSError as error:
-        run_error(f"No se pudo iniciar el proceso de Node.js ({error}).")
-        return None
+        return rpc_result(configure_gui_diff_tool(params.get("tool")))
+    except (ValueError, RuntimeError) as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+    except Exception as exc:
+        return rpc_error(INTERNAL_ERROR, f"Error configurando el visor de diffs: {exc}", str(exc))
+
+
+def _web_fetch(params: dict, _ctx: SecurityContext) -> RpcOutcome:
+    try:
+        return rpc_result(fetch_web_resource(params))
+    except (ValueError, PermissionError) as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+    except Exception as exc:
+        return rpc_error(INTERNAL_ERROR, f"Error en transporte web: {exc}", str(exc))
+
+
+def _sandbox_execute(params: dict, _ctx: SecurityContext) -> RpcOutcome:
+    try:
+        return rpc_result(execute_js_sandbox(params.get("code"), timeout_ms=params.get("timeout_ms")))
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+    except Exception as exc:
+        return rpc_error(INTERNAL_ERROR, f"Error en sandbox JS: {exc}", str(exc))
+
+
+LOCAL_METHODS = {
+    "initialize": _initialize,
+    "zerochat/heartbeat": _heartbeat,
+    "zerochat/login": lambda params, _ctx: rpc_login(params),
+    "tools/list": lambda _params, _ctx: rpc_result({"tools": [dict(definition) for definition in LOCAL_TOOLS_DEFINITIONS]}),
+    "tools/call": lambda params, ctx: call_tool("local", params, ctx),
+    "zerochat/project/set_directory": _set_project_directory,
+    "zerochat/diff/open": _open_diff,
+    "zerochat/diff/configure": _configure_diff,
+    "zerochat/web/fetch": _web_fetch,
+    "zerochat/sandbox/execute": _sandbox_execute,
+}
+
+
+def _server_control(method: str, params: dict, _ctx: SecurityContext) -> RpcOutcome:
+    return dispatch_server_control(method, params) if method in SERVER_CONTROL_METHODS else rpc_not_supported(method)
+
+
+# Grupos de métodos, por prefijo: cada despachador recibe (method, params, ctx).
+LOCAL_METHOD_GROUPS = (
+    ("zerochat/jobs/", dispatch_jobs),
+    ("zerochat/files/", dispatch_files),
+    ("zerochat/run/", dispatch_run),
+    ("zerochat/external/servers/", _server_control),
+    ("zerochat/browser/", lambda method, params, _ctx: dispatch_browser(method, params)),
+    ("zerochat/profiles/", lambda method, params, _ctx: dispatch_profiles(method, params)),
+    ("zerochat/conversations/", lambda method, params, _ctx: dispatch_conversations(method, params)),
+    ("zerochat/blobs/", lambda method, params, _ctx: dispatch_blobs(method, params)),
+    ("zerochat/security/", dispatch_security),
+)
+
+
+def dispatch_local(method: str, params: dict, ctx: SecurityContext) -> RpcOutcome:
+    """Endpoint local: (resultado, error JSON-RPC, detalle de error de herramienta)."""
+    if method in LOCAL_METHODS:
+        return LOCAL_METHODS[method](params, ctx)
+    for prefix, dispatcher in LOCAL_METHOD_GROUPS:
+        if method.startswith(prefix):
+            return dispatcher(method, params, ctx)
+    return rpc_not_supported(method)
+
+
+EXTERNAL_METHODS = {
+    "initialize": lambda _params, _ctx: rpc_result(initialize_result({"name": "ZeroChat External MCP Host", "version": VERSION})),
+    "tools/list": lambda _params, _ctx: rpc_result({"tools": GLOBAL_MCP_MANAGER.tools()}),
+    "tools/call": lambda params, ctx: call_tool("external", params, ctx),
+}
+
+
+def dispatch_external(method: str, params: dict, ctx: SecurityContext) -> RpcOutcome:
+    """Endpoint /mcp/external: las herramientas de los servicios MCP externos."""
+    if method in EXTERNAL_METHODS:
+        return dispatch_table(EXTERNAL_METHODS, method, params, ctx)
+    return rpc_error(METHOD_NOT_FOUND, f"Método '{method}' no soportado en /mcp/external.")
 
 # --- server.handler ---
 """Servidor HTTP JSON-RPC del backend local: orígenes admitidos, token e identificación, despacho por grupos de métodos y punto único de ejecución de herramientas."""
@@ -7960,6 +8520,31 @@ def sanitize_log_path(raw_path: str) -> str:
     path, query = raw_path.split("?", 1)
     safe_query = re.sub(r'(token=)[^&]+', r'\1***', query, flags=re.IGNORECASE)
     return f"{path}?{safe_query}"
+
+
+def has_dot_segment(raw_path: str) -> bool:
+    """Una URL cuya ruta tiene un segmento `..`, también codificado o con barra invertida: ninguna de ZeroChat lo lleva."""
+    path = urllib.parse.unquote(raw_path.split("?", 1)[0].split("#", 1)[0])
+    return ".." in re.split(r"[/\\]", path)
+
+
+def static_file_target(root: Path, rel_path: str) -> Path | None:
+    """
+    Fichero que sirve el servidor de desarrollo para rel_path: lo que hay bajo la raíz del repositorio,
+    salvo ficheros ocultos (.git, .env, .zerochat) y rutas que al resolverse salen de ella (enlaces simbólicos).
+    """
+    clean_rel = rel_path.split("?", 1)[0].lstrip("/")
+    if not clean_rel:
+        return None
+    base = root.resolve()
+    target = (base / clean_rel).resolve()
+    try:
+        parts = target.relative_to(base).parts
+    except ValueError:
+        return None
+    if any(part.startswith(".") for part in parts) or not target.is_file():
+        return None
+    return target
 
 
 def is_allowed_origin(origin: str | None, require_origin: bool = False) -> bool:
@@ -8015,41 +8600,15 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         log_event(f"<-- {status_text} {detail}{err_suffix} ({duration_ms:.1f}ms)")
 
     def serve_static_file(self, rel_path: str) -> bool:
-        """Sirve recursos estáticos solo desde el repositorio de desarrollo."""
+        """
+        La interfaz del repositorio de desarrollo, sin token: solo en desarrollo (get_static_root) y solo
+        a clientes del propio equipo, aunque el servidor escuche en otra dirección con --host.
+        """
         static_root = get_static_root()
-        if not static_root:
+        if not static_root or not is_loopback_host(self.client_address[0]):
             return False
-
-        clean_rel = rel_path.split("?", 1)[0].lstrip("/")
-        if not clean_rel:
-            return False
-
-        target_path = (static_root / clean_rel).resolve()
-        try:
-            rel_parts = target_path.relative_to(static_root.resolve()).parts
-        except ValueError:
-            return False
-
-        # Whitelist de archivos y carpetas autorizados para servir la interfaz web: sus dos páginas
-        # (el chat y el navegador de ficheros del proyecto) y sus recursos.
-        is_allowed_static = (
-            clean_rel in ("zerochat.html", "files.html") or
-            clean_rel in ("manifest.webmanifest", "sw.js", "favicon.ico") or
-            clean_rel.startswith("js/") or
-            clean_rel.startswith("css/") or
-            clean_rel.startswith("help/")
-        )
-        if not is_allowed_static:
-            return False
-
-        # Protección: bloquear archivos ocultos, datos y dependencias locales.
-        for part in rel_parts:
-            if part.startswith(".") and part != ".":
-                return False
-            if part in ("zerochat", "node_modules", ".git", "tests"):
-                return False
-
-        if not target_path.is_file():
+        target_path = static_file_target(static_root, rel_path)
+        if target_path is None:
             return False
 
         ext = target_path.suffix.lower()
@@ -8063,7 +8622,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
-        if clean_rel == "sw.js":
+        if target_path == static_root.resolve() / "sw.js":
             self.send_header("Service-Worker-Allowed", "/")
         self.send_cors_headers()
         self.end_headers()
@@ -8095,9 +8654,21 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         """Comprueba si hay una credencial vigente en cabeceras HTTP."""
         return self._resolve_grant() is not None
 
+    def _reject_dot_segment(self, verb: str, safe_path: str, t0: float) -> bool:
+        """Responde 400 a una URL con `..` antes de mirar el origen, el token o el cuerpo; devuelve si lo hizo."""
+        if not has_dot_segment(self.path):
+            return False
+        self._log_req(verb, safe_path)
+        # El cuerpo de un POST no se lee: la conexión no se reutiliza.
+        self.close_connection = True
+        self._reject(400, {"error": "Invalid path"}, safe_path, t0, "Ruta con un segmento '..'")
+        return True
+
     def do_OPTIONS(self):
         t0 = time.monotonic()
         safe_path = sanitize_log_path(self.path)
+        if self._reject_dot_segment("OPTIONS", safe_path, t0):
+            return
         origin = self.headers.get("Origin")
         if not is_allowed_origin(origin, require_origin=True):
             self._log_req("OPTIONS", safe_path)
@@ -8129,6 +8700,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         """Solo la interfaz servida en desarrollo y el favicon: la API va por POST."""
         t0 = time.monotonic()
         safe_path = sanitize_log_path(self.path)
+        if self._reject_dot_segment("GET", safe_path, t0):
+            return
         path_clean = self.path.split("?", 1)[0].rstrip("/")
         self._log_req("GET", safe_path)
 
@@ -8236,383 +8809,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 return tool_args_error, tool_args_error
         return None
 
-    @staticmethod
-    def _initialize_result(server_info: dict) -> dict:
-        return {
-            "protocolVersion": "2024-11-05",
-            "serverInfo": server_info,
-            "capabilities": {
-                "tools": {"listChanged": True}
-            }
-        }
-
-    @staticmethod
-    def _tool_exception_result(ex: Exception) -> dict:
-        return {"content": [{"type": "text", "text": _tool_error(str(ex))}], "isError": True}
-
-    @classmethod
-    def _execute_tool(cls, origin: str, tool_name: str, args: dict, ctx: SecurityContext,
-                      conversation_id: str = "") -> tuple[dict | None, dict | None, str]:
-        """
-        Punto único de ejecución de herramientas locales y externas. Un navegador se reserva aquí, al
-        ejecutar, para la conversación que lo usa: pedirlo sin llegar a ejecutar no lo ocupa.
-        """
-        if origin == "local":
-            browser = tool_name if tool_name == "browser_action" else None
-        else:
-            browser = PLAYWRIGHT_SERVER_ID if GLOBAL_MCP_MANAGER.server_of(tool_name) == PLAYWRIGHT_SERVER_ID else None
-        if browser and not BROWSER_LEASES.acquire(browser, conversation_id):
-            message = (f"The browser is in use by another conversation. It is released after {int(BROWSER_LEASE_IDLE_SECONDS)} "
-                       "seconds without use; tell the user or try again later.")
-            return {"content": [{"type": "text", "text": _tool_error(message)}], "isError": True}, None, message
-        # En una ejecución desatendida, esperar en check_command no es inactividad ni gasta el plazo total.
-        session = current_run_session() if origin == "local" and tool_name == JOB_CONTROL_TOOL else None
-        if session is not None:
-            session.begin_wait()
-        try:
-            return cls._run_tool(origin, tool_name, args, ctx)
-        finally:
-            if session is not None:
-                session.end_wait()
-            # El plazo cuenta desde que la acción termina: lo que tarde no acorta lo que el modelo puede razonar después.
-            if browser:
-                BROWSER_LEASES.acquire(browser, conversation_id)
-
-    @classmethod
-    def _run_tool(cls, origin: str, tool_name: str, args: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
-        """Ejecuta la herramienta y normaliza su resultado: (result, error JSON-RPC, detalle de error)."""
-        if origin == "external":
-            try:
-                result = GLOBAL_MCP_MANAGER.call(tool_name, args)
-            except Exception as ex:
-                return cls._tool_exception_result(ex), None, str(ex)
-            tool_error_info = ""
-            if isinstance(result, dict) and result.get("isError"):
-                c_list = result.get("content", [])
-                if c_list and isinstance(c_list, list) and isinstance(c_list[0], dict):
-                    tool_error_info = c_list[0].get("text", "Error en herramienta MCP externa")
-                else:
-                    tool_error_info = "Error en herramienta MCP externa"
-            return result, None, tool_error_info
-
-        handler = LOCAL_TOOL_HANDLERS.get(tool_name)
-        if not handler:
-            return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
-        try:
-            # Solo las herramientas que actúan en el proyecto declaran ctx.
-            takes_project = "ctx" in inspect.signature(handler).parameters
-            tool_output_json = handler(**dict(args), **({"ctx": ctx} if takes_project else {}))
-        except Exception as ex:
-            return cls._tool_exception_result(ex), None, str(ex)
-        tool_error_info = ""
-        try:
-            parsed_out = json.loads(tool_output_json)
-            if isinstance(parsed_out, dict) and parsed_out.get("success") is False:
-                tool_error_info = str(parsed_out.get("error", "Error en herramienta local"))
-        except (json.JSONDecodeError, TypeError, ValueError):
-            pass
-        return {"content": [{"type": "text", "text": tool_output_json}], "isError": bool(tool_error_info)}, None, tool_error_info
-
-    @staticmethod
-    def _with_job_key(args: dict, job_key: str | None) -> dict:
-        return {**args, "job_key": job_key} if job_key else args
-
-    @staticmethod
-    def _authorize_or_challenge(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
-                                job_key: str | None = None, conversation_id: str = "") -> tuple[dict | None, dict | None, str] | None:
-        """Evalúa la política de seguridad y devuelve respuesta de denegación o reto si procede."""
-        if origin == "external":
-            server_id = GLOBAL_MCP_MANAGER.server_of(tool_name) or ""
-            server_name = server_id or "external"
-        else:
-            server_id = ""
-            server_name = "mcp-proxy"
-        decision = ACCESS_CONTROLLER.evaluate_authorization(
-            tool_name, args, context=ctx, server_name=server_name, server_id=server_id
-        )
-        if decision.status == POLICY_DENY:
-            err_msg = f"Bloqueado por política de seguridad: {decision.reason}"
-            return {"content": [{"type": "text", "text": f"Error: {err_msg}"}], "isError": True, "securityStatus": "deny", "reason": decision.reason}, None, err_msg
-        if decision.status == POLICY_ASK:
-            ch = ACCESS_CONTROLLER.create_challenge(
-                tool_name, args, decision, server_name=server_name, server_id=server_id, origin=origin,
-                context=ctx, job_key=job_key, conversation_id=conversation_id
-            )
-            return {
-                "requiresAuthorization": True,
-                "challengeId": ch["id"],
-                "toolName": tool_name,
-                "serverName": server_name,
-                "serverId": server_id,
-                "arguments": args,
-                "ruleOffer": decision.rule_offer,
-                "details": decision.details,
-                "content": [{"type": "text", "text": "Esta herramienta requiere autorización del usuario."}],
-                "isError": False
-            }, None, ""
-        return None
-
-    @classmethod
-    def _call_tool(cls, origin: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
-        """tools/call de los dos endpoints: evalúa, emite un reto o ejecuta por el punto único."""
-        tool_name = params.get("name", "")
-        if origin == "local" and tool_name not in LOCAL_TOOL_HANDLERS:
-            return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
-        raw_args = params.get("arguments")
-        args = dict(raw_args) if isinstance(raw_args, dict) else {}
-        meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
-        # Ni la clave del trabajo ni la conversación son argumentos del modelo: no se evalúan ni se muestran en el reto.
-        job_key = meta.get("zerochatJobKey") if origin == "local" and tool_name == COMMAND_TOOL else None
-        conversation_id = str(meta.get("zerochatConversationId") or "")
-        gate = cls._authorize_or_challenge(origin, tool_name, args, ctx, job_key, conversation_id)
-        return gate if gate is not None else cls._execute_tool(origin, tool_name, cls._with_job_key(args, job_key), ctx, conversation_id)
-
-    def _dispatch_external(self, method: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
-        """Atiende /mcp/external. Devuelve (result, error JSON-RPC, detalle de error de herramienta)."""
-        if method == "initialize":
-            return self._initialize_result({"name": "ZeroChat External MCP Host", "version": VERSION}), None, ""
-        if method == "tools/list":
-            return {"tools": GLOBAL_MCP_MANAGER.tools()}, None, ""
-        if method == "tools/call":
-            return self._call_tool("external", params, ctx)
-        return None, {"code": -32601, "message": f"Método '{method}' no soportado en /mcp/external."}, ""
-
-    def _dispatch_local(self, method: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
-        """Atiende el endpoint local. Devuelve (result, error JSON-RPC, detalle de error de herramienta)."""
-        if method == "initialize":
-            server_info = {
-                "name": "ZeroChat Local Server",
-                "version": VERSION,
-                "cwd": str(ctx.workspace_dir),
-                "os": DETECTED_OS
-            }
-            return {**self._initialize_result(server_info), "liveState": live_state(ctx)}, None, ""
-        if method == "zerochat/heartbeat":
-            focus_id = params.get("focus_conversation_id") if isinstance(params, dict) else None
-            return live_state(ctx, focus_id), None, ""
-        if method == "zerochat/login":
-            return self._login(params)
-        if method == "tools/list":
-            return {"tools": [dict(definition) for definition in LOCAL_TOOLS_DEFINITIONS]}, None, ""
-        if method == "tools/call":
-            return self._call_tool("local", params, ctx)
-        if method == "zerochat/project/set_directory":
-            # Lo invoca la interfaz a petición del usuario: no es una herramienta del modelo.
-            try:
-                return resolve_project_directory(params.get("path"), ctx), None, ""
-            except (ValueError, OSError) as exc:
-                return None, {"code": -32602, "message": str(exc)}, ""
-        if method == "zerochat/diff/open":
-            try:
-                return open_file_diff(params.get("path"), ctx, bool(params.get("commit_fallback")), bool(params.get("gui"))), None, ""
-            except (ValueError, RuntimeError) as exc:
-                return None, {"code": -32602, "message": str(exc)}, ""
-            except Exception as exc:
-                return None, {"code": -32603, "message": f"Error al abrir el visor de diffs: {exc}"}, str(exc)
-        if method == "zerochat/diff/configure":
-            try:
-                return configure_gui_diff_tool(params.get("tool")), None, ""
-            except (ValueError, RuntimeError) as exc:
-                return None, {"code": -32602, "message": str(exc)}, ""
-            except Exception as exc:
-                return None, {"code": -32603, "message": f"Error configurando el visor de diffs: {exc}"}, str(exc)
-        if method == "zerochat/web/fetch":
-            try:
-                return fetch_web_resource(params), None, ""
-            except (ValueError, PermissionError) as exc:
-                return None, {"code": -32602, "message": str(exc)}, ""
-            except Exception as exc:
-                return None, {"code": -32603, "message": f"Error en transporte web: {exc}"}, str(exc)
-        if method == "zerochat/sandbox/execute":
-            try:
-                code = params.get("code") if isinstance(params, dict) else ""
-                timeout_ms = params.get("timeout_ms") if isinstance(params, dict) else None
-                return execute_js_sandbox(code, timeout_ms=timeout_ms), None, ""
-            except ValueError as exc:
-                return None, {"code": -32602, "message": str(exc)}, ""
-            except Exception as exc:
-                return None, {"code": -32603, "message": f"Error en sandbox JS: {exc}"}, str(exc)
-        if method.startswith("zerochat/jobs/"):
-            return self._dispatch_jobs(method, params, ctx)
-        if method.startswith("zerochat/files/"):
-            return dispatch_files(method, params, ctx)
-        if method.startswith("zerochat/run/"):
-            return dispatch_run(method, params, ctx)
-        if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):
-            return self._dispatch_server_control(method, params)
-        if method.startswith("zerochat/browser/"):
-            return self._dispatch_browser(method, params)
-        if method.startswith("zerochat/profiles/"):
-            return self._dispatch_profiles(method, params)
-        if method.startswith("zerochat/conversations/"):
-            return self._dispatch_conversations(method, params)
-        if method.startswith("zerochat/blobs/"):
-            return self._dispatch_blobs(method, params)
-        if method.startswith("zerochat/security/"):
-            return self._dispatch_security(method, params, ctx)
-        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
-
-    @classmethod
-    def _dispatch_security(cls, method: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
-        """Gestión de políticas y reglas de seguridad almacenadas en el backend local."""
-        params = params if isinstance(params, dict) else {}
-        try:
-            if method == "zerochat/security/get":
-                return {"policies": ACCESS_CONTROLLER.export_state(ctx)}, None, ""
-            if method == "zerochat/security/update":
-                updated = ACCESS_CONTROLLER.import_state(params, context=ctx)
-                return {"policies": updated}, None, ""
-            if method == "zerochat/security/authorize":
-                challenge_id = params.get("challengeId")
-                if not challenge_id or not isinstance(challenge_id, str):
-                    return None, {"code": -32602, "message": "challengeId es obligatorio"}, ""
-                decision = params.get("decision", "deny")
-                if not isinstance(decision, str):
-                    return None, {"code": -32602, "message": "decision debe ser un texto"}, ""
-                if decision == "deny":
-                    ACCESS_CONTROLLER.revoke_challenge(challenge_id, context=ctx)
-                    return {"authorized": False, "status": "deny"}, None, ""
-
-                ch = ACCESS_CONTROLLER.authorize_challenge(
-                    challenge_id, decision, context=ctx,
-                    command_pattern=params.get("commandPattern"), directory_rule=params.get("directoryRule")
-                )
-                if not ch:
-                    return None, {"code": -32002, "message": "Reto no encontrado o no válido"}, ""
-                t_origin = ch.get("origin") or "local"
-                t_name = ch["toolName"]
-                t_args = ch["arguments"] if isinstance(ch.get("arguments"), dict) else {}
-                exec_res, exec_err, tool_err = cls._execute_tool(t_origin, t_name, cls._with_job_key(t_args, ch.get("jobKey")), ctx, ch.get("conversationId") or "")
-                if exec_err:
-                    return None, exec_err, tool_err
-                return {"authorized": True, "result": exec_res}, None, tool_err
-        except ValueError as exc:
-            return None, {"code": -32602, "message": str(exc)}, ""
-        except Exception as exc:
-            return None, {"code": -32603, "message": f"Error de seguridad: {exc}"}, str(exc)
-        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
-
-    @staticmethod
-    def _dispatch_profiles(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
-        """Gestión de perfiles generales almacenados en SQLite en el backend local."""
-        params = params if isinstance(params, dict) else {}
-        try:
-            if method == "zerochat/profiles/list":
-                return {"profiles": list_general_profiles()}, None, ""
-            if method == "zerochat/profiles/save":
-                profile_data = params.get("profile")
-                if not isinstance(profile_data, dict):
-                    return None, {"code": -32602, "message": "profile debe ser un objeto."}, ""
-                return {"profile": save_general_profile(profile_data)}, None, ""
-            if method == "zerochat/profiles/delete":
-                profile_id = params.get("id")
-                if not isinstance(profile_id, str) or not profile_id.strip():
-                    return None, {"code": -32602, "message": "id debe ser un texto no vacío."}, ""
-                return {"deleted": delete_general_profile(profile_id)}, None, ""
-        except ValueError as exc:
-            return None, {"code": -32602, "message": str(exc)}, ""
-        except Exception as exc:
-            return None, {"code": -32603, "message": f"Error en gestión de perfiles: {exc}"}, str(exc)
-        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
-
-    @staticmethod
-    def _dispatch_conversations(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
-        """Gestión de conversaciones y mensajes almacenados en SQLite en el backend local."""
-        try:
-            if method == "zerochat/conversations/list":
-                return {"conversations": list_conversations()}, None, ""
-            if method == "zerochat/conversations/get":
-                return {"conversation": get_conversation(params.get("id"))}, None, ""
-            if method == "zerochat/conversations/save":
-                return {"conversation": save_conversation(params.get("conversation"), params.get("messages"))}, None, ""
-            if method == "zerochat/conversations/rename":
-                return {"renamed": rename_conversation(params.get("id"), params.get("title"))}, None, ""
-            if method == "zerochat/conversations/delete":
-                if params.get("all") is True:
-                    for run_file in get_runs_dir().glob("*.json"):
-                        try:
-                            cancel_server_run(urllib.parse.unquote(run_file.stem))
-                        except (ValueError, OSError):
-                            pass
-                    return {"deleted": True, "count": delete_all_conversations()}, None, ""
-                if "project" in params:
-                    deleted_ids = delete_project_conversations(params.get("project"))
-                    for deleted_id in deleted_ids:
-                        try:
-                            cancel_server_run(deleted_id)
-                        except (ValueError, OSError):
-                            pass
-                    return {"deleted": True, "count": len(deleted_ids)}, None, ""
-                conv_id = params.get("id")
-                if isinstance(conv_id, str) and conv_id.strip():
-                    try:
-                        cancel_server_run(conv_id)
-                    except (ValueError, OSError):
-                        pass
-                return {"deleted": delete_conversation(params.get("id"))}, None, ""
-        except ValueError as exc:
-            return None, {"code": -32602, "message": str(exc)}, ""
-        except Exception as exc:
-            return None, {"code": -32603, "message": f"Error en gestión de conversaciones: {exc}"}, str(exc)
-        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
-
-    @staticmethod
-    def _dispatch_blobs(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
-        """Gestión de blobs desacoplados de mensajes (imágenes y adjuntos) en SQLite."""
-        params = params if isinstance(params, dict) else {}
-        try:
-            if method == "zerochat/blobs/has":
-                ids = params.get("ids")
-                if ids is None:
-                    ids = []
-                return has_blobs(ids), None, ""
-            if method == "zerochat/blobs/put":
-                raw_data = params.get("data")
-                if not raw_data or not isinstance(raw_data, str):
-                    raise ValueError("El parámetro 'data' debe ser una cadena en base64 no vacía")
-                mime_type = params.get("mimeType") or "application/octet-stream"
-                if raw_data.startswith("data:") and ";base64," in raw_data:
-                    header, b64_part = raw_data.split(";base64,", 1)
-                    if not params.get("mimeType"):
-                        mime_type = header[5:]
-                    raw_data = b64_part
-                try:
-                    data_bytes = base64.b64decode(raw_data)
-                except Exception as decode_err:
-                    raise ValueError(f"Error decodificando base64: {decode_err}")
-                saved = put_blob(data_bytes, mime_type=mime_type, blob_id=params.get("id"))
-                return {"id": saved["id"], "mimeType": saved["mime_type"], "size": saved["size"]}, None, ""
-            if method == "zerochat/blobs/get":
-                blob = get_blob(params.get("id"))
-                if not blob:
-                    return {"blob": None}, None, ""
-                return {
-                    "blob": {
-                        "id": blob["id"],
-                        "mimeType": blob["mime_type"],
-                        "size": blob["size"],
-                        "data": base64.b64encode(blob["data"]).decode("ascii"),
-                        "createdAt": blob["created_at"],
-                    }
-                }, None, ""
-        except ValueError as exc:
-            return None, {"code": -32602, "message": str(exc)}, ""
-        except Exception as exc:
-            return None, {"code": -32603, "message": f"Error en gestión de blobs: {exc}"}, str(exc)
-        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
-
-    @staticmethod
-    def _login(params: dict) -> tuple[dict | None, dict | None, str]:
-        try:
-            return login(params), None, ""
-        except LoginError as exc:
-            error = {"code": exc.code, "message": str(exc)}
-            if exc.data:
-                error["data"] = exc.data
-            return None, error, ""
-        except (RuntimeError, OSError) as exc:
-            return None, {"code": -32603, "message": f"No se pudo comprobar la contraseña: {exc}"}, str(exc)
-
     def _serve_login(self, safe_path: str, t0: float) -> bool:
         """Sin token solo se atiende zerochat/login, con un cuerpo pequeño; devuelve False si la petición es otra."""
         try:
@@ -8629,7 +8825,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return False
         log_detail = f"{safe_path} [rpc: zerochat/login]"
         self._log_req("POST", log_detail)
-        self._send_rpc_response(req.get("id"), self._login(req.get("params", {})), log_detail, t0)
+        self._send_rpc_response(req.get("id"), rpc_login(req.get("params", {})), log_detail, t0)
         return True
 
     def _send_rpc_response(self, req_id, outcome: tuple[dict | None, dict | None, str], log_detail: str, t0: float, quiet: bool = False):
@@ -8644,92 +8840,11 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if self._send_json_response(200, response_payload) and not quiet:
             self._log_res(200, log_detail, (time.monotonic() - t0) * 1000, error_info=error_info)
 
-    @staticmethod
-    def _dispatch_jobs(method: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
-        """Control de los comandos del proyecto de la petición desde la interfaz: tarjetas, log y botón de detener."""
-        project = ctx.key
-        if method == "zerochat/jobs/list":
-            return {"jobs": [job.summary() for job in JOBS.list(project)]}, None, ""
-        if method == "zerochat/jobs/report":
-            ids = params.get("ids")
-            if not isinstance(ids, list) or len(ids) > 100 or any(isinstance(i, bool) or not isinstance(i, int) for i in ids):
-                return None, {"code": -32602, "message": "ids debe ser una lista de hasta 100 enteros."}, ""
-            return {"reports": JOBS.report_finished(ids, project)}, None, ""
-        if method == "zerochat/jobs/end_wait":
-            return {"ended": JOBS.cancel_wait(params.get("key"))}, None, ""
-        job = JOBS.get(project, job_id=params.get("id"), key=params.get("key"))
-        if method in ("zerochat/jobs/get", "zerochat/jobs/log", "zerochat/jobs/stop") and job is None:
-            return None, {"code": -32602, "message": "Comando no encontrado: puede pertenecer a una sesión anterior de ZeroChat."}, ""
-        if method == "zerochat/jobs/get":
-            return job_details(job), None, ""
-        if method == "zerochat/jobs/log":
-            offset = params.get("offset", 0)
-            limit = params.get("limit", JOB_LOG_PAGE_BYTES)
-            if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
-                return None, {"code": -32602, "message": "offset debe ser un entero no negativo."}, ""
-            if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
-                return None, {"code": -32602, "message": "limit debe ser un entero positivo."}, ""
-            text, next_offset = job.read_range(offset, min(limit, JOB_LOG_PAGE_BYTES))
-            return {"text": text, "next": next_offset, "total": job.total, "done": job.done.is_set()}, None, ""
-        if method == "zerochat/jobs/stop":
-            JOBS.stop(job, "user")
-            return job_details(job), None, ""
-        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
-
-    @staticmethod
-    def _dispatch_browser(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
-        """Configuración, datos y motores propios de Playwright para la sección Navegador de Ajustes."""
-        try:
-            if method == "zerochat/browser/config/get":
-                return load_browser_config(), None, ""
-            if method == "zerochat/browser/config/set":
-                return save_browser_config(params.get("config")), None, ""
-            if method == "zerochat/browser/data/clear":
-                return clear_own_browser_data(params.get("engine")), None, ""
-            if method == "zerochat/browser/engines/list":
-                return BROWSER_ENGINES.list(), None, ""
-            if method == "zerochat/browser/engines/install":
-                return BROWSER_ENGINES.install(params.get("engine")), None, ""
-            if method == "zerochat/browser/engines/remove":
-                return BROWSER_ENGINES.remove(params.get("engine")), None, ""
-        except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
-            return None, {"code": -32602, "message": str(exc)}, ""
-        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
-
-    @staticmethod
-    def _dispatch_server_control(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
-        server_id = params.get("serverId")
-        opts = params.get("options", {})
-        remember = params.get("remember")
-        browser = params.get("browser")
-        if not isinstance(server_id, str) or not server_id:
-            return None, {"code": -32602, "message": "serverId debe ser un texto no vacío."}, ""
-        if not isinstance(opts, dict):
-            return None, {"code": -32602, "message": "options debe ser un objeto."}, ""
-        # Al arrancar, el cliente decide siempre si el servicio se recuerda para la siguiente sesión.
-        if method.endswith("/start") and not isinstance(remember, bool):
-            return None, {"code": -32602, "message": "remember es obligatorio al arrancar y debe ser un booleano."}, ""
-        if method.endswith("/start") and browser is not None:
-            if server_id not in SERVICE_LAUNCH:
-                return None, {"code": -32602, "message": f"{server_id} no admite elegir navegador."}, ""
-            try:
-                browser = validate_profile_browser(browser)
-            except ValueError as exc:
-                return None, {"code": -32602, "message": str(exc)}, ""
-        try:
-            if method.endswith("/start"):
-                servers = GLOBAL_MCP_MANAGER.start(server_id, remember, browser)
-            elif method.endswith("/stop"):
-                servers = GLOBAL_MCP_MANAGER.stop(server_id)
-            else:
-                servers = GLOBAL_MCP_MANAGER.configure(server_id, opts)
-        except KeyError as exc:
-            return None, {"code": -32602, "message": str(exc.args[0]) if exc.args else str(exc)}, ""
-        return {"servers": servers}, None, ""
-
     def do_POST(self):
         t0 = time.monotonic()
         safe_path = sanitize_log_path(self.path)
+        if self._reject_dot_segment("POST", safe_path, t0):
+            return
         req_path = self.path.split("?", 1)[0].rstrip("/")
         origin = self.headers.get("Origin")
         if not is_allowed_origin(origin):
@@ -8794,9 +8909,9 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return
         try:
             if "/mcp/external" in req_path:
-                outcome = self._dispatch_external(method, params, ctx)
+                outcome = dispatch_external(method, params, ctx)
             else:
-                outcome = self._dispatch_local(method, params, ctx)
+                outcome = dispatch_local(method, params, ctx)
         except Exception as ex:
             outcome = None, {"code": -32603, "message": f"Error interno: {ex}"}, ""
         self._send_rpc_response(req_id, outcome, log_detail, t0, quiet)
@@ -8810,17 +8925,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
 
 
-
-
-def is_loopback_host(host: str) -> bool:
-    """Indica si el host de escucha solo acepta conexiones del propio equipo."""
-    value = (host or "").strip().strip("[]").lower()
-    if value == "localhost":
-        return True
-    try:
-        return ipaddress.ip_address(value).is_loopback
-    except ValueError:
-        return False
 
 
 def remote_exposure_warning(host: str) -> str | None:
@@ -8861,41 +8965,16 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt o --conversation, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
     parser.add_argument("--browser", action="store_true", help="Con --prompt o --conversation, abrir el navegador predeterminado del usuario en lugar del proceso Node.js sin ventana")
     parser.add_argument("--keep-page", action="store_true", help="Página: con --browser, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")
-    parser.add_argument("--allow-dangerous-tools", action="store_true", help="Con --prompt o --conversation, aprobar también las herramientas que escriben o ejecutan (write_file, edit_file, run_command); las demás se aprueban siempre para la sesión")
+    parser.add_argument("--allow-dangerous-tools", action="store_true", help="Con --prompt sin --conversation, aprobar también las herramientas que escriben o ejecutan (write_file, edit_file, run_command); las demás se aprueban siempre para la sesión. Con --conversation nada se aprueba solo: la ejecución se pausa y pregunta")
     parser.add_argument("--headless", action="store_true", help="Con --browser, abrir el navegador predeterminado sin ventana (si ya está abierto puede verse la pestaña)")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     return parser
 
 
-def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | None:
-    """Valida las combinaciones de opciones y devuelve la sesión de --prompt o --conversation, si la hay."""
-    if args.prompt is None and args.conversation is None:
-        if args.browser or args.headless or args.keep_page or args.allow_dangerous_tools or args.profile is not None or args.export is not None:
-            parser.error("--browser, --headless, --keep-page, --allow-dangerous-tools, --profile y --export solo se usan con --prompt o --conversation")
-        return None
-    prompt = None
-    if args.prompt is not None:
-        prompt = args.prompt.strip()
-        if not prompt:
-            parser.error("el prompt está vacío")
-    conversation_id = None
-    conv = None
-    if args.conversation is not None:
-        raw_conv = args.conversation.strip()
-        if not raw_conv:
-            parser.error("el identificador de la conversación no puede estar vacío")
-        try:
-            conversation_id = _validate_conversation_id(raw_conv)
-        except ValueError as exc:
-            parser.error(str(exc))
-        conv = get_conversation(conversation_id)
-        if conv is None:
-            parser.error(f"no existe la conversación '{conversation_id}'")
-        if prompt is None:
-            history = conv.get("history") or []
-            has_user_or_tool = any(m.get("role") in ("user", "tool") for m in history)
-            if not has_user_or_tool:
-                parser.error(f"la conversación '{conversation_id}' no tiene turnos para continuar")
+def _check_run_flags(parser: ZeroChatArgumentParser, args):
+    """Combinaciones de opciones que no admiten --prompt ni --conversation."""
+    if args.allow_dangerous_tools and args.conversation is not None:
+        parser.error("--conversation no aprueba nada sin preguntar: si una herramienta pide permiso, la ejecución se pausa (needs_input); --allow-dangerous-tools solo se usa con --prompt sin --conversation")
     if args.no_browser:
         parser.error("--prompt y --conversation ejecutan la interfaz de forma autónoma: no se combina con --no-browser")
     if args.keep_server:
@@ -8904,41 +8983,81 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
         parser.error("--headless solo se usa con --browser (--prompt y --conversation ya se ejecutan sin ventana con Node.js)")
     if args.keep_page and (not args.browser or args.headless):
         parser.error("--keep-page necesita la ventana del navegador del usuario (--browser sin --headless)")
-    profile_data = None
+
+
+def _run_prompt(parser: ZeroChatArgumentParser, args) -> str | None:
+    if args.prompt is None:
+        return None
+    prompt = args.prompt.strip()
+    if not prompt:
+        parser.error("el prompt está vacío")
+    return prompt
+
+
+def _run_conversation(parser: ZeroChatArgumentParser, args, prompt: str | None) -> tuple[str | None, dict | None]:
+    """La conversación de --conversation: existe y, sin --prompt, tiene un turno que continuar."""
+    if args.conversation is None:
+        return None, None
+    raw_conv = args.conversation.strip()
+    if not raw_conv:
+        parser.error("el identificador de la conversación no puede estar vacío")
+    try:
+        conversation_id = _validate_conversation_id(raw_conv)
+    except ValueError as exc:
+        parser.error(str(exc))
+    conv = get_conversation(conversation_id)
+    if conv is None:
+        parser.error(f"no existe la conversación '{conversation_id}'")
+    if prompt is None and not any(m.get("role") in ("user", "tool") for m in conv.get("history") or []):
+        parser.error(f"la conversación '{conversation_id}' no tiene turnos para continuar")
+    return conversation_id, conv
+
+
+def _run_profile(parser: ZeroChatArgumentParser, args, conv: dict | None) -> tuple[str, dict | None]:
+    """El perfil de la ejecución: el de --profile, el de la conversación o DEFAULT_RUN_PROFILE.
+
+    Un --profile que no existe en el servidor se pasa por su nombre; el de la conversación y el por defecto tienen que existir.
+    """
     if args.profile is not None:
         clean_profile = args.profile.strip()
         if not clean_profile:
             parser.error("--profile no puede estar vacío")
-        general_match = get_general_profile_by_name(clean_profile) or get_general_profile(clean_profile)
-        profile_name = general_match["name"] if general_match else clean_profile
-        profile_data = general_match
-    elif conversation_id:
-        conv_profile = conv.get("profileId") if conv else None
-        if conv_profile:
-            match = get_general_profile_by_name(conv_profile) or get_general_profile(conv_profile)
-            if not match:
-                parser.error(f"no existe el perfil '{conv_profile}' en el servidor; créalo o indica uno con --profile")
-            profile_name = match["name"]
-            profile_data = match
-        else:
-            default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
-            if default_match is None:
-                parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
-            profile_name = default_match["name"]
-            profile_data = default_match
-    else:
-        default_match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
-        if default_match is None:
-            parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
-        profile_name = default_match["name"]
-        profile_data = default_match
-    export_path = None
-    if args.export is not None:
-        export_path = Path(args.export).expanduser().absolute()
-        if export_path.suffix.lower() not in RUN_EXPORT_FORMATS:
-            parser.error(f"--export necesita una de estas extensiones: {', '.join(RUN_EXPORT_FORMATS)}")
-        if not export_path.parent.is_dir():
-            parser.error(f"--export: no existe el directorio {export_path.parent}")
+        match = get_general_profile_by_name(clean_profile) or get_general_profile(clean_profile)
+        return (match["name"] if match else clean_profile), match
+    conv_profile = conv.get("profileId") if conv else None
+    if conv_profile:
+        match = get_general_profile_by_name(conv_profile) or get_general_profile(conv_profile)
+        if not match:
+            parser.error(f"no existe el perfil '{conv_profile}' en el servidor; créalo o indica uno con --profile")
+        return match["name"], match
+    match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
+    if match is None:
+        parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
+    return match["name"], match
+
+
+def _run_export_path(parser: ZeroChatArgumentParser, args) -> Path | None:
+    if args.export is None:
+        return None
+    export_path = Path(args.export).expanduser().absolute()
+    if export_path.suffix.lower() not in RUN_EXPORT_FORMATS:
+        parser.error(f"--export necesita una de estas extensiones: {', '.join(RUN_EXPORT_FORMATS)}")
+    if not export_path.parent.is_dir():
+        parser.error(f"--export: no existe el directorio {export_path.parent}")
+    return export_path
+
+
+def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | None:
+    """Valida las combinaciones de opciones y devuelve la sesión de --prompt o --conversation, si la hay."""
+    if args.prompt is None and args.conversation is None:
+        if args.browser or args.headless or args.keep_page or args.allow_dangerous_tools or args.profile is not None or args.export is not None:
+            parser.error("--browser, --headless, --keep-page, --allow-dangerous-tools, --profile y --export solo se usan con --prompt o --conversation")
+        return None
+    prompt = _run_prompt(parser, args)
+    conversation_id, conv = _run_conversation(parser, args, prompt)
+    _check_run_flags(parser, args)
+    profile_name, profile_data = _run_profile(parser, args, conv)
+    export_path = _run_export_path(parser, args)
     if conversation_id:
         mark_conversation_server_run(conversation_id, profile_name)
     return RunSession(prompt, profile_name, export_path, args.keep_page, args.allow_dangerous_tools, conversation_id=conversation_id, profile_data=profile_data)
@@ -9100,7 +9219,7 @@ def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_cl
     print("=" * 64, flush=True)
 
 
-def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, result_out):
+def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str):
     """Abre la interfaz: en modo ejecución, con su supervisor; si no, con el control de consola.
     Devuelve el navegador sin ventana lanzado, si lo hay."""
     session = current_run_session()
@@ -9112,11 +9231,11 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, resu
             launch_browser(launch_url(ui_url))
         return None
     if not args.browser:
-        session.runner_token = issue_runner_token(session.run_id, session.conversation_id)
+        session.runner_token = issue_runner_token(session.run_id, session.conversation_id or session.new_conversation_id)
         runner_proc = launch_node_runner(launch_url(ui_url, token=session.runner_token))
         if runner_proc is None:
             server.server_close()
-            sys.stdout = result_out
+            mute_console()
             sys.exit(RUN_EXIT_SETUP)
         threading.Thread(target=run_supervisor, args=(server, session, runner_proc), daemon=True).start()
         return runner_proc
@@ -9125,7 +9244,7 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str, resu
     if headless_browser is None and not launch_browser(target_url):
         run_error("No se pudo abrir el navegador.")
         server.server_close()
-        sys.stdout = result_out
+        mute_console()
         sys.exit(RUN_EXIT_SETUP)
     if headless_browser is not None:
         threading.Thread(target=fall_back_when_headless_exits, args=(headless_browser, target_url), daemon=True).start()
@@ -9174,7 +9293,8 @@ def finish_run(headless_browser, result_out):
     if headless_browser is not None and headless_browser.poll() is None:
         _kill_process_tree(headless_browser)
     code, text = run_outcome(current_run_session())
-    sys.stdout = result_out
+    # El registro sigue donde estaba (stderr o nada): result_out solo recibe la respuesta.
+    mute_console()
     if text is not None:
         result_out.write(text if text.endswith("\n") else text + "\n")
         result_out.flush()
@@ -9237,7 +9357,7 @@ def main():
     set_exit_on_close(exit_on_close)
     print_header(dev_root, ui_url, exposure_warning, exit_on_close)
 
-    headless_browser = start_interface(args, parser, server, ui_url, result_out)
+    headless_browser = start_interface(args, parser, server, ui_url)
     if exit_on_close:
         start_heartbeat_watchdog(server, require_initial=not args.no_browser)
     install_signal_handlers(server)

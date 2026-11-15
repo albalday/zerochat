@@ -64,6 +64,55 @@ def browser_launch_diagnostics(attempts: list[str]) -> str:
     return "\n  ".join(lines)
 
 
+def _spawn_detached(args: list[str]):
+    """Lanza el abridor sin atarlo a la terminal; OSError si no se puede iniciar."""
+    subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+def _open_in_termux(url: str):
+    termux_open_url = get_termux_open_url_executable()
+    if not termux_open_url:
+        raise FileNotFoundError(
+            "Termux fue detectado, pero no se encontró termux-open-url.\n  "
+            + browser_launch_diagnostics(["termux-open-url: no localizado"])
+        )
+    try:
+        _spawn_detached([termux_open_url, url])
+    except OSError as error:
+        raise RuntimeError(
+            f"termux-open-url no pudo iniciarse: {type(error).__name__}: {error}\n  "
+            + browser_launch_diagnostics(["termux-open-url: error al iniciar"])
+        ) from error
+
+
+def _system_openers(url: str) -> list[tuple[str, list[str] | None]]:
+    """Abridores del sistema por orden: (nombre, orden). Una orden None es os.startfile."""
+    if sys.platform.startswith("linux"):
+        return [("xdg-open", ["xdg-open", url]), ("gio", ["gio", "open", url])]
+    if sys.platform == "darwin":
+        return [("open", ["open", url])] if shutil.which("open") else []
+    if sys.platform == "win32":
+        return [("os.startfile", None)]
+    return []
+
+
+def _open_with_system(url: str, attempts: list[str]) -> bool:
+    """Prueba los abridores del sistema y anota en attempts por qué falla cada uno."""
+    for name, args in _system_openers(url):
+        if args is not None and not shutil.which(args[0]):
+            attempts.append(f"{name}: no encontrado")
+            continue
+        try:
+            if args is None:
+                os.startfile(url)  # pyright: ignore[reportAttributeAccessIssue] - solo existe en Windows
+            else:
+                _spawn_detached(args)
+            return True
+        except OSError as error:
+            attempts.append(f"{name}: {type(error).__name__}: {error}")
+    return False
+
+
 def open_browser(url: str) -> bool:
     """
     Abre la URL en el navegador predeterminado del usuario respetando el entorno del sistema.
@@ -71,61 +120,12 @@ def open_browser(url: str) -> bool:
     Linux prioriza xdg-open o gio para respetar el gestor de ventanas y mimeapps.list,
     desacoplando el proceso hijo para evitar ruidos en la terminal.
     """
-    attempts = []
     if is_termux_environment():
-        termux_open_url = get_termux_open_url_executable()
-        if not termux_open_url:
-            raise FileNotFoundError(
-                "Termux fue detectado, pero no se encontró termux-open-url.\n  "
-                + browser_launch_diagnostics(["termux-open-url: no localizado"])
-            )
-        try:
-            subprocess.Popen(
-                [termux_open_url, url],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-            return True
-        except OSError as error:
-            raise RuntimeError(
-                f"termux-open-url no pudo iniciarse: {type(error).__name__}: {error}\n  "
-                + browser_launch_diagnostics(["termux-open-url: error al iniciar"])
-            ) from error
-    elif sys.platform.startswith("linux"):
-        for cmd in ("xdg-open", "gio"):
-            if shutil.which(cmd):
-                try:
-                    args = ["gio", "open", url] if cmd == "gio" else ["xdg-open", url]
-                    subprocess.Popen(
-                        args,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        start_new_session=True,
-                    )
-                    return True
-                except OSError as error:
-                    attempts.append(f"{cmd}: {type(error).__name__}: {error}")
-            else:
-                attempts.append(f"{cmd}: no encontrado")
-    elif sys.platform == "darwin":
-        if shutil.which("open"):
-            try:
-                subprocess.Popen(
-                    ["open", url],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
-                return True
-            except OSError as error:
-                attempts.append(f"open: {type(error).__name__}: {error}")
-    elif sys.platform == "win32":
-        try:
-            os.startfile(url)
-            return True
-        except OSError as error:
-            attempts.append(f"os.startfile: {type(error).__name__}: {error}")
+        _open_in_termux(url)
+        return True
+    attempts: list[str] = []
+    if _open_with_system(url, attempts):
+        return True
 
     try:
         if webbrowser.open(url):
@@ -186,7 +186,7 @@ def default_browser_executable() -> str | None:
             return None
         exec_line = next((line[5:] for line in lines if line.startswith("Exec=")), "")
         try:
-            tokens = [token for token in shlex.split(exec_line) if token != "env" and "=" not in token]
+            tokens = [token for token in shlex.split(exec_line) if token != "env" and "=" not in token]  # noqa: S105 - palabras de Exec=, no una contraseña
         except ValueError:
             return None
         # Flatpak o Snap envuelven el navegador: no admiten sus opciones directamente.

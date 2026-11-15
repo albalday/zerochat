@@ -334,7 +334,7 @@
     GenerationController.handleStopGeneration();
   }
 
-  async function handleHistoricalToolAuthorization(decision, { toolName }) {
+  async function handleHistoricalToolAuthorization(decision, { toolName, args }) {
     if (isBusy() || ServerRun.isActiveSessionRunning()) return;
     const decisionType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;
     const nextMessages = decisionType === 'deny'
@@ -351,7 +351,7 @@
     State.replaceMessages(nextMessages);
     renderSessionMessages(getChatHistory());
     await saveCurrentSession();
-    await handleSendMessage({ resume: true, ...(decisionType === 'deny' ? {} : { toolDecision: { toolName, decision } }) });
+    await handleSendMessage({ resume: true, ...(decisionType === 'deny' ? {} : { toolDecision: { toolName, args, decision } }) });
   }
 
   const messageCallbacks = {

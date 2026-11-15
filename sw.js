@@ -4,7 +4,7 @@
  * y actualización en segundo plano (Stale-While-Revalidate).
  */
 
-const CACHE_NAME = 'zerochat-v10.18.0';
+const CACHE_NAME = 'zerochat-v10.19.0';
 
 const PRECACHE_ASSETS = [
   './zerochat.html',
@@ -68,6 +68,8 @@ const PRECACHE_ASSETS = [
   './js/tools/builtin/read-knowledge-chunk.tool.js',
   './js/tools/builtin/read-knowledge-image.tool.js',
   './js/tools/builtin/ask-user.tool.js',
+  './js/tools/builtin/wait.tool.js',
+  './js/tools/builtin/switch-model.tool.js',
   './js/tools/builtin/delegate-task.tool.js',
   './js/tool-security.js',
   './js/agent-core.js',

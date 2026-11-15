@@ -12,7 +12,7 @@ from pathlib import Path
 
 from core.environment import add_notice, get_dev_root
 
-SOURCE_BACKEND_VERSION = "10.18.0"
+SOURCE_BACKEND_VERSION = "10.19.0"
 
 
 def _read_source_version(filename: str) -> str | None:
@@ -78,8 +78,9 @@ def parse_version(ver: str) -> tuple[int, ...]:
 
 def _read_remote_content(url: str) -> str:
     """Lee una cabecera acotada de un recurso publicado de ZeroChat."""
-    req = urllib.request.Request(url, headers={"User-Agent": f"ZeroChat/{VERSION}"})
-    with urllib.request.urlopen(req, timeout=3) as resp:
+    # Solo se llama con las URL https fijas de este módulo.
+    req = urllib.request.Request(url, headers={"User-Agent": f"ZeroChat/{VERSION}"})  # noqa: S310
+    with urllib.request.urlopen(req, timeout=3) as resp:  # noqa: S310
         return resp.read(4096).decode("utf-8", errors="ignore")
 
 

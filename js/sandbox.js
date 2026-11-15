@@ -17,7 +17,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { createId } = Utils;
+  const { createId, resolveDep } = Utils;
 
   const DEFAULT_TIMEOUT_MS = 2500;
   const MAX_OUTPUT_LENGTH = 30000;
@@ -166,48 +166,6 @@
     });
   }
 
-  const NODE_SANDBOX_CHILD_SCRIPT = [
-    'const vm = require("node:vm");',
-    'for (const k of ["fetch", "WebSocket", "XMLHttpRequest", "EventSource"]) { try { delete globalThis[k]; } catch { /* ignore non-configurable */ } }',
-    'function formatValue(v) {',
-    '  if (v === null) return "null";',
-    '  if (v === undefined) return "undefined";',
-    '  if (typeof v === "bigint") return v.toString();',
-    '  if (typeof v !== "object") return String(v);',
-    '  try { return JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x), 2); } catch { return String(v); }',
-    '}',
-    'const truncate = (t, m) => (t.length > m ? `${t.slice(0, m)}... [output truncated]` : t);',
-    '(async () => {',
-    '  const chunks = [];',
-    '  for await (const c of process.stdin) chunks.push(c);',
-    '  const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));',
-    '  const code = String(payload.code ?? "");',
-    '  const timeoutMs = Number(payload.timeoutMs) || 2500;',
-    '  const maxOut = Number(payload.maxOutputLength) || 30000;',
-    '  const maxLogs = Number(payload.maxLogEntries) || 200;',
-    '  const logs = [];',
-    '  const addLog = (p, args) => { if (logs.length < maxLogs) logs.push(truncate(p ? `[${p}] ${args.map(formatValue).join(" ")}` : args.map(formatValue).join(" "), maxOut)); };',
-    '  const customConsole = { log: (...a) => addLog("", a), info: (...a) => addLog("INFO", a), warn: (...a) => addLog("WARN", a), error: (...a) => addLog("ERROR", a) };',
-    '  const trimmed = code.trim();',
-    '  const isStmt = /^(?:while|for|if|let|const|var|function|class|try|throw|switch|do)\\b/.test(trimmed) || trimmed.includes(";") || trimmed.includes("\\n") || trimmed.includes("return");',
-    '  const body = isStmt ? `"use strict";\\n${trimmed}` : `"use strict"; return (${trimmed});`;',
-    '  const wrapper = /\\bawait\\b/.test(trimmed) ? `(async function() {\\n${body}\\n})()` : `(function() {\\n${body}\\n})()`;',
-    '  const sandboxContext = Object.assign(Object.create(null), { console: customConsole, Math, JSON, Date, RegExp, Array, Object, String, Number, Boolean, Symbol, BigInt, Map, Set, WeakMap, WeakSet, Promise, Error, TypeError, RangeError, SyntaxError, URIError, parseInt, parseFloat, isNaN, isFinite, encodeURI, decodeURI, encodeURIComponent, decodeURIComponent });',
-    '  const context = vm.createContext(sandboxContext);',
-    '  vm.runInContext(\'Function.prototype.constructor = function () { throw new Error("Dynamic function creation is not allowed in the sandbox."); };\', context);',
-    '  const keepAlive = setTimeout(() => {}, timeoutMs + 2000);',
-    '  try {',
-    '    const value = await Promise.resolve(new vm.Script(wrapper).runInContext(context, { timeout: timeoutMs, breakOnSigint: true }));',
-    '    process.stdout.write(JSON.stringify({ success: true, result: value !== undefined ? truncate(formatValue(value), maxOut) : (logs.length > 0 ? logs.join("\\n") : "undefined"), logs }));',
-    '  } catch (err) {',
-    '    const isTimeout = err && (err.code === "ERR_SCRIPT_EXECUTION_TIMEOUT" || /timed out/i.test(err.message || ""));',
-    '    process.stdout.write(JSON.stringify({ success: false, result: "", logs, error: isTimeout ? `Execution timed out after ${timeoutMs}ms and was terminated.` : ((err && err.message) || String(err)) }));',
-    '  } finally {',
-    '    clearTimeout(keepAlive);',
-    '  }',
-    '})();'
-  ].join('\n');
-
   function executeInNode(code, timeoutMs) {
     const mcpManager = globalThis.ChatMCP?.manager;
     if (mcpManager?.isProxyConnected?.()) {
@@ -218,12 +176,14 @@
       );
     }
     const { spawn } = require('node:child_process');
+    // El mismo proceso hijo que lanza el servidor (scripts/sandbox-child.js).
+    const { NODE_SANDBOX_ARGS, NODE_SANDBOX_SCRIPT } = resolveDep('ChatSandboxNodeScript', './sandbox-node-script.js');
     const env = process.platform === 'win32' && process.env.SYSTEMROOT
       ? { SYSTEMROOT: process.env.SYSTEMROOT }
       : {};
     let child = null;
     const execution = new Promise(resolve => {
-      child = spawn(process.execPath, ['--permission', '-e', NODE_SANDBOX_CHILD_SCRIPT], {
+      child = spawn(process.execPath, [...NODE_SANDBOX_ARGS, '-e', NODE_SANDBOX_SCRIPT], {
         env,
         stdio: ['pipe', 'pipe', 'pipe']
       });

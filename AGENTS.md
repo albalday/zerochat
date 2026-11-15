@@ -84,6 +84,7 @@ Validaciones según el nivel afectado:
 - Contratos de arquitectura: `npm run test:architecture`
 - Integración de componentes: `npm run test:integration`
 - Cambios de HTML, CSS o DOM: `npm run test:browser`
+- Backend (`py/`): `npm run lint` (ruff y pyright, los de la CI); el hook `pre-commit` de `.githooks/`, que `npm install` activa, lo ejecuta en cada commit que toca `py/`
 
 Antes de considerar terminado un cambio:
 1. pasan todas las pruebas aplicables;
