@@ -339,7 +339,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         zerochat.RUN_SESSION = session
         self.addCleanup(setattr, zerochat, "RUN_SESSION", None)
         ctx = zerochat.project_context()
-        sleeper = f'"{sys.executable}" -c "import time; time.sleep(100)"'
+        # PowerShell, el intérprete de run_command en Windows, ejecuta una ruta entre comillas con &.
+        sleeper = ("& " if os.name == "nt" else "") + f'"{sys.executable}" -c "import time; time.sleep(100)"'
         job = json.loads(zerochat.run_command(sleeper, background=True, ctx=ctx))
         self.addCleanup(zerochat.check_command, job["job_id"], stop=True, ctx=ctx)
         result, error, _ = zerochat.execute_tool(

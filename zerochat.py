@@ -8944,6 +8944,13 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         # Silenciar logs ruidosos por defecto
         pass
 
+
+class ZeroChatHTTPServer(ThreadingHTTPServer):
+    """Servidor del backend con una cola de conexiones amplia: la interfaz en desarrollo y el runner de Node piden
+    decenas de módulos a la vez, y con la cola de 5 por defecto macOS descarta las que sobran (el cliente agota el
+    plazo de conexión) y Windows las reinicia."""
+    request_queue_size = 128
+
 # --- cli.main ---
 """Punto de entrada de zerochat: argumentos de la línea de órdenes, arranque del servidor, interfaz, ejecución desatendida y cierre."""
 
@@ -9177,7 +9184,7 @@ def open_server(args, local_ui: bool) -> ThreadingHTTPServer:
     port = args.port if args.port is not None else int(os.environ.get("ZEROCHAT_PORT", DEFAULT_PORT))
     set_active_address(host, port)
     try:
-        return ThreadingHTTPServer((host, port), ZeroChatServerHandler)
+        return ZeroChatHTTPServer((host, port), ZeroChatServerHandler)
     except OSError as exc:
         if not current_run_session():
             raise
@@ -9187,7 +9194,7 @@ def open_server(args, local_ui: bool) -> ThreadingHTTPServer:
             sys.exit(RUN_EXIT_SETUP)
     # Otro zerochat (u otro programa) usa el puerto por defecto: la ejecución usa uno libre.
     try:
-        server = ThreadingHTTPServer((host, 0), ZeroChatServerHandler)
+        server = ZeroChatHTTPServer((host, 0), ZeroChatServerHandler)
     except OSError as retry_exc:
         run_error(f"No se pudo escuchar en {host}: {retry_exc}")
         sys.exit(RUN_EXIT_SETUP)

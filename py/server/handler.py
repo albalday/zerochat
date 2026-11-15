@@ -6,7 +6,7 @@ import json
 import re
 import time
 import urllib.parse
-from http.server import BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from auth.login import LOGIN_MAX_BODY_BYTES
@@ -430,3 +430,11 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # Silenciar logs ruidosos por defecto
         pass
+
+
+class ZeroChatHTTPServer(ThreadingHTTPServer):
+    """Servidor del backend con una cola de conexiones amplia: la interfaz en desarrollo y el runner de Node piden
+    decenas de módulos a la vez, y con la cola de 5 por defecto macOS descarta las que sobran (el cliente agota el
+    plazo de conexión) y Windows las reinicia."""
+    request_queue_size = 128
+
