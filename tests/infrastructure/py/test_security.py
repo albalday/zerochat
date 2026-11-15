@@ -567,6 +567,30 @@ class ChallengeTest(HandlerTestCase):
         execute.assert_called_once_with("local", "run_command", {"command": "echo job", "job_key": "inv-1"}, cwd(), "")
 
 
+class ApprovedCallOnResumeTest(HandlerTestCase):
+    """Al reanudar una ejecución en servidor, la llamada aprobada en la tarjeta pausada la contesta este servidor,
+    porque la credencial del runner no puede resolver retos: solo esa llamada y una sola vez."""
+
+    def run_session(self, decision):
+        tool_decision = {"toolName": "run_command", "args": {"command": "echo hola", "timeout_seconds": 30}, "decision": decision}
+        session = zerochat.RunSession(prompt="hola", tool_security={"tool_decision": tool_decision})
+        patcher = unittest.mock.patch.object(zerochat, "RUN_SESSION", session)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_solo_la_llamada_aprobada_y_una_sola_vez(self):
+        self.run_session("allow_once")
+        self.command_challenge("echo adios")
+        ran = self.call_local("run_command", {"timeout_seconds": 30, "command": "echo hola"})
+        self.assertNotIn("requiresAuthorization", ran)
+        self.assertIn("hola", ran["content"][0]["text"])
+        self.assertTrue(self.call_local("run_command", {"command": "echo hola", "timeout_seconds": 30}).get("requiresAuthorization"))
+
+    def test_una_denegacion_no_ejecuta_nada(self):
+        self.run_session("deny")
+        self.assertTrue(self.call_local("run_command", {"command": "echo hola", "timeout_seconds": 30}).get("requiresAuthorization"))
+
+
 class CommandPatternTest(HandlerTestCase):
     def test_command_patterns_match_argument_by_argument(self):
         cases = [

@@ -61,14 +61,13 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertIsNone(data["error"])
         self.assertEqual(data["pid"], os.getpid())
 
-        # zerochat/run/prompt entrega conversation_id y, de tool_security, solo la decisión de la tarjeta pausada:
-        # las políticas las aplica este servidor.
+        # zerochat/run/prompt entrega conversation_id y nada de tool_security, que aplica este servidor.
         zerochat.RUN_SESSION = session
         prompt_res, err, _ = dispatch_run("zerochat/run/prompt", {"run_id": session.run_id})
         self.assertIsNone(err)
         self.assertEqual(prompt_res["conversation_id"], conv_id)
-        self.assertEqual(prompt_res["tool_decision"], {"toolName": "write_file", "args": {}, "decision": "allow_once"})
         self.assertNotIn("tool_security", prompt_res)
+        self.assertNotIn("tool_decision", prompt_res)
 
         # zerochat/run/progress actualiza situación y streaming de texto y razonamiento
         prog_res, err, _ = dispatch_run("zerochat/run/progress", {

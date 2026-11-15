@@ -9,6 +9,7 @@ import inspect
 import json
 
 from browser.config import PLAYWRIGHT_SERVER_ID
+from core.logging import log_event
 from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, RpcOutcome, dispatch_table, rpc_error, rpc_result
 from mcp.manager import GLOBAL_MCP_MANAGER
 from run_mode.state import current_run_session
@@ -110,7 +111,11 @@ def authorize_or_challenge(origin: str, tool_name: str, args: dict, ctx: Securit
         err_msg = f"Bloqueado por política de seguridad: {decision.reason}"
         return {"content": [{"type": "text", "text": f"Error: {err_msg}"}], "isError": True, "securityStatus": "deny", "reason": decision.reason}, None, err_msg
     if decision.status == POLICY_ASK:
-        ch = ACCESS_CONTROLLER.create_challenge(
+        session = current_run_session()
+        if session is not None and session.take_approved_call(tool_name, args):
+            log_event(f"[run] {tool_name}: se ejecuta la llamada que la persona aprobó al reanudar")
+            return None
+        ch =ACCESS_CONTROLLER.create_challenge(
             tool_name, args, decision, server_name=server_name, server_id=server_id, origin=origin,
             context=ctx, job_key=job_key, conversation_id=conversation_id
         )

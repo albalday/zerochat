@@ -17,7 +17,7 @@ const CORS = {
  * Servidor local falso: registra las llamadas zerochat/run/* y los servicios MCP externos que se
  * arrancan, y retiene el prompt hasta `release`.
  */
-async function routeBackend(page, prompt, { profile, profileData = null, serverProfiles = [], exportFormat, keepPage = false, allowDangerous = false, externalServers = [], conversationId = null, toolDecision = null, initialConversation = null } = {}) {
+async function routeBackend(page, prompt, { profile, profileData = null, serverProfiles = [], exportFormat, keepPage = false, allowDangerous = false, externalServers = [], conversationId = null, initialConversation = null } = {}) {
   const calls = [];
   const started = [];
   const saved = [];
@@ -82,8 +82,7 @@ async function routeBackend(page, prompt, { profile, profileData = null, serverP
           profiles: serverProfiles,
           export: exportFormat ?? null,
           keep_page: keepPage,
-          allow_dangerous_tools: allowDangerous,
-          tool_decision: toolDecision
+          allow_dangerous_tools: allowDangerous
         });
       }
       if (method === 'zerochat/run/result') receiveResult();
@@ -314,7 +313,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     assert.deepEqual(resultOf(ask.backend), { run_id: RUN_ID, error: 'The run needs the user: ¿A o B?' });
   });
 
-  test('Browser UI - el modo ejecución con conversation_id reanuda un paso pausado con la decisión del usuario (un solo uso) y devuelve needs_input al volver a pedir permiso', async () => {
+  test('Browser UI - el modo ejecución con conversation_id retira el paso pausado, vuelve a llamar al modelo y devuelve needs_input al pedir permiso', async () => {
     const initialConversation = {
       id: 'conv_resume_e2e',
       title: 'Conversación pausada',
@@ -339,28 +338,16 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     };
     const { page, backend } = await openRun(browser, server, null, {
       conversationId: 'conv_resume_e2e',
-      initialConversation,
-      toolDecision: { toolName: 'write_file', args: { path: 'a.txt', content: '1' }, decision: 'allow_once' }
+      initialConversation
     });
     await page.evaluate(() => {
       window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
-      let step = 0;
-      window.ChatAPI.streamChatCompletion = async () => {
-        step += 1;
-        if (step === 1) {
-          return {
-            accumulatedText: 'Escribiendo el primero',
-            toolCalls: [{ id: 'call_w1', type: 'function', function: { name: 'write_file', arguments: '{"path":"a.txt","content":"1"}' } }],
-            stats: null
-          };
-        }
-        // En el segundo paso vuelve a llamar a write_file: la decisión ya se consumió y debe pausar con needs_input.
-        return {
-          accumulatedText: 'Intentando el segundo',
-          toolCalls: [{ id: 'call_w2', type: 'function', function: { name: 'write_file', arguments: '{"path":"b.txt","content":"2"}' } }],
-          stats: null
-        };
-      };
+      // El modelo vuelve a generar el paso pausado: su reto pausa otra vez, porque el runner nunca aprueba solo.
+      window.ChatAPI.streamChatCompletion = async () => ({
+        accumulatedText: 'Escribiendo el primero',
+        toolCalls: [{ id: 'call_w1', type: 'function', function: { name: 'write_file', arguments: '{"path":"a.txt","content":"1"}' } }],
+        stats: null
+      });
     });
     backend.release();
     await page.waitForFunction(() => window.__closed === true);

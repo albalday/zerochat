@@ -15,7 +15,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { resolveDep, EPHEMERAL_ID_PATTERN, readLaunchFragment, matchesToolDecision } = Utils;
+  const { resolveDep, EPHEMERAL_ID_PATTERN, readLaunchFragment } = Utils;
   const getState = () => resolveDep('ChatState', './state.js');
   const getMcpManager = () => resolveDep('ChatMCP', './mcp.js').manager;
   const getProfiles = () => resolveDep('ChatProfileRepository', './profile-repository.js');
@@ -134,21 +134,13 @@
 
   /**
    * Contesta cada petición de autorización:
-   * - Si `toolDecision` es de esa misma llamada (nombre y argumentos), contesta con la decisión del usuario una sola vez.
    * - En modo conversación (pauseOnApproval = true): devuelve 'pause_for_user' y emite un aviso de tipo
    *   'user_request'; la persona contesta después, así que nunca se aprueba sola.
    * - En modo clásico (pauseOnApproval = false): permitida para la sesión, salvo las herramientas que
    *   escriben o ejecutan sin allowDangerous, que se deniegan.
    */
-  function answerToolApprovals(allowDangerous, report, { pauseOnApproval = false, toolDecision = null } = {}) {
-    let pendingDecision = toolDecision && typeof toolDecision.toolName === 'string' ? toolDecision : null;
-    getToolCards().setAuthorizationResponder((toolName, args) => {
-      if (matchesToolDecision(pendingDecision, toolName, args)) {
-        const { decision } = pendingDecision;
-        pendingDecision = null;
-        report({ kind: 'approval_allowed', text: toolName });
-        return decision;
-      }
+  function answerToolApprovals(allowDangerous, report, { pauseOnApproval = false } = {}) {
+    getToolCards().setAuthorizationResponder(toolName => {
       if (pauseOnApproval) {
         report({ kind: 'user_request', text: toolName });
         return 'pause_for_user';
@@ -207,8 +199,7 @@
         keep_page: keepPageRequested,
         allow_dangerous_tools: allowDangerous,
         conversation_id: conversationId,
-        new_conversation_id: newConversationId,
-        tool_decision: toolDecision
+        new_conversation_id: newConversationId
       } = await send('zerochat/run/prompt');
       keepPage = keepPageRequested === true;
 
@@ -238,10 +229,8 @@
         report({ kind: 'profile', text: match.name });
       }
 
-      answerToolApprovals(allowDangerous === true, report, {
-        pauseOnApproval: isConversationMode,
-        toolDecision
-      });
+      // La llamada que la persona aprobó al reanudar no llega aquí como reto: la ejecuta el servidor.
+      answerToolApprovals(allowDangerous === true, report, { pauseOnApproval: isConversationMode });
 
       if (isConversationMode) {
         await switchToSession(conversationId);

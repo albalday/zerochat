@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import socket
 import subprocess
@@ -7,6 +8,7 @@ import threading
 import unittest
 from functools import partial
 from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler, ThreadingHTTPServer
+from unittest import mock
 
 from backend import ZEROCHAT_PY, use_data_dir, zerochat
 
@@ -107,7 +109,7 @@ class FakeModel(BaseHTTPRequestHandler):
     """API compatible con OpenAI que responde siempre lo mismo, en streaming o no.
 
     Guarda el modelo de cada petición; si el último mensaje del usuario pide «cambia a <perfil>», el primer
-    paso de ese turno llama a switch_model."""
+    paso de ese turno llama a switch_model, y «ejecuta X» a run_command con X."""
     REPLY = "Hola desde el modelo falso"
     requests: list = []
 
@@ -127,10 +129,18 @@ class FakeModel(BaseHTTPRequestHandler):
     def do_POST(self):
         request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         FakeModel.requests.append(request)
-        switch = re.search(r"cambia a (\w+)", request["messages"][-1].get("content") or "") if request["messages"][-1]["role"] == "user" else None
-        if switch and request.get("stream"):
+        last = request["messages"][-1]
+        text = (last.get("content") or "") if last["role"] == "user" else ""
+        switch = re.search(r"cambia a (\w+)", text)
+        command = re.search(r"ejecuta (.+)", text)
+        call = None
+        if switch:
             call = {"index": 0, "id": "call_1", "type": "function",
                     "function": {"name": "switch_model", "arguments": json.dumps({"profile": switch.group(1)})}}
+        elif command:
+            call = {"index": 0, "id": "call_1", "type": "function",
+                    "function": {"name": "run_command", "arguments": json.dumps({"command": command.group(1)})}}
+        if call and request.get("stream"):
             chunks = [{"choices": [{"index": 0, "delta": {"tool_calls": [call]}}]},
                       {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}]
             self._send("text/event-stream", b"".join(f"data: {json.dumps(chunk)}\n\n".encode() for chunk in chunks) + b"data: [DONE]\n\n")
@@ -187,3 +197,15 @@ class RealNodeRunTest(unittest.TestCase):
         history = zerochat.get_conversation(zerochat.list_conversations()[0]["id"])["history"]
         switched = json.loads(next(message for message in history if message["role"] == "tool")["content"])
         self.assertEqual((switched["success"], switched["profile"], switched["model"]), (True, "Otro", "fake-otro"))
+
+    def test_conversation_ejecuta_una_sola_vez_la_llamada_aprobada_al_reanudar(self):
+        # La credencial del runner no puede resolver retos: la llamada aprobada la contesta el servidor de la ejecución.
+        zerochat.save_conversation({"id": "session_once", "title": "una vez"}, [])
+        decision = {"toolName": "run_command", "args": {"command": "echo hola"}, "decision": "allow_once"}
+        with mock.patch.dict(os.environ, {"ZEROCHAT_RUN_SECURITY": json.dumps({"tool_decision": decision})}):
+            result = self.run_zerochat("--conversation", "session_once", "--prompt", "ejecuta echo hola")
+        self.assertEqual((result.returncode, result.stdout), (0, FakeModel.REPLY + "\n"), result.stderr)
+        tool = next(message for message in zerochat.get_conversation("session_once")["history"] if message["role"] == "tool")
+        self.assertIn("hola", tool["content"])
+        self.assertNotIn("403", tool["content"])
+

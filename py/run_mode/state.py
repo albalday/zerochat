@@ -285,6 +285,18 @@ def cancel_server_run(conversation_id: str) -> dict:
     return {"cancelled": True}
 
 
+def _approved_call(tool_security) -> tuple[str, dict] | None:
+    """(nombre, argumentos) de tool_decision, la llamada que la persona aprobó al reanudar; None sin aprobación."""
+    decision = tool_security.get("tool_decision") if isinstance(tool_security, dict) else None
+    if not isinstance(decision, dict):
+        return None
+    tool_name, args, choice = decision.get("toolName"), decision.get("args"), decision.get("decision")
+    choice = choice.get("decision") if isinstance(choice, dict) else choice
+    if not isinstance(tool_name, str) or not tool_name or not isinstance(args, dict) or choice in (None, "deny"):
+        return None
+    return tool_name, args
+
+
 class RunSession:
     """Estado de la ejecución: prompt, opciones, último progreso, exportación, resultado y motivo de un final sin él."""
     def __init__(self, prompt: str | None = None, profile: str | None = None, export_path: Path | None = None, keep_page: bool = False,
@@ -317,6 +329,7 @@ class RunSession:
                 self.tool_security = None
         else:
             self.tool_security = None
+        self._approved_call = _approved_call(self.tool_security)
         self.lock = threading.Lock()
         self.last_activity = time.monotonic()
         # Esperas de check_command: no cuentan como inactividad y alargan el plazo total.
@@ -361,6 +374,15 @@ class RunSession:
                 self._waited += now - self._waiting_since
             self._waiting_since = None
             self.last_activity = now
+
+    def take_approved_call(self, tool_name: str, args: dict) -> bool:
+        """Si es la llamada que la persona aprobó en la tarjeta pausada (mismo nombre y argumentos), la consume:
+        su reto lo contesta este servidor, una sola vez, porque la credencial del runner no puede resolver retos."""
+        with self.lock:
+            if self._approved_call is None or self._approved_call != (tool_name, args):
+                return False
+            self._approved_call = None
+            return True
 
     def waited_seconds(self) -> float:
         """Tiempo total en esperas de check_command, incluida la que esté en curso."""
@@ -421,16 +443,15 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
         session.prompt_delivered = True
     session.touch()
     export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
-    # Las políticas de tool_security las aplica este servidor (reset_session_authorizations); el runner solo
-    # necesita la decisión de la tarjeta pausada, para contestar con ella el reto de esa misma llamada.
-    tool_decision = session.tool_security.get("tool_decision") if isinstance(session.tool_security, dict) else None
+    # tool_security lo aplica este servidor: las políticas (reset_session_authorizations) y la llamada aprobada en la
+    # tarjeta pausada (take_approved_call), así que el runner no recibe nada de él.
     return rpc_result({"prompt": session.prompt, "conversation_id": session.conversation_id,
                        "new_conversation_id": session.new_conversation_id, "profile": session.profile,
                        "profile_data": session.profile_data,
                        # Para switch_model: el runner no puede listar los perfiles con su credencial.
                        "profiles": list_general_profiles(),
                        "export": export_format, "keep_page": session.keep_page,
-                       "allow_dangerous_tools": session.allow_dangerous_tools, "tool_decision": tool_decision})
+                       "allow_dangerous_tools": session.allow_dangerous_tools})
 
 
 def _capped(text: str, limit: int) -> str:
