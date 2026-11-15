@@ -4044,6 +4044,8 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
     return rpc_result({"prompt": session.prompt, "conversation_id": session.conversation_id,
                        "new_conversation_id": session.new_conversation_id, "profile": session.profile,
                        "profile_data": session.profile_data,
+                       # Para switch_model: el runner no puede listar los perfiles con su credencial.
+                       "profiles": list_general_profiles(),
                        "export": export_format, "keep_page": session.keep_page,
                        "allow_dangerous_tools": session.allow_dangerous_tools, "tool_decision": tool_decision})
 

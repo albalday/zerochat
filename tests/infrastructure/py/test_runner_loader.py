@@ -1,4 +1,5 @@
 import json
+import re
 import socket
 import subprocess
 import sys
@@ -103,8 +104,12 @@ class RunnerLoaderTest(unittest.TestCase):
 
 
 class FakeModel(BaseHTTPRequestHandler):
-    """API compatible con OpenAI que responde siempre lo mismo, en streaming o no."""
+    """API compatible con OpenAI que responde siempre lo mismo, en streaming o no.
+
+    Guarda el modelo de cada petición; si el último mensaje del usuario pide «cambia a <perfil>», el primer
+    paso de ese turno llama a switch_model."""
     REPLY = "Hola desde el modelo falso"
+    requests: list = []
 
     def log_message(self, *_args):
         pass
@@ -121,6 +126,15 @@ class FakeModel(BaseHTTPRequestHandler):
 
     def do_POST(self):
         request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        FakeModel.requests.append(request)
+        switch = re.search(r"cambia a (\w+)", request["messages"][-1].get("content") or "") if request["messages"][-1]["role"] == "user" else None
+        if switch and request.get("stream"):
+            call = {"index": 0, "id": "call_1", "type": "function",
+                    "function": {"name": "switch_model", "arguments": json.dumps({"profile": switch.group(1)})}}
+            chunks = [{"choices": [{"index": 0, "delta": {"tool_calls": [call]}}]},
+                      {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}]
+            self._send("text/event-stream", b"".join(f"data: {json.dumps(chunk)}\n\n".encode() for chunk in chunks) + b"data: [DONE]\n\n")
+            return
         if not request.get("stream"):
             message = {"role": "assistant", "content": self.REPLY}
             self._send("application/json", json.dumps({"choices": [{"index": 0, "message": message, "finish_reason": "stop"}]}).encode())
@@ -142,6 +156,8 @@ class RealNodeRunTest(unittest.TestCase):
         self.addCleanup(model.shutdown)
         api_url = f"http://127.0.0.1:{model.server_address[1]}/v1"
         zerochat.save_general_profile({"name": "local", "settings": {"apiType": "openai", "apiUrl": api_url, "model": "fake"}})
+        zerochat.save_general_profile({"name": "Otro", "settings": {"apiType": "openai", "apiUrl": api_url, "model": "fake-otro"}})
+        FakeModel.requests = []
 
     def run_zerochat(self, *args):
         with socket.socket() as probe:
@@ -162,3 +178,12 @@ class RealNodeRunTest(unittest.TestCase):
         self.assertEqual((second.returncode, second.stdout), (0, FakeModel.REPLY + "\n"), second.stderr)
         history = zerochat.get_conversation(conversation_id)["history"]
         self.assertEqual([message["role"] for message in history], ["user", "assistant", "user", "assistant"])
+
+    def test_switch_model_cambia_a_otro_perfil_del_servidor(self):
+        result = self.run_zerochat("--prompt", "cambia a otro y saluda")
+        self.assertEqual((result.returncode, result.stdout), (0, FakeModel.REPLY + "\n"), result.stderr)
+        chat = [request for request in FakeModel.requests if request.get("stream")]
+        self.assertEqual([request["model"] for request in chat], ["fake", "fake-otro"])
+        history = zerochat.get_conversation(zerochat.list_conversations()[0]["id"])["history"]
+        switched = json.loads(next(message for message in history if message["role"] == "tool")["content"])
+        self.assertEqual((switched["success"], switched["profile"], switched["model"]), (True, "Otro", "fake-otro"))

@@ -111,7 +111,10 @@
       if (typeof modelSwitch?.apply !== 'function') return { success: false, error: 'Switching the model is not available here.' };
       let profiles;
       try {
-        profiles = context.services.profiles.list();
+        // En una ejecución en el servidor, los perfiles del servidor van primero, como en la elección del perfil inicial.
+        const repository = context.services.profiles;
+        const session = repository.listSessionProfiles?.() || [];
+        profiles = [...session, ...repository.list().filter(profile => !session.some(item => item.id === profile.id))];
       } catch (error) {
         return { success: false, error: `The profiles could not be read: ${error?.message || String(error)}` };
       }

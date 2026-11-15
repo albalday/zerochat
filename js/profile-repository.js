@@ -136,11 +136,13 @@
     return clone(document);
   }
 
-  let sessionProfile = null;
+  // Perfiles del servidor que una ejecución en el servidor usa solo en memoria: el suyo y los que
+  // switch_model puede activar. No se guardan ni aparecen en list().
+  const sessionProfiles = new Map();
 
   function registerSessionProfile(profile) {
     if (!profile || typeof profile !== 'object') {
-      sessionProfile = null;
+      sessionProfiles.clear();
       return null;
     }
     const name = String(profile.name || '').trim();
@@ -150,12 +152,17 @@
       : (typeof profile.settings?.apiKey === 'string' ? profile.settings.apiKey : '');
     const sourceSettings = profile.settings || {};
     const settings = { ...sourceSettings, apiKey: rawApiKey };
-    sessionProfile = normalizeRecord({ ...profile, settings }, true);
-    return clone(sessionProfile);
+    const record = normalizeRecord({ ...profile, settings }, true);
+    sessionProfiles.set(record.id, record);
+    return clone(record);
+  }
+
+  function listSessionProfiles() {
+    return [...sessionProfiles.values()].map(clone);
   }
 
   function clearSessionProfile() {
-    sessionProfile = null;
+    sessionProfiles.clear();
   }
 
   function list() {
@@ -164,9 +171,8 @@
 
   function get(id) {
     const cleanId = String(id || '');
-    if (sessionProfile && (sessionProfile.id === cleanId || sessionProfile.name === cleanId)) {
-      return clone(sessionProfile);
-    }
+    const session = sessionProfiles.get(cleanId) || [...sessionProfiles.values()].find(profile => profile.name === cleanId);
+    if (session) return clone(session);
     return list().find(profile => profile.id === cleanId) || null;
   }
 
@@ -208,9 +214,8 @@
   function findByName(name) {
     const cleanName = String(name || '').trim();
     if (!cleanName) return null;
-    if (sessionProfile && sessionProfile.name === cleanName) {
-      return clone(sessionProfile);
-    }
+    const session = [...sessionProfiles.values()].find(profile => profile.name === cleanName);
+    if (session) return clone(session);
     return list().find(profile => profile.name === cleanName) || null;
   }
 
@@ -330,6 +335,6 @@
   return {
     STORAGE_KEY, SCHEMA_VERSION, PROFILE_FIELDS, MAX_PROFILE_MCP_SERVERS, STORAGE_PROFILE_FIELDS, READONLY_PROFILE_ID, MIRROR_PROFILE: clone(MIRROR_PROFILE), NEW_PROFILE_SETTINGS: clone(NEW_PROFILE_SETTINGS),
     initialize, list, get, load, setPasswordPrompt, loadUnlocked, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported,
-    importServerProfile, registerSessionProfile, clearSessionProfile
+    importServerProfile, registerSessionProfile, listSessionProfiles, clearSessionProfile
   };
 }));

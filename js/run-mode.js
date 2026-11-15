@@ -202,6 +202,7 @@
         prompt,
         profile,
         profile_data: profileData,
+        profiles: serverProfiles,
         export: exportFormat,
         keep_page: keepPageRequested,
         allow_dangerous_tools: allowDangerous,
@@ -216,18 +217,20 @@
         throw new Error('The local server returned no prompt.');
       }
 
+      // Los perfiles del servidor quedan en memoria para esta ejecución: el de la ejecución y los que
+      // switch_model puede activar si el usuario los nombra. La credencial del runner no los puede listar.
+      for (const serverProfile of Array.isArray(serverProfiles) ? serverProfiles : []) {
+        try {
+          getProfiles().registerSessionProfile(serverProfile);
+        } catch (error) {
+          console.warn('[RunMode] Skipping an invalid server profile:', error);
+        }
+      }
+
       if (profile) {
         let match = getProfiles().findByName(profile) || getProfiles().get(profile);
         if (!match && profileData && (profileData.name === profile || profileData.id === profile)) {
           match = getProfiles().registerSessionProfile(profileData);
-        }
-        if (!match) {
-          const serverProfiles = await getMcpManager().listServerProfiles();
-          const target = String(profile).trim().toLowerCase();
-          const serverMatch = serverProfiles.find(item => item.id === profile || String(item.name || '').trim().toLowerCase() === target);
-          if (serverMatch) {
-            match = getProfiles().registerSessionProfile(serverMatch);
-          }
         }
         if (!match) throw new Error(`Profile not found: ${profile}`);
         const { unavailable } = await activateSessionProfile(match.id);

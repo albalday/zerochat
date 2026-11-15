@@ -41,7 +41,6 @@ async function routeBackend(page, prompt, { profile, profileData = null, serverP
       });
     }
     if (method === 'zerochat/heartbeat') return reply(liveState());
-    if (method === 'zerochat/profiles/list') return reply({ profiles: serverProfiles });
     if (method === 'zerochat/conversations/list') {
       return reply({ conversations: initialConversation ? [{ id: initialConversation.id, title: initialConversation.title, updatedAt: Date.now(), messageCount: initialConversation.history.length }] : [] });
     }
@@ -79,6 +78,8 @@ async function routeBackend(page, prompt, { profile, profileData = null, serverP
           conversation_id: conversationId,
           profile: profile ?? null,
           profile_data: profileData ?? null,
+          // Como el backend real: la credencial del runner no puede listar los perfiles, que llegan aquí.
+          profiles: serverProfiles,
           export: exportFormat ?? null,
           keep_page: keepPage,
           allow_dangerous_tools: allowDangerous,
@@ -200,7 +201,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     await missing.page.waitForFunction(() => window.__closed === true);
     assert.deepEqual(resultOf(missing.backend), { run_id: RUN_ID, error: 'Profile not found: No existe' });
 
-    // Perfil del servidor (no está en localStorage del navegador y se resuelve desde el backend)
+    // Perfil del servidor (no está en localStorage del navegador y llega con zerochat/run/prompt)
     const serverRun = await openRun(browser, server, 'Hola desde servidor', {
       profile: 'local',
       seedProfiles: false,
