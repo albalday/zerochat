@@ -42,7 +42,8 @@ class RunnerLoaderTest(unittest.TestCase):
         self.site = base / "site"
         for name, text in SITE.items():
             (self.site / name).parent.mkdir(parents=True, exist_ok=True)
-            (self.site / name).write_text(text, encoding="utf-8")
+            # Con LF también en Windows: el tope cuenta lo que se sirve.
+            (self.site / name).write_text(text, encoding="utf-8", newline="")
         self.cache_dir = base / "cache"
         self.cache_dir.mkdir()
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), partial(Quiet, directory=str(self.site)))
@@ -98,7 +99,7 @@ class RunnerLoaderTest(unittest.TestCase):
         for extra, code in ((0, 0), (1, 1)):
             with self.subTest(extra=extra):
                 padding = zerochat.RUNNER_MAX_BYTES - others - len(head) + extra
-                (self.site / "js" / "c.js").write_text(head + "x" * padding, encoding="utf-8")
+                (self.site / "js" / "c.js").write_text(head + "x" * padding, encoding="utf-8", newline="")
                 result = self.run_loader()
                 self.assertEqual(result.returncode, code, result.stderr)
                 if code:

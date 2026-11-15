@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import os
 import subprocess
+import tempfile
 import time
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from typing import IO
 
 from auth.tokens import revoke_token
 from browser.launch import launch_browser
@@ -26,7 +28,26 @@ from run_mode.state import (
 from server.state import _SERVER_SHUTTING_DOWN, heartbeat_initialized, stop_zerochat_server
 
 
-def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc: subprocess.Popen | None = None, browser_proc: subprocess.Popen | None = None):
+# Final de la salida de error del runner que acompaña al motivo de un final sin resultado.
+RUNNER_ERROR_TAIL_BYTES = 2000
+
+
+def runner_exit_reason(proc: subprocess.Popen, stderr_log: IO[bytes] | None) -> str:
+    """Por qué terminó el runner sin resultado: su código de salida y el final de su salida de error."""
+    tail = ""
+    if stderr_log is not None:
+        try:
+            size = stderr_log.seek(0, os.SEEK_END)
+            stderr_log.seek(max(0, size - RUNNER_ERROR_TAIL_BYTES))
+            tail = stderr_log.read().decode("utf-8", "replace").strip()
+        except (OSError, ValueError):
+            tail = ""
+    reason = f"El runner de Node.js terminó con el código {proc.returncode} sin resultado"
+    return f"{reason}: {tail}" if tail else f"{reason}."
+
+
+def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc: subprocess.Popen | None = None,
+                   browser_proc: subprocess.Popen | None = None, runner_log: IO[bytes] | None = None):
     """Detiene el servidor al recibir el resultado, si termina el runner propio o al agotar los plazos."""
     proc = runner_proc if runner_proc is not None else browser_proc
     deadline = time.monotonic() + RUN_TOTAL_TIMEOUT
@@ -35,6 +56,8 @@ def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc
         if _SERVER_SHUTTING_DOWN.is_set():
             return
         if proc is not None and proc.poll() is not None and not session.finished.wait(0.2):
+            if runner_proc is not None:
+                session.stop_reason = runner_exit_reason(runner_proc, runner_log)
             break
         if time.monotonic() >= deadline + session.waited_seconds():
             session.stop_reason = f"Plazo total agotado ({RUN_TOTAL_TIMEOUT:.0f}s, sin contar las esperas)."
@@ -75,8 +98,9 @@ def _runner_cache_file() -> Path:
     return cache_dir / "modules.json"
 
 
-def launch_node_runner(url: str) -> subprocess.Popen | None:
-    """Abre el runner de Node.js sin ventana en segundo plano con el modelo de permisos de Node.
+def launch_node_runner(url: str) -> tuple[subprocess.Popen, IO[bytes]] | None:
+    """Abre el runner de Node.js sin ventana en segundo plano con el modelo de permisos de Node; devuelve el proceso
+    y su salida de error, en un fichero temporal sin nombre, para explicar un final sin resultado (runner_exit_reason).
 
     El cargador (runner_loader.py) descarga los módulos de la interfaz de url y solo puede leer y escribir su caché.
     Hereda el entorno de quien lanza zerochat (NODE_EXTRA_CA_CERTS, TZ, LANG...): ejecuta código propio, no el del
@@ -95,13 +119,15 @@ def launch_node_runner(url: str) -> subprocess.Popen | None:
     cmd = [node, "--permission", f"--allow-fs-read={cache_dir}", f"--allow-fs-write={cache_dir}",
            "-e", RUNNER_LOADER_SCRIPT, str(cache_file), url]
     try:
-        return subprocess.Popen(
+        stderr_log = tempfile.TemporaryFile()  # noqa: SIM115 - vive lo que la ejecución; se cierra al salir
+        proc = subprocess.Popen(
             cmd,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=stderr_log,
             start_new_session=True,
         )
+        return proc, stderr_log
     except OSError as error:
         run_error(f"No se pudo iniciar el proceso de Node.js ({error}).")
         return None

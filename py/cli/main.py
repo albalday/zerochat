@@ -50,7 +50,7 @@ from run_mode.supervisor import fall_back_when_headless_exits, launch_node_runne
 from security.context import PROJECT_DIR, SecurityContext, project_context
 from security.controller import ACCESS_CONTROLLER
 from security.rules import GLOBAL_POLICY_ALLOW_ALL, POLICY_ALLOW, POLICY_DENY
-from server.handler import ZeroChatServerHandler
+from server.handler import ZeroChatHTTPServer, ZeroChatServerHandler
 from server.state import (
     DEFAULT_HEARTBEAT_GRACE,
     DEFAULT_HEARTBEAT_TIMEOUT,
@@ -299,7 +299,7 @@ def open_server(args, local_ui: bool) -> ThreadingHTTPServer:
     port = args.port if args.port is not None else int(os.environ.get("ZEROCHAT_PORT", DEFAULT_PORT))
     set_active_address(host, port)
     try:
-        return ThreadingHTTPServer((host, port), ZeroChatServerHandler)
+        return ZeroChatHTTPServer((host, port), ZeroChatServerHandler)
     except OSError as exc:
         if not current_run_session():
             raise
@@ -309,7 +309,7 @@ def open_server(args, local_ui: bool) -> ThreadingHTTPServer:
             sys.exit(RUN_EXIT_SETUP)
     # Otro zerochat (u otro programa) usa el puerto por defecto: la ejecución usa uno libre.
     try:
-        server = ThreadingHTTPServer((host, 0), ZeroChatServerHandler)
+        server = ZeroChatHTTPServer((host, 0), ZeroChatServerHandler)
     except OSError as retry_exc:
         run_error(f"No se pudo escuchar en {host}: {retry_exc}")
         sys.exit(RUN_EXIT_SETUP)
@@ -378,12 +378,13 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str):
         return None
     if not args.browser:
         session.runner_token = issue_runner_token(session.run_id, session.conversation_id or session.new_conversation_id)
-        runner_proc = launch_node_runner(launch_url(ui_url, token=session.runner_token))
-        if runner_proc is None:
+        runner = launch_node_runner(launch_url(ui_url, token=session.runner_token))
+        if runner is None:
             server.server_close()
             mute_console()
             sys.exit(RUN_EXIT_SETUP)
-        threading.Thread(target=run_supervisor, args=(server, session, runner_proc), daemon=True).start()
+        runner_proc, runner_log = runner
+        threading.Thread(target=run_supervisor, args=(server, session, runner_proc, None, runner_log), daemon=True).start()
         return runner_proc
     target_url = launch_url(ui_url)
     headless_browser = launch_headless_browser(target_url) if args.headless else None
