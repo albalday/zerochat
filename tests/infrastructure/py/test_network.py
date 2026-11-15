@@ -44,12 +44,15 @@ class DevelopmentStaticFilesTest(unittest.TestCase):
             installed = Path(tmp, "site-packages").resolve()
             installed.mkdir()
             cwd = os.getcwd()
-            self.addCleanup(os.chdir, cwd)
             os.chdir(looks_like_dev)
-            # Un zerochat instalado, arrancado dentro de una carpeta que parece el repositorio, no sirve nada.
-            with patch.object(zerochat, "__file__", str(installed / "zerochat.py")):
-                self.assertIsNone(zerochat.get_dev_root())
-                self.assertIsNone(zerochat.get_static_root())
+            # Se vuelve antes de borrar la carpeta temporal: Windows no borra la carpeta actual de un proceso.
+            try:
+                # Un zerochat instalado, arrancado dentro de una carpeta que parece el repositorio, no sirve nada.
+                with patch.object(zerochat, "__file__", str(installed / "zerochat.py")):
+                    self.assertIsNone(zerochat.get_dev_root())
+                    self.assertIsNone(zerochat.get_static_root())
+            finally:
+                os.chdir(cwd)
             with patch.object(zerochat, "__file__", str(looks_like_dev / "zerochat.py")):
                 self.assertEqual(zerochat.get_dev_root(), looks_like_dev)
 
