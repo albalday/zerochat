@@ -205,7 +205,7 @@ def matches_command_pattern(command: str, pattern: str) -> bool:
     if not words or len(args) < len(words) or (len(args) > len(words) and not rest):
         return False
     first = next((args[0][len(d):] for d in SYSTEM_BIN_DIRS if args[0].startswith(d)), args[0])
-    for (regex, wildcard), arg in zip(words, [first, *args[1:]]):
+    for (regex, wildcard), arg in zip(words, [first, *args[1:]], strict=False):
         if not regex.fullmatch(arg) or (wildcard and COMMAND_WILDCARD_UNSAFE.search(arg)):
             return False
     # Los argumentos del '*' final no tienen texto fijo que los acote: tampoco pueden salir del proyecto.

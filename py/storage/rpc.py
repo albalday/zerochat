@@ -121,7 +121,7 @@ def _put_blob(params: dict) -> RpcOutcome:
     try:
         data_bytes = base64.b64decode(raw_data)
     except Exception as decode_err:
-        raise ValueError(f"Error decodificando base64: {decode_err}")
+        raise ValueError(f"Error decodificando base64: {decode_err}") from decode_err
     saved = put_blob(data_bytes, mime_type=mime_type, blob_id=params.get("id"))
     return rpc_result({"id": saved["id"], "mimeType": saved["mime_type"], "size": saved["size"]})
 

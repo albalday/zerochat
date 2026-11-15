@@ -1172,7 +1172,7 @@ def default_browser_executable() -> str | None:
             return None
         exec_line = next((line[5:] for line in lines if line.startswith("Exec=")), "")
         try:
-            tokens = [token for token in shlex.split(exec_line) if token != "env" and "=" not in token]
+            tokens = [token for token in shlex.split(exec_line) if token != "env" and "=" not in token]  # noqa: S105 - palabras de Exec=, no una contraseña
         except ValueError:
             return None
         # Flatpak o Snap envuelven el navegador: no admiten sus opciones directamente.
@@ -1512,8 +1512,9 @@ def parse_version(ver: str) -> tuple[int, ...]:
 
 def _read_remote_content(url: str) -> str:
     """Lee una cabecera acotada de un recurso publicado de ZeroChat."""
-    req = urllib.request.Request(url, headers={"User-Agent": f"ZeroChat/{VERSION}"})
-    with urllib.request.urlopen(req, timeout=3) as resp:
+    # Solo se llama con las URL https fijas de este módulo.
+    req = urllib.request.Request(url, headers={"User-Agent": f"ZeroChat/{VERSION}"})  # noqa: S310
+    with urllib.request.urlopen(req, timeout=3) as resp:  # noqa: S310
         return resp.read(4096).decode("utf-8", errors="ignore")
 
 
@@ -2030,7 +2031,7 @@ class McpServiceManager:
             try:
                 installer = json.loads(installer_file.read_text(encoding="utf-8"))
             except Exception as e:
-                raise RuntimeError(f"Error leyendo installer.json: {e}")
+                raise RuntimeError(f"Error leyendo installer.json: {e}") from e
             kind = installer.get("type", "npm")
             if kind == "npm":
                 product = installer.get("product", {})
@@ -2638,7 +2639,7 @@ def matches_command_pattern(command: str, pattern: str) -> bool:
     if not words or len(args) < len(words) or (len(args) > len(words) and not rest):
         return False
     first = next((args[0][len(d):] for d in SYSTEM_BIN_DIRS if args[0].startswith(d)), args[0])
-    for (regex, wildcard), arg in zip(words, [first, *args[1:]]):
+    for (regex, wildcard), arg in zip(words, [first, *args[1:]], strict=False):
         if not regex.fullmatch(arg) or (wildcard and COMMAND_WILDCARD_UNSAFE.search(arg)):
             return False
     # Los argumentos del '*' final no tienen texto fijo que los acote: tampoco pueden salir del proyecto.
@@ -3164,7 +3165,7 @@ def _delete_orphan_blobs(conn: sqlite3.Connection, candidates: set[str]):
         batch = candidate_list[start:start + 500]
         marks = ",".join("?" for _ in batch)
         rows = conn.execute(
-            f"SELECT DISTINCT blob_id FROM conversation_blobs WHERE blob_id IN ({marks});",
+            f"SELECT DISTINCT blob_id FROM conversation_blobs WHERE blob_id IN ({marks});",  # noqa: S608
             batch,
         ).fetchall()
         still_used.update(row["blob_id"] for row in rows)
@@ -3312,17 +3313,17 @@ def _delete_conversations(conn: sqlite3.Connection, where: str, params: tuple) -
     conn.isolation_level = None
     conn.execute("BEGIN IMMEDIATE;")
     try:
-        ids = [row["id"] for row in conn.execute(f"SELECT id FROM conversations WHERE {where};", params)]
+        ids = [row["id"] for row in conn.execute(f"SELECT id FROM conversations WHERE {where};", params)]  # noqa: S608
         if ids:
             marks = ",".join("?" for _ in ids)
             candidates = {
                 row["blob_id"]
                 for row in conn.execute(
-                    f"SELECT DISTINCT blob_id FROM conversation_blobs WHERE conversation_id IN ({marks});",
+                    f"SELECT DISTINCT blob_id FROM conversation_blobs WHERE conversation_id IN ({marks});",  # noqa: S608
                     ids,
                 )
             }
-            conn.execute(f"DELETE FROM conversations WHERE id IN ({marks});", ids)
+            conn.execute(f"DELETE FROM conversations WHERE id IN ({marks});", ids)  # noqa: S608
             _delete_orphan_blobs(conn, candidates)
         conn.execute("COMMIT;")
         return ids
@@ -3419,7 +3420,7 @@ def has_blobs(blob_ids: list[str]) -> dict:
     unique_ids = list(dict.fromkeys(clean_ids))
     with open_storage() as conn:
         placeholders = ",".join("?" for _ in unique_ids)
-        rows = conn.execute(f"SELECT id FROM blobs WHERE id IN ({placeholders});", unique_ids).fetchall()
+        rows = conn.execute(f"SELECT id FROM blobs WHERE id IN ({placeholders});", unique_ids).fetchall()  # noqa: S608
         existing_set = {row["id"] for row in rows}
         return {
             "existing": [bid for bid in unique_ids if bid in existing_set],
@@ -4127,7 +4128,7 @@ def _put_blob(params: dict) -> RpcOutcome:
     try:
         data_bytes = base64.b64decode(raw_data)
     except Exception as decode_err:
-        raise ValueError(f"Error decodificando base64: {decode_err}")
+        raise ValueError(f"Error decodificando base64: {decode_err}") from decode_err
     saved = put_blob(data_bytes, mime_type=mime_type, blob_id=params.get("id"))
     return rpc_result({"id": saved["id"], "mimeType": saved["mime_type"], "size": saved["size"]})
 
@@ -4552,7 +4553,7 @@ def _open_gui_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool =
             check=False
         )
     except Exception as err:
-        raise RuntimeError(f"Error comprobando repositorio Git: {err}")
+        raise RuntimeError(f"Error comprobando repositorio Git: {err}") from err
 
     if res.returncode != 0:
         raise ValueError(f"El archivo '{target.name}' no pertenece a ningún repositorio Git.")
@@ -5019,7 +5020,7 @@ def generate_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = 
             check=False
         )
     except Exception as err:
-        raise RuntimeError(f"Error comprobando repositorio Git: {err}")
+        raise RuntimeError(f"Error comprobando repositorio Git: {err}") from err
 
     if res.returncode != 0:
         raise ValueError(f"El archivo '{target.name}' no pertenece a ningún repositorio Git.")
@@ -8100,7 +8101,8 @@ def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed) -
     if hostname.endswith("duckduckgo.com"):
         req_headers["Referer"] = f"{parsed.scheme}://{parsed.netloc}/"
 
-    req = urllib.request.Request(url, headers=req_headers)
+    # El esquema (http/https) se valida antes, también en cada redirección.
+    req = urllib.request.Request(url, headers=req_headers)  # noqa: S310
     try:
         with _WEB_OPENER.open(req, timeout=timeout_s) as resp:
             content_type = resp.headers.get("Content-Type", "")
@@ -8249,7 +8251,8 @@ def ensure_runner_script() -> Path:
     runner_url = DEFAULT_UI_URL.rsplit("/", 1)[0] + "/runner.js"
 
     try:
-        req = urllib.request.Request(runner_url, headers={"User-Agent": f"ZeroChat/{VERSION}"})
+        # runner_url sale de DEFAULT_UI_URL, una URL https fija.
+        req = urllib.request.Request(runner_url, headers={"User-Agent": f"ZeroChat/{VERSION}"})  # noqa: S310
         if runner_path.is_file() and etag_path.is_file():
             try:
                 current_etag = etag_path.read_text(encoding="utf-8").strip()
@@ -8258,7 +8261,7 @@ def ensure_runner_script() -> Path:
             except OSError:
                 pass
 
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310
             runner_text = _read_bounded_runner(resp)
             etag = resp.headers.get("ETag")
             _write_private_text(runner_path, runner_text)

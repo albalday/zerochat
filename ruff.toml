@@ -1,7 +1,11 @@
-# Análisis estático del backend (py/): nombres sin definir e imports sin uso.
+# Análisis estático del backend (py/): fallos (F, E9, PLE, B) y seguridad (S).
+# Un aviso que se revisa y no es un fallo lleva `# noqa: <regla>` en su línea, con el motivo; los S608 de
+# storage/db.py solo interpolan marcadores "?" o cláusulas fijas del propio módulo.
 src = ["py"]
 include = ["py/**/*.py"]
 target-version = "py310"
 
 [lint]
-select = ["F821", "F401"]
+select = ["F", "E9", "PLE", "B", "S"]
+# Ejecutar procesos es la función de este backend: S603, S606 y S607 avisan de cualquier llamada a subprocess.
+ignore = ["S603", "S606", "S607"]

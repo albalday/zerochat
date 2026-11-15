@@ -146,7 +146,7 @@ def _open_gui_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool =
             check=False
         )
     except Exception as err:
-        raise RuntimeError(f"Error comprobando repositorio Git: {err}")
+        raise RuntimeError(f"Error comprobando repositorio Git: {err}") from err
 
     if res.returncode != 0:
         raise ValueError(f"El archivo '{target.name}' no pertenece a ningún repositorio Git.")
@@ -613,7 +613,7 @@ def generate_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = 
             check=False
         )
     except Exception as err:
-        raise RuntimeError(f"Error comprobando repositorio Git: {err}")
+        raise RuntimeError(f"Error comprobando repositorio Git: {err}") from err
 
     if res.returncode != 0:
         raise ValueError(f"El archivo '{target.name}' no pertenece a ningún repositorio Git.")

@@ -186,7 +186,7 @@ class McpServiceManager:
             try:
                 installer = json.loads(installer_file.read_text(encoding="utf-8"))
             except Exception as e:
-                raise RuntimeError(f"Error leyendo installer.json: {e}")
+                raise RuntimeError(f"Error leyendo installer.json: {e}") from e
             kind = installer.get("type", "npm")
             if kind == "npm":
                 product = installer.get("product", {})

@@ -415,7 +415,7 @@ def _delete_orphan_blobs(conn: sqlite3.Connection, candidates: set[str]):
         batch = candidate_list[start:start + 500]
         marks = ",".join("?" for _ in batch)
         rows = conn.execute(
-            f"SELECT DISTINCT blob_id FROM conversation_blobs WHERE blob_id IN ({marks});",
+            f"SELECT DISTINCT blob_id FROM conversation_blobs WHERE blob_id IN ({marks});",  # noqa: S608
             batch,
         ).fetchall()
         still_used.update(row["blob_id"] for row in rows)
@@ -563,17 +563,17 @@ def _delete_conversations(conn: sqlite3.Connection, where: str, params: tuple) -
     conn.isolation_level = None
     conn.execute("BEGIN IMMEDIATE;")
     try:
-        ids = [row["id"] for row in conn.execute(f"SELECT id FROM conversations WHERE {where};", params)]
+        ids = [row["id"] for row in conn.execute(f"SELECT id FROM conversations WHERE {where};", params)]  # noqa: S608
         if ids:
             marks = ",".join("?" for _ in ids)
             candidates = {
                 row["blob_id"]
                 for row in conn.execute(
-                    f"SELECT DISTINCT blob_id FROM conversation_blobs WHERE conversation_id IN ({marks});",
+                    f"SELECT DISTINCT blob_id FROM conversation_blobs WHERE conversation_id IN ({marks});",  # noqa: S608
                     ids,
                 )
             }
-            conn.execute(f"DELETE FROM conversations WHERE id IN ({marks});", ids)
+            conn.execute(f"DELETE FROM conversations WHERE id IN ({marks});", ids)  # noqa: S608
             _delete_orphan_blobs(conn, candidates)
         conn.execute("COMMIT;")
         return ids
@@ -670,7 +670,7 @@ def has_blobs(blob_ids: list[str]) -> dict:
     unique_ids = list(dict.fromkeys(clean_ids))
     with open_storage() as conn:
         placeholders = ",".join("?" for _ in unique_ids)
-        rows = conn.execute(f"SELECT id FROM blobs WHERE id IN ({placeholders});", unique_ids).fetchall()
+        rows = conn.execute(f"SELECT id FROM blobs WHERE id IN ({placeholders});", unique_ids).fetchall()  # noqa: S608
         existing_set = {row["id"] for row in rows}
         return {
             "existing": [bid for bid in unique_ids if bid in existing_set],

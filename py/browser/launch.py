@@ -186,7 +186,7 @@ def default_browser_executable() -> str | None:
             return None
         exec_line = next((line[5:] for line in lines if line.startswith("Exec=")), "")
         try:
-            tokens = [token for token in shlex.split(exec_line) if token != "env" and "=" not in token]
+            tokens = [token for token in shlex.split(exec_line) if token != "env" and "=" not in token]  # noqa: S105 - palabras de Exec=, no una contraseña
         except ValueError:
             return None
         # Flatpak o Snap envuelven el navegador: no admiten sus opciones directamente.

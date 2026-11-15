@@ -119,7 +119,8 @@ def ensure_runner_script() -> Path:
     runner_url = DEFAULT_UI_URL.rsplit("/", 1)[0] + "/runner.js"
 
     try:
-        req = urllib.request.Request(runner_url, headers={"User-Agent": f"ZeroChat/{VERSION}"})
+        # runner_url sale de DEFAULT_UI_URL, una URL https fija.
+        req = urllib.request.Request(runner_url, headers={"User-Agent": f"ZeroChat/{VERSION}"})  # noqa: S310
         if runner_path.is_file() and etag_path.is_file():
             try:
                 current_etag = etag_path.read_text(encoding="utf-8").strip()
@@ -128,7 +129,7 @@ def ensure_runner_script() -> Path:
             except OSError:
                 pass
 
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310
             runner_text = _read_bounded_runner(resp)
             etag = resp.headers.get("ETag")
             _write_private_text(runner_path, runner_text)
