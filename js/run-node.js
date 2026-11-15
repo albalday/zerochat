@@ -131,6 +131,9 @@
     const DelegateTaskTool = require('./tools/builtin/delegate-task.tool.js');
     globalThis.ChatBuiltinDelegateTaskTool = DelegateTaskTool;
 
+    const SwitchModelTool = require('./tools/builtin/switch-model.tool.js');
+    globalThis.ChatBuiltinSwitchModelTool = SwitchModelTool;
+
     const ExecuteJavascriptTool = require('./tools/builtin/execute-javascript.tool.js');
     globalThis.ChatBuiltinExecuteJavascriptTool = ExecuteJavascriptTool;
 
@@ -358,6 +361,10 @@
         apiKey: activeProfile?.settings?.apiKey || '',
         chatHistory: State.get('messages'),
         appConfig: activeConfig,
+        activateProfile: async (profileId, profile) => {
+          if (profile?.settings?.apiType === 'webllm') throw new Error('WebLLM / WebGPU profiles are not supported in the headless Node.js runner.');
+          await activateSessionProfile(profileId);
+        },
         assistantMsgId: `asst_${Date.now()}`,
         signal: currentAbortController.signal,
         view,

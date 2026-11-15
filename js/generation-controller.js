@@ -235,6 +235,9 @@
         apiKey: activeProfile?.settings?.apiKey || '',
         chatHistory: State.get('messages'),
         appConfig: config,
+        // switch_model cambia de perfil como el selector: arranca sus servicios MCP, sin avisos a mitad de turno.
+        activateProfile: profileId => resolveDep('ChatUIProfiles', './ui-profiles.js').activateConnectionProfile(profileId)
+          .catch(error => console.warn('[GenerationController] Could not start the profile MCP servers:', error)),
         assistantMsgId,
         currentRagSystemContext,
         projectContext,
