@@ -931,6 +931,9 @@
   /**
    * Adaptador para Google Gemini (Endpoint OpenAI compatible).
    */
+  // Firma que Gemini acepta en llamadas a herramientas que no generó él.
+  const FOREIGN_THOUGHT_SIGNATURE = 'skip_thought_signature_validator';
+
   class GeminiProviderAdapter extends BaseProviderAdapter {
     constructor() {
       super({
@@ -1046,6 +1049,13 @@
 
             return out;
           });
+          // Gemini 3 exige la firma en las llamadas del turno en curso (en un lote, solo en la primera). Las
+          // que hizo otro modelo (switch_model a mitad de turno) no la traen: el valor que documenta Google
+          // para historiales ajenos evita el 400 «Function call is missing a thought_signature».
+          if (!cleanToolCalls.some(call => call.extra_content?.google?.thought_signature)) {
+            const first = cleanToolCalls[0];
+            first.extra_content = { ...first.extra_content, google: { ...first.extra_content?.google, thought_signature: FOREIGN_THOUGHT_SIGNATURE } };
+          }
 
           // Regla Gemini: Un turno assistant con tool_calls NUNCA puede ir inmediatamente después de system
           const prevMsg = formatted.length > 0 ? formatted[formatted.length - 1] : null;
