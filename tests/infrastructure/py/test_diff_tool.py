@@ -199,3 +199,41 @@ index 1234567..89abcdef 100644
             self.assertNotIn("line 3\n", diff_text)
             self.assertNotIn("line 16\n", diff_text)
 
+
+
+class GuiFileDiffCommandTest(unittest.TestCase):
+    """git difftool compara lo mismo que el visor propio: el archivo nuevo con /dev/null, el cambiado con HEAD
+    y, sin cambios y con commit_fallback, su último commit (el primero, con el árbol vacío)."""
+
+    def test_difftool_recibe_las_revisiones_de_cada_caso(self):
+        repo = use_data_dir(self) / "repo"
+        repo.mkdir()
+        for args in (["init"], ["config", "user.email", "t@example.com"], ["config", "user.name", "T"], ["config", "diff.guitool", "meld"]):
+            REAL_RUN(["git", *args], cwd=repo, check=True, capture_output=True)
+        target = repo / "a.txt"
+        target.write_text("uno\n", encoding="utf-8")
+        ctx = zerochat.SecurityContext(repo.resolve())
+        launched = []
+
+        real_popen = subprocess.Popen
+
+        def fake_popen(cmd, **kwargs):
+            if "difftool" not in cmd:
+                return real_popen(cmd, **kwargs)
+            launched.append(cmd[cmd.index("--gui") + 1:])
+            return type("Proc", (), {"pid": 1})()
+
+        with patch.object(zerochat.subprocess, "Popen", fake_popen):
+            self.assertEqual(zerochat.open_file_diff(str(target), ctx, gui=True)["mode"], "working_tree")
+            REAL_RUN(["git", "add", "a.txt"], cwd=repo, check=True)
+            REAL_RUN(["git", "commit", "-m", "1"], cwd=repo, check=True, capture_output=True)
+            self.assertIs(zerochat.open_file_diff(str(target), ctx, gui=True)["has_diff"], False)
+            commit = zerochat.open_file_diff(str(target), ctx, commit_fallback=True, gui=True)
+            target.write_text("dos\n", encoding="utf-8")
+            zerochat.open_file_diff(str(target), ctx, gui=True)
+        self.assertEqual(commit["mode"], "commit")
+        self.assertEqual(launched, [
+            ["--no-index", "--", os.devnull, str(target)],
+            [zerochat.GIT_EMPTY_TREE, commit["commit"], "--", str(target)],
+            ["HEAD", "--", str(target)],
+        ])

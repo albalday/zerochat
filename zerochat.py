@@ -4526,118 +4526,118 @@ def _configured_gui_diff_tool(git_bin: str, repo_root: Path) -> str:
     return ""
 
 
-def _open_gui_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = False) -> dict:
-    """Abre un visor externo de diffs (git difftool) en una ventana del sistema operativo."""
+# Árbol vacío de Git: la base del diff del primer commit de un archivo.
+GIT_EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+# Un archivo que no está en HEAD se compara entero con /dev/null.
+NEW_FILE_REVISIONS = ["--no-index"]
+
+
+def _git_succeeds(git_bin: str, repo_root: Path, *args: str) -> bool:
+    return subprocess.run(
+        [git_bin, *args], cwd=str(repo_root), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, check=False
+    ).returncode == 0
+
+
+def _git_tracked_file(path: str, ctx: SecurityContext) -> tuple[Path, str, Path]:
+    """Valida el archivo del diff y devuelve (archivo, git, raíz de su repositorio)."""
     if not isinstance(path, str) or not path.strip():
         raise ValueError("La ruta del archivo está vacía.")
     if len(path) > MAX_PATH_LENGTH:
         raise ValueError("La ruta del archivo excede el tamaño máximo permitido.")
-
     target = ctx.absolute(path)
     if not target.exists():
         raise ValueError(f"El archivo '{path}' no existe.")
     if not target.is_file():
         raise ValueError(f"'{path}' no es un archivo regular.")
-
     git_bin = shutil.which("git")
     if not git_bin:
         raise RuntimeError("Git no está instalado o no se encuentra en el PATH del sistema.")
-
     try:
         res = subprocess.run(
-            [git_bin, "rev-parse", "--show-toplevel"],
-            cwd=str(target.parent),
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False
+            [git_bin, "rev-parse", "--show-toplevel"], cwd=str(target.parent), capture_output=True, text=True, timeout=5, check=False
         )
     except Exception as err:
         raise RuntimeError(f"Error comprobando repositorio Git: {err}") from err
-
     if res.returncode != 0:
         raise ValueError(f"El archivo '{target.name}' no pertenece a ningún repositorio Git.")
+    return target, git_bin, Path(res.stdout.strip()).resolve()
 
-    repo_root = Path(res.stdout.strip()).resolve()
+
+def _repo_relative(target: Path, repo_root: Path) -> str | None:
+    try:
+        return target.relative_to(repo_root).as_posix()
+    except ValueError:
+        return None
+
+
+def _working_tree_state(git_bin: str, repo_root: Path, target: Path, rel_path: str | None) -> tuple[bool, bool]:
+    """(está en HEAD, tiene cambios sin confirmar). Un archivo que no está en HEAD cuenta como cambiado entero."""
+    if rel_path is None or not _git_succeeds(git_bin, repo_root, "rev-parse", "--verify", "HEAD"):
+        return False, True
+    if not _git_succeeds(git_bin, repo_root, "cat-file", "-e", f"HEAD:{rel_path}"):
+        return False, True
+    diff_check = subprocess.run([git_bin, "diff", "--quiet", "HEAD", "--", str(target)], cwd=str(repo_root), timeout=5, check=False)
+    return True, diff_check.returncode != 0
+
+
+def _last_commit_of(git_bin: str, repo_root: Path, rel_path: str) -> str:
+    res = subprocess.run(
+        [git_bin, "log", "-n", "1", "--format=%H", "--", rel_path], cwd=str(repo_root), capture_output=True, text=True, timeout=5, check=False
+    )
+    return res.stdout.strip() if res.returncode == 0 else ""
+
+
+def _commit_range(git_bin: str, repo_root: Path, commit: str) -> list[str]:
+    """Las dos revisiones del diff de un commit: su padre, o el árbol vacío si es el primero, y él mismo."""
+    parent = f"{commit}~1"
+    return [parent if _git_succeeds(git_bin, repo_root, "rev-parse", "--verify", parent) else GIT_EMPTY_TREE, commit]
+
+
+def _no_diff_result(target: Path, in_head: bool, last_commit: str) -> dict:
+    return {
+        "success": True,
+        "has_diff": False,
+        "in_head": in_head,
+        "has_commit_history": bool(last_commit),
+        "last_commit": last_commit or None,
+        "path": str(target)
+    }
+
+
+def _diff_revisions(git_bin: str, repo_root: Path, target: Path, rel_path: str | None,
+                    commit_fallback: bool) -> tuple[list[str] | None, bool, str]:
+    """Qué comparar: los argumentos de revisión de git diff/difftool (sin el archivo), si está en HEAD y el commit.
+
+    Con cambios sin confirmar se compara con HEAD (o con nada si el archivo es nuevo); sin ellos, con commit_fallback,
+    el último commit del archivo. None si no hay nada que comparar.
+    """
+    in_head, changed = _working_tree_state(git_bin, repo_root, target, rel_path)
+    if changed:
+        return (["HEAD"] if in_head else NEW_FILE_REVISIONS), in_head, ""
+    last_commit = _last_commit_of(git_bin, repo_root, rel_path or target.name)
+    if not commit_fallback or not last_commit:
+        return None, in_head, last_commit
+    return _commit_range(git_bin, repo_root, last_commit), in_head, last_commit
+
+
+def _diff_command(base: list[str], target: Path, *, prefix: list[str]) -> list[str]:
+    """git diff/difftool con las revisiones de _diff_revisions; un archivo nuevo se compara con /dev/null."""
+    if base == NEW_FILE_REVISIONS:
+        return [*prefix, "--no-index", "--", os.devnull, str(target)]
+    return [*prefix, *base, "--", str(target)]
+
+
+def _open_gui_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = False) -> dict:
+    """Abre un visor externo de diffs (git difftool) en una ventana del sistema operativo."""
+    target, git_bin, repo_root = _git_tracked_file(path, ctx)
     if not _configured_gui_diff_tool(git_bin, repo_root):
         return {"success": False, "setup": detect_gui_diff_tool()}
-
-    has_head = subprocess.run(
-        [git_bin, "rev-parse", "--verify", "HEAD"],
-        cwd=str(repo_root),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        timeout=5,
-        check=False
-    ).returncode == 0
-
-    in_head = False
-    has_working_tree_diff = True
-    if has_head:
-        try:
-            rel_path = target.relative_to(repo_root).as_posix()
-            in_head = subprocess.run(
-                [git_bin, "cat-file", "-e", f"HEAD:{rel_path}"],
-                cwd=str(repo_root),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=5,
-                check=False
-            ).returncode == 0
-            if in_head:
-                diff_check = subprocess.run(
-                    [git_bin, "diff", "--quiet", "HEAD", "--", str(target)],
-                    cwd=str(repo_root),
-                    timeout=5,
-                    check=False
-                )
-                has_working_tree_diff = (diff_check.returncode != 0)
-        except ValueError:
-            in_head = False
-
-    cmd = [git_bin, "difftool", "--no-prompt", "--gui"]
-
-    mode = "working_tree"
-    last_commit = ""
-    if has_working_tree_diff:
-        if in_head:
-            cmd.extend(["HEAD", "--", str(target)])
-        else:
-            cmd.extend(["--no-index", "--", os.devnull, str(target)])
-    else:
-        rel_path = target.relative_to(repo_root).as_posix()
-        log_res = subprocess.run(
-            [git_bin, "log", "-n", "1", "--format=%H", "--", rel_path],
-            cwd=str(repo_root),
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False
-        )
-        last_commit = log_res.stdout.strip() if log_res.returncode == 0 else ""
-        if not commit_fallback or not last_commit:
-            return {
-                "success": True,
-                "has_diff": False,
-                "in_head": in_head,
-                "has_commit_history": bool(last_commit),
-                "last_commit": last_commit or None,
-                "path": str(target)
-            }
-
-        mode = "commit"
-        parent_check = subprocess.run(
-            [git_bin, "rev-parse", "--verify", f"{last_commit}~1"],
-            cwd=str(repo_root),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=5,
-            check=False
-        )
-        if parent_check.returncode == 0:
-            cmd.extend([f"{last_commit}~1", last_commit, "--", str(target)])
-        else:
-            cmd.extend(["4b825dc642cb6eb9a060e54bf8d69288fbee4904", last_commit, "--", str(target)])
+    rel_path = _repo_relative(target, repo_root)
+    base, in_head, last_commit = _diff_revisions(git_bin, repo_root, target, rel_path, commit_fallback)
+    if base is None:
+        return _no_diff_result(target, in_head, last_commit)
+    mode = "commit" if last_commit else "working_tree"
+    cmd = _diff_command(base, target, prefix=[git_bin, "difftool", "--no-prompt", "--gui"])
 
     popen_kwargs = {
         "cwd": str(repo_root),
@@ -4995,160 +4995,25 @@ def render_diff_html(
 
 def generate_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = False, context_lines: int = DIFF_CONTEXT_LINES) -> dict:
     """Calcula y devuelve el diff de un archivo frente a Git HEAD o su último commit, incluyendo HTML."""
-    if not isinstance(path, str) or not path.strip():
-        raise ValueError("La ruta del archivo está vacía.")
-    if len(path) > MAX_PATH_LENGTH:
-        raise ValueError("La ruta del archivo excede el tamaño máximo permitido.")
-
-    target = ctx.absolute(path)
-    if not target.exists():
-        raise ValueError(f"El archivo '{path}' no existe.")
-    if not target.is_file():
-        raise ValueError(f"'{path}' no es un archivo regular.")
-
-    git_bin = shutil.which("git")
-    if not git_bin:
-        raise RuntimeError("Git no está instalado o no se encuentra en el PATH del sistema.")
-
-    try:
-        res = subprocess.run(
-            [git_bin, "rev-parse", "--show-toplevel"],
-            cwd=str(target.parent),
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False
-        )
-    except Exception as err:
-        raise RuntimeError(f"Error comprobando repositorio Git: {err}") from err
-
-    if res.returncode != 0:
-        raise ValueError(f"El archivo '{target.name}' no pertenece a ningún repositorio Git.")
-
-    repo_root = Path(res.stdout.strip()).resolve()
-    has_head = subprocess.run(
-        [git_bin, "rev-parse", "--verify", "HEAD"],
-        cwd=str(repo_root),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        timeout=5,
-        check=False
-    ).returncode == 0
-
-    in_head = False
-    has_working_tree_diff = True
-    rel_path = target.name
-    try:
-        rel_path = target.relative_to(repo_root).as_posix()
-    except ValueError:
-        pass
-
-    if has_head:
-        try:
-            in_head = subprocess.run(
-                [git_bin, "cat-file", "-e", f"HEAD:{rel_path}"],
-                cwd=str(repo_root),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=5,
-                check=False
-            ).returncode == 0
-            if in_head:
-                diff_check = subprocess.run(
-                    [git_bin, "diff", "--quiet", "HEAD", "--", str(target)],
-                    cwd=str(repo_root),
-                    timeout=5,
-                    check=False
-                )
-                has_working_tree_diff = (diff_check.returncode != 0)
-        except ValueError:
-            in_head = False
-
-    mode = "working_tree"
-    last_commit = ""
-    diff_text = ""
-
-    if has_working_tree_diff:
-        if in_head:
-            cmd = [git_bin, "diff", f"-U{context_lines}", "HEAD", "--", str(target)]
-        else:
-            cmd = [git_bin, "diff", f"-U{context_lines}", "--no-index", "--", os.devnull, str(target)]
-        diff_res = subprocess.run(cmd, cwd=str(repo_root), capture_output=True, text=True, timeout=10, check=False)
-        diff_text = diff_res.stdout
-    else:
-        # No hay cambios pendientes en el árbol de trabajo. Comprobar historial del archivo.
-        log_res = subprocess.run(
-            [git_bin, "log", "-n", "1", "--format=%H", "--", rel_path],
-            cwd=str(repo_root),
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False
-        )
-        last_commit = log_res.stdout.strip() if log_res.returncode == 0 else ""
-        if not commit_fallback or not last_commit:
-            return {
-                "success": True,
-                "has_diff": False,
-                "in_head": in_head,
-                "has_commit_history": bool(last_commit),
-                "last_commit": last_commit or None,
-                "path": str(target)
-            }
-
-        mode = "commit"
-        parent_check = subprocess.run(
-            [git_bin, "rev-parse", "--verify", f"{last_commit}~1"],
-            cwd=str(repo_root),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=5,
-            check=False
-        )
-        if parent_check.returncode == 0:
-            cmd = [git_bin, "diff", f"-U{context_lines}", f"{last_commit}~1", last_commit, "--", str(target)]
-        else:
-            cmd = [git_bin, "diff", f"-U{context_lines}", "4b825dc642cb6eb9a060e54bf8d69288fbee4904", last_commit, "--", str(target)]
-        diff_res = subprocess.run(cmd, cwd=str(repo_root), capture_output=True, text=True, timeout=10, check=False)
-        diff_text = diff_res.stdout
-
+    target, git_bin, repo_root = _git_tracked_file(path, ctx)
+    rel_path = _repo_relative(target, repo_root)
+    base, in_head, last_commit = _diff_revisions(git_bin, repo_root, target, rel_path, commit_fallback)
+    if base is None:
+        return _no_diff_result(target, in_head, last_commit)
+    mode = "commit" if last_commit else "working_tree"
+    cmd = _diff_command(base, target, prefix=[git_bin, "diff", f"-U{context_lines}"])
+    diff_text = subprocess.run(cmd, cwd=str(repo_root), capture_output=True, text=True, timeout=10, check=False).stdout
     if not diff_text.strip():
-        return {
-            "success": True,
-            "has_diff": False,
-            "in_head": in_head,
-            "has_commit_history": bool(last_commit),
-            "last_commit": last_commit or None,
-            "path": str(target)
-        }
-
-    full_file_bytes = None
-    if mode == "commit" and last_commit:
-        show_res = subprocess.run(
-            [git_bin, "show", f"{last_commit}:{rel_path}"],
-            cwd=str(repo_root),
-            capture_output=True,
-            timeout=5,
-            check=False
-        )
-        if show_res.returncode == 0:
-            full_file_bytes = show_res.stdout
-    if full_file_bytes is None:
-        try:
-            if target.is_file() and target.stat().st_size <= 5_000_000:
-                full_file_bytes = target.read_bytes()
-        except (OSError, PermissionError):
-            full_file_bytes = None
-
+        return _no_diff_result(target, in_head, last_commit)
+    rel_path = rel_path or target.name
     html_content = render_diff_html(
         diff_text=diff_text,
         filename=target.name,
         rel_path=rel_path,
         mode=mode,
         commit=last_commit or None,
-        full_file_bytes=full_file_bytes
+        full_file_bytes=_full_file_bytes(git_bin, repo_root, target, rel_path, last_commit)
     )
-
     return {
         "success": True,
         "has_diff": True,
@@ -5159,6 +5024,20 @@ def generate_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = 
         "diff": diff_text,
         "html": html_content
     }
+
+
+def _full_file_bytes(git_bin: str, repo_root: Path, target: Path, rel_path: str, commit: str) -> bytes | None:
+    """El archivo entero para el visor: el del commit si se muestra uno, si no el del disco (hasta 5 MB)."""
+    if commit:
+        show_res = subprocess.run([git_bin, "show", f"{commit}:{rel_path}"], cwd=str(repo_root), capture_output=True, timeout=5, check=False)
+        if show_res.returncode == 0:
+            return show_res.stdout
+    try:
+        if target.is_file() and target.stat().st_size <= 5_000_000:
+            return target.read_bytes()
+    except OSError:
+        pass
+    return None
 
 
 def open_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = False, gui: bool = False, context_lines: int = DIFF_CONTEXT_LINES) -> dict:
