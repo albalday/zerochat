@@ -194,6 +194,25 @@ LOCAL_TOOL_HANDLERS = {
 }
 
 
+ARGUMENT_TYPES = {"string": str, "integer": int, "boolean": bool}
+
+
+def _argument_error(name: str, value, prop: dict | None) -> str | None:
+    """Por qué no vale un argumento según su propiedad del esquema, o None si vale."""
+    if prop is None:
+        return f"Argumento no permitido: {name}"
+    expected_type = ARGUMENT_TYPES.get(prop.get("type"))
+    if expected_type is None:
+        return f"Tipo no admitido en la definición de '{name}': {prop.get('type')}"
+    # bool es subclase de int: un booleano no vale como entero.
+    if not isinstance(value, expected_type) or (expected_type is not bool and isinstance(value, bool)):
+        return f"Tipo inválido para '{name}'"
+    max_length = prop.get("maxLength")
+    if max_length is not None and len(value) > max_length:
+        return f"'{name}' excede el tamaño máximo permitido"
+    return None
+
+
 def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None:
     """Valida tipos y límites de las herramientas locales a partir de su definición canónica."""
     definition = next((item for item in LOCAL_TOOLS_DEFINITIONS if item["name"] == tool_name), None)
@@ -202,25 +221,10 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
 
     schema = definition.get("inputSchema", {})
     properties = schema.get("properties", {})
-    type_map = {"string": str, "integer": int, "boolean": bool}
-
     for name, value in arguments.items():
-        prop = properties.get(name)
-        if prop is None:
-            return f"Argumento no permitido: {name}"
-        expected_type_name = prop.get("type")
-        expected_type = type_map.get(expected_type_name)
-        if expected_type is None:
-            return f"Tipo no admitido en la definición de '{name}': {expected_type_name}"
-        if expected_type is bool:
-            if not isinstance(value, bool):
-                return f"Tipo inválido para '{name}'"
-        else:
-            if isinstance(value, bool) or not isinstance(value, expected_type):
-                return f"Tipo inválido para '{name}'"
-        max_length = prop.get("maxLength")
-        if max_length is not None and len(value) > max_length:
-            return f"'{name}' excede el tamaño máximo permitido"
+        error = _argument_error(name, value, properties.get(name))
+        if error:
+            return error
 
     for name in schema.get("required", ()):
         if name not in arguments:

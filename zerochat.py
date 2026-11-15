@@ -3176,28 +3176,8 @@ def _delete_orphan_blobs(conn: sqlite3.Connection, candidates: set[str]):
         conn.executemany("DELETE FROM blobs WHERE id = ?;", orphans)
 
 
-def save_conversation(session_meta: dict, messages: list[dict] | None = None) -> dict:
-    """Guarda o actualiza una conversación y sustituye sus mensajes atómicamente."""
-    if not isinstance(session_meta, dict):
-        raise ValueError("Los metadatos de la conversación deben ser un objeto")
-    if messages is None:
-        messages = []
-    if not isinstance(messages, list):
-        raise ValueError("Los mensajes de la conversación deben ser una lista")
-    for msg in messages:
-        if not isinstance(msg, dict):
-            raise ValueError("Cada mensaje debe ser un objeto")
-    new_blob_ids = _extract_message_blob_ids(messages)
-
-    session_id = _validate_conversation_id(session_meta.get("id"))
-    raw_title = session_meta.get("title")
-    title = _validate_conversation_title("" if raw_title is None else raw_title, allow_empty=True)
-
-    now = int(time.time() * 1000)
-    created_at = int(session_meta.get("createdAt") or now)
-    updated_at = int(session_meta.get("updatedAt") or now)
-
-    # extra_json guarda el perfil, el modo servidor y el proyecto; la cabecera los expone como campos propios.
+def _conversation_extra(session_meta: dict) -> dict:
+    """Campos de extra_json que trae la petición: el perfil, el modo servidor y el proyecto."""
     extra = {}
     profile_id = session_meta.get("profileId")
     if profile_id and isinstance(profile_id, str) and profile_id.strip():
@@ -3210,22 +3190,77 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
             raise ValueError("El proyecto de la conversación debe ser una ruta")
         if project.strip():
             extra["project"] = project.strip()
+    return extra
+
+
+def _merge_saved_header(existing, session_meta: dict, created_at: int, title: str, extra: dict) -> tuple[int, str, dict]:
+    """Completa la cabecera con la guardada: su fecha de creación y su título si la petición no los trae, y su
+    extra_json debajo del nuevo. El proyecto se fija al crear la conversación y no cambia después."""
+    if not session_meta.get("createdAt") and existing["created_at"]:
+        created_at = int(existing["created_at"])
+    if not title and existing["title"]:
+        title = existing["title"]
+    existing_extra = json.loads(existing["extra_json"]) if existing["extra_json"] else {}
+    extra = {**existing_extra, **extra}
+    if existing_extra.get("project"):
+        extra["project"] = existing_extra["project"]
+    return created_at, title, extra
+
+
+def _replace_messages(conn: sqlite3.Connection, session_id: str, messages: list[dict]):
+    conn.execute("DELETE FROM messages WHERE conversation_id = ?;", (session_id,))
+    for pos, msg in enumerate(messages):
+        msg_id = str(msg.get("id") or "").strip() or f"msg_{session_id}_{pos}"
+        role = str(msg.get("role") or "user").strip()
+        content = "" if msg.get("content") is None else str(msg.get("content"))
+        extra = {k: v for k, v in msg.items() if k not in ("id", "role", "content", "conversationId", "position")}
+        conn.execute("""
+            INSERT INTO messages (conversation_id, position, id, role, content, extra_json)
+            VALUES (?, ?, ?, ?, ?, ?);
+        """, (session_id, pos, msg_id, role, content, json.dumps(extra) if extra else "{}"))
+
+
+def _replace_conversation_blobs(conn: sqlite3.Connection, session_id: str, blob_ids: set[str]):
+    """Sustituye los blobs que referencia la conversación y borra los que ya no referencia nadie."""
+    old_blob_ids = {
+        row["blob_id"]
+        for row in conn.execute("SELECT blob_id FROM conversation_blobs WHERE conversation_id = ?;", (session_id,))
+    }
+    conn.execute("DELETE FROM conversation_blobs WHERE conversation_id = ?;", (session_id,))
+    if blob_ids:
+        conn.executemany(
+            "INSERT OR IGNORE INTO conversation_blobs (conversation_id, blob_id) VALUES (?, ?);",
+            [(session_id, blob_id) for blob_id in blob_ids],
+        )
+    _delete_orphan_blobs(conn, old_blob_ids - blob_ids)
+
+
+def save_conversation(session_meta: dict, messages: list[dict] | None = None) -> dict:
+    """Guarda o actualiza una conversación y sustituye sus mensajes atómicamente."""
+    if not isinstance(session_meta, dict):
+        raise ValueError("Los metadatos de la conversación deben ser un objeto")
+    if messages is None:
+        messages = []
+    if not isinstance(messages, list):
+        raise ValueError("Los mensajes de la conversación deben ser una lista")
+    if not all(isinstance(msg, dict) for msg in messages):
+        raise ValueError("Cada mensaje debe ser un objeto")
+    new_blob_ids = _extract_message_blob_ids(messages)
+
+    session_id = _validate_conversation_id(session_meta.get("id"))
+    raw_title = session_meta.get("title")
+    title = _validate_conversation_title("" if raw_title is None else raw_title, allow_empty=True)
+
+    now = int(time.time() * 1000)
+    created_at = int(session_meta.get("createdAt") or now)
+    updated_at = int(session_meta.get("updatedAt") or now)
+    # extra_json guarda el perfil, el modo servidor y el proyecto; la cabecera los expone como campos propios.
+    extra = _conversation_extra(session_meta)
 
     with open_storage() as conn:
         existing = conn.execute("SELECT created_at, extra_json, title FROM conversations WHERE id = ?;", (session_id,)).fetchone()
         if existing:
-            if not session_meta.get("createdAt") and existing["created_at"]:
-                created_at = int(existing["created_at"])
-            if not title and existing["title"]:
-                title = existing["title"]
-            existing_extra = json.loads(existing["extra_json"]) if existing["extra_json"] else {}
-            extra = {**existing_extra, **extra}
-            # El proyecto se fija al crear la conversación y no cambia después.
-            if existing_extra.get("project"):
-                extra["project"] = existing_extra["project"]
-
-        extra_json = json.dumps(extra, ensure_ascii=False) if extra else "{}"
-
+            created_at, title, extra = _merge_saved_header(existing, session_meta, created_at, title, extra)
         conn.execute("""
             INSERT INTO conversations (id, title, created_at, updated_at, message_count, extra_json)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -3234,37 +3269,9 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
                 updated_at = excluded.updated_at,
                 message_count = excluded.message_count,
                 extra_json = excluded.extra_json;
-        """, (session_id, title, created_at, updated_at, len(messages), extra_json))
-
-        old_blob_ids = {
-            row["blob_id"]
-            for row in conn.execute(
-                "SELECT blob_id FROM conversation_blobs WHERE conversation_id = ?;",
-                (session_id,),
-            )
-        }
-        conn.execute("DELETE FROM messages WHERE conversation_id = ?;", (session_id,))
-
-        for pos, msg in enumerate(messages):
-            msg_id = str(msg.get("id") or "").strip() or f"msg_{session_id}_{pos}"
-            role = str(msg.get("role") or "user").strip()
-            content = "" if msg.get("content") is None else str(msg.get("content"))
-            extra = {k: v for k, v in msg.items() if k not in ("id", "role", "content", "conversationId", "position")}
-            extra_json = json.dumps(extra) if extra else "{}"
-
-            conn.execute("""
-                INSERT INTO messages (conversation_id, position, id, role, content, extra_json)
-                VALUES (?, ?, ?, ?, ?, ?);
-            """, (session_id, pos, msg_id, role, content, extra_json))
-
-        conn.execute("DELETE FROM conversation_blobs WHERE conversation_id = ?;", (session_id,))
-        if new_blob_ids:
-            conn.executemany(
-                "INSERT OR IGNORE INTO conversation_blobs (conversation_id, blob_id) VALUES (?, ?);",
-                [(session_id, blob_id) for blob_id in new_blob_ids],
-            )
-        _delete_orphan_blobs(conn, old_blob_ids - new_blob_ids)
-
+        """, (session_id, title, created_at, updated_at, len(messages), json.dumps(extra, ensure_ascii=False) if extra else "{}"))
+        _replace_messages(conn, session_id, messages)
+        _replace_conversation_blobs(conn, session_id, new_blob_ids)
         conn.commit()
         row = conn.execute("SELECT * FROM conversations WHERE id = ?;", (session_id,)).fetchone()
         return _row_to_conversation_header(row)
@@ -5071,6 +5078,53 @@ IGNORED_WORKSPACE_DIRS = {
 }
 
 
+LIST_DIRECTORY_MAX_ENTRIES = 1000
+
+
+def _directory_entry(entry: os.DirEntry, target: Path, recursive: bool) -> dict:
+    """Datos de una entrada de list_directory; OSError si desaparece o no se puede leer."""
+    stat = entry.stat(follow_symlinks=False)
+    is_dir = entry.is_dir(follow_symlinks=False)
+    try:
+        resolved_path = str(Path(entry.path).resolve())
+    except (OSError, RuntimeError):
+        resolved_path = str(Path(entry.path).absolute())
+    data = {
+        "name": entry.name,
+        "path": resolved_path,
+        "type": "directory" if is_dir else "file",
+        "size_bytes": None if is_dir else stat.st_size,
+        "is_symlink": entry.is_symlink()
+    }
+    if recursive:
+        try:
+            data["relative_path"] = Path(entry.path).relative_to(target).as_posix()
+        except ValueError:
+            data["relative_path"] = entry.name
+    return data
+
+
+def _scan_directory(current: Path, target: Path, depth: int, max_depth: int, recursive: bool, entries: list[dict]):
+    """Añade a entries el contenido de current, carpetas primero, sin seguir enlaces y hasta el tope de entradas."""
+    if depth > max_depth or len(entries) >= LIST_DIRECTORY_MAX_ENTRIES:
+        return
+    try:
+        with os.scandir(current) as it:
+            items = sorted(it, key=lambda e: (not e.is_dir(follow_symlinks=False), e.name.lower()))
+    except OSError:
+        return
+    for entry in items:
+        if len(entries) >= LIST_DIRECTORY_MAX_ENTRIES:
+            break
+        try:
+            data = _directory_entry(entry, target, recursive)
+            entries.append(data)
+            if recursive and data["type"] == "directory" and not data["is_symlink"]:
+                _scan_directory(Path(entry.path), target, depth + 1, max_depth, recursive, entries)
+        except OSError:
+            continue
+
+
 def list_directory(path: str = ".", recursive: bool = False, *, ctx: SecurityContext) -> str:
     """List files and directories in a local directory with safe bounded recursive traversal."""
     try:
@@ -5079,49 +5133,8 @@ def list_directory(path: str = ".", recursive: bool = False, *, ctx: SecurityCon
             return _tool_error(f"Path '{path}' does not exist.")
         if not target.is_dir():
             return _tool_error(f"Path '{path}' is not a directory.")
-
-        max_depth = 3 if recursive else 1
-        entries = []
-
-        def _scan(current_path: Path, current_depth: int):
-            if current_depth > max_depth or len(entries) >= 1000:
-                return
-            try:
-                with os.scandir(current_path) as it:
-                    items = list(it)
-                    items.sort(key=lambda e: (not e.is_dir(follow_symlinks=False), e.name.lower()))
-                    for entry in items:
-                        if len(entries) >= 1000:
-                            break
-                        try:
-                            stat = entry.stat(follow_symlinks=False)
-                            is_dir = entry.is_dir(follow_symlinks=False)
-                            try:
-                                resolved_path = str(Path(entry.path).resolve())
-                            except (OSError, RuntimeError):
-                                resolved_path = str(Path(entry.path).absolute())
-                            entry_data = {
-                                "name": entry.name,
-                                "path": resolved_path,
-                                "type": "directory" if is_dir else "file",
-                                "size_bytes": None if is_dir else stat.st_size,
-                                "is_symlink": entry.is_symlink()
-                            }
-                            if recursive:
-                                try:
-                                    entry_data["relative_path"] = Path(entry.path).relative_to(target).as_posix()
-                                except ValueError:
-                                    entry_data["relative_path"] = entry.name
-                            entries.append(entry_data)
-                            if recursive and is_dir and not entry.is_symlink():
-                                _scan(Path(entry.path), current_depth + 1)
-                        except (PermissionError, FileNotFoundError, OSError):
-                            continue
-            except (PermissionError, FileNotFoundError, OSError):
-                pass
-
-        _scan(target, 1)
-
+        entries: list[dict] = []
+        _scan_directory(target, target, 1, 3 if recursive else 1, recursive, entries)
         return json.dumps({
             "success": True,
             "path": str(target),
@@ -5193,6 +5206,35 @@ def _read_tail(target: Path, tail_lines: int, max_bytes: int) -> str:
     }, ensure_ascii=False, indent=2)
 
 
+# Pasado el rango pedido, read_file sigue contando líneas para total_lines hasta este número más allá del inicio.
+READ_COUNT_AHEAD_LINES = 50000
+
+
+def _read_line_range(target: Path, start: int, count: int, max_bytes: int) -> tuple[list[str], int, bool]:
+    """Hasta count líneas desde start sin pasar de max_bytes (la última, cortada). Devuelve las líneas, las que
+    se han contado (todas, o hasta READ_COUNT_AHEAD_LINES más allá de start) y si se cortó por bytes."""
+    selected: list[str] = []
+    used = 0
+    total_lines = 0
+    with open(target, "r", encoding="utf-8", errors="replace") as f:
+        for line_no, line in enumerate(f, 1):
+            total_lines = line_no
+            if line_no < start:
+                continue
+            if len(selected) >= count:
+                if line_no > start + READ_COUNT_AHEAD_LINES:
+                    break
+                continue
+            encoded = line.encode("utf-8")
+            if used + len(encoded) > max_bytes:
+                if max_bytes > used:
+                    selected.append(encoded[:max_bytes - used].decode("utf-8", errors="ignore"))
+                return selected, total_lines, True
+            selected.append(line)
+            used += len(encoded)
+    return selected, total_lines, False
+
+
 def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: int = 500, max_bytes: int = 100000,
               tail_lines: int | None = None, *, ctx: SecurityContext) -> str:
     """Read text content from a local file in streaming mode with safe ranges and bounds, or its last lines."""
@@ -5207,67 +5249,23 @@ def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: i
         safe_max_bytes = max(1024, min(int(max_bytes), 2000000))
         if tail_lines is not None:
             return _read_tail(target, tail_lines, safe_max_bytes)
-        safe_start_line = max(1, int(start_line))
-
+        start = max(1, int(start_line))
         if end_line is not None:
-            safe_end_line = max(safe_start_line, int(end_line))
-            target_line_count = min(safe_end_line - safe_start_line + 1, MAX_READ_LINES)
-            safe_end_line = safe_start_line + target_line_count - 1
+            count = min(max(start, int(end_line)) - start + 1, MAX_READ_LINES)
         else:
-            safe_end_line = None
-            target_line_count = max(1, min(int(max_lines), MAX_READ_LINES))
+            count = max(1, min(int(max_lines), MAX_READ_LINES))
 
-        selected_lines = []
-        current_bytes = 0
-        truncated_bytes = False
-        total_lines = 0
-        reached_end_bound = False
-
-        with open(target, "r", encoding="utf-8", errors="replace") as f:
-            for line_no, line in enumerate(f, 1):
-                total_lines = line_no
-                if line_no < safe_start_line:
-                    continue
-                if safe_end_line is not None and line_no > safe_end_line:
-                    reached_end_bound = True
-                    if line_no > safe_start_line + 50000:
-                        break
-                    continue
-                if safe_end_line is None and len(selected_lines) >= target_line_count:
-                    reached_end_bound = True
-                    if line_no > safe_start_line + 50000:
-                        break
-                    continue
-
-                if not reached_end_bound:
-                    line_bytes = len(line.encode("utf-8"))
-                    if current_bytes + line_bytes > safe_max_bytes:
-                        remaining_budget = max(0, safe_max_bytes - current_bytes)
-                        if remaining_budget > 0:
-                            encoded = line.encode("utf-8")[:remaining_budget]
-                            selected_lines.append(encoded.decode("utf-8", errors="ignore"))
-                        truncated_bytes = True
-                        reached_end_bound = True
-                        break
-                    else:
-                        selected_lines.append(line)
-                        current_bytes += line_bytes
-
-        content = "".join(selected_lines)
-        last_returned_line = safe_start_line + len(selected_lines) - 1 if selected_lines else safe_start_line - 1
-
-        is_truncated = truncated_bytes or (safe_end_line is not None and safe_end_line < total_lines) or (safe_end_line is None and (safe_start_line + target_line_count - 1) < total_lines)
-
+        selected, total_lines, truncated_bytes = _read_line_range(target, start, count, safe_max_bytes)
         return json.dumps({
             "success": True,
             "path": str(target),
             "size_bytes": file_size,
             "total_lines": total_lines,
-            "start_line": safe_start_line,
-            "end_line": last_returned_line,
-            "lines_returned": len(selected_lines),
-            "truncated": is_truncated,
-            "content": content
+            "start_line": start,
+            "end_line": start + len(selected) - 1,
+            "lines_returned": len(selected),
+            "truncated": truncated_bytes or start + count - 1 < total_lines,
+            "content": "".join(selected)
         }, ensure_ascii=False, indent=2)
     except Exception as e:
         return _tool_error(str(e))
@@ -7511,6 +7509,25 @@ LOCAL_TOOL_HANDLERS = {
 }
 
 
+ARGUMENT_TYPES = {"string": str, "integer": int, "boolean": bool}
+
+
+def _argument_error(name: str, value, prop: dict | None) -> str | None:
+    """Por qué no vale un argumento según su propiedad del esquema, o None si vale."""
+    if prop is None:
+        return f"Argumento no permitido: {name}"
+    expected_type = ARGUMENT_TYPES.get(prop.get("type"))
+    if expected_type is None:
+        return f"Tipo no admitido en la definición de '{name}': {prop.get('type')}"
+    # bool es subclase de int: un booleano no vale como entero.
+    if not isinstance(value, expected_type) or (expected_type is not bool and isinstance(value, bool)):
+        return f"Tipo inválido para '{name}'"
+    max_length = prop.get("maxLength")
+    if max_length is not None and len(value) > max_length:
+        return f"'{name}' excede el tamaño máximo permitido"
+    return None
+
+
 def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None:
     """Valida tipos y límites de las herramientas locales a partir de su definición canónica."""
     definition = next((item for item in LOCAL_TOOLS_DEFINITIONS if item["name"] == tool_name), None)
@@ -7519,25 +7536,10 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
 
     schema = definition.get("inputSchema", {})
     properties = schema.get("properties", {})
-    type_map = {"string": str, "integer": int, "boolean": bool}
-
     for name, value in arguments.items():
-        prop = properties.get(name)
-        if prop is None:
-            return f"Argumento no permitido: {name}"
-        expected_type_name = prop.get("type")
-        expected_type = type_map.get(expected_type_name)
-        if expected_type is None:
-            return f"Tipo no admitido en la definición de '{name}': {expected_type_name}"
-        if expected_type is bool:
-            if not isinstance(value, bool):
-                return f"Tipo inválido para '{name}'"
-        else:
-            if isinstance(value, bool) or not isinstance(value, expected_type):
-                return f"Tipo inválido para '{name}'"
-        max_length = prop.get("maxLength")
-        if max_length is not None and len(value) > max_length:
-            return f"'{name}' excede el tamaño máximo permitido"
+        error = _argument_error(name, value, properties.get(name))
+        if error:
+            return error
 
     for name in schema.get("required", ()):
         if name not in arguments:

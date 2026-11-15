@@ -424,28 +424,8 @@ def _delete_orphan_blobs(conn: sqlite3.Connection, candidates: set[str]):
         conn.executemany("DELETE FROM blobs WHERE id = ?;", orphans)
 
 
-def save_conversation(session_meta: dict, messages: list[dict] | None = None) -> dict:
-    """Guarda o actualiza una conversación y sustituye sus mensajes atómicamente."""
-    if not isinstance(session_meta, dict):
-        raise ValueError("Los metadatos de la conversación deben ser un objeto")
-    if messages is None:
-        messages = []
-    if not isinstance(messages, list):
-        raise ValueError("Los mensajes de la conversación deben ser una lista")
-    for msg in messages:
-        if not isinstance(msg, dict):
-            raise ValueError("Cada mensaje debe ser un objeto")
-    new_blob_ids = _extract_message_blob_ids(messages)
-
-    session_id = _validate_conversation_id(session_meta.get("id"))
-    raw_title = session_meta.get("title")
-    title = _validate_conversation_title("" if raw_title is None else raw_title, allow_empty=True)
-
-    now = int(time.time() * 1000)
-    created_at = int(session_meta.get("createdAt") or now)
-    updated_at = int(session_meta.get("updatedAt") or now)
-
-    # extra_json guarda el perfil, el modo servidor y el proyecto; la cabecera los expone como campos propios.
+def _conversation_extra(session_meta: dict) -> dict:
+    """Campos de extra_json que trae la petición: el perfil, el modo servidor y el proyecto."""
     extra = {}
     profile_id = session_meta.get("profileId")
     if profile_id and isinstance(profile_id, str) and profile_id.strip():
@@ -458,22 +438,77 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
             raise ValueError("El proyecto de la conversación debe ser una ruta")
         if project.strip():
             extra["project"] = project.strip()
+    return extra
+
+
+def _merge_saved_header(existing, session_meta: dict, created_at: int, title: str, extra: dict) -> tuple[int, str, dict]:
+    """Completa la cabecera con la guardada: su fecha de creación y su título si la petición no los trae, y su
+    extra_json debajo del nuevo. El proyecto se fija al crear la conversación y no cambia después."""
+    if not session_meta.get("createdAt") and existing["created_at"]:
+        created_at = int(existing["created_at"])
+    if not title and existing["title"]:
+        title = existing["title"]
+    existing_extra = json.loads(existing["extra_json"]) if existing["extra_json"] else {}
+    extra = {**existing_extra, **extra}
+    if existing_extra.get("project"):
+        extra["project"] = existing_extra["project"]
+    return created_at, title, extra
+
+
+def _replace_messages(conn: sqlite3.Connection, session_id: str, messages: list[dict]):
+    conn.execute("DELETE FROM messages WHERE conversation_id = ?;", (session_id,))
+    for pos, msg in enumerate(messages):
+        msg_id = str(msg.get("id") or "").strip() or f"msg_{session_id}_{pos}"
+        role = str(msg.get("role") or "user").strip()
+        content = "" if msg.get("content") is None else str(msg.get("content"))
+        extra = {k: v for k, v in msg.items() if k not in ("id", "role", "content", "conversationId", "position")}
+        conn.execute("""
+            INSERT INTO messages (conversation_id, position, id, role, content, extra_json)
+            VALUES (?, ?, ?, ?, ?, ?);
+        """, (session_id, pos, msg_id, role, content, json.dumps(extra) if extra else "{}"))
+
+
+def _replace_conversation_blobs(conn: sqlite3.Connection, session_id: str, blob_ids: set[str]):
+    """Sustituye los blobs que referencia la conversación y borra los que ya no referencia nadie."""
+    old_blob_ids = {
+        row["blob_id"]
+        for row in conn.execute("SELECT blob_id FROM conversation_blobs WHERE conversation_id = ?;", (session_id,))
+    }
+    conn.execute("DELETE FROM conversation_blobs WHERE conversation_id = ?;", (session_id,))
+    if blob_ids:
+        conn.executemany(
+            "INSERT OR IGNORE INTO conversation_blobs (conversation_id, blob_id) VALUES (?, ?);",
+            [(session_id, blob_id) for blob_id in blob_ids],
+        )
+    _delete_orphan_blobs(conn, old_blob_ids - blob_ids)
+
+
+def save_conversation(session_meta: dict, messages: list[dict] | None = None) -> dict:
+    """Guarda o actualiza una conversación y sustituye sus mensajes atómicamente."""
+    if not isinstance(session_meta, dict):
+        raise ValueError("Los metadatos de la conversación deben ser un objeto")
+    if messages is None:
+        messages = []
+    if not isinstance(messages, list):
+        raise ValueError("Los mensajes de la conversación deben ser una lista")
+    if not all(isinstance(msg, dict) for msg in messages):
+        raise ValueError("Cada mensaje debe ser un objeto")
+    new_blob_ids = _extract_message_blob_ids(messages)
+
+    session_id = _validate_conversation_id(session_meta.get("id"))
+    raw_title = session_meta.get("title")
+    title = _validate_conversation_title("" if raw_title is None else raw_title, allow_empty=True)
+
+    now = int(time.time() * 1000)
+    created_at = int(session_meta.get("createdAt") or now)
+    updated_at = int(session_meta.get("updatedAt") or now)
+    # extra_json guarda el perfil, el modo servidor y el proyecto; la cabecera los expone como campos propios.
+    extra = _conversation_extra(session_meta)
 
     with open_storage() as conn:
         existing = conn.execute("SELECT created_at, extra_json, title FROM conversations WHERE id = ?;", (session_id,)).fetchone()
         if existing:
-            if not session_meta.get("createdAt") and existing["created_at"]:
-                created_at = int(existing["created_at"])
-            if not title and existing["title"]:
-                title = existing["title"]
-            existing_extra = json.loads(existing["extra_json"]) if existing["extra_json"] else {}
-            extra = {**existing_extra, **extra}
-            # El proyecto se fija al crear la conversación y no cambia después.
-            if existing_extra.get("project"):
-                extra["project"] = existing_extra["project"]
-
-        extra_json = json.dumps(extra, ensure_ascii=False) if extra else "{}"
-
+            created_at, title, extra = _merge_saved_header(existing, session_meta, created_at, title, extra)
         conn.execute("""
             INSERT INTO conversations (id, title, created_at, updated_at, message_count, extra_json)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -482,37 +517,9 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
                 updated_at = excluded.updated_at,
                 message_count = excluded.message_count,
                 extra_json = excluded.extra_json;
-        """, (session_id, title, created_at, updated_at, len(messages), extra_json))
-
-        old_blob_ids = {
-            row["blob_id"]
-            for row in conn.execute(
-                "SELECT blob_id FROM conversation_blobs WHERE conversation_id = ?;",
-                (session_id,),
-            )
-        }
-        conn.execute("DELETE FROM messages WHERE conversation_id = ?;", (session_id,))
-
-        for pos, msg in enumerate(messages):
-            msg_id = str(msg.get("id") or "").strip() or f"msg_{session_id}_{pos}"
-            role = str(msg.get("role") or "user").strip()
-            content = "" if msg.get("content") is None else str(msg.get("content"))
-            extra = {k: v for k, v in msg.items() if k not in ("id", "role", "content", "conversationId", "position")}
-            extra_json = json.dumps(extra) if extra else "{}"
-
-            conn.execute("""
-                INSERT INTO messages (conversation_id, position, id, role, content, extra_json)
-                VALUES (?, ?, ?, ?, ?, ?);
-            """, (session_id, pos, msg_id, role, content, extra_json))
-
-        conn.execute("DELETE FROM conversation_blobs WHERE conversation_id = ?;", (session_id,))
-        if new_blob_ids:
-            conn.executemany(
-                "INSERT OR IGNORE INTO conversation_blobs (conversation_id, blob_id) VALUES (?, ?);",
-                [(session_id, blob_id) for blob_id in new_blob_ids],
-            )
-        _delete_orphan_blobs(conn, old_blob_ids - new_blob_ids)
-
+        """, (session_id, title, created_at, updated_at, len(messages), json.dumps(extra, ensure_ascii=False) if extra else "{}"))
+        _replace_messages(conn, session_id, messages)
+        _replace_conversation_blobs(conn, session_id, new_blob_ids)
         conn.commit()
         row = conn.execute("SELECT * FROM conversations WHERE id = ?;", (session_id,)).fetchone()
         return _row_to_conversation_header(row)
