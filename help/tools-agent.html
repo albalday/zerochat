@@ -53,7 +53,7 @@
 
     <div class="card">
       <h2>3. Ejecutar JavaScript</h2>
-      <p><code>execute_javascript</code> ejecuta código mediante un iframe de origen aislado y un Web Worker en el navegador, o mediante un contexto limpio de <code>node:vm</code> en el servidor. Hay límites de tiempo y de salida; el objetivo es hacer cálculos sin dar al código acceso directo al chat o al disco. <strong>No es una barrera de seguridad</strong>: está pensado para cálculos del modelo bajo tu supervisión, no para ejecutar código no fiable.</p>
+      <p><code>execute_javascript</code> ejecuta código mediante un iframe de origen aislado y un Web Worker en el navegador, o, en el servidor, en un proceso aparte de Node sin acceso al disco, a tu sesión ni a las funciones de red, donde <code>eval</code> y <code>new Function</code> no están disponibles. Hay límites de tiempo y de salida; el objetivo es hacer cálculos sin dar al código acceso directo al chat o al disco. <strong>No es una barrera de seguridad</strong>: está pensado para cálculos del modelo bajo tu supervisión, no para ejecutar código no fiable.</p>
       <p>Actívala si necesitas ese procesamiento y puedes revisar lo que hace. El aislamiento no garantiza resultados correctos ni elimina todos los riesgos de recursos. Para comandos del sistema se usan herramientas distintas del servidor local.</p>
     </div>
 

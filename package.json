@@ -6,9 +6,10 @@
   "scripts": {
     "build:vendor": "node scripts/build-vendor.mjs",
     "build:managed-services": "node scripts/build-managed-services.mjs",
-    "build:backend": "npm run build:managed-services && node scripts/build-backend.mjs",
+    "build:sandbox": "node scripts/build-sandbox-script.mjs",
+    "build:backend": "npm run build:managed-services && npm run build:sandbox && node scripts/build-backend.mjs",
     "build:sitemap": "node scripts/build-sitemap.mjs",
-    "build:runner": "node scripts/build-runner.mjs",
+    "build:runner": "npm run build:sandbox && node scripts/build-runner.mjs",
     "build": "npm run build:vendor && npm run build:backend && npm run build:runner",
     "bump": "node scripts/bump-version.mjs",
     "test": "node scripts/test-runner.mjs",

@@ -82,9 +82,10 @@ test('Sandbox Node - aísla el entorno de Node (sin process ni require), bloquea
   assert.equal(probe.success, true);
   assert.equal(probe.result, 'undefined,undefined,undefined');
 
-  const escape = await ChatSandbox.execute('return ({}).constructor.constructor("return 42")();');
+  // El proceso hijo es el mismo que lanza el servidor; su batería de escapes está en py/test_sandbox.py.
+  const escape = await ChatSandbox.execute('return Object.constructor("return process")();');
   assert.equal(escape.success, false);
-  assert.match(escape.error, /Dynamic function creation is not allowed/);
+  assert.match(escape.error, /Code generation from strings disallowed/);
 
   assert.match((await ChatSandbox.execute('')).error, /No JavaScript code was provided/);
   assert.match((await ChatSandbox.execute(42)).error, /No JavaScript code was provided/);

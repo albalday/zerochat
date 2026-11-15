@@ -155,6 +155,7 @@
     }
 
     if (!globalThis.ChatSandbox) {
+      globalThis.ChatSandboxNodeScript = require('./sandbox-node-script.js');
       globalThis.ChatSandbox = require('./sandbox.js');
     }
     if (!globalThis.ChatRagService) {
