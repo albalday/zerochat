@@ -792,4 +792,10 @@ test('AgentRuntime - resolveConnection cambia de modelo desde el siguiente paso 
   assert.deepEqual(sent.map(params => [params.model, params.apiKey, params.reasoningEffort]), [['a', 'ka', 'high'], ['a', 'ka', 'high'], ['b', 'kb', 'low']]);
   assert.deepEqual(sent[1].messages.filter(m => m.role === 'assistant').map(m => m.reasoning_content), ['plan 1']);
   assert.equal(sent[2].messages.some(m => 'reasoning_content' in m), false);
+  // Para el modelo nuevo, lo anterior al cambio es un turno cerrado: un mensaje de usuario que no se guarda.
+  const roles = messages => messages.filter(m => m.role !== 'system').map(m => m.role);
+  assert.deepEqual(roles(sent[1].messages), ['user', 'assistant', 'tool']);
+  assert.deepEqual(roles(sent[2].messages), ['user', 'assistant', 'tool', 'assistant', 'tool', 'user']);
+  assert.match(sent[2].messages.at(-1).content, /switched the model/);
+  assert.deepEqual(result.history.map(m => m.role), ['user', 'assistant', 'tool', 'assistant', 'tool', 'assistant']);
 });

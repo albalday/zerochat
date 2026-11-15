@@ -580,21 +580,3 @@ test('Multimodal Adapters - verificación de payloads de imágenes web descargad
     assert.deepEqual(formatted[4].content, webImageTurn.content);
   }
 });
-
-test('Gemini - una llamada que hizo otro modelo (switch_model a mitad de turno) lleva la firma para historiales ajenos', () => {
-  const call = (id, extra) => ({ id, type: 'function', function: { name: 'switch_model', arguments: '{}' }, ...(extra ? { extra_content: extra } : {}) });
-  const history = [
-    { role: 'user', content: 'Cambia a Gemini' },
-    { role: 'assistant', content: null, tool_calls: [call('local_a'), call('local_b')] },
-    { role: 'tool', tool_call_id: 'local_a', name: 'switch_model', content: '{}' },
-    { role: 'tool', tool_call_id: 'local_b', name: 'switch_model', content: '{}' },
-    { role: 'assistant', content: null, tool_calls: [call('gem_a', { google: { thought_signature: 'sig' } }), call('gem_b')] },
-    { role: 'tool', tool_call_id: 'gem_a', name: 'switch_model', content: '{}' },
-    { role: 'tool', tool_call_id: 'gem_b', name: 'switch_model', content: '{}' }
-  ];
-  const [foreign, own] = new GeminiProviderAdapter().formatMessages(history).filter(m => Array.isArray(m.tool_calls));
-  const signatures = message => message.tool_calls.map(item => item.extra_content?.google?.thought_signature);
-  // Como en un lote propio de Gemini, solo la primera llamada la lleva.
-  assert.deepEqual(signatures(foreign), ['skip_thought_signature_validator', undefined]);
-  assert.deepEqual(signatures(own), ['sig', undefined], 'las firmas de Gemini no se tocan');
-});

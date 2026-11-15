@@ -66,6 +66,9 @@
   // Texto que acompaña a una llamada emitida como texto: no es respuesta para el usuario.
   const TOOL_CALL_TEXT = /^(?:<\||<tool_call|<function_call|call:|\{"name"|```json\n\{"name")/;
 
+  // Mensaje de usuario que solo ve el proveedor tras un cambio de modelo con switch_model.
+  const MODEL_SWITCH_NOTE = '[The user\'s instruction switched the model at this point. Continue the task where it left off.]';
+
   const createCancelledError = () => new Error('Agent execution cancelled by the user.');
 
   /** Interruptor de una herramienta en la configuración, o su valor por defecto. */
@@ -632,6 +635,12 @@
       // primer rechazo, el resto del turno se envía sin él.
       let stepReasoningEffort = reasoningEffort;
 
+      // Mensajes tras los que se cambió de modelo: a continuación se envía MODEL_SWITCH_NOTE, que no se guarda.
+      const switchBoundaries = new Set();
+      const withSwitchBoundaries = messages => (switchBoundaries.size === 0
+        ? messages
+        : messages.flatMap(message => (switchBoundaries.has(message) ? [message, { role: 'user', content: MODEL_SWITCH_NOTE }] : [message])));
+
       /** Toma la conexión vigente: otro modelo, u otro nivel de razonamiento, vale desde este paso. */
       const refreshConnection = async () => {
         if (!resolveConnection) return;
@@ -641,6 +650,10 @@
           // El razonamiento que se reenvía y un resumen que falló son del modelo anterior.
           workingMessages = workingMessages.map(withoutReasoningReplay);
           compressionUnavailable = false;
+          // Para el modelo nuevo, lo anterior es un turno cerrado (como al cambiar en el selector): un
+          // proveedor que valida las llamadas del turno en curso (las firmas de Gemini 3) no recibe como
+          // suyas las del otro modelo.
+          if (workingMessages.length > 0) switchBoundaries.add(workingMessages.at(-1));
         }
         if (!sameModel || next.reasoningEffort !== connection.reasoningEffort) stepReasoningEffort = next.reasoningEffort;
         connection = next;
@@ -682,7 +695,7 @@
             apiType: connection.apiType,
             apiKey: connection.apiKey,
             model: connection.model,
-            messages: prepareMessages ? await prepareMessages(workingMessages) : workingMessages,
+            messages: prepareMessages ? await prepareMessages(withSwitchBoundaries(workingMessages)) : withSwitchBoundaries(workingMessages),
             temperature: connection.temperature,
             reasoningEffort: stepReasoningEffort,
             tools: resolveToolDefinitions ? await resolveToolDefinitions() : [],
