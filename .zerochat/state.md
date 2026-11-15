@@ -1,4 +1,4 @@
 # Current state
 - Milestone: M73 Arreglos de seguridad
-- Next task: M73-T14 Simplificar la distribución y el montaje de `runner.js` (el usuario lo llamó runner.sh): hoy se genera con esbuild, se versiona en el repositorio, se publica en GitHub Pages y el servidor lo descarga con caché y tope de tamaño, y dos olvidos de `npm run build:runner` en M68 dejaron la copia desincronizada; revisar con el usuario qué partes sobran y proponer un montaje con menos pasos
+- Next task: M73-T16 Repasar los permisos de `--prompt` y `--conversation` con el usuario: qué aprueba cada modo sin preguntar (`answerToolApprovals` en `js/run-mode.js`: `allow_session` para todo salvo las herramientas peligrosas en modo clásico), qué hace `--allow-dangerous-tools` y qué capa de seguridad aplica `tool_security`; decidir qué cambia y registrarlo
 - Last updated: 2026-11-15

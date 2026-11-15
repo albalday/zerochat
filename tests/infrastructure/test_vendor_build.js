@@ -61,15 +61,3 @@ test('build:sandbox reproduce exactamente los dos módulos generados del proceso
     fs.rmSync(outDir, { recursive: true, force: true });
   }
 });
-
-test('build:runner reproduce exactamente el runner.js versionado', () => {
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-runner-'));
-  try {
-    const outFile = path.join(outDir, 'runner.js');
-    execFileSync('node', ['scripts/build-runner.mjs', '--outfile', outFile], { cwd: root, stdio: 'pipe' });
-    assert.ok(fs.readFileSync(outFile).equals(fs.readFileSync(path.join(root, 'runner.js'))),
-      'runner.js no coincide con la salida de npm run build:runner');
-  } finally {
-    fs.rmSync(outDir, { recursive: true, force: true });
-  }
-});

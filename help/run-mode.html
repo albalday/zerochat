@@ -32,7 +32,7 @@
       <ul>
         <li><strong>Salida estándar:</strong> solo la respuesta final del modelo.</li>
         <li><strong>Salida de errores:</strong> el motivo de una ejecución sin respuesta. El registro del servidor está desactivado por defecto; con <code>--log on</code> también va a la salida de errores.</li>
-        <li><strong>Ejecución:</strong> por defecto usa Node.js 22.13 o superior en segundo plano (sin necesidad de abrir navegadores gráficos); con <code>--browser</code> usa tu navegador predeterminado (visible, o sin ventana si añades <code>--headless</code>).</li>
+        <li><strong>Ejecución:</strong> por defecto usa Node.js 22.13 o superior en segundo plano (sin necesidad de abrir navegadores gráficos); con <code>--browser</code> usa tu navegador predeterminado (visible, o sin ventana si añades <code>--headless</code>). Node descarga la interfaz cada vez de la misma web que el navegador y guarda una copia: sin conexión usa la última, así que con un modelo local funciona sin internet a partir de la primera ejecución.</li>
         <li><strong>Directorio de trabajo:</strong> las herramientas de archivos y comandos trabajan en el directorio desde el que lanzas la orden, como en una sesión normal.</li>
       </ul>
     </div>

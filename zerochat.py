@@ -2319,6 +2319,142 @@ def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
         return rpc_error(INVALID_PARAMS, str(exc.args[0]) if exc.args else str(exc))
     return rpc_result({"servers": servers})
 
+# --- run_mode.runner_loader ---
+"""Cargador del runner de Node.js: descarga los módulos de la interfaz como un navegador y los ejecuta.
+
+El servidor lo lanza con `node --permission -e RUNNER_LOADER_SCRIPT <caché> <url de la interfaz>`. Desde la
+carpeta de la interfaz (GitHub Pages en producción, este servidor en desarrollo) descarga `js/run-node.js` y,
+siguiendo sus `require('./…')`, los módulos que usa, en paralelo; los ejecuta con un `require` mínimo que los
+busca en lo descargado (los de Node, como `node:crypto`, van al `require` real). Lo que se ejecuta es lo que se
+publica: no hay empaquetado ni copia versionada.
+
+Cada descarga completa sustituye la caché (un JSON con la carpeta de origen y los ficheros). Solo se usa si la
+interfaz no responde, para seguir funcionando sin conexión con un modelo local; una respuesta de error de la
+interfaz (un 404) es un fallo, no un motivo para ejecutar la copia anterior. Las librerías de terceros que se
+cargan bajo demanda (`ChatVendorLoader`) siguen el mismo camino con `globalThis.ChatRunnerSource`.
+"""
+
+
+# Tope de lo descargado en una ejecución: la interfaz completa ocupa unas pocas centenas de KiB.
+RUNNER_MAX_BYTES = 16 * 1024 * 1024
+
+RUNNER_LOADER_SCRIPT = r"""
+'use strict';
+const fs = require('node:fs');
+const vm = require('node:vm');
+
+const [cacheFile, uiUrl] = process.argv.slice(1);
+const base = new URL('.', uiUrl.split('#')[0]).href;
+const ENTRY = 'js/run-node.js';
+const MAX_BYTES = __MAX_BYTES__;
+const REQUIRE_RE = /require\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)/g;
+
+function resolveKey(from, spec) {
+  const href = new URL(spec, base + from).href;
+  if (!href.startsWith(base)) throw new Error(`Module outside the interface folder: ${spec}`);
+  return href.slice(base.length);
+}
+
+// Solo un fallo de red (fetch lanza) permite usar la caché: una respuesta de error o un tope superado, no.
+async function download(key) {
+  let response;
+  try {
+    response = await fetch(base + key);
+  } catch (cause) {
+    const error = new Error(`${base + key}: ${cause.cause?.code || cause.message}`);
+    error.offline = true;
+    throw error;
+  }
+  if (!response.ok) throw new Error(`${base + key}: HTTP ${response.status}`);
+  return response.text();
+}
+
+async function downloadGraph() {
+  const files = {};
+  const seen = new Set([ENTRY]);
+  let pending = [ENTRY];
+  let total = 0;
+  while (pending.length) {
+    const texts = await Promise.all(pending.map(key => download(key)));
+    const next = [];
+    pending.forEach((key, index) => {
+      files[key] = texts[index];
+      total += texts[index].length;
+      for (const match of texts[index].matchAll(REQUIRE_RE)) {
+        const dep = resolveKey(key, match[1]);
+        if (!seen.has(dep)) {
+          seen.add(dep);
+          next.push(dep);
+        }
+      }
+    });
+    if (total > MAX_BYTES) throw new Error(`The runner modules exceed ${MAX_BYTES} bytes.`);
+    pending = next;
+  }
+  return files;
+}
+
+function readCache() {
+  try {
+    const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+    return cached && cached.base === base && cached.files && typeof cached.files === 'object' ? cached.files : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(files) {
+  try {
+    fs.writeFileSync(cacheFile + '.tmp', JSON.stringify({ base, files }), { mode: 0o600 });
+    fs.renameSync(cacheFile + '.tmp', cacheFile);
+  } catch (error) {
+    console.error(`[RunnerLoader] Could not update the cache: ${error.message}`);
+  }
+}
+
+function execute(files) {
+  const modules = new Map();
+  const load = key => {
+    if (modules.has(key)) return modules.get(key).exports;
+    if (typeof files[key] !== 'string') throw new Error(`Module not downloaded: ${key}`);
+    const module = { exports: {} };
+    modules.set(key, module);
+    const filename = base + key;
+    const wrapper = vm.runInThisContext(`(function (exports, require, module, __filename, __dirname) {${files[key]}\n})`, { filename });
+    const localRequire = spec => (spec.startsWith('.') ? load(resolveKey(key, spec)) : require(spec));
+    wrapper.call(module.exports, module.exports, localRequire, module, filename, new URL('.', filename).href);
+    return module.exports;
+  };
+  return load(ENTRY);
+}
+
+(async () => {
+  let files;
+  try {
+    files = await downloadGraph();
+    writeCache(files);
+  } catch (error) {
+    files = error.offline ? readCache() : null;
+    if (!files) throw error;
+    console.error(`[RunnerLoader] ${base} is unreachable (${error.message}); using the cached copy.`);
+  }
+  // Las librerías de terceros se piden al usarlas: se descargan igual y se añaden a la caché.
+  globalThis.ChatRunnerSource = async key => {
+    try {
+      files[key] = await download(key);
+      writeCache(files);
+    } catch (error) {
+      if (!error.offline || typeof files[key] !== 'string') throw error;
+    }
+    return files[key];
+  };
+  await execute(files).startHeadlessRun([uiUrl]);
+})().catch(error => {
+  console.error('[RunnerLoader] Fatal error:', error);
+  process.exit(1);
+});
+""".replace("__MAX_BYTES__", str(RUNNER_MAX_BYTES))
+
 # --- security.context ---
 """Proyecto de cada petición (SecurityContext): carpeta canónica, rutas resueltas contra ella y clave de su sesión."""
 
@@ -7135,6 +7271,93 @@ class ConsoleControl:
                 return
             self._handle_command(line)
 
+# --- run_mode.supervisor ---
+"""Supervisión de la ejecución desatendida: plazos, final del runner o del navegador, y arranque del runner de Node."""
+
+
+
+
+
+def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc: subprocess.Popen | None = None, browser_proc: subprocess.Popen | None = None):
+    """Detiene el servidor al recibir el resultado, si termina el runner propio o al agotar los plazos."""
+    proc = runner_proc if runner_proc is not None else browser_proc
+    deadline = time.monotonic() + RUN_TOTAL_TIMEOUT
+    while not session.finished.wait(RUN_POLL_SECONDS):
+        # El latido o una señal ya detienen el servidor: el resultado queda vacío.
+        if _SERVER_SHUTTING_DOWN.is_set():
+            return
+        if proc is not None and proc.poll() is not None and not session.finished.wait(0.2):
+            break
+        if time.monotonic() >= deadline + session.waited_seconds():
+            session.stop_reason = f"Plazo total agotado ({RUN_TOTAL_TIMEOUT:.0f}s, sin contar las esperas)."
+            break
+        if session.idle_seconds() > RUN_IDLE_SECONDS:
+            session.stop_reason = f"Sin progreso de la interfaz durante {RUN_IDLE_SECONDS:.0f}s."
+            break
+    if session.result is None and session.conversation_id:
+        with session.lock:
+            session.status = "error"
+            session.error = session.stop_reason or ("El runner se cerró sin resultado." if proc else "La ejecución se interrumpió sin resultado.")
+            write_run_state(session)
+    if session.runner_token:
+        revoke_token(session.runner_token)
+    stop_zerochat_server(server)
+
+
+def fall_back_when_headless_exits(proc: subprocess.Popen, url: str):
+    """
+    Un navegador sin ventana termina enseguida si su perfil ya está abierto (Firefox avisa de que
+    ya está en marcha): si acaba antes de que conecte la interfaz, se abre la pestaña normal.
+    """
+    proc.wait()
+    if not heartbeat_initialized() and not _SERVER_SHUTTING_DOWN.is_set():
+        log_event("El navegador sin ventana terminó sin abrir la interfaz (¿ya estaba abierto?); se abre una pestaña de la forma normal.")
+        launch_browser(url)
+
+
+def _runner_cache_file() -> Path:
+    """La caché de los módulos del runner, en una carpeta privada que es lo único del disco que puede tocar."""
+    cache_dir = get_data_dir() / "cache" / "runner"
+    cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.name != "nt":
+        try:
+            cache_dir.chmod(0o700)
+        except OSError:
+            pass
+    return cache_dir / "modules.json"
+
+
+def launch_node_runner(url: str) -> subprocess.Popen | None:
+    """Abre el runner de Node.js sin ventana en segundo plano con el modelo de permisos de Node.
+
+    El cargador (runner_loader.py) descarga los módulos de la interfaz de url y solo puede leer y escribir su caché.
+    Hereda el entorno de quien lanza zerochat (NODE_EXTRA_CA_CERTS, TZ, LANG...): ejecuta código propio, no el del
+    modelo, que va al sandbox sin entorno; un runner alterado vendría con una interfaz alterada que ya puede más."""
+    node = find_node_executable()
+    if not node:
+        run_error(f"Se necesita {NODE_REQUIRED_MESSAGE} para la ejecución desatendida. Instálalo o usa --browser.")
+        return None
+    try:
+        cache_file = _runner_cache_file()
+    except OSError as exc:
+        run_error(f"No se pudo preparar la caché del runner de Node.js: {exc}")
+        return None
+    log_event("Iniciando runner de Node.js...")
+    cache_dir = cache_file.parent
+    cmd = [node, "--permission", f"--allow-fs-read={cache_dir}", f"--allow-fs-write={cache_dir}",
+           "-e", RUNNER_LOADER_SCRIPT, str(cache_file), url]
+    try:
+        return subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as error:
+        run_error(f"No se pudo iniciar el proceso de Node.js ({error}).")
+        return None
+
 # --- tools.jobs_rpc ---
 """Métodos JSON-RPC de los comandos del proyecto para la interfaz: lista, tarjetas, log, detener y cortar esperas."""
 
@@ -8062,175 +8285,6 @@ def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed) -
             "status": 0,
             "error": str(exc)
         }
-
-# --- run_mode.supervisor ---
-"""Supervisión de la ejecución desatendida: plazos, final del runner o del navegador, y descarga y arranque de runner.js con Node."""
-
-
-
-
-
-# Tope de descarga para runner.js (evita agotar memoria o disco con respuestas desbordadas).
-RUNNER_MAX_BYTES = 4 * 1024 * 1024
-
-
-def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc: subprocess.Popen | None = None, browser_proc: subprocess.Popen | None = None):
-    """Detiene el servidor al recibir el resultado, si termina el runner propio o al agotar los plazos."""
-    proc = runner_proc if runner_proc is not None else browser_proc
-    deadline = time.monotonic() + RUN_TOTAL_TIMEOUT
-    while not session.finished.wait(RUN_POLL_SECONDS):
-        # El latido o una señal ya detienen el servidor: el resultado queda vacío.
-        if _SERVER_SHUTTING_DOWN.is_set():
-            return
-        if proc is not None and proc.poll() is not None and not session.finished.wait(0.2):
-            break
-        if time.monotonic() >= deadline + session.waited_seconds():
-            session.stop_reason = f"Plazo total agotado ({RUN_TOTAL_TIMEOUT:.0f}s, sin contar las esperas)."
-            break
-        if session.idle_seconds() > RUN_IDLE_SECONDS:
-            session.stop_reason = f"Sin progreso de la interfaz durante {RUN_IDLE_SECONDS:.0f}s."
-            break
-    if session.result is None and session.conversation_id:
-        with session.lock:
-            session.status = "error"
-            session.error = session.stop_reason or ("El runner se cerró sin resultado." if proc else "La ejecución se interrumpió sin resultado.")
-            write_run_state(session)
-    if session.runner_token:
-        revoke_token(session.runner_token)
-    stop_zerochat_server(server)
-
-
-def fall_back_when_headless_exits(proc: subprocess.Popen, url: str):
-    """
-    Un navegador sin ventana termina enseguida si su perfil ya está abierto (Firefox avisa de que
-    ya está en marcha): si acaba antes de que conecte la interfaz, se abre la pestaña normal.
-    """
-    proc.wait()
-    if not heartbeat_initialized() and not _SERVER_SHUTTING_DOWN.is_set():
-        log_event("El navegador sin ventana terminó sin abrir la interfaz (¿ya estaba abierto?); se abre una pestaña de la forma normal.")
-        launch_browser(url)
-
-
-def _read_bounded_runner(resp) -> str:
-    """Lee runner.js de la respuesta HTTP con tope RUNNER_MAX_BYTES y validación UTF-8."""
-    raw_length = resp.headers.get("Content-Length")
-    encoding = (resp.headers.get("Content-Encoding") or "").strip().lower()
-    if raw_length and not encoding:
-        try:
-            if int(raw_length) > RUNNER_MAX_BYTES:
-                raise RuntimeError(f"runner.js supera el tamaño máximo permitido ({RUNNER_MAX_BYTES} bytes).")
-        except ValueError:
-            pass
-    content, truncated = _read_limited_body(resp, encoding, RUNNER_MAX_BYTES)
-    if truncated:
-        raise RuntimeError(f"runner.js supera el tamaño máximo permitido ({RUNNER_MAX_BYTES} bytes).")
-    if not content:
-        raise RuntimeError("runner.js descargado está vacío.")
-    try:
-        return content.decode("utf-8")
-    except UnicodeDecodeError as err:
-        raise RuntimeError(f"runner.js descargado no es UTF-8 válido: {err}") from err
-
-
-def _dev_runner_script() -> Path | None:
-    """En el repositorio, js/run-node.js o, si no está, el runner.js compilado."""
-    dev_root = get_dev_root()
-    if dev_root is None:
-        return None
-    return next((path for path in (dev_root / "js" / "run-node.js", dev_root / "runner.js") if path.is_file()), None)
-
-
-def _chmod_quietly(path: Path, mode: int):
-    """Permisos POSIX si se pueden poner; en Windows no se aplican."""
-    if os.name != "nt":
-        try:
-            path.chmod(mode)
-        except OSError:
-            pass
-
-
-def _download_runner(url: str, runner_path: Path, etag_path: Path):
-    """Descarga runner.js si cambió desde la copia en caché (If-None-Match); un 304 llega como HTTPError."""
-    # url sale de DEFAULT_UI_URL, una URL https fija.
-    req = urllib.request.Request(url, headers={"User-Agent": f"ZeroChat/{VERSION}"})  # noqa: S310
-    if runner_path.is_file() and etag_path.is_file():
-        try:
-            current_etag = etag_path.read_text(encoding="utf-8").strip()
-            if current_etag:
-                req.add_header("If-None-Match", current_etag)
-        except OSError:
-            pass
-    with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310
-        runner_text = _read_bounded_runner(resp)
-        etag = resp.headers.get("ETag")
-    _write_private_text(runner_path, runner_text)
-    _chmod_quietly(runner_path, 0o755)
-    if etag:
-        _write_private_text(etag_path, etag)
-    else:
-        etag_path.unlink(missing_ok=True)
-
-
-def ensure_runner_script() -> Path:
-    """
-    Obtiene la ruta al runner de Node.js: en entorno de desarrollo local usa js/run-node.js o runner.js;
-    en producción lo descarga o actualiza desde GitHub Pages con comprobación condicional ETag/304
-    en ~/zerochat/cache/runner.js.
-    """
-    dev_runner = _dev_runner_script()
-    if dev_runner is not None:
-        return dev_runner
-
-    cache_dir = get_data_dir() / "cache"
-    cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    _chmod_quietly(cache_dir, 0o700)
-    runner_path = cache_dir / "runner.js"
-    runner_url = DEFAULT_UI_URL.rsplit("/", 1)[0] + "/runner.js"
-    try:
-        _download_runner(runner_url, runner_path, cache_dir / "runner.etag")
-    except urllib.error.HTTPError as err:
-        if not runner_path.is_file():
-            raise RuntimeError(f"Error descargando runner.js desde {runner_url}: {err}") from err
-        if err.code != 304:
-            log_event(f"No se pudo comprobar actualización de runner.js ({err}); usando versión en caché.")
-    except (urllib.error.URLError, TimeoutError, OSError) as err:
-        if not runner_path.is_file():
-            raise RuntimeError(f"No se pudo descargar runner.js ({err}) y no hay copia en caché.") from err
-        log_event(f"No se pudo comprobar actualización de runner.js ({err}); usando versión en caché.")
-    return runner_path
-
-
-def launch_node_runner(url: str) -> subprocess.Popen | None:
-    """Abre el runner de Node.js sin ventana en segundo plano con el modelo de permisos de Node.
-
-    Hereda el entorno de quien lanza zerochat (NODE_EXTRA_CA_CERTS, TZ, LANG...): ejecuta código propio, no el del
-    modelo, que va al sandbox sin entorno; un runner.js alterado vendría con una interfaz alterada que ya puede más."""
-    node = find_node_executable()
-    if not node:
-        run_error(f"Se necesita {NODE_REQUIRED_MESSAGE} para la ejecución desatendida. Instálalo o usa --browser.")
-        return None
-    try:
-        runner_path = ensure_runner_script()
-    except Exception as exc:
-        run_error(f"No se pudo preparar el runner de Node.js: {exc}")
-        return None
-    log_event(f"Iniciando runner de Node.js ({runner_path.name})...")
-    cmd = [node, "--permission"]
-    if runner_path.name == "run-node.js":
-        # En desarrollo js/run-node.js carga sus módulos por require() dentro de js/.
-        cmd.append(f"--allow-fs-read={runner_path.parent}")
-    cmd.extend([str(runner_path), url])
-    try:
-        return subprocess.Popen(
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-    except OSError as error:
-        run_error(f"No se pudo iniciar el proceso de Node.js ({error}).")
-        return None
 
 # --- server.rpc ---
 """Métodos JSON-RPC de los dos endpoints del servidor: una tabla por método exacto y otra por grupo (prefijo).

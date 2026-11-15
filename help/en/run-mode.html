@@ -32,7 +32,7 @@
       <ul>
         <li><strong>Standard output:</strong> only the model's final answer.</li>
         <li><strong>Standard error:</strong> the reason for a run without an answer. The server log is off by default; with <code>--log on</code> it also goes to standard error.</li>
-        <li><strong>Execution:</strong> by default it uses Node.js 22.13 or later in the background (no graphical browser required); with <code>--browser</code> it uses your default browser (visible, or windowless if you add <code>--headless</code>).</li>
+        <li><strong>Execution:</strong> by default it uses Node.js 22.13 or later in the background (no graphical browser required); with <code>--browser</code> it uses your default browser (visible, or windowless if you add <code>--headless</code>). Node downloads the interface each time from the same site as the browser and keeps a copy: without a connection it uses the last one, so with a local model it works offline from the first run on.</li>
         <li><strong>Working directory:</strong> file and command tools work in the directory you run the command from, as in a normal session.</li>
       </ul>
     </div>
