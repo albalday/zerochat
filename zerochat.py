@@ -1050,6 +1050,55 @@ def browser_launch_diagnostics(attempts: list[str]) -> str:
     return "\n  ".join(lines)
 
 
+def _spawn_detached(args: list[str]):
+    """Lanza el abridor sin atarlo a la terminal; OSError si no se puede iniciar."""
+    subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+def _open_in_termux(url: str):
+    termux_open_url = get_termux_open_url_executable()
+    if not termux_open_url:
+        raise FileNotFoundError(
+            "Termux fue detectado, pero no se encontró termux-open-url.\n  "
+            + browser_launch_diagnostics(["termux-open-url: no localizado"])
+        )
+    try:
+        _spawn_detached([termux_open_url, url])
+    except OSError as error:
+        raise RuntimeError(
+            f"termux-open-url no pudo iniciarse: {type(error).__name__}: {error}\n  "
+            + browser_launch_diagnostics(["termux-open-url: error al iniciar"])
+        ) from error
+
+
+def _system_openers(url: str) -> list[tuple[str, list[str] | None]]:
+    """Abridores del sistema por orden: (nombre, orden). Una orden None es os.startfile."""
+    if sys.platform.startswith("linux"):
+        return [("xdg-open", ["xdg-open", url]), ("gio", ["gio", "open", url])]
+    if sys.platform == "darwin":
+        return [("open", ["open", url])] if shutil.which("open") else []
+    if sys.platform == "win32":
+        return [("os.startfile", None)]
+    return []
+
+
+def _open_with_system(url: str, attempts: list[str]) -> bool:
+    """Prueba los abridores del sistema y anota en attempts por qué falla cada uno."""
+    for name, args in _system_openers(url):
+        if args is not None and not shutil.which(args[0]):
+            attempts.append(f"{name}: no encontrado")
+            continue
+        try:
+            if args is None:
+                os.startfile(url)  # pyright: ignore[reportAttributeAccessIssue] - solo existe en Windows
+            else:
+                _spawn_detached(args)
+            return True
+        except OSError as error:
+            attempts.append(f"{name}: {type(error).__name__}: {error}")
+    return False
+
+
 def open_browser(url: str) -> bool:
     """
     Abre la URL en el navegador predeterminado del usuario respetando el entorno del sistema.
@@ -1057,61 +1106,12 @@ def open_browser(url: str) -> bool:
     Linux prioriza xdg-open o gio para respetar el gestor de ventanas y mimeapps.list,
     desacoplando el proceso hijo para evitar ruidos en la terminal.
     """
-    attempts = []
     if is_termux_environment():
-        termux_open_url = get_termux_open_url_executable()
-        if not termux_open_url:
-            raise FileNotFoundError(
-                "Termux fue detectado, pero no se encontró termux-open-url.\n  "
-                + browser_launch_diagnostics(["termux-open-url: no localizado"])
-            )
-        try:
-            subprocess.Popen(
-                [termux_open_url, url],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-            return True
-        except OSError as error:
-            raise RuntimeError(
-                f"termux-open-url no pudo iniciarse: {type(error).__name__}: {error}\n  "
-                + browser_launch_diagnostics(["termux-open-url: error al iniciar"])
-            ) from error
-    elif sys.platform.startswith("linux"):
-        for cmd in ("xdg-open", "gio"):
-            if shutil.which(cmd):
-                try:
-                    args = ["gio", "open", url] if cmd == "gio" else ["xdg-open", url]
-                    subprocess.Popen(
-                        args,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        start_new_session=True,
-                    )
-                    return True
-                except OSError as error:
-                    attempts.append(f"{cmd}: {type(error).__name__}: {error}")
-            else:
-                attempts.append(f"{cmd}: no encontrado")
-    elif sys.platform == "darwin":
-        if shutil.which("open"):
-            try:
-                subprocess.Popen(
-                    ["open", url],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
-                return True
-            except OSError as error:
-                attempts.append(f"open: {type(error).__name__}: {error}")
-    elif sys.platform == "win32":
-        try:
-            os.startfile(url)
-            return True
-        except OSError as error:
-            attempts.append(f"os.startfile: {type(error).__name__}: {error}")
+        _open_in_termux(url)
+        return True
+    attempts: list[str] = []
+    if _open_with_system(url, attempts):
+        return True
 
     try:
         if webbrowser.open(url):
@@ -3618,10 +3618,8 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
     return runs, focus_run
 
 
-def start_server_run(params: dict, ctx: SecurityContext) -> dict:
-    """Inicia una ejecución en segundo plano para una conversación, en su proyecto o, si no tiene, en el de la petición."""
-    if not isinstance(params, dict):
-        raise ValueError("Parámetros no válidos.")
+def _run_target(params: dict) -> tuple[str, dict, str]:
+    """La conversación de la ejecución y el nombre de su perfil: el pedido o, si no, el de la conversación."""
     conv_id = params.get("conversation_id")
     if not isinstance(conv_id, str) or not conv_id.strip():
         raise ValueError("conversation_id requerido.")
@@ -3629,27 +3627,35 @@ def start_server_run(params: dict, ctx: SecurityContext) -> dict:
     conv = get_conversation(clean_conv_id)
     if conv is None:
         raise ValueError(f"Conversación '{clean_conv_id}' no encontrada.")
-
     profile = params.get("profile")
     if not isinstance(profile, str) or not profile.strip():
         conv_profile = conv.get("profileId")
-        if isinstance(conv_profile, str) and conv_profile.strip():
-            profile = conv_profile.strip()
-        else:
+        if not isinstance(conv_profile, str) or not conv_profile.strip():
             raise ValueError("profile requerido.")
+        profile = conv_profile.strip()
     profile_entry = get_general_profile(profile) or get_general_profile_by_name(profile)
     if not profile_entry:
         raise ValueError(f"Perfil del servidor '{profile}' no encontrado.")
-    profile_name = profile_entry.get("name", profile.strip())
+    return clean_conv_id, conv, profile_entry.get("name", profile.strip())
 
+
+def _check_no_active_run(state_path: Path, conv_id: str):
+    """Una conversación solo tiene una ejecución en marcha; un estado ilegible no cuenta como tal."""
+    try:
+        existing = json.loads(state_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return
+    if isinstance(existing, dict) and existing.get("status") == "running" and _run_process_alive(existing):
+        raise ValueError(f"Ya hay una ejecución en marcha para la conversación '{conv_id}'.")
+
+
+def start_server_run(params: dict, ctx: SecurityContext) -> dict:
+    """Inicia una ejecución en segundo plano para una conversación, en su proyecto o, si no tiene, en el de la petición."""
+    if not isinstance(params, dict):
+        raise ValueError("Parámetros no válidos.")
+    clean_conv_id, conv, profile_name = _run_target(params)
     state_path = get_run_state_path(clean_conv_id)
-    if state_path.exists():
-        try:
-            existing = json.loads(state_path.read_text(encoding="utf-8"))
-            if isinstance(existing, dict) and existing.get("status") == "running" and _run_process_alive(existing):
-                raise ValueError(f"Ya hay una ejecución en marcha para la conversación '{clean_conv_id}'.")
-        except (json.JSONDecodeError, OSError):
-            pass
+    _check_no_active_run(state_path, clean_conv_id)
 
     prompt = params.get("prompt")
     if prompt is not None and not isinstance(prompt, str):
@@ -8102,70 +8108,71 @@ def _read_bounded_runner(resp) -> str:
         raise RuntimeError(f"runner.js descargado no es UTF-8 válido: {err}") from err
 
 
+def _dev_runner_script() -> Path | None:
+    """En el repositorio, js/run-node.js o, si no está, el runner.js compilado."""
+    dev_root = get_dev_root()
+    if dev_root is None:
+        return None
+    return next((path for path in (dev_root / "js" / "run-node.js", dev_root / "runner.js") if path.is_file()), None)
+
+
+def _chmod_quietly(path: Path, mode: int):
+    """Permisos POSIX si se pueden poner; en Windows no se aplican."""
+    if os.name != "nt":
+        try:
+            path.chmod(mode)
+        except OSError:
+            pass
+
+
+def _download_runner(url: str, runner_path: Path, etag_path: Path):
+    """Descarga runner.js si cambió desde la copia en caché (If-None-Match); un 304 llega como HTTPError."""
+    # url sale de DEFAULT_UI_URL, una URL https fija.
+    req = urllib.request.Request(url, headers={"User-Agent": f"ZeroChat/{VERSION}"})  # noqa: S310
+    if runner_path.is_file() and etag_path.is_file():
+        try:
+            current_etag = etag_path.read_text(encoding="utf-8").strip()
+            if current_etag:
+                req.add_header("If-None-Match", current_etag)
+        except OSError:
+            pass
+    with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310
+        runner_text = _read_bounded_runner(resp)
+        etag = resp.headers.get("ETag")
+    _write_private_text(runner_path, runner_text)
+    _chmod_quietly(runner_path, 0o755)
+    if etag:
+        _write_private_text(etag_path, etag)
+    else:
+        etag_path.unlink(missing_ok=True)
+
+
 def ensure_runner_script() -> Path:
     """
     Obtiene la ruta al runner de Node.js: en entorno de desarrollo local usa js/run-node.js o runner.js;
     en producción lo descarga o actualiza desde GitHub Pages con comprobación condicional ETag/304
     en ~/zerochat/cache/runner.js.
     """
-    dev_root = get_dev_root()
-    if dev_root is not None:
-        local_run_node = dev_root / "js" / "run-node.js"
-        if local_run_node.is_file():
-            return local_run_node
-        local_runner = dev_root / "runner.js"
-        if local_runner.is_file():
-            return local_runner
+    dev_runner = _dev_runner_script()
+    if dev_runner is not None:
+        return dev_runner
 
     cache_dir = get_data_dir() / "cache"
     cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if os.name != "nt":
-        try:
-            cache_dir.chmod(0o700)
-        except OSError:
-            pass
+    _chmod_quietly(cache_dir, 0o700)
     runner_path = cache_dir / "runner.js"
-    etag_path = cache_dir / "runner.etag"
-
     runner_url = DEFAULT_UI_URL.rsplit("/", 1)[0] + "/runner.js"
-
     try:
-        # runner_url sale de DEFAULT_UI_URL, una URL https fija.
-        req = urllib.request.Request(runner_url, headers={"User-Agent": f"ZeroChat/{VERSION}"})  # noqa: S310
-        if runner_path.is_file() and etag_path.is_file():
-            try:
-                current_etag = etag_path.read_text(encoding="utf-8").strip()
-                if current_etag:
-                    req.add_header("If-None-Match", current_etag)
-            except OSError:
-                pass
-
-        with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310
-            runner_text = _read_bounded_runner(resp)
-            etag = resp.headers.get("ETag")
-            _write_private_text(runner_path, runner_text)
-            if os.name != "nt":
-                try:
-                    runner_path.chmod(0o755)
-                except OSError:
-                    pass
-            if etag:
-                _write_private_text(etag_path, etag)
-            else:
-                etag_path.unlink(missing_ok=True)
+        _download_runner(runner_url, runner_path, cache_dir / "runner.etag")
     except urllib.error.HTTPError as err:
-        if err.code == 304 and runner_path.is_file():
-            pass
-        elif runner_path.is_file():
-            log_event(f"No se pudo comprobar actualización de runner.js ({err}); usando versión en caché.")
-        else:
+        if not runner_path.is_file():
             raise RuntimeError(f"Error descargando runner.js desde {runner_url}: {err}") from err
-    except (urllib.error.URLError, TimeoutError, OSError) as err:
-        if runner_path.is_file():
+        if err.code != 304:
             log_event(f"No se pudo comprobar actualización de runner.js ({err}); usando versión en caché.")
-        else:
+    except (urllib.error.URLError, TimeoutError, OSError) as err:
+        if not runner_path.is_file():
             raise RuntimeError(f"No se pudo descargar runner.js ({err}) y no hay copia en caché.") from err
-
+        log_event(f"No se pudo comprobar actualización de runner.js ({err}); usando versión en caché.")
     return runner_path
 
 

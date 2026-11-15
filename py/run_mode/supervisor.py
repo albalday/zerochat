@@ -91,70 +91,71 @@ def _read_bounded_runner(resp) -> str:
         raise RuntimeError(f"runner.js descargado no es UTF-8 válido: {err}") from err
 
 
+def _dev_runner_script() -> Path | None:
+    """En el repositorio, js/run-node.js o, si no está, el runner.js compilado."""
+    dev_root = get_dev_root()
+    if dev_root is None:
+        return None
+    return next((path for path in (dev_root / "js" / "run-node.js", dev_root / "runner.js") if path.is_file()), None)
+
+
+def _chmod_quietly(path: Path, mode: int):
+    """Permisos POSIX si se pueden poner; en Windows no se aplican."""
+    if os.name != "nt":
+        try:
+            path.chmod(mode)
+        except OSError:
+            pass
+
+
+def _download_runner(url: str, runner_path: Path, etag_path: Path):
+    """Descarga runner.js si cambió desde la copia en caché (If-None-Match); un 304 llega como HTTPError."""
+    # url sale de DEFAULT_UI_URL, una URL https fija.
+    req = urllib.request.Request(url, headers={"User-Agent": f"ZeroChat/{VERSION}"})  # noqa: S310
+    if runner_path.is_file() and etag_path.is_file():
+        try:
+            current_etag = etag_path.read_text(encoding="utf-8").strip()
+            if current_etag:
+                req.add_header("If-None-Match", current_etag)
+        except OSError:
+            pass
+    with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310
+        runner_text = _read_bounded_runner(resp)
+        etag = resp.headers.get("ETag")
+    _write_private_text(runner_path, runner_text)
+    _chmod_quietly(runner_path, 0o755)
+    if etag:
+        _write_private_text(etag_path, etag)
+    else:
+        etag_path.unlink(missing_ok=True)
+
+
 def ensure_runner_script() -> Path:
     """
     Obtiene la ruta al runner de Node.js: en entorno de desarrollo local usa js/run-node.js o runner.js;
     en producción lo descarga o actualiza desde GitHub Pages con comprobación condicional ETag/304
     en ~/zerochat/cache/runner.js.
     """
-    dev_root = get_dev_root()
-    if dev_root is not None:
-        local_run_node = dev_root / "js" / "run-node.js"
-        if local_run_node.is_file():
-            return local_run_node
-        local_runner = dev_root / "runner.js"
-        if local_runner.is_file():
-            return local_runner
+    dev_runner = _dev_runner_script()
+    if dev_runner is not None:
+        return dev_runner
 
     cache_dir = get_data_dir() / "cache"
     cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if os.name != "nt":
-        try:
-            cache_dir.chmod(0o700)
-        except OSError:
-            pass
+    _chmod_quietly(cache_dir, 0o700)
     runner_path = cache_dir / "runner.js"
-    etag_path = cache_dir / "runner.etag"
-
     runner_url = DEFAULT_UI_URL.rsplit("/", 1)[0] + "/runner.js"
-
     try:
-        # runner_url sale de DEFAULT_UI_URL, una URL https fija.
-        req = urllib.request.Request(runner_url, headers={"User-Agent": f"ZeroChat/{VERSION}"})  # noqa: S310
-        if runner_path.is_file() and etag_path.is_file():
-            try:
-                current_etag = etag_path.read_text(encoding="utf-8").strip()
-                if current_etag:
-                    req.add_header("If-None-Match", current_etag)
-            except OSError:
-                pass
-
-        with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310
-            runner_text = _read_bounded_runner(resp)
-            etag = resp.headers.get("ETag")
-            _write_private_text(runner_path, runner_text)
-            if os.name != "nt":
-                try:
-                    runner_path.chmod(0o755)
-                except OSError:
-                    pass
-            if etag:
-                _write_private_text(etag_path, etag)
-            else:
-                etag_path.unlink(missing_ok=True)
+        _download_runner(runner_url, runner_path, cache_dir / "runner.etag")
     except urllib.error.HTTPError as err:
-        if err.code == 304 and runner_path.is_file():
-            pass
-        elif runner_path.is_file():
-            log_event(f"No se pudo comprobar actualización de runner.js ({err}); usando versión en caché.")
-        else:
+        if not runner_path.is_file():
             raise RuntimeError(f"Error descargando runner.js desde {runner_url}: {err}") from err
-    except (urllib.error.URLError, TimeoutError, OSError) as err:
-        if runner_path.is_file():
+        if err.code != 304:
             log_event(f"No se pudo comprobar actualización de runner.js ({err}); usando versión en caché.")
-        else:
+    except (urllib.error.URLError, TimeoutError, OSError) as err:
+        if not runner_path.is_file():
             raise RuntimeError(f"No se pudo descargar runner.js ({err}) y no hay copia en caché.") from err
-
+        log_event(f"No se pudo comprobar actualización de runner.js ({err}); usando versión en caché.")
     return runner_path
 
 

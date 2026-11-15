@@ -170,10 +170,8 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
     return runs, focus_run
 
 
-def start_server_run(params: dict, ctx: SecurityContext) -> dict:
-    """Inicia una ejecución en segundo plano para una conversación, en su proyecto o, si no tiene, en el de la petición."""
-    if not isinstance(params, dict):
-        raise ValueError("Parámetros no válidos.")
+def _run_target(params: dict) -> tuple[str, dict, str]:
+    """La conversación de la ejecución y el nombre de su perfil: el pedido o, si no, el de la conversación."""
     conv_id = params.get("conversation_id")
     if not isinstance(conv_id, str) or not conv_id.strip():
         raise ValueError("conversation_id requerido.")
@@ -181,27 +179,35 @@ def start_server_run(params: dict, ctx: SecurityContext) -> dict:
     conv = get_conversation(clean_conv_id)
     if conv is None:
         raise ValueError(f"Conversación '{clean_conv_id}' no encontrada.")
-
     profile = params.get("profile")
     if not isinstance(profile, str) or not profile.strip():
         conv_profile = conv.get("profileId")
-        if isinstance(conv_profile, str) and conv_profile.strip():
-            profile = conv_profile.strip()
-        else:
+        if not isinstance(conv_profile, str) or not conv_profile.strip():
             raise ValueError("profile requerido.")
+        profile = conv_profile.strip()
     profile_entry = get_general_profile(profile) or get_general_profile_by_name(profile)
     if not profile_entry:
         raise ValueError(f"Perfil del servidor '{profile}' no encontrado.")
-    profile_name = profile_entry.get("name", profile.strip())
+    return clean_conv_id, conv, profile_entry.get("name", profile.strip())
 
+
+def _check_no_active_run(state_path: Path, conv_id: str):
+    """Una conversación solo tiene una ejecución en marcha; un estado ilegible no cuenta como tal."""
+    try:
+        existing = json.loads(state_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return
+    if isinstance(existing, dict) and existing.get("status") == "running" and _run_process_alive(existing):
+        raise ValueError(f"Ya hay una ejecución en marcha para la conversación '{conv_id}'.")
+
+
+def start_server_run(params: dict, ctx: SecurityContext) -> dict:
+    """Inicia una ejecución en segundo plano para una conversación, en su proyecto o, si no tiene, en el de la petición."""
+    if not isinstance(params, dict):
+        raise ValueError("Parámetros no válidos.")
+    clean_conv_id, conv, profile_name = _run_target(params)
     state_path = get_run_state_path(clean_conv_id)
-    if state_path.exists():
-        try:
-            existing = json.loads(state_path.read_text(encoding="utf-8"))
-            if isinstance(existing, dict) and existing.get("status") == "running" and _run_process_alive(existing):
-                raise ValueError(f"Ya hay una ejecución en marcha para la conversación '{clean_conv_id}'.")
-        except (json.JSONDecodeError, OSError):
-            pass
+    _check_no_active_run(state_path, clean_conv_id)
 
     prompt = params.get("prompt")
     if prompt is not None and not isinstance(prompt, str):
