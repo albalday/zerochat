@@ -42,17 +42,25 @@
     return target;
   }
 
-  /** Interruptores de las herramientas nativas que se configuran en los ajustes. */
-  function renderAgentToolsUI(container, enabledTools) {
+  /**
+   * Interruptores de las herramientas nativas que se configuran en los ajustes. Una que sustituye ahora una
+   * herramienta MCP activa (`replaces` de su servicio) lo dice, para que no parezca un fallo que el modelo no la use.
+   */
+  function renderAgentToolsUI(container, appConfig) {
     const AgentCore = getAgentCore();
     const tools = AgentCore.registry.listTools().filter(tool => tool.category !== 'mcp' && tool.settings.showInSettings);
     container.innerHTML = tools.map(tool => {
       const { titleKey, descKey, defaultEnabled } = tool.settings;
-      const checked = AgentCore.isToolEnabled(enabledTools, tool.name, defaultEnabled);
+      const checked = AgentCore.isToolEnabled(appConfig.enabledTools, tool.name, defaultEnabled);
+      const replacement = AgentCore.registry.replacementOf(tool, appConfig);
+      const replaced = replacement
+        ? `<p class="label-hint agent-tool-replaced">${escapeHtml(t('agent_tool_replaced_by', { name: replacement.name }))}</p>`
+        : '';
       return `<div class="setting-toggle-card">
         <div class="toggle-card-info">
           <div class="toggle-card-title"><span data-i18n="${escapeHtml(titleKey)}">${escapeHtml(t(titleKey))}</span></div>
           <p class="toggle-card-desc" data-i18n="${escapeHtml(descKey)}">${escapeHtml(t(descKey))}</p>
+          ${replaced}
         </div>
         <label class="switch">
           <input type="checkbox" class="agent-tool-checkbox" data-tool-id="${escapeHtml(tool.name)}" ${checked ? 'checked' : ''}>
@@ -108,7 +116,7 @@
       elements.settingSystemDataPrompt.value = appConfig.systemDataPrompt || '';
       applyTheme(elements, appConfig.theme);
       applyLanguage(elements, appConfig.language);
-      renderAgentToolsUI(elements.agentToolsContainer, appConfig.enabledTools);
+      renderAgentToolsUI(elements.agentToolsContainer, appConfig);
       getUIBrowser().load(appConfig.browser);
       getUIConnection().load(appConfig);
       loadPermissionControls(elements);

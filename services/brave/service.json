@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "brave",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "displayName": {
     "es": "Brave Search",
     "en": "Brave Search"
@@ -28,9 +28,41 @@
       }
     }
   ],
+  "tools": {
+    "brave_web_search": {
+      "replaces": [
+        "search_web"
+      ]
+    },
+    "brave_news_search": {
+      "enabledByDefault": false
+    },
+    "brave_image_search": {
+      "enabledByDefault": false
+    },
+    "brave_llm_context": {
+      "enabledByDefault": false
+    },
+    "brave_video_search": {
+      "enabledByDefault": false
+    },
+    "brave_place_search": {
+      "enabledByDefault": false
+    },
+    "brave_local_search": {
+      "enabledByDefault": false
+    },
+    "brave_summarizer": {
+      "enabledByDefault": false
+    }
+  },
   "launch": {
     "executable": "${nodeExecutable}",
-    "args": ["${serviceDir}/node_modules/@brave/brave-search-mcp-server/dist/index.js", "--transport", "stdio"],
+    "args": [
+      "${serviceDir}/node_modules/@brave/brave-search-mcp-server/dist/index.js",
+      "--transport",
+      "stdio"
+    ],
     "cwd": "${serviceDir}",
     "env": {
       "BRAVE_API_KEY": "${secret:BRAVE_API_KEY}",

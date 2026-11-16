@@ -26,6 +26,14 @@ ZeroChat también puede usar `mcp-remote` como puente para un MCP remoto HTTP/SS
 - En `launch`, usa `${serviceDir}`, `${nodeExecutable}` o `${pythonExecutable}`; no uses rutas absolutas de usuario.
 - `launch.handshakeTimeoutSeconds` (15 s por defecto) limita el arranque y `launch.callTimeoutSeconds` (30 s por defecto) cada llamada a una herramienta; súbelo para MCP lentos, como la automatización de navegador.
 - `installer.json` es opcional y hoy solo admite `type: "npm"`.
+- `tools` es opcional: por herramienta del MCP (su nombre original), `replaces` lista las herramientas nativas de ZeroChat que sustituye mientras está activa (solo las que el usuario puede desactivar en Ajustes; vuelven al detenerse el servicio o apagarla) y `enabledByDefault: false` la deja apagada hasta que el usuario la encienda. Úsalo para no ofrecer al modelo dos herramientas que hacen lo mismo y para apagar las que gastan cuota o exigen un plan de pago:
+
+```json
+"tools": {
+  "brave_web_search": { "replaces": ["search_web"] },
+  "brave_video_search": { "enabledByDefault": false }
+}
+```
 - `help` es opcional, pero debe incluirse en todo servicio creado:
 
 ```json
@@ -113,7 +121,8 @@ Adapta la cabecera y su formato a lo que exige el proveedor. `remote.authenticat
 4. For remote HTTP/SSE MCPs, also read the sibling `composio` JSON files and use its managed `mcp-remote` bridge as the example. Adapt endpoint, transport and authentication to the official provider and bridge documentation. Verify Composio-specific protocol and OAuth options before copying them. Keep `HOME` and `USERPROFILE` isolated inside `${serviceDir}`.
 5. If an API key is required, declare it in `secrets` at the root of `service.json` (the environment variable `name` the MCP requires and a bilingual `label`) and use it in `launch.env` with `${secret:NAME}`, as shown above. `launch.env` is a JSON field, not a file; do not create a `launch.env` or `.env` file. Never write the key in `service.json`, chat, arguments or URLs, and do not ask the user for it: they save it in Settings → MCP. For remote header authentication, use `--header` with the provider's required header and a reference to the variable; `mcp-remote` resolves it from its environment. `remote.authentication` is descriptive only.
 6. Evaluate concurrency and headless compatibility before finalizing: ensure the service avoids static ports, runs in ephemeral/isolated mode by default if managing session state, and does not require interactive console prompts or graphical windows.
-7. Do not install or start the service. Report created files, official sources and outstanding requirements; the user will start it from Settings → MCP.
+7. If an MCP tool does the same job as a ZeroChat native tool, declare it in `tools` with `replaces` (only native tools the user can turn off in Settings); set `enabledByDefault: false` on tools that spend quota or need a paid plan.
+8. Do not install or start the service. Report created files, official sources and outstanding requirements; the user will start it from Settings → MCP.
 
 ### Concurrency and parallel execution
 

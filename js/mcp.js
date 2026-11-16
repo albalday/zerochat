@@ -291,6 +291,7 @@
       name: tool.name,
       description: tool.metadata.description,
       inputSchema: tool.parameters,
+      defaultEnabled: tool.settings.defaultEnabled,
       metadata: {
         mcpServerName: tool.metadata.mcpServerName,
         mcpServerId: tool.metadata.mcpServerId,
@@ -339,6 +340,14 @@
         if (external && rt.name !== namespacedName) throw new Error('Invalid external MCP public name');
         if (toolInstances.some(tool => tool.name === namespacedName)) throw new Error('Duplicate MCP public name');
 
+        const replaces = external && Array.isArray(rt.metadata?.replaces) ? rt.metadata.replaces.filter(name => typeof name === 'string') : [];
+        for (const name of replaces) {
+          const native = getAgentCore().registry.getTool(name);
+          if (!native || native.category === 'mcp' || !native.settings.showInSettings) {
+            console.warn(`[ChatMCP] ${namespacedName} declares it replaces ${name}, which is not a native tool the user can turn off: ignored.`);
+          }
+        }
+
         toolInstances.push(new Tool({
           // El nombre público ya identifica el servidor; repetirlo en la descripción gasta contexto.
           definition: { name: namespacedName, description: rt.description || toolName, parameters: rt.inputSchema },
@@ -346,13 +355,16 @@
           // Una espera tiene que verse sin desplegarla.
           displayMode: isLocalWait ? 'expanded' : undefined,
           isAvailable: () => (!isProxy || localToolsAvailable()) && (!isBrowserAction || browserActionAvailable()),
-          settings: { showInSettings: true },
+          // Un servicio externo declara en su service.json si la herramienta empieza activada.
+          settings: { showInSettings: true, defaultEnabled: !external || rt.metadata?.enabledByDefault !== false },
           metadata: {
             iconSvg: Icons.get('plug', { size: 14 }),
             mcpServerName: serverName,
             mcpServerUrl: this.serverUrl,
             originalName: toolName,
             mcpServerId: sourceServer,
+            // Herramientas nativas que esta sustituye mientras está activa (AgentCore.ToolRegistry.replacementOf).
+            replaces,
             localCommand: isLocalCommand,
             description: rt.description || ''
           },

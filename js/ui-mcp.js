@@ -141,7 +141,7 @@
           </div>
           ${browser ? '' : `<div class="mcp-tool-action">
             <label class="switch">
-              <input type="checkbox" class="agent-tool-checkbox mcp-tool-checkbox" data-tool-id="${escapeHtml(tool.name)}" ${AgentCore.isToolEnabled(appConfig.enabledTools, tool.name) ? 'checked' : ''}>
+              <input type="checkbox" class="agent-tool-checkbox mcp-tool-checkbox" data-tool-id="${escapeHtml(tool.name)}" ${AgentCore.isToolEnabled(appConfig.enabledTools, tool.name, tool.defaultEnabled !== false) ? 'checked' : ''}>
               <span class="slider"></span>
             </label>
           </div>`}

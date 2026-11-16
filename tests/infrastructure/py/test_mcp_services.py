@@ -108,6 +108,18 @@ class ManagedServicesTest(unittest.TestCase):
         self.assertEqual(definition["launch"]["env"]["BRAVE_API_KEY"], "${secret:BRAVE_API_KEY}")
         self.assertNotIn("${secret:", json.dumps(definition["launch"]["args"]))
         self.assertEqual(definition["launch"]["args"][-2:], ["--transport", "stdio"])
+        # Solo la búsqueda web empieza activa y sustituye a search_web; el resto, del mismo saldo de Brave, apagadas.
+        settings = {name: zerochat.service_tool_settings(definition, name) for name in definition["tools"]}
+        self.assertEqual(settings.pop("brave_web_search"), {"replaces": ["search_web"], "enabledByDefault": True})
+        self.assertTrue(settings)
+        self.assertEqual({name: value["enabledByDefault"] for name, value in settings.items()}, dict.fromkeys(settings, False))
+
+    def test_la_declaracion_de_una_herramienta_se_depura_y_sin_ella_empieza_activa_sin_sustituir_nada(self):
+        definition = {"tools": {"buscar": {"replaces": ["search_web", "Mal Nombre", 3, "../x"], "enabledByDefault": "no"}}}
+        self.assertEqual(zerochat.service_tool_settings(definition, "buscar"), {"replaces": ["search_web"], "enabledByDefault": True})
+        for broken in ({}, {"tools": []}, {"tools": {"buscar": "x"}}, {"tools": {"buscar": {"replaces": "search_web"}}}):
+            with self.subTest(broken=broken):
+                self.assertEqual(zerochat.service_tool_settings(broken, "buscar"), {"replaces": [], "enabledByDefault": True})
 
     def test_las_trazas_ocultan_el_state_y_el_code_de_oauth(self):
         trace = zerochat._mcp_trace_text("https://auth.example/authorize?state=csrf-value&code=oauth-code&scope=openid")

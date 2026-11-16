@@ -3486,6 +3486,25 @@ def service_secrets(server: dict) -> list[dict]:
             if isinstance(item, dict) and isinstance(item.get("name"), str) and SERVICE_SECRET_NAME_PATTERN.fullmatch(item["name"])]
 
 
+# Nombre de una herramienta nativa que una herramienta del servicio sustituye ("tools" de su service.json).
+NATIVE_TOOL_NAME_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,63}")
+
+
+def service_tool_settings(server: dict, original: str) -> dict:
+    """Lo que el service.json declara de una herramienta en "tools": las nativas que sustituye mientras está activa
+    (replaces) y si empieza activada (enabledByDefault). La interfaz decide qué nativas se pueden sustituir."""
+    declared = server.get("tools")
+    entry = declared.get(original) if isinstance(declared, dict) else None
+    if not isinstance(entry, dict):
+        return {"replaces": [], "enabledByDefault": True}
+    replaces = entry.get("replaces")
+    return {
+        "replaces": [name for name in replaces if isinstance(name, str) and NATIVE_TOOL_NAME_PATTERN.fullmatch(name)]
+        if isinstance(replaces, list) else [],
+        "enabledByDefault": entry.get("enabledByDefault") is not False,
+    }
+
+
 def service_secret_key(server_id: str, name: str) -> str:
     """Nombre con el que se guarda en SQLite el secreto `name` del servicio."""
     return f"mcp:{server_id}:{name}"
@@ -3860,7 +3879,8 @@ class McpServiceManager:
                     tcopy["name"] = pname
                     tcopy["metadata"] = {
                         "mcpServerId": server_id,
-                        "originalName": original
+                        "originalName": original,
+                        **service_tool_settings(self.services.get(server_id, {}), original),
                     }
                     aggregated.append(tcopy)
         return aggregated

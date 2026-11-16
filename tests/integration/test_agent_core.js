@@ -191,6 +191,29 @@ test('AgentCore - las definiciones y la guía del prompt siguen los interruptore
   assert.deepEqual(profileTools({ mode: 'own', engine: 'opera' }), []);
 });
 
+test('AgentCore - una herramienta MCP activa sustituye a las nativas que declara en replaces, y al apagarse vuelven', () => {
+  const registry = new ToolRegistry();
+  const config = enabledTools => ConfigStore.normalize({ enabledTools });
+  const mcpTool = (name, replaces, defaultEnabled = true) => makeTool({
+    name, category: 'mcp', settings: { showInSettings: true, defaultEnabled }, metadata: { mcpServerId: 'brave', replaces }, execute: async () => ''
+  });
+  registry.registerTool(mcpTool('brave_brave_web_search', ['search_web', 'search_knowledge_base']));
+  // Empieza apagada por su service.json: mientras no se encienda no sustituye a nadie.
+  registry.registerTool(mcpTool('brave_brave_news_search', ['fetch_web_page'], false));
+  const active = enabledTools => registry.getActiveDefinitions(config(enabledTools)).map(d => d.function.name);
+  const web = enabledTools => active(enabledTools).filter(name => ['search_web', 'brave_brave_web_search', 'fetch_web_page', 'brave_brave_news_search'].includes(name));
+
+  assert.deepEqual(web({}), ['fetch_web_page', 'brave_brave_web_search']);
+  assert.match(registry.getActivePromptGuide(config({})), /brave_brave_web_search/);
+  assert.doesNotMatch(registry.getActivePromptGuide(config({})), /search_web\b(?!_)/);
+  assert.equal(registry.replacementOf(registry.getTool('search_web'), config({})).name, 'brave_brave_web_search');
+  // Una herramienta sin interruptor en Ajustes (las de la base de conocimiento) no se puede sustituir.
+  assert.equal(registry.replacementOf(registry.getTool('search_knowledge_base'), config({})), null);
+  // Apagar la MCP en Ajustes devuelve la nativa; encender la que empezaba apagada la activa con su sustitución.
+  assert.deepEqual(web({ brave_brave_web_search: false }), ['search_web', 'fetch_web_page']);
+  assert.deepEqual(web({ brave_brave_news_search: true }), ['brave_brave_web_search', 'brave_brave_news_search']);
+});
+
 test('AgentCore - una herramienta que se ejecuta y falla entrega al modelo su propio texto, no un error genérico', async () => {
   const registry = new ToolRegistry();
   // Como run_command del servidor local: un resultado MCP con isError, cuyo texto lleva la salida y el aviso.
