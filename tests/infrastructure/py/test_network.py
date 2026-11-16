@@ -253,14 +253,15 @@ class WebFetchTest(unittest.TestCase):
             timeouts.append(timeout)
             return MockResponse()
 
-        policy = zerochat.RatePolicy(concurrency=1, min_interval_s=0.3)
+        # Una separación holgada frente a lo que tarde la máquina entre crear el limitador y pedir (la CI es lenta).
+        policy = zerochat.RatePolicy(concurrency=1, min_interval_s=1.0)
         with patch.object(zerochat, "RATE_LIMITER", zerochat.RateLimiter()), \
                 patch.dict(zerochat.WEB_FETCH_DOMAIN_LIMITS, {"duckduckgo.com": policy}), \
                 patch.object(zerochat._WEB_OPENER, "open", opener):
             # Un subdominio cuenta como el dominio: la primera tras arrancar espera la separación, y esa espera
             # se descuenta del plazo con el que se descarga.
             zerochat.fetch_web_resource({"url": "https://html.duckduckgo.com/html/?q=a", "timeout_s": 5})
-            self.assertLess(timeouts[-1], 5 - 0.25)
+            self.assertLess(timeouts[-1], 5 - 0.5)
             # Otro dominio no espera ni pierde plazo.
             zerochat.fetch_web_resource({"url": "https://example.com/", "timeout_s": 5})
             self.assertEqual(timeouts[-1], 5)

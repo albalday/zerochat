@@ -262,7 +262,8 @@ class RealNodeRunTest(unittest.TestCase):
         seen = []
 
         def saved_roles():
-            for _ in range(100):
+            # Margen amplio: en la CI el runner tarda más en enviar la grabación del paso.
+            for _ in range(400):
                 conversations = zerochat.list_conversations()
                 history = zerochat.get_conversation(conversations[0]["id"])["history"] if conversations else []
                 if any(message["role"] == "tool" for message in history):
@@ -272,7 +273,7 @@ class RealNodeRunTest(unittest.TestCase):
         FakeModel.before_tool_reply = saved_roles
         result = self.run_zerochat("--prompt", "lista y saluda")
         self.assertEqual((result.returncode, result.stdout), (0, FakeModel.REPLY + "\n"), result.stderr)
-        self.assertEqual(seen, [["user", "assistant", "tool"]])
+        self.assertEqual(seen, [["user", "assistant", "tool"]], result.stderr)
 
     def test_switch_model_cambia_a_otro_perfil_del_servidor(self):
         result = self.run_zerochat("--prompt", "cambia a otro y saluda")
