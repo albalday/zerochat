@@ -105,8 +105,8 @@ test('Browser UI - con proyecto la barra muestra sus conversaciones y, con todos
 
     await page.selectOption('#sidebar-project-filter', 'all');
     await render('/repo/app');
-    // Los proyectos plegados no pintan sus conversaciones.
-    assert.deepEqual(await sidebarTitles(page), ['A reciente', 'A antigua']);
+    // Todos empiezan plegados, también el actual, y un grupo plegado no pinta sus conversaciones.
+    assert.deepEqual(await sidebarTitles(page), []);
     assert.deepEqual(await sidebarHeaders(page), ['app', 'lib', await page.evaluate(() => window.ChatI18n.t('sidebar_no_project'))]);
 
     // Al buscar, cada resultado sigue bajo su proyecto, aunque esté plegado.
@@ -129,7 +129,7 @@ test('Browser UI - con proyecto la barra muestra sus conversaciones y, con todos
   });
 });
 
-test('Browser UI - en la vista de todos los proyectos se pliegan salvo el actual y el de la conversación abierta, y la elección se recuerda', async () => {
+test('Browser UI - en la vista de todos los proyectos empiezan plegados, también el actual y el de la conversación abierta, y la elección se recuerda', async () => {
   await withTestApp(async page => {
     // Plegar repinta desde el estado de la aplicación: las conversaciones y el proyecto van en él.
     const render = currentSessionId => page.evaluate(currentSessionId => {
@@ -149,13 +149,14 @@ test('Browser UI - en la vista de todos los proyectos se pliegan salvo el actual
     const expandedHeaders = () => page.$$eval('.sidebar-group-toggle', toggles => toggles.map(toggle => `${toggle.textContent}:${toggle.getAttribute('aria-expanded')}`));
 
     await render('c1');
-    assert.deepEqual(await sidebarTitles(page), ['A', 'C']);
-    assert.deepEqual(await expandedHeaders(), ['app1:true', 'lib1:false', 'web1:true', `${await page.evaluate(() => window.ChatI18n.t('sidebar_no_project'))}1:false`]);
+    assert.deepEqual(await sidebarTitles(page), []);
+    assert.deepEqual(await expandedHeaders(), ['app1:false', 'lib1:false', 'web1:false', `${await page.evaluate(() => window.ChatI18n.t('sidebar_no_project'))}1:false`]);
 
     await page.click('.sidebar-group-toggle[data-group-key="/repo/lib"]');
-    await page.click('.sidebar-group-toggle[data-group-key="/repo/app"]');
-    assert.deepEqual(await sidebarTitles(page), ['B', 'C']);
-    assert.deepEqual(JSON.parse(await page.evaluate(() => window.ChatStorage.getStorageItem('sidebar_project_groups'))), { '/repo/lib': true, '/repo/app': false });
+    await page.click('.sidebar-group-toggle[data-group-key="/repo/web"]');
+    await page.click('.sidebar-group-toggle[data-group-key="/repo/web"]');
+    assert.deepEqual(await sidebarTitles(page), ['B']);
+    assert.deepEqual(JSON.parse(await page.evaluate(() => window.ChatStorage.getStorageItem('sidebar_project_groups'))), { '/repo/lib': true, '/repo/web': false });
 
     // Al volver a pintar (otra conversación abierta) se respeta lo elegido.
     await render('a1');

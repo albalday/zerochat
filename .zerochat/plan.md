@@ -16,7 +16,7 @@
 
 Goal: Que el icono de chat nuevo de un proyecto del historial cambie de proyecto también desde un chat vacío y que las conversaciones con «Ejecutar en servidor» queden siempre en el historial, aunque se cierre el navegador o la ejecución no termine.
 Done when: el icono de chat nuevo de otro proyecto lleva a ese proyecto con un chat vacío abierto; una ejecución en servidor guarda la conversación en SQLite a cada paso y la interfaz la muestra desde lo grabado, terminada o no, tras cerrar y reabrir el navegador; sin controles que dejen de grabar por la conexión con la interfaz.
-- [ ] M75-T1 El icono de chat nuevo de un proyecto del historial no hace nada si ya hay un chat vacío abierto: reproducir y corregir, con prueba
+- [x] M75-T1 El icono de chat nuevo de un proyecto del historial no hace nada si ya hay un chat vacío abierto: reproducir y corregir, con prueba (2026-11-16)
 - [x] M75-T2 Analizar el flujo de grabación de las ejecuciones en servidor (runner, servidor de la ejecución, servidor principal e interfaz) y por qué se pierden conversaciones al cerrar el navegador (2026-11-16)
 - [x] M75-T3 El runner de Node graba la conversación en SQLite al terminar cada paso (assistant con sus tool), no solo al final del turno: una ejecución que muere, agota un plazo o se cancela conserva lo hecho; prueba con Node real (2026-11-16)
 - [x] M75-T4 Quitar los plazos que cortan la ejecución por la interfaz (sin progreso 600 s y total 900 s) y dejar solo el final del runner y la cancelación del usuario (2026-11-16)
