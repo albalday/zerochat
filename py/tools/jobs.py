@@ -18,8 +18,8 @@ from pathlib import Path
 from core.environment import DETECTED_OS
 from core.process import _kill_process_tree, _pid_alive, _process_start_token
 from security.context import SecurityContext
-from tools.common import _atomic_write_text, _tool_error
-from tools.job_waits import WAITS, _pattern_terms, _wait_job
+from tools.common import _atomic_write_text, _tool_error, text_terms
+from tools.job_waits import WAITS, _wait_job
 
 COMMAND_DEFAULT_TIMEOUT = 30
 COMMAND_MAX_TIMEOUT = 600
@@ -698,7 +698,7 @@ def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool =
         return _tool_error(f"Unknown job_id {job_id}. It may belong to a previous ZeroChat session or to another project.", os=DETECTED_OS)
     terms = None
     if pattern:
-        terms = _pattern_terms(pattern)
+        terms = text_terms(pattern)
         if not terms:
             return _tool_error("pattern needs at least one text, such as 'error|listening on'.", os=DETECTED_OS)
     if stop:

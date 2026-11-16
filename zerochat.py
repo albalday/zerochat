@@ -4521,7 +4521,8 @@ def dispatch_blobs(method: str, params: dict) -> RpcOutcome:
     return _guarded(BLOB_METHODS, method, params if isinstance(params, dict) else {}, "Error en gestión de blobs")
 
 # --- tools.common ---
-"""Utilidades comunes de las herramientas locales: el resultado de error y la escritura atómica de archivos."""
+"""Utilidades comunes de las herramientas locales: el resultado de error, la escritura atómica de archivos y la
+búsqueda de textos separados por | (check_command y search_files)."""
 
 
 
@@ -4529,6 +4530,18 @@ def dispatch_blobs(method: str, params: dict) -> RpcOutcome:
 def _tool_error(message: str, **extra) -> str:
     """Serializa el resultado de error común de las herramientas locales."""
     return json.dumps({"success": False, "error": message, **extra}, ensure_ascii=False)
+
+
+def text_terms(query: str) -> tuple[str, ...]:
+    """Textos de una consulta separados por | ('error|listening on'), en minúsculas y sin los vacíos."""
+    return tuple(term.strip().lower() for term in query.split("|") if term.strip())
+
+
+def line_matches(line: str, terms: tuple[str, ...]) -> bool:
+    """Si la línea contiene alguno de los textos, sin distinguir mayúsculas. Es texto, no una expresión
+    regular: el tiempo es lineal y ninguna entrada puede bloquear el servidor (re no suelta el GIL)."""
+    lowered = line.lower()
+    return any(term in lowered for term in terms)
 
 
 def _atomic_write_text(target: Path, text: str):
@@ -5700,8 +5713,8 @@ SEARCH_MAX_FILE_BYTES = 2 * 1024 * 1024
 SEARCH_LINE_CHARS = 300
 
 
-def _search_lines(fpath: Path, target: Path, regex: re.Pattern, limit: int) -> list[dict]:
-    """Hasta limit líneas de fpath que casan con regex; un fichero que no se puede leer no tiene ninguna."""
+def _search_lines(fpath: Path, target: Path, terms: tuple[str, ...], limit: int) -> list[dict]:
+    """Hasta limit líneas de fpath que contienen alguno de los textos; un fichero que no se puede leer no tiene ninguna."""
     try:
         rel_path = fpath.relative_to(target).as_posix()
     except ValueError:
@@ -5710,7 +5723,7 @@ def _search_lines(fpath: Path, target: Path, regex: re.Pattern, limit: int) -> l
     try:
         with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
             for line_idx, line in enumerate(f, 1):
-                if regex.search(line):
+                if line_matches(line, terms):
                     found.append({"file": str(fpath), "relative_path": rel_path, "line_number": line_idx,
                                   "content": line.rstrip("\r\n")[:SEARCH_LINE_CHARS]})
                     if len(found) >= limit:
@@ -5721,20 +5734,18 @@ def _search_lines(fpath: Path, target: Path, regex: re.Pattern, limit: int) -> l
 
 
 def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100, *, ctx: SecurityContext) -> str:
-    """Recursively search for plain text or regular expressions across project files."""
+    """
+    Busca texto fijo, sin distinguir mayúsculas, en un fichero o en los de una carpeta: la consulta es uno o varios
+    textos separados por | y no una expresión regular, porque re no suelta el GIL y una expresión con retroceso
+    catastrófico congelaría todo el servidor (como en check_command). Las búsquedas reales son texto fijo.
+    """
     try:
         target = ctx.absolute(path)
         if not target.exists():
             return _tool_error(f"Path '{path}' does not exist.")
-        if not target.is_dir():
-            return _tool_error(f"Path '{path}' is not a directory.")
-
-        warning = None
-        try:
-            regex = re.compile(query, re.MULTILINE)
-        except re.error as err:
-            warning = f"Query '{query}' is not a valid regular expression ({err}); treated as literal text."
-            regex = re.compile(re.escape(query), re.MULTILINE)
+        terms = text_terms(query)
+        if not terms:
+            return _tool_error("query needs at least one text, such as 'validate_token|check_token'.")
 
         try:
             safe_max_results = max(1, min(int(max_results), 500))
@@ -5743,7 +5754,8 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
 
         matches = []
         files_searched = 0
-        for fpath in _walk_project_files(target):
+        root = target if target.is_dir() else target.parent
+        for fpath in _walk_project_files(target) if target.is_dir() else (target,):
             if file_pattern and not fnmatch.fnmatch(fpath.name, file_pattern):
                 continue
             try:
@@ -5752,7 +5764,7 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
             except OSError:
                 continue
             files_searched += 1
-            matches.extend(_search_lines(fpath, target, regex, safe_max_results - len(matches)))
+            matches.extend(_search_lines(fpath, root, terms, safe_max_results - len(matches)))
             if len(matches) >= safe_max_results:
                 break
 
@@ -5766,9 +5778,6 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
             "truncated": len(matches) >= safe_max_results,
             "matches": matches
         }
-        if warning:
-            payload["warning"] = warning
-
         return json.dumps(payload, ensure_ascii=False, indent=2)
     except Exception as e:
         return _tool_error(str(e))
@@ -5869,6 +5878,7 @@ texto o al agotar el plazo, que es un máximo. La persona puede cortarlas con la
 
 
 
+
 # Cada cuánto comprueba una espera si la persona la ha cortado.
 WAIT_SLICE_SECONDS = 0.25
 
@@ -5906,18 +5916,6 @@ class CancellableWaits:
 WAITS = CancellableWaits()
 
 
-def _pattern_terms(pattern: str) -> tuple[str, ...]:
-    """Textos de un pattern de check_command ('error|listening on'), en minúsculas y sin los vacíos."""
-    return tuple(term.strip().lower() for term in pattern.split("|") if term.strip())
-
-
-def _line_matches(line: str, terms: tuple[str, ...]) -> bool:
-    """Si la línea contiene alguno de los textos, sin distinguir mayúsculas. Es texto, no una expresión
-    regular: el tiempo es lineal y ninguna entrada puede bloquear el servidor (re no suelta el GIL)."""
-    lowered = line.lower()
-    return any(term in lowered for term in terms)
-
-
 def _wait_job(job, wait: float, terms: tuple[str, ...] | None, cancel: threading.Event) -> tuple[str, str | None]:
     """Espera a que termine el comando (CommandJob), a que una línea nueva de su salida contenga alguno de terms
     o a que pase wait.
@@ -5936,10 +5934,10 @@ def _wait_job(job, wait: float, terms: tuple[str, ...] | None, cancel: threading
             lines = (partial + text).split("\n")
             partial = lines.pop()
             for line in lines:
-                if _line_matches(line, terms):
+                if line_matches(line, terms):
                     return "pattern_matched", line
         if finished and (terms is None or pos >= job.total):
-            if terms is not None and partial and _line_matches(partial, terms):
+            if terms is not None and partial and line_matches(partial, terms):
                 return "pattern_matched", partial
             return "command_finished", None
         if cancel.is_set():
@@ -6635,7 +6633,7 @@ def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool =
         return _tool_error(f"Unknown job_id {job_id}. It may belong to a previous ZeroChat session or to another project.", os=DETECTED_OS)
     terms = None
     if pattern:
-        terms = _pattern_terms(pattern)
+        terms = text_terms(pattern)
         if not terms:
             return _tool_error("pattern needs at least one text, such as 'error|listening on'.", os=DETECTED_OS)
     if stop:
@@ -7850,12 +7848,19 @@ LOCAL_TOOLS_DEFINITIONS = [
     },
     {
         "name": "search_files",
-        "description": "Recursively search for plain text or regular expressions across project files.",
+        "description": (
+            "Search project files for plain text, case-insensitively, and return each matching line with its file and line number. "
+            "Searches a directory recursively or a single file. Example: search_files(query='validate_token|check_token', path='src')."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "maxLength": 4096, "description": "Plain text string or regular expression to search for"},
-                "path": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Base search directory (defaults to '.')", "default": "."},
+                "query": {
+                    "type": "string",
+                    "maxLength": 4096,
+                    "description": "One or more texts separated by |, searched as plain text (not a regular expression); a line matches if it contains any of them"
+                },
+                "path": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Directory to search recursively, or a single file (defaults to '.')", "default": "."},
                 "file_pattern": {"type": "string", "maxLength": 256, "description": "Optional glob filter (e.g. *.js, *.py)"},
                 "max_results": {"type": "integer", "description": "Maximum number of matching lines to return (default 100, max 500)", "default": 100}
             },

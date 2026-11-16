@@ -6,6 +6,8 @@ from __future__ import annotations
 import threading
 import time
 
+from tools.common import line_matches
+
 # Cada cuánto comprueba una espera si la persona la ha cortado.
 WAIT_SLICE_SECONDS = 0.25
 
@@ -43,18 +45,6 @@ class CancellableWaits:
 WAITS = CancellableWaits()
 
 
-def _pattern_terms(pattern: str) -> tuple[str, ...]:
-    """Textos de un pattern de check_command ('error|listening on'), en minúsculas y sin los vacíos."""
-    return tuple(term.strip().lower() for term in pattern.split("|") if term.strip())
-
-
-def _line_matches(line: str, terms: tuple[str, ...]) -> bool:
-    """Si la línea contiene alguno de los textos, sin distinguir mayúsculas. Es texto, no una expresión
-    regular: el tiempo es lineal y ninguna entrada puede bloquear el servidor (re no suelta el GIL)."""
-    lowered = line.lower()
-    return any(term in lowered for term in terms)
-
-
 def _wait_job(job, wait: float, terms: tuple[str, ...] | None, cancel: threading.Event) -> tuple[str, str | None]:
     """Espera a que termine el comando (CommandJob), a que una línea nueva de su salida contenga alguno de terms
     o a que pase wait.
@@ -73,10 +63,10 @@ def _wait_job(job, wait: float, terms: tuple[str, ...] | None, cancel: threading
             lines = (partial + text).split("\n")
             partial = lines.pop()
             for line in lines:
-                if _line_matches(line, terms):
+                if line_matches(line, terms):
                     return "pattern_matched", line
         if finished and (terms is None or pos >= job.total):
-            if terms is not None and partial and _line_matches(partial, terms):
+            if terms is not None and partial and line_matches(partial, terms):
                 return "pattern_matched", partial
             return "command_finished", None
         if cancel.is_set():
