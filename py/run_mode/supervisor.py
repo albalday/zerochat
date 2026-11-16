@@ -12,9 +12,9 @@ from typing import IO
 
 from auth.tokens import revoke_token
 from browser.launch import launch_browser
-from core.environment import get_data_dir
+from core.environment import get_data_dir, get_dev_root
 from core.logging import log_event
-from run_mode.runner_loader import RUNNER_LOADER_SCRIPT
+from run_mode.runner_loader import RUNNER_CACHE_ALWAYS_DOWNLOAD, RUNNER_CACHE_BY_VERSION, RUNNER_LOADER_SCRIPT
 from run_mode.state import (
     NODE_REQUIRED_MESSAGE,
     RUN_IDLE_SECONDS,
@@ -116,8 +116,10 @@ def launch_node_runner(url: str) -> tuple[subprocess.Popen, IO[bytes]] | None:
         return None
     log_event("Iniciando runner de Node.js...")
     cache_dir = cache_file.parent
+    # En desarrollo los módulos cambian sin subir la versión: se descargan siempre.
+    cache_policy = RUNNER_CACHE_ALWAYS_DOWNLOAD if get_dev_root() is not None else RUNNER_CACHE_BY_VERSION
     cmd = [node, "--permission", f"--allow-fs-read={cache_dir}", f"--allow-fs-write={cache_dir}",
-           "-e", RUNNER_LOADER_SCRIPT, str(cache_file), url]
+           "-e", RUNNER_LOADER_SCRIPT, str(cache_file), url, cache_policy]
     try:
         stderr_log = tempfile.TemporaryFile()  # noqa: SIM115 - vive lo que la ejecución; se cierra al salir
         proc = subprocess.Popen(

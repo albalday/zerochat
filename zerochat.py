@@ -1525,6 +1525,9 @@ VERSION = compatibility_version(BACKEND_PACKAGE_VERSION)
 UI_VERSION = _read_ui_version()
 DEFAULT_UI_URL = "https://albalday.github.io/zerochat/zerochat.html"
 REMOTE_SCRIPT_URL = "https://raw.githubusercontent.com/albalday/zerochat/master/zerochat.py"
+# Versión publicada de la interfaz: la del título de zerochat.html, sin distinguir mayúsculas. La leen este módulo
+# y el cargador del runner de Node, en Python y en JavaScript: el patrón es válido en los dos.
+UI_VERSION_TITLE_PATTERN = r"<title>\s*ZeroChat\s+v(\d+\.\d+\.\d+)\s*</title>"
 
 
 def parse_version(ver: str) -> tuple[int, ...]:
@@ -1548,7 +1551,7 @@ def _read_remote_content(url: str) -> str:
 def _read_remote_ui_version() -> str | None:
     """Extrae la versión del título de la interfaz servida por GitHub Pages."""
     content = _read_remote_content(DEFAULT_UI_URL)
-    match = re.search(r"<title>\s*ZeroChat\s+v(\d+\.\d+\.\d+)\s*</title>", content, re.IGNORECASE)
+    match = re.search(UI_VERSION_TITLE_PATTERN, content, re.IGNORECASE)
     return match.group(1) if match else None
 
 
@@ -2489,18 +2492,28 @@ def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
 # --- run_mode.runner_loader ---
 """Cargador del runner de Node.js: descarga los módulos de la interfaz como un navegador y los ejecuta.
 
-El servidor lo lanza con `node --permission -e RUNNER_LOADER_SCRIPT <caché> <url de la interfaz>`. Desde la
+El servidor lo lanza con `node --permission -e RUNNER_LOADER_SCRIPT <caché> <url de la interfaz> <política>`. Desde la
 carpeta de la interfaz (GitHub Pages en producción, este servidor en desarrollo) descarga `js/run-node.js` y,
 siguiendo sus `require('./…')`, los módulos que usa, en paralelo; los ejecuta con un `require` mínimo que los
 busca en lo descargado (los de Node, como `node:crypto`, van al `require` real). Lo que se ejecuta es lo que se
 publica: no hay empaquetado ni copia versionada.
 
-Cada descarga completa sustituye la caché (un JSON con la carpeta de origen y los ficheros). Solo se usa si la
-interfaz no responde, para seguir funcionando sin conexión con un modelo local; una respuesta de error de la
-interfaz (un 404) es un fallo, no un motivo para ejecutar la copia anterior. Las librerías de terceros que se
-cargan bajo demanda (`ChatVendorLoader`) siguen el mismo camino con `globalThis.ChatRunnerSource`.
+Cada descarga completa sustituye la caché (un JSON con la carpeta de origen, la versión publicada y los ficheros).
+Con la política `version` (la instalada), una sola petición lee la versión publicada del título de la interfaz: si
+es la de la caché, se ejecuta la caché sin pedir ningún módulo; si es otra o no se puede leer, se descarga todo. La
+descarga completa tarda de 0,5 a 0,7 s desde GitHub Pages con su CDN caliente y unos 6 s en frío (45 módulos,
+811 KiB), y la versión de 0,1 a 0,25 s. En desarrollo (política `always`) se descarga siempre: los módulos cambian
+sin subir la versión. Sin conexión, sea cual sea la versión, se usa la caché para seguir con un modelo local; una
+respuesta de error de la interfaz (un 404) es un fallo, no un motivo para ejecutar la copia anterior. Las librerías
+de terceros que se cargan bajo demanda (`ChatVendorLoader`) siguen el mismo camino con `globalThis.ChatRunnerSource`.
 """
 
+
+
+
+# Política de caché del runner: ejecutar la caché si es de la versión publicada, o descargar siempre (desarrollo).
+RUNNER_CACHE_BY_VERSION = "version"
+RUNNER_CACHE_ALWAYS_DOWNLOAD = "always"
 
 # Tope de lo descargado en una ejecución: la interfaz completa ocupa unas pocas centenas de KiB.
 RUNNER_MAX_BYTES = 16 * 1024 * 1024
@@ -2510,10 +2523,12 @@ RUNNER_LOADER_SCRIPT = r"""
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-const [cacheFile, uiUrl] = process.argv.slice(1);
-const base = new URL('.', uiUrl.split('#')[0]).href;
+const [cacheFile, uiUrl, cachePolicy] = process.argv.slice(1);
+const pageUrl = uiUrl.split('#')[0];
+const base = new URL('.', pageUrl).href;
 const ENTRY = 'js/run-node.js';
 const MAX_BYTES = __MAX_BYTES__;
+const VERSION_RE = new RegExp(__VERSION_PATTERN__, 'i');
 const REQUIRE_RE = /require\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)/g;
 
 function resolveKey(from, spec) {
@@ -2561,18 +2576,29 @@ async function downloadGraph() {
   return files;
 }
 
-function readCache() {
+// Versión publicada de la interfaz, o null si no se puede leer: entonces se descarga todo.
+async function publishedVersion() {
+  if (cachePolicy !== '__BY_VERSION__') return null;
   try {
-    const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
-    return cached && cached.base === base && cached.files && typeof cached.files === 'object' ? cached.files : null;
+    const response = await fetch(pageUrl);
+    return response.ok ? (VERSION_RE.exec(await response.text()) || [])[1] || null : null;
   } catch {
     return null;
   }
 }
 
-function writeCache(files) {
+function readCache() {
   try {
-    fs.writeFileSync(cacheFile + '.tmp', JSON.stringify({ base, files }), { mode: 0o600 });
+    const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+    return cached && cached.base === base && cached.files && typeof cached.files === 'object' ? cached : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(files, version) {
+  try {
+    fs.writeFileSync(cacheFile + '.tmp', JSON.stringify({ base, version, files }), { mode: 0o600 });
     fs.renameSync(cacheFile + '.tmp', cacheFile);
   } catch (error) {
     console.error(`[RunnerLoader] Could not update the cache: ${error.message}`);
@@ -2595,21 +2621,36 @@ function execute(files) {
   return load(ENTRY);
 }
 
-(async () => {
-  let files;
-  try {
-    files = await downloadGraph();
-    writeCache(files);
-  } catch (error) {
-    files = error.offline ? readCache() : null;
-    if (!files) throw error;
-    console.error(`[RunnerLoader] ${base} is unreachable (${error.message}); using the cached copy.`);
+async function loadFiles(version) {
+  const cached = readCache();
+  if (version && cached && cached.version === version) {
+    console.error(`[RunnerLoader] Using the cached modules of version ${version}.`);
+    return { files: cached.files, current: true };
   }
-  // Las librerías de terceros se piden al usarlas: se descargan igual y se añaden a la caché.
+  const started = Date.now();
+  try {
+    const files = await downloadGraph();
+    writeCache(files, version);
+    const kib = Math.round(Object.values(files).reduce((sum, text) => sum + text.length, 0) / 1024);
+    console.error(`[RunnerLoader] Downloaded ${Object.keys(files).length} modules (${kib} KiB) in ${Date.now() - started} ms.`);
+    return { files, current: false };
+  } catch (error) {
+    if (!error.offline || !cached) throw error;
+    console.error(`[RunnerLoader] ${base} is unreachable (${error.message}); using the cached copy.`);
+    return { files: cached.files, current: false };
+  }
+}
+
+(async () => {
+  const version = await publishedVersion();
+  const { files, current } = await loadFiles(version);
+  // Las librerías de terceros se piden al usarlas: con la caché de la versión publicada salen de ella si ya están;
+  // si no, se descargan y se añaden a la caché.
   globalThis.ChatRunnerSource = async key => {
+    if (current && typeof files[key] === 'string') return files[key];
     try {
       files[key] = await download(key);
-      writeCache(files);
+      writeCache(files, version);
     } catch (error) {
       if (!error.offline || typeof files[key] !== 'string') throw error;
     }
@@ -2620,7 +2661,8 @@ function execute(files) {
   console.error('[RunnerLoader] Fatal error:', error);
   process.exit(1);
 });
-""".replace("__MAX_BYTES__", str(RUNNER_MAX_BYTES))
+""".replace("__MAX_BYTES__", str(RUNNER_MAX_BYTES)).replace("__VERSION_PATTERN__", json.dumps(UI_VERSION_TITLE_PATTERN)).replace(
+    "__BY_VERSION__", RUNNER_CACHE_BY_VERSION)
 
 # --- security.context ---
 """Proyecto de cada petición (SecurityContext): carpeta canónica, rutas resueltas contra ella y clave de su sesión."""
@@ -7574,8 +7616,10 @@ def launch_node_runner(url: str) -> tuple[subprocess.Popen, IO[bytes]] | None:
         return None
     log_event("Iniciando runner de Node.js...")
     cache_dir = cache_file.parent
+    # En desarrollo los módulos cambian sin subir la versión: se descargan siempre.
+    cache_policy = RUNNER_CACHE_ALWAYS_DOWNLOAD if get_dev_root() is not None else RUNNER_CACHE_BY_VERSION
     cmd = [node, "--permission", f"--allow-fs-read={cache_dir}", f"--allow-fs-write={cache_dir}",
-           "-e", RUNNER_LOADER_SCRIPT, str(cache_file), url]
+           "-e", RUNNER_LOADER_SCRIPT, str(cache_file), url, cache_policy]
     try:
         stderr_log = tempfile.TemporaryFile()  # noqa: SIM115 - vive lo que la ejecución; se cierra al salir
         proc = subprocess.Popen(

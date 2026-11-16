@@ -36,6 +36,15 @@ class Quiet(SimpleHTTPRequestHandler):
         pass
 
 
+class RecordingSite(Quiet):
+    """Sirve la interfaz y anota las rutas que se piden."""
+    requests: list[str] = []
+
+    def do_GET(self):
+        self.requests.append(self.path)
+        super().do_GET()
+
+
 class RunnerLoaderTest(unittest.TestCase):
     def setUp(self):
         base = use_data_dir(self)
@@ -46,7 +55,8 @@ class RunnerLoaderTest(unittest.TestCase):
             (self.site / name).write_text(text, encoding="utf-8", newline="")
         self.cache_dir = base / "cache"
         self.cache_dir.mkdir()
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), partial(Quiet, directory=str(self.site)))
+        RecordingSite.requests = []
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), partial(RecordingSite, directory=str(self.site)))
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.server.server_close)
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}/zerochat.html#run=r1"
@@ -56,11 +66,57 @@ class RunnerLoaderTest(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
 
-    def run_loader(self):
+    def run_loader(self, policy=None):
         node = zerochat.find_node_executable()
         cmd = [node, "--permission", f"--allow-fs-read={self.cache_dir}", f"--allow-fs-write={self.cache_dir}",
-               "-e", zerochat.RUNNER_LOADER_SCRIPT, str(self.cache_dir / "modules.json"), self.url]
+               "-e", zerochat.RUNNER_LOADER_SCRIPT, str(self.cache_dir / "modules.json"), self.url,
+               policy or zerochat.RUNNER_CACHE_BY_VERSION]
+        RecordingSite.requests.clear()
         return subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+    def publish(self, version=None, c_value="c"):
+        """Publica la interfaz con esa versión en el título (sin título si es None) y el valor de js/c.js."""
+        page = self.site / "zerochat.html"
+        if version is None:
+            page.unlink(missing_ok=True)
+        else:
+            page.write_text(f"<html><head><title>ZeroChat v{version}</title></head></html>", encoding="utf-8")
+        (self.site / "js" / "c.js").write_text(f"module.exports = {{ value: '{c_value}' }};", encoding="utf-8")
+
+    def loaded(self, policy=None):
+        result = self.run_loader(policy)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)["a"], result.stderr
+
+    def test_con_la_version_publicada_de_la_cache_no_se_pide_ningun_modulo(self):
+        self.publish("1.0.0")
+        self.assertEqual(self.loaded()[0], "a+b+c")
+        self.assertIn("/js/run-node.js", RecordingSite.requests)
+
+        # Misma versión: un módulo cambiado sin subirla no se ve, y solo se pide la página.
+        self.publish("1.0.0", "c2")
+        value, stderr = self.loaded()
+        self.assertEqual((value, RecordingSite.requests), ("a+b+c", ["/zerochat.html"]))
+        self.assertIn("Using the cached modules of version 1.0.0", stderr)
+
+        self.publish("1.0.1", "c2")
+        value, stderr = self.loaded()
+        self.assertEqual(value, "a+b+c2")
+        self.assertIn("/js/vendor/lib.js", RecordingSite.requests)
+        self.assertRegex(stderr, r"Downloaded 4 modules \(\d+ KiB\) in \d+ ms")
+
+    def test_sin_version_legible_o_en_desarrollo_se_descarga_todo(self):
+        self.publish("1.0.0")
+        self.loaded()
+        # La página no responde con versión: se descarga todo y la caché queda sin versión.
+        self.publish(None, "c2")
+        self.assertEqual(self.loaded()[0], "a+b+c2")
+        self.publish("1.0.0", "c3")
+        self.assertEqual(self.loaded()[0], "a+b+c3")
+        # En desarrollo, aunque la caché sea de la versión publicada, y sin pedir la página.
+        self.publish("1.0.0", "c4")
+        self.assertEqual(self.loaded(zerochat.RUNNER_CACHE_ALWAYS_DOWNLOAD)[0], "a+b+c4")
+        self.assertNotIn("/zerochat.html", RecordingSite.requests)
 
     def test_descarga_los_modulos_y_sin_conexion_usa_la_ultima_copia(self):
         online = self.run_loader()

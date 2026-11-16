@@ -27,11 +27,13 @@ test.after(() => {
 const FAKE_BROWSER = `
 import json, sys, time, urllib.error, urllib.parse, urllib.request
 from pathlib import Path
-url = sys.argv[-1]
+# Los navegadores reciben la URL al final; el runner de Node, la URL y después la política de caché.
+url_index = max(i for i, arg in enumerate(sys.argv) if arg.startswith("http"))
+url = sys.argv[url_index]
 fragment = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).fragment))
 config = json.loads(Path(sys.argv[0]).with_name("fake-ui.json").read_text(encoding="utf-8"))
 scenario = config["scenario"]
-info = {"url": url.split("#", 1)[0], "fragment_keys": sorted(fragment), "launcher": Path(sys.argv[0]).name, "args": sys.argv[1:-1]}
+info = {"url": url.split("#", 1)[0], "fragment_keys": sorted(fragment), "launcher": Path(sys.argv[0]).name, "args": sys.argv[1:url_index], "after_url": sys.argv[url_index + 1:]}
 
 def rpc(method, run_id=fragment["run"], **params):
     body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": {"run_id": run_id, **params}}).encode()
@@ -233,6 +235,7 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     // La orden exacta la comprueba py/test_server_runs.py; aquí, que es la del cargador también en desarrollo.
     assert.equal(failed.info.args[0], '--permission');
     assert.match(failed.info.args.at(-1), /cache[\\/]runner[\\/]modules\.json$/);
+    assert.deepEqual(failed.info.after_url, ['always'], 'en desarrollo el runner descarga siempre la interfaz');
     // La interfaz es la del arranque normal (la local en desarrollo) con run= en el fragmento.
     assert.equal(ok.info.url, `http://127.0.0.1:${ok.port}/zerochat.html`);
     assert.deepEqual(ok.info.fragment_keys, ['host', 'port', 'run', 'token']);
@@ -296,6 +299,7 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(productionDefaultInUse.info.launcher, 'node');
     assert.equal(productionDefaultInUse.info.args[0], '--permission');
     assert.match(productionDefaultInUse.info.args.at(-1), /cache[\\/]runner[\\/]modules\.json$/);
+    assert.deepEqual(productionDefaultInUse.info.after_url, ['version'], 'instalado ejecuta la caché de la versión publicada');
   } finally {
     busy.close();
   }
