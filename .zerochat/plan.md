@@ -22,3 +22,4 @@ Done when: el icono de chat nuevo de otro proyecto lleva a ese proyecto con un c
 - [x] M75-T4 Quitar los plazos que cortan la ejecución por la interfaz (sin progreso 600 s y total 900 s) y dejar solo el final del runner y la cancelación del usuario (2026-11-16)
 - [x] M75-T5 El fichero de estado de una ejecución queda en estado, paso y error, sin el texto vivo (assistant_text, reasoning_text), y focus_run lleva la fecha de la conversación grabada (conversation_updated_at) (2026-11-16)
 - [x] M75-T6 La interfaz solo consulta el estado (cada 2 s) con una conversación de servidor en marcha abierta y la recarga desde lo grabado cuando cambia su fecha; al cambiar de conversación no consulta nada y al volver se trae entera y reanuda (2026-11-16)
+- [ ] M75-T7 Almacén de API keys: inventario, puntos débiles y normas de qué claves viven en la interfaz, en el backend y cuáles se intercambian (docs/M75-apikeys.md), para decidir antes de añadir Brave Search
