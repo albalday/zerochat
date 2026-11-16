@@ -1,4 +1,4 @@
 # Current state
-- Milestone: M74 Arreglos multiplataforma de la 10.19.0
-- Next task: none pending (M74 a la espera de cierre)
-- Last updated: 2026-11-15
+- Milestone: M72 Extracción de herramientas locales a servicios MCP propios con versión independiente
+- Next task: M72-T1
+- Last updated: 2026-11-16
