@@ -37,7 +37,7 @@ Rules for agents go in this file; if details live in other docs, link them from 
 Every agent working in this repository keeps the project memory up to date:
 
 - \`${STATE_FILE}\`: current milestone and next task. Read it before starting work. Keep it under 30 lines.
-- \`${PLAN_FILE}\`: active milestones and their tasks, plus recent closed milestone headers. Read the current milestone section before starting its next task.
+- \`${PLAN_FILE}\`: active milestones and their tasks, plus the last 2–3 closed milestone headers. Read the current milestone section before starting its next task.
 - \`${LOG_FILE}\`: active architectural invariants and system truths, one line each. Read it before designing changes or touching a subsystem so you do not break active contracts.
 - \`${ARCHIVE_DIR}/\` (\`M<n>.md\` and \`log_M<a>-M<b>.md\`): plan sections of closed milestones and rotated decision logs. Search them; do not read them in full.
 
@@ -50,13 +50,14 @@ To mark a task done, record decisions and update state atomically in one command
 \`python3 ${TASK_HELPER_FILE} done <TASK_ID> [-d "Decision text"] [-n <NEXT_TASK>]\`
 (or edit files manually if python is unavailable).
 
-Omit \`-d\` by default: routine code changes, bugfixes, refactors, test updates, or opening/closing milestones do not go in ${LOG_FILE}. Pass \`-d\` (\`- YYYY-MM-DD M2-D1 Decision and reason (M2-T3)\`) only when the task establishes a system invariant, a cross-layer or security contract, an explicitly accepted risk, or why an alternative was rejected ("why not X"); if it replaces an older decision, start with \`Supersedes Mn-Dm: ...\`.
+Omit \`-d\` by default: routine code changes, bugfixes, refactors, test updates, or opening/closing milestones do not go in ${LOG_FILE}. Pass \`-d\` (\`- YYYY-MM-DD M2-D1 Decision and reason (M2-T3)\`) only when the task establishes a system invariant, a cross-layer or security contract, an explicitly accepted risk, or why an alternative was rejected ("why not X"); if it replaces an older decision, start with \`Supersedes Mn-Dm: ...\` (keep \`Mn-Dm\` until the next compaction).
 
 Before starting work that is not in ${PLAN_FILE}, add it as the next task of the current milestone.
-Right after finishing each task, before starting the next one: mark it in ${PLAN_FILE}, append its decisions to ${LOG_FILE} and set the next task in ${STATE_FILE} (or use \`task.py done\`).
+Right after finishing each task, before starting the next one: mark it in ${PLAN_FILE}, append its decision, if any, to ${LOG_FILE} and set the next task in ${STATE_FILE} (or use \`task.py done\`).
 
 Ask the user before closing a milestone or adding a new one. Every milestone has a Goal and a Done when line.
 When the user confirms a milestone is closed: move its section from ${PLAN_FILE} to \`${ARCHIVE_DIR}/M<n>.md\` (move, never delete), leave \`## M<n> Title: closed YYYY-MM-DD\` in ${PLAN_FILE} and update ${STATE_FILE}.
+Compact ${LOG_FILE} and older closed milestone headers in ${PLAN_FILE} only when asked by the user: archive closed-milestone decisions verbatim to \`${ARCHIVE_DIR}/log_M<a>-M<b>.md\` before removing superseded or routine ones from ${LOG_FILE}, and keep open-milestone decisions in ${LOG_FILE}.
 `;
 
   const PLAN_TEMPLATE = `# Plan
