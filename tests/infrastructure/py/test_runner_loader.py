@@ -166,10 +166,12 @@ class FakeModel(BaseHTTPRequestHandler):
     """API compatible con OpenAI que responde siempre lo mismo, en streaming o no.
 
     Guarda el modelo de cada petición; si el último mensaje del usuario pide «cambia a <perfil>», el primer
-    paso de ese turno llama a switch_model, y «ejecuta X» a run_command con X."""
+    paso de ese turno llama a switch_model, «ejecuta X» a run_command con X y «lista» a list_directory.
+    before_tool_reply, si está, se llama antes de responder a un paso que sigue a resultados de herramientas."""
     REPLY = "Hola desde el modelo falso"
     requests: list = []
     api_keys: list = []
+    before_tool_reply = None
 
     def log_message(self, *_args):
         pass
@@ -189,6 +191,8 @@ class FakeModel(BaseHTTPRequestHandler):
         FakeModel.requests.append(request)
         FakeModel.api_keys.append(self.headers.get("Authorization"))
         last = request["messages"][-1]
+        if last["role"] == "tool" and request.get("stream") and FakeModel.before_tool_reply:
+            FakeModel.before_tool_reply()
         text = (last.get("content") or "") if last["role"] == "user" else ""
         switch = re.search(r"cambia a (\w+)", text)
         command = re.search(r"ejecuta (.+)", text)
@@ -199,6 +203,9 @@ class FakeModel(BaseHTTPRequestHandler):
         elif command:
             call = {"index": 0, "id": "call_1", "type": "function",
                     "function": {"name": "run_command", "arguments": json.dumps({"command": command.group(1)})}}
+        elif "lista" in text:
+            call = {"index": 0, "id": "call_1", "type": "function",
+                    "function": {"name": "list_directory", "arguments": json.dumps({"path": "."})}}
         if call and request.get("stream"):
             chunks = [{"choices": [{"index": 0, "delta": {"tool_calls": [call]}}]},
                       {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}]
@@ -228,6 +235,7 @@ class RealNodeRunTest(unittest.TestCase):
         zerochat.save_general_profile({"name": "Otro", "settings": {"apiType": "openai", "apiUrl": api_url, "model": "fake-otro", "apiKey": "sk-otro"}})
         FakeModel.requests = []
         FakeModel.api_keys = []
+        FakeModel.before_tool_reply = None
 
     def run_zerochat(self, *args):
         with socket.socket() as probe:
@@ -248,6 +256,23 @@ class RealNodeRunTest(unittest.TestCase):
         self.assertEqual((second.returncode, second.stdout), (0, FakeModel.REPLY + "\n"), second.stderr)
         history = zerochat.get_conversation(conversation_id)["history"]
         self.assertEqual([message["role"] for message in history], ["user", "assistant", "user", "assistant"])
+
+    def test_cada_paso_con_herramientas_queda_grabado_antes_de_acabar_el_turno(self):
+        # Si la ejecución se corta en el paso siguiente, lo hecho ya está en SQLite.
+        seen = []
+
+        def saved_roles():
+            for _ in range(100):
+                conversations = zerochat.list_conversations()
+                history = zerochat.get_conversation(conversations[0]["id"])["history"] if conversations else []
+                if any(message["role"] == "tool" for message in history):
+                    break
+                threading.Event().wait(0.05)
+            seen.append([message["role"] for message in history])
+        FakeModel.before_tool_reply = saved_roles
+        result = self.run_zerochat("--prompt", "lista y saluda")
+        self.assertEqual((result.returncode, result.stdout), (0, FakeModel.REPLY + "\n"), result.stderr)
+        self.assertEqual(seen, [["user", "assistant", "tool"]])
 
     def test_switch_model_cambia_a_otro_perfil_del_servidor(self):
         result = self.run_zerochat("--prompt", "cambia a otro y saluda")

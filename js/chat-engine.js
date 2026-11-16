@@ -260,6 +260,7 @@
    * ChatUIConversation.createTurnView.
    * `params.activateProfile(profileId)` activa un perfil como el selector de quien lanza el turno; sin
    * ella, switch_model solo cambia el nivel de razonamiento.
+   * `params.onStepHistory(history)` recibe el historial tras cada paso con herramientas (el runner lo graba).
    * @param {Object} params - Parámetros de ejecución.
    * @returns {Promise<{ finalAssistantText?: string, accumulatedMarkdown?: string, loopDetected?: boolean, truncated?: boolean, stats?: Object, chatHistory: Array, cancelled?: boolean, error?: any }>}
    */
@@ -278,6 +279,7 @@
       onBeforeRequest,
       onGenerationStatus,
       onProgress,
+      onStepHistory,
       activateProfile = null
     } = params;
     const AgentCore = getAgentCore();
@@ -407,6 +409,7 @@
             turnBlocks.delete(turnIndex);
           }
           view.scrollToBottom();
+          if (step.history) onStepHistory?.(step.history);
         }
       }
     });

@@ -340,6 +340,24 @@
       return { started, unavailable };
     };
 
+    // Las grabaciones van en fila: la de un paso no puede llegar después de la del final del turno.
+    let pendingSave = Promise.resolve();
+    const saveActiveConversation = history => {
+      const activeSessionId = State.get('sessions')?.activeId;
+      if (!activeSessionId) return pendingSave;
+      const currentMeta = (State.get('sessions')?.list || []).find(s => s.id === activeSessionId) || { id: activeSessionId };
+      const activeConfig = Config.getActive();
+      const sessionMeta = {
+        ...currentMeta,
+        updatedAt: Date.now(),
+        messageCount: history.length,
+        profileId: currentMeta.profileId || activeConfig?.activeProfile?.id || activeConfig?.activeProfile?.name || null,
+        serverRun: currentMeta.serverRun !== undefined ? Boolean(currentMeta.serverRun) : true
+      };
+      pendingSave = pendingSave.catch(() => {}).then(() => conversationStore.saveConversation(sessionMeta, history));
+      return pendingSave;
+    };
+
     const submitComposerText = async (text, sendOptions = {}) => {
       const resume = Boolean(sendOptions.resume);
       if (text && !resume) {
@@ -369,6 +387,10 @@
         signal: currentAbortController.signal,
         view,
         onProgress: sendOptions.onProgress,
+        // Cada paso cerrado queda grabado: si la ejecución se corta, se conserva lo hecho.
+        onStepHistory: history => {
+          saveActiveConversation(history).catch(error => console.warn('[RunNode] Could not save the step:', error));
+        },
         onGenerationStatus: update => {
           sendOptions.onProgress?.({
             kind: update.phase === 'tool' ? 'tool' : 'status',
@@ -379,22 +401,7 @@
 
       if (loopResult.chatHistory) {
         State.replaceMessages(loopResult.chatHistory);
-        const activeSessionId = State.get('sessions')?.activeId;
-        if (activeSessionId) {
-          const sessionsList = State.get('sessions')?.list || [];
-          const currentMeta = sessionsList.find(s => s.id === activeSessionId) || { id: activeSessionId };
-          const activeConfig = Config.getActive();
-          const activeProfileId = currentMeta.profileId || activeConfig?.activeProfile?.id || activeConfig?.activeProfile?.name || null;
-          const isServerRun = currentMeta.serverRun !== undefined ? Boolean(currentMeta.serverRun) : true;
-          const sessionMeta = {
-            ...currentMeta,
-            updatedAt: Date.now(),
-            messageCount: loopResult.chatHistory.length,
-            profileId: activeProfileId,
-            serverRun: isServerRun
-          };
-          await conversationStore.saveConversation(sessionMeta, loopResult.chatHistory);
-        }
+        await saveActiveConversation(loopResult.chatHistory);
       }
 
       if (loopResult.loopDetected) {

@@ -753,7 +753,8 @@
           // Solo vive durante el turno: buildEffectiveMessages lo reenvía y el historial devuelto lo omite.
           if (step.reasoningReplay) assistantMsg.reasoningReplay = step.reasoningReplay;
           workingMessages.push(assistantMsg, ...batch.toolMessages);
-          callbacks.onStepDone?.(stepIndex, { type: 'tool_execution', text });
+          // El historial de un paso cerrado (assistant con sus tool) permite grabar lo hecho antes de acabar el turno.
+          callbacks.onStepDone?.(stepIndex, { type: 'tool_execution', text, history: workingMessages.map(withoutReasoningReplay) });
 
           stepIndex++;
 
