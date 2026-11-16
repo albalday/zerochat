@@ -380,11 +380,11 @@
           turnBlocks.get(turnIndex).render(text, { streaming: true });
           if (stats) onStats?.(stats);
           view.scrollToBottom();
-          onProgress?.({ kind: 'stream', text: `step ${turnIndex + 1}: ${text.length} characters`, assistant_text: text });
+          onProgress?.({ kind: 'stream', text: `step ${turnIndex + 1}: ${text.length} characters` });
         },
-        onReasoningChunk: (chunk, accumulated, turnIndex) => {
+        onReasoningChunk: (chunk, _accumulated, turnIndex) => {
           onReasoningChunk?.(chunk);
-          onProgress?.({ kind: 'stream', text: `step ${(turnIndex != null ? turnIndex + 1 : 1)}: reasoning`, reasoning_text: accumulated || chunk });
+          onProgress?.({ kind: 'stream', text: `step ${(turnIndex != null ? turnIndex + 1 : 1)}: reasoning` });
         },
         onLog: logData => {
           if (logData?.type !== 'thinking') onLog?.(logData?.type, logData?.text);

@@ -25,6 +25,7 @@ from security.context import SecurityContext
 from storage.db import (
     _validate_conversation_id,
     get_conversation,
+    get_conversation_updated_at,
     get_general_profile,
     get_general_profile_by_name,
     list_general_profiles,
@@ -34,7 +35,6 @@ from storage.db import (
 
 RUN_POLL_SECONDS = 0.2
 RUN_PROGRESS_TEXT_MAX = 500
-RUN_STREAM_TEXT_MAX = 8000
 RUN_PROGRESS_KIND_PATTERN = re.compile(r"[a-z_]{1,32}")
 RUN_EXIT_DONE = 0
 RUN_EXIT_ERROR = 1
@@ -94,8 +94,6 @@ def write_run_state(session: RunSession) -> None:
         "updated_at": session.updated_at,
         "status": session.status,
         "step_text": session.step_text,
-        "assistant_text": session.assistant_text,
-        "reasoning_text": session.reasoning_text,
         "pending": session.pending,
         "error": session.error
     }
@@ -163,10 +161,18 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
     if clean_focus_id:
         for _, _, full_data in entries:
             if full_data.get("conversation_id") == clean_focus_id:
-                focus_run = full_data
+                # La interfaz recarga la conversación grabada cuando cambia esta fecha (el runner graba cada paso).
+                focus_run = {**full_data, "conversation_updated_at": _conversation_updated_at(clean_focus_id)}
                 break
 
     return runs, focus_run
+
+
+def _conversation_updated_at(conversation_id: str) -> int | None:
+    try:
+        return get_conversation_updated_at(conversation_id)
+    except ValueError:
+        return None
 
 
 def _run_target(params: dict) -> tuple[str, dict, str]:
@@ -255,8 +261,6 @@ def start_server_run(params: dict, ctx: SecurityContext) -> dict:
         "updated_at": now,
         "status": "running",
         "step_text": "",
-        "assistant_text": "",
-        "reasoning_text": "",
         "pending": None,
         "error": None
     }
@@ -338,8 +342,6 @@ class RunSession:
         self.updated_at = self.started_at
         self.status = "running"
         self.step_text = ""
-        self.assistant_text = ""
-        self.reasoning_text = ""
         self.pending: dict | None = None
         self.error: str | None = None
         self.runner_token: str | None = None
@@ -443,20 +445,10 @@ def _rpc_progress(params: dict, session: RunSession) -> RpcOutcome:
     text = params.get("text", "")
     if not isinstance(kind, str) or not RUN_PROGRESS_KIND_PATTERN.fullmatch(kind) or not isinstance(text, str):
         return rpc_error(INVALID_PARAMS, "Progreso no válido.")
-    assistant_text = params.get("assistant_text")
-    reasoning_text = params.get("reasoning_text")
-    if assistant_text is not None and not isinstance(assistant_text, str):
-        return rpc_error(INVALID_PARAMS, "assistant_text debe ser una cadena.")
-    if reasoning_text is not None and not isinstance(reasoning_text, str):
-        return rpc_error(INVALID_PARAMS, "reasoning_text debe ser una cadena.")
     truncated_step = _capped(text, RUN_PROGRESS_TEXT_MAX)
     log_event(f"[run] {kind}{': ' + truncated_step if truncated_step else ''}")
     with session.lock:
         session.step_text = truncated_step
-        if assistant_text is not None:
-            session.assistant_text = _capped(assistant_text, RUN_STREAM_TEXT_MAX)
-        if reasoning_text is not None:
-            session.reasoning_text = _capped(reasoning_text, RUN_STREAM_TEXT_MAX)
         write_run_state(session)
     return rpc_result({"ok": True})
 

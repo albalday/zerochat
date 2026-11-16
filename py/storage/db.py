@@ -375,6 +375,14 @@ def list_conversations() -> list[dict]:
         return [_row_to_conversation_header(row) for row in rows]
 
 
+def get_conversation_updated_at(session_id: str) -> int | None:
+    """Fecha de la última grabación de la conversación, sin leer sus mensajes; None si no existe."""
+    clean_id = _validate_conversation_id(session_id)
+    with open_storage() as conn:
+        row = conn.execute("SELECT updated_at FROM conversations WHERE id = ?;", (clean_id,)).fetchone()
+        return int(row["updated_at"]) if row else None
+
+
 def get_conversation(session_id: str) -> dict | None:
     """Recupera una conversación completa con sus mensajes ordenados por posición."""
     clean_id = _validate_conversation_id(session_id)

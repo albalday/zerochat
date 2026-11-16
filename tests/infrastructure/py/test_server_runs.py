@@ -72,8 +72,6 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(data["conversation_id"], conv_id)
         self.assertEqual(data["status"], "running")
         self.assertEqual(data["step_text"], "")
-        self.assertEqual(data["assistant_text"], "")
-        self.assertEqual(data["reasoning_text"], "")
         self.assertIsNone(data["pending"])
         self.assertIsNone(data["error"])
         self.assertEqual(data["pid"], os.getpid())
@@ -86,21 +84,17 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertNotIn("tool_security", prompt_res)
         self.assertNotIn("tool_decision", prompt_res)
 
-        # zerochat/run/progress actualiza situación y streaming de texto y razonamiento
+        # zerochat/run/progress actualiza el paso; el texto de la respuesta está en la conversación grabada
         prog_res, err, _ = dispatch_run("zerochat/run/progress", {
             "run_id": session.run_id,
             "kind": "tool",
-            "text": "run_command: pytest",
-            "assistant_text": "Ejecutando pruebas...",
-            "reasoning_text": "Pensando el siguiente paso..."
+            "text": "run_command: pytest"
         })
         self.assertIsNone(err)
         self.assertEqual(prog_res, {"ok": True})
 
         data = json.loads(state_path.read_text("utf-8"))
         self.assertEqual(data["step_text"], "run_command: pytest")
-        self.assertEqual(data["assistant_text"], "Ejecutando pruebas...")
-        self.assertEqual(data["reasoning_text"], "Pensando el siguiente paso...")
 
         # zerochat/run/result con needs_input guarda estado needs_input y pending
         res_outcome, err, _ = dispatch_run("zerochat/run/result", {
@@ -167,29 +161,6 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         data = json.loads(state_path.read_text("utf-8"))
         self.assertEqual(len(data["step_text"]), zerochat.RUN_PROGRESS_TEXT_MAX + 1)
         self.assertEqual(data["step_text"], ("b" * zerochat.RUN_PROGRESS_TEXT_MAX) + "…")
-
-        # Borde exacto N (8000) y N+1 (8001) en assistant_text y reasoning_text (RUN_STREAM_TEXT_MAX)
-        dispatch_run("zerochat/run/progress", {
-            "run_id": session.run_id,
-            "kind": "stream",
-            "assistant_text": "t" * zerochat.RUN_STREAM_TEXT_MAX,
-            "reasoning_text": "r" * zerochat.RUN_STREAM_TEXT_MAX
-        })
-        data = json.loads(state_path.read_text("utf-8"))
-        self.assertEqual(data["assistant_text"], "t" * zerochat.RUN_STREAM_TEXT_MAX)
-        self.assertFalse(data["assistant_text"].endswith("…"))
-        self.assertEqual(data["reasoning_text"], "r" * zerochat.RUN_STREAM_TEXT_MAX)
-        self.assertFalse(data["reasoning_text"].endswith("…"))
-
-        dispatch_run("zerochat/run/progress", {
-            "run_id": session.run_id,
-            "kind": "stream",
-            "assistant_text": "x" * (zerochat.RUN_STREAM_TEXT_MAX + 1),
-            "reasoning_text": "y" * (zerochat.RUN_STREAM_TEXT_MAX + 1)
-        })
-        data = json.loads(state_path.read_text("utf-8"))
-        self.assertEqual(data["assistant_text"], ("x" * zerochat.RUN_STREAM_TEXT_MAX) + "…")
-        self.assertEqual(data["reasoning_text"], ("y" * zerochat.RUN_STREAM_TEXT_MAX) + "…")
 
     def test_cli_argumentos_conversation(self):
         # Crear perfil por defecto local para pruebas CLI
@@ -339,8 +310,6 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             "updated_at": now + 100,
             "status": "running",
             "step_text": "step 1",
-            "assistant_text": "asst 1",
-            "reasoning_text": "reas 1",
             "pending": None,
             "error": None
         }
@@ -352,8 +321,6 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             "updated_at": now,
             "status": "needs_input",
             "step_text": "step 2",
-            "assistant_text": "asst 2",
-            "reasoning_text": "reas 2",
             "pending": {"kind": "ask_user", "text": "confirm?"},
             "error": None
         }
@@ -365,8 +332,6 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             "updated_at": now + 200,
             "status": "running",
             "step_text": "in progress",
-            "assistant_text": "",
-            "reasoning_text": "",
             "pending": None,
             "error": None
         }
@@ -382,7 +347,12 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(runs[2], {"conversation_id": "conv_dead", "run_id": "run_dead", "status": "error"})
         self.assertIsNotNone(focus)
         self.assertEqual(focus["conversation_id"], "conv_1")
-        self.assertEqual(focus["assistant_text"], "asst 1")
+        self.assertEqual(focus["step_text"], "step 1")
+        # Sin la conversación en SQLite no hay fecha de grabación; con ella, la de su último guardado.
+        self.assertIsNone(focus["conversation_updated_at"])
+        zerochat.save_conversation({"id": "conv_1", "title": "uno", "updatedAt": now + 500}, [])
+        _, focus = zerochat.list_server_runs(focus_conversation_id="conv_1")
+        self.assertEqual(focus["conversation_updated_at"], now + 500)
 
         _, focus_miss = zerochat.list_server_runs(focus_conversation_id="conv_otro")
         self.assertIsNone(focus_miss)
@@ -522,7 +492,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             "pid": os.getpid(),
             "started_at": 2000,
             "status": "running",
-            "assistant_text": "Live test"
+            "step_text": "Live test"
         }), encoding="utf-8")
 
         state = zerochat.live_state(zerochat.project_context())
@@ -534,7 +504,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
 
         state_focused = zerochat.live_state(zerochat.project_context(), focus_conversation_id="conv_hb")
         self.assertIsNotNone(state_focused["focus_run"])
-        self.assertEqual(state_focused["focus_run"]["assistant_text"], "Live test")
+        self.assertEqual(state_focused["focus_run"]["step_text"], "Live test")
 
         handler = mock.Mock(spec=zerochat.ZeroChatServerHandler)
         outcome = zerochat.dispatch_local("zerochat/heartbeat", {
