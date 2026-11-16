@@ -17,6 +17,7 @@ Done when: `service.json` incluye `version` y soporta `builtin: true` (nombres d
 - [ ] M72-T5 [Hydrogen · Low] Limpieza de ramas obsoletas en `py/tools/registry.py` y `py/server/handler.py`, recompilación de `zerochat.py` y actualización de contratos (`py/README.md`, `js/tools/README.md`) y ayuda bilingüe (`help/`)
 - [ ] M72-T6 [Posible] search_files usa la consulta del modelo como expresión regular de Python: re no suelta el GIL y una consulta como (a+)+$ contra una línea larga bloquearía el servidor. Decidir al extraerla (M72-T4): buscar en un proceso aparte con plazo, rechazar grupos repetidos anidados o dejarlo si el servicio MCP propio ya lo aísla
 - [ ] M72-T7 El runner de Node descarga entera la interfaz en cada ejecución (la caché solo sirve sin red y las peticiones no llevan comprobación de caché): medir primero lo que tarda desde GitHub Pages con una línea en el registro y, si compensa, guardar en la caché la versión con la que se descargó y, con una sola petición de la versión publicada, ejecutar la caché si coincide o descargar todo si no; en desarrollo descarga siempre; pruebas de misma versión sin pedir módulos, versión distinta, servidor de versión caído y desarrollo
+- [x] M72-T8 Ajustar textos del modo proyecto y prompt de simplificación de memoria para trabajo multiagente y retención de invariantes en log.md (2026-11-16)
 
 ## M73 Arreglos de seguridad: closed 2026-11-15
 

@@ -215,7 +215,7 @@ def main():
 
     done_p = subparsers.add_parser("done", help="Mark a task as completed")
     done_p.add_argument("task_id", help="Task ID (e.g. M8-T1)")
-    done_p.add_argument("-d", "--decision", help="Decision text to record in log.md", default=None)
+    done_p.add_argument("-d", "--decision", help="Non-obvious invariant, contract, accepted risk or rejected alternative to append to log.md (omit by default)", default=None)
     done_p.add_argument("-n", "--next", help="Next task for state.md (automatically detected if omitted)", default=None)
     done_p.add_argument("--drop", help="Reason if task is dropped", default=None)
     done_p.add_argument("--date", help="Date YYYY-MM-DD (defaults to today)", default=None)

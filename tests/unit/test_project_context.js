@@ -79,10 +79,14 @@ test('ProjectContext.buildBootstrapPrompt - interpola cwd y plantillas, y exige 
 test('ProjectContext.buildCompactPrompt - genera instrucciones de condensación de hitos y rotación de log', () => {
   const prompt = ProjectContext.buildCompactPrompt('/home/u/repo');
   assert.match(prompt, /repository at \/home\/u\/repo/);
+  assert.match(prompt, /NOTE ON MODEL & REASONING:.*medium or high reasoning level/);
   assert.match(prompt, /\.zerochat\/plan\.md/);
   assert.match(prompt, /\.zerochat\/log\.md/);
   assert.match(prompt, /\.zerochat\/archive\//);
   assert.match(prompt, /<!-- Hitos M1 a M<last_archived> archivados en \.zerochat\/archive\/ -->/);
+  assert.match(prompt, /log_M<first_unarchived>-M<last_closed>\.md/);
+  assert.match(prompt, /reverse-chronologically \(from newest milestone to oldest\)/);
+  assert.match(prompt, /Being implemented in code or covered by tests is NOT a reason to drop an invariant/);
   assert.match(prompt, /wait for explicit user approval before modifying any files/);
   assert.match(prompt, /Active architectural pillars/);
   assert.match(prompt, /Superseded\/obsolete decisions/);
