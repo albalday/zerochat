@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Verifica que el wheel instala solo el ejecutable y usa GitHub Pages."""
+"""Verifica que el wheel instala solo el ejecutable y que instala los servicios MCP del catálogo de la interfaz.
+
+La interfaz es la carpeta de este repositorio servida en local (--ui-url), y no GitHub Pages: la prueba corre antes de
+que Pages publique la versión que se prueba."""
 
 from __future__ import annotations
 
@@ -11,9 +14,21 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.request
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+# El catálogo se descarga en un hilo tras el arranque: margen para que termine.
+CATALOG_WAIT_SECONDS = 15
+
+
+class QuietFiles(SimpleHTTPRequestHandler):
+    def log_message(self, *_args):
+        pass
 
 
 def run(*args: str, **kwargs):
@@ -56,8 +71,11 @@ def main() -> None:
             env["USERPROFILE"] = str(home_dir)
         else:
             env["HOME"] = str(home_dir)
+        interface = ThreadingHTTPServer(("127.0.0.1", 0), partial(QuietFiles, directory=str(REPO_ROOT)))
+        threading.Thread(target=interface.serve_forever, daemon=True).start()
+        ui_url = f"http://127.0.0.1:{interface.server_address[1]}/zerochat.html"
         process = subprocess.Popen(
-            [str(executable), "--port", str(port), "--no-browser", "--keep-server"],
+            [str(executable), "--port", str(port), "--no-browser", "--keep-server", "--ui-url", ui_url],
             cwd=temp_dir,
             env=env,
             stdout=subprocess.PIPE,
@@ -93,8 +111,12 @@ def main() -> None:
             venv_python = data_dir / ".venv" / ("Scripts/python.exe" if sys.platform.startswith("win") else "bin/python")
             if not venv_python.is_file():
                 raise SystemExit("El paquete no creó ~/zerochat/.venv para los MCP")
-            if not (data_dir / "services" / "ejemplo" / "service.json").is_file():
-                raise SystemExit("El paquete no inicializó los servicios MCP en ~/zerochat")
+            example_service = data_dir / "services" / "ejemplo" / "service.json"
+            catalog_deadline = time.monotonic() + CATALOG_WAIT_SECONDS
+            while not example_service.is_file() and time.monotonic() < catalog_deadline:
+                time.sleep(0.1)
+            if not example_service.is_file():
+                raise SystemExit("El paquete no instaló los servicios MCP del catálogo en ~/zerochat")
             if not (data_dir / "services" / "ejemplo" / "README.md").is_file():
                 raise SystemExit("El paquete no instaló la guía del MCP de ejemplo")
             example_readme = (data_dir / "services" / "ejemplo" / "README.md").read_text(encoding="utf-8")
@@ -108,6 +130,8 @@ def main() -> None:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 process.kill()
+            interface.shutdown()
+            interface.server_close()
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
