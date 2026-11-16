@@ -326,33 +326,9 @@
     return { added, replaced, total: imported.length };
   }
 
-  /**
-   * Importa un perfil del servidor al repositorio local del cliente.
-   * La clave secreta del servidor (en texto plano) se cifra con la clave de sesión local.
-   */
-  async function importServerProfile(serverProfile, options = {}) {
-    if (!serverProfile || typeof serverProfile !== 'object') {
-      throw new Error('The server profile is not valid.');
-    }
-    const name = String(options.name || serverProfile.name || '').trim();
-    if (!name) throw new Error('The profile name cannot be empty.');
-    const settings = clone(serverProfile.settings || {});
-    const apiKey = typeof serverProfile.apiKey === 'string'
-      ? serverProfile.apiKey
-      : (typeof settings.apiKey === 'string' ? settings.apiKey : '');
-    settings.apiKey = apiKey;
-    const record = {
-      id: String(options.id || createId(name)),
-      name,
-      description: String(options.description !== undefined ? options.description : (serverProfile.description || '')).trim(),
-      settings
-    };
-    return saveEditable(record);
-  }
-
   return {
     STORAGE_KEY, SCHEMA_VERSION, PROFILE_FIELDS, MAX_PROFILE_MCP_SERVERS, STORAGE_PROFILE_FIELDS, READONLY_PROFILE_ID, MIRROR_PROFILE: clone(MIRROR_PROFILE), NEW_PROFILE_SETTINGS: clone(NEW_PROFILE_SETTINGS),
     initialize, list, get, load, setPasswordPrompt, loadUnlocked, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported,
-    importServerProfile, registerSessionProfile, setSessionKeyLoader, listSessionProfiles, clearSessionProfile
+    registerSessionProfile, setSessionKeyLoader, listSessionProfiles, clearSessionProfile
   };
 }));

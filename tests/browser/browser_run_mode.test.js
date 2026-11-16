@@ -367,7 +367,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     assert.equal(JSON.parse(lastSavedMessages.at(-1).content).awaitingApproval, true);
   });
 
-  test('Browser UI - Ejecutar en servidor con perfil de servidor: switch, progreso en vivo, cambio de chat y reanudación de permisos y ask_user', async () => {
+  test('Browser UI - Ejecutar en servidor con perfil de servidor: switch, pasos grabados, cambio de chat y reanudación de permisos y ask_user', async () => {
     const page = await browser.newPage();
     await seedConnectionProfiles(page);
     const savedConversations = new Map();
@@ -443,8 +443,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
           run_id: runId,
           status: 'running',
           step_text: '1',
-          assistant_text: 'Analizando **código**',
-          reasoning_text: 'Revisando módulos'
+          conversation_updated_at: savedConversations.get(params.conversation_id)?.updatedAt ?? null
         };
         return reply({ run_id: runId, conversation_id: params.conversation_id, status: 'running' });
       }
@@ -478,13 +477,17 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     assert.equal(startCalls[0].conversation_id, activeConvId);
     assert.equal(startCalls[0].profile, 'server');
 
-    // Al llegar el siguiente latido con focus_run se muestran el banner, el paso, el razonamiento y el Markdown.
+    // Un paso que la ejecución graba llega con el siguiente latido: la página recarga la conversación grabada.
+    const runningRecord = savedConversations.get(activeConvId);
+    runningRecord.history.push({ id: 'srv_step_1', role: 'assistant', content: 'Analizando **código**' });
+    runningRecord.updatedAt += 1000;
+    currentFocusRun = { ...currentFocusRun, conversation_updated_at: runningRecord.updatedAt };
     await page.evaluate(() => window.ChatMCP.manager.readLiveState());
+    await page.waitForFunction(() => document.querySelector('.message-wrapper.assistant:not(.server-run-live-wrapper) strong')?.textContent === 'código');
     const liveView = await page.evaluate(() => ({
       banner: document.querySelector('.server-run-banner-title')?.textContent,
       step: document.querySelector('.server-run-step')?.textContent,
-      thought: document.querySelector('.server-run-thought .thought-content')?.textContent,
-      assistantBold: document.querySelector('.server-run-assistant-block strong')?.textContent,
+      heartbeatMs: window.ChatMCP.manager.heartbeatIntervalMs,
       sendDisabled: document.getElementById('btn-send').disabled,
       stopVisible: !document.getElementById('btn-stop-stream').hidden,
       sidebarRunningIcon: Boolean(document.querySelector(`.sidebar-chat-item[data-session-id="${window.ChatState.get('sessions').activeId}"] .sidebar-chat-status-icon.running`))
@@ -492,8 +495,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     assert.deepEqual(liveView, {
       banner: 'Ejecutándose en el servidor: tarea srv_run_1',
       step: '1',
-      thought: 'Revisando módulos',
-      assistantBold: 'código',
+      heartbeatMs: 2000,
       sendDisabled: true,
       stopVisible: true,
       sidebarRunningIcon: true
@@ -508,11 +510,14 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
       stopHidden: document.getElementById('btn-stop-stream').hidden
     }));
     assert.deepEqual(newSessionView, { liveWrapper: false, sendDisabled: false, stopHidden: true });
+    // Fuera de la conversación en marcha el latido vuelve al de siempre (10 s, con auto-cierre).
+    await page.waitForFunction(() => window.ChatMCP.manager.heartbeatIntervalMs === 10000);
 
     // Volver a la conversación en ejecución restaura su vista en vivo y bloqueo de envío.
     await page.locator(`.sidebar-chat-item[data-session-id="${activeConvId}"]`).evaluate(el => el.click());
     await page.waitForFunction(id => window.ChatState.get('sessions').activeId === id, activeConvId);
     assert.equal(await page.locator('.server-run-live-wrapper').count(), 1);
+    await page.waitForFunction(() => window.ChatMCP.manager.heartbeatIntervalMs === 2000);
 
     // La ejecución en el servidor se pausa pidiendo permiso de write_file (needs_input).
     const convRecord = savedConversations.get(activeConvId);

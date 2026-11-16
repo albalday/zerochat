@@ -352,4 +352,35 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
     });
   });
 
+  test('Browser UI - los secretos de un servicio muestran solo si están guardados y se guardan o borran desde un diálogo de contraseña', async () => {
+    await withMcpPanel({}, async page => {
+      const result = await page.evaluate(async () => {
+        const calls = [];
+        const prompts = [];
+        window.ChatMCP.manager.setExternalServerSecret = async (...args) => { calls.push(args); };
+        window.ChatDialogs.prompt = async (message, value, options) => { prompts.push(options.inputType); return 'bsa-nueva'; };
+        window.ChatDialogs.confirm = async () => true;
+        const list = document.getElementById('mcp-servers-list');
+        const render = configured => window.ChatUIMcp.renderExternalServers(list, [{
+          id: 'brave', status: 'stopped', secrets: [{ name: 'BRAVE_API_KEY', label: { es: 'Clave de Brave Search' }, configured }]
+        }]);
+        const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+        render(false);
+        const missing = { status: list.querySelector('.mcp-server-secret-status').textContent, canDelete: Boolean(list.querySelector('.btn-mcp-secret-delete')) };
+        list.querySelector('.btn-mcp-secret-set').click();
+        await flush();
+        render(true);
+        const saved = list.querySelector('.mcp-server-secret-status').textContent;
+        list.querySelector('.btn-mcp-secret-delete').click();
+        await flush();
+        return { missing, saved, calls, prompts, markup: list.innerHTML };
+      });
+      assert.deepEqual(result.missing, { status: 'Sin guardar', canDelete: false });
+      assert.equal(result.saved, 'Guardada');
+      assert.deepEqual(result.prompts, ['password']);
+      assert.deepEqual(result.calls, [['brave', 'BRAVE_API_KEY', 'bsa-nueva'], ['brave', 'BRAVE_API_KEY', null]]);
+      assert.doesNotMatch(result.markup, /bsa-nueva/);
+    });
+  });
+
 });

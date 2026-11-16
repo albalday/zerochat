@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import base64
+import binascii
 import codecs
 import contextlib
 import ctypes
@@ -1416,6 +1417,92 @@ def _pid_alive(pid: int) -> bool:
         return False
     return True
 
+# --- core.rate_limit ---
+"""Control de frecuencia y paralelismo de las llamadas salientes, por recurso (un dominio web o un servicio MCP).
+
+No es un control de gasto: solo evita saturar un sitio o un servicio (retos anti-bot de DuckDuckGo, límites por
+segundo de una API). La cuenta vive en memoria de este proceso; una ejecución en servidor (--prompt, --conversation)
+lleva la suya.
+"""
+
+
+
+# Lo más que una llamada espera su turno; si haría falta más, falla enseguida con RateLimitBusy.
+RATE_LIMIT_MAX_WAIT_S = 30.0
+
+
+@dataclasses.dataclass(frozen=True)
+class RatePolicy:
+    """`concurrency` llamadas a la vez y `min_interval_s` desde la respuesta anterior al mismo recurso."""
+    concurrency: int = 1
+    min_interval_s: float = 0.0
+
+
+class RateLimitBusy(Exception):
+    """El recurso no queda libre dentro de la espera admitida."""
+
+    def __init__(self, key: str, max_wait_s: float):
+        super().__init__(f"{key} está ocupado: hay demasiadas llamadas seguidas o a la vez y no queda libre en "
+                         f"{max_wait_s:.0f} s. Espera un poco antes de volver a llamarlo.")
+
+
+@dataclasses.dataclass
+class _ResourceState:
+    active: int
+    last_done: float
+
+
+def parse_rate_policy(value) -> RatePolicy | None:
+    """La política de un `rateLimit` declarado ({"concurrency", "minIntervalS"}), o None si no declara ninguna válida."""
+    if not isinstance(value, dict):
+        return None
+    concurrency, interval = value.get("concurrency", 1), value.get("minIntervalS", 0)
+    if isinstance(concurrency, bool) or not isinstance(concurrency, int) or not 1 <= concurrency <= 64:
+        return None
+    if isinstance(interval, bool) or not isinstance(interval, int | float) or not 0 <= interval <= 60:
+        return None
+    return RatePolicy(concurrency=concurrency, min_interval_s=float(interval))
+
+
+class RateLimiter:
+    """Turnos por recurso. La separación se cuenta desde la respuesta anterior, y al arrancar el proceso como si
+    acabara de haber una: la primera llamada tras arrancar también espera, como las siguientes."""
+
+    def __init__(self):
+        self._condition = threading.Condition()
+        self._resources: dict[str, _ResourceState] = {}
+        self._started = time.monotonic()
+
+    @contextlib.contextmanager
+    def slot(self, key: str, policy: RatePolicy, max_wait_s: float = RATE_LIMIT_MAX_WAIT_S) -> Iterator[float]:
+        """Espera el turno del recurso `key` y devuelve los segundos esperados; RateLimitBusy si no llega a tiempo."""
+        started = time.monotonic()
+        deadline = started + max(0.0, max_wait_s)
+        with self._condition:
+            state = self._resources.setdefault(key, _ResourceState(0, self._started))
+            while True:
+                now = time.monotonic()
+                gap = policy.min_interval_s - (now - state.last_done)
+                if state.active < policy.concurrency and gap <= 0:
+                    break
+                # Con hueco libre se sabe cuánto falta; sin él, hasta que termine otra llamada.
+                wait = gap if state.active < policy.concurrency else deadline - now
+                if now + max(wait, 0.0) > deadline or deadline - now <= 0:
+                    raise RateLimitBusy(key, max_wait_s)
+                self._condition.wait(max(wait, 0.001))
+            state.active += 1
+        waited = time.monotonic() - started
+        try:
+            yield waited
+        finally:
+            with self._condition:
+                state.active -= 1
+                state.last_done = time.monotonic()
+                self._condition.notify_all()
+
+
+RATE_LIMITER = RateLimiter()
+
 # --- core.rpc ---
 """Respuestas de los métodos JSON-RPC del servidor: (resultado, error JSON-RPC, detalle para el registro)."""
 
@@ -1473,7 +1560,7 @@ def dispatch_browser(method: str, params: dict) -> RpcOutcome:
 
 
 
-SOURCE_BACKEND_VERSION = "10.21.0"
+SOURCE_BACKEND_VERSION = "10.22.0"
 
 
 def _read_source_version(filename: str) -> str | None:
@@ -1977,517 +2064,6 @@ class StdioMcpClient:
                 pass
         self.process = None
         self.tools = []
-
-# --- mcp.manager ---
-"""Gestor de servicios MCP: descubrimiento en ~/zerochat/services, actualización desde el catálogo, preferencias,
-arranque y parada, y nombres públicos de sus herramientas."""
-
-
-
-
-
-def public_tool_name(server_id: str, original: str) -> str:
-    """Codificación inyectiva de nombres de herramientas MCP idéntica a publicToolName en js/mcp.js."""
-    def encode(value: str, tool: bool = False) -> str:
-        if not isinstance(value, str) or not value or len(value) > 256:
-            raise ValueError("Componente de nombre MCP no válido")
-        # MCP function names preserve ASCII case, which keeps remote tool
-        # names readable. The lowercase z opens every escape, so it is escaped too.
-        return "".join(ch if ("a" <= ch <= "y" or "A" <= ch <= "Z" or "0" <= ch <= "9" or (tool and ch == "_"))
-                       else f"z{ord(ch):x}z" for ch in value)
-    name = f"{encode(server_id)}_{encode(original, True)}"
-    if len(name) > 64:
-        raise ValueError(f"El nombre público de la herramienta MCP excede 64 caracteres: {name}")
-    return name
-
-
-@dataclasses.dataclass
-class McpServiceRecord:
-    """Estado de un servicio MCP en este proceso: fase del ciclo de vida, cliente, último error y
-    modo y navegador con los que arrancó (solo los servicios de SERVICE_LAUNCH)."""
-    phase: str = "stopped"  # stopped, installing, starting, running o error
-    client: StdioMcpClient | None = None
-    error: str | None = None
-    browser: dict | None = None
-
-
-def service_status(record: McpServiceRecord, alive: bool, exit_code: int | None) -> tuple[str, str | None]:
-    """Estado público y error de un servicio a partir de su registro y de si su proceso sigue vivo:
-    el proceso de un servicio en marcha puede morir sin que nadie lo detenga."""
-    if record.phase != "running" or alive:
-        return record.phase, record.error
-    if exit_code is not None:
-        return "error", f"MCP process exited with code {exit_code}"
-    return "error", "MCP process is not responding"
-
-
-# Cada cuánto se vuelve a mirar el catálogo publicado con el servidor en marcha.
-CATALOG_REFRESH_SECONDS = 3600
-
-
-def _npm_install_needed(marker: Path, package_dir: Path, package: str, version: str) -> bool:
-    """Falta la instalación, o la registrada en marker es de otro paquete o versión."""
-    if not marker.exists() or not package_dir.is_dir():
-        return True
-    try:
-        installation = json.loads(marker.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return True
-    return installation.get("package") != package or installation.get("version") != version
-
-
-def _install_playwright_browser(service_dir: Path, browser: str, node: str):
-    playwright_cli = service_dir / "node_modules" / "playwright" / "cli.js"
-    if not playwright_cli.is_file():
-        raise RuntimeError("No se encontró Playwright después de instalar el servicio MCP")
-    result = subprocess.run([node, str(playwright_cli), "install", browser], cwd=service_dir, capture_output=True, text=True, timeout=600)
-    if result.returncode != 0:
-        raise RuntimeError(f"Fallo instalando el navegador {browser} de Playwright: {result.stderr or result.stdout}")
-
-
-class McpServiceManager:
-    def __init__(self, services_root: Path | None = None):
-        # Crearlo no toca el disco: el gestor global existe desde que se importa zerochat.
-        self.services_root = Path(services_root) if services_root else get_data_dir() / "services"
-        self.config_file = get_data_dir() / "config" / "services.json"
-        self.records: dict[str, McpServiceRecord] = {}
-        self._lock = threading.Lock()
-        self._catalog_stop = threading.Event()
-        self._services: dict[str, dict] | None = None
-        self._preferences: dict | None = None
-
-    @property
-    def services(self) -> dict[str, dict]:
-        if self._services is None:
-            self._services = self._load_services()
-        return self._services
-
-    @services.setter
-    def services(self, value: dict[str, dict]):
-        self._services = value
-
-    @property
-    def preferences(self) -> dict:
-        if self._preferences is None:
-            self._preferences = self._load_preferences()
-        return self._preferences
-
-    @staticmethod
-    def _trace(server_id: str, message: str):
-        log_event(f"[MCP {server_id}] {_mcp_trace_text(message)}")
-
-    def _load_services(self) -> dict[str, dict]:
-        servers = {}
-        if not self.services_root.is_dir():
-            return servers
-        for directory in sorted(self.services_root.iterdir()):
-            if not directory.is_dir():
-                continue
-            service_file = directory / "service.json"
-            if not service_file.exists():
-                continue
-            try:
-                server = json.loads(service_file.read_text(encoding="utf-8"))
-                server_id = server.get("id") or directory.name.replace(".mcp", "")
-                server["id"] = server_id
-                server["_directory"] = directory
-                servers[server_id] = server
-            except (OSError, json.JSONDecodeError):
-                continue
-        return servers
-
-    def _load_preferences(self) -> dict:
-        if self.config_file.exists():
-            try:
-                return json.loads(self.config_file.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                return {}
-        return {}
-
-    def _save_preferences(self):
-        try:
-            self.config_file.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.config_file.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self.preferences, indent=2), encoding="utf-8")
-            tmp.replace(self.config_file)
-        except OSError as err:
-            log_event(f"[zerochat] Advertencia al guardar preferencias MCP en {self.config_file}: {err}")
-
-    def _remember(self, server_id: str, enabled: bool):
-        """Único sitio que guarda si un servicio queda activo para ofrecerlo en la siguiente sesión: lo
-        marca un arranque con remember y lo desmarca detenerlo. Un reinicio (detener y arrancar con el
-        valor previo) lo conserva, y un arranque sin remember, como el de un perfil, no lo cambia."""
-        self.preferences.setdefault(server_id, {})["enabled"] = enabled
-        self._save_preferences()
-
-    def list_servers(self) -> list[dict]:
-        self.services = self._load_services()
-        result = []
-        for server_id, server in self.services.items():
-            record = self.records.get(server_id) or McpServiceRecord()
-            client = record.client
-            exit_code = client.process.poll() if client and client.process else None
-            status, error = service_status(record, bool(client and client.running()), exit_code)
-            running = status == "running"
-            pref = self.preferences.get(server_id, {})
-            result.append({
-                "id": server_id,
-                "displayName": server.get("displayName", {}),
-                "description": server.get("description", {}),
-                "help": server.get("help"),
-                "remote": server.get("remote"),
-                "enabled": pref.get("enabled", server.get("enabledByDefault", False)),
-                "status": status,
-                "toolCount": len(client.tools) if running else 0,
-                "error": error,
-                "options": server.get("options", []),
-                "userOptions": pref.get("options", {}),
-                "oauthUrl": client.oauth_url if client else None,
-                "browser": record.browser if running else None,
-            })
-
-        return result
-
-
-    def _expand(self, value: str, values: dict[str, str]) -> str:
-        if not isinstance(value, str):
-            raise ValueError("Invalid process argument")
-        for key, replacement in values.items():
-            value = value.replace("${" + key + "}", str(replacement))
-        return value
-
-    def _prepare_service(self, server_id: str, server: dict) -> dict[str, str]:
-        service_dir = server["_directory"]
-        installer_file = service_dir / "installer.json"
-        node = shutil.which("node") or "node"
-
-        if installer_file.exists():
-            self._trace(server_id, f"reading installer: {installer_file.name}")
-            try:
-                installer = json.loads(installer_file.read_text(encoding="utf-8"))
-            except Exception as e:
-                raise RuntimeError(f"Error leyendo installer.json: {e}") from e
-            if installer.get("type", "npm") == "npm":
-                self._prepare_npm_service(server_id, service_dir, installer, node)
-
-        venv_python = get_venv_python(get_venv_dir())
-        return {
-            "serviceDir": str(service_dir),
-            "pythonExecutable": str(venv_python) if venv_python.is_file() else sys.executable,
-            "nodeExecutable": node
-        }
-
-    def _prepare_npm_service(self, server_id: str, service_dir: Path, installer: dict, node: str):
-        """Instala el paquete npm del servicio (y su navegador de Playwright) si falta o cambió de versión."""
-        product = installer.get("product", {})
-        package = product.get("package")
-        version = product.get("version")
-        if not package or not version:
-            raise RuntimeError("El instalador npm debe definir package y version")
-        if not shutil.which("node") or not shutil.which("npm"):
-            raise RuntimeError("Node.js y npm son necesarios para instalar este servicio MCP")
-        self._check_node_requirement(server_id, installer, node)
-
-        marker = service_dir / ".installed.json"
-        package_dir = service_dir / "node_modules" / Path(*package.split("/"))
-        if not _npm_install_needed(marker, package_dir, package, version):
-            self._trace(server_id, f"npm package already installed: {package}@{version}")
-            return
-        self.records[server_id].phase = "installing"
-        self._trace(server_id, f"installing npm package: {package}@{version}")
-        manifest = service_dir / "package.json"
-        manifest.write_text(json.dumps({"private": True, "dependencies": {package: version}}, indent=2), encoding="utf-8")
-        npm = shutil.which("npm") or "npm"
-        res = subprocess.run([npm, "install", "--ignore-scripts", "--no-audit", "--no-fund"], cwd=service_dir, capture_output=True, text=True, timeout=600)
-        if res.returncode != 0:
-            raise RuntimeError(f"Fallo instalando dependencias npm: {res.stderr or res.stdout}")
-        self._trace(server_id, f"npm package installed: {package}@{version}")
-        installation = {"type": "npm", "package": package, "version": version, "nodeExecutable": node}
-        browser = product.get("browser")
-        if browser:
-            _install_playwright_browser(service_dir, browser, node)
-            installation["browser"] = browser
-        marker.write_text(json.dumps(installation, indent=2), encoding="utf-8")
-
-    def _check_node_requirement(self, server_id: str, installer: dict, node: str):
-        """Comprueba la versión mínima de Node.js que declara el instalador."""
-        node_requirement = installer.get("requirements", {}).get("node")
-        if node_requirement is None:
-            # Compatibilidad con instaladores creados antes de requirements.node.
-            required_node_major = int(installer.get("product", {}).get("nodeMajor", 18))
-        elif not isinstance(node_requirement, dict):
-            raise RuntimeError("El requisito Node.js debe ser un objeto en installer.json")
-        else:
-            required_node_major = node_requirement.get("minimumMajor")
-            if not isinstance(required_node_major, int) or isinstance(required_node_major, bool) or required_node_major < 1:
-                raise RuntimeError("El requisito Node.js debe definir minimumMajor como un entero positivo")
-        version_result = subprocess.run(
-            [node, "--version"], capture_output=True, text=True, timeout=5
-        )
-        detected = version_result.stdout.strip()
-        version_match = re.match(r"v(\d+)", detected)
-        if version_result.returncode != 0 or not version_match:
-            raise RuntimeError("No se pudo comprobar la versión de Node.js necesaria para este servicio MCP")
-        self._trace(server_id, f"Node.js detected: {detected} (minimum {required_node_major})")
-        if int(version_match.group(1)) < required_node_major:
-            raise RuntimeError(f"{server_id} requiere Node.js {required_node_major}+; se detectó {detected}")
-
-    def start(self, server_id: str, remember: bool, browser: dict | None = None) -> list[dict]:
-        """Arranca un servicio; con remember lo guarda como activo para ofrecerlo en la siguiente sesión.
-        `browser` es el navegador que exige el perfil activo, solo para Playwright MCP."""
-        with self._lock:
-            self.services = self._load_services()
-            self._start_locked(server_id, remember, browser)
-            return self.list_servers()
-
-    def _start_locked(self, server_id: str, remember: bool, browser: dict | None):
-        server = self.services.get(server_id)
-        if not server:
-            raise KeyError(f"Servidor MCP desconocido: {server_id}")
-        record = self.records.setdefault(server_id, McpServiceRecord())
-        if record.client and record.client.running():
-            return
-        record.phase, record.error = "starting", None
-        client = None
-        self._trace(server_id, "start requested")
-        try:
-            service_dir = server["_directory"]
-            values = self._prepare_service(server_id, server)
-            user_opts = self.preferences.get(server_id, {}).get("options", {})
-            option_args = []
-            for opt in server.get("options", []):
-                opt_id = opt.get("id")
-                if not opt_id:
-                    continue
-                val = user_opts.get(opt_id, opt.get("default"))
-                values[f"option:{opt_id}"] = str(val)
-                if opt.get("type") == "boolean":
-                    option_args.extend(opt.get("argsWhenTrue", []) if val else opt.get("argsWhenFalse", []))
-
-            launch = server.get("launch", {})
-            command = self._expand(launch.get("executable", sys.executable), values)
-            args = [self._expand(arg, values) for arg in launch.get("args", []) + option_args]
-            env = os.environ.copy()
-            for k, v in launch.get("env", {}).items():
-                env[k] = self._expand(v, values)
-            record.browser = None
-            if server_id in SERVICE_LAUNCH:
-                extra_args, extra_env, record.browser = SERVICE_LAUNCH[server_id](browser)
-                args += extra_args
-                env.update(extra_env)
-
-            client = StdioMcpClient(
-                command, args, str(service_dir), env,
-                trace=lambda message: self._trace(server_id, message),
-                call_timeout=_positive_seconds(launch.get("callTimeoutSeconds"), DEFAULT_MCP_CALL_TIMEOUT_SECONDS)
-            )
-            # _prepare_service puede haber dejado el estado en "installing".
-            record.phase, record.client = "starting", client
-            client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
-            record.phase = "running"
-            if remember:
-                self._remember(server_id, True)
-            self._trace(server_id, "started successfully")
-        except Exception as exc:
-            record.phase, record.error = "error", str(exc)
-            self._trace(server_id, f"start failed: {exc}")
-            stale, record.client = record.client or client, None
-            if stale:
-                stale.stop()
-
-    def stop(self, server_id: str) -> list[dict]:
-        with self._lock:
-            self.services = self._load_services()
-            record = self.records.pop(server_id, McpServiceRecord())
-            if server_id not in self.services and not record.client:
-                raise KeyError(f"Servidor MCP desconocido: {server_id}")
-            if record.client:
-                record.client.stop()
-            self._remember(server_id, False)
-            return self.list_servers()
-
-    def configure(self, server_id: str, options: dict | None = None) -> list[dict]:
-        with self._lock:
-            self.services = self._load_services()
-            if server_id not in self.services:
-                raise KeyError(f"Servidor MCP desconocido: {server_id}")
-            entry = self.preferences.setdefault(server_id, {})
-            if options is not None:
-                opts = entry.setdefault("options", {})
-                opts.update(options)
-            self._save_preferences()
-            return self.list_servers()
-
-    def _running_clients(self) -> list[tuple[str, StdioMcpClient]]:
-        return [(server_id, record.client) for server_id, record in self.records.items()
-                if record.client and record.client.running()]
-
-    def tools(self) -> list[dict]:
-        aggregated = []
-        seen: set[str] = set()
-        with self._lock:
-            for server_id, client in self._running_clients():
-                for t in client.tools:
-                    original = t.get("name") if isinstance(t, dict) else None
-                    try:
-                        pname = public_tool_name(server_id, original)
-                    except Exception as exc:
-                        self._trace(server_id, f"tool discarded ({original!r}): {exc}")
-                        continue
-                    if pname in seen:
-                        self._trace(server_id, f"tool discarded ({original!r}): duplicate public name {pname}")
-                        continue
-                    seen.add(pname)
-                    tcopy = dict(t)
-                    tcopy["name"] = pname
-                    tcopy["metadata"] = {
-                        "mcpServerId": server_id,
-                        "originalName": original
-                    }
-                    aggregated.append(tcopy)
-        return aggregated
-
-    def _resolve_tool(self, public_name: str) -> tuple[str, StdioMcpClient, str] | None:
-        with self._lock:
-            for server_id, client in self._running_clients():
-                for t in client.tools:
-                    try:
-                        matches = public_tool_name(server_id, t.get("name")) == public_name
-                    except (ValueError, TypeError):
-                        continue
-                    if matches:
-                        return server_id, client, t["name"]
-        return None
-
-    def server_of(self, public_name: str) -> str | None:
-        resolved = self._resolve_tool(public_name)
-        if resolved:
-            return resolved[0]
-        if not isinstance(public_name, str) or "_" not in public_name:
-            return None
-        prefix = public_name.split("_", 1)[0]
-        try:
-            decoded = re.sub(r"z([0-9a-f]+)z", lambda m: chr(int(m.group(1), 16)), prefix)
-        except (ValueError, OverflowError):
-            return None
-        return decoded or None
-
-    def call(self, public_name: str, arguments: dict) -> dict:
-        resolved = self._resolve_tool(public_name)
-        if not resolved:
-            raise ValueError(f"Herramienta externa '{public_name}' no disponible o servidor detenido.")
-        # La llamada puede durar decenas de segundos: no debe bloquear al resto de servidores.
-        _, client, original_name = resolved
-        return client.request("tools/call", {"name": original_name, "arguments": arguments}, timeout=client.call_timeout)
-
-    def start_catalog_refresh(self, ui_url: str):
-        """Mantiene al día los servicios incluidos con el catálogo de la carpeta de la interfaz: lo mira ahora y
-        después cada CATALOG_REFRESH_SECONDS, en un hilo propio para no retrasar el arranque ni las peticiones."""
-        base = catalog_base(ui_url)
-
-        def loop():
-            while True:
-                self.refresh_catalog(base)
-                if self._catalog_stop.wait(CATALOG_REFRESH_SECONDS):
-                    return
-
-        threading.Thread(target=loop, name="mcp-catalog", daemon=True).start()
-
-    def refresh_catalog(self, base: str) -> list[str]:
-        """Actualiza los servicios cuya versión difiere de la del catálogo y reinicia los que estaban en marcha.
-        Sin red, o con un catálogo no válido, se quedan los instalados; un servicio que no se puede descargar
-        entero no se toca. Devuelve los ids actualizados."""
-        try:
-            catalog = parse_catalog(download(urllib.parse.urljoin(base, CATALOG_PATH)))
-        except Exception as exc:
-            log_event(f"[MCP catalog] {base}{CATALOG_PATH} no disponible; se usan los servicios instalados: {exc}")
-            return []
-        downloads = {}
-        for server_id, entry in catalog.items():
-            if installed_version(self.services_root, server_id) == entry["version"]:
-                continue
-            try:
-                downloads[server_id] = download_service(base, server_id, entry)
-            except Exception as exc:
-                log_event(f"[MCP catalog] {server_id} {entry['version']} no se pudo descargar; se mantiene el instalado: {exc}")
-        if downloads:
-            self._install_updates(downloads, catalog)
-        return sorted(downloads)
-
-    def _install_updates(self, downloads: dict[str, dict[str, bytes]], catalog: dict[str, dict]):
-        with self._lock:
-            for server_id, files in downloads.items():
-                install_service(self.services_root, server_id, files)
-                log_event(f"[MCP catalog] {server_id} actualizado a la versión {catalog[server_id]['version']}")
-            self.services = self._load_services()
-            for server_id in downloads:
-                record = self.records.get(server_id)
-                if not (record and record.client and record.client.running()):
-                    continue
-                # Se reinicia con el navegador con el que arrancó y sin cambiar si se recuerda.
-                self._trace(server_id, "restarting with the updated version")
-                record.client.stop()
-                self._start_locked(server_id, False, record.browser)
-
-    def close(self):
-        self._catalog_stop.set()
-        with self._lock:
-            for record in self.records.values():
-                if record.client:
-                    record.client.stop()
-                record.phase, record.client, record.error = "stopped", None, None
-
-
-GLOBAL_MCP_MANAGER = McpServiceManager()
-
-
-@on_playwright_status
-def _playwright_service_running() -> bool:
-    return any(server["id"] == PLAYWRIGHT_SERVER_ID and server["status"] in ("running", "starting", "installing")
-               for server in GLOBAL_MCP_MANAGER.list_servers())
-
-# --- mcp.rpc ---
-"""Métodos JSON-RPC de los servicios MCP externos: arrancar, detener y configurar desde la interfaz."""
-
-
-
-SERVER_CONTROL_METHODS = frozenset({
-    "zerochat/external/servers/start",
-    "zerochat/external/servers/stop",
-    "zerochat/external/servers/configure",
-})
-
-
-def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
-    server_id = params.get("serverId")
-    opts = params.get("options", {})
-    remember = params.get("remember")
-    browser = params.get("browser")
-    starting = method == "zerochat/external/servers/start"
-    if not isinstance(server_id, str) or not server_id:
-        return rpc_error(INVALID_PARAMS, "serverId debe ser un texto no vacío.")
-    if not isinstance(opts, dict):
-        return rpc_error(INVALID_PARAMS, "options debe ser un objeto.")
-    # Al arrancar, el cliente decide siempre si el servicio se recuerda para la siguiente sesión.
-    if starting and not isinstance(remember, bool):
-        return rpc_error(INVALID_PARAMS, "remember es obligatorio al arrancar y debe ser un booleano.")
-    if starting and browser is not None:
-        if server_id not in SERVICE_LAUNCH:
-            return rpc_error(INVALID_PARAMS, f"{server_id} no admite elegir navegador.")
-        try:
-            browser = validate_profile_browser(browser)
-        except ValueError as exc:
-            return rpc_error(INVALID_PARAMS, str(exc))
-    try:
-        if starting:
-            servers = GLOBAL_MCP_MANAGER.start(server_id, remember, browser)
-        elif method == "zerochat/external/servers/stop":
-            servers = GLOBAL_MCP_MANAGER.stop(server_id)
-        else:
-            servers = GLOBAL_MCP_MANAGER.configure(server_id, opts)
-    except KeyError as exc:
-        return rpc_error(INVALID_PARAMS, str(exc.args[0]) if exc.args else str(exc))
-    return rpc_result({"servers": servers})
 
 # --- run_mode.runner_loader ---
 """Cargador del runner de Node.js: descarga los módulos de la interfaz como un navegador y los ejecuta.
@@ -3108,6 +2684,52 @@ class AccessDecision:
             "ruleOffer": self.rule_offer
         }
 
+# --- storage.obfuscation ---
+"""Ofuscación simple de los secretos que el backend guarda en SQLite (API keys de los perfiles del servidor).
+
+No es cifrado: la clave sale de este código, así que cualquiera que lo tenga recupera el secreto. Evita que una
+clave se lea al abrir la base de datos o al buscar texto en el disco; la protección real son los permisos 0600 de
+la carpeta de datos del usuario (docs/M75-apikeys.md).
+"""
+
+
+
+OBFUSCATION_PREFIX = "zc1:"
+_OBFUSCATION_KEY = b"ZeroChat backend secret obfuscation v1"
+_OBFUSCATION_NONCE_BYTES = 16
+
+
+def _obfuscation_keystream(nonce: bytes, length: int) -> bytes:
+    blocks = (hashlib.sha256(_OBFUSCATION_KEY + nonce + counter.to_bytes(4, "big")).digest()
+              for counter in range((length + 31) // 32))
+    return b"".join(blocks)[:length]
+
+
+def obfuscate_secret(value: str) -> str:
+    """El secreto tal como se guarda; vacío si no hay secreto. Un nonce aleatorio hace distintas dos copias iguales."""
+    if not value:
+        return ""
+    data = value.encode("utf-8")
+    nonce = secrets.token_bytes(_OBFUSCATION_NONCE_BYTES)
+    mixed = bytes(a ^ b for a, b in zip(data, _obfuscation_keystream(nonce, len(data)), strict=True))
+    return OBFUSCATION_PREFIX + base64.b64encode(nonce + mixed).decode("ascii")
+
+
+def reveal_secret(stored: str) -> str:
+    """El secreto original de lo guardado con obfuscate_secret; vacío si no hay secreto."""
+    if not stored:
+        return ""
+    if not stored.startswith(OBFUSCATION_PREFIX):
+        raise ValueError("El secreto guardado no tiene un formato válido")
+    try:
+        raw = base64.b64decode(stored[len(OBFUSCATION_PREFIX):], validate=True)
+    except binascii.Error as exc:
+        raise ValueError("El secreto guardado no tiene un formato válido") from exc
+    nonce, mixed = raw[:_OBFUSCATION_NONCE_BYTES], raw[_OBFUSCATION_NONCE_BYTES:]
+    if len(nonce) != _OBFUSCATION_NONCE_BYTES:
+        raise ValueError("El secreto guardado no tiene un formato válido")
+    return bytes(a ^ b for a, b in zip(mixed, _obfuscation_keystream(nonce, len(mixed)), strict=True)).decode("utf-8")
+
 # --- storage.db ---
 """Almacenamiento local en SQLite (~/zerochat/storage/zerochat.db): perfiles del servidor, conversaciones, blobs y políticas de seguridad."""
 
@@ -3126,7 +2748,16 @@ MAX_CONVERSATION_ID_LENGTH = 128
 MAX_CONVERSATION_TITLE_LENGTH = 256
 MAX_BLOB_SIZE = 50 * 1024 * 1024
 MAX_BLOB_HTTP_BYTES = 72 * 1024 * 1024
-STORAGE_MIGRATIONS = [
+def _obfuscate_saved_api_keys(conn: sqlite3.Connection):
+    """Las API keys de los perfiles del servidor, guardadas en claro hasta ahora, pasan a guardarse ofuscadas."""
+    rows = conn.execute("SELECT id, api_key FROM profiles WHERE api_key != '';").fetchall()
+    for row in rows:
+        if not row["api_key"].startswith(OBFUSCATION_PREFIX):
+            conn.execute("UPDATE profiles SET api_key = ? WHERE id = ?;", (obfuscate_secret(row["api_key"]), row["id"]))
+
+
+# Cada migración es SQL o, si necesita código (ofuscar), una función que recibe la conexión.
+STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connection], None]]] = [
     (1, "001_create_profiles_table", """
         CREATE TABLE IF NOT EXISTS profiles (
             id TEXT PRIMARY KEY,
@@ -3198,8 +2829,18 @@ STORAGE_MIGRATIONS = [
         WHERE json_valid(messages.extra_json)
             AND json_extract(image.value, '$.blobId') IS NOT NULL
             AND TRIM(json_extract(image.value, '$.blobId')) != '';
+    """),
+    (7, "007_obfuscate_profile_api_keys", _obfuscate_saved_api_keys),
+    (8, "008_create_secrets_table", """
+        CREATE TABLE IF NOT EXISTS secrets (
+            name TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
     """)
 ]
+# Tope de un secreto guardado (una API key cabe de sobra).
+MAX_SECRET_LENGTH = 4096
 
 
 def get_storage_dir() -> Path:
@@ -3237,9 +2878,12 @@ def _apply_migrations(conn: sqlite3.Connection):
         );
     """)
     applied = {row["version"] for row in conn.execute("SELECT version FROM schema_migrations;").fetchall()}
-    for version, description, sql in STORAGE_MIGRATIONS:
+    for version, description, migration in STORAGE_MIGRATIONS:
         if version not in applied:
-            conn.executescript(sql)
+            if callable(migration):
+                migration(conn)
+            else:
+                conn.executescript(migration)
             conn.execute(
                 "INSERT INTO schema_migrations (version, applied_at, description) VALUES (?, ?, ?);",
                 (version, int(time.time() * 1000), description)
@@ -3311,18 +2955,19 @@ def validate_profile_payload(record: dict) -> tuple[str, str, str, dict, str | N
 
 
 def _row_to_profile(row: sqlite3.Row) -> dict:
-    """Transforma una fila SQLite en el objeto de perfil del servidor."""
+    """Transforma una fila SQLite en el objeto de perfil del servidor, sin su API key: solo `hasApiKey`.
+    La clave la entrega get_general_profile_with_key a quien la usa (el runner o la importación explícita)."""
     try:
         settings = json.loads(row["settings_json"])
     except (json.JSONDecodeError, TypeError):
         settings = {}
-
-    settings["apiKey"] = row["api_key"] or ""
+    settings.pop("apiKey", None)
     return {
         "id": row["id"],
         "name": row["name"],
         "description": row["description"] or "",
         "general": True,
+        "hasApiKey": bool(row["api_key"]),
         "schemaVersion": 1,
         "version": row["version"],
         "createdAt": row["created_at"],
@@ -3346,6 +2991,19 @@ def get_general_profile(profile_id: str) -> dict | None:
     with open_storage() as conn:
         row = conn.execute("SELECT * FROM profiles WHERE id = ?;", (clean_id,)).fetchone()
         return _row_to_profile(row) if row else None
+
+
+def get_general_profile_with_key(profile_id: str) -> dict | None:
+    """El perfil del servidor con su API key en settings.apiKey (vacía si no tiene), o None si no existe."""
+    if not profile_id or not isinstance(profile_id, str) or not profile_id.strip():
+        return None
+    with open_storage() as conn:
+        row = conn.execute("SELECT * FROM profiles WHERE id = ?;", (normalize_profile_id("", profile_id),)).fetchone()
+        if not row:
+            return None
+        profile = _row_to_profile(row)
+        profile["settings"]["apiKey"] = reveal_secret(row["api_key"] or "")
+        return profile
 
 
 def get_general_profile_by_name(name: str) -> dict | None:
@@ -3387,7 +3045,7 @@ def save_general_profile(record: dict) -> dict:
 
         if existing:
             version = existing["version"] + 1
-            final_api_key = (existing["api_key"] or "") if api_key is None else api_key
+            final_api_key = (existing["api_key"] or "") if api_key is None else obfuscate_secret(api_key)
             conn.execute("""
                 UPDATE profiles
                 SET name = ?, description = ?, settings_json = ?, api_key = ?, version = ?, updated_at = ?
@@ -3397,7 +3055,7 @@ def save_general_profile(record: dict) -> dict:
             conn.execute("""
                 INSERT INTO profiles (id, name, description, settings_json, api_key, version, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, 1, ?, ?);
-            """, (profile_id, name, description, json.dumps(settings), api_key or "", now, now))
+            """, (profile_id, name, description, json.dumps(settings), obfuscate_secret(api_key or ""), now, now))
 
         conn.commit()
         saved_row = conn.execute("SELECT * FROM profiles WHERE id = ?;", (profile_id,)).fetchone()
@@ -3470,6 +3128,14 @@ def list_conversations() -> list[dict]:
     with open_storage() as conn:
         rows = conn.execute("SELECT * FROM conversations ORDER BY updated_at DESC;").fetchall()
         return [_row_to_conversation_header(row) for row in rows]
+
+
+def get_conversation_updated_at(session_id: str) -> int | None:
+    """Fecha de la última grabación de la conversación, sin leer sus mensajes; None si no existe."""
+    clean_id = _validate_conversation_id(session_id)
+    with open_storage() as conn:
+        row = conn.execute("SELECT updated_at FROM conversations WHERE id = ?;", (clean_id,)).fetchone()
+        return int(row["updated_at"]) if row else None
 
 
 def get_conversation(session_id: str) -> dict | None:
@@ -3825,6 +3491,653 @@ def update_security_policy_data(mutator: typing.Callable[[dict | None], dict]) -
             conn.execute("ROLLBACK;")
             raise
 
+
+def save_secret(name: str, value: str):
+    """Guarda ofuscado el secreto `name` (por ejemplo mcp:<servicio>:<VARIABLE>); nunca se devuelve a la interfaz."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("El secreto no puede estar vacío")
+    if len(value) > MAX_SECRET_LENGTH:
+        raise ValueError(f"El secreto no puede superar {MAX_SECRET_LENGTH} caracteres")
+    with open_storage() as conn:
+        conn.execute("""
+            INSERT INTO secrets (name, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
+        """, (name, obfuscate_secret(value.strip()), int(time.time() * 1000)))
+        conn.commit()
+
+
+def delete_secret(name: str) -> bool:
+    with open_storage() as conn:
+        cursor = conn.execute("DELETE FROM secrets WHERE name = ?;", (name,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def get_secret(name: str) -> str | None:
+    """El secreto original, para quien lo usa en el backend (el arranque de un servicio); None si no está guardado."""
+    with open_storage() as conn:
+        row = conn.execute("SELECT value FROM secrets WHERE name = ?;", (name,)).fetchone()
+        return reveal_secret(row["value"]) if row else None
+
+
+def secret_names(prefix: str) -> set[str]:
+    """Nombres de los secretos guardados que empiezan por `prefix`, sin leer sus valores."""
+    with open_storage() as conn:
+        rows = conn.execute("SELECT name FROM secrets WHERE substr(name, 1, ?) = ?;", (len(prefix), prefix)).fetchall()
+        return {row["name"] for row in rows}
+
+# --- mcp.manager ---
+"""Gestor de servicios MCP: descubrimiento en ~/zerochat/services, actualización desde el catálogo, preferencias,
+arranque y parada, y nombres públicos de sus herramientas."""
+
+
+
+
+
+def public_tool_name(server_id: str, original: str) -> str:
+    """Codificación inyectiva de nombres de herramientas MCP idéntica a publicToolName en js/mcp.js."""
+    def encode(value: str, tool: bool = False) -> str:
+        if not isinstance(value, str) or not value or len(value) > 256:
+            raise ValueError("Componente de nombre MCP no válido")
+        # MCP function names preserve ASCII case, which keeps remote tool
+        # names readable. The lowercase z opens every escape, so it is escaped too.
+        return "".join(ch if ("a" <= ch <= "y" or "A" <= ch <= "Z" or "0" <= ch <= "9" or (tool and ch == "_"))
+                       else f"z{ord(ch):x}z" for ch in value)
+    name = f"{encode(server_id)}_{encode(original, True)}"
+    if len(name) > 64:
+        raise ValueError(f"El nombre público de la herramienta MCP excede 64 caracteres: {name}")
+    return name
+
+
+@dataclasses.dataclass
+class McpServiceRecord:
+    """Estado de un servicio MCP en este proceso: fase del ciclo de vida, cliente, último error y
+    modo y navegador con los que arrancó (solo los servicios de SERVICE_LAUNCH)."""
+    phase: str = "stopped"  # stopped, installing, starting, running o error
+    client: StdioMcpClient | None = None
+    error: str | None = None
+    browser: dict | None = None
+
+
+# Nombre de la variable de entorno de un secreto que declara un servicio en su service.json ("secrets").
+SERVICE_SECRET_NAME_PATTERN = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
+
+
+def service_secrets(server: dict) -> list[dict]:
+    """Los secretos que declara el servicio: [{"name", "label"}], solo los de nombre válido."""
+    declared = server.get("secrets")
+    if not isinstance(declared, list):
+        return []
+    return [{"name": item["name"], "label": item.get("label", {})} for item in declared
+            if isinstance(item, dict) and isinstance(item.get("name"), str) and SERVICE_SECRET_NAME_PATTERN.fullmatch(item["name"])]
+
+
+# Nombre de una herramienta nativa que una herramienta del servicio sustituye ("tools" de su service.json).
+NATIVE_TOOL_NAME_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,63}")
+
+
+def service_tool_settings(server: dict, original: str) -> dict:
+    """Lo que el service.json declara de una herramienta en "tools": las nativas que sustituye mientras está activa
+    (replaces) y si empieza activada (enabledByDefault). La interfaz decide qué nativas se pueden sustituir."""
+    declared = server.get("tools")
+    entry = declared.get(original) if isinstance(declared, dict) else None
+    if not isinstance(entry, dict):
+        return {"replaces": [], "enabledByDefault": True}
+    replaces = entry.get("replaces")
+    return {
+        "replaces": [name for name in replaces if isinstance(name, str) and NATIVE_TOOL_NAME_PATTERN.fullmatch(name)]
+        if isinstance(replaces, list) else [],
+        "enabledByDefault": entry.get("enabledByDefault") is not False,
+    }
+
+
+def service_secret_key(server_id: str, name: str) -> str:
+    """Nombre con el que se guarda en SQLite el secreto `name` del servicio."""
+    return f"mcp:{server_id}:{name}"
+
+
+def service_status(record: McpServiceRecord, alive: bool, exit_code: int | None) -> tuple[str, str | None]:
+    """Estado público y error de un servicio a partir de su registro y de si su proceso sigue vivo:
+    el proceso de un servicio en marcha puede morir sin que nadie lo detenga."""
+    if record.phase != "running" or alive:
+        return record.phase, record.error
+    if exit_code is not None:
+        return "error", f"MCP process exited with code {exit_code}"
+    return "error", "MCP process is not responding"
+
+
+# Cada cuánto se vuelve a mirar el catálogo publicado con el servidor en marcha.
+CATALOG_REFRESH_SECONDS = 3600
+
+
+def _npm_install_needed(marker: Path, package_dir: Path, package: str, version: str) -> bool:
+    """Falta la instalación, o la registrada en marker es de otro paquete o versión."""
+    if not marker.exists() or not package_dir.is_dir():
+        return True
+    try:
+        installation = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return True
+    return installation.get("package") != package or installation.get("version") != version
+
+
+def _install_playwright_browser(service_dir: Path, browser: str, node: str):
+    playwright_cli = service_dir / "node_modules" / "playwright" / "cli.js"
+    if not playwright_cli.is_file():
+        raise RuntimeError("No se encontró Playwright después de instalar el servicio MCP")
+    result = subprocess.run([node, str(playwright_cli), "install", browser], cwd=service_dir, capture_output=True, text=True, timeout=600)
+    if result.returncode != 0:
+        raise RuntimeError(f"Fallo instalando el navegador {browser} de Playwright: {result.stderr or result.stdout}")
+
+
+class McpServiceManager:
+    def __init__(self, services_root: Path | None = None):
+        # Crearlo no toca el disco: el gestor global existe desde que se importa zerochat.
+        self.services_root = Path(services_root) if services_root else get_data_dir() / "services"
+        self.config_file = get_data_dir() / "config" / "services.json"
+        self.records: dict[str, McpServiceRecord] = {}
+        self._lock = threading.Lock()
+        self._catalog_stop = threading.Event()
+        self._services: dict[str, dict] | None = None
+        self._preferences: dict | None = None
+
+    @property
+    def services(self) -> dict[str, dict]:
+        if self._services is None:
+            self._services = self._load_services()
+        return self._services
+
+    @services.setter
+    def services(self, value: dict[str, dict]):
+        self._services = value
+
+    @property
+    def preferences(self) -> dict:
+        if self._preferences is None:
+            self._preferences = self._load_preferences()
+        return self._preferences
+
+    @staticmethod
+    def _trace(server_id: str, message: str):
+        log_event(f"[MCP {server_id}] {_mcp_trace_text(message)}")
+
+    def _load_services(self) -> dict[str, dict]:
+        servers = {}
+        if not self.services_root.is_dir():
+            return servers
+        for directory in sorted(self.services_root.iterdir()):
+            if not directory.is_dir():
+                continue
+            service_file = directory / "service.json"
+            if not service_file.exists():
+                continue
+            try:
+                server = json.loads(service_file.read_text(encoding="utf-8"))
+                server_id = server.get("id") or directory.name.replace(".mcp", "")
+                server["id"] = server_id
+                server["_directory"] = directory
+                servers[server_id] = server
+            except (OSError, json.JSONDecodeError):
+                continue
+        return servers
+
+    def _load_preferences(self) -> dict:
+        if self.config_file.exists():
+            try:
+                return json.loads(self.config_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                return {}
+        return {}
+
+    def _save_preferences(self):
+        try:
+            self.config_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.config_file.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self.preferences, indent=2), encoding="utf-8")
+            tmp.replace(self.config_file)
+        except OSError as err:
+            log_event(f"[zerochat] Advertencia al guardar preferencias MCP en {self.config_file}: {err}")
+
+    def _remember(self, server_id: str, enabled: bool):
+        """Único sitio que guarda si un servicio queda activo para ofrecerlo en la siguiente sesión: lo
+        marca un arranque con remember y lo desmarca detenerlo. Un reinicio (detener y arrancar con el
+        valor previo) lo conserva, y un arranque sin remember, como el de un perfil, no lo cambia."""
+        self.preferences.setdefault(server_id, {})["enabled"] = enabled
+        self._save_preferences()
+
+    def list_servers(self) -> list[dict]:
+        self.services = self._load_services()
+        saved_secrets = secret_names("mcp:")
+        result = []
+        for server_id, server in self.services.items():
+            record = self.records.get(server_id) or McpServiceRecord()
+            client = record.client
+            exit_code = client.process.poll() if client and client.process else None
+            status, error = service_status(record, bool(client and client.running()), exit_code)
+            running = status == "running"
+            pref = self.preferences.get(server_id, {})
+            result.append({
+                "id": server_id,
+                "displayName": server.get("displayName", {}),
+                "description": server.get("description", {}),
+                "help": server.get("help"),
+                "remote": server.get("remote"),
+                "enabled": pref.get("enabled", server.get("enabledByDefault", False)),
+                "status": status,
+                "toolCount": len(client.tools) if running else 0,
+                "error": error,
+                "options": server.get("options", []),
+                "userOptions": pref.get("options", {}),
+                "oauthUrl": client.oauth_url if client else None,
+                "browser": record.browser if running else None,
+                # Solo si cada secreto está guardado: su valor nunca sale del backend.
+                "secrets": [{**secret, "configured": service_secret_key(server_id, secret["name"]) in saved_secrets}
+                            for secret in service_secrets(server)],
+            })
+
+        return result
+
+
+    def _expand(self, value: str, values: dict[str, str]) -> str:
+        if not isinstance(value, str):
+            raise ValueError("Invalid process argument")
+        for key, replacement in values.items():
+            value = value.replace("${" + key + "}", str(replacement))
+        return value
+
+    def _prepare_service(self, server_id: str, server: dict) -> dict[str, str]:
+        service_dir = server["_directory"]
+        installer_file = service_dir / "installer.json"
+        node = shutil.which("node") or "node"
+
+        if installer_file.exists():
+            self._trace(server_id, f"reading installer: {installer_file.name}")
+            try:
+                installer = json.loads(installer_file.read_text(encoding="utf-8"))
+            except Exception as e:
+                raise RuntimeError(f"Error leyendo installer.json: {e}") from e
+            if installer.get("type", "npm") == "npm":
+                self._prepare_npm_service(server_id, service_dir, installer, node)
+
+        venv_python = get_venv_python(get_venv_dir())
+        return {
+            "serviceDir": str(service_dir),
+            "pythonExecutable": str(venv_python) if venv_python.is_file() else sys.executable,
+            "nodeExecutable": node
+        }
+
+    def _prepare_npm_service(self, server_id: str, service_dir: Path, installer: dict, node: str):
+        """Instala el paquete npm del servicio (y su navegador de Playwright) si falta o cambió de versión."""
+        product = installer.get("product", {})
+        package = product.get("package")
+        version = product.get("version")
+        if not package or not version:
+            raise RuntimeError("El instalador npm debe definir package y version")
+        if not shutil.which("node") or not shutil.which("npm"):
+            raise RuntimeError("Node.js y npm son necesarios para instalar este servicio MCP")
+        self._check_node_requirement(server_id, installer, node)
+
+        marker = service_dir / ".installed.json"
+        package_dir = service_dir / "node_modules" / Path(*package.split("/"))
+        if not _npm_install_needed(marker, package_dir, package, version):
+            self._trace(server_id, f"npm package already installed: {package}@{version}")
+            return
+        self.records[server_id].phase = "installing"
+        self._trace(server_id, f"installing npm package: {package}@{version}")
+        manifest = service_dir / "package.json"
+        manifest.write_text(json.dumps({"private": True, "dependencies": {package: version}}, indent=2), encoding="utf-8")
+        npm = shutil.which("npm") or "npm"
+        res = subprocess.run([npm, "install", "--ignore-scripts", "--no-audit", "--no-fund"], cwd=service_dir, capture_output=True, text=True, timeout=600)
+        if res.returncode != 0:
+            raise RuntimeError(f"Fallo instalando dependencias npm: {res.stderr or res.stdout}")
+        self._trace(server_id, f"npm package installed: {package}@{version}")
+        installation = {"type": "npm", "package": package, "version": version, "nodeExecutable": node}
+        browser = product.get("browser")
+        if browser:
+            _install_playwright_browser(service_dir, browser, node)
+            installation["browser"] = browser
+        marker.write_text(json.dumps(installation, indent=2), encoding="utf-8")
+
+    def _check_node_requirement(self, server_id: str, installer: dict, node: str):
+        """Comprueba la versión mínima de Node.js que declara el instalador."""
+        node_requirement = installer.get("requirements", {}).get("node")
+        if node_requirement is None:
+            # Compatibilidad con instaladores creados antes de requirements.node.
+            required_node_major = int(installer.get("product", {}).get("nodeMajor", 18))
+        elif not isinstance(node_requirement, dict):
+            raise RuntimeError("El requisito Node.js debe ser un objeto en installer.json")
+        else:
+            required_node_major = node_requirement.get("minimumMajor")
+            if not isinstance(required_node_major, int) or isinstance(required_node_major, bool) or required_node_major < 1:
+                raise RuntimeError("El requisito Node.js debe definir minimumMajor como un entero positivo")
+        version_result = subprocess.run(
+            [node, "--version"], capture_output=True, text=True, timeout=5
+        )
+        detected = version_result.stdout.strip()
+        version_match = re.match(r"v(\d+)", detected)
+        if version_result.returncode != 0 or not version_match:
+            raise RuntimeError("No se pudo comprobar la versión de Node.js necesaria para este servicio MCP")
+        self._trace(server_id, f"Node.js detected: {detected} (minimum {required_node_major})")
+        if int(version_match.group(1)) < required_node_major:
+            raise RuntimeError(f"{server_id} requiere Node.js {required_node_major}+; se detectó {detected}")
+
+    def start(self, server_id: str, remember: bool, browser: dict | None = None) -> list[dict]:
+        """Arranca un servicio; con remember lo guarda como activo para ofrecerlo en la siguiente sesión.
+        `browser` es el navegador que exige el perfil activo, solo para Playwright MCP."""
+        with self._lock:
+            self.services = self._load_services()
+            self._start_locked(server_id, remember, browser)
+            return self.list_servers()
+
+    def _start_locked(self, server_id: str, remember: bool, browser: dict | None):
+        server = self.services.get(server_id)
+        if not server:
+            raise KeyError(f"Servidor MCP desconocido: {server_id}")
+        record = self.records.setdefault(server_id, McpServiceRecord())
+        if record.client and record.client.running():
+            return
+        record.phase, record.error = "starting", None
+        client = None
+        self._trace(server_id, "start requested")
+        try:
+            service_dir = server["_directory"]
+            values = self._prepare_service(server_id, server)
+            user_opts = self.preferences.get(server_id, {}).get("options", {})
+            option_args = []
+            for opt in server.get("options", []):
+                opt_id = opt.get("id")
+                if not opt_id:
+                    continue
+                val = user_opts.get(opt_id, opt.get("default"))
+                values[f"option:{opt_id}"] = str(val)
+                if opt.get("type") == "boolean":
+                    option_args.extend(opt.get("argsWhenTrue", []) if val else opt.get("argsWhenFalse", []))
+
+            launch = server.get("launch", {})
+            command = self._expand(launch.get("executable", sys.executable), values)
+            args = [self._expand(arg, values) for arg in launch.get("args", []) + option_args]
+            # Los secretos solo se sustituyen en las variables de entorno: en los argumentos se verían en la lista de procesos.
+            env_values = {**values, **self._secret_values(server_id, server)}
+            env = os.environ.copy()
+            for k, v in launch.get("env", {}).items():
+                env[k] = self._expand(v, env_values)
+            record.browser = None
+            if server_id in SERVICE_LAUNCH:
+                extra_args, extra_env, record.browser = SERVICE_LAUNCH[server_id](browser)
+                args += extra_args
+                env.update(extra_env)
+
+            client = StdioMcpClient(
+                command, args, str(service_dir), env,
+                trace=lambda message: self._trace(server_id, message),
+                call_timeout=_positive_seconds(launch.get("callTimeoutSeconds"), DEFAULT_MCP_CALL_TIMEOUT_SECONDS)
+            )
+            # _prepare_service puede haber dejado el estado en "installing".
+            record.phase, record.client = "starting", client
+            client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
+            record.phase = "running"
+            if remember:
+                self._remember(server_id, True)
+            self._trace(server_id, "started successfully")
+        except Exception as exc:
+            record.phase, record.error = "error", str(exc)
+            self._trace(server_id, f"start failed: {exc}")
+            stale, record.client = record.client or client, None
+            if stale:
+                stale.stop()
+
+    @staticmethod
+    def _secret_values(server_id: str, server: dict) -> dict[str, str]:
+        """Los secretos que declara el servicio, como marcadores ${secret:NOMBRE}; sin uno guardado no arranca."""
+        values = {}
+        for secret in service_secrets(server):
+            value = get_secret(service_secret_key(server_id, secret["name"]))
+            if not value:
+                raise RuntimeError(f"Falta la clave {secret['name']}: guárdala en Ajustes › MCP.")
+            values[f"secret:{secret['name']}"] = value
+        return values
+
+    def set_secret(self, server_id: str, name: str, value: str | None) -> list[dict]:
+        """Guarda (o borra, con None) un secreto que el servicio declara. Si está en marcha se detiene, porque su proceso
+        tiene el valor anterior; se vuelve a iniciar cuando se quiera (el perfil o la persona), ya con el nuevo."""
+        with self._lock:
+            self.services = self._load_services()
+            server = self.services.get(server_id)
+            if not server:
+                raise KeyError(f"Servidor MCP desconocido: {server_id}")
+            if name not in {secret["name"] for secret in service_secrets(server)}:
+                raise KeyError(f"{server_id} no declara el secreto {name}")
+            key = service_secret_key(server_id, name)
+            if value is None:
+                delete_secret(key)
+            else:
+                save_secret(key, value)
+            self._trace(server_id, f"secret {name} {'deleted' if value is None else 'saved'}")
+            record = self.records.pop(server_id, None)
+            if record and record.client:
+                record.client.stop()
+            return self.list_servers()
+
+    def stop(self, server_id: str) -> list[dict]:
+        with self._lock:
+            self.services = self._load_services()
+            record = self.records.pop(server_id, McpServiceRecord())
+            if server_id not in self.services and not record.client:
+                raise KeyError(f"Servidor MCP desconocido: {server_id}")
+            if record.client:
+                record.client.stop()
+            self._remember(server_id, False)
+            return self.list_servers()
+
+    def configure(self, server_id: str, options: dict | None = None) -> list[dict]:
+        with self._lock:
+            self.services = self._load_services()
+            if server_id not in self.services:
+                raise KeyError(f"Servidor MCP desconocido: {server_id}")
+            entry = self.preferences.setdefault(server_id, {})
+            if options is not None:
+                opts = entry.setdefault("options", {})
+                opts.update(options)
+            self._save_preferences()
+            return self.list_servers()
+
+    def _running_clients(self) -> list[tuple[str, StdioMcpClient]]:
+        return [(server_id, record.client) for server_id, record in self.records.items()
+                if record.client and record.client.running()]
+
+    def tools(self) -> list[dict]:
+        aggregated = []
+        seen: set[str] = set()
+        with self._lock:
+            for server_id, client in self._running_clients():
+                for t in client.tools:
+                    original = t.get("name") if isinstance(t, dict) else None
+                    try:
+                        pname = public_tool_name(server_id, original)
+                    except Exception as exc:
+                        self._trace(server_id, f"tool discarded ({original!r}): {exc}")
+                        continue
+                    if pname in seen:
+                        self._trace(server_id, f"tool discarded ({original!r}): duplicate public name {pname}")
+                        continue
+                    seen.add(pname)
+                    tcopy = dict(t)
+                    tcopy["name"] = pname
+                    tcopy["metadata"] = {
+                        "mcpServerId": server_id,
+                        "originalName": original,
+                        **service_tool_settings(self.services.get(server_id, {}), original),
+                    }
+                    aggregated.append(tcopy)
+        return aggregated
+
+    def _resolve_tool(self, public_name: str) -> tuple[str, StdioMcpClient, str] | None:
+        with self._lock:
+            for server_id, client in self._running_clients():
+                for t in client.tools:
+                    try:
+                        matches = public_tool_name(server_id, t.get("name")) == public_name
+                    except (ValueError, TypeError):
+                        continue
+                    if matches:
+                        return server_id, client, t["name"]
+        return None
+
+    def server_of(self, public_name: str) -> str | None:
+        resolved = self._resolve_tool(public_name)
+        if resolved:
+            return resolved[0]
+        if not isinstance(public_name, str) or "_" not in public_name:
+            return None
+        prefix = public_name.split("_", 1)[0]
+        try:
+            decoded = re.sub(r"z([0-9a-f]+)z", lambda m: chr(int(m.group(1), 16)), prefix)
+        except (ValueError, OverflowError):
+            return None
+        return decoded or None
+
+    def call(self, public_name: str, arguments: dict) -> dict:
+        resolved = self._resolve_tool(public_name)
+        if not resolved:
+            raise ValueError(f"Herramienta externa '{public_name}' no disponible o servidor detenido.")
+        # La llamada puede durar decenas de segundos: no debe bloquear al resto de servidores.
+        server_id, client, original_name = resolved
+        request = lambda: client.request("tools/call", {"name": original_name, "arguments": arguments}, timeout=client.call_timeout)
+        # Frecuencia y paralelismo que declara el servicio (rateLimit), para todas sus herramientas juntas: no
+        # saturar su API. RateLimitBusy llega al modelo como el error de la herramienta.
+        policy = parse_rate_policy(self.services.get(server_id, {}).get("rateLimit"))
+        if policy is None:
+            return request()
+        with RATE_LIMITER.slot(f"mcp:{server_id}", policy):
+            return request()
+
+    def start_catalog_refresh(self, ui_url: str):
+        """Mantiene al día los servicios incluidos con el catálogo de la carpeta de la interfaz: lo mira ahora y
+        después cada CATALOG_REFRESH_SECONDS, en un hilo propio para no retrasar el arranque ni las peticiones."""
+        base = catalog_base(ui_url)
+
+        def loop():
+            while True:
+                self.refresh_catalog(base)
+                if self._catalog_stop.wait(CATALOG_REFRESH_SECONDS):
+                    return
+
+        threading.Thread(target=loop, name="mcp-catalog", daemon=True).start()
+
+    def refresh_catalog(self, base: str) -> list[str]:
+        """Actualiza los servicios cuya versión difiere de la del catálogo y reinicia los que estaban en marcha.
+        Sin red, o con un catálogo no válido, se quedan los instalados; un servicio que no se puede descargar
+        entero no se toca. Devuelve los ids actualizados."""
+        try:
+            catalog = parse_catalog(download(urllib.parse.urljoin(base, CATALOG_PATH)))
+        except Exception as exc:
+            log_event(f"[MCP catalog] {base}{CATALOG_PATH} no disponible; se usan los servicios instalados: {exc}")
+            return []
+        downloads = {}
+        for server_id, entry in catalog.items():
+            if installed_version(self.services_root, server_id) == entry["version"]:
+                continue
+            try:
+                downloads[server_id] = download_service(base, server_id, entry)
+            except Exception as exc:
+                log_event(f"[MCP catalog] {server_id} {entry['version']} no se pudo descargar; se mantiene el instalado: {exc}")
+        if downloads:
+            self._install_updates(downloads, catalog)
+        return sorted(downloads)
+
+    def _install_updates(self, downloads: dict[str, dict[str, bytes]], catalog: dict[str, dict]):
+        with self._lock:
+            for server_id, files in downloads.items():
+                install_service(self.services_root, server_id, files)
+                log_event(f"[MCP catalog] {server_id} actualizado a la versión {catalog[server_id]['version']}")
+            self.services = self._load_services()
+            for server_id in downloads:
+                record = self.records.get(server_id)
+                if not (record and record.client and record.client.running()):
+                    continue
+                # Se reinicia con el navegador con el que arrancó y sin cambiar si se recuerda.
+                self._trace(server_id, "restarting with the updated version")
+                record.client.stop()
+                self._start_locked(server_id, False, record.browser)
+
+    def close(self):
+        self._catalog_stop.set()
+        with self._lock:
+            for record in self.records.values():
+                if record.client:
+                    record.client.stop()
+                record.phase, record.client, record.error = "stopped", None, None
+
+
+GLOBAL_MCP_MANAGER = McpServiceManager()
+
+
+@on_playwright_status
+def _playwright_service_running() -> bool:
+    return any(server["id"] == PLAYWRIGHT_SERVER_ID and server["status"] in ("running", "starting", "installing")
+               for server in GLOBAL_MCP_MANAGER.list_servers())
+
+# --- mcp.rpc ---
+"""Métodos JSON-RPC de los servicios MCP externos: arrancar, detener y configurar desde la interfaz."""
+
+
+
+SERVER_CONTROL_METHODS = frozenset({
+    "zerochat/external/servers/start",
+    "zerochat/external/servers/stop",
+    "zerochat/external/servers/configure",
+    "zerochat/external/servers/secret",
+})
+
+
+def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
+    server_id = params.get("serverId")
+    opts = params.get("options", {})
+    remember = params.get("remember")
+    browser = params.get("browser")
+    starting = method == "zerochat/external/servers/start"
+    if not isinstance(server_id, str) or not server_id:
+        return rpc_error(INVALID_PARAMS, "serverId debe ser un texto no vacío.")
+    if not isinstance(opts, dict):
+        return rpc_error(INVALID_PARAMS, "options debe ser un objeto.")
+    # Al arrancar, el cliente decide siempre si el servicio se recuerda para la siguiente sesión.
+    if starting and not isinstance(remember, bool):
+        return rpc_error(INVALID_PARAMS, "remember es obligatorio al arrancar y debe ser un booleano.")
+    if starting and browser is not None:
+        if server_id not in SERVICE_LAUNCH:
+            return rpc_error(INVALID_PARAMS, f"{server_id} no admite elegir navegador.")
+        try:
+            browser = validate_profile_browser(browser)
+        except ValueError as exc:
+            return rpc_error(INVALID_PARAMS, str(exc))
+    if method == "zerochat/external/servers/secret":
+        return _set_secret(server_id, params)
+    try:
+        if starting:
+            servers = GLOBAL_MCP_MANAGER.start(server_id, remember, browser)
+        elif method == "zerochat/external/servers/stop":
+            servers = GLOBAL_MCP_MANAGER.stop(server_id)
+        else:
+            servers = GLOBAL_MCP_MANAGER.configure(server_id, opts)
+    except KeyError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc.args[0]) if exc.args else str(exc))
+    return rpc_result({"servers": servers})
+
+
+def _set_secret(server_id: str, params: dict) -> RpcOutcome:
+    """Guarda el secreto `name` del servicio (o lo borra con value null). Solo escritura: ningún método lo devuelve."""
+    name, value = params.get("name"), params.get("value")
+    if not isinstance(name, str) or not name:
+        return rpc_error(INVALID_PARAMS, "name debe ser un texto no vacío.")
+    if value is not None and not isinstance(value, str):
+        return rpc_error(INVALID_PARAMS, "value debe ser un texto o null.")
+    try:
+        return rpc_result({"servers": GLOBAL_MCP_MANAGER.set_secret(server_id, name, value)})
+    except KeyError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc.args[0]) if exc.args else str(exc))
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+
 # --- run_mode.state ---
 """Estado de la ejecución desatendida: la sesión de --prompt o --conversation, sus ficheros en ~/zerochat/runs, el arranque en segundo plano, sus códigos de salida y sus métodos zerochat/run/*."""
 
@@ -3832,16 +4145,12 @@ def update_security_policy_data(mutator: typing.Callable[[dict | None], dict]) -
 
 
 
-# Plazo total y sin progreso de la interfaz.
-RUN_TOTAL_TIMEOUT = 900.0
-RUN_IDLE_SECONDS = 600.0
 RUN_POLL_SECONDS = 0.2
 RUN_PROGRESS_TEXT_MAX = 500
-RUN_STREAM_TEXT_MAX = 8000
 RUN_PROGRESS_KIND_PATTERN = re.compile(r"[a-z_]{1,32}")
 RUN_EXIT_DONE = 0
 RUN_EXIT_ERROR = 1
-RUN_EXIT_TIMEOUT = 2
+RUN_EXIT_NO_RESULT = 2
 RUN_EXIT_SETUP = 3
 # Argumentos no válidos, en cualquier modo: argparse usaría 2, que con --prompt es plazo agotado.
 RUN_EXIT_ARGS = 4
@@ -3897,8 +4206,6 @@ def write_run_state(session: RunSession) -> None:
         "updated_at": session.updated_at,
         "status": session.status,
         "step_text": session.step_text,
-        "assistant_text": session.assistant_text,
-        "reasoning_text": session.reasoning_text,
         "pending": session.pending,
         "error": session.error
     }
@@ -3966,10 +4273,18 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
     if clean_focus_id:
         for _, _, full_data in entries:
             if full_data.get("conversation_id") == clean_focus_id:
-                focus_run = full_data
+                # La interfaz recarga la conversación grabada cuando cambia esta fecha (el runner graba cada paso).
+                focus_run = {**full_data, "conversation_updated_at": _conversation_updated_at(clean_focus_id)}
                 break
 
     return runs, focus_run
+
+
+def _conversation_updated_at(conversation_id: str) -> int | None:
+    try:
+        return get_conversation_updated_at(conversation_id)
+    except ValueError:
+        return None
 
 
 def _run_target(params: dict) -> tuple[str, dict, str]:
@@ -4058,8 +4373,6 @@ def start_server_run(params: dict, ctx: SecurityContext) -> dict:
         "updated_at": now,
         "status": "running",
         "step_text": "",
-        "assistant_text": "",
-        "reasoning_text": "",
         "pending": None,
         "error": None
     }
@@ -4131,10 +4444,6 @@ class RunSession:
             self.tool_security = None
         self._approved_call = _approved_call(self.tool_security)
         self.lock = threading.Lock()
-        self.last_activity = time.monotonic()
-        # Esperas de check_command: no cuentan como inactividad y alargan el plazo total.
-        self._waiting_since: float | None = None
-        self._waited = 0.0
         self.prompt_delivered = False
         self.result: dict | None = None
         self.stop_reason: str | None = None
@@ -4145,35 +4454,11 @@ class RunSession:
         self.updated_at = self.started_at
         self.status = "running"
         self.step_text = ""
-        self.assistant_text = ""
-        self.reasoning_text = ""
         self.pending: dict | None = None
         self.error: str | None = None
         self.runner_token: str | None = None
         if self.conversation_id:
             write_run_state(self)
-
-    def touch(self):
-        with self.lock:
-            self.last_activity = time.monotonic()
-
-    def idle_seconds(self) -> float:
-        with self.lock:
-            if self._waiting_since is not None:
-                return 0.0
-            return time.monotonic() - self.last_activity
-
-    def begin_wait(self):
-        with self.lock:
-            self._waiting_since = time.monotonic()
-
-    def end_wait(self):
-        with self.lock:
-            now = time.monotonic()
-            if self._waiting_since is not None:
-                self._waited += now - self._waiting_since
-            self._waiting_since = None
-            self.last_activity = now
 
     def take_approved_call(self, tool_name: str, args: dict) -> bool:
         """Si es la llamada que la persona aprobó en la tarjeta pausada (mismo nombre y argumentos), la consume:
@@ -4183,12 +4468,6 @@ class RunSession:
                 return False
             self._approved_call = None
             return True
-
-    def waited_seconds(self) -> float:
-        """Tiempo total en esperas de check_command, incluida la que esté en curso."""
-        with self.lock:
-            ongoing = time.monotonic() - self._waiting_since if self._waiting_since is not None else 0.0
-            return self._waited + ongoing
 
 
 RUN_SESSION: RunSession | None = None
@@ -4241,7 +4520,6 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
         if session.prompt_delivered:
             return rpc_error(INVALID_PARAMS, "El prompt ya se entregó.")
         session.prompt_delivered = True
-    session.touch()
     export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
     # tool_security lo aplica este servidor: las políticas (reset_session_authorizations) y la llamada aprobada en la
     # tarjeta pausada (take_approved_call), así que el runner no recibe nada de él.
@@ -4249,24 +4527,18 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
                        "new_conversation_id": session.new_conversation_id, "profile": session.profile,
                        "profile_data": session.profile_data,
                        # Para switch_model, que busca por nombre: el runner no puede listar los perfiles con su credencial.
-                       # Van sin API key; la del que active la pide con zerochat/run/profile.
-                       "profiles": [_without_api_key(profile) for profile in list_general_profiles()],
+                       # El listado no lleva API keys; la del que active la pide con zerochat/run/profile.
+                       "profiles": list_general_profiles(),
                        "export": export_format, "keep_page": session.keep_page,
                        "allow_dangerous_tools": session.allow_dangerous_tools})
-
-
-def _without_api_key(profile: dict) -> dict:
-    settings = {key: value for key, value in (profile.get("settings") or {}).items() if key != "apiKey"}
-    return {**profile, "settings": settings}
 
 
 def _rpc_profile(params: dict, session: RunSession) -> RpcOutcome:
     """Un perfil del servidor con su API key, para el runner que lo activa con switch_model; queda en el registro."""
     profile_id = params.get("id")
-    profile = get_general_profile(profile_id) if isinstance(profile_id, str) else None
+    profile = get_general_profile_with_key(profile_id) if isinstance(profile_id, str) else None
     if profile is None:
         return rpc_error(INVALID_PARAMS, "Perfil del servidor no encontrado.")
-    session.touch()
     log_event(f"[run] Se entrega al runner el perfil {profile['name']} con su clave")
     return rpc_result({"profile": profile})
 
@@ -4280,21 +4552,10 @@ def _rpc_progress(params: dict, session: RunSession) -> RpcOutcome:
     text = params.get("text", "")
     if not isinstance(kind, str) or not RUN_PROGRESS_KIND_PATTERN.fullmatch(kind) or not isinstance(text, str):
         return rpc_error(INVALID_PARAMS, "Progreso no válido.")
-    assistant_text = params.get("assistant_text")
-    reasoning_text = params.get("reasoning_text")
-    if assistant_text is not None and not isinstance(assistant_text, str):
-        return rpc_error(INVALID_PARAMS, "assistant_text debe ser una cadena.")
-    if reasoning_text is not None and not isinstance(reasoning_text, str):
-        return rpc_error(INVALID_PARAMS, "reasoning_text debe ser una cadena.")
-    session.touch()
     truncated_step = _capped(text, RUN_PROGRESS_TEXT_MAX)
     log_event(f"[run] {kind}{': ' + truncated_step if truncated_step else ''}")
     with session.lock:
         session.step_text = truncated_step
-        if assistant_text is not None:
-            session.assistant_text = _capped(assistant_text, RUN_STREAM_TEXT_MAX)
-        if reasoning_text is not None:
-            session.reasoning_text = _capped(reasoning_text, RUN_STREAM_TEXT_MAX)
         write_run_state(session)
     return rpc_result({"ok": True})
 
@@ -4312,7 +4573,6 @@ def _rpc_export(params: dict, session: RunSession) -> RpcOutcome:
             session.export_error = f"No se pudo escribir {session.export_path}: {exc}"
             return rpc_error(INTERNAL_ERROR, session.export_error)
         session.exported = True
-    session.touch()
     log_event(f"[run] Conversación exportada en {session.export_path}")
     return rpc_result({"ok": True})
 
@@ -4393,7 +4653,7 @@ def run_outcome(session: RunSession) -> tuple[int, str | None]:
         run_error(session.export_error or f"La interfaz no envió la conversación para {session.export_path}.")
     if session.result is None:
         run_error(session.stop_reason or session.error or "El runner se cerró o la ejecución se interrumpió sin resultado.")
-        return RUN_EXIT_TIMEOUT, None
+        return RUN_EXIT_NO_RESULT, None
     if "error" in session.result:
         run_error(f"Error de generación: {session.result['error']}")
         return RUN_EXIT_ERROR, None
@@ -4461,8 +4721,21 @@ def _delete_profile(params: dict) -> RpcOutcome:
     return rpc_result({"deleted": delete_general_profile(profile_id)})
 
 
+def _reveal_profile(params: dict) -> RpcOutcome:
+    """El perfil con su API key, para copiarlo a la interfaz al pulsar el usuario Editar: el único método que devuelve
+    una clave guardada en el servidor a la interfaz (docs/M75-apikeys.md), y queda en el registro."""
+    profile_id = params.get("id")
+    profile = get_general_profile_with_key(profile_id) if isinstance(profile_id, str) else None
+    if profile is None:
+        return rpc_error(INVALID_PARAMS, "Perfil del servidor no encontrado.")
+    log_event(f"Se entrega a la interfaz el perfil del servidor {profile['name']} con su clave")
+    return rpc_result({"profile": profile})
+
+
+# El listado y lo que devuelve guardar no llevan la API key, solo hasApiKey.
 PROFILE_METHODS = {
     "zerochat/profiles/list": lambda _params: rpc_result({"profiles": list_general_profiles()}),
+    "zerochat/profiles/reveal": _reveal_profile,
     "zerochat/profiles/save": _save_profile,
     "zerochat/profiles/delete": _delete_profile,
 }
@@ -7548,9 +7821,9 @@ def runner_exit_reason(proc: subprocess.Popen, stderr_log: IO[bytes] | None) -> 
 
 def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc: subprocess.Popen | None = None,
                    browser_proc: subprocess.Popen | None = None, runner_log: IO[bytes] | None = None):
-    """Detiene el servidor al recibir el resultado, si termina el runner propio o al agotar los plazos."""
+    """Detiene el servidor al recibir el resultado o si termina el runner propio. Sin plazos: lo que dura una ejecución
+    lo decide quien la lanza (la cancela o la interrumpe), y cada paso cerrado ya está grabado."""
     proc = runner_proc if runner_proc is not None else browser_proc
-    deadline = time.monotonic() + RUN_TOTAL_TIMEOUT
     while not session.finished.wait(RUN_POLL_SECONDS):
         # El latido o una señal ya detienen el servidor: el resultado queda vacío.
         if _SERVER_SHUTTING_DOWN.is_set():
@@ -7558,12 +7831,6 @@ def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc
         if proc is not None and proc.poll() is not None and not session.finished.wait(0.2):
             if runner_proc is not None:
                 session.stop_reason = runner_exit_reason(runner_proc, runner_log)
-            break
-        if time.monotonic() >= deadline + session.waited_seconds():
-            session.stop_reason = f"Plazo total agotado ({RUN_TOTAL_TIMEOUT:.0f}s, sin contar las esperas)."
-            break
-        if session.idle_seconds() > RUN_IDLE_SECONDS:
-            session.stop_reason = f"Sin progreso de la interfaz durante {RUN_IDLE_SECONDS:.0f}s."
             break
     if session.result is None and session.conversation_id:
         with session.lock:
@@ -8088,15 +8355,9 @@ def execute_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
         message = (f"The browser is in use by another conversation. It is released after {int(BROWSER_LEASE_IDLE_SECONDS)} "
                    "seconds without use; tell the user or try again later.")
         return {"content": [{"type": "text", "text": _tool_error(message)}], "isError": True}, None, message
-    # En una ejecución desatendida, esperar en check_command no es inactividad ni gasta el plazo total.
-    session = current_run_session() if origin == "local" and tool_name == JOB_CONTROL_TOOL else None
-    if session is not None:
-        session.begin_wait()
     try:
         return run_tool(origin, tool_name, args, ctx)
     finally:
-        if session is not None:
-            session.end_wait()
         # El plazo cuenta desde que la acción termina: lo que tarde no acorta lo que el modelo puede razonar después.
         if browser:
             BROWSER_LEASES.acquire(browser, conversation_id)
@@ -8333,7 +8594,7 @@ def execute_js_sandbox(code: str, timeout_ms: int | float | None = None) -> dict
     }
 
 # --- web.fetch ---
-"""Transporte web saliente del servidor (zerochat/web/fetch): anti-SSRF en la URL y en cada redirección, cuerpo acotado, cabeceras de navegador y cadencia por host."""
+"""Transporte web saliente del servidor (zerochat/web/fetch): anti-SSRF en la URL y en cada redirección, cuerpo acotado, cabeceras de navegador y frecuencia por dominio."""
 
 
 
@@ -8367,16 +8628,12 @@ WEB_FETCH_READ_CHUNK = 64 * 1024
 TEXT_CONTENT_TYPE_RE = re.compile(
     r"^(text/|application/(json|xml|xhtml\+xml|javascript|x-javascript|ecmascript)$|[a-z]+/[^;]*\+(json|xml)$)"
 )
-# Control de cadencia frente a retos anti-bot: mínimo WEB_FETCH_MIN_GAP_S desde la RESPUESTA
-# anterior al mismo host; las peticiones en paralelo se escalonan de WEB_FETCH_PARALLEL_STAGGER_S
-# en WEB_FETCH_PARALLEL_STAGGER_S para que no coincidan. El timestamp se inicializa al arrancar
-# para que la primera petición espere aunque no se haya hecho ninguna antes.
-_WEB_FETCH_LOCK = threading.Lock()
-_LAST_WEB_FETCH_AT: dict[str, float] = {"duckduckgo.com": time.monotonic()}
-_WEB_FETCH_PENDING: dict[str, int] = {}
-WEB_FETCH_HOST_PACING_DOMAINS = ("duckduckgo.com",)
-WEB_FETCH_MIN_GAP_S = 2.0
-WEB_FETCH_PARALLEL_STAGGER_S = 5.0
+# Frecuencia por dominio frente a retos anti-bot: DuckDuckGo responde con un reto (HTTP 202) a peticiones seguidas o
+# simultáneas, así que van de una en una y con 2 s desde la respuesta anterior. Vale para cualquier herramienta que
+# pida el dominio o un subdominio, no solo para search_web.
+WEB_FETCH_DOMAIN_LIMITS = {
+    "duckduckgo.com": RatePolicy(concurrency=1, min_interval_s=2.0),
+}
 
 
 def _is_public_ip(address: str) -> bool:
@@ -8471,35 +8728,20 @@ def fetch_web_resource(params: dict) -> dict:
     parsed = urllib.parse.urlsplit(url)
     hostname = (parsed.hostname or "").lower()
 
-    # Hosts sensibles (ej. DuckDuckGo): esperar al menos WEB_FETCH_MIN_GAP_S desde la respuesta
-    # anterior y escalar las peticiones en paralelo de a WEB_FETCH_PARALLEL_STAGGER_S.
-    pacing_domain = next(
-        (domain for domain in WEB_FETCH_HOST_PACING_DOMAINS if hostname == domain or hostname.endswith("." + domain)),
-        None,
-    )
-    if pacing_domain is None:
-        return _fetch_web_resource_unpaced(url, params, hostname, parsed)
-
-    with _WEB_FETCH_LOCK:
-        pending = _WEB_FETCH_PENDING.get(pacing_domain, 0)
-        gap = time.monotonic() - _LAST_WEB_FETCH_AT.get(pacing_domain, 0.0)
-        sleep_needed = max(0.0, WEB_FETCH_MIN_GAP_S - gap) + WEB_FETCH_PARALLEL_STAGGER_S * pending
-        _WEB_FETCH_PENDING[pacing_domain] = pending + 1
-    try:
-        if sleep_needed > 0:
-            time.sleep(sleep_needed)
-        return _fetch_web_resource_unpaced(url, params, hostname, parsed)
-    finally:
-        # El timestamp marca la respuesta (o el intento) terminado: la próxima petición
-        # cuenta los 2 s desde aquí.
-        with _WEB_FETCH_LOCK:
-            _LAST_WEB_FETCH_AT[pacing_domain] = time.monotonic()
-            _WEB_FETCH_PENDING[pacing_domain] = max(0, _WEB_FETCH_PENDING[pacing_domain] - 1)
-
-
-def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed) -> dict:
-    """Cuerpo de fetch_web_resource sin cadencia: cabeceras, descarga y respuesta."""
     timeout_s = max(0.5, min(float(params.get("timeout_s", 10.0)), 30.0))
+    limited = next((domain for domain in WEB_FETCH_DOMAIN_LIMITS if hostname == domain or hostname.endswith("." + domain)), None)
+    if limited is None:
+        return _fetch_web_resource_unpaced(url, params, hostname, parsed, timeout_s)
+    # La espera del turno sale del plazo de la petición: la interfaz no espera más que ese plazo y su margen.
+    try:
+        with RATE_LIMITER.slot(limited, WEB_FETCH_DOMAIN_LIMITS[limited], max_wait_s=timeout_s - 0.5) as waited:
+            return _fetch_web_resource_unpaced(url, params, hostname, parsed, max(0.5, timeout_s - waited))
+    except RateLimitBusy as exc:
+        return {"ok": False, "status": 0, "error": str(exc)}
+
+
+def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed, timeout_s: float) -> dict:
+    """Cuerpo de fetch_web_resource sin el control de frecuencia: cabeceras, descarga y respuesta."""
     max_bytes = max(1024, min(int(params.get("max_bytes", 2 * 1024 * 1024)), WEB_FETCH_MAX_BYTES))
     as_binary = bool(params.get("binary", False))
     accept = params.get("accept")
@@ -9178,7 +9420,7 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
     parser.add_argument("--list-profiles", action="store_true", help="Listar los perfiles de conexión generales almacenados en el servidor local")
     parser.add_argument("--list-conversations", action="store_true", help="Listar las conversaciones almacenadas en el servidor local")
-    parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 plazo agotado o navegador cerrado, 3 fallo de arranque, 4 argumentos no válidos)")
+    parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 runner o navegador cerrado sin resultado, 3 fallo de arranque, 4 argumentos no válidos)")
     parser.add_argument("--conversation", default=None, help="Con --prompt o para continuar, id de la conversación almacenada en SQLite")
     parser.add_argument("--profile", default=None, help=f"Con --prompt o --conversation, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo (por defecto: {DEFAULT_RUN_PROFILE} del servidor)")
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt o --conversation)")
@@ -9234,7 +9476,8 @@ def _run_conversation(parser: ZeroChatArgumentParser, args, prompt: str | None) 
 
 
 def _run_profile(parser: ZeroChatArgumentParser, args, conv: dict | None) -> tuple[str, dict | None]:
-    """El perfil de la ejecución: el de --profile, el de la conversación o DEFAULT_RUN_PROFILE.
+    """El perfil de la ejecución (su nombre y, si existe en el servidor, el perfil con su API key, que el runner recibe
+    en profile_data): el de --profile, el de la conversación o DEFAULT_RUN_PROFILE.
 
     Un --profile que no existe en el servidor se pasa por su nombre; el de la conversación y el por defecto tienen que existir.
     """
@@ -9243,17 +9486,17 @@ def _run_profile(parser: ZeroChatArgumentParser, args, conv: dict | None) -> tup
         if not clean_profile:
             parser.error("--profile no puede estar vacío")
         match = get_general_profile_by_name(clean_profile) or get_general_profile(clean_profile)
-        return (match["name"] if match else clean_profile), match
+        return (match["name"] if match else clean_profile), (get_general_profile_with_key(match["id"]) if match else None)
     conv_profile = conv.get("profileId") if conv else None
     if conv_profile:
         match = get_general_profile_by_name(conv_profile) or get_general_profile(conv_profile)
         if not match:
             parser.error(f"no existe el perfil '{conv_profile}' en el servidor; créalo o indica uno con --profile")
-        return match["name"], match
+        return match["name"], get_general_profile_with_key(match["id"])
     match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
     if match is None:
         parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
-    return match["name"], match
+    return match["name"], get_general_profile_with_key(match["id"])
 
 
 def _run_export_path(parser: ZeroChatArgumentParser, args) -> Path | None:

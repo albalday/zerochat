@@ -101,6 +101,46 @@ class ManagedServicesTest(unittest.TestCase):
         self.assertEqual(json.loads(args[args.index("--static-oauth-client-metadata") + 1])["client_name"], "zerochat-mcp-remote")
         self.assertEqual(args[args.index("--protocol") + 1], "legacy")
 
+    def test_brave_toma_su_clave_de_los_secretos_solo_en_el_entorno(self):
+        # La prueba del mecanismo de secretos está más abajo; aquí, que la definición publicada lo usa bien.
+        definition = json.loads((REPO_SERVICES / "brave" / "service.json").read_text(encoding="utf-8"))
+        self.assertEqual([secret["name"] for secret in zerochat.service_secrets(definition)], ["BRAVE_API_KEY"])
+        self.assertEqual(definition["launch"]["env"]["BRAVE_API_KEY"], "${secret:BRAVE_API_KEY}")
+        self.assertNotIn("${secret:", json.dumps(definition["launch"]["args"]))
+        self.assertEqual(definition["launch"]["args"][-2:], ["--transport", "stdio"])
+        # Solo la búsqueda web empieza activa y sustituye a search_web; el resto, del mismo saldo de Brave, apagadas.
+        settings = {name: zerochat.service_tool_settings(definition, name) for name in definition["tools"]}
+        self.assertEqual(settings.pop("brave_web_search"), {"replaces": ["search_web"], "enabledByDefault": True})
+        self.assertTrue(settings)
+        self.assertEqual({name: value["enabledByDefault"] for name, value in settings.items()}, dict.fromkeys(settings, False))
+        # Una llamada a la vez a la API de Brave y 1,1 s entre respuestas: no pasar del límite por segundo de la clave.
+        self.assertEqual(zerochat.parse_rate_policy(definition["rateLimit"]), zerochat.RatePolicy(1, 1.1))
+
+    def test_las_llamadas_a_un_servicio_respetan_el_rate_limit_que_declara(self):
+        manager = zerochat.McpServiceManager(self.root)
+        self.addCleanup(manager.close)
+        client = Mock(call_timeout=5)
+        client.request.return_value = {"content": []}
+        manager.services = {"lento": {"rateLimit": {"concurrency": 1, "minIntervalS": 0.3}}, "libre": {}}
+        resolved = {"lento_echo": ("lento", client, "echo"), "libre_echo": ("libre", client, "echo")}
+
+        def elapsed(public_name):
+            started = time.monotonic()
+            manager.call(public_name, {})
+            return time.monotonic() - started
+
+        with patch.object(zerochat, "RATE_LIMITER", zerochat.RateLimiter()), patch.object(manager, "_resolve_tool", resolved.get):
+            elapsed("lento_echo")
+            self.assertGreaterEqual(elapsed("lento_echo"), 0.25)
+            self.assertLess(elapsed("libre_echo"), 0.05)
+
+    def test_la_declaracion_de_una_herramienta_se_depura_y_sin_ella_empieza_activa_sin_sustituir_nada(self):
+        definition = {"tools": {"buscar": {"replaces": ["search_web", "Mal Nombre", 3, "../x"], "enabledByDefault": "no"}}}
+        self.assertEqual(zerochat.service_tool_settings(definition, "buscar"), {"replaces": ["search_web"], "enabledByDefault": True})
+        for broken in ({}, {"tools": []}, {"tools": {"buscar": "x"}}, {"tools": {"buscar": {"replaces": "search_web"}}}):
+            with self.subTest(broken=broken):
+                self.assertEqual(zerochat.service_tool_settings(broken, "buscar"), {"replaces": [], "enabledByDefault": True})
+
     def test_las_trazas_ocultan_el_state_y_el_code_de_oauth(self):
         trace = zerochat._mcp_trace_text("https://auth.example/authorize?state=csrf-value&code=oauth-code&scope=openid")
         self.assertNotIn("csrf-value", trace)
@@ -132,6 +172,63 @@ class ManagedServicesTest(unittest.TestCase):
             client.start.assert_called_once()
         self.assertNotIn("fixture-key", "".join(traces))
         self.assertEqual(status_of(manager, "custom-key")["status"], "running")
+
+
+    def test_el_secreto_de_un_servicio_solo_llega_a_su_entorno_y_sin_el_no_arranca(self):
+        traces = capture_console(self)
+        service_dir = self.root / "brave"
+        service_dir.mkdir(parents=True)
+        (service_dir / "service.json").write_text(json.dumps({
+            "id": "brave",
+            "secrets": [{"name": "BRAVE_API_KEY", "label": {"es": "Clave", "en": "Key"}}, {"name": "no válido"}],
+            "launch": {"executable": "${pythonExecutable}", "args": ["${secret:BRAVE_API_KEY}"],
+                       "env": {"BRAVE_API_KEY": "${secret:BRAVE_API_KEY}"}},
+        }), encoding="utf-8")
+        manager = zerochat.McpServiceManager(self.root)
+        self.addCleanup(manager.close)
+        global_manager = patch.object(zerochat, "GLOBAL_MCP_MANAGER", manager)
+        global_manager.start()
+        self.addCleanup(global_manager.stop)
+        client = Mock(tools=[])
+        client.running.return_value = True
+
+        # Sin la clave guardada no arranca y dice cuál falta; el listado solo dice si está guardada.
+        with patch.object(zerochat, "StdioMcpClient", return_value=client) as constructor:
+            manager.start("brave", remember=False)
+            constructor.assert_not_called()
+        self.assertIn("BRAVE_API_KEY", status_of(manager, "brave")["error"])
+        self.assertEqual(status_of(manager, "brave")["secrets"], [{"name": "BRAVE_API_KEY", "label": {"es": "Clave", "en": "Key"}, "configured": False}])
+
+        outcome, error, _ = zerochat.dispatch_server_control("zerochat/external/servers/secret", {"serverId": "brave", "name": "BRAVE_API_KEY", "value": "bsa-secreta"})
+        self.assertIsNone(error)
+        self.assertNotIn("bsa-secreta", json.dumps(outcome))
+        self.assertTrue(status_of(manager, "brave")["secrets"][0]["configured"])
+        with patch.object(zerochat, "StdioMcpClient", return_value=client) as constructor:
+            manager.start("brave", remember=False)
+            command, args, _cwd, env = constructor.call_args.args[:4]
+        # En el entorno sí; en los argumentos, que se ven en la lista de procesos, no se sustituye.
+        self.assertEqual(env["BRAVE_API_KEY"], "bsa-secreta")
+        self.assertEqual(args, ["${secret:BRAVE_API_KEY}"])
+        self.assertNotIn("bsa-secreta", "".join(traces))
+
+        # Cambiar la clave detiene el servicio en marcha (su proceso tiene la anterior); borrarla lo deja sin poder arrancar.
+        zerochat.dispatch_server_control("zerochat/external/servers/secret", {"serverId": "brave", "name": "BRAVE_API_KEY", "value": None})
+        client.stop.assert_called()
+        self.assertFalse(status_of(manager, "brave")["secrets"][0]["configured"])
+        self.assertIsNone(zerochat.get_secret("mcp:brave:BRAVE_API_KEY"))
+
+        # Solo los secretos que declara el servicio, y con un valor de texto no vacío y acotado.
+        for params in ({"name": "OTRA_KEY", "value": "x"}, {"name": "BRAVE_API_KEY", "value": 3},
+                       {"name": "BRAVE_API_KEY", "value": "  "},
+                       {"name": "BRAVE_API_KEY", "value": "k" * (zerochat.MAX_SECRET_LENGTH + 1)}):
+            with self.subTest(params=params):
+                _, error, _ = zerochat.dispatch_server_control("zerochat/external/servers/secret", {"serverId": "brave", **params})
+                self.assertEqual(error["code"], zerochat.INVALID_PARAMS)
+        zerochat.dispatch_server_control("zerochat/external/servers/secret", {"serverId": "brave", "name": "BRAVE_API_KEY", "value": "k" * zerochat.MAX_SECRET_LENGTH})
+        self.assertEqual(zerochat.get_secret("mcp:brave:BRAVE_API_KEY"), "k" * zerochat.MAX_SECRET_LENGTH)
+        with zerochat.open_storage() as conn:
+            stored = conn.execute("SELECT value FROM secrets;").fetchone()["value"]
+        self.assertTrue(stored.startswith(zerochat.OBFUSCATION_PREFIX))
 
 
 class QuietFiles(SimpleHTTPRequestHandler):

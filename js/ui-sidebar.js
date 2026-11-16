@@ -185,11 +185,12 @@
     return `<div class="sidebar-project-group">${header}${files}${newChat}</div>`;
   }
 
-  /** Un proyecto de la vista de todos se ve desplegado si el usuario lo eligió o, si no, si es el actual o tiene la conversación abierta. */
-  function isGroupExpanded(group, sessions, project, currentSessionId) {
-    if (Object.hasOwn(projectGroupChoices, group.key)) return projectGroupChoices[group.key] === true;
-    return group.key === project || sessions.some(session => session.id === currentSessionId);
-  }
+  /**
+   * Un proyecto de la vista de todos solo se ve desplegado si el usuario lo desplegó. Desplegar solo el
+   * actual o el de la conversación abierta movía la lista al cambiar de proyecto con su icono, y el
+   * siguiente toque (en la tablet, enseguida) caía en otra fila.
+   */
+  const isGroupExpanded = group => projectGroupChoices[group.key] === true;
 
   /**
    * Lista de conversaciones de la vista elegida, agrupada. Con texto en el buscador se filtra por título
@@ -221,7 +222,7 @@
       if (filter) return (group.kind === 'project' ? renderGroupHeader(group, items.length) : '') + chats();
       if (!collapsible) return renderGroupHeader(group, items.length) + chats();
       // Un grupo plegado no pinta sus conversaciones: con miles serían miles de nodos ocultos.
-      const expanded = isGroupExpanded(group, items, project, currentSessionId);
+      const expanded = isGroupExpanded(group);
       return renderGroupHeader(group, items.length, expanded) + (expanded ? chats() : '');
     }).join('');
   }

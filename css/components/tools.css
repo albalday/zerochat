@@ -1348,6 +1348,34 @@
   color: var(--text-main);
 }
 
+.mcp-server-secrets {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.mcp-server-secret-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.mcp-server-secret-status {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.mcp-server-secret-status.configured {
+  color: var(--success);
+}
+
+.mcp-server-secret-row button {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.6rem;
+}
+
 /* Pregunta del agente con opciones (ask_user): resultado principal, fuera de los grupos. */
 .ask-user-card {
   padding: 0.9rem 1rem;

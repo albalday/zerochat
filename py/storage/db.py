@@ -16,6 +16,7 @@ from pathlib import Path
 
 from core.environment import get_data_dir
 from core.limits import MAX_PATH_LENGTH
+from storage.obfuscation import OBFUSCATION_PREFIX, obfuscate_secret, reveal_secret
 
 
 # Persistencia local de zerochat.py con SQLite embebido para perfiles de conexión generales y conversaciones.
@@ -29,7 +30,16 @@ MAX_CONVERSATION_ID_LENGTH = 128
 MAX_CONVERSATION_TITLE_LENGTH = 256
 MAX_BLOB_SIZE = 50 * 1024 * 1024
 MAX_BLOB_HTTP_BYTES = 72 * 1024 * 1024
-STORAGE_MIGRATIONS = [
+def _obfuscate_saved_api_keys(conn: sqlite3.Connection):
+    """Las API keys de los perfiles del servidor, guardadas en claro hasta ahora, pasan a guardarse ofuscadas."""
+    rows = conn.execute("SELECT id, api_key FROM profiles WHERE api_key != '';").fetchall()
+    for row in rows:
+        if not row["api_key"].startswith(OBFUSCATION_PREFIX):
+            conn.execute("UPDATE profiles SET api_key = ? WHERE id = ?;", (obfuscate_secret(row["api_key"]), row["id"]))
+
+
+# Cada migración es SQL o, si necesita código (ofuscar), una función que recibe la conexión.
+STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connection], None]]] = [
     (1, "001_create_profiles_table", """
         CREATE TABLE IF NOT EXISTS profiles (
             id TEXT PRIMARY KEY,
@@ -101,8 +111,18 @@ STORAGE_MIGRATIONS = [
         WHERE json_valid(messages.extra_json)
             AND json_extract(image.value, '$.blobId') IS NOT NULL
             AND TRIM(json_extract(image.value, '$.blobId')) != '';
+    """),
+    (7, "007_obfuscate_profile_api_keys", _obfuscate_saved_api_keys),
+    (8, "008_create_secrets_table", """
+        CREATE TABLE IF NOT EXISTS secrets (
+            name TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
     """)
 ]
+# Tope de un secreto guardado (una API key cabe de sobra).
+MAX_SECRET_LENGTH = 4096
 
 
 def get_storage_dir() -> Path:
@@ -140,9 +160,12 @@ def _apply_migrations(conn: sqlite3.Connection):
         );
     """)
     applied = {row["version"] for row in conn.execute("SELECT version FROM schema_migrations;").fetchall()}
-    for version, description, sql in STORAGE_MIGRATIONS:
+    for version, description, migration in STORAGE_MIGRATIONS:
         if version not in applied:
-            conn.executescript(sql)
+            if callable(migration):
+                migration(conn)
+            else:
+                conn.executescript(migration)
             conn.execute(
                 "INSERT INTO schema_migrations (version, applied_at, description) VALUES (?, ?, ?);",
                 (version, int(time.time() * 1000), description)
@@ -214,18 +237,19 @@ def validate_profile_payload(record: dict) -> tuple[str, str, str, dict, str | N
 
 
 def _row_to_profile(row: sqlite3.Row) -> dict:
-    """Transforma una fila SQLite en el objeto de perfil del servidor."""
+    """Transforma una fila SQLite en el objeto de perfil del servidor, sin su API key: solo `hasApiKey`.
+    La clave la entrega get_general_profile_with_key a quien la usa (el runner o la importación explícita)."""
     try:
         settings = json.loads(row["settings_json"])
     except (json.JSONDecodeError, TypeError):
         settings = {}
-
-    settings["apiKey"] = row["api_key"] or ""
+    settings.pop("apiKey", None)
     return {
         "id": row["id"],
         "name": row["name"],
         "description": row["description"] or "",
         "general": True,
+        "hasApiKey": bool(row["api_key"]),
         "schemaVersion": 1,
         "version": row["version"],
         "createdAt": row["created_at"],
@@ -249,6 +273,19 @@ def get_general_profile(profile_id: str) -> dict | None:
     with open_storage() as conn:
         row = conn.execute("SELECT * FROM profiles WHERE id = ?;", (clean_id,)).fetchone()
         return _row_to_profile(row) if row else None
+
+
+def get_general_profile_with_key(profile_id: str) -> dict | None:
+    """El perfil del servidor con su API key en settings.apiKey (vacía si no tiene), o None si no existe."""
+    if not profile_id or not isinstance(profile_id, str) or not profile_id.strip():
+        return None
+    with open_storage() as conn:
+        row = conn.execute("SELECT * FROM profiles WHERE id = ?;", (normalize_profile_id("", profile_id),)).fetchone()
+        if not row:
+            return None
+        profile = _row_to_profile(row)
+        profile["settings"]["apiKey"] = reveal_secret(row["api_key"] or "")
+        return profile
 
 
 def get_general_profile_by_name(name: str) -> dict | None:
@@ -290,7 +327,7 @@ def save_general_profile(record: dict) -> dict:
 
         if existing:
             version = existing["version"] + 1
-            final_api_key = (existing["api_key"] or "") if api_key is None else api_key
+            final_api_key = (existing["api_key"] or "") if api_key is None else obfuscate_secret(api_key)
             conn.execute("""
                 UPDATE profiles
                 SET name = ?, description = ?, settings_json = ?, api_key = ?, version = ?, updated_at = ?
@@ -300,7 +337,7 @@ def save_general_profile(record: dict) -> dict:
             conn.execute("""
                 INSERT INTO profiles (id, name, description, settings_json, api_key, version, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, 1, ?, ?);
-            """, (profile_id, name, description, json.dumps(settings), api_key or "", now, now))
+            """, (profile_id, name, description, json.dumps(settings), obfuscate_secret(api_key or ""), now, now))
 
         conn.commit()
         saved_row = conn.execute("SELECT * FROM profiles WHERE id = ?;", (profile_id,)).fetchone()
@@ -373,6 +410,14 @@ def list_conversations() -> list[dict]:
     with open_storage() as conn:
         rows = conn.execute("SELECT * FROM conversations ORDER BY updated_at DESC;").fetchall()
         return [_row_to_conversation_header(row) for row in rows]
+
+
+def get_conversation_updated_at(session_id: str) -> int | None:
+    """Fecha de la última grabación de la conversación, sin leer sus mensajes; None si no existe."""
+    clean_id = _validate_conversation_id(session_id)
+    with open_storage() as conn:
+        row = conn.execute("SELECT updated_at FROM conversations WHERE id = ?;", (clean_id,)).fetchone()
+        return int(row["updated_at"]) if row else None
 
 
 def get_conversation(session_id: str) -> dict | None:
@@ -727,3 +772,38 @@ def update_security_policy_data(mutator: typing.Callable[[dict | None], dict]) -
         except Exception:
             conn.execute("ROLLBACK;")
             raise
+
+
+def save_secret(name: str, value: str):
+    """Guarda ofuscado el secreto `name` (por ejemplo mcp:<servicio>:<VARIABLE>); nunca se devuelve a la interfaz."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("El secreto no puede estar vacío")
+    if len(value) > MAX_SECRET_LENGTH:
+        raise ValueError(f"El secreto no puede superar {MAX_SECRET_LENGTH} caracteres")
+    with open_storage() as conn:
+        conn.execute("""
+            INSERT INTO secrets (name, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
+        """, (name, obfuscate_secret(value.strip()), int(time.time() * 1000)))
+        conn.commit()
+
+
+def delete_secret(name: str) -> bool:
+    with open_storage() as conn:
+        cursor = conn.execute("DELETE FROM secrets WHERE name = ?;", (name,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def get_secret(name: str) -> str | None:
+    """El secreto original, para quien lo usa en el backend (el arranque de un servicio); None si no está guardado."""
+    with open_storage() as conn:
+        row = conn.execute("SELECT value FROM secrets WHERE name = ?;", (name,)).fetchone()
+        return reveal_secret(row["value"]) if row else None
+
+
+def secret_names(prefix: str) -> set[str]:
+    """Nombres de los secretos guardados que empiezan por `prefix`, sin leer sus valores."""
+    with open_storage() as conn:
+        rows = conn.execute("SELECT name FROM secrets WHERE substr(name, 1, ?) = ?;", (len(prefix), prefix)).fetchall()
+        return {row["name"] for row in rows}

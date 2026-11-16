@@ -212,12 +212,29 @@
      * rama activa) y, cuando se configura en la interfaz, si su interruptor está encendido; las de
      * navegador, si son de la herramienta de navegación elegida en Ajustes › Navegador.
      */
-    isToolActive(tool, appConfig) {
+    /** Disponible y encendida en Ajustes (o sin interruptor), sin contar si otra la sustituye. */
+    isToolEnabledNow(tool, appConfig) {
       if (!tool.isAvailable(appConfig)) return false;
       const browser = browserOfTool(tool);
       if (browser) return browser === activeBrowserTool(appConfig);
       if (!tool.settings.showInSettings) return true;
       return isToolEnabled(appConfig.enabledTools, tool.name, tool.settings.defaultEnabled);
+    }
+
+    /**
+     * Herramienta MCP activa que sustituye a la nativa `tool` (la declara en `metadata.replaces`), o null. Solo se
+     * sustituyen herramientas nativas que el usuario puede desactivar en Ajustes: un servicio no puede hacer más que
+     * él con un interruptor (las de la base de conocimiento, sin interruptor, nunca). Al apagarse la MCP, la nativa vuelve.
+     */
+    replacementOf(tool, appConfig) {
+      if (tool.category === 'mcp' || !tool.settings.showInSettings) return null;
+      return this.listTools().find(candidate => candidate.category === 'mcp'
+        && candidate.metadata.replaces?.includes(tool.name)
+        && this.isToolEnabledNow(candidate, appConfig)) || null;
+    }
+
+    isToolActive(tool, appConfig) {
+      return this.isToolEnabledNow(tool, appConfig) && !this.replacementOf(tool, appConfig);
     }
 
     getActiveTools(appConfig) {
@@ -753,7 +770,8 @@
           // Solo vive durante el turno: buildEffectiveMessages lo reenvía y el historial devuelto lo omite.
           if (step.reasoningReplay) assistantMsg.reasoningReplay = step.reasoningReplay;
           workingMessages.push(assistantMsg, ...batch.toolMessages);
-          callbacks.onStepDone?.(stepIndex, { type: 'tool_execution', text });
+          // El historial de un paso cerrado (assistant con sus tool) permite grabar lo hecho antes de acabar el turno.
+          callbacks.onStepDone?.(stepIndex, { type: 'tool_execution', text, history: workingMessages.map(withoutReasoningReplay) });
 
           stepIndex++;
 

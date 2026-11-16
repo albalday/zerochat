@@ -63,6 +63,7 @@ from storage.db import (
     get_conversation,
     get_general_profile,
     get_general_profile_by_name,
+    get_general_profile_with_key,
     list_conversations,
     list_general_profiles,
     mark_conversation_server_run,
@@ -104,7 +105,7 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
     parser.add_argument("--list-profiles", action="store_true", help="Listar los perfiles de conexión generales almacenados en el servidor local")
     parser.add_argument("--list-conversations", action="store_true", help="Listar las conversaciones almacenadas en el servidor local")
-    parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 plazo agotado o navegador cerrado, 3 fallo de arranque, 4 argumentos no válidos)")
+    parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 runner o navegador cerrado sin resultado, 3 fallo de arranque, 4 argumentos no válidos)")
     parser.add_argument("--conversation", default=None, help="Con --prompt o para continuar, id de la conversación almacenada en SQLite")
     parser.add_argument("--profile", default=None, help=f"Con --prompt o --conversation, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo (por defecto: {DEFAULT_RUN_PROFILE} del servidor)")
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt o --conversation)")
@@ -160,7 +161,8 @@ def _run_conversation(parser: ZeroChatArgumentParser, args, prompt: str | None) 
 
 
 def _run_profile(parser: ZeroChatArgumentParser, args, conv: dict | None) -> tuple[str, dict | None]:
-    """El perfil de la ejecución: el de --profile, el de la conversación o DEFAULT_RUN_PROFILE.
+    """El perfil de la ejecución (su nombre y, si existe en el servidor, el perfil con su API key, que el runner recibe
+    en profile_data): el de --profile, el de la conversación o DEFAULT_RUN_PROFILE.
 
     Un --profile que no existe en el servidor se pasa por su nombre; el de la conversación y el por defecto tienen que existir.
     """
@@ -169,17 +171,17 @@ def _run_profile(parser: ZeroChatArgumentParser, args, conv: dict | None) -> tup
         if not clean_profile:
             parser.error("--profile no puede estar vacío")
         match = get_general_profile_by_name(clean_profile) or get_general_profile(clean_profile)
-        return (match["name"] if match else clean_profile), match
+        return (match["name"] if match else clean_profile), (get_general_profile_with_key(match["id"]) if match else None)
     conv_profile = conv.get("profileId") if conv else None
     if conv_profile:
         match = get_general_profile_by_name(conv_profile) or get_general_profile(conv_profile)
         if not match:
             parser.error(f"no existe el perfil '{conv_profile}' en el servidor; créalo o indica uno con --profile")
-        return match["name"], match
+        return match["name"], get_general_profile_with_key(match["id"])
     match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
     if match is None:
         parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
-    return match["name"], match
+    return match["name"], get_general_profile_with_key(match["id"])
 
 
 def _run_export_path(parser: ZeroChatArgumentParser, args) -> Path | None:

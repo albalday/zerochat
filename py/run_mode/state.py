@@ -25,23 +25,21 @@ from security.context import SecurityContext
 from storage.db import (
     _validate_conversation_id,
     get_conversation,
+    get_conversation_updated_at,
     get_general_profile,
     get_general_profile_by_name,
+    get_general_profile_with_key,
     list_general_profiles,
     mark_conversation_server_run,
 )
 
 
-# Plazo total y sin progreso de la interfaz.
-RUN_TOTAL_TIMEOUT = 900.0
-RUN_IDLE_SECONDS = 600.0
 RUN_POLL_SECONDS = 0.2
 RUN_PROGRESS_TEXT_MAX = 500
-RUN_STREAM_TEXT_MAX = 8000
 RUN_PROGRESS_KIND_PATTERN = re.compile(r"[a-z_]{1,32}")
 RUN_EXIT_DONE = 0
 RUN_EXIT_ERROR = 1
-RUN_EXIT_TIMEOUT = 2
+RUN_EXIT_NO_RESULT = 2
 RUN_EXIT_SETUP = 3
 # Argumentos no válidos, en cualquier modo: argparse usaría 2, que con --prompt es plazo agotado.
 RUN_EXIT_ARGS = 4
@@ -97,8 +95,6 @@ def write_run_state(session: RunSession) -> None:
         "updated_at": session.updated_at,
         "status": session.status,
         "step_text": session.step_text,
-        "assistant_text": session.assistant_text,
-        "reasoning_text": session.reasoning_text,
         "pending": session.pending,
         "error": session.error
     }
@@ -166,10 +162,18 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
     if clean_focus_id:
         for _, _, full_data in entries:
             if full_data.get("conversation_id") == clean_focus_id:
-                focus_run = full_data
+                # La interfaz recarga la conversación grabada cuando cambia esta fecha (el runner graba cada paso).
+                focus_run = {**full_data, "conversation_updated_at": _conversation_updated_at(clean_focus_id)}
                 break
 
     return runs, focus_run
+
+
+def _conversation_updated_at(conversation_id: str) -> int | None:
+    try:
+        return get_conversation_updated_at(conversation_id)
+    except ValueError:
+        return None
 
 
 def _run_target(params: dict) -> tuple[str, dict, str]:
@@ -258,8 +262,6 @@ def start_server_run(params: dict, ctx: SecurityContext) -> dict:
         "updated_at": now,
         "status": "running",
         "step_text": "",
-        "assistant_text": "",
-        "reasoning_text": "",
         "pending": None,
         "error": None
     }
@@ -331,10 +333,6 @@ class RunSession:
             self.tool_security = None
         self._approved_call = _approved_call(self.tool_security)
         self.lock = threading.Lock()
-        self.last_activity = time.monotonic()
-        # Esperas de check_command: no cuentan como inactividad y alargan el plazo total.
-        self._waiting_since: float | None = None
-        self._waited = 0.0
         self.prompt_delivered = False
         self.result: dict | None = None
         self.stop_reason: str | None = None
@@ -345,35 +343,11 @@ class RunSession:
         self.updated_at = self.started_at
         self.status = "running"
         self.step_text = ""
-        self.assistant_text = ""
-        self.reasoning_text = ""
         self.pending: dict | None = None
         self.error: str | None = None
         self.runner_token: str | None = None
         if self.conversation_id:
             write_run_state(self)
-
-    def touch(self):
-        with self.lock:
-            self.last_activity = time.monotonic()
-
-    def idle_seconds(self) -> float:
-        with self.lock:
-            if self._waiting_since is not None:
-                return 0.0
-            return time.monotonic() - self.last_activity
-
-    def begin_wait(self):
-        with self.lock:
-            self._waiting_since = time.monotonic()
-
-    def end_wait(self):
-        with self.lock:
-            now = time.monotonic()
-            if self._waiting_since is not None:
-                self._waited += now - self._waiting_since
-            self._waiting_since = None
-            self.last_activity = now
 
     def take_approved_call(self, tool_name: str, args: dict) -> bool:
         """Si es la llamada que la persona aprobó en la tarjeta pausada (mismo nombre y argumentos), la consume:
@@ -383,12 +357,6 @@ class RunSession:
                 return False
             self._approved_call = None
             return True
-
-    def waited_seconds(self) -> float:
-        """Tiempo total en esperas de check_command, incluida la que esté en curso."""
-        with self.lock:
-            ongoing = time.monotonic() - self._waiting_since if self._waiting_since is not None else 0.0
-            return self._waited + ongoing
 
 
 RUN_SESSION: RunSession | None = None
@@ -441,7 +409,6 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
         if session.prompt_delivered:
             return rpc_error(INVALID_PARAMS, "El prompt ya se entregó.")
         session.prompt_delivered = True
-    session.touch()
     export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
     # tool_security lo aplica este servidor: las políticas (reset_session_authorizations) y la llamada aprobada en la
     # tarjeta pausada (take_approved_call), así que el runner no recibe nada de él.
@@ -449,24 +416,18 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
                        "new_conversation_id": session.new_conversation_id, "profile": session.profile,
                        "profile_data": session.profile_data,
                        # Para switch_model, que busca por nombre: el runner no puede listar los perfiles con su credencial.
-                       # Van sin API key; la del que active la pide con zerochat/run/profile.
-                       "profiles": [_without_api_key(profile) for profile in list_general_profiles()],
+                       # El listado no lleva API keys; la del que active la pide con zerochat/run/profile.
+                       "profiles": list_general_profiles(),
                        "export": export_format, "keep_page": session.keep_page,
                        "allow_dangerous_tools": session.allow_dangerous_tools})
-
-
-def _without_api_key(profile: dict) -> dict:
-    settings = {key: value for key, value in (profile.get("settings") or {}).items() if key != "apiKey"}
-    return {**profile, "settings": settings}
 
 
 def _rpc_profile(params: dict, session: RunSession) -> RpcOutcome:
     """Un perfil del servidor con su API key, para el runner que lo activa con switch_model; queda en el registro."""
     profile_id = params.get("id")
-    profile = get_general_profile(profile_id) if isinstance(profile_id, str) else None
+    profile = get_general_profile_with_key(profile_id) if isinstance(profile_id, str) else None
     if profile is None:
         return rpc_error(INVALID_PARAMS, "Perfil del servidor no encontrado.")
-    session.touch()
     log_event(f"[run] Se entrega al runner el perfil {profile['name']} con su clave")
     return rpc_result({"profile": profile})
 
@@ -480,21 +441,10 @@ def _rpc_progress(params: dict, session: RunSession) -> RpcOutcome:
     text = params.get("text", "")
     if not isinstance(kind, str) or not RUN_PROGRESS_KIND_PATTERN.fullmatch(kind) or not isinstance(text, str):
         return rpc_error(INVALID_PARAMS, "Progreso no válido.")
-    assistant_text = params.get("assistant_text")
-    reasoning_text = params.get("reasoning_text")
-    if assistant_text is not None and not isinstance(assistant_text, str):
-        return rpc_error(INVALID_PARAMS, "assistant_text debe ser una cadena.")
-    if reasoning_text is not None and not isinstance(reasoning_text, str):
-        return rpc_error(INVALID_PARAMS, "reasoning_text debe ser una cadena.")
-    session.touch()
     truncated_step = _capped(text, RUN_PROGRESS_TEXT_MAX)
     log_event(f"[run] {kind}{': ' + truncated_step if truncated_step else ''}")
     with session.lock:
         session.step_text = truncated_step
-        if assistant_text is not None:
-            session.assistant_text = _capped(assistant_text, RUN_STREAM_TEXT_MAX)
-        if reasoning_text is not None:
-            session.reasoning_text = _capped(reasoning_text, RUN_STREAM_TEXT_MAX)
         write_run_state(session)
     return rpc_result({"ok": True})
 
@@ -512,7 +462,6 @@ def _rpc_export(params: dict, session: RunSession) -> RpcOutcome:
             session.export_error = f"No se pudo escribir {session.export_path}: {exc}"
             return rpc_error(INTERNAL_ERROR, session.export_error)
         session.exported = True
-    session.touch()
     log_event(f"[run] Conversación exportada en {session.export_path}")
     return rpc_result({"ok": True})
 
@@ -593,7 +542,7 @@ def run_outcome(session: RunSession) -> tuple[int, str | None]:
         run_error(session.export_error or f"La interfaz no envió la conversación para {session.export_path}.")
     if session.result is None:
         run_error(session.stop_reason or session.error or "El runner se cerró o la ejecución se interrumpió sin resultado.")
-        return RUN_EXIT_TIMEOUT, None
+        return RUN_EXIT_NO_RESULT, None
     if "error" in session.result:
         run_error(f"Error de generación: {session.result['error']}")
         return RUN_EXIT_ERROR, None

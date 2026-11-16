@@ -75,8 +75,10 @@ py zerochat.py</code></pre></div>
           <tr><td><code>composio</code></td><td>Aplicaciones remotas mediante mcp-remote y OAuth; Node.js 18+ y npm.</td></tr>
           <tr><td><code>playwright</code></td><td>Automatización de navegador; Node.js 18+, npm y Chromium. Su navegador se configura en <a href="browser-action.html">Ajustes › Navegador</a>, y sus herramientas solo se ofrecen si allí está elegido Playwright MCP.</td></tr>
           <tr><td><code>memory</code></td><td>Memoria y grafos de conocimiento; Node.js 18+ y npm.</td></tr>
+          <tr><td><code>brave</code></td><td>Búsqueda web, de noticias, imágenes, vídeos y lugares con el servidor MCP oficial de Brave Search; Node.js 20+, npm y una <a href="https://api-dashboard.search.brave.com/" target="_blank" rel="noopener noreferrer">clave de la API de Brave Search</a>, que se guarda en su tarjeta (<a href="#api-key-servicio">apartado 6</a>). Sus herramientas se llaman <code>brave_brave_web_search</code>, <code>brave_brave_news_search</code>, etc.; solo <code>brave_brave_web_search</code> empieza activada, y mientras lo está sustituye a <code>search_web</code>; las demás gastan del mismo saldo de Brave y se encienden en la lista de herramientas. Sus llamadas van de una en una y con 1,1 s entre respuestas, para no pasar del límite por segundo de la clave.</td></tr>
         </tbody>
       </table></div>
+      <p>Un servicio puede declarar que una de sus herramientas sustituye a una nativa de ZeroChat. Mientras esa herramienta está activa, la nativa no se ofrece al modelo y <strong>Ajustes → Agente</strong> lo indica junto a su interruptor; vuelve sola al detener el servicio o apagar su herramienta. Algunas herramientas de un servicio pueden empezar apagadas: se encienden en su lista de herramientas.</p>
       <div class="subsection" id="nodejs-windows">
       <h3>Instalar Node.js en Windows</h3>
       <p>Abre PowerShell e instala la versión LTS con <code>winget</code>, incluido en Windows 10 y 11:</p>
@@ -124,11 +126,11 @@ service.json e installer.json.example de zerochat/services/ejemplo
 usando sus rutas absolutas. Sigue las instrucciones del README.
 Consulta la documentación oficial del MCP y crea una carpeta hermana
 con nombre e id propios; no modifiques los servicios incluidos.
-Si necesita una API key, deja PASTE_API_KEY_HERE en service.json,
-dentro del objeto env de launch, con la variable que exige el MCP.
-Yo sustituiré el marcador por mi clave a mano en ese service.json.
-No me pidas la clave ni crees un archivo launch.env o .env.
-Indica la ruta absoluta del JSON y el campo que debo editar a mano.
+Si necesita una API key, declárala en secrets de service.json con
+la variable que exige el MCP y úsala en launch.env con ${secret:…},
+como indica el README. Yo la guardaré en Ajustes → MCP.
+No me pidas la clave, no la escribas en ningún fichero y no crees
+un archivo launch.env o .env.
 No instales ni inicies el servicio; lo haré desde Ajustes → MCP.</code></pre></div>
       </div>
       <div class="subsection" id="crear-mcp-remoto">
@@ -145,39 +147,44 @@ Consulta la documentación oficial del MCP y del puente para adaptar
 endpoint, transporte y autenticación. No copies sin verificar las
 opciones específicas de OAuth o protocolo de Composio.
 Conserva el aislamiento HOME y USERPROFILE en ${serviceDir}.
-Si requiere API key, deja PASTE_API_KEY_HERE en service.json,
-dentro del objeto env de launch. Yo introduciré mi clave a mano
-en ese service.json; no crees un archivo launch.env o .env.
+Si requiere API key, declárala en secrets de service.json y úsala
+en launch.env con ${secret:…}, como indica el README. Yo la
+guardaré en Ajustes → MCP; no crees un archivo
+launch.env o .env.
 Configura --header con la cabecera que exige el proveedor y una
 referencia a esa variable; mcp-remote resolverá la referencia.
-No me pidas la clave ni la escribas en los argumentos o en la URL.
-Indica la ruta absoluta del JSON y el campo que debo editar a mano.
+No me pidas la clave ni la escribas en ningún fichero, en los
+argumentos ni en la URL.
 No instales ni inicies el servicio; lo haré desde Ajustes → MCP.</code></pre></div>
       </div>
-      <p>Si la carpeta nueva no aparece en Ajustes → MCP, reinicia ZeroChat y vuelve a conectar. Tus carpetas se conservan al actualizar. Las definiciones incluidas (<code>ejemplo</code>, <code>composio</code>, <code>playwright</code>, <code>memory</code>) se actualizan solas cuando se publica una versión nueva (ZeroChat lo comprueba al arrancar y cada hora, y reinicia las que estén en marcha); crea una copia con otro nombre e id en lugar de editarlas. No copies dependencias ni credenciales OAuth.</p>
+      <p>Si la carpeta nueva no aparece en Ajustes → MCP, reinicia ZeroChat y vuelve a conectar. Tus carpetas se conservan al actualizar. Las definiciones incluidas (<code>ejemplo</code>, <code>composio</code>, <code>playwright</code>, <code>memory</code>, <code>brave</code>) se actualizan solas cuando se publica una versión nueva (ZeroChat lo comprueba al arrancar y cada hora, y reinicia las que estén en marcha); crea una copia con otro nombre e id en lugar de editarlas. No copies dependencias ni credenciales OAuth.</p>
     </div>
 
     <div class="card" id="api-key-servicio">
       <h2>6. Introduce una API key</h2>
-      <p><code>launch.env</code> indica el objeto <code>env</code> dentro de <code>launch</code> en <code>service.json</code>; no es un archivo. El agente deja el marcador y tú introduces la clave real a mano en ese JSON.</p>
+      <p>La clave de un servicio no se escribe en su <code>service.json</code>. El servicio declara en <code>secrets</code> las que necesita y tú las guardas en <strong>Ajustes → MCP</strong>: ZeroChat las conserva ofuscadas en su base de datos local, no las vuelve a mostrar y solo se las pasa al proceso del servicio, en una variable de entorno, al arrancarlo.</p>
       <ol>
-        <li>Detén el servicio si está activo. Abre el <code>service.json</code> de tu carpeta.</li>
-        <li>Sustituye <code>PASTE_API_KEY_HERE</code> en <code>launch.env</code> por la clave real, usando el nombre de variable que exige el proveedor. No la pegues en el chat.</li>
-        <li>Guarda un JSON válido. En Linux o Termux limita el acceso con <code>chmod 600 /ruta/absoluta/zerochat/services/mi-servicio/service.json</code>.</li>
-        <li>Inicia el servicio desde <strong>Ajustes → MCP</strong>.</li>
+        <li>En la tarjeta del servicio, junto a la clave, pulsa <strong>Guardar clave…</strong> y escríbela en el diálogo. El estado pasa a <strong>Guardada</strong>. No la pegues en el chat.</li>
+        <li>Inicia el servicio. Sin la clave no arranca, y su error dice cuál falta.</li>
+        <li>Para cambiarla, vuelve a guardarla; si el servicio está en marcha, se detiene y hay que iniciarlo otra vez. <strong>Borrar</strong> la elimina.</li>
       </ol>
-      <p>La clave queda en texto plano: no compartas ni subas este archivo al repositorio. Borrar <code>~/zerochat/</code> también elimina los servicios y sus credenciales; conserva una copia privada si la necesitas.</p>
+      <p>La ofuscación evita que la clave se lea al abrir la base de datos, pero no es cifrado: la protegen los permisos de tu carpeta de datos (<code>~/zerochat/</code>). Borrar esa carpeta elimina también los servicios y sus claves.</p>
       <div class="subsection">
         <h3>Ejemplo para un servicio local</h3>
-        <p>Dentro de <code>launch</code>, utiliza el nombre de variable indicado por el MCP:</p>
-        <div class="code-wrapper"><pre><code>"env": {
-  "SERVICE_API_KEY": "PASTE_API_KEY_HERE"
+        <p>En la raíz de <code>service.json</code> se declara la clave con la variable que indica el MCP, y dentro de <code>launch</code> se usa con <code>${secret:…}</code>:</p>
+        <div class="code-wrapper"><pre><code>"secrets": [
+  { "name": "SERVICE_API_KEY", "label": { "es": "Clave de la API", "en": "API key" } }
+],
+"launch": {
+  "env": {
+    "SERVICE_API_KEY": "${secret:SERVICE_API_KEY}"
+  }
 }</code></pre></div>
-        <p>No necesitas <code>export</code>, un archivo <code>.env</code> ni otro JSON de credenciales. Escribe el valor real en <code>launch.env</code>; las referencias a variables de entorno en ese campo quedan como texto literal. ZeroChat sustituye rutas de servicio/intérpretes y referencias <code>${option:...}</code>.</p>
+        <p><code>launch.env</code> es el objeto <code>env</code> dentro de <code>launch</code>, no un archivo. ZeroChat sustituye rutas de servicio e intérpretes, referencias <code>${option:...}</code> y, solo en <code>launch.env</code>, <code>${secret:...}</code>: en los argumentos la clave se vería en la lista de procesos. Las demás referencias a variables de entorno quedan como texto literal.</p>
       </div>
       <div class="subsection">
         <h3>Ejemplo para un servicio remoto con cabecera Bearer</h3>
-        <p>Adapta los argumentos del puente y conserva el aislamiento existente de <code>HOME</code> y <code>USERPROFILE</code>:</p>
+        <p>Declara <code>REMOTE_API_KEY</code> en <code>secrets</code> como en el ejemplo anterior, adapta los argumentos del puente y conserva el aislamiento existente de <code>HOME</code> y <code>USERPROFILE</code>:</p>
         <div class="code-wrapper"><pre><code>"args": [
   "${serviceDir}/node_modules/mcp-remote/dist/proxy.js",
   "https://mcp.example.com/mcp",
@@ -187,9 +194,9 @@ No instales ni inicies el servicio; lo haré desde Ajustes → MCP.</code></pre>
 "env": {
   "HOME": "${serviceDir}",
   "USERPROFILE": "${serviceDir}",
-  "REMOTE_API_KEY": "PASTE_API_KEY_HERE"
+  "REMOTE_API_KEY": "${secret:REMOTE_API_KEY}"
 }</code></pre></div>
-        <p><code>mcp-remote</code> resuelve <code>${REMOTE_API_KEY}</code> en la cabecera. Usa la cabecera y el formato que exija el proveedor. <code>remote.authentication</code> es descriptivo; no configura la autenticación. Consulta la <a href="https://github.com/punkpeye/mcp-remote#custom-headers" target="_blank" rel="noopener noreferrer">documentación de cabeceras del puente</a>.</p>
+        <p><code>mcp-remote</code> resuelve <code>${REMOTE_API_KEY}</code> en la cabecera desde su entorno, así que la clave no aparece en los argumentos. Usa la cabecera y el formato que exija el proveedor. <code>remote.authentication</code> es descriptivo; no configura la autenticación. Consulta la <a href="https://github.com/punkpeye/mcp-remote#custom-headers" target="_blank" rel="noopener noreferrer">documentación de cabeceras del puente</a>.</p>
       </div>
     </div>
 

@@ -1,4 +1,4 @@
-"""Transporte web saliente del servidor (zerochat/web/fetch): anti-SSRF en la URL y en cada redirección, cuerpo acotado, cabeceras de navegador y cadencia por host."""
+"""Transporte web saliente del servidor (zerochat/web/fetch): anti-SSRF en la URL y en cada redirección, cuerpo acotado, cabeceras de navegador y frecuencia por dominio."""
 
 from __future__ import annotations
 
@@ -6,14 +6,13 @@ import base64
 import ipaddress
 import re
 import socket
-import threading
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import zlib
 
 from browser.config import set_service_user_agent
+from core.rate_limit import RATE_LIMITER, RateLimitBusy, RatePolicy
 
 METADATA_HOSTS = frozenset({
     "169.254.169.254",
@@ -44,16 +43,12 @@ WEB_FETCH_READ_CHUNK = 64 * 1024
 TEXT_CONTENT_TYPE_RE = re.compile(
     r"^(text/|application/(json|xml|xhtml\+xml|javascript|x-javascript|ecmascript)$|[a-z]+/[^;]*\+(json|xml)$)"
 )
-# Control de cadencia frente a retos anti-bot: mínimo WEB_FETCH_MIN_GAP_S desde la RESPUESTA
-# anterior al mismo host; las peticiones en paralelo se escalonan de WEB_FETCH_PARALLEL_STAGGER_S
-# en WEB_FETCH_PARALLEL_STAGGER_S para que no coincidan. El timestamp se inicializa al arrancar
-# para que la primera petición espere aunque no se haya hecho ninguna antes.
-_WEB_FETCH_LOCK = threading.Lock()
-_LAST_WEB_FETCH_AT: dict[str, float] = {"duckduckgo.com": time.monotonic()}
-_WEB_FETCH_PENDING: dict[str, int] = {}
-WEB_FETCH_HOST_PACING_DOMAINS = ("duckduckgo.com",)
-WEB_FETCH_MIN_GAP_S = 2.0
-WEB_FETCH_PARALLEL_STAGGER_S = 5.0
+# Frecuencia por dominio frente a retos anti-bot: DuckDuckGo responde con un reto (HTTP 202) a peticiones seguidas o
+# simultáneas, así que van de una en una y con 2 s desde la respuesta anterior. Vale para cualquier herramienta que
+# pida el dominio o un subdominio, no solo para search_web.
+WEB_FETCH_DOMAIN_LIMITS = {
+    "duckduckgo.com": RatePolicy(concurrency=1, min_interval_s=2.0),
+}
 
 
 def _is_public_ip(address: str) -> bool:
@@ -148,35 +143,20 @@ def fetch_web_resource(params: dict) -> dict:
     parsed = urllib.parse.urlsplit(url)
     hostname = (parsed.hostname or "").lower()
 
-    # Hosts sensibles (ej. DuckDuckGo): esperar al menos WEB_FETCH_MIN_GAP_S desde la respuesta
-    # anterior y escalar las peticiones en paralelo de a WEB_FETCH_PARALLEL_STAGGER_S.
-    pacing_domain = next(
-        (domain for domain in WEB_FETCH_HOST_PACING_DOMAINS if hostname == domain or hostname.endswith("." + domain)),
-        None,
-    )
-    if pacing_domain is None:
-        return _fetch_web_resource_unpaced(url, params, hostname, parsed)
-
-    with _WEB_FETCH_LOCK:
-        pending = _WEB_FETCH_PENDING.get(pacing_domain, 0)
-        gap = time.monotonic() - _LAST_WEB_FETCH_AT.get(pacing_domain, 0.0)
-        sleep_needed = max(0.0, WEB_FETCH_MIN_GAP_S - gap) + WEB_FETCH_PARALLEL_STAGGER_S * pending
-        _WEB_FETCH_PENDING[pacing_domain] = pending + 1
-    try:
-        if sleep_needed > 0:
-            time.sleep(sleep_needed)
-        return _fetch_web_resource_unpaced(url, params, hostname, parsed)
-    finally:
-        # El timestamp marca la respuesta (o el intento) terminado: la próxima petición
-        # cuenta los 2 s desde aquí.
-        with _WEB_FETCH_LOCK:
-            _LAST_WEB_FETCH_AT[pacing_domain] = time.monotonic()
-            _WEB_FETCH_PENDING[pacing_domain] = max(0, _WEB_FETCH_PENDING[pacing_domain] - 1)
-
-
-def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed) -> dict:
-    """Cuerpo de fetch_web_resource sin cadencia: cabeceras, descarga y respuesta."""
     timeout_s = max(0.5, min(float(params.get("timeout_s", 10.0)), 30.0))
+    limited = next((domain for domain in WEB_FETCH_DOMAIN_LIMITS if hostname == domain or hostname.endswith("." + domain)), None)
+    if limited is None:
+        return _fetch_web_resource_unpaced(url, params, hostname, parsed, timeout_s)
+    # La espera del turno sale del plazo de la petición: la interfaz no espera más que ese plazo y su margen.
+    try:
+        with RATE_LIMITER.slot(limited, WEB_FETCH_DOMAIN_LIMITS[limited], max_wait_s=timeout_s - 0.5) as waited:
+            return _fetch_web_resource_unpaced(url, params, hostname, parsed, max(0.5, timeout_s - waited))
+    except RateLimitBusy as exc:
+        return {"ok": False, "status": 0, "error": str(exc)}
+
+
+def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed, timeout_s: float) -> dict:
+    """Cuerpo de fetch_web_resource sin el control de frecuencia: cabeceras, descarga y respuesta."""
     max_bytes = max(1024, min(int(params.get("max_bytes", 2 * 1024 * 1024)), WEB_FETCH_MAX_BYTES))
     as_binary = bool(params.get("binary", False))
     accept = params.get("accept")

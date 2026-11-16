@@ -11,3 +11,5 @@
 ## M73 Arreglos de seguridad: closed 2026-11-15
 
 ## M74 Arreglos multiplataforma de la 10.19.0: closed 2026-11-16
+
+## M75 Arreglos menores: closed 2026-11-16

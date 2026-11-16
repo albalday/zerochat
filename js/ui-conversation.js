@@ -548,8 +548,8 @@
 
   /**
    * Muestra o actualiza al final de la conversación el bloque en vivo de una tarea ejecutándose
-   * en el servidor local (o que terminó con error), con la cabecera de la tarea, el paso actual,
-   * el razonamiento plegable y el Markdown parcial recibido en `focusRun`.
+   * en el servidor local (o que terminó con error): la cabecera de la tarea y el paso actual de `focusRun`.
+   * Lo que va haciendo se ve en los mensajes de la conversación grabada, que la página recarga.
    */
   function renderLiveServerRun(messagesList, welcomeBanner, activeRun, focusRun) {
     if (!activeRun || (activeRun.status !== 'running' && activeRun.status !== 'error')) {
@@ -563,7 +563,7 @@
       const doc = messagesList.ownerDocument;
       wrapper = doc.createElement('div');
       wrapper.className = 'message-wrapper assistant server-run-live-wrapper';
-      wrapper.innerHTML = `<div class="message-row assistant"><div class="message-content-wrapper"><div class="message-content"><div class="server-run-banner"><span class="server-run-banner-icon">${Icons.get('clock', { size: 14 })}</span><span class="server-run-banner-title"></span><span class="server-run-step" hidden></span></div><details class="thought-block server-run-thought" open hidden><summary class="thought-summary"><span></span></summary><div class="thought-content"></div></details><div class="agentic-turn-block server-run-assistant-block"></div></div></div></div>`;
+      wrapper.innerHTML = `<div class="message-row assistant"><div class="message-content-wrapper"><div class="message-content"><div class="server-run-banner"><span class="server-run-banner-icon">${Icons.get('clock', { size: 14 })}</span><span class="server-run-banner-title"></span><span class="server-run-step" hidden></span></div></div></div></div>`;
       messagesList.appendChild(wrapper);
     } else if (messagesList.lastElementChild !== wrapper) {
       messagesList.appendChild(wrapper);
@@ -584,19 +584,6 @@
     const stepText = !isError && typeof focus?.step_text === 'string' ? focus.step_text.trim() : '';
     stepEl.textContent = stepText;
     stepEl.hidden = !stepText;
-
-    const thoughtEl = wrapper.querySelector('.server-run-thought');
-    const reasoningText = !isError && typeof focus?.reasoning_text === 'string' ? focus.reasoning_text.trim() : '';
-    thoughtEl.hidden = !reasoningText;
-    if (reasoningText) {
-      thoughtEl.querySelector('.thought-summary span').textContent = t('md_thought_reasoning');
-      thoughtEl.querySelector('.thought-content').textContent = reasoningText;
-    }
-
-    const assistantBlock = wrapper.querySelector('.server-run-assistant-block');
-    const assistantText = !isError && typeof focus?.assistant_text === 'string' ? focus.assistant_text : '';
-    assistantBlock.hidden = isError && !assistantText;
-    renderAssistantBlock(assistantBlock, assistantText, { streaming: !isError });
     scrollToBottom(messagesList);
     return wrapper;
   }

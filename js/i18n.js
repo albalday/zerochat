@@ -569,6 +569,13 @@
       mcp_btn_stop_server: 'Detener',
       mcp_btn_oauth_authorize: 'Autorizar en el navegador',
       mcp_oauth_required_msg: 'Se requiere autorización para continuar:',
+      agent_tool_replaced_by: 'Ahora la sustituye {name}, de un servicio MCP en marcha: vuelve cuando ese servicio se detiene o apagas su herramienta.',
+      mcp_secret_configured: 'Guardada',
+      mcp_secret_missing: 'Sin guardar',
+      mcp_secret_set: 'Guardar clave…',
+      mcp_secret_delete: 'Borrar',
+      mcp_secret_prompt: 'Escribe {name}. Se guarda en el servidor local y no se vuelve a mostrar; si el servicio está en marcha, se detiene y hay que volver a iniciarlo.',
+      mcp_secret_delete_confirm: '¿Borrar {name} del servidor local? El servicio no podrá arrancar sin ella.',
 
 
       mcp_tool_badge: 'MCP',
@@ -1536,6 +1543,13 @@
       mcp_btn_stop_server: 'Stop',
       mcp_btn_oauth_authorize: 'Authorize in browser',
       mcp_oauth_required_msg: 'Authorization required to continue:',
+      agent_tool_replaced_by: 'Currently replaced by {name}, from a running MCP service: it comes back when that service stops or you turn its tool off.',
+      mcp_secret_configured: 'Saved',
+      mcp_secret_missing: 'Not saved',
+      mcp_secret_set: 'Save key…',
+      mcp_secret_delete: 'Delete',
+      mcp_secret_prompt: 'Enter {name}. It is saved on the local server and never shown again; if the service is running, it stops and must be started again.',
+      mcp_secret_delete_confirm: 'Delete {name} from the local server? The service cannot start without it.',
 
 
       mcp_tool_badge: 'MCP',

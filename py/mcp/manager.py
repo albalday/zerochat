@@ -18,6 +18,7 @@ from browser.config import PLAYWRIGHT_SERVER_ID, SERVICE_LAUNCH
 from browser.engines import on_playwright_status
 from core.environment import get_data_dir, get_venv_dir, get_venv_python
 from core.logging import log_event
+from core.rate_limit import RATE_LIMITER, parse_rate_policy
 from mcp.catalog import (
     CATALOG_PATH,
     catalog_base,
@@ -33,6 +34,7 @@ from mcp.stdio_client import (
     _mcp_trace_text,
     _positive_seconds,
 )
+from storage.db import delete_secret, get_secret, save_secret, secret_names
 
 
 def public_tool_name(server_id: str, original: str) -> str:
@@ -58,6 +60,43 @@ class McpServiceRecord:
     client: StdioMcpClient | None = None
     error: str | None = None
     browser: dict | None = None
+
+
+# Nombre de la variable de entorno de un secreto que declara un servicio en su service.json ("secrets").
+SERVICE_SECRET_NAME_PATTERN = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
+
+
+def service_secrets(server: dict) -> list[dict]:
+    """Los secretos que declara el servicio: [{"name", "label"}], solo los de nombre válido."""
+    declared = server.get("secrets")
+    if not isinstance(declared, list):
+        return []
+    return [{"name": item["name"], "label": item.get("label", {})} for item in declared
+            if isinstance(item, dict) and isinstance(item.get("name"), str) and SERVICE_SECRET_NAME_PATTERN.fullmatch(item["name"])]
+
+
+# Nombre de una herramienta nativa que una herramienta del servicio sustituye ("tools" de su service.json).
+NATIVE_TOOL_NAME_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,63}")
+
+
+def service_tool_settings(server: dict, original: str) -> dict:
+    """Lo que el service.json declara de una herramienta en "tools": las nativas que sustituye mientras está activa
+    (replaces) y si empieza activada (enabledByDefault). La interfaz decide qué nativas se pueden sustituir."""
+    declared = server.get("tools")
+    entry = declared.get(original) if isinstance(declared, dict) else None
+    if not isinstance(entry, dict):
+        return {"replaces": [], "enabledByDefault": True}
+    replaces = entry.get("replaces")
+    return {
+        "replaces": [name for name in replaces if isinstance(name, str) and NATIVE_TOOL_NAME_PATTERN.fullmatch(name)]
+        if isinstance(replaces, list) else [],
+        "enabledByDefault": entry.get("enabledByDefault") is not False,
+    }
+
+
+def service_secret_key(server_id: str, name: str) -> str:
+    """Nombre con el que se guarda en SQLite el secreto `name` del servicio."""
+    return f"mcp:{server_id}:{name}"
 
 
 def service_status(record: McpServiceRecord, alive: bool, exit_code: int | None) -> tuple[str, str | None]:
@@ -171,6 +210,7 @@ class McpServiceManager:
 
     def list_servers(self) -> list[dict]:
         self.services = self._load_services()
+        saved_secrets = secret_names("mcp:")
         result = []
         for server_id, server in self.services.items():
             record = self.records.get(server_id) or McpServiceRecord()
@@ -193,6 +233,9 @@ class McpServiceManager:
                 "userOptions": pref.get("options", {}),
                 "oauthUrl": client.oauth_url if client else None,
                 "browser": record.browser if running else None,
+                # Solo si cada secreto está guardado: su valor nunca sale del backend.
+                "secrets": [{**secret, "configured": service_secret_key(server_id, secret["name"]) in saved_secrets}
+                            for secret in service_secrets(server)],
             })
 
         return result
@@ -316,9 +359,11 @@ class McpServiceManager:
             launch = server.get("launch", {})
             command = self._expand(launch.get("executable", sys.executable), values)
             args = [self._expand(arg, values) for arg in launch.get("args", []) + option_args]
+            # Los secretos solo se sustituyen en las variables de entorno: en los argumentos se verían en la lista de procesos.
+            env_values = {**values, **self._secret_values(server_id, server)}
             env = os.environ.copy()
             for k, v in launch.get("env", {}).items():
-                env[k] = self._expand(v, values)
+                env[k] = self._expand(v, env_values)
             record.browser = None
             if server_id in SERVICE_LAUNCH:
                 extra_args, extra_env, record.browser = SERVICE_LAUNCH[server_id](browser)
@@ -343,6 +388,38 @@ class McpServiceManager:
             stale, record.client = record.client or client, None
             if stale:
                 stale.stop()
+
+    @staticmethod
+    def _secret_values(server_id: str, server: dict) -> dict[str, str]:
+        """Los secretos que declara el servicio, como marcadores ${secret:NOMBRE}; sin uno guardado no arranca."""
+        values = {}
+        for secret in service_secrets(server):
+            value = get_secret(service_secret_key(server_id, secret["name"]))
+            if not value:
+                raise RuntimeError(f"Falta la clave {secret['name']}: guárdala en Ajustes › MCP.")
+            values[f"secret:{secret['name']}"] = value
+        return values
+
+    def set_secret(self, server_id: str, name: str, value: str | None) -> list[dict]:
+        """Guarda (o borra, con None) un secreto que el servicio declara. Si está en marcha se detiene, porque su proceso
+        tiene el valor anterior; se vuelve a iniciar cuando se quiera (el perfil o la persona), ya con el nuevo."""
+        with self._lock:
+            self.services = self._load_services()
+            server = self.services.get(server_id)
+            if not server:
+                raise KeyError(f"Servidor MCP desconocido: {server_id}")
+            if name not in {secret["name"] for secret in service_secrets(server)}:
+                raise KeyError(f"{server_id} no declara el secreto {name}")
+            key = service_secret_key(server_id, name)
+            if value is None:
+                delete_secret(key)
+            else:
+                save_secret(key, value)
+            self._trace(server_id, f"secret {name} {'deleted' if value is None else 'saved'}")
+            record = self.records.pop(server_id, None)
+            if record and record.client:
+                record.client.stop()
+            return self.list_servers()
 
     def stop(self, server_id: str) -> list[dict]:
         with self._lock:
@@ -391,7 +468,8 @@ class McpServiceManager:
                     tcopy["name"] = pname
                     tcopy["metadata"] = {
                         "mcpServerId": server_id,
-                        "originalName": original
+                        "originalName": original,
+                        **service_tool_settings(self.services.get(server_id, {}), original),
                     }
                     aggregated.append(tcopy)
         return aggregated
@@ -426,8 +504,15 @@ class McpServiceManager:
         if not resolved:
             raise ValueError(f"Herramienta externa '{public_name}' no disponible o servidor detenido.")
         # La llamada puede durar decenas de segundos: no debe bloquear al resto de servidores.
-        _, client, original_name = resolved
-        return client.request("tools/call", {"name": original_name, "arguments": arguments}, timeout=client.call_timeout)
+        server_id, client, original_name = resolved
+        request = lambda: client.request("tools/call", {"name": original_name, "arguments": arguments}, timeout=client.call_timeout)
+        # Frecuencia y paralelismo que declara el servicio (rateLimit), para todas sus herramientas juntas: no
+        # saturar su API. RateLimitBusy llega al modelo como el error de la herramienta.
+        policy = parse_rate_policy(self.services.get(server_id, {}).get("rateLimit"))
+        if policy is None:
+            return request()
+        with RATE_LIMITER.slot(f"mcp:{server_id}", policy):
+            return request()
 
     def start_catalog_refresh(self, ui_url: str):
         """Mantiene al día los servicios incluidos con el catálogo de la carpeta de la interfaz: lo mira ahora y

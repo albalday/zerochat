@@ -70,7 +70,8 @@
   const HEARTBEAT_INTERVAL_MS = 10000;
   // Código con el que el servidor avisa de que la carpeta del proyecto de la pestaña ya no existe.
   const PROJECT_GONE_CODE = -32003;
-  const HEARTBEAT_FAST_INTERVAL_MS = 1000;
+  // Con la conversación de una ejecución en marcha abierta: cada paso grabado se ve en segundos.
+  const HEARTBEAT_FAST_INTERVAL_MS = 2000;
   // Plazo de los sondeos al servidor local (conexión, comprobación y reconexión del latido).
   const PROBE_TIMEOUT_MS = 1500;
   // Lo que el servidor local informa en vivo, vacío mientras no hay conexión.
@@ -290,6 +291,7 @@
       name: tool.name,
       description: tool.metadata.description,
       inputSchema: tool.parameters,
+      defaultEnabled: tool.settings.defaultEnabled,
       metadata: {
         mcpServerName: tool.metadata.mcpServerName,
         mcpServerId: tool.metadata.mcpServerId,
@@ -338,6 +340,14 @@
         if (external && rt.name !== namespacedName) throw new Error('Invalid external MCP public name');
         if (toolInstances.some(tool => tool.name === namespacedName)) throw new Error('Duplicate MCP public name');
 
+        const replaces = external && Array.isArray(rt.metadata?.replaces) ? rt.metadata.replaces.filter(name => typeof name === 'string') : [];
+        for (const name of replaces) {
+          const native = getAgentCore().registry.getTool(name);
+          if (!native || native.category === 'mcp' || !native.settings.showInSettings) {
+            console.warn(`[ChatMCP] ${namespacedName} declares it replaces ${name}, which is not a native tool the user can turn off: ignored.`);
+          }
+        }
+
         toolInstances.push(new Tool({
           // El nombre público ya identifica el servidor; repetirlo en la descripción gasta contexto.
           definition: { name: namespacedName, description: rt.description || toolName, parameters: rt.inputSchema },
@@ -345,13 +355,16 @@
           // Una espera tiene que verse sin desplegarla.
           displayMode: isLocalWait ? 'expanded' : undefined,
           isAvailable: () => (!isProxy || localToolsAvailable()) && (!isBrowserAction || browserActionAvailable()),
-          settings: { showInSettings: true },
+          // Un servicio externo declara en su service.json si la herramienta empieza activada.
+          settings: { showInSettings: true, defaultEnabled: !external || rt.metadata?.enabledByDefault !== false },
           metadata: {
             iconSvg: Icons.get('plug', { size: 14 }),
             mcpServerName: serverName,
             mcpServerUrl: this.serverUrl,
             originalName: toolName,
             mcpServerId: sourceServer,
+            // Herramientas nativas que esta sustituye mientras está activa (AgentCore.ToolRegistry.replacementOf).
+            replaces,
             localCommand: isLocalCommand,
             description: rt.description || ''
           },
@@ -489,8 +502,10 @@
         const focusRun = payload.focus_run && typeof payload.focus_run === 'object' ? payload.focus_run : null;
         if (JSON.stringify(focusRun) !== JSON.stringify(current.focusRun)) next.focusRun = focusRun;
       }
-      const hasRunningServerRuns = Array.isArray(serverRuns) && serverRuns.some(run => run.status === 'running');
-      if (hasRunningServerRuns) {
+      // Solo se consulta a menudo mientras está abierta una conversación cuya ejecución sigue en marcha.
+      const activeId = State.get('sessions')?.activeId;
+      const followsActiveRun = Array.isArray(serverRuns) && serverRuns.some(run => run.status === 'running' && run.conversationId === activeId);
+      if (followsActiveRun) {
         this.setHeartbeatTimer(Boolean(this.target), HEARTBEAT_FAST_INTERVAL_MS);
       } else if (typeof payload.exit_on_close === 'boolean' || Array.isArray(payload.runs)) {
         this.setHeartbeatTimer(this.serverExitsOnClose !== false && Boolean(this.target), HEARTBEAT_INTERVAL_MS);
@@ -823,9 +838,7 @@
           conversation_id: runEntry.conversationId,
           run_id: runEntry.runId,
           status: runEntry.status,
-          step_text: '',
-          assistant_text: '',
-          reasoning_text: ''
+          step_text: ''
         };
       }
       State.set('mcp', nextState);
@@ -870,9 +883,16 @@
       return result?.deleted === true;
     }
 
-    /** Importa un perfil del servidor al repositorio local del cliente. */
-    async importServerProfile(serverProfile, options = {}) {
-      return getProfiles().importServerProfile(serverProfile, options);
+    /**
+     * Perfil del servidor con su API key, solo para abrirlo en el editor al pulsar el usuario Editar: el listado
+     * no lleva claves (hasApiKey) y el servidor deja constancia de esta entrega en su registro.
+     */
+    async revealServerProfile(profileId) {
+      const client = this.clients.get(PROXY_ID);
+      if (!client) throw new Error('No local server connection.');
+      const result = await client.request('zerochat/profiles/reveal', { id: profileId });
+      if (!result?.profile) throw new Error('Invalid profile response from server.');
+      return result.profile;
     }
 
     /**
@@ -902,6 +922,10 @@
 
     configureExternalServer(serverId, options) {
       return getMcpExternal().configureExternalServer(this, serverId, options);
+    }
+
+    setExternalServerSecret(serverId, name, value) {
+      return getMcpExternal().setExternalServerSecret(this, serverId, name, value);
     }
 
     runExternalServerAction(serverId, action, options) {

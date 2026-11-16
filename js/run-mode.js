@@ -1,7 +1,7 @@
 /**
  * Modo ejecución desatendida (zerochat.py --prompt y --conversation). El backend abre la interfaz
  * con `run=<id>` en el fragmento de arranque: la página pide el prompt o carga la conversación
- * existente, informa del progreso (con texto de asistente y razonamiento), gestiona las autorizaciones
+ * existente, informa del paso en curso, gestiona las autorizaciones
  * de herramientas (permitiendo, denegando o pausando según el modo), exporta si se pidió (--export),
  * devuelve el resultado o el estado de espera al usuario (needs_input) y se cierra salvo con --keep-page.
  * Todo viaja por JSON-RPC zerochat/run/*.
@@ -34,26 +34,14 @@
     return runId && EPHEMERAL_ID_PATTERN.test(runId) ? runId : null;
   }
 
-  /** Envía cada aviso de progreso, salvo los de streaming más seguidos que el intervalo. */
+  /** Envía cada aviso de progreso, salvo los de streaming más seguidos que el intervalo, que se descartan. */
   function createProgressReporter(send, intervalMs = STREAM_PROGRESS_INTERVAL_MS) {
     let lastStreamAt = -Infinity;
-    let deferredStream = null;
     return event => {
       if (event.kind === 'stream') {
         const now = Date.now();
-        if (now - lastStreamAt < intervalMs) {
-          deferredStream = {
-            ...deferredStream,
-            ...(typeof event.assistant_text === 'string' ? { assistant_text: event.assistant_text } : {}),
-            ...(typeof event.reasoning_text === 'string' ? { reasoning_text: event.reasoning_text } : {})
-          };
-          return;
-        }
+        if (now - lastStreamAt < intervalMs) return;
         lastStreamAt = now;
-      }
-      if (deferredStream) {
-        event = { ...deferredStream, ...event };
-        deferredStream = null;
       }
       send(event);
     };

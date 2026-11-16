@@ -42,15 +42,9 @@ def execute_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
         message = (f"The browser is in use by another conversation. It is released after {int(BROWSER_LEASE_IDLE_SECONDS)} "
                    "seconds without use; tell the user or try again later.")
         return {"content": [{"type": "text", "text": _tool_error(message)}], "isError": True}, None, message
-    # En una ejecución desatendida, esperar en check_command no es inactividad ni gasta el plazo total.
-    session = current_run_session() if origin == "local" and tool_name == JOB_CONTROL_TOOL else None
-    if session is not None:
-        session.begin_wait()
     try:
         return run_tool(origin, tool_name, args, ctx)
     finally:
-        if session is not None:
-            session.end_wait()
         # El plazo cuenta desde que la acción termina: lo que tarde no acorta lo que el modelo puede razonar después.
         if browser:
             BROWSER_LEASES.acquire(browser, conversation_id)

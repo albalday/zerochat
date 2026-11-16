@@ -244,65 +244,6 @@ test('ProfileRepository - los perfiles locales no mezclan automáticamente perfi
   assert.ok(!list.some(p => p.general === true));
 });
 
-test('ProfileRepository - importServerProfile importa perfil del servidor, cifra la clave y lo hace editable en local', async () => {
-  const repository = Profiles;
-  const serverProfile = {
-    id: 'profile:general-gemini',
-    name: 'Gemini Servidor',
-    description: 'Perfil traído del backend',
-    settings: {
-      apiType: 'gemini',
-      model: 'gemini-2.5-pro',
-      temperature: '0.4'
-    },
-    apiKey: 'sk-plain-gemini-key'
-  };
-
-  const imported = await repository.importServerProfile(serverProfile);
-  assert.equal(imported.name, 'Gemini Servidor');
-  assert.equal(imported.description, 'Perfil traído del backend');
-  assert.equal(imported.settings.apiType, 'gemini');
-  assert.equal(imported.settings.model, 'gemini-2.5-pro');
-  // La API key se ha cifrado en el almacén local
-  assert.ok(imported.settings.apiKey);
-  assert.notEqual(imported.settings.apiKey, 'sk-plain-gemini-key');
-
-  // Ahora figura en list()
-  const found = repository.list().find(p => p.id === imported.id);
-  assert.ok(found);
-  assert.equal(found.name, 'Gemini Servidor');
-
-  // get(id) y findByName(name) lo encuentran
-  assert.ok(repository.get(imported.id));
-  assert.ok(repository.findByName('Gemini Servidor'));
-
-  // load() descifra la API key
-  const loaded = await repository.load(imported.id);
-  assert.equal(loaded.settings.apiKey, 'sk-plain-gemini-key');
-
-  // Importar permitiendo renombrar con options.name
-  const renamed = await repository.importServerProfile(serverProfile, { name: 'Gemini Copia', description: 'Copia personalizada' });
-  assert.equal(renamed.name, 'Gemini Copia');
-  assert.equal(renamed.description, 'Copia personalizada');
-  assert.ok(repository.findByName('Gemini Copia'));
-
-  // Limpieza
-  repository.remove(imported.id);
-  repository.remove(renamed.id);
-});
-
-test('ProfileRepository - importServerProfile valida datos de entrada', async () => {
-  const repository = Profiles;
-  await assert.rejects(
-    async () => repository.importServerProfile(null),
-    /The server profile is not valid/
-  );
-  await assert.rejects(
-    async () => repository.importServerProfile({ name: '' }),
-    /The profile name cannot be empty/
-  );
-});
-
 test('ProfileRepository - registerSessionProfile registra perfil volátil para ejecución sin alterar list() ni requerir cifrado', async () => {
   const repository = Profiles;
   const initialCount = repository.list().length;

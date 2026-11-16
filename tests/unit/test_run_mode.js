@@ -16,26 +16,20 @@ test('RunMode.readRunId solo acepta un identificador válido del fragmento de ar
   for (const [hash, expected] of rows) assert.equal(RunMode.readRunId(hash), expected, hash);
 });
 
-test('RunMode.createProgressReporter limita el streaming al intervalo y conserva el texto diferido para el siguiente aviso', t => {
+test('RunMode.createProgressReporter limita el streaming al intervalo y envía siempre los demás avisos', t => {
   t.mock.timers.enable({ apis: ['Date'], now: 10_000 });
   const sent = [];
   const report = RunMode.createProgressReporter(event => sent.push(event));
-  report({ kind: 'stream', text: 's1', assistant_text: 'a1' });
+  report({ kind: 'stream', text: 's1' });
   t.mock.timers.tick(500);
-  report({ kind: 'stream', text: 's1b', assistant_text: 'a2', reasoning_text: 'r2' });
+  report({ kind: 'stream', text: 's1b' });
   report({ kind: 'tool', text: 'tool' });
   t.mock.timers.tick(1499);
-  report({ kind: 'stream', text: 's2r', reasoning_text: 'r3' });
-  report({ kind: 'stream', text: 's2', assistant_text: 'a3' });
+  report({ kind: 'stream', text: 's2' });
   t.mock.timers.tick(1);
-  report({ kind: 'stream', text: 's3', assistant_text: 'a4' });
+  report({ kind: 'stream', text: 's3' });
   report({ kind: 'status', text: 'status' });
-  assert.deepEqual(sent, [
-    { kind: 'stream', text: 's1', assistant_text: 'a1' },
-    { kind: 'tool', text: 'tool', assistant_text: 'a2', reasoning_text: 'r2' },
-    { kind: 'stream', text: 's3', assistant_text: 'a4', reasoning_text: 'r3' },
-    { kind: 'status', text: 'status' }
-  ]);
+  assert.deepEqual(sent.map(event => event.text), ['s1', 'tool', 's3', 'status']);
 });
 
 test('RunMode.pendingAskUserQuestion toma la pregunta de ask_user de los mensajes tool del final del turno', () => {

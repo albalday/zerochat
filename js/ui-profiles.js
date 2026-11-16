@@ -1185,7 +1185,11 @@
       }
 
       if (editBtn || mode === 'manage') {
-        openServerProfileInEditor(targetProfile);
+        try {
+          openServerProfileInEditor(await getMCP().manager.revealServerProfile(targetId));
+        } catch (err) {
+          await getDialogs().alert(err?.message || String(err), { type: 'error' });
+        }
         return;
       }
 

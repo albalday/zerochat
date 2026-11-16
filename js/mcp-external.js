@@ -130,6 +130,13 @@
     return result;
   }
 
+  /** Guarda (o borra con `value` null) un secreto que declara el servicio; la respuesta trae la lista sin valores. */
+  async function setExternalServerSecret(manager, serverId, name, value) {
+    const result = await manager.requestExternalControl('zerochat/external/servers/secret', { serverId, name, value });
+    await manager.applyLiveState(result);
+    return result;
+  }
+
   /**
    * Inicia o detiene un servicio externo y refleja el progreso en ChatState. Playwright MCP arranca
    * con el navegador que exija el perfil activo, y la autorización OAuth que pida el arranque se abre
@@ -218,6 +225,7 @@
     startExternalServer,
     stopExternalServer,
     configureExternalServer,
+    setExternalServerSecret,
     runExternalServerAction,
     withExternalServerStopped,
     startProfileServers
