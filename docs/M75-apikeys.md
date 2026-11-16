@@ -37,16 +37,25 @@ Los servicios MCP incluidos no guardan claves en su configuración (Composio usa
 - **N6. En reposo, en el backend**: SQLite con permisos 0600 en la carpeta de datos del usuario (modelo de amenaza: otro usuario del equipo), o el almacén de claves del sistema (ver la pregunta 2).
 - **N7. Ninguna clave en registros, telemetría, exportaciones de conversaciones ni mensajes de error**; las copias de perfiles exportadas solo llevan claves si se exportan con contraseña.
 
-## 4. Brave Search con estas normas
+## 4. Decisiones (2026-11-16)
 
-- **API**: `GET https://api.search.brave.com/res/v1/web/search?q=…` con la cabecera `X-Subscription-Token`. Falta comprobar con una clave real que no admite llamadas desde el navegador (CORS); si es así, la clave va solo al backend (N1).
-- **Cómo funcionaría**: `search_web` usa Brave cuando hay backend conectado y clave guardada, y DuckDuckGo en otro caso. El backend añade la cabecera y la clave nunca llega a la página ni al modelo.
-- **Configuración**: en Ajustes › Conexión (o Herramientas), un campo de solo escritura con su estado («configurada» o «sin configurar») y un botón para borrarla.
-- **Sin backend**: Brave no está disponible. Nunca se manda la clave a un proxy de terceros como Jina.
+1. **No se endurece el cifrado de los perfiles locales** (N5 queda aplazada): siguen con la clave por defecto o la contraseña actual.
+2. **Backend: SQLite con ofuscación simple.** No es cifrado (la clave sale del código, como en el navegador), pero evita que una clave se lea al abrir el fichero o al buscar texto en el disco. Se aplica a todos los secretos del backend, también a `profiles.api_key`, que hoy está en claro. Los permisos 0600 se mantienen.
+3. **Se mantiene copiar un perfil del servidor a local.** Así N2 tiene una única excepción explícita: un método propio que entrega la clave de un perfil solo al pulsar el usuario «importar», con su línea en el registro. El listado deja de llevar claves (`hasApiKey`).
+4. **Brave: como servicio MCP** (pendiente de confirmar, ver el apartado 5).
 
-## 5. Decisiones pendientes
+## 5. Brave Search como servicio MCP
 
-1. ¿Aplicar ya N5 (CryptoKey no extraíble y PBKDF2) a los perfiles locales, o solo a los secretos nuevos?
-2. En el backend, ¿basta con SQLite 0600 o usamos el almacén de claves del sistema (Secret Service, Keychain, Credential Manager)? Esto último exige la dependencia `keyring` y no hay almacén en Android/Termux ni en un servidor sin sesión gráfica.
-3. ¿Se mantiene copiar un perfil del servidor a local (lo único que necesita leer una clave del servidor) o se elimina?
-4. ¿Dónde se configura Brave: Ajustes › Conexión, una sección de buscadores o el perfil?
+Es una variante nueva de gestión de claves: **el secreto de un servicio MCP**, que vive solo en el backend y se pasa al proceso del servicio en una variable de entorno al arrancarlo.
+
+- **Servicio**: el servidor MCP oficial de Brave (`@brave/brave-search-mcp-server`, por npm, con la clave en `BRAVE_API_KEY`; falta comprobar el paquete y su versión) entra en el catálogo de `services/` como los demás (M72-D1): instalación con npm, versión propia y arranque desde el perfil.
+- **Declaración**: el `service.json` del servicio declara los secretos que necesita (nombre de la variable y etiqueta bilingüe), y `launch.env` los referencia con un marcador (por ejemplo `"BRAVE_API_KEY": "${secret:BRAVE_API_KEY}"`) que `McpManager._expand` resuelve al arrancar el servicio. Sin la clave guardada, el servicio no arranca y dice qué falta.
+- **Guardado**: en Ajustes › Servicios MCP, el servicio muestra un campo de solo escritura por secreto, con el estado «configurada» o «sin configurar» y un botón para borrarla. El backend la guarda ofuscada en SQLite (`mcp:<servicio>:<VARIABLE>`) y nunca la devuelve.
+- **Ventajas frente a integrarlo en `search_web`**: no hace falta código propio de búsqueda; aporta las herramientas del servicio (web, noticias, imágenes…) con el motor de permisos de las MCP, y el mismo mecanismo sirve para el siguiente servicio con clave (GitHub, Tavily…).
+- **Inconvenientes**: necesita Node y npm, como los otros servicios incluidos, y solo funciona con el backend (como cualquier opción con Brave si no admite llamadas desde el navegador). El modelo verá `search_web` y la búsqueda de Brave a la vez; el perfil elige si activa el servicio.
+
+## 6. Tareas propuestas
+
+1. **Almacén de secretos del backend**: tabla en SQLite con ofuscación simple, migración de `profiles.api_key`, listado de perfiles sin claves (`hasApiKey`) y el método explícito para importar un perfil a local.
+2. **Secretos de los servicios MCP**: declaración en `service.json`, marcador `${secret:…}` en el arranque, métodos de guardar y borrar, y su campo en Ajustes › Servicios MCP (español e inglés).
+3. **Servicio Brave Search** en el catálogo, con su prueba de arranque sin clave y con clave.
