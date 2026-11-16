@@ -294,62 +294,6 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                 else:
                     self.assertEqual(error, f"{prefix}.")
 
-    def test_supervisor_corta_por_inactividad_y_por_plazo_total_aunque_haya_progreso(self):
-        def supervise(keep_progressing):
-            session = zerochat.RunSession(prompt="hola")
-            stop = threading.Event()
-
-            def progress():
-                while not stop.wait(0.02):
-                    session.touch()
-
-            if keep_progressing:
-                threading.Thread(target=progress, daemon=True).start()
-            try:
-                zerochat.run_supervisor(mock.Mock(), session)
-            finally:
-                stop.set()
-            with mock.patch.object(zerochat, "run_error"):
-                return session.stop_reason, zerochat.run_outcome(session)
-
-        # Parar el servidor de verdad marcaría el apagado global para el resto de la suite.
-        with mock.patch.multiple(zerochat, RUN_POLL_SECONDS=0.02, RUN_IDLE_SECONDS=0.2, RUN_TOTAL_TIMEOUT=0.6,
-                                 stop_zerochat_server=mock.DEFAULT):
-            reason, outcome = supervise(keep_progressing=False)
-            self.assertIn("Sin progreso de la interfaz", reason)
-            self.assertEqual(outcome, (zerochat.RUN_EXIT_TIMEOUT, None))
-            # El progreso continuo reinicia la inactividad, pero no el plazo total.
-            reason, outcome = supervise(keep_progressing=True)
-            self.assertIn("Plazo total agotado", reason)
-            self.assertEqual(outcome, (zerochat.RUN_EXIT_TIMEOUT, None))
-
-            # Una espera de check_command más larga que los dos plazos no es inactividad ni gasta el plazo
-            # total: al acabar, la inactividad cuenta desde ese momento.
-            session = zerochat.RunSession(prompt="hola")
-            session.begin_wait()
-            threading.Timer(0.9, session.end_wait).start()
-            started = time.monotonic()
-            zerochat.run_supervisor(mock.Mock(), session)
-            self.assertGreaterEqual(time.monotonic() - started, 1.05)
-            self.assertIn("Sin progreso de la interfaz", session.stop_reason)
-            self.assertGreaterEqual(session.waited_seconds(), 0.85)
-
-    def test_en_una_ejecucion_el_servidor_cuenta_como_espera_el_tiempo_dentro_de_check_command(self):
-        session = zerochat.RunSession(prompt="hola")
-        zerochat.RUN_SESSION = session
-        self.addCleanup(setattr, zerochat, "RUN_SESSION", None)
-        ctx = zerochat.project_context()
-        # PowerShell, el intérprete de run_command en Windows, ejecuta una ruta entre comillas con &.
-        sleeper = ("& " if os.name == "nt" else "") + f'"{sys.executable}" -c "import time; time.sleep(100)"'
-        job = json.loads(zerochat.run_command(sleeper, background=True, ctx=ctx))
-        self.addCleanup(zerochat.check_command, job["job_id"], stop=True, ctx=ctx)
-        result, error, _ = zerochat.execute_tool(
-            "local", "check_command", {"job_id": job["job_id"], "wait_seconds": 1}, ctx)
-        self.assertIsNone(error)
-        self.assertIn("wait_elapsed", result["content"][0]["text"])
-        self.assertGreaterEqual(session.waited_seconds(), 0.9)
-        self.assertLess(session.idle_seconds(), 0.5)
-
     def test_el_runner_exige_node_22_13_o_superior(self):
         def found(version):
             result = zerochat.subprocess.CompletedProcess(["node", "--version"], 0, stdout=f"{version}\n", stderr="")

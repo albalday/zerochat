@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
-import time
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import IO
@@ -17,9 +16,7 @@ from core.logging import log_event
 from run_mode.runner_loader import RUNNER_CACHE_ALWAYS_DOWNLOAD, RUNNER_CACHE_BY_VERSION, RUNNER_LOADER_SCRIPT
 from run_mode.state import (
     NODE_REQUIRED_MESSAGE,
-    RUN_IDLE_SECONDS,
     RUN_POLL_SECONDS,
-    RUN_TOTAL_TIMEOUT,
     RunSession,
     find_node_executable,
     run_error,
@@ -48,9 +45,9 @@ def runner_exit_reason(proc: subprocess.Popen, stderr_log: IO[bytes] | None) -> 
 
 def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc: subprocess.Popen | None = None,
                    browser_proc: subprocess.Popen | None = None, runner_log: IO[bytes] | None = None):
-    """Detiene el servidor al recibir el resultado, si termina el runner propio o al agotar los plazos."""
+    """Detiene el servidor al recibir el resultado o si termina el runner propio. Sin plazos: lo que dura una ejecución
+    lo decide quien la lanza (la cancela o la interrumpe), y cada paso cerrado ya está grabado."""
     proc = runner_proc if runner_proc is not None else browser_proc
-    deadline = time.monotonic() + RUN_TOTAL_TIMEOUT
     while not session.finished.wait(RUN_POLL_SECONDS):
         # El latido o una señal ya detienen el servidor: el resultado queda vacío.
         if _SERVER_SHUTTING_DOWN.is_set():
@@ -58,12 +55,6 @@ def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc
         if proc is not None and proc.poll() is not None and not session.finished.wait(0.2):
             if runner_proc is not None:
                 session.stop_reason = runner_exit_reason(runner_proc, runner_log)
-            break
-        if time.monotonic() >= deadline + session.waited_seconds():
-            session.stop_reason = f"Plazo total agotado ({RUN_TOTAL_TIMEOUT:.0f}s, sin contar las esperas)."
-            break
-        if session.idle_seconds() > RUN_IDLE_SECONDS:
-            session.stop_reason = f"Sin progreso de la interfaz durante {RUN_IDLE_SECONDS:.0f}s."
             break
     if session.result is None and session.conversation_id:
         with session.lock:

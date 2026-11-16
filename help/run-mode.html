@@ -67,14 +67,14 @@
     </div>
 
     <div class="card" id="codigos">
-      <h2>4. Plazos y códigos de salida</h2>
-      <p>La ejecución se corta a los 15 minutos, o tras 10 minutos sin progreso de la interfaz (cada paso, herramienta o fragmento de respuesta cuenta como progreso). El tiempo que el agente pasa esperando con <code>check_command</code> no cuenta como inactividad y alarga los 15 minutos en lo que dure la espera. Para tareas más largas o que deban repetirse, prográmalas por fuera (apartado 6).</p>
+      <h2>4. Duración y códigos de salida</h2>
+      <p>La ejecución no tiene plazo: sigue hasta que termina, la cancelas o la interrumpes (Ctrl+C), y la conversación queda grabada en SQLite tras cada paso con herramientas, así que lo hecho no se pierde aunque se corte. Para tareas que deban repetirse, prográmalas por fuera (apartado 6).</p>
       <div class="table-responsive"><table>
         <thead><tr><th>Código</th><th>Significado</th></tr></thead>
         <tbody>
           <tr><td><code>0</code></td><td>Terminada: la respuesta está en la salida estándar (o el JSON <code>needs_input</code> si <code>--conversation</code> quedó a la espera de permiso o respuesta).</td></tr>
           <tr><td><code>1</code></td><td>Error de generación, perfil inexistente, servicio MCP del perfil no disponible, petición al usuario o exportación pedida que no se pudo escribir (en este último caso la respuesta sí sale).</td></tr>
-          <tr><td><code>2</code></td><td>Plazo agotado, o el navegador se cerró sin devolver resultado.</td></tr>
+          <tr><td><code>2</code></td><td>El runner o el navegador se cerró sin devolver resultado.</td></tr>
           <tr><td><code>3</code></td><td>Fallo de arranque: puerto ocupado o navegador que no se pudo abrir.</td></tr>
           <tr><td><code>4</code></td><td>Argumentos no válidos (también fuera de <code>--prompt</code>).</td></tr>
         </tbody>

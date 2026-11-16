@@ -3832,16 +3832,13 @@ def update_security_policy_data(mutator: typing.Callable[[dict | None], dict]) -
 
 
 
-# Plazo total y sin progreso de la interfaz.
-RUN_TOTAL_TIMEOUT = 900.0
-RUN_IDLE_SECONDS = 600.0
 RUN_POLL_SECONDS = 0.2
 RUN_PROGRESS_TEXT_MAX = 500
 RUN_STREAM_TEXT_MAX = 8000
 RUN_PROGRESS_KIND_PATTERN = re.compile(r"[a-z_]{1,32}")
 RUN_EXIT_DONE = 0
 RUN_EXIT_ERROR = 1
-RUN_EXIT_TIMEOUT = 2
+RUN_EXIT_NO_RESULT = 2
 RUN_EXIT_SETUP = 3
 # Argumentos no válidos, en cualquier modo: argparse usaría 2, que con --prompt es plazo agotado.
 RUN_EXIT_ARGS = 4
@@ -4131,10 +4128,6 @@ class RunSession:
             self.tool_security = None
         self._approved_call = _approved_call(self.tool_security)
         self.lock = threading.Lock()
-        self.last_activity = time.monotonic()
-        # Esperas de check_command: no cuentan como inactividad y alargan el plazo total.
-        self._waiting_since: float | None = None
-        self._waited = 0.0
         self.prompt_delivered = False
         self.result: dict | None = None
         self.stop_reason: str | None = None
@@ -4153,28 +4146,6 @@ class RunSession:
         if self.conversation_id:
             write_run_state(self)
 
-    def touch(self):
-        with self.lock:
-            self.last_activity = time.monotonic()
-
-    def idle_seconds(self) -> float:
-        with self.lock:
-            if self._waiting_since is not None:
-                return 0.0
-            return time.monotonic() - self.last_activity
-
-    def begin_wait(self):
-        with self.lock:
-            self._waiting_since = time.monotonic()
-
-    def end_wait(self):
-        with self.lock:
-            now = time.monotonic()
-            if self._waiting_since is not None:
-                self._waited += now - self._waiting_since
-            self._waiting_since = None
-            self.last_activity = now
-
     def take_approved_call(self, tool_name: str, args: dict) -> bool:
         """Si es la llamada que la persona aprobó en la tarjeta pausada (mismo nombre y argumentos), la consume:
         su reto lo contesta este servidor, una sola vez, porque la credencial del runner no puede resolver retos."""
@@ -4183,12 +4154,6 @@ class RunSession:
                 return False
             self._approved_call = None
             return True
-
-    def waited_seconds(self) -> float:
-        """Tiempo total en esperas de check_command, incluida la que esté en curso."""
-        with self.lock:
-            ongoing = time.monotonic() - self._waiting_since if self._waiting_since is not None else 0.0
-            return self._waited + ongoing
 
 
 RUN_SESSION: RunSession | None = None
@@ -4241,7 +4206,6 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
         if session.prompt_delivered:
             return rpc_error(INVALID_PARAMS, "El prompt ya se entregó.")
         session.prompt_delivered = True
-    session.touch()
     export_format = RUN_EXPORT_FORMATS[session.export_path.suffix.lower()] if session.export_path else None
     # tool_security lo aplica este servidor: las políticas (reset_session_authorizations) y la llamada aprobada en la
     # tarjeta pausada (take_approved_call), así que el runner no recibe nada de él.
@@ -4266,7 +4230,6 @@ def _rpc_profile(params: dict, session: RunSession) -> RpcOutcome:
     profile = get_general_profile(profile_id) if isinstance(profile_id, str) else None
     if profile is None:
         return rpc_error(INVALID_PARAMS, "Perfil del servidor no encontrado.")
-    session.touch()
     log_event(f"[run] Se entrega al runner el perfil {profile['name']} con su clave")
     return rpc_result({"profile": profile})
 
@@ -4286,7 +4249,6 @@ def _rpc_progress(params: dict, session: RunSession) -> RpcOutcome:
         return rpc_error(INVALID_PARAMS, "assistant_text debe ser una cadena.")
     if reasoning_text is not None and not isinstance(reasoning_text, str):
         return rpc_error(INVALID_PARAMS, "reasoning_text debe ser una cadena.")
-    session.touch()
     truncated_step = _capped(text, RUN_PROGRESS_TEXT_MAX)
     log_event(f"[run] {kind}{': ' + truncated_step if truncated_step else ''}")
     with session.lock:
@@ -4312,7 +4274,6 @@ def _rpc_export(params: dict, session: RunSession) -> RpcOutcome:
             session.export_error = f"No se pudo escribir {session.export_path}: {exc}"
             return rpc_error(INTERNAL_ERROR, session.export_error)
         session.exported = True
-    session.touch()
     log_event(f"[run] Conversación exportada en {session.export_path}")
     return rpc_result({"ok": True})
 
@@ -4393,7 +4354,7 @@ def run_outcome(session: RunSession) -> tuple[int, str | None]:
         run_error(session.export_error or f"La interfaz no envió la conversación para {session.export_path}.")
     if session.result is None:
         run_error(session.stop_reason or session.error or "El runner se cerró o la ejecución se interrumpió sin resultado.")
-        return RUN_EXIT_TIMEOUT, None
+        return RUN_EXIT_NO_RESULT, None
     if "error" in session.result:
         run_error(f"Error de generación: {session.result['error']}")
         return RUN_EXIT_ERROR, None
@@ -7548,9 +7509,9 @@ def runner_exit_reason(proc: subprocess.Popen, stderr_log: IO[bytes] | None) -> 
 
 def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc: subprocess.Popen | None = None,
                    browser_proc: subprocess.Popen | None = None, runner_log: IO[bytes] | None = None):
-    """Detiene el servidor al recibir el resultado, si termina el runner propio o al agotar los plazos."""
+    """Detiene el servidor al recibir el resultado o si termina el runner propio. Sin plazos: lo que dura una ejecución
+    lo decide quien la lanza (la cancela o la interrumpe), y cada paso cerrado ya está grabado."""
     proc = runner_proc if runner_proc is not None else browser_proc
-    deadline = time.monotonic() + RUN_TOTAL_TIMEOUT
     while not session.finished.wait(RUN_POLL_SECONDS):
         # El latido o una señal ya detienen el servidor: el resultado queda vacío.
         if _SERVER_SHUTTING_DOWN.is_set():
@@ -7558,12 +7519,6 @@ def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc
         if proc is not None and proc.poll() is not None and not session.finished.wait(0.2):
             if runner_proc is not None:
                 session.stop_reason = runner_exit_reason(runner_proc, runner_log)
-            break
-        if time.monotonic() >= deadline + session.waited_seconds():
-            session.stop_reason = f"Plazo total agotado ({RUN_TOTAL_TIMEOUT:.0f}s, sin contar las esperas)."
-            break
-        if session.idle_seconds() > RUN_IDLE_SECONDS:
-            session.stop_reason = f"Sin progreso de la interfaz durante {RUN_IDLE_SECONDS:.0f}s."
             break
     if session.result is None and session.conversation_id:
         with session.lock:
@@ -8088,15 +8043,9 @@ def execute_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
         message = (f"The browser is in use by another conversation. It is released after {int(BROWSER_LEASE_IDLE_SECONDS)} "
                    "seconds without use; tell the user or try again later.")
         return {"content": [{"type": "text", "text": _tool_error(message)}], "isError": True}, None, message
-    # En una ejecución desatendida, esperar en check_command no es inactividad ni gasta el plazo total.
-    session = current_run_session() if origin == "local" and tool_name == JOB_CONTROL_TOOL else None
-    if session is not None:
-        session.begin_wait()
     try:
         return run_tool(origin, tool_name, args, ctx)
     finally:
-        if session is not None:
-            session.end_wait()
         # El plazo cuenta desde que la acción termina: lo que tarde no acorta lo que el modelo puede razonar después.
         if browser:
             BROWSER_LEASES.acquire(browser, conversation_id)
@@ -9178,7 +9127,7 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
     parser.add_argument("--list-profiles", action="store_true", help="Listar los perfiles de conexión generales almacenados en el servidor local")
     parser.add_argument("--list-conversations", action="store_true", help="Listar las conversaciones almacenadas en el servidor local")
-    parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 plazo agotado o navegador cerrado, 3 fallo de arranque, 4 argumentos no válidos)")
+    parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 runner o navegador cerrado sin resultado, 3 fallo de arranque, 4 argumentos no válidos)")
     parser.add_argument("--conversation", default=None, help="Con --prompt o para continuar, id de la conversación almacenada en SQLite")
     parser.add_argument("--profile", default=None, help=f"Con --prompt o --conversation, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo (por defecto: {DEFAULT_RUN_PROFILE} del servidor)")
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt o --conversation)")
