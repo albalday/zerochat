@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "brave",
+  "version": "1.0.0",
+  "displayName": {
+    "es": "Brave Search",
+    "en": "Brave Search"
+  },
+  "description": {
+    "es": "Búsqueda web, de noticias, imágenes, vídeos y lugares con la API de Brave Search, mediante su servidor MCP oficial. Necesita una clave de la API de Brave Search.",
+    "en": "Web, news, image, video and place search with the Brave Search API, through its official MCP server. It needs a Brave Search API key."
+  },
+  "help": {
+    "url": "https://api-dashboard.search.brave.com/",
+    "label": {
+      "es": "Obtener una clave de Brave Search",
+      "en": "Get a Brave Search key"
+    }
+  },
+  "enabledByDefault": false,
+  "transport": "stdio",
+  "secrets": [
+    {
+      "name": "BRAVE_API_KEY",
+      "label": {
+        "es": "Clave de la API de Brave Search",
+        "en": "Brave Search API key"
+      }
+    }
+  ],
+  "launch": {
+    "executable": "${nodeExecutable}",
+    "args": ["${serviceDir}/node_modules/@brave/brave-search-mcp-server/dist/index.js", "--transport", "stdio"],
+    "cwd": "${serviceDir}",
+    "env": {
+      "BRAVE_API_KEY": "${secret:BRAVE_API_KEY}",
+      "BRAVE_MCP_TRANSPORT": "stdio"
+    },
+    "handshakeTimeoutSeconds": 30
+  }
+}

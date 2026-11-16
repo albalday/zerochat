@@ -75,6 +75,7 @@ py zerochat.py</code></pre></div>
           <tr><td><code>composio</code></td><td>Remote apps through mcp-remote and OAuth; Node.js 18+ and npm.</td></tr>
           <tr><td><code>playwright</code></td><td>Browser automation; Node.js 18+, npm and Chromium. Its browser is set up in <a href="browser-action.html">Settings › Browser</a>, and its tools are only offered if Playwright MCP is chosen there.</td></tr>
           <tr><td><code>memory</code></td><td>Memory and knowledge graphs; Node.js 18+ and npm.</td></tr>
+          <tr><td><code>brave</code></td><td>Web, news, image, video and place search with the official Brave Search MCP server; Node.js 20+, npm and a <a href="https://api-dashboard.search.brave.com/" target="_blank" rel="noopener noreferrer">Brave Search API key</a>, saved on its card (<a href="#api-key-servicio">section 6</a>). Its tools are named <code>brave_brave_web_search</code>, <code>brave_brave_news_search</code> and so on; the profile decides whether it starts alongside <code>search_web</code>.</td></tr>
         </tbody>
       </table></div>
       <div class="subsection" id="nodejs-windows">
@@ -155,7 +156,7 @@ Do not ask for my key or write it in any file, the arguments or
 the URL.
 Do not install or start it; I will do that from Settings → MCP.</code></pre></div>
       </div>
-      <p>If the new folder does not appear in Settings → MCP, restart ZeroChat and reconnect. Your own folders survive updates. Bundled definitions (<code>ejemplo</code>, <code>composio</code>, <code>playwright</code>, <code>memory</code>) update themselves when a new version is published (ZeroChat checks at startup and every hour, and restarts the ones running); create a copy with a new name and id instead of editing them. Do not copy dependencies or OAuth credentials.</p>
+      <p>If the new folder does not appear in Settings → MCP, restart ZeroChat and reconnect. Your own folders survive updates. Bundled definitions (<code>ejemplo</code>, <code>composio</code>, <code>playwright</code>, <code>memory</code>, <code>brave</code>) update themselves when a new version is published (ZeroChat checks at startup and every hour, and restarts the ones running); create a copy with a new name and id instead of editing them. Do not copy dependencies or OAuth credentials.</p>
     </div>
 
     <div class="card" id="api-key-servicio">

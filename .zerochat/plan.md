@@ -25,5 +25,5 @@ Done when: el icono de chat nuevo de otro proyecto lleva a ese proyecto con un c
 - [x] M75-T7 Almacén de API keys: inventario, puntos débiles y normas de qué claves viven en la interfaz, en el backend y cuáles se intercambian (docs/M75-apikeys.md), para decidir antes de añadir Brave Search (2026-11-16)
 - [x] M75-T8 Claves de los perfiles del servidor: ofuscación simple en SQLite (migración 7 para las guardadas en claro), zerochat/profiles/list sin claves (hasApiKey) y zerochat/profiles/reveal para editar un perfil del servidor en local (2026-11-16)
 - [x] M75-T9 Secretos de los servicios MCP: tabla de secretos en SQLite con la misma ofuscación, declaración en service.json, marcador ${secret:…} en launch.env, métodos de guardar y borrar sin lectura, y su campo en Ajustes › MCP (es y en) (2026-11-16)
-- [ ] M75-T10 Servicio Brave Search en el catálogo de services/ con su clave como secreto del servicio; pruebas de arranque sin clave y con clave
+- [x] M75-T10 Servicio Brave Search en el catálogo de services/ con su clave como secreto del servicio; pruebas de arranque sin clave y con clave (2026-11-16)
 - [x] M75-T11 La ayuda (help/mcp.html, es y en) y la plantilla services/ejemplo enseñan a declarar la API key de un servicio propio en secrets con ${secret:…} y a guardarla en Ajustes › MCP, en lugar de pegarla en claro en service.json (2026-11-16)

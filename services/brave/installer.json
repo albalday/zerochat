@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "type": "npm",
+  "product": {
+    "package": "@brave/brave-search-mcp-server",
+    "version": "2.1.4"
+  },
+  "requirements": {
+    "node": {
+      "minimumMajor": 20
+    }
+  }
+}

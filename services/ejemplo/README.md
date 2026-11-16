@@ -50,6 +50,7 @@ Todo servicio MCP debe diseñarse para permitir invocaciones simultáneas (varia
 - **`memory`**: persistencia monoproceso en `${serviceDir}/memory.jsonl`. No implementa sincronización atómica entre procesos; no debe compartirse simultáneamente entre varias tareas que escriban entidades a la vez.
 - **`composio`**: puente remoto vía `mcp-remote`. El flujo OAuth inicial es interactivo y no funciona en segundo plano ni en paralelo; tras autorizarse, las consultas remotas operan concurrentemente.
 - **`ejemplo`**: servidor de prueba en memoria por `stdio`, 100% seguro para concurrencia.
+- **`brave`**: consultas sin estado a la API de Brave Search, seguro para ejecución paralela; su clave se declara en `secrets` y respeta el límite de peticiones del plan de Brave.
 
 ## Prompt para el usuario
 
@@ -98,7 +99,7 @@ Adapta la cabecera y su formato a lo que exige el proveedor. `remote.authenticat
 
 ### Pasos para el usuario
 
-1. Usa una carpeta propia bajo el directorio de servicios, con nombre e `id` únicos. Si copias un servicio incluido, copia sus definiciones, no sus dependencias ni credenciales OAuth. No edites `ejemplo`, `composio`, `playwright` ni `memory`: sus archivos distribuidos se restauran al arrancar.
+1. Usa una carpeta propia bajo el directorio de servicios, con nombre e `id` únicos. Si copias un servicio incluido, copia sus definiciones, no sus dependencias ni credenciales OAuth. No edites `ejemplo`, `composio`, `playwright`, `memory` ni `brave`: sus archivos distribuidos se restauran al arrancar.
 2. Si la nueva carpeta no aparece en Ajustes → MCP, reinicia ZeroChat y conecta de nuevo.
 3. Pulsa **Guardar clave…** junto a la clave del servicio y escríbela en el diálogo. Para cambiarla, vuelve a guardarla; si el servicio está en marcha, se detiene y hay que iniciarlo otra vez. **Borrar** la elimina.
 4. Inicia el servicio desde Ajustes → MCP.
@@ -129,6 +130,7 @@ All MCP services must be designed to support simultaneous executions (multiple b
 - **`memory`**: single-process JSONL persistence (`memory.jsonl`); concurrent writes can overwrite data.
 - **`composio`**: remote bridge via `mcp-remote`; initial OAuth is strictly interactive, while post-auth tool calls support parallel requests.
 - **`ejemplo`**: stateless in-memory `stdio` echo server, fully parallel-safe.
+- **`brave`**: stateless Brave Search API queries, parallel-safe; its key is declared in `secrets` and calls count against the Brave plan's rate limit.
 
 The user saves each declared key with **Save key…** in Settings → MCP. ZeroChat stores it obfuscated in its local database, never returns it, and passes it only in the service process environment at startup; without it, the service does not start and its error names the missing key. No shell export, `.env` or credentials file is needed. ZeroChat only expands service/interpreter paths, `${option:...}` and, only in `launch.env`, `${secret:...}`; generic environment placeholders stay literal.
 

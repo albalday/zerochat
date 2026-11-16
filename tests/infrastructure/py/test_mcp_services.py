@@ -101,6 +101,14 @@ class ManagedServicesTest(unittest.TestCase):
         self.assertEqual(json.loads(args[args.index("--static-oauth-client-metadata") + 1])["client_name"], "zerochat-mcp-remote")
         self.assertEqual(args[args.index("--protocol") + 1], "legacy")
 
+    def test_brave_toma_su_clave_de_los_secretos_solo_en_el_entorno(self):
+        # La prueba del mecanismo de secretos está más abajo; aquí, que la definición publicada lo usa bien.
+        definition = json.loads((REPO_SERVICES / "brave" / "service.json").read_text(encoding="utf-8"))
+        self.assertEqual([secret["name"] for secret in zerochat.service_secrets(definition)], ["BRAVE_API_KEY"])
+        self.assertEqual(definition["launch"]["env"]["BRAVE_API_KEY"], "${secret:BRAVE_API_KEY}")
+        self.assertNotIn("${secret:", json.dumps(definition["launch"]["args"]))
+        self.assertEqual(definition["launch"]["args"][-2:], ["--transport", "stdio"])
+
     def test_las_trazas_ocultan_el_state_y_el_code_de_oauth(self):
         trace = zerochat._mcp_trace_text("https://auth.example/authorize?state=csrf-value&code=oauth-code&scope=openid")
         self.assertNotIn("csrf-value", trace)
