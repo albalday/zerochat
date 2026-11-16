@@ -12,7 +12,7 @@ from pathlib import Path
 
 from core.environment import add_notice, get_dev_root
 
-SOURCE_BACKEND_VERSION = "10.20.0"
+SOURCE_BACKEND_VERSION = "10.21.0"
 
 
 def _read_source_version(filename: str) -> str | None:
@@ -64,6 +64,9 @@ VERSION = compatibility_version(BACKEND_PACKAGE_VERSION)
 UI_VERSION = _read_ui_version()
 DEFAULT_UI_URL = "https://albalday.github.io/zerochat/zerochat.html"
 REMOTE_SCRIPT_URL = "https://raw.githubusercontent.com/albalday/zerochat/master/zerochat.py"
+# Versión publicada de la interfaz: la del título de zerochat.html, sin distinguir mayúsculas. La leen este módulo
+# y el cargador del runner de Node, en Python y en JavaScript: el patrón es válido en los dos.
+UI_VERSION_TITLE_PATTERN = r"<title>\s*ZeroChat\s+v(\d+\.\d+\.\d+)\s*</title>"
 
 
 def parse_version(ver: str) -> tuple[int, ...]:
@@ -87,7 +90,7 @@ def _read_remote_content(url: str) -> str:
 def _read_remote_ui_version() -> str | None:
     """Extrae la versión del título de la interfaz servida por GitHub Pages."""
     content = _read_remote_content(DEFAULT_UI_URL)
-    match = re.search(r"<title>\s*ZeroChat\s+v(\d+\.\d+\.\d+)\s*</title>", content, re.IGNORECASE)
+    match = re.search(UI_VERSION_TITLE_PATTERN, content, re.IGNORECASE)
     return match.group(1) if match else None
 
 

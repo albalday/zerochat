@@ -11,27 +11,28 @@ Rules for agents go in this file; if details live in other docs, link them from 
 Every agent working in this repository keeps the project memory up to date:
 
 - `.zerochat/state.md`: current milestone and next task. Read it before starting work. Keep it under 30 lines.
-- `.zerochat/plan.md`: milestones and tasks.
-- `.zerochat/log.md`: decisions, one line each, append only and never archived. Search it; do not read it in full.
-- `.zerochat/archive/M<n>.md`: plan sections of closed milestones. Search them; do not read them in full.
+- `.zerochat/plan.md`: active milestones and their tasks, plus the last 2–3 closed milestone headers. Read the current milestone section before starting its next task.
+- `.zerochat/log.md`: active architectural invariants and system truths, one line each. Read it before designing changes or touching a subsystem so you do not break active contracts.
+- `.zerochat/archive/` (`M<n>.md` and `log_M<a>-M<b>.md`): plan sections of closed milestones and rotated decision logs. Search them; do not read them in full.
 
 Tasks take one line each, with an ID numbered within their milestone: `- [ ] M2-T3 Short description`.
 - Keep tasks scoped (~300 lines of code max); when a module spans several variants or formats, add a prior task for the shared base.
 - Mark a task done by editing only its line: `- [x] M2-T3 Short description (YYYY-MM-DD)`. A dropped task is marked done with `(dropped: reason)`.
 - Never renumber or reuse an ID. A new task or decision takes the next number in its milestone (M2-T4, M2-D2).
-- Never rewrite .zerochat/plan.md or .zerochat/log.md as a whole: edit or append single lines.
+- Never rewrite .zerochat/plan.md or .zerochat/log.md as a whole during daily work: edit or append single lines.
 
 To mark a task done, record decisions and update state atomically in one command:
 `python3 .zerochat/task.py done <TASK_ID> [-d "Decision text"] [-n <NEXT_TASK>]`
 (or edit files manually if python is unavailable).
 
-Record architectural or design decisions by appending to .zerochat/log.md: `- YYYY-MM-DD M2-D1 Decision and reason (M2-T3)`. Routine code changes, bugfixes or implementations that code makes obvious do not require a log entry.
+Omit `-d` by default: routine code changes, bugfixes, refactors, test updates, or opening/closing milestones do not go in `.zerochat/log.md`. Pass `-d` (`- YYYY-MM-DD M2-D1 Decision and reason (M2-T3)`) only when the task establishes a system invariant, a cross-layer or security contract, an explicitly accepted risk, or why an alternative was rejected ("why not X"); if it replaces an older decision, start with `Supersedes Mn-Dm: ...` (keep `Mn-Dm` until the next compaction).
 
 Before starting work that is not in .zerochat/plan.md, add it as the next task of the current milestone.
-Right after finishing each task, before starting the next one: mark it in .zerochat/plan.md, append its decisions to .zerochat/log.md and set the next task in .zerochat/state.md (or use `task.py done`).
+Right after finishing each task, before starting the next one: mark it in .zerochat/plan.md, append its decision, if any, to .zerochat/log.md and set the next task in .zerochat/state.md (or use `task.py done`).
 
 Ask the user before closing a milestone or adding a new one. Every milestone has a Goal and a Done when line.
 When the user confirms a milestone is closed: move its section from .zerochat/plan.md to `.zerochat/archive/M<n>.md` (move, never delete), leave `## M<n> Title: closed YYYY-MM-DD` in .zerochat/plan.md and update .zerochat/state.md.
+Compact `.zerochat/log.md` and older closed milestone headers in `.zerochat/plan.md` only when asked by the user: archive closed-milestone decisions verbatim to `.zerochat/archive/log_M<a>-M<b>.md` before removing superseded or routine ones from `.zerochat/log.md`, and keep open-milestone decisions in `.zerochat/log.md`.
 
 `.zerochat/` is versioned and never ignored: commit its changes on `dev` in the same commit as the work they record.
 

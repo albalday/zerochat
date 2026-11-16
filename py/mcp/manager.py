@@ -1,4 +1,5 @@
-"""Gestor de servicios MCP: descubrimiento en ~/zerochat/services, preferencias, arranque y parada, y nombres públicos de sus herramientas."""
+"""Gestor de servicios MCP: descubrimiento en ~/zerochat/services, actualización desde el catálogo, preferencias,
+arranque y parada, y nombres públicos de sus herramientas."""
 
 from __future__ import annotations
 
@@ -10,13 +11,22 @@ import shutil
 import subprocess
 import sys
 import threading
+import urllib.parse
 from pathlib import Path
 
 from browser.config import PLAYWRIGHT_SERVER_ID, SERVICE_LAUNCH
 from browser.engines import on_playwright_status
 from core.environment import get_data_dir, get_venv_dir, get_venv_python
 from core.logging import log_event
-from mcp.managed_services import materialize_managed_services
+from mcp.catalog import (
+    CATALOG_PATH,
+    catalog_base,
+    download,
+    download_service,
+    install_service,
+    installed_version,
+    parse_catalog,
+)
 from mcp.stdio_client import (
     DEFAULT_MCP_CALL_TIMEOUT_SECONDS,
     StdioMcpClient,
@@ -60,6 +70,10 @@ def service_status(record: McpServiceRecord, alive: bool, exit_code: int | None)
     return "error", "MCP process is not responding"
 
 
+# Cada cuánto se vuelve a mirar el catálogo publicado con el servidor en marcha.
+CATALOG_REFRESH_SECONDS = 3600
+
+
 def _npm_install_needed(marker: Path, package_dir: Path, package: str, version: str) -> bool:
     """Falta la instalación, o la registrada en marker es de otro paquete o versión."""
     if not marker.exists() or not package_dir.is_dir():
@@ -87,7 +101,7 @@ class McpServiceManager:
         self.config_file = get_data_dir() / "config" / "services.json"
         self.records: dict[str, McpServiceRecord] = {}
         self._lock = threading.Lock()
-        self._materialized = False
+        self._catalog_stop = threading.Event()
         self._services: dict[str, dict] | None = None
         self._preferences: dict | None = None
 
@@ -112,12 +126,9 @@ class McpServiceManager:
         log_event(f"[MCP {server_id}] {_mcp_trace_text(message)}")
 
     def _load_services(self) -> dict[str, dict]:
-        # La primera vez copia los servicios gestionados, sin borrar datos ni servicios del usuario.
-        if not self._materialized:
-            self.services_root.mkdir(parents=True, exist_ok=True)
-            materialize_managed_services(self.services_root)
-            self._materialized = True
         servers = {}
+        if not self.services_root.is_dir():
+            return servers
         for directory in sorted(self.services_root.iterdir()):
             if not directory.is_dir():
                 continue
@@ -275,60 +286,63 @@ class McpServiceManager:
         `browser` es el navegador que exige el perfil activo, solo para Playwright MCP."""
         with self._lock:
             self.services = self._load_services()
-            server = self.services.get(server_id)
-            if not server:
-                raise KeyError(f"Servidor MCP desconocido: {server_id}")
-            record = self.records.setdefault(server_id, McpServiceRecord())
-            if record.client and record.client.running():
-                return self.list_servers()
-            record.phase, record.error = "starting", None
-            client = None
-            self._trace(server_id, "start requested")
-            try:
-                service_dir = server["_directory"]
-                values = self._prepare_service(server_id, server)
-                user_opts = self.preferences.get(server_id, {}).get("options", {})
-                option_args = []
-                for opt in server.get("options", []):
-                    opt_id = opt.get("id")
-                    if not opt_id:
-                        continue
-                    val = user_opts.get(opt_id, opt.get("default"))
-                    values[f"option:{opt_id}"] = str(val)
-                    if opt.get("type") == "boolean":
-                        option_args.extend(opt.get("argsWhenTrue", []) if val else opt.get("argsWhenFalse", []))
-
-                launch = server.get("launch", {})
-                command = self._expand(launch.get("executable", sys.executable), values)
-                args = [self._expand(arg, values) for arg in launch.get("args", []) + option_args]
-                env = os.environ.copy()
-                for k, v in launch.get("env", {}).items():
-                    env[k] = self._expand(v, values)
-                record.browser = None
-                if server_id in SERVICE_LAUNCH:
-                    extra_args, extra_env, record.browser = SERVICE_LAUNCH[server_id](browser)
-                    args += extra_args
-                    env.update(extra_env)
-
-                client = StdioMcpClient(
-                    command, args, str(service_dir), env,
-                    trace=lambda message: self._trace(server_id, message),
-                    call_timeout=_positive_seconds(launch.get("callTimeoutSeconds"), DEFAULT_MCP_CALL_TIMEOUT_SECONDS)
-                )
-                # _prepare_service puede haber dejado el estado en "installing".
-                record.phase, record.client = "starting", client
-                client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
-                record.phase = "running"
-                if remember:
-                    self._remember(server_id, True)
-                self._trace(server_id, "started successfully")
-            except Exception as exc:
-                record.phase, record.error = "error", str(exc)
-                self._trace(server_id, f"start failed: {exc}")
-                stale, record.client = record.client or client, None
-                if stale:
-                    stale.stop()
+            self._start_locked(server_id, remember, browser)
             return self.list_servers()
+
+    def _start_locked(self, server_id: str, remember: bool, browser: dict | None):
+        server = self.services.get(server_id)
+        if not server:
+            raise KeyError(f"Servidor MCP desconocido: {server_id}")
+        record = self.records.setdefault(server_id, McpServiceRecord())
+        if record.client and record.client.running():
+            return
+        record.phase, record.error = "starting", None
+        client = None
+        self._trace(server_id, "start requested")
+        try:
+            service_dir = server["_directory"]
+            values = self._prepare_service(server_id, server)
+            user_opts = self.preferences.get(server_id, {}).get("options", {})
+            option_args = []
+            for opt in server.get("options", []):
+                opt_id = opt.get("id")
+                if not opt_id:
+                    continue
+                val = user_opts.get(opt_id, opt.get("default"))
+                values[f"option:{opt_id}"] = str(val)
+                if opt.get("type") == "boolean":
+                    option_args.extend(opt.get("argsWhenTrue", []) if val else opt.get("argsWhenFalse", []))
+
+            launch = server.get("launch", {})
+            command = self._expand(launch.get("executable", sys.executable), values)
+            args = [self._expand(arg, values) for arg in launch.get("args", []) + option_args]
+            env = os.environ.copy()
+            for k, v in launch.get("env", {}).items():
+                env[k] = self._expand(v, values)
+            record.browser = None
+            if server_id in SERVICE_LAUNCH:
+                extra_args, extra_env, record.browser = SERVICE_LAUNCH[server_id](browser)
+                args += extra_args
+                env.update(extra_env)
+
+            client = StdioMcpClient(
+                command, args, str(service_dir), env,
+                trace=lambda message: self._trace(server_id, message),
+                call_timeout=_positive_seconds(launch.get("callTimeoutSeconds"), DEFAULT_MCP_CALL_TIMEOUT_SECONDS)
+            )
+            # _prepare_service puede haber dejado el estado en "installing".
+            record.phase, record.client = "starting", client
+            client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
+            record.phase = "running"
+            if remember:
+                self._remember(server_id, True)
+            self._trace(server_id, "started successfully")
+        except Exception as exc:
+            record.phase, record.error = "error", str(exc)
+            self._trace(server_id, f"start failed: {exc}")
+            stale, record.client = record.client or client, None
+            if stale:
+                stale.stop()
 
     def stop(self, server_id: str) -> list[dict]:
         with self._lock:
@@ -415,7 +429,57 @@ class McpServiceManager:
         _, client, original_name = resolved
         return client.request("tools/call", {"name": original_name, "arguments": arguments}, timeout=client.call_timeout)
 
+    def start_catalog_refresh(self, ui_url: str):
+        """Mantiene al día los servicios incluidos con el catálogo de la carpeta de la interfaz: lo mira ahora y
+        después cada CATALOG_REFRESH_SECONDS, en un hilo propio para no retrasar el arranque ni las peticiones."""
+        base = catalog_base(ui_url)
+
+        def loop():
+            while True:
+                self.refresh_catalog(base)
+                if self._catalog_stop.wait(CATALOG_REFRESH_SECONDS):
+                    return
+
+        threading.Thread(target=loop, name="mcp-catalog", daemon=True).start()
+
+    def refresh_catalog(self, base: str) -> list[str]:
+        """Actualiza los servicios cuya versión difiere de la del catálogo y reinicia los que estaban en marcha.
+        Sin red, o con un catálogo no válido, se quedan los instalados; un servicio que no se puede descargar
+        entero no se toca. Devuelve los ids actualizados."""
+        try:
+            catalog = parse_catalog(download(urllib.parse.urljoin(base, CATALOG_PATH)))
+        except Exception as exc:
+            log_event(f"[MCP catalog] {base}{CATALOG_PATH} no disponible; se usan los servicios instalados: {exc}")
+            return []
+        downloads = {}
+        for server_id, entry in catalog.items():
+            if installed_version(self.services_root, server_id) == entry["version"]:
+                continue
+            try:
+                downloads[server_id] = download_service(base, server_id, entry)
+            except Exception as exc:
+                log_event(f"[MCP catalog] {server_id} {entry['version']} no se pudo descargar; se mantiene el instalado: {exc}")
+        if downloads:
+            self._install_updates(downloads, catalog)
+        return sorted(downloads)
+
+    def _install_updates(self, downloads: dict[str, dict[str, bytes]], catalog: dict[str, dict]):
+        with self._lock:
+            for server_id, files in downloads.items():
+                install_service(self.services_root, server_id, files)
+                log_event(f"[MCP catalog] {server_id} actualizado a la versión {catalog[server_id]['version']}")
+            self.services = self._load_services()
+            for server_id in downloads:
+                record = self.records.get(server_id)
+                if not (record and record.client and record.client.running()):
+                    continue
+                # Se reinicia con el navegador con el que arrancó y sin cambiar si se recuerda.
+                self._trace(server_id, "restarting with the updated version")
+                record.client.stop()
+                self._start_locked(server_id, False, record.browser)
+
     def close(self):
+        self._catalog_stop.set()
         with self._lock:
             for record in self.records.values():
                 if record.client:

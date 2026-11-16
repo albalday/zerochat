@@ -9,9 +9,9 @@ import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 from backend import use_data_dir, zerochat
-from pathlib import Path
 
 # Proyecto de la petición, distinto del proyecto por defecto del servidor.
 CTX = zerochat.SecurityContext(Path(tempfile.gettempdir()).resolve())
@@ -365,16 +365,19 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
     def test_launch_node_runner_usa_modelo_de_permisos(self):
         url = "http://127.0.0.1:9999/zerochat.html#run=r1"
         cache_dir = self.data_dir / "cache" / "runner"
-        with mock.patch.object(zerochat, "find_node_executable", return_value="/usr/bin/node"), \
-             mock.patch("subprocess.Popen", return_value=mock.Mock()) as popen:
-            _proc, stderr_log = zerochat.launch_node_runner(url)
-        self.addCleanup(stderr_log.close)
-        self.assertIs(popen.call_args.kwargs["stderr"], stderr_log)
-        # Del disco solo toca su caché; ni procesos, ni workers, ni inspector.
-        self.assertEqual(popen.call_args.args[0], [
-            "/usr/bin/node", "--permission", f"--allow-fs-read={cache_dir}", f"--allow-fs-write={cache_dir}",
-            "-e", zerochat.RUNNER_LOADER_SCRIPT, str(cache_dir / "modules.json"), url,
-        ])
+        # Instalado ejecuta la caché de la versión publicada; en el repositorio de desarrollo descarga siempre.
+        for dev_root, policy in ((None, zerochat.RUNNER_CACHE_BY_VERSION), (Path("/repo"), zerochat.RUNNER_CACHE_ALWAYS_DOWNLOAD)):
+            with self.subTest(policy=policy), mock.patch.object(zerochat, "get_dev_root", return_value=dev_root), \
+                    mock.patch.object(zerochat, "find_node_executable", return_value="/usr/bin/node"), \
+                    mock.patch("subprocess.Popen", return_value=mock.Mock()) as popen:
+                _proc, stderr_log = zerochat.launch_node_runner(url)
+                self.addCleanup(stderr_log.close)
+                self.assertIs(popen.call_args.kwargs["stderr"], stderr_log)
+                # Del disco solo toca su caché; ni procesos, ni workers, ni inspector.
+                self.assertEqual(popen.call_args.args[0], [
+                    "/usr/bin/node", "--permission", f"--allow-fs-read={cache_dir}", f"--allow-fs-write={cache_dir}",
+                    "-e", zerochat.RUNNER_LOADER_SCRIPT, str(cache_dir / "modules.json"), url, policy,
+                ])
         if os.name != "nt":
             self.assertEqual(stat.S_IMODE(cache_dir.stat().st_mode), 0o700)
 

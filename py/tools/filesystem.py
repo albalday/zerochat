@@ -14,7 +14,7 @@ from pathlib import Path
 
 from core.limits import MAX_PATH_LENGTH
 from security.context import SecurityContext
-from tools.common import _atomic_write_text, _tool_error
+from tools.common import _atomic_write_text, _tool_error, line_matches, text_terms
 
 IGNORED_WORKSPACE_DIRS = {
     ".git", ".venv", "venv", "node_modules", "__pycache__",
@@ -298,8 +298,8 @@ SEARCH_MAX_FILE_BYTES = 2 * 1024 * 1024
 SEARCH_LINE_CHARS = 300
 
 
-def _search_lines(fpath: Path, target: Path, regex: re.Pattern, limit: int) -> list[dict]:
-    """Hasta limit líneas de fpath que casan con regex; un fichero que no se puede leer no tiene ninguna."""
+def _search_lines(fpath: Path, target: Path, terms: tuple[str, ...], limit: int) -> list[dict]:
+    """Hasta limit líneas de fpath que contienen alguno de los textos; un fichero que no se puede leer no tiene ninguna."""
     try:
         rel_path = fpath.relative_to(target).as_posix()
     except ValueError:
@@ -308,7 +308,7 @@ def _search_lines(fpath: Path, target: Path, regex: re.Pattern, limit: int) -> l
     try:
         with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
             for line_idx, line in enumerate(f, 1):
-                if regex.search(line):
+                if line_matches(line, terms):
                     found.append({"file": str(fpath), "relative_path": rel_path, "line_number": line_idx,
                                   "content": line.rstrip("\r\n")[:SEARCH_LINE_CHARS]})
                     if len(found) >= limit:
@@ -319,20 +319,18 @@ def _search_lines(fpath: Path, target: Path, regex: re.Pattern, limit: int) -> l
 
 
 def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100, *, ctx: SecurityContext) -> str:
-    """Recursively search for plain text or regular expressions across project files."""
+    """
+    Busca texto fijo, sin distinguir mayúsculas, en un fichero o en los de una carpeta: la consulta es uno o varios
+    textos separados por | y no una expresión regular, porque re no suelta el GIL y una expresión con retroceso
+    catastrófico congelaría todo el servidor (como en check_command). Las búsquedas reales son texto fijo.
+    """
     try:
         target = ctx.absolute(path)
         if not target.exists():
             return _tool_error(f"Path '{path}' does not exist.")
-        if not target.is_dir():
-            return _tool_error(f"Path '{path}' is not a directory.")
-
-        warning = None
-        try:
-            regex = re.compile(query, re.MULTILINE)
-        except re.error as err:
-            warning = f"Query '{query}' is not a valid regular expression ({err}); treated as literal text."
-            regex = re.compile(re.escape(query), re.MULTILINE)
+        terms = text_terms(query)
+        if not terms:
+            return _tool_error("query needs at least one text, such as 'validate_token|check_token'.")
 
         try:
             safe_max_results = max(1, min(int(max_results), 500))
@@ -341,7 +339,8 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
 
         matches = []
         files_searched = 0
-        for fpath in _walk_project_files(target):
+        root = target if target.is_dir() else target.parent
+        for fpath in _walk_project_files(target) if target.is_dir() else (target,):
             if file_pattern and not fnmatch.fnmatch(fpath.name, file_pattern):
                 continue
             try:
@@ -350,7 +349,7 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
             except OSError:
                 continue
             files_searched += 1
-            matches.extend(_search_lines(fpath, target, regex, safe_max_results - len(matches)))
+            matches.extend(_search_lines(fpath, root, terms, safe_max_results - len(matches)))
             if len(matches) >= safe_max_results:
                 break
 
@@ -364,9 +363,6 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
             "truncated": len(matches) >= safe_max_results,
             "matches": matches
         }
-        if warning:
-            payload["warning"] = warning
-
         return json.dumps(payload, ensure_ascii=False, indent=2)
     except Exception as e:
         return _tool_error(str(e))

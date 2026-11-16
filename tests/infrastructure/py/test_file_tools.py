@@ -50,12 +50,18 @@ class ExternalSymlinkTest(unittest.TestCase):
         self.assertEqual(outside["total_matches"], 0)
         inside = json.loads(zerochat.search_files("hello", path=str(self.project), ctx=CTX))
         self.assertEqual((inside["success"], inside["total_matches"]), (True, 1))
-        self.assertNotIn("warning", inside)
 
-    def test_search_files_avisa_cuando_una_regex_invalida_pasa_a_texto_literal(self):
-        result = json.loads(zerochat.search_files("hello(", path=str(self.project), ctx=CTX))
-        self.assertIs(result["success"], True)
-        self.assertIn("treated as literal text", result["warning"])
+    def test_search_files_busca_textos_fijos_separados_por_barra_en_una_carpeta_o_un_fichero(self):
+        notes = self.project / "notes.md"
+        notes.write_text("runner.js loads\nrunnerXjs is not a match\n(a+)+$ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab\nM72 PLAN\n", encoding="utf-8")
+        search = lambda query, path=notes: json.loads(zerochat.search_files(query, path=str(path), ctx=CTX))
+        lines = lambda result: [match["line_number"] for match in result["matches"]]
+        # Texto fijo: el punto no casa con cualquier carácter y un patrón catastrófico es solo texto.
+        self.assertEqual(lines(search("runner.js")), [1])
+        self.assertEqual(lines(search("(a+)+$")), [3])
+        self.assertEqual(lines(search("m72| loads ")), [1, 4])
+        self.assertEqual(search("m72", self.project)["matches"][0]["relative_path"], "notes.md")
+        self.assertEqual(search(" | ")["success"], False)
 
     def test_search_files_filtra_por_glob_y_acota_los_resultados(self):
         python_only = json.loads(zerochat.search_files("in", path=str(self.project), file_pattern="*.py", ctx=CTX))

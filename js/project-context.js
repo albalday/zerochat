@@ -37,26 +37,27 @@ Rules for agents go in this file; if details live in other docs, link them from 
 Every agent working in this repository keeps the project memory up to date:
 
 - \`${STATE_FILE}\`: current milestone and next task. Read it before starting work. Keep it under 30 lines.
-- \`${PLAN_FILE}\`: milestones and their tasks.
-- \`${LOG_FILE}\`: decisions, one line each, append only and never archived. Search it; do not read it in full.
-- \`${ARCHIVE_DIR}/M<n>.md\`: plan sections of closed milestones. Search them; do not read them in full.
+- \`${PLAN_FILE}\`: active milestones and their tasks, plus the last 2–3 closed milestone headers. Read the current milestone section before starting its next task.
+- \`${LOG_FILE}\`: active architectural invariants and system truths, one line each. Read it before designing changes or touching a subsystem so you do not break active contracts.
+- \`${ARCHIVE_DIR}/\` (\`M<n>.md\` and \`log_M<a>-M<b>.md\`): plan sections of closed milestones and rotated decision logs. Search them; do not read them in full.
 
 Tasks take one line each, with an ID numbered within their milestone: \`- [ ] M2-T3 Short description\`.
 - Mark a task done by editing only its line: \`- [x] M2-T3 Short description (YYYY-MM-DD)\`. A dropped task is marked done with \`(dropped: reason)\`.
 - Never renumber or reuse an ID. A new task or decision takes the next number in its milestone (M2-T4, M2-D2).
-- Never rewrite ${PLAN_FILE} or ${LOG_FILE} as a whole: edit or append single lines.
+- Never rewrite ${PLAN_FILE} or ${LOG_FILE} as a whole during daily work: edit or append single lines.
 
 To mark a task done, record decisions and update state atomically in one command:
 \`python3 ${TASK_HELPER_FILE} done <TASK_ID> [-d "Decision text"] [-n <NEXT_TASK>]\`
 (or edit files manually if python is unavailable).
 
-Record architectural or design decisions by appending to ${LOG_FILE}: \`- YYYY-MM-DD M2-D1 Decision and reason (M2-T3)\`. Routine code changes, bugfixes or implementations that code makes obvious do not require a log entry.
+Omit \`-d\` by default: routine code changes, bugfixes, refactors, test updates, or opening/closing milestones do not go in ${LOG_FILE}. Pass \`-d\` (\`- YYYY-MM-DD M2-D1 Decision and reason (M2-T3)\`) only when the task establishes a system invariant, a cross-layer or security contract, an explicitly accepted risk, or why an alternative was rejected ("why not X"); if it replaces an older decision, start with \`Supersedes Mn-Dm: ...\` (keep \`Mn-Dm\` until the next compaction).
 
 Before starting work that is not in ${PLAN_FILE}, add it as the next task of the current milestone.
-Right after finishing each task, before starting the next one: mark it in ${PLAN_FILE}, append its decisions to ${LOG_FILE} and set the next task in ${STATE_FILE} (or use \`task.py done\`).
+Right after finishing each task, before starting the next one: mark it in ${PLAN_FILE}, append its decision, if any, to ${LOG_FILE} and set the next task in ${STATE_FILE} (or use \`task.py done\`).
 
 Ask the user before closing a milestone or adding a new one. Every milestone has a Goal and a Done when line.
 When the user confirms a milestone is closed: move its section from ${PLAN_FILE} to \`${ARCHIVE_DIR}/M<n>.md\` (move, never delete), leave \`## M<n> Title: closed YYYY-MM-DD\` in ${PLAN_FILE} and update ${STATE_FILE}.
+Compact ${LOG_FILE} and older closed milestone headers in ${PLAN_FILE} only when asked by the user: archive closed-milestone decisions verbatim to \`${ARCHIVE_DIR}/log_M<a>-M<b>.md\` before removing superseded or routine ones from ${LOG_FILE}, and keep open-milestone decisions in ${LOG_FILE}.
 `;
 
   const PLAN_TEMPLATE = `# Plan
@@ -297,7 +298,7 @@ def main():
 
     done_p = subparsers.add_parser("done", help="Mark a task as completed")
     done_p.add_argument("task_id", help="Task ID (e.g. M8-T1)")
-    done_p.add_argument("-d", "--decision", help="Decision text to record in log.md", default=None)
+    done_p.add_argument("-d", "--decision", help="Non-obvious invariant, contract, accepted risk or rejected alternative to append to log.md (omit by default)", default=None)
     done_p.add_argument("-n", "--next", help="Next task for state.md (automatically detected if omitted)", default=None)
     done_p.add_argument("--drop", help="Reason if task is dropped", default=None)
     done_p.add_argument("--date", help="Date YYYY-MM-DD (defaults to today)", default=None)
@@ -393,41 +394,44 @@ ${TASK_SCRIPT_TEMPLATE}\`\`\``;
 
   function buildCompactPrompt(cwd) {
     return `Perform project memory housekeeping for the repository at ${cwd}.
+NOTE ON MODEL & REASONING: Curating ${LOG_FILE} requires architectural judgment to separate active system invariants from superseded or routine entries. Ensure a capable frontier model with a medium or high reasoning level is selected before approving changes.
+
 Follow these strict phases in order:
 
 PHASE 1 - READ-ONLY INSPECTION:
-Read and inspect without modifying anything: ${PLAN_FILE}, ${LOG_FILE}, ${ARCHIVE_DIR}/, and ${STATE_FILE}. Count the closed milestones and all recorded decisions.
+Read and inspect without modifying anything: ${PLAN_FILE}, ${LOG_FILE}, ${STATE_FILE}, and existing files in ${ARCHIVE_DIR}/ (including any existing \`log_M<a>-M<b>.md\` files). Count the closed milestones and all recorded decisions.
 
-PHASE 2 - QUALITATIVE ANALYSIS & SELECTION:
-Do not perform a blind chronological cut. Evaluate relevance, validity, and architectural impact:
+PHASE 2 - QUALITATIVE ANALYSIS & REVERSE-CHRONOLOGICAL SELECTION:
+Do not perform a blind chronological cut. Evaluate relevance, current validity, and architectural impact:
 1. In ${PLAN_FILE}:
    - Keep active/pending milestones and the last 2 to 3 closed milestone headers intact.
    - Condense earlier closed milestones into a single comment line: \`<!-- Hitos M1 a M<last_archived> archivados en ${ARCHIVE_DIR}/ -->\`.
 2. In ${LOG_FILE} and ${ARCHIVE_DIR}/:
-   - Full historical preservation: Archive all decisions from the condensed milestones (M1 to M<last_archived>) verbatim into \`${ARCHIVE_DIR}/log_M1-M<last_archived>.md\`. Nothing is permanently lost.
-   - Curate the active ${LOG_FILE} qualitatively:
-     * Active architectural pillars: Retain decisions that define current architecture, security rules, data contracts, or core design patterns that remain strictly in force, even if they originated in older milestones.
-     * Superseded/obsolete decisions: Identify decisions that were revised, contradicted, or replaced by later decisions. Explicitly note which newer decision superseded them, and exclude them from the active log.
-     * Trivial/routine decisions: Exclude implementation minutiae or decisions already codified in code, tests, or ${RULES_FILE} from the active log (they remain preserved in the archive).
+   - Full historical preservation without gaps: Check the highest milestone already archived in \`${ARCHIVE_DIR}/log_M*.md\` (start at \`M1\` if none exists). Archive all decisions from the next unarchived milestone up to the last closed milestone (\`M<first_unarchived>\` to \`M<last_closed>\`) verbatim into \`${ARCHIVE_DIR}/log_M<first_unarchived>-M<last_closed>.md\`. Never remove a decision from ${LOG_FILE} unless its milestone is verbatim in an archive file under ${ARCHIVE_DIR}/. Decisions from any still-open milestone always stay in ${LOG_FILE}.
+   - Curate the active ${LOG_FILE} reverse-chronologically (from newest milestone to oldest) by domain (providers/context, security/permissions/tokens, server/projects/network, storage/sync, agent loop/tools, runner/run mode):
+     * Active architectural pillars (KEEP in ${LOG_FILE}): Retain decisions that state current system invariants, security boundaries, cross-layer contracts, accepted risks, or negative decisions ("why not X"). Being implemented in code or covered by tests is NOT a reason to drop an invariant from ${LOG_FILE}: code shows what exists today, whereas ${LOG_FILE} preserves the invariant contract and why alternatives were rejected so future agents do not break or revert it.
+     * Superseded/obsolete decisions (REMOVE from ${LOG_FILE}): Newer decisions override older ones on the same mechanism. When a newer decision replaces, refines, or contradicts an older one, keep the newer truth and exclude the older one from ${LOG_FILE}.
+     * Trivial/routine decisions (REMOVE from ${LOG_FILE}): Exclude milestone open/close notes, intermediate task steps superseded by the milestone's final state, test-suite pruning, internal refactors/complexity splits, and rules already stated verbatim in ${RULES_FILE} (they remain preserved in ${ARCHIVE_DIR}/).
 3. In ${STATE_FILE}:
    - Verify that it strictly reflects the current active milestone and next task, staying well under 30 lines.
 
 PHASE 3 - DETAILED PRESENTATION & MANDATORY USER APPROVAL (CRITICAL):
 DO NOT modify, write, or touch any files in this turn! It is strictly prohibited to call ${WRITE_TOOL}, edit tools, or modification commands before user approval.
-Present a comprehensive, transparent proposal to the user in this turn:
+Present a clear, transparent proposal to the user in this turn:
+- A reminder that reviewing and curating ${LOG_FILE} requires an appropriate model and medium/high reasoning level.
 - The exact condensation comment and list of closed milestone headers to condense in ${PLAN_FILE}.
-- The archive file path (\`${ARCHIVE_DIR}/log_M1-M<last_archived>.md\`) and total decisions being archived.
+- The archive file path (\`${ARCHIVE_DIR}/log_M<first_unarchived>-M<last_closed>.md\`) and total decisions being archived verbatim.
 - The itemized classification of decisions for active ${LOG_FILE}:
-  * Kept decisions (with their ID, text, and why they remain active architectural pillars).
-  * Removed superseded decisions (with the reason and which later decision replaced them).
-  * Omitted routine/trivial decisions (noting that they are safely stored in the archive).
+  * Kept decisions grouped by domain (with their ID, text, why they remain active architectural pillars, and which older \`Mn-Dm\` entries they supersede).
+  * Superseded decisions being removed (noting which newer decision replaced each).
+  * A concise summary by milestone range of omitted routine/trivial entries (noting that they are safely stored verbatim in the archive).
 - The exact proposed final text for ${LOG_FILE}.
 - Any proposed adjustments for ${STATE_FILE}.
 Stop and wait for explicit user approval before modifying any files (using the ask_user tool if available, or by ending your turn so the user can review and approve in chat).
 
 PHASE 4 - APPLY CHANGES (ONLY AFTER APPROVAL):
 In the next turn, once the user gives explicit confirmation:
-1. Write the archive file \`${ARCHIVE_DIR}/log_M1-M<last_archived>.md\`.
+1. Write the archive file \`${ARCHIVE_DIR}/log_M<first_unarchived>-M<last_closed>.md\`.
 2. Update ${LOG_FILE}, ${PLAN_FILE}, and ${STATE_FILE} with the approved contents.
 3. Report final line counts and byte sizes before and after compaction.`;
   }

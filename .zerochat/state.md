@@ -1,4 +1,4 @@
 # Current state
-- Milestone: M72 Extracción de herramientas locales a servicios MCP propios con versión independiente
-- Next task: M72-T1
+- Milestone: none open (M72 closed 2026-11-16)
+- Next task: none pending
 - Last updated: 2026-11-16

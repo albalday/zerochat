@@ -503,6 +503,8 @@ def main():
     exit_on_close = not args.keep_server
     set_exit_on_close(exit_on_close)
     print_header(dev_root, ui_url, exposure_warning, exit_on_close)
+    # Los servicios MCP incluidos se actualizan desde el catálogo publicado junto a la interfaz.
+    GLOBAL_MCP_MANAGER.start_catalog_refresh(ui_url)
 
     headless_browser = start_interface(args, parser, server, ui_url)
     if exit_on_close:

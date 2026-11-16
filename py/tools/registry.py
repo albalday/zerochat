@@ -78,12 +78,19 @@ LOCAL_TOOLS_DEFINITIONS = [
     },
     {
         "name": "search_files",
-        "description": "Recursively search for plain text or regular expressions across project files.",
+        "description": (
+            "Search project files for plain text, case-insensitively, and return each matching line with its file and line number. "
+            "Searches a directory recursively or a single file. Example: search_files(query='validate_token|check_token', path='src')."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "maxLength": 4096, "description": "Plain text string or regular expression to search for"},
-                "path": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Base search directory (defaults to '.')", "default": "."},
+                "query": {
+                    "type": "string",
+                    "maxLength": 4096,
+                    "description": "One or more texts separated by |, searched as plain text (not a regular expression); a line matches if it contains any of them"
+                },
+                "path": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Directory to search recursively, or a single file (defaults to '.')", "default": "."},
                 "file_pattern": {"type": "string", "maxLength": 256, "description": "Optional glob filter (e.g. *.js, *.py)"},
                 "max_results": {"type": "integer", "description": "Maximum number of matching lines to return (default 100, max 500)", "default": 100}
             },

@@ -1,16 +1,21 @@
+import hashlib
 import io
 import json
 import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 import unittest
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import Mock, patch
 
 from backend import ZEROCHAT_PY, use_data_dir, zerochat
 
 PUBLIC_TOOL_NAMES = ZEROCHAT_PY.parent / "tests" / "fixtures" / "mcp" / "public-tool-names.json"
+REPO_SERVICES = ZEROCHAT_PY.parent / "services"
 CONTRACT = json.loads((ZEROCHAT_PY.parent / "tests" / "fixtures" / "mcp" / "contract.json").read_text(encoding="utf-8"))
 
 HEALTHY_MCP = '''import json, sys
@@ -91,29 +96,8 @@ class ManagedServicesTest(unittest.TestCase):
         self.data_dir = use_data_dir(self)
         self.root = self.data_dir / "services"
 
-    def test_reinstalar_los_archivos_gestionados_conserva_datos_y_servicios_del_usuario(self):
-        zerochat.materialize_managed_services(self.root)
-        managed_service = self.root / "playwright" / "service.json"
-        runtime_marker = self.root / "playwright" / ".installed.json"
-        user_service = self.root / "custom" / "service.json"
-        managed_service.write_text("modified", encoding="utf-8")
-        runtime_marker.write_text("keep", encoding="utf-8")
-        user_service.parent.mkdir(parents=True)
-        user_service.write_text('{"id":"custom"}', encoding="utf-8")
-
-        zerochat.materialize_managed_services(self.root)
-
-        # La copia de zerochat.py es la de services/: falla si se edita sin npm run build:backend.
-        repo_services = ZEROCHAT_PY.parent / "services"
-        for relative_path, content in zerochat.MANAGED_SERVICE_FILES.items():
-            with self.subTest(path=relative_path):
-                self.assertEqual((self.root / relative_path).read_text(encoding="utf-8"), content)
-                self.assertEqual((repo_services / relative_path).read_text(encoding="utf-8"), content)
-        self.assertEqual(runtime_marker.read_text(encoding="utf-8"), "keep")
-        self.assertEqual(user_service.read_text(encoding="utf-8"), '{"id":"custom"}')
-
     def test_composio_se_lanza_con_su_cliente_oauth_y_el_protocolo_legacy(self):
-        args = json.loads(zerochat.MANAGED_SERVICE_FILES["composio/service.json"])["launch"]["args"]
+        args = json.loads((REPO_SERVICES / "composio" / "service.json").read_text(encoding="utf-8"))["launch"]["args"]
         self.assertEqual(json.loads(args[args.index("--static-oauth-client-metadata") + 1])["client_name"], "zerochat-mcp-remote")
         self.assertEqual(args[args.index("--protocol") + 1], "legacy")
 
@@ -136,10 +120,6 @@ class ManagedServicesTest(unittest.TestCase):
         config.chmod(0o600)
         manager = zerochat.McpServiceManager(self.root)
         self.addCleanup(manager.close)
-        zerochat.materialize_managed_services(self.root)
-        self.assertEqual(json.loads(config.read_text()), definition)
-        if os.name != "nt":  # Windows no aplica los permisos POSIX de chmod
-            self.assertEqual(config.stat().st_mode & 0o777, 0o600)
         client = Mock(tools=[])
         client.running.return_value = True
         with patch.dict(os.environ, {"SERVICE_API_KEY": "inherited-fixture"}), \
@@ -152,6 +132,147 @@ class ManagedServicesTest(unittest.TestCase):
             client.start.assert_called_once()
         self.assertNotIn("fixture-key", "".join(traces))
         self.assertEqual(status_of(manager, "custom-key")["status"], "running")
+
+
+class QuietFiles(SimpleHTTPRequestHandler):
+    def log_message(self, *_args):
+        pass
+
+
+def service_definition(server_id, version, *args):
+    return json.dumps({"id": server_id, "version": version, "launch": {"executable": sys.executable, "args": list(args)}})
+
+
+class ServiceCatalogTest(unittest.TestCase):
+    """Servicios incluidos que se actualizan desde services/manifest.json en la carpeta de la interfaz."""
+
+    def setUp(self):
+        data_dir = use_data_dir(self)
+        self.root = data_dir / "services"
+        self.site = data_dir / "site"
+        self.site.mkdir()
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), partial(QuietFiles, directory=str(self.site)))
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.base = zerochat.catalog_base(f"http://127.0.0.1:{self.server.server_address[1]}/zerochat.html#token=t")
+        self.manager = zerochat.McpServiceManager(self.root)
+        self.addCleanup(self.manager.close)
+        self.traces = capture_console(self)
+
+    def publish(self, services):
+        """Publica en la interfaz los servicios {id: (versión, {ruta: texto})} y su catálogo."""
+        catalog = {}
+        for server_id, (version, files) in services.items():
+            digests = {}
+            for path, text in {"service.json": service_definition(server_id, version), **files}.items():
+                target = self.site / "services" / server_id / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(text.encode("utf-8"))
+                digests[path] = hashlib.sha256(text.encode("utf-8")).hexdigest()
+            catalog[server_id] = {"version": version, "files": digests}
+        (self.site / "services" / "manifest.json").write_text(json.dumps({"schemaVersion": 1, "services": catalog}), encoding="utf-8")
+
+    def installed(self, server_id, path):
+        return (self.root / server_id / path).read_text(encoding="utf-8")
+
+    def test_solo_se_actualizan_los_servicios_que_cambian_de_version_y_se_conservan_sus_datos(self):
+        self.publish({"demo": ("1.0.0", {"README.md": "demo 1"}), "other": ("1.0.0", {"README.md": "other 1"})})
+        self.assertEqual(self.manager.refresh_catalog(self.base), ["demo", "other"])
+        self.assertEqual(self.installed("demo", "service.json"), service_definition("demo", "1.0.0"))
+        data = {"demo/memory.jsonl": "data", "demo/.installed.json": "marker", "demo/node_modules/pkg/index.js": "pkg",
+                "custom/service.json": '{"id":"custom"}'}
+        for path, text in data.items():
+            (self.root / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / path).write_text(text, encoding="utf-8")
+
+        # Un fichero cambiado con la misma versión no se descarga.
+        self.publish({"demo": ("1.0.0", {"README.md": "demo 1"}), "other": ("1.0.0", {"README.md": "other 1b"})})
+        self.assertEqual(self.manager.refresh_catalog(self.base), [])
+        self.assertEqual(self.installed("other", "README.md"), "other 1")
+
+        self.publish({"demo": ("2.0.0", {"README.md": "demo 2"}), "other": ("1.0.0", {"README.md": "other 1b"})})
+        self.assertEqual(self.manager.refresh_catalog(self.base), ["demo"])
+        self.assertEqual(self.installed("demo", "README.md"), "demo 2")
+        for path, text in data.items():
+            self.assertEqual((self.root / path).read_text(encoding="utf-8"), text)
+        self.assertEqual(sorted(server["id"] for server in self.manager.list_servers()), ["custom", "demo", "other"])
+
+    def test_un_servicio_actualizado_en_marcha_se_reinicia_con_su_navegador_y_los_detenidos_no_arrancan(self):
+        self.publish({"demo": ("1.0.0", {}), "idle": ("1.0.0", {})})
+        self.manager.refresh_catalog(self.base)
+        old = Mock(tools=[])
+        old.running.return_value = True
+        old.stop.side_effect = lambda: old.running.configure_mock(return_value=False)
+        browser = {"mode": "own", "engine": "firefox"}
+        self.manager.records["demo"] = zerochat.McpServiceRecord(phase="running", client=old, browser=browser)
+        new = Mock(tools=[])
+        new.running.return_value = True
+        self.publish({"demo": ("2.0.0", {}), "idle": ("2.0.0", {})})
+        with patch.object(zerochat, "StdioMcpClient", return_value=new) as constructor, \
+                patch.object(self.manager, "_start_locked", wraps=self.manager._start_locked) as start:
+            self.assertEqual(self.manager.refresh_catalog(self.base), ["demo", "idle"])
+        old.stop.assert_called_once()
+        start.assert_called_once_with("demo", False, browser)
+        constructor.assert_called_once()
+        new.start.assert_called_once()
+        self.assertEqual(status_of(self.manager, "demo")["status"], "running")
+        self.assertEqual(status_of(self.manager, "idle")["status"], "stopped")
+        self.assertNotIn("demo", self.manager.preferences)
+
+    def test_sin_catalogo_o_con_un_fichero_que_no_coincide_se_mantiene_lo_instalado(self):
+        self.publish({"demo": ("1.0.0", {"README.md": "demo 1"}), "other": ("1.0.0", {})})
+        self.manager.refresh_catalog(self.base)
+        self.publish({"demo": ("2.0.0", {"README.md": "demo 2"}), "other": ("2.0.0", {})})
+        (self.site / "services" / "demo" / "README.md").write_text("tampered", encoding="utf-8")
+        self.assertEqual(self.manager.refresh_catalog(self.base), ["other"])
+        self.assertEqual(self.installed("demo", "README.md"), "demo 1")
+        self.assertEqual(json.loads(self.installed("demo", "service.json"))["version"], "1.0.0")
+        self.assertIn("demo/README.md no coincide con la huella del catálogo", "\n".join(self.traces))
+
+        self.server.shutdown()
+        self.server.server_close()
+        self.assertEqual(self.manager.refresh_catalog(self.base), [])
+        self.assertIn("se usan los servicios instalados", self.traces[-1])
+        self.assertEqual(sorted(server["id"] for server in self.manager.list_servers()), ["demo", "other"])
+
+    def test_el_catalogo_no_admite_rutas_fuera_del_servicio_ni_ocultas(self):
+        digest = "0" * 64
+        def catalog(server_id="demo", files=None, schema=1):
+            files = {"service.json": digest, **(files or {})}
+            return json.dumps({"schemaVersion": schema, "services": {server_id: {"version": "1", "files": files}}}).encode()
+        self.assertEqual(list(zerochat.parse_catalog(catalog(files={"sub/server.py": digest}))), ["demo"])
+        invalid = {
+            "ruta que sube": catalog(files={"../other/service.json": digest}),
+            "segmento ..": catalog(files={"sub/../../x": digest}),
+            "ruta absoluta": catalog(files={"/etc/x": digest}),
+            "fichero oculto": catalog(files={".installed.json": digest}),
+            "id con ruta": catalog(server_id="../demo"),
+            "huella no válida": catalog(files={"README.md": "x"}),
+            "sin service.json": json.dumps({"schemaVersion": 1, "services": {"demo": {"version": "1", "files": {}}}}).encode(),
+            "otra versión del catálogo": catalog(schema=2),
+        }
+        for label, raw in invalid.items():
+            with self.subTest(label), self.assertRaises(ValueError):
+                zerochat.parse_catalog(raw)
+
+    def test_cada_descarga_admite_catalog_max_bytes_y_uno_mas_se_rechaza(self):
+        (self.site / "file").write_bytes(b"x" * 64)
+        url = self.base + "file"
+        with patch.object(zerochat, "CATALOG_MAX_BYTES", 64):
+            self.assertEqual(len(zerochat.download(url)), 64)
+        with patch.object(zerochat, "CATALOG_MAX_BYTES", 63), self.assertRaisesRegex(ValueError, "excede 63 bytes"):
+            zerochat.download(url)
+
+    def test_el_catalogo_del_repositorio_esta_al_dia_con_services(self):
+        catalog = zerochat.parse_catalog((REPO_SERVICES / "manifest.json").read_bytes())
+        self.assertEqual(sorted(catalog), sorted(d.name for d in REPO_SERVICES.iterdir() if (d / "service.json").is_file()))
+        for server_id, entry in catalog.items():
+            definition = json.loads((REPO_SERVICES / server_id / "service.json").read_text(encoding="utf-8"))
+            self.assertEqual(entry["version"], definition["version"], server_id)
+            for path, digest in entry["files"].items():
+                # Con LF, como se publica, también en un checkout de Windows que lo pase a CRLF.
+                data = (REPO_SERVICES / server_id / path).read_bytes().replace(b"\r\n", b"\n")
+                self.assertEqual(hashlib.sha256(data).hexdigest(), digest, f"{server_id}/{path}: npm run build:managed-services")
 
 
 class ServiceStatusTest(unittest.TestCase):
@@ -175,18 +296,20 @@ class ServiceStatusTest(unittest.TestCase):
         self.assertEqual({expected[0] for *_, expected in table}, set(CONTRACT["serviceStatuses"]))
 
     def test_detener_o_cerrar_el_gestor_deja_el_servicio_detenido_y_sin_error(self):
-        manager = zerochat.McpServiceManager(use_data_dir(self) / "services")
+        root = use_data_dir(self) / "services"
+        write_service(root, "demo", HEALTHY_MCP)
+        manager = zerochat.McpServiceManager(root)
         self.addCleanup(manager.close)
         client = Mock(tools=[{"name": "lookup"}], oauth_url=None, process=None)
         client.running.return_value = True
-        for action in (lambda: manager.stop("playwright"), manager.close):
+        for action in (lambda: manager.stop("demo"), manager.close):
             with self.subTest(action=action):
-                manager.records["playwright"] = zerochat.McpServiceRecord(phase="running", client=client, browser={"mode": "user", "userBrowser": "chrome"})
-                self.assertEqual((status_of(manager, "playwright")["status"], status_of(manager, "playwright")["toolCount"]), ("running", 1))
+                manager.records["demo"] = zerochat.McpServiceRecord(phase="running", client=client, browser={"mode": "user", "userBrowser": "chrome"})
+                self.assertEqual((status_of(manager, "demo")["status"], status_of(manager, "demo")["toolCount"]), ("running", 1))
                 client.stop.reset_mock()
                 action()
                 client.stop.assert_called_once()
-                status = status_of(manager, "playwright")
+                status = status_of(manager, "demo")
                 self.assertEqual((status["status"], status["error"], status["toolCount"], status["browser"]), ("stopped", None, 0, None))
                 self.assertEqual(manager.tools(), [])
 
