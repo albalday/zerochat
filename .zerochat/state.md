@@ -1,4 +1,4 @@
 # Current state
-- Milestone: none open (M72 closed 2026-11-16)
-- Next task: none pending
+- Milestone: M75 Arreglos menores
+- Next task: M75-T1
 - Last updated: 2026-11-16
