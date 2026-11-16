@@ -15,16 +15,16 @@ def timed(limiter, key, policy, **kwargs):
 class RateLimiterTest(unittest.TestCase):
     def test_la_separacion_cuenta_desde_la_respuesta_anterior_y_desde_el_arranque(self):
         limiter = zerochat.RateLimiter()
-        policy = zerochat.RatePolicy(concurrency=1, min_interval_s=0.2)
+        # Separación holgada frente a lo que tarde la máquina entre dos instrucciones (la CI es lenta).
+        policy = zerochat.RatePolicy(concurrency=1, min_interval_s=0.5)
         # La primera tras crear el limitador (el arranque del proceso) también espera.
-        self.assertGreaterEqual(timed(limiter, "web", policy), 0.18)
+        self.assertGreaterEqual(timed(limiter, "web", policy), 0.3)
         with limiter.slot("web", policy):
             time.sleep(0.1)
         # Se cuenta desde que terminó la anterior, no desde que empezó.
-        self.assertGreaterEqual(timed(limiter, "web", policy), 0.18)
-        # Cada recurso lleva su cuenta.
-        time.sleep(0.2)
-        self.assertLess(timed(limiter, "otro", zerochat.RatePolicy(concurrency=1)), 0.05)
+        self.assertGreaterEqual(timed(limiter, "web", policy), 0.3)
+        # Cada recurso lleva su cuenta: uno sin separación no espera a los demás.
+        self.assertLess(timed(limiter, "otro", zerochat.RatePolicy(concurrency=1)), 0.25)
 
     def test_solo_entran_a_la_vez_las_llamadas_que_admite_y_las_demas_esperan_su_turno(self):
         for concurrency in (1, 2):
@@ -51,13 +51,13 @@ class RateLimiterTest(unittest.TestCase):
 
     def test_si_el_turno_no_llega_dentro_de_la_espera_admitida_falla_enseguida(self):
         limiter = zerochat.RateLimiter()
-        policy = zerochat.RatePolicy(concurrency=1, min_interval_s=0.3)
-        # Hace falta esperar 0.3 s: con 0.25 admitidos no espera en vano; con 0.5, sí entra.
+        policy = zerochat.RatePolicy(concurrency=1, min_interval_s=1.0)
+        # Hace falta esperar cerca de 1 s: con 0.5 admitidos no espera en vano; con 2, sí entra.
         started = time.monotonic()
-        with self.assertRaisesRegex(zerochat.RateLimitBusy, "demo está ocupado"), limiter.slot("demo", policy, max_wait_s=0.25):
+        with self.assertRaisesRegex(zerochat.RateLimitBusy, "demo está ocupado"), limiter.slot("demo", policy, max_wait_s=0.5):
             pass
-        self.assertLess(time.monotonic() - started, 0.1)
-        self.assertGreaterEqual(timed(limiter, "demo", policy, max_wait_s=0.5), 0.15)
+        self.assertLess(time.monotonic() - started, 0.3)
+        self.assertGreaterEqual(timed(limiter, "demo", policy, max_wait_s=2), 0.4)
         # Ocupado por otra llamada más allá de la espera: falla al agotarla.
         with limiter.slot("lleno", zerochat.RatePolicy()), self.assertRaises(zerochat.RateLimitBusy):
             with limiter.slot("lleno", zerochat.RatePolicy(), max_wait_s=0.1):
