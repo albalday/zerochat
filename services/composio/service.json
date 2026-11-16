@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "composio",
+  "version": "1.0.0",
   "displayName": {
     "es": "Composio Connect",
     "en": "Composio Connect"

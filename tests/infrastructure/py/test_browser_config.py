@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import time
 import unittest
 from pathlib import Path
@@ -44,6 +45,10 @@ class PlaywrightLaunchTest(unittest.TestCase):
         self.config_file = data_dir / "config" / "browser.json"
         self.config_file.parent.mkdir()
         self.own = data_dir / "playwright" / "profile"
+        # El servicio que el catálogo instala, tal como está en services/.
+        service = data_dir / "services" / "playwright" / "service.json"
+        service.parent.mkdir(parents=True)
+        shutil.copyfile(ZEROCHAT_PY.parent / "services" / "playwright" / "service.json", service)
         self.manager = zerochat.McpServiceManager()
         self.client = Mock(tools=[])
         self.client.running.return_value = True

@@ -1,4 +1,4 @@
 # Current state
-- Milestone: M72 Extracción de herramientas locales a servicios MCP propios con versión independiente
-- Next task: M72-T1
+- Milestone: M72 Catálogo de servicios MCP con versión independiente
+- Next task: M72-T6
 - Last updated: 2026-11-16

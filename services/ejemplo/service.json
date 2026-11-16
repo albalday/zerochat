@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "ejemplo",
+  "version": "1.0.0",
   "displayName": {
     "es": "Ejemplo de MCP",
     "en": "MCP example"

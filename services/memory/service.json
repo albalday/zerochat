@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "memory",
+  "version": "1.0.0",
   "displayName": {
     "es": "Memoria y Grafos (Knowledge Graph)",
     "en": "Memory & Knowledge Graph"

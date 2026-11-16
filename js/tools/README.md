@@ -93,9 +93,10 @@ El host publica el nombre definitivo; el proveedor lo valida sin añadir prefijo
 `metadata.mcpServerId` y `metadata.originalName` conservan la identidad remota.
 Las llamadas del host solo resuelven herramientas actualmente anunciadas.
 
-Los archivos de los servicios gestionados tienen como fuente de verdad `services/`.
+Los archivos de los servicios incluidos tienen como fuente de verdad `services/`.
 `npm run build:backend` ejecuta primero `scripts/build-managed-services.mjs`, que
-genera `py/dd-managed-services.py` para integrarlos en `zerochat.py`.
+genera el catálogo `services/manifest.json` que el host descarga junto a la interfaz
+(detalles en [`py/README.md`](../../py/README.md)).
 
 Los componentes se codifican sin pérdida: se conservan `a-y`, `A-Z` y `0-9`;
 solo en la herramienta se conserva también `_`. Cualquier otro carácter,

@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "playwright",
+  "version": "1.0.0",
   "displayName": {
     "es": "Playwright MCP",
     "en": "Playwright MCP"

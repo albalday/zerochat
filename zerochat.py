@@ -1599,24 +1599,109 @@ def is_installed_runtime() -> bool:
     except importlib.metadata.PackageNotFoundError:
         return False
 
-# --- mcp.managed_services ---
-"""Managed MCP service files. Generated from services/ by scripts/build-managed-services.mjs. Do not edit."""
+# --- mcp.catalog ---
+"""Catálogo de los servicios MCP incluidos: `services/manifest.json`, publicado junto a la interfaz.
+
+El catálogo, generado por scripts/build-managed-services.mjs, da por servicio su versión y la huella sha256 de cada
+fichero. Se descarga de la carpeta de la interfaz (GitHub Pages en producción, este servidor en desarrollo), como el
+runner de Node: actualizar un servicio no exige publicar zerochat en PyPI. Solo se copian los servicios cuya versión
+instalada difiere, y de ellos solo los ficheros del catálogo: node_modules, .installed.json y los datos del servicio
+(como memory.jsonl) se conservan, y los servicios del usuario no se tocan.
+"""
 
 
 
 
-MANAGED_SERVICE_FILES: dict[str, str] = json.loads("{\n  \"composio/installer.json\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"type\\\": \\\"npm\\\",\\n  \\\"product\\\": {\\n    \\\"package\\\": \\\"mcp-remote\\\",\\n    \\\"version\\\": \\\"0.13.5\\\"\\n  },\\n  \\\"requirements\\\": {\\n    \\\"node\\\": {\\n      \\\"minimumMajor\\\": 18\\n    }\\n  }\\n}\\n\",\n  \"composio/service.json\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"id\\\": \\\"composio\\\",\\n  \\\"displayName\\\": {\\n    \\\"es\\\": \\\"Composio Connect\\\",\\n    \\\"en\\\": \\\"Composio Connect\\\"\\n  },\\n  \\\"description\\\": {\\n    \\\"es\\\": \\\"MCP remoto para acceder a aplicaciones como Gmail, Google Drive, Slack o GitHub. Composio solicita la autorización de cada aplicación cuando sea necesaria.\\\",\\n    \\\"en\\\": \\\"Remote MCP for apps such as Gmail, Google Drive, Slack, and GitHub. Composio requests authorization for each app when it is needed.\\\"\\n  },\\n  \\\"help\\\": {\\n    \\\"url\\\": \\\"https://docs.composio.dev/docs/composio-connect\\\",\\n    \\\"label\\\": {\\n      \\\"es\\\": \\\"Guía oficial de Composio Connect\\\",\\n      \\\"en\\\": \\\"Composio Connect official guide\\\"\\n    }\\n  },\\n  \\\"enabledByDefault\\\": false,\\n  \\\"transport\\\": \\\"stdio\\\",\\n  \\\"remote\\\": {\\n    \\\"type\\\": \\\"mcp-remote\\\",\\n    \\\"transport\\\": \\\"streamable-http\\\",\\n    \\\"url\\\": \\\"https://connect.composio.dev/mcp\\\",\\n    \\\"authentication\\\": \\\"composio-connect\\\"\\n  },\\n  \\\"launch\\\": {\\n    \\\"executable\\\": \\\"${nodeExecutable}\\\",\\n    \\\"args\\\": [\\n      \\\"${serviceDir}/node_modules/mcp-remote/dist/proxy.js\\\",\\n      \\\"https://connect.composio.dev/mcp\\\",\\n      \\\"--protocol\\\",\\n      \\\"legacy\\\",\\n      \\\"--static-oauth-client-metadata\\\",\\n      \\\"{\\\\\\\"client_name\\\\\\\":\\\\\\\"zerochat-mcp-remote\\\\\\\"}\\\",\\n      \\\"--auth-timeout\\\",\\n      \\\"120\\\"\\n    ],\\n    \\\"cwd\\\": \\\"${serviceDir}\\\",\\n    \\\"env\\\": {\\n      \\\"HOME\\\": \\\"${serviceDir}\\\",\\n      \\\"USERPROFILE\\\": \\\"${serviceDir}\\\"\\n    },\\n    \\\"handshakeTimeoutSeconds\\\": 150\\n  }\\n}\\n\",\n  \"ejemplo/ejemplo_mcp_server.py\": \"#!/usr/bin/env python3\\nimport json\\nimport sys\\n\\ndef reply(req_id, result=None, error=None):\\n    resp = {\\\"jsonrpc\\\": \\\"2.0\\\", \\\"id\\\": req_id}\\n    if error:\\n        resp[\\\"error\\\"] = error\\n    else:\\n        resp[\\\"result\\\"] = result\\n    sys.stdout.write(json.dumps(resp) + \\\"\\\\n\\\")\\n    sys.stdout.flush()\\n\\nfor raw in sys.stdin:\\n    try:\\n        req = json.loads(raw)\\n    except Exception:\\n        continue\\n    req_id = req.get(\\\"id\\\")\\n    method = req.get(\\\"method\\\")\\n    params = req.get(\\\"params\\\", {})\\n    if method == \\\"initialize\\\":\\n        reply(req_id, {\\n            \\\"protocolVersion\\\": \\\"2024-11-05\\\",\\n            \\\"serverInfo\\\": {\\\"name\\\": \\\"ZeroChat MCP Example\\\", \\\"version\\\": \\\"1.0.0\\\"},\\n            \\\"capabilities\\\": {\\\"tools\\\": {}}\\n        })\\n    elif method == \\\"tools/list\\\":\\n        reply(req_id, {\\\"tools\\\": [{\\n            \\\"name\\\": \\\"echo\\\",\\n            \\\"description\\\": \\\"Echo back a message for testing.\\\",\\n            \\\"inputSchema\\\": {\\n                \\\"type\\\": \\\"object\\\",\\n                \\\"properties\\\": {\\\"message\\\": {\\\"type\\\": \\\"string\\\", \\\"description\\\": \\\"Message to echo.\\\"}},\\n                \\\"required\\\": [\\\"message\\\"]\\n            }\\n        }]})\\n    elif method == \\\"tools/call\\\":\\n        if params.get(\\\"name\\\") != \\\"echo\\\":\\n            reply(req_id, error={\\\"code\\\": -32601, \\\"message\\\": \\\"Tool not found\\\"})\\n            continue\\n        msg = params.get(\\\"arguments\\\", {}).get(\\\"message\\\", \\\"\\\")\\n        reply(req_id, {\\n            \\\"content\\\": [{\\\"type\\\": \\\"text\\\", \\\"text\\\": f\\\"echo: {msg}\\\"}],\\n            \\\"isError\\\": False\\n        })\\n\",\n  \"ejemplo/installer.json.example\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"type\\\": \\\"npm\\\",\\n  \\\"product\\\": {\\n    \\\"package\\\": \\\"@scope/mcp-package\\\",\\n    \\\"version\\\": \\\"1.2.3\\\"\\n  },\\n  \\\"requirements\\\": {\\n    \\\"node\\\": {\\n      \\\"minimumMajor\\\": 18\\n    }\\n  }\\n}\\n\",\n  \"ejemplo/README.md\": \"# Crear un MCP gestionado por ZeroChat\\n\\nEsta carpeta es la referencia para crear servicios MCP gestionados. La ubicación de producción es el directorio personal del usuario, seguido de `zerochat/services` (por ejemplo, `/home/usuario/zerochat/services`). No uses `~`, `$HOME` ni una ruta relativa como `services/`: primero identifica la ruta absoluta del directorio personal y úsala para localizar este archivo. El nuevo servicio se crea como carpeta hermana de `ejemplo`, nunca dentro de ella.\\n\\n## Procedimiento obligatorio\\n\\n1. Lee `README.md`, `service.json` y `installer.json.example` de la carpeta `ejemplo` situada en el directorio de datos de ZeroChat.\\n2. Consulta solo la documentación oficial del MCP solicitado.\\n3. Crea una carpeta con un identificador seguro y descriptivo junto a `ejemplo`. Usa un `id` único en `service.json`, también cuando copies otro servicio.\\n4. Crea `service.json` copiando esta estructura y adapta únicamente los valores necesarios.\\n5. Crea `installer.json` solo si el MCP se distribuye como paquete npm. Copia `installer.json.example`, fija la versión exacta y declara la versión mínima de Node.js.\\n6. Añade `help.url` con la página oficial de instalación y etiquetas en español e inglés.\\n7. Si requiere una API key, declara la variable que exige el MCP en el objeto `env` de `launch` dentro de `service.json` con el valor literal `PASTE_API_KEY_HERE`. No pidas la clave al usuario ni la escribas en el chat: indica la ruta absoluta del JSON y el campo que debe editar a mano. El usuario guardará su clave únicamente en el JSON local de su carpeta propia.\\n8. Evalúa la concurrencia y la compatibilidad con ejecuciones paralelas y desatendidas antes de guardar: el servicio no debe usar puertos fijos, debe arrancar en modo efímero o aislado si maneja estado de sesión, y no debe depender de entradas interactivas por consola o ventanas emergentes durante la ejecución.\\n9. No instales ni inicies el servicio. Al terminar, informa de los archivos creados, fuentes oficiales y requisitos pendientes.\\n\\n## Límites de ZeroChat\\n\\nZeroChat gestiona procesos MCP por `stdio`. Puede instalar paquetes npm mediante `installer.json` y arrancarlos con `${nodeExecutable}`. También puede arrancar un ejecutable o script ya disponible con `launch`.\\n\\nZeroChat también puede usar `mcp-remote` como puente para un MCP remoto HTTP/SSE con OAuth o API key. Decláralo como un servicio `stdio`: el proceso local debe ser `mcp-remote`, mientras que `remote` describe el endpoint remoto para la interfaz. Conserva las credenciales y el almacén OAuth dentro de `${serviceDir}`.\\n\\n## Contratos JSON\\n\\n- `service.json` es obligatorio. Conserva `schemaVersion`, `id`, textos bilingües, `transport: \\\"stdio\\\"` y `launch`.\\n- En `launch`, usa `${serviceDir}`, `${nodeExecutable}` o `${pythonExecutable}`; no uses rutas absolutas de usuario.\\n- `launch.handshakeTimeoutSeconds` (15 s por defecto) limita el arranque y `launch.callTimeoutSeconds` (30 s por defecto) cada llamada a una herramienta; súbelo para MCP lentos, como la automatización de navegador.\\n- `installer.json` es opcional y hoy solo admite `type: \\\"npm\\\"`.\\n- `help` es opcional, pero debe incluirse en todo servicio creado:\\n\\n```json\\n\\\"help\\\": {\\n  \\\"url\\\": \\\"https://documentacion-oficial.example/install\\\",\\n  \\\"label\\\": { \\\"es\\\": \\\"Instalación oficial\\\", \\\"en\\\": \\\"Official installation\\\" }\\n}\\n```\\n\\n## Concurrencia y ejecuciones paralelas\\n\\nTodo servicio MCP debe diseñarse para permitir invocaciones simultáneas (varias pestañas, múltiples sesiones o ejecuciones paralelas en línea de comandos como `zerochat --prompt`):\\n\\n1. **Aislamiento y modo efímero por defecto**: los servicios que gestionan navegadores o sesiones de ejecución deben iniciar por defecto en modo volátil en memoria (como `--isolated` en Playwright) o en directorios temporales independientes. No deben depender de un único perfil o carpeta de usuario fija compartida que imponga bloqueos de proceso (`SingletonLock` en Chromium, bloqueos de ficheros de sesión). Si se ofrece persistencia, debe ser opcional y parametrizable por perfil o almacenamiento nombrado.\\n2. **Transporte exclusivo por `stdio`**: los servidores MCP locales se comunican exclusivamente por entrada y salida estándar. Si un ejecutable o biblioteca interna abre un socket o servidor HTTP local auxiliar, nunca debe fijar un puerto estático (como `8080`), pues causará errores `EADDRINUSE` ante dos procesos concurrentes; debe asignar puertos dinámicos (`port: 0` o rango efímero).\\n3. **Persistencia coordinada o aislada**: si el servicio persiste datos en disco (como bases de datos SQLite locales o archivos planos JSON/JSONL), la ruta no debe ser fija y compartida si el motor no gestiona concurrencia multi-proceso. SQLite debe operar con modo WAL y timeout de ocupación (`busy_timeout`); ficheros planos sin bloqueo interproceso como `memory.jsonl` deben reservarse a una única sesión activa o aislarse por perfil/espacio de trabajo.\\n4. **Ejecución desatendida y sin interacción en tiempo de ejecución**: el proceso nunca debe abrir ventanas emergentes, diálogos gráficos ni solicitar confirmación interactiva por consola. Todas las credenciales o parámetros se configuran previamente vía `launch.env` o argumentos. Los flujos de autorización interactiva (como el inicio de sesión OAuth inicial de `mcp-remote`) son incompatibles con sesiones desatendidas y paralelas; deben completarse de forma supervisada antes de iniciar ejecuciones automáticas.\\n\\n### Comportamiento de los servicios incluidos\\n\\n- **`playwright`**: seguro para ejecución paralela. Arranca por defecto con `--isolated` en memoria sin bloquear perfiles de usuario. Permite almacenamiento persistente opcional nombrado por perfil (`storage`).\\n- **`memory`**: persistencia monoproceso en `${serviceDir}/memory.jsonl`. No implementa sincronización atómica entre procesos; no debe compartirse simultáneamente entre varias tareas que escriban entidades a la vez.\\n- **`composio`**: puente remoto vía `mcp-remote`. El flujo OAuth inicial es interactivo y no funciona en segundo plano ni en paralelo; tras autorizarse, las consultas remotas operan concurrentemente.\\n- **`ejemplo`**: servidor de prueba en memoria por `stdio`, 100% seguro para concurrencia.\\n\\n## Prompt para el usuario\\n\\nSustituye únicamente `<nombre-del-mcp>`:\\n\\n```text\\nPara instalar el MCP <nombre-del-mcp>, lee primero services/ejemplo/README.md y sigue exactamente sus instrucciones.\\n```\\n\\n## Servicios remotos y claves API\\n\\n`launch.env` es el objeto `env` dentro de `launch` en `service.json`, no un archivo. El agente deja únicamente el marcador; el usuario introduce la clave real a mano en ese JSON. No crees un archivo `launch.env` o `.env`.\\n\\nPara un remoto, lee también `service.json` e `installer.json` de la carpeta hermana `composio`. Crea una carpeta nueva con nombre e `id` propios; usa Composio como ejemplo del puente local, conservando `transport: \\\"stdio\\\"`. Consulta la documentación oficial del proveedor y de [mcp-remote](https://github.com/punkpeye/mcp-remote#custom-headers) para adaptar endpoint, transporte, cabeceras y autenticación. No copies sin verificar las opciones `--protocol`, los metadatos de cliente ni los parámetros OAuth específicos de Composio. Conserva `HOME` y `USERPROFILE` dentro de `${serviceDir}`.\\n\\nPara un MCP local que requiera una variable, deja este campo dentro de `launch`, conservando sus demás campos y usando el nombre de variable documentado por el MCP:\\n\\n```json\\n\\\"env\\\": {\\n  \\\"SERVICE_API_KEY\\\": \\\"PASTE_API_KEY_HERE\\\"\\n}\\n```\\n\\nPara un remoto que acepte `Authorization: Bearer`, los campos dentro de `launch` pueden ser:\\n\\n```json\\n\\\"args\\\": [\\n  \\\"${serviceDir}/node_modules/mcp-remote/dist/proxy.js\\\",\\n  \\\"https://mcp.example.com/mcp\\\",\\n  \\\"--header\\\",\\n  \\\"Authorization: Bearer ${REMOTE_API_KEY}\\\"\\n],\\n\\\"env\\\": {\\n  \\\"HOME\\\": \\\"${serviceDir}\\\",\\n  \\\"USERPROFILE\\\": \\\"${serviceDir}\\\",\\n  \\\"REMOTE_API_KEY\\\": \\\"PASTE_API_KEY_HERE\\\"\\n}\\n```\\n\\nAdapta la cabecera y su formato a lo que exige el proveedor. `remote.authentication` solo describe el servicio; no configura la autenticación. La referencia `${REMOTE_API_KEY}` en la cabecera la resuelve `mcp-remote`. ZeroChat no resuelve variables de entorno genéricas: en `launch.env`, `${SERVICE_API_KEY}` se pasaría como texto literal. Solo sustituye `${serviceDir}`, `${nodeExecutable}`, `${pythonExecutable}` y `${option:...}`. No pongas claves reales en argumentos ni en URLs.\\n\\n### Pasos para el usuario\\n\\n1. Usa una carpeta propia bajo el directorio de servicios, con nombre e `id` únicos. Si copias un servicio incluido, copia sus definiciones, no sus dependencias ni credenciales OAuth. No edites `ejemplo`, `composio`, `playwright` ni `memory`: sus archivos distribuidos se restauran al arrancar.\\n2. Abre el `service.json` de tu carpeta y sustituye `PASTE_API_KEY_HERE` por la clave real en `launch.env`. Mantén el JSON válido y los demás campos. No necesitas `export`, `.env` ni otro JSON de credenciales.\\n3. Restringe el archivo a tu usuario con `chmod 600 /ruta/absoluta/zerochat/services/mi-servicio/service.json` en Linux o Termux. La clave queda en texto plano: no compartas el archivo ni lo subas al repositorio o al chat.\\n4. Inicia el servicio desde Ajustes → MCP. Si la nueva carpeta no aparece, reinicia ZeroChat y conecta de nuevo. Para cambiar una clave, detén primero el servicio, edita el JSON y vuelve a iniciarlo.\\n5. ZeroChat conserva los servicios propios al reiniciar y actualizar. Borrar el directorio de datos elimina también esas claves: guarda una copia privada si la necesitas.\\n\\n## English: creating local and remote services\\n\\n1. Locate the user's absolute home directory and read `README.md`, `service.json` and `installer.json.example` in `zerochat/services/ejemplo`.\\n2. Read the requested MCP's official documentation. Create a sibling folder with its own name and unique JSON `id`; do not modify bundled definitions. Preserve bilingual text, `schemaVersion`, `transport: \\\"stdio\\\"`, `launch` and official `help` links. `launch.handshakeTimeoutSeconds` (default 15 s) bounds startup and `launch.callTimeoutSeconds` (default 30 s) each tool call; raise it for slow MCPs such as browser automation.\\n3. For npm services, add `installer.json` with an exact package version and minimum Node.js major version. Otherwise use an existing executable or script.\\n4. For remote HTTP/SSE MCPs, also read the sibling `composio` JSON files and use its managed `mcp-remote` bridge as the example. Adapt endpoint, transport and authentication to the official provider and bridge documentation. Verify Composio-specific protocol and OAuth options before copying them. Keep `HOME` and `USERPROFILE` isolated inside `${serviceDir}`.\\n5. If an API key is required, put the literal `PASTE_API_KEY_HERE` under the required variable in the `env` object under `launch` inside `service.json`. `launch.env` is a JSON field, not a file. The user enters the actual key manually in that JSON; do not create a `launch.env` or `.env` file. Do not request the user's key or place real secrets in chat, arguments or URLs. Give the absolute JSON path and exact field to edit. For remote header authentication, use `--header` with the provider's required header and a reference to the variable, as shown above; `mcp-remote` resolves that reference. `remote.authentication` is descriptive only.\\n6. Evaluate concurrency and headless compatibility before finalizing: ensure the service avoids static ports, runs in ephemeral/isolated mode by default if managing session state, and does not require interactive console prompts or graphical windows.\\n7. Do not install or start the service. Report created files, official sources and outstanding requirements; the user will start it from Settings → MCP.\\n\\n### Concurrency and parallel execution\\n\\nAll MCP services must be designed to support simultaneous executions (multiple browser tabs, concurrent sessions, or parallel headless CLI tasks like `zerochat --prompt`):\\n\\n1. **Isolated and ephemeral by default**: execution environments or browser engines must default to in-memory or isolated sessions (such as `--isolated` in Playwright) without locking shared profile directories across processes. Persistent state must be optional and parameterized by profile or named storage.\\n2. **Pure `stdio` transport**: local MCP processes communicate strictly through standard input and output. If a process starts an auxiliary internal HTTP/TCP listener, it must bind dynamic ephemeral ports (`port: 0`), never static ports that collide with `EADDRINUSE`.\\n3. **Safe persistent storage**: if persisting data to disk (e.g., SQLite or flat JSON/JSONL files), ensure the storage engine supports multi-process writes (SQLite with WAL and busy timeout). Flat files without process locking (such as `memory.jsonl`) should be isolated per session/workspace rather than shared across parallel writers.\\n4. **Unattended headless execution**: MCPs must never display GUI popups, interactive prompts, or console confirmation during execution. Secrets and settings must be supplied via `launch.env`. Interactive authorization flows (such as initial browser-based OAuth) must be completed in an interactive session beforehand; they cannot run unattended or in parallel.\\n\\n#### Bundled services concurrency summary\\n\\n- **`playwright`**: parallel-safe; defaults to in-memory `--isolated` mode with optional named profile storage.\\n- **`memory`**: single-process JSONL persistence (`memory.jsonl`); concurrent writes can overwrite data.\\n- **`composio`**: remote bridge via `mcp-remote`; initial OAuth is strictly interactive, while post-auth tool calls support parallel requests.\\n- **`ejemplo`**: stateless in-memory `stdio` echo server, fully parallel-safe.\\n\\nThe user replaces `PASTE_API_KEY_HERE` directly in their own folder's JSON, preserves valid JSON and existing fields, and restricts the file with `chmod 600 /absolute/path/zerochat/services/my-service/service.json` on Linux/Termux. No shell export, `.env` or separate credentials JSON is needed. ZeroChat only expands service/interpreter paths and `${option:...}`, not generic environment placeholders in `launch.env`. The key is stored in plain text: do not share or commit the file or paste it into chat.\\n\\nIf a new folder does not appear, restart ZeroChat and reconnect. Stop an active service before editing its key, then start it again. User-created folders survive restarts and updates. Bundled definitions are restored on startup: copy them into a new folder and change the JSON `id` to customize them, without copying dependencies or OAuth credentials. Deleting the data directory also deletes custom services and their keys; keep a private backup if needed.\\n\",\n  \"ejemplo/service.json\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"id\\\": \\\"ejemplo\\\",\\n  \\\"displayName\\\": {\\n    \\\"es\\\": \\\"Ejemplo de MCP\\\",\\n    \\\"en\\\": \\\"MCP example\\\"\\n  },\\n  \\\"description\\\": {\\n    \\\"es\\\": \\\"Plantilla mínima para crear servicios MCP gestionados por ZeroChat. Muestra el protocolo stdio y la estructura de configuración que debe seguir un nuevo MCP.\\\",\\n    \\\"en\\\": \\\"Minimal template for creating ZeroChat-managed MCP services. It demonstrates the stdio protocol and configuration structure for a new MCP.\\\"\\n  },\\n  \\\"help\\\": {\\n    \\\"url\\\": \\\"help/mcp.html#crear-mcp-con-agente\\\",\\n    \\\"label\\\": {\\n      \\\"es\\\": \\\"Guía para crear un MCP gestionado\\\",\\n      \\\"en\\\": \\\"Guide to creating a managed MCP\\\"\\n    }\\n  },\\n  \\\"enabledByDefault\\\": false,\\n  \\\"transport\\\": \\\"stdio\\\",\\n  \\\"launch\\\": {\\n    \\\"executable\\\": \\\"${pythonExecutable}\\\",\\n    \\\"args\\\": [\\\"${serviceDir}/ejemplo_mcp_server.py\\\"],\\n    \\\"cwd\\\": \\\"${serviceDir}\\\",\\n    \\\"env\\\": {},\\n    \\\"handshakeTimeoutSeconds\\\": 10\\n  }\\n}\\n\",\n  \"memory/installer.json\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"type\\\": \\\"npm\\\",\\n  \\\"product\\\": {\\n    \\\"package\\\": \\\"@modelcontextprotocol/server-memory\\\",\\n    \\\"version\\\": \\\"2026.8.31\\\"\\n  },\\n  \\\"requirements\\\": {\\n    \\\"node\\\": {\\n      \\\"minimumMajor\\\": 18\\n    }\\n  }\\n}\\n\",\n  \"memory/service.json\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"id\\\": \\\"memory\\\",\\n  \\\"displayName\\\": {\\n    \\\"es\\\": \\\"Memoria y Grafos (Knowledge Graph)\\\",\\n    \\\"en\\\": \\\"Memory & Knowledge Graph\\\"\\n  },\\n  \\\"description\\\": {\\n    \\\"es\\\": \\\"Almacenamiento persistente de entidades, preferencias y contexto histórico estructurado en un grafo de conocimiento.\\\",\\n    \\\"en\\\": \\\"Persistent storage of entities, preferences, and historical context structured as a knowledge graph.\\\"\\n  },\\n  \\\"enabledByDefault\\\": false,\\n  \\\"transport\\\": \\\"stdio\\\",\\n  \\\"launch\\\": {\\n    \\\"executable\\\": \\\"${nodeExecutable}\\\",\\n    \\\"args\\\": [\\\"${serviceDir}/node_modules/@modelcontextprotocol/server-memory/dist/index.js\\\"],\\n    \\\"cwd\\\": \\\"${serviceDir}\\\",\\n    \\\"env\\\": {\\n      \\\"MEMORY_FILE_PATH\\\": \\\"${serviceDir}/memory.jsonl\\\"\\n    },\\n    \\\"handshakeTimeoutSeconds\\\": 30\\n  }\\n}\\n\\n\",\n  \"playwright/installer.json\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"type\\\": \\\"npm\\\",\\n  \\\"product\\\": {\\n    \\\"package\\\": \\\"@playwright/mcp\\\",\\n    \\\"version\\\": \\\"0.0.81\\\",\\n    \\\"browser\\\": \\\"chromium\\\"\\n  },\\n  \\\"requirements\\\": {\\n    \\\"node\\\": {\\n      \\\"minimumMajor\\\": 18\\n    }\\n  }\\n}\\n\",\n  \"playwright/service.json\": \"{\\n  \\\"schemaVersion\\\": 1,\\n  \\\"id\\\": \\\"playwright\\\",\\n  \\\"displayName\\\": {\\n    \\\"es\\\": \\\"Playwright MCP\\\",\\n    \\\"en\\\": \\\"Playwright MCP\\\"\\n  },\\n  \\\"description\\\": {\\n    \\\"es\\\": \\\"Automatización de navegador mediante el servidor MCP oficial de Playwright.\\\",\\n    \\\"en\\\": \\\"Browser automation through the official Playwright MCP server.\\\"\\n  },\\n  \\\"enabledByDefault\\\": false,\\n  \\\"transport\\\": \\\"stdio\\\",\\n  \\\"launch\\\": {\\n    \\\"executable\\\": \\\"${nodeExecutable}\\\",\\n    \\\"args\\\": [\\\"${serviceDir}/node_modules/@playwright/mcp/cli.js\\\"],\\n    \\\"cwd\\\": \\\"${serviceDir}\\\",\\n    \\\"env\\\": {},\\n    \\\"handshakeTimeoutSeconds\\\": 30,\\n    \\\"callTimeoutSeconds\\\": 120\\n  }\\n}\\n\"\n}")
+CATALOG_PATH = "services/manifest.json"
+CATALOG_SCHEMA_VERSION = 1
+# Tope de cada descarga (el catálogo y cada fichero): los de ahora ocupan unos pocos KiB.
+CATALOG_MAX_BYTES = 1024 * 1024
+CATALOG_TIMEOUT_SECONDS = 10
+SERVICE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+# Rutas relativas sin segmentos ocultos ni '..': un segmento no empieza por punto.
+SERVICE_FILE_PATTERN = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*$")
+SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+SERVICE_DEFINITION = "service.json"
 
 
-def materialize_managed_services(services_root: Path | None = None) -> None:
-    """Installs the managed service files without deleting user data or services."""
-    root = Path(services_root) if services_root else get_data_dir() / "services"
-    for relative_path, content in MANAGED_SERVICE_FILES.items():
-        destination = root / relative_path
+def catalog_base(ui_url: str) -> str:
+    """Carpeta de la interfaz, de la que cuelga services/."""
+    return urllib.parse.urljoin(ui_url.split("#")[0], ".")
+
+
+def download(url: str) -> bytes:
+    """Descarga acotada a CATALOG_MAX_BYTES de un recurso de la carpeta de la interfaz."""
+    if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
+        raise ValueError(f"URL del catálogo no admitida: {url}")
+    req = urllib.request.Request(url, headers={"User-Agent": f"ZeroChat/{VERSION}", "Cache-Control": "no-cache"})  # noqa: S310
+    with urllib.request.urlopen(req, timeout=CATALOG_TIMEOUT_SECONDS) as resp:  # noqa: S310
+        data = resp.read(CATALOG_MAX_BYTES + 1)
+    if len(data) > CATALOG_MAX_BYTES:
+        raise ValueError(f"{url} excede {CATALOG_MAX_BYTES} bytes")
+    return data
+
+
+def parse_catalog(raw: bytes) -> dict[str, dict]:
+    """{id: {"version", "files": {ruta: sha256}}} del catálogo; ValueError si no es válido."""
+    try:
+        catalog = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"El catálogo de servicios no es JSON válido: {exc}") from exc
+    if not isinstance(catalog, dict) or catalog.get("schemaVersion") != CATALOG_SCHEMA_VERSION:
+        raise ValueError(f"El catálogo de servicios no es de la versión {CATALOG_SCHEMA_VERSION}")
+    services = catalog.get("services")
+    if not isinstance(services, dict):
+        raise ValueError("El catálogo de servicios no tiene services")
+    for server_id, entry in services.items():
+        if not SERVICE_ID_PATTERN.match(server_id):
+            raise ValueError(f"Id de servicio no válido en el catálogo: {server_id!r}")
+        if not isinstance(entry, dict) or not isinstance(entry.get("version"), str) or not entry["version"]:
+            raise ValueError(f"El servicio {server_id} del catálogo no tiene version")
+        files = entry.get("files")
+        if not isinstance(files, dict) or SERVICE_DEFINITION not in files:
+            raise ValueError(f"El servicio {server_id} del catálogo no incluye {SERVICE_DEFINITION}")
+        for path, digest in files.items():
+            if not SERVICE_FILE_PATTERN.match(path) or not isinstance(digest, str) or not SHA256_PATTERN.match(digest):
+                raise ValueError(f"Fichero no válido en el servicio {server_id} del catálogo: {path!r}")
+    return services
+
+
+def installed_version(services_root: Path, server_id: str) -> str | None:
+    """Versión del service.json instalado, o None si falta o no se puede leer."""
+    try:
+        definition = json.loads((services_root / server_id / SERVICE_DEFINITION).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    version = definition.get("version") if isinstance(definition, dict) else None
+    return version if isinstance(version, str) else None
+
+
+def download_service(base: str, server_id: str, entry: dict) -> dict[str, bytes]:
+    """Ficheros de un servicio del catálogo, comprobados contra su huella; ValueError si alguno no coincide."""
+    files = {}
+    for path, digest in entry["files"].items():
+        data = download(urllib.parse.urljoin(base, f"services/{server_id}/{path}"))
+        if hashlib.sha256(data).hexdigest() != digest:
+            raise ValueError(f"{server_id}/{path} no coincide con la huella del catálogo")
+        files[path] = data
+    try:
+        definition = json.loads(files[SERVICE_DEFINITION].decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{server_id}/{SERVICE_DEFINITION} no es JSON válido: {exc}") from exc
+    if not isinstance(definition, dict) or definition.get("id") != server_id or definition.get("version") != entry["version"]:
+        raise ValueError(f"{server_id}/{SERVICE_DEFINITION} no tiene el id y la versión del catálogo")
+    return files
+
+
+def install_service(services_root: Path, server_id: str, files: dict[str, bytes]) -> None:
+    """Escribe los ficheros del servicio, cada uno de forma atómica; service.json, con la versión, el último."""
+    service_dir = services_root / server_id
+    for path in sorted(files, key=lambda name: name == SERVICE_DEFINITION):
+        destination = service_dir / path
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(content, encoding="utf-8")
-        if relative_path.startswith("scripts/"):
-            destination.chmod(0o755)
+        tmp = destination.with_name(destination.name + ".tmp")
+        tmp.write_bytes(files[path])
+        tmp.replace(destination)
 
 # --- mcp.stdio_client ---
 """Cliente MCP por stdio: arranque del proceso, mensajes JSON-RPC acotados, plazos y cierre con sus descendientes."""
@@ -1891,7 +1976,8 @@ class StdioMcpClient:
         self.tools = []
 
 # --- mcp.manager ---
-"""Gestor de servicios MCP: descubrimiento en ~/zerochat/services, preferencias, arranque y parada, y nombres públicos de sus herramientas."""
+"""Gestor de servicios MCP: descubrimiento en ~/zerochat/services, actualización desde el catálogo, preferencias,
+arranque y parada, y nombres públicos de sus herramientas."""
 
 
 
@@ -1932,6 +2018,10 @@ def service_status(record: McpServiceRecord, alive: bool, exit_code: int | None)
     return "error", "MCP process is not responding"
 
 
+# Cada cuánto se vuelve a mirar el catálogo publicado con el servidor en marcha.
+CATALOG_REFRESH_SECONDS = 3600
+
+
 def _npm_install_needed(marker: Path, package_dir: Path, package: str, version: str) -> bool:
     """Falta la instalación, o la registrada en marker es de otro paquete o versión."""
     if not marker.exists() or not package_dir.is_dir():
@@ -1959,7 +2049,7 @@ class McpServiceManager:
         self.config_file = get_data_dir() / "config" / "services.json"
         self.records: dict[str, McpServiceRecord] = {}
         self._lock = threading.Lock()
-        self._materialized = False
+        self._catalog_stop = threading.Event()
         self._services: dict[str, dict] | None = None
         self._preferences: dict | None = None
 
@@ -1984,12 +2074,9 @@ class McpServiceManager:
         log_event(f"[MCP {server_id}] {_mcp_trace_text(message)}")
 
     def _load_services(self) -> dict[str, dict]:
-        # La primera vez copia los servicios gestionados, sin borrar datos ni servicios del usuario.
-        if not self._materialized:
-            self.services_root.mkdir(parents=True, exist_ok=True)
-            materialize_managed_services(self.services_root)
-            self._materialized = True
         servers = {}
+        if not self.services_root.is_dir():
+            return servers
         for directory in sorted(self.services_root.iterdir()):
             if not directory.is_dir():
                 continue
@@ -2147,60 +2234,63 @@ class McpServiceManager:
         `browser` es el navegador que exige el perfil activo, solo para Playwright MCP."""
         with self._lock:
             self.services = self._load_services()
-            server = self.services.get(server_id)
-            if not server:
-                raise KeyError(f"Servidor MCP desconocido: {server_id}")
-            record = self.records.setdefault(server_id, McpServiceRecord())
-            if record.client and record.client.running():
-                return self.list_servers()
-            record.phase, record.error = "starting", None
-            client = None
-            self._trace(server_id, "start requested")
-            try:
-                service_dir = server["_directory"]
-                values = self._prepare_service(server_id, server)
-                user_opts = self.preferences.get(server_id, {}).get("options", {})
-                option_args = []
-                for opt in server.get("options", []):
-                    opt_id = opt.get("id")
-                    if not opt_id:
-                        continue
-                    val = user_opts.get(opt_id, opt.get("default"))
-                    values[f"option:{opt_id}"] = str(val)
-                    if opt.get("type") == "boolean":
-                        option_args.extend(opt.get("argsWhenTrue", []) if val else opt.get("argsWhenFalse", []))
-
-                launch = server.get("launch", {})
-                command = self._expand(launch.get("executable", sys.executable), values)
-                args = [self._expand(arg, values) for arg in launch.get("args", []) + option_args]
-                env = os.environ.copy()
-                for k, v in launch.get("env", {}).items():
-                    env[k] = self._expand(v, values)
-                record.browser = None
-                if server_id in SERVICE_LAUNCH:
-                    extra_args, extra_env, record.browser = SERVICE_LAUNCH[server_id](browser)
-                    args += extra_args
-                    env.update(extra_env)
-
-                client = StdioMcpClient(
-                    command, args, str(service_dir), env,
-                    trace=lambda message: self._trace(server_id, message),
-                    call_timeout=_positive_seconds(launch.get("callTimeoutSeconds"), DEFAULT_MCP_CALL_TIMEOUT_SECONDS)
-                )
-                # _prepare_service puede haber dejado el estado en "installing".
-                record.phase, record.client = "starting", client
-                client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
-                record.phase = "running"
-                if remember:
-                    self._remember(server_id, True)
-                self._trace(server_id, "started successfully")
-            except Exception as exc:
-                record.phase, record.error = "error", str(exc)
-                self._trace(server_id, f"start failed: {exc}")
-                stale, record.client = record.client or client, None
-                if stale:
-                    stale.stop()
+            self._start_locked(server_id, remember, browser)
             return self.list_servers()
+
+    def _start_locked(self, server_id: str, remember: bool, browser: dict | None):
+        server = self.services.get(server_id)
+        if not server:
+            raise KeyError(f"Servidor MCP desconocido: {server_id}")
+        record = self.records.setdefault(server_id, McpServiceRecord())
+        if record.client and record.client.running():
+            return
+        record.phase, record.error = "starting", None
+        client = None
+        self._trace(server_id, "start requested")
+        try:
+            service_dir = server["_directory"]
+            values = self._prepare_service(server_id, server)
+            user_opts = self.preferences.get(server_id, {}).get("options", {})
+            option_args = []
+            for opt in server.get("options", []):
+                opt_id = opt.get("id")
+                if not opt_id:
+                    continue
+                val = user_opts.get(opt_id, opt.get("default"))
+                values[f"option:{opt_id}"] = str(val)
+                if opt.get("type") == "boolean":
+                    option_args.extend(opt.get("argsWhenTrue", []) if val else opt.get("argsWhenFalse", []))
+
+            launch = server.get("launch", {})
+            command = self._expand(launch.get("executable", sys.executable), values)
+            args = [self._expand(arg, values) for arg in launch.get("args", []) + option_args]
+            env = os.environ.copy()
+            for k, v in launch.get("env", {}).items():
+                env[k] = self._expand(v, values)
+            record.browser = None
+            if server_id in SERVICE_LAUNCH:
+                extra_args, extra_env, record.browser = SERVICE_LAUNCH[server_id](browser)
+                args += extra_args
+                env.update(extra_env)
+
+            client = StdioMcpClient(
+                command, args, str(service_dir), env,
+                trace=lambda message: self._trace(server_id, message),
+                call_timeout=_positive_seconds(launch.get("callTimeoutSeconds"), DEFAULT_MCP_CALL_TIMEOUT_SECONDS)
+            )
+            # _prepare_service puede haber dejado el estado en "installing".
+            record.phase, record.client = "starting", client
+            client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
+            record.phase = "running"
+            if remember:
+                self._remember(server_id, True)
+            self._trace(server_id, "started successfully")
+        except Exception as exc:
+            record.phase, record.error = "error", str(exc)
+            self._trace(server_id, f"start failed: {exc}")
+            stale, record.client = record.client or client, None
+            if stale:
+                stale.stop()
 
     def stop(self, server_id: str) -> list[dict]:
         with self._lock:
@@ -2287,7 +2377,57 @@ class McpServiceManager:
         _, client, original_name = resolved
         return client.request("tools/call", {"name": original_name, "arguments": arguments}, timeout=client.call_timeout)
 
+    def start_catalog_refresh(self, ui_url: str):
+        """Mantiene al día los servicios incluidos con el catálogo de la carpeta de la interfaz: lo mira ahora y
+        después cada CATALOG_REFRESH_SECONDS, en un hilo propio para no retrasar el arranque ni las peticiones."""
+        base = catalog_base(ui_url)
+
+        def loop():
+            while True:
+                self.refresh_catalog(base)
+                if self._catalog_stop.wait(CATALOG_REFRESH_SECONDS):
+                    return
+
+        threading.Thread(target=loop, name="mcp-catalog", daemon=True).start()
+
+    def refresh_catalog(self, base: str) -> list[str]:
+        """Actualiza los servicios cuya versión difiere de la del catálogo y reinicia los que estaban en marcha.
+        Sin red, o con un catálogo no válido, se quedan los instalados; un servicio que no se puede descargar
+        entero no se toca. Devuelve los ids actualizados."""
+        try:
+            catalog = parse_catalog(download(urllib.parse.urljoin(base, CATALOG_PATH)))
+        except Exception as exc:
+            log_event(f"[MCP catalog] {base}{CATALOG_PATH} no disponible; se usan los servicios instalados: {exc}")
+            return []
+        downloads = {}
+        for server_id, entry in catalog.items():
+            if installed_version(self.services_root, server_id) == entry["version"]:
+                continue
+            try:
+                downloads[server_id] = download_service(base, server_id, entry)
+            except Exception as exc:
+                log_event(f"[MCP catalog] {server_id} {entry['version']} no se pudo descargar; se mantiene el instalado: {exc}")
+        if downloads:
+            self._install_updates(downloads, catalog)
+        return sorted(downloads)
+
+    def _install_updates(self, downloads: dict[str, dict[str, bytes]], catalog: dict[str, dict]):
+        with self._lock:
+            for server_id, files in downloads.items():
+                install_service(self.services_root, server_id, files)
+                log_event(f"[MCP catalog] {server_id} actualizado a la versión {catalog[server_id]['version']}")
+            self.services = self._load_services()
+            for server_id in downloads:
+                record = self.records.get(server_id)
+                if not (record and record.client and record.client.running()):
+                    continue
+                # Se reinicia con el navegador con el que arrancó y sin cambiar si se recuerda.
+                self._trace(server_id, "restarting with the updated version")
+                record.client.stop()
+                self._start_locked(server_id, False, record.browser)
+
     def close(self):
+        self._catalog_stop.set()
         with self._lock:
             for record in self.records.values():
                 if record.client:
@@ -9388,6 +9528,8 @@ def main():
     exit_on_close = not args.keep_server
     set_exit_on_close(exit_on_close)
     print_header(dev_root, ui_url, exposure_warning, exit_on_close)
+    # Los servicios MCP incluidos se actualizan desde el catálogo publicado junto a la interfaz.
+    GLOBAL_MCP_MANAGER.start_catalog_refresh(ui_url)
 
     headless_browser = start_interface(args, parser, server, ui_url)
     if exit_on_close:
