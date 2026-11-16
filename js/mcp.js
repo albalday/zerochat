@@ -912,6 +912,10 @@
       return getMcpExternal().configureExternalServer(this, serverId, options);
     }
 
+    setExternalServerSecret(serverId, name, value) {
+      return getMcpExternal().setExternalServerSecret(this, serverId, name, value);
+    }
+
     runExternalServerAction(serverId, action, options) {
       return getMcpExternal().runExternalServerAction(this, serverId, action, options);
     }

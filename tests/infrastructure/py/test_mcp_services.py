@@ -134,6 +134,63 @@ class ManagedServicesTest(unittest.TestCase):
         self.assertEqual(status_of(manager, "custom-key")["status"], "running")
 
 
+    def test_el_secreto_de_un_servicio_solo_llega_a_su_entorno_y_sin_el_no_arranca(self):
+        traces = capture_console(self)
+        service_dir = self.root / "brave"
+        service_dir.mkdir(parents=True)
+        (service_dir / "service.json").write_text(json.dumps({
+            "id": "brave",
+            "secrets": [{"name": "BRAVE_API_KEY", "label": {"es": "Clave", "en": "Key"}}, {"name": "no válido"}],
+            "launch": {"executable": "${pythonExecutable}", "args": ["${secret:BRAVE_API_KEY}"],
+                       "env": {"BRAVE_API_KEY": "${secret:BRAVE_API_KEY}"}},
+        }), encoding="utf-8")
+        manager = zerochat.McpServiceManager(self.root)
+        self.addCleanup(manager.close)
+        global_manager = patch.object(zerochat, "GLOBAL_MCP_MANAGER", manager)
+        global_manager.start()
+        self.addCleanup(global_manager.stop)
+        client = Mock(tools=[])
+        client.running.return_value = True
+
+        # Sin la clave guardada no arranca y dice cuál falta; el listado solo dice si está guardada.
+        with patch.object(zerochat, "StdioMcpClient", return_value=client) as constructor:
+            manager.start("brave", remember=False)
+            constructor.assert_not_called()
+        self.assertIn("BRAVE_API_KEY", status_of(manager, "brave")["error"])
+        self.assertEqual(status_of(manager, "brave")["secrets"], [{"name": "BRAVE_API_KEY", "label": {"es": "Clave", "en": "Key"}, "configured": False}])
+
+        outcome, error, _ = zerochat.dispatch_server_control("zerochat/external/servers/secret", {"serverId": "brave", "name": "BRAVE_API_KEY", "value": "bsa-secreta"})
+        self.assertIsNone(error)
+        self.assertNotIn("bsa-secreta", json.dumps(outcome))
+        self.assertTrue(status_of(manager, "brave")["secrets"][0]["configured"])
+        with patch.object(zerochat, "StdioMcpClient", return_value=client) as constructor:
+            manager.start("brave", remember=False)
+            command, args, _cwd, env = constructor.call_args.args[:4]
+        # En el entorno sí; en los argumentos, que se ven en la lista de procesos, no se sustituye.
+        self.assertEqual(env["BRAVE_API_KEY"], "bsa-secreta")
+        self.assertEqual(args, ["${secret:BRAVE_API_KEY}"])
+        self.assertNotIn("bsa-secreta", "".join(traces))
+
+        # Cambiar la clave detiene el servicio en marcha (su proceso tiene la anterior); borrarla lo deja sin poder arrancar.
+        zerochat.dispatch_server_control("zerochat/external/servers/secret", {"serverId": "brave", "name": "BRAVE_API_KEY", "value": None})
+        client.stop.assert_called()
+        self.assertFalse(status_of(manager, "brave")["secrets"][0]["configured"])
+        self.assertIsNone(zerochat.get_secret("mcp:brave:BRAVE_API_KEY"))
+
+        # Solo los secretos que declara el servicio, y con un valor de texto no vacío y acotado.
+        for params in ({"name": "OTRA_KEY", "value": "x"}, {"name": "BRAVE_API_KEY", "value": 3},
+                       {"name": "BRAVE_API_KEY", "value": "  "},
+                       {"name": "BRAVE_API_KEY", "value": "k" * (zerochat.MAX_SECRET_LENGTH + 1)}):
+            with self.subTest(params=params):
+                _, error, _ = zerochat.dispatch_server_control("zerochat/external/servers/secret", {"serverId": "brave", **params})
+                self.assertEqual(error["code"], zerochat.INVALID_PARAMS)
+        zerochat.dispatch_server_control("zerochat/external/servers/secret", {"serverId": "brave", "name": "BRAVE_API_KEY", "value": "k" * zerochat.MAX_SECRET_LENGTH})
+        self.assertEqual(zerochat.get_secret("mcp:brave:BRAVE_API_KEY"), "k" * zerochat.MAX_SECRET_LENGTH)
+        with zerochat.open_storage() as conn:
+            stored = conn.execute("SELECT value FROM secrets;").fetchone()["value"]
+        self.assertTrue(stored.startswith(zerochat.OBFUSCATION_PREFIX))
+
+
 class QuietFiles(SimpleHTTPRequestHandler):
     def log_message(self, *_args):
         pass

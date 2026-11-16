@@ -10,6 +10,7 @@ SERVER_CONTROL_METHODS = frozenset({
     "zerochat/external/servers/start",
     "zerochat/external/servers/stop",
     "zerochat/external/servers/configure",
+    "zerochat/external/servers/secret",
 })
 
 
@@ -33,6 +34,8 @@ def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
             browser = validate_profile_browser(browser)
         except ValueError as exc:
             return rpc_error(INVALID_PARAMS, str(exc))
+    if method == "zerochat/external/servers/secret":
+        return _set_secret(server_id, params)
     try:
         if starting:
             servers = GLOBAL_MCP_MANAGER.start(server_id, remember, browser)
@@ -43,3 +46,18 @@ def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
     except KeyError as exc:
         return rpc_error(INVALID_PARAMS, str(exc.args[0]) if exc.args else str(exc))
     return rpc_result({"servers": servers})
+
+
+def _set_secret(server_id: str, params: dict) -> RpcOutcome:
+    """Guarda el secreto `name` del servicio (o lo borra con value null). Solo escritura: ningún método lo devuelve."""
+    name, value = params.get("name"), params.get("value")
+    if not isinstance(name, str) or not name:
+        return rpc_error(INVALID_PARAMS, "name debe ser un texto no vacío.")
+    if value is not None and not isinstance(value, str):
+        return rpc_error(INVALID_PARAMS, "value debe ser un texto o null.")
+    try:
+        return rpc_result({"servers": GLOBAL_MCP_MANAGER.set_secret(server_id, name, value)})
+    except KeyError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc.args[0]) if exc.args else str(exc))
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))

@@ -112,8 +112,17 @@ STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connecti
             AND json_extract(image.value, '$.blobId') IS NOT NULL
             AND TRIM(json_extract(image.value, '$.blobId')) != '';
     """),
-    (7, "007_obfuscate_profile_api_keys", _obfuscate_saved_api_keys)
+    (7, "007_obfuscate_profile_api_keys", _obfuscate_saved_api_keys),
+    (8, "008_create_secrets_table", """
+        CREATE TABLE IF NOT EXISTS secrets (
+            name TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+    """)
 ]
+# Tope de un secreto guardado (una API key cabe de sobra).
+MAX_SECRET_LENGTH = 4096
 
 
 def get_storage_dir() -> Path:
@@ -763,3 +772,38 @@ def update_security_policy_data(mutator: typing.Callable[[dict | None], dict]) -
         except Exception:
             conn.execute("ROLLBACK;")
             raise
+
+
+def save_secret(name: str, value: str):
+    """Guarda ofuscado el secreto `name` (por ejemplo mcp:<servicio>:<VARIABLE>); nunca se devuelve a la interfaz."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("El secreto no puede estar vacío")
+    if len(value) > MAX_SECRET_LENGTH:
+        raise ValueError(f"El secreto no puede superar {MAX_SECRET_LENGTH} caracteres")
+    with open_storage() as conn:
+        conn.execute("""
+            INSERT INTO secrets (name, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
+        """, (name, obfuscate_secret(value.strip()), int(time.time() * 1000)))
+        conn.commit()
+
+
+def delete_secret(name: str) -> bool:
+    with open_storage() as conn:
+        cursor = conn.execute("DELETE FROM secrets WHERE name = ?;", (name,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def get_secret(name: str) -> str | None:
+    """El secreto original, para quien lo usa en el backend (el arranque de un servicio); None si no está guardado."""
+    with open_storage() as conn:
+        row = conn.execute("SELECT value FROM secrets WHERE name = ?;", (name,)).fetchone()
+        return reveal_secret(row["value"]) if row else None
+
+
+def secret_names(prefix: str) -> set[str]:
+    """Nombres de los secretos guardados que empiezan por `prefix`, sin leer sus valores."""
+    with open_storage() as conn:
+        rows = conn.execute("SELECT name FROM secrets WHERE substr(name, 1, ?) = ?;", (len(prefix), prefix)).fetchall()
+        return {row["name"] for row in rows}

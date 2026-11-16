@@ -204,6 +204,24 @@
     }).join('')}</div>`;
   }
 
+  /** Secretos que declara el servicio: solo si están guardados, con botones para guardarlos o borrarlos (nunca su valor). */
+  function renderServerSecrets(server, language) {
+    const secrets = server.secrets || [];
+    if (secrets.length === 0) return '';
+    const id = escapeHtml(server.id);
+    return `<div class="mcp-server-secrets">${secrets.map(secret => {
+      const name = escapeHtml(secret.name);
+      const label = escapeHtml(localized(secret.label, language) || secret.name);
+      return `
+        <div class="mcp-server-secret-row">
+          <span class="mcp-server-option-label">${label}</span>
+          <span class="mcp-server-secret-status${secret.configured ? ' configured' : ''}">${escapeHtml(t(secret.configured ? 'mcp_secret_configured' : 'mcp_secret_missing'))}</span>
+          <button type="button" class="btn-secondary btn-mcp-secret-set" data-server-id="${id}" data-secret-name="${name}" data-secret-label="${label}">${escapeHtml(t('mcp_secret_set'))}</button>
+          ${secret.configured ? `<button type="button" class="btn-danger-outline btn-mcp-secret-delete" data-server-id="${id}" data-secret-name="${name}" data-secret-label="${label}">${escapeHtml(t('mcp_secret_delete'))}</button>` : ''}
+        </div>`;
+    }).join('')}</div>`;
+  }
+
   function renderServer(server, language) {
     const status = server.status || 'stopped';
     const isRunning = McpStatus.isRunning(status);
@@ -240,6 +258,7 @@
           ${server.id === 'playwright' ? `<p class="label-hint mcp-server-browser-notice">${escapeHtml(t('mcp_playwright_browser_notice'))}</p>` : ''}
           ${server.error ? `<div class="mcp-server-error"><p>${escapeHtml(server.error)}</p><a href="help/mcp.html" target="_blank" rel="noopener noreferrer">${escapeHtml(t('mcp_external_help'))}</a></div>` : ''}
           ${server.oauthUrl ? `<div class="mcp-server-oauth-banner"><p class="mcp-server-oauth-msg">${escapeHtml(t('mcp_oauth_required_msg'))}</p><a class="btn-secondary btn-mcp-oauth-open" href="${escapeHtml(server.oauthUrl)}" target="_blank" rel="noopener noreferrer" data-server-id="${id}">${escapeHtml(t('mcp_btn_oauth_authorize'))}</a></div>` : ''}
+          ${renderServerSecrets(server, language)}
           ${renderServerOptions(server, language)}
         </div>
         <div class="mcp-server-actions">
@@ -276,6 +295,26 @@
     }
     const toggle = target.closest('.btn-mcp-server-toggle');
     if (toggle) getMCP().manager.runExternalServerAction(toggle.getAttribute('data-server-id'), toggle.getAttribute('data-action'));
+    const secretButton = target.closest('.btn-mcp-secret-set, .btn-mcp-secret-delete');
+    if (secretButton) await handleServerSecret(secretButton);
+  }
+
+  /** Guarda o borra un secreto del servicio: se pide en un diálogo de contraseña y el servidor no lo devuelve nunca. */
+  async function handleServerSecret(button) {
+    const Dialogs = getDialogs();
+    const name = button.getAttribute('data-secret-label');
+    let value = null;
+    if (button.matches('.btn-mcp-secret-set')) {
+      value = await Dialogs.prompt(t('mcp_secret_prompt', { name }), '', { inputType: 'password', title: name });
+      if (value === null || !value.trim()) return;
+    } else if (!await Dialogs.confirm(t('mcp_secret_delete_confirm', { name }))) {
+      return;
+    }
+    try {
+      await getMCP().manager.setExternalServerSecret(button.getAttribute('data-server-id'), button.getAttribute('data-secret-name'), value);
+    } catch (error) {
+      await Dialogs.alert(error?.message || String(error), { type: 'error' });
+    }
   }
 
   /** Cambio de una opción booleana de un servidor: se guarda y la respuesta trae la lista de servidores. */

@@ -27,7 +27,7 @@ class StorageEngineTest(unittest.TestCase):
         self.assertIn("blobs", tables)
         self.assertIn("conversation_blobs", tables)
         self.assertIn("security_policies", tables)
-        self.assertEqual(migrations, {1, 2, 3, 4, 5, 6, 7})
+        self.assertEqual(migrations, {1, 2, 3, 4, 5, 6, 7, 8})
         self.assertIn("extra_json", columns)
 
     def test_migracion_v4_aplica_a_base_existente(self):
@@ -77,12 +77,12 @@ class StorageEngineTest(unittest.TestCase):
         conn.commit()
         conn.close()
 
-        # Al abrir con zerochat.open_storage, se deben aplicar las migraciones 4 a 7 sin errores
+        # Al abrir con zerochat.open_storage, se deben aplicar las migraciones 4 a 8 sin errores
         with zerochat.open_storage() as conn:
             migrations = {row["version"] for row in conn.execute("SELECT version FROM schema_migrations;").fetchall()}
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(conversations);").fetchall()}
             stored_key = conn.execute("SELECT api_key FROM profiles WHERE id = 'profile:viejo';").fetchone()["api_key"]
-        self.assertEqual(migrations, {1, 2, 3, 4, 5, 6, 7})
+        self.assertEqual(migrations, {1, 2, 3, 4, 5, 6, 7, 8})
         self.assertIn("extra_json", columns)
         # La 7 ofusca la clave que estaba en claro, que sigue sirviendo.
         self.assertNotIn("sk-en-claro", stored_key)
