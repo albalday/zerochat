@@ -1019,7 +1019,7 @@ test('MCP - buildCommandNotes redacta en inglés los comandos en segundo plano t
   assert.equal(await manager.buildCommandNotes(messages), '');
 });
 
-test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversation_id y latido adaptativo 1 s / 10 s', async () => {
+test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversation_id y latido de 2 s solo con la ejecución en marcha abierta', async () => {
   const previousMcp = ChatState.get('mcp');
   const previousSessions = ChatState.get('sessions');
   const manager = new MCP.McpManager();
@@ -1029,7 +1029,7 @@ test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversatio
     ok: true,
     exit_on_close: false,
     runs: [{ conversation_id: 'conv_srv_1', run_id: 'run_srv_1', status: 'running' }],
-    focus_run: { conversation_id: 'conv_srv_1', run_id: 'run_srv_1', status: 'running', assistant_text: 'En curso...' }
+    focus_run: { conversation_id: 'conv_srv_1', run_id: 'run_srv_1', status: 'running', step_text: 'step 1' }
   };
   manager.clients.set('mcp_proxy', {
     request: async (method, params) => {
@@ -1057,7 +1057,7 @@ test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversatio
     ChatState.set('mcp', { ...previousMcp, status: 'connected', serverRuns: [], focusRun: null });
     ChatState.set('sessions', { activeId: 'conv_srv_1', list: [] });
 
-    // 1. startServerRun publica el estado 'running' y activa el temporizador rápido de 1 s (1000 ms)
+    // 1. startServerRun publica el estado 'running' y activa el temporizador rápido de 2 s
     const started = await manager.startServerRun({
       conversationId: 'conv_srv_1',
       profile: 'Server',
@@ -1067,7 +1067,7 @@ test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversatio
     assert.deepEqual(ChatState.get('mcp').serverRuns, [
       { conversationId: 'conv_srv_1', runId: 'run_srv_1', status: 'running' }
     ]);
-    assert.equal(manager.heartbeatIntervalMs, 1000);
+    assert.equal(manager.heartbeatIntervalMs, 2000);
     assert.ok(manager.heartbeatTimer);
 
     // 2. readLiveState envía focus_conversation_id y publica focusRun
@@ -1076,8 +1076,16 @@ test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversatio
       method: 'zerochat/heartbeat',
       params: { focus_conversation_id: 'conv_srv_1' }
     });
-    assert.equal(ChatState.get('mcp').focusRun?.assistant_text, 'En curso...');
-    assert.equal(manager.heartbeatIntervalMs, 1000, 'Sigue a 1 s mientras haya una tarea running aunque exit_on_close sea false');
+    assert.equal(ChatState.get('mcp').focusRun?.step_text, 'step 1');
+    assert.equal(manager.heartbeatIntervalMs, 2000, 'Sigue a 2 s con su conversación abierta aunque exit_on_close sea false');
+
+    // Con otra conversación abierta no se consulta nada aunque la ejecución siga; al volver, se reanuda.
+    ChatState.set('sessions', { activeId: 'conv_otra', list: [] });
+    await manager.readLiveState();
+    assert.equal(manager.heartbeatTimer, null);
+    ChatState.set('sessions', { activeId: 'conv_srv_1', list: [] });
+    await manager.readLiveState();
+    assert.equal(manager.heartbeatIntervalMs, 2000);
 
     // 3. Cuando la tarea pasa a needs_input y exit_on_close es true, el latido baja a 10 s (10000 ms)
     heartbeatResponse = {
@@ -1092,7 +1100,7 @@ test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversatio
 
     // 4. cancelServerRun invoca zerochat/run/cancel y relee el estado vivo (sin runs y exit_on_close: false apaga el timer)
     await manager.cancelServerRun('conv_srv_1');
-    assert.deepEqual(calls[3], {
+    assert.deepEqual(calls[5], {
       method: 'zerochat/run/cancel',
       params: { conversation_id: 'conv_srv_1' }
     });

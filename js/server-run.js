@@ -1,8 +1,9 @@
 /**
  * Control de la ejecución en servidor: el agente de una conversación corre en zerochat.py y la página
  * sigue su estado vivo (`mcp.serverRuns`, que mantiene ChatMCP). Decide si la ejecución en servidor está
- * disponible, qué ejecución corresponde a la conversación activa, si esta bloquea el compositor y qué
- * ejecuciones han terminado; arranca y cancela ejecuciones con la política de herramientas vigente.
+ * disponible, qué ejecución corresponde a la conversación activa, si esta bloquea el compositor, qué
+ * ejecuciones han terminado y si hay pasos grabados que la página aún no muestra; arranca y cancela
+ * ejecuciones con la política de herramientas vigente.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -70,11 +71,27 @@
     return getMcpManager().cancelServerRun(getActiveId());
   }
 
-  /** Al cambiar de conversación, relee el estado vivo si hay ejecuciones que seguir. */
+  /**
+   * Al cambiar de conversación, relee el estado vivo si hay ejecuciones o la abierta es de servidor: así
+   * se reanuda la consulta frecuente al volver a una en marcha y se detiene al salir de ella.
+   */
   function refreshLiveState() {
     const mcp = getMcpManager();
-    if (!mcp.isProxyConnected() || getRuns().length === 0) return Promise.resolve();
+    if (!mcp.isProxyConnected()) return Promise.resolve();
+    const active = getState().get('sessions').list.find(session => session.id === getActiveId());
+    if (getRuns().length === 0 && !isServerConversation(active)) return Promise.resolve();
     return mcp.readLiveState();
+  }
+
+  /**
+   * La conversación abierta tiene grabado en el servidor algo más nuevo que lo que muestra la página:
+   * `focusRun` es de ella y su `conversation_updated_at` supera la fecha de la cabecera cargada.
+   */
+  function hasNewerSavedSteps(focusRun) {
+    if (!focusRun || focusRun.conversation_id !== getActiveId()) return false;
+    const savedAt = focusRun.conversation_updated_at;
+    const shown = getState().get('sessions').list.find(session => session.id === getActiveId());
+    return Number.isFinite(savedAt) && savedAt > (shown?.updatedAt || 0);
   }
 
   return {
@@ -86,6 +103,7 @@
     finishedRunIds,
     start,
     cancelActive,
-    refreshLiveState
+    refreshLiveState,
+    hasNewerSavedSteps
   };
 }));

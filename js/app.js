@@ -780,7 +780,13 @@
     State.subscribe(state => state.mcp.status, syncServerRunControl);
     syncServerRunControl();
 
-    State.subscribe(state => state.mcp.focusRun, syncLiveServerRun);
+    // Lo que la ejecución va grabando se trae de SQLite: la página muestra siempre la conversación grabada.
+    State.subscribe(state => state.mcp.focusRun, focusRun => {
+      syncLiveServerRun();
+      if (!ServerRun.hasNewerSavedSteps(focusRun) || isBusy()) return;
+      ConversationService.switchToSession(focusRun.conversation_id, { ...getConversationServiceOptions(), force: true, saveCurrent: false })
+        .catch(error => console.warn('[App] Could not reload the server conversation:', error));
+    });
 
     State.subscribe(
       state => state.mcp.serverRuns,

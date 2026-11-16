@@ -70,7 +70,8 @@
   const HEARTBEAT_INTERVAL_MS = 10000;
   // Código con el que el servidor avisa de que la carpeta del proyecto de la pestaña ya no existe.
   const PROJECT_GONE_CODE = -32003;
-  const HEARTBEAT_FAST_INTERVAL_MS = 1000;
+  // Con la conversación de una ejecución en marcha abierta: cada paso grabado se ve en segundos.
+  const HEARTBEAT_FAST_INTERVAL_MS = 2000;
   // Plazo de los sondeos al servidor local (conexión, comprobación y reconexión del latido).
   const PROBE_TIMEOUT_MS = 1500;
   // Lo que el servidor local informa en vivo, vacío mientras no hay conexión.
@@ -489,8 +490,10 @@
         const focusRun = payload.focus_run && typeof payload.focus_run === 'object' ? payload.focus_run : null;
         if (JSON.stringify(focusRun) !== JSON.stringify(current.focusRun)) next.focusRun = focusRun;
       }
-      const hasRunningServerRuns = Array.isArray(serverRuns) && serverRuns.some(run => run.status === 'running');
-      if (hasRunningServerRuns) {
+      // Solo se consulta a menudo mientras está abierta una conversación cuya ejecución sigue en marcha.
+      const activeId = State.get('sessions')?.activeId;
+      const followsActiveRun = Array.isArray(serverRuns) && serverRuns.some(run => run.status === 'running' && run.conversationId === activeId);
+      if (followsActiveRun) {
         this.setHeartbeatTimer(Boolean(this.target), HEARTBEAT_FAST_INTERVAL_MS);
       } else if (typeof payload.exit_on_close === 'boolean' || Array.isArray(payload.runs)) {
         this.setHeartbeatTimer(this.serverExitsOnClose !== false && Boolean(this.target), HEARTBEAT_INTERVAL_MS);
@@ -823,9 +826,7 @@
           conversation_id: runEntry.conversationId,
           run_id: runEntry.runId,
           status: runEntry.status,
-          step_text: '',
-          assistant_text: '',
-          reasoning_text: ''
+          step_text: ''
         };
       }
       State.set('mcp', nextState);
