@@ -1114,7 +1114,7 @@ test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversatio
   }
 });
 
-test('MCP - gestión de perfiles de servidor (listServerProfiles, saveServerProfile, deleteServerProfile, importServerProfile)', async () => {
+test('MCP - gestión de perfiles de servidor (listServerProfiles, saveServerProfile, deleteServerProfile)', async () => {
   const manager = new MCP.McpManager();
   manager.target = { url: 'http://127.0.0.1:6388', proxyKey: null };
   const calls = [];
@@ -1153,11 +1153,4 @@ test('MCP - gestión de perfiles de servidor (listServerProfiles, saveServerProf
   const deleted = await manager.deleteServerProfile('profile:saved');
   assert.equal(deleted, true);
 
-  // importServerProfile delega en ChatProfileRepository
-  const imported = await manager.importServerProfile(list[1]);
-  assert.equal(imported.name, 'OpenAI Servidor');
-  const Profiles = require('../../js/profile-repository.js');
-  const loaded = await Profiles.load(imported.id);
-  assert.equal(loaded.settings.apiKey, 'sk-serv-key');
-  Profiles.remove(imported.id);
 });

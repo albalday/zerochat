@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import base64
+import binascii
 import codecs
 import contextlib
 import ctypes
@@ -3108,6 +3109,52 @@ class AccessDecision:
             "ruleOffer": self.rule_offer
         }
 
+# --- storage.obfuscation ---
+"""Ofuscación simple de los secretos que el backend guarda en SQLite (API keys de los perfiles del servidor).
+
+No es cifrado: la clave sale de este código, así que cualquiera que lo tenga recupera el secreto. Evita que una
+clave se lea al abrir la base de datos o al buscar texto en el disco; la protección real son los permisos 0600 de
+la carpeta de datos del usuario (docs/M75-apikeys.md).
+"""
+
+
+
+OBFUSCATION_PREFIX = "zc1:"
+_OBFUSCATION_KEY = b"ZeroChat backend secret obfuscation v1"
+_OBFUSCATION_NONCE_BYTES = 16
+
+
+def _obfuscation_keystream(nonce: bytes, length: int) -> bytes:
+    blocks = (hashlib.sha256(_OBFUSCATION_KEY + nonce + counter.to_bytes(4, "big")).digest()
+              for counter in range((length + 31) // 32))
+    return b"".join(blocks)[:length]
+
+
+def obfuscate_secret(value: str) -> str:
+    """El secreto tal como se guarda; vacío si no hay secreto. Un nonce aleatorio hace distintas dos copias iguales."""
+    if not value:
+        return ""
+    data = value.encode("utf-8")
+    nonce = secrets.token_bytes(_OBFUSCATION_NONCE_BYTES)
+    mixed = bytes(a ^ b for a, b in zip(data, _obfuscation_keystream(nonce, len(data)), strict=True))
+    return OBFUSCATION_PREFIX + base64.b64encode(nonce + mixed).decode("ascii")
+
+
+def reveal_secret(stored: str) -> str:
+    """El secreto original de lo guardado con obfuscate_secret; vacío si no hay secreto."""
+    if not stored:
+        return ""
+    if not stored.startswith(OBFUSCATION_PREFIX):
+        raise ValueError("El secreto guardado no tiene un formato válido")
+    try:
+        raw = base64.b64decode(stored[len(OBFUSCATION_PREFIX):], validate=True)
+    except binascii.Error as exc:
+        raise ValueError("El secreto guardado no tiene un formato válido") from exc
+    nonce, mixed = raw[:_OBFUSCATION_NONCE_BYTES], raw[_OBFUSCATION_NONCE_BYTES:]
+    if len(nonce) != _OBFUSCATION_NONCE_BYTES:
+        raise ValueError("El secreto guardado no tiene un formato válido")
+    return bytes(a ^ b for a, b in zip(mixed, _obfuscation_keystream(nonce, len(mixed)), strict=True)).decode("utf-8")
+
 # --- storage.db ---
 """Almacenamiento local en SQLite (~/zerochat/storage/zerochat.db): perfiles del servidor, conversaciones, blobs y políticas de seguridad."""
 
@@ -3126,7 +3173,16 @@ MAX_CONVERSATION_ID_LENGTH = 128
 MAX_CONVERSATION_TITLE_LENGTH = 256
 MAX_BLOB_SIZE = 50 * 1024 * 1024
 MAX_BLOB_HTTP_BYTES = 72 * 1024 * 1024
-STORAGE_MIGRATIONS = [
+def _obfuscate_saved_api_keys(conn: sqlite3.Connection):
+    """Las API keys de los perfiles del servidor, guardadas en claro hasta ahora, pasan a guardarse ofuscadas."""
+    rows = conn.execute("SELECT id, api_key FROM profiles WHERE api_key != '';").fetchall()
+    for row in rows:
+        if not row["api_key"].startswith(OBFUSCATION_PREFIX):
+            conn.execute("UPDATE profiles SET api_key = ? WHERE id = ?;", (obfuscate_secret(row["api_key"]), row["id"]))
+
+
+# Cada migración es SQL o, si necesita código (ofuscar), una función que recibe la conexión.
+STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connection], None]]] = [
     (1, "001_create_profiles_table", """
         CREATE TABLE IF NOT EXISTS profiles (
             id TEXT PRIMARY KEY,
@@ -3198,7 +3254,8 @@ STORAGE_MIGRATIONS = [
         WHERE json_valid(messages.extra_json)
             AND json_extract(image.value, '$.blobId') IS NOT NULL
             AND TRIM(json_extract(image.value, '$.blobId')) != '';
-    """)
+    """),
+    (7, "007_obfuscate_profile_api_keys", _obfuscate_saved_api_keys)
 ]
 
 
@@ -3237,9 +3294,12 @@ def _apply_migrations(conn: sqlite3.Connection):
         );
     """)
     applied = {row["version"] for row in conn.execute("SELECT version FROM schema_migrations;").fetchall()}
-    for version, description, sql in STORAGE_MIGRATIONS:
+    for version, description, migration in STORAGE_MIGRATIONS:
         if version not in applied:
-            conn.executescript(sql)
+            if callable(migration):
+                migration(conn)
+            else:
+                conn.executescript(migration)
             conn.execute(
                 "INSERT INTO schema_migrations (version, applied_at, description) VALUES (?, ?, ?);",
                 (version, int(time.time() * 1000), description)
@@ -3311,18 +3371,19 @@ def validate_profile_payload(record: dict) -> tuple[str, str, str, dict, str | N
 
 
 def _row_to_profile(row: sqlite3.Row) -> dict:
-    """Transforma una fila SQLite en el objeto de perfil del servidor."""
+    """Transforma una fila SQLite en el objeto de perfil del servidor, sin su API key: solo `hasApiKey`.
+    La clave la entrega get_general_profile_with_key a quien la usa (el runner o la importación explícita)."""
     try:
         settings = json.loads(row["settings_json"])
     except (json.JSONDecodeError, TypeError):
         settings = {}
-
-    settings["apiKey"] = row["api_key"] or ""
+    settings.pop("apiKey", None)
     return {
         "id": row["id"],
         "name": row["name"],
         "description": row["description"] or "",
         "general": True,
+        "hasApiKey": bool(row["api_key"]),
         "schemaVersion": 1,
         "version": row["version"],
         "createdAt": row["created_at"],
@@ -3346,6 +3407,19 @@ def get_general_profile(profile_id: str) -> dict | None:
     with open_storage() as conn:
         row = conn.execute("SELECT * FROM profiles WHERE id = ?;", (clean_id,)).fetchone()
         return _row_to_profile(row) if row else None
+
+
+def get_general_profile_with_key(profile_id: str) -> dict | None:
+    """El perfil del servidor con su API key en settings.apiKey (vacía si no tiene), o None si no existe."""
+    if not profile_id or not isinstance(profile_id, str) or not profile_id.strip():
+        return None
+    with open_storage() as conn:
+        row = conn.execute("SELECT * FROM profiles WHERE id = ?;", (normalize_profile_id("", profile_id),)).fetchone()
+        if not row:
+            return None
+        profile = _row_to_profile(row)
+        profile["settings"]["apiKey"] = reveal_secret(row["api_key"] or "")
+        return profile
 
 
 def get_general_profile_by_name(name: str) -> dict | None:
@@ -3387,7 +3461,7 @@ def save_general_profile(record: dict) -> dict:
 
         if existing:
             version = existing["version"] + 1
-            final_api_key = (existing["api_key"] or "") if api_key is None else api_key
+            final_api_key = (existing["api_key"] or "") if api_key is None else obfuscate_secret(api_key)
             conn.execute("""
                 UPDATE profiles
                 SET name = ?, description = ?, settings_json = ?, api_key = ?, version = ?, updated_at = ?
@@ -3397,7 +3471,7 @@ def save_general_profile(record: dict) -> dict:
             conn.execute("""
                 INSERT INTO profiles (id, name, description, settings_json, api_key, version, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, 1, ?, ?);
-            """, (profile_id, name, description, json.dumps(settings), api_key or "", now, now))
+            """, (profile_id, name, description, json.dumps(settings), obfuscate_secret(api_key or ""), now, now))
 
         conn.commit()
         saved_row = conn.execute("SELECT * FROM profiles WHERE id = ?;", (profile_id,)).fetchone()
@@ -4222,21 +4296,16 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
                        "new_conversation_id": session.new_conversation_id, "profile": session.profile,
                        "profile_data": session.profile_data,
                        # Para switch_model, que busca por nombre: el runner no puede listar los perfiles con su credencial.
-                       # Van sin API key; la del que active la pide con zerochat/run/profile.
-                       "profiles": [_without_api_key(profile) for profile in list_general_profiles()],
+                       # El listado no lleva API keys; la del que active la pide con zerochat/run/profile.
+                       "profiles": list_general_profiles(),
                        "export": export_format, "keep_page": session.keep_page,
                        "allow_dangerous_tools": session.allow_dangerous_tools})
-
-
-def _without_api_key(profile: dict) -> dict:
-    settings = {key: value for key, value in (profile.get("settings") or {}).items() if key != "apiKey"}
-    return {**profile, "settings": settings}
 
 
 def _rpc_profile(params: dict, session: RunSession) -> RpcOutcome:
     """Un perfil del servidor con su API key, para el runner que lo activa con switch_model; queda en el registro."""
     profile_id = params.get("id")
-    profile = get_general_profile(profile_id) if isinstance(profile_id, str) else None
+    profile = get_general_profile_with_key(profile_id) if isinstance(profile_id, str) else None
     if profile is None:
         return rpc_error(INVALID_PARAMS, "Perfil del servidor no encontrado.")
     log_event(f"[run] Se entrega al runner el perfil {profile['name']} con su clave")
@@ -4421,8 +4490,21 @@ def _delete_profile(params: dict) -> RpcOutcome:
     return rpc_result({"deleted": delete_general_profile(profile_id)})
 
 
+def _reveal_profile(params: dict) -> RpcOutcome:
+    """El perfil con su API key, para copiarlo a la interfaz al pulsar el usuario Editar: el único método que devuelve
+    una clave guardada en el servidor a la interfaz (docs/M75-apikeys.md), y queda en el registro."""
+    profile_id = params.get("id")
+    profile = get_general_profile_with_key(profile_id) if isinstance(profile_id, str) else None
+    if profile is None:
+        return rpc_error(INVALID_PARAMS, "Perfil del servidor no encontrado.")
+    log_event(f"Se entrega a la interfaz el perfil del servidor {profile['name']} con su clave")
+    return rpc_result({"profile": profile})
+
+
+# El listado y lo que devuelve guardar no llevan la API key, solo hasApiKey.
 PROFILE_METHODS = {
     "zerochat/profiles/list": lambda _params: rpc_result({"profiles": list_general_profiles()}),
+    "zerochat/profiles/reveal": _reveal_profile,
     "zerochat/profiles/save": _save_profile,
     "zerochat/profiles/delete": _delete_profile,
 }
@@ -9182,7 +9264,8 @@ def _run_conversation(parser: ZeroChatArgumentParser, args, prompt: str | None) 
 
 
 def _run_profile(parser: ZeroChatArgumentParser, args, conv: dict | None) -> tuple[str, dict | None]:
-    """El perfil de la ejecución: el de --profile, el de la conversación o DEFAULT_RUN_PROFILE.
+    """El perfil de la ejecución (su nombre y, si existe en el servidor, el perfil con su API key, que el runner recibe
+    en profile_data): el de --profile, el de la conversación o DEFAULT_RUN_PROFILE.
 
     Un --profile que no existe en el servidor se pasa por su nombre; el de la conversación y el por defecto tienen que existir.
     """
@@ -9191,17 +9274,17 @@ def _run_profile(parser: ZeroChatArgumentParser, args, conv: dict | None) -> tup
         if not clean_profile:
             parser.error("--profile no puede estar vacío")
         match = get_general_profile_by_name(clean_profile) or get_general_profile(clean_profile)
-        return (match["name"] if match else clean_profile), match
+        return (match["name"] if match else clean_profile), (get_general_profile_with_key(match["id"]) if match else None)
     conv_profile = conv.get("profileId") if conv else None
     if conv_profile:
         match = get_general_profile_by_name(conv_profile) or get_general_profile(conv_profile)
         if not match:
             parser.error(f"no existe el perfil '{conv_profile}' en el servidor; créalo o indica uno con --profile")
-        return match["name"], match
+        return match["name"], get_general_profile_with_key(match["id"])
     match = get_general_profile_by_name(DEFAULT_RUN_PROFILE)
     if match is None:
         parser.error(f"no existe el perfil por defecto '{DEFAULT_RUN_PROFILE}' en el servidor; créalo o indica uno con --profile")
-    return match["name"], match
+    return match["name"], get_general_profile_with_key(match["id"])
 
 
 def _run_export_path(parser: ZeroChatArgumentParser, args) -> Path | None:

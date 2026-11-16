@@ -16,6 +16,7 @@ from pathlib import Path
 
 from core.environment import get_data_dir
 from core.limits import MAX_PATH_LENGTH
+from storage.obfuscation import OBFUSCATION_PREFIX, obfuscate_secret, reveal_secret
 
 
 # Persistencia local de zerochat.py con SQLite embebido para perfiles de conexión generales y conversaciones.
@@ -29,7 +30,16 @@ MAX_CONVERSATION_ID_LENGTH = 128
 MAX_CONVERSATION_TITLE_LENGTH = 256
 MAX_BLOB_SIZE = 50 * 1024 * 1024
 MAX_BLOB_HTTP_BYTES = 72 * 1024 * 1024
-STORAGE_MIGRATIONS = [
+def _obfuscate_saved_api_keys(conn: sqlite3.Connection):
+    """Las API keys de los perfiles del servidor, guardadas en claro hasta ahora, pasan a guardarse ofuscadas."""
+    rows = conn.execute("SELECT id, api_key FROM profiles WHERE api_key != '';").fetchall()
+    for row in rows:
+        if not row["api_key"].startswith(OBFUSCATION_PREFIX):
+            conn.execute("UPDATE profiles SET api_key = ? WHERE id = ?;", (obfuscate_secret(row["api_key"]), row["id"]))
+
+
+# Cada migración es SQL o, si necesita código (ofuscar), una función que recibe la conexión.
+STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connection], None]]] = [
     (1, "001_create_profiles_table", """
         CREATE TABLE IF NOT EXISTS profiles (
             id TEXT PRIMARY KEY,
@@ -101,7 +111,8 @@ STORAGE_MIGRATIONS = [
         WHERE json_valid(messages.extra_json)
             AND json_extract(image.value, '$.blobId') IS NOT NULL
             AND TRIM(json_extract(image.value, '$.blobId')) != '';
-    """)
+    """),
+    (7, "007_obfuscate_profile_api_keys", _obfuscate_saved_api_keys)
 ]
 
 
@@ -140,9 +151,12 @@ def _apply_migrations(conn: sqlite3.Connection):
         );
     """)
     applied = {row["version"] for row in conn.execute("SELECT version FROM schema_migrations;").fetchall()}
-    for version, description, sql in STORAGE_MIGRATIONS:
+    for version, description, migration in STORAGE_MIGRATIONS:
         if version not in applied:
-            conn.executescript(sql)
+            if callable(migration):
+                migration(conn)
+            else:
+                conn.executescript(migration)
             conn.execute(
                 "INSERT INTO schema_migrations (version, applied_at, description) VALUES (?, ?, ?);",
                 (version, int(time.time() * 1000), description)
@@ -214,18 +228,19 @@ def validate_profile_payload(record: dict) -> tuple[str, str, str, dict, str | N
 
 
 def _row_to_profile(row: sqlite3.Row) -> dict:
-    """Transforma una fila SQLite en el objeto de perfil del servidor."""
+    """Transforma una fila SQLite en el objeto de perfil del servidor, sin su API key: solo `hasApiKey`.
+    La clave la entrega get_general_profile_with_key a quien la usa (el runner o la importación explícita)."""
     try:
         settings = json.loads(row["settings_json"])
     except (json.JSONDecodeError, TypeError):
         settings = {}
-
-    settings["apiKey"] = row["api_key"] or ""
+    settings.pop("apiKey", None)
     return {
         "id": row["id"],
         "name": row["name"],
         "description": row["description"] or "",
         "general": True,
+        "hasApiKey": bool(row["api_key"]),
         "schemaVersion": 1,
         "version": row["version"],
         "createdAt": row["created_at"],
@@ -249,6 +264,19 @@ def get_general_profile(profile_id: str) -> dict | None:
     with open_storage() as conn:
         row = conn.execute("SELECT * FROM profiles WHERE id = ?;", (clean_id,)).fetchone()
         return _row_to_profile(row) if row else None
+
+
+def get_general_profile_with_key(profile_id: str) -> dict | None:
+    """El perfil del servidor con su API key en settings.apiKey (vacía si no tiene), o None si no existe."""
+    if not profile_id or not isinstance(profile_id, str) or not profile_id.strip():
+        return None
+    with open_storage() as conn:
+        row = conn.execute("SELECT * FROM profiles WHERE id = ?;", (normalize_profile_id("", profile_id),)).fetchone()
+        if not row:
+            return None
+        profile = _row_to_profile(row)
+        profile["settings"]["apiKey"] = reveal_secret(row["api_key"] or "")
+        return profile
 
 
 def get_general_profile_by_name(name: str) -> dict | None:
@@ -290,7 +318,7 @@ def save_general_profile(record: dict) -> dict:
 
         if existing:
             version = existing["version"] + 1
-            final_api_key = (existing["api_key"] or "") if api_key is None else api_key
+            final_api_key = (existing["api_key"] or "") if api_key is None else obfuscate_secret(api_key)
             conn.execute("""
                 UPDATE profiles
                 SET name = ?, description = ?, settings_json = ?, api_key = ?, version = ?, updated_at = ?
@@ -300,7 +328,7 @@ def save_general_profile(record: dict) -> dict:
             conn.execute("""
                 INSERT INTO profiles (id, name, description, settings_json, api_key, version, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, 1, ?, ?);
-            """, (profile_id, name, description, json.dumps(settings), api_key or "", now, now))
+            """, (profile_id, name, description, json.dumps(settings), obfuscate_secret(api_key or ""), now, now))
 
         conn.commit()
         saved_row = conn.execute("SELECT * FROM profiles WHERE id = ?;", (profile_id,)).fetchone()

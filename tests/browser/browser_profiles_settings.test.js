@@ -557,6 +557,12 @@ test('Browser UI - el selector de perfiles permite gestionar perfiles del servid
       const mcp = window.ChatMCP.manager;
       mcp.isProxyConnected = () => true;
       mcp.listServerProfiles = async () => profiles;
+      // El listado no lleva la clave: Editar la pide aparte.
+      mcp.revealServerProfile = async id => {
+        window.revealedServerProfileId = id;
+        const profile = profiles.find(item => item.id === id);
+        return { ...profile, settings: { ...profile.settings, apiKey: 'sk-servidor' } };
+      };
       mcp.deleteServerProfile = async id => {
         window.deletedServerProfileId = id;
         return true;
@@ -605,6 +611,8 @@ test('Browser UI - el selector de perfiles permite gestionar perfiles del servid
     await page.click('[data-server-profile-action="edit"]');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').open && !document.getElementById('btn-save-profile').disabled);
     assert.equal(await page.$eval('#setting-profile-name', el => el.value), 'Servidor Claude');
+    assert.equal(await page.$eval('#setting-api-key', el => el.value), 'sk-servidor');
+    assert.equal(await page.evaluate(() => window.revealedServerProfileId), 'srv:claude');
     assert.equal((await page.textContent('#btn-save-profile')).trim(), 'Guardar en local');
 
     // Guardar en local desde el editor

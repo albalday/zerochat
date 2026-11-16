@@ -871,9 +871,16 @@
       return result?.deleted === true;
     }
 
-    /** Importa un perfil del servidor al repositorio local del cliente. */
-    async importServerProfile(serverProfile, options = {}) {
-      return getProfiles().importServerProfile(serverProfile, options);
+    /**
+     * Perfil del servidor con su API key, solo para abrirlo en el editor al pulsar el usuario Editar: el listado
+     * no lleva claves (hasApiKey) y el servidor deja constancia de esta entrega en su registro.
+     */
+    async revealServerProfile(profileId) {
+      const client = this.clients.get(PROXY_ID);
+      if (!client) throw new Error('No local server connection.');
+      const result = await client.request('zerochat/profiles/reveal', { id: profileId });
+      if (!result?.profile) throw new Error('Invalid profile response from server.');
+      return result.profile;
     }
 
     /**

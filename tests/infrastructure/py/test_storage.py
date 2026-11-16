@@ -27,7 +27,7 @@ class StorageEngineTest(unittest.TestCase):
         self.assertIn("blobs", tables)
         self.assertIn("conversation_blobs", tables)
         self.assertIn("security_policies", tables)
-        self.assertEqual(migrations, {1, 2, 3, 4, 5, 6})
+        self.assertEqual(migrations, {1, 2, 3, 4, 5, 6, 7})
         self.assertIn("extra_json", columns)
 
     def test_migracion_v4_aplica_a_base_existente(self):
@@ -49,6 +49,9 @@ class StorageEngineTest(unittest.TestCase):
                 created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
             );
         """)
+        # Una clave guardada en claro antes de la migración 7.
+        conn.execute("INSERT INTO profiles (id, name, settings_json, api_key, created_at, updated_at) "
+                     "VALUES ('profile:viejo', 'Viejo', '{}', 'sk-en-claro', 1, 1);")
         conn.execute("INSERT INTO schema_migrations VALUES (2, 2000, '002_create_conversations_tables');")
         conn.execute("""
             CREATE TABLE conversations (
@@ -74,12 +77,16 @@ class StorageEngineTest(unittest.TestCase):
         conn.commit()
         conn.close()
 
-        # Al abrir con zerochat.open_storage, se deben aplicar las migraciones 4, 5 y 6 sin errores
+        # Al abrir con zerochat.open_storage, se deben aplicar las migraciones 4 a 7 sin errores
         with zerochat.open_storage() as conn:
             migrations = {row["version"] for row in conn.execute("SELECT version FROM schema_migrations;").fetchall()}
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(conversations);").fetchall()}
-        self.assertEqual(migrations, {1, 2, 3, 4, 5, 6})
+            stored_key = conn.execute("SELECT api_key FROM profiles WHERE id = 'profile:viejo';").fetchone()["api_key"]
+        self.assertEqual(migrations, {1, 2, 3, 4, 5, 6, 7})
         self.assertIn("extra_json", columns)
+        # La 7 ofusca la clave que estaba en claro, que sigue sirviendo.
+        self.assertNotIn("sk-en-claro", stored_key)
+        self.assertEqual(zerochat.get_general_profile_with_key("profile:viejo")["settings"]["apiKey"], "sk-en-claro")
 
         # list_conversations y save_conversation funcionan correctamente tras la migración
         saved = zerochat.save_conversation({
@@ -113,15 +120,20 @@ class StorageEngineTest(unittest.TestCase):
         saved = zerochat.save_general_profile(sample)
         self.assertEqual(saved["name"], "OpenAI GPT-4o")
         self.assertTrue(saved["general"])
-        self.assertEqual(saved["settings"]["apiKey"], "sk-secret-12345678")
-
+        # Ni lo guardado ni el listado ni la búsqueda llevan la clave: solo hasApiKey.
         listed = zerochat.list_general_profiles()
-        self.assertEqual(len(listed), 1)
-        self.assertEqual(listed[0]["settings"]["apiKey"], "sk-secret-12345678")
-
         found_by_id = zerochat.get_general_profile(saved["id"])
-        self.assertIsNotNone(found_by_id)
-        self.assertEqual(found_by_id["settings"]["apiKey"], "sk-secret-12345678")
+        for profile in (saved, listed[0], found_by_id):
+            self.assertNotIn("apiKey", profile["settings"])
+            self.assertTrue(profile["hasApiKey"])
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(zerochat.get_general_profile_with_key(saved["id"])["settings"]["apiKey"], "sk-secret-12345678")
+        self.assertIsNone(zerochat.get_general_profile_with_key("inexistente"))
+        # En disco va ofuscada: el texto de la clave no aparece en la base de datos.
+        with zerochat.open_storage() as conn:
+            stored = conn.execute("SELECT api_key FROM profiles WHERE id = ?;", (saved["id"],)).fetchone()["api_key"]
+        self.assertTrue(stored.startswith(zerochat.OBFUSCATION_PREFIX))
+        self.assertNotIn("sk-secret", stored)
 
         for query in ("OpenAI GPT-4o", "Z- OpenAI GPT-4o", "Z-OpenAI GPT-4o"):
             with self.subTest(query=query):
@@ -133,10 +145,11 @@ class StorageEngineTest(unittest.TestCase):
         updated = zerochat.save_general_profile({**saved, "description": "Descripción actualizada", "settings": {"model": "gpt-4.1"}})
         self.assertEqual(updated["version"], 2)
         self.assertEqual(updated["description"], "Descripción actualizada")
-        self.assertEqual(updated["settings"]["apiKey"], "sk-secret-12345678")
+        self.assertEqual(zerochat.get_general_profile_with_key(saved["id"])["settings"]["apiKey"], "sk-secret-12345678")
 
         cleared_key = zerochat.save_general_profile({**updated, "settings": {"model": "gpt-4.1", "apiKey": ""}})
-        self.assertEqual(cleared_key["settings"]["apiKey"], "")
+        self.assertFalse(cleared_key["hasApiKey"])
+        self.assertEqual(zerochat.get_general_profile_with_key(saved["id"])["settings"]["apiKey"], "")
 
         self.assertTrue(zerochat.delete_general_profile(saved["id"]))
         self.assertEqual(len(zerochat.list_general_profiles()), 0)
@@ -193,7 +206,17 @@ class StorageEngineTest(unittest.TestCase):
         res, err, _ = zerochat.dispatch_profiles("zerochat/profiles/list", {})
         self.assertIsNone(err)
         self.assertEqual(len(res["profiles"]), 1)
-        self.assertEqual(res["profiles"][0]["settings"]["apiKey"], "sk-ant-test")
+        self.assertNotIn("apiKey", res["profiles"][0]["settings"])
+        self.assertTrue(res["profiles"][0]["hasApiKey"])
+
+        # Solo reveal, que se usa al pulsar Editar, entrega la clave a la interfaz, y lo deja en el registro.
+        with mock.patch.object(zerochat, "log_event") as logged:
+            res, err, _ = zerochat.dispatch_profiles("zerochat/profiles/reveal", {"id": prof_id})
+        self.assertIsNone(err)
+        self.assertEqual(res["profile"]["settings"]["apiKey"], "sk-ant-test")
+        self.assertIn("Claude Sonnet", logged.call_args.args[0])
+        _, err, _ = zerochat.dispatch_profiles("zerochat/profiles/reveal", {"id": "profile:inexistente"})
+        self.assertEqual(err["code"], zerochat.INVALID_PARAMS)
 
         res, err, _ = zerochat.dispatch_profiles("zerochat/profiles/delete", {"id": prof_id})
         self.assertIsNone(err)

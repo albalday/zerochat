@@ -28,6 +28,7 @@ from storage.db import (
     get_conversation_updated_at,
     get_general_profile,
     get_general_profile_by_name,
+    get_general_profile_with_key,
     list_general_profiles,
     mark_conversation_server_run,
 )
@@ -415,21 +416,16 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
                        "new_conversation_id": session.new_conversation_id, "profile": session.profile,
                        "profile_data": session.profile_data,
                        # Para switch_model, que busca por nombre: el runner no puede listar los perfiles con su credencial.
-                       # Van sin API key; la del que active la pide con zerochat/run/profile.
-                       "profiles": [_without_api_key(profile) for profile in list_general_profiles()],
+                       # El listado no lleva API keys; la del que active la pide con zerochat/run/profile.
+                       "profiles": list_general_profiles(),
                        "export": export_format, "keep_page": session.keep_page,
                        "allow_dangerous_tools": session.allow_dangerous_tools})
-
-
-def _without_api_key(profile: dict) -> dict:
-    settings = {key: value for key, value in (profile.get("settings") or {}).items() if key != "apiKey"}
-    return {**profile, "settings": settings}
 
 
 def _rpc_profile(params: dict, session: RunSession) -> RpcOutcome:
     """Un perfil del servidor con su API key, para el runner que lo activa con switch_model; queda en el registro."""
     profile_id = params.get("id")
-    profile = get_general_profile(profile_id) if isinstance(profile_id, str) else None
+    profile = get_general_profile_with_key(profile_id) if isinstance(profile_id, str) else None
     if profile is None:
         return rpc_error(INVALID_PARAMS, "Perfil del servidor no encontrado.")
     log_event(f"[run] Se entrega al runner el perfil {profile['name']} con su clave")

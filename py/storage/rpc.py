@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import urllib.parse
 
+from core.logging import log_event
 from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, RpcOutcome, dispatch_table, rpc_error, rpc_result
 from run_mode.state import cancel_server_run, get_runs_dir
 from storage.db import (
@@ -14,6 +15,7 @@ from storage.db import (
     delete_project_conversations,
     get_blob,
     get_conversation,
+    get_general_profile_with_key,
     has_blobs,
     list_conversations,
     list_general_profiles,
@@ -51,8 +53,21 @@ def _delete_profile(params: dict) -> RpcOutcome:
     return rpc_result({"deleted": delete_general_profile(profile_id)})
 
 
+def _reveal_profile(params: dict) -> RpcOutcome:
+    """El perfil con su API key, para copiarlo a la interfaz al pulsar el usuario Editar: el único método que devuelve
+    una clave guardada en el servidor a la interfaz (docs/M75-apikeys.md), y queda en el registro."""
+    profile_id = params.get("id")
+    profile = get_general_profile_with_key(profile_id) if isinstance(profile_id, str) else None
+    if profile is None:
+        return rpc_error(INVALID_PARAMS, "Perfil del servidor no encontrado.")
+    log_event(f"Se entrega a la interfaz el perfil del servidor {profile['name']} con su clave")
+    return rpc_result({"profile": profile})
+
+
+# El listado y lo que devuelve guardar no llevan la API key, solo hasApiKey.
 PROFILE_METHODS = {
     "zerochat/profiles/list": lambda _params: rpc_result({"profiles": list_general_profiles()}),
+    "zerochat/profiles/reveal": _reveal_profile,
     "zerochat/profiles/save": _save_profile,
     "zerochat/profiles/delete": _delete_profile,
 }
