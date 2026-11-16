@@ -50,12 +50,12 @@ Es una variante nueva de gestión de claves: **el secreto de un servicio MCP**, 
 
 - **Servicio**: el servidor MCP oficial de Brave (`@brave/brave-search-mcp-server`, por npm, con la clave en `BRAVE_API_KEY`; falta comprobar el paquete y su versión) entra en el catálogo de `services/` como los demás (M72-D1): instalación con npm, versión propia y arranque desde el perfil.
 - **Declaración**: el `service.json` del servicio declara los secretos que necesita (nombre de la variable y etiqueta bilingüe), y `launch.env` los referencia con un marcador (por ejemplo `"BRAVE_API_KEY": "${secret:BRAVE_API_KEY}"`) que `McpManager._expand` resuelve al arrancar el servicio. Sin la clave guardada, el servicio no arranca y dice qué falta.
-- **Guardado**: en Ajustes › Servicios MCP, el servicio muestra un campo de solo escritura por secreto, con el estado «configurada» o «sin configurar» y un botón para borrarla. El backend la guarda ofuscada en SQLite (`mcp:<servicio>:<VARIABLE>`) y nunca la devuelve.
+- **Guardado**: en Ajustes › MCP, el servicio muestra un campo de solo escritura por secreto, con el estado «configurada» o «sin configurar» y un botón para borrarla. El backend la guarda ofuscada en SQLite (`mcp:<servicio>:<VARIABLE>`) y nunca la devuelve.
 - **Ventajas frente a integrarlo en `search_web`**: no hace falta código propio de búsqueda; aporta las herramientas del servicio (web, noticias, imágenes…) con el motor de permisos de las MCP, y el mismo mecanismo sirve para el siguiente servicio con clave (GitHub, Tavily…).
 - **Inconvenientes**: necesita Node y npm, como los otros servicios incluidos, y solo funciona con el backend (como cualquier opción con Brave si no admite llamadas desde el navegador). El modelo verá `search_web` y la búsqueda de Brave a la vez; el perfil elige si activa el servicio.
 
 ## 6. Tareas propuestas
 
 1. **Almacén de secretos del backend**: tabla en SQLite con ofuscación simple, migración de `profiles.api_key`, listado de perfiles sin claves (`hasApiKey`) y el método explícito para importar un perfil a local.
-2. **Secretos de los servicios MCP**: declaración en `service.json`, marcador `${secret:…}` en el arranque, métodos de guardar y borrar, y su campo en Ajustes › Servicios MCP (español e inglés).
+2. **Secretos de los servicios MCP**: declaración en `service.json`, marcador `${secret:…}` en el arranque, métodos de guardar y borrar, y su campo en Ajustes › MCP (español e inglés).
 3. **Servicio Brave Search** en el catálogo, con su prueba de arranque sin clave y con clave.

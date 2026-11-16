@@ -10,7 +10,7 @@ Esta carpeta es la referencia para crear servicios MCP gestionados. La ubicació
 4. Crea `service.json` copiando esta estructura y adapta únicamente los valores necesarios.
 5. Crea `installer.json` solo si el MCP se distribuye como paquete npm. Copia `installer.json.example`, fija la versión exacta y declara la versión mínima de Node.js.
 6. Añade `help.url` con la página oficial de instalación y etiquetas en español e inglés.
-7. Si requiere una API key, declara la variable que exige el MCP en el objeto `env` de `launch` dentro de `service.json` con el valor literal `PASTE_API_KEY_HERE`. No pidas la clave al usuario ni la escribas en el chat: indica la ruta absoluta del JSON y el campo que debe editar a mano. El usuario guardará su clave únicamente en el JSON local de su carpeta propia.
+7. Si requiere una API key, declárala en `secrets` de `service.json` con la variable que exige el MCP y úsala en `launch.env` con `${secret:NOMBRE}` (apartado «Servicios remotos y claves API»). No pidas la clave al usuario ni la escribas en el chat, en `service.json` ni en otro fichero: el usuario la guarda en Ajustes › MCP.
 8. Evalúa la concurrencia y la compatibilidad con ejecuciones paralelas y desatendidas antes de guardar: el servicio no debe usar puertos fijos, debe arrancar en modo efímero o aislado si maneja estado de sesión, y no debe depender de entradas interactivas por consola o ventanas emergentes durante la ejecución.
 9. No instales ni inicies el servicio. Al terminar, informa de los archivos creados, fuentes oficiales y requisitos pendientes.
 
@@ -42,7 +42,7 @@ Todo servicio MCP debe diseñarse para permitir invocaciones simultáneas (varia
 1. **Aislamiento y modo efímero por defecto**: los servicios que gestionan navegadores o sesiones de ejecución deben iniciar por defecto en modo volátil en memoria (como `--isolated` en Playwright) o en directorios temporales independientes. No deben depender de un único perfil o carpeta de usuario fija compartida que imponga bloqueos de proceso (`SingletonLock` en Chromium, bloqueos de ficheros de sesión). Si se ofrece persistencia, debe ser opcional y parametrizable por perfil o almacenamiento nombrado.
 2. **Transporte exclusivo por `stdio`**: los servidores MCP locales se comunican exclusivamente por entrada y salida estándar. Si un ejecutable o biblioteca interna abre un socket o servidor HTTP local auxiliar, nunca debe fijar un puerto estático (como `8080`), pues causará errores `EADDRINUSE` ante dos procesos concurrentes; debe asignar puertos dinámicos (`port: 0` o rango efímero).
 3. **Persistencia coordinada o aislada**: si el servicio persiste datos en disco (como bases de datos SQLite locales o archivos planos JSON/JSONL), la ruta no debe ser fija y compartida si el motor no gestiona concurrencia multi-proceso. SQLite debe operar con modo WAL y timeout de ocupación (`busy_timeout`); ficheros planos sin bloqueo interproceso como `memory.jsonl` deben reservarse a una única sesión activa o aislarse por perfil/espacio de trabajo.
-4. **Ejecución desatendida y sin interacción en tiempo de ejecución**: el proceso nunca debe abrir ventanas emergentes, diálogos gráficos ni solicitar confirmación interactiva por consola. Todas las credenciales o parámetros se configuran previamente vía `launch.env` o argumentos. Los flujos de autorización interactiva (como el inicio de sesión OAuth inicial de `mcp-remote`) son incompatibles con sesiones desatendidas y paralelas; deben completarse de forma supervisada antes de iniciar ejecuciones automáticas.
+4. **Ejecución desatendida y sin interacción en tiempo de ejecución**: el proceso nunca debe abrir ventanas emergentes, diálogos gráficos ni solicitar confirmación interactiva por consola. Las credenciales se guardan previamente en Ajustes › MCP (`secrets`) y los parámetros van en `launch.env` o en los argumentos. Los flujos de autorización interactiva (como el inicio de sesión OAuth inicial de `mcp-remote`) son incompatibles con sesiones desatendidas y paralelas; deben completarse de forma supervisada antes de iniciar ejecuciones automáticas.
 
 ### Comportamiento de los servicios incluidos
 
@@ -61,19 +61,24 @@ Para instalar el MCP <nombre-del-mcp>, lee primero services/ejemplo/README.md y 
 
 ## Servicios remotos y claves API
 
-`launch.env` es el objeto `env` dentro de `launch` en `service.json`, no un archivo. El agente deja únicamente el marcador; el usuario introduce la clave real a mano en ese JSON. No crees un archivo `launch.env` o `.env`.
+Una API key nunca se escribe en `service.json`. El servicio declara en `secrets` las que necesita, con el nombre de la variable de entorno que exige el MCP y una etiqueta bilingüe, y `launch.env` (el objeto `env` dentro de `launch`, no un archivo) la usa con el marcador `${secret:NOMBRE}`. El usuario la guarda en Ajustes › MCP: ZeroChat la conserva ofuscada en su base de datos local, no la devuelve nunca y solo la pasa en el entorno del proceso del servicio al arrancarlo. Sin ella, el servicio no arranca y su error dice cuál falta. No crees un archivo `launch.env` o `.env`.
 
-Para un remoto, lee también `service.json` e `installer.json` de la carpeta hermana `composio`. Crea una carpeta nueva con nombre e `id` propios; usa Composio como ejemplo del puente local, conservando `transport: "stdio"`. Consulta la documentación oficial del proveedor y de [mcp-remote](https://github.com/punkpeye/mcp-remote#custom-headers) para adaptar endpoint, transporte, cabeceras y autenticación. No copies sin verificar las opciones `--protocol`, los metadatos de cliente ni los parámetros OAuth específicos de Composio. Conserva `HOME` y `USERPROFILE` dentro de `${serviceDir}`.
-
-Para un MCP local que requiera una variable, deja este campo dentro de `launch`, conservando sus demás campos y usando el nombre de variable documentado por el MCP:
+Para un MCP local que requiera una variable, añade `secrets` en la raíz de `service.json` y la variable dentro de `launch`, conservando sus demás campos y usando el nombre documentado por el MCP:
 
 ```json
-"env": {
-  "SERVICE_API_KEY": "PASTE_API_KEY_HERE"
+"secrets": [
+  { "name": "SERVICE_API_KEY", "label": { "es": "Clave de la API", "en": "API key" } }
+],
+"launch": {
+  "env": {
+    "SERVICE_API_KEY": "${secret:SERVICE_API_KEY}"
+  }
 }
 ```
 
-Para un remoto que acepte `Authorization: Bearer`, los campos dentro de `launch` pueden ser:
+Para un remoto, lee también `service.json` e `installer.json` de la carpeta hermana `composio`. Crea una carpeta nueva con nombre e `id` propios; usa Composio como ejemplo del puente local, conservando `transport: "stdio"`. Consulta la documentación oficial del proveedor y de [mcp-remote](https://github.com/punkpeye/mcp-remote#custom-headers) para adaptar endpoint, transporte, cabeceras y autenticación. No copies sin verificar las opciones `--protocol`, los metadatos de cliente ni los parámetros OAuth específicos de Composio. Conserva `HOME` y `USERPROFILE` dentro de `${serviceDir}`.
+
+Para un remoto que acepte `Authorization: Bearer`, declara `REMOTE_API_KEY` en `secrets` como arriba y deja dentro de `launch`:
 
 ```json
 "args": [
@@ -85,19 +90,19 @@ Para un remoto que acepte `Authorization: Bearer`, los campos dentro de `launch`
 "env": {
   "HOME": "${serviceDir}",
   "USERPROFILE": "${serviceDir}",
-  "REMOTE_API_KEY": "PASTE_API_KEY_HERE"
+  "REMOTE_API_KEY": "${secret:REMOTE_API_KEY}"
 }
 ```
 
-Adapta la cabecera y su formato a lo que exige el proveedor. `remote.authentication` solo describe el servicio; no configura la autenticación. La referencia `${REMOTE_API_KEY}` en la cabecera la resuelve `mcp-remote`. ZeroChat no resuelve variables de entorno genéricas: en `launch.env`, `${SERVICE_API_KEY}` se pasaría como texto literal. Solo sustituye `${serviceDir}`, `${nodeExecutable}`, `${pythonExecutable}` y `${option:...}`. No pongas claves reales en argumentos ni en URLs.
+Adapta la cabecera y su formato a lo que exige el proveedor. `remote.authentication` solo describe el servicio; no configura la autenticación. La referencia `${REMOTE_API_KEY}` de la cabecera la resuelve `mcp-remote` desde su entorno, así que la clave no aparece en los argumentos. ZeroChat solo sustituye `${serviceDir}`, `${nodeExecutable}`, `${pythonExecutable}` y `${option:...}`, y `${secret:...}` únicamente en `launch.env`: en los argumentos se vería en la lista de procesos. No pongas claves en argumentos ni en URLs.
 
 ### Pasos para el usuario
 
 1. Usa una carpeta propia bajo el directorio de servicios, con nombre e `id` únicos. Si copias un servicio incluido, copia sus definiciones, no sus dependencias ni credenciales OAuth. No edites `ejemplo`, `composio`, `playwright` ni `memory`: sus archivos distribuidos se restauran al arrancar.
-2. Abre el `service.json` de tu carpeta y sustituye `PASTE_API_KEY_HERE` por la clave real en `launch.env`. Mantén el JSON válido y los demás campos. No necesitas `export`, `.env` ni otro JSON de credenciales.
-3. Restringe el archivo a tu usuario con `chmod 600 /ruta/absoluta/zerochat/services/mi-servicio/service.json` en Linux o Termux. La clave queda en texto plano: no compartas el archivo ni lo subas al repositorio o al chat.
-4. Inicia el servicio desde Ajustes → MCP. Si la nueva carpeta no aparece, reinicia ZeroChat y conecta de nuevo. Para cambiar una clave, detén primero el servicio, edita el JSON y vuelve a iniciarlo.
-5. ZeroChat conserva los servicios propios al reiniciar y actualizar. Borrar el directorio de datos elimina también esas claves: guarda una copia privada si la necesitas.
+2. Si la nueva carpeta no aparece en Ajustes → MCP, reinicia ZeroChat y conecta de nuevo.
+3. Pulsa **Guardar clave…** junto a la clave del servicio y escríbela en el diálogo. Para cambiarla, vuelve a guardarla; si el servicio está en marcha, se detiene y hay que iniciarlo otra vez. **Borrar** la elimina.
+4. Inicia el servicio desde Ajustes → MCP.
+5. ZeroChat conserva los servicios propios y sus claves al reiniciar y actualizar. Borrar el directorio de datos elimina también las claves.
 
 ## English: creating local and remote services
 
@@ -105,7 +110,7 @@ Adapta la cabecera y su formato a lo que exige el proveedor. `remote.authenticat
 2. Read the requested MCP's official documentation. Create a sibling folder with its own name and unique JSON `id`; do not modify bundled definitions. Preserve bilingual text, `schemaVersion`, `transport: "stdio"`, `launch` and official `help` links. `launch.handshakeTimeoutSeconds` (default 15 s) bounds startup and `launch.callTimeoutSeconds` (default 30 s) each tool call; raise it for slow MCPs such as browser automation.
 3. For npm services, add `installer.json` with an exact package version and minimum Node.js major version. Otherwise use an existing executable or script.
 4. For remote HTTP/SSE MCPs, also read the sibling `composio` JSON files and use its managed `mcp-remote` bridge as the example. Adapt endpoint, transport and authentication to the official provider and bridge documentation. Verify Composio-specific protocol and OAuth options before copying them. Keep `HOME` and `USERPROFILE` isolated inside `${serviceDir}`.
-5. If an API key is required, put the literal `PASTE_API_KEY_HERE` under the required variable in the `env` object under `launch` inside `service.json`. `launch.env` is a JSON field, not a file. The user enters the actual key manually in that JSON; do not create a `launch.env` or `.env` file. Do not request the user's key or place real secrets in chat, arguments or URLs. Give the absolute JSON path and exact field to edit. For remote header authentication, use `--header` with the provider's required header and a reference to the variable, as shown above; `mcp-remote` resolves that reference. `remote.authentication` is descriptive only.
+5. If an API key is required, declare it in `secrets` at the root of `service.json` (the environment variable `name` the MCP requires and a bilingual `label`) and use it in `launch.env` with `${secret:NAME}`, as shown above. `launch.env` is a JSON field, not a file; do not create a `launch.env` or `.env` file. Never write the key in `service.json`, chat, arguments or URLs, and do not ask the user for it: they save it in Settings → MCP. For remote header authentication, use `--header` with the provider's required header and a reference to the variable; `mcp-remote` resolves it from its environment. `remote.authentication` is descriptive only.
 6. Evaluate concurrency and headless compatibility before finalizing: ensure the service avoids static ports, runs in ephemeral/isolated mode by default if managing session state, and does not require interactive console prompts or graphical windows.
 7. Do not install or start the service. Report created files, official sources and outstanding requirements; the user will start it from Settings → MCP.
 
@@ -116,7 +121,7 @@ All MCP services must be designed to support simultaneous executions (multiple b
 1. **Isolated and ephemeral by default**: execution environments or browser engines must default to in-memory or isolated sessions (such as `--isolated` in Playwright) without locking shared profile directories across processes. Persistent state must be optional and parameterized by profile or named storage.
 2. **Pure `stdio` transport**: local MCP processes communicate strictly through standard input and output. If a process starts an auxiliary internal HTTP/TCP listener, it must bind dynamic ephemeral ports (`port: 0`), never static ports that collide with `EADDRINUSE`.
 3. **Safe persistent storage**: if persisting data to disk (e.g., SQLite or flat JSON/JSONL files), ensure the storage engine supports multi-process writes (SQLite with WAL and busy timeout). Flat files without process locking (such as `memory.jsonl`) should be isolated per session/workspace rather than shared across parallel writers.
-4. **Unattended headless execution**: MCPs must never display GUI popups, interactive prompts, or console confirmation during execution. Secrets and settings must be supplied via `launch.env`. Interactive authorization flows (such as initial browser-based OAuth) must be completed in an interactive session beforehand; they cannot run unattended or in parallel.
+4. **Unattended headless execution**: MCPs must never display GUI popups, interactive prompts, or console confirmation during execution. Secrets are saved beforehand in Settings → MCP (`secrets`) and settings go in `launch.env` or arguments. Interactive authorization flows (such as initial browser-based OAuth) must be completed in an interactive session beforehand; they cannot run unattended or in parallel.
 
 #### Bundled services concurrency summary
 
@@ -125,6 +130,6 @@ All MCP services must be designed to support simultaneous executions (multiple b
 - **`composio`**: remote bridge via `mcp-remote`; initial OAuth is strictly interactive, while post-auth tool calls support parallel requests.
 - **`ejemplo`**: stateless in-memory `stdio` echo server, fully parallel-safe.
 
-The user replaces `PASTE_API_KEY_HERE` directly in their own folder's JSON, preserves valid JSON and existing fields, and restricts the file with `chmod 600 /absolute/path/zerochat/services/my-service/service.json` on Linux/Termux. No shell export, `.env` or separate credentials JSON is needed. ZeroChat only expands service/interpreter paths and `${option:...}`, not generic environment placeholders in `launch.env`. The key is stored in plain text: do not share or commit the file or paste it into chat.
+The user saves each declared key with **Save key…** in Settings → MCP. ZeroChat stores it obfuscated in its local database, never returns it, and passes it only in the service process environment at startup; without it, the service does not start and its error names the missing key. No shell export, `.env` or credentials file is needed. ZeroChat only expands service/interpreter paths, `${option:...}` and, only in `launch.env`, `${secret:...}`; generic environment placeholders stay literal.
 
-If a new folder does not appear, restart ZeroChat and reconnect. Stop an active service before editing its key, then start it again. User-created folders survive restarts and updates. Bundled definitions are restored on startup: copy them into a new folder and change the JSON `id` to customize them, without copying dependencies or OAuth credentials. Deleting the data directory also deletes custom services and their keys; keep a private backup if needed.
+If a new folder does not appear, restart ZeroChat and reconnect. Saving a new key stops a running service; start it again to use the new key. User-created folders survive restarts and updates. Bundled definitions are restored on startup: copy them into a new folder and change the JSON `id` to customize them, without copying dependencies or OAuth credentials. Deleting the data directory also deletes custom services and their keys.

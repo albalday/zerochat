@@ -124,11 +124,11 @@ and installer.json.example in zerochat/services/ejemplo using
 absolute paths. Follow the README instructions.
 Read the MCP's official documentation and create a sibling folder
 with its own name and id; do not modify the bundled services.
-If it needs an API key, put PASTE_API_KEY_HERE in service.json,
-inside the env object under launch, using the required variable.
-I will manually replace the placeholder with my key in service.json.
-Do not ask for my key or create a launch.env or .env file.
-Give me the absolute JSON path and the field to edit manually.
+If it needs an API key, declare it in secrets in service.json with
+the variable the MCP requires and use it in launch.env with
+${secret:…}, as the README explains. I will save it in
+Settings → MCP. Do not ask for my key, do not write it in
+any file and do not create a launch.env or .env file.
 Do not install or start it; I will do that from Settings → MCP.</code></pre></div>
       </div>
       <div class="subsection" id="crear-mcp-remoto">
@@ -145,13 +145,14 @@ Read the MCP's and bridge's official documentation to adapt the
 endpoint, transport and authentication. Verify Composio's specific
 OAuth and protocol options before copying any of them.
 Keep HOME and USERPROFILE isolated inside ${serviceDir}.
-If an API key is required, put PASTE_API_KEY_HERE in service.json,
-inside the env object under launch. I will enter my key manually
-in service.json; do not create a launch.env or .env file.
+If an API key is required, declare it in secrets in service.json
+and use it in launch.env with ${secret:…}, as the README explains.
+I will save it in Settings → MCP; do not create a
+launch.env or .env file.
 Configure --header with the provider's required header and a
 reference to that variable; mcp-remote will resolve the reference.
-Do not ask for my key or put it in the arguments or URL.
-Give me the absolute JSON path and the field to edit manually.
+Do not ask for my key or write it in any file, the arguments or
+the URL.
 Do not install or start it; I will do that from Settings → MCP.</code></pre></div>
       </div>
       <p>If the new folder does not appear in Settings → MCP, restart ZeroChat and reconnect. Your own folders survive updates. Bundled definitions (<code>ejemplo</code>, <code>composio</code>, <code>playwright</code>, <code>memory</code>) update themselves when a new version is published (ZeroChat checks at startup and every hour, and restarts the ones running); create a copy with a new name and id instead of editing them. Do not copy dependencies or OAuth credentials.</p>
@@ -159,25 +160,29 @@ Do not install or start it; I will do that from Settings → MCP.</code></pre></
 
     <div class="card" id="api-key-servicio">
       <h2>6. Enter an API key</h2>
-      <p><code>launch.env</code> means the <code>env</code> object under <code>launch</code> in <code>service.json</code>; it is not a file. The agent leaves the placeholder and you manually enter the real key in that JSON.</p>
+      <p>A service's key is not written in its <code>service.json</code>. The service declares the keys it needs in <code>secrets</code> and you save them in <strong>Settings → MCP</strong>: ZeroChat keeps them obfuscated in its local database, never shows them again and passes them only to the service process, in an environment variable, when it starts.</p>
       <ol>
-        <li>Stop the service if it is running. Open your folder's <code>service.json</code>.</li>
-        <li>Replace <code>PASTE_API_KEY_HERE</code> inside <code>launch.env</code> with the real key, using the exact variable name required by the provider. Do not paste it into the chat.</li>
-        <li>Save valid JSON. On Linux or Termux restrict access with <code>chmod 600 /absolute/path/zerochat/services/my-service/service.json</code>.</li>
-        <li>Start the service from <strong>Settings → MCP</strong>.</li>
+        <li>On the service card, next to the key, click <strong>Save key…</strong> and type it in the dialog. Its status changes to <strong>Saved</strong>. Do not paste it into the chat.</li>
+        <li>Start the service. Without the key it does not start, and its error names the missing key.</li>
+        <li>To change it, save it again; if the service is running, it stops and must be started again. <strong>Delete</strong> removes it.</li>
       </ol>
-      <p>The key is stored in plain text: do not share or commit this file. Deleting <code>~/zerochat/</code> also removes services and credentials; keep a private backup if needed.</p>
+      <p>Obfuscation keeps the key from being read by opening the database, but it is not encryption: the permissions of your data folder (<code>~/zerochat/</code>) protect it. Deleting that folder also removes services and their keys.</p>
       <div class="subsection">
         <h3>Example for a local service</h3>
-        <p>Inside <code>launch</code>, use the variable name specified by the MCP:</p>
-        <div class="code-wrapper"><pre><code>"env": {
-  "SERVICE_API_KEY": "PASTE_API_KEY_HERE"
+        <p>The root of <code>service.json</code> declares the key with the variable the MCP requires, and <code>launch</code> uses it with <code>${secret:…}</code>:</p>
+        <div class="code-wrapper"><pre><code>"secrets": [
+  { "name": "SERVICE_API_KEY", "label": { "es": "Clave de la API", "en": "API key" } }
+],
+"launch": {
+  "env": {
+    "SERVICE_API_KEY": "${secret:SERVICE_API_KEY}"
+  }
 }</code></pre></div>
-        <p>No <code>export</code>, <code>.env</code> file or extra credentials JSON is needed. Write the actual value in <code>launch.env</code>; environment variable references there remain literal text. ZeroChat expands service/interpreter paths and <code>${option:...}</code> references.</p>
+        <p><code>launch.env</code> is the <code>env</code> object under <code>launch</code>, not a file. ZeroChat expands service and interpreter paths, <code>${option:...}</code> references and, only in <code>launch.env</code>, <code>${secret:...}</code>: in the arguments the key would show in the process list. Other environment variable references stay as literal text.</p>
       </div>
       <div class="subsection">
         <h3>Example for a remote service with a Bearer header</h3>
-        <p>Adapt the bridge arguments and preserve the existing <code>HOME</code> and <code>USERPROFILE</code> isolation:</p>
+        <p>Declare <code>REMOTE_API_KEY</code> in <code>secrets</code> as in the previous example, adapt the bridge arguments and preserve the existing <code>HOME</code> and <code>USERPROFILE</code> isolation:</p>
         <div class="code-wrapper"><pre><code>"args": [
   "${serviceDir}/node_modules/mcp-remote/dist/proxy.js",
   "https://mcp.example.com/mcp",
@@ -187,9 +192,9 @@ Do not install or start it; I will do that from Settings → MCP.</code></pre></
 "env": {
   "HOME": "${serviceDir}",
   "USERPROFILE": "${serviceDir}",
-  "REMOTE_API_KEY": "PASTE_API_KEY_HERE"
+  "REMOTE_API_KEY": "${secret:REMOTE_API_KEY}"
 }</code></pre></div>
-        <p><code>mcp-remote</code> resolves <code>${REMOTE_API_KEY}</code> in the header. Use the provider's required header and format. <code>remote.authentication</code> is descriptive; it does not configure authentication. See the <a href="https://github.com/punkpeye/mcp-remote#custom-headers" target="_blank" rel="noopener noreferrer">bridge header documentation</a>.</p>
+        <p><code>mcp-remote</code> resolves <code>${REMOTE_API_KEY}</code> in the header from its environment, so the key does not appear in the arguments. Use the provider's required header and format. <code>remote.authentication</code> is descriptive; it does not configure authentication. See the <a href="https://github.com/punkpeye/mcp-remote#custom-headers" target="_blank" rel="noopener noreferrer">bridge header documentation</a>.</p>
       </div>
     </div>
 

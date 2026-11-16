@@ -9,12 +9,12 @@
       }
     },
     "ejemplo": {
-      "version": "1.0.0",
+      "version": "1.0.1",
       "files": {
         "ejemplo_mcp_server.py": "9f9be071bdf75e2b858c2316f467ea6f83c559369ed7c17a75d67c2d656b443b",
         "installer.json.example": "701acdf0cef210077bbba5e574a05683951e3f4bc34a8d5d429e5b7aeb55fd97",
-        "README.md": "ae861efcc71debbee6016788643f0ef8a30514f15522b7f4f7de5bae520a59d8",
-        "service.json": "87bb83973e2ce7ff83309b8e28dedfa8535cfa5cefcbc3c0afc1eb050cada26d"
+        "README.md": "088c8cac359dc9e21bdc12c5eb3131ea613fa402a09366ce5e61fdb7645b4ce8",
+        "service.json": "6a6a4432fccc8611f1ce9098d391b1aa24fb2fc8be32789ae7b513e7da99e399"
       }
     },
     "memory": {

@@ -376,7 +376,7 @@ class McpServiceManager:
         for secret in service_secrets(server):
             value = get_secret(service_secret_key(server_id, secret["name"]))
             if not value:
-                raise RuntimeError(f"Falta la clave {secret['name']}: guárdala en Ajustes › Servicios MCP.")
+                raise RuntimeError(f"Falta la clave {secret['name']}: guárdala en Ajustes › MCP.")
             values[f"secret:{secret['name']}"] = value
         return values
 
