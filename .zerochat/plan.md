@@ -12,20 +12,4 @@
 
 ## M74 Arreglos multiplataforma de la 10.19.0: closed 2026-11-16
 
-## M75 Arreglos menores
-
-Goal: Que el icono de chat nuevo de un proyecto del historial cambie de proyecto también desde un chat vacío y que las conversaciones con «Ejecutar en servidor» queden siempre en el historial, aunque se cierre el navegador o la ejecución no termine.
-Done when: el icono de chat nuevo de otro proyecto lleva a ese proyecto con un chat vacío abierto; una ejecución en servidor guarda la conversación en SQLite a cada paso y la interfaz la muestra desde lo grabado, terminada o no, tras cerrar y reabrir el navegador; sin controles que dejen de grabar por la conexión con la interfaz.
-- [x] M75-T1 El icono de chat nuevo de un proyecto del historial no hace nada si ya hay un chat vacío abierto: reproducir y corregir, con prueba (2026-11-16)
-- [x] M75-T2 Analizar el flujo de grabación de las ejecuciones en servidor (runner, servidor de la ejecución, servidor principal e interfaz) y por qué se pierden conversaciones al cerrar el navegador (2026-11-16)
-- [x] M75-T3 El runner de Node graba la conversación en SQLite al terminar cada paso (assistant con sus tool), no solo al final del turno: una ejecución que muere, agota un plazo o se cancela conserva lo hecho; prueba con Node real (2026-11-16)
-- [x] M75-T4 Quitar los plazos que cortan la ejecución por la interfaz (sin progreso 600 s y total 900 s) y dejar solo el final del runner y la cancelación del usuario (2026-11-16)
-- [x] M75-T5 El fichero de estado de una ejecución queda en estado, paso y error, sin el texto vivo (assistant_text, reasoning_text), y focus_run lleva la fecha de la conversación grabada (conversation_updated_at) (2026-11-16)
-- [x] M75-T6 La interfaz solo consulta el estado (cada 2 s) con una conversación de servidor en marcha abierta y la recarga desde lo grabado cuando cambia su fecha; al cambiar de conversación no consulta nada y al volver se trae entera y reanuda (2026-11-16)
-- [x] M75-T7 Almacén de API keys: inventario, puntos débiles y normas de qué claves viven en la interfaz, en el backend y cuáles se intercambian (docs/M75-apikeys.md), para decidir antes de añadir Brave Search (2026-11-16)
-- [x] M75-T8 Claves de los perfiles del servidor: ofuscación simple en SQLite (migración 7 para las guardadas en claro), zerochat/profiles/list sin claves (hasApiKey) y zerochat/profiles/reveal para editar un perfil del servidor en local (2026-11-16)
-- [x] M75-T9 Secretos de los servicios MCP: tabla de secretos en SQLite con la misma ofuscación, declaración en service.json, marcador ${secret:…} en launch.env, métodos de guardar y borrar sin lectura, y su campo en Ajustes › MCP (es y en) (2026-11-16)
-- [x] M75-T10 Servicio Brave Search en el catálogo de services/ con su clave como secreto del servicio; pruebas de arranque sin clave y con clave (2026-11-16)
-- [x] M75-T11 La ayuda (help/mcp.html, es y en) y la plantilla services/ejemplo enseñan a declarar la API key de un servicio propio en secrets con ${secret:…} y a guardarla en Ajustes › MCP, en lugar de pegarla en claro en service.json (2026-11-16)
-- [x] M75-T12 Un servicio MCP declara por herramienta en service.json (tools) qué herramientas nativas sustituye mientras está activa (replaces, solo las que el usuario puede desactivar) y su valor inicial (enabledByDefault); Brave: brave_web_search sustituye a search_web y el resto empieza desactivado (2026-11-16)
-- [x] M75-T13 Control genérico de frecuencia y paralelismo en memoria (core/rate_limit.py: concurrency y minIntervalS desde la respuesta anterior, espera con tope): sustituye la cadencia de DuckDuckGo de web/fetch por una tabla de dominios y se aplica a los servicios MCP con rateLimit en service.json (Brave: 1 a la vez y 1,1 s); sin presupuesto, no es control de gasto (2026-11-16)
+## M75 Arreglos menores: closed 2026-11-16
