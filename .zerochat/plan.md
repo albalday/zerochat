@@ -16,13 +16,8 @@ Done when: `service.json` incluye `version` y soporta `builtin: true` (nombres d
 - [ ] M72-T4 [Hydrogen · Medium] Extracción de `list_directory`, `read_file`, `write_file`, `edit_file`, `search_files` y `get_diagnostics` a servicio MCP `builtin` en `services/workspace/`: uso de `_meta.workspaceDir` y `readOnlyHint`, retirada de las seis herramientas de `LOCAL_TOOLS_DEFINITIONS` y limpieza de `py/tools/filesystem.py`; pruebas
 - [ ] M72-T5 [Hydrogen · Low] Limpieza de ramas obsoletas en `py/tools/registry.py` y `py/server/handler.py`, recompilación de `zerochat.py` y actualización de contratos (`py/README.md`, `js/tools/README.md`) y ayuda bilingüe (`help/`)
 - [ ] M72-T6 [Posible] search_files usa la consulta del modelo como expresión regular de Python: re no suelta el GIL y una consulta como (a+)+$ contra una línea larga bloquearía el servidor. Decidir al extraerla (M72-T4): buscar en un proceso aparte con plazo, rechazar grupos repetidos anidados o dejarlo si el servicio MCP propio ya lo aísla
+- [ ] M72-T7 El runner de Node descarga entera la interfaz en cada ejecución (la caché solo sirve sin red y las peticiones no llevan comprobación de caché): medir primero lo que tarda desde GitHub Pages con una línea en el registro y, si compensa, guardar en la caché la versión con la que se descargó y, con una sola petición de la versión publicada, ejecutar la caché si coincide o descargar todo si no; en desarrollo descarga siempre; pruebas de misma versión sin pedir módulos, versión distinta, servidor de versión caído y desarrollo
 
 ## M73 Arreglos de seguridad: closed 2026-11-15
 
-## M74 Arreglos multiplataforma de la 10.19.0
-
-Goal: Que la CI de Windows y macOS vuelva a verde tras M73 y que el runner de Node de `--prompt`, `--conversation` y «Ejecutar en servidor» funcione en las tres plataformas, para publicar la siguiente versión del backend (10.20.0).
-Done when: el motivo por el que termina el runner de Node aparece en el error de la ejecución; las ejecuciones con Node real pasan en Linux, Windows y macOS; las pruebas de infraestructura pasan en las tres plataformas sin saltarse ninguna nueva; la 10.20.0 está en master y en PyPI con la CI en verde.
-- [x] M74-T1 El error «el runner se cerró sin resultado» lleva las últimas líneas de la salida de error del runner de Node, que hoy se descarta (stderr a DEVNULL en `launch_node_runner`); prueba (2026-11-15)
-- [x] M74-T2 El runner de Node termina sin resultado en Windows y macOS (código 2 en las pruebas con Node real de `test_runner_loader.py`): diagnosticar con M74-T1 en la CI y corregir (2026-11-15)
-- [x] M74-T3 Pruebas de infraestructura que fallan en Windows: tope de tamaño del cargador en el borde exacto, espera de `check_command` contada en una ejecución y carpeta temporal del modo desarrollo que no se puede borrar (2026-11-15)
+## M74 Arreglos multiplataforma de la 10.19.0: closed 2026-11-16
