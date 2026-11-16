@@ -1417,6 +1417,92 @@ def _pid_alive(pid: int) -> bool:
         return False
     return True
 
+# --- core.rate_limit ---
+"""Control de frecuencia y paralelismo de las llamadas salientes, por recurso (un dominio web o un servicio MCP).
+
+No es un control de gasto: solo evita saturar un sitio o un servicio (retos anti-bot de DuckDuckGo, límites por
+segundo de una API). La cuenta vive en memoria de este proceso; una ejecución en servidor (--prompt, --conversation)
+lleva la suya.
+"""
+
+
+
+# Lo más que una llamada espera su turno; si haría falta más, falla enseguida con RateLimitBusy.
+RATE_LIMIT_MAX_WAIT_S = 30.0
+
+
+@dataclasses.dataclass(frozen=True)
+class RatePolicy:
+    """`concurrency` llamadas a la vez y `min_interval_s` desde la respuesta anterior al mismo recurso."""
+    concurrency: int = 1
+    min_interval_s: float = 0.0
+
+
+class RateLimitBusy(Exception):
+    """El recurso no queda libre dentro de la espera admitida."""
+
+    def __init__(self, key: str, max_wait_s: float):
+        super().__init__(f"{key} está ocupado: hay demasiadas llamadas seguidas o a la vez y no queda libre en "
+                         f"{max_wait_s:.0f} s. Espera un poco antes de volver a llamarlo.")
+
+
+@dataclasses.dataclass
+class _ResourceState:
+    active: int
+    last_done: float
+
+
+def parse_rate_policy(value) -> RatePolicy | None:
+    """La política de un `rateLimit` declarado ({"concurrency", "minIntervalS"}), o None si no declara ninguna válida."""
+    if not isinstance(value, dict):
+        return None
+    concurrency, interval = value.get("concurrency", 1), value.get("minIntervalS", 0)
+    if isinstance(concurrency, bool) or not isinstance(concurrency, int) or not 1 <= concurrency <= 64:
+        return None
+    if isinstance(interval, bool) or not isinstance(interval, int | float) or not 0 <= interval <= 60:
+        return None
+    return RatePolicy(concurrency=concurrency, min_interval_s=float(interval))
+
+
+class RateLimiter:
+    """Turnos por recurso. La separación se cuenta desde la respuesta anterior, y al arrancar el proceso como si
+    acabara de haber una: la primera llamada tras arrancar también espera, como las siguientes."""
+
+    def __init__(self):
+        self._condition = threading.Condition()
+        self._resources: dict[str, _ResourceState] = {}
+        self._started = time.monotonic()
+
+    @contextlib.contextmanager
+    def slot(self, key: str, policy: RatePolicy, max_wait_s: float = RATE_LIMIT_MAX_WAIT_S) -> Iterator[float]:
+        """Espera el turno del recurso `key` y devuelve los segundos esperados; RateLimitBusy si no llega a tiempo."""
+        started = time.monotonic()
+        deadline = started + max(0.0, max_wait_s)
+        with self._condition:
+            state = self._resources.setdefault(key, _ResourceState(0, self._started))
+            while True:
+                now = time.monotonic()
+                gap = policy.min_interval_s - (now - state.last_done)
+                if state.active < policy.concurrency and gap <= 0:
+                    break
+                # Con hueco libre se sabe cuánto falta; sin él, hasta que termine otra llamada.
+                wait = gap if state.active < policy.concurrency else deadline - now
+                if now + max(wait, 0.0) > deadline or deadline - now <= 0:
+                    raise RateLimitBusy(key, max_wait_s)
+                self._condition.wait(max(wait, 0.001))
+            state.active += 1
+        waited = time.monotonic() - started
+        try:
+            yield waited
+        finally:
+            with self._condition:
+                state.active -= 1
+                state.last_done = time.monotonic()
+                self._condition.notify_all()
+
+
+RATE_LIMITER = RateLimiter()
+
 # --- core.rpc ---
 """Respuestas de los métodos JSON-RPC del servidor: (resultado, error JSON-RPC, detalle para el registro)."""
 
@@ -3915,8 +4001,15 @@ class McpServiceManager:
         if not resolved:
             raise ValueError(f"Herramienta externa '{public_name}' no disponible o servidor detenido.")
         # La llamada puede durar decenas de segundos: no debe bloquear al resto de servidores.
-        _, client, original_name = resolved
-        return client.request("tools/call", {"name": original_name, "arguments": arguments}, timeout=client.call_timeout)
+        server_id, client, original_name = resolved
+        request = lambda: client.request("tools/call", {"name": original_name, "arguments": arguments}, timeout=client.call_timeout)
+        # Frecuencia y paralelismo que declara el servicio (rateLimit), para todas sus herramientas juntas: no
+        # saturar su API. RateLimitBusy llega al modelo como el error de la herramienta.
+        policy = parse_rate_policy(self.services.get(server_id, {}).get("rateLimit"))
+        if policy is None:
+            return request()
+        with RATE_LIMITER.slot(f"mcp:{server_id}", policy):
+            return request()
 
     def start_catalog_refresh(self, ui_url: str):
         """Mantiene al día los servicios incluidos con el catálogo de la carpeta de la interfaz: lo mira ahora y
@@ -8501,7 +8594,7 @@ def execute_js_sandbox(code: str, timeout_ms: int | float | None = None) -> dict
     }
 
 # --- web.fetch ---
-"""Transporte web saliente del servidor (zerochat/web/fetch): anti-SSRF en la URL y en cada redirección, cuerpo acotado, cabeceras de navegador y cadencia por host."""
+"""Transporte web saliente del servidor (zerochat/web/fetch): anti-SSRF en la URL y en cada redirección, cuerpo acotado, cabeceras de navegador y frecuencia por dominio."""
 
 
 
@@ -8535,16 +8628,12 @@ WEB_FETCH_READ_CHUNK = 64 * 1024
 TEXT_CONTENT_TYPE_RE = re.compile(
     r"^(text/|application/(json|xml|xhtml\+xml|javascript|x-javascript|ecmascript)$|[a-z]+/[^;]*\+(json|xml)$)"
 )
-# Control de cadencia frente a retos anti-bot: mínimo WEB_FETCH_MIN_GAP_S desde la RESPUESTA
-# anterior al mismo host; las peticiones en paralelo se escalonan de WEB_FETCH_PARALLEL_STAGGER_S
-# en WEB_FETCH_PARALLEL_STAGGER_S para que no coincidan. El timestamp se inicializa al arrancar
-# para que la primera petición espere aunque no se haya hecho ninguna antes.
-_WEB_FETCH_LOCK = threading.Lock()
-_LAST_WEB_FETCH_AT: dict[str, float] = {"duckduckgo.com": time.monotonic()}
-_WEB_FETCH_PENDING: dict[str, int] = {}
-WEB_FETCH_HOST_PACING_DOMAINS = ("duckduckgo.com",)
-WEB_FETCH_MIN_GAP_S = 2.0
-WEB_FETCH_PARALLEL_STAGGER_S = 5.0
+# Frecuencia por dominio frente a retos anti-bot: DuckDuckGo responde con un reto (HTTP 202) a peticiones seguidas o
+# simultáneas, así que van de una en una y con 2 s desde la respuesta anterior. Vale para cualquier herramienta que
+# pida el dominio o un subdominio, no solo para search_web.
+WEB_FETCH_DOMAIN_LIMITS = {
+    "duckduckgo.com": RatePolicy(concurrency=1, min_interval_s=2.0),
+}
 
 
 def _is_public_ip(address: str) -> bool:
@@ -8639,35 +8728,20 @@ def fetch_web_resource(params: dict) -> dict:
     parsed = urllib.parse.urlsplit(url)
     hostname = (parsed.hostname or "").lower()
 
-    # Hosts sensibles (ej. DuckDuckGo): esperar al menos WEB_FETCH_MIN_GAP_S desde la respuesta
-    # anterior y escalar las peticiones en paralelo de a WEB_FETCH_PARALLEL_STAGGER_S.
-    pacing_domain = next(
-        (domain for domain in WEB_FETCH_HOST_PACING_DOMAINS if hostname == domain or hostname.endswith("." + domain)),
-        None,
-    )
-    if pacing_domain is None:
-        return _fetch_web_resource_unpaced(url, params, hostname, parsed)
-
-    with _WEB_FETCH_LOCK:
-        pending = _WEB_FETCH_PENDING.get(pacing_domain, 0)
-        gap = time.monotonic() - _LAST_WEB_FETCH_AT.get(pacing_domain, 0.0)
-        sleep_needed = max(0.0, WEB_FETCH_MIN_GAP_S - gap) + WEB_FETCH_PARALLEL_STAGGER_S * pending
-        _WEB_FETCH_PENDING[pacing_domain] = pending + 1
-    try:
-        if sleep_needed > 0:
-            time.sleep(sleep_needed)
-        return _fetch_web_resource_unpaced(url, params, hostname, parsed)
-    finally:
-        # El timestamp marca la respuesta (o el intento) terminado: la próxima petición
-        # cuenta los 2 s desde aquí.
-        with _WEB_FETCH_LOCK:
-            _LAST_WEB_FETCH_AT[pacing_domain] = time.monotonic()
-            _WEB_FETCH_PENDING[pacing_domain] = max(0, _WEB_FETCH_PENDING[pacing_domain] - 1)
-
-
-def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed) -> dict:
-    """Cuerpo de fetch_web_resource sin cadencia: cabeceras, descarga y respuesta."""
     timeout_s = max(0.5, min(float(params.get("timeout_s", 10.0)), 30.0))
+    limited = next((domain for domain in WEB_FETCH_DOMAIN_LIMITS if hostname == domain or hostname.endswith("." + domain)), None)
+    if limited is None:
+        return _fetch_web_resource_unpaced(url, params, hostname, parsed, timeout_s)
+    # La espera del turno sale del plazo de la petición: la interfaz no espera más que ese plazo y su margen.
+    try:
+        with RATE_LIMITER.slot(limited, WEB_FETCH_DOMAIN_LIMITS[limited], max_wait_s=timeout_s - 0.5) as waited:
+            return _fetch_web_resource_unpaced(url, params, hostname, parsed, max(0.5, timeout_s - waited))
+    except RateLimitBusy as exc:
+        return {"ok": False, "status": 0, "error": str(exc)}
+
+
+def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed, timeout_s: float) -> dict:
+    """Cuerpo de fetch_web_resource sin el control de frecuencia: cabeceras, descarga y respuesta."""
     max_bytes = max(1024, min(int(params.get("max_bytes", 2 * 1024 * 1024)), WEB_FETCH_MAX_BYTES))
     as_binary = bool(params.get("binary", False))
     accept = params.get("accept")

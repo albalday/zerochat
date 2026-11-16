@@ -18,6 +18,7 @@ from browser.config import PLAYWRIGHT_SERVER_ID, SERVICE_LAUNCH
 from browser.engines import on_playwright_status
 from core.environment import get_data_dir, get_venv_dir, get_venv_python
 from core.logging import log_event
+from core.rate_limit import RATE_LIMITER, parse_rate_policy
 from mcp.catalog import (
     CATALOG_PATH,
     catalog_base,
@@ -503,8 +504,15 @@ class McpServiceManager:
         if not resolved:
             raise ValueError(f"Herramienta externa '{public_name}' no disponible o servidor detenido.")
         # La llamada puede durar decenas de segundos: no debe bloquear al resto de servidores.
-        _, client, original_name = resolved
-        return client.request("tools/call", {"name": original_name, "arguments": arguments}, timeout=client.call_timeout)
+        server_id, client, original_name = resolved
+        request = lambda: client.request("tools/call", {"name": original_name, "arguments": arguments}, timeout=client.call_timeout)
+        # Frecuencia y paralelismo que declara el servicio (rateLimit), para todas sus herramientas juntas: no
+        # saturar su API. RateLimitBusy llega al modelo como el error de la herramienta.
+        policy = parse_rate_policy(self.services.get(server_id, {}).get("rateLimit"))
+        if policy is None:
+            return request()
+        with RATE_LIMITER.slot(f"mcp:{server_id}", policy):
+            return request()
 
     def start_catalog_refresh(self, ui_url: str):
         """Mantiene al día los servicios incluidos con el catálogo de la carpeta de la interfaz: lo mira ahora y

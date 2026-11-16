@@ -227,8 +227,9 @@ class WebFetchTest(unittest.TestCase):
             zerochat._WEB_OPENER.open = original_open
             time.__dict__["sleep"] = original_sleep
 
-    def test_fetch_web_resource_cadencia_duckduckgo_por_respuesta(self):
-        """Mínimo 2 s desde la respuesta anterior; comprobación determinista sin esperas reales."""
+    def test_duckduckgo_pasa_por_el_limitador_y_la_espera_sale_del_plazo_de_la_peticion(self):
+        timeouts = []
+
         class MockResponse:
             status = 200
             headers = email.message.EmailMessage({"Content-Type": "text/html"})
@@ -248,36 +249,27 @@ class WebFetchTest(unittest.TestCase):
             def __exit__(self, *args):
                 pass
 
-        original_open = zerochat._WEB_OPENER.open
-        original_sleep = time.sleep
-        original_monotonic = time.monotonic
-        slept = []
-        now = 1000.0
-        try:
-            zerochat._WEB_OPENER.open = lambda req, timeout=10.0: MockResponse()
-            time.sleep = slept.append
-            time.monotonic = lambda: now
+        def opener(_req, timeout=10.0):
+            timeouts.append(timeout)
+            return MockResponse()
 
-            # Si la respuesta previa fue hace 0.5 s, espera exactamente el resto (1.5 s).
-            zerochat._LAST_WEB_FETCH_AT["duckduckgo.com"] = now - 0.5
-            zerochat.fetch_web_resource({"url": "https://html.duckduckgo.com/html/?q=espera"})
-            self.assertEqual(slept, [1.5])
-
-            # Si ya se cumplió el gap mínimo (hace 2 s o más), no espera.
-            slept.clear()
-            zerochat._LAST_WEB_FETCH_AT["duckduckgo.com"] = now - zerochat.WEB_FETCH_MIN_GAP_S
-            zerochat.fetch_web_resource({"url": "https://html.duckduckgo.com/html/?q=sin_espera"})
-            self.assertEqual(slept, [])
-
-            # Otros dominios no aplican cadencia de espera.
-            slept.clear()
-            zerochat.fetch_web_resource({"url": "https://example.com/test"})
-            self.assertEqual(slept, [])
-        finally:
-            zerochat._WEB_OPENER.open = original_open
-            time.sleep = original_sleep
-            time.monotonic = original_monotonic
-            zerochat._WEB_FETCH_PENDING["duckduckgo.com"] = 0
+        policy = zerochat.RatePolicy(concurrency=1, min_interval_s=0.3)
+        with patch.object(zerochat, "RATE_LIMITER", zerochat.RateLimiter()), \
+                patch.dict(zerochat.WEB_FETCH_DOMAIN_LIMITS, {"duckduckgo.com": policy}), \
+                patch.object(zerochat._WEB_OPENER, "open", opener):
+            # Un subdominio cuenta como el dominio: la primera tras arrancar espera la separación, y esa espera
+            # se descuenta del plazo con el que se descarga.
+            zerochat.fetch_web_resource({"url": "https://html.duckduckgo.com/html/?q=a", "timeout_s": 5})
+            self.assertLess(timeouts[-1], 5 - 0.25)
+            # Otro dominio no espera ni pierde plazo.
+            zerochat.fetch_web_resource({"url": "https://example.com/", "timeout_s": 5})
+            self.assertEqual(timeouts[-1], 5)
+            # Si el turno no llega dentro del plazo, falla enseguida con el motivo, sin descargar.
+            slow = zerochat.RatePolicy(concurrency=1, min_interval_s=10)
+            with patch.dict(zerochat.WEB_FETCH_DOMAIN_LIMITS, {"duckduckgo.com": slow}):
+                busy = zerochat.fetch_web_resource({"url": "https://duckduckgo.com/html/?q=b", "timeout_s": 2})
+            self.assertEqual((busy["ok"], len(timeouts)), (False, 2))
+            self.assertIn("duckduckgo.com está ocupado", busy["error"])
 
     def test_capture_frontend_user_agent(self):
         """El User-Agent de la primera petición del frontend se adopta; el resto no lo toca."""
@@ -300,7 +292,3 @@ class WebFetchTest(unittest.TestCase):
         finally:
             zerochat.ACTIVE_USER_AGENT = original
             zerochat.SERVICE_USER_AGENT = original_service
-
-    def test_sin_constantes_de_pacing_viejo(self):
-        self.assertFalse(hasattr(zerochat, "WEB_FETCH_MIN_DELAY_S"))
-        self.assertFalse(hasattr(zerochat, "WEB_FETCH_MAX_DELAY_S"))

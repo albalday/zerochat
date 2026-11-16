@@ -34,6 +34,7 @@ ZeroChat también puede usar `mcp-remote` como puente para un MCP remoto HTTP/SS
   "brave_video_search": { "enabledByDefault": false }
 }
 ```
+- `rateLimit` es opcional: `concurrency` (llamadas a la vez, 1 a 64) y `minIntervalS` (segundos desde la respuesta anterior, 0 a 60) para todas las herramientas del servicio juntas. Úsalo si la API del MCP limita las peticiones por segundo; ZeroChat espera el turno hasta 30 s y, si no llega, devuelve al modelo que el servicio está ocupado. No sirve para limitar el gasto.
 - `help` es opcional, pero debe incluirse en todo servicio creado:
 
 ```json
@@ -122,7 +123,8 @@ Adapta la cabecera y su formato a lo que exige el proveedor. `remote.authenticat
 5. If an API key is required, declare it in `secrets` at the root of `service.json` (the environment variable `name` the MCP requires and a bilingual `label`) and use it in `launch.env` with `${secret:NAME}`, as shown above. `launch.env` is a JSON field, not a file; do not create a `launch.env` or `.env` file. Never write the key in `service.json`, chat, arguments or URLs, and do not ask the user for it: they save it in Settings → MCP. For remote header authentication, use `--header` with the provider's required header and a reference to the variable; `mcp-remote` resolves it from its environment. `remote.authentication` is descriptive only.
 6. Evaluate concurrency and headless compatibility before finalizing: ensure the service avoids static ports, runs in ephemeral/isolated mode by default if managing session state, and does not require interactive console prompts or graphical windows.
 7. If an MCP tool does the same job as a ZeroChat native tool, declare it in `tools` with `replaces` (only native tools the user can turn off in Settings); set `enabledByDefault: false` on tools that spend quota or need a paid plan.
-8. Do not install or start the service. Report created files, official sources and outstanding requirements; the user will start it from Settings → MCP.
+8. If the MCP's API limits requests per second, declare `rateLimit` (`concurrency` 1-64, `minIntervalS` 0-60 seconds since the previous response) for all its tools together; it is not a spending control.
+9. Do not install or start the service. Report created files, official sources and outstanding requirements; the user will start it from Settings → MCP.
 
 ### Concurrency and parallel execution
 

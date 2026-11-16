@@ -113,6 +113,26 @@ class ManagedServicesTest(unittest.TestCase):
         self.assertEqual(settings.pop("brave_web_search"), {"replaces": ["search_web"], "enabledByDefault": True})
         self.assertTrue(settings)
         self.assertEqual({name: value["enabledByDefault"] for name, value in settings.items()}, dict.fromkeys(settings, False))
+        # Una llamada a la vez a la API de Brave y 1,1 s entre respuestas: no pasar del límite por segundo de la clave.
+        self.assertEqual(zerochat.parse_rate_policy(definition["rateLimit"]), zerochat.RatePolicy(1, 1.1))
+
+    def test_las_llamadas_a_un_servicio_respetan_el_rate_limit_que_declara(self):
+        manager = zerochat.McpServiceManager(self.root)
+        self.addCleanup(manager.close)
+        client = Mock(call_timeout=5)
+        client.request.return_value = {"content": []}
+        manager.services = {"lento": {"rateLimit": {"concurrency": 1, "minIntervalS": 0.3}}, "libre": {}}
+        resolved = {"lento_echo": ("lento", client, "echo"), "libre_echo": ("libre", client, "echo")}
+
+        def elapsed(public_name):
+            started = time.monotonic()
+            manager.call(public_name, {})
+            return time.monotonic() - started
+
+        with patch.object(zerochat, "RATE_LIMITER", zerochat.RateLimiter()), patch.object(manager, "_resolve_tool", resolved.get):
+            elapsed("lento_echo")
+            self.assertGreaterEqual(elapsed("lento_echo"), 0.25)
+            self.assertLess(elapsed("libre_echo"), 0.05)
 
     def test_la_declaracion_de_una_herramienta_se_depura_y_sin_ella_empieza_activa_sin_sustituir_nada(self):
         definition = {"tools": {"buscar": {"replaces": ["search_web", "Mal Nombre", 3, "../x"], "enabledByDefault": "no"}}}

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "brave",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "displayName": {
     "es": "Brave Search",
     "en": "Brave Search"
@@ -55,6 +55,10 @@
     "brave_summarizer": {
       "enabledByDefault": false
     }
+  },
+  "rateLimit": {
+    "concurrency": 1,
+    "minIntervalS": 1.1
   },
   "launch": {
     "executable": "${nodeExecutable}",

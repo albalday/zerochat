@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "services": {
     "brave": {
-      "version": "1.1.0",
+      "version": "1.2.0",
       "files": {
         "installer.json": "b3f4b25d188c19041b66c3bf8ace2d200fbfd31e0ea68403cdbc5047fa4ececc",
-        "service.json": "a035bf7c9f77649cb3a81fc595539024944691d1017ca72b17623f7ee4571be9"
+        "service.json": "603ef3fc2bbb6254fd7c5db553ea93860f566ea65e0249c1c7ce9904beaaa7a9"
       }
     },
     "composio": {
@@ -16,12 +16,12 @@
       }
     },
     "ejemplo": {
-      "version": "1.0.3",
+      "version": "1.0.4",
       "files": {
         "ejemplo_mcp_server.py": "9f9be071bdf75e2b858c2316f467ea6f83c559369ed7c17a75d67c2d656b443b",
         "installer.json.example": "701acdf0cef210077bbba5e574a05683951e3f4bc34a8d5d429e5b7aeb55fd97",
-        "README.md": "bc5d72c497c377a91d68533491c4db88c04d7a2e69d19197d64f4956a3c60e96",
-        "service.json": "cac72596a1bc282dfc94fea6e551a1cf130b642199bd9f51d73ce48861f29d81"
+        "README.md": "d491e0ec0ae4cecf5621ca0ea9432facb255a405303bb7444d4f5eac26721b7c",
+        "service.json": "55fe65968dd62379a27a2e63ada4e7ab177c16c2f411da7e94646c5974c21407"
       }
     },
     "memory": {
