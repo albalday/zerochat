@@ -72,16 +72,9 @@
     activeProfileTrigger: 'active-profile-trigger',
     activeProfileName: 'active-profile-name',
     activeProfilePopover: 'active-profile-popover',
+    toggleBackgroundRun: 'toggle-background-run',
+    profileBackgroundHint: 'profile-background-hint',
     activeProfileList: 'active-profile-list',
-    profileMenuViewLocal: 'profile-menu-view-local',
-    profileMenuViewServer: 'profile-menu-view-server',
-    btnMenuServerRun: 'btn-menu-server-run',
-    btnMenuServerManage: 'btn-menu-server-manage',
-    btnProfileSubviewBack: 'btn-profile-subview-back',
-    btnProfileSubviewClose: 'btn-profile-subview-close',
-    profileSubviewTitle: 'profile-subview-title',
-    profileSubviewHint: 'profile-subview-hint',
-    serverProfileList: 'server-profile-list',
     inspectorDialog: 'inspector-dialog',
     inspectorProfileName: 'inspector-profile-name',
     btnCloseInspector: 'btn-close-inspector',
@@ -167,7 +160,6 @@
     settingProfileName: 'setting-profile-name',
     settingProfileDescription: 'setting-profile-description',
     profileSelectHelper: 'profile-select-helper',
-    btnSaveServerProfile: 'btn-save-server-profile',
     btnSaveProfile: 'btn-save-profile',
     profileActionFeedback: 'profile-action-feedback',
     profileSaveQueryHint: 'profile-save-query-hint',
@@ -283,7 +275,6 @@
       },
       isServerMode: () => isServerRunEnabled(),
       getProject: () => getServerCwd(),
-      getServerProfile: () => UIProfiles.getSelectedServerProfile(),
       resetComposerInput: () => resetComposerInput(),
       closeMobileSidebar: () => {
         if (UISidebar.isMobile()) UISidebar.closeSidebar(elements);
@@ -303,10 +294,18 @@
   const getServerCwd = () => (State.get('mcp').status === 'connected' ? State.get('mcp').serverInfo?.cwd || '' : '');
   const renderSidebarChats = () => UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId(), State.get('mcp').serverRuns, getServerCwd());
 
+  const getActiveProfileName = () => getRuntimeConfig().activeProfile?.name || getRuntimeConfig().activeProfile?.id || '';
+
   function applySessionModeAndProfile(conversation) {
     if (!conversation) return;
     const serverMode = ServerRun.isServerConversation(conversation) && ServerRun.isAvailable();
-    UIProfiles.setServerMode(serverMode, serverMode ? (conversation.profileId || 'local') : undefined);
+    if (serverMode && conversation.profileId) {
+      const match = Profiles.get(conversation.profileId) || Profiles.findByName(conversation.profileId);
+      if (match && match.id !== getRuntimeConfig().activeProfile?.id) {
+        Config.activateProfile(match.id);
+      }
+    }
+    UIProfiles.setServerMode(serverMode);
   }
 
   const isServerRunEnabled = () => ServerRun.isAvailable() && UIProfiles.isServerMode();
@@ -314,11 +313,13 @@
   function syncServerRunControl() {
     if (!ServerRun.isAvailable()) {
       if (UIProfiles.isServerMode()) UIProfiles.setServerMode(false);
+      else UIProfiles.syncActiveProfileTrigger();
       return;
     }
     const activeId = getCurrentSessionId();
     const session = State.get('sessions')?.list?.find(s => s.id === activeId);
     if (session) applySessionModeAndProfile(session);
+    else UIProfiles.syncActiveProfileTrigger();
   }
 
   const syncLiveServerRun = () => UIConversation.renderLiveServerRun(
@@ -384,10 +385,9 @@
       openDebugInterceptorModal,
       saveCurrentSession,
       runOnServer,
-      getServerRunProfile: () => UIProfiles.getSelectedServerProfile(),
       startServerRun: ({ conversationId, profile }) => ServerRun.start({
         conversationId,
-        profile: profile || UIProfiles.getSelectedServerProfile(),
+        profile: profile || getActiveProfileName(),
         toolDecision: sendOptions.toolDecision
       }),
       ...sendOptions
@@ -729,11 +729,11 @@
       resetTelemetryDisplay,
       updateUIFromConfig,
       inspectProfile,
-      onServerModeChanged: (active, profile) => {
+      onServerModeChanged: active => {
         const activeId = getCurrentSessionId();
         const existing = State.get('sessions')?.list?.find(s => s.id === activeId);
         if (existing) {
-          saveCurrentSession({ serverRun: active, profileId: profile || UIProfiles.getSelectedServerProfile() });
+          saveCurrentSession({ serverRun: active, profileId: getActiveProfileName() });
         }
       },
       closeSettingsModal: () => UISettings.closeSettingsModal(elements)
@@ -878,6 +878,19 @@
 
     // connectStartup quita el fragmento de arranque: el modo ejecución se lee antes.
     const runId = RunMode.readRunId(location.hash);
+    if (!runId) {
+      MCP.manager.setProfileSyncHandler(async serverId => {
+        try {
+          await MCP.manager.syncProfiles(serverId, {
+            onServerChange: UIProfiles.confirmServerProfileSync
+          });
+          UIProfiles.renderProfileMenu();
+          UIProfiles.syncActiveProfileTrigger();
+        } catch (error) {
+          console.warn('[App] Could not synchronize profiles with backend:', error);
+        }
+      });
+    }
     const startupMcpConnection = backendSession.connectStartup();
     // Sin latido periódico (servidor sin auto-cierre), volver a la pestaña relee el servidor local.
     document.addEventListener('visibilitychange', () => {

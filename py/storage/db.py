@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import math
 import os
 import re
 import sqlite3
@@ -12,6 +13,7 @@ import threading
 import time
 import typing
 import urllib.parse
+import uuid
 from pathlib import Path
 
 from core.environment import get_data_dir
@@ -197,12 +199,20 @@ def open_storage():
 
 
 def normalize_profile_id(name: str, given_id: str | None = None) -> str:
-    """Genera o normaliza un identificador único para el perfil general."""
+    """Genera o normaliza un identificador único para el perfil."""
     if given_id and isinstance(given_id, str) and given_id.strip():
         clean = given_id.strip()
         return clean if clean.startswith("profile:") else f"profile:{clean}"
-    clean_name = urllib.parse.quote(name.strip())
-    return f"profile:general-{clean_name}"
+    clean_name = urllib.parse.quote(name.strip(), safe="-_.!~*'()")
+    return f"profile:{clean_name}"
+
+
+def _parse_optional_timestamp(value, field_name: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{field_name} debe ser una marca de tiempo positiva")
+    return int(value)
 
 
 def validate_profile_payload(record: dict) -> tuple[str, str, str, dict, str | None]:
@@ -238,7 +248,7 @@ def validate_profile_payload(record: dict) -> tuple[str, str, str, dict, str | N
 
 def _row_to_profile(row: sqlite3.Row) -> dict:
     """Transforma una fila SQLite en el objeto de perfil del servidor, sin su API key: solo `hasApiKey`.
-    La clave la entrega get_general_profile_with_key a quien la usa (el runner o la importación explícita)."""
+    La clave la entrega get_general_profile_with_key al runner o bajo demanda con zerochat/profiles/reveal."""
     try:
         settings = json.loads(row["settings_json"])
     except (json.JSONDecodeError, TypeError):
@@ -304,9 +314,11 @@ def get_general_profile_by_name(name: str) -> dict | None:
 
 
 def save_general_profile(record: dict) -> dict:
-    """Guarda (crea o actualiza) un perfil de conexión del servidor en SQLite."""
+    """Guarda (crea o actualiza) un perfil en SQLite conservando el updatedAt de origen si se indica."""
     profile_id, name, description, settings, api_key = validate_profile_payload(record)
     now = int(time.time() * 1000)
+    updated_at = _parse_optional_timestamp(record.get("updatedAt"), "updatedAt") or now
+    created_at = _parse_optional_timestamp(record.get("createdAt"), "createdAt") or updated_at
 
     with open_storage() as conn:
         existing = conn.execute("SELECT * FROM profiles WHERE id = ?;", (profile_id,)).fetchone()
@@ -332,12 +344,12 @@ def save_general_profile(record: dict) -> dict:
                 UPDATE profiles
                 SET name = ?, description = ?, settings_json = ?, api_key = ?, version = ?, updated_at = ?
                 WHERE id = ?;
-            """, (name, description, json.dumps(settings), final_api_key, version, now, profile_id))
+            """, (name, description, json.dumps(settings), final_api_key, version, updated_at, profile_id))
         else:
             conn.execute("""
                 INSERT INTO profiles (id, name, description, settings_json, api_key, version, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, 1, ?, ?);
-            """, (profile_id, name, description, json.dumps(settings), obfuscate_secret(api_key or ""), now, now))
+            """, (profile_id, name, description, json.dumps(settings), obfuscate_secret(api_key or ""), created_at, updated_at))
 
         conn.commit()
         saved_row = conn.execute("SELECT * FROM profiles WHERE id = ?;", (profile_id,)).fetchone()
@@ -807,3 +819,17 @@ def secret_names(prefix: str) -> set[str]:
     with open_storage() as conn:
         rows = conn.execute("SELECT name FROM secrets WHERE substr(name, 1, ?) = ?;", (len(prefix), prefix)).fetchall()
         return {row["name"] for row in rows}
+
+
+SERVER_ID_KEY = "system:server_id"
+
+
+def get_server_id() -> str:
+    """Identificador único y persistente de este servidor en SQLite."""
+    with _STORAGE_LOCK:
+        existing = get_secret(SERVER_ID_KEY)
+        if existing:
+            return existing
+        server_id = str(uuid.uuid4())
+        save_secret(SERVER_ID_KEY, server_id)
+        return server_id

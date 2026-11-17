@@ -1560,7 +1560,7 @@ def dispatch_browser(method: str, params: dict) -> RpcOutcome:
 
 
 
-SOURCE_BACKEND_VERSION = "10.22.0"
+SOURCE_BACKEND_VERSION = "10.23.0"
 
 
 def _read_source_version(filename: str) -> str | None:
@@ -2915,12 +2915,20 @@ def open_storage():
 
 
 def normalize_profile_id(name: str, given_id: str | None = None) -> str:
-    """Genera o normaliza un identificador único para el perfil general."""
+    """Genera o normaliza un identificador único para el perfil."""
     if given_id and isinstance(given_id, str) and given_id.strip():
         clean = given_id.strip()
         return clean if clean.startswith("profile:") else f"profile:{clean}"
-    clean_name = urllib.parse.quote(name.strip())
-    return f"profile:general-{clean_name}"
+    clean_name = urllib.parse.quote(name.strip(), safe="-_.!~*'()")
+    return f"profile:{clean_name}"
+
+
+def _parse_optional_timestamp(value, field_name: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{field_name} debe ser una marca de tiempo positiva")
+    return int(value)
 
 
 def validate_profile_payload(record: dict) -> tuple[str, str, str, dict, str | None]:
@@ -2956,7 +2964,7 @@ def validate_profile_payload(record: dict) -> tuple[str, str, str, dict, str | N
 
 def _row_to_profile(row: sqlite3.Row) -> dict:
     """Transforma una fila SQLite en el objeto de perfil del servidor, sin su API key: solo `hasApiKey`.
-    La clave la entrega get_general_profile_with_key a quien la usa (el runner o la importación explícita)."""
+    La clave la entrega get_general_profile_with_key al runner o bajo demanda con zerochat/profiles/reveal."""
     try:
         settings = json.loads(row["settings_json"])
     except (json.JSONDecodeError, TypeError):
@@ -3022,9 +3030,11 @@ def get_general_profile_by_name(name: str) -> dict | None:
 
 
 def save_general_profile(record: dict) -> dict:
-    """Guarda (crea o actualiza) un perfil de conexión del servidor en SQLite."""
+    """Guarda (crea o actualiza) un perfil en SQLite conservando el updatedAt de origen si se indica."""
     profile_id, name, description, settings, api_key = validate_profile_payload(record)
     now = int(time.time() * 1000)
+    updated_at = _parse_optional_timestamp(record.get("updatedAt"), "updatedAt") or now
+    created_at = _parse_optional_timestamp(record.get("createdAt"), "createdAt") or updated_at
 
     with open_storage() as conn:
         existing = conn.execute("SELECT * FROM profiles WHERE id = ?;", (profile_id,)).fetchone()
@@ -3050,12 +3060,12 @@ def save_general_profile(record: dict) -> dict:
                 UPDATE profiles
                 SET name = ?, description = ?, settings_json = ?, api_key = ?, version = ?, updated_at = ?
                 WHERE id = ?;
-            """, (name, description, json.dumps(settings), final_api_key, version, now, profile_id))
+            """, (name, description, json.dumps(settings), final_api_key, version, updated_at, profile_id))
         else:
             conn.execute("""
                 INSERT INTO profiles (id, name, description, settings_json, api_key, version, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, 1, ?, ?);
-            """, (profile_id, name, description, json.dumps(settings), obfuscate_secret(api_key or ""), now, now))
+            """, (profile_id, name, description, json.dumps(settings), obfuscate_secret(api_key or ""), created_at, updated_at))
 
         conn.commit()
         saved_row = conn.execute("SELECT * FROM profiles WHERE id = ?;", (profile_id,)).fetchone()
@@ -3525,6 +3535,20 @@ def secret_names(prefix: str) -> set[str]:
     with open_storage() as conn:
         rows = conn.execute("SELECT name FROM secrets WHERE substr(name, 1, ?) = ?;", (len(prefix), prefix)).fetchall()
         return {row["name"] for row in rows}
+
+
+SERVER_ID_KEY = "system:server_id"
+
+
+def get_server_id() -> str:
+    """Identificador único y persistente de este servidor en SQLite."""
+    with _STORAGE_LOCK:
+        existing = get_secret(SERVER_ID_KEY)
+        if existing:
+            return existing
+        server_id = str(uuid.uuid4())
+        save_secret(SERVER_ID_KEY, server_id)
+        return server_id
 
 # --- mcp.manager ---
 """Gestor de servicios MCP: descubrimiento en ~/zerochat/services, actualización desde el catálogo, preferencias,
@@ -4722,8 +4746,8 @@ def _delete_profile(params: dict) -> RpcOutcome:
 
 
 def _reveal_profile(params: dict) -> RpcOutcome:
-    """El perfil con su API key, para copiarlo a la interfaz al pulsar el usuario Editar: el único método que devuelve
-    una clave guardada en el servidor a la interfaz (docs/M75-apikeys.md), y queda en el registro."""
+    """El perfil con su API key bajo demanda cuando la interfaz ejecuta en el navegador o edita un perfil
+    cuya clave solo está en el servidor (docs/M75-apikeys.md), y deja constancia en el registro."""
     profile_id = params.get("id")
     profile = get_general_profile_with_key(profile_id) if isinstance(profile_id, str) else None
     if profile is None:
@@ -7640,6 +7664,7 @@ def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -
     """
     runs, focus_run = list_server_runs(focus_conversation_id)
     return {
+        "serverId": get_server_id(),
         "cwd": str(ctx.workspace_dir),
         "jobs": [{**job.summary(), "last_line": job.last_line()} for job in JOBS.running(ctx.key)],
         "exit_on_close": EXIT_ON_CLOSE,

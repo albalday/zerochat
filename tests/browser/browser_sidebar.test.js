@@ -235,7 +235,7 @@ test('Browser UI - el icono de la cabecera de un proyecto abre un chat nuevo en 
     });
     await page.selectOption('#sidebar-project-filter', 'all');
     const previousId = await page.evaluate(() => window.ChatState.get('sessions').activeId);
-    const before = await page.evaluate(() => ({ profile: window.ChatUIProfiles.getSelectedServerProfile(), serverMode: window.ChatUIProfiles.isServerMode() }));
+    const before = await page.evaluate(() => ({ profile: window.ChatConfig.getActive().activeProfile?.id, serverMode: window.ChatUIProfiles.isServerMode() }));
     // Junto al de chat nuevo, el de carpeta abre los ficheros del proyecto en una pestaña propia.
     const filesLink = await page.evaluate(() => {
       const button = document.querySelector('.btn-project-new-chat[data-project="/repo/b"]');
@@ -247,7 +247,7 @@ test('Browser UI - el icono de la cabecera de un proyecto abre un chat nuevo en 
     await page.waitForFunction(() => window.ChatState.get('mcp').serverInfo.cwd === '/repo/b');
     const after = await page.evaluate(() => ({
       activeId: window.ChatState.get('sessions').activeId,
-      profile: window.ChatUIProfiles.getSelectedServerProfile(),
+      profile: window.ChatConfig.getActive().activeProfile?.id,
       serverMode: window.ChatUIProfiles.isServerMode()
     }));
     assert.notEqual(after.activeId, previousId);

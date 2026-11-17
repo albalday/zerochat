@@ -50,6 +50,25 @@
   const MAX_PROFILE_MCP_SERVERS = 64;
   const MAX_MCP_SERVER_ID_LENGTH = 128;
 
+  function normalizeDeletedIds(entries) {
+    if (!Array.isArray(entries)) return [];
+    const byId = new Map();
+    for (const entry of entries) {
+      const id = typeof entry === 'string' ? entry.trim() : String(entry?.id || '').trim();
+      if (!id || id === READONLY_PROFILE_ID) continue;
+      const rawAt = typeof entry === 'object' && entry !== null ? Number(entry.deletedAt) : NaN;
+      const deletedAt = Number.isFinite(rawAt) && rawAt > 0 ? rawAt : Date.now();
+      const prev = byId.get(id);
+      if (!prev || deletedAt > prev.deletedAt) byId.set(id, { id, deletedAt });
+    }
+    return [...byId.values()];
+  }
+
+  function validTimestamp(value, fallback = Date.now()) {
+    const num = Number(value);
+    return Number.isFinite(num) && num > 0 ? num : fallback;
+  }
+
   /** Servicios MCP externos que arranca el perfil: identificadores únicos y acotados. */
   function normalizeMcpServers(value) {
     if (!Array.isArray(value)) throw new Error('The MCP servers of a profile must be a list.');
@@ -90,15 +109,19 @@
     const name = String(record.name || '').trim();
     if (!name) throw new Error('The profile name cannot be empty.');
     const general = Boolean(isGeneral);
+    const settings = normalizeSettings(record.settings || record, general);
+    const hasLocalSecret = Boolean(settings.apiKey && (typeof settings.apiKey === 'object' || typeof settings.apiKey === 'string'));
     return {
       id: String(record.id || createId(name)),
       name,
       description: String(record.description || '').trim(),
       general,
+      synced: general ? false : Boolean(record.synced),
+      hasApiKey: record.hasApiKey !== undefined ? Boolean(record.hasApiKey) : hasLocalSecret,
       schemaVersion: SCHEMA_VERSION,
       version: Number.isInteger(record.version) && record.version > 0 ? record.version : 1,
-      updatedAt: Number(record.updatedAt) || Date.now(),
-      settings: normalizeSettings(record.settings || record, general)
+      updatedAt: validTimestamp(record.updatedAt),
+      settings
     };
   }
 
@@ -114,11 +137,22 @@
     if (!doc || doc.schemaVersion !== SCHEMA_VERSION || !Array.isArray(doc.profiles)) {
       throw new Error('The profile storage has an invalid format.');
     }
-    return { schemaVersion: SCHEMA_VERSION, profiles: doc.profiles.map(rec => normalizeRecord(rec)) };
+    const serverId = typeof doc.serverId === 'string' && doc.serverId.trim() ? doc.serverId.trim() : null;
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      serverId,
+      deletedIds: normalizeDeletedIds(doc.deletedIds),
+      profiles: doc.profiles.map(rec => normalizeRecord(rec))
+    };
   }
 
   function writeDocument(document) {
-    Storage.setStorageItem(STORAGE_KEY, JSON.stringify(document));
+    Storage.setStorageItem(STORAGE_KEY, JSON.stringify({
+      schemaVersion: SCHEMA_VERSION,
+      serverId: document.serverId || null,
+      deletedIds: normalizeDeletedIds(document.deletedIds),
+      profiles: document.profiles
+    }));
   }
 
   function initialize() {
@@ -131,7 +165,7 @@
       return clone(existing);
     }
 
-    const document = { schemaVersion: SCHEMA_VERSION, profiles: [normalizeRecord(MIRROR_PROFILE)] };
+    const document = { schemaVersion: SCHEMA_VERSION, serverId: null, deletedIds: [], profiles: [normalizeRecord(MIRROR_PROFILE)] };
     writeDocument(document);
     return clone(document);
   }
@@ -168,6 +202,13 @@
     sessionKeyLoader = typeof loader === 'function' ? loader : null;
   }
 
+  let remoteKeyLoader = null;
+
+  /** `loader(id)` devuelve el perfil completo del servidor (via zerochat/profiles/reveal) cuando su API key falta en local. */
+  function setRemoteKeyLoader(loader) {
+    remoteKeyLoader = typeof loader === 'function' ? loader : null;
+  }
+
   function listSessionProfiles() {
     return [...sessionProfiles.values()].map(clone);
   }
@@ -186,6 +227,22 @@
     const session = sessionProfiles.get(cleanId) || [...sessionProfiles.values()].find(profile => profile.name === cleanId);
     if (session) return clone(session);
     return list().find(profile => profile.id === cleanId) || null;
+  }
+
+  async function cacheRevealedApiKey(id, rawKey, keyMaterial) {
+    const current = initialize();
+    const index = current.profiles.findIndex(profile => profile.id === id);
+    if (index < 0) return;
+    const target = current.profiles[index];
+    const encrypted = rawKey
+      ? await Backup.encryptApiKey(rawKey, keyMaterial || Backup.getCachedKeyMaterial() || undefined)
+      : null;
+    current.profiles[index] = {
+      ...target,
+      hasApiKey: Boolean(rawKey),
+      settings: { ...target.settings, apiKey: encrypted }
+    };
+    writeDocument(current);
   }
 
   async function load(id, keyMaterial = null) {
@@ -208,6 +265,17 @@
     const secret = cloned.settings.apiKey;
     if (secret) {
       cloned.settings.apiKey = await Backup.decryptApiKey(secret, keyMaterial || undefined);
+    } else if (cloned.hasApiKey) {
+      if (!remoteKeyLoader) {
+        throw new Error(`Connect to the local server to access the API key of ${cloned.name}.`);
+      }
+      const revealed = await remoteKeyLoader(cloned.id);
+      if (revealed?.id !== cloned.id) {
+        throw new Error(`The local server did not return the profile ${cloned.name}.`);
+      }
+      const rawKey = typeof revealed.settings?.apiKey === 'string' ? revealed.settings.apiKey : '';
+      await cacheRevealedApiKey(cloned.id, rawKey, keyMaterial);
+      cloned.settings.apiKey = rawKey;
     } else {
       cloned.settings.apiKey = '';
     }
@@ -237,7 +305,7 @@
     return list().find(profile => profile.name === cleanName) || null;
   }
 
-  function save(record) {
+  function save(record, { synced = false, preserveUpdatedAt = false } = {}) {
     const current = initialize();
     const normalized = normalizeRecord(record, false);
     if (normalized.id === READONLY_PROFILE_ID || normalized.name === MIRROR_PROFILE.name) {
@@ -245,20 +313,27 @@
     }
     const index = current.profiles.findIndex(profile => profile.id === normalized.id);
     if (index >= 0) {
-      if (current.profiles[index].settings.apiKeyLocked === true) throw new Error('Changes to this profile are locked.');
-      normalized.version = current.profiles[index].version + 1;
+      if (!preserveUpdatedAt && current.profiles[index].settings.apiKeyLocked === true) {
+        throw new Error('Changes to this profile are locked.');
+      }
+      normalized.version = preserveUpdatedAt
+        ? Math.max(current.profiles[index].version, Number(record.version) || 1)
+        : current.profiles[index].version + 1;
     }
-    normalized.updatedAt = Date.now();
+    normalized.updatedAt = preserveUpdatedAt ? validTimestamp(record.updatedAt) : Date.now();
+    normalized.synced = Boolean(synced);
+    current.deletedIds = current.deletedIds.filter(entry => entry.id !== normalized.id);
     if (index >= 0) current.profiles[index] = normalized;
     else current.profiles.push(normalized);
     writeDocument(current);
     return clone(normalized);
   }
 
-  async function saveEditable(record) {
+  async function saveEditable(record, options = {}) {
     if (typeof record?.settings?.apiKey !== 'string') throw new Error('The profile API key is not valid.');
-    const apiKey = await Backup.encryptApiKey(record.settings.apiKey);
-    return save({ ...record, settings: { ...record.settings, apiKey } });
+    const rawKey = record.settings.apiKey;
+    const apiKey = rawKey ? await Backup.encryptApiKey(rawKey) : null;
+    return save({ ...record, hasApiKey: Boolean(rawKey), settings: { ...record.settings, apiKey } }, options);
   }
 
   async function recipherApiKeys(currentKeyMaterial, nextKeyMaterial) {
@@ -272,10 +347,10 @@
       }
       const apiKey = await Backup.decryptApiKey(profile.settings.apiKey, currentKeyMaterial);
       const encrypted = await Backup.encryptApiKey(apiKey, nextKeyMaterial);
-      rewritten.push({ ...profile, updatedAt: Date.now(), version: profile.version + 1, settings: { ...profile.settings, apiKey: encrypted } });
+      rewritten.push({ ...profile, version: profile.version + 1, settings: { ...profile.settings, apiKey: encrypted } });
       reciphered += 1;
     }
-    writeDocument({ schemaVersion: SCHEMA_VERSION, profiles: rewritten });
+    writeDocument({ ...current, profiles: rewritten });
     return reciphered;
   }
 
@@ -289,12 +364,18 @@
     return true;
   }
 
-  function remove(id) {
-    if (String(id || '') === READONLY_PROFILE_ID) return false;
+  function remove(id, { synced = false } = {}) {
+    const cleanId = String(id || '');
+    if (cleanId === READONLY_PROFILE_ID) return false;
     const current = initialize();
-    const index = current.profiles.findIndex(profile => profile.id === String(id || ''));
+    const index = current.profiles.findIndex(profile => profile.id === cleanId);
     if (index < 0) return false;
     current.profiles.splice(index, 1);
+    if (synced) {
+      current.deletedIds = current.deletedIds.filter(entry => entry.id !== cleanId);
+    } else {
+      current.deletedIds = normalizeDeletedIds([...current.deletedIds, { id: cleanId, deletedAt: Date.now() }]);
+    }
     writeDocument(current);
     return true;
   }
@@ -320,15 +401,202 @@
       if (nameOwner && nameOwner !== profile.id) throw new Error(`Ya existe un perfil llamado "${profile.name}" con otro identificador.`);
       if (byId.has(profile.id)) replaced += 1;
       else added += 1;
-      byId.set(profile.id, profile);
+      byId.set(profile.id, { ...profile, synced: false });
     });
-    writeDocument({ schemaVersion: SCHEMA_VERSION, profiles: [normalizeRecord(MIRROR_PROFILE), ...byId.values()] });
+    writeDocument({ ...current, profiles: [normalizeRecord(MIRROR_PROFILE), ...byId.values()] });
     return { added, replaced, total: imported.length };
+  }
+
+  function remoteToLocalRecord(remote, existing = null) {
+    const keepLocalKey = existing && !((remote.updatedAt || 0) > (existing.updatedAt || 0)) && remote.hasApiKey;
+    return normalizeRecord({
+      id: remote.id,
+      name: remote.name,
+      description: remote.description || '',
+      synced: true,
+      hasApiKey: Boolean(remote.hasApiKey),
+      version: existing ? Math.max(existing.version, Number(remote.version) || 1) : (Number(remote.version) || 1),
+      updatedAt: validTimestamp(remote.updatedAt),
+      settings: {
+        ...(remote.settings || {}),
+        apiKey: keepLocalKey ? existing.settings.apiKey : null
+      }
+    }, false);
+  }
+
+  async function buildRemoteUploadPayload(local, passwordPrompt) {
+    const settings = { ...local.settings };
+    if (local.settings.apiKey) {
+      settings.apiKey = await Backup.withPassword(
+        keyMaterial => Backup.decryptApiKey(local.settings.apiKey, keyMaterial),
+        passwordPrompt
+      );
+    } else if (local.hasApiKey) {
+      delete settings.apiKey;
+    } else {
+      settings.apiKey = '';
+    }
+    return {
+      id: local.id,
+      name: local.name,
+      description: local.description,
+      updatedAt: local.updatedAt,
+      settings
+    };
+  }
+
+  /**
+   * Sincroniza la lista única del navegador con un servidor identificado por `serverId`.
+   * Conserva el `updatedAt` de origen y, si el servidor cambia respecto al guardado, consulta `onServerChange`.
+   */
+  async function syncWithBackend({ serverId, listRemote, saveRemote, deleteRemote, onServerChange = null, onPasswordRequired = requestPassword }) {
+    const cleanServerId = typeof serverId === 'string' ? serverId.trim() : '';
+    if (!cleanServerId) throw new Error('The backend server identifier is required.');
+
+    const doc = initialize();
+    let editableLocal = doc.profiles.filter(profile => profile.id !== READONLY_PROFILE_ID);
+    let pendingDeleted = [...doc.deletedIds];
+    const remoteList = (await listRemote()).filter(profile => profile?.id && profile.id !== READONLY_PROFILE_ID);
+
+    const serverChanged = Boolean(doc.serverId && doc.serverId !== cleanServerId);
+    const firstServerConflict = Boolean(!doc.serverId && editableLocal.length > 0 && remoteList.length > 0);
+    if ((serverChanged && (editableLocal.length > 0 || pendingDeleted.length > 0)) || firstServerConflict) {
+      const choice = typeof onServerChange === 'function'
+        ? await onServerChange({
+          previousServerId: doc.serverId,
+          nextServerId: cleanServerId,
+          localCount: editableLocal.length,
+          remoteCount: remoteList.length
+        })
+        : 'merge';
+      if (choice === 'cancel') return { cancelled: true, serverId: doc.serverId };
+      if (choice === 'replace') {
+        const replacedProfiles = remoteList.map(remote => remoteToLocalRecord(remote));
+        writeDocument({
+          schemaVersion: SCHEMA_VERSION,
+          serverId: cleanServerId,
+          deletedIds: [],
+          profiles: [normalizeRecord(MIRROR_PROFILE), ...replacedProfiles]
+        });
+        return {
+          replaced: true,
+          serverId: cleanServerId,
+          uploaded: 0,
+          downloaded: replacedProfiles.length,
+          deletedRemote: 0,
+          deletedLocal: editableLocal.length,
+          pendingPassword: 0
+        };
+      }
+      editableLocal = editableLocal.map(profile => ({ ...profile, synced: false }));
+      pendingDeleted = [];
+    }
+
+    const remoteMap = new Map(remoteList.map(profile => [profile.id, profile]));
+    let deletedRemote = 0;
+    for (const entry of pendingDeleted) {
+      const remote = remoteMap.get(entry.id);
+      if (remote && validTimestamp(remote.updatedAt, 0) > entry.deletedAt) continue;
+      if (remote) {
+        await deleteRemote(entry.id);
+        remoteMap.delete(entry.id);
+        deletedRemote += 1;
+      }
+    }
+
+    const remoteByName = new Map([...remoteMap.values()].map(profile => [String(profile.name || '').trim().toLowerCase(), profile]));
+    const nextProfiles = [];
+    let uploaded = 0;
+    let downloaded = 0;
+    let deletedLocal = 0;
+    let pendingPassword = 0;
+
+    const pushLocal = async local => {
+      try {
+        const payload = await buildRemoteUploadPayload(local, onPasswordRequired);
+        const saved = await saveRemote(payload);
+        nextProfiles.push(normalizeRecord({
+          ...local,
+          version: Math.max(local.version, Number(saved?.version) || 1),
+          updatedAt: validTimestamp(saved?.updatedAt, local.updatedAt),
+          synced: true
+        }, false));
+        uploaded += 1;
+      } catch (error) {
+        if (error?.code === 'PASSWORD_REQUIRED' && error.cancelled) {
+          nextProfiles.push(normalizeRecord({ ...local, synced: false }, false));
+          pendingPassword += 1;
+          return;
+        }
+        throw error;
+      }
+    };
+
+    for (const local of editableLocal) {
+      const remote = remoteMap.get(local.id);
+      if (!remote) {
+        const sameNameRemote = remoteByName.get(local.name.toLowerCase());
+        if (sameNameRemote) {
+          const localTime = validTimestamp(local.updatedAt, 0);
+          const remoteTime = validTimestamp(sameNameRemote.updatedAt, 0);
+          if (remoteTime >= localTime) {
+            // El perfil remoto con el mismo nombre gana o empata: se conserva el remoto en el paso siguiente.
+            continue;
+          }
+          await deleteRemote(sameNameRemote.id);
+          remoteMap.delete(sameNameRemote.id);
+          remoteByName.delete(local.name.toLowerCase());
+          await pushLocal(local);
+          continue;
+        }
+        if (local.synced) {
+          deletedLocal += 1;
+          continue;
+        }
+        await pushLocal(local);
+        continue;
+      }
+
+      remoteMap.delete(local.id);
+      remoteByName.delete(String(remote.name || '').trim().toLowerCase());
+      const localTime = validTimestamp(local.updatedAt, 0);
+      const remoteTime = validTimestamp(remote.updatedAt, 0);
+      if (remoteTime > localTime) {
+        nextProfiles.push(remoteToLocalRecord(remote, local));
+        downloaded += 1;
+      } else if (localTime > remoteTime) {
+        await pushLocal(local);
+      } else {
+        nextProfiles.push(remoteToLocalRecord(remote, local));
+      }
+    }
+
+    for (const remote of remoteMap.values()) {
+      nextProfiles.push(remoteToLocalRecord(remote));
+      downloaded += 1;
+    }
+
+    writeDocument({
+      schemaVersion: SCHEMA_VERSION,
+      serverId: cleanServerId,
+      deletedIds: [],
+      profiles: [normalizeRecord(MIRROR_PROFILE), ...nextProfiles]
+    });
+
+    return {
+      replaced: false,
+      serverId: cleanServerId,
+      uploaded,
+      downloaded,
+      deletedRemote,
+      deletedLocal,
+      pendingPassword
+    };
   }
 
   return {
     STORAGE_KEY, SCHEMA_VERSION, PROFILE_FIELDS, MAX_PROFILE_MCP_SERVERS, STORAGE_PROFILE_FIELDS, READONLY_PROFILE_ID, MIRROR_PROFILE: clone(MIRROR_PROFILE), NEW_PROFILE_SETTINGS: clone(NEW_PROFILE_SETTINGS),
-    initialize, list, get, load, setPasswordPrompt, loadUnlocked, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported,
+    createId, initialize, list, get, load, setPasswordPrompt, setRemoteKeyLoader, loadUnlocked, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported, syncWithBackend,
     registerSessionProfile, setSessionKeyLoader, listSessionProfiles, clearSessionProfile
   };
 }));

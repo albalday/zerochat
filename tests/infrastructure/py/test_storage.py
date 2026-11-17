@@ -118,6 +118,7 @@ class StorageEngineTest(unittest.TestCase):
             }
         }
         saved = zerochat.save_general_profile(sample)
+        self.assertEqual(saved["id"], "profile:OpenAI%20GPT-4o")
         self.assertEqual(saved["name"], "OpenAI GPT-4o")
         self.assertTrue(saved["general"])
         # Ni lo guardado ni el listado ni la búsqueda llevan la clave: solo hasApiKey.
@@ -154,6 +155,32 @@ class StorageEngineTest(unittest.TestCase):
         self.assertTrue(zerochat.delete_general_profile(saved["id"]))
         self.assertEqual(len(zerochat.list_general_profiles()), 0)
         self.assertFalse(zerochat.delete_general_profile("inexistente"))
+
+    def test_server_id_persistente_en_live_state_y_updated_at_preservado(self):
+        first_id = zerochat.get_server_id()
+        self.assertTrue(first_id)
+        self.assertEqual(zerochat.get_server_id(), first_id)
+        self.assertEqual(zerochat.live_state(zerochat.project_context())["serverId"], first_id)
+
+        created = zerochat.save_general_profile({
+            "name": "Sync Test",
+            "updatedAt": 1700000123456,
+            "settings": {"model": "m1"}
+        })
+        self.assertEqual(created["id"], "profile:Sync%20Test")
+        self.assertEqual(created["updatedAt"], 1700000123456)
+
+        updated = zerochat.save_general_profile({
+            **created,
+            "updatedAt": 1700000999000,
+            "settings": {"model": "m2"}
+        })
+        self.assertEqual(updated["updatedAt"], 1700000999000)
+
+        for bad_ts in (0, -5, "123", True):
+            with self.subTest(bad_ts=bad_ts):
+                with self.assertRaises(ValueError):
+                    zerochat.save_general_profile({"name": "Bad TS", "updatedAt": bad_ts, "settings": {}})
 
     def test_validacion_bordes_duplicados_espejo_y_bloqueo(self):
         # Borde exacto N y N+1 en nombre (128/129) y descripción (2048/2049)

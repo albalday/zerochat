@@ -80,6 +80,7 @@
       id: profile.id,
       name: profile.name,
       version: profile.version,
+      updatedAt: profile.updatedAt,
       appliedAt: Date.now()
     };
   }
@@ -169,12 +170,25 @@
     return fallbackProfile ? activateProfile(fallbackProfile.id) : commit(DEFAULTS);
   }
 
+  /** Reaplica o degrada el perfil activo tras una sincronización si cambió o dejó de existir. */
+  function refreshActiveProfile() {
+    const current = getActive();
+    const activeId = current.activeProfile?.id;
+    if (!activeId) return current;
+    const profile = Profiles.get(activeId);
+    if (!profile) return activateFallbackProfile();
+    if (profile.version === current.activeProfile.version && profile.updatedAt === current.activeProfile.updatedAt) {
+      return current;
+    }
+    return activateProfile(activeId, { sessionOnly: current.sessionOnly });
+  }
+
   function subscribe(listener) {
     return State.subscribe('config', listener);
   }
 
   return {
     DEFAULT_SYSTEM_DATA_PROMPT, DEFAULTS: clone(DEFAULTS), normalize,
-    initialize, getActive, updateRuntime, activateProfile, activateFallbackProfile, subscribe
+    initialize, getActive, updateRuntime, activateProfile, activateFallbackProfile, refreshActiveProfile, subscribe
   };
 }));

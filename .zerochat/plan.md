@@ -13,3 +13,15 @@
 ## M74 Arreglos multiplataforma de la 10.19.0: closed 2026-11-16
 
 ## M75 Arreglos menores: closed 2026-11-16
+
+## M76 Ajustes de perfiles
+
+Goal: Que los servicios MCP de un perfil se asignen desde un único sitio y que la nomenclatura restante y Brave en chat y en segundo plano queden coherentes y verificados.
+Done when: los servicios MCP de un perfil se asignan en un solo sitio; perfiles, modos y textos usan los mismos nombres en código, interfaz (es y en) y ayuda; Brave, con un servidor recién arrancado, aplica replaces, enabledByDefault y rateLimit en el chat y en ejecución en segundo plano.
+- [ ] M76-T1 Analizar y proponer un modelo único de asignación de servicios MCP (capítulo Servidores MCP del perfil vs Ajustes › MCP con Iniciar y recordar) y qué servicios arranca una ejecución en segundo plano
+- [ ] M76-T2 Asignar los servicios MCP de un perfil en un único sitio
+- [x] M76-T3 Editar y mantener los perfiles del servidor sin salir del modo «Ejecutar en servidor» (dropped: absorbido por el modelo unificado de almacenamiento y selector de M77)
+- [ ] M76-T4 Normalizar la nomenclatura de perfiles y modos (ejecución en segundo plano, perfil de sesión, prefijo Z- y restos de nomenclatura previa) en código, interfaz es y en, y ayuda
+- [ ] M76-T5 Comprobar con un servidor recién arrancado que Brave aplica replaces, enabledByDefault y rateLimit en el chat y en ejecución en segundo plano, y corregir lo que falle
+
+## M77 Almacenamiento unificado y selector de perfiles: closed 2026-11-17
