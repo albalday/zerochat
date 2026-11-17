@@ -656,7 +656,6 @@
       // initialize trae los servicios externos y el resto del estado vivo.
       this.liveServers = null;
       this.liveRunning = null;
-      getProfiles().setRemoteKeyLoader(id => this.revealServerProfile(id));
       await this.applyLiveState(probe.liveState);
       if (this.profileSyncHandler && probe.liveState?.serverId) {
         await this.profileSyncHandler(probe.liveState.serverId);
@@ -671,7 +670,6 @@
       this.dropClient(PROXY_ID);
       this.dropClient(EXTERNAL_ID);
       getProfiles().clearSessionProfile();
-      getProfiles().setRemoteKeyLoader(null);
       getState().set('mcp', { status: 'disconnected', latencyMs: null, error: null, ...LIVE_RESET });
       return { success: true };
     }
@@ -914,6 +912,7 @@
           listRemote: () => this.listServerProfiles(),
           saveRemote: profileData => this.saveServerProfile(profileData),
           deleteRemote: profileId => this.deleteServerProfile(profileId),
+          revealRemote: id => this.revealServerProfile(id),
           ...options
         });
         if (!result?.cancelled) getConfig().refreshActiveProfile();

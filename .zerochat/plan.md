@@ -26,12 +26,8 @@ Done when: los servicios MCP de un perfil se asignan en un solo sitio; perfiles,
 - [x] M76-T6 Aclarar en el aviso de Simplificar memoria que, además del modelo adecuado, conviene hacerla también con el agente o agentes que más hayan participado en la gestión del proyecto, porque solo ellos conocen lo que guardan en su memoria propia (2026-11-17)
 - [x] M76-T7 El prompt de Simplificar memoria pide al agente revisar también su memoria propia del proyecto fuera del repositorio e incorporar con aprobación lo vigente que no esté registrado (2026-11-17)
 - [x] M76-T8 Aclarar en el prompt de Simplificar memoria sus dos objetivos (compactar y consolidar lo no registrado, de memoria propia o de la conversación), los ID de lo incorporado, el destino de lo desactualizado y la exclusión de secretos (2026-11-17)
+- [x] M76-T9 Replicar API keys cifradas en localStorage durante syncWithBackend (reveal en sync, sin carga diferida en load) (2026-11-17)
 
 ## M77 Almacenamiento unificado y selector de perfiles: closed 2026-11-17
 
-## M78 Compactación con los agentes locales
-
-Goal: Que los agentes que trabajan en el repositorio fuera de ZeroChat (Claude Code, agy u otros) contribuyan a la compactación ejecutando el mismo prompt de «Simplificar memoria», para que consoliden en `.zerochat/` lo que solo guardan en su memoria propia.
-Done when: está decidido y aplicado cómo recibe y ejecuta un agente local el prompt de compactación completo (no solo la frase de AGENTS.md), y una compactación hecha con un agente local incorpora al plan y al registro lo vigente de su memoria propia tras la aprobación del usuario.
-- [x] M78-T1 Analizar con el usuario cómo forzar a los agentes locales a ejecutar el prompt de compactación (hoy solo lo envía el botón de ZeroChat y AGENTS.md no pide consolidar la memoria propia) y planificar las tareas del hito (2026-11-17)
-- [x] M78-T2 El prompt de Simplificar memoria abre, tras la aprobación, un hito recordatorio con una tarea para que los demás agentes consoliden su memoria propia después de la compactación (2026-11-17)
+## M78 Compactación con los agentes locales: closed 2026-11-17
