@@ -10,6 +10,7 @@ from core.logging import console_log, log_event, timestamp_message
 from mcp.manager import GLOBAL_MCP_MANAGER
 from run_mode.state import list_server_runs
 from security.context import SecurityContext
+from storage.db import get_server_id
 from tools.browser_action import playwright_status
 from tools.jobs import JOBS
 
@@ -83,6 +84,7 @@ def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -
     """
     runs, focus_run = list_server_runs(focus_conversation_id)
     return {
+        "serverId": get_server_id(),
         "cwd": str(ctx.workspace_dir),
         "jobs": [{**job.summary(), "last_line": job.last_line()} for job in JOBS.running(ctx.key)],
         "exit_on_close": EXIT_ON_CLOSE,
