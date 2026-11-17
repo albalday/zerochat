@@ -418,7 +418,7 @@ Do not perform a blind chronological cut. Evaluate relevance, current validity, 
 PHASE 3 - DETAILED PRESENTATION & MANDATORY USER APPROVAL (CRITICAL):
 DO NOT modify, write, or touch any files in this turn! It is strictly prohibited to call ${WRITE_TOOL}, edit tools, or modification commands before user approval.
 Present a clear, transparent proposal to the user in this turn:
-- A reminder that reviewing and curating ${LOG_FILE} requires an appropriate model and medium/high reasoning level.
+- A reminder that reviewing and curating ${LOG_FILE} requires an appropriate model and medium/high reasoning level, and that if other agents took part in managing the project, the simplification should also be run with the agent or agents that took part the most, since only they know what they keep in their own memory and can bring it into ${PLAN_FILE} and ${LOG_FILE}.
 - The exact condensation comment and list of closed milestone headers to condense in ${PLAN_FILE}.
 - The archive file path (\`${ARCHIVE_DIR}/log_M<first_unarchived>-M<last_closed>.md\`) and total decisions being archived verbatim.
 - The itemized classification of decisions for active ${LOG_FILE}:
