@@ -1,4 +1,4 @@
 # Current state
-- Milestone: M76 Ajustes de perfiles
-- Next task: M76-T4
+- Milestone: none (M76 closed 2026-11-17)
+- Next task: none pending
 - Last updated: 2026-11-17

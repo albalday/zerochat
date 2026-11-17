@@ -14,22 +14,7 @@
 
 ## M75 Arreglos menores: closed 2026-11-16
 
-## M76 Ajustes de perfiles
-
-Goal: Que los servicios MCP de un perfil se asignen desde un único sitio y que la nomenclatura restante y Brave en chat y en segundo plano queden coherentes y verificados.
-Done when: los servicios MCP de un perfil se asignan en un solo sitio; perfiles, modos y textos usan los mismos nombres en código, interfaz (es y en) y ayuda; Brave, con un servidor recién arrancado, aplica replaces, enabledByDefault y rateLimit en el chat y en ejecución en segundo plano.
-- [x] M76-T1 Analizar y proponer un modelo único de asignación de servicios MCP (capítulo Servidores MCP del perfil vs Ajustes › MCP con Iniciar y recordar) y qué servicios arranca una ejecución en segundo plano (2026-11-17)
-- [x] M76-T2 Asignar los servicios MCP de un perfil en un único sitio (dropped: se conserva mcpServers en el perfil como requisitos de tarea/cron y se hace silencioso el arranque de ambos)
-- [x] M76-T3 Editar y mantener los perfiles del servidor sin salir del modo «Ejecutar en servidor» (dropped: absorbido por el modelo unificado de almacenamiento y selector de M77)
-- [ ] M76-T4 Normalizar la nomenclatura de perfiles y modos (ejecución en segundo plano, perfil de sesión, prefijo Z- y restos de nomenclatura previa) en código, interfaz es y en, y ayuda
-- [ ] M76-T5 Comprobar con un servidor recién arrancado que Brave aplica replaces, enabledByDefault y rateLimit en el chat y en ejecución en segundo plano, y corregir lo que falle
-- [x] M76-T6 Aclarar en el aviso de Simplificar memoria que, además del modelo adecuado, conviene hacerla también con el agente o agentes que más hayan participado en la gestión del proyecto, porque solo ellos conocen lo que guardan en su memoria propia (2026-11-17)
-- [x] M76-T7 El prompt de Simplificar memoria pide al agente revisar también su memoria propia del proyecto fuera del repositorio e incorporar con aprobación lo vigente que no esté registrado (2026-11-17)
-- [x] M76-T8 Aclarar en el prompt de Simplificar memoria sus dos objetivos (compactar y consolidar lo no registrado, de memoria propia o de la conversación), los ID de lo incorporado, el destino de lo desactualizado y la exclusión de secretos (2026-11-17)
-- [x] M76-T9 Replicar API keys cifradas en localStorage durante syncWithBackend (reveal en sync, sin carga diferida en load) (2026-11-17)
-- [x] M76-T10 Auto-arrancar en silencio los MCP activos (enabled: true) en chat y --prompt, suprimir alertas de éxito al arrancar MCPs de perfil y retirar el fallback Z- de perfiles en SQLite (2026-11-17)
-- [x] M76-T11 Evitar que readLiveState/heartbeat en vuelo revierta el proyecto al abrir un chat desde la cabecera de proyecto y limpiar repintados/refrescos redundantes (2026-11-17)
-- [x] M76-T12 Eliminar llamadas RPC redundantes al servidor (initialize duplicado en discoverTools, security/get tras authorize, lectura completa de task.py y consultas de navegador en frío) (2026-11-17)
+## M76 Ajustes de perfiles: closed 2026-11-17
 
 ## M77 Almacenamiento unificado y selector de perfiles: closed 2026-11-17
 
