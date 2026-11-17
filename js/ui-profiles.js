@@ -611,7 +611,7 @@
           updatedAt: saved.updatedAt,
           settings: { ...settings, apiKey: settings.apiKey || '' }
         });
-        Profiles.save({ ...saved, settings: { ...saved.settings } }, { synced: true, preserveUpdatedAt: true });
+        Profiles.save(saved, { synced: true, preserveUpdatedAt: true });
       } catch (error) {
         console.warn('[UIProfiles] Could not save profile to server; queued for sync:', error);
         pendingSync = true;

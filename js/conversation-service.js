@@ -5,7 +5,7 @@
  *
  * Las opciones que recibe cada operación son los callbacks de app.js: los de presentación
  * (renderSessionMessages, renderSidebarChats, onSessionReset, onSessionSwitched, resetComposerInput
- * y closeMobileSidebar) y los que leen la interfaz (isServerMode, getServerProfile y getProject).
+ * y closeMobileSidebar) y los que leen la interfaz (isServerMode y getProject).
  * El servicio no toca el DOM.
  */
 (function (root, factory) {
@@ -90,15 +90,15 @@
   }
 
   /**
-   * Modo servidor y perfil de una sesión: los de `overrides` o, si no, los de la interfaz. En modo
-   * servidor sin perfil elegido conserva el de `base` (la sesión guardada o la de origen de una rama).
+   * Modo servidor y perfil de una sesión: los de `overrides` o, si no, los del perfil activo en
+   * configuración (con respaldo en `base` o `'local'` en modo segundo plano).
    */
   function resolveSessionMode(options, base, overrides = {}) {
     const serverRun = overrides.serverRun !== undefined ? Boolean(overrides.serverRun) : options.isServerMode();
     const activeProfile = getConfig().getActive()?.activeProfile;
-    const profileId = overrides.profileId || (serverRun
-      ? options.getServerProfile() || base?.profileId || 'local'
-      : activeProfile?.name || activeProfile?.id || base?.profileId || '');
+    const readonlyId = resolveDep('ChatProfileRepository', './profile-repository.js').READONLY_PROFILE_ID;
+    const usableActive = serverRun && activeProfile?.id === readonlyId ? null : activeProfile;
+    const profileId = overrides.profileId || usableActive?.name || usableActive?.id || base?.profileId || (serverRun ? 'local' : '');
     return { serverRun, profileId };
   }
 

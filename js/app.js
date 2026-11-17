@@ -275,7 +275,6 @@
       },
       isServerMode: () => isServerRunEnabled(),
       getProject: () => getServerCwd(),
-      getServerProfile: () => getActiveProfileName(),
       resetComposerInput: () => resetComposerInput(),
       closeMobileSidebar: () => {
         if (UISidebar.isMobile()) UISidebar.closeSidebar(elements);
@@ -386,7 +385,6 @@
       openDebugInterceptorModal,
       saveCurrentSession,
       runOnServer,
-      getServerRunProfile: () => getActiveProfileName(),
       startServerRun: ({ conversationId, profile }) => ServerRun.start({
         conversationId,
         profile: profile || getActiveProfileName(),

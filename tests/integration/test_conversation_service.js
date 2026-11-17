@@ -25,7 +25,6 @@ function appOptions(overrides = {}) {
     closeMobileSidebar() {},
     onSummarizing() {},
     isServerMode: () => false,
-    getServerProfile: () => '',
     getProject: () => '',
     ...overrides
   };
@@ -419,6 +418,11 @@ test('ConversationService - saveCurrentSession en un borrador vacío no altera a
 
 test('ConversationService - createConversationBranch respeta el modo servidor y perfil activo en ese momento', async t => {
   await Storage.deleteAllConversations();
+  const Config = require('../../js/config-store.js');
+  const Profiles = require('../../js/profile-repository.js');
+  Profiles.save({ id: 'profile:deepseek-coder', name: 'deepseek-coder', settings: { model: 'deepseek' } });
+  Config.activateProfile('profile:deepseek-coder');
+  t.after(() => Config.activateFallbackProfile());
 
   const history = [
     { id: 'm1', role: 'system', content: 'sys' },
@@ -435,7 +439,6 @@ test('ConversationService - createConversationBranch respeta el modo servidor y 
   let switchedConversation = null;
   const options = appOptions({
     isServerMode: () => true,
-    getServerProfile: () => 'deepseek-coder',
     onSessionSwitched: conv => { switchedConversation = conv; }
   });
 

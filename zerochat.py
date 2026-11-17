@@ -2964,7 +2964,7 @@ def validate_profile_payload(record: dict) -> tuple[str, str, str, dict, str | N
 
 def _row_to_profile(row: sqlite3.Row) -> dict:
     """Transforma una fila SQLite en el objeto de perfil del servidor, sin su API key: solo `hasApiKey`.
-    La clave la entrega get_general_profile_with_key a quien la usa (el runner o la importación explícita)."""
+    La clave la entrega get_general_profile_with_key al runner o bajo demanda con zerochat/profiles/reveal."""
     try:
         settings = json.loads(row["settings_json"])
     except (json.JSONDecodeError, TypeError):
@@ -4746,8 +4746,8 @@ def _delete_profile(params: dict) -> RpcOutcome:
 
 
 def _reveal_profile(params: dict) -> RpcOutcome:
-    """El perfil con su API key, para copiarlo a la interfaz al pulsar el usuario Editar: el único método que devuelve
-    una clave guardada en el servidor a la interfaz (docs/M75-apikeys.md), y queda en el registro."""
+    """El perfil con su API key bajo demanda cuando la interfaz ejecuta en el navegador o edita un perfil
+    cuya clave solo está en el servidor (docs/M75-apikeys.md), y deja constancia en el registro."""
     profile_id = params.get("id")
     profile = get_general_profile_with_key(profile_id) if isinstance(profile_id, str) else None
     if profile is None:

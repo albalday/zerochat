@@ -155,9 +155,10 @@
     resolveDep('ChatUIReasoning', './ui-reasoning.js').closeReasoningMenu(elements);
 
     if (options.runOnServer) {
-      const serverProfile = typeof options.getServerRunProfile === 'function' ? options.getServerRunProfile() : '';
       const savedSession = State.get('sessions')?.list?.find(s => s.id === generationSessionId);
-      const targetProfile = serverProfile || savedSession?.profileId || 'local';
+      const readonlyId = resolveDep('ChatProfileRepository', './profile-repository.js').READONLY_PROFILE_ID;
+      const activeProfile = config.activeProfile?.id === readonlyId ? null : config.activeProfile;
+      const targetProfile = activeProfile?.name || activeProfile?.id || savedSession?.profileId || 'local';
       await options.saveCurrentSession({ serverRun: true, profileId: targetProfile });
       try {
         const result = await options.startServerRun({

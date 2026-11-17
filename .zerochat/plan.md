@@ -33,3 +33,4 @@ Done when: cada backend persiste su `serverId` en `zerochat.db` y lo expone en `
 - [x] M77-T3 Navegador: detección de cambio de `serverId` al conectar y diálogo para elegir entre usar los perfiles del servidor o fusionar los actuales (2026-11-17)
 - [x] M77-T4 Interfaz y modos: selector único con switch superior de ejecución en segundo plano (deshabilitado para `Espejo` y `webllm`), botón único de Guardar en ambos repositorios, textos es/en y ayuda (2026-11-17)
 - [x] M77-T5 Pruebas de backend, sincronización por `updatedAt`, borrados (`synced` y `deletedIds`), cambio de `serverId` e interfaz del selector y editor (2026-11-17)
+- [x] M77-T6 Validar y depurar código y documentación tras los cambios de M77 (2026-11-17)

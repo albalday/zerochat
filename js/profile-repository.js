@@ -489,6 +489,7 @@
         };
       }
       editableLocal = editableLocal.map(profile => ({ ...profile, synced: false }));
+      pendingDeleted = [];
     }
 
     const remoteMap = new Map(remoteList.map(profile => [profile.id, profile]));
