@@ -85,6 +85,7 @@
   const getSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
   const getMcpExternal = () => resolveDep('ChatMcpExternal', './mcp-external.js');
   const getProfiles = () => resolveDep('ChatProfileRepository', './profile-repository.js');
+  const getConfig = () => resolveDep('ChatConfig', './config-store.js');
 
   /** Cabeceras del proxy inverso: X-ZeroChat-Proxy enruta hacia zerochat.py y Authorization lleva su clave. */
   const proxyHeaders = proxyKey => (proxyKey === null ? {} : { 'X-ZeroChat-Proxy': '1', Authorization: `Bearer ${proxyKey}` });
@@ -430,6 +431,12 @@
       // interfaz muestra de una acción en curso, y cuáles estaban en marcha.
       this.liveServers = null;
       this.liveRunning = null;
+      this.profileSyncHandler = null;
+      this.profileSyncPromise = null;
+    }
+
+    setProfileSyncHandler(handler) {
+      this.profileSyncHandler = typeof handler === 'function' ? handler : null;
     }
 
     setSessionToken(token) {
@@ -649,7 +656,11 @@
       // initialize trae los servicios externos y el resto del estado vivo.
       this.liveServers = null;
       this.liveRunning = null;
+      getProfiles().setRemoteKeyLoader(id => this.revealServerProfile(id));
       await this.applyLiveState(probe.liveState);
+      if (this.profileSyncHandler && probe.liveState?.serverId) {
+        await this.profileSyncHandler(probe.liveState.serverId);
+      }
       return { success: true, available: true, probe, tools };
     }
 
@@ -660,6 +671,7 @@
       this.dropClient(PROXY_ID);
       this.dropClient(EXTERNAL_ID);
       getProfiles().clearSessionProfile();
+      getProfiles().setRemoteKeyLoader(null);
       getState().set('mcp', { status: 'disconnected', latencyMs: null, error: null, ...LIVE_RESET });
       return { success: true };
     }
@@ -893,6 +905,34 @@
       const result = await client.request('zerochat/profiles/reveal', { id: profileId });
       if (!result?.profile) throw new Error('Invalid profile response from server.');
       return result.profile;
+    }
+
+    /** Sincroniza el repositorio de perfiles del navegador con el servidor conectado (`serverId`). */
+    async syncProfiles(serverId, options = {}) {
+      if (!serverId || typeof serverId !== 'string') return null;
+      if (this.profileSyncPromise) return this.profileSyncPromise;
+      const client = this.clients.get(PROXY_ID);
+      if (!client) return null;
+      const run = (async () => {
+        const result = await getProfiles().syncWithBackend({
+          serverId,
+          listRemote: async () => {
+            const res = await client.request('zerochat/profiles/list', {});
+            return Array.isArray(res?.profiles) ? res.profiles : [];
+          },
+          saveRemote: profileData => this.saveServerProfile(profileData),
+          deleteRemote: profileId => this.deleteServerProfile(profileId),
+          ...options
+        });
+        if (!result?.cancelled) getConfig().refreshActiveProfile();
+        return result;
+      })();
+      this.profileSyncPromise = run;
+      try {
+        return await run;
+      } finally {
+        this.profileSyncPromise = null;
+      }
     }
 
     /**

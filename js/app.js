@@ -878,6 +878,16 @@
 
     // connectStartup quita el fragmento de arranque: el modo ejecución se lee antes.
     const runId = RunMode.readRunId(location.hash);
+    if (!runId) {
+      MCP.manager.setProfileSyncHandler(async serverId => {
+        try {
+          await MCP.manager.syncProfiles(serverId);
+          UIProfiles.renderProfileMenu();
+        } catch (error) {
+          console.warn('[App] Could not synchronize profiles with backend:', error);
+        }
+      });
+    }
     const startupMcpConnection = backendSession.connectStartup();
     // Sin latido periódico (servidor sin auto-cierre), volver a la pestaña relee el servidor local.
     document.addEventListener('visibilitychange', () => {
