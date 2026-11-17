@@ -224,12 +224,12 @@ for (const outcome of ['later', 'reload', 'none', 'offline']) {
             ] });
             return { success: true };
           };
+          window.ChatMCP.manager.startExternalServer = async serverId => {
+            window.__recordStartup('mcp');
+            window.__mcpStartedId = serverId;
+            return { servers: [{ id: serverId, enabled: true, status: 'running' }] };
+          };
           window.ChatDialogs.confirm = async (message, options) => {
-            if (options.items) {
-              window.__recordStartup('mcp');
-              window.__mcpOfferItems = options.items;
-              return null;
-            }
             window.__updateNotice = { message, options };
             window.__recordStartup('update');
             return new Promise(resolve => { window.__resolveUpdate = resolve; });
@@ -260,7 +260,7 @@ for (const outcome of ['later', 'reload', 'none', 'offline']) {
       const expected = outcome === 'reload' ? ['check', 'update', 'check', 'mcp'] :
         outcome === 'later' ? ['check', 'update', 'mcp'] : ['check', 'mcp'];
       assert.deepEqual(await page.evaluate(() => window.__startupEvents), expected);
-      assert.deepEqual(await page.evaluate(() => window.__mcpOfferItems), [{ id: 'memory', label: 'memory' }]);
+      assert.equal(await page.evaluate(() => window.__mcpStartedId), 'memory');
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();

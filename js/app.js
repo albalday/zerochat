@@ -916,7 +916,7 @@
         const connection = await startupMcpConnection;
         if (!connection.success) return;
         await UIProfiles.startActiveProfileServers();
-        await UIMcp.offerStoppedExternalServices(State.get('mcp').externalServers);
+        await UIMcp.restoreEnabledExternalServices(State.get('mcp').externalServers);
       }).catch(error => console.warn('[App] Could not check MCP services on startup:', error));
     }
 

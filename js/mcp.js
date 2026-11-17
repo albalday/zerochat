@@ -970,6 +970,10 @@
     startProfileServers(appConfig) {
       return getMcpExternal().startProfileServers(this, appConfig);
     }
+
+    startEnabledServers(servers) {
+      return getMcpExternal().startEnabledServers(this, servers);
+    }
   }
 
   const manager = new McpManager();

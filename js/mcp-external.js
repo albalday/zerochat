@@ -220,6 +220,27 @@
     return { started, unavailable };
   }
 
+  /**
+   * Arranca en silencio los servicios externos recordados como activos (`enabled: true`) que siguen
+   * detenidos, sin alterar su preferencia ni preguntar. Devuelve `{ started, failed }` con sus ids.
+   */
+  async function startEnabledServers(manager, servers = getState().get('mcp').externalServers) {
+    const State = getState();
+    const started = [];
+    const failed = [];
+    if (State.get('mcp').status !== 'connected') return { started, failed };
+    const candidates = (servers || [])
+      .filter(server => server?.enabled === true && McpStatus.canStart(server.status) && typeof server.id === 'string' && server.id)
+      .slice(0, 50);
+    for (const server of candidates) {
+      // Comprobar el estado vivo actual por si otro arranque (p. ej. el perfil) ya lo inició.
+      const current = State.get('mcp').externalServers.find(item => item.id === server.id);
+      if (current && !McpStatus.canStart(current.status)) continue;
+      (await manager.runExternalServerAction(server.id, 'start', { remember: true }) ? started : failed).push(server.id);
+    }
+    return { started, failed };
+  }
+
   return {
     refreshExternalTools,
     startExternalServer,
@@ -228,6 +249,7 @@
     setExternalServerSecret,
     runExternalServerAction,
     withExternalServerStopped,
-    startProfileServers
+    startProfileServers,
+    startEnabledServers
   };
 });

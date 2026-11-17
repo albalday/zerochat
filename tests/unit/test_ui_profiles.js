@@ -80,3 +80,20 @@ test('UIProfiles - los ajustes guardados parten del perfil editado y completan l
   assert.deepEqual({ apiType: ollama.apiType, apiUrl: ollama.apiUrl, temperature: ollama.temperature, prefill: ollama.webllmConfig.prefill_chunk_size },
     { apiType: 'ollama', apiUrl: 'http://localhost:11434', temperature: '1.2', prefill: '1024' });
 });
+
+test('UIProfiles - reportProfileServers solo avisa cuando algún servicio requerido no está disponible', async t => {
+  const previous = globalThis.ChatDialogs;
+  const alerts = [];
+  globalThis.ChatDialogs = { alert: async (message, options) => { alerts.push({ message, options }); } };
+  t.after(() => { globalThis.ChatDialogs = previous; });
+
+  await UIProfiles.reportProfileServers({ started: ['Brave Search', 'Playwright'], unavailable: [], browser: 'Playwright' });
+  assert.equal(alerts.length, 0);
+
+  await UIProfiles.reportProfileServers({ started: ['Memoria'], unavailable: ['Brave Search', 'Playwright'], browser: 'Playwright' });
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0].options.type, 'warning');
+  assert.match(alerts[0].message, /Brave Search/);
+  assert.match(alerts[0].message, /Playwright/);
+  assert.doesNotMatch(alerts[0].message, /Memoria/);
+});
