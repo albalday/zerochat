@@ -202,13 +202,6 @@
     sessionKeyLoader = typeof loader === 'function' ? loader : null;
   }
 
-  let remoteKeyLoader = null;
-
-  /** `loader(id)` devuelve el perfil completo del servidor (via zerochat/profiles/reveal) cuando su API key falta en local. */
-  function setRemoteKeyLoader(loader) {
-    remoteKeyLoader = typeof loader === 'function' ? loader : null;
-  }
-
   function listSessionProfiles() {
     return [...sessionProfiles.values()].map(clone);
   }
@@ -229,22 +222,6 @@
     return list().find(profile => profile.id === cleanId) || null;
   }
 
-  async function cacheRevealedApiKey(id, rawKey, keyMaterial) {
-    const current = initialize();
-    const index = current.profiles.findIndex(profile => profile.id === id);
-    if (index < 0) return;
-    const target = current.profiles[index];
-    const encrypted = rawKey
-      ? await Backup.encryptApiKey(rawKey, keyMaterial || Backup.getCachedKeyMaterial() || undefined)
-      : null;
-    current.profiles[index] = {
-      ...target,
-      hasApiKey: Boolean(rawKey),
-      settings: { ...target.settings, apiKey: encrypted }
-    };
-    writeDocument(current);
-  }
-
   async function load(id, keyMaterial = null) {
     const profile = get(id);
     if (!profile) return null;
@@ -263,22 +240,7 @@
       return cloned;
     }
     const secret = cloned.settings.apiKey;
-    if (secret) {
-      cloned.settings.apiKey = await Backup.decryptApiKey(secret, keyMaterial || undefined);
-    } else if (cloned.hasApiKey) {
-      if (!remoteKeyLoader) {
-        throw new Error(`Connect to the local server to access the API key of ${cloned.name}.`);
-      }
-      const revealed = await remoteKeyLoader(cloned.id);
-      if (revealed?.id !== cloned.id) {
-        throw new Error(`The local server did not return the profile ${cloned.name}.`);
-      }
-      const rawKey = typeof revealed.settings?.apiKey === 'string' ? revealed.settings.apiKey : '';
-      await cacheRevealedApiKey(cloned.id, rawKey, keyMaterial);
-      cloned.settings.apiKey = rawKey;
-    } else {
-      cloned.settings.apiKey = '';
-    }
+    cloned.settings.apiKey = secret ? await Backup.decryptApiKey(secret, keyMaterial || undefined) : '';
     return cloned;
   }
 
@@ -407,19 +369,34 @@
     return { added, replaced, total: imported.length };
   }
 
-  function remoteToLocalRecord(remote, existing = null) {
-    const keepLocalKey = existing && !((remote.updatedAt || 0) > (existing.updatedAt || 0)) && remote.hasApiKey;
+  async function resolveRemoteApiKey(remote, existing, revealRemote) {
+    if (!remote.hasApiKey) return null;
+    const isNewer = !existing || (validTimestamp(remote.updatedAt, 0) > validTimestamp(existing.updatedAt, 0));
+    if (!isNewer && existing.settings?.apiKey) {
+      return existing.settings.apiKey;
+    }
+    if (typeof revealRemote !== 'function') return null;
+    const revealed = await revealRemote(remote.id);
+    if (revealed?.id !== remote.id) {
+      throw new Error(`The local server did not return the profile ${remote.name}.`);
+    }
+    const rawKey = typeof revealed.settings?.apiKey === 'string' ? revealed.settings.apiKey : '';
+    return rawKey ? Backup.encryptApiKey(rawKey) : null;
+  }
+
+  async function remoteToLocalRecord(remote, { existing = null, revealRemote = null } = {}) {
+    const apiKey = await resolveRemoteApiKey(remote, existing, revealRemote);
     return normalizeRecord({
       id: remote.id,
       name: remote.name,
       description: remote.description || '',
       synced: true,
-      hasApiKey: Boolean(remote.hasApiKey),
+      hasApiKey: Boolean(apiKey || (!revealRemote && remote.hasApiKey)),
       version: existing ? Math.max(existing.version, Number(remote.version) || 1) : (Number(remote.version) || 1),
       updatedAt: validTimestamp(remote.updatedAt),
       settings: {
         ...(remote.settings || {}),
-        apiKey: keepLocalKey ? existing.settings.apiKey : null
+        apiKey
       }
     }, false);
   }
@@ -449,7 +426,7 @@
    * Sincroniza la lista única del navegador con un servidor identificado por `serverId`.
    * Conserva el `updatedAt` de origen y, si el servidor cambia respecto al guardado, consulta `onServerChange`.
    */
-  async function syncWithBackend({ serverId, listRemote, saveRemote, deleteRemote, onServerChange = null, onPasswordRequired = requestPassword }) {
+  async function syncWithBackend({ serverId, listRemote, saveRemote, deleteRemote, revealRemote = null, onServerChange = null, onPasswordRequired = requestPassword }) {
     const cleanServerId = typeof serverId === 'string' ? serverId.trim() : '';
     if (!cleanServerId) throw new Error('The backend server identifier is required.');
 
@@ -471,7 +448,7 @@
         : 'merge';
       if (choice === 'cancel') return { cancelled: true, serverId: doc.serverId };
       if (choice === 'replace') {
-        const replacedProfiles = remoteList.map(remote => remoteToLocalRecord(remote));
+        const replacedProfiles = await Promise.all(remoteList.map(remote => remoteToLocalRecord(remote, { revealRemote })));
         writeDocument({
           schemaVersion: SCHEMA_VERSION,
           serverId: cleanServerId,
@@ -562,17 +539,17 @@
       const localTime = validTimestamp(local.updatedAt, 0);
       const remoteTime = validTimestamp(remote.updatedAt, 0);
       if (remoteTime > localTime) {
-        nextProfiles.push(remoteToLocalRecord(remote, local));
+        nextProfiles.push(await remoteToLocalRecord(remote, { existing: local, revealRemote }));
         downloaded += 1;
       } else if (localTime > remoteTime) {
         await pushLocal(local);
       } else {
-        nextProfiles.push(remoteToLocalRecord(remote, local));
+        nextProfiles.push(await remoteToLocalRecord(remote, { existing: local, revealRemote }));
       }
     }
 
     for (const remote of remoteMap.values()) {
-      nextProfiles.push(remoteToLocalRecord(remote));
+      nextProfiles.push(await remoteToLocalRecord(remote, { revealRemote }));
       downloaded += 1;
     }
 
@@ -596,7 +573,7 @@
 
   return {
     STORAGE_KEY, SCHEMA_VERSION, PROFILE_FIELDS, MAX_PROFILE_MCP_SERVERS, STORAGE_PROFILE_FIELDS, READONLY_PROFILE_ID, MIRROR_PROFILE: clone(MIRROR_PROFILE), NEW_PROFILE_SETTINGS: clone(NEW_PROFILE_SETTINGS),
-    createId, initialize, list, get, load, setPasswordPrompt, setRemoteKeyLoader, loadUnlocked, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported, syncWithBackend,
+    createId, initialize, list, get, load, setPasswordPrompt, loadUnlocked, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported, syncWithBackend,
     registerSessionProfile, setSessionKeyLoader, listSessionProfiles, clearSessionProfile
   };
 }));

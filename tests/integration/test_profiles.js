@@ -308,7 +308,7 @@ test('ProfileRepository - un perfil de sesión sin clave la pide a su cargador l
   repository.clearSessionProfile();
 });
 
-test('ProfileRepository - syncWithBackend consolida por updatedAt, conserva updatedAt de origen y aplica reveal bajo demanda', async () => {
+test('ProfileRepository - syncWithBackend consolida por updatedAt, conserva updatedAt de origen y replica API keys cifradas con revealRemote', async () => {
   const repository = Profiles;
   const serverProfiles = new Map([
     ['profile:remoto-nuevo', {
@@ -344,7 +344,8 @@ test('ProfileRepository - syncWithBackend consolida por updatedAt, conserva upda
   );
 
   const savedRemote = [];
-  const summary = await repository.syncWithBackend({
+  const revealCalls = [];
+  const syncParams = {
     serverId: 'srv-A',
     listRemote: async () => [...serverProfiles.values()],
     saveRemote: async payload => {
@@ -352,8 +353,13 @@ test('ProfileRepository - syncWithBackend consolida por updatedAt, conserva upda
       serverProfiles.set(payload.id, { ...payload, hasApiKey: Boolean(payload.settings?.apiKey) });
       return { ...payload, hasApiKey: Boolean(payload.settings?.apiKey) };
     },
-    deleteRemote: async id => serverProfiles.delete(id)
-  });
+    deleteRemote: async id => serverProfiles.delete(id),
+    revealRemote: async id => {
+      revealCalls.push(id);
+      return { ...serverProfiles.get(id), settings: { ...serverProfiles.get(id).settings, apiKey: serverKeys.get(id) } };
+    }
+  };
+  const summary = await repository.syncWithBackend(syncParams);
 
   assert.equal(summary.uploaded, 2);
   assert.equal(summary.downloaded, 1);
@@ -366,30 +372,28 @@ test('ProfileRepository - syncWithBackend consolida por updatedAt, conserva upda
   assert.equal(repository.get('profile:compartido').updatedAt, 3000);
   assert.equal(repository.get('profile:compartido').synced, true);
 
-  // El perfil descargado conserva updatedAt=2000, tiene hasApiKey=true y apiKey=null hasta reveal.
+  // El perfil descargado conserva updatedAt=2000 y ya tiene su clave cifrada en localStorage (funciona offline).
   const remoteOnly = repository.get('profile:remoto-nuevo');
   assert.equal(remoteOnly.updatedAt, 2000);
   assert.equal(remoteOnly.hasApiKey, true);
-  assert.equal(remoteOnly.settings.apiKey, null);
+  assert.ok(remoteOnly.settings.apiKey, 'la clave cifrada debe replicarse en localStorage durante syncWithBackend');
+  assert.deepEqual(revealCalls, ['profile:remoto-nuevo']);
+  assert.equal((await repository.loadUnlocked('profile:remoto-nuevo')).settings.apiKey, 'sk-remota');
 
-  // Sin servidor conectado, cargar la clave pendiente falla explícitamente.
-  repository.setRemoteKeyLoader(null);
-  await assert.rejects(repository.loadUnlocked('profile:remoto-nuevo'), /Connect to the local server/);
+  // Resincronizar sin cambios no vuelve a pedir revealRemote.
+  await repository.syncWithBackend(syncParams);
+  assert.deepEqual(revealCalls, ['profile:remoto-nuevo']);
 
-  // Al conectar, reveal se pide una sola vez y se guarda cifrado sin alterar updatedAt.
-  const revealCalls = [];
-  repository.setRemoteKeyLoader(async id => {
-    revealCalls.push(id);
-    return { ...serverProfiles.get(id), settings: { ...serverProfiles.get(id).settings, apiKey: serverKeys.get(id) } };
+  // Si otro navegador actualiza el perfil en el servidor, revealRemote actualiza la clave en localStorage sin borrarla.
+  serverProfiles.set('profile:remoto-nuevo', {
+    ...serverProfiles.get('profile:remoto-nuevo'),
+    updatedAt: 2500
   });
-  try {
-    assert.equal((await repository.loadUnlocked('profile:remoto-nuevo')).settings.apiKey, 'sk-remota');
-    assert.equal((await repository.loadUnlocked('profile:remoto-nuevo')).settings.apiKey, 'sk-remota');
-    assert.deepEqual(revealCalls, ['profile:remoto-nuevo']);
-    assert.equal(repository.get('profile:remoto-nuevo').updatedAt, 2000);
-  } finally {
-    repository.setRemoteKeyLoader(null);
-  }
+  serverKeys.set('profile:remoto-nuevo', 'sk-remota-v2');
+  await repository.syncWithBackend(syncParams);
+  assert.deepEqual(revealCalls, ['profile:remoto-nuevo', 'profile:remoto-nuevo']);
+  assert.equal(repository.get('profile:remoto-nuevo').updatedAt, 2500);
+  assert.equal((await repository.loadUnlocked('profile:remoto-nuevo')).settings.apiKey, 'sk-remota-v2');
 });
 
 test('ProfileRepository - borrados con synced y deletedIds, y aislamiento ante cambio de serverId', async () => {
