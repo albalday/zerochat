@@ -393,14 +393,17 @@ ${TASK_SCRIPT_TEMPLATE}\`\`\``;
   }
 
   function buildCompactPrompt(cwd) {
-    return `Perform project memory housekeeping for the repository at ${cwd}.
+    return `Perform project memory housekeeping for the repository at ${cwd}. It has two goals:
+1. Compact: keep ${PLAN_FILE} and ${LOG_FILE} short, holding only what an agent must read before working (open work and decisions still in force), with the full history preserved verbatim in ${ARCHIVE_DIR}/.
+2. Consolidate: the files under ${MEMORY_DIR}/ are the only memory shared by every agent and session. Bring into them the important project information that exists only on your side: your private memory or notes about this project kept outside the repository, and what you know from this conversation that is not recorded yet.
+Nothing is written until the user approves the proposal.
 NOTE ON MODEL & REASONING: Curating ${LOG_FILE} requires architectural judgment to separate active system invariants from superseded or routine entries. Ensure a capable frontier model with a medium or high reasoning level is selected before approving changes.
 
 Follow these strict phases in order:
 
 PHASE 1 - READ-ONLY INSPECTION:
 Read and inspect without modifying anything: ${PLAN_FILE}, ${LOG_FILE}, ${STATE_FILE}, and existing files in ${ARCHIVE_DIR}/ (including any existing \`log_M<a>-M<b>.md\` files). Count the closed milestones and all recorded decisions.
-If you keep your own private memory about this project outside the repository (notes or memory files of your agent tool), read it too without modifying it. If you keep none, skip it and say so.
+For goal 2, also read, without modifying it, any private memory you keep about this project outside the repository (notes or memory files of your agent tool) and recall what this conversation holds that is not recorded. If there is nothing on your side, say so and skip the related steps.
 
 PHASE 2 - QUALITATIVE ANALYSIS & REVERSE-CHRONOLOGICAL SELECTION:
 Do not perform a blind chronological cut. Evaluate relevance, current validity, and architectural impact:
@@ -415,9 +418,14 @@ Do not perform a blind chronological cut. Evaluate relevance, current validity, 
      * Trivial/routine decisions (REMOVE from ${LOG_FILE}): Exclude milestone open/close notes, intermediate task steps superseded by the milestone's final state, test-suite pruning, internal refactors/complexity splits, and rules already stated verbatim in ${RULES_FILE} (they remain preserved in ${ARCHIVE_DIR}/).
 3. In ${STATE_FILE}:
    - Verify that it strictly reflects the current active milestone and next task, staying well under 30 lines.
-4. In your private memory, if any:
-   - Check each entry against the current code, ${LOG_FILE} and ${ARCHIVE_DIR}/; drop what is stale or already recorded.
-   - Classify what remains true and unrecorded: pending work or unverified results become new tasks of the current milestone in ${PLAN_FILE}; decisions, invariants or rejected alternatives that meet the ${LOG_FILE} criteria become new decision lines; rules on how agents work in this repository become proposals for ${RULES_FILE}; facts about the user's personal environment (devices, desktop, shell) stay private.
+4. In the unrecorded information on your side (goal 2), if any:
+   - Check each item against the current code, ${PLAN_FILE}, ${LOG_FILE}, ${ARCHIVE_DIR}/ and ${RULES_FILE}. Set apart what is already recorded and what is no longer true: neither is brought in.
+   - Classify what is still true and unrecorded:
+     * Pending work, known defects or results still to verify: new tasks, each with the next task ID of the current open milestone (if no milestone is open, ask the user where they go).
+     * Decisions, invariants or rejected alternatives that meet the ${LOG_FILE} criteria above: new decision lines dated today, each with the next decision ID of the current milestone.
+     * Rules on how agents work in this repository: proposals for ${RULES_FILE}.
+     * Facts about the user's personal environment (devices, desktop, shell): they stay private.
+   - Never copy secrets, credentials or personal data: ${MEMORY_DIR}/ is shared.
 
 PHASE 3 - DETAILED PRESENTATION & MANDATORY USER APPROVAL (CRITICAL):
 DO NOT modify, write, or touch any files in this turn! It is strictly prohibited to call ${WRITE_TOOL}, edit tools, or modification commands before user approval.
@@ -429,17 +437,17 @@ Present a clear, transparent proposal to the user in this turn:
   * Kept decisions grouped by domain (with their ID, text, why they remain active architectural pillars, and which older \`Mn-Dm\` entries they supersede).
   * Superseded decisions being removed (noting which newer decision replaced each).
   * A concise summary by milestone range of omitted routine/trivial entries (noting that they are safely stored verbatim in the archive).
-- The exact proposed final text for ${LOG_FILE}.
+- The exact proposed final text for ${LOG_FILE}, including the new decision lines of goal 2.
 - Any proposed adjustments for ${STATE_FILE}.
-- The entries brought in from your private memory, in a separate section with their classification and exact proposed lines (or a note that you keep no private memory).
+- For goal 2, in a separate section: each item to bring in with its classification and exact proposed line; the private memory entries already recorded or no longer true and what will happen to them in Phase 4; or a note that there is nothing to consolidate.
 Stop and wait for explicit user approval before modifying any files (using the ask_user tool if available, or by ending your turn so the user can review and approve in chat).
 
 PHASE 4 - APPLY CHANGES (ONLY AFTER APPROVAL):
 In the next turn, once the user gives explicit confirmation:
 1. Write the archive file \`${ARCHIVE_DIR}/log_M<first_unarchived>-M<last_closed>.md\`.
-2. Update ${LOG_FILE}, ${PLAN_FILE}, and ${STATE_FILE} with the approved contents, including the approved entries from your private memory (and ${RULES_FILE} for the approved rules).
-3. In your private memory, reduce each entry brought in to a pointer to its new ID (for example \`see M42-D14\`).
-4. Report final line counts and byte sizes before and after compaction.`;
+2. Update ${LOG_FILE}, ${PLAN_FILE}, and ${STATE_FILE} with the approved contents, including the approved items of goal 2 (and ${RULES_FILE} for the approved rules).
+3. In your private memory, reduce each entry brought in or already recorded to a pointer to its ID (for example \`see M42-D14\`) and delete the ones no longer true.
+4. Report final line counts and byte sizes before and after compaction, and the IDs of the tasks and decisions added.`;
   }
 
   /**
