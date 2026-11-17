@@ -316,7 +316,9 @@
       if (!preserveUpdatedAt && current.profiles[index].settings.apiKeyLocked === true) {
         throw new Error('Changes to this profile are locked.');
       }
-      normalized.version = current.profiles[index].version + 1;
+      normalized.version = preserveUpdatedAt
+        ? Math.max(current.profiles[index].version, Number(record.version) || 1)
+        : current.profiles[index].version + 1;
     }
     normalized.updatedAt = preserveUpdatedAt ? validTimestamp(record.updatedAt) : Date.now();
     normalized.synced = Boolean(synced);
@@ -593,7 +595,7 @@
 
   return {
     STORAGE_KEY, SCHEMA_VERSION, PROFILE_FIELDS, MAX_PROFILE_MCP_SERVERS, STORAGE_PROFILE_FIELDS, READONLY_PROFILE_ID, MIRROR_PROFILE: clone(MIRROR_PROFILE), NEW_PROFILE_SETTINGS: clone(NEW_PROFILE_SETTINGS),
-    initialize, list, get, load, setPasswordPrompt, setRemoteKeyLoader, loadUnlocked, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported, syncWithBackend,
+    createId, initialize, list, get, load, setPasswordPrompt, setRemoteKeyLoader, loadUnlocked, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported, syncWithBackend,
     registerSessionProfile, setSessionKeyLoader, listSessionProfiles, clearSessionProfile
   };
 }));

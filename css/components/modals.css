@@ -1130,12 +1130,6 @@ input.form-input:focus-visible,
   max-height: min(460px, 65vh);
 }
 
-.profile-subview-modal-title {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
 /* ==========================================================================
    Panel de Razonamiento y Proyecto (<dialog class="settings-modal reasoning-modal">)
    ========================================================================== */

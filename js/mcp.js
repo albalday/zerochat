@@ -868,14 +868,9 @@
     /** Carga los perfiles de conexión almacenados en el backend local (SQLite). */
     async listServerProfiles() {
       const client = this.clients.get(PROXY_ID);
-      if (!client) return [];
-      try {
-        const result = await client.request('zerochat/profiles/list', {});
-        return Array.isArray(result?.profiles) ? result.profiles : [];
-      } catch (err) {
-        console.warn('[ChatMCP] Could not fetch server profiles:', err);
-        return [];
-      }
+      if (!client) throw new Error('No local server connection.');
+      const result = await client.request('zerochat/profiles/list', {});
+      return Array.isArray(result?.profiles) ? result.profiles : [];
     }
 
     /** Guarda (crea o actualiza) un perfil en el backend local. */
@@ -916,10 +911,7 @@
       const run = (async () => {
         const result = await getProfiles().syncWithBackend({
           serverId,
-          listRemote: async () => {
-            const res = await client.request('zerochat/profiles/list', {});
-            return Array.isArray(res?.profiles) ? res.profiles : [];
-          },
+          listRemote: () => this.listServerProfiles(),
           saveRemote: profileData => this.saveServerProfile(profileData),
           deleteRemote: profileId => this.deleteServerProfile(profileId),
           ...options

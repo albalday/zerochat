@@ -12,7 +12,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, Defaults) {
   'use strict';
 
-  const { resolveDep, createId, escapeHtml, EPHEMERAL_ID_PATTERN, readLaunchFragment, showTimedStatus } = Utils;
+  const { resolveDep, escapeHtml, EPHEMERAL_ID_PATTERN, readLaunchFragment, showTimedStatus } = Utils;
   const { t } = I18n;
 
   const getProfiles = () => resolveDep('ChatProfileRepository', './profile-repository.js');
@@ -43,17 +43,13 @@
 
   /**
    * Estado del editor de perfiles que no está en sus campos: un cambio sin guardar (`dirty`), una
-   * consulta al servidor lista para guardar (`queryReady`), un perfil del servidor cargado que Guardar
-   * en local importa (`fromServer`), el bloqueo del perfil cargado (`locked`) y su API key descifrada
-   * (`loadedApiKey`), undefined mientras se descifra.
+   * consulta al servidor lista para guardar (`queryReady`), el bloqueo del perfil cargado (`locked`)
+   * y su API key descifrada (`loadedApiKey`), undefined mientras se descifra.
    */
-  const initialEditorState = () => ({ dirty: false, queryReady: false, fromServer: false, locked: false, loadedApiKey: undefined });
+  const initialEditorState = () => ({ dirty: false, queryReady: false, locked: false, loadedApiKey: undefined });
 
   // Un cambio en el formulario o una consulta lista quedan pendientes hasta guardar, descartar o cambiar de perfil.
   const hasPendingChanges = editor => editor.dirty || editor.queryReady;
-
-  // Un perfil del servidor ya está guardado allí: cerrar no pregunta, pero Guardar en local lo importa.
-  const hasSomethingToSave = editor => hasPendingChanges(editor) || editor.fromServer;
 
   /**
    * Aviso del editor sobre el guardado. `form` aporta el nombre escrito, si el perfil es de solo
@@ -62,7 +58,7 @@
   function getSaveHint(editor, { name, readOnly, webllmModelReady }) {
     if (readOnly) return t('err_profile_read_only');
     if (!name) return t('field_profile_placeholder');
-    if (!hasSomethingToSave(editor)) return t('profile_save_changes_required');
+    if (!hasPendingChanges(editor)) return t('profile_save_changes_required');
     return t(webllmModelReady ? 'webllm_query_optional' : 'profile_save_pending');
   }
 
@@ -73,31 +69,13 @@
    */
   function getSaveDecision(editor, { name, selected, sameName }) {
     if (editor.loadedApiKey === undefined) return { action: 'none' };
-    if (!hasSomethingToSave(editor)) return { action: 'close' };
+    if (!hasPendingChanges(editor)) return { action: 'close' };
     if (editor.locked) return { action: 'none' };
     const error = message => ({ action: 'error', message });
     if (!name) return error(t('field_profile_placeholder'));
     const { READONLY_PROFILE_ID } = getProfiles();
     if (selected?.id === READONLY_PROFILE_ID || sameName?.id === READONLY_PROFILE_ID) return error(t('err_profile_read_only'));
     if (sameName && sameName.id !== selected?.id) return error(t('err_profile_name_exists', { name }));
-    return { action: 'save' };
-  }
-
-  /**
-   * Qué hace Guardar en servidor: 'none' mientras se descifra la API key o con el perfil bloqueado,
-   * 'error' con su `message` si el servidor no está conectado o faltan datos válidos, o 'save'.
-   */
-  function getServerSaveDecision(editor, { name, selected, isConnected = true }) {
-    if (editor.loadedApiKey === undefined) return { action: 'none' };
-    if (editor.locked) return { action: 'none' };
-    const error = message => ({ action: 'error', message });
-    if (!isConnected) return error(t('profile_mcp_disconnected'));
-    if (!name) return error(t('field_profile_placeholder'));
-    const { READONLY_PROFILE_ID } = getProfiles();
-    const readonlyName = getProfiles().get(READONLY_PROFILE_ID)?.name || 'Espejo';
-    if (selected?.id === READONLY_PROFILE_ID || name === READONLY_PROFILE_ID || name.toLowerCase() === readonlyName.toLowerCase()) {
-      return error(t('err_profile_read_only'));
-    }
     return { action: 'save' };
   }
 
@@ -163,7 +141,6 @@
     const keyUnavailable = editor.loadedApiKey === undefined;
     if (keyUnavailable) els.settingApiKey.disabled = true;
     els.btnSaveProfile.disabled = keyUnavailable;
-    els.btnSaveServerProfile.disabled = keyUnavailable || readOnly;
     const selectedModel = (els.settingModel.value || els.modelSelectHelper.value).trim();
     els.profileSaveQueryHint.textContent = getSaveHint(editor, {
       name: els.settingProfileName.value.trim(),
@@ -259,7 +236,7 @@
    * contraseña) y solo se escribe si el usuario sigue en el mismo perfil.
    */
   async function applyProfileToForm(profileData, profileId) {
-    updateEditor({ dirty: false, fromServer: false, locked: profileData.apiKeyLocked === true, loadedApiKey: undefined });
+    updateEditor({ dirty: false, locked: profileData.apiKeyLocked === true, loadedApiKey: undefined });
     els.settingApiKey.value = '';
     fillProfileForm(profileData);
     syncProfileSaveState();
@@ -433,13 +410,9 @@
       <div class="settings-header-actions">
         <label id="api-key-lock-control" class="profile-lock-control" for="setting-api-key-locked"><input type="checkbox" id="setting-api-key-locked"><span data-i18n="profile_api_key_lock">Bloquear cambios</span></label>
         <span id="api-key-locked-status" class="profile-lock-status" hidden data-i18n="profile_api_key_locked">Cambios bloqueados</span>
-        <button type="button" id="btn-save-server-profile" class="btn-secondary btn-save-header" data-i18n-title="btn_save_server_profile_title" title="Guardar este perfil en el servidor local" disabled>
-          <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-server"></use></svg>
-          <span class="btn-text-responsive" data-i18n="btn_save_server_short">Guardar en servidor</span>
-        </button>
-        <button type="button" id="btn-save-profile" class="btn-primary btn-save-header" data-i18n-title="btn_save_local_title" title="Guardar todos los valores actuales en este navegador" disabled>
+        <button type="button" id="btn-save-profile" class="btn-primary btn-save-header" data-i18n-title="btn_save_profile_title" title="Guardar los cambios del perfil" disabled>
           <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-save"></use></svg>
-          <span class="btn-text-responsive" data-i18n="btn_save_local_short">Guardar en local</span>
+          <span class="btn-text-responsive" data-i18n="btn_save_profile_short">Guardar</span>
         </button>
         <button id="btn-close-profiles" type="button" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal"><svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg></button>
       </div>
@@ -491,32 +464,56 @@
     if (!profilesDialog.firstElementChild) profilesDialog.innerHTML = getProfilesDialogHTML();
   }
 
-  let selectedServerProfile = 'local';
   let serverModeActive = false;
-  const getSelectedServerProfile = () => selectedServerProfile;
-  const setSelectedServerProfile = name => { selectedServerProfile = name || 'local'; };
   const isServerMode = () => serverModeActive;
 
-  function setServerMode(active, profileName = null) {
-    serverModeActive = Boolean(active);
-    if (profileName) selectedServerProfile = profileName;
+  /** Indica si el perfil activo y la conexión admiten ejecución en segundo plano. */
+  function getBackgroundEligibility(config, connected) {
+    if (!connected) return { allowed: false, reasonKey: 'profile_background_disconnected' };
+    const activeId = config?.activeProfile?.id;
+    if (activeId === getProfiles().READONLY_PROFILE_ID || config?.apiType === 'mirror') {
+      return { allowed: false, reasonKey: 'profile_background_unsupported' };
+    }
+    if (config?.apiType === 'webllm') {
+      return { allowed: false, reasonKey: 'profile_background_webllm_unsupported' };
+    }
+    return { allowed: true, reasonKey: '' };
+  }
+
+  function syncBackgroundToggle() {
+    if (!els?.toggleBackgroundRun || !els?.profileBackgroundHint) return;
+    const connected = getMCP().manager.isProxyConnected();
+    const { allowed, reasonKey } = getBackgroundEligibility(runtimeConfig(), connected);
+    if (!allowed && serverModeActive) serverModeActive = false;
+    els.toggleBackgroundRun.disabled = !allowed;
+    els.toggleBackgroundRun.checked = allowed && serverModeActive;
+    els.profileBackgroundHint.hidden = allowed;
+    els.profileBackgroundHint.textContent = allowed ? '' : t(reasonKey);
+  }
+
+  function setServerMode(active) {
+    const connected = getMCP().manager.isProxyConnected();
+    const { allowed } = getBackgroundEligibility(runtimeConfig(), connected);
+    serverModeActive = Boolean(active) && allowed;
     syncActiveProfileTrigger();
   }
 
   function syncActiveProfileTrigger() {
     if (!els?.activeProfileTrigger || !els?.activeProfileName) return;
+    const cfg = runtimeConfig?.();
+    const displayName = formatProfileDisplayName(cfg?.activeProfile);
+    if (serverModeActive) {
+      const { allowed } = getBackgroundEligibility(cfg, getMCP().manager.isProxyConnected());
+      if (!allowed) serverModeActive = false;
+    }
     els.activeProfileTrigger.classList.toggle('server-mode', serverModeActive);
     const icon = els.activeProfileTrigger.querySelector('.profile-icon use');
-    if (serverModeActive) {
-      if (icon) icon.setAttribute('href', '#icon-zap');
-      els.activeProfileName.textContent = selectedServerProfile;
-      els.activeProfileTrigger.title = t('profile_server_mode_active', { name: selectedServerProfile });
-    } else {
-      if (icon) icon.setAttribute('href', '#icon-cpu');
-      const cfg = runtimeConfig?.();
-      els.activeProfileName.textContent = formatProfileDisplayName(cfg?.activeProfile);
-      els.activeProfileTrigger.title = t('profile_badge_title');
-    }
+    if (icon) icon.setAttribute('href', serverModeActive ? '#icon-zap' : '#icon-cpu');
+    els.activeProfileName.textContent = displayName;
+    els.activeProfileTrigger.title = serverModeActive
+      ? t('profile_background_mode_active', { name: displayName })
+      : t('profile_badge_title');
+    syncBackgroundToggle();
   }
 
   function syncPopoverPosition() {
@@ -549,97 +546,16 @@
     }
   }
 
-  function showLocalProfilesView() {
-    if (els.profileMenuViewServer) els.profileMenuViewServer.hidden = true;
-    if (els.profileMenuViewLocal) els.profileMenuViewLocal.hidden = false;
-    els.btnMenuCloseProfiles?.focus();
-  }
-
   function openProfileMenu() {
-    const inServerMode = isServerMode();
-    if (inServerMode) {
-      openServerProfilesView('run');
-    } else {
-      showLocalProfilesView();
-      renderProfileMenu();
-    }
+    renderProfileMenu();
+    syncBackgroundToggle();
     setProfileMenuOpen(true);
-    if (getMCP().manager.isProxyConnected()) {
-      getMCP().manager.listServerProfiles().catch(() => {});
-    }
-    if (inServerMode) {
-      els.btnProfileSubviewBack?.focus();
-    } else {
-      const firstOption = els.activeProfileList?.querySelector('button');
-      if (firstOption) firstOption.focus();
-    }
+    const firstOption = els.activeProfileList?.querySelector('button');
+    if (firstOption) firstOption.focus();
   }
 
   function closeProfileMenu() {
     setProfileMenuOpen(false);
-    showLocalProfilesView();
-  }
-
-  function setListHint(container, message) {
-    container.textContent = '';
-    const p = document.createElement('p');
-    p.className = 'label-hint';
-    p.textContent = message;
-    container.appendChild(p);
-  }
-
-  async function openServerProfilesView(mode) {
-    if (els.profileMenuViewLocal) els.profileMenuViewLocal.hidden = true;
-    if (els.profileMenuViewServer) els.profileMenuViewServer.hidden = false;
-    els.btnProfileSubviewBack?.focus();
-
-    const isRunMode = mode === 'run';
-    els.profileSubviewTitle.textContent = t(isRunMode ? 'profile_server_run_title' : 'profile_server_manage_title');
-    els.profileSubviewHint.textContent = t(isRunMode ? 'profile_server_run_hint' : 'profile_server_manage_hint');
-
-    if (!getMCP().manager.isProxyConnected()) {
-      setListHint(els.serverProfileList, t('profile_mcp_disconnected'));
-      return;
-    }
-
-    setListHint(els.serverProfileList, t('profile_import_waiting_title'));
-    try {
-      const profiles = await getMCP().manager.listServerProfiles();
-      const localRunOption = isRunMode ? `
-        <div class="header-profile-item${!serverModeActive ? ' active' : ''}">
-          <button type="button" class="header-profile-option${!serverModeActive ? ' active' : ''}" data-server-profile-action="disable-server-mode" role="menuitemradio" aria-checked="${!serverModeActive}" title="${escapeHtml(t('profile_run_local_opt'))}">
-            <span class="header-profile-option-name">${escapeHtml(t('profile_run_local_opt'))}</span>
-            <span class="header-profile-option-description">${escapeHtml(t('profile_run_local_desc'))}</span>
-          </button>
-        </div>` : '';
-
-      if (!isRunMode && (!profiles || profiles.length === 0)) {
-        setListHint(els.serverProfileList, t('profile_server_empty'));
-        return;
-      }
-
-      const emptyHint = (!profiles || profiles.length === 0) ? `<p class="label-hint">${escapeHtml(t('profile_server_empty'))}</p>` : '';
-      const items = (profiles || []).map(profile => {
-        const displayName = formatProfileDisplayName(profile);
-        const active = isRunMode && serverModeActive && (selectedServerProfile === profile.name || selectedServerProfile === profile.id);
-        const description = profile.description || profile.settings?.model || '';
-        const actions = isRunMode ? '' : `
-          <div class="header-profile-item-actions">
-            <button type="button" class="btn-profile-item-action btn-profile-item-edit" data-server-profile-action="edit" data-target-id="${escapeHtml(profile.id)}" title="${escapeHtml(t('btn_edit_profile_title'))}" aria-label="${escapeHtml(`${t('btn_edit_profile_title')}: ${displayName}`)}">${Icons.get('edit', { size: 14 })}</button>
-            <button type="button" class="btn-profile-item-action btn-profile-item-delete" data-server-profile-action="delete" data-target-id="${escapeHtml(profile.id)}" title="${escapeHtml(t('btn_delete_profile_item_title'))}" aria-label="${escapeHtml(`${t('btn_delete_profile_item_title')}: ${displayName}`)}">${Icons.get('trash', { size: 14 })}</button>
-          </div>`;
-        return `<div class="header-profile-item${active ? ' active' : ''}">
-          <button type="button" class="header-profile-option${active ? ' active' : ''}" data-server-profile-id="${escapeHtml(profile.id)}" data-server-profile-mode="${mode}" role="menuitemradio" aria-checked="${active}" title="${escapeHtml(displayName)}">
-            <span class="header-profile-option-name">${escapeHtml(displayName)}</span>
-            ${description ? `<span class="header-profile-option-description">${escapeHtml(description)}</span>` : ''}
-          </button>
-          ${actions}
-        </div>`;
-      }).join('');
-      els.serverProfileList.innerHTML = localRunOption + emptyHint + items;
-    } catch (err) {
-      setListHint(els.serverProfileList, err?.message || String(err));
-    }
   }
 
   /** Valores del formulario del editor tal como están en sus campos. */
@@ -659,7 +575,7 @@
     };
   }
 
-  /** Guarda el perfil editado en el almacenamiento local del navegador; devuelve true si el editor puede cerrarse. */
+  /** Guarda el perfil editado en el navegador y, si hay conexión, también en el servidor; devuelve true si puede cerrarse. */
   async function handleSaveProfile() {
     const Profiles = getProfiles();
     const name = els.settingProfileName.value.trim();
@@ -675,62 +591,39 @@
       return decision.action === 'close';
     }
 
+    const description = els.settingProfileDescription.value.trim();
     const settings = buildProfileSettings(selected?.settings || Profiles.NEW_PROFILE_SETTINGS, readProfileForm());
-    const targetId = selected?.id || createId('profile');
+    const targetId = selected?.id || Profiles.createId(name);
     const saved = await Profiles.saveEditable({
       id: targetId,
       name,
-      description: els.settingProfileDescription.value.trim(),
+      description,
       settings
-    });
+    }, { synced: false });
+
+    let pendingSync = false;
+    if (getMCP().manager.isProxyConnected()) {
+      try {
+        await getMCP().manager.saveServerProfile({
+          id: saved.id,
+          name,
+          description,
+          updatedAt: saved.updatedAt,
+          settings: { ...settings, apiKey: settings.apiKey || '' }
+        });
+        Profiles.save({ ...saved, settings: { ...saved.settings } }, { synced: true, preserveUpdatedAt: true });
+      } catch (error) {
+        console.warn('[UIProfiles] Could not save profile to server; queued for sync:', error);
+        pendingSync = true;
+      }
+    }
 
     populateProfileSelector(saved.id);
-    updateEditor({ dirty: false, fromServer: false, loadedApiKey: settings.apiKey });
+    updateEditor({ dirty: false, loadedApiKey: settings.apiKey });
     setProfileQueryState(false);
     activateProfileFromUI(saved.id);
     const displayName = formatProfileDisplayName(saved);
-    showProfileFeedback(t('msg_profile_saved', { name: displayName }), 'success');
-    return true;
-  }
-
-  /** Publica o actualiza el perfil en el servidor local (SQLite); devuelve true si se guardó con éxito. */
-  async function handleSaveServerProfile() {
-    const Profiles = getProfiles();
-    const name = els.settingProfileName.value.trim();
-    const selected = Profiles.get(selectedProfileId());
-    const isConnected = getMCP().manager.isProxyConnected();
-    const decision = getServerSaveDecision(editor, {
-      name,
-      selected,
-      isConnected
-    });
-    if (decision.action !== 'save') {
-      if (decision.action === 'error') showProfileFeedback(decision.message, 'error');
-      return false;
-    }
-
-    const settings = buildProfileSettings(selected?.settings || Profiles.NEW_PROFILE_SETTINGS, readProfileForm());
-    let targetId = '';
-    try {
-      const serverProfiles = await getMCP().manager.listServerProfiles();
-      const existing = serverProfiles.find(p => p.name.toLowerCase() === name.toLowerCase());
-      targetId = existing?.id || createId('profile');
-    } catch (_) {
-      targetId = createId('profile');
-    }
-
-    const saved = await getMCP().manager.saveServerProfile({
-      id: targetId,
-      name,
-      description: els.settingProfileDescription.value.trim(),
-      settings: {
-        ...settings,
-        apiKey: settings.apiKey || ''
-      }
-    });
-
-    const displayName = formatProfileDisplayName(saved || { name });
-    showProfileFeedback(t('msg_profile_saved_server', { name: displayName }), 'success');
+    showProfileFeedback(t(pendingSync ? 'msg_profile_saved_pending_sync' : 'msg_profile_saved', { name: displayName }), pendingSync ? 'warning' : 'success');
     return true;
   }
 
@@ -743,7 +636,17 @@
     }
     const displayName = formatProfileDisplayName(profile);
     if (!await getDialogs().confirm(t('confirm_delete_profile', { name: displayName }))) return false;
-    if (!Profiles.remove(profile.id)) return false;
+
+    let deletedOnServer = false;
+    if (getMCP().manager.isProxyConnected()) {
+      try {
+        await getMCP().manager.deleteServerProfile(profile.id);
+        deletedOnServer = true;
+      } catch (error) {
+        console.warn('[UIProfiles] Could not delete profile on server; queued for sync:', error);
+      }
+    }
+    if (!Profiles.remove(profile.id, { synced: deletedOnServer })) return false;
     if (runtimeConfig().activeProfile?.id === profile.id) getConfig().activateFallbackProfile();
     const nextActiveId = runtimeConfig().activeProfile?.id || '';
     populateProfileSelector(nextActiveId);
@@ -752,6 +655,7 @@
     // El control del perfil activo se actualiza también si el borrado no cambió la configuración.
     options.updateUIFromConfig();
     renderProfileMenu();
+    syncActiveProfileTrigger();
     showProfileFeedback(t('msg_profile_deleted', { name: displayName }), 'success');
     return true;
   }
@@ -939,7 +843,7 @@
   function showProfilesDialog() {
     hideEditorStatus();
     resetProfileChapters();
-    updateEditor({ dirty: false, fromServer: false });
+    updateEditor({ dirty: false });
     setProfileQueryState(false);
     options.loadCachedModels();
     syncProfileSaveState();
@@ -965,27 +869,6 @@
     populateProfileSelector(profileId);
     applyProfileToForm(getProfiles().get(profileId)?.settings || runtimeConfig(), profileId);
     showProfilesDialog();
-  }
-
-  function openServerProfileInEditor(serverProfile) {
-    closeProfileMenu();
-    options.closeSettingsModal();
-    const localExisting = getProfiles().findByName(serverProfile.name);
-    const profileId = localExisting ? localExisting.id : '';
-    populateProfileSelector(profileId);
-    showProfilesDialog();
-    els.settingProfileName.value = serverProfile.name || '';
-    els.settingProfileDescription.value = serverProfile.description || '';
-    const settings = serverProfile.settings || {};
-    updateEditor({
-      fromServer: true,
-      locked: settings.apiKeyLocked === true,
-      loadedApiKey: settings.apiKey || ''
-    });
-    fillProfileForm(settings);
-    els.settingApiKey.value = settings.apiKey || '';
-    syncProfileSaveState();
-    els.settingProfileName.focus();
   }
 
   let isClosingProfilesModal = false;
@@ -1071,12 +954,6 @@
     listen(els.settingModel, 'input', syncModelHelper);
     listen(els.settingModel, 'change', syncModelHelper);
 
-    listen(els.btnSaveServerProfile, 'click', event => {
-      event.preventDefault();
-      handleSaveServerProfile()
-        .then(saved => { if (saved) closeProfilesModal(true); })
-        .catch(error => showProfileFeedback(error?.message || String(error), 'error'));
-    });
     listen(els.btnSaveProfile, 'click', event => {
       event.preventDefault();
       handleSaveProfile()
@@ -1109,7 +986,6 @@
     });
     listen(els.activeProfilePopover, 'close', () => {
       setProfileMenuOpen(false);
-      showLocalProfilesView();
     });
     listen(els.activeProfilePopover, 'click', event => {
       if (event.target === els.activeProfilePopover) {
@@ -1126,82 +1002,10 @@
       closeProfileMenu();
       els.activeProfileTrigger.focus();
     });
-    listen(els.btnMenuServerRun, 'click', () => openServerProfilesView('run'));
-    listen(els.btnMenuServerManage, 'click', () => openServerProfilesView('manage'));
-    listen(els.btnProfileSubviewBack, 'click', showLocalProfilesView);
-    listen(els.btnProfileSubviewClose, 'click', () => {
-      closeProfileMenu();
-      els.activeProfileTrigger.focus();
-    });
-
-    listen(els.serverProfileList, 'click', async event => {
-      const disableLocalBtn = event.target.closest('[data-server-profile-action="disable-server-mode"]');
-      if (disableLocalBtn) {
-        setServerMode(false);
-        if (typeof options.onServerModeChanged === 'function') {
-          options.onServerModeChanged(false);
-        }
-        closeProfileMenu();
-        els.activeProfileTrigger.focus();
-        return;
-      }
-
-      const editBtn = event.target.closest('[data-server-profile-action="edit"]');
-      const deleteBtn = event.target.closest('[data-server-profile-action="delete"]');
-      const option = event.target.closest('[data-server-profile-id]');
-      if (!editBtn && !deleteBtn && !option) return;
-
-      const targetId = editBtn?.dataset.targetId || deleteBtn?.dataset.targetId || option?.dataset.serverProfileId;
-      const mode = option?.dataset.serverProfileMode || (deleteBtn || editBtn ? 'manage' : 'run');
-
-      let serverProfiles = [];
-      try {
-        serverProfiles = await getMCP().manager.listServerProfiles();
-      } catch (_err) {
-        // Si el servidor local no responde, se conserva la lista vacía para no bloquear la interfaz.
-      }
-      const targetProfile = serverProfiles.find(p => p.id === targetId);
-      if (!targetProfile) return;
-
-      if (deleteBtn) {
-        event.stopPropagation();
-        const displayName = formatProfileDisplayName(targetProfile);
-        const confirmed = await getDialogs().confirm(t('confirm_delete_profile', { name: displayName }));
-        if (!confirmed) return;
-        try {
-          await getMCP().manager.deleteServerProfile(targetId);
-          if (selectedServerProfile === targetProfile.name || selectedServerProfile === targetProfile.id) {
-            setSelectedServerProfile('local');
-            setServerMode(false);
-            if (typeof options.onServerModeChanged === 'function') {
-              options.onServerModeChanged(false);
-            }
-          }
-          await openServerProfilesView('manage');
-        } catch (err) {
-          await getDialogs().alert(err?.message || String(err), { type: 'error' });
-        }
-        return;
-      }
-
-      if (editBtn || mode === 'manage') {
-        try {
-          openServerProfileInEditor(await getMCP().manager.revealServerProfile(targetId));
-        } catch (err) {
-          await getDialogs().alert(err?.message || String(err), { type: 'error' });
-        }
-        return;
-      }
-
-      if (mode === 'run') {
-        const profileName = targetProfile.name || targetProfile.id;
-        setSelectedServerProfile(profileName);
-        setServerMode(true, profileName);
-        if (typeof options.onServerModeChanged === 'function') {
-          options.onServerModeChanged(true, profileName);
-        }
-        closeProfileMenu();
-        els.activeProfileTrigger.focus();
+    listen(els.toggleBackgroundRun, 'change', () => {
+      setServerMode(els.toggleBackgroundRun.checked);
+      if (typeof options.onServerModeChanged === 'function') {
+        options.onServerModeChanged(serverModeActive);
       }
     });
 
@@ -1218,9 +1022,13 @@
       const option = event.target.closest('[data-profile-id]');
       if (!option || !getProfiles().get(option.dataset.profileId)) return;
       activateProfileFromUI(option.dataset.profileId);
-      setServerMode(false);
-      if (typeof options.onServerModeChanged === 'function') {
-        options.onServerModeChanged(false);
+      const { allowed } = getBackgroundEligibility(runtimeConfig(), getMCP().manager.isProxyConnected());
+      if (serverModeActive && !allowed) {
+        setServerMode(false);
+        if (typeof options.onServerModeChanged === 'function') options.onServerModeChanged(false);
+      } else {
+        syncActiveProfileTrigger();
+        if (serverModeActive && typeof options.onServerModeChanged === 'function') options.onServerModeChanged(true);
       }
       options.updateUIFromConfig();
       closeProfileMenu();
@@ -1229,10 +1037,7 @@
 
     listen(els.activeProfilePopover, 'keydown', event => {
       if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-      const activeList = els.profileMenuViewServer && !els.profileMenuViewServer.hidden
-        ? els.serverProfileList
-        : els.activeProfileList;
-      const buttons = [...activeList.querySelectorAll('button')];
+      const buttons = [...els.activeProfileList.querySelectorAll('button')];
       if (!buttons.length) return;
       event.preventDefault();
       const index = buttons.indexOf(document.activeElement);
@@ -1290,18 +1095,13 @@
     initialEditorState,
     getSaveHint,
     getSaveDecision,
-    getServerSaveDecision,
     getCloseConfirmation,
     buildProfileSettings,
     formatProfileDisplayName,
-    getSelectedServerProfile,
-    setSelectedServerProfile,
+    getBackgroundEligibility,
     isServerMode,
     setServerMode,
     syncActiveProfileTrigger,
-    openServerProfilesView,
-    openServerProfileInEditor,
-    showLocalProfilesView,
     confirmServerProfileSync
   };
 }));

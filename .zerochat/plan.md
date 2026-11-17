@@ -31,5 +31,5 @@ Done when: cada backend persiste su `serverId` en `zerochat.db` y lo expone en `
 - [x] M77-T1 Backend: `serverId` persistente en `zerochat.db` expuesto en `live_state`, `normalize_profile_id` unificado (`profile:<nombre>`) y `save_general_profile` conservando el `updatedAt` recibido (2026-11-17)
 - [x] M77-T2 Navegador: evolucionar `profiles_v1` (lista única con `serverId`, `deletedIds` y `synced` por perfil), carga bajo demanda de API keys del servidor (`reveal`) y sincronización bidireccional al conectar conservando `updatedAt` (2026-11-17)
 - [x] M77-T3 Navegador: detección de cambio de `serverId` al conectar y diálogo para elegir entre usar los perfiles del servidor o fusionar los actuales (2026-11-17)
-- [ ] M77-T4 Interfaz y modos: selector único con switch superior de ejecución en segundo plano (deshabilitado para `Espejo` y `webllm`), botón único de Guardar en ambos repositorios, textos es/en y ayuda
+- [x] M77-T4 Interfaz y modos: selector único con switch superior de ejecución en segundo plano (deshabilitado para `Espejo` y `webllm`), botón único de Guardar en ambos repositorios, textos es/en y ayuda (2026-11-17)
 - [ ] M77-T5 Pruebas de backend, sincronización por `updatedAt`, borrados (`synced` y `deletedIds`), cambio de `serverId` e interfaz del selector y editor
