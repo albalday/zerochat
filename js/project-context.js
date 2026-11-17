@@ -400,6 +400,7 @@ Follow these strict phases in order:
 
 PHASE 1 - READ-ONLY INSPECTION:
 Read and inspect without modifying anything: ${PLAN_FILE}, ${LOG_FILE}, ${STATE_FILE}, and existing files in ${ARCHIVE_DIR}/ (including any existing \`log_M<a>-M<b>.md\` files). Count the closed milestones and all recorded decisions.
+If you keep your own private memory about this project outside the repository (notes or memory files of your agent tool), read it too without modifying it. If you keep none, skip it and say so.
 
 PHASE 2 - QUALITATIVE ANALYSIS & REVERSE-CHRONOLOGICAL SELECTION:
 Do not perform a blind chronological cut. Evaluate relevance, current validity, and architectural impact:
@@ -414,6 +415,9 @@ Do not perform a blind chronological cut. Evaluate relevance, current validity, 
      * Trivial/routine decisions (REMOVE from ${LOG_FILE}): Exclude milestone open/close notes, intermediate task steps superseded by the milestone's final state, test-suite pruning, internal refactors/complexity splits, and rules already stated verbatim in ${RULES_FILE} (they remain preserved in ${ARCHIVE_DIR}/).
 3. In ${STATE_FILE}:
    - Verify that it strictly reflects the current active milestone and next task, staying well under 30 lines.
+4. In your private memory, if any:
+   - Check each entry against the current code, ${LOG_FILE} and ${ARCHIVE_DIR}/; drop what is stale or already recorded.
+   - Classify what remains true and unrecorded: pending work or unverified results become new tasks of the current milestone in ${PLAN_FILE}; decisions, invariants or rejected alternatives that meet the ${LOG_FILE} criteria become new decision lines; rules on how agents work in this repository become proposals for ${RULES_FILE}; facts about the user's personal environment (devices, desktop, shell) stay private.
 
 PHASE 3 - DETAILED PRESENTATION & MANDATORY USER APPROVAL (CRITICAL):
 DO NOT modify, write, or touch any files in this turn! It is strictly prohibited to call ${WRITE_TOOL}, edit tools, or modification commands before user approval.
@@ -427,13 +431,15 @@ Present a clear, transparent proposal to the user in this turn:
   * A concise summary by milestone range of omitted routine/trivial entries (noting that they are safely stored verbatim in the archive).
 - The exact proposed final text for ${LOG_FILE}.
 - Any proposed adjustments for ${STATE_FILE}.
+- The entries brought in from your private memory, in a separate section with their classification and exact proposed lines (or a note that you keep no private memory).
 Stop and wait for explicit user approval before modifying any files (using the ask_user tool if available, or by ending your turn so the user can review and approve in chat).
 
 PHASE 4 - APPLY CHANGES (ONLY AFTER APPROVAL):
 In the next turn, once the user gives explicit confirmation:
 1. Write the archive file \`${ARCHIVE_DIR}/log_M<first_unarchived>-M<last_closed>.md\`.
-2. Update ${LOG_FILE}, ${PLAN_FILE}, and ${STATE_FILE} with the approved contents.
-3. Report final line counts and byte sizes before and after compaction.`;
+2. Update ${LOG_FILE}, ${PLAN_FILE}, and ${STATE_FILE} with the approved contents, including the approved entries from your private memory (and ${RULES_FILE} for the approved rules).
+3. In your private memory, reduce each entry brought in to a pointer to its new ID (for example \`see M42-D14\`).
+4. Report final line counts and byte sizes before and after compaction.`;
   }
 
   /**
