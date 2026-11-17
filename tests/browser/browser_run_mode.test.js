@@ -369,7 +369,6 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
 
   test('Browser UI - Ejecutar en servidor con perfil de servidor: switch, pasos grabados, cambio de chat y reanudación de permisos y ask_user', async () => {
     const page = await browser.newPage();
-    await seedConnectionProfiles(page);
     const savedConversations = new Map();
     const startCalls = [];
     const cancelCalls = [];
@@ -383,6 +382,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
       const { id, method, params } = JSON.parse(request.postData());
       const reply = result => json(route, { jsonrpc: '2.0', id, result });
       const liveState = () => ({
+        serverId: 'srv-run-mode-test',
         cwd: '/tmp/run',
         jobs: [],
         exit_on_close: true,
@@ -402,9 +402,10 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
       if (method === 'zerochat/profiles/list') {
         return reply({
           profiles: [{
-            id: 'general:server',
+            id: 'profile:server',
             name: 'server',
-            general: true,
+            hasApiKey: false,
+            updatedAt: 1000,
             settings: { apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', model: 'server-model' }
           }]
         });
@@ -459,12 +460,16 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     const fragment = new URLSearchParams({ token: 'srv-token', host: '127.0.0.1', port: String(BACKEND_PORT) });
     await page.goto(`http://127.0.0.1:${server.address().port}/zerochat.html#${fragment}`, { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready') &&
-      window.ChatState.get('mcp').status === 'connected');
+      window.ChatState.get('mcp').status === 'connected' &&
+      window.ChatProfileRepository.get('profile:server') !== null);
 
     // Con backend conectado no hay slider independiente en cabecera; todo se gestiona en perfiles
     assert.equal(await page.locator('#server-run-control').count(), 0);
 
-    await page.evaluate(() => window.ChatUIProfiles.setServerMode(true, 'server'));
+    await page.evaluate(async () => {
+      await window.ChatUIProfiles.activateConnectionProfile('profile:server');
+      window.ChatUIProfiles.setServerMode(true);
+    });
     assert.equal(await page.locator('#active-profile-trigger.server-mode').count(), 1);
     assert.equal(await page.locator('#active-profile-trigger .profile-icon use').getAttribute('href'), '#icon-zap');
     assert.equal((await page.locator('#active-profile-name').textContent()).trim(), 'server');
@@ -605,7 +610,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     await page.waitForFunction(id => window.ChatState.get('sessions').activeId !== id, activeConvId);
     assert.equal(await page.evaluate(() => window.ChatUIProfiles.isServerMode()), true);
     assert.equal(await page.locator('#active-profile-trigger.server-mode').count(), 1);
-    assert.equal(await page.evaluate(() => window.ChatUIProfiles.getSelectedServerProfile()), 'server');
+    assert.equal(await page.evaluate(() => window.ChatConfig.getActive().activeProfile?.name), 'server');
 
     // Desactivar modo servidor en el borrador para probar la recuperación desde el historial
     await page.evaluate(() => window.ChatUIProfiles.setServerMode(false));
@@ -616,7 +621,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     await page.locator(`.sidebar-chat-item[data-session-id="${activeConvId}"]`).click();
     await page.waitForFunction(() => window.ChatUIProfiles.isServerMode());
     assert.equal(await page.locator('#active-profile-trigger.server-mode').count(), 1);
-    const restoredServerProfile = await page.evaluate(() => window.ChatUIProfiles.getSelectedServerProfile());
+    const restoredServerProfile = await page.evaluate(() => window.ChatConfig.getActive().activeProfile?.name);
     assert.equal(restoredServerProfile, 'server');
 
     // Crear un nuevo chat conserva el modo y perfil de servidor elegido y no sobrescribe el chat previo

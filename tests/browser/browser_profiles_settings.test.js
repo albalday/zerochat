@@ -596,4 +596,51 @@ test('Browser UI - el selector único incluye switch superior de ejecución en s
   }
 });
 
+test('Browser UI - cambiar de serverId con perfiles previos pregunta antes de fusionar y por defecto usa los del servidor', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+
+    // Simular perfiles previamente sincronizados con srv-A y conectar ahora a srv-B sin mezclar.
+    const resultPromise = page.evaluate(async () => {
+      const repo = window.ChatProfileRepository;
+      await repo.syncWithBackend({
+        serverId: 'srv-A',
+        listRemote: async () => [{ id: 'profile:a', name: 'De A', hasApiKey: false, updatedAt: 1000, settings: { apiType: 'openai', model: 'm-a' } }],
+        saveRemote: async p => p,
+        deleteRemote: async () => true
+      });
+      const mcp = window.ChatMCP.manager;
+      mcp.clients.set('mcp_proxy', {
+        request: async method => {
+          if (method === 'zerochat/profiles/list') {
+            return { profiles: [{ id: 'profile:b', name: 'De B', hasApiKey: false, updatedAt: 2000, settings: { apiType: 'ollama', model: 'm-b' } }] };
+          }
+          return {};
+        }
+      });
+      window._uploadedOnChange = [];
+      mcp.saveServerProfile = async p => {
+        window._uploadedOnChange.push(p);
+        return p;
+      };
+      return mcp.syncProfiles('srv-B', { onServerChange: window.ChatUIProfiles.confirmServerProfileSync });
+    });
+
+    // Debe abrirse el diálogo con la opción por defecto (cancel = Usar los de este servidor).
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    await page.click('#notice-cancel');
+
+    const syncResult = await resultPromise;
+    assert.equal(syncResult.replaced, true);
+    assert.deepEqual(await page.evaluate(() => window._uploadedOnChange), []);
+    assert.equal(await page.evaluate(() => window.ChatProfileRepository.get('profile:a')), null);
+    assert.ok(await page.evaluate(() => window.ChatProfileRepository.get('profile:b')));
+  } finally {
+    await browser.close();
+  }
+});
+
 });
