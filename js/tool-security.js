@@ -38,6 +38,7 @@
     constructor() {
       this.sessionToken = null;
       this.mcpClient = null;
+      this.refreshPromise = null;
       this.policies = emptyPolicies();
       this.listeners = new Set();
     }
@@ -72,13 +73,21 @@
 
     async refresh() {
       if (!this.mcpClient) return null;
-      try {
-        const res = await this.mcpClient.request('zerochat/security/get', {});
-        return this.applyPolicies(res?.policies);
-      } catch (err) {
-        console.warn('[ToolSecurity] Failed to refresh policies from backend:', err?.message || err);
-        return null;
-      }
+      if (this.refreshPromise) return this.refreshPromise;
+      const client = this.mcpClient;
+      const run = (async () => {
+        try {
+          const res = await client.request('zerochat/security/get', {});
+          return this.applyPolicies(res?.policies);
+        } catch (err) {
+          console.warn('[ToolSecurity] Failed to refresh policies from backend:', err?.message || err);
+          return null;
+        } finally {
+          this.refreshPromise = null;
+        }
+      })();
+      this.refreshPromise = run;
+      return run;
     }
 
     _client(action) {
@@ -107,7 +116,7 @@
         ...(directoryRule ? { directoryRule } : {})
       };
       const result = await client.request('zerochat/security/authorize', params, options.signal ? { signal: options.signal } : undefined);
-      await this.refresh();
+      this.applyPolicies(result?.policies);
       return result;
     }
 

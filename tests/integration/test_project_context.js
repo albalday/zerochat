@@ -113,10 +113,10 @@ test('ProjectContext.refresh - lee normas y estado con límite de tamaño', asyn
   assert.equal(project.status, 'ready');
   assert.deepEqual(project.rules, { content: '# Rules', truncated: true });
   assert.deepEqual(project.state, { content: '- Next task: M1-T2 tests', truncated: false });
-  assert.deepEqual(calls.map(args => [args.path, args.max_bytes]), [
-    ['/repo/.zerochat/task.py', ProjectContext.MAX_FILE_BYTES],
-    ['/repo/.zerochat/state.md', ProjectContext.MAX_FILE_BYTES],
-    ['/repo/AGENTS.md', ProjectContext.MAX_FILE_BYTES]
+  assert.deepEqual(calls.map(args => [args.path, args.max_bytes, args.max_lines]), [
+    ['/repo/.zerochat/task.py', ProjectContext.MAX_FILE_BYTES, 1],
+    ['/repo/.zerochat/state.md', ProjectContext.MAX_FILE_BYTES, 2000],
+    ['/repo/AGENTS.md', ProjectContext.MAX_FILE_BYTES, 2000]
   ]);
   assert.match(ProjectContext.buildPromptBlock(project), /- Next task: M1-T2 tests/);
 });

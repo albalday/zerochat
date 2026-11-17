@@ -533,11 +533,11 @@ ${stateBody}
     }
 
     /** Lee un fichero del proyecto sin interacción: si requiere aprobación, no se ejecuta. */
-    async function readProjectFile(cwd, relativePath, signal) {
+    async function readProjectFile(cwd, relativePath, signal, maxLines = 2000) {
       const tool = getAvailableTool(READ_TOOL);
       if (!tool) return { status: 'unavailable' };
 
-      const args = { path: joinPath(cwd, relativePath), max_bytes: MAX_FILE_BYTES, max_lines: 2000 };
+      const args = { path: joinPath(cwd, relativePath), max_bytes: MAX_FILE_BYTES, max_lines: maxLines };
       const execution = await getAgentCore().executor.executeToolCall({
         id: 'project_context_read',
         type: 'function',
@@ -589,7 +589,7 @@ ${stateBody}
       let stateRead = { status: 'missing' };
       let rulesRead = { status: 'missing' };
       try {
-        helperRead = await readProjectFile(cwd, TASK_HELPER_FILE, options.signal);
+        helperRead = await readProjectFile(cwd, TASK_HELPER_FILE, options.signal, 1);
         if (helperRead.status === 'ok') {
           stateRead = await readProjectFile(cwd, STATE_FILE, options.signal);
           if (stateRead.status === 'ok' || stateRead.status === 'missing') {

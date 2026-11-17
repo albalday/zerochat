@@ -1560,7 +1560,7 @@ def dispatch_browser(method: str, params: dict) -> RpcOutcome:
 
 
 
-SOURCE_BACKEND_VERSION = "10.23.0"
+SOURCE_BACKEND_VERSION = "10.24.0"
 
 
 def _read_source_version(filename: str) -> str | None:
@@ -8498,7 +8498,7 @@ def _authorize(params: dict, ctx: SecurityContext) -> RpcOutcome:
     exec_res, exec_err, tool_err = execute_tool(t_origin, ch["toolName"], with_job_key(t_args, ch.get("jobKey")), ctx, ch.get("conversationId") or "")
     if exec_err:
         return None, exec_err, tool_err
-    return {"authorized": True, "result": exec_res}, None, tool_err
+    return {"authorized": True, "result": exec_res, "policies": ACCESS_CONTROLLER.export_state(ctx)}, None, tool_err
 
 
 SECURITY_METHODS = {

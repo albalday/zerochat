@@ -1154,3 +1154,31 @@ test('MCP - gestión de perfiles de servidor (listServerProfiles, saveServerProf
   assert.equal(deleted, true);
 
 });
+
+test('MCP - setProjectDirectory invalida un readLiveState en vuelo para que no revierta cwd al proyecto anterior', async () => {
+  const previousMcp = ChatState.get('mcp');
+  const manager = new MCP.McpManager();
+  let resolveHeartbeat;
+  const heartbeatDeferred = new Promise(resolve => { resolveHeartbeat = resolve; });
+
+  manager.clients.set('mcp_proxy', {
+    request: async (method, params) => {
+      if (method === 'zerochat/heartbeat') return heartbeatDeferred;
+      if (method === 'zerochat/project/set_directory') return { cwd: params.path };
+      return {};
+    }
+  });
+
+  try {
+    ChatState.set('mcp', { ...previousMcp, status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo/a' } });
+    const pendingRead = manager.readLiveState();
+    await manager.setProjectDirectory('/repo/b');
+    assert.equal(ChatState.get('mcp').serverInfo.cwd, '/repo/b');
+
+    resolveHeartbeat({ ok: true, cwd: '/repo/a' });
+    await pendingRead;
+    assert.equal(ChatState.get('mcp').serverInfo.cwd, '/repo/b');
+  } finally {
+    ChatState.set('mcp', previousMcp);
+  }
+});

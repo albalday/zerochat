@@ -44,13 +44,19 @@
     return openProjectDirectory(conversation?.project);
   }
 
+  let pendingProjectSession = null;
+
   /**
    * Chat nuevo en otro proyecto desde su cabecera del historial: primero el chat vacío (si una generación
    * lo impide, el servidor no cambia de carpeta) y después la carpeta, que el chat toma al guardarse.
    * El perfil activo no cambia.
    */
-  async function createProjectSession(project, createNewSession) {
-    if (await createNewSession()) await openProjectDirectory(project);
+  function createProjectSession(project, createNewSession) {
+    if (pendingProjectSession) return pendingProjectSession;
+    pendingProjectSession = (async () => {
+      if (await createNewSession()) await openProjectDirectory(project);
+    })().finally(() => { pendingProjectSession = null; });
+    return pendingProjectSession;
   }
 
   function refreshProjectContext() {
