@@ -28,3 +28,9 @@ Done when: los servicios MCP de un perfil se asignan en un solo sitio; perfiles,
 - [x] M76-T8 Aclarar en el prompt de Simplificar memoria sus dos objetivos (compactar y consolidar lo no registrado, de memoria propia o de la conversación), los ID de lo incorporado, el destino de lo desactualizado y la exclusión de secretos (2026-11-17)
 
 ## M77 Almacenamiento unificado y selector de perfiles: closed 2026-11-17
+
+## M78 Compactación con los agentes locales
+
+Goal: Que los agentes que trabajan en el repositorio fuera de ZeroChat (Claude Code, agy u otros) contribuyan a la compactación ejecutando el mismo prompt de «Simplificar memoria», para que consoliden en `.zerochat/` lo que solo guardan en su memoria propia.
+Done when: está decidido y aplicado cómo recibe y ejecuta un agente local el prompt de compactación completo (no solo la frase de AGENTS.md), y una compactación hecha con un agente local incorpora al plan y al registro lo vigente de su memoria propia tras la aprobación del usuario.
+- [ ] M78-T1 Analizar con el usuario cómo forzar a los agentes locales a ejecutar el prompt de compactación (hoy solo lo envía el botón de ZeroChat y AGENTS.md no pide consolidar la memoria propia) y planificar las tareas del hito
