@@ -426,6 +426,12 @@ Do not perform a blind chronological cut. Evaluate relevance, current validity, 
      * Rules on how agents work in this repository: proposals for ${RULES_FILE}.
      * Facts about the user's personal environment (devices, desktop, shell): they stay private.
    - Never copy secrets, credentials or personal data: ${MEMORY_DIR}/ is shared.
+5. Reminder for the other agents: this prompt runs in ZeroChat, so the other agents that work on this repository with a private memory of their own have not consolidated it. Unless a reminder milestone like this one is already open, prepare a new milestone with the next milestone number, written in the language of ${PLAN_FILE}:
+   - Title: consolidation of the agents' private memory after the compaction of today's date.
+   - Goal: every agent that works on this repository brings into ${MEMORY_DIR}/ what it only keeps in its private memory.
+   - Done when: the user confirms that every agent they use has done it.
+   - One task: each agent that reads it checks its private memory of this project against the code and ${MEMORY_DIR}/, proposes to the user the tasks, decisions and rules that are still true and unrecorded (never secrets or personal data), writes them once approved and asks the user before marking the task done, because other agents may still have to do it.
+   - One line in ${STATE_FILE} naming this milestone as also open, without changing the current milestone or the next task, so that every agent sees it when it starts.
 
 PHASE 3 - DETAILED PRESENTATION & MANDATORY USER APPROVAL (CRITICAL):
 DO NOT modify, write, or touch any files in this turn! It is strictly prohibited to call ${WRITE_TOOL}, edit tools, or modification commands before user approval.
@@ -440,12 +446,13 @@ Present a clear, transparent proposal to the user in this turn:
 - The exact proposed final text for ${LOG_FILE}, including the new decision lines of goal 2.
 - Any proposed adjustments for ${STATE_FILE}.
 - For goal 2, in a separate section: each item to bring in with its classification and exact proposed line; the private memory entries already recorded or no longer true and what will happen to them in Phase 4; or a note that there is nothing to consolidate.
+- The reminder milestone for the other agents: its exact text for ${PLAN_FILE} and its line for ${STATE_FILE} (or the open reminder milestone that is kept).
 Stop and wait for explicit user approval before modifying any files (using the ask_user tool if available, or by ending your turn so the user can review and approve in chat).
 
 PHASE 4 - APPLY CHANGES (ONLY AFTER APPROVAL):
 In the next turn, once the user gives explicit confirmation:
 1. Write the archive file \`${ARCHIVE_DIR}/log_M<first_unarchived>-M<last_closed>.md\`.
-2. Update ${LOG_FILE}, ${PLAN_FILE}, and ${STATE_FILE} with the approved contents, including the approved items of goal 2 (and ${RULES_FILE} for the approved rules).
+2. Update ${LOG_FILE}, ${PLAN_FILE}, and ${STATE_FILE} with the approved contents, including the approved items of goal 2 and the reminder milestone (and ${RULES_FILE} for the approved rules).
 3. In your private memory, reduce each entry brought in or already recorded to a pointer to its ID (for example \`see M42-D14\`) and delete the ones no longer true.
 4. Report final line counts and byte sizes before and after compaction, and the IDs of the tasks and decisions added.`;
   }
