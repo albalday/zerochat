@@ -28,6 +28,8 @@ Done when: los servicios MCP de un perfil se asignan en un solo sitio; perfiles,
 - [x] M76-T8 Aclarar en el prompt de Simplificar memoria sus dos objetivos (compactar y consolidar lo no registrado, de memoria propia o de la conversación), los ID de lo incorporado, el destino de lo desactualizado y la exclusión de secretos (2026-11-17)
 - [x] M76-T9 Replicar API keys cifradas en localStorage durante syncWithBackend (reveal en sync, sin carga diferida en load) (2026-11-17)
 - [x] M76-T10 Auto-arrancar en silencio los MCP activos (enabled: true) en chat y --prompt, suprimir alertas de éxito al arrancar MCPs de perfil y retirar el fallback Z- de perfiles en SQLite (2026-11-17)
+- [x] M76-T11 Evitar que readLiveState/heartbeat en vuelo revierta el proyecto al abrir un chat desde la cabecera de proyecto y limpiar repintados/refrescos redundantes (2026-11-17)
+- [x] M76-T12 Eliminar llamadas RPC redundantes al servidor (initialize duplicado en discoverTools, security/get tras authorize, lectura completa de task.py y consultas de navegador en frío) (2026-11-17)
 
 ## M77 Almacenamiento unificado y selector de perfiles: closed 2026-11-17
 

@@ -225,23 +225,7 @@
 
       this.serverCapabilities = result?.capabilities || {};
       this.serverInfo = result?.serverInfo || { name: this.name, version: 'unknown' };
-      await this.notify('notifications/initialized', {});
       return { success: true, serverInfo: this.serverInfo, capabilities: this.serverCapabilities, liveState: result?.liveState || null };
-    }
-
-    /**
-     * Envía una notificación JSON-RPC (sin esperar resultado).
-     */
-    async notify(method, params = {}) {
-      try {
-        await fetch(this.url, {
-          method: 'POST',
-          headers: this.buildHeaders(),
-          body: JSON.stringify({ jsonrpc: '2.0', method, params })
-        });
-      } catch (e) {
-        console.warn(`[MCP] Notification ${method} could not be sent:`, e);
-      }
     }
 
     /**
@@ -320,8 +304,6 @@
      */
     async discoverTools(options = {}) {
       const { Tool } = getAgentCore();
-      const initialization = await this.client.initialize(options);
-      if (!initialization.success) throw new Error(initialization.error);
       const rawTools = await this.client.listTools(options);
       const external = this.client.id === EXTERNAL_ID;
       const isProxy = this.client.id === PROXY_ID;
@@ -812,9 +794,10 @@
 
     /** Cambia el proyecto de esta pestaña (las demás siguen en el suyo): a petición del usuario o al abrir una conversación de otro proyecto. */
     async setProjectDirectory(path) {
+      this.liveStateSeq += 1;
       const result = await this.requestExternalControl('zerochat/project/set_directory', { path });
+      this.liveStateSeq += 1;
       await this.applyLiveState({ cwd: result?.cwd });
-      await getSecurity().manager.refresh().catch(() => {});
       return result;
     }
 

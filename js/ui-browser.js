@@ -290,9 +290,9 @@
     }
   }
 
-  /** Configuración guardada y motores: solo con Playwright instalado, que es cuando se muestran. */
+  /** Configuración guardada y motores: solo con Playwright instalado y con la sección abierta. */
   async function refreshServerData() {
-    if (playwrightState() !== 'installed') return;
+    if (section.tool === null || playwrightState() !== 'installed') return;
     const saved = await request('zerochat/browser/config/get');
     section.savedConfig = saved;
     section.config = { ...saved };

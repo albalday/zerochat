@@ -44,7 +44,7 @@ function createMockClient(initialState = {}) {
         return { policies: { ...state } };
       }
       if (method === 'zerochat/security/authorize') {
-        return { authorized: true, challengeId: params.challengeId };
+        return { authorized: true, challengeId: params.challengeId, policies: { ...state } };
       }
       return {};
     }
@@ -139,7 +139,7 @@ test('ChatToolSecurity - las políticas se buscan por id exacto y propio', () =>
   assert.equal(manager.getServerPolicy('playwright'), null);
 });
 
-test('ChatToolSecurity - authorizeChallenge ejecuta y siempre refresca políticas', async () => {
+test('ChatToolSecurity - authorizeChallenge ejecuta y adopta las políticas devueltas sin pedir security/get extra', async () => {
   const mockClient = createMockClient({
     tools: { initial_tool: { policy: 'allow' } }
   });
@@ -149,13 +149,10 @@ test('ChatToolSecurity - authorizeChallenge ejecuta y siempre refresca política
   mockClient.calls.length = 0;
   const res = await manager.authorizeChallenge('ch-123', 'allow_once');
   assert.equal(res.authorized, true);
+  assert.equal(manager.getToolPolicy('initial_tool'), 'allow');
 
-  const authCall = mockClient.calls.find(c => c.method === 'zerochat/security/authorize');
-  assert.ok(authCall, 'Debe haber llamado a security/authorize');
-  assert.equal(authCall.params.challengeId, 'ch-123');
-
-  const getCall = mockClient.calls.find(c => c.method === 'zerochat/security/get');
-  assert.ok(getCall, 'Debe haber refrescado políticas tras autorizar');
+  assert.deepEqual(mockClient.calls.map(c => c.method), ['zerochat/security/authorize']);
+  assert.equal(mockClient.calls[0].params.challengeId, 'ch-123');
 });
 
 test('ChatToolSecurity - cambio de sessionToken relee el estado del backend', async () => {
