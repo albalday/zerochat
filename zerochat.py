@@ -1560,7 +1560,7 @@ def dispatch_browser(method: str, params: dict) -> RpcOutcome:
 
 
 
-SOURCE_BACKEND_VERSION = "10.22.0"
+SOURCE_BACKEND_VERSION = "10.23.0"
 
 
 def _read_source_version(filename: str) -> str | None:
