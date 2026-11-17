@@ -271,11 +271,11 @@ test('Browser UI - el capítulo Navegador del perfil exige Playwright MCP con un
     await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
     const required = { mode: 'user', userBrowser: 'chromium' };
     assert.deepEqual(await page.evaluate(() => window.ChatProfileRepository.get('profile:web').settings.playwrightBrowser), required);
-    // Al activarse, Playwright MCP en marcha con otro navegador se reinicia con el del perfil y sigue
-    // recordado para la siguiente sesión, como estaba (detenerlo lo desmarca).
-    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    // Al activarse, Playwright MCP en marcha con otro navegador se reinicia en silencio con el del perfil
+    // y sigue recordado para la siguiente sesión, como estaba (detenerlo lo desmarca).
+    await page.waitForFunction(() => window.__actions.length === 2);
     assert.deepEqual(await page.evaluate(() => window.__actions), [{ stop: 'playwright' }, { start: 'playwright', remember: true, browser: required }]);
-    await page.click('#notice-accept');
+    assert.equal(await page.evaluate(() => document.getElementById('notice-dialog').open), false);
 
     // Ajustes › Navegador avisa de que el perfil activo manda sobre su herramienta.
     if (await page.locator('#sidebar-view-settings').isHidden()) await page.click('#btn-open-settings');
@@ -405,10 +405,10 @@ test('Browser UI - el capítulo MCP del perfil avisa de los servicios no configu
     await page.click('#btn-save-profile');
     await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
     assert.deepEqual(await page.evaluate(() => window.ChatProfileRepository.get('profile:mcp').settings.mcpServers), ['memory']);
-    // Solo arranca lo que estaba parado, sin recordarlo, y avisa de ello con un diálogo.
-    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    // Solo arranca lo que estaba parado, sin recordarlo y sin mostrar diálogo de éxito.
+    await page.waitForFunction(() => window.__started.length === 1);
     assert.deepEqual(await page.evaluate(() => window.__started), [{ serverId: 'memory', remember: false }]);
-    assert.match(await page.textContent('#notice-message'), /El perfil ha arrancado estos servicios MCP: Memoria\. Siguen en marcha hasta que los detengas/);
+    assert.equal(await page.evaluate(() => document.getElementById('notice-dialog').open), false);
   } finally {
     await browser.close();
   }

@@ -3018,15 +3018,9 @@ def get_general_profile_by_name(name: str) -> dict | None:
     """Recupera un perfil de servidor por su nombre."""
     if not name or not isinstance(name, str) or not name.strip():
         return None
-    clean = name.strip()
-    stripped = clean[2:].strip() if clean[:2].upper() == "Z-" else clean
-    candidates = list(dict.fromkeys([clean, stripped, f"Z-{stripped}", f"Z- {stripped}"]))
     with open_storage() as conn:
-        for candidate in candidates:
-            row = conn.execute("SELECT * FROM profiles WHERE name = ? COLLATE NOCASE;", (candidate,)).fetchone()
-            if row:
-                return _row_to_profile(row)
-        return None
+        row = conn.execute("SELECT * FROM profiles WHERE name = ? COLLATE NOCASE;", (name.strip(),)).fetchone()
+        return _row_to_profile(row) if row else None
 
 
 def save_general_profile(record: dict) -> dict:

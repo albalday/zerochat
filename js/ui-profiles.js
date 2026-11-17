@@ -289,19 +289,16 @@
   }
 
   /**
-   * Avisa de los servicios MCP que ha arrancado el perfil, que siguen en marcha hasta que el usuario
-   * los detenga, y de los que no ha podido arrancar; Playwright MCP pedido por Ajustes › Navegador
-   * se avisa aparte.
+   * Avisa solo si alguno de los servicios MCP requeridos por el perfil (o Playwright MCP pedido por
+   * Ajustes › Navegador) no ha podido arrancarse o no está disponible; si arrancan bien, no molesta.
    */
-  async function reportProfileServers({ started, unavailable, browser }) {
-    const ofProfile = names => names.filter(name => name !== browser);
+  async function reportProfileServers({ unavailable = [], browser = null }) {
+    const ofProfile = unavailable.filter(name => name !== browser);
     const lines = [];
-    if (ofProfile(started).length > 0) lines.push(t('profile_mcp_started', { names: ofProfile(started).join(', ') }));
-    if (ofProfile(unavailable).length > 0) lines.push(t('profile_mcp_unavailable', { names: ofProfile(unavailable).join(', ') }));
-    if (browser && started.includes(browser)) lines.push(t('browser_mcp_started', { name: browser }));
+    if (ofProfile.length > 0) lines.push(t('profile_mcp_unavailable', { names: ofProfile.join(', ') }));
     if (browser && unavailable.includes(browser)) lines.push(t('browser_mcp_unavailable', { name: browser }));
     if (lines.length === 0) return;
-    await getDialogs().alert(lines.join('\n\n'), { type: unavailable.length > 0 ? 'warning' : 'info' });
+    await getDialogs().alert(lines.join('\n\n'), { type: 'warning' });
   }
 
   /** Activa un perfil desde la interfaz y avisa de los servicios MCP que ha arrancado o no. */
@@ -1089,6 +1086,7 @@
     closeProfilesModal,
     activateConnectionProfile,
     startActiveProfileServers,
+    reportProfileServers,
     handleEncryptionPassword,
     handleUseDefaultEncryptionKey,
     startImportMode,

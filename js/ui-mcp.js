@@ -332,54 +332,20 @@
   }
 
   /**
-   * Marca como no iniciados los servicios que el usuario no quiso arrancar: detener un servicio
-   * detenido solo guarda ese estado, que es el que se consulta en el siguiente arranque.
+   * Arranca en silencio los servicios externos que quedaron activos en la sesión anterior
+   * (`enabled: true`) y siguen detenidos; solo avisa si alguno falla al arrancar.
    */
-  async function markDeclinedServicesStopped(ids) {
-    for (const id of ids) {
-      try {
-        await getMCP().manager.stopExternalServer(id);
-      } catch (error) {
-        console.warn(`[MCP UI] Could not mark external server ${id} as stopped:`, error);
-      }
-    }
-  }
-
-  /**
-   * Ofrece iniciar los servicios activos en la sesión anterior que siguen detenidos.
-   * El usuario puede quitar de la lista los que no quiera iniciar; los que no se inician quedan
-   * guardados como no iniciados y no se vuelven a ofrecer.
-   */
-  async function offerStoppedExternalServices(servers) {
-    const language = I18n.getLanguage();
-    const items = servers
-      .filter(server => server?.enabled === true && McpStatus.canStart(server.status) && typeof server.id === 'string' && server.id)
-      .slice(0, 50)
-      .map(server => ({ id: server.id, label: getServiceName(server, language) }));
-    if (items.length === 0) return [];
-    const Dialogs = getDialogs();
-    const selected = await Dialogs.confirm(t('mcp_external_restore_message'), {
-      type: 'info',
-      title: t('mcp_external_restore_title'),
-      acceptText: t('mcp_btn_start_server'),
-      cancelText: t('mcp_external_restore_skip'),
-      items
-    });
-    const chosen = Array.isArray(selected) ? selected : [];
-    const isStopped = id => getState().get('mcp').externalServers.find(server => server.id === id)?.status === 'stopped';
-    await markDeclinedServicesStopped(items.map(item => item.id).filter(id => !chosen.includes(id) && isStopped(id)));
-    if (chosen.length === 0) return [];
-    const failed = [];
-    for (const id of chosen) {
-      // El usuario pudo iniciarlo desde Ajustes mientras el diálogo seguía abierto.
-      if (!isStopped(id)) continue;
-      const ok = await getMCP().manager.runExternalServerAction(id, 'start');
-      if (!ok) failed.push(items.find(item => item.id === id).label);
-    }
+  async function restoreEnabledExternalServices(servers) {
+    const { started, failed } = await getMCP().manager.startEnabledServers(servers);
     if (failed.length > 0) {
-      await Dialogs.alert(t('mcp_external_restore_failed', { names: failed.join(', ') }), { type: 'error' });
+      const language = I18n.getLanguage();
+      const names = failed.map(id => {
+        const server = (servers || []).find(item => item?.id === id) || { id };
+        return getServiceName(server, language);
+      });
+      await getDialogs().alert(t('mcp_external_restore_failed', { names: names.join(', ') }), { type: 'error' });
     }
-    return chosen;
+    return started;
   }
 
   function renderConnectionStatus(elements, state) {
@@ -632,7 +598,7 @@
     renderToolsList,
     renderExternalServers,
     renderSavedAuthorizations,
-    offerStoppedExternalServices,
+    restoreEnabledExternalServices,
     syncSecurityControls,
     initMcpUI,
     verifyActiveConnection

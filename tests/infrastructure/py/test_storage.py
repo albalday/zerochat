@@ -136,11 +136,9 @@ class StorageEngineTest(unittest.TestCase):
         self.assertTrue(stored.startswith(zerochat.OBFUSCATION_PREFIX))
         self.assertNotIn("sk-secret", stored)
 
-        for query in ("OpenAI GPT-4o", "Z- OpenAI GPT-4o", "Z-OpenAI GPT-4o"):
-            with self.subTest(query=query):
-                by_name = zerochat.get_general_profile_by_name(query)
-                self.assertIsNotNone(by_name)
-                self.assertEqual(by_name["id"], saved["id"])
+        by_name = zerochat.get_general_profile_by_name("OpenAI GPT-4o")
+        self.assertIsNotNone(by_name)
+        self.assertEqual(by_name["id"], saved["id"])
 
         # Actualizar sin enviar apiKey conserva la existente; enviar "" la vacía
         updated = zerochat.save_general_profile({**saved, "description": "Descripción actualizada", "settings": {"model": "gpt-4.1"}})
@@ -407,12 +405,10 @@ class StorageEngineTest(unittest.TestCase):
         default_session = zerochat.run_session_from_args(parser, parser.parse_args(["--prompt", "Hola"]))
         self.assertEqual(default_session.profile, "local")
 
-        for arg in ("DeepSeek", "Z- DeepSeek"):
-            with self.subTest(arg=arg):
-                args = parser.parse_args(["--prompt", "Hola", "--profile", arg])
-                session = zerochat.run_session_from_args(parser, args)
-                self.assertIsNotNone(session)
-                self.assertEqual(session.profile, "DeepSeek")
+        args = parser.parse_args(["--prompt", "Hola", "--profile", "DeepSeek"])
+        session = zerochat.run_session_from_args(parser, args)
+        self.assertIsNotNone(session)
+        self.assertEqual(session.profile, "DeepSeek")
 
         args_unknown = parser.parse_args(["--prompt", "Hola", "--profile", "Desconocido"])
         session_unknown = zerochat.run_session_from_args(parser, args_unknown)

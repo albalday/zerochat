@@ -43,65 +43,53 @@ function useDialogs(t, confirmResult, alerts = []) {
   return confirms;
 }
 
-test('ChatUIMcp - ofrece iniciar los servicios de la sesión anterior y arranca solo los que se conservan', async t => {
+test('ChatUIMcp - arranca en silencio los servicios activos de la sesión anterior y solo avisa si alguno falla', async t => {
   const servers = [
     { id: 'memory', enabled: true, status: 'stopped', displayName: { es: 'Memoria', en: 'Memory' } },
     { id: 'composio', enabled: true, status: 'stopped', displayName: { es: 'Composio' } },
-    { id: 'ejemplo', enabled: true, status: 'stopped' },
     { id: 'running', enabled: true, status: 'running' },
     { id: 'disabled', enabled: false, status: 'stopped' }
   ];
-  setup(t, { externalServers: servers });
+  setup(t, { status: 'connected', externalServers: servers });
   const started = [];
   const alerts = [];
-  let selection = ['memory', 'composio'];
-  const confirms = useDialogs(t, () => selection, alerts);
+  const confirms = useDialogs(t, null, alerts);
   t.mock.method(ChatMCP.manager, 'startExternalServer', async id => {
     started.push(id);
     if (id === 'composio') throw new Error('connection failed');
   });
   t.mock.method(console, 'error', () => {});
-  const stopped = [];
-  t.mock.method(ChatMCP.manager, 'stopExternalServer', async id => { stopped.push(id); });
+  const stop = t.mock.method(ChatMCP.manager, 'stopExternalServer', async () => {});
 
-  assert.deepEqual(await ChatUIMcp.offerStoppedExternalServices(servers), selection);
-  assert.deepEqual(confirms[0].options.items, [{ id: 'memory', label: 'Memoria' }, { id: 'composio', label: 'Composio' }, { id: 'ejemplo', label: 'ejemplo' }]);
-  assert.equal(confirms[0].options.acceptText, 'Iniciar');
+  assert.deepEqual(await ChatUIMcp.restoreEnabledExternalServices(servers), ['memory']);
+  assert.equal(confirms.length, 0);
+  assert.equal(stop.mock.callCount(), 0);
   assert.deepEqual(started, ['memory', 'composio']);
   assert.equal(alerts.length, 1);
   assert.equal(alerts[0].options.type, 'error');
   assert.match(alerts[0].message, /Composio/);
   assert.doesNotMatch(alerts[0].message, /Memoria/);
 
-  // Los que no se inician se guardan como no iniciados y no se vuelven a ofrecer.
-  assert.deepEqual(stopped, ['ejemplo']);
-
-  ChatState.set('mcp', { externalServers: servers });
+  // Si todos arrancan bien o no hay ninguno pendiente, no muestra ningún aviso.
+  alerts.length = 0;
   started.length = 0;
-  stopped.length = 0;
-  selection = null;
-  assert.deepEqual(await ChatUIMcp.offerStoppedExternalServices(servers), []);
-  assert.deepEqual(started, []);
-  assert.deepEqual(stopped, ['memory', 'composio', 'ejemplo']);
+  const okServers = [{ id: 'memory', enabled: true, status: 'stopped', displayName: { es: 'Memoria' } }];
+  setup(t, { status: 'connected', externalServers: okServers });
+  assert.deepEqual(await ChatUIMcp.restoreEnabledExternalServices(okServers), ['memory']);
+  assert.equal(alerts.length, 0);
 
-  confirms.length = 0;
-  assert.deepEqual(await ChatUIMcp.offerStoppedExternalServices([{ id: 'x', enabled: false, status: 'stopped' }]), []);
-  assert.equal(confirms.length, 0);
+  assert.deepEqual(await ChatUIMcp.restoreEnabledExternalServices([{ id: 'x', enabled: false, status: 'stopped' }]), []);
+  assert.equal(alerts.length, 0);
 });
 
-test('ChatUIMcp - no reinicia ni marca como detenido un servicio que se inició mientras el diálogo estaba abierto', async t => {
-  const servers = [{ id: 'memory', enabled: true, status: 'stopped' }, { id: 'ejemplo', enabled: true, status: 'stopped' }];
-  setup(t, { externalServers: servers });
+test('ChatUIMcp - no vuelve a arrancar un servicio que ya pasó a activo antes de llegar su turno', async t => {
+  const servers = [{ id: 'memory', enabled: true, status: 'stopped' }];
+  setup(t, { status: 'connected', externalServers: [{ id: 'memory', enabled: true, status: 'running' }] });
   const started = [];
-  useDialogs(t, () => {
-    ChatState.set('mcp', current => ({ ...current, externalServers: servers.map(server => ({ ...server, status: 'running' })) }));
-    return ['memory'];
-  });
+  useDialogs(t, null);
   t.mock.method(ChatMCP.manager, 'startExternalServer', async id => { started.push(id); });
-  const stop = t.mock.method(ChatMCP.manager, 'stopExternalServer', async () => {});
-  await ChatUIMcp.offerStoppedExternalServices(servers);
+  await ChatUIMcp.restoreEnabledExternalServices(servers);
   assert.deepEqual(started, []);
-  assert.equal(stop.mock.callCount(), 0);
 });
 
 function makeAbortError() {
