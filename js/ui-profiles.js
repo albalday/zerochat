@@ -1249,6 +1249,17 @@
     });
   }
 
+  /** Pide confirmación al detectar perfiles de otro servidor o locales antes de fusionarlos. */
+  async function confirmServerProfileSync({ previousServerId, localCount, remoteCount }) {
+    const key = previousServerId ? 'profile_sync_server_change_desc' : 'profile_sync_first_server_desc';
+    const merge = await getDialogs().confirm(t(key, { localCount, remoteCount }), {
+      title: t('profile_sync_server_change_title'),
+      acceptText: t('profile_sync_merge'),
+      cancelText: t('profile_sync_use_server')
+    });
+    return merge ? 'merge' : 'replace';
+  }
+
   /**
    * Conecta el menú y el editor de perfiles. `callbacks` aporta getRuntimeConfig, updateUIFromConfig,
    * loadCachedModels, resetTelemetryDisplay, closeSettingsModal e inspectProfile.
@@ -1290,6 +1301,7 @@
     syncActiveProfileTrigger,
     openServerProfilesView,
     openServerProfileInEditor,
-    showLocalProfilesView
+    showLocalProfilesView,
+    confirmServerProfileSync
   };
 }));

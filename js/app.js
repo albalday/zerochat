@@ -881,7 +881,9 @@
     if (!runId) {
       MCP.manager.setProfileSyncHandler(async serverId => {
         try {
-          await MCP.manager.syncProfiles(serverId);
+          await MCP.manager.syncProfiles(serverId, {
+            onServerChange: UIProfiles.confirmServerProfileSync
+          });
           UIProfiles.renderProfileMenu();
         } catch (error) {
           console.warn('[App] Could not synchronize profiles with backend:', error);
