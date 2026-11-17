@@ -1,4 +1,4 @@
 # Current state
-- Milestone: M77 Almacenamiento unificado y selector de perfiles
-- Next task: none pending
+- Milestone: M76 Ajustes de perfiles
+- Next task: M76-T1
 - Last updated: 2026-11-17
