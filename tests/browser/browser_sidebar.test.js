@@ -72,7 +72,19 @@ test('Browser UI - la barra agrupa las conversaciones por fecha, marca la activa
     assert.deepEqual(await sidebarTitles(page), ['Ayer']);
     assert.deepEqual(await sidebarHeaders(page), [], 'Al filtrar no quedan cabeceras de fecha');
 
+    // Buscar por contenido de mensajes (sin coincidir en el título) actualiza la lista tras el debounce.
+    await page.evaluate(async () => {
+      await window.ChatStorage.saveConversation(
+        { id: 'c', title: 'Semana', createdAt: Date.now(), updatedAt: Date.now() },
+        [{ id: 'm1', role: 'user', content: 'Contiene término oculto en mensaje' }]
+      );
+    });
+    await page.fill('#sidebar-search-input', 'término oculto');
+    await page.waitForFunction(() => [...document.querySelectorAll('#sidebar-chats-list .sidebar-chat-title')].some(el => el.textContent === 'Semana'));
+    assert.deepEqual(await sidebarTitles(page), ['Semana']);
+
     await page.fill('#sidebar-search-input', 'nada');
+    await page.waitForFunction(() => document.querySelector('#sidebar-chats-list .sidebar-no-chats'));
     assert.equal(await page.textContent('#sidebar-chats-list .sidebar-no-chats'), await page.evaluate(() => window.ChatI18n.t('sidebar_no_chats')));
   });
 });

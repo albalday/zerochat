@@ -533,3 +533,55 @@ test('Storage IndexedDB - preserva metadatos de imágenes (action, imageRef, pro
 
   await Storage.deleteConversation(sessionId);
 });
+
+test('Storage.searchConversations busca en títulos y mensajes y descarga pendientes si hay servidor', async t => {
+  const MCP = require('../../js/mcp.js');
+  await Storage.deleteAllConversations();
+  await Storage.saveConversation(
+    { id: 's_title', title: 'Informe financiero', createdAt: 100, updatedAt: 100 },
+    [{ id: 'm1', role: 'user', content: 'Hola mundo' }]
+  );
+  await Storage.saveConversation(
+    { id: 's_text', title: 'Charla general', createdAt: 200, updatedAt: 200 },
+    [{ id: 'm2', role: 'assistant', content: 'Revisar el archivo Caddyfile del proxy' }]
+  );
+  await Storage.saveConversation(
+    { id: 's_parts', title: 'Multimodal', createdAt: 300, updatedAt: 300 },
+    [{ id: 'm3', role: 'user', content: [{ type: 'text', text: 'Fragmento multimodal secreto' }] }]
+  );
+
+  // Pendiente remota que solo tiene cabecera local hasta buscar conectado.
+  let connected = true;
+  const remoteConv = {
+    id: 's_remote',
+    title: 'Desde CLI',
+    createdAt: 400,
+    updatedAt: 400,
+    history: [{ id: 'mr1', role: 'assistant', content: 'Resultado remoto con palabra clave Caddyfile' }]
+  };
+  t.mock.method(MCP.manager, 'isProxyConnected', () => connected);
+  t.mock.method(MCP.manager, 'requestExternalControl', async (method, params) => {
+    if (method === 'zerochat/conversations/list') return { conversations: [{ id: 's_remote', title: 'Desde CLI', createdAt: 400, updatedAt: 400, messageCount: 1 }] };
+    if (method === 'zerochat/conversations/get' && params.id === 's_remote') return { conversation: remoteConv };
+    if (method === 'zerochat/conversations/save') return { ok: true };
+    throw new Error(`Unexpected RPC ${method}`);
+  });
+
+  await Storage.getConversationsList();
+  connected = false;
+  assert.deepEqual(Array.from(await Storage.searchConversations('caddyfile')).sort(), ['s_text']);
+
+  connected = true;
+  const phases = [];
+  assert.deepEqual(Array.from(await Storage.searchConversations('caddyfile', { onProgress: p => phases.push(p) })).sort(), ['s_remote', 's_text']);
+  assert.deepEqual(phases, [
+    { phase: 'syncing', done: 0, total: 1 },
+    { phase: 'syncing', done: 1, total: 1 },
+    { phase: 'searching' }
+  ]);
+  assert.deepEqual(Array.from(await Storage.searchConversations('secreto')), ['s_parts']);
+  assert.deepEqual(Array.from(await Storage.searchConversations('financiero')), ['s_title']);
+
+  connected = false;
+  await Storage.deleteAllConversations();
+});

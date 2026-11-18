@@ -30,7 +30,7 @@ Done when: las tareas del navegador de ficheros y de chats sin proyecto están h
 - [x] M79-T4 Navegador de ficheros: decidir con el usuario un editor pequeño de ficheros de texto con guardado por el backend sujeto a las reglas de directorio (dropped: editar ficheros se hace fácilmente pidiéndoselo al agente)
 - [x] M79-T5 Navegador de ficheros: decidir con el usuario borrar ficheros con confirmación y sujeto a las reglas de directorio (dropped: borrar ficheros se hace fácilmente pidiéndoselo al agente)
 - [x] M79-T6 Decidir con el usuario y permitir usar chats sin proyecto cuando hay conexión con el backend (2026-11-18)
-- [ ] M79-T7 Propuesta: buscar en el contenido de las conversaciones, no solo en el título (FTS5 en el servidor, IndexedDB sin él)
+- [x] M79-T7 Propuesta: buscar en el contenido de las conversaciones, no solo en el título (FTS5 en el servidor, IndexedDB sin él) (2026-11-18)
 - [ ] M79-T8 Propuesta: regenerar una respuesta y editar una pregunta en su sitio creando rama automáticamente
 - [ ] M79-T9 Propuesta: atajos de teclado (nueva conversación, buscar con Ctrl+K, detener con Esc, chuleta con ?)
 - [ ] M79-T10 Propuesta: aviso en el título o el icono de la pestaña cuando un turno termina o pide permiso en segundo plano, sin la API Notification
@@ -57,3 +57,5 @@ Done when: las tareas del navegador de ficheros y de chats sin proyecto están h
 - [x] M79-T31 Navegador bajo demanda, caché de rutas de Playwright en BrowserEngines, config en engines/list|remove y sin rebote checking en Ajustes › MCP (2026-11-18)
 - [x] M79-T32 Evitar llamadas redundantes en blobs (caché en memoria de blobId sincronizados) y en recargas de sesiones al conectar o terminar ejecuciones (2026-11-18)
 - [x] M79-T33 Revisión de higiene y calidad del código de M79: retirar zerochat/browser/config/get y ramas muertas, fijar caché de blobs por PROXY_ID y sincronizar README (2026-11-18)
+- [x] M79-T34 Al cambiar de carpeta desde el panel de razonamiento, abrir siempre un chat nuevo (también desde uno vacío) (2026-11-18)
+- [x] M79-T35 Mostrar línea de estado en la base del historial al sincronizar o buscar conversaciones (2026-11-18)

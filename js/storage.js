@@ -682,6 +682,67 @@
     });
   }
 
+  const SEARCH_SYNC_CONCURRENCY = 4;
+
+  function messageText(record) {
+    if (typeof record?.content === 'string') return record.content;
+    if (!Array.isArray(record?.content)) return '';
+    return record.content.map(part => (typeof part?.text === 'string' ? part.text : '')).join('\n');
+  }
+
+  /** Descarga las conversaciones pendientes (`messagesPending`) para que la búsqueda incluya las de otros dispositivos o CLI. */
+  async function syncPendingConversations(onProgress = null) {
+    if (!isBackendConnected()) return;
+    const pending = (await readLocalConversationRecords()).filter(record => record.messagesPending);
+    if (pending.length === 0) return;
+    let done = 0;
+    onProgress?.({ phase: 'syncing', done, total: pending.length });
+    for (let i = 0; i < pending.length; i += SEARCH_SYNC_CONCURRENCY) {
+      await Promise.all(pending.slice(i, i + SEARCH_SYNC_CONCURRENCY).map(async record => {
+        try {
+          await readConversation(record.id);
+        } catch (error) {
+          console.warn(`[ChatStorage] Could not sync conversation ${record.id} for search:`, error);
+        } finally {
+          done += 1;
+        }
+      }));
+      onProgress?.({ phase: 'syncing', done, total: pending.length });
+    }
+  }
+
+  /**
+   * IDs de conversaciones cuyo título o contenido de mensajes coincide con `query`.
+   * Si el backend está conectado, descarga primero las conversaciones pendientes de mensajes.
+   */
+  async function searchConversations(query, { syncPending = true, onProgress = null } = {}) {
+    const needle = String(query || '').toLowerCase().trim();
+    if (!needle) return new Set();
+    if (syncPending) await syncPendingConversations(onProgress);
+    onProgress?.({ phase: 'searching' });
+    return attempt('search conversations', db => new Promise((resolve, reject) => {
+      const tx = db.transaction([STORES.conversations, STORES.messages], 'readonly');
+      const matches = new Set();
+      tx.objectStore(STORES.conversations).getAll().onsuccess = event => {
+        for (const conv of event.target.result || []) {
+          if (conv.title?.toLowerCase().includes(needle)) matches.add(conv.id);
+        }
+      };
+      tx.objectStore(STORES.messages).openCursor().onsuccess = event => {
+        const cursor = event.target.result;
+        if (!cursor) return;
+        const record = cursor.value;
+        if (record?.conversationId && !matches.has(record.conversationId) && messageText(record).toLowerCase().includes(needle)) {
+          matches.add(record.conversationId);
+        }
+        cursor.continue();
+      };
+      tx.oncomplete = () => resolve(matches);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    }));
+  }
+
   return {
     setStorageItem,
     getStorageItem,
@@ -695,6 +756,7 @@
     getLastClearAllStorageError,
     getConversationsList,
     getConversation,
+    searchConversations,
     saveConversation,
     deleteConversation,
     deleteAllConversations,

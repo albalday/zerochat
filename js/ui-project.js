@@ -143,10 +143,8 @@
           if (result?.reason === 'error') {
             await Dialogs.alert(t('project_directory_error', { error: result.error }), { type: 'error' });
           }
-          // La conversación abierta es de su proyecto: en la carpeta nueva se empieza otra.
-          const { activeId, list } = State.get('sessions');
-          const project = list.find(session => session.id === activeId)?.project;
-          if (result?.ok && project && project !== result.cwd) await createNewSession();
+          // En la carpeta nueva se empieza siempre un chat nuevo, también desde uno vacío.
+          if (result?.ok) await createNewSession();
         } catch (error) {
           console.error('[App] Project directory change failed:', error);
           await Dialogs.alert(error?.message || String(error), { type: 'error' });

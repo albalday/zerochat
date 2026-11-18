@@ -740,6 +740,17 @@
 }
 
 /* Pie de Barra Lateral (sin enmarcado) */
+.sidebar-search-status {
+  padding: 0.35rem 0.85rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .sidebar-footer {
   padding: 0.65rem 0.85rem;
   border-top: 1px solid var(--border-color);

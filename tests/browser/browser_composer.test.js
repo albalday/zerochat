@@ -210,10 +210,12 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       await page.press('#folder-picker-new-name', 'Enter');
       await page.waitForFunction(() => document.getElementById('folder-picker-current').textContent === '/home/u/other/nuevo');
       assert.equal(await page.textContent('#folder-picker-error'), '');
+      const initialSessionId = await page.evaluate(() => window.ChatState.get('sessions').activeId);
       await page.click('#folder-picker-use');
       await page.waitForFunction(() => window.__directoryCalls.length === 1);
       assert.deepEqual(await page.evaluate(() => window.__directoryCalls), ['/home/u/other/nuevo']);
       await page.waitForFunction(() => window.ChatState.get('project').cwd === '/home/u/other/nuevo');
+      await page.waitForFunction(prevId => window.ChatState.get('sessions').activeId !== prevId, initialSessionId);
       assert.equal(await page.locator('#folder-picker-dialog').isVisible(), false);
 
       // Un reciente se elige con un toque; si el servidor la rechaza, se avisa sin el prefijo técnico.
