@@ -29,6 +29,8 @@
   let groupLimits = {};
   // Proyectos desplegados en la vista de todos: se vacía cada vez que se elige, porque sirve de selector.
   let expandedGroups = new Set();
+  const SEARCH_DEBOUNCE_MS = 180;
+  let searchState = { seq: 0, query: '', ids: null, timer: null };
 
   const isMobile = () => window.innerWidth <= 768;
 
@@ -205,7 +207,10 @@
     const viewProject = renderProjectFilter(elements.sidebarProjectFilter, project);
     const showAll = viewProject === null;
     const visible = groupSessions(sessions, viewProject);
-    const matching = filter ? visible.filter(({ session }) => session.title?.toLowerCase().includes(filter)) : visible;
+    const contentIds = filter && searchState.query === filter ? searchState.ids : null;
+    const matching = filter
+      ? visible.filter(({ session }) => session.title?.toLowerCase().includes(filter) || contentIds?.has(session.id))
+      : visible;
     if (matching.length === 0) {
       const emptyKey = showAll || filter ? 'sidebar_no_chats' : 'sidebar_no_project_chats';
       elements.sidebarChatsList.innerHTML = `<div class="sidebar-no-chats">${escapeHtml(t(emptyKey))}</div>`;
@@ -247,6 +252,19 @@
   function mount(elements, callbacks) {
     cleanups.forEach(cleanup => cleanup());
     cleanups = [];
+    clearTimeout(searchState.timer);
+    searchState = { seq: searchState.seq + 1, query: '', ids: null, timer: null };
+    const setSearchStatus = text => {
+      if (!elements.sidebarSearchStatus) return;
+      elements.sidebarSearchStatus.textContent = text;
+      elements.sidebarSearchStatus.hidden = !text;
+    };
+    setSearchStatus('');
+    cleanups.push(() => {
+      clearTimeout(searchState.timer);
+      searchState = { seq: searchState.seq + 1, query: '', ids: null, timer: null };
+      setSearchStatus('');
+    });
     const listen = (target, type, handler) => {
       target.addEventListener(type, handler);
       cleanups.push(() => target.removeEventListener(type, handler));
@@ -257,7 +275,41 @@
     listen(elements.btnCloseSidebar, 'click', () => closeSidebar(elements));
     listen(elements.btnCloseSidebarSettings, 'click', () => closeSidebar(elements));
     listen(elements.btnSidebarNewChat, 'click', () => callbacks.onNewSession());
-    listen(elements.sidebarSearchInput, 'input', () => callbacks.renderList());
+    listen(elements.sidebarSearchInput, 'input', () => {
+      callbacks.renderList();
+      const query = elements.sidebarSearchInput.value.toLowerCase().trim();
+      clearTimeout(searchState.timer);
+      if (!query) {
+        searchState = { seq: searchState.seq + 1, query: '', ids: null, timer: null };
+        setSearchStatus('');
+        return;
+      }
+      if (!callbacks.searchConversations || (query === searchState.query && searchState.ids)) {
+        setSearchStatus('');
+        return;
+      }
+      const seq = ++searchState.seq;
+      setSearchStatus(t('sidebar_search_searching'));
+      searchState.timer = setTimeout(async () => {
+        try {
+          const ids = await callbacks.searchConversations(query, progress => {
+            if (seq !== searchState.seq || elements.sidebarSearchInput.value.toLowerCase().trim() !== query) return;
+            if (progress?.phase === 'syncing') {
+              setSearchStatus(t('sidebar_search_syncing', { done: progress.done, total: progress.total }));
+            } else if (progress?.phase === 'searching') {
+              setSearchStatus(t('sidebar_search_searching'));
+            }
+          });
+          if (seq !== searchState.seq || elements.sidebarSearchInput.value.toLowerCase().trim() !== query) return;
+          searchState = { seq, query, ids: ids instanceof Set ? ids : new Set(ids || []), timer: null };
+          setSearchStatus('');
+          callbacks.renderList();
+        } catch (error) {
+          if (seq === searchState.seq) setSearchStatus('');
+          console.warn('[UISidebar] Conversation search failed:', error);
+        }
+      }, SEARCH_DEBOUNCE_MS);
+    });
     listen(elements.sidebarProjectFilter, 'change', () => {
       expandedGroups = new Set();
       callbacks.renderList();
