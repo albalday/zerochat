@@ -688,6 +688,32 @@
     </form>
   </dialog>
 
+  <dialog id="folder-picker-dialog" class="settings-modal notice-dialog folder-picker-dialog" aria-labelledby="folder-picker-title">
+    <div class="modal-header"><h3 id="folder-picker-title" data-i18n="folder_picker_title">Elegir carpeta de trabajo</h3></div>
+    <div class="modal-body">
+      <form id="folder-picker-path-form" class="folder-picker-path-form">
+        <input type="text" id="folder-picker-path" class="form-input" maxlength="4096" spellcheck="false" autocomplete="off" data-i18n-aria="folder_picker_path_label" aria-label="Ruta de la carpeta">
+        <button type="submit" class="btn-secondary" data-i18n="folder_picker_open">Abrir</button>
+      </form>
+      <section id="folder-picker-recent-section" class="folder-picker-section">
+        <h4 data-i18n="folder_picker_recent">Recientes</h4>
+        <div id="folder-picker-recent" class="folder-picker-items"></div>
+      </section>
+      <section class="folder-picker-section">
+        <h4 id="folder-picker-current" class="folder-picker-current"></h4>
+        <div id="folder-picker-list" class="folder-picker-items folder-picker-list"></div>
+        <p id="folder-picker-truncated" class="label-hint" hidden></p>
+      </section>
+      <button type="button" id="folder-picker-new-toggle" class="btn-secondary folder-picker-new-toggle" data-i18n="folder_picker_new">Nueva carpeta</button>
+      <form id="folder-picker-new-form" class="folder-picker-path-form" hidden>
+        <input type="text" id="folder-picker-new-name" class="form-input" maxlength="255" spellcheck="false" autocomplete="off" data-i18n-aria="folder_picker_new_name" aria-label="Nombre de la carpeta nueva">
+        <button type="submit" class="btn-secondary" data-i18n="folder_picker_create">Crear</button>
+      </form>
+      <p id="folder-picker-error" class="label-hint folder-picker-error" role="alert"></p>
+    </div>
+    <div class="modal-footer"><button type="button" id="folder-picker-cancel" class="btn-secondary" data-i18n="notice_cancel">Cancelar</button><button type="button" id="folder-picker-use" class="btn-primary" data-i18n="folder_picker_use">Usar esta carpeta</button></div>
+  </dialog>
+
   <!-- Scripts de la aplicación con carga diferida (compatibles con file:// y http://) -->
   <script defer src="js/vendor/orama.browser.js"></script>
   <script defer src="js/utils.js"></script>
@@ -754,6 +780,7 @@
   <script defer src="js/model-catalog.js"></script>
   <script defer src="js/chat-engine.js"></script>
   <script defer src="js/ui-reasoning.js"></script>
+  <script defer src="js/ui-folder-picker.js"></script>
   <script defer src="js/ui-project.js"></script>
   <script defer src="js/ui-inspector.js"></script>
   <script defer src="js/ui-sidebar.js"></script>

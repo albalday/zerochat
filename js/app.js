@@ -11,7 +11,7 @@
     ChatStorage: Storage, ChatI18n: I18n, ChatDebug: Debug, ChatState: State,
     ChatEngine: Engine, ChatDefaults: Defaults, ChatDialogs: Dialogs, ChatConfig: Config,
     ChatProfileRepository: Profiles, ChatProviders: Providers, ChatMCP: MCP,
-    ChatUIProject: UIProject, ChatMessageTurns: MessageTurns,
+    ChatUIProject: UIProject, ChatUIFolderPicker: UIFolderPicker, ChatMessageTurns: MessageTurns,
     ChatConversationService: ConversationService, ChatGenerationController: GenerationController,
     ChatUIReasoning: UIReasoning, ChatUIInspector: UIInspector, ChatModelCatalog: ModelCatalog,
     ChatUISidebar: UISidebar, ChatUISettings: UISettings, ChatUIShell: UIShell,
@@ -219,6 +219,20 @@
     loginError: 'login-error',
     loginCancel: 'login-cancel',
     loginSubmit: 'login-submit',
+    folderPickerDialog: 'folder-picker-dialog',
+    folderPickerPathForm: 'folder-picker-path-form',
+    folderPickerPath: 'folder-picker-path',
+    folderPickerRecentSection: 'folder-picker-recent-section',
+    folderPickerRecent: 'folder-picker-recent',
+    folderPickerCurrent: 'folder-picker-current',
+    folderPickerList: 'folder-picker-list',
+    folderPickerTruncated: 'folder-picker-truncated',
+    folderPickerNewToggle: 'folder-picker-new-toggle',
+    folderPickerNewForm: 'folder-picker-new-form',
+    folderPickerNewName: 'folder-picker-new-name',
+    folderPickerError: 'folder-picker-error',
+    folderPickerCancel: 'folder-picker-cancel',
+    folderPickerUse: 'folder-picker-use',
     // MCP
     mcpToolsContainer: 'mcp-tools-container',
     mcpServersList: 'mcp-servers-list',
@@ -664,6 +678,14 @@
       onSwitchSession: switchToSession,
       onImportSuccess: importConversationSession,
       isBusy: () => ConversationService.blockSessionTransitionIfBusy('chat_import_blocked_generating')
+    });
+
+    UIFolderPicker.mount({
+      dialog: elements.folderPickerDialog, pathForm: elements.folderPickerPathForm, path: elements.folderPickerPath,
+      recentSection: elements.folderPickerRecentSection, recent: elements.folderPickerRecent, current: elements.folderPickerCurrent,
+      list: elements.folderPickerList, truncated: elements.folderPickerTruncated, newToggle: elements.folderPickerNewToggle,
+      newForm: elements.folderPickerNewForm, newName: elements.folderPickerNewName, error: elements.folderPickerError,
+      cancel: elements.folderPickerCancel, use: elements.folderPickerUse
     });
 
     // Razonamiento (Thinking)

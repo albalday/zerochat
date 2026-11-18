@@ -91,6 +91,7 @@ const PRECACHE_ASSETS = [
   './js/model-catalog.js',
   './js/chat-engine.js',
   './js/ui-reasoning.js',
+  './js/ui-folder-picker.js',
   './js/ui-project.js',
   './js/ui-inspector.js',
   './js/ui-sidebar.js',

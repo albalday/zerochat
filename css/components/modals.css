@@ -1391,6 +1391,68 @@ input.form-input:focus-visible,
   overflow-y: auto;
 }
 
+/* Selector de la carpeta de trabajo: ruta, recientes y subcarpetas de la carpeta que se ve. */
+.folder-picker-path-form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.folder-picker-path-form .form-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.folder-picker-section h4 {
+  margin: 1rem 0 0.35rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.folder-picker-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.folder-picker-list {
+  max-height: 40dvh;
+  overflow-y: auto;
+}
+
+.folder-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-main);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.folder-picker-item span {
+  overflow-wrap: anywhere;
+}
+
+.folder-picker-item:hover,
+.folder-picker-item:focus-visible {
+  background: var(--bg-hover);
+  border-color: var(--border-color);
+}
+
+.folder-picker-new-toggle {
+  margin: 0.75rem 0 0.5rem;
+}
+
+.folder-picker-error:empty {
+  display: none;
+}
+
 /* Al cerrar, no mantener visible el diálogo sin los estilos de [open]. */
 .notice-dialog:not([open]) {
   transition: none;

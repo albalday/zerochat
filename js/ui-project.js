@@ -21,6 +21,7 @@
   const getMCP = () => resolveDep('ChatMCP', './mcp.js');
   const getProjectContext = () => resolveDep('ChatProjectContext', './project-context.js');
   const getUIReasoning = () => resolveDep('ChatUIReasoning', './ui-reasoning.js');
+  const getFolderPicker = () => resolveDep('ChatUIFolderPicker', './ui-folder-picker.js');
 
   const getServerCwd = () => getState().get('mcp').serverInfo?.cwd || '';
 
@@ -127,7 +128,16 @@
       async changeDirectory() {
         try {
           const result = await ProjectContext.changeDirectory({
-            askPath: cwd => Dialogs.prompt(t('project_directory_prompt'), cwd, { title: t('project_directory_title') }),
+            askPath: cwd => {
+              // El panel se cierra con cualquier clic fuera de él, también dentro del selector.
+              UIReasoning.closeReasoningMenu(elements);
+              const MCP = getMCP();
+              return getFolderPicker().open({
+                current: cwd,
+                recent: State.get('sessions').list.map(session => session.project),
+                generalDir: MCP.directoryOfProject('')
+              });
+            },
             isBusy
           });
           if (result?.reason === 'error') {

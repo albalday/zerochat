@@ -460,6 +460,10 @@
   overflow-wrap: anywhere;
 }
 
+.project-directory-block {
+  margin-bottom: 0.75rem;
+}
+
 .project-mode-directory {
   display: flex;
   align-items: center;

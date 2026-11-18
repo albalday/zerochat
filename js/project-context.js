@@ -15,7 +15,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { resolveDep } = Utils;
+  const { resolveDep, joinPath } = Utils;
 
   const RULES_FILE = 'AGENTS.md';
   const MEMORY_DIR = '.zerochat';
@@ -334,13 +334,6 @@ if __name__ == "__main__":
 `;
 
   const SUMMARIZER_PROJECT_ADDENDUM = `Project mode is active. Add a final section "Pending project records" listing task status changes (by task ID), plan changes and decisions from the dialogue that were not confirmed as written to ${PLAN_FILE}, ${LOG_FILE} or ${STATE_FILE}. Write "none" if there are none.`;
-
-  function joinPath(cwd, relativePath) {
-    const base = String(cwd || '');
-    const separator = base.includes('\\') && !base.includes('/') ? '\\' : '/';
-    const trimmed = base.replace(/[\\/]+$/, '');
-    return `${trimmed}${separator}${relativePath.split('/').join(separator)}`;
-  }
 
   /** Impide que el contenido del repositorio cierre la etiqueta que lo delimita. */
   function neutralizeTags(content) {

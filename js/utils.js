@@ -129,6 +129,14 @@
   // Nombre de los chats sin proyecto: el de la carpeta ~/zerochat/general del servidor en la que trabajan.
   const NO_PROJECT_NAME = 'general';
 
+  /** Une a la carpeta `base` del servidor la ruta relativa `relativePath`, con el separador de `base`. */
+  function joinPath(base, relativePath) {
+    const text = String(base || '');
+    const separator = text.includes('\\') && !text.includes('/') ? '\\' : '/';
+    const trimmed = text.replace(/[\\/]+$/, '');
+    return `${trimmed}${separator}${relativePath.split('/').join(separator)}`;
+  }
+
   function projectName(path) {
     const parts = String(path || '').split(/[\\/]+/).filter(Boolean);
     return parts[parts.length - 1] || String(path || '');
@@ -703,6 +711,7 @@
     EPHEMERAL_ID_PATTERN,
     readLaunchFragment,
     projectName,
+    joinPath,
     NO_PROJECT_NAME,
     normalizeBackendUrl,
     normalizeConnectionSettings,
