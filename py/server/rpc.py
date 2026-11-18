@@ -19,7 +19,7 @@ from server.state import live_state
 from server.tool_calls import call_tool, dispatch_security
 from storage.rpc import dispatch_blobs, dispatch_conversations, dispatch_profiles
 from tools.diff import configure_gui_diff_tool, open_file_diff
-from tools.filesystem import resolve_project_directory
+from tools.filesystem import browse_directories, create_project_directory, resolve_project_directory
 from tools.jobs_rpc import dispatch_jobs
 from tools.project_files import dispatch_files
 from tools.registry import LOCAL_TOOLS_DEFINITIONS
@@ -73,6 +73,21 @@ def _set_project_directory(params: dict, ctx: SecurityContext) -> RpcOutcome:
         return rpc_error(INVALID_PARAMS, str(exc))
 
 
+def _browse_directories(params: dict, ctx: SecurityContext) -> RpcOutcome:
+    # Como set_directory, lo invoca la interfaz para que la persona elija la carpeta de trabajo.
+    try:
+        return rpc_result(browse_directories(params, ctx))
+    except (ValueError, OSError) as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+
+
+def _create_directory(params: dict, ctx: SecurityContext) -> RpcOutcome:
+    try:
+        return rpc_result(create_project_directory(params, ctx))
+    except (ValueError, OSError) as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+
+
 def _open_diff(params: dict, ctx: SecurityContext) -> RpcOutcome:
     try:
         return rpc_result(open_file_diff(params.get("path"), ctx, bool(params.get("commit_fallback")), bool(params.get("gui"))))
@@ -116,6 +131,8 @@ LOCAL_METHODS = {
     "tools/list": lambda _params, _ctx: rpc_result({"tools": [dict(definition) for definition in LOCAL_TOOLS_DEFINITIONS]}),
     "tools/call": lambda params, ctx: call_tool("local", params, ctx),
     "zerochat/project/set_directory": _set_project_directory,
+    "zerochat/project/browse": _browse_directories,
+    "zerochat/project/create_directory": _create_directory,
     "zerochat/diff/open": _open_diff,
     "zerochat/diff/configure": _configure_diff,
     "zerochat/web/fetch": _web_fetch,

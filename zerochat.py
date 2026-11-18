@@ -6023,11 +6023,8 @@ def edit_file(path: str, old_str: str, new_str: str, replace_all: bool = False, 
         return _tool_error(str(e))
 
 
-def resolve_project_directory(path, ctx: SecurityContext) -> dict:
-    """
-    Valida la carpeta que elige una pestaña como proyecto (relativa al suyo actual). El servidor no la
-    guarda: la pestaña la envía en cada petición (X-ZeroChat-Project) y otras pestañas siguen en la suya.
-    """
+def _existing_directory(path, ctx: SecurityContext) -> Path:
+    """La carpeta `path` (relativa al proyecto de la petición) resuelta; ValueError si no es una carpeta."""
     if not isinstance(path, str) or not path.strip():
         raise ValueError("La ruta del directorio está vacía.")
     if len(path) > MAX_PATH_LENGTH:
@@ -6035,8 +6032,77 @@ def resolve_project_directory(path, ctx: SecurityContext) -> dict:
     target = ctx.absolute(path)
     if not target.is_dir():
         raise ValueError(f"'{path}' no existe o no es un directorio.")
+    return target
+
+
+def resolve_project_directory(path, ctx: SecurityContext) -> dict:
+    """
+    Valida la carpeta que elige una pestaña como proyecto (relativa al suyo actual). El servidor no la
+    guarda: la pestaña la envía en cada petición (X-ZeroChat-Project) y otras pestañas siguen en la suya.
+    """
     # Cambiar de proyecto no borra nada: cada proyecto conserva su propia sesión.
-    return {"cwd": str(target)}
+    return {"cwd": str(_existing_directory(path, ctx))}
+
+
+# Subcarpetas de una respuesta del selector de carpeta de trabajo: una carpeta con más avisa de las que faltan.
+MAX_BROWSE_ENTRIES = 1000
+
+
+def browse_directories(params: dict, ctx: SecurityContext) -> dict:
+    """
+    Subcarpetas no ocultas de `path` (vacía, el proyecto de la petición), por nombre, para que la persona
+    elija la carpeta de trabajo. Como set_directory, no es una herramienta del modelo: no la limita la
+    carpeta del proyecto, solo lo que el usuario del sistema puede leer, y nunca muestra ficheros.
+    """
+    path = params.get("path")
+    target = ctx.workspace_dir.resolve() if path in (None, "") else _existing_directory(path, ctx)
+    names = []
+    try:
+        with os.scandir(target) as items:
+            for item in items:
+                if item.name.startswith("."):
+                    continue
+                try:
+                    if item.is_dir():
+                        names.append(item.name)
+                except OSError:
+                    continue
+    except OSError as exc:
+        raise ValueError(f"No se puede leer '{target}': {exc.strerror or exc}") from exc
+    names.sort(key=lambda name: (name.lower(), name))
+    return {
+        "path": str(target),
+        "parent": None if target.parent == target else str(target.parent),
+        "directories": names[:MAX_BROWSE_ENTRIES],
+        "total": len(names),
+        "truncated": len(names) > MAX_BROWSE_ENTRIES,
+    }
+
+
+def create_project_directory(params: dict, ctx: SecurityContext) -> dict:
+    """
+    Crea la carpeta `name` dentro de `parent` para usarla como proyecto. Solo bajo la carpeta personal del
+    usuario: crear un proyecto no necesita escribir en el resto del sistema. El nombre es un solo nivel
+    y no oculto, porque el selector no muestra las ocultas.
+    """
+    name = params.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("El nombre de la carpeta está vacío.")
+    name = name.strip()
+    if len(name) > 255 or any(sep in name for sep in ("/", "\\", "\0")) or name.startswith("."):
+        raise ValueError(f"'{name}' no es un nombre de carpeta válido: sin separadores y sin empezar por un punto.")
+    parent = _existing_directory(params.get("parent"), ctx)
+    home = Path.home().resolve()
+    if parent != home and home not in parent.parents:
+        raise ValueError(f"Solo se pueden crear carpetas dentro de {home}.")
+    target = parent / name
+    try:
+        target.mkdir()
+    except FileExistsError as exc:
+        raise ValueError(f"'{target}' ya existe.") from exc
+    except OSError as exc:
+        raise ValueError(f"No se puede crear '{target}': {exc.strerror or exc}") from exc
+    return {"path": str(target)}
 
 
 def _walk_project_files(target: Path) -> Iterator[Path]:
@@ -8902,6 +8968,21 @@ def _set_project_directory(params: dict, ctx: SecurityContext) -> RpcOutcome:
         return rpc_error(INVALID_PARAMS, str(exc))
 
 
+def _browse_directories(params: dict, ctx: SecurityContext) -> RpcOutcome:
+    # Como set_directory, lo invoca la interfaz para que la persona elija la carpeta de trabajo.
+    try:
+        return rpc_result(browse_directories(params, ctx))
+    except (ValueError, OSError) as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+
+
+def _create_directory(params: dict, ctx: SecurityContext) -> RpcOutcome:
+    try:
+        return rpc_result(create_project_directory(params, ctx))
+    except (ValueError, OSError) as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+
+
 def _open_diff(params: dict, ctx: SecurityContext) -> RpcOutcome:
     try:
         return rpc_result(open_file_diff(params.get("path"), ctx, bool(params.get("commit_fallback")), bool(params.get("gui"))))
@@ -8945,6 +9026,8 @@ LOCAL_METHODS = {
     "tools/list": lambda _params, _ctx: rpc_result({"tools": [dict(definition) for definition in LOCAL_TOOLS_DEFINITIONS]}),
     "tools/call": lambda params, ctx: call_tool("local", params, ctx),
     "zerochat/project/set_directory": _set_project_directory,
+    "zerochat/project/browse": _browse_directories,
+    "zerochat/project/create_directory": _create_directory,
     "zerochat/diff/open": _open_diff,
     "zerochat/diff/configure": _configure_diff,
     "zerochat/web/fetch": _web_fetch,

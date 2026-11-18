@@ -216,12 +216,15 @@ describe('Servidor local zerochat.py', () => {
     assert.match((await res.json()).error || '', /Argumento no permitido: cwd/);
   });
 
-  test('set_directory rechaza carpetas no válidas y el latido publica Playwright', async () => {
+  test('set_directory rechaza carpetas no válidas, browse y create_directory están publicados y el latido publica Playwright', async () => {
     const projectDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-project-')));
     try {
       for (const params of [{ path: path.join(projectDir, 'missing') }, { path: 7 }, {}]) {
         assert.equal((await rpc('zerochat/project/set_directory', params)).error?.code, -32602, JSON.stringify(params));
       }
+      fs.mkdirSync(path.join(projectDir, 'sub'));
+      assert.deepEqual((await rpc('zerochat/project/browse', { path: projectDir })).result?.directories, ['sub']);
+      assert.equal((await rpc('zerochat/project/create_directory', { parent: projectDir, name: '../x' })).error?.code, -32602);
       assert.deepEqual((await heartbeat()).playwright, { installed: true, browserAction: { available: true } }, 'El heartbeat publica el estado de Playwright');
     } finally {
       fs.rmSync(projectDir, { recursive: true, force: true });
