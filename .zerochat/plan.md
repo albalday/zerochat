@@ -45,5 +45,5 @@ Done when: las tareas del navegador de ficheros y de chats sin proyecto están h
 - [ ] M79-T19 Documentar en AGENTS.md los comandos de .zerochat/task.py (add-task, done, status) para que los agentes lo usen en lugar de editar a mano .zerochat/plan.md
 - [ ] M79-T20 Panel de razonamiento: facilitar crear un proyecto nuevo y cambiar de proyecto desde el propio panel
 - [ ] M79-T21 Diálogo de permisos: mostrar la línea completa del comando o de la acción en vez de truncarla
-- [ ] M79-T22 Historial: selector de proyecto siempre visible con el actual, no-project y Todos los proyectos, que muestra todos los grupos plegados
-- [ ] M79-T23 Crear un chat en no-project estando conectado desde su cabecera del historial y desde el cambio de proyecto de T20
+- [x] M79-T22 Historial: selector de proyecto siempre visible con el actual, no-project y Todos los proyectos, que muestra todos los grupos plegados (2026-11-18)
+- [x] M79-T23 Crear un chat en no-project estando conectado desde su cabecera del historial y desde el cambio de proyecto de T20 (2026-11-18)

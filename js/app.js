@@ -29,7 +29,6 @@
   const getChatHistory = () => State.get('messages');
   const getCurrentSessionId = () => State.get('sessions').activeId;
   // Proyectos plegados o desplegados por el usuario en el historial ("Todos"), solo en este navegador.
-  const PROJECT_GROUPS_STORAGE_KEY = 'sidebar_project_groups';
 
   const ELEMENT_IDS = {
     // Barra lateral de chats
@@ -294,7 +293,8 @@
   const getServerCwd = () => (State.get('mcp').status === 'connected' ? State.get('mcp').serverInfo?.cwd || '' : '');
   /** Proyecto que guarda un chat nuevo: el directorio del servidor, vacío sin conexión o en no-project. */
   const getServerProject = () => MCP.projectOfDirectory(getServerCwd());
-  const renderSidebarChats = () => UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId(), State.get('mcp').serverRuns, getServerProject());
+  const renderSidebarChats = () => UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId(), State.get('mcp').serverRuns, getServerProject(),
+    State.get('mcp').status === 'connected' ? MCP.directoryOfProject('') : '');
 
   const getActiveProfileName = () => getRuntimeConfig().activeProfile?.name || getRuntimeConfig().activeProfile?.id || '';
 
@@ -631,15 +631,6 @@
       onNewSession: createNewSession,
       onNewProjectSession: project => UIProject.createProjectSession(project, createNewSession).catch(error => console.warn('[App] Could not open a chat in the project:', error)),
       renderList: renderSidebarChats,
-      loadProjectGroups: () => {
-        try {
-          const choices = JSON.parse(Storage.getStorageItem(PROJECT_GROUPS_STORAGE_KEY) || '{}');
-          return choices && typeof choices === 'object' && !Array.isArray(choices) ? choices : {};
-        } catch (_) {
-          return {};
-        }
-      },
-      onProjectGroupsChange: choices => Storage.setStorageItem(PROJECT_GROUPS_STORAGE_KEY, JSON.stringify(choices)),
       onDeleteAllSessions: () => ConversationService.deleteAllSessions(getConversationServiceOptions()),
       onOpenSettingsMode: () => showSidebarNav('settings'),
       onOpenConnection: () => {
