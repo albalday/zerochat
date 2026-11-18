@@ -73,15 +73,18 @@
     else document.documentElement.removeAttribute('data-theme');
   }
 
-  let folderIcon = null;
-  /** Icono de carpeta, el único de la lista: se crea una vez y se clona en cada fila. */
-  function folderIconNode(doc) {
-    if (!folderIcon) {
+  const iconCache = new Map();
+  /** Icono SVG de la lista: se crea una vez por nombre y tamaño y se clona en cada fila. */
+  function iconNode(doc, name, size) {
+    const key = `${name}:${size}`;
+    let node = iconCache.get(key);
+    if (!node) {
       const template = doc.createElement('template');
-      template.innerHTML = Icons.get('folder', { size: 16 });
-      folderIcon = template.content.firstElementChild;
+      template.innerHTML = Icons.get(name, { size });
+      node = template.content.firstElementChild;
+      iconCache.set(key, node);
     }
-    return folderIcon.cloneNode(true);
+    return node.cloneNode(true);
   }
 
   function formatDate(ms) {
@@ -115,19 +118,33 @@
     const doc = elements.list.ownerDocument;
     renderBreadcrumbs(page, listing.path);
     const rows = listing.entries.map(entry => {
+      const isDir = entry.type === 'dir';
+      const entryPath = childPath(listing.path, entry.name);
       const item = doc.createElement('li');
-      item.className = `files-entry files-entry-${entry.type === 'dir' ? 'dir' : 'file'}`;
+      item.className = `files-entry files-entry-${isDir ? 'dir' : 'file'}`;
       const icon = doc.createElement('span');
       icon.className = 'files-entry-icon';
-      if (entry.type === 'dir') icon.appendChild(folderIconNode(doc));
-      const name = entry.type === 'dir'
-        ? link(doc, project, childPath(listing.path, entry.name), entry.name, 'files-entry-name')
+      if (isDir) icon.appendChild(iconNode(doc, 'folder', 16));
+      const name = isDir
+        ? link(doc, project, entryPath, entry.name, 'files-entry-name')
         : Object.assign(doc.createElement('button'), { type: 'button', className: 'files-entry-name files-entry-open', textContent: entry.name });
-      if (entry.type !== 'dir') name.dataset.file = childPath(listing.path, entry.name);
+      if (!isDir) name.dataset.file = entryPath;
       name.title = entry.name;
-      const size = Object.assign(doc.createElement('span'), { className: 'files-entry-size', textContent: entry.type === 'dir' ? '' : formatBytes(entry.size) });
+      const size = Object.assign(doc.createElement('span'), { className: 'files-entry-size', textContent: isDir ? '' : formatBytes(entry.size) });
       const date = Object.assign(doc.createElement('span'), { className: 'files-entry-date', textContent: formatDate(entry.modified) });
-      item.append(icon, name, size, date);
+      if (isDir) {
+        item.append(icon, name, size, date);
+      } else {
+        const downloadButton = Object.assign(doc.createElement('button'), {
+          type: 'button',
+          className: 'files-entry-download',
+          title: t('files_download_file', { name: entry.name })
+        });
+        downloadButton.setAttribute('aria-label', t('files_download_file', { name: entry.name }));
+        downloadButton.dataset.download = entryPath;
+        downloadButton.appendChild(iconNode(doc, 'download', 15));
+        item.append(icon, name, size, date, downloadButton);
+      }
       return item;
     });
     elements.list.replaceChildren(...rows);
@@ -153,12 +170,28 @@
     return { name, blob: new Blob(pieces, { type: 'application/octet-stream' }) };
   }
 
+  /** Descarga los bytes originales de un fichero desde el backend y muestra el error si falla. */
+  async function downloadEntry(page, path) {
+    const { client, elements } = page;
+    const name = path.split('/').pop();
+    try {
+      showStatus(elements, t('files_downloading', { name }));
+      const file = await fetchFileBytes(client, path);
+      downloadFile(file.blob, file.name);
+      showStatus(elements, '');
+    } catch (error) {
+      const key = errorKey(error);
+      showStatus(elements, key ? t(key) : error.message, true);
+    }
+  }
+
   /**
    * Un fichero de texto se abre en una pestaña nueva; uno binario o demasiado grande para leerlo así, se
    * descarga. La pestaña se abre al pulsar (si no, el navegador la bloquearía) y se cierra si toca descargar.
    */
   async function openFile(page, path) {
     const { client, elements } = page;
+    const name = path.split('/').pop();
     try {
       let download = false;
       await openTextInNewTab(async () => {
@@ -168,12 +201,21 @@
           return null;
         }
         return result.text;
-      }, { title: path.split('/').pop(), loading: t('files_loading') });
+      }, {
+        title: name,
+        loading: t('files_loading'),
+        filename: name,
+        onDownload: () => downloadEntry(page, path),
+        labels: {
+          copy: t('text_view_copy'),
+          copied: t('text_view_copied'),
+          download: t('text_view_download'),
+          fontDecrease: t('text_view_font_decrease'),
+          fontIncrease: t('text_view_font_increase')
+        }
+      });
       if (download) {
-        showStatus(elements, t('files_downloading', { name: path.split('/').pop() }));
-        const file = await fetchFileBytes(client, path);
-        downloadFile(file.blob, file.name);
-        showStatus(elements, '');
+        await downloadEntry(page, path);
       }
     } catch (error) {
       const key = errorKey(error);
@@ -228,6 +270,11 @@
     page.load = load;
     // Las carpetas se recorren en la misma pestaña, con el historial del navegador: atrás vuelve a la anterior.
     doc.addEventListener('click', event => {
+      const downloadButton = event.target.closest('button[data-download]');
+      if (downloadButton) {
+        downloadEntry(page, downloadButton.dataset.download);
+        return;
+      }
       const fileButton = event.target.closest('button[data-file]');
       if (fileButton) {
         openFile(page, fileButton.dataset.file);

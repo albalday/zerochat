@@ -224,28 +224,133 @@
     }
   }
 
+  const TEXT_VIEW_FONT = { min: 10, max: 28, step: 1, initial: 15 };
+
+  function createTextViewButton(doc, id, label, title = label) {
+    const button = doc.createElement('button');
+    button.type = 'button';
+    button.id = id;
+    button.className = 'text-view-btn';
+    button.textContent = label;
+    if (title) {
+      button.title = title;
+      button.setAttribute('aria-label', title);
+    }
+    return button;
+  }
+
   /**
-   * Abre una pestaña al pulsar, para que el navegador no la bloquee como ventana emergente, y le pone
-   * como texto plano lo que devuelva `load`. Si `load` devuelve null, la pestaña se cierra sin más (quien
-   * llama ha decidido otra cosa, como descargar); si falla, se cierra y el error sigue.
+   * Abre una pestaña al pulsar, para que el navegador no la bloquee como ventana emergente, con una
+   * vista de texto (cabecera con tamaño de letra ajustable, copiar y descarga opcional) y lo que
+   * devuelva `load`. Se construye por DOM y hojas externas para cumplir la CSP sin inline.
+   * Si `load` devuelve null, la pestaña se cierra sin más; si falla, se cierra y el error sigue.
    */
-  async function openTextInNewTab(load, { title = '', loading = '' } = {}) {
+  async function openTextInNewTab(load, { title = '', loading = '', filename = '', onDownload = null, labels = {} } = {}) {
     const win = window.open('', '_blank');
     if (!win) return false;
-    win.document.title = title;
-    win.document.body.textContent = loading;
+    const doc = win.document;
+    const rootTheme = document.documentElement.getAttribute('data-theme');
+    if (rootTheme) doc.documentElement.setAttribute('data-theme', rootTheme);
+    if (document.documentElement.lang) doc.documentElement.lang = document.documentElement.lang;
+
+    const metaCharset = doc.createElement('meta');
+    metaCharset.setAttribute('charset', 'utf-8');
+    const metaViewport = doc.createElement('meta');
+    metaViewport.name = 'viewport';
+    metaViewport.content = 'width=device-width, initial-scale=1';
+    const titleEl = doc.createElement('title');
+    titleEl.textContent = title;
+    const tokensLink = doc.createElement('link');
+    tokensLink.rel = 'stylesheet';
+    tokensLink.href = new URL('css/tokens.css', location.href).href;
+    const viewLink = doc.createElement('link');
+    viewLink.rel = 'stylesheet';
+    viewLink.href = new URL('css/text-view.css', location.href).href;
+    doc.head.append(metaCharset, metaViewport, titleEl, tokensLink, viewLink);
+
+    doc.body.className = 'text-view-page';
+    const header = doc.createElement('header');
+    header.className = 'text-view-header';
+    const heading = doc.createElement('h1');
+    heading.className = 'text-view-title';
+    heading.textContent = title;
+    heading.title = title;
+
+    const actions = doc.createElement('div');
+    actions.className = 'text-view-actions';
+    const decreaseBtn = createTextViewButton(doc, 'tv-font-decrease', 'A\u2212', labels.fontDecrease || '');
+    const sizeBadge = doc.createElement('span');
+    sizeBadge.id = 'tv-font-size';
+    sizeBadge.className = 'text-view-font-size';
+    const increaseBtn = createTextViewButton(doc, 'tv-font-increase', 'A+', labels.fontIncrease || '');
+    const copyLabel = labels.copy || '';
+    const copyBtn = createTextViewButton(doc, 'tv-copy', copyLabel);
+    copyBtn.disabled = true;
+
+    const hasDownload = Boolean(onDownload || filename);
+    const downloadBtn = hasDownload ? createTextViewButton(doc, 'tv-download', labels.download || '') : null;
+    if (downloadBtn) {
+      downloadBtn.disabled = true;
+      actions.append(decreaseBtn, sizeBadge, increaseBtn, copyBtn, downloadBtn);
+    } else {
+      actions.append(decreaseBtn, sizeBadge, increaseBtn, copyBtn);
+    }
+    header.append(heading, actions);
+
+    const content = doc.createElement('pre');
+    content.id = 'tv-content';
+    content.className = 'text-view-content';
+    content.textContent = loading;
+    doc.body.append(header, content);
+
+    let fontSize = TEXT_VIEW_FONT.initial;
+    const applyFontSize = next => {
+      fontSize = Math.min(TEXT_VIEW_FONT.max, Math.max(TEXT_VIEW_FONT.min, next));
+      content.style.fontSize = `${fontSize}px`;
+      sizeBadge.textContent = String(fontSize);
+      decreaseBtn.disabled = fontSize <= TEXT_VIEW_FONT.min;
+      increaseBtn.disabled = fontSize >= TEXT_VIEW_FONT.max;
+    };
+    applyFontSize(fontSize);
+
+    decreaseBtn.addEventListener('click', () => applyFontSize(fontSize - TEXT_VIEW_FONT.step));
+    increaseBtn.addEventListener('click', () => applyFontSize(fontSize + TEXT_VIEW_FONT.step));
+
+    let copyTimer = null;
+    copyBtn.addEventListener('click', () => {
+      const clipboard = win.navigator?.clipboard || navigator.clipboard;
+      if (!clipboard?.writeText) return;
+      clipboard.writeText(content.textContent).then(() => {
+        copyBtn.textContent = labels.copied || copyLabel;
+        clearTimeout(copyTimer);
+        copyTimer = setTimeout(() => {
+          if (!win.closed) copyBtn.textContent = copyLabel;
+        }, 1500);
+      }, () => { /* Clipboard access denied */ });
+    });
+
+    if (downloadBtn) {
+      downloadBtn.addEventListener('click', () => {
+        if (onDownload) {
+          Promise.resolve(onDownload()).catch(() => { /* Caller reports download error */ });
+          return;
+        }
+        downloadFile(new Blob([content.textContent], { type: 'text/plain;charset=utf-8' }), filename);
+      });
+    }
+
     try {
       const text = await load();
-      if (text === null) {
-        win.close();
+      if (text === null || win.closed) {
+        if (!win.closed) win.close();
         return false;
       }
-      const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
-      win.location.href = url;
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      content.textContent = text;
+      copyBtn.disabled = false;
+      if (downloadBtn) downloadBtn.disabled = false;
       return true;
     } catch (error) {
-      win.close();
+      if (!win.closed) win.close();
       throw error;
     }
   }

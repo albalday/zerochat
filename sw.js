@@ -10,6 +10,7 @@ const PRECACHE_ASSETS = [
   './zerochat.html',
   './files.html',
   './css/files.css',
+  './css/text-view.css',
   './js/files-page.js',
   './manifest.webmanifest',
   './css/tokens.css',

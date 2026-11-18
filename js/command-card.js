@@ -176,7 +176,16 @@
       return parts.join('');
     };
     try {
-      await openTextInNewTab(load, { title: t('command_action_full_log'), loading: t('command_log_loading') });
+      await openTextInNewTab(load, {
+        title: t('command_action_full_log'),
+        loading: t('command_log_loading'),
+        labels: {
+          copy: t('text_view_copy'),
+          copied: t('text_view_copied'),
+          fontDecrease: t('text_view_font_decrease'),
+          fontIncrease: t('text_view_font_increase')
+        }
+      });
     } catch (error) {
       await getDialogs().alert(t('command_log_open_error', { error: error?.message || String(error) }), { type: 'error' });
     }

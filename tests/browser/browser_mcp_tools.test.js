@@ -592,8 +592,11 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
 
     // «Ver log completo» abre una pestaña con todo el log que guarda el servidor, no solo las últimas líneas.
     const [popup] = await Promise.all([page.waitForEvent('popup'), card.locator('[data-command-action="log"]').click()]);
-    await popup.waitForURL(/^blob:/);
-    const fullLog = await popup.evaluate(() => document.body.innerText);
+    await popup.waitForFunction(() => {
+      const content = document.getElementById('tv-content');
+      return content && /linea \d+\n?$/.test(content.textContent);
+    });
+    const fullLog = await popup.evaluate(() => document.getElementById('tv-content').textContent);
     assert.ok(fullLog.startsWith('linea 1\nlinea 2\n') && /linea \d+\n?$/.test(fullLog), fullLog.slice(-80));
     await popup.close();
 
