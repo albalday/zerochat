@@ -77,7 +77,7 @@ test('Browser UI - la barra agrupa las conversaciones por fecha, marca la activa
   });
 });
 
-test('Browser UI - el selector muestra el proyecto actual, no-project o todos agrupados por proyecto', async () => {
+test('Browser UI - el selector muestra el proyecto actual, general o todos agrupados por proyecto', async () => {
   await withTestApp(async page => {
     const render = project => page.evaluate(project => {
       const elements = {
@@ -112,25 +112,25 @@ test('Browser UI - el selector muestra el proyecto actual, no-project o todos ag
     await render('/repo/app');
     // Todos empiezan plegados, también el actual, y un grupo plegado no pinta sus conversaciones.
     assert.deepEqual(await sidebarTitles(page), []);
-    assert.deepEqual(await sidebarHeaders(page), ['app', 'lib', 'no-project']);
+    assert.deepEqual(await sidebarHeaders(page), ['app', 'lib', 'general']);
 
     // Al buscar, cada resultado sigue bajo su proyecto, aunque esté plegado.
     const search = text => page.$eval('#sidebar-search-input', (input, text) => { input.value = text; }, text);
     await search('n');
     await render('/repo/lib');
     assert.deepEqual(await sidebarTitles(page), ['A reciente', 'A antigua', 'Sin proyecto']);
-    assert.deepEqual(await sidebarHeaders(page), ['app', 'no-project']);
+    assert.deepEqual(await sidebarHeaders(page), ['app', 'general']);
     await search('');
 
     await choose('current');
     await render('/repo/vacio');
     assert.equal(await page.textContent('#sidebar-chats-list .sidebar-no-chats'), await page.evaluate(() => window.ChatI18n.t('sidebar_no_project_chats')));
 
-    // Sin servidor el proyecto actual es no-project: el selector sigue a la vista, sin repetirlo
+    // Sin servidor el proyecto actual es general: el selector sigue a la vista, sin repetirlo
     await choose('none');
     await render('');
     assert.equal(await page.isVisible('#sidebar-project-filter'), true);
-    assert.equal(await currentLabel(), await page.evaluate(() => window.ChatI18n.t('sidebar_project_current', { name: 'no-project' })));
+    assert.equal(await currentLabel(), await page.evaluate(() => window.ChatI18n.t('sidebar_project_current', { name: 'general' })));
     assert.equal(await noneHidden(), true);
     assert.equal(await page.$eval('#sidebar-project-filter', select => select.value), 'current');
     assert.deepEqual(await sidebarTitles(page), ['Sin proyecto']);
@@ -155,7 +155,7 @@ test('Browser UI - en la vista de todos los proyectos empiezan plegados y vuelve
 
     await page.selectOption('#sidebar-project-filter', 'all');
     assert.deepEqual(await sidebarTitles(page), []);
-    assert.deepEqual(await expandedHeaders(), ['app1:false', 'lib1:false', 'web1:false', 'no-project1:false']);
+    assert.deepEqual(await expandedHeaders(), ['app1:false', 'lib1:false', 'web1:false', 'general1:false']);
 
     await page.click('.sidebar-group-toggle[data-group-key="/repo/lib"]');
     await page.click('.sidebar-group-toggle[data-group-key="/repo/web"]');
@@ -265,9 +265,9 @@ test('Browser UI - el icono de la cabecera de un proyecto abre un chat nuevo en 
   });
 });
 
-test('Browser UI - la cabecera de no-project abre sus ficheros y un chat nuevo en su carpeta', async () => {
+test('Browser UI - la cabecera de general abre sus ficheros y un chat nuevo en su carpeta', async () => {
   await withTestApp(async page => {
-    const noProjectDir = '/home/u/zerochat/no-project';
+    const noProjectDir = '/home/u/zerochat/general';
     await page.evaluate(async noProjectDir => {
       await window.ChatStorage.saveConversation({ id: 'n_1', title: 'N', createdAt: Date.now(), updatedAt: Date.now() }, [{ id: 'n_1_m', role: 'user', content: 'hola' }]);
       window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), list: await window.ChatStorage.getConversationsList() });
@@ -279,13 +279,13 @@ test('Browser UI - la cabecera de no-project abre sus ficheros y un chat nuevo e
     }, noProjectDir);
     await page.selectOption('#sidebar-project-filter', 'all');
     assert.equal(await page.getAttribute('.btn-project-new-chat[data-project=""]', 'aria-label'),
-      await page.evaluate(() => window.ChatI18n.t('sidebar_project_new_chat_title', { name: 'no-project' })));
+      await page.evaluate(() => window.ChatI18n.t('sidebar_project_new_chat_title', { name: 'general' })));
     assert.equal(await page.evaluate(() => document.querySelector('.btn-project-new-chat[data-project=""]').previousElementSibling.getAttribute('href')),
       `files.html?project=${encodeURIComponent(noProjectDir)}`);
 
     await page.click('.btn-project-new-chat[data-project=""]');
     await page.waitForFunction(dir => window.ChatState.get('mcp').serverInfo.cwd === dir, noProjectDir);
-    // En no-project el proyecto actual es no-project y el selector no lo repite.
+    // En general el proyecto actual es general y el selector no lo repite.
     assert.equal(await page.$eval('#sidebar-project-filter option[value="none"]', option => option.hidden), true);
   });
 });

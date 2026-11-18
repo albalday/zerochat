@@ -126,8 +126,8 @@
   }
 
   /** Nombre de la carpeta de un proyecto ('/home/yo/app/' -> 'app'). */
-  // Nombre de los chats sin proyecto: el de la carpeta ~/zerochat/no-project del servidor en la que trabajan.
-  const NO_PROJECT_NAME = 'no-project';
+  // Nombre de los chats sin proyecto: el de la carpeta ~/zerochat/general del servidor en la que trabajan.
+  const NO_PROJECT_NAME = 'general';
 
   function projectName(path) {
     const parts = String(path || '').split(/[\\/]+/).filter(Boolean);

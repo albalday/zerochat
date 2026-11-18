@@ -48,19 +48,19 @@
   const LOCAL_WAIT_TOOL = 'check_command';
 
   /**
-   * Los chats sin proyecto (los hechos sin conexión o en no-project) guardan el proyecto vacío y trabajan
-   * en la carpeta no-project del servidor conectado, que el navegador sin conexión no conoce.
+   * Los chats sin proyecto (los hechos sin conexión o en la carpeta general) guardan el proyecto vacío y trabajan
+   * en la carpeta general del servidor conectado, que el navegador sin conexión no conoce.
    */
   const noProjectDirectory = () => getState().get('mcp').serverInfo?.noProjectDir || '';
-  /** Proyecto que se guarda para la carpeta `cwd` del servidor: vacío para no-project. */
+  /** Proyecto que se guarda para la carpeta `cwd` del servidor: vacío para la carpeta general. */
   const projectOfDirectory = cwd => (cwd && cwd === noProjectDirectory() ? '' : cwd || '');
-  /** Carpeta del servidor en la que trabaja el proyecto guardado `project`: no-project para el vacío. */
+  /** Carpeta del servidor en la que trabaja el proyecto guardado `project`: la carpeta general para el vacío. */
   const directoryOfProject = project => project || noProjectDirectory();
 
   /**
    * Las herramientas del servidor local actúan en su directorio: solo están disponibles con el servidor
    * conectado y si la conversación activa es de ese proyecto (o aún no se ha guardado). Así una conversación
-   * cuyo proyecto ya no existe, o una sin proyecto fuera de no-project, nunca actúa en otra carpeta.
+   * cuyo proyecto ya no existe, o una sin proyecto fuera de la carpeta general, nunca actúa en otra carpeta.
    */
   function localToolsAvailable() {
     const State = getState();

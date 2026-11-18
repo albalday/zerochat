@@ -291,7 +291,7 @@
 
   /** Directorio del proyecto en el servidor local; vacío sin servidor conectado. */
   const getServerCwd = () => (State.get('mcp').status === 'connected' ? State.get('mcp').serverInfo?.cwd || '' : '');
-  /** Proyecto que guarda un chat nuevo: el directorio del servidor, vacío sin conexión o en no-project. */
+  /** Proyecto que guarda un chat nuevo: el directorio del servidor, vacío sin conexión o en la carpeta general. */
   const getServerProject = () => MCP.projectOfDirectory(getServerCwd());
   const renderSidebarChats = () => UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId(), State.get('mcp').serverRuns, getServerProject(),
     State.get('mcp').status === 'connected' ? MCP.directoryOfProject('') : '');

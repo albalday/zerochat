@@ -118,7 +118,7 @@
   const sessionDate = session => new Date(session.updatedAt || session.createdAt || Date.now());
 
   /**
-   * Selector de proyecto, siempre visible: el actual (no-project sin servidor), no-project si el actual es
+   * Selector de proyecto, siempre visible: el actual (la carpeta general sin servidor), general si el actual es
    * otro, y todos. Devuelve el proyecto de la vista, o null para la de todos.
    */
   function renderProjectFilter(select, project) {
@@ -134,8 +134,8 @@
 
   /**
    * Conversaciones en el orden en que se muestran, cada una con su grupo ({ key, kind, label, title },
-   * de tipo 'date' o 'project'): las de un proyecto (`project`, vacío para no-project), por fecha; y al
-   * ver todos (null), por proyecto (el de conversación más reciente primero) con no-project al final.
+   * de tipo 'date' o 'project'): las de un proyecto (`project`, vacío para la carpeta general), por fecha; y al
+   * ver todos (null), por proyecto (el de conversación más reciente primero) con la carpeta general al final.
    * Las listas llegan de la más reciente a la más antigua.
    */
   function groupSessions(sessions, project) {
@@ -166,7 +166,7 @@
 
   /**
    * Cabecera de un grupo: la de proyecto lleva carpeta y número de conversaciones para distinguirse de
-   * las de fecha, y a su derecha los ficheros del proyecto (de no-project, solo si se conoce su carpeta,
+   * las de fecha, y a su derecha los ficheros del proyecto (de la carpeta general, solo si se conoce su carpeta,
    * `noProjectDir`) y un botón que abre un chat nuevo en él. Con `expanded` booleano la cabecera es un
    * botón que pliega o despliega el grupo.
    */
@@ -196,7 +196,7 @@
 
   /**
    * Lista de conversaciones de la vista elegida, agrupada. `project` es el del servidor (vacío sin
-   * servidor o en no-project) y `noProjectDir` la carpeta de no-project, si se conoce. Con texto en el
+   * servidor o en la carpeta general) y `noProjectDir` la carpeta general, si se conoce. Con texto en el
    * buscador se filtra por título y solo quedan las cabeceras de proyecto de los grupos con
    * coincidencias, desplegados.
    */
@@ -240,7 +240,7 @@
   /**
    * Conecta la barra. `callbacks` aporta las acciones de las conversaciones (onSwitchSession,
    * onRenameSession, onDeleteSession, onExportSession, onNewSession, onNewProjectSession, que recibe el
-   * proyecto, vacío para no-project, y onDeleteAllSessions), el repintado de la lista (renderList,
+   * proyecto, vacío para la carpeta general, y onDeleteAllSessions), el repintado de la lista (renderList,
    * también al buscar o cambiar el filtro de proyecto) y la navegación de ajustes (onOpenSettingsMode,
    * onBackToChats, onSelectSettingsSection).
    */

@@ -37,7 +37,7 @@
   }
 
   /**
-   * Abrir una conversación de otro proyecto lleva el servidor a su carpeta, y una sin proyecto a no-project.
+   * Abrir una conversación de otro proyecto lleva el servidor a su carpeta, y una sin proyecto a la carpeta general.
    * Si ya no existe, se avisa y la conversación se queda sin herramientas locales (localToolsAvailable),
    * nunca en otra carpeta.
    */
@@ -49,7 +49,7 @@
   let pendingProjectSession = null;
 
   /**
-   * Chat nuevo en otro proyecto (vacío para no-project) desde su cabecera del historial: primero el chat
+   * Chat nuevo en otro proyecto (vacío para la carpeta general) desde su cabecera del historial: primero el chat
    * vacío (si una generación lo impide, el servidor no cambia de carpeta) y después la carpeta, que el
    * chat toma al guardarse. El perfil activo no cambia.
    */

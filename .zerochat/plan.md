@@ -47,3 +47,6 @@ Done when: las tareas del navegador de ficheros y de chats sin proyecto están h
 - [ ] M79-T21 Diálogo de permisos: mostrar la línea completa del comando o de la acción en vez de truncarla
 - [x] M79-T22 Historial: selector de proyecto siempre visible con el actual, no-project y Todos los proyectos, que muestra todos los grupos plegados (2026-11-18)
 - [x] M79-T23 Crear un chat en no-project estando conectado desde su cabecera del historial y desde el cambio de proyecto de T20 (2026-11-18)
+- [x] M79-T24 Renombrar la carpeta de los chats sin proyecto de no-project a general (~/zerochat/general) (2026-11-18)
+- [ ] M79-T25 Backend: zerochat/project/browse (solo subcarpetas no ocultas, con tope y aviso) y zerochat/project/create_directory (solo bajo ~), sin acceso para la credencial del runner
+- [ ] M79-T26 Diálogo para elegir la carpeta de trabajo: ruta pegada, recientes con general fija, navegación por carpetas y nueva carpeta

@@ -67,7 +67,7 @@ def get_data_dir() -> Path:
 
 # Carpeta de los chats sin proyecto (los hechos sin conexión o fuera de un proyecto): el cliente guarda
 # su proyecto vacío y la nombra por su último nivel, igual que a los demás proyectos.
-NO_PROJECT_DIR_NAME = "no-project"
+NO_PROJECT_DIR_NAME = "general"
 
 
 def get_no_project_dir() -> Path:

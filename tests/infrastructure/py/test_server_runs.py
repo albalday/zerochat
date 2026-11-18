@@ -382,9 +382,9 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
              mock.patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
             zerochat.start_server_run({"conversation_id": "conv_proj", "profile": "valid-profile"})
             self.assertEqual(mock_popen.call_args.kwargs["cwd"], project)
-            # Sin proyecto arranca en la carpeta no-project, no en la de arranque del servidor
+            # Sin proyecto arranca en la carpeta general, no en la de arranque del servidor
             zerochat.start_server_run({"conversation_id": "conv_none", "profile": "valid-profile"})
-            self.assertEqual(mock_popen.call_args.kwargs["cwd"], str(zerochat.get_data_dir() / "no-project"))
+            self.assertEqual(mock_popen.call_args.kwargs["cwd"], str(zerochat.get_data_dir() / "general"))
             # Si la carpeta ya no existe no arranca en otra
             with self.assertRaises(ValueError):
                 zerochat.start_server_run({"conversation_id": "conv_gone", "profile": "valid-profile"})

@@ -403,7 +403,7 @@
   outline: none;
 }
 
-/* Selector de proyecto: conversaciones del proyecto actual, de no-project o de todos */
+/* Selector de proyecto: conversaciones del proyecto actual, de la carpeta general o de todos */
 .sidebar-project-filter {
   margin: 0.5rem 0.85rem 0;
   padding: 0.35rem 0.6rem;

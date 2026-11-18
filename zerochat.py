@@ -203,7 +203,7 @@ def get_data_dir() -> Path:
 
 # Carpeta de los chats sin proyecto (los hechos sin conexión o fuera de un proyecto): el cliente guarda
 # su proyecto vacío y la nombra por su último nivel, igual que a los demás proyectos.
-NO_PROJECT_DIR_NAME = "no-project"
+NO_PROJECT_DIR_NAME = "general"
 
 
 def get_no_project_dir() -> Path:
@@ -4349,7 +4349,7 @@ def _check_no_active_run(state_path: Path, conv_id: str):
 
 
 def start_server_run(params: dict) -> dict:
-    """Inicia una ejecución en segundo plano para una conversación, en su proyecto o, si no tiene, en la carpeta no-project."""
+    """Inicia una ejecución en segundo plano para una conversación, en su proyecto o, si no tiene, en la carpeta general."""
     if not isinstance(params, dict):
         raise ValueError("Parámetros no válidos.")
     clean_conv_id, conv, profile_name = _run_target(params)
