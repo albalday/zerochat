@@ -177,6 +177,58 @@ test('Browser UI - la petición de autorización saca la tarjeta del historial p
   } finally { await browser.close(); }
 });
 
+test('Browser UI - autorización de comando muestra la línea completa y lupa si el patrón desborda', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+    const result = await page.evaluate(async () => {
+      const longPattern = 'python3 scripts/very_long_command_runner.py --verbose --output /tmp/very/long/path/report.json --filter all';
+      const fullCommand = `${longPattern}\necho done`;
+      const provider = new window.ChatMCP.McpToolProvider({
+        id: 'mcp_proxy',
+        name: 'ZeroChat',
+        initialize: async () => ({ success: true }),
+        listTools: async () => [{ name: 'run_command' }]
+      }, { id: 'mcp_prov_cmd_auth_view' });
+      await provider.discoverTools();
+      window.ChatAgentCore.registry.registerProvider(provider);
+
+      const container = document.createElement('div');
+      container.style.width = '420px';
+      document.body.appendChild(container);
+      const card = window.ChatToolCards.createLiveToolCard('run_command', { command: fullCommand }, { invocationId: 'inv-long-1' });
+      window.ChatToolCards.appendToolCard(container, card);
+      const beforeText = card.querySelector('.command-card-command').textContent;
+
+      const pending = window.ChatToolCards.promptToolAuthorization(card, {
+        function: { name: 'run_command', arguments: JSON.stringify({ command: fullCommand }) }
+      }, { ruleOffer: { type: 'command', command: longPattern } });
+      const whileAskingText = card.querySelector('.command-card-command').textContent;
+
+      card.querySelector('.btn-auth-more').click();
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const inspectBtn = card.querySelector('.btn-auth-cmd-inspect');
+      const inspectVisible = inspectBtn && !inspectBtn.hidden;
+      inspectBtn.click();
+      const noticeText = document.getElementById('notice-message').textContent;
+      document.getElementById('notice-accept').click();
+
+      card.querySelector('.btn-auth-allow-once').click();
+      await pending;
+      const afterText = card.querySelector('.command-card-command').textContent;
+      container.remove();
+      return { beforeText, whileAskingText, afterText, inspectVisible, noticeText, longPattern, fullCommand };
+    });
+    assert.equal(result.beforeText, `${result.longPattern} …`);
+    assert.equal(result.whileAskingText, result.fullCommand);
+    assert.equal(result.afterText, `${result.longPattern} …`);
+    assert.equal(result.inspectVisible, true);
+    assert.equal(result.noticeText, result.longPattern);
+  } finally { await browser.close(); }
+});
+
 test('Browser UI - la autorización de carpeta solo se ofrece para rutas que pueden ser una regla', async () => {
   const browser = await createTestBrowser();
   try {

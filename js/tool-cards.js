@@ -20,6 +20,7 @@
   const SERVER_SVG = Icons.get('server', { size: 12 });
   const FOLDER_SVG = Icons.get('folder', { size: 12 });
   const GLOBE_SVG = Icons.get('globe', { size: 12 });
+  const SEARCH_SVG = Icons.get('search', { size: 14 });
   const DEFAULT_TOOL_ICON = Icons.get('settings', { size: 14 });
 
   const TOOL_CALLS_SVG = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m14 6 4 4-8 8-4-4z"></path><path d="m5 19-2 2"></path><path d="m17 7 2-2"></path></svg>';
@@ -554,6 +555,11 @@
     cardEl.classList.remove('collapsed');
     cardEl.classList.add('tool-card-auth-active');
     toolGroup?.classList.add('tool-call-group-auth-active');
+    const cmdHeaderEl = cardEl.querySelector('.command-card-command');
+    const cmdHeaderPrevText = cmdHeaderEl ? cmdHeaderEl.textContent : null;
+    if (cmdHeaderEl && cmdHeaderEl.title && cmdHeaderEl.title !== cmdHeaderPrevText) {
+      cmdHeaderEl.textContent = cmdHeaderEl.title;
+    }
 
     const badge = card.querySelector('.tool-card-badge');
     renderPendingAuthBadge(badge);
@@ -571,13 +577,17 @@
       // Con "cd <dir> && git status" (o "cd <dir> ; git status") se ofrece autorizar el patrón "git status *", no cd. Cada botón concede la línea
       // de la caja (editable) con su alcance: esta sesión, este proyecto o todos los proyectos.
       const patternLabel = escapeHtml(t('tool_auth_cmd_pattern_label'));
+      const inspectLabel = escapeHtml(t('tool_auth_cmd_inspect_title'));
       const scopeButton = (decision, icon, label, title) => `<button type="button" class="btn-auth-action btn-auth-allow-cmd" data-decision="${decision}" title="${escapeHtml(title)}">${icon} <span>${escapeHtml(label)}</span></button>`;
       contextualButtonsHtml = `
         <div class="tool-auth-cmd-rule" role="group" aria-label="${escapeHtml(t('tool_auth_allow_cmd_title'))}">
           ${scopeButton('allow_session', CLOCK_SVG, t('tool_auth_cmd_session'), t('tool_auth_cmd_session_title'))}
           ${scopeButton('allow_project', FOLDER_SVG, t('tool_auth_cmd_project'), t('tool_auth_cmd_project_title'))}
           ${scopeButton('allow_always', GLOBE_SVG, t('tool_auth_cmd_global'), t('tool_auth_cmd_global_title'))}
-          <input type="text" class="tool-auth-cmd-input" value="${escapeHtml(ruleOffer.command)}" aria-label="${patternLabel}" title="${escapeHtml(t('tool_auth_allow_cmd_title'))}" spellcheck="false" autocomplete="off">
+          <div class="tool-auth-cmd-input-row">
+            <input type="text" class="tool-auth-cmd-input" value="${escapeHtml(ruleOffer.command)}" aria-label="${patternLabel}" title="${escapeHtml(t('tool_auth_allow_cmd_title'))}" spellcheck="false" autocomplete="off">
+            <button type="button" class="btn-auth-cmd-inspect" title="${inspectLabel}" aria-label="${inspectLabel}" hidden>${SEARCH_SVG}</button>
+          </div>
         </div>
       `;
     } else if (ruleOffer?.type === 'directory') {
@@ -636,6 +646,7 @@
       const cleanup = () => {
         authPromptEl.remove();
         cardEl.classList.remove('tool-card-auth-active');
+        if (cmdHeaderEl && cmdHeaderPrevText !== null) cmdHeaderEl.textContent = cmdHeaderPrevText;
         if (wasCollapsed) collapseCard(card);
         const activeGroup = toolGroup || card.closest('.tool-call-group');
         if (wasInHistory || options.interactive) {
@@ -693,7 +704,10 @@
         const isOpen = btnMore.getAttribute('aria-expanded') === 'true';
         btnMore.setAttribute('aria-expanded', String(!isOpen));
         if (moreMenu) moreMenu.hidden = isOpen;
-        if (!isOpen) keepAuthorizationVisible(cardEl, moreMenu);
+        if (!isOpen) {
+          keepAuthorizationVisible(cardEl, moreMenu);
+          requestAnimationFrame(syncInspectVisibility);
+        }
       });
       moreMenu?.addEventListener('click', (e) => e.stopPropagation());
 
@@ -720,16 +734,26 @@
       });
 
       const cmdInput = authPromptEl.querySelector('.tool-auth-cmd-input');
+      const inspectBtn = authPromptEl.querySelector('.btn-auth-cmd-inspect');
       const cmdButtons = [...authPromptEl.querySelectorAll('.btn-auth-allow-cmd')];
       // La línea vale si el ejecutable no lleva "*" (el backend valida el resto del patrón).
       const commandLine = () => cmdInput?.value.trim() || '';
       const isValidCommandLine = line => Boolean(line) && !line.split(/\s+/)[0].includes('*');
+      const syncInspectVisibility = () => {
+        if (!cmdInput || !inspectBtn) return;
+        inspectBtn.hidden = cmdInput.scrollWidth <= cmdInput.clientWidth + 1;
+      };
       const syncCommandLine = () => {
         const valid = isValidCommandLine(commandLine());
         cmdButtons.forEach(button => { button.disabled = !valid; });
         cmdInput?.setAttribute('aria-invalid', String(!valid));
+        syncInspectVisibility();
       };
       cmdInput?.addEventListener('input', syncCommandLine);
+      inspectBtn?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await getDialogs().alert(commandLine(), { title: t('tool_auth_cmd_pattern_label') });
+      });
       // Enter no decide: el alcance lo elige uno de los botones.
       cmdInput?.addEventListener('keydown', (e) => {
         e.stopPropagation();

@@ -42,19 +42,15 @@ Every agent working in this repository keeps the project memory up to date:
 - \`${LOG_FILE}\`: active architectural invariants and system truths, one line each. Read it before designing changes or touching a subsystem so you do not break active contracts.
 - \`${ARCHIVE_DIR}/\` (\`M<n>.md\` and \`log_M<a>-M<b>.md\`): plan sections of closed milestones and rotated decision logs. Search them; do not read them in full.
 
-Tasks take one line each, with an ID numbered within their milestone: \`- [ ] M2-T3 Short description\`.
-- Mark a task done by editing only its line: \`- [x] M2-T3 Short description (YYYY-MM-DD)\`. A dropped task is marked done with \`(dropped: reason)\`.
-- Never renumber or reuse an ID. A new task or decision takes the next number in its milestone (M2-T4, M2-D2).
-- Never rewrite ${PLAN_FILE} or ${LOG_FILE} as a whole during daily work: edit or append single lines.
+Use \`python3 ${TASK_HELPER_FILE}\` for daily updates instead of editing these files by hand:
+- \`python3 ${TASK_HELPER_FILE} status\`: print \`${STATE_FILE}\`.
+- \`python3 ${TASK_HELPER_FILE} add-task M<n> "Short description"\`: append the next numbered task to milestone \`M<n>\` before starting unscheduled work.
+- \`python3 ${TASK_HELPER_FILE} done <TASK_ID> [-d "Decision text"] [-n <NEXT_TASK>] [--drop "reason"]\`: mark \`<TASK_ID>\` done (or dropped), optionally append a decision (\`YYYY-MM-DD Mn-Dm ...\`) to \`${LOG_FILE}\`, and update \`${STATE_FILE}\` (auto-detecting the next pending task if \`-n\` is omitted).
+- \`python3 ${TASK_HELPER_FILE} next <TASK>\`: manually set the next task in \`${STATE_FILE}\`.
 
-To mark a task done, record decisions and update state atomically in one command:
-\`python3 ${TASK_HELPER_FILE} done <TASK_ID> [-d "Decision text"] [-n <NEXT_TASK>]\`
-(or edit files manually if python is unavailable).
+Only edit files by hand if Python is unavailable, and never rewrite ${PLAN_FILE} or ${LOG_FILE} as a whole (edit or append single lines: \`- [ ] M2-T3 Short description\` / \`- [x] M2-T3 Short description (YYYY-MM-DD)\` / \`(dropped: reason)\`). Never renumber or reuse an ID.
 
-Omit \`-d\` by default: routine code changes, bugfixes, refactors, test updates, or opening/closing milestones do not go in ${LOG_FILE}. Pass \`-d\` (\`- YYYY-MM-DD M2-D1 Decision and reason (M2-T3)\`) only when the task establishes a system invariant, a cross-layer or security contract, an explicitly accepted risk, or why an alternative was rejected ("why not X"); if it replaces an older decision, start with \`Supersedes Mn-Dm: ...\` (keep \`Mn-Dm\` until the next compaction).
-
-Before starting work that is not in ${PLAN_FILE}, add it as the next task of the current milestone.
-Right after finishing each task, before starting the next one: mark it in ${PLAN_FILE}, append its decision, if any, to ${LOG_FILE} and set the next task in ${STATE_FILE} (or use \`task.py done\`).
+Right after finishing each task, before starting the next one, run \`task.py done\`. Omit \`-d\` by default: routine code changes, bugfixes, refactors, test updates, or opening/closing milestones do not go in ${LOG_FILE}. Pass \`-d\` only when the task establishes a system invariant, a cross-layer or security contract, an explicitly accepted risk, or why an alternative was rejected ("why not X"); if it replaces an older decision, start with \`Supersedes Mn-Dm: ...\` (keep \`Mn-Dm\` until the next compaction).
 
 Ask the user before closing a milestone or adding a new one. Every milestone has a Goal and a Done when line.
 When the user confirms a milestone is closed: move its section from ${PLAN_FILE} to \`${ARCHIVE_DIR}/M<n>.md\` (move, never delete), leave \`## M<n> Title: closed YYYY-MM-DD\` in ${PLAN_FILE} and update ${STATE_FILE}.
