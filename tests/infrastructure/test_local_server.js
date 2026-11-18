@@ -160,8 +160,11 @@ describe('Servidor local zerochat.py', () => {
     }
   });
 
-  test('initialize publica el servidor, su versión, el SO y el estado vivo del latido', async () => {
+  test('initialize publica el servidor, su versión, el SO, la carpeta no-project y el estado vivo del latido', async () => {
     assert.equal(initResult.serverInfo?.name, 'ZeroChat Local Server');
+    const noProjectDir = path.join(fs.realpathSync(dataDir), 'no-project');
+    assert.equal(initResult.serverInfo?.noProjectDir, noProjectDir);
+    assert.ok(fs.statSync(noProjectDir).isDirectory(), 'initialize crea la carpeta no-project');
     assert.equal(initResult.serverInfo?.version, pkg.version.split('.').slice(0, 2).join('.'));
     assert.ok(typeof initResult.serverInfo?.os === 'string', 'serverInfo debe publicar el SO detectado');
     assert.deepEqual(Object.keys(initResult.liveState).sort(), Object.keys(await heartbeat()).sort());

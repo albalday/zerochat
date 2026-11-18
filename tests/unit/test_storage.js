@@ -229,7 +229,7 @@ test('Storage IndexedDB - propaga errores estructurados en lugar de silenciosos 
   }
 });
 
-test('Storage Backend - sincroniza conversaciones locales y remotas en getConversationsList, replica CRUD y propaga errores del servidor', async t => {
+test('Storage Backend - sincroniza en los dos sentidos con la copia más reciente, replica CRUD y propaga errores del servidor', async t => {
   const MCP = require('../../js/mcp.js');
   let connected = false;
   const backendStore = new Map([
@@ -244,6 +244,7 @@ test('Storage Backend - sincroniza conversaciones locales y remotas en getConver
   ]);
   const backendCalls = [];
   let refuseDelete = false;
+  let refuseSave = false;
 
   t.mock.method(MCP.manager, 'isProxyConnected', () => connected);
   t.mock.method(MCP.manager, 'requestExternalControl', async (method, params) => {
@@ -257,6 +258,7 @@ test('Storage Backend - sincroniza conversaciones locales y remotas en getConver
       return { conversation: backendStore.get(params.id) || null };
     }
     if (method === 'zerochat/conversations/save') {
+      if (refuseSave) throw new Error('Run in progress');
       const history = params.messages || [];
       const record = { ...params.conversation, messageCount: history.length, history };
       backendStore.set(record.id, record);
@@ -284,14 +286,19 @@ test('Storage Backend - sincroniza conversaciones locales y remotas en getConver
     [{ id: 'm_l1', role: 'user', content: 'Desde local' }]
   );
 
-  // 1. Al conectar, getConversationsList guarda solo las cabeceras remotas y no sube las locales
+  // 1. Al conectar, getConversationsList guarda las cabeceras remotas sin sus mensajes y sube la local hecha sin conexión
   connected = true;
   backendCalls.length = 0;
   const list = await Storage.getConversationsList();
   assert.deepEqual(list.map(c => c.id), ['l_conv', 'b_conv']);
-  assert.deepEqual(backendCalls.map(call => call.method), ['zerochat/conversations/list'], 'La lista no descarga mensajes');
+  assert.deepEqual(backendCalls.map(call => call.method), ['zerochat/conversations/list', 'zerochat/conversations/save'], 'La lista no descarga mensajes');
   assert.equal(list.find(c => c.id === 'b_conv').messagesPending, true);
-  assert.equal(backendStore.has('l_conv'), false, 'Las conversaciones locales no se suben al backend');
+  assert.equal(backendStore.get('l_conv').updatedAt, 300, 'Se sube con su fecha');
+  assert.equal(backendStore.get('l_conv').history[0].content, 'Desde local');
+  // Ya sincronizada, no se vuelve a subir
+  backendCalls.length = 0;
+  await Storage.getConversationsList();
+  assert.deepEqual(backendCalls.map(call => call.method), ['zerochat/conversations/list']);
 
   // Sin servidor, una conversación de la que solo hay cabecera no se abre vacía
   connected = false;
@@ -305,11 +312,42 @@ test('Storage Backend - sincroniza conversaciones locales y remotas en getConver
   assert.equal(cachedRemote.history[0].content, 'Desde backend');
   assert.equal(cachedRemote.messagesPending, undefined);
 
-  // Estando conectado, una conversación que solo existe en local se abre sin problemas desde IndexedDB
+  // Editada sin conexión, al abrirla conectado gana la copia local, más reciente, y se sube con la lista
+  await Storage.saveConversation({ ...cachedRemote, updatedAt: 500 }, [...cachedRemote.history, { id: 'm_b2', role: 'user', content: 'Sin conexión' }]);
   connected = true;
-  const cachedLocal = await Storage.getConversation('l_conv');
-  assert.ok(cachedLocal);
-  assert.equal(cachedLocal.history[0].content, 'Desde local');
+  assert.equal((await Storage.getConversation('b_conv')).history.length, 2, 'La copia del servidor, más antigua, no sustituye a la local');
+  await Storage.getConversationsList();
+  assert.equal(backendStore.get('b_conv').history.length, 2);
+
+  // Editada a la vez sin conexión y en el servidor, gana la más reciente: aquí la del servidor
+  connected = false;
+  await Storage.saveConversation({ ...cachedRemote, updatedAt: 600 }, [{ id: 'm_b3', role: 'user', content: 'Perdida' }]);
+  backendStore.set('b_conv', { ...backendStore.get('b_conv'), updatedAt: 700 });
+  connected = true;
+  backendCalls.length = 0;
+  await Storage.getConversationsList();
+  assert.deepEqual(backendCalls.map(call => call.method), ['zerochat/conversations/list'], 'La copia local más antigua no se sube');
+  assert.equal((await Storage.getConversation('b_conv')).history.length, 2);
+
+  // Una copia ya sincronizada nunca gana: si el servidor la cambia con un reloj atrasado, gana el servidor
+  backendStore.set('b_conv', { ...backendStore.get('b_conv'), updatedAt: 650, history: [{ id: 'm_b4', role: 'user', content: 'Reloj atrasado' }] });
+  await Storage.getConversationsList();
+  assert.equal((await Storage.getConversation('b_conv')).history[0].content, 'Reloj atrasado');
+  connected = false;
+  assert.equal((await Storage.getConversation('b_conv')).history[0].content, 'Reloj atrasado', 'Y se guarda aquí');
+  connected = true;
+
+  // Si el servidor rechaza subir una (ejecución en marcha), sigue sin sincronizar y se reintenta
+  connected = false;
+  await Storage.saveConversation({ id: 'run_conv', title: 'Run', createdAt: 800, updatedAt: 800 }, [{ id: 'm_r1', role: 'user', content: 'r' }]);
+  connected = true;
+  refuseSave = true;
+  await Storage.getConversationsList();
+  assert.equal(backendStore.has('run_conv'), false);
+  refuseSave = false;
+  await Storage.getConversationsList();
+  assert.equal(backendStore.has('run_conv'), true);
+  await Storage.deleteConversation('run_conv');
 
   // Si el servidor tiene una versión más reciente de una conversación local, sin servidor se abre la copia local
   backendStore.set('l_conv', { id: 'l_conv', title: 'Local Chat', createdAt: 150, updatedAt: 400, messageCount: 0, history: [] });

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from auth.login import LoginError, login
 from browser.rpc import dispatch_browser
-from core.environment import DETECTED_OS
+from core.environment import DETECTED_OS, get_no_project_dir
 from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, RpcOutcome, dispatch_table, rpc_error, rpc_not_supported, rpc_result
 from core.version import VERSION
 from mcp.manager import GLOBAL_MCP_MANAGER
@@ -55,6 +55,7 @@ def _initialize(_params: dict, ctx: SecurityContext) -> RpcOutcome:
         "name": "ZeroChat Local Server",
         "version": VERSION,
         "cwd": str(ctx.workspace_dir),
+        "noProjectDir": str(get_no_project_dir()),
         "os": DETECTED_OS
     }
     return rpc_result({**initialize_result(server_info), "liveState": live_state(ctx)})

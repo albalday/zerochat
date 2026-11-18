@@ -372,6 +372,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.addCleanup(shutil.rmtree, project, True)
         zerochat.save_conversation({"id": "conv_proj", "title": "P", "project": project}, [])
         zerochat.save_conversation({"id": "conv_gone", "title": "G", "project": os.path.join(project, "borrado")}, [])
+        zerochat.save_conversation({"id": "conv_none", "title": "N"}, [])
         mock_proc = mock.Mock()
         mock_proc.pid = os.getpid()
         # Popen falso para todo subprocess: la huella de arranque, que fuera de Linux usa ps, se toma antes.
@@ -379,13 +380,17 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         with mock.patch.object(zerochat, "find_node_executable", return_value="/usr/bin/node"), \
              mock.patch.object(zerochat, "_process_start_token", return_value=start_token), \
              mock.patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
-            zerochat.start_server_run({"conversation_id": "conv_proj", "profile": "valid-profile"}, CTX)
+            zerochat.start_server_run({"conversation_id": "conv_proj", "profile": "valid-profile"})
             self.assertEqual(mock_popen.call_args.kwargs["cwd"], project)
+            # Sin proyecto arranca en la carpeta no-project, no en la de arranque del servidor
+            zerochat.start_server_run({"conversation_id": "conv_none", "profile": "valid-profile"})
+            self.assertEqual(mock_popen.call_args.kwargs["cwd"], str(zerochat.get_data_dir() / "no-project"))
             # Si la carpeta ya no existe no arranca en otra
             with self.assertRaises(ValueError):
-                zerochat.start_server_run({"conversation_id": "conv_gone", "profile": "valid-profile"}, CTX)
-            self.assertEqual(mock_popen.call_count, 1)
+                zerochat.start_server_run({"conversation_id": "conv_gone", "profile": "valid-profile"})
+            self.assertEqual(mock_popen.call_count, 2)
         zerochat.remove_run_state("conv_proj")
+        zerochat.remove_run_state("conv_none")
 
     def test_start_cancel_y_dispatch_server_run(self):
         zerochat.save_general_profile({"name": "valid-profile", "settings": {}})
@@ -401,7 +406,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             {"conversation_id": "conv_val", "profile": "valid-profile", "tool_security": "invalido"}
         ):
             with self.assertRaises(ValueError):
-                zerochat.start_server_run(invalid_params, CTX)
+                zerochat.start_server_run(invalid_params)
 
         mock_proc = mock.Mock()
         mock_proc.pid = os.getpid()
@@ -434,7 +439,6 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             self.assertIn("--prompt", cmd)
             self.assertEqual(cmd[cmd.index("--prompt") + 1], "Genera reporte")
 
-            self.assertEqual(kwargs["cwd"], str(CTX.workspace_dir), "Sin proyecto arranca en el proyecto de la petición")
             env = kwargs["env"]
             self.assertEqual(env["ZEROCHAT_RUN_ID"], run_id)
             self.assertEqual(json.loads(env["ZEROCHAT_RUN_SECURITY"])["directoryRules"], ["R:/test"])
@@ -449,7 +453,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
 
             # Conflicto mientras la ejecución sigue en marcha
             with self.assertRaises(ValueError) as cm:
-                zerochat.start_server_run({"conversation_id": "conv_val", "profile": "valid-profile"}, CTX)
+                zerochat.start_server_run({"conversation_id": "conv_val", "profile": "valid-profile"})
             self.assertIn("en marcha", str(cm.exception))
 
         # cancel_server_run mata el proceso cuando está running y coincide pid_start

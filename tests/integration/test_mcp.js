@@ -873,20 +873,25 @@ test('MCP - si la carpeta del proyecto desaparece, cualquier petición vuelve al
   }
 });
 
-test('MCP - las herramientas locales solo están disponibles si la conversación activa es del proyecto del servidor', async () => {
+test('MCP - las herramientas locales solo están disponibles si la conversación activa es del proyecto del servidor, y las sin proyecto en no-project', async () => {
   const previousMcp = ChatState.get('mcp');
   const previousSessions = ChatState.get('sessions');
   try {
     const provider = new MCP.McpToolProvider({ id: 'mcp_proxy', name: 'ZeroChat', initialize: async () => ({ success: true }), listTools: async () => [{ name: 'read_file' }] });
     const [readFile] = await provider.discoverTools();
-    ChatState.set('mcp', { ...previousMcp, status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo' } });
+    ChatState.set('mcp', { ...previousMcp, status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo', noProjectDir: '/home/u/zerochat/no-project' } });
     const withProject = project => {
-      ChatState.set('sessions', { activeId: 's1', list: [{ id: 's1', title: 'x', ...(project ? { project } : {}) }] });
+      ChatState.set('sessions', { activeId: 's1', list: project === undefined ? [] : [{ id: 's1', title: 'x', ...(project ? { project } : {}) }] });
       return readFile.isAvailable();
     };
     assert.equal(withProject('/repo'), true);
-    assert.equal(withProject(''), true, 'Una conversación sin proyecto lo recibe al guardarse');
+    assert.equal(withProject(undefined), true, 'Una conversación aún sin guardar recibe el proyecto al guardarse');
+    assert.equal(withProject(''), false, 'Una sin proyecto solo actúa en no-project');
     assert.equal(withProject('/otro'), false, 'Nunca actúa en la carpeta de otro proyecto');
+    ChatState.set('mcp', { ...ChatState.get('mcp'), serverInfo: { ...ChatState.get('mcp').serverInfo, cwd: '/home/u/zerochat/no-project' } });
+    assert.equal(withProject(''), true);
+    assert.equal(MCP.projectOfDirectory('/home/u/zerochat/no-project'), '', 'no-project se guarda como proyecto vacío');
+    assert.equal(MCP.directoryOfProject(''), '/home/u/zerochat/no-project');
     ChatState.set('mcp', { ...ChatState.get('mcp'), status: 'disconnected' });
     assert.equal(withProject('/repo'), false);
   } finally {

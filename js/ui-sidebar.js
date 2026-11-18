@@ -11,7 +11,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
-  const { escapeHtml, projectName, resolveDep } = Utils;
+  const { escapeHtml, projectName, NO_PROJECT_NAME, resolveDep } = Utils;
   const getFilesPage = () => resolveDep('ChatFilesPage', './files-page.js');
   const { t } = I18n;
 
@@ -140,7 +140,7 @@
       const category = getChronologicalCategory(sessionDate(session));
       return { session, group: { key: category, kind: 'date', label: t(GROUP_LABEL_KEYS[category]) } };
     };
-    const noProject = { key: '', kind: 'project', label: t('sidebar_no_project') };
+    const noProject = { key: '', kind: 'project', label: NO_PROJECT_NAME };
     const orphans = sessions.filter(session => !session.project).map(session => ({ session, group: noProject }));
     if (!project) return sessions.map(byDate);
     if (!showAll) return [...sessions.filter(session => session.project === project).map(byDate), ...orphans];

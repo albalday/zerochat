@@ -29,7 +29,7 @@ Done when: las tareas del navegador de ficheros y de chats sin proyecto están h
 - [x] M79-T3 Navegador de ficheros: decidir con el usuario si los .html se abren renderizados y cómo aislarlos del origen de la aplicación (dropped: no aporta suficiente valor frente a la vista de texto)
 - [x] M79-T4 Navegador de ficheros: decidir con el usuario un editor pequeño de ficheros de texto con guardado por el backend sujeto a las reglas de directorio (dropped: editar ficheros se hace fácilmente pidiéndoselo al agente)
 - [x] M79-T5 Navegador de ficheros: decidir con el usuario borrar ficheros con confirmación y sujeto a las reglas de directorio (dropped: borrar ficheros se hace fácilmente pidiéndoselo al agente)
-- [ ] M79-T6 Decidir con el usuario y permitir usar chats sin proyecto cuando hay conexión con el backend
+- [x] M79-T6 Decidir con el usuario y permitir usar chats sin proyecto cuando hay conexión con el backend (2026-11-18)
 - [ ] M79-T7 Propuesta: buscar en el contenido de las conversaciones, no solo en el título (FTS5 en el servidor, IndexedDB sin él)
 - [ ] M79-T8 Propuesta: regenerar una respuesta y editar una pregunta en su sitio creando rama automáticamente
 - [ ] M79-T9 Propuesta: atajos de teclado (nueva conversación, buscar con Ctrl+K, detener con Esc, chuleta con ?)
@@ -41,5 +41,9 @@ Done when: las tareas del navegador de ficheros y de chats sin proyecto están h
 - [ ] M79-T15 Propuesta: batería de evaluación del agente con zerochat --prompt contra modelos locales, sin ajustes por modelo
 - [ ] M79-T16 Propuesta: control de concurrencia entre pestañas con versión por conversación y 409 al guardar sobre una versión antigua
 - [ ] M79-T17 Propuesta: comprobación de tipos con JSDoc y tsc --checkJs --noEmit en estado, almacenamiento y bucle del agente
-- [ ] M79-T18 Almacenamiento: readConversation debe comparar updatedAt entre la copia del backend y la local en vez de dar siempre la razón al backend, para no perder mensajes editados en modo normal
+- [x] M79-T18 Almacenamiento: readConversation debe comparar updatedAt entre la copia del backend y la local en vez de dar siempre la razón al backend, para no perder mensajes editados en modo normal (2026-11-18)
 - [ ] M79-T19 Documentar en AGENTS.md los comandos de .zerochat/task.py (add-task, done, status) para que los agentes lo usen en lugar de editar a mano .zerochat/plan.md
+- [ ] M79-T20 Panel de razonamiento: facilitar crear un proyecto nuevo y cambiar de proyecto desde el propio panel
+- [ ] M79-T21 Diálogo de permisos: mostrar la línea completa del comando o de la acción en vez de truncarla
+- [ ] M79-T22 Historial: selector de proyecto siempre visible con el actual, no-project y Todos los proyectos, que muestra todos los grupos plegados
+- [ ] M79-T23 Crear un chat en no-project estando conectado desde su cabecera del historial y desde el cambio de proyecto de T20

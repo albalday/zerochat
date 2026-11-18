@@ -99,15 +99,15 @@ test('Browser UI - con proyecto la barra muestra sus conversaciones y, con todos
     assert.equal(await page.isVisible('#sidebar-project-filter'), true);
     assert.equal(await page.$eval('#sidebar-project-filter option[value="current"]', option => option.textContent),
       await page.evaluate(() => window.ChatI18n.t('sidebar_project_current', { name: 'app' })));
-    // Las que no tienen proyecto (anteriores a esta función) siguen a la vista, al final
+    // Las que no tienen proyecto (no-project) siguen a la vista, al final
     assert.deepEqual(await sidebarTitles(page), ['A reciente', 'A antigua', 'Sin proyecto']);
-    assert.deepEqual(await sidebarHeaders(page), await page.evaluate(() => [window.ChatI18n.t('sidebar_group_today'), window.ChatI18n.t('sidebar_no_project')]));
+    assert.deepEqual(await sidebarHeaders(page), await page.evaluate(() => [window.ChatI18n.t('sidebar_group_today'), 'no-project']));
 
     await page.selectOption('#sidebar-project-filter', 'all');
     await render('/repo/app');
     // Todos empiezan plegados, también el actual, y un grupo plegado no pinta sus conversaciones.
     assert.deepEqual(await sidebarTitles(page), []);
-    assert.deepEqual(await sidebarHeaders(page), ['app', 'lib', await page.evaluate(() => window.ChatI18n.t('sidebar_no_project'))]);
+    assert.deepEqual(await sidebarHeaders(page), ['app', 'lib', 'no-project']);
 
     // Al buscar, cada resultado sigue bajo su proyecto, aunque esté plegado.
     // Sin evento input: la aplicación repintaría sin servidor y ocultaría el selector.
@@ -115,7 +115,7 @@ test('Browser UI - con proyecto la barra muestra sus conversaciones y, con todos
     await search('n');
     await render('/repo/lib');
     assert.deepEqual(await sidebarTitles(page), ['A reciente', 'A antigua', 'Sin proyecto']);
-    assert.deepEqual(await sidebarHeaders(page), ['app', await page.evaluate(() => window.ChatI18n.t('sidebar_no_project'))]);
+    assert.deepEqual(await sidebarHeaders(page), ['app', 'no-project']);
     await search('');
 
     await page.selectOption('#sidebar-project-filter', 'current');
@@ -150,7 +150,7 @@ test('Browser UI - en la vista de todos los proyectos empiezan plegados, tambié
 
     await render('c1');
     assert.deepEqual(await sidebarTitles(page), []);
-    assert.deepEqual(await expandedHeaders(), ['app1:false', 'lib1:false', 'web1:false', `${await page.evaluate(() => window.ChatI18n.t('sidebar_no_project'))}1:false`]);
+    assert.deepEqual(await expandedHeaders(), ['app1:false', 'lib1:false', 'web1:false', 'no-project1:false']);
 
     await page.click('.sidebar-group-toggle[data-group-key="/repo/lib"]');
     await page.click('.sidebar-group-toggle[data-group-key="/repo/web"]');
@@ -379,10 +379,10 @@ test('Browser UI - sincroniza conversaciones locales y remotas al conectar desde
     await page.click('#btn-open-connection');
     await page.click('#btn-backend-connect');
 
-    // En la interfaz deben verse ambas conversaciones en la barra lateral sin perder la activa y sin subir las locales
+    // En la interfaz deben verse ambas conversaciones en la barra lateral sin perder la activa, y la local se sube
     await page.waitForSelector('.sidebar-chat-item[data-session-id="chat_remote_1"]');
     await page.waitForSelector('.sidebar-chat-item[data-session-id="chat_local_1"].active');
-    assert.deepEqual(await page.evaluate(() => window.__savedToBackend), []);
+    assert.deepEqual(await page.evaluate(() => window.__savedToBackend), ['chat_local_1']);
 
     // Cerrar el diálogo de Conexión y cambiar entre conversaciones en la barra lateral
     await page.click('#btn-close-settings');

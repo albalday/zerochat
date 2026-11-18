@@ -274,7 +274,7 @@
         UIProject.followConversationProject(conversation).catch(error => console.warn('[App] Could not open the conversation project:', error));
       },
       isServerMode: () => isServerRunEnabled(),
-      getProject: () => getServerCwd(),
+      getProject: () => getServerProject(),
       resetComposerInput: () => resetComposerInput(),
       closeMobileSidebar: () => {
         if (UISidebar.isMobile()) UISidebar.closeSidebar(elements);
@@ -292,7 +292,9 @@
 
   /** Directorio del proyecto en el servidor local; vacío sin servidor conectado. */
   const getServerCwd = () => (State.get('mcp').status === 'connected' ? State.get('mcp').serverInfo?.cwd || '' : '');
-  const renderSidebarChats = () => UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId(), State.get('mcp').serverRuns, getServerCwd());
+  /** Proyecto que guarda un chat nuevo: el directorio del servidor, vacío sin conexión o en no-project. */
+  const getServerProject = () => MCP.projectOfDirectory(getServerCwd());
+  const renderSidebarChats = () => UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId(), State.get('mcp').serverRuns, getServerProject());
 
   const getActiveProfileName = () => getRuntimeConfig().activeProfile?.name || getRuntimeConfig().activeProfile?.id || '';
 

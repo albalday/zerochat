@@ -37,11 +37,13 @@
   }
 
   /**
-   * Abrir una conversación de otro proyecto lleva el servidor a su carpeta. Si ya no existe, se avisa y
-   * la conversación se queda sin herramientas locales (localToolsAvailable), nunca en otra carpeta.
+   * Abrir una conversación de otro proyecto lleva el servidor a su carpeta, y una sin proyecto a no-project.
+   * Si ya no existe, se avisa y la conversación se queda sin herramientas locales (localToolsAvailable),
+   * nunca en otra carpeta.
    */
   function followConversationProject(conversation) {
-    return openProjectDirectory(conversation?.project);
+    if (!conversation) return Promise.resolve();
+    return openProjectDirectory(getMCP().directoryOfProject(conversation.project));
   }
 
   let pendingProjectSession = null;

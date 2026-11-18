@@ -496,8 +496,10 @@ ${stateBody}
    * .zerochat/task.py, cuya existencia marca el proyecto como inicializado
    * (`helperRead.status`: ok | missing | denied | unavailable | error).
    */
-  function computeStatus({ projectMode = false, declined = [], cwd = '', readAvailable = false, helperRead = null } = {}) {
+  function computeStatus({ projectMode = false, declined = [], cwd = '', noProject = false, readAvailable = false, helperRead = null } = {}) {
     if (!projectMode) return 'disabled';
+    // La carpeta no-project solo agrupa chats sueltos: nunca tiene memoria de proyecto.
+    if (noProject) return 'no_project';
     if (!cwd || !readAvailable) return 'unavailable';
     if (Array.isArray(declined) && declined.includes(cwd)) return 'declined';
     switch (helperRead?.status) {
@@ -531,6 +533,8 @@ ${stateBody}
       const mcp = getState().get('mcp');
       return mcp.status === 'connected' ? String(mcp.serverInfo?.cwd || '').trim() : '';
     }
+
+    const isNoProject = cwd => Boolean(cwd) && resolveDep('ChatMCP', './mcp.js').projectOfDirectory(cwd) === '';
 
     /** Lee un fichero del proyecto sin interacción: si requiere aprobación, no se ejecuta. */
     async function readProjectFile(cwd, relativePath, signal, maxLines = 2000) {
@@ -579,6 +583,7 @@ ${stateBody}
         projectMode: config.projectMode === true,
         declined: config.projectDeclined || [],
         cwd,
+        noProject: isNoProject(cwd),
         readAvailable: Boolean(getAvailableTool(READ_TOOL))
       };
 
@@ -635,7 +640,8 @@ ${stateBody}
     }
 
     function canInitialize() {
-      return Boolean(getCwd() && getAvailableTool(READ_TOOL) && getAvailableTool(WRITE_TOOL));
+      const cwd = getCwd();
+      return Boolean(cwd && !isNoProject(cwd) && getAvailableTool(READ_TOOL) && getAvailableTool(WRITE_TOOL));
     }
 
     /**

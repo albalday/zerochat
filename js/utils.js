@@ -126,6 +126,9 @@
   }
 
   /** Nombre de la carpeta de un proyecto ('/home/yo/app/' -> 'app'). */
+  // Nombre de los chats sin proyecto: el de la carpeta ~/zerochat/no-project del servidor en la que trabajan.
+  const NO_PROJECT_NAME = 'no-project';
+
   function projectName(path) {
     const parts = String(path || '').split(/[\\/]+/).filter(Boolean);
     return parts[parts.length - 1] || String(path || '');
@@ -700,6 +703,7 @@
     EPHEMERAL_ID_PATTERN,
     readLaunchFragment,
     projectName,
+    NO_PROJECT_NAME,
     normalizeBackendUrl,
     normalizeConnectionSettings,
     canonicalJson,
