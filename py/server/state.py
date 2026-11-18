@@ -86,10 +86,11 @@ def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -
     return {
         "serverId": get_server_id(),
         "cwd": str(ctx.workspace_dir),
-        "jobs": [{**job.summary(), "last_line": job.last_line()} for job in JOBS.running(ctx.key)],
+        "jobs": JOBS.running_summaries(ctx.key),
         "exit_on_close": EXIT_ON_CLOSE,
         "playwright": playwright_status(),
         "servers": GLOBAL_MCP_MANAGER.list_servers(),
+        "externalTools": GLOBAL_MCP_MANAGER.tools(),
         "runs": runs,
         "focus_run": focus_run
     }

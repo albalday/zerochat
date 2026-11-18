@@ -14,6 +14,8 @@ from pathlib import Path
 
 from core.limits import MAX_PATH_LENGTH
 from security.context import SecurityContext
+from security.controller import ACCESS_CONTROLLER
+from security.rules import POLICY_ALLOW
 from tools.common import _atomic_write_text, _tool_error, line_matches, text_terms
 
 IGNORED_WORKSPACE_DIRS = {
@@ -282,6 +284,56 @@ def resolve_project_directory(path, ctx: SecurityContext) -> dict:
     """
     # Cambiar de proyecto no borra nada: cada proyecto conserva su propia sesión.
     return {"cwd": str(_existing_directory(path, ctx))}
+
+
+PROJECT_CONTEXT_MAX_BYTES = 16384
+
+
+def _can_read_project_file(rel_path: str, ctx: SecurityContext) -> bool:
+    path = str(ctx.workspace_dir / rel_path)
+    return ACCESS_CONTROLLER.evaluate_authorization(
+        "read_file", {"path": path}, context=ctx, server_name="mcp-proxy", server_id=""
+    ).status == POLICY_ALLOW
+
+
+def _read_project_text(rel_path: str, ctx: SecurityContext, max_lines: int = MAX_READ_LINES) -> tuple[str, dict | None, str]:
+    """Lee un fichero del proyecto: devuelve (status, {content, truncated}, error)."""
+    try:
+        target = ctx.absolute(rel_path)
+        if not target.exists():
+            return "missing", None, ""
+        if not target.is_file():
+            return "error", None, f"Path '{rel_path}' is not a regular file."
+        selected, total_lines, truncated_bytes = _read_line_range(target, 1, max_lines, PROJECT_CONTEXT_MAX_BYTES)
+        return "ok", {"content": "".join(selected), "truncated": truncated_bytes or max_lines < total_lines}, ""
+    except OSError as exc:
+        return "error", None, str(exc)
+
+
+def read_project_context(ctx: SecurityContext) -> dict:
+    """
+    Contexto del modo proyecto (.zerochat/task.py, .zerochat/state.md y AGENTS.md) en una sola lectura,
+    sujeta a las mismas reglas de lectura que read_file sin abrir retos interactivos.
+    """
+    if not _can_read_project_file(".zerochat/task.py", ctx):
+        return {"status": "denied"}
+    helper_status, _, helper_err = _read_project_text(".zerochat/task.py", ctx, max_lines=1)
+    if helper_status != "ok":
+        return {"status": helper_status, **({"error": helper_err} if helper_err else {})}
+    if not _can_read_project_file(".zerochat/state.md", ctx):
+        return {"status": "denied"}
+    state_status, state_data, state_err = _read_project_text(".zerochat/state.md", ctx)
+    if state_status == "error":
+        return {"status": "error", "error": state_err}
+    rules_data = None
+    if _can_read_project_file("AGENTS.md", ctx):
+        _, rules_data, _ = _read_project_text("AGENTS.md", ctx)
+    empty = {"content": "", "truncated": False}
+    return {
+        "status": "ok",
+        "rules": rules_data or empty,
+        "state": state_data or empty,
+    }
 
 
 # Subcarpetas de una respuesta del selector de carpeta de trabajo: una carpeta con más avisa de las que faltan.

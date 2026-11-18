@@ -1,4 +1,4 @@
-"""Métodos JSON-RPC de los dos endpoints del servidor: una tabla por método exacto y otra por grupo (prefijo).
+"""Métodos JSON-RPC del servidor local: una tabla por método exacto y otra por grupo (prefijo).
 
 Cada método vive junto a su dominio (storage/rpc.py, tools/jobs_rpc.py, run_mode/state.py…); aquí solo se
 decide quién atiende cada uno.
@@ -6,20 +6,23 @@ decide quién atiende cada uno.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from auth.login import LoginError, login
 from browser.rpc import dispatch_browser
 from core.environment import DETECTED_OS, get_no_project_dir
-from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, RpcOutcome, dispatch_table, rpc_error, rpc_not_supported, rpc_result
+from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, RpcOutcome, rpc_error, rpc_not_supported, rpc_result
 from core.version import VERSION
 from mcp.manager import GLOBAL_MCP_MANAGER
 from mcp.rpc import SERVER_CONTROL_METHODS, dispatch_server_control
 from run_mode.state import dispatch_run
 from security.context import SecurityContext
+from security.controller import ACCESS_CONTROLLER
 from server.state import live_state
 from server.tool_calls import call_tool, dispatch_security
 from storage.rpc import dispatch_blobs, dispatch_conversations, dispatch_profiles
 from tools.diff import configure_gui_diff_tool, open_file_diff
-from tools.filesystem import browse_directories, create_project_directory, resolve_project_directory
+from tools.filesystem import browse_directories, create_project_directory, read_project_context, resolve_project_directory
 from tools.jobs_rpc import dispatch_jobs
 from tools.project_files import dispatch_files
 from tools.registry import LOCAL_TOOLS_DEFINITIONS
@@ -27,14 +30,8 @@ from tools.sandbox import execute_js_sandbox
 from web.fetch import fetch_web_resource
 
 
-def initialize_result(server_info: dict) -> dict:
-    return {
-        "protocolVersion": "2024-11-05",
-        "serverInfo": server_info,
-        "capabilities": {
-            "tools": {"listChanged": True}
-        }
-    }
+def _local_tools() -> list[dict]:
+    return [dict(definition) for definition in LOCAL_TOOLS_DEFINITIONS]
 
 
 def rpc_login(params: dict) -> RpcOutcome:
@@ -51,14 +48,23 @@ def rpc_login(params: dict) -> RpcOutcome:
 
 
 def _initialize(_params: dict, ctx: SecurityContext) -> RpcOutcome:
-    server_info = {
-        "name": "ZeroChat Local Server",
-        "version": VERSION,
-        "cwd": str(ctx.workspace_dir),
-        "noProjectDir": str(get_no_project_dir()),
-        "os": DETECTED_OS
-    }
-    return rpc_result({**initialize_result(server_info), "liveState": live_state(ctx)})
+    return rpc_result({
+        "protocolVersion": "2024-11-05",
+        "serverInfo": {
+            "name": "ZeroChat Local Server",
+            "version": VERSION,
+            "cwd": str(ctx.workspace_dir),
+            "noProjectDir": str(get_no_project_dir()),
+            "os": DETECTED_OS,
+        },
+        "capabilities": {
+            "tools": {"listChanged": True},
+        },
+        "tools": _local_tools(),
+        "policies": ACCESS_CONTROLLER.export_state(ctx),
+        "projectContext": read_project_context(ctx),
+        "liveState": live_state(ctx),
+    })
 
 
 def _heartbeat(params: dict, ctx: SecurityContext) -> RpcOutcome:
@@ -68,7 +74,13 @@ def _heartbeat(params: dict, ctx: SecurityContext) -> RpcOutcome:
 def _set_project_directory(params: dict, ctx: SecurityContext) -> RpcOutcome:
     # Lo invoca la interfaz a petición del usuario: no es una herramienta del modelo.
     try:
-        return rpc_result(resolve_project_directory(params.get("path"), ctx))
+        resolved = resolve_project_directory(params.get("path"), ctx)
+        next_ctx = SecurityContext(workspace_dir=Path(resolved["cwd"]))
+        return rpc_result({
+            **resolved,
+            "policies": ACCESS_CONTROLLER.export_state(next_ctx),
+            "projectContext": read_project_context(next_ctx),
+        })
     except (ValueError, OSError) as exc:
         return rpc_error(INVALID_PARAMS, str(exc))
 
@@ -128,8 +140,9 @@ LOCAL_METHODS = {
     "initialize": _initialize,
     "zerochat/heartbeat": _heartbeat,
     "zerochat/login": lambda params, _ctx: rpc_login(params),
-    "tools/list": lambda _params, _ctx: rpc_result({"tools": [dict(definition) for definition in LOCAL_TOOLS_DEFINITIONS]}),
-    "tools/call": lambda params, ctx: call_tool("local", params, ctx),
+    "tools/list": lambda _params, _ctx: rpc_result({"tools": _local_tools() + GLOBAL_MCP_MANAGER.tools()}),
+    "tools/call": call_tool,
+    "zerochat/project/context": lambda _params, ctx: rpc_result(read_project_context(ctx)),
     "zerochat/project/set_directory": _set_project_directory,
     "zerochat/project/browse": _browse_directories,
     "zerochat/project/create_directory": _create_directory,
@@ -166,17 +179,3 @@ def dispatch_local(method: str, params: dict, ctx: SecurityContext) -> RpcOutcom
         if method.startswith(prefix):
             return dispatcher(method, params, ctx)
     return rpc_not_supported(method)
-
-
-EXTERNAL_METHODS = {
-    "initialize": lambda _params, _ctx: rpc_result(initialize_result({"name": "ZeroChat External MCP Host", "version": VERSION})),
-    "tools/list": lambda _params, _ctx: rpc_result({"tools": GLOBAL_MCP_MANAGER.tools()}),
-    "tools/call": lambda params, ctx: call_tool("external", params, ctx),
-}
-
-
-def dispatch_external(method: str, params: dict, ctx: SecurityContext) -> RpcOutcome:
-    """Endpoint /mcp/external: las herramientas de los servicios MCP externos."""
-    if method in EXTERNAL_METHODS:
-        return dispatch_table(EXTERNAL_METHODS, method, params, ctx)
-    return rpc_error(METHOD_NOT_FOUND, f"Método '{method}' no soportado en /mcp/external.")

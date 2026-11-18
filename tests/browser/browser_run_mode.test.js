@@ -61,9 +61,6 @@ async function routeBackend(page, prompt, { profile, profileData = null, serverP
     if (method === 'zerochat/security/authorize') {
       return reply({ authorized: params.decision !== 'deny', challengeId: params.challengeId, result: { content: [{ type: 'text', text: 'ok' }] } });
     }
-    if (method === 'zerochat/security/get') {
-      return reply({ policies: { globalMcpPolicy: 'ask', directoryRules: ['R:.'], tools: {}, servers: {} } });
-    }
     if (method === 'zerochat/external/servers/start') {
       started.push({ id: params.serverId, remember: params.remember, ...(params.browser ? { browser: params.browser } : {}) });
       externalServers.find(server => server.id === params.serverId).status = 'running';

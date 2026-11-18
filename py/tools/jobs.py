@@ -609,6 +609,9 @@ class JobManager:
     def running(self, project: str | None) -> list[CommandJob]:
         return [job for job in self.list(project) if not job.done.is_set()]
 
+    def running_summaries(self, project: str | None) -> list[dict]:
+        return [{**job.summary(), "last_line": job.last_line()} for job in self.running(project)]
+
     def stop_all(self, reason: str = "shutdown"):
         threads = [threading.Thread(target=self.stop, args=(job, reason), daemon=True) for job in self.running(None)]
         for thread in threads:

@@ -16,19 +16,33 @@ def _report(params: dict, project: str) -> RpcOutcome:
 
 
 def _log(params: dict, job) -> RpcOutcome:
+    tail = params.get("tail")
     offset = params.get("offset", 0)
     limit = params.get("limit", JOB_LOG_PAGE_BYTES)
-    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
-        return rpc_error(INVALID_PARAMS, "offset debe ser un entero no negativo.")
+    if tail is not None:
+        if isinstance(tail, bool) or not isinstance(tail, int) or tail < 0:
+            return rpc_error(INVALID_PARAMS, "tail debe ser un entero no negativo.")
+        start = max(0, job.total - tail)
+    else:
+        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+            return rpc_error(INVALID_PARAMS, "offset debe ser un entero no negativo.")
+        start = offset
     if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
         return rpc_error(INVALID_PARAMS, "limit debe ser un entero positivo.")
-    text, next_offset = job.read_range(offset, min(limit, JOB_LOG_PAGE_BYTES))
-    return rpc_result({"text": text, "next": next_offset, "total": job.total, "done": job.done.is_set()})
+    text, next_offset = job.read_range(start, min(limit, JOB_LOG_PAGE_BYTES))
+    return rpc_result({
+        "text": text,
+        "offset": start,
+        "next": next_offset,
+        "total": job.total,
+        "done": job.done.is_set(),
+        "details": job.summary(),
+    })
 
 
 def _stop(_params: dict, job) -> RpcOutcome:
     JOBS.stop(job, "user")
-    return rpc_result(job_details(job))
+    return rpc_result({**job_details(job), "jobs": JOBS.running_summaries(job.project)})
 
 
 PROJECT_JOB_METHODS = {

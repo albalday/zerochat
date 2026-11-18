@@ -261,9 +261,10 @@ describe('Servidor local zerochat.py', () => {
         assert.equal((await callTool('run_command', { command: 'pwd' }, null, header(dir))).parsed.output, `${dir}\n`);
         assert.equal((await rpc('zerochat/heartbeat', {}, { headers: header(dir) })).result.cwd, dir);
       }
-      // Elegir carpeta solo la valida para la pestaña: sin cabecera sigue el proyecto por defecto
+      // Elegir carpeta solo la valida para la pestaña y devuelve sus políticas: sin cabecera sigue el proyecto por defecto
       const chosen = await rpc('zerochat/project/set_directory', { path: projects[1] }, { headers: header(projects[0]) });
-      assert.deepEqual(chosen.result, { cwd: projects[1] });
+      assert.equal(chosen.result.cwd, projects[1]);
+      assert.equal(chosen.result.policies.defaultDirectoryRule, `RW:${projects[1]}/**`);
       assert.equal((await rpc('zerochat/heartbeat')).result.cwd, fs.realpathSync(repoRoot));
 
       fs.rmSync(projects[1], { recursive: true });
@@ -287,14 +288,16 @@ describe('Servidor local zerochat.py', () => {
     assert.equal(details?.tail, 'listo\n');
     assert.ok((await heartbeat()).jobs.some(job => job.id === details.id && job.status === 'running'), 'El latido publica los comandos en marcha');
     const page = await rpc('zerochat/jobs/log', { id: details.id, offset: 2, limit: 3 });
-    assert.deepEqual([page.result.text, page.result.next, page.result.done], ['sto', 5, false]);
+    assert.deepEqual([page.result.text, page.result.offset, page.result.next, page.result.done, page.result.details.id], ['sto', 2, 5, false, details.id]);
+    const tailPage = await rpc('zerochat/jobs/log', { id: details.id, tail: 3 });
+    assert.deepEqual([tailPage.result.text, tailPage.result.offset, tailPage.result.next], ['to\n', 3, 6]);
     assert.ok((await rpc('zerochat/jobs/list')).result.jobs.some(job => job.key === 'tarjeta-prueba-1'));
     const stopped = await rpc('zerochat/jobs/stop', { key: 'tarjeta-prueba-1' });
-    assert.deepEqual([stopped.result.status, stopped.result.stop_reason], ['stopped', 'user']);
+    assert.deepEqual([stopped.result.status, stopped.result.stop_reason, Array.isArray(stopped.result.jobs)], ['stopped', 'user', true]);
     assert.equal((await pending).parsed.status, 'stopped');
     assert.equal((await callTool('check_command', { job_id: details.id })).parsed.status, 'stopped');
     assert.ok(Array.isArray((await rpc('zerochat/jobs/report', { ids: [details.id] })).result.reports));
-    for (const [method, params] of [['zerochat/jobs/log', { id: details.id, offset: -1 }], ['zerochat/jobs/get', { id: 99999 }],
+    for (const [method, params] of [['zerochat/jobs/log', { id: details.id, offset: -1 }], ['zerochat/jobs/log', { id: details.id, tail: -1 }], ['zerochat/jobs/get', { id: 99999 }],
       ['zerochat/jobs/report', { ids: 'x' }], ['zerochat/jobs/report', { ids: [true] }]]) {
       assert.equal((await rpc(method, params)).error?.code, -32602, `${method} ${JSON.stringify(params)}`);
     }
@@ -332,14 +335,15 @@ describe('Servidor local zerochat.py', () => {
     // Arrancar sin decir si se recuerda es un error del cliente.
     assert.deepEqual((await start({})).error, { code: -32602, message: 'remember es obligatorio al arrancar y debe ser un booleano.' });
 
-    const runningExample = ((await start({ remember: true })).result?.servers || []).find(server => server.id === 'ejemplo');
+    const started = (await start({ remember: true })).result;
+    const runningExample = (started?.servers || []).find(server => server.id === 'ejemplo');
     assert.equal(runningExample?.status, 'running');
     assert.equal(runningExample?.toolCount, 1);
     assert.equal(runningExample?.browser, null);
 
-    const extToolNames = ((await rpc('tools/list', {}, { endpoint: 'mcp/external' })).result?.tools || []).map(tool => tool.name);
+    const extToolNames = (started?.externalTools || []).map(tool => tool.name);
     assert.ok(extToolNames.includes('ejemplo_echo'));
-    const extCallRes = await rpc('tools/call', { name: 'ejemplo_echo', arguments: { message: 'probando mcp' } }, { endpoint: 'mcp/external' });
+    const extCallRes = await rpc('tools/call', { name: 'ejemplo_echo', arguments: { message: 'probando mcp' } });
     let extCall = extCallRes;
     if (extCallRes.result?.requiresAuthorization) {
       const auth = await rpc('zerochat/security/authorize', {

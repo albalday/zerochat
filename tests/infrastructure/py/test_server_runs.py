@@ -553,8 +553,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertTrue(zerochat.HEARTBEAT_INITIALIZED)
         # Un token caducado o erróneo (401) también es presencia: el auto-cierre no salta al cambiar el día.
         renews("/", "zerochat/heartbeat", "token-caducado", 401)
-        # Una RPC autenticada a /mcp/external renueva la presencia sin zerochat/heartbeat.
-        renews("/mcp/external", "tools/list", token, 200)
+        # Cualquier otra RPC autenticada renueva la presencia sin zerochat/heartbeat.
+        renews("/", "tools/list", token, 200)
 
         with mock.patch.object(zerochat, "stop_zerochat_server") as stop:
             zerochat.heartbeat_watchdog(server, inactivity_timeout_seconds=0.1)

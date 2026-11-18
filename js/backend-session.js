@@ -18,7 +18,6 @@
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
   const getDefaults = () => resolveDep('ChatDefaults', './defaults.js');
   const getMcpManager = () => resolveDep('ChatMCP', './mcp.js').manager;
-  const getToolSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js').manager;
 
   const LOCAL_HOSTS = ['127.0.0.1', 'localhost'];
 
@@ -97,7 +96,6 @@
       adoptLaunchFragment();
       const connection = sessionConnection(runSession || getStorage().getBackendSession(), getConfig().getActive(), getDefaults().LOCAL_BACKEND_URL);
       if (!connection) return Promise.resolve({ success: false });
-      getToolSecurity().setSessionToken(connection.token);
       return getMcpManager().connectProxy(connection).then(async result => {
         if (result.success) await loadSessions();
         return result;
@@ -114,9 +112,8 @@
       const token = session?.url === target.url ? session.token : null;
       const mcp = getMcpManager();
       mcp.setSessionToken(token);
-      if (token) getToolSecurity().setSessionToken(token);
       const result = await mcp.connectProxy({ ...target, token });
-      await loadSessions();
+      if (result.success) await loadSessions();
       return result;
     }
 
@@ -126,7 +123,6 @@
       const { url, proxyKey } = mcp.target;
       const token = await mcp.login(user, password);
       save({ token, url });
-      getToolSecurity().setSessionToken(token);
       const result = await mcp.connectProxy({ url, proxyKey, token });
       await loadSessions();
       return result;

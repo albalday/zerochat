@@ -32,3 +32,35 @@ test('BackendSession.sessionConnection usa la sesión guardada y la clave del pr
   assert.deepEqual(BackendSession.connectionTarget({}, LOCAL), { url: LOCAL, proxyKey: null });
   assert.deepEqual(BackendSession.connectionTarget({ ...remote, useProxy: false }, LOCAL), { url: 'https://casa.example.org', proxyKey: null });
 });
+
+test('BackendSession.connectConfigured solo recarga sesiones cuando la conexión tiene éxito', async () => {
+  let loadCalls = 0;
+  let connectResult = { success: false, status: 401 };
+  const prev = {
+    ChatStorage: global.ChatStorage,
+    ChatConfig: global.ChatConfig,
+    ChatDefaults: global.ChatDefaults,
+    ChatMCP: global.ChatMCP
+  };
+  global.ChatStorage = { getBackendSession: () => null };
+  global.ChatConfig = { getActive: () => ({}) };
+  global.ChatDefaults = { LOCAL_BACKEND_URL: 'http://127.0.0.1:6388' };
+  global.ChatMCP = {
+    manager: {
+      setSessionToken() {},
+      connectProxy: async () => connectResult
+    }
+  };
+  try {
+    const session = BackendSession.create({
+      loadSessions: async () => { loadCalls += 1; }
+    });
+    await session.connectConfigured();
+    assert.equal(loadCalls, 0);
+    connectResult = { success: true };
+    await session.connectConfigured();
+    assert.equal(loadCalls, 1);
+  } finally {
+    Object.assign(global, prev);
+  }
+});

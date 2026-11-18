@@ -174,7 +174,8 @@
     selectValue(els.settingWebllmContextWindow, webllmConfig.context_window_size, String(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE));
     selectValue(els.settingWebllmPrefillChunk, webllmConfig.prefill_chunk_size, 'default');
     renderProfileMcpServers(profileData.mcpServers || []);
-    getUIBrowser().loadProfileBrowser(profileData.playwrightBrowser ?? null);
+    const browserOpen = Boolean(els.profilesDialog.open && els.profilesDialog.querySelector('#profile-chapter-browser')?.open);
+    getUIBrowser().loadProfileBrowser(profileData.playwrightBrowser ?? null, { fetch: browserOpen });
     syncProviderFields();
     syncApiKeyLock();
   }
@@ -919,7 +920,10 @@
     listen(els.profilesDialog, 'change', onModify);
     // Un capítulo abierto al fondo del panel queda a la vista: entero si cabe y, si no, desde su cabecera.
     els.profilesDialog.querySelectorAll('.profile-chapter').forEach(chapter => listen(chapter, 'toggle', () => {
-      if (chapter.open) chapter.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      if (chapter.open) {
+        if (chapter.id === 'profile-chapter-browser') getUIBrowser().ensureProfileBrowserLoaded();
+        chapter.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
     }));
 
     listen(els.settingProfileName, 'change', () => {

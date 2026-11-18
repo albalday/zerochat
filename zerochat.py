@@ -294,12 +294,6 @@ def ensure_virtual_environment():
 
 
 MAX_REMOTE_TOKENS = 16
-RUNNER_EXTERNAL_METHODS = frozenset({
-    "initialize",
-    "notifications/initialized",
-    "tools/list",
-    "tools/call",
-})
 RUNNER_ALLOWED_METHODS = frozenset({
     "initialize",
     "notifications/initialized",
@@ -335,8 +329,6 @@ class TokenGrant:
             return True
         if self.kind != "runner":
             return False
-        if "/mcp/external" in req_path:
-            return method in RUNNER_EXTERNAL_METHODS
         if method in RUNNER_ALLOWED_METHODS:
             return True
         if self.conversation_id and isinstance(params, dict):
@@ -936,6 +928,7 @@ class BrowserEngines:
     def __init__(self):
         self._lock = threading.Lock()
         self._jobs: dict[str, dict] = {}
+        self._locations_cache: tuple[tuple[str, int], dict[str, tuple[str, Path]]] | None = None
 
     @staticmethod
     def _run_cli(cli: Path, *args: str, timeout: float) -> subprocess.CompletedProcess:
@@ -944,16 +937,27 @@ class BrowserEngines:
 
     def _locations(self, cli: Path) -> dict[str, tuple[str, Path]]:
         """Entradas de la caché de esta versión de Playwright: nombre -> (título con versión, ruta)."""
+        key = (str(cli), cli.stat().st_mtime_ns)
+        cached = self._locations_cache
+        if cached is not None and cached[0] == key:
+            return cached[1]
         names = [name for entries in ENGINE_CACHE_ENTRIES.values() for name in entries]
         result = self._run_cli(cli, "install", "--dry-run", *names, timeout=30)
         if result.returncode != 0:
             raise RuntimeError(f"Playwright no pudo listar sus navegadores: {(result.stderr or result.stdout).strip()}")
-        return {name: (title, Path(location.strip())) for title, name, location in _DRY_RUN_ENTRY.findall(result.stdout)}
+        locations = {name: (title, Path(location.strip())) for title, name, location in _DRY_RUN_ENTRY.findall(result.stdout)}
+        self._locations_cache = (key, locations)
+        return locations
 
     def list(self) -> dict:
         """Navegadores del sistema y motores de Playwright; sin Playwright del servicio no hay motores."""
         cli = playwright_service_cli()
-        result = {"systemBrowsers": system_browsers(), "extensions": user_browser_extensions(), "engines": []}
+        result = {
+            "systemBrowsers": system_browsers(),
+            "extensions": user_browser_extensions(),
+            "engines": [],
+            "config": load_browser_config(),
+        }
         if not cli.is_file():
             return result
         locations = self._locations(cli)
@@ -1025,10 +1029,10 @@ class BrowserEngines:
             self._jobs.pop(engine, None)
         result = self.list()
         # La configuración no se queda con un motor quitado si hay otro instalado.
-        config = load_browser_config()
+        config = result["config"]
         replacement = next((item["id"] for item in result["engines"] if item["installed"]), None)
         if config["engine"] == engine and replacement:
-            save_browser_config({**config, "engine": replacement})
+            result["config"] = save_browser_config({**config, "engine": replacement})
         return result
 
 
@@ -1551,7 +1555,6 @@ def dispatch_table(handlers: dict[str, Callable[..., RpcOutcome]], method: str, 
 
 
 BROWSER_METHODS = {
-    "zerochat/browser/config/get": lambda _params: rpc_result(load_browser_config()),
     "zerochat/browser/config/set": lambda params: rpc_result(save_browser_config(params.get("config"))),
     "zerochat/browser/data/clear": lambda params: rpc_result(clear_own_browser_data(params.get("engine"))),
     "zerochat/browser/engines/list": lambda _params: rpc_result(BROWSER_ENGINES.list()),
@@ -4024,7 +4027,7 @@ class McpServiceManager:
             decoded = re.sub(r"z([0-9a-f]+)z", lambda m: chr(int(m.group(1), 16)), prefix)
         except (ValueError, OverflowError):
             return None
-        return decoded or None
+        return decoded if decoded in self.services else None
 
     def call(self, public_name: str, arguments: dict) -> dict:
         resolved = self._resolve_tool(public_name)
@@ -4151,7 +4154,7 @@ def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
             servers = GLOBAL_MCP_MANAGER.configure(server_id, opts)
     except KeyError as exc:
         return rpc_error(INVALID_PARAMS, str(exc.args[0]) if exc.args else str(exc))
-    return rpc_result({"servers": servers})
+    return rpc_result({"servers": servers, "externalTools": GLOBAL_MCP_MANAGER.tools()})
 
 
 def _set_secret(server_id: str, params: dict) -> RpcOutcome:
@@ -4162,7 +4165,8 @@ def _set_secret(server_id: str, params: dict) -> RpcOutcome:
     if value is not None and not isinstance(value, str):
         return rpc_error(INVALID_PARAMS, "value debe ser un texto o null.")
     try:
-        return rpc_result({"servers": GLOBAL_MCP_MANAGER.set_secret(server_id, name, value)})
+        servers = GLOBAL_MCP_MANAGER.set_secret(server_id, name, value)
+        return rpc_result({"servers": servers, "externalTools": GLOBAL_MCP_MANAGER.tools()})
     except KeyError as exc:
         return rpc_error(INVALID_PARAMS, str(exc.args[0]) if exc.args else str(exc))
     except ValueError as exc:
@@ -5770,519 +5774,6 @@ def open_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = Fals
         return _open_gui_file_diff(path, ctx, commit_fallback)
     return generate_file_diff(path, ctx, commit_fallback, context_lines=context_lines)
 
-# --- tools.filesystem ---
-"""Herramientas de archivos del servidor local: listar, leer, escribir, editar, buscar y diagnosticar dentro de las rutas que autoriza el proyecto."""
-
-
-
-
-IGNORED_WORKSPACE_DIRS = {
-    ".git", ".venv", "venv", "node_modules", "__pycache__",
-    ".pytest_cache", ".cache", ".gemini", "dist", "build"
-}
-
-
-LIST_DIRECTORY_MAX_ENTRIES = 1000
-
-
-def _directory_entry(entry: os.DirEntry, target: Path, recursive: bool) -> dict:
-    """Datos de una entrada de list_directory; OSError si desaparece o no se puede leer."""
-    stat = entry.stat(follow_symlinks=False)
-    is_dir = entry.is_dir(follow_symlinks=False)
-    try:
-        resolved_path = str(Path(entry.path).resolve())
-    except (OSError, RuntimeError):
-        resolved_path = str(Path(entry.path).absolute())
-    data = {
-        "name": entry.name,
-        "path": resolved_path,
-        "type": "directory" if is_dir else "file",
-        "size_bytes": None if is_dir else stat.st_size,
-        "is_symlink": entry.is_symlink()
-    }
-    if recursive:
-        try:
-            data["relative_path"] = Path(entry.path).relative_to(target).as_posix()
-        except ValueError:
-            data["relative_path"] = entry.name
-    return data
-
-
-def _scan_directory(current: Path, target: Path, depth: int, max_depth: int, recursive: bool, entries: list[dict]):
-    """Añade a entries el contenido de current, carpetas primero, sin seguir enlaces y hasta el tope de entradas."""
-    if depth > max_depth or len(entries) >= LIST_DIRECTORY_MAX_ENTRIES:
-        return
-    try:
-        with os.scandir(current) as it:
-            items = sorted(it, key=lambda e: (not e.is_dir(follow_symlinks=False), e.name.lower()))
-    except OSError:
-        return
-    for entry in items:
-        if len(entries) >= LIST_DIRECTORY_MAX_ENTRIES:
-            break
-        try:
-            data = _directory_entry(entry, target, recursive)
-            entries.append(data)
-            if recursive and data["type"] == "directory" and not data["is_symlink"]:
-                _scan_directory(Path(entry.path), target, depth + 1, max_depth, recursive, entries)
-        except OSError:
-            continue
-
-
-def list_directory(path: str = ".", recursive: bool = False, *, ctx: SecurityContext) -> str:
-    """List files and directories in a local directory with safe bounded recursive traversal."""
-    try:
-        target = ctx.absolute(path)
-        if not target.exists():
-            return _tool_error(f"Path '{path}' does not exist.")
-        if not target.is_dir():
-            return _tool_error(f"Path '{path}' is not a directory.")
-        entries: list[dict] = []
-        _scan_directory(target, target, 1, 3 if recursive else 1, recursive, entries)
-        return json.dumps({
-            "success": True,
-            "path": str(target),
-            "recursive": bool(recursive),
-            "total_items": len(entries),
-            "entries": entries
-        }, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return _tool_error(str(e))
-
-
-# Códigos de control de terminal (colores, movimiento del cursor) que un log trae y el modelo no necesita.
-ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-Z\\-_]")
-READ_TAIL_BLOCK_BYTES = 64 * 1024
-MAX_READ_LINES = 2000
-
-
-def _terminal_line(line: str) -> str:
-    """Una línea como la deja una terminal: sin códigos de color y, si se reescribe con \\r, su último tramo."""
-    ending = "\n" if line.endswith("\n") else ""
-    text = ANSI_ESCAPE_RE.sub("", line[:-1] if ending else line).rstrip("\r")
-    return text[text.rfind("\r") + 1:] + ending
-
-
-def _count_lines(target: Path) -> int:
-    lines = 0
-    last = b""
-    with open(target, "rb") as handle:
-        while chunk := handle.read(1024 * 1024):
-            lines += chunk.count(b"\n")
-            last = chunk[-1:]
-    return lines + (1 if last and last != b"\n" else 0)
-
-
-def _read_tail(target: Path, tail_lines: int, max_bytes: int) -> str:
-    """Las últimas tail_lines líneas, leyendo el fichero desde el final por bloques y sin pasar de max_bytes."""
-    file_size = target.stat().st_size
-    wanted = max(1, min(int(tail_lines), MAX_READ_LINES))
-    data = b""
-    with open(target, "rb") as handle:
-        position = file_size
-        # Una línea más de las pedidas: la primera del bloque puede estar a medias.
-        while position > 0 and data.count(b"\n") <= wanted and len(data) < max_bytes:
-            step = min(READ_TAIL_BLOCK_BYTES, position)
-            position -= step
-            handle.seek(position)
-            data = handle.read(step) + data
-    truncated_bytes = len(data) > max_bytes
-    if truncated_bytes:
-        data = data[-max_bytes:]
-    # Solo \n separa líneas: splitlines también parte en \r y desharía las barras de progreso.
-    parts = data.decode("utf-8", errors="replace").split("\n")
-    lines = [part + "\n" for part in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
-    if (position > 0 or truncated_bytes) and lines:
-        lines = lines[1:]
-    lines = lines[-wanted:]
-    total_lines = _count_lines(target)
-    start_line = total_lines - len(lines) + 1
-    return json.dumps({
-        "success": True,
-        "path": str(target),
-        "size_bytes": file_size,
-        "total_lines": total_lines,
-        "start_line": start_line,
-        "end_line": total_lines,
-        "lines_returned": len(lines),
-        "truncated": start_line > 1,
-        "content": "".join(_terminal_line(line) for line in lines)
-    }, ensure_ascii=False, indent=2)
-
-
-# Pasado el rango pedido, read_file sigue contando líneas para total_lines hasta este número más allá del inicio.
-READ_COUNT_AHEAD_LINES = 50000
-
-
-def _read_line_range(target: Path, start: int, count: int, max_bytes: int) -> tuple[list[str], int, bool]:
-    """Hasta count líneas desde start sin pasar de max_bytes (la última, cortada). Devuelve las líneas, las que
-    se han contado (todas, o hasta READ_COUNT_AHEAD_LINES más allá de start) y si se cortó por bytes."""
-    selected: list[str] = []
-    used = 0
-    total_lines = 0
-    with open(target, "r", encoding="utf-8", errors="replace") as f:
-        for line_no, line in enumerate(f, 1):
-            total_lines = line_no
-            if line_no < start:
-                continue
-            if len(selected) >= count:
-                if line_no > start + READ_COUNT_AHEAD_LINES:
-                    break
-                continue
-            encoded = line.encode("utf-8")
-            if used + len(encoded) > max_bytes:
-                if max_bytes > used:
-                    selected.append(encoded[:max_bytes - used].decode("utf-8", errors="ignore"))
-                return selected, total_lines, True
-            selected.append(line)
-            used += len(encoded)
-    return selected, total_lines, False
-
-
-def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: int = 500, max_bytes: int = 100000,
-              tail_lines: int | None = None, *, ctx: SecurityContext) -> str:
-    """Read text content from a local file in streaming mode with safe ranges and bounds, or its last lines."""
-    try:
-        target = ctx.absolute(path)
-        if not target.exists():
-            return _tool_error(f"File '{path}' does not exist.")
-        if not target.is_file():
-            return _tool_error(f"Path '{path}' is not a regular file.")
-
-        file_size = target.stat().st_size
-        safe_max_bytes = max(1024, min(int(max_bytes), 2000000))
-        if tail_lines is not None:
-            return _read_tail(target, tail_lines, safe_max_bytes)
-        start = max(1, int(start_line))
-        if end_line is not None:
-            count = min(max(start, int(end_line)) - start + 1, MAX_READ_LINES)
-        else:
-            count = max(1, min(int(max_lines), MAX_READ_LINES))
-
-        selected, total_lines, truncated_bytes = _read_line_range(target, start, count, safe_max_bytes)
-        return json.dumps({
-            "success": True,
-            "path": str(target),
-            "size_bytes": file_size,
-            "total_lines": total_lines,
-            "start_line": start,
-            "end_line": start + len(selected) - 1,
-            "lines_returned": len(selected),
-            "truncated": truncated_bytes or start + count - 1 < total_lines,
-            "content": "".join(selected)
-        }, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return _tool_error(str(e))
-
-
-def write_file(path: str, content: str, *, ctx: SecurityContext) -> str:
-    """Create or overwrite a file completely and atomically."""
-    try:
-        target = ctx.absolute(path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_write_text(target, content)
-        bytes_written = len(content.encode("utf-8"))
-        return json.dumps({
-            "success": True,
-            "path": str(target),
-            "bytes_written": bytes_written
-        }, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return _tool_error(str(e))
-
-
-def edit_file(path: str, old_str: str, new_str: str, replace_all: bool = False, *, ctx: SecurityContext) -> str:
-    """Replace old_str with new_str in an existing file: its single occurrence, or all of them with replace_all."""
-    try:
-        target = ctx.absolute(path)
-        if not target.exists():
-            return _tool_error(f"File '{path}' does not exist. Use read_file to verify existing paths.")
-        if not target.is_file():
-            return _tool_error(f"Path '{path}' is not a regular file.")
-
-        with open(target, "r", encoding="utf-8", errors="replace") as f:
-            file_text = f.read()
-
-        if not old_str:
-            return _tool_error("old_str is empty. Provide the exact text to replace.")
-        occurrences = file_text.count(old_str)
-        if occurrences == 0:
-            return _tool_error(f"Target text was not found in '{path}'. Check exact file content with read_file.")
-        if occurrences > 1 and not replace_all:
-            return _tool_error(f"Found {occurrences} matches for the snippet in '{path}'. Provide more surrounding context in old_str to ensure a unique match, or set replace_all to replace every match.")
-
-        updated_text = file_text.replace(old_str, new_str) if replace_all else file_text.replace(old_str, new_str, 1)
-        _atomic_write_text(target, updated_text)
-        return json.dumps({
-            "success": True,
-            "path": str(target),
-            "bytes_written": len(updated_text.encode("utf-8")),
-            "replacements": occurrences if replace_all else 1
-        }, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return _tool_error(str(e))
-
-
-def _existing_directory(path, ctx: SecurityContext) -> Path:
-    """La carpeta `path` (relativa al proyecto de la petición) resuelta; ValueError si no es una carpeta."""
-    if not isinstance(path, str) or not path.strip():
-        raise ValueError("La ruta del directorio está vacía.")
-    if len(path) > MAX_PATH_LENGTH:
-        raise ValueError("La ruta del directorio excede el tamaño máximo permitido.")
-    target = ctx.absolute(path)
-    if not target.is_dir():
-        raise ValueError(f"'{path}' no existe o no es un directorio.")
-    return target
-
-
-def resolve_project_directory(path, ctx: SecurityContext) -> dict:
-    """
-    Valida la carpeta que elige una pestaña como proyecto (relativa al suyo actual). El servidor no la
-    guarda: la pestaña la envía en cada petición (X-ZeroChat-Project) y otras pestañas siguen en la suya.
-    """
-    # Cambiar de proyecto no borra nada: cada proyecto conserva su propia sesión.
-    return {"cwd": str(_existing_directory(path, ctx))}
-
-
-# Subcarpetas de una respuesta del selector de carpeta de trabajo: una carpeta con más avisa de las que faltan.
-MAX_BROWSE_ENTRIES = 1000
-
-
-def browse_directories(params: dict, ctx: SecurityContext) -> dict:
-    """
-    Subcarpetas no ocultas de `path` (vacía, el proyecto de la petición), por nombre, para que la persona
-    elija la carpeta de trabajo. Como set_directory, no es una herramienta del modelo: no la limita la
-    carpeta del proyecto, solo lo que el usuario del sistema puede leer, y nunca muestra ficheros.
-    """
-    path = params.get("path")
-    target = ctx.workspace_dir.resolve() if path in (None, "") else _existing_directory(path, ctx)
-    names = []
-    try:
-        with os.scandir(target) as items:
-            for item in items:
-                if item.name.startswith("."):
-                    continue
-                try:
-                    if item.is_dir():
-                        names.append(item.name)
-                except OSError:
-                    continue
-    except OSError as exc:
-        raise ValueError(f"No se puede leer '{target}': {exc.strerror or exc}") from exc
-    names.sort(key=lambda name: (name.lower(), name))
-    return {
-        "path": str(target),
-        "parent": None if target.parent == target else str(target.parent),
-        "directories": names[:MAX_BROWSE_ENTRIES],
-        "total": len(names),
-        "truncated": len(names) > MAX_BROWSE_ENTRIES,
-    }
-
-
-def create_project_directory(params: dict, ctx: SecurityContext) -> dict:
-    """
-    Crea la carpeta `name` dentro de `parent` para usarla como proyecto. Solo bajo la carpeta personal del
-    usuario: crear un proyecto no necesita escribir en el resto del sistema. El nombre es un solo nivel
-    y no oculto, porque el selector no muestra las ocultas.
-    """
-    name = params.get("name")
-    if not isinstance(name, str) or not name.strip():
-        raise ValueError("El nombre de la carpeta está vacío.")
-    name = name.strip()
-    if len(name) > 255 or any(sep in name for sep in ("/", "\\", "\0")) or name.startswith("."):
-        raise ValueError(f"'{name}' no es un nombre de carpeta válido: sin separadores y sin empezar por un punto.")
-    parent = _existing_directory(params.get("parent"), ctx)
-    home = Path.home().resolve()
-    if parent != home and home not in parent.parents:
-        raise ValueError(f"Solo se pueden crear carpetas dentro de {home}.")
-    target = parent / name
-    try:
-        target.mkdir()
-    except FileExistsError as exc:
-        raise ValueError(f"'{target}' ya existe.") from exc
-    except OSError as exc:
-        raise ValueError(f"No se puede crear '{target}': {exc.strerror or exc}") from exc
-    return {"path": str(target)}
-
-
-def _walk_project_files(target: Path) -> Iterator[Path]:
-    """Ficheros bajo target en orden, sin los directorios ignorados ni los ocultos, y sin los enlaces simbólicos
-    que salen de target (no se lee nada fuera de la carpeta que se autorizó)."""
-    for root, dirs, files in os.walk(target):
-        dirs[:] = [d for d in dirs if d not in IGNORED_WORKSPACE_DIRS and not d.startswith(".")]
-        for fname in sorted(files):
-            fpath = Path(root) / fname
-            try:
-                if fpath.is_symlink() and not fpath.resolve().is_relative_to(target):
-                    continue
-            except (OSError, ValueError):
-                continue
-            yield fpath
-
-
-SEARCH_MAX_FILE_BYTES = 2 * 1024 * 1024
-SEARCH_LINE_CHARS = 300
-
-
-def _search_lines(fpath: Path, target: Path, terms: tuple[str, ...], limit: int) -> list[dict]:
-    """Hasta limit líneas de fpath que contienen alguno de los textos; un fichero que no se puede leer no tiene ninguna."""
-    try:
-        rel_path = fpath.relative_to(target).as_posix()
-    except ValueError:
-        rel_path = str(fpath)
-    found = []
-    try:
-        with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
-            for line_idx, line in enumerate(f, 1):
-                if line_matches(line, terms):
-                    found.append({"file": str(fpath), "relative_path": rel_path, "line_number": line_idx,
-                                  "content": line.rstrip("\r\n")[:SEARCH_LINE_CHARS]})
-                    if len(found) >= limit:
-                        break
-    except OSError:
-        pass
-    return found
-
-
-def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100, *, ctx: SecurityContext) -> str:
-    """
-    Busca texto fijo, sin distinguir mayúsculas, en un fichero o en los de una carpeta: la consulta es uno o varios
-    textos separados por | y no una expresión regular, porque re no suelta el GIL y una expresión con retroceso
-    catastrófico congelaría todo el servidor (como en check_command). Las búsquedas reales son texto fijo.
-    """
-    try:
-        target = ctx.absolute(path)
-        if not target.exists():
-            return _tool_error(f"Path '{path}' does not exist.")
-        terms = text_terms(query)
-        if not terms:
-            return _tool_error("query needs at least one text, such as 'validate_token|check_token'.")
-
-        try:
-            safe_max_results = max(1, min(int(max_results), 500))
-        except (TypeError, ValueError):
-            safe_max_results = 100
-
-        matches = []
-        files_searched = 0
-        root = target if target.is_dir() else target.parent
-        for fpath in _walk_project_files(target) if target.is_dir() else (target,):
-            if file_pattern and not fnmatch.fnmatch(fpath.name, file_pattern):
-                continue
-            try:
-                if fpath.stat().st_size > SEARCH_MAX_FILE_BYTES:
-                    continue
-            except OSError:
-                continue
-            files_searched += 1
-            matches.extend(_search_lines(fpath, root, terms, safe_max_results - len(matches)))
-            if len(matches) >= safe_max_results:
-                break
-
-        payload = {
-            "success": True,
-            "path": str(target),
-            "query": query,
-            "file_pattern": file_pattern,
-            "files_searched": files_searched,
-            "total_matches": len(matches),
-            "truncated": len(matches) >= safe_max_results,
-            "matches": matches
-        }
-        return json.dumps(payload, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return _tool_error(str(e))
-
-
-def _diagnostic(file: str, line: int, column: int, message: str) -> dict:
-    return {"file": file, "line": line, "column": column, "severity": "error", "message": message}
-
-
-def _python_diagnostics(fpath: Path, display: str) -> list[dict]:
-    try:
-        compile(fpath.read_text(encoding="utf-8", errors="replace"), str(fpath), "exec")
-    except SyntaxError as e:
-        return [_diagnostic(display, e.lineno or 1, e.offset or 1, f"SyntaxError: {e.msg}")]
-    return []
-
-
-def _js_diagnostics(fpath: Path, display: str) -> list[dict]:
-    """node --check, si hay node; sin él no se comprueba nada."""
-    node_bin = shutil.which("node")
-    if not node_bin:
-        return []
-    try:
-        res = subprocess.run([node_bin, "--check", str(fpath)], capture_output=True, text=True, timeout=10)
-    except (subprocess.SubprocessError, OSError):
-        return []
-    if res.returncode == 0:
-        return []
-    stderr = res.stderr or ""
-    line_match = re.search(r':(\d+)\n([^\n]+)\n(\s*)\^', stderr)
-    line = int(line_match.group(1)) if line_match else 1
-    col = len(line_match.group(3)) + 1 if line_match else 1
-    msg_match = re.search(r'(SyntaxError:[^\n]+)', stderr)
-    msg = msg_match.group(1) if msg_match else (stderr.strip().splitlines()[-1] if stderr.strip() else "Syntax error")
-    return [_diagnostic(display, line, col, msg)]
-
-
-def _json_diagnostics(fpath: Path, display: str) -> list[dict]:
-    try:
-        json.loads(fpath.read_text(encoding="utf-8", errors="replace"))
-    except json.JSONDecodeError as e:
-        return [_diagnostic(display, e.lineno, e.colno, f"JSONDecodeError: {e.msg}")]
-    return []
-
-
-# Comprobación de sintaxis por extensión: un lenguaje nuevo es una entrada más.
-DIAGNOSTIC_CHECKS = {
-    ".py": _python_diagnostics,
-    ".js": _js_diagnostics, ".mjs": _js_diagnostics, ".cjs": _js_diagnostics,
-    ".json": _json_diagnostics,
-}
-DIAGNOSTICS_MAX_FILES = 200
-
-
-def _file_diagnostics(fpath: Path, workspace_dir: Path) -> list[dict]:
-    check = DIAGNOSTIC_CHECKS.get(fpath.suffix.lower())
-    if check is None:
-        return []
-    try:
-        display = fpath.relative_to(workspace_dir).as_posix()
-    except ValueError:
-        display = str(fpath)
-    return check(fpath, display)
-
-
-def get_diagnostics(path: str | None = None, *, ctx: SecurityContext) -> str:
-    """Retrieve syntax diagnostics and code errors for a file or the entire workspace."""
-    try:
-        target = ctx.absolute(path) if path is not None and str(path).strip() else ctx.workspace_dir
-
-        if not target.exists():
-            return _tool_error(f"Path '{path}' does not exist.")
-
-        if target.is_file():
-            checked = [target]
-        else:
-            checkable = (fp for fp in _walk_project_files(target) if fp.suffix.lower() in DIAGNOSTIC_CHECKS)
-            checked = list(itertools.islice(checkable, DIAGNOSTICS_MAX_FILES))
-        files_checked = len(checked)
-        diagnostics = [diag for fp in checked for diag in _file_diagnostics(fp, ctx.workspace_dir)]
-
-        msg = f"Found {len(diagnostics)} issue(s)." if diagnostics else "No diagnostic issues found."
-
-        return json.dumps({
-            "success": True,
-            "path": str(target),
-            "files_checked": files_checked,
-            "error_count": len(diagnostics),
-            "diagnostics": diagnostics,
-            "message": msg
-        }, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return _tool_error(str(e))
-
 # --- tools.job_waits ---
 """Esperas de check_command a un comando: vuelven cuando termina, cuando una línea nueva de su salida contiene un
 texto o al agotar el plazo, que es un máximo. La persona puede cortarlas con la clave de la invocación."""
@@ -6954,6 +6445,9 @@ class JobManager:
 
     def running(self, project: str | None) -> list[CommandJob]:
         return [job for job in self.list(project) if not job.done.is_set()]
+
+    def running_summaries(self, project: str | None) -> list[dict]:
+        return [{**job.summary(), "last_line": job.last_line()} for job in self.running(project)]
 
     def stop_all(self, reason: str = "shutdown"):
         threads = [threading.Thread(target=self.stop, args=(job, reason), daemon=True) for job in self.running(None)]
@@ -7738,10 +7232,11 @@ def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -
     return {
         "serverId": get_server_id(),
         "cwd": str(ctx.workspace_dir),
-        "jobs": [{**job.summary(), "last_line": job.last_line()} for job in JOBS.running(ctx.key)],
+        "jobs": JOBS.running_summaries(ctx.key),
         "exit_on_close": EXIT_ON_CLOSE,
         "playwright": playwright_status(),
         "servers": GLOBAL_MCP_MANAGER.list_servers(),
+        "externalTools": GLOBAL_MCP_MANAGER.tools(),
         "runs": runs,
         "focus_run": focus_run
     }
@@ -7998,6 +7493,569 @@ def launch_node_runner(url: str) -> tuple[subprocess.Popen, IO[bytes]] | None:
         run_error(f"No se pudo iniciar el proceso de Node.js ({error}).")
         return None
 
+# --- tools.filesystem ---
+"""Herramientas de archivos del servidor local: listar, leer, escribir, editar, buscar y diagnosticar dentro de las rutas que autoriza el proyecto."""
+
+
+
+
+IGNORED_WORKSPACE_DIRS = {
+    ".git", ".venv", "venv", "node_modules", "__pycache__",
+    ".pytest_cache", ".cache", ".gemini", "dist", "build"
+}
+
+
+LIST_DIRECTORY_MAX_ENTRIES = 1000
+
+
+def _directory_entry(entry: os.DirEntry, target: Path, recursive: bool) -> dict:
+    """Datos de una entrada de list_directory; OSError si desaparece o no se puede leer."""
+    stat = entry.stat(follow_symlinks=False)
+    is_dir = entry.is_dir(follow_symlinks=False)
+    try:
+        resolved_path = str(Path(entry.path).resolve())
+    except (OSError, RuntimeError):
+        resolved_path = str(Path(entry.path).absolute())
+    data = {
+        "name": entry.name,
+        "path": resolved_path,
+        "type": "directory" if is_dir else "file",
+        "size_bytes": None if is_dir else stat.st_size,
+        "is_symlink": entry.is_symlink()
+    }
+    if recursive:
+        try:
+            data["relative_path"] = Path(entry.path).relative_to(target).as_posix()
+        except ValueError:
+            data["relative_path"] = entry.name
+    return data
+
+
+def _scan_directory(current: Path, target: Path, depth: int, max_depth: int, recursive: bool, entries: list[dict]):
+    """Añade a entries el contenido de current, carpetas primero, sin seguir enlaces y hasta el tope de entradas."""
+    if depth > max_depth or len(entries) >= LIST_DIRECTORY_MAX_ENTRIES:
+        return
+    try:
+        with os.scandir(current) as it:
+            items = sorted(it, key=lambda e: (not e.is_dir(follow_symlinks=False), e.name.lower()))
+    except OSError:
+        return
+    for entry in items:
+        if len(entries) >= LIST_DIRECTORY_MAX_ENTRIES:
+            break
+        try:
+            data = _directory_entry(entry, target, recursive)
+            entries.append(data)
+            if recursive and data["type"] == "directory" and not data["is_symlink"]:
+                _scan_directory(Path(entry.path), target, depth + 1, max_depth, recursive, entries)
+        except OSError:
+            continue
+
+
+def list_directory(path: str = ".", recursive: bool = False, *, ctx: SecurityContext) -> str:
+    """List files and directories in a local directory with safe bounded recursive traversal."""
+    try:
+        target = ctx.absolute(path)
+        if not target.exists():
+            return _tool_error(f"Path '{path}' does not exist.")
+        if not target.is_dir():
+            return _tool_error(f"Path '{path}' is not a directory.")
+        entries: list[dict] = []
+        _scan_directory(target, target, 1, 3 if recursive else 1, recursive, entries)
+        return json.dumps({
+            "success": True,
+            "path": str(target),
+            "recursive": bool(recursive),
+            "total_items": len(entries),
+            "entries": entries
+        }, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return _tool_error(str(e))
+
+
+# Códigos de control de terminal (colores, movimiento del cursor) que un log trae y el modelo no necesita.
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-Z\\-_]")
+READ_TAIL_BLOCK_BYTES = 64 * 1024
+MAX_READ_LINES = 2000
+
+
+def _terminal_line(line: str) -> str:
+    """Una línea como la deja una terminal: sin códigos de color y, si se reescribe con \\r, su último tramo."""
+    ending = "\n" if line.endswith("\n") else ""
+    text = ANSI_ESCAPE_RE.sub("", line[:-1] if ending else line).rstrip("\r")
+    return text[text.rfind("\r") + 1:] + ending
+
+
+def _count_lines(target: Path) -> int:
+    lines = 0
+    last = b""
+    with open(target, "rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            lines += chunk.count(b"\n")
+            last = chunk[-1:]
+    return lines + (1 if last and last != b"\n" else 0)
+
+
+def _read_tail(target: Path, tail_lines: int, max_bytes: int) -> str:
+    """Las últimas tail_lines líneas, leyendo el fichero desde el final por bloques y sin pasar de max_bytes."""
+    file_size = target.stat().st_size
+    wanted = max(1, min(int(tail_lines), MAX_READ_LINES))
+    data = b""
+    with open(target, "rb") as handle:
+        position = file_size
+        # Una línea más de las pedidas: la primera del bloque puede estar a medias.
+        while position > 0 and data.count(b"\n") <= wanted and len(data) < max_bytes:
+            step = min(READ_TAIL_BLOCK_BYTES, position)
+            position -= step
+            handle.seek(position)
+            data = handle.read(step) + data
+    truncated_bytes = len(data) > max_bytes
+    if truncated_bytes:
+        data = data[-max_bytes:]
+    # Solo \n separa líneas: splitlines también parte en \r y desharía las barras de progreso.
+    parts = data.decode("utf-8", errors="replace").split("\n")
+    lines = [part + "\n" for part in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
+    if (position > 0 or truncated_bytes) and lines:
+        lines = lines[1:]
+    lines = lines[-wanted:]
+    total_lines = _count_lines(target)
+    start_line = total_lines - len(lines) + 1
+    return json.dumps({
+        "success": True,
+        "path": str(target),
+        "size_bytes": file_size,
+        "total_lines": total_lines,
+        "start_line": start_line,
+        "end_line": total_lines,
+        "lines_returned": len(lines),
+        "truncated": start_line > 1,
+        "content": "".join(_terminal_line(line) for line in lines)
+    }, ensure_ascii=False, indent=2)
+
+
+# Pasado el rango pedido, read_file sigue contando líneas para total_lines hasta este número más allá del inicio.
+READ_COUNT_AHEAD_LINES = 50000
+
+
+def _read_line_range(target: Path, start: int, count: int, max_bytes: int) -> tuple[list[str], int, bool]:
+    """Hasta count líneas desde start sin pasar de max_bytes (la última, cortada). Devuelve las líneas, las que
+    se han contado (todas, o hasta READ_COUNT_AHEAD_LINES más allá de start) y si se cortó por bytes."""
+    selected: list[str] = []
+    used = 0
+    total_lines = 0
+    with open(target, "r", encoding="utf-8", errors="replace") as f:
+        for line_no, line in enumerate(f, 1):
+            total_lines = line_no
+            if line_no < start:
+                continue
+            if len(selected) >= count:
+                if line_no > start + READ_COUNT_AHEAD_LINES:
+                    break
+                continue
+            encoded = line.encode("utf-8")
+            if used + len(encoded) > max_bytes:
+                if max_bytes > used:
+                    selected.append(encoded[:max_bytes - used].decode("utf-8", errors="ignore"))
+                return selected, total_lines, True
+            selected.append(line)
+            used += len(encoded)
+    return selected, total_lines, False
+
+
+def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: int = 500, max_bytes: int = 100000,
+              tail_lines: int | None = None, *, ctx: SecurityContext) -> str:
+    """Read text content from a local file in streaming mode with safe ranges and bounds, or its last lines."""
+    try:
+        target = ctx.absolute(path)
+        if not target.exists():
+            return _tool_error(f"File '{path}' does not exist.")
+        if not target.is_file():
+            return _tool_error(f"Path '{path}' is not a regular file.")
+
+        file_size = target.stat().st_size
+        safe_max_bytes = max(1024, min(int(max_bytes), 2000000))
+        if tail_lines is not None:
+            return _read_tail(target, tail_lines, safe_max_bytes)
+        start = max(1, int(start_line))
+        if end_line is not None:
+            count = min(max(start, int(end_line)) - start + 1, MAX_READ_LINES)
+        else:
+            count = max(1, min(int(max_lines), MAX_READ_LINES))
+
+        selected, total_lines, truncated_bytes = _read_line_range(target, start, count, safe_max_bytes)
+        return json.dumps({
+            "success": True,
+            "path": str(target),
+            "size_bytes": file_size,
+            "total_lines": total_lines,
+            "start_line": start,
+            "end_line": start + len(selected) - 1,
+            "lines_returned": len(selected),
+            "truncated": truncated_bytes or start + count - 1 < total_lines,
+            "content": "".join(selected)
+        }, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return _tool_error(str(e))
+
+
+def write_file(path: str, content: str, *, ctx: SecurityContext) -> str:
+    """Create or overwrite a file completely and atomically."""
+    try:
+        target = ctx.absolute(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write_text(target, content)
+        bytes_written = len(content.encode("utf-8"))
+        return json.dumps({
+            "success": True,
+            "path": str(target),
+            "bytes_written": bytes_written
+        }, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return _tool_error(str(e))
+
+
+def edit_file(path: str, old_str: str, new_str: str, replace_all: bool = False, *, ctx: SecurityContext) -> str:
+    """Replace old_str with new_str in an existing file: its single occurrence, or all of them with replace_all."""
+    try:
+        target = ctx.absolute(path)
+        if not target.exists():
+            return _tool_error(f"File '{path}' does not exist. Use read_file to verify existing paths.")
+        if not target.is_file():
+            return _tool_error(f"Path '{path}' is not a regular file.")
+
+        with open(target, "r", encoding="utf-8", errors="replace") as f:
+            file_text = f.read()
+
+        if not old_str:
+            return _tool_error("old_str is empty. Provide the exact text to replace.")
+        occurrences = file_text.count(old_str)
+        if occurrences == 0:
+            return _tool_error(f"Target text was not found in '{path}'. Check exact file content with read_file.")
+        if occurrences > 1 and not replace_all:
+            return _tool_error(f"Found {occurrences} matches for the snippet in '{path}'. Provide more surrounding context in old_str to ensure a unique match, or set replace_all to replace every match.")
+
+        updated_text = file_text.replace(old_str, new_str) if replace_all else file_text.replace(old_str, new_str, 1)
+        _atomic_write_text(target, updated_text)
+        return json.dumps({
+            "success": True,
+            "path": str(target),
+            "bytes_written": len(updated_text.encode("utf-8")),
+            "replacements": occurrences if replace_all else 1
+        }, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return _tool_error(str(e))
+
+
+def _existing_directory(path, ctx: SecurityContext) -> Path:
+    """La carpeta `path` (relativa al proyecto de la petición) resuelta; ValueError si no es una carpeta."""
+    if not isinstance(path, str) or not path.strip():
+        raise ValueError("La ruta del directorio está vacía.")
+    if len(path) > MAX_PATH_LENGTH:
+        raise ValueError("La ruta del directorio excede el tamaño máximo permitido.")
+    target = ctx.absolute(path)
+    if not target.is_dir():
+        raise ValueError(f"'{path}' no existe o no es un directorio.")
+    return target
+
+
+def resolve_project_directory(path, ctx: SecurityContext) -> dict:
+    """
+    Valida la carpeta que elige una pestaña como proyecto (relativa al suyo actual). El servidor no la
+    guarda: la pestaña la envía en cada petición (X-ZeroChat-Project) y otras pestañas siguen en la suya.
+    """
+    # Cambiar de proyecto no borra nada: cada proyecto conserva su propia sesión.
+    return {"cwd": str(_existing_directory(path, ctx))}
+
+
+PROJECT_CONTEXT_MAX_BYTES = 16384
+
+
+def _can_read_project_file(rel_path: str, ctx: SecurityContext) -> bool:
+    path = str(ctx.workspace_dir / rel_path)
+    return ACCESS_CONTROLLER.evaluate_authorization(
+        "read_file", {"path": path}, context=ctx, server_name="mcp-proxy", server_id=""
+    ).status == POLICY_ALLOW
+
+
+def _read_project_text(rel_path: str, ctx: SecurityContext, max_lines: int = MAX_READ_LINES) -> tuple[str, dict | None, str]:
+    """Lee un fichero del proyecto: devuelve (status, {content, truncated}, error)."""
+    try:
+        target = ctx.absolute(rel_path)
+        if not target.exists():
+            return "missing", None, ""
+        if not target.is_file():
+            return "error", None, f"Path '{rel_path}' is not a regular file."
+        selected, total_lines, truncated_bytes = _read_line_range(target, 1, max_lines, PROJECT_CONTEXT_MAX_BYTES)
+        return "ok", {"content": "".join(selected), "truncated": truncated_bytes or max_lines < total_lines}, ""
+    except OSError as exc:
+        return "error", None, str(exc)
+
+
+def read_project_context(ctx: SecurityContext) -> dict:
+    """
+    Contexto del modo proyecto (.zerochat/task.py, .zerochat/state.md y AGENTS.md) en una sola lectura,
+    sujeta a las mismas reglas de lectura que read_file sin abrir retos interactivos.
+    """
+    if not _can_read_project_file(".zerochat/task.py", ctx):
+        return {"status": "denied"}
+    helper_status, _, helper_err = _read_project_text(".zerochat/task.py", ctx, max_lines=1)
+    if helper_status != "ok":
+        return {"status": helper_status, **({"error": helper_err} if helper_err else {})}
+    if not _can_read_project_file(".zerochat/state.md", ctx):
+        return {"status": "denied"}
+    state_status, state_data, state_err = _read_project_text(".zerochat/state.md", ctx)
+    if state_status == "error":
+        return {"status": "error", "error": state_err}
+    rules_data = None
+    if _can_read_project_file("AGENTS.md", ctx):
+        _, rules_data, _ = _read_project_text("AGENTS.md", ctx)
+    empty = {"content": "", "truncated": False}
+    return {
+        "status": "ok",
+        "rules": rules_data or empty,
+        "state": state_data or empty,
+    }
+
+
+# Subcarpetas de una respuesta del selector de carpeta de trabajo: una carpeta con más avisa de las que faltan.
+MAX_BROWSE_ENTRIES = 1000
+
+
+def browse_directories(params: dict, ctx: SecurityContext) -> dict:
+    """
+    Subcarpetas no ocultas de `path` (vacía, el proyecto de la petición), por nombre, para que la persona
+    elija la carpeta de trabajo. Como set_directory, no es una herramienta del modelo: no la limita la
+    carpeta del proyecto, solo lo que el usuario del sistema puede leer, y nunca muestra ficheros.
+    """
+    path = params.get("path")
+    target = ctx.workspace_dir.resolve() if path in (None, "") else _existing_directory(path, ctx)
+    names = []
+    try:
+        with os.scandir(target) as items:
+            for item in items:
+                if item.name.startswith("."):
+                    continue
+                try:
+                    if item.is_dir():
+                        names.append(item.name)
+                except OSError:
+                    continue
+    except OSError as exc:
+        raise ValueError(f"No se puede leer '{target}': {exc.strerror or exc}") from exc
+    names.sort(key=lambda name: (name.lower(), name))
+    return {
+        "path": str(target),
+        "parent": None if target.parent == target else str(target.parent),
+        "directories": names[:MAX_BROWSE_ENTRIES],
+        "total": len(names),
+        "truncated": len(names) > MAX_BROWSE_ENTRIES,
+    }
+
+
+def create_project_directory(params: dict, ctx: SecurityContext) -> dict:
+    """
+    Crea la carpeta `name` dentro de `parent` para usarla como proyecto. Solo bajo la carpeta personal del
+    usuario: crear un proyecto no necesita escribir en el resto del sistema. El nombre es un solo nivel
+    y no oculto, porque el selector no muestra las ocultas.
+    """
+    name = params.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("El nombre de la carpeta está vacío.")
+    name = name.strip()
+    if len(name) > 255 or any(sep in name for sep in ("/", "\\", "\0")) or name.startswith("."):
+        raise ValueError(f"'{name}' no es un nombre de carpeta válido: sin separadores y sin empezar por un punto.")
+    parent = _existing_directory(params.get("parent"), ctx)
+    home = Path.home().resolve()
+    if parent != home and home not in parent.parents:
+        raise ValueError(f"Solo se pueden crear carpetas dentro de {home}.")
+    target = parent / name
+    try:
+        target.mkdir()
+    except FileExistsError as exc:
+        raise ValueError(f"'{target}' ya existe.") from exc
+    except OSError as exc:
+        raise ValueError(f"No se puede crear '{target}': {exc.strerror or exc}") from exc
+    return {"path": str(target)}
+
+
+def _walk_project_files(target: Path) -> Iterator[Path]:
+    """Ficheros bajo target en orden, sin los directorios ignorados ni los ocultos, y sin los enlaces simbólicos
+    que salen de target (no se lee nada fuera de la carpeta que se autorizó)."""
+    for root, dirs, files in os.walk(target):
+        dirs[:] = [d for d in dirs if d not in IGNORED_WORKSPACE_DIRS and not d.startswith(".")]
+        for fname in sorted(files):
+            fpath = Path(root) / fname
+            try:
+                if fpath.is_symlink() and not fpath.resolve().is_relative_to(target):
+                    continue
+            except (OSError, ValueError):
+                continue
+            yield fpath
+
+
+SEARCH_MAX_FILE_BYTES = 2 * 1024 * 1024
+SEARCH_LINE_CHARS = 300
+
+
+def _search_lines(fpath: Path, target: Path, terms: tuple[str, ...], limit: int) -> list[dict]:
+    """Hasta limit líneas de fpath que contienen alguno de los textos; un fichero que no se puede leer no tiene ninguna."""
+    try:
+        rel_path = fpath.relative_to(target).as_posix()
+    except ValueError:
+        rel_path = str(fpath)
+    found = []
+    try:
+        with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+            for line_idx, line in enumerate(f, 1):
+                if line_matches(line, terms):
+                    found.append({"file": str(fpath), "relative_path": rel_path, "line_number": line_idx,
+                                  "content": line.rstrip("\r\n")[:SEARCH_LINE_CHARS]})
+                    if len(found) >= limit:
+                        break
+    except OSError:
+        pass
+    return found
+
+
+def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100, *, ctx: SecurityContext) -> str:
+    """
+    Busca texto fijo, sin distinguir mayúsculas, en un fichero o en los de una carpeta: la consulta es uno o varios
+    textos separados por | y no una expresión regular, porque re no suelta el GIL y una expresión con retroceso
+    catastrófico congelaría todo el servidor (como en check_command). Las búsquedas reales son texto fijo.
+    """
+    try:
+        target = ctx.absolute(path)
+        if not target.exists():
+            return _tool_error(f"Path '{path}' does not exist.")
+        terms = text_terms(query)
+        if not terms:
+            return _tool_error("query needs at least one text, such as 'validate_token|check_token'.")
+
+        try:
+            safe_max_results = max(1, min(int(max_results), 500))
+        except (TypeError, ValueError):
+            safe_max_results = 100
+
+        matches = []
+        files_searched = 0
+        root = target if target.is_dir() else target.parent
+        for fpath in _walk_project_files(target) if target.is_dir() else (target,):
+            if file_pattern and not fnmatch.fnmatch(fpath.name, file_pattern):
+                continue
+            try:
+                if fpath.stat().st_size > SEARCH_MAX_FILE_BYTES:
+                    continue
+            except OSError:
+                continue
+            files_searched += 1
+            matches.extend(_search_lines(fpath, root, terms, safe_max_results - len(matches)))
+            if len(matches) >= safe_max_results:
+                break
+
+        payload = {
+            "success": True,
+            "path": str(target),
+            "query": query,
+            "file_pattern": file_pattern,
+            "files_searched": files_searched,
+            "total_matches": len(matches),
+            "truncated": len(matches) >= safe_max_results,
+            "matches": matches
+        }
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return _tool_error(str(e))
+
+
+def _diagnostic(file: str, line: int, column: int, message: str) -> dict:
+    return {"file": file, "line": line, "column": column, "severity": "error", "message": message}
+
+
+def _python_diagnostics(fpath: Path, display: str) -> list[dict]:
+    try:
+        compile(fpath.read_text(encoding="utf-8", errors="replace"), str(fpath), "exec")
+    except SyntaxError as e:
+        return [_diagnostic(display, e.lineno or 1, e.offset or 1, f"SyntaxError: {e.msg}")]
+    return []
+
+
+def _js_diagnostics(fpath: Path, display: str) -> list[dict]:
+    """node --check, si hay node; sin él no se comprueba nada."""
+    node_bin = shutil.which("node")
+    if not node_bin:
+        return []
+    try:
+        res = subprocess.run([node_bin, "--check", str(fpath)], capture_output=True, text=True, timeout=10)
+    except (subprocess.SubprocessError, OSError):
+        return []
+    if res.returncode == 0:
+        return []
+    stderr = res.stderr or ""
+    line_match = re.search(r':(\d+)\n([^\n]+)\n(\s*)\^', stderr)
+    line = int(line_match.group(1)) if line_match else 1
+    col = len(line_match.group(3)) + 1 if line_match else 1
+    msg_match = re.search(r'(SyntaxError:[^\n]+)', stderr)
+    msg = msg_match.group(1) if msg_match else (stderr.strip().splitlines()[-1] if stderr.strip() else "Syntax error")
+    return [_diagnostic(display, line, col, msg)]
+
+
+def _json_diagnostics(fpath: Path, display: str) -> list[dict]:
+    try:
+        json.loads(fpath.read_text(encoding="utf-8", errors="replace"))
+    except json.JSONDecodeError as e:
+        return [_diagnostic(display, e.lineno, e.colno, f"JSONDecodeError: {e.msg}")]
+    return []
+
+
+# Comprobación de sintaxis por extensión: un lenguaje nuevo es una entrada más.
+DIAGNOSTIC_CHECKS = {
+    ".py": _python_diagnostics,
+    ".js": _js_diagnostics, ".mjs": _js_diagnostics, ".cjs": _js_diagnostics,
+    ".json": _json_diagnostics,
+}
+DIAGNOSTICS_MAX_FILES = 200
+
+
+def _file_diagnostics(fpath: Path, workspace_dir: Path) -> list[dict]:
+    check = DIAGNOSTIC_CHECKS.get(fpath.suffix.lower())
+    if check is None:
+        return []
+    try:
+        display = fpath.relative_to(workspace_dir).as_posix()
+    except ValueError:
+        display = str(fpath)
+    return check(fpath, display)
+
+
+def get_diagnostics(path: str | None = None, *, ctx: SecurityContext) -> str:
+    """Retrieve syntax diagnostics and code errors for a file or the entire workspace."""
+    try:
+        target = ctx.absolute(path) if path is not None and str(path).strip() else ctx.workspace_dir
+
+        if not target.exists():
+            return _tool_error(f"Path '{path}' does not exist.")
+
+        if target.is_file():
+            checked = [target]
+        else:
+            checkable = (fp for fp in _walk_project_files(target) if fp.suffix.lower() in DIAGNOSTIC_CHECKS)
+            checked = list(itertools.islice(checkable, DIAGNOSTICS_MAX_FILES))
+        files_checked = len(checked)
+        diagnostics = [diag for fp in checked for diag in _file_diagnostics(fp, ctx.workspace_dir)]
+
+        msg = f"Found {len(diagnostics)} issue(s)." if diagnostics else "No diagnostic issues found."
+
+        return json.dumps({
+            "success": True,
+            "path": str(target),
+            "files_checked": files_checked,
+            "error_count": len(diagnostics),
+            "diagnostics": diagnostics,
+            "message": msg
+        }, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return _tool_error(str(e))
+
 # --- tools.jobs_rpc ---
 """Métodos JSON-RPC de los comandos del proyecto para la interfaz: lista, tarjetas, log, detener y cortar esperas."""
 
@@ -8012,19 +8070,33 @@ def _report(params: dict, project: str) -> RpcOutcome:
 
 
 def _log(params: dict, job) -> RpcOutcome:
+    tail = params.get("tail")
     offset = params.get("offset", 0)
     limit = params.get("limit", JOB_LOG_PAGE_BYTES)
-    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
-        return rpc_error(INVALID_PARAMS, "offset debe ser un entero no negativo.")
+    if tail is not None:
+        if isinstance(tail, bool) or not isinstance(tail, int) or tail < 0:
+            return rpc_error(INVALID_PARAMS, "tail debe ser un entero no negativo.")
+        start = max(0, job.total - tail)
+    else:
+        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+            return rpc_error(INVALID_PARAMS, "offset debe ser un entero no negativo.")
+        start = offset
     if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
         return rpc_error(INVALID_PARAMS, "limit debe ser un entero positivo.")
-    text, next_offset = job.read_range(offset, min(limit, JOB_LOG_PAGE_BYTES))
-    return rpc_result({"text": text, "next": next_offset, "total": job.total, "done": job.done.is_set()})
+    text, next_offset = job.read_range(start, min(limit, JOB_LOG_PAGE_BYTES))
+    return rpc_result({
+        "text": text,
+        "offset": start,
+        "next": next_offset,
+        "total": job.total,
+        "done": job.done.is_set(),
+        "details": job.summary(),
+    })
 
 
 def _stop(_params: dict, job) -> RpcOutcome:
     JOBS.stop(job, "user")
-    return rpc_result(job_details(job))
+    return rpc_result({**job_details(job), "jobs": JOBS.running_summaries(job.project)})
 
 
 PROJECT_JOB_METHODS = {
@@ -8538,10 +8610,14 @@ def authorize_or_challenge(origin: str, tool_name: str, args: dict, ctx: Securit
     return None
 
 
-def call_tool(origin: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
-    """tools/call de los dos endpoints: evalúa, emite un reto o ejecuta por el punto único."""
+def call_tool(params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
+    """tools/call: evalúa, emite un reto o ejecuta la herramienta (local o de un servicio MCP) por el punto único."""
     tool_name = params.get("name", "")
-    if origin == "local" and tool_name not in LOCAL_TOOL_HANDLERS:
+    if tool_name in LOCAL_TOOL_HANDLERS:
+        origin = "local"
+    elif GLOBAL_MCP_MANAGER.server_of(tool_name):
+        origin = "external"
+    else:
         return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
     raw_args = params.get("arguments")
     args = dict(raw_args) if isinstance(raw_args, dict) else {}
@@ -8580,7 +8656,6 @@ def _authorize(params: dict, ctx: SecurityContext) -> RpcOutcome:
 
 
 SECURITY_METHODS = {
-    "zerochat/security/get": lambda _params, ctx: rpc_result({"policies": ACCESS_CONTROLLER.export_state(ctx)}),
     "zerochat/security/update": lambda params, ctx: rpc_result({"policies": ACCESS_CONTROLLER.import_state(params, context=ctx)}),
     "zerochat/security/authorize": _authorize,
 }
@@ -8913,7 +8988,7 @@ def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed, t
         }
 
 # --- server.rpc ---
-"""Métodos JSON-RPC de los dos endpoints del servidor: una tabla por método exacto y otra por grupo (prefijo).
+"""Métodos JSON-RPC del servidor local: una tabla por método exacto y otra por grupo (prefijo).
 
 Cada método vive junto a su dominio (storage/rpc.py, tools/jobs_rpc.py, run_mode/state.py…); aquí solo se
 decide quién atiende cada uno.
@@ -8922,14 +8997,9 @@ decide quién atiende cada uno.
 
 
 
-def initialize_result(server_info: dict) -> dict:
-    return {
-        "protocolVersion": "2024-11-05",
-        "serverInfo": server_info,
-        "capabilities": {
-            "tools": {"listChanged": True}
-        }
-    }
+
+def _local_tools() -> list[dict]:
+    return [dict(definition) for definition in LOCAL_TOOLS_DEFINITIONS]
 
 
 def rpc_login(params: dict) -> RpcOutcome:
@@ -8946,14 +9016,23 @@ def rpc_login(params: dict) -> RpcOutcome:
 
 
 def _initialize(_params: dict, ctx: SecurityContext) -> RpcOutcome:
-    server_info = {
-        "name": "ZeroChat Local Server",
-        "version": VERSION,
-        "cwd": str(ctx.workspace_dir),
-        "noProjectDir": str(get_no_project_dir()),
-        "os": DETECTED_OS
-    }
-    return rpc_result({**initialize_result(server_info), "liveState": live_state(ctx)})
+    return rpc_result({
+        "protocolVersion": "2024-11-05",
+        "serverInfo": {
+            "name": "ZeroChat Local Server",
+            "version": VERSION,
+            "cwd": str(ctx.workspace_dir),
+            "noProjectDir": str(get_no_project_dir()),
+            "os": DETECTED_OS,
+        },
+        "capabilities": {
+            "tools": {"listChanged": True},
+        },
+        "tools": _local_tools(),
+        "policies": ACCESS_CONTROLLER.export_state(ctx),
+        "projectContext": read_project_context(ctx),
+        "liveState": live_state(ctx),
+    })
 
 
 def _heartbeat(params: dict, ctx: SecurityContext) -> RpcOutcome:
@@ -8963,7 +9042,13 @@ def _heartbeat(params: dict, ctx: SecurityContext) -> RpcOutcome:
 def _set_project_directory(params: dict, ctx: SecurityContext) -> RpcOutcome:
     # Lo invoca la interfaz a petición del usuario: no es una herramienta del modelo.
     try:
-        return rpc_result(resolve_project_directory(params.get("path"), ctx))
+        resolved = resolve_project_directory(params.get("path"), ctx)
+        next_ctx = SecurityContext(workspace_dir=Path(resolved["cwd"]))
+        return rpc_result({
+            **resolved,
+            "policies": ACCESS_CONTROLLER.export_state(next_ctx),
+            "projectContext": read_project_context(next_ctx),
+        })
     except (ValueError, OSError) as exc:
         return rpc_error(INVALID_PARAMS, str(exc))
 
@@ -9023,8 +9108,9 @@ LOCAL_METHODS = {
     "initialize": _initialize,
     "zerochat/heartbeat": _heartbeat,
     "zerochat/login": lambda params, _ctx: rpc_login(params),
-    "tools/list": lambda _params, _ctx: rpc_result({"tools": [dict(definition) for definition in LOCAL_TOOLS_DEFINITIONS]}),
-    "tools/call": lambda params, ctx: call_tool("local", params, ctx),
+    "tools/list": lambda _params, _ctx: rpc_result({"tools": _local_tools() + GLOBAL_MCP_MANAGER.tools()}),
+    "tools/call": call_tool,
+    "zerochat/project/context": lambda _params, ctx: rpc_result(read_project_context(ctx)),
     "zerochat/project/set_directory": _set_project_directory,
     "zerochat/project/browse": _browse_directories,
     "zerochat/project/create_directory": _create_directory,
@@ -9061,20 +9147,6 @@ def dispatch_local(method: str, params: dict, ctx: SecurityContext) -> RpcOutcom
         if method.startswith(prefix):
             return dispatcher(method, params, ctx)
     return rpc_not_supported(method)
-
-
-EXTERNAL_METHODS = {
-    "initialize": lambda _params, _ctx: rpc_result(initialize_result({"name": "ZeroChat External MCP Host", "version": VERSION})),
-    "tools/list": lambda _params, _ctx: rpc_result({"tools": GLOBAL_MCP_MANAGER.tools()}),
-    "tools/call": lambda params, ctx: call_tool("external", params, ctx),
-}
-
-
-def dispatch_external(method: str, params: dict, ctx: SecurityContext) -> RpcOutcome:
-    """Endpoint /mcp/external: las herramientas de los servicios MCP externos."""
-    if method in EXTERNAL_METHODS:
-        return dispatch_table(EXTERNAL_METHODS, method, params, ctx)
-    return rpc_error(METHOD_NOT_FOUND, f"Método '{method}' no soportado en /mcp/external.")
 
 # --- server.handler ---
 """Servidor HTTP JSON-RPC del backend local: orígenes admitidos, token e identificación, despacho por grupos de métodos y punto único de ejecución de herramientas."""
@@ -9132,7 +9204,14 @@ def is_allowed_origin(origin: str | None, require_origin: bool = False) -> bool:
 
 
 # zerochat/run/progress ya se registra con su propio texto en dispatch_run.
-QUIET_RPC_METHODS = frozenset({"zerochat/heartbeat", "zerochat/jobs/get", "zerochat/jobs/log", "zerochat/jobs/list", "zerochat/run/progress"})
+QUIET_RPC_METHODS = frozenset({
+    "zerochat/heartbeat",
+    "zerochat/jobs/get",
+    "zerochat/jobs/log",
+    "zerochat/jobs/list",
+    "zerochat/run/progress",
+    "zerochat/project/context",
+})
 DEV_CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".js": "application/javascript; charset=utf-8",
@@ -9478,10 +9557,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._send_rpc_response(req_id, (None, {"code": PROJECT_GONE_CODE, "message": str(ex)}, ""), log_detail, t0, quiet)
             return
         try:
-            if "/mcp/external" in req_path:
-                outcome = dispatch_external(method, params, ctx)
-            else:
-                outcome = dispatch_local(method, params, ctx)
+            outcome = dispatch_local(method, params, ctx)
         except Exception as ex:
             outcome = None, {"code": -32603, "message": f"Error interno: {ex}"}, ""
         self._send_rpc_response(req_id, outcome, log_detail, t0, quiet)

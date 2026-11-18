@@ -249,11 +249,25 @@ class BrowserEnginesTest(unittest.TestCase):
         # Al quitar el motor elegido, la configuración pasa a otro instalado.
         self.engines.install("firefox")
         self.assertTrue(self.settled("firefox")["installed"])
-        self.assertIs(next(item for item in self.engines.remove("chromium")["engines"] if item["id"] == "chromium")["installed"], False)
+        removed = self.engines.remove("chromium")
+        self.assertIs(next(item for item in removed["engines"] if item["id"] == "chromium")["installed"], False)
+        self.assertEqual(removed["config"]["engine"], "firefox")
         self.assertEqual(sorted(path.name for path in self.cache.iterdir()), ["ffmpeg-1", "firefox-1", "go"])
         self.assertEqual(zerochat.load_browser_config()["engine"], "firefox")
         self.engines.remove("firefox")
         self.assertEqual(zerochat.load_browser_config()["engine"], "firefox", "sin otro instalado se conserva")
 
         self.cli.unlink()
-        self.assertEqual(self.engines.list(), {"systemBrowsers": zerochat.system_browsers(), "extensions": zerochat.user_browser_extensions(), "engines": []})
+        self.assertEqual(self.engines.list(), {
+            "systemBrowsers": zerochat.system_browsers(),
+            "extensions": zerochat.user_browser_extensions(),
+            "engines": [],
+            "config": zerochat.load_browser_config(),
+        })
+
+    def test_las_rutas_de_playwright_se_cachean_por_binario_y_mtime(self):
+        with unittest.mock.patch.object(self.engines, "_run_cli", wraps=self.engines._run_cli) as run_cli:
+            first = self.engines.list()
+            second = self.engines.list()
+        self.assertEqual(first, second)
+        self.assertEqual(run_cli.call_count, 1)

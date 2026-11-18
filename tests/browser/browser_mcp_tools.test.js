@@ -532,9 +532,10 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
         job.output_bytes = job.log.length;
         const details = { id: job.id, key: job.key, status: job.status, exit_code: job.exit_code, started_at: job.started_at, elapsed_s: job.elapsed_s, output_bytes: job.output_bytes, tail: job.log.slice(-200) };
         if (method === 'zerochat/jobs/log') {
-          return { text: job.log.slice(params.offset, params.offset + params.limit), next: Math.min(job.log.length, params.offset + params.limit), total: job.log.length, done: job.status !== 'running' };
+          const start = Number.isInteger(params.tail) ? Math.max(0, job.log.length - params.tail) : params.offset;
+          return { text: job.log.slice(start, start + params.limit), offset: start, next: Math.min(job.log.length, start + params.limit), total: job.log.length, done: job.status !== 'running', details };
         }
-        return details;
+        return method === 'zerochat/jobs/stop' ? { ...details, jobs: [] } : details;
       };
       const container = document.createElement('div');
       container.id = 'command-card-test';
@@ -569,8 +570,8 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
     assert.deepEqual([running.expanded, running.status, running.title, running.logStart, running.buttons, running.stopVisible, running.groupRunning],
       [true, 'running', 'npm run dev', 'linea 1\nlinea 2\n', ['log', 'stop'], true, true]);
     const calls = await page.evaluate(() => window.__jobCalls);
-    assert.ok(calls.some(call => call.method === 'zerochat/jobs/get' && call.params.id === 7));
-    assert.ok(calls.some(call => call.method === 'zerochat/jobs/log' && call.params.id === 7));
+    assert.ok(!calls.some(call => call.method === 'zerochat/jobs/get'), 'Desplegar la tarjeta no pide jobs/get aparte');
+    assert.ok(calls.some(call => call.method === 'zerochat/jobs/log' && call.params.id === 7 && Number.isInteger(call.params.tail)));
 
     // Plegada no hace peticiones, aunque el reloj siga avanzando; al desplegarla de nuevo, el log
     // vuelve a estar al día.
@@ -681,10 +682,13 @@ test('Browser UI - la tarjeta de check_command muestra la salida nueva mientras 
       window.ChatMCP.manager.requestExternalControl = async (method, params) => {
         window.__waitCalls.push({ method, params });
         if (method === 'zerochat/jobs/end_wait') return { ended: true };
-        if (method === 'zerochat/jobs/get') return { id: job.id, status: 'running', output_bytes: job.log.length };
         if (method === 'zerochat/jobs/log') {
+          if (Number.isInteger(params.tail)) {
+            const start = Math.max(0, job.log.length - params.tail);
+            return { text: job.log.slice(start), offset: start, next: job.log.length, total: job.log.length, done: false };
+          }
           job.log += `nueva ${job.log.split('\n').length - 2}\n`;
-          return { text: job.log.slice(params.offset), next: job.log.length, total: job.log.length, done: false };
+          return { text: job.log.slice(params.offset), offset: params.offset, next: job.log.length, total: job.log.length, done: false };
         }
         throw new Error(`Método inesperado ${method}`);
       };

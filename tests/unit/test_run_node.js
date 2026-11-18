@@ -69,10 +69,6 @@ test('RunNode - startHeadlessRun orquesta la conexión y arranca RunMode', async
     return { success: true };
   });
 
-  t.mock.method(ToolSecurity.manager, 'setSessionToken', token => {
-    assert.equal(token, 'test_token');
-  });
-
   t.mock.method(RunMode, 'start', async (runId, options) => {
     runModeStartCalled = true;
     receivedRunId = runId;
@@ -170,7 +166,6 @@ test('RunNode - ChatCommandCard está registrado en globalThis y parseResult ext
 test('RunNode - switchToSession y submitComposerText preservan serverRun y profileId', async t => {
   let capturedOptions = null;
   t.mock.method(MCP.manager, 'connectProxy', async () => ({ success: true }));
-  t.mock.method(ToolSecurity.manager, 'setSessionToken', () => {});
   t.mock.method(RunMode, 'start', async (_runId, opts) => {
     capturedOptions = opts;
     return { ok: true };

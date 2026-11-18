@@ -822,6 +822,7 @@
             saveCurrent: false
           }).catch(error => console.warn('[App] Could not reload completed server conversation:', error));
         }
+        if (finishedIds.length === 1 && finishedIds[0] === activeId) return;
         ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
       }
     );

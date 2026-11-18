@@ -2,9 +2,10 @@
  * Modo proyecto: detecta .zerochat/task.py en el directorio de trabajo del servidor local,
  * lee también .zerochat/state.md y AGENTS.md (normas y protocolo de memoria, comunes a todos los agentes),
  * publica el resultado en el slice `project` de ChatState y construye el bloque que se inyecta en el
- * prompt de sistema. Los ficheros se leen con la herramienta
- * `read_file` a través de ToolExecutor, sin pedir confirmación: si la política de seguridad
- * la exige, el estado pasa a `no_access`.
+ * prompt de sistema. Los ficheros se leen en una sola consulta `zerochat/project/context` (o con el
+ * estado entregado en `initialize` y `zerochat/project/set_directory`), sujeta a las reglas de
+ * lectura de `read_file` sin abrir retos interactivos: si pide confirmación o se deniega, el estado
+ * pasa a `no_access`.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -504,10 +505,6 @@ ${stateBody}
     }
   }
 
-  function isMissingFileError(message) {
-    return /does not exist|not found|no such file/i.test(String(message || ''));
-  }
-
   function createProjectContext() {
     const getState = () => resolveDep('ChatState', './state.js');
     const getConfig = () => resolveDep('ChatConfig', './config-store.js');
@@ -529,34 +526,6 @@ ${stateBody}
 
     const isNoProject = cwd => Boolean(cwd) && resolveDep('ChatMCP', './mcp.js').projectOfDirectory(cwd) === '';
 
-    /** Lee un fichero del proyecto sin interacción: si requiere aprobación, no se ejecuta. */
-    async function readProjectFile(cwd, relativePath, signal, maxLines = 2000) {
-      const tool = getAvailableTool(READ_TOOL);
-      if (!tool) return { status: 'unavailable' };
-
-      const args = { path: joinPath(cwd, relativePath), max_bytes: MAX_FILE_BYTES, max_lines: maxLines };
-      const execution = await getAgentCore().executor.executeToolCall({
-        id: 'project_context_read',
-        type: 'function',
-        function: { name: READ_TOOL, arguments: JSON.stringify(args) }
-      }, { signal });
-      // Sin quien conteste al usuario, un reto o una denegación del backend dejan la lectura sin hacer.
-      if (execution?.requiresAuthorization || execution?.result?.rawResult?.securityStatus === 'deny') return { status: 'denied' };
-
-      // El servidor marca como error (isError) los resultados con success: false, como un fichero
-      // inexistente; el motivo viaja en el contenido JSON, no en execution.error.
-      let payload = null;
-      try {
-        payload = JSON.parse(execution?.result?.content || '');
-      } catch (_) {
-        return { status: 'error', error: execution?.error || 'read_file returned an unexpected format' };
-      }
-      if (payload?.success !== true) {
-        return isMissingFileError(payload?.error) ? { status: 'missing' } : { status: 'error', error: String(payload?.error || 'read_file failed') };
-      }
-      return { status: 'ok', content: String(payload.content || ''), truncated: payload.truncated === true };
-    }
-
     function publish(patch) {
       const State = getState();
       State.setProjectContext({ ...patch, checkedAt: Date.now() });
@@ -571,6 +540,7 @@ ${stateBody}
       const sequence = ++refreshSequence;
       const config = getConfig().getActive();
       const cwd = getCwd();
+      const cached = getMcp().takeProjectContext(cwd);
       const empty = { rules: { content: '', truncated: false }, state: { content: '', truncated: false } };
       const base = {
         projectMode: config.projectMode === true,
@@ -583,52 +553,37 @@ ${stateBody}
       const preliminary = computeStatus({ ...base, helperRead: { status: 'ok' } });
       if (preliminary !== 'ready') return publish({ cwd, status: preliminary, error: '', ...empty });
 
-      let helperRead;
-      let stateRead = { status: 'missing' };
-      let rulesRead = { status: 'missing' };
+      let response;
       try {
-        helperRead = await readProjectFile(cwd, TASK_HELPER_FILE, options.signal, 1);
-        if (helperRead.status === 'ok') {
-          stateRead = await readProjectFile(cwd, STATE_FILE, options.signal);
-          if (stateRead.status === 'ok' || stateRead.status === 'missing') {
-            rulesRead = await readProjectFile(cwd, RULES_FILE, options.signal);
-          }
-        }
+        response = cached || await getMcp().requestExternalControl(
+          'zerochat/project/context',
+          {},
+          options.signal ? { signal: options.signal } : {}
+        );
       } catch (error) {
-        helperRead = { status: 'error', error: error?.message || String(error) };
+        response = { status: 'error', error: error?.message || String(error) };
       }
       if (sequence !== refreshSequence) return getState().get('project');
+      if (!getAvailableTool(READ_TOOL)) return publish({ cwd, status: 'unavailable', error: '', ...empty });
 
-      const status = computeStatus({ ...base, helperRead });
+      const status = computeStatus({ ...base, helperRead: response });
       if (status !== 'ready') {
-        if (status === 'error') console.warn('[ProjectContext] Could not read project helper script:', helperRead.error);
-        return publish({ cwd, status, error: helperRead.error || '', ...empty });
+        if (status === 'error') console.warn('[ProjectContext] Could not read project context:', response?.error);
+        return publish({ cwd, status, error: response?.error || '', ...empty });
       }
 
-      if (stateRead.status === 'unavailable') {
-        return publish({ cwd, status: 'unavailable', error: '', ...empty });
-      }
-      if (stateRead.status === 'denied') {
-        return publish({ cwd, status: 'no_access', error: '', ...empty });
-      }
-      if (stateRead.status === 'error') {
-        console.warn('[ProjectContext] Could not read project state:', stateRead.error);
-        return publish({ cwd, status: 'error', error: stateRead.error || '', ...empty });
-      }
-      // Sin AGENTS.md el proyecto sigue activo: el bloque de sistema pide crearlo.
-      if (rulesRead.status !== 'ok' && rulesRead.status !== 'missing') {
-        console.warn('[ProjectContext] Could not read project rules:', rulesRead.error || rulesRead.status);
-      }
       return publish({
         cwd,
         status,
         error: '',
-        rules: rulesRead.status === 'ok'
-          ? { content: rulesRead.content, truncated: rulesRead.truncated }
-          : { content: '', truncated: false },
-        state: stateRead.status === 'ok'
-          ? { content: stateRead.content, truncated: stateRead.truncated }
-          : { content: '', truncated: false }
+        rules: {
+          content: String(response.rules?.content || ''),
+          truncated: response.rules?.truncated === true
+        },
+        state: {
+          content: String(response.state?.content || ''),
+          truncated: response.state?.truncated === true
+        }
       });
     }
 
@@ -719,7 +674,7 @@ ${stateBody}
       return { ok: true };
     }
 
-    return { refresh, readProjectFile, canInitialize, initialize, canCompact, compact, canChangeDirectory, changeDirectory };
+    return { refresh, canInitialize, initialize, canCompact, compact, canChangeDirectory, changeDirectory };
   }
 
   const defaultContext = createProjectContext();

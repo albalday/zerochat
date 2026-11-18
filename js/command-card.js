@@ -135,12 +135,6 @@
     return state.toolReturned && Number.isInteger(state.id) && !runningIds.has(state.id);
   }
 
-  /** Primera página del log: desde donde empiezan sus últimos LOG_PAGE_BYTES, con un aviso de lo omitido. */
-  function firstLogPage(outputBytes) {
-    const offset = Math.max(0, (Number(outputBytes) || 0) - FIRST_LOG_BYTES);
-    return { offset, earlier: offset > 0 };
-  }
-
   /** Log retenido tras añadirle una página: sus últimos MAX_LOG_CHARS caracteres, y si se ha recortado. */
   function appendLog(text, page) {
     const log = text + page;
@@ -178,13 +172,7 @@
     try {
       await openTextInNewTab(load, {
         title: t('command_action_full_log'),
-        loading: t('command_log_loading'),
-        labels: {
-          copy: t('text_view_copy'),
-          copied: t('text_view_copied'),
-          fontDecrease: t('text_view_font_decrease'),
-          fontIncrease: t('text_view_font_increase')
-        }
+        loading: t('command_log_loading')
       });
     } catch (error) {
       await getDialogs().alert(t('command_log_open_error', { error: error?.message || String(error) }), { type: 'error' });
@@ -425,7 +413,8 @@
       if (!document.hidden) {
         const done = await this.loadLog();
         if (done && this.state.toolReturned) {
-          await this.refreshStatus();
+          untrack(this);
+          this.finish();
           return;
         }
         // La clave de la invocación llega después de crear la tarjeta: el botón de detener
@@ -463,8 +452,8 @@
       if (messagesList) getConversation().scrollToBottom(messagesList);
     }
 
-    finish() {
-      if (this.state.toolReturned) getMcp().refreshCommandJobs();
+    finish(jobsUpdated = false) {
+      if (this.state.toolReturned && !jobsUpdated) getMcp().refreshCommandJobs();
       if (this.state.reactivated) {
         this.state.reactivated = false;
         getToolCards().completeToolCard(this.card, { success: !isFailure(this.state) });
@@ -478,14 +467,14 @@
       if (!ref) return;
       button.disabled = true;
       try {
-        this.applyDetails(await mcp.requestExternalControl('zerochat/jobs/stop', ref));
+        const res = await mcp.requestExternalControl('zerochat/jobs/stop', ref);
+        this.applyDetails(res);
+        await mcp.applyLiveState({ jobs: res.jobs });
         if (this.isExpanded()) await this.loadLog();
         this.render();
         if (this.isFinal() && this.state.toolReturned) {
           untrack(this);
-          this.finish();
-        } else {
-          mcp.refreshCommandJobs();
+          this.finish(true);
         }
       } catch (error) {
         await getDialogs().alert(t('command_stop_error', { error: error?.message || String(error) }), { type: 'error' });
@@ -526,16 +515,16 @@
       this.log.loading = true;
       const initial = !this.log.loaded;
       try {
-        if (initial) {
-          const details = await mcp.requestExternalControl('zerochat/jobs/get', ref);
-          this.applyDetails(details);
-          const first = firstLogPage(details?.output_bytes);
-          this.log.next = first.offset;
-          this.log.text = '';
-          this.log.earlier = first.earlier;
-        }
         const atBottom = logEl.hidden || logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 24;
-        const page = await mcp.requestExternalControl('zerochat/jobs/log', { ...ref, offset: this.log.next, limit: LOG_PAGE_BYTES });
+        const query = initial
+          ? { ...ref, tail: FIRST_LOG_BYTES, limit: LOG_PAGE_BYTES }
+          : { ...ref, offset: this.log.next, limit: LOG_PAGE_BYTES };
+        const page = await mcp.requestExternalControl('zerochat/jobs/log', query);
+        if (page?.details) this.applyDetails(page.details);
+        if (initial) {
+          this.log.text = '';
+          this.log.earlier = Number(page?.offset) > 0;
+        }
         this.state.confirmed = true;
         this.log.next = Number(page?.next) || this.log.next;
         this.log.loaded = true;
@@ -719,18 +708,16 @@
       const ref = { id: this.state.request.jobId };
       if (!document.hidden) {
         try {
-          if (this.logNext === null) {
-            const details = await mcp.requestExternalControl('zerochat/jobs/get', ref);
-            this.logNext = Number(details?.output_bytes) || 0;
-          } else {
-            const page = await mcp.requestExternalControl('zerochat/jobs/log', { ...ref, offset: this.logNext, limit: LOG_PAGE_BYTES });
-            this.logNext = Number(page?.next) || this.logNext;
-            if (page?.text) {
-              const kept = appendLog(this.logText, String(page.text));
-              this.logText = kept.text;
-              this.logEarlier = this.logEarlier || kept.trimmed;
-              if (!this.state.returned) this.showText(this.logText, this.logEarlier);
-            }
+          const query = this.logNext === null
+            ? { ...ref, tail: 0, limit: LOG_PAGE_BYTES }
+            : { ...ref, offset: this.logNext, limit: LOG_PAGE_BYTES };
+          const page = await mcp.requestExternalControl('zerochat/jobs/log', query);
+          this.logNext = Number(page?.next) ?? this.logNext;
+          if (page?.text) {
+            const kept = appendLog(this.logText, String(page.text));
+            this.logText = kept.text;
+            this.logEarlier = this.logEarlier || kept.trimmed;
+            if (!this.state.returned) this.showText(this.logText, this.logEarlier);
           }
         } catch (_) {
           // El comando ya no existe: queda lo que devuelva la herramienta.
@@ -842,7 +829,6 @@
     canStop,
     hasLeftRunning,
     getBadgeView,
-    firstLogPage,
     terminalTail,
     appendLog,
     fallbackLog

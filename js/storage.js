@@ -23,6 +23,17 @@
   const OPTIONAL_MESSAGE_FIELDS = ['tool_calls', 'tool_call_id', 'name', 'stats', 'contextDateAnchor', 'images', 'commandNotes', '_isSummaryBlock', '_compressedMetadata'];
   let lastClearAllStorageError = '';
   const memoryStorageFallback = new Map();
+  const syncedBlobIds = new Set();
+  let syncedBlobClient;
+
+  function ensureBlobSyncCache() {
+    const mcp = getMCP();
+    const client = mcp?.manager?.clients?.get?.(mcp.PROXY_ID || 'mcp_proxy') || null;
+    if (client !== syncedBlobClient) {
+      syncedBlobIds.clear();
+      syncedBlobClient = client;
+    }
+  }
 
   function getWebStorage() {
     try {
@@ -477,6 +488,8 @@
               try {
                 const res = await requestBackend('zerochat/blobs/get', { id: img.blobId });
                 if (res?.blob?.data) {
+                  ensureBlobSyncCache();
+                  syncedBlobIds.add(img.blobId);
                   blob = await saveBlob({
                     id: res.blob.id,
                     mimeType: res.blob.mimeType,
@@ -510,8 +523,14 @@
       }
     }
     if (blobIds.length === 0) return;
-    const uniqueIds = Array.from(new Set(blobIds));
+    ensureBlobSyncCache();
+    const uniqueIds = Array.from(new Set(blobIds)).filter(id => !syncedBlobIds.has(id));
+    if (uniqueIds.length === 0) return;
     const { missing = [] } = await requestBackend('zerochat/blobs/has', { ids: uniqueIds });
+    const missingSet = new Set(missing);
+    for (const id of uniqueIds) {
+      if (!missingSet.has(id)) syncedBlobIds.add(id);
+    }
     for (const blobId of missing) {
       const blob = await getBlob(blobId);
       if (blob?.dataUrl) {
@@ -520,6 +539,7 @@
           mimeType: blob.mimeType,
           data: blob.dataUrl
         }, { headers: { 'X-ZeroChat-Blob': '1' } });
+        syncedBlobIds.add(blobId);
       }
     }
   }

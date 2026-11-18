@@ -95,13 +95,6 @@ test('CommandCard - solo un comando devuelto en segundo plano que deja de figura
   assert.equal(CommandCard.hasLeftRunning(CommandCard.withResult(CommandCard.initialState(), { status: 'running' }), new Set()), false);
 });
 
-test('CommandCard - al desplegarla, el log empieza en sus últimos 16 KiB y recuerda si había salida anterior', () => {
-  const FIRST = 16 * 1024;
-  assert.deepEqual(CommandCard.firstLogPage(undefined), { offset: 0, earlier: false });
-  assert.deepEqual(CommandCard.firstLogPage(FIRST), { offset: 0, earlier: false });
-  assert.deepEqual(CommandCard.firstLogPage(FIRST + 1), { offset: 1, earlier: true });
-});
-
 test('CommandCard - la tarjeta retiene los últimos 64 Ki caracteres del log y dice si ha recortado', () => {
   const MAX = 64 * 1024;
   const log = 'a'.repeat(MAX - 1);

@@ -588,37 +588,45 @@ test('MCP - nombres inválidos, duplicados y demasiado largos fallan explícitam
   assert.equal((await provider.discoverTools())[0].name, 'read_file');
 });
 
-/** Servidor local falso: responde initialize (con `liveState`), tools/list y el latido; `state.server` lo apaga o cambia su token. */
+/** Servidor local falso: responde initialize (con `tools`, `policies` y `liveState`) y el latido; `state.server` lo apaga o cambia su token. */
 function fakeLocalServer(state) {
   return async (url, options) => {
     if (state.server === 'down') throw new TypeError('Failed to fetch');
     if (state.server === 'newToken') return { ok: false, status: 401, text: async () => 'Unauthorized' };
     const body = options?.body ? JSON.parse(options.body) : {};
     const reply = result => ({ ok: true, status: 200, json: async () => ({ jsonrpc: '2.0', id: body.id, result }) });
-    const external = String(url).endsWith('/mcp/external');
+    const liveState = state.live ? {
+      externalTools: [{ name: 'sqlite_query', description: 'Query SQLite', metadata: { mcpServerId: 'sqlite', originalName: 'query' } }],
+      ...state.live
+    } : null;
     if (body.method === 'initialize') {
-      return reply({ protocolVersion: '2024-11-05', serverInfo: { name: external ? 'External MCP' : 'zerochat' }, capabilities: {}, ...(external ? {} : { liveState: state.live }) });
-    }
-    if (body.method === 'tools/list') {
-      return reply({ tools: external
-        ? [{ name: 'sqlite_query', description: 'Query SQLite', metadata: { mcpServerId: 'sqlite', originalName: 'query' } }]
-        : [{ name: 'edit_file' }] });
+      return reply({
+        protocolVersion: '2024-11-05',
+        serverInfo: { name: 'zerochat' },
+        capabilities: {},
+        tools: [{ name: 'edit_file' }],
+        policies: state.policies || { globalMcpPolicy: 'ask', defaultDirectoryRule: 'RW:/repo/**' },
+        liveState
+      });
     }
     if (body.method === 'zerochat/heartbeat') {
       state.beats = (state.beats || 0) + 1;
-      return reply(state.live);
+      return reply(liveState);
     }
     return reply({});
   };
 }
 
 test('MCP - connectProxy publica el estado vivo de initialize y registra las herramientas de los servicios externos en marcha', async t => {
+  const Security = require('../../js/tool-security.js');
   const state = { server: 'up', live: { cwd: '/repo', jobs: [], exit_on_close: true, servers: [{ id: 'sqlite', status: 'running', toolCount: 1, enabled: true }] } };
-  t.mock.method(global, 'fetch', fakeLocalServer(state));
+  const fetchMock = t.mock.method(global, 'fetch', fakeLocalServer(state));
   const manager = new MCP.McpManager();
   try {
     const connResult = await manager.connectProxy({ url: 'http://127.0.0.1:6388', token: 'tok' });
     assert.equal(connResult.success, true);
+    assert.equal(fetchMock.mock.callCount(), 1, 'Una sola petición (initialize) trae herramientas locales, externas y políticas');
+    assert.equal(Security.manager.getDefaultDirectoryRule(), 'RW:/repo/**');
     assert.equal(state.beats, undefined, 'sin esperar al latido');
     assert.equal(ChatState.get('mcp').exitOnClose, true);
     assert.deepEqual(ChatState.get('mcp').externalServers.map(server => server.id), ['sqlite']);
@@ -904,7 +912,6 @@ test('MCP - applyLiveState publica el estado vivo del servidor y solo escribe lo
   const Security = require('../../js/tool-security.js');
   const previousState = ChatState.get('mcp');
   const manager = new MCP.McpManager();
-  const refreshSec = t.mock.method(Security.manager, 'refresh', async () => {});
   try {
     ChatState.set('mcp', { ...previousState, status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo' }, commandJobs: [], exitOnClose: false, playwright: null });
     const provider = new MCP.McpToolProvider({ id: 'mcp_proxy', name: 'ZeroChat', initialize: async () => ({ success: true }), listTools: async () => [{ name: 'browser_action' }] });
@@ -920,7 +927,14 @@ test('MCP - applyLiveState publica el estado vivo del servidor y solo escribe lo
       { id: 4, command: 'npm run build', status: 'running', started_at: 3000, background: false },
       { id: 'x', command: 'malo', status: 'running', background: true }
     ];
-    const heartbeat = { ok: true, cwd: '/otro', jobs, exit_on_close: true, playwright: { installed: true, browserAction: { available: true, extra: 1 } } };
+    const heartbeat = {
+      ok: true,
+      cwd: '/otro',
+      policies: { defaultDirectoryRule: 'RW:/otro/**' },
+      jobs,
+      exit_on_close: true,
+      playwright: { installed: true, browserAction: { available: true, extra: 1 } }
+    };
     assert.equal(await manager.applyLiveState(heartbeat), true);
     assert.equal(writes.length, 1, 'Un latido es una sola escritura');
     const mcp = ChatState.get('mcp');
@@ -928,7 +942,7 @@ test('MCP - applyLiveState publica el estado vivo del servidor y solo escribe lo
     assert.deepEqual(mcp.commandJobs, [{ id: 1, command: 'npm run dev', startedAt: 1000, lastLine: 'ready in 300 ms' }]);
     assert.equal(mcp.exitOnClose, true);
     assert.equal(mcp.serverInfo.cwd, '/otro');
-    assert.equal(refreshSec.mock.callCount(), 1);
+    assert.equal(Security.manager.getDefaultDirectoryRule(), 'RW:/otro/**');
     assert.deepEqual(mcp.playwright, { installed: true, browserAction: { available: true } });
     assert.equal(browserAction.isAvailable(), true);
     // El mismo estado con otro tiempo transcurrido no vuelve a escribir.

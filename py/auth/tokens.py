@@ -16,12 +16,6 @@ from core.logging import log_event
 
 
 MAX_REMOTE_TOKENS = 16
-RUNNER_EXTERNAL_METHODS = frozenset({
-    "initialize",
-    "notifications/initialized",
-    "tools/list",
-    "tools/call",
-})
 RUNNER_ALLOWED_METHODS = frozenset({
     "initialize",
     "notifications/initialized",
@@ -57,8 +51,6 @@ class TokenGrant:
             return True
         if self.kind != "runner":
             return False
-        if "/mcp/external" in req_path:
-            return method in RUNNER_EXTERNAL_METHODS
         if method in RUNNER_ALLOWED_METHODS:
             return True
         if self.conversation_id and isinstance(params, dict):

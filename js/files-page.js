@@ -14,7 +14,6 @@
   'use strict';
   const { projectName, formatBytes, openTextInNewTab, downloadFile } = Utils;
   const { t } = I18n;
-  const PROJECT_GONE_CODE = -32003;
 
   /** Proyecto y carpeta de la URL de la página; la carpeta es relativa al proyecto ('' es su raíz). */
   function readPageParams(search) {
@@ -43,7 +42,7 @@
   /** Clave del texto que explica por qué no se puede mostrar el proyecto. */
   function errorKey(error) {
     if (error?.status === 401) return 'files_error_login';
-    if (error?.rpcError?.code === PROJECT_GONE_CODE) return 'files_error_project_gone';
+    if (error?.rpcError?.code === MCP.PROJECT_GONE_CODE) return 'files_error_project_gone';
     if (error?.rpcError) return null;
     return 'files_error_unreachable';
   }
@@ -204,15 +203,7 @@
       }, {
         title: name,
         loading: t('files_loading'),
-        filename: name,
-        onDownload: () => downloadEntry(page, path),
-        labels: {
-          copy: t('text_view_copy'),
-          copied: t('text_view_copied'),
-          download: t('text_view_download'),
-          fontDecrease: t('text_view_font_decrease'),
-          fontIncrease: t('text_view_font_increase')
-        }
+        onDownload: () => downloadEntry(page, path)
       });
       if (download) {
         await downloadEntry(page, path);

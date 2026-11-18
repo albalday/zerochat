@@ -18,7 +18,7 @@ from core.version import VERSION
 from run_mode.state import http_body_limit
 from security.context import PROJECT_GONE_CODE, ProjectGoneError, request_project_context
 from server.state import mark_browser_active
-from server.rpc import dispatch_external, dispatch_local, rpc_login
+from server.rpc import dispatch_local, rpc_login
 from storage.db import MAX_BLOB_HTTP_BYTES
 from tools.registry import validate_local_tool_arguments
 from web.fetch import capture_frontend_user_agent
@@ -73,7 +73,14 @@ def is_allowed_origin(origin: str | None, require_origin: bool = False) -> bool:
 
 
 # zerochat/run/progress ya se registra con su propio texto en dispatch_run.
-QUIET_RPC_METHODS = frozenset({"zerochat/heartbeat", "zerochat/jobs/get", "zerochat/jobs/log", "zerochat/jobs/list", "zerochat/run/progress"})
+QUIET_RPC_METHODS = frozenset({
+    "zerochat/heartbeat",
+    "zerochat/jobs/get",
+    "zerochat/jobs/log",
+    "zerochat/jobs/list",
+    "zerochat/run/progress",
+    "zerochat/project/context",
+})
 DEV_CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".js": "application/javascript; charset=utf-8",
@@ -419,10 +426,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._send_rpc_response(req_id, (None, {"code": PROJECT_GONE_CODE, "message": str(ex)}, ""), log_detail, t0, quiet)
             return
         try:
-            if "/mcp/external" in req_path:
-                outcome = dispatch_external(method, params, ctx)
-            else:
-                outcome = dispatch_local(method, params, ctx)
+            outcome = dispatch_local(method, params, ctx)
         except Exception as ex:
             outcome = None, {"code": -32603, "message": f"Error interno: {ex}"}, ""
         self._send_rpc_response(req_id, outcome, log_detail, t0, quiet)

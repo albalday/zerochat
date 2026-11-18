@@ -85,9 +85,31 @@ class ProjectDirectoriesTest(unittest.TestCase):
 
     def test_la_credencial_del_runner_no_puede_explorar_ni_crear_carpetas(self):
         grant = zerochat.TokenGrant(token="t", kind="runner", date="2026-01-01", created_at=0, run_id="r", conversation_id="c")
-        for method in ("zerochat/project/browse", "zerochat/project/create_directory"):
-            self.assertFalse(grant.allows("/mcp", method, {}))
-            self.assertTrue(zerochat.TokenGrant(token="t", kind="remote", date="2026-01-01", created_at=0).allows("/mcp", method, {}))
+        for method in ("zerochat/project/browse", "zerochat/project/create_directory", "zerochat/project/context"):
+            self.assertFalse(grant.allows("/", method, {}))
+            self.assertTrue(zerochat.TokenGrant(token="t", kind="remote", date="2026-01-01", created_at=0).allows("/", method, {}))
+
+    def test_read_project_context_lee_en_una_sola_llamada_respeta_permisos_y_tope_exacto(self):
+        self.assertEqual(zerochat.read_project_context(self.ctx), {"status": "missing"})
+        zerochat_dir = self.root / ".zerochat"
+        zerochat_dir.mkdir()
+        (zerochat_dir / "task.py").write_text("# helper\n", encoding="utf-8")
+        (zerochat_dir / "state.md").write_text("- Next task: M1-T1\n", encoding="utf-8")
+        limit = zerochat.PROJECT_CONTEXT_MAX_BYTES
+        (self.root / "AGENTS.md").write_text("a" * limit, encoding="utf-8")
+        ctx_ok = zerochat.read_project_context(self.ctx)
+        self.assertEqual(ctx_ok["status"], "ok")
+        self.assertEqual((len(ctx_ok["rules"]["content"]), ctx_ok["rules"]["truncated"]), (limit, False))
+        self.assertEqual(ctx_ok["state"], {"content": "- Next task: M1-T1\n", "truncated": False})
+
+        # Borde N+1 de PROJECT_CONTEXT_MAX_BYTES
+        (self.root / "AGENTS.md").write_text("a" * (limit + 1), encoding="utf-8")
+        ctx_trunc = zerochat.read_project_context(self.ctx)
+        self.assertEqual((len(ctx_trunc["rules"]["content"]), ctx_trunc["rules"]["truncated"]), (limit, True))
+
+        # Si read_file está denegada, devuelve denied sin lanzar reto
+        zerochat.ACCESS_CONTROLLER.import_state({"tools": {"read_file": {"policy": "deny"}}}, self.ctx)
+        self.assertEqual(zerochat.read_project_context(self.ctx), {"status": "denied"})
 
 
 if __name__ == "__main__":
