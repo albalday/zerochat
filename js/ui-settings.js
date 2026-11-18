@@ -111,19 +111,21 @@
    * solo cambia de sección.
    */
   function openSettingsSection(elements, appConfig, sectionId = 'model') {
+    const targetId = SECTION_TITLES[sectionId] ? sectionId : 'model';
     const preservePendingChanges = elements.settingsDialog.open && isSettingsFormDirty(elements);
     if (!preservePendingChanges) {
       elements.settingSystemDataPrompt.value = appConfig.systemDataPrompt || '';
       applyTheme(elements, appConfig.theme);
       applyLanguage(elements, appConfig.language);
       renderAgentToolsUI(elements.agentToolsContainer, appConfig);
-      getUIBrowser().load(appConfig.browser);
+      getUIBrowser().load(appConfig.browser, { fetch: targetId === 'browser' });
       getUIConnection().load(appConfig);
       loadPermissionControls(elements);
+    } else if (targetId === 'browser') {
+      getUIBrowser().ensureLoaded();
     }
     getUIMcp().syncSecurityControls();
 
-    const targetId = SECTION_TITLES[sectionId] ? sectionId : 'model';
     elements.settingsDialog.querySelectorAll('.settings-section-pane').forEach(section => {
       section.classList.toggle('active', section.id === `settings-${targetId}`);
     });

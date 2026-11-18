@@ -126,6 +126,17 @@
   }
 
   /** Nombre de la carpeta de un proyecto ('/home/yo/app/' -> 'app'). */
+  // Nombre de los chats sin proyecto: el de la carpeta ~/zerochat/general del servidor en la que trabajan.
+  const NO_PROJECT_NAME = 'general';
+
+  /** Une a la carpeta `base` del servidor la ruta relativa `relativePath`, con el separador de `base`. */
+  function joinPath(base, relativePath) {
+    const text = String(base || '');
+    const separator = text.includes('\\') && !text.includes('/') ? '\\' : '/';
+    const trimmed = text.replace(/[\\/]+$/, '');
+    return `${trimmed}${separator}${relativePath.split('/').join(separator)}`;
+  }
+
   function projectName(path) {
     const parts = String(path || '').split(/[\\/]+/).filter(Boolean);
     return parts[parts.length - 1] || String(path || '');
@@ -245,9 +256,10 @@
    * devuelva `load`. Se construye por DOM y hojas externas para cumplir la CSP sin inline.
    * Si `load` devuelve null, la pestaña se cierra sin más; si falla, se cierra y el error sigue.
    */
-  async function openTextInNewTab(load, { title = '', loading = '', filename = '', onDownload = null, labels = {} } = {}) {
+  async function openTextInNewTab(load, { title = '', loading = '', onDownload = null } = {}) {
     const win = window.open('', '_blank');
     if (!win) return false;
+    const { t } = resolveDep('ChatI18n', './i18n.js');
     const doc = win.document;
     const rootTheme = document.documentElement.getAttribute('data-theme');
     if (rootTheme) doc.documentElement.setAttribute('data-theme', rootTheme);
@@ -278,17 +290,16 @@
 
     const actions = doc.createElement('div');
     actions.className = 'text-view-actions';
-    const decreaseBtn = createTextViewButton(doc, 'tv-font-decrease', 'A\u2212', labels.fontDecrease || '');
+    const decreaseBtn = createTextViewButton(doc, 'tv-font-decrease', 'A\u2212', t('text_view_font_decrease'));
     const sizeBadge = doc.createElement('span');
     sizeBadge.id = 'tv-font-size';
     sizeBadge.className = 'text-view-font-size';
-    const increaseBtn = createTextViewButton(doc, 'tv-font-increase', 'A+', labels.fontIncrease || '');
-    const copyLabel = labels.copy || '';
+    const increaseBtn = createTextViewButton(doc, 'tv-font-increase', 'A+', t('text_view_font_increase'));
+    const copyLabel = t('text_view_copy');
     const copyBtn = createTextViewButton(doc, 'tv-copy', copyLabel);
     copyBtn.disabled = true;
 
-    const hasDownload = Boolean(onDownload || filename);
-    const downloadBtn = hasDownload ? createTextViewButton(doc, 'tv-download', labels.download || '') : null;
+    const downloadBtn = onDownload ? createTextViewButton(doc, 'tv-download', t('text_view_download')) : null;
     if (downloadBtn) {
       downloadBtn.disabled = true;
       actions.append(decreaseBtn, sizeBadge, increaseBtn, copyBtn, downloadBtn);
@@ -321,7 +332,7 @@
       const clipboard = win.navigator?.clipboard || navigator.clipboard;
       if (!clipboard?.writeText) return;
       clipboard.writeText(content.textContent).then(() => {
-        copyBtn.textContent = labels.copied || copyLabel;
+        copyBtn.textContent = t('text_view_copied');
         clearTimeout(copyTimer);
         copyTimer = setTimeout(() => {
           if (!win.closed) copyBtn.textContent = copyLabel;
@@ -331,11 +342,7 @@
 
     if (downloadBtn) {
       downloadBtn.addEventListener('click', () => {
-        if (onDownload) {
-          Promise.resolve(onDownload()).catch(() => { /* Caller reports download error */ });
-          return;
-        }
-        downloadFile(new Blob([content.textContent], { type: 'text/plain;charset=utf-8' }), filename);
+        Promise.resolve(onDownload()).catch(() => { /* Caller reports download error */ });
       });
     }
 
@@ -700,6 +707,8 @@
     EPHEMERAL_ID_PATTERN,
     readLaunchFragment,
     projectName,
+    joinPath,
+    NO_PROJECT_NAME,
     normalizeBackendUrl,
     normalizeConnectionSettings,
     canonicalJson,

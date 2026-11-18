@@ -284,6 +284,10 @@
   async function refreshEngines() {
     clearTimeout(pollTimer);
     section.engines = await request('zerochat/browser/engines/list');
+    if (section.engines?.config && !section.savedConfig) {
+      section.savedConfig = section.engines.config;
+      section.config = { ...section.engines.config };
+    }
     render();
     if (section.engines.engines.some(engine => engine.status === 'installing')) {
       pollTimer = setTimeout(() => refreshEngines().catch(showError), ENGINE_POLL_MS);
@@ -293,9 +297,6 @@
   /** Configuración guardada y motores: solo con Playwright instalado y con la sección abierta. */
   async function refreshServerData() {
     if (section.tool === null || playwrightState() !== 'installed') return;
-    const saved = await request('zerochat/browser/config/get');
-    section.savedConfig = saved;
-    section.config = { ...saved };
     await refreshEngines();
   }
 
@@ -305,10 +306,14 @@
   }
 
   /** Carga la sección al abrir los ajustes con la herramienta de navegación de la configuración. */
-  function load(tool) {
+  function load(tool, { fetch = true } = {}) {
     section = { tool, savedTool: tool, config: null, savedConfig: null, engines: null, notice: null };
     render();
-    refreshServerData().catch(showError);
+    if (fetch) refreshServerData().catch(showError);
+  }
+
+  function ensureLoaded() {
+    if (!section.engines) refreshServerData().catch(showError);
   }
 
   async function handleAction(button) {
@@ -329,7 +334,7 @@
         await getMCP().manager.withExternalServerStopped('playwright', async () => {
           section.engines = await request('zerochat/browser/engines/remove', { engine });
           // El servidor pasa la configuración guardada a otro motor instalado.
-          section.savedConfig = await request('zerochat/browser/config/get');
+          section.savedConfig = section.engines.config;
           if (section.config.engine === engine) section.config.engine = section.savedConfig.engine;
         });
         render();
@@ -435,10 +440,15 @@
   }
 
   /** Muestra el navegador que exige el perfil y pide al servidor local los navegadores instalados. */
-  function loadProfileBrowser(value) {
+  function loadProfileBrowser(value, { fetch = true } = {}) {
     profileChapter = { value: value ? { ...value } : null, engines: null, disabled: profileChapter.disabled };
     renderProfileBrowser();
-    if (!isConnected()) return;
+    if (fetch) ensureProfileBrowserLoaded();
+  }
+
+  /** Pide los navegadores instalados al desplegar el capítulo de navegador en Perfiles. */
+  function ensureProfileBrowserLoaded() {
+    if (profileChapter.engines || !isConnected()) return;
     request('zerochat/browser/engines/list').then(engines => {
       profileChapter.engines = engines;
       renderProfileBrowser();
@@ -460,7 +470,7 @@
 
   return {
     getSavePlan, normalizeExtensionToken,
-    load, getTool, save, mountBrowserUI,
-    loadProfileBrowser, getProfileBrowser, profileBrowserSummary, setProfileBrowserDisabled, mountProfileBrowser
+    load, ensureLoaded, getTool, save, mountBrowserUI,
+    loadProfileBrowser, ensureProfileBrowserLoaded, getProfileBrowser, profileBrowserSummary, setProfileBrowserDisabled, mountProfileBrowser
   };
 });

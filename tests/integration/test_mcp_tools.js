@@ -256,16 +256,6 @@ test('MCP Tools - respuesta a retos de autorización mediante executeToolCall y 
           }
         });
       }
-      if (body.method === 'zerochat/security/get') {
-        return reply({
-          policies: {
-            globalMcpPolicy: 'ask',
-            directoryRules: ['R:.'],
-            tools: {},
-            servers: {}
-          }
-        });
-      }
       return { ok: false, status: 404 };
     };
 

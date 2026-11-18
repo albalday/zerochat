@@ -11,7 +11,7 @@
     ChatStorage: Storage, ChatI18n: I18n, ChatDebug: Debug, ChatState: State,
     ChatEngine: Engine, ChatDefaults: Defaults, ChatDialogs: Dialogs, ChatConfig: Config,
     ChatProfileRepository: Profiles, ChatProviders: Providers, ChatMCP: MCP,
-    ChatUIProject: UIProject, ChatMessageTurns: MessageTurns,
+    ChatUIProject: UIProject, ChatUIFolderPicker: UIFolderPicker, ChatMessageTurns: MessageTurns,
     ChatConversationService: ConversationService, ChatGenerationController: GenerationController,
     ChatUIReasoning: UIReasoning, ChatUIInspector: UIInspector, ChatModelCatalog: ModelCatalog,
     ChatUISidebar: UISidebar, ChatUISettings: UISettings, ChatUIShell: UIShell,
@@ -29,7 +29,6 @@
   const getChatHistory = () => State.get('messages');
   const getCurrentSessionId = () => State.get('sessions').activeId;
   // Proyectos plegados o desplegados por el usuario en el historial ("Todos"), solo en este navegador.
-  const PROJECT_GROUPS_STORAGE_KEY = 'sidebar_project_groups';
 
   const ELEMENT_IDS = {
     // Barra lateral de chats
@@ -220,6 +219,20 @@
     loginError: 'login-error',
     loginCancel: 'login-cancel',
     loginSubmit: 'login-submit',
+    folderPickerDialog: 'folder-picker-dialog',
+    folderPickerPathForm: 'folder-picker-path-form',
+    folderPickerPath: 'folder-picker-path',
+    folderPickerRecentSection: 'folder-picker-recent-section',
+    folderPickerRecent: 'folder-picker-recent',
+    folderPickerCurrent: 'folder-picker-current',
+    folderPickerList: 'folder-picker-list',
+    folderPickerTruncated: 'folder-picker-truncated',
+    folderPickerNewToggle: 'folder-picker-new-toggle',
+    folderPickerNewForm: 'folder-picker-new-form',
+    folderPickerNewName: 'folder-picker-new-name',
+    folderPickerError: 'folder-picker-error',
+    folderPickerCancel: 'folder-picker-cancel',
+    folderPickerUse: 'folder-picker-use',
     // MCP
     mcpToolsContainer: 'mcp-tools-container',
     mcpServersList: 'mcp-servers-list',
@@ -274,7 +287,7 @@
         UIProject.followConversationProject(conversation).catch(error => console.warn('[App] Could not open the conversation project:', error));
       },
       isServerMode: () => isServerRunEnabled(),
-      getProject: () => getServerCwd(),
+      getProject: () => getServerProject(),
       resetComposerInput: () => resetComposerInput(),
       closeMobileSidebar: () => {
         if (UISidebar.isMobile()) UISidebar.closeSidebar(elements);
@@ -292,7 +305,10 @@
 
   /** Directorio del proyecto en el servidor local; vacío sin servidor conectado. */
   const getServerCwd = () => (State.get('mcp').status === 'connected' ? State.get('mcp').serverInfo?.cwd || '' : '');
-  const renderSidebarChats = () => UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId(), State.get('mcp').serverRuns, getServerCwd());
+  /** Proyecto que guarda un chat nuevo: el directorio del servidor, vacío sin conexión o en la carpeta general. */
+  const getServerProject = () => MCP.projectOfDirectory(getServerCwd());
+  const renderSidebarChats = () => UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId(), State.get('mcp').serverRuns, getServerProject(),
+    State.get('mcp').status === 'connected' ? MCP.directoryOfProject('') : '');
 
   const getActiveProfileName = () => getRuntimeConfig().activeProfile?.name || getRuntimeConfig().activeProfile?.id || '';
 
@@ -629,15 +645,6 @@
       onNewSession: createNewSession,
       onNewProjectSession: project => UIProject.createProjectSession(project, createNewSession).catch(error => console.warn('[App] Could not open a chat in the project:', error)),
       renderList: renderSidebarChats,
-      loadProjectGroups: () => {
-        try {
-          const choices = JSON.parse(Storage.getStorageItem(PROJECT_GROUPS_STORAGE_KEY) || '{}');
-          return choices && typeof choices === 'object' && !Array.isArray(choices) ? choices : {};
-        } catch (_) {
-          return {};
-        }
-      },
-      onProjectGroupsChange: choices => Storage.setStorageItem(PROJECT_GROUPS_STORAGE_KEY, JSON.stringify(choices)),
       onDeleteAllSessions: () => ConversationService.deleteAllSessions(getConversationServiceOptions()),
       onOpenSettingsMode: () => showSidebarNav('settings'),
       onOpenConnection: () => {
@@ -671,6 +678,14 @@
       onSwitchSession: switchToSession,
       onImportSuccess: importConversationSession,
       isBusy: () => ConversationService.blockSessionTransitionIfBusy('chat_import_blocked_generating')
+    });
+
+    UIFolderPicker.mount({
+      dialog: elements.folderPickerDialog, pathForm: elements.folderPickerPathForm, path: elements.folderPickerPath,
+      recentSection: elements.folderPickerRecentSection, recent: elements.folderPickerRecent, current: elements.folderPickerCurrent,
+      list: elements.folderPickerList, truncated: elements.folderPickerTruncated, newToggle: elements.folderPickerNewToggle,
+      newForm: elements.folderPickerNewForm, newName: elements.folderPickerNewName, error: elements.folderPickerError,
+      cancel: elements.folderPickerCancel, use: elements.folderPickerUse
     });
 
     // Razonamiento (Thinking)
@@ -807,6 +822,7 @@
             saveCurrent: false
           }).catch(error => console.warn('[App] Could not reload completed server conversation:', error));
         }
+        if (finishedIds.length === 1 && finishedIds[0] === activeId) return;
         ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
       }
     );

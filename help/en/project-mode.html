@@ -28,7 +28,7 @@
       <h2>1. The idea</h2>
       <p>In a long project, every conversation starts without memory. ZeroChat keeps that memory in the project's own files and hands it to the agent at the start of every chat: the rules, where everything lives and where the work stands. The agent keeps it up to date as it works.</p>
       <p>The rules, including how to keep the memory, live in <code>AGENTS.md</code>, the file that Codex, Cursor, Copilot and other agents also read. That way any agent working on the project follows the same plan and keeps it the same way.</p>
-      <p>It works with the <a href="mcp.html">local server</a>: the project is its working directory, initially the directory from which <code>zerochat.py</code> is launched. You can change it without restarting from the Reasoning panel, with the edit icon next to the path. The agent cannot change it: a <code>cd</code> only applies within its own command, and the next one starts again in the project.</p>
+      <p>It works with the <a href="mcp.html">local server</a>: the project is its working directory, initially the directory from which <code>zerochat.py</code> is launched. You can change it without restarting from the Reasoning panel, with the folder icon next to the path. In the <code>~/zerochat/general</code> folder, the one for chats without a project, project mode is not used. The agent cannot change it: a <code>cd</code> only applies within its own command, and the next one starts again in the project.</p>
     </div>
 
     <div class="card">
@@ -75,7 +75,7 @@
       <ul><li>It is on by default: if the project has a <code>.zerochat/state.md</code>, it is used without doing anything.</li>
       <li>A dot on the <strong>Reasoning</strong> button shows that the project is in use; a warning-colored dot means the files could not be read.</li>
       <li>The Reasoning panel shows the status and actions: <em>Initialize project</em>, <em>Do not use in this project</em>, <em>Re-enable</em>, <em>Refresh data</em> (which re-reads project management files) and <em>Simplify memory</em> (available when tools are active; asks for confirmation and prompts the agent to archive older decisions and condense closed milestones in the plan). Its "Project mode" switch turns it off for all projects.</li>
-      <li>Below it are the project directory, shown even with the mode off, with the edit icon to change it. The change applies only to this tab: each tab or device works in its own project, a newly opened page starts in the server's startup folder and opening a conversation moves to its folder. It is unavailable while the model is responding.</li></ul>
+      <li>Above it, in its own block, is the <strong>working folder</strong>, shown even with the mode off, with the folder icon to change it. It opens a picker where you can type or paste a path, pick a recent project or the <strong>general</strong> folder with one tap, browse the server's folders (hidden folders and files are not shown) and create a new folder, which is how a project starts; folders can only be created inside your home folder. <strong>Use this folder</strong> picks the one you are viewing. The change applies only to this tab: each tab or device works in its own project, a newly opened page starts in the server's startup folder and opening a conversation moves to its folder. It is unavailable while the model is responding.</li></ul>
     </div>
 
     <div class="card">

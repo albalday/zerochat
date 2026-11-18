@@ -32,6 +32,7 @@ const REVIEWED_USES = {
   'js/ui-command-jobs.js': 1,
   'js/ui-conversation.js': 11,
   'js/ui-dialogs.js': 1,
+  'js/ui-folder-picker.js': 2,
   'js/ui-inspector.js': 12,
   'js/ui-mcp.js': 6,
   'js/ui-profiles.js': 4,

@@ -606,6 +606,7 @@
   font-size: 0.75rem;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-color);
+  overflow-wrap: anywhere;
 }
 
 .mcp-screenshot-preview {
@@ -775,6 +776,11 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
+}
+
+.tool-auth-more-menu:has(.tool-auth-cmd-rule) {
+  min-width: min(28rem, 85vw);
+  max-width: min(38rem, 90vw);
 }
 
 
@@ -1479,6 +1485,17 @@
   white-space: nowrap;
 }
 
+.command-card.tool-card-auth-active .tool-card-header {
+  align-items: flex-start;
+}
+
+.command-card.tool-card-auth-active .command-card-command {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: visible;
+  text-overflow: clip;
+}
+
 .command-card .tool-card-header-actions {
   flex-shrink: 0;
 }
@@ -1738,6 +1755,33 @@ button.command-jobs-link:focus-visible {
   grid-template-columns: minmax(0, 1fr);
   gap: 0.3rem;
   min-width: 0;
+}
+
+.tool-auth-cmd-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.btn-auth-cmd-inspect {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.btn-auth-cmd-inspect:hover {
+  color: var(--primary);
+  border-color: var(--primary);
 }
 
 .tool-auth-cmd-input,

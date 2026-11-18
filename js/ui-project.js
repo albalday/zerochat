@@ -21,6 +21,7 @@
   const getMCP = () => resolveDep('ChatMCP', './mcp.js');
   const getProjectContext = () => resolveDep('ChatProjectContext', './project-context.js');
   const getUIReasoning = () => resolveDep('ChatUIReasoning', './ui-reasoning.js');
+  const getFolderPicker = () => resolveDep('ChatUIFolderPicker', './ui-folder-picker.js');
 
   const getServerCwd = () => getState().get('mcp').serverInfo?.cwd || '';
 
@@ -37,24 +38,26 @@
   }
 
   /**
-   * Abrir una conversación de otro proyecto lleva el servidor a su carpeta. Si ya no existe, se avisa y
-   * la conversación se queda sin herramientas locales (localToolsAvailable), nunca en otra carpeta.
+   * Abrir una conversación de otro proyecto lleva el servidor a su carpeta, y una sin proyecto a la carpeta general.
+   * Si ya no existe, se avisa y la conversación se queda sin herramientas locales (localToolsAvailable),
+   * nunca en otra carpeta.
    */
   function followConversationProject(conversation) {
-    return openProjectDirectory(conversation?.project);
+    if (!conversation) return Promise.resolve();
+    return openProjectDirectory(getMCP().directoryOfProject(conversation.project));
   }
 
   let pendingProjectSession = null;
 
   /**
-   * Chat nuevo en otro proyecto desde su cabecera del historial: primero el chat vacío (si una generación
-   * lo impide, el servidor no cambia de carpeta) y después la carpeta, que el chat toma al guardarse.
-   * El perfil activo no cambia.
+   * Chat nuevo en otro proyecto (vacío para la carpeta general) desde su cabecera del historial: primero el chat
+   * vacío (si una generación lo impide, el servidor no cambia de carpeta) y después la carpeta, que el
+   * chat toma al guardarse. El perfil activo no cambia.
    */
   function createProjectSession(project, createNewSession) {
     if (pendingProjectSession) return pendingProjectSession;
     pendingProjectSession = (async () => {
-      if (await createNewSession()) await openProjectDirectory(project);
+      if (await createNewSession()) await openProjectDirectory(getMCP().directoryOfProject(project));
     })().finally(() => { pendingProjectSession = null; });
     return pendingProjectSession;
   }
@@ -125,7 +128,16 @@
       async changeDirectory() {
         try {
           const result = await ProjectContext.changeDirectory({
-            askPath: cwd => Dialogs.prompt(t('project_directory_prompt'), cwd, { title: t('project_directory_title') }),
+            askPath: cwd => {
+              // El panel se cierra con cualquier clic fuera de él, también dentro del selector.
+              UIReasoning.closeReasoningMenu(elements);
+              const MCP = getMCP();
+              return getFolderPicker().open({
+                current: cwd,
+                recent: State.get('sessions').list.map(session => session.project),
+                generalDir: MCP.directoryOfProject('')
+              });
+            },
             isBusy
           });
           if (result?.reason === 'error') {

@@ -2,9 +2,10 @@
  * Modo proyecto: detecta .zerochat/task.py en el directorio de trabajo del servidor local,
  * lee también .zerochat/state.md y AGENTS.md (normas y protocolo de memoria, comunes a todos los agentes),
  * publica el resultado en el slice `project` de ChatState y construye el bloque que se inyecta en el
- * prompt de sistema. Los ficheros se leen con la herramienta
- * `read_file` a través de ToolExecutor, sin pedir confirmación: si la política de seguridad
- * la exige, el estado pasa a `no_access`.
+ * prompt de sistema. Los ficheros se leen en una sola consulta `zerochat/project/context` (o con el
+ * estado entregado en `initialize` y `zerochat/project/set_directory`), sujeta a las reglas de
+ * lectura de `read_file` sin abrir retos interactivos: si pide confirmación o se deniega, el estado
+ * pasa a `no_access`.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -15,7 +16,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { resolveDep } = Utils;
+  const { resolveDep, joinPath } = Utils;
 
   const RULES_FILE = 'AGENTS.md';
   const MEMORY_DIR = '.zerochat';
@@ -41,19 +42,15 @@ Every agent working in this repository keeps the project memory up to date:
 - \`${LOG_FILE}\`: active architectural invariants and system truths, one line each. Read it before designing changes or touching a subsystem so you do not break active contracts.
 - \`${ARCHIVE_DIR}/\` (\`M<n>.md\` and \`log_M<a>-M<b>.md\`): plan sections of closed milestones and rotated decision logs. Search them; do not read them in full.
 
-Tasks take one line each, with an ID numbered within their milestone: \`- [ ] M2-T3 Short description\`.
-- Mark a task done by editing only its line: \`- [x] M2-T3 Short description (YYYY-MM-DD)\`. A dropped task is marked done with \`(dropped: reason)\`.
-- Never renumber or reuse an ID. A new task or decision takes the next number in its milestone (M2-T4, M2-D2).
-- Never rewrite ${PLAN_FILE} or ${LOG_FILE} as a whole during daily work: edit or append single lines.
+Use \`python3 ${TASK_HELPER_FILE}\` for daily updates instead of editing these files by hand:
+- \`python3 ${TASK_HELPER_FILE} status\`: print \`${STATE_FILE}\`.
+- \`python3 ${TASK_HELPER_FILE} add-task M<n> "Short description"\`: append the next numbered task to milestone \`M<n>\` before starting unscheduled work.
+- \`python3 ${TASK_HELPER_FILE} done <TASK_ID> [-d "Decision text"] [-n <NEXT_TASK>] [--drop "reason"]\`: mark \`<TASK_ID>\` done (or dropped), optionally append a decision (\`YYYY-MM-DD Mn-Dm ...\`) to \`${LOG_FILE}\`, and update \`${STATE_FILE}\` (auto-detecting the next pending task if \`-n\` is omitted).
+- \`python3 ${TASK_HELPER_FILE} next <TASK>\`: manually set the next task in \`${STATE_FILE}\`.
 
-To mark a task done, record decisions and update state atomically in one command:
-\`python3 ${TASK_HELPER_FILE} done <TASK_ID> [-d "Decision text"] [-n <NEXT_TASK>]\`
-(or edit files manually if python is unavailable).
+Only edit files by hand if Python is unavailable, and never rewrite ${PLAN_FILE} or ${LOG_FILE} as a whole (edit or append single lines: \`- [ ] M2-T3 Short description\` / \`- [x] M2-T3 Short description (YYYY-MM-DD)\` / \`(dropped: reason)\`). Never renumber or reuse an ID.
 
-Omit \`-d\` by default: routine code changes, bugfixes, refactors, test updates, or opening/closing milestones do not go in ${LOG_FILE}. Pass \`-d\` (\`- YYYY-MM-DD M2-D1 Decision and reason (M2-T3)\`) only when the task establishes a system invariant, a cross-layer or security contract, an explicitly accepted risk, or why an alternative was rejected ("why not X"); if it replaces an older decision, start with \`Supersedes Mn-Dm: ...\` (keep \`Mn-Dm\` until the next compaction).
-
-Before starting work that is not in ${PLAN_FILE}, add it as the next task of the current milestone.
-Right after finishing each task, before starting the next one: mark it in ${PLAN_FILE}, append its decision, if any, to ${LOG_FILE} and set the next task in ${STATE_FILE} (or use \`task.py done\`).
+Right after finishing each task, before starting the next one, run \`task.py done\`. Omit \`-d\` by default: routine code changes, bugfixes, refactors, test updates, or opening/closing milestones do not go in ${LOG_FILE}. Pass \`-d\` only when the task establishes a system invariant, a cross-layer or security contract, an explicitly accepted risk, or why an alternative was rejected ("why not X"); if it replaces an older decision, start with \`Supersedes Mn-Dm: ...\` (keep \`Mn-Dm\` until the next compaction).
 
 Ask the user before closing a milestone or adding a new one. Every milestone has a Goal and a Done when line.
 When the user confirms a milestone is closed: move its section from ${PLAN_FILE} to \`${ARCHIVE_DIR}/M<n>.md\` (move, never delete), leave \`## M<n> Title: closed YYYY-MM-DD\` in ${PLAN_FILE} and update ${STATE_FILE}.
@@ -335,13 +332,6 @@ if __name__ == "__main__":
 
   const SUMMARIZER_PROJECT_ADDENDUM = `Project mode is active. Add a final section "Pending project records" listing task status changes (by task ID), plan changes and decisions from the dialogue that were not confirmed as written to ${PLAN_FILE}, ${LOG_FILE} or ${STATE_FILE}. Write "none" if there are none.`;
 
-  function joinPath(cwd, relativePath) {
-    const base = String(cwd || '');
-    const separator = base.includes('\\') && !base.includes('/') ? '\\' : '/';
-    const trimmed = base.replace(/[\\/]+$/, '');
-    return `${trimmed}${separator}${relativePath.split('/').join(separator)}`;
-  }
-
   /** Impide que el contenido del repositorio cierre la etiqueta que lo delimita. */
   function neutralizeTags(content) {
     return String(content || '').replace(/<\/?(project_rules|project_state)\b/gi, match => match.replace('<', '&lt;'));
@@ -496,8 +486,10 @@ ${stateBody}
    * .zerochat/task.py, cuya existencia marca el proyecto como inicializado
    * (`helperRead.status`: ok | missing | denied | unavailable | error).
    */
-  function computeStatus({ projectMode = false, declined = [], cwd = '', readAvailable = false, helperRead = null } = {}) {
+  function computeStatus({ projectMode = false, declined = [], cwd = '', noProject = false, readAvailable = false, helperRead = null } = {}) {
     if (!projectMode) return 'disabled';
+    // La carpeta general solo agrupa chats sueltos: nunca tiene memoria de proyecto.
+    if (noProject) return 'no_project';
     if (!cwd || !readAvailable) return 'unavailable';
     if (Array.isArray(declined) && declined.includes(cwd)) return 'declined';
     switch (helperRead?.status) {
@@ -507,10 +499,6 @@ ${stateBody}
       case 'unavailable': return 'unavailable';
       default: return 'error';
     }
-  }
-
-  function isMissingFileError(message) {
-    return /does not exist|not found|no such file/i.test(String(message || ''));
   }
 
   function createProjectContext() {
@@ -532,33 +520,7 @@ ${stateBody}
       return mcp.status === 'connected' ? String(mcp.serverInfo?.cwd || '').trim() : '';
     }
 
-    /** Lee un fichero del proyecto sin interacción: si requiere aprobación, no se ejecuta. */
-    async function readProjectFile(cwd, relativePath, signal, maxLines = 2000) {
-      const tool = getAvailableTool(READ_TOOL);
-      if (!tool) return { status: 'unavailable' };
-
-      const args = { path: joinPath(cwd, relativePath), max_bytes: MAX_FILE_BYTES, max_lines: maxLines };
-      const execution = await getAgentCore().executor.executeToolCall({
-        id: 'project_context_read',
-        type: 'function',
-        function: { name: READ_TOOL, arguments: JSON.stringify(args) }
-      }, { signal });
-      // Sin quien conteste al usuario, un reto o una denegación del backend dejan la lectura sin hacer.
-      if (execution?.requiresAuthorization || execution?.result?.rawResult?.securityStatus === 'deny') return { status: 'denied' };
-
-      // El servidor marca como error (isError) los resultados con success: false, como un fichero
-      // inexistente; el motivo viaja en el contenido JSON, no en execution.error.
-      let payload = null;
-      try {
-        payload = JSON.parse(execution?.result?.content || '');
-      } catch (_) {
-        return { status: 'error', error: execution?.error || 'read_file returned an unexpected format' };
-      }
-      if (payload?.success !== true) {
-        return isMissingFileError(payload?.error) ? { status: 'missing' } : { status: 'error', error: String(payload?.error || 'read_file failed') };
-      }
-      return { status: 'ok', content: String(payload.content || ''), truncated: payload.truncated === true };
-    }
+    const isNoProject = cwd => Boolean(cwd) && resolveDep('ChatMCP', './mcp.js').projectOfDirectory(cwd) === '';
 
     function publish(patch) {
       const State = getState();
@@ -574,68 +536,56 @@ ${stateBody}
       const sequence = ++refreshSequence;
       const config = getConfig().getActive();
       const cwd = getCwd();
+      const cached = getMcp().takeProjectContext(cwd);
       const empty = { rules: { content: '', truncated: false }, state: { content: '', truncated: false } };
       const base = {
         projectMode: config.projectMode === true,
         declined: config.projectDeclined || [],
         cwd,
+        noProject: isNoProject(cwd),
         readAvailable: Boolean(getAvailableTool(READ_TOOL))
       };
 
       const preliminary = computeStatus({ ...base, helperRead: { status: 'ok' } });
       if (preliminary !== 'ready') return publish({ cwd, status: preliminary, error: '', ...empty });
 
-      let helperRead;
-      let stateRead = { status: 'missing' };
-      let rulesRead = { status: 'missing' };
+      let response;
       try {
-        helperRead = await readProjectFile(cwd, TASK_HELPER_FILE, options.signal, 1);
-        if (helperRead.status === 'ok') {
-          stateRead = await readProjectFile(cwd, STATE_FILE, options.signal);
-          if (stateRead.status === 'ok' || stateRead.status === 'missing') {
-            rulesRead = await readProjectFile(cwd, RULES_FILE, options.signal);
-          }
-        }
+        response = cached || await getMcp().requestExternalControl(
+          'zerochat/project/context',
+          {},
+          options.signal ? { signal: options.signal } : {}
+        );
       } catch (error) {
-        helperRead = { status: 'error', error: error?.message || String(error) };
+        response = { status: 'error', error: error?.message || String(error) };
       }
       if (sequence !== refreshSequence) return getState().get('project');
+      if (!getAvailableTool(READ_TOOL)) return publish({ cwd, status: 'unavailable', error: '', ...empty });
 
-      const status = computeStatus({ ...base, helperRead });
+      const status = computeStatus({ ...base, helperRead: response });
       if (status !== 'ready') {
-        if (status === 'error') console.warn('[ProjectContext] Could not read project helper script:', helperRead.error);
-        return publish({ cwd, status, error: helperRead.error || '', ...empty });
+        if (status === 'error') console.warn('[ProjectContext] Could not read project context:', response?.error);
+        return publish({ cwd, status, error: response?.error || '', ...empty });
       }
 
-      if (stateRead.status === 'unavailable') {
-        return publish({ cwd, status: 'unavailable', error: '', ...empty });
-      }
-      if (stateRead.status === 'denied') {
-        return publish({ cwd, status: 'no_access', error: '', ...empty });
-      }
-      if (stateRead.status === 'error') {
-        console.warn('[ProjectContext] Could not read project state:', stateRead.error);
-        return publish({ cwd, status: 'error', error: stateRead.error || '', ...empty });
-      }
-      // Sin AGENTS.md el proyecto sigue activo: el bloque de sistema pide crearlo.
-      if (rulesRead.status !== 'ok' && rulesRead.status !== 'missing') {
-        console.warn('[ProjectContext] Could not read project rules:', rulesRead.error || rulesRead.status);
-      }
       return publish({
         cwd,
         status,
         error: '',
-        rules: rulesRead.status === 'ok'
-          ? { content: rulesRead.content, truncated: rulesRead.truncated }
-          : { content: '', truncated: false },
-        state: stateRead.status === 'ok'
-          ? { content: stateRead.content, truncated: stateRead.truncated }
-          : { content: '', truncated: false }
+        rules: {
+          content: String(response.rules?.content || ''),
+          truncated: response.rules?.truncated === true
+        },
+        state: {
+          content: String(response.state?.content || ''),
+          truncated: response.state?.truncated === true
+        }
       });
     }
 
     function canInitialize() {
-      return Boolean(getCwd() && getAvailableTool(READ_TOOL) && getAvailableTool(WRITE_TOOL));
+      const cwd = getCwd();
+      return Boolean(cwd && !isNoProject(cwd) && getAvailableTool(READ_TOOL) && getAvailableTool(WRITE_TOOL));
     }
 
     /**
@@ -720,7 +670,7 @@ ${stateBody}
       return { ok: true };
     }
 
-    return { refresh, readProjectFile, canInitialize, initialize, canCompact, compact, canChangeDirectory, changeDirectory };
+    return { refresh, canInitialize, initialize, canCompact, compact, canChangeDirectory, changeDirectory };
   }
 
   const defaultContext = createProjectContext();

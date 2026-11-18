@@ -14,6 +14,8 @@ from pathlib import Path
 
 from core.limits import MAX_PATH_LENGTH
 from security.context import SecurityContext
+from security.controller import ACCESS_CONTROLLER
+from security.rules import POLICY_ALLOW
 from tools.common import _atomic_write_text, _tool_error, line_matches, text_terms
 
 IGNORED_WORKSPACE_DIRS = {
@@ -263,11 +265,8 @@ def edit_file(path: str, old_str: str, new_str: str, replace_all: bool = False, 
         return _tool_error(str(e))
 
 
-def resolve_project_directory(path, ctx: SecurityContext) -> dict:
-    """
-    Valida la carpeta que elige una pestaña como proyecto (relativa al suyo actual). El servidor no la
-    guarda: la pestaña la envía en cada petición (X-ZeroChat-Project) y otras pestañas siguen en la suya.
-    """
+def _existing_directory(path, ctx: SecurityContext) -> Path:
+    """La carpeta `path` (relativa al proyecto de la petición) resuelta; ValueError si no es una carpeta."""
     if not isinstance(path, str) or not path.strip():
         raise ValueError("La ruta del directorio está vacía.")
     if len(path) > MAX_PATH_LENGTH:
@@ -275,8 +274,127 @@ def resolve_project_directory(path, ctx: SecurityContext) -> dict:
     target = ctx.absolute(path)
     if not target.is_dir():
         raise ValueError(f"'{path}' no existe o no es un directorio.")
+    return target
+
+
+def resolve_project_directory(path, ctx: SecurityContext) -> dict:
+    """
+    Valida la carpeta que elige una pestaña como proyecto (relativa al suyo actual). El servidor no la
+    guarda: la pestaña la envía en cada petición (X-ZeroChat-Project) y otras pestañas siguen en la suya.
+    """
     # Cambiar de proyecto no borra nada: cada proyecto conserva su propia sesión.
-    return {"cwd": str(target)}
+    return {"cwd": str(_existing_directory(path, ctx))}
+
+
+PROJECT_CONTEXT_MAX_BYTES = 16384
+
+
+def _can_read_project_file(rel_path: str, ctx: SecurityContext) -> bool:
+    path = str(ctx.workspace_dir / rel_path)
+    return ACCESS_CONTROLLER.evaluate_authorization(
+        "read_file", {"path": path}, context=ctx, server_name="mcp-proxy", server_id=""
+    ).status == POLICY_ALLOW
+
+
+def _read_project_text(rel_path: str, ctx: SecurityContext, max_lines: int = MAX_READ_LINES) -> tuple[str, dict | None, str]:
+    """Lee un fichero del proyecto: devuelve (status, {content, truncated}, error)."""
+    try:
+        target = ctx.absolute(rel_path)
+        if not target.exists():
+            return "missing", None, ""
+        if not target.is_file():
+            return "error", None, f"Path '{rel_path}' is not a regular file."
+        selected, total_lines, truncated_bytes = _read_line_range(target, 1, max_lines, PROJECT_CONTEXT_MAX_BYTES)
+        return "ok", {"content": "".join(selected), "truncated": truncated_bytes or max_lines < total_lines}, ""
+    except OSError as exc:
+        return "error", None, str(exc)
+
+
+def read_project_context(ctx: SecurityContext) -> dict:
+    """
+    Contexto del modo proyecto (.zerochat/task.py, .zerochat/state.md y AGENTS.md) en una sola lectura,
+    sujeta a las mismas reglas de lectura que read_file sin abrir retos interactivos.
+    """
+    if not _can_read_project_file(".zerochat/task.py", ctx):
+        return {"status": "denied"}
+    helper_status, _, helper_err = _read_project_text(".zerochat/task.py", ctx, max_lines=1)
+    if helper_status != "ok":
+        return {"status": helper_status, **({"error": helper_err} if helper_err else {})}
+    if not _can_read_project_file(".zerochat/state.md", ctx):
+        return {"status": "denied"}
+    state_status, state_data, state_err = _read_project_text(".zerochat/state.md", ctx)
+    if state_status == "error":
+        return {"status": "error", "error": state_err}
+    rules_data = None
+    if _can_read_project_file("AGENTS.md", ctx):
+        _, rules_data, _ = _read_project_text("AGENTS.md", ctx)
+    empty = {"content": "", "truncated": False}
+    return {
+        "status": "ok",
+        "rules": rules_data or empty,
+        "state": state_data or empty,
+    }
+
+
+# Subcarpetas de una respuesta del selector de carpeta de trabajo: una carpeta con más avisa de las que faltan.
+MAX_BROWSE_ENTRIES = 1000
+
+
+def browse_directories(params: dict, ctx: SecurityContext) -> dict:
+    """
+    Subcarpetas no ocultas de `path` (vacía, el proyecto de la petición), por nombre, para que la persona
+    elija la carpeta de trabajo. Como set_directory, no es una herramienta del modelo: no la limita la
+    carpeta del proyecto, solo lo que el usuario del sistema puede leer, y nunca muestra ficheros.
+    """
+    path = params.get("path")
+    target = ctx.workspace_dir.resolve() if path in (None, "") else _existing_directory(path, ctx)
+    names = []
+    try:
+        with os.scandir(target) as items:
+            for item in items:
+                if item.name.startswith("."):
+                    continue
+                try:
+                    if item.is_dir():
+                        names.append(item.name)
+                except OSError:
+                    continue
+    except OSError as exc:
+        raise ValueError(f"No se puede leer '{target}': {exc.strerror or exc}") from exc
+    names.sort(key=lambda name: (name.lower(), name))
+    return {
+        "path": str(target),
+        "parent": None if target.parent == target else str(target.parent),
+        "directories": names[:MAX_BROWSE_ENTRIES],
+        "total": len(names),
+        "truncated": len(names) > MAX_BROWSE_ENTRIES,
+    }
+
+
+def create_project_directory(params: dict, ctx: SecurityContext) -> dict:
+    """
+    Crea la carpeta `name` dentro de `parent` para usarla como proyecto. Solo bajo la carpeta personal del
+    usuario: crear un proyecto no necesita escribir en el resto del sistema. El nombre es un solo nivel
+    y no oculto, porque el selector no muestra las ocultas.
+    """
+    name = params.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("El nombre de la carpeta está vacío.")
+    name = name.strip()
+    if len(name) > 255 or any(sep in name for sep in ("/", "\\", "\0")) or name.startswith("."):
+        raise ValueError(f"'{name}' no es un nombre de carpeta válido: sin separadores y sin empezar por un punto.")
+    parent = _existing_directory(params.get("parent"), ctx)
+    home = Path.home().resolve()
+    if parent != home and home not in parent.parents:
+        raise ValueError(f"Solo se pueden crear carpetas dentro de {home}.")
+    target = parent / name
+    try:
+        target.mkdir()
+    except FileExistsError as exc:
+        raise ValueError(f"'{target}' ya existe.") from exc
+    except OSError as exc:
+        raise ValueError(f"No se puede crear '{target}': {exc.strerror or exc}") from exc
+    return {"path": str(target)}
 
 
 def _walk_project_files(target: Path) -> Iterator[Path]:

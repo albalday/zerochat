@@ -41,20 +41,20 @@
   }
 
   /** Vuelve a registrar las herramientas de los servicios externos, o las retira si no hay ninguno en marcha. */
-  async function refreshExternalTools(manager, anyRunning, { externalId, proxyId, McpClient }) {
-    manager.dropClient(externalId);
+  async function refreshExternalTools(manager, anyRunning, rawTools, { externalProviderId, proxyId, McpToolProvider, summarizeTool }) {
+    getAgentCore().registry.unregisterProvider(externalProviderId);
     let tools = [];
     const control = manager.clients.get(proxyId);
     if (anyRunning && control) {
-      const client = new McpClient({
-        id: externalId,
-        name: 'ZeroChat External MCP Host',
-        url: `${control.url}/mcp/external`,
-        token: manager.sessionToken,
-        headers: control.headers
-      });
       try {
-        tools = await manager.registerClient(client);
+        const provider = new McpToolProvider(control, {
+          id: externalProviderId,
+          name: 'ZeroChat External MCP Host',
+          onTransportFailure: failure => manager.markProxyUnavailable(failure)
+        });
+        const discovered = await provider.discoverTools({ tools: rawTools });
+        getAgentCore().registry.registerProvider(provider);
+        tools = discovered.map(summarizeTool);
       } catch (error) {
         console.warn('[MCP] Could not list the external MCP tools:', error);
       }

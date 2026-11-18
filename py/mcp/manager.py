@@ -497,7 +497,7 @@ class McpServiceManager:
             decoded = re.sub(r"z([0-9a-f]+)z", lambda m: chr(int(m.group(1), 16)), prefix)
         except (ValueError, OverflowError):
             return None
-        return decoded or None
+        return decoded if decoded in self.services else None
 
     def call(self, public_name: str, arguments: dict) -> dict:
         resolved = self._resolve_tool(public_name)

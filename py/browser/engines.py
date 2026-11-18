@@ -146,6 +146,7 @@ class BrowserEngines:
     def __init__(self):
         self._lock = threading.Lock()
         self._jobs: dict[str, dict] = {}
+        self._locations_cache: tuple[tuple[str, int], dict[str, tuple[str, Path]]] | None = None
 
     @staticmethod
     def _run_cli(cli: Path, *args: str, timeout: float) -> subprocess.CompletedProcess:
@@ -154,16 +155,27 @@ class BrowserEngines:
 
     def _locations(self, cli: Path) -> dict[str, tuple[str, Path]]:
         """Entradas de la caché de esta versión de Playwright: nombre -> (título con versión, ruta)."""
+        key = (str(cli), cli.stat().st_mtime_ns)
+        cached = self._locations_cache
+        if cached is not None and cached[0] == key:
+            return cached[1]
         names = [name for entries in ENGINE_CACHE_ENTRIES.values() for name in entries]
         result = self._run_cli(cli, "install", "--dry-run", *names, timeout=30)
         if result.returncode != 0:
             raise RuntimeError(f"Playwright no pudo listar sus navegadores: {(result.stderr or result.stdout).strip()}")
-        return {name: (title, Path(location.strip())) for title, name, location in _DRY_RUN_ENTRY.findall(result.stdout)}
+        locations = {name: (title, Path(location.strip())) for title, name, location in _DRY_RUN_ENTRY.findall(result.stdout)}
+        self._locations_cache = (key, locations)
+        return locations
 
     def list(self) -> dict:
         """Navegadores del sistema y motores de Playwright; sin Playwright del servicio no hay motores."""
         cli = playwright_service_cli()
-        result = {"systemBrowsers": system_browsers(), "extensions": user_browser_extensions(), "engines": []}
+        result = {
+            "systemBrowsers": system_browsers(),
+            "extensions": user_browser_extensions(),
+            "engines": [],
+            "config": load_browser_config(),
+        }
         if not cli.is_file():
             return result
         locations = self._locations(cli)
@@ -235,10 +247,10 @@ class BrowserEngines:
             self._jobs.pop(engine, None)
         result = self.list()
         # La configuración no se queda con un motor quitado si hay otro instalado.
-        config = load_browser_config()
+        config = result["config"]
         replacement = next((item["id"] for item in result["engines"] if item["installed"]), None)
         if config["engine"] == engine and replacement:
-            save_browser_config({**config, "engine": replacement})
+            result["config"] = save_browser_config({**config, "engine": replacement})
         return result
 
 

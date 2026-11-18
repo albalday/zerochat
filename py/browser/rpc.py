@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import subprocess
 
-from browser.config import load_browser_config, save_browser_config
+from browser.config import save_browser_config
 from browser.engines import BROWSER_ENGINES, clear_own_browser_data
 from core.rpc import INVALID_PARAMS, RpcOutcome, dispatch_table, rpc_error, rpc_result
 
 BROWSER_METHODS = {
-    "zerochat/browser/config/get": lambda _params: rpc_result(load_browser_config()),
     "zerochat/browser/config/set": lambda params: rpc_result(save_browser_config(params.get("config"))),
     "zerochat/browser/data/clear": lambda params: rpc_result(clear_own_browser_data(params.get("engine"))),
     "zerochat/browser/engines/list": lambda _params: rpc_result(BROWSER_ENGINES.list()),

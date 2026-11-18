@@ -11,7 +11,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
-  const { escapeHtml, projectName, resolveDep } = Utils;
+  const { escapeHtml, projectName, NO_PROJECT_NAME, resolveDep } = Utils;
   const getFilesPage = () => resolveDep('ChatFilesPage', './files-page.js');
   const { t } = I18n;
 
@@ -27,9 +27,8 @@
   // Conversaciones pintadas por grupo: la lista no crece con el historial; "Mostrar más" añade otra tanda.
   const GROUP_PAGE_SIZE = 50;
   let groupLimits = {};
-  // Proyectos que el usuario ha plegado (false) o desplegado (true) en la vista de todos; el resto sigue la regla por defecto.
-  let projectGroupChoices = {};
-  let renderedProjectKeys = [];
+  // Proyectos desplegados en la vista de todos: se vacía cada vez que se elige, porque sirve de selector.
+  let expandedGroups = new Set();
 
   const isMobile = () => window.innerWidth <= 768;
 
@@ -118,37 +117,39 @@
 
   const sessionDate = session => new Date(session.updatedAt || session.createdAt || Date.now());
 
-  /** Selector de proyecto: solo con un proyecto, con su nombre en la primera opción. Devuelve si se ven todos. */
+  /**
+   * Selector de proyecto, siempre visible: el actual (la carpeta general sin servidor), general si el actual es
+   * otro, y todos. Devuelve el proyecto de la vista, o null para la de todos.
+   */
   function renderProjectFilter(select, project) {
-    select.hidden = !project;
-    if (!project) return false;
     const current = select.querySelector('option[value="current"]');
-    current.textContent = t('sidebar_project_current', { name: projectName(project) });
+    current.textContent = t('sidebar_project_current', { name: project ? projectName(project) : NO_PROJECT_NAME });
     current.title = project;
-    return select.value === 'all';
+    const none = select.querySelector('option[value="none"]');
+    none.hidden = !project;
+    if (none.hidden && select.value === 'none') select.value = 'current';
+    if (select.value === 'all') return null;
+    return select.value === 'none' ? '' : project;
   }
 
   /**
    * Conversaciones en el orden en que se muestran, cada una con su grupo ({ key, kind, label, title },
-   * de tipo 'date' o 'project'):
-   * sin proyecto, todas por fecha; con proyecto, las suyas por fecha y después las que no tienen
-   * ninguno; y al ver todos, por proyecto (el de conversación más reciente primero) con las que no
-   * tienen ninguno al final. Las listas llegan de la más reciente a la más antigua.
+   * de tipo 'date' o 'project'): las de un proyecto (`project`, vacío para la carpeta general), por fecha; y al
+   * ver todos (null), por proyecto (el de conversación más reciente primero) con la carpeta general al final.
+   * Las listas llegan de la más reciente a la más antigua.
    */
-  function groupSessions(sessions, project, showAll) {
+  function groupSessions(sessions, project) {
     const byDate = session => {
       const category = getChronologicalCategory(sessionDate(session));
       return { session, group: { key: category, kind: 'date', label: t(GROUP_LABEL_KEYS[category]) } };
     };
-    const noProject = { key: '', kind: 'project', label: t('sidebar_no_project') };
-    const orphans = sessions.filter(session => !session.project).map(session => ({ session, group: noProject }));
-    if (!project) return sessions.map(byDate);
-    if (!showAll) return [...sessions.filter(session => session.project === project).map(byDate), ...orphans];
+    if (project !== null) return sessions.filter(session => (session.project || '') === project).map(byDate);
+    const noProject = { key: '', kind: 'project', label: NO_PROJECT_NAME };
     const projects = [...new Set(sessions.map(session => session.project).filter(Boolean))];
     return [
       ...projects.flatMap(path => sessions.filter(session => session.project === path)
         .map(session => ({ session, group: { key: path, kind: 'project', label: projectName(path), title: path } }))),
-      ...orphans
+      ...sessions.filter(session => !session.project).map(session => ({ session, group: noProject }))
     ];
   }
 
@@ -165,10 +166,11 @@
 
   /**
    * Cabecera de un grupo: la de proyecto lleva carpeta y número de conversaciones para distinguirse de
-   * las de fecha, y a su derecha un botón que abre un chat nuevo en ese proyecto. Con `expanded`
-   * booleano la cabecera es un botón que pliega o despliega el grupo.
+   * las de fecha, y a su derecha los ficheros del proyecto (de la carpeta general, solo si se conoce su carpeta,
+   * `noProjectDir`) y un botón que abre un chat nuevo en él. Con `expanded` booleano la cabecera es un
+   * botón que pliega o despliega el grupo.
    */
-  function renderGroupHeader(group, count, expanded = null) {
+  function renderGroupHeader(group, count, expanded = null, noProjectDir = '') {
     const label = `<span class="sidebar-group-label">${escapeHtml(group.label)}</span>`;
     if (group.kind !== 'project') return `<div class="sidebar-group-header">${label}</div>`;
     const title = group.title ? ` title="${escapeHtml(group.title)}"` : '';
@@ -176,11 +178,11 @@
     const header = expanded === null
       ? `<div class="sidebar-group-header sidebar-project-header"${title}>${content}</div>`
       : `<button type="button" class="sidebar-group-header sidebar-project-header sidebar-group-toggle" data-group-key="${escapeHtml(group.key)}" aria-expanded="${expanded}"${title}>${Icons.get('chevron-right', { size: 14, className: 'sidebar-group-chevron' })}${content}</button>`;
-    if (!group.key) return `<div class="sidebar-project-group">${header}</div>`;
     const newChatLabel = escapeHtml(t('sidebar_project_new_chat_title', { name: group.label }));
     const filesLabel = escapeHtml(t('sidebar_project_files_title', { name: group.label }));
+    const directory = group.key || noProjectDir;
     // Los ficheros del proyecto se abren en una pestaña propia (files.html), sin salir del chat.
-    const files = `<a class="btn-project-files" href="files.html${escapeHtml(getFilesPage().pageUrl(group.key, ''))}" target="_blank" rel="noopener" title="${filesLabel}" aria-label="${filesLabel}">${Icons.get('folder', { size: 14 })}</a>`;
+    const files = directory ? `<a class="btn-project-files" href="files.html${escapeHtml(getFilesPage().pageUrl(directory, ''))}" target="_blank" rel="noopener" title="${filesLabel}" aria-label="${filesLabel}">${Icons.get('folder', { size: 14 })}</a>` : '';
     const newChat = `<button type="button" class="btn-project-new-chat" data-project="${escapeHtml(group.key)}" title="${newChatLabel}" aria-label="${newChatLabel}">${Icons.get('square-pen', { size: 14 })}</button>`;
     return `<div class="sidebar-project-group">${header}${files}${newChat}</div>`;
   }
@@ -190,19 +192,22 @@
    * actual o el de la conversación abierta movía la lista al cambiar de proyecto con su icono, y el
    * siguiente toque (en la tablet, enseguida) caía en otra fila.
    */
-  const isGroupExpanded = group => projectGroupChoices[group.key] === true;
+  const isGroupExpanded = group => expandedGroups.has(group.key);
 
   /**
-   * Lista de conversaciones de la vista elegida, agrupada. Con texto en el buscador se filtra por título
-   * y solo quedan las cabeceras de proyecto de los grupos con coincidencias, desplegados.
+   * Lista de conversaciones de la vista elegida, agrupada. `project` es el del servidor (vacío sin
+   * servidor o en la carpeta general) y `noProjectDir` la carpeta general, si se conoce. Con texto en el
+   * buscador se filtra por título y solo quedan las cabeceras de proyecto de los grupos con
+   * coincidencias, desplegados.
    */
-  function renderSidebarChats(elements, sessions, currentSessionId, serverRuns, project) {
+  function renderSidebarChats(elements, sessions, currentSessionId, serverRuns, project, noProjectDir = '') {
     const filter = elements.sidebarSearchInput.value.toLowerCase().trim();
-    const showAll = renderProjectFilter(elements.sidebarProjectFilter, project);
-    const visible = groupSessions(sessions, project, showAll);
+    const viewProject = renderProjectFilter(elements.sidebarProjectFilter, project);
+    const showAll = viewProject === null;
+    const visible = groupSessions(sessions, viewProject);
     const matching = filter ? visible.filter(({ session }) => session.title?.toLowerCase().includes(filter)) : visible;
     if (matching.length === 0) {
-      const emptyKey = project && !showAll ? 'sidebar_no_project_chats' : 'sidebar_no_chats';
+      const emptyKey = showAll || filter ? 'sidebar_no_chats' : 'sidebar_no_project_chats';
       elements.sidebarChatsList.innerHTML = `<div class="sidebar-no-chats">${escapeHtml(t(emptyKey))}</div>`;
       return;
     }
@@ -215,15 +220,13 @@
       return shown.map(renderItem).join('') + more;
     };
     const collapsible = showAll && !filter;
-    const runs = toRuns(matching);
-    if (collapsible) renderedProjectKeys = runs.map(({ group }) => group.key);
-    elements.sidebarChatsList.innerHTML = runs.map(({ group, sessions: items }) => {
+    elements.sidebarChatsList.innerHTML = toRuns(matching).map(({ group, sessions: items }) => {
       const chats = () => renderChats(group, items);
-      if (filter) return (group.kind === 'project' ? renderGroupHeader(group, items.length) : '') + chats();
+      if (filter) return (group.kind === 'project' ? renderGroupHeader(group, items.length, null, noProjectDir) : '') + chats();
       if (!collapsible) return renderGroupHeader(group, items.length) + chats();
       // Un grupo plegado no pinta sus conversaciones: con miles serían miles de nodos ocultos.
       const expanded = isGroupExpanded(group);
-      return renderGroupHeader(group, items.length, expanded) + (expanded ? chats() : '');
+      return renderGroupHeader(group, items.length, expanded, noProjectDir) + (expanded ? chats() : '');
     }).join('');
   }
 
@@ -236,11 +239,10 @@
 
   /**
    * Conecta la barra. `callbacks` aporta las acciones de las conversaciones (onSwitchSession,
-   * onRenameSession, onDeleteSession, onExportSession, onNewSession, onNewProjectSession, que recibe la
-   * carpeta del proyecto, y onDeleteAllSessions), el
-   * repintado de la lista (renderList, también al buscar o cambiar el filtro de proyecto), los proyectos
-   * plegados (loadProjectGroups, que devuelve las elecciones guardadas, y onProjectGroupsChange, que las
-   * recibe para guardarlas) y la navegación de ajustes (onOpenSettingsMode, onBackToChats, onSelectSettingsSection).
+   * onRenameSession, onDeleteSession, onExportSession, onNewSession, onNewProjectSession, que recibe el
+   * proyecto, vacío para la carpeta general, y onDeleteAllSessions), el repintado de la lista (renderList,
+   * también al buscar o cambiar el filtro de proyecto) y la navegación de ajustes (onOpenSettingsMode,
+   * onBackToChats, onSelectSettingsSection).
    */
   function mount(elements, callbacks) {
     cleanups.forEach(cleanup => cleanup());
@@ -250,14 +252,16 @@
       cleanups.push(() => target.removeEventListener(type, handler));
     };
     const list = elements.sidebarChatsList;
-    projectGroupChoices = callbacks.loadProjectGroups();
 
     listen(elements.btnToggleSidebar, 'click', () => toggleSidebar(elements));
     listen(elements.btnCloseSidebar, 'click', () => closeSidebar(elements));
     listen(elements.btnCloseSidebarSettings, 'click', () => closeSidebar(elements));
     listen(elements.btnSidebarNewChat, 'click', () => callbacks.onNewSession());
     listen(elements.sidebarSearchInput, 'input', () => callbacks.renderList());
-    listen(elements.sidebarProjectFilter, 'change', () => callbacks.renderList());
+    listen(elements.sidebarProjectFilter, 'change', () => {
+      expandedGroups = new Set();
+      callbacks.renderList();
+    });
     listen(elements.btnDeleteAllChats, 'click', () => callbacks.onDeleteAllSessions());
     listen(elements.btnOpenSettings, 'click', () => {
       setSidebarMode(elements, 'settings');
@@ -294,10 +298,9 @@
       const toggle = event.target.closest('.sidebar-group-toggle');
       if (toggle) {
         const key = toggle.dataset.groupKey;
-        // Solo se guardan las elecciones de proyectos que aún tienen conversaciones.
-        projectGroupChoices = Object.fromEntries(Object.entries({ ...projectGroupChoices, [key]: toggle.getAttribute('aria-expanded') !== 'true' })
-          .filter(([groupKey]) => renderedProjectKeys.includes(groupKey)));
-        callbacks.onProjectGroupsChange(projectGroupChoices);
+        expandedGroups = new Set(expandedGroups);
+        if (toggle.getAttribute('aria-expanded') === 'true') expandedGroups.delete(key);
+        else expandedGroups.add(key);
         callbacks.renderList();
         list.querySelector(`.sidebar-group-toggle[data-group-key="${CSS.escape(key)}"]`)?.focus();
         return;

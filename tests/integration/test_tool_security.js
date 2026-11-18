@@ -19,9 +19,6 @@ function createMockClient(initialState = {}) {
     state,
     async request(method, params) {
       calls.push({ method, params });
-      if (method === 'zerochat/security/get') {
-        return { policies: { ...state } };
-      }
       if (method === 'zerochat/security/update') {
         if (params.globalMcpPolicy !== undefined) state.globalMcpPolicy = params.globalMcpPolicy;
         if (params.directoryRules !== undefined) state.directoryRules = [...params.directoryRules];
@@ -155,31 +152,11 @@ test('ChatToolSecurity - authorizeChallenge ejecuta y adopta las políticas devu
   assert.equal(mockClient.calls[0].params.challengeId, 'ch-123');
 });
 
-test('ChatToolSecurity - cambio de sessionToken relee el estado del backend', async () => {
-  const mockClient = createMockClient({
-    tools: { perm_tool: { policy: 'allow', scope: 'permanent' }, sess_tool: { policy: 'allow', scope: 'session' } }
-  });
-  const manager = new ChatToolSecurity.ToolSecurityManager();
-  manager.setMcpClient(mockClient);
-  await manager.setSessionToken('token-1');
-  assert.equal(manager.getToolPolicy('sess_tool'), 'allow');
-
-  // El backend descartó la sesión al rotar el token; el mismo token no vuelve a consultar
-  mockClient.state.tools = { perm_tool: { policy: 'allow', scope: 'permanent' } };
-  mockClient.calls.length = 0;
-  await manager.setSessionToken('token-1');
-  assert.equal(mockClient.calls.length, 0);
-
-  await manager.setSessionToken('token-2');
-  assert.equal(manager.getToolPolicy('perm_tool'), 'allow');
-  assert.equal(manager.getToolPolicy('sess_tool'), null);
-});
-
 test('ChatToolSecurity - setCommandPatterns sustituye los patrones guardados y nunca envía los de sesión', async () => {
   const mockClient = createMockClient({ commandPatterns: { global: ['git *'], projects: {}, session: ['make *'] } });
   const manager = new ChatToolSecurity.ToolSecurityManager();
   manager.setMcpClient(mockClient);
-  await manager.refresh();
+  manager.applyPolicies(mockClient.state);
   assert.deepEqual(manager.getCommandPatterns().session, ['make *']);
 
   await manager.setCommandPatterns({ global: ['git status *'], projects: { '/repo': ['npm test *'] } });

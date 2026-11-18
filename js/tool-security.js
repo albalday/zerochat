@@ -36,18 +36,9 @@
 
   class ToolSecurityManager {
     constructor() {
-      this.sessionToken = null;
       this.mcpClient = null;
-      this.refreshPromise = null;
       this.policies = emptyPolicies();
       this.listeners = new Set();
-    }
-
-    setSessionToken(token) {
-      if (!token || typeof token !== 'string' || this.sessionToken === token) return;
-      this.sessionToken = token;
-      // El backend descarta las autorizaciones de sesión al cambiar el token: se relee su estado.
-      return this.refresh();
     }
 
     setMcpClient(client) {
@@ -69,25 +60,6 @@
     /** Copia del estado para enviarla a una ejecución en servidor. */
     snapshot() {
       return structuredClone(this.policies);
-    }
-
-    async refresh() {
-      if (!this.mcpClient) return null;
-      if (this.refreshPromise) return this.refreshPromise;
-      const client = this.mcpClient;
-      const run = (async () => {
-        try {
-          const res = await client.request('zerochat/security/get', {});
-          return this.applyPolicies(res?.policies);
-        } catch (err) {
-          console.warn('[ToolSecurity] Failed to refresh policies from backend:', err?.message || err);
-          return null;
-        } finally {
-          this.refreshPromise = null;
-        }
-      })();
-      this.refreshPromise = run;
-      return run;
     }
 
     _client(action) {

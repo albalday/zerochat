@@ -105,7 +105,7 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
   }
 });
 
-  test('Browser UI - el panel del proyecto muestra el directorio y lo cambia con «Cambiar…»', async () => {
+  test('Browser UI - el panel muestra la carpeta de trabajo y la cambia con el selector de carpetas', async () => {
     const browser = await createTestBrowser();
     try {
       const page = await browser.newPage();
@@ -134,7 +134,7 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       const changeButton = page.locator('[data-project-action="changeDirectory"]');
       assert.equal(await changeButton.getAttribute('aria-label'), await changeButton.getAttribute('title'));
       assert.ok((await changeButton.getAttribute('aria-label')).length > 0);
-      assert.equal(await changeButton.locator('svg.ui-icon').count(), 1, 'El botón es el icono de editar');
+      assert.equal(await changeButton.locator('svg.ui-icon').count(), 1, 'El botón es el icono de carpeta');
       assert.equal((await changeButton.textContent()).trim(), '');
       await page.evaluate(() => window.ChatState.setProjectContext({ status: 'ready', cwd: '/home/u/repo', rules: { content: 'r' } }));
       assert.match(await page.locator('[data-project-action="reload"]').getAttribute('title'), /AGENTS\.md/);
@@ -164,23 +164,73 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       await page.evaluate(() => window.ChatState.set('streaming', { isGenerating: false }));
       assert.equal(await page.locator('[data-project-action="changeDirectory"]').isDisabled(), false);
 
+      // El icono abre el selector de carpetas en la actual, con general fija en los recientes.
+      await page.evaluate(() => {
+        const dirs = { '/home/u/repo': ['src'], '/home/u': ['other', 'repo'], '/home/u/other': [], '/home/u/repo/src': [] };
+        window.ChatState.set('mcp', { serverInfo: { ...window.ChatState.get('mcp').serverInfo, noProjectDir: '/home/u/zerochat/general' } });
+        window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), list: [{ id: 'l1', title: 'L', project: '/home/u/lib' }, { id: 'g1', title: 'G' }] });
+        window.ChatMCP.manager.requestExternalControl = async (method, params) => {
+          if (method === 'zerochat/project/browse') {
+            if (!(params.path in dirs)) throw new Error(`Error MCP (-32602): '${params.path}' no existe o no es un directorio.`);
+            return { path: params.path, parent: params.path.slice(0, params.path.lastIndexOf('/')) || '/', directories: dirs[params.path], total: dirs[params.path].length, truncated: false };
+          }
+          if (method === 'zerochat/project/create_directory') {
+            const path = `${params.parent}/${params.name}`;
+            dirs[path] = [];
+            return { path };
+          }
+          return {};
+        };
+      });
+      const listed = selector => page.$$eval(`${selector} .folder-picker-item`, items => items.map(item => item.textContent));
+      const current = () => page.textContent('#folder-picker-current');
       await page.click('[data-project-action="changeDirectory"]');
-      assert.equal(await page.locator('#notice-input').inputValue(), '/home/u/repo');
-      await page.locator('#notice-input').fill('/home/u/other');
-      await page.locator('#notice-accept').click();
-      await page.waitForFunction(() => window.__directoryCalls.length === 1);
-      assert.deepEqual(await page.evaluate(() => window.__directoryCalls), ['/home/u/other']);
-      await page.waitForFunction(() => window.ChatState.get('project').cwd === '/home/u/other');
+      await page.waitForFunction(() => document.getElementById('folder-picker-current').textContent === '/home/u/repo');
+      assert.equal(await page.locator('#reasoning-modal').isHidden(), true, 'El panel se cierra al abrir el selector');
+      assert.deepEqual(await listed('#folder-picker-list'), ['..', 'src']);
+      assert.deepEqual(await listed('#folder-picker-recent'), [await page.evaluate(() => window.ChatI18n.t('folder_picker_general', { name: 'general' })), 'lib']);
 
-      await page.evaluate(() => { window.__directoryError = "Error MCP (-32602): '/nope' no existe o no es un directorio."; });
-      // Aceptar el diálogo cuenta como clic fuera y cierra el menú, como en las demás acciones.
+      await page.click('#folder-picker-list .folder-picker-item:has-text("..")');
+      await page.waitForFunction(() => document.getElementById('folder-picker-current').textContent === '/home/u');
+      assert.deepEqual(await listed('#folder-picker-list'), ['..', 'other', 'repo']);
+      await page.click('#folder-picker-list .folder-picker-item:has-text("other")');
+      await page.waitForFunction(() => document.getElementById('folder-picker-current').textContent === '/home/u/other');
+      assert.equal(await page.textContent('#folder-picker-list .label-hint'), await page.evaluate(() => window.ChatI18n.t('folder_picker_empty')));
+
+      // Una ruta escrita que no existe avisa sin el prefijo técnico y se queda en la carpeta que se veía.
+      await page.fill('#folder-picker-path', '/nope');
+      await page.press('#folder-picker-path', 'Enter');
+      await page.waitForFunction(() => /'\/nope' no existe/.test(document.getElementById('folder-picker-error').textContent));
+      assert.doesNotMatch(await page.textContent('#folder-picker-error'), /Error MCP/);
+      assert.equal(await current(), '/home/u/other');
+
+      // Una carpeta nueva se crea en la que se ve y se entra en ella; «Usar» la elige.
+      await page.click('#folder-picker-new-toggle');
+      await page.fill('#folder-picker-new-name', 'nuevo');
+      await page.press('#folder-picker-new-name', 'Enter');
+      await page.waitForFunction(() => document.getElementById('folder-picker-current').textContent === '/home/u/other/nuevo');
+      assert.equal(await page.textContent('#folder-picker-error'), '');
+      await page.click('#folder-picker-use');
+      await page.waitForFunction(() => window.__directoryCalls.length === 1);
+      assert.deepEqual(await page.evaluate(() => window.__directoryCalls), ['/home/u/other/nuevo']);
+      await page.waitForFunction(() => window.ChatState.get('project').cwd === '/home/u/other/nuevo');
+      assert.equal(await page.locator('#folder-picker-dialog').isVisible(), false);
+
+      // Un reciente se elige con un toque; si el servidor la rechaza, se avisa sin el prefijo técnico.
+      await page.evaluate(() => { window.__directoryError = "Error MCP (-32602): '/home/u/zerochat/general' no existe o no es un directorio."; });
       await page.click('#btn-reasoning');
       await page.click('[data-project-action="changeDirectory"]');
-      await page.locator('#notice-input').fill('/nope');
-      await page.locator('#notice-accept').click();
-      await page.waitForFunction(() => /'\/nope' no existe/.test(document.getElementById('notice-message').textContent));
+      await page.click('#folder-picker-recent .folder-picker-item[data-path="/home/u/zerochat/general"]');
+      await page.waitForFunction(() => /no existe/.test(document.getElementById('notice-message').textContent));
+      assert.deepEqual(await page.evaluate(() => window.__directoryCalls), ['/home/u/other/nuevo', '/home/u/zerochat/general']);
       assert.doesNotMatch(await page.locator('#notice-message').textContent(), /Error MCP/);
       await page.locator('#notice-accept').click();
+
+      // Cancelar no cambia nada.
+      await page.click('#btn-reasoning');
+      await page.click('[data-project-action="changeDirectory"]');
+      await page.click('#folder-picker-cancel');
+      assert.equal(await page.evaluate(() => window.__directoryCalls.length), 2);
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();

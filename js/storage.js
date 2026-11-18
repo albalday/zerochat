@@ -23,6 +23,17 @@
   const OPTIONAL_MESSAGE_FIELDS = ['tool_calls', 'tool_call_id', 'name', 'stats', 'contextDateAnchor', 'images', 'commandNotes', '_isSummaryBlock', '_compressedMetadata'];
   let lastClearAllStorageError = '';
   const memoryStorageFallback = new Map();
+  const syncedBlobIds = new Set();
+  let syncedBlobClient;
+
+  function ensureBlobSyncCache() {
+    const mcp = getMCP();
+    const client = mcp?.manager?.clients?.get?.(mcp.PROXY_ID || 'mcp_proxy') || null;
+    if (client !== syncedBlobClient) {
+      syncedBlobIds.clear();
+      syncedBlobClient = client;
+    }
+  }
 
   function getWebStorage() {
     try {
@@ -216,8 +227,11 @@
     };
   }
 
-  /** Registro de IndexedDB de una conversación con `messageCount` mensajes. */
-  function toConversationRecord(sessionMeta, messageCount, now = Date.now()) {
+  /**
+   * Registro de IndexedDB de una conversación con `messageCount` mensajes. `synced` marca la copia que
+   * coincide con la del servidor; sin ella, la conversación se sube al conectar (getConversationsList).
+   */
+  function toConversationRecord(sessionMeta, messageCount, now = Date.now(), synced = false) {
     return {
       id: sessionMeta.id,
       title: sessionMeta.title || '',
@@ -226,7 +240,8 @@
       messageCount,
       ...(sessionMeta.profileId ? { profileId: sessionMeta.profileId } : {}),
       ...(sessionMeta.serverRun !== undefined ? { serverRun: Boolean(sessionMeta.serverRun) } : {}),
-      ...(sessionMeta.project ? { project: sessionMeta.project } : {})
+      ...(sessionMeta.project ? { project: sessionMeta.project } : {}),
+      ...(synced ? { synced: true } : {})
     };
   }
 
@@ -262,12 +277,18 @@
     ...message
   });
 
-  function readLocalConversationsList() {
+  /** Registros de las conversaciones, de la más reciente a la más antigua, sin sus mensajes. */
+  function readLocalConversationRecords() {
     return attempt('read the conversation list', async db => {
       const store = db.transaction(STORES.conversations, 'readonly').objectStore(STORES.conversations);
-      const records = await requestResult(store.index('by_updatedAt').getAll());
-      return records.reverse().map(toConversationHeader);
+      return (await requestResult(store.index('by_updatedAt').getAll())).reverse();
     });
+  }
+
+  const readLocalConversationsList = async () => (await readLocalConversationRecords()).map(toConversationHeader);
+
+  function readLocalConversationRecord(sessionId) {
+    return attempt('read the conversation', async db => requestResult(db.transaction(STORES.conversations, 'readonly').objectStore(STORES.conversations).get(sessionId)));
   }
 
   async function readLocalConversation(sessionId) {
@@ -287,11 +308,11 @@
     return conversation;
   }
 
-  function writeLocalConversation(sessionMeta, messages = []) {
+  function writeLocalConversation(sessionMeta, messages = [], { synced = false } = {}) {
     const sessionId = sessionMeta.id;
     return attempt('save the conversation', async db => {
       const tx = db.transaction([STORES.conversations, STORES.messages, STORES.blobs], 'readwrite');
-      tx.objectStore(STORES.conversations).put(toConversationRecord(sessionMeta, messages.length));
+      tx.objectStore(STORES.conversations).put(toConversationRecord(sessionMeta, messages.length, Date.now(), synced));
       const messageStore = tx.objectStore(STORES.messages);
       const existingMessages = await getAllByIndex(messageStore, 'by_conversation', conversationRange(sessionId));
       const newBlobIds = new Set(blobIdsOf(messages));
@@ -315,37 +336,76 @@
       const tx = db.transaction(STORES.conversations, 'readwrite');
       const store = tx.objectStore(STORES.conversations);
       const now = Date.now();
-      for (const header of headers) store.put({ ...toConversationRecord(header, header.messageCount || 0, now), messagesPending: true });
+      for (const header of headers) store.put({ ...toConversationRecord(header, header.messageCount || 0, now, true), messagesPending: true });
       await transactionDone(tx);
     });
   }
 
   /**
-   * Cabeceras de las conversaciones, de la más reciente a la más antigua, sin sus mensajes.
-   * Con el backend conectado, guarda en IndexedDB solo las cabeceras remotas nuevas o más recientes,
-   * pendientes de descargar sus mensajes al abrirlas, sin subir las conversaciones locales al servidor.
+   * La copia local gana a la del servidor solo con cambios sin subir y sin ser más antigua. Una ya
+   * sincronizada no ha cambiado desde entonces: si difiere, la del servidor es la nueva, aunque un reloj
+   * desfasado entre dispositivos diga otra cosa.
    */
-  async function getConversationsList() {
-    const localList = await readLocalConversationsList();
-    if (!isBackendConnected()) return localList;
+  const localWins = (local, remote) => !local.synced && !local.messagesPending && (local.updatedAt || 0) >= (remote.updatedAt || 0);
 
-    const { conversations: remoteList = [] } = await requestBackend('zerochat/conversations/list');
-    const localMap = new Map(localList.map(item => [item.id, item]));
-    const stale = remoteList.filter(remote => {
-      const local = localMap.get(remote.id);
-      return !local || (remote.updatedAt || 0) > (local.updatedAt || 0);
+  /** Marca como sincronizada la copia local si sigue siendo la que se subió (`updatedAt`). */
+  function markSynced(sessionId, updatedAt) {
+    return attempt('save the conversation', async db => {
+      const tx = db.transaction(STORES.conversations, 'readwrite');
+      const store = tx.objectStore(STORES.conversations);
+      const record = await requestResult(store.get(sessionId));
+      if (record && record.updatedAt === updatedAt) store.put({ ...record, synced: true });
+      await transactionDone(tx);
     });
-    if (stale.length === 0) return localList;
-    await writePendingHeaders(stale);
-    return readLocalConversationsList();
   }
 
-  /** Si la copia local falta o solo tiene la cabecera, hay que guardar la que llega del servidor. */
-  function needsLocalCopy(sessionId) {
-    return attempt('read the conversation', async db => {
-      const record = await requestResult(db.transaction(STORES.conversations, 'readonly').objectStore(STORES.conversations).get(sessionId));
-      return !record || record.messagesPending === true;
+  /** Sube al servidor una conversación con sus blobs y marca sincronizada la copia local. */
+  async function uploadConversation(sessionMeta, preparedMessages) {
+    await syncPendingBlobs(preparedMessages);
+    await requestBackend('zerochat/conversations/save', { conversation: sessionMeta, messages: preparedMessages });
+    await markSynced(sessionMeta.id, sessionMeta.updatedAt);
+  }
+
+  /**
+   * Sube las conversaciones locales sin sincronizar. Un fallo (el servidor rechaza guardar la de una
+   * ejecución en marcha) deja esa conversación sin sincronizar para el siguiente intento.
+   */
+  async function uploadUnsynced(records) {
+    for (const record of records) {
+      try {
+        const { history, ...header } = await readLocalConversation(record.id);
+        await uploadConversation(header, history);
+      } catch (error) {
+        console.warn(`[ChatStorage] Could not upload conversation ${record.id}:`, error);
+      }
+    }
+  }
+
+  /**
+   * Cabeceras de las conversaciones, de la más reciente a la más antigua, sin sus mensajes.
+   * Con el backend conectado se sincroniza en los dos sentidos y gana la copia más reciente: guarda en
+   * IndexedDB las cabeceras remotas nuevas o más recientes, pendientes de descargar sus mensajes al
+   * abrirlas, y sube las locales sin sincronizar (hechas sin conexión) que el servidor no tiene más recientes.
+   * Los borrados no se recuerdan: una conversación borrada sin conexión vuelve a bajar del servidor.
+   */
+  async function getConversationsList() {
+    const localRecords = await readLocalConversationRecords();
+    if (!isBackendConnected()) return localRecords.map(toConversationHeader);
+
+    const { conversations: remoteList = [] } = await requestBackend('zerochat/conversations/list');
+    const localMap = new Map(localRecords.map(item => [item.id, item]));
+    const remoteMap = new Map(remoteList.map(item => [item.id, item]));
+    const stale = remoteList.filter(remote => {
+      const local = localMap.get(remote.id);
+      return !local || (local.updatedAt !== remote.updatedAt && !localWins(local, remote));
     });
+    const unsynced = localRecords.filter(local => {
+      const remote = remoteMap.get(local.id);
+      return remote ? localWins(local, remote) : !local.synced && !local.messagesPending;
+    });
+    if (stale.length > 0) await writePendingHeaders(stale);
+    await uploadUnsynced(unsynced);
+    return stale.length > 0 ? readLocalConversationsList() : localRecords.map(toConversationHeader);
   }
 
   /**
@@ -360,12 +420,20 @@
     return conversation;
   }
 
+  /**
+   * Gana la copia más reciente: la local si tiene cambios sin subir (hechos sin conexión) y no es más
+   * antigua que la del servidor; si no, la del servidor, que se guarda aquí si aquí faltaba o era otra.
+   */
   async function readConversation(sessionId) {
     if (isBackendConnected()) {
-      const result = await requestBackend('zerochat/conversations/get', { id: sessionId });
-      if (result?.conversation) {
-        if (await needsLocalCopy(sessionId)) await writeLocalConversation(result.conversation, result.conversation.history || []);
-        return result.conversation;
+      const remote = (await requestBackend('zerochat/conversations/get', { id: sessionId }))?.conversation;
+      if (remote) {
+        const local = await readLocalConversationRecord(sessionId);
+        if (local && localWins(local, remote)) return readLocalConversation(sessionId);
+        if (!local || local.messagesPending || local.updatedAt !== remote.updatedAt) {
+          await writeLocalConversation(remote, remote.history || [], { synced: true });
+        }
+        return remote;
       }
     }
     return readLocalConversation(sessionId);
@@ -420,6 +488,8 @@
               try {
                 const res = await requestBackend('zerochat/blobs/get', { id: img.blobId });
                 if (res?.blob?.data) {
+                  ensureBlobSyncCache();
+                  syncedBlobIds.add(img.blobId);
                   blob = await saveBlob({
                     id: res.blob.id,
                     mimeType: res.blob.mimeType,
@@ -453,8 +523,14 @@
       }
     }
     if (blobIds.length === 0) return;
-    const uniqueIds = Array.from(new Set(blobIds));
+    ensureBlobSyncCache();
+    const uniqueIds = Array.from(new Set(blobIds)).filter(id => !syncedBlobIds.has(id));
+    if (uniqueIds.length === 0) return;
     const { missing = [] } = await requestBackend('zerochat/blobs/has', { ids: uniqueIds });
+    const missingSet = new Set(missing);
+    for (const id of uniqueIds) {
+      if (!missingSet.has(id)) syncedBlobIds.add(id);
+    }
     for (const blobId of missing) {
       const blob = await getBlob(blobId);
       if (blob?.dataUrl) {
@@ -463,19 +539,21 @@
           mimeType: blob.mimeType,
           data: blob.dataUrl
         }, { headers: { 'X-ZeroChat-Blob': '1' } });
+        syncedBlobIds.add(blobId);
       }
     }
   }
 
-  /** Guarda una conversación y sustituye todos sus mensajes. */
+  /**
+   * Guarda una conversación y sustituye todos sus mensajes; conectado, también en el servidor, con la misma
+   * fecha. Sin conexión queda sin sincronizar y se sube al conectar.
+   */
   async function saveConversation(sessionMeta, messages = []) {
     if (!sessionMeta?.id) return false;
+    const meta = { ...sessionMeta, updatedAt: sessionMeta.updatedAt || Date.now() };
     const preparedMessages = await prepareMessagesForStorage(messages);
-    await writeLocalConversation(sessionMeta, preparedMessages);
-    if (isBackendConnected()) {
-      await syncPendingBlobs(preparedMessages);
-      await requestBackend('zerochat/conversations/save', { conversation: sessionMeta, messages: preparedMessages });
-    }
+    await writeLocalConversation(meta, preparedMessages);
+    if (isBackendConnected()) await uploadConversation(meta, preparedMessages);
     return true;
   }
 
@@ -524,7 +602,9 @@
       const tx = db.transaction(STORES.conversations, 'readwrite');
       const store = tx.objectStore(STORES.conversations);
       const conversation = await requestResult(store.get(sessionId));
-      if (conversation) store.put({ ...conversation, title, updatedAt: Date.now() });
+      // Renombrada sin conexión, se sube al conectar; conectada, el servidor fija su propia fecha.
+      const { synced: _synced, ...record } = conversation || {};
+      if (conversation) store.put({ ...record, title, updatedAt: Date.now(), ...(isBackendConnected() && conversation.synced ? { synced: true } : {}) });
       await transactionDone(tx);
       return Boolean(conversation);
     });

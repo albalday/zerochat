@@ -111,11 +111,20 @@ test('Sincronización de blobs desacoplados entre frontend y backend local', asy
     const payloadSize = JSON.stringify(savedMessages).length;
     assert.ok(payloadSize < 1024, `El tamaño del payload (${payloadSize} bytes) debe ser menor a 1 KiB`);
 
-    // 5. Segunda llamada de guardado: ningún blob se vuelve a subir
+    // 5. Segunda llamada de guardado: ningún blob se vuelve a subir ni se consulta blobs/has
     rpcCalls.length = 0;
     await Storage.saveConversation(sessionMeta, messages);
+    const secondHasCalls = rpcCalls.filter(call => call.method === 'zerochat/blobs/has');
+    assert.equal(secondHasCalls.length, 0, 'No se debe consultar blobs/has para blobs ya sincronizados');
     const secondPutCalls = rpcCalls.filter(call => call.method === 'zerochat/blobs/put');
     assert.equal(secondPutCalls.length, 0, 'No se deben resubir blobs ya existentes en el servidor');
+
+    // Al cambiar el cliente de mcp_proxy (reconexión a otro servidor), la caché en memoria se invalida.
+    MCP.manager.clients.set(MCP.PROXY_ID, {});
+    rpcCalls.length = 0;
+    await Storage.saveConversation(sessionMeta, messages);
+    assert.equal(rpcCalls.filter(call => call.method === 'zerochat/blobs/has').length, 1);
+    assert.equal(rpcCalls.filter(call => call.method === 'zerochat/blobs/put').length, 0);
 
     // 6. Recuperar la conversación y verificar hidratación de dataUrl
     const loaded = await Storage.getConversation(convId);
@@ -125,6 +134,7 @@ test('Sincronización de blobs desacoplados entre frontend y backend local', asy
     assert.equal(loaded.history[1].images[0].dataUrl, dataUrl2);
     assert.equal(loaded.history[1].images[1].dataUrl, dataUrl1);
   } finally {
+    MCP.manager.clients.delete(MCP.PROXY_ID);
     await Database.closeDatabase();
   }
 });

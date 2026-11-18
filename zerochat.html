@@ -23,7 +23,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#0d1117">
   <meta name="description" content="ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación">
-  <title>ZeroChat v10.24.1</title>
+  <title>ZeroChat v10.25.0</title>
   <link rel="manifest" href="manifest.webmanifest">
   <!-- Carga concurrente paralela de hojas de estilo (elimina la cascada bloqueante de @import en móvil) -->
   <link rel="stylesheet" href="css/tokens.css">
@@ -118,8 +118,9 @@
         <svg class="ui-icon sidebar-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg>
         <input type="text" id="sidebar-search-input" class="sidebar-search-input" data-i18n-placeholder="sidebar_search_placeholder" placeholder="Buscar en historial...">
       </div>
-      <select id="sidebar-project-filter" class="sidebar-project-filter" data-i18n-aria="sidebar_project_filter_label" aria-label="Conversaciones a mostrar" hidden>
+      <select id="sidebar-project-filter" class="sidebar-project-filter" data-i18n-aria="sidebar_project_filter_label" aria-label="Conversaciones a mostrar">
         <option value="current">Este proyecto</option>
+        <option value="none">general</option>
         <option value="all" data-i18n="sidebar_project_all">Todos los proyectos</option>
       </select>
 
@@ -358,7 +359,7 @@
         <a id="welcome-help-link" class="welcome-status-badge welcome-help-link" href="help/index.html" target="_blank" rel="noopener noreferrer" data-i18n-title="welcome_help_title" data-i18n-href="welcome_help_href" title="Abrir centro de ayuda y documentación online">
           <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg>
           <span data-i18n="welcome_help_link">Ayuda y Documentación</span>
-          <span id="welcome-version" class="welcome-version">(v10.24.1)</span>
+          <span id="welcome-version" class="welcome-version">(v10.25.0)</span>
           <svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-external-link"></use></svg>
         </a>
       </div>
@@ -687,6 +688,32 @@
     </form>
   </dialog>
 
+  <dialog id="folder-picker-dialog" class="settings-modal notice-dialog folder-picker-dialog" aria-labelledby="folder-picker-title">
+    <div class="modal-header"><h3 id="folder-picker-title" data-i18n="folder_picker_title">Elegir carpeta de trabajo</h3></div>
+    <div class="modal-body">
+      <form id="folder-picker-path-form" class="folder-picker-path-form">
+        <input type="text" id="folder-picker-path" class="form-input" maxlength="4096" spellcheck="false" autocomplete="off" data-i18n-aria="folder_picker_path_label" aria-label="Ruta de la carpeta">
+        <button type="submit" class="btn-secondary" data-i18n="folder_picker_open">Abrir</button>
+      </form>
+      <section id="folder-picker-recent-section" class="folder-picker-section">
+        <h4 data-i18n="folder_picker_recent">Recientes</h4>
+        <div id="folder-picker-recent" class="folder-picker-items"></div>
+      </section>
+      <section class="folder-picker-section">
+        <h4 id="folder-picker-current" class="folder-picker-current"></h4>
+        <div id="folder-picker-list" class="folder-picker-items folder-picker-list"></div>
+        <p id="folder-picker-truncated" class="label-hint" hidden></p>
+      </section>
+      <button type="button" id="folder-picker-new-toggle" class="btn-secondary folder-picker-new-toggle" data-i18n="folder_picker_new">Nueva carpeta</button>
+      <form id="folder-picker-new-form" class="folder-picker-path-form" hidden>
+        <input type="text" id="folder-picker-new-name" class="form-input" maxlength="255" spellcheck="false" autocomplete="off" data-i18n-aria="folder_picker_new_name" aria-label="Nombre de la carpeta nueva">
+        <button type="submit" class="btn-secondary" data-i18n="folder_picker_create">Crear</button>
+      </form>
+      <p id="folder-picker-error" class="label-hint folder-picker-error" role="alert"></p>
+    </div>
+    <div class="modal-footer"><button type="button" id="folder-picker-cancel" class="btn-secondary" data-i18n="notice_cancel">Cancelar</button><button type="button" id="folder-picker-use" class="btn-primary" data-i18n="folder_picker_use">Usar esta carpeta</button></div>
+  </dialog>
+
   <!-- Scripts de la aplicación con carga diferida (compatibles con file:// y http://) -->
   <script defer src="js/vendor/orama.browser.js"></script>
   <script defer src="js/utils.js"></script>
@@ -753,6 +780,7 @@
   <script defer src="js/model-catalog.js"></script>
   <script defer src="js/chat-engine.js"></script>
   <script defer src="js/ui-reasoning.js"></script>
+  <script defer src="js/ui-folder-picker.js"></script>
   <script defer src="js/ui-project.js"></script>
   <script defer src="js/ui-inspector.js"></script>
   <script defer src="js/ui-sidebar.js"></script>

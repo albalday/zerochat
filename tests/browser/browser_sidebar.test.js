@@ -77,7 +77,7 @@ test('Browser UI - la barra agrupa las conversaciones por fecha, marca la activa
   });
 });
 
-test('Browser UI - con proyecto la barra muestra sus conversaciones y, con todos, las agrupa por proyecto', async () => {
+test('Browser UI - el selector muestra el proyecto actual, general o todos agrupados por proyecto', async () => {
   await withTestApp(async page => {
     const render = project => page.evaluate(project => {
       const elements = {
@@ -94,45 +94,53 @@ test('Browser UI - con proyecto la barra muestra sus conversaciones y, con todos
       ];
       window.ChatUISidebar.renderSidebarChats(elements, sessions, '', [], project);
     }, project);
+    const currentLabel = () => page.$eval('#sidebar-project-filter option[value="current"]', option => option.textContent);
+    // Sin evento change: la aplicación repintaría con su propio estado, sin servidor.
+    const choose = value => page.$eval('#sidebar-project-filter', (select, value) => { select.value = value; }, value);
+    const noneHidden = () => page.$eval('#sidebar-project-filter option[value="none"]', option => option.hidden);
 
     await render('/repo/app');
-    assert.equal(await page.isVisible('#sidebar-project-filter'), true);
-    assert.equal(await page.$eval('#sidebar-project-filter option[value="current"]', option => option.textContent),
-      await page.evaluate(() => window.ChatI18n.t('sidebar_project_current', { name: 'app' })));
-    // Las que no tienen proyecto (anteriores a esta función) siguen a la vista, al final
-    assert.deepEqual(await sidebarTitles(page), ['A reciente', 'A antigua', 'Sin proyecto']);
-    assert.deepEqual(await sidebarHeaders(page), await page.evaluate(() => [window.ChatI18n.t('sidebar_group_today'), window.ChatI18n.t('sidebar_no_project')]));
+    assert.equal(await currentLabel(), await page.evaluate(() => window.ChatI18n.t('sidebar_project_current', { name: 'app' })));
+    assert.deepEqual(await sidebarTitles(page), ['A reciente', 'A antigua']);
+    assert.deepEqual(await sidebarHeaders(page), await page.evaluate(() => [window.ChatI18n.t('sidebar_group_today')]));
 
-    await page.selectOption('#sidebar-project-filter', 'all');
+    await choose('none');
+    await render('/repo/app');
+    assert.deepEqual(await sidebarTitles(page), ['Sin proyecto']);
+
+    await choose('all');
     await render('/repo/app');
     // Todos empiezan plegados, también el actual, y un grupo plegado no pinta sus conversaciones.
     assert.deepEqual(await sidebarTitles(page), []);
-    assert.deepEqual(await sidebarHeaders(page), ['app', 'lib', await page.evaluate(() => window.ChatI18n.t('sidebar_no_project'))]);
+    assert.deepEqual(await sidebarHeaders(page), ['app', 'lib', 'general']);
 
     // Al buscar, cada resultado sigue bajo su proyecto, aunque esté plegado.
-    // Sin evento input: la aplicación repintaría sin servidor y ocultaría el selector.
     const search = text => page.$eval('#sidebar-search-input', (input, text) => { input.value = text; }, text);
     await search('n');
     await render('/repo/lib');
     assert.deepEqual(await sidebarTitles(page), ['A reciente', 'A antigua', 'Sin proyecto']);
-    assert.deepEqual(await sidebarHeaders(page), ['app', await page.evaluate(() => window.ChatI18n.t('sidebar_no_project'))]);
+    assert.deepEqual(await sidebarHeaders(page), ['app', 'general']);
     await search('');
 
-    await page.selectOption('#sidebar-project-filter', 'current');
+    await choose('current');
     await render('/repo/vacio');
-    assert.deepEqual(await sidebarTitles(page), ['Sin proyecto']);
+    assert.equal(await page.textContent('#sidebar-chats-list .sidebar-no-chats'), await page.evaluate(() => window.ChatI18n.t('sidebar_no_project_chats')));
 
-    // Sin servidor no hay proyecto: se ven todas y no hay selector
+    // Sin servidor el proyecto actual es general: el selector sigue a la vista, sin repetirlo
+    await choose('none');
     await render('');
-    assert.equal(await page.isVisible('#sidebar-project-filter'), false);
-    assert.equal((await sidebarTitles(page)).length, 4);
+    assert.equal(await page.isVisible('#sidebar-project-filter'), true);
+    assert.equal(await currentLabel(), await page.evaluate(() => window.ChatI18n.t('sidebar_project_current', { name: 'general' })));
+    assert.equal(await noneHidden(), true);
+    assert.equal(await page.$eval('#sidebar-project-filter', select => select.value), 'current');
+    assert.deepEqual(await sidebarTitles(page), ['Sin proyecto']);
   });
 });
 
-test('Browser UI - en la vista de todos los proyectos empiezan plegados, también el actual y el de la conversación abierta, y la elección se recuerda', async () => {
+test('Browser UI - en la vista de todos los proyectos empiezan plegados y vuelven a plegarse al elegirla otra vez', async () => {
   await withTestApp(async page => {
     // Plegar repinta desde el estado de la aplicación: las conversaciones y el proyecto van en él.
-    const render = currentSessionId => page.evaluate(currentSessionId => {
+    await page.evaluate(() => {
       const now = Date.now();
       const list = [
         { id: 'a1', title: 'A', project: '/repo/app', updatedAt: now },
@@ -140,30 +148,32 @@ test('Browser UI - en la vista de todos los proyectos empiezan plegados, tambié
         { id: 'c1', title: 'C', project: '/repo/web', updatedAt: now - 2000 },
         { id: 'n1', title: 'N', updatedAt: now - 3000 }
       ];
-      window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), activeId: currentSessionId, list });
+      window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), activeId: 'c1', list });
       window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo/app' } });
-      const filter = document.getElementById('sidebar-project-filter');
-      filter.value = 'all';
-      filter.dispatchEvent(new Event('change'));
-    }, currentSessionId);
+    });
     const expandedHeaders = () => page.$$eval('.sidebar-group-toggle', toggles => toggles.map(toggle => `${toggle.textContent}:${toggle.getAttribute('aria-expanded')}`));
 
-    await render('c1');
+    await page.selectOption('#sidebar-project-filter', 'all');
     assert.deepEqual(await sidebarTitles(page), []);
-    assert.deepEqual(await expandedHeaders(), ['app1:false', 'lib1:false', 'web1:false', `${await page.evaluate(() => window.ChatI18n.t('sidebar_no_project'))}1:false`]);
+    assert.deepEqual(await expandedHeaders(), ['app1:false', 'lib1:false', 'web1:false', 'general1:false']);
 
     await page.click('.sidebar-group-toggle[data-group-key="/repo/lib"]');
     await page.click('.sidebar-group-toggle[data-group-key="/repo/web"]');
     await page.click('.sidebar-group-toggle[data-group-key="/repo/web"]');
     assert.deepEqual(await sidebarTitles(page), ['B']);
-    assert.deepEqual(JSON.parse(await page.evaluate(() => window.ChatStorage.getStorageItem('sidebar_project_groups'))), { '/repo/lib': true, '/repo/web': false });
 
-    // Al volver a pintar (otra conversación abierta) se respeta lo elegido.
-    await render('a1');
+    // Al volver a pintar (otra conversación abierta) se respeta lo desplegado.
+    await page.evaluate(() => window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), activeId: 'a1' }));
+    await page.evaluate(() => document.getElementById('sidebar-search-input').dispatchEvent(new Event('input')));
     assert.deepEqual(await sidebarTitles(page), ['B']);
     await page.focus('.sidebar-group-toggle[data-group-key=""]');
     await page.keyboard.press('Enter');
     assert.deepEqual(await sidebarTitles(page), ['B', 'N']);
+
+    // Elegir otra vista y volver a la de todos los pliega todos: sirve de selector de proyecto.
+    await page.selectOption('#sidebar-project-filter', 'current');
+    await page.selectOption('#sidebar-project-filter', 'all');
+    assert.deepEqual(await sidebarTitles(page), []);
   });
 });
 
@@ -252,8 +262,31 @@ test('Browser UI - el icono de la cabecera de un proyecto abre un chat nuevo en 
     }));
     assert.notEqual(after.activeId, previousId);
     assert.deepEqual({ profile: after.profile, serverMode: after.serverMode }, before);
-    // Pulsar el icono no pliega ni despliega: no queda ninguna elección guardada.
-    assert.equal(await page.evaluate(() => window.ChatStorage.getStorageItem('sidebar_project_groups')), null);
+  });
+});
+
+test('Browser UI - la cabecera de general abre sus ficheros y un chat nuevo en su carpeta', async () => {
+  await withTestApp(async page => {
+    const noProjectDir = '/home/u/zerochat/general';
+    await page.evaluate(async noProjectDir => {
+      await window.ChatStorage.saveConversation({ id: 'n_1', title: 'N', createdAt: Date.now(), updatedAt: Date.now() }, [{ id: 'n_1_m', role: 'user', content: 'hola' }]);
+      window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), list: await window.ChatStorage.getConversationsList() });
+      window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo/a', noProjectDir } });
+      window.ChatMCP.manager.setProjectDirectory = async path => {
+        window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), serverInfo: { ...window.ChatState.get('mcp').serverInfo, cwd: path } });
+        return { cwd: path };
+      };
+    }, noProjectDir);
+    await page.selectOption('#sidebar-project-filter', 'all');
+    assert.equal(await page.getAttribute('.btn-project-new-chat[data-project=""]', 'aria-label'),
+      await page.evaluate(() => window.ChatI18n.t('sidebar_project_new_chat_title', { name: 'general' })));
+    assert.equal(await page.evaluate(() => document.querySelector('.btn-project-new-chat[data-project=""]').previousElementSibling.getAttribute('href')),
+      `files.html?project=${encodeURIComponent(noProjectDir)}`);
+
+    await page.click('.btn-project-new-chat[data-project=""]');
+    await page.waitForFunction(dir => window.ChatState.get('mcp').serverInfo.cwd === dir, noProjectDir);
+    // En general el proyecto actual es general y el selector no lo repite.
+    assert.equal(await page.$eval('#sidebar-project-filter option[value="none"]', option => option.hidden), true);
   });
 });
 
@@ -379,10 +412,10 @@ test('Browser UI - sincroniza conversaciones locales y remotas al conectar desde
     await page.click('#btn-open-connection');
     await page.click('#btn-backend-connect');
 
-    // En la interfaz deben verse ambas conversaciones en la barra lateral sin perder la activa y sin subir las locales
+    // En la interfaz deben verse ambas conversaciones en la barra lateral sin perder la activa, y la local se sube
     await page.waitForSelector('.sidebar-chat-item[data-session-id="chat_remote_1"]');
     await page.waitForSelector('.sidebar-chat-item[data-session-id="chat_local_1"].active');
-    assert.deepEqual(await page.evaluate(() => window.__savedToBackend), []);
+    assert.deepEqual(await page.evaluate(() => window.__savedToBackend), ['chat_local_1']);
 
     // Cerrar el diálogo de Conexión y cambiar entre conversaciones en la barra lateral
     await page.click('#btn-close-settings');

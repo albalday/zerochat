@@ -127,23 +127,28 @@
   function renderProjectPanel(elements, { config, project, canInitialize, canCompact, canChangeDirectory, busy }) {
     const enabled = config.projectMode === true;
     const actions = enabled ? getProjectActions(project, { canInitialize, canCompact }) : [];
-    // El directorio es la base de todas las herramientas locales: se muestra aunque el modo esté apagado.
+    // La carpeta de trabajo es la base de todas las herramientas locales y el proyecto de los chats nuevos:
+    // va en su propio bloque, aparte del modo proyecto (la memoria .zerochat), y se ve aunque esté apagado.
     const cwd = String(project.cwd || '');
     const changeLabel = escapeHtml(t('project_action_change_directory'));
     const changeButton = canChangeDirectory
-      ? `<button type="button" class="btn-project-directory" data-project-action="changeDirectory" title="${changeLabel}" aria-label="${changeLabel}"${busy ? ' disabled' : ''}>${Icons.get('edit', { size: 15 })}</button>`
+      ? `<button type="button" class="btn-project-directory" data-project-action="changeDirectory" title="${changeLabel}" aria-label="${changeLabel}"${busy ? ' disabled' : ''}>${Icons.get('folder', { size: 15 })}</button>`
       : '';
     const directoryHtml = cwd
-      ? `<div class="project-mode-directory"><span class="project-mode-path" title="${escapeHtml(cwd)}">${escapeHtml(shortenHomePath(cwd))}</span>${changeButton}</div>`
+      ? `<div class="project-directory-block">
+        <div class="reasoning-agent-toggle-title">${Icons.get('folder', { size: 13 })}<span>${escapeHtml(t('project_directory_heading'))}</span></div>
+        <div class="project-mode-directory"><span class="project-mode-path" title="${escapeHtml(cwd)}">${escapeHtml(shortenHomePath(cwd))}</span>${changeButton}</div>
+      </div>`
       : '';
     const actionsHtml = actions.length
       ? `<div class="project-mode-actions">${actions.map(action =>
         `<button type="button" class="btn-secondary" data-project-action="${action}"${PROJECT_ACTION_TITLES[action] ? ` title="${escapeHtml(t(PROJECT_ACTION_TITLES[action]))}"` : ''}>${escapeHtml(t(`project_action_${action}`))}</button>`).join('')}</div>`
       : '';
     elements.projectModePanel.innerHTML = `
+      ${directoryHtml}
       <div class="reasoning-agent-toggle-wrapper">
         <div class="reasoning-agent-toggle-info">
-          <div class="reasoning-agent-toggle-title">${Icons.get('folder', { size: 13 })}<span>${escapeHtml(t('project_mode_title'))}</span></div>
+          <div class="reasoning-agent-toggle-title">${Icons.get('layers', { size: 13 })}<span>${escapeHtml(t('project_mode_title'))}</span></div>
           <div class="reasoning-agent-toggle-desc project-mode-status" data-project-status="${escapeHtml(enabled ? project.status || '' : 'disabled')}" aria-live="polite">${escapeHtml(getProjectStatusText(config, project))}</div>
         </div>
         <label class="switch switch-sm" title="${escapeHtml(t('project_mode_tooltip'))}">
@@ -151,7 +156,6 @@
           <span class="slider"></span>
         </label>
       </div>
-      ${directoryHtml}
       ${actionsHtml}`;
   }
 

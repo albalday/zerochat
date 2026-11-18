@@ -65,6 +65,18 @@ def get_data_dir() -> Path:
     return (Path.home() / "zerochat").resolve()
 
 
+# Carpeta de los chats sin proyecto (los hechos sin conexión o fuera de un proyecto): el cliente guarda
+# su proyecto vacío y la nombra por su último nivel, igual que a los demás proyectos.
+NO_PROJECT_DIR_NAME = "general"
+
+
+def get_no_project_dir() -> Path:
+    """Devuelve la carpeta de trabajo de los chats sin proyecto y la crea si falta."""
+    target = get_data_dir() / NO_PROJECT_DIR_NAME
+    target.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return target
+
+
 def get_venv_dir() -> Path:
     """Devuelve el entorno aislado usado exclusivamente por los MCP Python."""
     return get_data_dir() / ".venv"

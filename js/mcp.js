@@ -42,23 +42,33 @@
   }
 
   const PROXY_ID = 'mcp_proxy';
-  const EXTERNAL_ID = 'mcp_external';
+  const EXTERNAL_PROVIDER_ID = 'mcp_prov_mcp_external';
   const DEFAULT_TIMEOUT_MS = 15000;
   const LOCAL_COMMAND_TOOL = 'run_command';
   const LOCAL_WAIT_TOOL = 'check_command';
 
   /**
+   * Los chats sin proyecto (los hechos sin conexión o en la carpeta general) guardan el proyecto vacío y trabajan
+   * en la carpeta general del servidor conectado, que el navegador sin conexión no conoce.
+   */
+  const noProjectDirectory = () => getState().get('mcp').serverInfo?.noProjectDir || '';
+  /** Proyecto que se guarda para la carpeta `cwd` del servidor: vacío para la carpeta general. */
+  const projectOfDirectory = cwd => (cwd && cwd === noProjectDirectory() ? '' : cwd || '');
+  /** Carpeta del servidor en la que trabaja el proyecto guardado `project`: la carpeta general para el vacío. */
+  const directoryOfProject = project => project || noProjectDirectory();
+
+  /**
    * Las herramientas del servidor local actúan en su directorio: solo están disponibles con el servidor
-   * conectado y si la conversación activa es de ese proyecto (o aún no tiene ninguno). Así una conversación
-   * cuyo proyecto ya no existe nunca actúa en otra carpeta.
+   * conectado y si la conversación activa es de ese proyecto (o aún no se ha guardado). Así una conversación
+   * cuyo proyecto ya no existe, o una sin proyecto fuera de la carpeta general, nunca actúa en otra carpeta.
    */
   function localToolsAvailable() {
     const State = getState();
     const mcp = State.get('mcp');
     if (mcp.status !== 'connected') return false;
     const { activeId, list } = State.get('sessions');
-    const project = list.find(session => session.id === activeId)?.project;
-    return !project || project === mcp.serverInfo?.cwd;
+    const session = list.find(item => item.id === activeId);
+    return !session || directoryOfProject(session.project) === mcp.serverInfo?.cwd;
   }
   const BROWSER_ACTION_TOOL = 'browser_action';
   const PLAYWRIGHT_SERVER_ID = 'playwright';
@@ -122,7 +132,16 @@
     try {
       const initResult = await client.initialize({ timeoutMs });
       if (initResult.success) {
-        return { success: true, latencyMs: latency(), serverInfo: initResult.serverInfo, capabilities: initResult.capabilities, liveState: initResult.liveState };
+        return {
+          success: true,
+          latencyMs: latency(),
+          serverInfo: initResult.serverInfo,
+          capabilities: initResult.capabilities,
+          tools: initResult.tools,
+          policies: initResult.policies,
+          projectContext: initResult.projectContext,
+          liveState: initResult.liveState
+        };
       }
       return { success: false, error: describe(initResult.error), status: initResult.status, latencyMs: latency() };
     } catch (err) {
@@ -158,7 +177,7 @@
 
     /** Solo el servidor local procesa llamadas internas con privilegios de sistema. */
     get isLocalServer() {
-      return this.id === PROXY_ID || this.id === EXTERNAL_ID;
+      return this.id === PROXY_ID;
     }
 
     /**
@@ -225,7 +244,15 @@
 
       this.serverCapabilities = result?.capabilities || {};
       this.serverInfo = result?.serverInfo || { name: this.name, version: 'unknown' };
-      return { success: true, serverInfo: this.serverInfo, capabilities: this.serverCapabilities, liveState: result?.liveState || null };
+      return {
+        success: true,
+        serverInfo: this.serverInfo,
+        capabilities: this.serverCapabilities,
+        tools: Array.isArray(result?.tools) ? result.tools : null,
+        policies: result?.policies || null,
+        projectContext: result?.projectContext || null,
+        liveState: result?.liveState || null
+      };
     }
 
     /**
@@ -304,15 +331,15 @@
      */
     async discoverTools(options = {}) {
       const { Tool } = getAgentCore();
-      const rawTools = await this.client.listTools(options);
-      const external = this.client.id === EXTERNAL_ID;
-      const isProxy = this.client.id === PROXY_ID;
+      const rawTools = Array.isArray(options.tools) ? options.tools : await this.client.listTools(options);
       const toolInstances = [];
 
       for (const rt of rawTools) {
-        const sourceServer = external ? rt.metadata?.mcpServerId : this.client.id;
+        const external = Boolean(rt.metadata?.mcpServerId);
+        const isProxy = !external && this.client.id === PROXY_ID;
+        const sourceServer = external ? rt.metadata.mcpServerId : this.client.id;
         const serverName = external ? sourceServer : this.serverName;
-        const toolName = external ? rt.metadata?.originalName : rt.name;
+        const toolName = external ? rt.metadata.originalName : rt.name;
         // run_command del servidor local: tarjeta propia y detención del comando al abortar.
         const isLocalCommand = isProxy && toolName === LOCAL_COMMAND_TOOL;
         // check_command: su tarjeta muestra la espera y abortar el turno corta la espera, no el comando.
@@ -363,7 +390,7 @@
                 meta: Object.keys(meta).length ? meta : undefined
               }), isLocalWait ? 'zerochat/jobs/end_wait' : undefined);
             } catch (error) {
-              if (isProxy && isTransportFailure(error)) await this.onTransportFailure?.(error);
+              if ((isProxy || external) && isTransportFailure(error)) await this.onTransportFailure?.(error);
               throw error;
             }
           },
@@ -413,8 +440,20 @@
       // interfaz muestra de una acción en curso, y cuáles estaban en marcha.
       this.liveServers = null;
       this.liveRunning = null;
+      this.projectSnapshot = null;
       this.profileSyncHandler = null;
       this.profileSyncPromise = null;
+    }
+
+    /** Instantánea del contexto de proyecto entregada por initialize o set_directory para `cwd`, de un solo uso. */
+    recordProjectContext(cwd, data) {
+      this.projectSnapshot = data ? { cwd: cwd || '', data } : null;
+    }
+
+    takeProjectContext(cwd) {
+      const snapshot = this.projectSnapshot;
+      this.projectSnapshot = null;
+      return snapshot && snapshot.cwd === cwd ? snapshot.data : null;
     }
 
     setProfileSyncHandler(handler) {
@@ -430,6 +469,7 @@
     dropClient(clientId) {
       if (clientId === PROXY_ID) {
         getSecurity().manager.setMcpClient(null);
+        getAgentCore().registry.unregisterProvider(EXTERNAL_PROVIDER_ID);
       }
       getAgentCore().registry.unregisterProvider(`mcp_prov_${clientId}`);
       this.clients.delete(clientId);
@@ -438,7 +478,7 @@
     /** Descubre las herramientas de un cliente y las registra; devuelve sus resúmenes. */
     async registerClient(client, options = {}) {
       const provider = new McpToolProvider(client, options);
-      const tools = await provider.discoverTools();
+      const tools = await provider.discoverTools(options);
       getAgentCore().registry.registerProvider(provider);
       this.clients.set(client.id, client);
       return tools.map(summarizeTool);
@@ -459,10 +499,12 @@
       if (typeof payload.exit_on_close === 'boolean') {
         this.serverExitsOnClose = payload.exit_on_close;
       }
+      if (payload.policies) {
+        getSecurity().manager.applyPolicies(payload.policies);
+      }
       const next = {};
       const cwd = typeof payload.cwd === 'string' ? payload.cwd.trim() : '';
       if (cwd && current.serverInfo && current.serverInfo.cwd !== cwd) {
-        getSecurity().manager.refresh().catch(() => {});
         next.serverInfo = { ...current.serverInfo, cwd };
       }
       if (Array.isArray(payload.jobs)) {
@@ -514,7 +556,7 @@
       State.set('mcp', next);
       if (running !== this.liveRunning) {
         this.liveRunning = running;
-        await this.refreshExternalTools(running !== '');
+        await this.refreshExternalTools(running !== '', payload.externalTools);
       }
       return true;
     }
@@ -532,13 +574,14 @@
       const current = State.get('mcp');
       if (current.status !== 'connected') return { success: false, skipped: true };
       const run = (async () => {
-        State.set('mcp', { status: 'checking', error: null });
         const probe = await this.probeTarget(timeoutMs);
         if (!probe.success) {
           await this.markProxyUnavailable(Object.assign(new Error(probe.error), { status: probe.status }));
           return { success: false, probe };
         }
+        this.recordProjectContext(probe.serverInfo?.cwd, probe.projectContext);
         State.set('mcp', { status: 'connected', serverInfo: probe.serverInfo, latencyMs: probe.latencyMs, error: null });
+        if (probe.policies) getSecurity().manager.applyPolicies(probe.policies);
         await this.applyLiveState(probe.liveState);
         return { success: true, probe };
       })();
@@ -616,15 +659,17 @@
       let tools = [];
       let error = null;
       try {
-        tools = await this.registerClient(client, { onTransportFailure: failure => this.markProxyUnavailable(failure) });
-        getSecurity().manager.setMcpClient(client);
-        await getSecurity().manager.refresh().catch(err => {
-          console.warn('[MCP] Could not sync security policies from backend:', err?.message || err);
+        tools = await this.registerClient(client, {
+          tools: probe.tools,
+          onTransportFailure: failure => this.markProxyUnavailable(failure)
         });
+        getSecurity().manager.setMcpClient(client);
+        getSecurity().manager.applyPolicies(probe.policies);
       } catch (err) {
         error = err.message;
       }
 
+      this.recordProjectContext(probe.serverInfo?.cwd, probe.projectContext);
       State.set('mcp', {
         status: error ? 'error' : 'connected',
         endpoint: url,
@@ -650,7 +695,7 @@
      */
     async disconnectProxy() {
       this.dropClient(PROXY_ID);
-      this.dropClient(EXTERNAL_ID);
+      this.projectSnapshot = null;
       getProfiles().clearSessionProfile();
       getState().set('mcp', { status: 'disconnected', latencyMs: null, error: null, ...LIVE_RESET });
       return { success: true };
@@ -718,7 +763,9 @@
           await this.verifyProxyConnection();
           return false;
         }
+        this.recordProjectContext(probe.serverInfo?.cwd, probe.projectContext);
         getState().set('mcp', { serverInfo: probe.serverInfo });
+        getSecurity().manager.applyPolicies(probe.policies);
         await this.applyLiveState(probe.liveState);
         this.onProjectLost?.({ project: lost, fallback: probe.serverInfo?.cwd || '' });
         return true;
@@ -797,7 +844,8 @@
       this.liveStateSeq += 1;
       const result = await this.requestExternalControl('zerochat/project/set_directory', { path });
       this.liveStateSeq += 1;
-      await this.applyLiveState({ cwd: result?.cwd });
+      this.recordProjectContext(result?.cwd, result?.projectContext);
+      await this.applyLiveState({ cwd: result?.cwd, policies: result?.policies });
       return result;
     }
 
@@ -922,8 +970,13 @@
       return this.requestExternalControl('zerochat/diff/configure', { tool }, { timeoutMs: DIFF_TOOL_SETUP_TIMEOUT_MS });
     }
 
-    refreshExternalTools(anyRunning) {
-      return getMcpExternal().refreshExternalTools(this, anyRunning, { externalId: EXTERNAL_ID, proxyId: PROXY_ID, McpClient });
+    refreshExternalTools(anyRunning, rawTools) {
+      return getMcpExternal().refreshExternalTools(this, anyRunning, rawTools, {
+        externalProviderId: EXTERNAL_PROVIDER_ID,
+        proxyId: PROXY_ID,
+        McpToolProvider,
+        summarizeTool
+      });
     }
 
     startExternalServer(serverId, onWait, options) {
@@ -971,7 +1024,11 @@
     playwrightInstalled,
     browserActionAvailable,
     manager,
+    projectOfDirectory,
+    directoryOfProject,
     withCommandJobStop,
+    PROXY_ID,
+    PROJECT_GONE_CODE,
     LOCAL_COMMAND_TOOL
   };
 });

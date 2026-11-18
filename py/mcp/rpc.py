@@ -45,7 +45,7 @@ def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
             servers = GLOBAL_MCP_MANAGER.configure(server_id, opts)
     except KeyError as exc:
         return rpc_error(INVALID_PARAMS, str(exc.args[0]) if exc.args else str(exc))
-    return rpc_result({"servers": servers})
+    return rpc_result({"servers": servers, "externalTools": GLOBAL_MCP_MANAGER.tools()})
 
 
 def _set_secret(server_id: str, params: dict) -> RpcOutcome:
@@ -56,7 +56,8 @@ def _set_secret(server_id: str, params: dict) -> RpcOutcome:
     if value is not None and not isinstance(value, str):
         return rpc_error(INVALID_PARAMS, "value debe ser un texto o null.")
     try:
-        return rpc_result({"servers": GLOBAL_MCP_MANAGER.set_secret(server_id, name, value)})
+        servers = GLOBAL_MCP_MANAGER.set_secret(server_id, name, value)
+        return rpc_result({"servers": servers, "externalTools": GLOBAL_MCP_MANAGER.tools()})
     except KeyError as exc:
         return rpc_error(INVALID_PARAMS, str(exc.args[0]) if exc.args else str(exc))
     except ValueError as exc:

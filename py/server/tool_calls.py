@@ -128,10 +128,14 @@ def authorize_or_challenge(origin: str, tool_name: str, args: dict, ctx: Securit
     return None
 
 
-def call_tool(origin: str, params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
-    """tools/call de los dos endpoints: evalúa, emite un reto o ejecuta por el punto único."""
+def call_tool(params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
+    """tools/call: evalúa, emite un reto o ejecuta la herramienta (local o de un servicio MCP) por el punto único."""
     tool_name = params.get("name", "")
-    if origin == "local" and tool_name not in LOCAL_TOOL_HANDLERS:
+    if tool_name in LOCAL_TOOL_HANDLERS:
+        origin = "local"
+    elif GLOBAL_MCP_MANAGER.server_of(tool_name):
+        origin = "external"
+    else:
         return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
     raw_args = params.get("arguments")
     args = dict(raw_args) if isinstance(raw_args, dict) else {}
@@ -170,7 +174,6 @@ def _authorize(params: dict, ctx: SecurityContext) -> RpcOutcome:
 
 
 SECURITY_METHODS = {
-    "zerochat/security/get": lambda _params, ctx: rpc_result({"policies": ACCESS_CONTROLLER.export_state(ctx)}),
     "zerochat/security/update": lambda params, ctx: rpc_result({"policies": ACCESS_CONTROLLER.import_state(params, context=ctx)}),
     "zerochat/security/authorize": _authorize,
 }

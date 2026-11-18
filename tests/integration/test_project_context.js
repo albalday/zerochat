@@ -14,22 +14,38 @@ test.afterEach(() => {
   localStorage.clear();
 });
 
-function readResult(files, path) {
-  const file = files[path];
-  if (file instanceof Error) return { success: false, error: file.message, result: null };
-  const payload = file === undefined
-    ? { success: false, error: `File '${path}' does not exist.` }
-    : (typeof file === 'string' ? { success: true, content: file, truncated: false } : file);
-  // Igual que McpToolProvider con el servidor local: success: false del JSON llega como isError.
-  const ok = payload.success !== false;
-  return { success: ok, result: { success: ok, isError: !ok, content: JSON.stringify(payload) } };
+function contextResponse(files, cwd, decide) {
+  const helperPath = `${cwd}/.zerochat/task.py`;
+  if (decide({ path: helperPath }) !== 'allow') return { status: 'denied' };
+  const helper = files[helperPath];
+  if (helper === undefined) return { status: 'missing' };
+  if (helper instanceof Error) throw helper;
+  if (typeof helper === 'object' && helper.success === false) return { status: 'error', error: helper.error };
+
+  const statePath = `${cwd}/.zerochat/state.md`;
+  if (decide({ path: statePath }) !== 'allow') return { status: 'denied' };
+  const rawState = files[statePath];
+  if (rawState instanceof Error) throw rawState;
+  if (typeof rawState === 'object' && rawState.success === false) return { status: 'error', error: rawState.error };
+  const toEntry = val => {
+    if (!val) return { content: '', truncated: false };
+    return typeof val === 'string' ? { content: val, truncated: false } : { content: val.content || '', truncated: Boolean(val.truncated) };
+  };
+  const rulesPath = `${cwd}/AGENTS.md`;
+  const rawRules = decide({ path: rulesPath }) === 'allow' ? files[rulesPath] : null;
+  return {
+    status: 'ok',
+    rules: rawRules && typeof rawRules === 'object' && rawRules.success === false ? { content: '', truncated: false } : toEntry(rawRules),
+    state: toEntry(rawState)
+  };
 }
 
-function createHarness({ config = {}, connected = true, cwd = '/repo', files = {}, approval = false, readTool = true, writeTool = true, directoryError = null, authorize = null, realSecurity = false } = {}) {
+function createHarness({ config = {}, connected = true, cwd = '/repo', files = {}, approval = false, readTool = true, writeTool = true, directoryError = null, authorize = null, realSecurity = false, snapshot = null } = {}) {
   // Un caso puede crear varios arneses: se restaura antes para no apilar sustituciones.
   mock.restoreAll();
   ChatState.set('mcp', connected ? { status: 'connected', serverInfo: { cwd } } : { status: 'disconnected', serverInfo: null });
   ChatState.setProjectContext({ cwd: '', status: 'disabled' });
+  MCP.manager.projectSnapshot = snapshot ? { cwd, data: snapshot } : null;
   mock.method(ChatConfig, 'getActive', () => ({ projectMode: true, projectDeclined: [], ...config }));
   const calls = [];
   mock.method(AgentCore.registry, 'getTool', name => {
@@ -37,15 +53,13 @@ function createHarness({ config = {}, connected = true, cwd = '/repo', files = {
     if (writeTool && name === 'write_file') return { name: 'write_file', isAvailable: () => true };
     return null;
   });
-  // El backend decide la autorización: 'ask' responde con un reto y 'deny' con una denegación.
   const decide = authorize || (() => (approval ? 'ask' : 'allow'));
-  mock.method(AgentCore.executor, 'executeToolCall', async call => {
-    const args = JSON.parse(call.function.arguments);
-    calls.push(args);
-    const decision = decide(args);
-    if (decision === 'ask') return { success: false, requiresAuthorization: true, error: 'The tool requires explicit user authorization.' };
-    if (decision === 'deny') return { success: false, result: { isError: true, content: 'Error: blocked', rawResult: { securityStatus: 'deny' } } };
-    return readResult(files, args.path);
+  mock.method(MCP.manager, 'requestExternalControl', async (method, params) => {
+    calls.push({ method, params });
+    if (method === 'zerochat/project/context') {
+      return contextResponse(files, cwd, decide);
+    }
+    return {};
   });
   const security = ToolSecurity.manager;
   const rules = [];
@@ -100,7 +114,7 @@ test('ProjectContext.refresh - sin .zerochat/task.py queda missing', async () =>
   assert.equal(state.get('project').cwd, '/repo');
 });
 
-test('ProjectContext.refresh - lee normas y estado con límite de tamaño', async () => {
+test('ProjectContext.refresh - lee normas y estado en una sola llamada zerochat/project/context, o usa la instantánea de initialize/set_directory', async () => {
   const { context, calls, state } = createHarness({
     files: {
       '/repo/.zerochat/task.py': '# helper',
@@ -113,12 +127,20 @@ test('ProjectContext.refresh - lee normas y estado con límite de tamaño', asyn
   assert.equal(project.status, 'ready');
   assert.deepEqual(project.rules, { content: '# Rules', truncated: true });
   assert.deepEqual(project.state, { content: '- Next task: M1-T2 tests', truncated: false });
-  assert.deepEqual(calls.map(args => [args.path, args.max_bytes, args.max_lines]), [
-    ['/repo/.zerochat/task.py', ProjectContext.MAX_FILE_BYTES, 1],
-    ['/repo/.zerochat/state.md', ProjectContext.MAX_FILE_BYTES, 2000],
-    ['/repo/AGENTS.md', ProjectContext.MAX_FILE_BYTES, 2000]
-  ]);
+  assert.deepEqual(calls, [{ method: 'zerochat/project/context', params: {} }]);
   assert.match(ProjectContext.buildPromptBlock(project), /- Next task: M1-T2 tests/);
+
+  // Si initialize o set_directory entregó la instantánea del proyecto, refresh la consume sin llamar por red
+  const fromSnapshot = createHarness({
+    snapshot: {
+      status: 'ok',
+      rules: { content: '# Rules from init', truncated: false },
+      state: { content: '- Next task: M1-T3', truncated: false }
+    }
+  });
+  await fromSnapshot.context.refresh();
+  assert.equal(fromSnapshot.calls.length, 0);
+  assert.equal(fromSnapshot.state.get('project').rules.content, '# Rules from init');
 });
 
 test('ProjectContext.refresh - sin AGENTS.md el proyecto sigue activo y el bloque pide crearlo', async () => {
@@ -139,7 +161,7 @@ test('ProjectContext.refresh - un fallo de lectura distinto de inexistente queda
   assert.equal(console.warn.mock.callCount(), 1);
 });
 
-test('ProjectContext.refresh - si la lectura de state.md falla, es denegada o queda unavailable, no lee AGENTS.md', async (t) => {
+test('ProjectContext.refresh - si la lectura de state.md falla, es denegada o queda unavailable, no publica estado listo', async (t) => {
   t.mock.method(console, 'warn', () => {});
   // Error en state.md
   const harnessErr = createHarness({
@@ -151,10 +173,7 @@ test('ProjectContext.refresh - si la lectura de state.md falla, es denegada o qu
   });
   await harnessErr.context.refresh();
   assert.equal(harnessErr.state.get('project').status, 'error');
-  assert.deepEqual(harnessErr.calls.map(c => c.path), [
-    '/repo/.zerochat/task.py',
-    '/repo/.zerochat/state.md'
-  ], 'No debe intentar leer AGENTS.md si falla state.md');
+  assert.equal(harnessErr.calls.length, 1);
 
   // Denegado en state.md
   const harnessDenied = createHarness({
@@ -167,19 +186,15 @@ test('ProjectContext.refresh - si la lectura de state.md falla, es denegada o qu
   });
   await harnessDenied.context.refresh();
   assert.equal(harnessDenied.state.get('project').status, 'no_access');
-  assert.deepEqual(harnessDenied.calls.map(c => c.path), [
-    '/repo/.zerochat/task.py',
-    '/repo/.zerochat/state.md'
-  ]);
+  assert.equal(harnessDenied.calls.length, 1);
 
-  // Unavailable en state.md
+  // Unavailable al terminar la petición
   let availableQueries = 0;
   const toolDynamic = {
     name: 'read_file',
     isAvailable: () => {
       availableQueries++;
-      // Disponible para preliminar y task.py, no disponible para state.md
-      return availableQueries <= 2;
+      return availableQueries <= 1;
     }
   };
   const harnessUnavail = createHarness({

@@ -308,14 +308,13 @@ class PolicyStateTest(ControllerTestCase):
         res = self.controller.import_state({"servers": {"s1": None, "s2": {"policy": "deny"}}}, self.ctx)
         self.assertEqual(list(res["servers"]), ["s2"])
 
-        # Las RPC aplican el mismo parche y devuelven el estado completo
-        handler = zerochat.ZeroChatServerHandler
+        # Las RPC aplican el mismo parche y devuelven el estado completo, igual que initialize
         rpc, err, _ = zerochat.dispatch_security("zerochat/security/update", {"tools": {"t4": {"policy": "allow"}}}, cwd())
         self.assertIsNone(err)
         self.assertEqual(set(rpc["policies"]["tools"]), {"t2", "t3", "t4"})
-        got, err, _ = zerochat.dispatch_security("zerochat/security/get", {}, cwd())
+        init, err, _ = zerochat.dispatch_local("initialize", {}, cwd())
         self.assertIsNone(err)
-        self.assertEqual(got["policies"]["tools"].keys(), rpc["policies"]["tools"].keys())
+        self.assertEqual(init["policies"]["tools"].keys(), rpc["policies"]["tools"].keys())
 
     def test_add_directory_rules_appends_in_the_same_patch(self):
         set_rules(self.controller, [f"R:{self.norm_ws}/docs/**"], self.ctx)
@@ -413,11 +412,10 @@ class PolicyStateTest(ControllerTestCase):
         with zerochat.open_storage() as conn:
             conn.execute("INSERT INTO security_policies (id, data_json, updated_at) VALUES ('default', '{corrupt', 0);")
             conn.commit()
-        for method, params in (("zerochat/security/get", {}), ("zerochat/security/update", {"globalMcpPolicy": "allow_all"})):
-            res, err, _ = zerochat.dispatch_security(method, params, cwd())
-            self.assertIsNone(res)
-            self.assertEqual(err["code"], -32603)
-            self.assertIn("corruptas", err["message"])
+        res, err, _ = zerochat.dispatch_security("zerochat/security/update", {"globalMcpPolicy": "allow_all"}, cwd())
+        self.assertIsNone(res)
+        self.assertEqual(err["code"], -32603)
+        self.assertIn("corruptas", err["message"])
         with zerochat.open_storage() as conn:
             raw = conn.execute("SELECT data_json FROM security_policies WHERE id = 'default';").fetchone()["data_json"]
         self.assertEqual(raw, "{corrupt")
@@ -495,7 +493,7 @@ class ChallengeTest(HandlerTestCase):
         result = {"content": [{"type": "text", "text": "ok"}], "isError": False}
         with unittest.mock.patch.object(zerochat.GLOBAL_MCP_MANAGER, "server_of", return_value="playwright"), \
              unittest.mock.patch.object(zerochat.GLOBAL_MCP_MANAGER, "call", return_value=result):
-            external = (lambda conversation: zerochat.dispatch_external(
+            external = (lambda conversation: zerochat.dispatch_local(
                 "tools/call", {"name": "playwright__navigate", "arguments": {}, "_meta": {"zerochatConversationId": conversation}}, cwd())[0])
             self.assertFalse(external("conv-b")["isError"])
             self.assertTrue(external("conv-a")["isError"])
@@ -511,8 +509,9 @@ class ChallengeTest(HandlerTestCase):
             self.assertTrue(call("conv-a")["isError"], "70 s desde que empezó, 20 desde que acabó")
 
     def test_authorize_executes_challenge_by_stored_origin(self):
-        # Un reto de /mcp/external con el nombre de una herramienta local se ejecuta en el host externo
-        gate, err, _ = zerochat.dispatch_external("tools/call", {"name": "read_file", "arguments": {"path": "/etc/passwd"}}, cwd())
+        # Un reto de servicio MCP externo se ejecuta en el gestor externo al autorizarlo
+        with unittest.mock.patch.object(zerochat.GLOBAL_MCP_MANAGER, "server_of", return_value="sqlite"):
+            gate, err, _ = zerochat.dispatch_local("tools/call", {"name": "sqlite_query", "arguments": {"sql": "SELECT 1"}}, cwd())
         self.assertIsNone(err)
         self.assertEqual(challenges(self.controller)[gate["challengeId"]]["origin"], "external")
         result = {"content": [{"type": "text", "text": "external-output"}], "isError": False}
@@ -520,16 +519,17 @@ class ChallengeTest(HandlerTestCase):
             res, err = self.authorize(gate["challengeId"], "allow_once")
         self.assertIsNone(err)
         self.assertEqual(res["result"]["content"][0]["text"], "external-output")
-        external.assert_called_once_with("read_file", {"path": "/etc/passwd"})
+        external.assert_called_once_with("sqlite_query", {"sql": "SELECT 1"})
 
     def test_server_trust_covers_only_its_tools_and_never_local_ones(self):
         set_server(self.controller, "playwright", zerochat.POLICY_ALLOW)
         result = {"content": [{"type": "text", "text": "ok"}], "isError": False}
-        with unittest.mock.patch.object(zerochat.GLOBAL_MCP_MANAGER, "call", return_value=result) as external:
-            res, err, _ = zerochat.dispatch_external("tools/call", {"name": "playwright__x", "arguments": {}}, cwd())
+        with unittest.mock.patch.object(zerochat.GLOBAL_MCP_MANAGER, "server_of", side_effect=lambda name: name.split("__")[0]), \
+             unittest.mock.patch.object(zerochat.GLOBAL_MCP_MANAGER, "call", return_value=result) as external:
+            res, err, _ = zerochat.dispatch_local("tools/call", {"name": "playwright__x", "arguments": {}}, cwd())
             self.assertIsNone(err)
             self.assertFalse(res.get("requiresAuthorization", False))
-            res, err, _ = zerochat.dispatch_external("tools/call", {"name": "otro__y", "arguments": {}}, cwd())
+            res, err, _ = zerochat.dispatch_local("tools/call", {"name": "otro__y", "arguments": {}}, cwd())
             self.assertEqual((res.get("requiresAuthorization"), res["serverId"]), (True, "otro"))
         external.assert_called_once_with("playwright__x", {})
 

@@ -16,7 +16,7 @@ import urllib.parse
 import uuid
 from pathlib import Path
 
-from core.environment import DETECTED_OS, _write_private_text, get_data_dir
+from core.environment import DETECTED_OS, _write_private_text, get_data_dir, get_no_project_dir
 from core.limits import MAX_HTTP_BODY_BYTES
 from core.logging import console_error, log_event, timestamp_message
 from core.process import _kill_process_tree, _pid_alive, _process_start_token
@@ -207,8 +207,8 @@ def _check_no_active_run(state_path: Path, conv_id: str):
         raise ValueError(f"Ya hay una ejecución en marcha para la conversación '{conv_id}'.")
 
 
-def start_server_run(params: dict, ctx: SecurityContext) -> dict:
-    """Inicia una ejecución en segundo plano para una conversación, en su proyecto o, si no tiene, en el de la petición."""
+def start_server_run(params: dict) -> dict:
+    """Inicia una ejecución en segundo plano para una conversación, en su proyecto o, si no tiene, en la carpeta general."""
     if not isinstance(params, dict):
         raise ValueError("Parámetros no válidos.")
     clean_conv_id, conv, profile_name = _run_target(params)
@@ -250,7 +250,7 @@ def start_server_run(params: dict, ctx: SecurityContext) -> dict:
         stderr=subprocess.DEVNULL,
         start_new_session=DETECTED_OS != "windows" and hasattr(os, "setsid"),
         env=env,
-        cwd=project or str(ctx.workspace_dir)
+        cwd=project or str(get_no_project_dir())
     )
 
     payload = {
@@ -382,11 +382,11 @@ def http_body_limit() -> int:
     return MAX_HTTP_BODY_BYTES
 
 
-def _rpc_start(params: dict, ctx: SecurityContext, session: RunSession | None) -> RpcOutcome:
+def _rpc_start(params: dict, _ctx: SecurityContext, session: RunSession | None) -> RpcOutcome:
     if session is not None:
         return rpc_error(METHOD_NOT_FOUND, "No disponible dentro de un proceso de ejecución.")
     try:
-        return rpc_result(start_server_run(params, ctx))
+        return rpc_result(start_server_run(params))
     except ValueError as exc:
         return rpc_error(INVALID_PARAMS, str(exc))
     except OSError as exc:

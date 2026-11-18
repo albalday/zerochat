@@ -188,7 +188,6 @@
       Config,
       ProfileRepository,
       MCP,
-      ToolSecurity,
       HeadlessToolCards,
       Engine,
       Export,
@@ -202,7 +201,6 @@
       root.ChatConfig,
       root.ChatProfileRepository,
       root.ChatMCP,
-      root.ChatToolSecurity,
       root.ChatToolCards,
       root.ChatEngine,
       root.ChatExport,
@@ -216,7 +214,6 @@
   Config,
   ProfileRepository,
   MCP,
-  ToolSecurity,
   ToolCards,
   Engine,
   Export,
@@ -323,15 +320,12 @@
 
     const conversationStore = createHeadlessConversationStore(requestBackend);
 
-    const connectBackend = async () => {
-      ToolSecurity.manager.setSessionToken(token);
-      return MCP.manager.connectProxy({
-        url: backendUrl,
-        proxyKey: null,
-        token,
-        silentOnFailure: true
-      });
-    };
+    const connectBackend = async () => MCP.manager.connectProxy({
+      url: backendUrl,
+      proxyKey: null,
+      token,
+      silentOnFailure: true
+    });
 
     const activateSessionProfile = async profileId => {
       Config.activateProfile(profileId, { sessionOnly: true });
