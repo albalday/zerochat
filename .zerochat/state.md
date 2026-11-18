@@ -1,4 +1,4 @@
 # Current state
-- Milestone: none (M76 closed 2026-11-17)
-- Next task: none pending
-- Last updated: 2026-11-17
+- Milestone: M79 Usabilidad y propuestas de mejora
+- Next task: M79-T6
+- Last updated: 2026-11-18

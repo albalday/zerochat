@@ -127,17 +127,21 @@ describe('Browser UI - navegador de ficheros', { concurrency: 2 }, () => {
     }
   });
 
-  test('Browser UI - un fichero de texto se abre en otra pestaña y uno binario se descarga', async () => {
+  test('Browser UI - un fichero de texto se abre con tamaño ajustable y descarga, y cualquier fichero se descarga desde la lista', async () => {
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3, 250, 251]);
+    const readme = Buffer.from('# Hola\n', 'utf-8');
     const files = await openFilesPage((method, params) => {
       if (method === 'zerochat/files/list') {
         return { path: '', total: 2, truncated: false, entries: [
-          { name: 'README.md', type: 'file', size: 7, modified: Date.UTC(2026, 10, 2) },
+          { name: 'README.md', type: 'file', size: readme.length, modified: Date.UTC(2026, 10, 2) },
           { name: 'logo.png', type: 'file', size: png.length, modified: Date.UTC(2026, 10, 2) }
         ] };
       }
       if (method === 'zerochat/files/read') {
-        return params.path === 'README.md' ? { path: 'README.md', size: 7, binary: false, text: '# Hola\n' } : { path: params.path, size: png.length, binary: true };
+        return params.path === 'README.md' ? { path: 'README.md', size: readme.length, binary: false, text: '# Hola\n' } : { path: params.path, size: png.length, binary: true };
+      }
+      if (params.path === 'README.md') {
+        return { path: 'README.md', name: 'README.md', size: readme.length, data: readme.toString('base64'), next: readme.length, done: true };
       }
       // Dos páginas: el cliente las une en orden.
       const half = params.offset === 0 ? png.subarray(0, 6) : png.subarray(6);
@@ -145,11 +149,31 @@ describe('Browser UI - navegador de ficheros', { concurrency: 2 }, () => {
     });
     const { page } = files;
     try {
+      await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(page.url()).origin });
       await page.waitForFunction(() => document.querySelectorAll('#files-list button[data-file]').length === 2);
+
+      // Abrir texto en pestaña nueva: tamaño ajustable, copiar y descargar bajo la CSP de files.html.
       const [popup] = await Promise.all([page.waitForEvent('popup'), page.locator('button[data-file="README.md"]').click()]);
-      await popup.waitForURL(/^blob:/);
-      assert.equal(await popup.evaluate(() => document.body.innerText), '# Hola\n');
+      await popup.waitForFunction(() => document.getElementById('tv-content')?.textContent === '# Hola\n');
+      assert.equal(await popup.locator('h1').textContent(), 'README.md');
+      assert.equal(await popup.locator('#tv-font-size').textContent(), '15');
+      await popup.click('#tv-font-increase');
+      assert.equal(await popup.locator('#tv-content').evaluate(el => el.style.fontSize), '16px');
+      await popup.click('#tv-font-decrease');
+      assert.equal(await popup.locator('#tv-content').evaluate(el => el.style.fontSize), '15px');
+      await popup.click('#tv-copy');
+      await popup.waitForFunction(() => document.getElementById('tv-copy').textContent === 'Copiado');
+      assert.equal(await popup.evaluate(() => navigator.clipboard.readText()), '# Hola\n');
+      const [popupDownload] = await Promise.all([page.waitForEvent('download'), popup.click('#tv-download')]);
+      assert.equal(popupDownload.suggestedFilename(), 'README.md');
       await popup.close();
+
+      // Descargar un fichero de texto directamente desde la lista.
+      const [textDownload] = await Promise.all([page.waitForEvent('download'), page.locator('button[data-download="README.md"]').click()]);
+      assert.equal(textDownload.suggestedFilename(), 'README.md');
+      const textChunks = [];
+      for await (const chunk of await textDownload.createReadStream()) textChunks.push(chunk);
+      assert.deepEqual(Buffer.concat(textChunks), readme);
 
       const [download] = await Promise.all([page.waitForEvent('download'), page.locator('button[data-file="logo.png"]').click()]);
       assert.equal(download.suggestedFilename(), 'logo.png');
@@ -157,7 +181,7 @@ describe('Browser UI - navegador de ficheros', { concurrency: 2 }, () => {
       const chunks = [];
       for await (const chunk of stream) chunks.push(chunk);
       assert.deepEqual(Buffer.concat(chunks), png);
-      assert.deepEqual(files.calls.filter(call => call.method === 'zerochat/files/download').map(call => call.params.offset), [0, 6]);
+      assert.deepEqual(files.calls.filter(call => call.method === 'zerochat/files/download' && call.params.path === 'logo.png').map(call => call.params.offset), [0, 6]);
       assert.deepEqual(files.errors, []);
     } finally {
       await files.close();

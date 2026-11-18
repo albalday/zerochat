@@ -19,3 +19,27 @@
 ## M77 Almacenamiento unificado y selector de perfiles: closed 2026-11-17
 
 ## M78 Compactación con los agentes locales: closed 2026-11-17
+
+## M79 Usabilidad y propuestas de mejora
+
+Goal: Mejorar el navegador de ficheros del proyecto y el uso de chats sin proyecto con el backend conectado, y conservar las propuestas de mejora de usabilidad, funcionalidad y solidez para decidirlas una a una con el usuario.
+Done when: las tareas del navegador de ficheros y de chats sin proyecto están hechas o descartadas, y cada propuesta está implementada o marcada como descartada con su motivo.
+- [x] M79-T1 Navegador de ficheros: tamaño de letra ajustable en la vista de ficheros de texto (2026-11-18)
+- [x] M79-T2 Navegador de ficheros: descargar cualquier fichero, también los de texto, además de abrirlo (2026-11-18)
+- [x] M79-T3 Navegador de ficheros: decidir con el usuario si los .html se abren renderizados y cómo aislarlos del origen de la aplicación (dropped: no aporta suficiente valor frente a la vista de texto)
+- [x] M79-T4 Navegador de ficheros: decidir con el usuario un editor pequeño de ficheros de texto con guardado por el backend sujeto a las reglas de directorio (dropped: editar ficheros se hace fácilmente pidiéndoselo al agente)
+- [x] M79-T5 Navegador de ficheros: decidir con el usuario borrar ficheros con confirmación y sujeto a las reglas de directorio (dropped: borrar ficheros se hace fácilmente pidiéndoselo al agente)
+- [ ] M79-T6 Decidir con el usuario y permitir usar chats sin proyecto cuando hay conexión con el backend
+- [ ] M79-T7 Propuesta: buscar en el contenido de las conversaciones, no solo en el título (FTS5 en el servidor, IndexedDB sin él)
+- [ ] M79-T8 Propuesta: regenerar una respuesta y editar una pregunta en su sitio creando rama automáticamente
+- [ ] M79-T9 Propuesta: atajos de teclado (nueva conversación, buscar con Ctrl+K, detener con Esc, chuleta con ?)
+- [ ] M79-T10 Propuesta: aviso en el título o el icono de la pestaña cuando un turno termina o pide permiso en segundo plano, sin la API Notification
+- [ ] M79-T11 Propuesta: prompts guardados, globales o por proyecto, insertables con / en el compositor
+- [ ] M79-T12 Propuesta: asistente de primer perfil con detección bajo petición de servidores locales y tabla de qué funciona en navegador y en servidor
+- [ ] M79-T13 Propuesta: copia de seguridad y restauración del almacén del servidor (zerochat --backup y --restore)
+- [ ] M79-T14 Propuesta: RAG híbrido opcional con /v1/embeddings del servidor de modelos fusionado con Orama
+- [ ] M79-T15 Propuesta: batería de evaluación del agente con zerochat --prompt contra modelos locales, sin ajustes por modelo
+- [ ] M79-T16 Propuesta: control de concurrencia entre pestañas con versión por conversación y 409 al guardar sobre una versión antigua
+- [ ] M79-T17 Propuesta: comprobación de tipos con JSDoc y tsc --checkJs --noEmit en estado, almacenamiento y bucle del agente
+- [ ] M79-T18 Almacenamiento: readConversation debe comparar updatedAt entre la copia del backend y la local en vez de dar siempre la razón al backend, para no perder mensajes editados en modo normal
+- [ ] M79-T19 Documentar en AGENTS.md los comandos de .zerochat/task.py (add-task, done, status) para que los agentes lo usen en lugar de editar a mano .zerochat/plan.md
