@@ -1575,7 +1575,7 @@ def dispatch_browser(method: str, params: dict) -> RpcOutcome:
 
 
 
-SOURCE_BACKEND_VERSION = "10.26.0"
+SOURCE_BACKEND_VERSION = "10.27.0"
 
 
 def _read_source_version(filename: str) -> str | None:
@@ -3380,7 +3380,7 @@ def delete_conversation(session_id: str) -> bool:
 
 def delete_project_conversations(project: str) -> list[str]:
     """Elimina las conversaciones de un proyecto (o de la carpeta general si es vacío) con sus mensajes y blobs propios."""
-    if not isinstance(project, str) or len(project) > MAX_PATH_LENGTH:
+    if not isinstance(project, str) or (project and not project.strip()) or len(project) > MAX_PATH_LENGTH:
         raise ValueError("El proyecto de las conversaciones debe ser una ruta")
     clean_project = project.strip()
     with open_storage() as conn:
