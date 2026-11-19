@@ -429,6 +429,7 @@
         createdAt: conversation.createdAt || Date.now(),
         updatedAt: conversation.updatedAt || Date.now(),
         profileId: conversation.profileId || null,
+        ...(conversation.project ? { project: conversation.project } : {}),
         serverRun: conversation.serverRun !== undefined ? Boolean(conversation.serverRun) : true
       };
       const updatedList = currentList.some(s => s.id === sessionId)

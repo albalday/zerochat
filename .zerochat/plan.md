@@ -63,3 +63,4 @@ Done when: las tareas del navegador de ficheros y de chats sin proyecto están h
 - [x] M79-T37 Simplificación conceptual y agrupación de la suite de pruebas (2026-11-19)
 - [x] M79-T38 Retirar el control de herramientas y el parámetro --allow-dangerous-tools en ejecuciones en servidor y --prompt (2026-11-19)
 - [x] M79-T39 Borrar conversaciones solo del conjunto seleccionado en el filtro del historial e indicarlo en la confirmación (2026-11-19)
+- [x] M79-T40 Conservar project en switchToSession del runner de Node para habilitar herramientas locales en ejecuciones en servidor (2026-11-19)
