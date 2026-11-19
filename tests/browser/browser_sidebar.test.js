@@ -236,7 +236,8 @@ test('Browser UI - abrir conversación de otro proyecto y botones de cabecera de
       window.ChatMCP.manager.setProjectDirectory = async path => {
         window.__dirs.push(path);
         if (path === '/repo/borrado') throw new Error('Error MCP (-32602): no existe');
-        window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), serverInfo: { ...window.ChatState.get('mcp').serverInfo, cwd: path } });
+        window.ChatMCP.manager.recordProjectContext(path, { status: 'missing' });
+        await window.ChatMCP.manager.applyLiveState({ cwd: path });
         return { cwd: path };
       };
     }, noProjectDir);
@@ -267,13 +268,18 @@ test('Browser UI - abrir conversación de otro proyecto y botones de cabecera de
     assert.deepEqual(filesLink, { cls: 'btn-project-files', href: 'files.html?project=%2Frepo%2Fb', target: '_blank', rel: 'noopener', label: 'Ficheros de b', icon: true });
     await page.click('.btn-project-new-chat[data-project="/repo/b"]');
     await page.waitForFunction(prev => window.ChatState.get('sessions').activeId !== prev, previousId);
+    await page.waitForFunction(() => document.getElementById('welcome-project').title === '/repo/b');
     const after = await page.evaluate(() => ({
       activeId: window.ChatState.get('sessions').activeId,
       profile: window.ChatConfig.getActive().activeProfile?.id,
-      serverMode: window.ChatUIProfiles.isServerMode()
+      serverMode: window.ChatUIProfiles.isServerMode(),
+      welcomeText: document.getElementById('welcome-project-text').textContent,
+      welcomeOff: document.getElementById('welcome-project').hasAttribute('data-project-mode-off')
     }));
     assert.notEqual(after.activeId, previousId);
     assert.deepEqual({ profile: after.profile, serverMode: after.serverMode }, before);
+    assert.equal(after.welcomeText, await page.evaluate(() => `${window.ChatI18n.t('welcome_project', { name: 'b' })} · ${window.ChatI18n.t('welcome_project_mode_on')}`));
+    assert.equal(after.welcomeOff, false);
 
     // Cabecera de general: link a noProjectDir y nuevo chat en general
     assert.equal(await page.getAttribute('.btn-project-new-chat[data-project=""]', 'aria-label'),
@@ -282,7 +288,19 @@ test('Browser UI - abrir conversación de otro proyecto y botones de cabecera de
       `files.html?project=${encodeURIComponent(noProjectDir)}`);
     await page.click('.btn-project-new-chat[data-project=""]');
     await page.waitForFunction(dir => window.ChatState.get('mcp').serverInfo.cwd === dir, noProjectDir);
+    await page.waitForFunction(dir => document.getElementById('welcome-project').title === dir, noProjectDir);
+    assert.equal(await page.textContent('#welcome-project-text'),
+      await page.evaluate(() => `${window.ChatI18n.t('welcome_project', { name: 'general' })} · ${window.ChatI18n.t('welcome_project_mode_off')}`));
+    assert.equal(await page.evaluate(() => document.getElementById('welcome-project').hasAttribute('data-project-mode-off')), true);
     assert.equal(await page.$eval('#sidebar-project-filter option[value="none"]', option => option.hidden), true);
+
+    // En general el interruptor del modo proyecto está desactivado y no se puede cambiar.
+    await page.click('#btn-reasoning');
+    assert.equal(await page.locator('#chk-project-mode').isChecked(), false);
+    assert.equal(await page.locator('#chk-project-mode').isDisabled(), true);
+    await page.locator('#project-mode-panel .switch').click({ force: true });
+    assert.equal(await page.locator('#chk-project-mode').isChecked(), false);
+    assert.equal(await page.evaluate(() => window.ChatConfig.getActive().projectMode), true);
   });
 });
 
@@ -405,6 +423,41 @@ test('Browser UI - sincroniza conversaciones locales y remotas al conectar desde
     await page.locator('.sidebar-chat-item[data-session-id="chat_local_1"]').click();
     await page.waitForSelector('.sidebar-chat-item[data-session-id="chat_local_1"].active');
     assert.equal(await page.locator('#messages-list').textContent(), 'Mensaje creado sin conexión');
+  });
+});
+
+test('Browser UI - el botón de sincronizar y conversationsRev muestran conversaciones nuevas de --prompt', async () => {
+  await withTestApp(async page => {
+    assert.equal(await page.locator('#btn-sync-chats').isHidden(), true, 'Oculto sin conexión');
+
+    await page.evaluate(() => {
+      window.__backendChats = [];
+      const mcp = window.ChatMCP.manager;
+      mcp.isProxyConnected = () => true;
+      mcp.requestExternalControl = async method => (
+        method === 'zerochat/conversations/list' ? { conversations: window.__backendChats } : {}
+      );
+      window.ChatState.set('mcp', { status: 'connected', endpoint: 'http://127.0.0.1:6388', conversationsRev: '1:100:100' });
+    });
+
+    assert.equal(await page.locator('#btn-sync-chats').isVisible(), true, 'Visible al conectar');
+
+    // Simular chat añadido por zerochat --prompt y pulsar el botón de sincronizar
+    await page.evaluate(() => {
+      window.__backendChats = [{ id: 'chat_prompt_1', title: 'Desde --prompt manual', createdAt: 200, updatedAt: 200, messageCount: 2 }];
+    });
+    await page.click('#btn-sync-chats');
+    await page.waitForSelector('.sidebar-chat-item[data-session-id="chat_prompt_1"]');
+
+    // Simular otro chat añadido por zerochat --prompt detectado en el latido (conversations_rev)
+    await page.evaluate(async () => {
+      window.__backendChats = [
+        { id: 'chat_prompt_2', title: 'Desde --prompt latido', createdAt: 300, updatedAt: 300, messageCount: 2 },
+        ...window.__backendChats
+      ];
+      await window.ChatMCP.manager.applyLiveState({ conversations_rev: '2:300:500' });
+    });
+    await page.waitForSelector('.sidebar-chat-item[data-session-id="chat_prompt_2"]');
   });
 });
 

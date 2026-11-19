@@ -179,11 +179,16 @@ class PolicyEvaluationTest(ControllerTestCase):
             self.assertTrue(self.evaluate(tool, {"path": f"{norm_real}/x.txt"}).allowed)
             self.assertTrue(self.evaluate(tool, {"path": f"{norm_link}/x.txt"}).allowed)
 
-        # Ruta relativa con .. que sale del proyecto: pide confirmación
+        # Ruta relativa con .. que sale del proyecto: pide confirmación si no hay regla, y se permite si la regla la cubre
         set_rules(self.controller, [f"RW:{self.norm_ws}/**"], self.ctx)
         for escape_path in ("../outside.txt", "sub/../../outside.txt", f"{self.norm_ws}/../outside.txt"):
             for tool in ("read_file", "write_file"):
                 self.assertEqual(self.evaluate(tool, {"path": escape_path}).status, "ask", escape_path)
+        norm_parent = zerochat.normalize_directory_path(str(self.base_dir.resolve()))
+        set_rules(self.controller, [f"RW:{norm_parent}/**"], self.ctx)
+        for parent_rel in ("../outside.txt", "sub/../../outside.txt"):
+            for tool in ("read_file", "write_file"):
+                self.assertTrue(self.evaluate(tool, {"path": parent_rel}).allowed, parent_rel)
 
     def test_default_rule_follows_the_project_and_is_never_stored(self):
         proj_a, proj_b = self.base_dir / "proj_a", self.base_dir / "proj_b"
@@ -193,15 +198,16 @@ class PolicyEvaluationTest(ControllerTestCase):
         ctx_a = zerochat.SecurityContext(workspace_dir=proj_a)
         ctx_b = zerochat.SecurityContext(workspace_dir=proj_b)
         file_a, file_b = str(proj_a / "test.txt"), str(proj_b / "test.txt")
-        rule_a = f"RW:{zerochat.normalize_directory_path(str(proj_a.resolve()))}/**"
+        rule_a = f"RWX:{zerochat.normalize_directory_path(str(proj_a.resolve()))}/**"
+        rule_b = self.controller.get_default_directory_rule(ctx_b)
 
         self.assertTrue(self.evaluate("read_file", {"path": file_a}, ctx_a).allowed)
         self.assertTrue(self.evaluate("write_file", {"path": file_a}, ctx_a).allowed)
         self.assertEqual(self.evaluate("read_file", {"path": file_b}, ctx_a).status, "ask")
 
-        # La regla por defecto se exporta aparte y no se guarda aunque llegue en un parche
+        # La regla por defecto se entrega en directoryRules sin guardarse en SQLite hasta personalizarse
         exported_a = self.controller.export_state(ctx_a)
-        self.assertEqual((exported_a["directoryRules"], exported_a["defaultDirectoryRule"]), ([], rule_a))
+        self.assertEqual(exported_a["directoryRules"], [rule_a])
         self.controller.import_state({**exported_a, "directoryRules": [rule_a]}, context=ctx_a)
         self.assertEqual(zerochat.get_security_policy_data().get("directoryRules"), {})
 
@@ -210,20 +216,37 @@ class PolicyEvaluationTest(ControllerTestCase):
         self.assertEqual(self.evaluate("read_file", {"path": file_a}, ctx_b).status, "ask")
 
         # Desde B, la regla de A se guarda solo para B y no se filtra a A
-        set_rules(self.controller, [rule_a, self.controller.get_default_directory_rule(ctx_b)], ctx_b)
-        self.assertEqual(zerochat.get_security_policy_data().get("directoryRules"), {ctx_b.key: [rule_a]})
-        self.assertEqual(self.controller.export_state(ctx_a)["directoryRules"], [])
+        set_rules(self.controller, [rule_b, rule_a], ctx_b)
+        self.assertEqual(zerochat.get_security_policy_data().get("directoryRules"), {ctx_b.key: [rule_b, rule_a]})
+        self.assertEqual(self.controller.export_state(ctx_a)["directoryRules"], [rule_a])
         self.assertEqual(self.evaluate("read_file", {"path": file_b}, ctx_a).status, "ask")
 
-        # Guardar reglas en B tampoco borra las reglas de sesión de A
+        # Vaciar las reglas de B deja al proyecto sin permisos automáticos (ni siquiera en Workspace Trust)
         self.controller.apply_session_overlay({"directoryRules": [f"R:{zerochat.normalize_directory_path(str(proj_b.resolve()))}/**"]}, ctx_a)
         set_rules(self.controller, [], ctx_b)
         self.assertEqual(self.controller.export_state(ctx_b)["directoryRules"], [])
+        self.assertEqual(self.evaluate("read_file", {"path": file_b}, ctx_b).status, "ask")
         self.assertTrue(self.evaluate("read_file", {"path": file_b}, ctx_a).allowed)
+
+        # Editar a R: deja el proyecto en solo lectura real incluso bajo Workspace Trust y con patrones
+        set_global(self.controller, zerochat.GLOBAL_POLICY_WORKSPACE_TRUST)
+        set_patterns(self.controller, "ls *")
+        set_rules(self.controller, [f"R:{zerochat.normalize_directory_path(str(proj_b.resolve()))}/**"], ctx_b)
+        self.assertTrue(self.evaluate("read_file", {"path": file_b}, ctx_b).allowed)
+        self.assertEqual(self.evaluate("write_file", {"path": file_b}, ctx_b).status, "ask")
+        self.assertEqual(self.evaluate("run_command", {"command": "ls"}, ctx_b).reason, "command_directory_without_execute")
+
+        # Sin X (RW:) permite leer/escribir ficheros pero impide run_command; con RX: permite leer y ejecutar
+        set_rules(self.controller, [f"RW:{zerochat.normalize_directory_path(str(proj_b.resolve()))}/**"], ctx_b)
+        self.assertTrue(self.evaluate("write_file", {"path": file_b}, ctx_b).allowed)
+        self.assertEqual(self.evaluate("run_command", {"command": "ls"}, ctx_b).reason, "command_directory_without_execute")
+        set_rules(self.controller, [f"RX:{zerochat.normalize_directory_path(str(proj_b.resolve()))}/**"], ctx_b)
+        self.assertEqual(self.evaluate("write_file", {"path": file_b}, ctx_b).status, "ask")
+        self.assertTrue(self.evaluate("run_command", {"command": "ls"}, ctx_b).allowed)
 
     def test_workspace_trust_allows_local_commands_and_paths_but_not_references_outside(self):
         set_global(self.controller, zerochat.GLOBAL_POLICY_WORKSPACE_TRUST)
-        set_rules(self.controller, [f"RW:{self.norm_ws}/**"], self.ctx)
+        set_rules(self.controller, [f"RWX:{self.norm_ws}/**"], self.ctx)
         self.assertTrue(self.evaluate("read_file", {"path": f"{self.norm_ws}/inside.txt"}).allowed)
         self.assertTrue(self.evaluate("run_command", {"command": "ls -la | grep test"}).allowed)
         # Cada subcomando se valida por separado; tras una tubería, solo un filtro
@@ -237,27 +260,29 @@ class PolicyEvaluationTest(ControllerTestCase):
         set_patterns(self.controller, "git status *")
         self.assertEqual(self.evaluate("run_command", {"command": "npm test"}).reason, "workspace_trust_command")
 
-        # Una regla RW de proyecto amplía también los argumentos de ruta de run_command (R: solo lecturas de fichero)
+        # Una regla RW de proyecto amplía los argumentos de ruta de run_command (R: solo lecturas de fichero) y RWX permite cd+ejecución
         extra_ro = self.base_dir / "extra_ro"
         extra_rw = self.base_dir / "extra_rw"
         extra_ro.mkdir()
         extra_rw.mkdir()
         norm_ro = zerochat.normalize_directory_path(str(extra_ro.resolve()))
         norm_rw = zerochat.normalize_directory_path(str(extra_rw.resolve()))
-        set_rules(self.controller, [f"R:{norm_ro}/**", f"RW:{norm_rw}/**"], self.ctx)
+        set_rules(self.controller, [f"RWX:{self.norm_ws}/**", f"R:{norm_ro}/**", f"RW:{norm_rw}/**"], self.ctx)
         self.assertTrue(self.evaluate("read_file", {"path": f"{norm_ro}/a.txt"}).allowed)
         self.assertEqual(self.evaluate("run_command", {"command": f"ls {norm_ro}"}).status, "ask")
         self.assertTrue(self.evaluate("run_command", {"command": f"ls {norm_rw}"}).allowed)
         self.assertTrue(self.evaluate("run_command", {"command": f"git -C {norm_rw} status"}).allowed)
+        self.assertEqual(self.evaluate("run_command", {"command": f"cd {norm_rw} && ls ../extra_rw/x"}).reason, "command_directory_without_execute")
+        set_rules(self.controller, [f"RWX:{self.norm_ws}/**", f"R:{norm_ro}/**", f"RWX:{norm_rw}/**"], self.ctx)
         self.assertTrue(self.evaluate("run_command", {"command": f"cd {norm_rw} && ls ../extra_rw/x"}).allowed)
         self.assertEqual(self.evaluate("run_command", {"command": f"python3 -c \"import os; os.system('cat {norm_rw}/x')\""}).status, "ask")
         self.assertEqual(self.evaluate("run_command", {"command": f"ls {norm_rw}/../extra_ro"}).status, "ask")
 
-        # RW:/** desbloquea todo el árbol y comandos compuestos solo en ese proyecto
+        # RWX:/** desbloquea todo el árbol y comandos compuestos solo en ese proyecto
         other = self.base_dir / "restricted_other"
         other.mkdir()
         ctx_other = zerochat.SecurityContext(other.resolve())
-        set_rules(self.controller, ["RW:/**"], self.ctx)
+        set_rules(self.controller, ["RWX:/**"], self.ctx)
         self.assertTrue(self.evaluate("run_command", {"command": "cat /etc/passwd > /tmp/out && $(true)"}).allowed)
         self.assertEqual(self.evaluate("run_command", {"command": "cat /etc/passwd"}, ctx_other).status, "ask")
 
@@ -279,7 +304,7 @@ class PolicyEvaluationTest(ControllerTestCase):
         self.assertFalse(zerochat.matches_command_pattern("git status && ls", "git *"))
 
     def test_every_cd_must_be_covered_by_directory_rules(self):
-        set_rules(self.controller, [f"RW:{self.norm_ws}/**"], self.ctx)
+        set_rules(self.controller, [f"RWX:{self.norm_ws}/**"], self.ctx)
         set_patterns(self.controller, "git *", "ls *")
         for command in (f"cd {self.norm_ws} && git status", f"cd {self.norm_ws} ; git status; ls",
                         "cd src && ls && cd .. && git status", 'cd "a dir" && ls'):
@@ -294,7 +319,7 @@ class PolicyEvaluationTest(ControllerTestCase):
             self.assertEqual(self.evaluate("run_command", {"command": command}).reason, "command_chaining_requires_approval", command)
 
     def test_rule_offer_for_commands_and_directories(self):
-        set_rules(self.controller, [f"R:{self.norm_ws}/**"], self.ctx)
+        set_rules(self.controller, [f"RX:{self.norm_ws}/**"], self.ctx)
         offers = {
             "./myui --port 8080": "./myui *",
             f"cd {self.norm_ws} && git status": "git status *",  # el cd no forma parte del patrón
@@ -746,7 +771,8 @@ class SessionLifecycleTest(HandlerTestCase):
         set_tool(self.controller, "db_tool", zerochat.POLICY_DENY)
         self.addCleanup(setattr, zerochat, "RUN_SESSION", None)
         zerochat.RUN_SESSION = zerochat.RunSession(prompt="test", tool_security={
-            "globalMcpPolicy": "allow_all", "tools": {"custom_tool": {"policy": "allow"}}, "directoryRules": ["RW:/test/**"]
+            "globalMcpPolicy": "allow_all", "tools": {"custom_tool": {"policy": "allow"}},
+            "directoryRules": [f"RWX:{zerochat.normalize_directory_path(str(zerochat.PROJECT_DIR))}/**", "RW:/test/**"]
         })
         zerochat.reset_session_authorizations()
 
@@ -791,7 +817,7 @@ class SessionLifecycleTest(HandlerTestCase):
         restricted_dir.mkdir()
         ctx_maint = zerochat.SecurityContext(maint_dir.resolve())
         ctx_restricted = zerochat.SecurityContext(restricted_dir.resolve())
-        set_rules(self.controller, ["RW:/**"], ctx_maint)
+        set_rules(self.controller, ["RWX:/**"], ctx_maint)
 
         self.addCleanup(setattr, zerochat, "RUN_SESSION", None)
         zerochat.RUN_SESSION = zerochat.RunSession(prompt="mantenimiento")

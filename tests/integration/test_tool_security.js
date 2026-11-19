@@ -5,9 +5,8 @@ const ChatToolSecurity = require('../../js/tool-security.js');
 function createMockClient(initialState = {}) {
   const calls = [];
   const state = {
-    version: 5,
+    version: 7,
     globalMcpPolicy: 'ask',
-    defaultDirectoryRule: 'RW:/workspace/**',
     directoryRules: [],
     tools: {},
     servers: {},

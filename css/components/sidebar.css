@@ -776,9 +776,14 @@
   transition: all 0.15s ease;
 }
 
-.btn-sidebar-footer:hover {
+.btn-sidebar-footer:hover:not(:disabled) {
   background-color: var(--bg-hover);
   color: var(--text-main);
+}
+
+.btn-sidebar-footer:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .btn-sidebar-danger {

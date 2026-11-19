@@ -59,11 +59,17 @@ class SecurityContext:
         Es la misma que evalúan los permisos (resolve_path): colapsa los '..' antes de seguir enlaces
         simbólicos, así 'enlace/../x' no se permite como una ruta y se abre como otra. ValueError si no es válida.
         """
-        norm = normalize_directory_path(str(Path(str(path).strip()).expanduser()))
+        raw = str(path).strip()
+        if not raw or "\0" in raw:
+            raise ValueError(f"Ruta no válida: '{path}'.")
+        expanded = Path(raw).expanduser()
+        if contains_unresolved_reference(str(expanded)):
+            raise ValueError(f"Ruta no válida: '{path}'.")
+        candidate = expanded if expanded.is_absolute() else self.workspace_dir / expanded
+        norm = normalize_directory_path(str(candidate))
         if not norm:
             raise ValueError(f"Ruta no válida: '{path}'.")
-        target = Path(norm)
-        return (target if target.is_absolute() else self.workspace_dir / target).resolve()
+        return Path(norm).resolve()
 
     def resolve_path(self, path_str: str) -> Path | None:
         """La ruta de absolute() para evaluar permisos; None si no es válida o lleva referencias sin resolver ('~', '$VAR')."""

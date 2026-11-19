@@ -153,3 +153,32 @@ test('ChatState - setProjectContext valida el estado y el cambio de conversació
   assert.equal(store.get('project').status, 'ready');
   assert.equal(store.get('project').cwd, '/repo');
 });
+
+test('ChatState - notificaciones reentrantes entre slices entregan el cambio y cortan bucles infinitos', () => {
+  const store = ChatState.createStore();
+  const seenProjects = [];
+  store.subscribe(state => state.mcp.serverInfo?.cwd || '', cwd => {
+    if (cwd) store.setProjectContext({ cwd, status: 'no_project' });
+  });
+  store.subscribe('project', project => {
+    seenProjects.push({ cwd: project.cwd, status: project.status });
+  });
+
+  store.set('mcp', { status: 'connected', serverInfo: { cwd: '/home/u/zerochat/general' } });
+  assert.deepEqual(seenProjects, [{ cwd: '/home/u/zerochat/general', status: 'no_project' }]);
+
+  let loopCount = 0;
+  const loopStore = ChatState.createStore();
+  const origWarn = console.warn;
+  console.warn = () => {};
+  try {
+    loopStore.subscribe('ui', () => {
+      loopCount++;
+      loopStore.set('ui', { noticeSequence: loopCount + 1 });
+    });
+    loopStore.set('ui', { noticeSequence: 1 });
+    assert.equal(loopCount, 10);
+  } finally {
+    console.warn = origWarn;
+  }
+});

@@ -90,7 +90,7 @@
   // Plazo de los sondeos al servidor local (conexión, comprobación y reconexión del latido).
   const PROBE_TIMEOUT_MS = 1500;
   // Lo que el servidor local informa en vivo, vacío mientras no hay conexión.
-  const LIVE_RESET = Object.freeze({ serverInfo: null, tools: [], externalServers: [], externalTools: [], commandJobs: [], exitOnClose: false, playwright: null, serverRuns: [], focusRun: null });
+  const LIVE_RESET = Object.freeze({ serverInfo: null, tools: [], externalServers: [], externalTools: [], commandJobs: [], exitOnClose: false, playwright: null, serverRuns: [], focusRun: null, conversationsRev: '' });
   const UNREACHABLE_SERVER_ERROR = 'Cannot reach the local server at that address and port. Make sure zerochat is running in your terminal.';
 
   const getAgentCore = () => resolveDep('ChatAgentCore', './agent-core.js');
@@ -439,8 +439,6 @@
       this.heartbeatIntervalMs = null;
       this.heartbeatCheckInFlight = false;
       this.liveStateSeq = 0;
-      // Si el último servidor conectado se detiene al cerrar el navegador; null mientras no se sabe.
-      this.serverExitsOnClose = null;
       // Últimos servicios externos que informó el servidor, para no pisar en cada latido lo que la
       // interfaz muestra de una acción en curso, y cuáles estaban en marcha.
       this.liveServers = null;
@@ -501,9 +499,6 @@
       const State = getState();
       const current = State.get('mcp');
       if (current.status !== 'connected' || !payload) return false;
-      if (typeof payload.exit_on_close === 'boolean') {
-        this.serverExitsOnClose = payload.exit_on_close;
-      }
       if (payload.policies) {
         getSecurity().manager.applyPolicies(payload.policies);
       }
@@ -538,13 +533,16 @@
         const focusRun = payload.focus_run && typeof payload.focus_run === 'object' ? payload.focus_run : null;
         if (JSON.stringify(focusRun) !== JSON.stringify(current.focusRun)) next.focusRun = focusRun;
       }
+      if (typeof payload.conversations_rev === 'string' && payload.conversations_rev !== current.conversationsRev) {
+        next.conversationsRev = payload.conversations_rev;
+      }
       // Solo se consulta a menudo mientras está abierta una conversación cuya ejecución sigue en marcha.
       const activeId = State.get('sessions')?.activeId;
       const followsActiveRun = Array.isArray(serverRuns) && serverRuns.some(run => run.status === 'running' && run.conversationId === activeId);
       if (followsActiveRun) {
         this.setHeartbeatTimer(Boolean(this.target), HEARTBEAT_FAST_INTERVAL_MS);
       } else if (typeof payload.exit_on_close === 'boolean' || Array.isArray(payload.runs)) {
-        this.setHeartbeatTimer(this.serverExitsOnClose !== false && Boolean(this.target), HEARTBEAT_INTERVAL_MS);
+        this.setHeartbeatTimer(Boolean(this.target), HEARTBEAT_INTERVAL_MS);
       }
       if (typeof payload.exit_on_close === 'boolean' && payload.exit_on_close !== current.exitOnClose) next.exitOnClose = payload.exit_on_close;
       if (typeof payload.playwright?.installed === 'boolean') {
@@ -599,8 +597,8 @@
     }
 
     /**
-     * Con auto-cierre, o mientras no se sabe, el latido de 10 s mantiene vivo el servidor, lee su
-     * estado y reconecta en cuanto vuelve; sin auto-cierre no hay temporizador (onPageVisible).
+     * El latido periódico (10 s en reposo, 2 s con ejecución enfocada) mantiene vivo el servidor con
+     * auto-cierre, sincroniza el estado vivo en todos los modos y reconecta si el servidor vuelve.
      */
     setHeartbeatTimer(enabled, intervalMs = HEARTBEAT_INTERVAL_MS) {
       if (enabled && (!this.heartbeatTimer || this.heartbeatIntervalMs !== intervalMs)) {
@@ -615,9 +613,9 @@
       }
     }
 
-    /** Sin latido periódico, al volver a la pestaña se relee el estado vivo o se reconecta. */
+    /** Al volver a la pestaña se relee enseguida el estado vivo o se reconecta, en cualquier modo de servidor. */
     async onPageVisible() {
-      if (!this.heartbeatTimer) await this.sendHeartbeat();
+      if (this.isProxyConnected() || this.target) await this.sendHeartbeat();
     }
 
     /**
@@ -641,7 +639,7 @@
     async connectProxy({ url, proxyKey = null, timeoutMs = PROBE_TIMEOUT_MS, silentOnFailure = false, token = null }) {
       if (token) this.setSessionToken(token);
       this.target = { url, proxyKey };
-      this.setHeartbeatTimer(this.serverExitsOnClose !== false);
+      this.setHeartbeatTimer(true);
       const State = getState();
       if (!silentOnFailure) State.set('mcp', { status: 'connecting', endpoint: url, error: null });
 

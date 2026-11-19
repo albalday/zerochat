@@ -11,6 +11,7 @@ test('ProjectContext.computeStatus - resuelve cada estado según configuración,
   assert.equal(ProjectContext.computeStatus({ ...base, readAvailable: false, helperRead: { status: 'ok' } }), 'unavailable');
   assert.equal(ProjectContext.computeStatus({ ...base, declined: ['/repo'], helperRead: { status: 'ok' } }), 'declined');
   assert.equal(ProjectContext.computeStatus({ ...base, noProject: true, helperRead: { status: 'ok' } }), 'no_project');
+  assert.equal(ProjectContext.computeStatus({ ...base, projectMode: false, noProject: true, helperRead: { status: 'ok' } }), 'no_project');
   assert.equal(ProjectContext.computeStatus({ ...base, helperRead: { status: 'denied' } }), 'no_access');
   assert.equal(ProjectContext.computeStatus({ ...base, helperRead: { status: 'missing' } }), 'missing');
   assert.equal(ProjectContext.computeStatus({ ...base, helperRead: { status: 'ok' } }), 'ready');

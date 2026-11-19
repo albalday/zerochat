@@ -487,9 +487,9 @@ ${stateBody}
    * (`helperRead.status`: ok | missing | denied | unavailable | error).
    */
   function computeStatus({ projectMode = false, declined = [], cwd = '', noProject = false, readAvailable = false, helperRead = null } = {}) {
-    if (!projectMode) return 'disabled';
     // La carpeta general solo agrupa chats sueltos: nunca tiene memoria de proyecto.
     if (noProject) return 'no_project';
+    if (!projectMode) return 'disabled';
     if (!cwd || !readAvailable) return 'unavailable';
     if (Array.isArray(declined) && declined.includes(cwd)) return 'declined';
     switch (helperRead?.status) {

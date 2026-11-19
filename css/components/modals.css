@@ -294,6 +294,11 @@ input:checked + .slider:before {
   transform: translateX(20px);
 }
 
+.switch input:disabled + .slider {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .form-field {
   display: flex;
   flex-direction: column;
@@ -915,6 +920,28 @@ input.form-input:focus-visible,
   border-color: var(--input-border-focus);
   box-shadow: var(--input-focus-ring);
   outline: none;
+}
+
+.form-field input[readonly],
+.form-field textarea[readonly],
+input.form-input[readonly] {
+  background-color: var(--input-bg-subtle);
+  color: var(--text-muted);
+  border-style: dashed;
+  cursor: default;
+}
+
+.form-field input[readonly]:hover,
+.form-field textarea[readonly]:hover,
+input.form-input[readonly]:hover,
+.form-field input[readonly]:focus,
+.form-field textarea[readonly]:focus,
+input.form-input[readonly]:focus,
+.form-field input[readonly]:focus-visible,
+.form-field textarea[readonly]:focus-visible,
+input.form-input[readonly]:focus-visible {
+  border-color: var(--input-border);
+  box-shadow: none;
 }
 
 /* Evita que Chromium sustituya los colores de la aplicación al autocompletar. */

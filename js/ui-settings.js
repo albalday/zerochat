@@ -10,8 +10,10 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
-  const { resolveDep, escapeHtml } = Utils;
+  const { resolveDep, escapeHtml, projectName } = Utils;
   const { t } = I18n;
+
+  const getState = () => resolveDep('ChatState', './state.js');
 
   const getAgentCore = () => resolveDep('ChatAgentCore', './agent-core.js');
   const getDataResetService = () => resolveDep('ChatDataResetService', './data-reset-service.js');
@@ -39,6 +41,7 @@
   function applyLanguage(elements, lang) {
     const target = I18n.setLanguage(lang === 'en' ? 'en' : 'es');
     markActive(elements.langButtons, 'data-lang', target);
+    syncDirectoryRulesProject(elements);
     return target;
   }
 
@@ -91,14 +94,22 @@
     };
   }
 
+  /** Muestra el proyecto al que pertenecen las reglas de directorio mostradas en Ajustes. */
+  function syncDirectoryRulesProject(elements) {
+    const badge = elements.mcpDirectoryRulesProject;
+    const mcp = getState().get('mcp');
+    const cwd = mcp.status === 'connected' ? String(mcp.serverInfo?.cwd || '').trim() : '';
+    badge.textContent = cwd ? t('mcp_directory_rules_project', { name: projectName(cwd) }) : '';
+    badge.title = cwd;
+    badge.hidden = !cwd;
+  }
+
   /** Pinta la política MCP global y las reglas de directorios guardadas en ChatToolSecurity. */
   function loadPermissionControls(elements) {
     const security = getToolSecurity().manager;
     const policy = security.getGlobalMcpPolicy();
     elements.settingsDialog.querySelectorAll('input[name="mcp-global-policy"]').forEach(radio => { radio.checked = radio.value === policy; });
-    if (elements.mcpDefaultDirectoryRule) {
-      elements.mcpDefaultDirectoryRule.value = security.getDefaultDirectoryRule();
-    }
+    syncDirectoryRulesProject(elements);
     elements.mcpDirectoryRules.value = security.getDirectoryRules().join('\n');
     elements.mcpDirectoryRulesError.textContent = '';
   }
@@ -124,6 +135,7 @@
     } else if (targetId === 'browser') {
       getUIBrowser().ensureLoaded();
     }
+    syncDirectoryRulesProject(elements);
     getUIMcp().syncSecurityControls();
 
     elements.settingsDialog.querySelectorAll('.settings-section-pane').forEach(section => {
@@ -446,12 +458,9 @@ zerochat</code></pre>
                 </span>
                 <strong data-i18n="mcp_directory_rules_title">Directorios permitidos</strong>
               </div>
+              <span id="mcp-directory-rules-project" class="mcp-server-details" hidden></span>
             </div>
-            <p class="label-hint mcp-section-hint" data-i18n="mcp_directory_rules_hint">Una regla por línea: R: para leer, W: para modificar y RW: para ambas operaciones. Usa * para un segmento y ** para subdirectorios.</p>
-            <div class="form-field">
-              <label class="label-hint" for="mcp-default-directory-rule" data-i18n="mcp_default_directory_rule_label">Directorio del proyecto (automático, lectura y escritura):</label>
-              <input type="text" id="mcp-default-directory-rule" readonly spellcheck="false" />
-            </div>
+            <p class="label-hint mcp-section-hint" data-i18n="mcp_directory_rules_hint">Una regla por línea: R: para leer, W: para modificar y X: para ejecutar comandos (RWX:/** da acceso completo). Usa * para un segmento y ** para subdirectorios.</p>
             <div class="form-field">
               <textarea id="mcp-directory-rules" rows="4" spellcheck="false" data-i18n-aria-label="mcp_directory_rules_title" aria-label="Directorios permitidos"></textarea>
             </div>

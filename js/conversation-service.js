@@ -65,7 +65,10 @@
     options.closeMobileSidebar();
   }
 
+  let loadSessionsSeq = 0;
+
   async function loadSessionsFromStorage(options) {
+    const seq = ++loadSessionsSeq;
     let sessions = [];
     try {
       sessions = await getStorage().getConversationsList();
@@ -73,6 +76,7 @@
       console.warn('[ConversationService] Could not load saved conversations:', error);
       await getDialogs().alert(t('chat_storage_read_error'), { type: 'error' });
     }
+    if (seq !== loadSessionsSeq) return;
     if (getHistory().length > 0) {
       getState().set('sessions', { activeId: getActiveSessionId(), list: sessions });
       options.renderSidebarChats();

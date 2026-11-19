@@ -90,6 +90,7 @@
   }
 
   function getProjectStatusText(config, project) {
+    if (project.status === 'no_project') return t('project_status_no_project', { name: projectName(project.cwd) });
     if (config.projectMode !== true) return t('project_status_disabled');
     return t(`project_status_${project.status || 'unavailable'}`, { name: projectName(project.cwd), error: project.error || '' });
   }
@@ -115,7 +116,7 @@
 
   /** Página de un chat vacío: proyecto del servidor (ruta completa en el tooltip) y modo proyecto activado o no. */
   function syncWelcomeProject(elements, config, project) {
-    const enabled = config.projectMode === true;
+    const enabled = config.projectMode === true && project.status !== 'no_project';
     const cwd = String(project.cwd || '');
     const place = cwd ? t('welcome_project', { name: projectName(cwd) }) : t('welcome_no_project');
     elements.welcomeProjectText.textContent = `${place} · ${t(enabled ? 'welcome_project_mode_on' : 'welcome_project_mode_off')}`;
@@ -125,7 +126,8 @@
 
   /** Pie del modal: interruptor del modo proyecto, su estado, el directorio y las acciones del estado. */
   function renderProjectPanel(elements, { config, project, canInitialize, canCompact, canChangeDirectory, busy }) {
-    const enabled = config.projectMode === true;
+    const supported = project.status !== 'no_project';
+    const enabled = supported && config.projectMode === true;
     const actions = enabled ? getProjectActions(project, { canInitialize, canCompact }) : [];
     // La carpeta de trabajo es la base de todas las herramientas locales y el proyecto de los chats nuevos:
     // va en su propio bloque, aparte del modo proyecto (la memoria .zerochat), y se ve aunque esté apagado.
@@ -144,15 +146,18 @@
       ? `<div class="project-mode-actions">${actions.map(action =>
         `<button type="button" class="btn-secondary" data-project-action="${action}"${PROJECT_ACTION_TITLES[action] ? ` title="${escapeHtml(t(PROJECT_ACTION_TITLES[action]))}"` : ''}>${escapeHtml(t(`project_action_${action}`))}</button>`).join('')}</div>`
       : '';
+    const statusText = getProjectStatusText(config, project);
+    const statusAttr = supported ? (enabled ? project.status || '' : 'disabled') : 'no_project';
+    const switchTitle = supported ? t('project_mode_tooltip') : statusText;
     elements.projectModePanel.innerHTML = `
       ${directoryHtml}
       <div class="reasoning-agent-toggle-wrapper">
         <div class="reasoning-agent-toggle-info">
           <div class="reasoning-agent-toggle-title">${Icons.get('layers', { size: 13 })}<span>${escapeHtml(t('project_mode_title'))}</span></div>
-          <div class="reasoning-agent-toggle-desc project-mode-status" data-project-status="${escapeHtml(enabled ? project.status || '' : 'disabled')}" aria-live="polite">${escapeHtml(getProjectStatusText(config, project))}</div>
+          <div class="reasoning-agent-toggle-desc project-mode-status" data-project-status="${escapeHtml(statusAttr)}" aria-live="polite">${escapeHtml(statusText)}</div>
         </div>
-        <label class="switch switch-sm" title="${escapeHtml(t('project_mode_tooltip'))}">
-          <input type="checkbox" id="chk-project-mode" aria-label="${escapeHtml(t('project_mode_tooltip'))}"${enabled ? ' checked' : ''}>
+        <label class="switch switch-sm" title="${escapeHtml(switchTitle)}">
+          <input type="checkbox" id="chk-project-mode" aria-label="${escapeHtml(switchTitle)}"${enabled ? ' checked' : ''}${supported ? '' : ' disabled'}>
           <span class="slider"></span>
         </label>
       </div>
@@ -198,7 +203,7 @@
       });
     }
     elements.projectModePanel.addEventListener('change', event => {
-      if (event.target.id === 'chk-project-mode') projectHandlers.toggle(event.target.checked);
+      if (event.target.id === 'chk-project-mode' && !event.target.disabled) projectHandlers.toggle(event.target.checked);
     });
     elements.projectModePanel.addEventListener('click', event => {
       const action = event.target.closest('[data-project-action]')?.dataset.projectAction;

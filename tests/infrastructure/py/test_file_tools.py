@@ -19,8 +19,8 @@ class SamePathForPermissionsAndExecutionTest(unittest.TestCase):
         # 'link/../x' es '<proyecto>/x' (lo que ven los permisos), no la carpeta superior del destino del enlace
         self.assertEqual(ctx.absolute("link/../x"), project.resolve() / "x")
         self.assertEqual(ctx.resolve_path("link/../x"), ctx.absolute("link/../x"))
-        with self.assertRaises(ValueError):
-            ctx.absolute("../../../../../../../../..")
+        self.assertEqual(ctx.absolute("../outside_file"), project.resolve().parent / "outside_file")
+        self.assertEqual(ctx.resolve_path("../outside_file"), ctx.absolute("../outside_file"))
         self.assertIsNone(ctx.resolve_path("~/x"), "Los permisos no aceptan '~'")
         self.assertEqual(ctx.absolute("~/x"), Path("~/x").expanduser().resolve(), "La herramienta, tras aprobarlo, sí")
 
