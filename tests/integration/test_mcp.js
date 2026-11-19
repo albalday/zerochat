@@ -401,7 +401,7 @@ function fakeLocalServer(state) {
         serverInfo: { name: 'zerochat' },
         capabilities: {},
         tools: [{ name: 'edit_file' }],
-        policies: state.policies || { globalMcpPolicy: 'ask', defaultDirectoryRule: 'RW:/repo/**' },
+        policies: state.policies || { globalMcpPolicy: 'ask', directoryRules: ['RWX:/repo/**'] },
         liveState
       });
     }
@@ -422,7 +422,7 @@ test('MCP - connectProxy publica el estado vivo de initialize y registra las her
     const connResult = await manager.connectProxy({ url: 'http://127.0.0.1:6388', token: 'tok' });
     assert.equal(connResult.success, true);
     assert.equal(fetchMock.mock.callCount(), 1, 'Una sola petición (initialize) trae herramientas locales, externas y políticas');
-    assert.equal(Security.manager.getDefaultDirectoryRule(), 'RW:/repo/**');
+    assert.deepEqual(Security.manager.getDirectoryRules(), ['RWX:/repo/**']);
     assert.equal(state.beats, undefined, 'sin esperar al latido');
     assert.equal(ChatState.get('mcp').exitOnClose, true);
     assert.deepEqual(ChatState.get('mcp').externalServers.map(server => server.id), ['sqlite']);
@@ -542,38 +542,36 @@ test('MCP - un 401 pide identificarse y zerochat/login da el token con el que se
   }
 });
 
-test('MCP - sin auto-cierre no hay temporizador de latido: el estado se relee y se reconecta al volver a la pestaña', async t => {
+test('MCP - el latido periódico y la vuelta a la pestaña funcionan igual con y sin auto-cierre', async t => {
   const state = { server: 'up', live: { cwd: '/repo', jobs: [], exit_on_close: false, servers: [] } };
   t.mock.method(global, 'fetch', fakeLocalServer(state));
   const manager = new MCP.McpManager();
   try {
     assert.equal((await manager.connectProxy({ url: 'http://127.0.0.1:6388', token: 'tok' })).success, true);
-    assert.equal(manager.heartbeatTimer, null);
+    assert.ok(manager.heartbeatTimer, 'sin auto-cierre también hay temporizador de latido');
 
-    // Otra pestaña cambia el directorio: se ve al volver a esta.
+    // Otra pestaña cambia el directorio: se ve al volver a esta sin esperar al siguiente tick.
     state.live = { ...state.live, cwd: '/otro' };
     await manager.onPageVisible();
     assert.equal(state.beats, 1);
     assert.equal(ChatState.get('mcp').serverInfo.cwd, '/otro');
 
-    // El servidor se reinicia mientras la pestaña está oculta: al volver se reconecta.
+    // El servidor se reinicia: al volver se detecta la caída y luego reconecta.
     state.server = 'down';
     await manager.onPageVisible();
     assert.equal(ChatState.get('mcp').status, 'error');
-    // Ya desconectado, la conexión fallida no arranca el latido periódico.
-    await manager.connectProxy({ url: 'http://127.0.0.1:6388' });
-    assert.equal(manager.heartbeatTimer, null);
+    assert.ok(manager.heartbeatTimer);
     state.server = 'up';
     await manager.onPageVisible();
     assert.equal(ChatState.get('mcp').status, 'connected');
 
-    // Con un servidor con auto-cierre vuelve el temporizador y la vuelta a la pestaña no añade lecturas.
+    // Con auto-cierre también relee enseguida al volver a la pestaña.
     state.live = { ...state.live, exit_on_close: true };
     await manager.connectProxy({ url: 'http://127.0.0.1:6388' });
     assert.ok(manager.heartbeatTimer);
     const beats = state.beats;
     await manager.onPageVisible();
-    assert.equal(state.beats, beats);
+    assert.equal(state.beats, beats + 1);
   } finally {
     manager.setHeartbeatTimer(false);
     await manager.disconnectProxy();
@@ -725,7 +723,7 @@ test('MCP - applyLiveState publica el estado vivo del servidor y solo escribe lo
     const heartbeat = {
       ok: true,
       cwd: '/otro',
-      policies: { defaultDirectoryRule: 'RW:/otro/**' },
+      policies: { directoryRules: ['RWX:/otro/**'] },
       jobs,
       exit_on_close: true,
       playwright: { installed: true, browserAction: { available: true, extra: 1 } }
@@ -737,7 +735,7 @@ test('MCP - applyLiveState publica el estado vivo del servidor y solo escribe lo
     assert.deepEqual(mcp.commandJobs, [{ id: 1, command: 'npm run dev', startedAt: 1000, lastLine: 'ready in 300 ms' }]);
     assert.equal(mcp.exitOnClose, true);
     assert.equal(mcp.serverInfo.cwd, '/otro');
-    assert.equal(Security.manager.getDefaultDirectoryRule(), 'RW:/otro/**');
+    assert.deepEqual(Security.manager.getDirectoryRules(), ['RWX:/otro/**']);
     assert.deepEqual(mcp.playwright, { installed: true, browserAction: { available: true } });
     assert.equal(browserAction.isAvailable(), true);
     // El mismo estado con otro tiempo transcurrido no vuelve a escribir.
@@ -893,10 +891,10 @@ test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversatio
     assert.equal(ChatState.get('mcp').focusRun?.step_text, 'step 1');
     assert.equal(manager.heartbeatIntervalMs, 2000, 'Sigue a 2 s con su conversación abierta aunque exit_on_close sea false');
 
-    // Con otra conversación abierta no se consulta nada aunque la ejecución siga; al volver, se reanuda.
+    // Con otra conversación abierta baja al latido normal de 10 s; al volver a la enfocada, vuelve a 2 s.
     ChatState.set('sessions', { activeId: 'conv_otra', list: [] });
     await manager.readLiveState();
-    assert.equal(manager.heartbeatTimer, null);
+    assert.equal(manager.heartbeatIntervalMs, 10000);
     ChatState.set('sessions', { activeId: 'conv_srv_1', list: [] });
     await manager.readLiveState();
     assert.equal(manager.heartbeatIntervalMs, 2000);
@@ -912,7 +910,7 @@ test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversatio
     assert.equal(ChatState.get('mcp').serverRuns[0].status, 'needs_input');
     assert.equal(manager.heartbeatIntervalMs, 10000);
 
-    // 4. cancelServerRun invoca zerochat/run/cancel y relee el estado vivo (sin runs y exit_on_close: false apaga el timer)
+    // 4. cancelServerRun invoca zerochat/run/cancel y relee el estado vivo (vuelve a 10 s también con exit_on_close: false)
     await manager.cancelServerRun('conv_srv_1');
     assert.deepEqual(calls[5], {
       method: 'zerochat/run/cancel',
@@ -920,7 +918,8 @@ test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversatio
     });
     assert.deepEqual(ChatState.get('mcp').serverRuns, []);
     assert.equal(ChatState.get('mcp').focusRun, null);
-    assert.equal(manager.heartbeatTimer, null);
+    assert.equal(manager.heartbeatIntervalMs, 10000);
+    assert.ok(manager.heartbeatTimer);
   } finally {
     manager.setHeartbeatTimer(false);
     ChatState.set('mcp', previousMcp);

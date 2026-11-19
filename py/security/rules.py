@@ -20,7 +20,7 @@ POLICY_ASK = "ask"
 SCOPE_PERMANENT = "permanent"
 SCOPE_SESSION = "session"
 AUTHORIZE_DECISIONS = ("allow_once", "allow_session", "allow_project", "allow_always", "allow_server_always")
-DIRECTORY_RULE_PATTERN = re.compile(r"^(R|W|RW):(.+)$")
+DIRECTORY_RULE_PATTERN = re.compile(r"^([RWX]+):(.+)$")
 COMMAND_TOOL = "run_command"
 JOB_CONTROL_TOOL = "check_command"
 # Herramientas integradas que acceden al sistema de archivos por su argumento de ruta.
@@ -55,13 +55,16 @@ _COMMAND_INTERNAL_OUTSIDE_REF = re.compile(r"[\s:'\"](?:[\\/~]|[A-Za-z]:[\\/]|\.
 
 
 def parse_directory_rule(raw_rule: str) -> dict | None:
-    """Parsea una regla 'R:path', 'W:path' o 'RW:path' normalizando su ruta."""
+    """Parsea una regla '<permisos>:path' (combinación sin repetidos de R, W, X) normalizando su ruta."""
     if not isinstance(raw_rule, str):
         return None
     match = DIRECTORY_RULE_PATTERN.match(raw_rule.strip())
     if not match:
         return None
-    access = match.group(1)
+    raw_access = match.group(1)
+    if len(set(raw_access)) != len(raw_access):
+        return None
+    access = "".join(ch for ch in ("R", "W", "X") if ch in raw_access)
     raw_path = match.group(2)
     path = normalize_directory_path(raw_path)
     if not path:

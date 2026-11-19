@@ -825,6 +825,15 @@ def secret_names(prefix: str) -> set[str]:
 SERVER_ID_KEY = "system:server_id"
 
 
+def conversations_revision() -> str:
+    """Firma ligera del estado de conversaciones en SQLite para detectar cambios externos."""
+    with open_storage() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n, COALESCE(MAX(updated_at), 0) AS m, COALESCE(SUM(updated_at), 0) AS s FROM conversations;"
+        ).fetchone()
+        return f"{row['n']}:{row['m']}:{int(row['s'])}"
+
+
 def get_server_id() -> str:
     """Identificador único y persistente de este servidor en SQLite."""
     with _STORAGE_LOCK:

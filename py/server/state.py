@@ -10,7 +10,7 @@ from core.logging import console_log, log_event, timestamp_message
 from mcp.manager import GLOBAL_MCP_MANAGER
 from run_mode.state import list_server_runs
 from security.context import SecurityContext
-from storage.db import get_server_id
+from storage.db import conversations_revision, get_server_id
 from tools.browser_action import playwright_status
 from tools.jobs import JOBS
 
@@ -92,7 +92,8 @@ def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -
         "servers": GLOBAL_MCP_MANAGER.list_servers(),
         "externalTools": GLOBAL_MCP_MANAGER.tools(),
         "runs": runs,
-        "focus_run": focus_run
+        "focus_run": focus_run,
+        "conversations_rev": conversations_revision()
     }
 
 

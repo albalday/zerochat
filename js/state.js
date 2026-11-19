@@ -91,7 +91,8 @@
         exitOnClose: false,
         // Ejecuciones agénticas de conversación en el servidor (zerochat --conversation <id>).
         serverRuns: [],
-        focusRun: null
+        focusRun: null,
+        conversationsRev: ''
       },
 
       // 8. Modo proyecto: común a todas las conversaciones (ver js/project-context.js)
@@ -112,6 +113,8 @@
     let state = createInitialState();
     const listeners = new Set();
     let isEmitting = false;
+    let pendingNotify = false;
+    const MAX_NOTIFY_PASSES = 10;
 
     function validateSliceKey(key) {
       if (!CANONICAL_SLICES.includes(key)) {
@@ -262,20 +265,37 @@
     }
 
     function notifyListeners(nextState, prevState) {
-      if (isEmitting) return;
+      if (isEmitting) {
+        pendingNotify = true;
+        return;
+      }
       isEmitting = true;
+      let currentPrev = prevState;
+      let currentNext = nextState;
+      let passes = 0;
       try {
-        const nextSnapshot = clone(nextState);
-        const prevSnapshot = clone(prevState);
-        listeners.forEach(fn => {
-          try {
-            fn(nextSnapshot, prevSnapshot, nextState, prevState);
-          } catch (e) {
-            console.error('ChatState listener error:', e);
+        while (true) {
+          pendingNotify = false;
+          const nextSnapshot = clone(currentNext);
+          const prevSnapshot = clone(currentPrev);
+          listeners.forEach(fn => {
+            try {
+              fn(nextSnapshot, prevSnapshot, currentNext, currentPrev);
+            } catch (e) {
+              console.error('ChatState listener error:', e);
+            }
+          });
+          if (!pendingNotify) break;
+          if (++passes >= MAX_NOTIFY_PASSES) {
+            console.warn('[ChatState] Max re-entrant notification passes reached.');
+            break;
           }
-        });
+          currentPrev = currentNext;
+          currentNext = state;
+        }
       } finally {
         isEmitting = false;
+        pendingNotify = false;
       }
     }
 

@@ -47,13 +47,15 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
         const client = {
           async request(method, params) {
             if (method === 'zerochat/security/update') {
-              if (params.directoryRules?.some(r => !/^(R|W|RW):/.test(r))) {
-                throw new Error('Invalid directory rule. Use R:, W: or RW: followed by a path.');
+              if (params.directoryRules?.some(r => {
+                const m = /^([RWX]+):/.exec(r);
+                return !m || new Set(m[1]).size !== m[1].length;
+              })) {
+                throw new Error('Invalid directory rule. Use R, W, X followed by :path.');
               }
               const currentRules = params.directoryRules !== undefined ? params.directoryRules : window.ChatToolSecurity.manager.getDirectoryRules();
               const currentPolicy = params.globalMcpPolicy !== undefined ? params.globalMcpPolicy : window.ChatToolSecurity.manager.getGlobalMcpPolicy();
               return { policies: {
-                defaultDirectoryRule: 'RW:/workspace/**',
                 directoryRules: currentRules,
                 globalMcpPolicy: currentPolicy
               }};
@@ -62,14 +64,16 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
           }
         };
         window.ChatToolSecurity.manager.setMcpClient(client);
-        window.ChatToolSecurity.manager.applyPolicies({ defaultDirectoryRule: 'RW:/workspace/**' });
+        window.ChatState.set('mcp', { status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/workspace' } });
+        window.ChatToolSecurity.manager.applyPolicies({ directoryRules: ['RWX:/workspace/**'] });
       });
       await openSettings(page, 'agent');
       await page.locator('.switch:has([data-tool-id="search_web"])').click();
       assert.notEqual(await page.evaluate(() => window.ChatConfig.getActive().enabledTools.search_web), false, 'El interruptor espera a Guardar');
 
       await openSettings(page, 'permissions');
-      await page.fill('#mcp-directory-rules', 'R:/home/user\nW:/tmp\n\n');
+      assert.equal(await page.inputValue('#mcp-directory-rules'), 'RWX:/workspace/**', 'El campo arranca con la regla editable del proyecto');
+      await page.fill('#mcp-directory-rules', 'R:/workspace/**\nW:/tmp\n\n');
       await page.locator('.mcp-policy-option:has(#mcp-policy-workspace-trust)').click();
       await openSettings(page, 'model');
       await page.fill('#setting-system-data-prompt', 'Datos propios');
@@ -80,21 +84,25 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
         policy: window.ChatToolSecurity.manager.getGlobalMcpPolicy(),
         dataPrompt: window.ChatConfig.getActive().systemDataPrompt,
         searchWeb: window.ChatConfig.getActive().enabledTools.search_web
-      })), { rules: ['R:/home/user', 'W:/tmp'], policy: 'workspace_trust', dataPrompt: 'Datos propios', searchWeb: false });
+      })), { rules: ['R:/workspace/**', 'W:/tmp'], policy: 'workspace_trust', dataPrompt: 'Datos propios', searchWeb: false });
 
       await openSettings(page, 'permissions');
-      assert.equal(await page.inputValue('#mcp-default-directory-rule'), 'RW:/workspace/**', 'La regla del proyecto se muestra en solo lectura');
-      assert.equal(await page.getAttribute('#mcp-default-directory-rule', 'readonly'), '', 'El input del proyecto es de solo lectura');
-      assert.equal(await page.inputValue('#mcp-directory-rules'), 'R:/home/user\nW:/tmp', 'El campo muestra las reglas guardadas');
+      assert.equal(await page.locator('#mcp-directory-rules-project').isVisible(), true);
+      assert.equal(await page.textContent('#mcp-directory-rules-project'), 'Proyecto: workspace');
+      assert.equal(await page.getAttribute('#mcp-directory-rules-project', 'title'), '/workspace');
+      assert.equal(await page.inputValue('#mcp-directory-rules'), 'R:/workspace/**\nW:/tmp', 'El campo muestra las reglas guardadas editables');
 
       // Simular cambio de directorio del proyecto
       await page.evaluate(() => {
-        window.ChatToolSecurity.manager.applyPolicies({ defaultDirectoryRule: 'RW:/workspace-nuevo/**' });
+        window.ChatState.set('mcp', { status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/workspace-nuevo' } });
+        window.ChatToolSecurity.manager.applyPolicies({ directoryRules: ['RWX:/workspace-nuevo/**'] });
       });
       await openSettings(page, 'permissions');
-      assert.equal(await page.inputValue('#mcp-default-directory-rule'), 'RW:/workspace-nuevo/**', 'La regla del proyecto cambia tras cambio de directorio');
+      assert.equal(await page.textContent('#mcp-directory-rules-project'), 'Proyecto: workspace-nuevo');
+      assert.equal(await page.getAttribute('#mcp-directory-rules-project', 'title'), '/workspace-nuevo');
+      assert.equal(await page.inputValue('#mcp-directory-rules'), 'RWX:/workspace-nuevo/**', 'La regla del proyecto cambia tras cambio de directorio');
 
-      await page.fill('#mcp-directory-rules', 'X:/invalid');
+      await page.fill('#mcp-directory-rules', 'Z:/invalid');
       await page.click('#btn-save-settings');
       await page.waitForFunction(() => document.getElementById('mcp-directory-rules-error').textContent !== '');
       const errText = await page.textContent('#mcp-directory-rules-error');

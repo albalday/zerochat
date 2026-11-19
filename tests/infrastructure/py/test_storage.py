@@ -625,3 +625,16 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(zerochat.delete_all_conversations(), 1)
         self.assertIsNone(zerochat.get_blob(shared))
         self.assertIsNotNone(zerochat.get_blob(pending))
+
+    def test_conversations_revision_cambia_al_guardar_renombrar_y_borrar(self):
+        rev0 = zerochat.conversations_revision()
+        self.assertEqual(zerochat.live_state(zerochat.project_context())["conversations_rev"], rev0)
+        zerochat.save_conversation({"id": "conv_rev_1", "title": "Primera", "updatedAt": 1000}, [{"id": "m1", "role": "user", "content": "hola"}])
+        rev1 = zerochat.conversations_revision()
+        self.assertNotEqual(rev1, rev0)
+        zerochat.rename_conversation("conv_rev_1", "Renombrada")
+        rev2 = zerochat.conversations_revision()
+        self.assertNotEqual(rev2, rev1)
+        zerochat.delete_conversation("conv_rev_1")
+        rev3 = zerochat.conversations_revision()
+        self.assertNotEqual(rev3, rev2)

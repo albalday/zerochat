@@ -43,6 +43,7 @@
     sidebarSearchStatus: 'sidebar-search-status',
     btnImportChatFile: 'btn-import-chat-file',
     importJsonInput: 'import-json-input',
+    btnSyncChats: 'btn-sync-chats',
     btnDeleteAllChats: 'btn-delete-all-chats',
     sidebarViewChat: 'sidebar-view-chat',
     sidebarViewSettings: 'sidebar-view-settings',
@@ -189,7 +190,7 @@
     webllmHelpLink: 'webllm-help-link',
     apiKeyHintText: 'api-key-hint-text',
     apiKeyFreeHelpLink: 'api-key-free-help-link',
-    mcpDefaultDirectoryRule: 'mcp-default-directory-rule',
+    mcpDirectoryRulesProject: 'mcp-directory-rules-project',
     mcpDirectoryRules: 'mcp-directory-rules',
     mcpDirectoryRulesError: 'mcp-directory-rules-error',
     settingWebllmContextWindow: 'setting-webllm-context-window',
@@ -644,6 +645,7 @@
       onNewProjectSession: project => UIProject.createProjectSession(project, createNewSession).catch(error => console.warn('[App] Could not open a chat in the project:', error)),
       searchConversations: (query, onProgress) => Storage.searchConversations(query, { onProgress }),
       renderList: renderSidebarChats,
+      onSyncSessions: () => ConversationService.loadSessionsFromStorage(getConversationServiceOptions()),
       onDeleteAllSessions: () => ConversationService.deleteAllSessions(getConversationServiceOptions()),
       onOpenSettingsMode: () => showSidebarNav('settings'),
       onOpenConnection: () => {
@@ -828,6 +830,15 @@
 
     // La barra muestra las conversaciones del proyecto actual: se repinta al conectar o cambiar de proyecto.
     State.subscribe(state => ({ cwd: state.mcp.status === 'connected' ? state.mcp.serverInfo?.cwd || '' : '' }), renderSidebarChats);
+    const syncSidebarSyncButton = status => { elements.btnSyncChats.hidden = status !== 'connected'; };
+    State.subscribe(state => state.mcp.status, syncSidebarSyncButton);
+    syncSidebarSyncButton(State.get('mcp').status);
+    // Cambios en SQLite fuera de esta pestaña (p. ej. zerochat --prompt u otra pestaña) refrescan el historial.
+    State.subscribe(state => state.mcp.conversationsRev, (rev, previousRev) => {
+      if (rev && previousRev && rev !== previousRev) {
+        ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
+      }
+    });
     UIProject.subscribe(elements);
 
     // La conversación se pinta tras actualizar el estado: se sincroniza en la siguiente vuelta.
@@ -907,7 +918,7 @@
       });
     }
     const startupMcpConnection = backendSession.connectStartup();
-    // Sin latido periódico (servidor sin auto-cierre), volver a la pestaña relee el servidor local.
+    // Al volver a la pestaña se relee enseguida el estado vivo del servidor local (o se reconecta).
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') MCP.manager.onPageVisible();
     });

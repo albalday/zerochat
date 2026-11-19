@@ -323,6 +323,18 @@
       callbacks.renderList();
     });
     listen(elements.btnDeleteAllChats, 'click', () => callbacks.onDeleteAllSessions());
+    listen(elements.btnSyncChats, 'click', async () => {
+      if (elements.btnSyncChats.disabled || !callbacks.onSyncSessions) return;
+      const syncingText = t('sidebar_syncing_chats');
+      elements.btnSyncChats.disabled = true;
+      setSearchStatus(syncingText);
+      try {
+        await callbacks.onSyncSessions();
+      } finally {
+        elements.btnSyncChats.disabled = false;
+        if (elements.sidebarSearchStatus?.textContent === syncingText) setSearchStatus('');
+      }
+    });
     listen(elements.btnOpenSettings, 'click', () => {
       setSidebarMode(elements, 'settings');
       callbacks.onOpenSettingsMode();

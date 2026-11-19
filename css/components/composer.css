@@ -1216,8 +1216,3 @@
   font-weight: 550;
   color: var(--text-main);
 }
-
-.profile-background-bar .switch input:disabled + .slider {
-  opacity: 0.45;
-  cursor: not-allowed;
-}

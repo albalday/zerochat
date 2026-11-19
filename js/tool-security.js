@@ -17,11 +17,10 @@
   'use strict';
 
   // Claves del estado exportado por el backend que guarda la caché.
-  const POLICY_KEYS = ['globalMcpPolicy', 'defaultDirectoryRule', 'directoryRules', 'tools', 'servers', 'commandPatterns'];
+  const POLICY_KEYS = ['globalMcpPolicy', 'directoryRules', 'tools', 'servers', 'commandPatterns'];
 
   const emptyPolicies = () => ({
     globalMcpPolicy: 'ask',
-    defaultDirectoryRule: '',
     directoryRules: [],
     tools: {},
     servers: {},
@@ -107,11 +106,6 @@
 
     getDirectoryRules() {
       return [...this.policies.directoryRules];
-    }
-
-    /** Regla del proyecto actual, calculada por el backend y de solo lectura. */
-    getDefaultDirectoryRule() {
-      return this.policies.defaultDirectoryRule;
     }
 
     async setDirectoryRules(rules) {
