@@ -591,8 +591,9 @@
   const deleteAllConversations = () => removeConversations('delete the conversations', null, { all: true });
 
   async function deleteProjectConversations(project) {
-    const ids = (await readLocalConversationsList()).filter(item => item.project === project).map(item => item.id);
-    await removeConversations('delete the project conversations', ids, { project });
+    const target = typeof project === 'string' ? project.trim() : '';
+    const ids = (await readLocalConversationsList()).filter(item => (item.project || '') === target).map(item => item.id);
+    await removeConversations('delete the project conversations', ids, { project: target });
   }
 
   async function renameConversation(sessionId, newTitle) {

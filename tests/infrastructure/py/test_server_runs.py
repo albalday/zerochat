@@ -149,12 +149,6 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(session.conversation_id, "conv_con_user")
         self.assertEqual(session.profile, "local")
 
-        # --conversation no se aprueba solo: con --allow-dangerous-tools es un error de argumentos, con o sin --prompt.
-        for extra in ([], ["--prompt", "sigue"]):
-            with self.subTest(extra=extra), self.assertRaises(SystemExit) as cm:
-                zerochat.run_session_from_args(parser, parser.parse_args(["--conversation", "conv_con_user", "--allow-dangerous-tools", *extra]))
-            self.assertEqual(cm.exception.code, zerochat.RUN_EXIT_ARGS)
-
         # Conversación con profileId resuelve su propio perfil general sin --profile explícito
         zerochat.save_general_profile({"name": "test-cron-profile", "settings": {}})
         zerochat.save_conversation({"id": "conv_con_perfil", "title": "Con perfil propio", "profileId": "test-cron-profile"}, [

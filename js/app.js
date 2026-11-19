@@ -289,6 +289,7 @@
       },
       isServerMode: () => isServerRunEnabled(),
       getProject: () => getServerProject(),
+      getSelectedProject: () => UISidebar.getSelectedProject(elements.sidebarProjectFilter, getServerProject()),
       resetComposerInput: () => resetComposerInput(),
       closeMobileSidebar: () => {
         if (UISidebar.isMobile()) UISidebar.closeSidebar(elements);

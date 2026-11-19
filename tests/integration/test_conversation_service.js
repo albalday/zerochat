@@ -310,26 +310,35 @@ test('ConversationService - loadSessionsFromStorage inicializa al arrancar, cons
   assert.equal(alerts.length, 1);
 });
 
-test('ConversationService - borrar el historial con un proyecto abierto borra las suyas y, con la casilla, todas', async t => {
+test('ConversationService - borrar el historial borra solo el conjunto seleccionado e indica cuál en la confirmación', async t => {
   // setupBranch vacía el almacenamiento y da las opciones de app.js.
   const options = { ...(await setupBranch(t)).options, getProject: () => '/repo/a' };
   const sessions = [{ id: 'del_a', title: 'A', project: '/repo/a' }, { id: 'del_b', title: 'B', project: '/repo/b' }, { id: 'del_n', title: 'N' }];
   for (const session of sessions) await Storage.saveConversation(session, [{ id: `${session.id}_m`, role: 'user', content: 'hola' }]);
   State.replaceConversation({ sessionId: 'del_b', sessions, messages: [{ id: 'del_b_m', role: 'user', content: 'hola' }] });
-  const { confirms } = useDialogs(t, [{ accepted: false }, { accepted: true, checkboxChecked: false }, { accepted: true, checkboxChecked: true }]);
+  const { confirms } = useDialogs(t, [false, true, true, true]);
   const storedIds = async () => (await Storage.getConversationsList()).map(session => session.id).sort();
 
-  await ConversationService.deleteAllSessions(options);
+  await ConversationService.deleteAllSessions({ ...options, getSelectedProject: () => '/repo/empty' });
+  assert.equal(confirms.length, 0, 'Sin conversaciones en el conjunto seleccionado no pide confirmación');
+
+  await ConversationService.deleteAllSessions({ ...options, getSelectedProject: () => '/repo/a' });
   assert.deepEqual(await storedIds(), ['del_a', 'del_b', 'del_n'], 'Cancelar no borra nada');
   assert.match(confirms[0].message, /1 conversaciones del proyecto a\b/);
-  assert.ok(confirms[0].opts.checkbox, 'Ofrece borrar todo con una casilla');
+  assert.equal(confirms[0].opts?.checkbox, undefined);
 
-  await ConversationService.deleteAllSessions(options);
+  await ConversationService.deleteAllSessions({ ...options, getSelectedProject: () => '/repo/a' });
   assert.deepEqual(await storedIds(), ['del_b', 'del_n']);
   assert.deepEqual(State.get('sessions').list.map(session => session.id), ['del_b', 'del_n']);
   assert.equal(State.get('sessions').activeId, 'del_b', 'La conversación abierta de otro proyecto sigue abierta');
 
-  await ConversationService.deleteAllSessions({ ...options, getProject: () => '/repo/b' });
+  await ConversationService.deleteAllSessions({ ...options, getSelectedProject: () => '' });
+  assert.match(confirms[2].message, /1 conversaciones del proyecto general\b/);
+  assert.deepEqual(await storedIds(), ['del_b']);
+  assert.equal(State.get('sessions').activeId, 'del_b');
+
+  await ConversationService.deleteAllSessions({ ...options, getSelectedProject: () => null });
+  assert.match(confirms[3].message, /1 conversaciones de todos los proyectos\b/);
   assert.deepEqual(await storedIds(), []);
 });
 

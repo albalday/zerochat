@@ -17,7 +17,7 @@ const CORS = {
  * Servidor local falso: registra las llamadas zerochat/run/* y los servicios MCP externos que se
  * arrancan, y retiene el prompt hasta `release`.
  */
-async function routeBackend(page, prompt, { profile, profileData = null, serverProfiles = [], exportFormat, keepPage = false, allowDangerous = false, externalServers = [], conversationId = null, initialConversation = null } = {}) {
+async function routeBackend(page, prompt, { profile, profileData = null, serverProfiles = [], exportFormat, keepPage = false, externalServers = [], conversationId = null, initialConversation = null } = {}) {
   const calls = [];
   const started = [];
   const saved = [];
@@ -79,8 +79,7 @@ async function routeBackend(page, prompt, { profile, profileData = null, serverP
           // su API key; la pide con zerochat/run/profile al activar uno.
           profiles: serverProfiles.map(({ settings, ...rest }) => ({ ...rest, settings: { ...settings, apiKey: undefined } })),
           export: exportFormat ?? null,
-          keep_page: keepPage,
-          allow_dangerous_tools: allowDangerous
+          keep_page: keepPage
         });
       }
       if (method === 'zerochat/run/profile') return reply({ profile: serverProfiles.find(item => item.id === params.id) });
@@ -162,7 +161,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     assert.ok(backend.calls.every(call => call.params.run_id === RUN_ID));
     const kinds = progressOf(backend).map(event => event.kind);
     for (const kind of ['step', 'stream', 'tool']) assert.ok(kinds.includes(kind), `progreso ${kind}: ${kinds}`);
-    assert.deepEqual(approvalsOf(backend), ['approval_allowed:demo_action', 'approval_denied:write_file']);
+    assert.deepEqual(approvalsOf(backend), ['approval_allowed:demo_action', 'approval_allowed:write_file']);
     // El responder contesta sin clic: las tarjetas no quedan esperando autorización.
     assert.deepEqual(await page.evaluate(() => ({
       cards: document.querySelectorAll('#messages-list .tool-execution-card').length,
@@ -175,8 +174,8 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     assert.equal(await page.evaluate(() => window.ChatStorage.getBackendSession()), null, 'la conexión de la ejecución no se guarda en la cookie de las demás pestañas');
   });
 
-  test('Browser UI - el modo ejecución usa el perfil pedido solo en esa página, rechaza uno inexistente y aprueba las herramientas peligrosas si se permiten', async () => {
-    const { page, backend } = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, allowDangerous: true });
+  test('Browser UI - el modo ejecución usa el perfil pedido solo en esa página, rechaza uno inexistente y aprueba las herramientas', async () => {
+    const { page, backend } = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true });
     const storedBefore = await page.evaluate(() => window.ChatStorage.loadRuntimeConfigV2()?.activeProfile?.id);
     await page.evaluate(() => {
       window.ChatAPI.streamChatCompletion = async params => {
@@ -344,24 +343,29 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     });
     await page.evaluate(() => {
       window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
-      // El modelo vuelve a generar el paso pausado: su reto pausa otra vez, porque el runner nunca aprueba solo.
-      window.ChatAPI.streamChatCompletion = async () => ({
-        accumulatedText: 'Escribiendo el primero',
-        toolCalls: [{ id: 'call_w1', type: 'function', function: { name: 'write_file', arguments: '{"path":"a.txt","content":"1"}' } }],
-        stats: null
-      });
+      // Al reanudar, el paso pausado se retira y el modelo vuelve a ejecutarlo sin pedir permiso.
+      window.ChatAPI.streamChatCompletion = async params => {
+        if (!params.messages.some(message => message.role === 'tool' && message.tool_call_id === 'call_w1')) {
+          return {
+            accumulatedText: 'Escribiendo el primero',
+            toolCalls: [{ id: 'call_w1', type: 'function', function: { name: 'write_file', arguments: '{"path":"a.txt","content":"1"}' } }],
+            stats: null
+          };
+        }
+        return { accumulatedText: 'Hecho', toolCalls: null, stats: null };
+      };
     });
     backend.release();
     await page.waitForFunction(() => window.__closed === true);
 
     assert.deepEqual(resultOf(backend), {
       run_id: RUN_ID,
-      needs_input: { kind: 'tool_approval', text: 'write_file' }
+      text: 'Hecho'
     });
     assert.ok(backend.saved.length >= 1, 'guarda la conversación actualizada en el servidor antes de terminar');
     const lastSavedMessages = backend.saved.at(-1).messages;
-    assert.equal(lastSavedMessages.at(-1).role, 'tool');
-    assert.equal(JSON.parse(lastSavedMessages.at(-1).content).awaitingApproval, true);
+    assert.equal(lastSavedMessages.at(-1).role, 'assistant');
+    assert.equal(lastSavedMessages.at(-1).content, 'Hecho');
   });
 
   test('Browser UI - Ejecutar en servidor con perfil de servidor: switch, pasos grabados, cambio de chat y reanudación de permisos y ask_user', async () => {

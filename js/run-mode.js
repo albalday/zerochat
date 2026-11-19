@@ -25,8 +25,6 @@
   const STREAM_PROGRESS_INTERVAL_MS = 2000;
   const CONNECT_ATTEMPTS = 30;
   const CONNECT_RETRY_MS = 1000;
-  // Herramientas del servidor local que escriben o ejecutan: sin --allow-dangerous-tools se deniegan.
-  const DANGEROUS_TOOLS = new Set(['write_file', 'edit_file', 'run_command']);
 
   /** Identificador de la ejecución en el fragmento de arranque, o null fuera del modo ejecución. */
   function readRunId(hash) {
@@ -121,21 +119,12 @@
   }
 
   /**
-   * Contesta cada petición de autorización:
-   * - En modo conversación (pauseOnApproval = true): devuelve 'pause_for_user' y emite un aviso de tipo
-   *   'user_request'; la persona contesta después, así que nunca se aprueba sola.
-   * - En modo clásico (pauseOnApproval = false): permitida para la sesión, salvo las herramientas que
-   *   escriben o ejecutan sin allowDangerous, que se deniegan.
+   * Contesta cada petición de autorización aprobándola para la sesión.
    */
-  function answerToolApprovals(allowDangerous, report, { pauseOnApproval = false } = {}) {
+  function answerToolApprovals(report) {
     getToolCards().setAuthorizationResponder(toolName => {
-      if (pauseOnApproval) {
-        report({ kind: 'user_request', text: toolName });
-        return 'pause_for_user';
-      }
-      const allowed = allowDangerous || !DANGEROUS_TOOLS.has(toolName);
-      report({ kind: allowed ? 'approval_allowed' : 'approval_denied', text: toolName });
-      return allowed ? 'allow_session' : 'deny';
+      report({ kind: 'approval_allowed', text: toolName });
+      return 'allow_session';
     });
   }
 
@@ -185,7 +174,6 @@
         profiles: serverProfiles,
         export: exportFormat,
         keep_page: keepPageRequested,
-        allow_dangerous_tools: allowDangerous,
         conversation_id: conversationId,
         new_conversation_id: newConversationId
       } = await send('zerochat/run/prompt');
@@ -217,8 +205,7 @@
         report({ kind: 'profile', text: match.name });
       }
 
-      // La llamada que la persona aprobó al reanudar no llega aquí como reto: la ejecuta el servidor.
-      answerToolApprovals(allowDangerous === true, report, { pauseOnApproval: isConversationMode });
+      answerToolApprovals(report);
 
       if (isConversationMode) {
         await switchToSession(conversationId);

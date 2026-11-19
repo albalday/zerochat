@@ -302,7 +302,7 @@ def _approved_call(tool_security) -> tuple[str, dict] | None:
 class RunSession:
     """Estado de la ejecución: prompt, opciones, último progreso, exportación, resultado y motivo de un final sin él."""
     def __init__(self, prompt: str | None = None, profile: str | None = None, export_path: Path | None = None, keep_page: bool = False,
-                 allow_dangerous_tools: bool = False, conversation_id: str | None = None, run_id: str | None = None,
+                 conversation_id: str | None = None, run_id: str | None = None,
                  tool_security: dict | None = None, profile_data: dict | None = None):
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
@@ -320,8 +320,6 @@ class RunSession:
         self.export_error: str | None = None
         # La interfaz no cierra la página al terminar, para ver la conversación (sin --headless).
         self.keep_page = keep_page
-        # La interfaz aprueba también write_file, edit_file y run_command, que si no deniega.
-        self.allow_dangerous_tools = allow_dangerous_tools
         if tool_security is not None:
             self.tool_security = tool_security
         elif os.environ.get("ZEROCHAT_RUN_SECURITY"):
@@ -418,8 +416,7 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
                        # Para switch_model, que busca por nombre: el runner no puede listar los perfiles con su credencial.
                        # El listado no lleva API keys; la del que active la pide con zerochat/run/profile.
                        "profiles": list_general_profiles(),
-                       "export": export_format, "keep_page": session.keep_page,
-                       "allow_dangerous_tools": session.allow_dangerous_tools})
+                       "export": export_format, "keep_page": session.keep_page})
 
 
 def _rpc_profile(params: dict, session: RunSession) -> RpcOutcome:

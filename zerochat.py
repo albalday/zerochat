@@ -3379,11 +3379,18 @@ def delete_conversation(session_id: str) -> bool:
 
 
 def delete_project_conversations(project: str) -> list[str]:
-    """Elimina las conversaciones de un proyecto con sus mensajes y blobs propios, y devuelve sus identificadores."""
-    if not isinstance(project, str) or not project.strip() or len(project) > MAX_PATH_LENGTH:
+    """Elimina las conversaciones de un proyecto (o de la carpeta general si es vacío) con sus mensajes y blobs propios."""
+    if not isinstance(project, str) or len(project) > MAX_PATH_LENGTH:
         raise ValueError("El proyecto de las conversaciones debe ser una ruta")
+    clean_project = project.strip()
     with open_storage() as conn:
-        return _delete_conversations(conn, "json_extract(extra_json, '$.project') = ?", (project.strip(),))
+        if not clean_project:
+            return _delete_conversations(
+                conn,
+                "json_extract(extra_json, '$.project') IS NULL OR json_extract(extra_json, '$.project') = ''",
+                (),
+            )
+        return _delete_conversations(conn, "json_extract(extra_json, '$.project') = ?", (clean_project,))
 
 
 def delete_all_conversations() -> int:
@@ -4447,7 +4454,7 @@ def _approved_call(tool_security) -> tuple[str, dict] | None:
 class RunSession:
     """Estado de la ejecución: prompt, opciones, último progreso, exportación, resultado y motivo de un final sin él."""
     def __init__(self, prompt: str | None = None, profile: str | None = None, export_path: Path | None = None, keep_page: bool = False,
-                 allow_dangerous_tools: bool = False, conversation_id: str | None = None, run_id: str | None = None,
+                 conversation_id: str | None = None, run_id: str | None = None,
                  tool_security: dict | None = None, profile_data: dict | None = None):
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
@@ -4465,8 +4472,6 @@ class RunSession:
         self.export_error: str | None = None
         # La interfaz no cierra la página al terminar, para ver la conversación (sin --headless).
         self.keep_page = keep_page
-        # La interfaz aprueba también write_file, edit_file y run_command, que si no deniega.
-        self.allow_dangerous_tools = allow_dangerous_tools
         if tool_security is not None:
             self.tool_security = tool_security
         elif os.environ.get("ZEROCHAT_RUN_SECURITY"):
@@ -4563,8 +4568,7 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
                        # Para switch_model, que busca por nombre: el runner no puede listar los perfiles con su credencial.
                        # El listado no lleva API keys; la del que active la pide con zerochat/run/profile.
                        "profiles": list_general_profiles(),
-                       "export": export_format, "keep_page": session.keep_page,
-                       "allow_dangerous_tools": session.allow_dangerous_tools})
+                       "export": export_format, "keep_page": session.keep_page})
 
 
 def _rpc_profile(params: dict, session: RunSession) -> RpcOutcome:
@@ -9618,7 +9622,6 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt o --conversation, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
     parser.add_argument("--browser", action="store_true", help="Con --prompt o --conversation, abrir el navegador predeterminado del usuario en lugar del proceso Node.js sin ventana")
     parser.add_argument("--keep-page", action="store_true", help="Página: con --browser, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")
-    parser.add_argument("--allow-dangerous-tools", action="store_true", help="Con --prompt sin --conversation, aprobar también las herramientas que escriben o ejecutan (write_file, edit_file, run_command); las demás se aprueban siempre para la sesión. Con --conversation nada se aprueba solo: la ejecución se pausa y pregunta")
     parser.add_argument("--headless", action="store_true", help="Con --browser, abrir el navegador predeterminado sin ventana (si ya está abierto puede verse la pestaña)")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     return parser
@@ -9626,8 +9629,6 @@ def build_parser() -> ZeroChatArgumentParser:
 
 def _check_run_flags(parser: ZeroChatArgumentParser, args):
     """Combinaciones de opciones que no admiten --prompt ni --conversation."""
-    if args.allow_dangerous_tools and args.conversation is not None:
-        parser.error("--conversation no aprueba nada sin preguntar: si una herramienta pide permiso, la ejecución se pausa (needs_input); --allow-dangerous-tools solo se usa con --prompt sin --conversation")
     if args.no_browser:
         parser.error("--prompt y --conversation ejecutan la interfaz de forma autónoma: no se combina con --no-browser")
     if args.keep_server:
@@ -9704,8 +9705,8 @@ def _run_export_path(parser: ZeroChatArgumentParser, args) -> Path | None:
 def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | None:
     """Valida las combinaciones de opciones y devuelve la sesión de --prompt o --conversation, si la hay."""
     if args.prompt is None and args.conversation is None:
-        if args.browser or args.headless or args.keep_page or args.allow_dangerous_tools or args.profile is not None or args.export is not None:
-            parser.error("--browser, --headless, --keep-page, --allow-dangerous-tools, --profile y --export solo se usan con --prompt o --conversation")
+        if args.browser or args.headless or args.keep_page or args.profile is not None or args.export is not None:
+            parser.error("--browser, --headless, --keep-page, --profile y --export solo se usan con --prompt o --conversation")
         return None
     prompt = _run_prompt(parser, args)
     conversation_id, conv = _run_conversation(parser, args, prompt)
@@ -9714,7 +9715,7 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
     export_path = _run_export_path(parser, args)
     if conversation_id:
         mark_conversation_server_run(conversation_id, profile_name)
-    return RunSession(prompt, profile_name, export_path, args.keep_page, args.allow_dangerous_tools, conversation_id=conversation_id, profile_data=profile_data)
+    return RunSession(prompt, profile_name, export_path, args.keep_page, conversation_id=conversation_id, profile_data=profile_data)
 
 
 def redirect_log(args):
@@ -9784,21 +9785,15 @@ def reset_session_authorizations():
                 tool_name = tool_decision.get("toolName") or ""
                 server_id = GLOBAL_MCP_MANAGER.server_of(tool_name) or ""
                 ACCESS_CONTROLLER.apply_tool_decision(tool_decision, ctx, server_id=server_id)
-        if session.allow_dangerous_tools:
-            ACCESS_CONTROLLER.apply_session_overlay({
-                "globalMcpPolicy": GLOBAL_POLICY_ALLOW_ALL,
-                "tools": {name: {"policy": POLICY_ALLOW} for name in ("write_file", "edit_file", "run_command")}
-            }, ctx)
-        elif session.conversation_id is None:
-            permanent_tools = ACCESS_CONTROLLER.export_state(ctx).get("tools") or {}
-            ACCESS_CONTROLLER.apply_session_overlay({
-                "tools": {
-                    name: {"policy": POLICY_ALLOW}
-                    for name in LOCAL_TOOL_HANDLERS
-                    if name not in ("write_file", "edit_file", "run_command")
-                    and (permanent_tools.get(name) or {}).get("policy") != POLICY_DENY
-                }
-            }, ctx)
+        permanent_tools = ACCESS_CONTROLLER.export_state(ctx).get("tools") or {}
+        ACCESS_CONTROLLER.apply_session_overlay({
+            "globalMcpPolicy": GLOBAL_POLICY_ALLOW_ALL,
+            "tools": {
+                name: {"policy": POLICY_ALLOW}
+                for name in LOCAL_TOOL_HANDLERS
+                if (permanent_tools.get(name) or {}).get("policy") != POLICY_DENY
+            }
+        }, ctx)
 
 
 def open_server(args, local_ui: bool) -> ThreadingHTTPServer:

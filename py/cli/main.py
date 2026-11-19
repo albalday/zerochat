@@ -112,7 +112,6 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt o --conversation, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
     parser.add_argument("--browser", action="store_true", help="Con --prompt o --conversation, abrir el navegador predeterminado del usuario en lugar del proceso Node.js sin ventana")
     parser.add_argument("--keep-page", action="store_true", help="Página: con --browser, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")
-    parser.add_argument("--allow-dangerous-tools", action="store_true", help="Con --prompt sin --conversation, aprobar también las herramientas que escriben o ejecutan (write_file, edit_file, run_command); las demás se aprueban siempre para la sesión. Con --conversation nada se aprueba solo: la ejecución se pausa y pregunta")
     parser.add_argument("--headless", action="store_true", help="Con --browser, abrir el navegador predeterminado sin ventana (si ya está abierto puede verse la pestaña)")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     return parser
@@ -120,8 +119,6 @@ def build_parser() -> ZeroChatArgumentParser:
 
 def _check_run_flags(parser: ZeroChatArgumentParser, args):
     """Combinaciones de opciones que no admiten --prompt ni --conversation."""
-    if args.allow_dangerous_tools and args.conversation is not None:
-        parser.error("--conversation no aprueba nada sin preguntar: si una herramienta pide permiso, la ejecución se pausa (needs_input); --allow-dangerous-tools solo se usa con --prompt sin --conversation")
     if args.no_browser:
         parser.error("--prompt y --conversation ejecutan la interfaz de forma autónoma: no se combina con --no-browser")
     if args.keep_server:
@@ -198,8 +195,8 @@ def _run_export_path(parser: ZeroChatArgumentParser, args) -> Path | None:
 def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | None:
     """Valida las combinaciones de opciones y devuelve la sesión de --prompt o --conversation, si la hay."""
     if args.prompt is None and args.conversation is None:
-        if args.browser or args.headless or args.keep_page or args.allow_dangerous_tools or args.profile is not None or args.export is not None:
-            parser.error("--browser, --headless, --keep-page, --allow-dangerous-tools, --profile y --export solo se usan con --prompt o --conversation")
+        if args.browser or args.headless or args.keep_page or args.profile is not None or args.export is not None:
+            parser.error("--browser, --headless, --keep-page, --profile y --export solo se usan con --prompt o --conversation")
         return None
     prompt = _run_prompt(parser, args)
     conversation_id, conv = _run_conversation(parser, args, prompt)
@@ -208,7 +205,7 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
     export_path = _run_export_path(parser, args)
     if conversation_id:
         mark_conversation_server_run(conversation_id, profile_name)
-    return RunSession(prompt, profile_name, export_path, args.keep_page, args.allow_dangerous_tools, conversation_id=conversation_id, profile_data=profile_data)
+    return RunSession(prompt, profile_name, export_path, args.keep_page, conversation_id=conversation_id, profile_data=profile_data)
 
 
 def redirect_log(args):
@@ -278,21 +275,15 @@ def reset_session_authorizations():
                 tool_name = tool_decision.get("toolName") or ""
                 server_id = GLOBAL_MCP_MANAGER.server_of(tool_name) or ""
                 ACCESS_CONTROLLER.apply_tool_decision(tool_decision, ctx, server_id=server_id)
-        if session.allow_dangerous_tools:
-            ACCESS_CONTROLLER.apply_session_overlay({
-                "globalMcpPolicy": GLOBAL_POLICY_ALLOW_ALL,
-                "tools": {name: {"policy": POLICY_ALLOW} for name in ("write_file", "edit_file", "run_command")}
-            }, ctx)
-        elif session.conversation_id is None:
-            permanent_tools = ACCESS_CONTROLLER.export_state(ctx).get("tools") or {}
-            ACCESS_CONTROLLER.apply_session_overlay({
-                "tools": {
-                    name: {"policy": POLICY_ALLOW}
-                    for name in LOCAL_TOOL_HANDLERS
-                    if name not in ("write_file", "edit_file", "run_command")
-                    and (permanent_tools.get(name) or {}).get("policy") != POLICY_DENY
-                }
-            }, ctx)
+        permanent_tools = ACCESS_CONTROLLER.export_state(ctx).get("tools") or {}
+        ACCESS_CONTROLLER.apply_session_overlay({
+            "globalMcpPolicy": GLOBAL_POLICY_ALLOW_ALL,
+            "tools": {
+                name: {"policy": POLICY_ALLOW}
+                for name in LOCAL_TOOL_HANDLERS
+                if (permanent_tools.get(name) or {}).get("policy") != POLICY_DENY
+            }
+        }, ctx)
 
 
 def open_server(args, local_ui: bool) -> ThreadingHTTPServer:
