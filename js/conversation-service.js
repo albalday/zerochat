@@ -102,6 +102,23 @@
     return { serverRun, profileId };
   }
 
+  /**
+   * Construye la cabecera de una sesión (título, fechas, proyecto, perfil y modo servidor)
+   * conservando los datos fijos (`createdAt`, `project`, `title`) cuando `existing` ya existe.
+   */
+  function buildSessionMetadata({ sessionId, existing = null, history = [], options = {}, overrides = {}, now = Date.now() }) {
+    // El proyecto se fija al crear la conversación: la del directorio del servidor en ese momento.
+    const project = existing ? '' : options.getProject();
+    const session = {
+      ...(existing || { id: sessionId, title: '', createdAt: now, ...(project ? { project } : {}) }),
+      updatedAt: now,
+      messageCount: history.length,
+      ...resolveSessionMode(options, existing, overrides)
+    };
+    if (!session.title) session.title = deriveTitle(history) || t('chat_untitled');
+    return session;
+  }
+
   async function saveCurrentSession(options, overrides = {}) {
     const State = getState();
     const Storage = getStorage();
@@ -126,16 +143,7 @@
       return;
     }
 
-    const now = Date.now();
-    // El proyecto se fija al crear la conversación: la del directorio del servidor en ese momento.
-    const project = existing ? '' : options.getProject();
-    const session = {
-      ...(existing || { id: sessionId, title: '', createdAt: now, ...(project ? { project } : {}) }),
-      updatedAt: now,
-      messageCount: history.length,
-      ...resolveSessionMode(options, existing, overrides)
-    };
-    if (!session.title) session.title = deriveTitle(history) || t('chat_untitled');
+    const session = buildSessionMetadata({ sessionId, existing, history, options, overrides });
 
     State.saveSessionMetadata(session);
     try {
@@ -427,6 +435,7 @@
   return {
     blockSessionTransitionIfBusy,
     loadSessionsFromStorage,
+    buildSessionMetadata,
     saveCurrentSession,
     switchToSession,
     createNewSession,
