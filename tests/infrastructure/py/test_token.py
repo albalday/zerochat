@@ -85,9 +85,8 @@ class DailyTokenTest(unittest.TestCase):
             with self.subTest(args=args):
                 decision = controller.evaluate_authorization("run_command", args, ctx)
                 self.assertEqual((decision.allowed, decision.requires_approval), (False, True))
-        # La rotación del token vuelve a aplicar la capa de la ejecución: tampoco concede «solo esta vez».
-        session = zerochat.RunSession(prompt="hola", tool_security={"tool_decision": once})
-        with mock.patch.object(zerochat, "RUN_SESSION", session), \
+        # La rotación del token limpia las autorizaciones de sesión: tampoco concede «solo esta vez».
+        with mock.patch.object(zerochat, "RUN_SESSION", None), \
                 mock.patch.object(zerochat, "ACCESS_CONTROLLER", controller), \
                 mock.patch.object(zerochat, "project_context", return_value=ctx):
             zerochat.reset_session_authorizations()

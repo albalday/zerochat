@@ -17,7 +17,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils, I18n, MessageTurns) {
   'use strict';
 
-  const { resolveDep, createId, clone, projectName } = Utils;
+  const { resolveDep, createId, clone, projectName, NO_PROJECT_NAME } = Utils;
   const { t } = I18n;
 
   const getState = () => resolveDep('ChatState', './state.js');
@@ -372,35 +372,34 @@
   }
 
   /**
-   * Borra el historial. Con un proyecto abierto que tiene conversaciones pregunta por las suyas, con
-   * una casilla para borrar todas; sin proyecto, pregunta por todas.
+   * Borra las conversaciones del conjunto seleccionado en el filtro del historial: todas si
+   * `getSelectedProject()` devuelve `null`, las de la carpeta general si devuelve `''`, o las de ese
+   * proyecto.
    */
   async function deleteAllSessions(options) {
-    const sessions = getSavedSessions();
-    if (sessions.length === 0) return;
     if (await blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
-    const project = options.getProject();
-    const projectCount = project ? sessions.filter(session => session.project === project).length : 0;
-    let deleteAll = true;
-    if (projectCount > 0) {
-      const answer = await getDialogs().confirm(t('chat_delete_project_confirm', { name: projectName(project), count: projectCount }), { checkbox: t('chat_delete_all_checkbox') });
-      if (!answer.accepted) return;
-      deleteAll = answer.checkboxChecked;
-    } else if (!await getDialogs().confirm(t('chat_delete_all_confirm'))) {
-      return;
-    }
+    const targetProject = options.getSelectedProject ? options.getSelectedProject() : options.getProject();
+    const sessions = getSavedSessions();
+    const targetSessions = targetProject === null
+      ? sessions
+      : sessions.filter(session => (session.project || '') === targetProject);
+    if (targetSessions.length === 0) return;
+    const message = targetProject === null
+      ? t('chat_delete_all_confirm', { count: targetSessions.length })
+      : t('chat_delete_project_confirm', { name: targetProject ? projectName(targetProject) : NO_PROJECT_NAME, count: targetSessions.length });
+    if (!await getDialogs().confirm(message)) return;
     if (await blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
 
     try {
-      if (deleteAll) await getStorage().deleteAllConversations();
-      else await getStorage().deleteProjectConversations(project);
+      if (targetProject === null) await getStorage().deleteAllConversations();
+      else await getStorage().deleteProjectConversations(targetProject);
     } catch (error) {
       console.warn('[ConversationService] Could not delete conversations:', error);
       await getDialogs().alert(t('chat_delete_history_err'), { type: 'error' });
       return;
     }
     const activeId = getActiveSessionId();
-    const list = deleteAll ? [] : getSavedSessions().filter(session => session.project !== project);
+    const list = targetProject === null ? [] : getSavedSessions().filter(session => (session.project || '') !== targetProject);
     const keepActive = list.some(session => session.id === activeId);
     getState().set('sessions', { activeId: keepActive ? activeId : null, list });
     if (keepActive) options.renderSidebarChats();

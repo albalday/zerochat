@@ -710,15 +710,18 @@ class SessionLifecycleTest(HandlerTestCase):
         set_global(self.controller, zerochat.GLOBAL_POLICY_ASK)
         set_tool(self.controller, "db_tool", zerochat.POLICY_DENY)
         self.addCleanup(setattr, zerochat, "RUN_SESSION", None)
-        zerochat.RUN_SESSION = zerochat.RunSession(prompt="test", allow_dangerous_tools=True, tool_security={
-            "globalMcpPolicy": "allow_all", "tools": {"custom_tool": {"policy": "allow"}}, "directoryRules": ["RW:/test/**"]
+        zerochat.RUN_SESSION = zerochat.RunSession(prompt="test", tool_security={
+            "globalMcpPolicy": "workspace_trust", "tools": {"custom_tool": {"policy": "allow"}}, "directoryRules": ["RW:/test/**"]
         })
         zerochat.reset_session_authorizations()
 
         for tool in ("write_file", "edit_file", "run_command", "custom_tool"):
             self.assertEqual(tool_entry(self.controller, tool)["policy"], "allow", tool)
+        self.assertEqual(tool_entry(self.controller, "db_tool")["policy"], "deny")
         self.assertEqual(global_policy(self.controller), "allow_all")
         self.assertTrue(self.evaluate("custom_tool").allowed)
+        self.assertTrue(self.evaluate("write_file", {"path": "/etc/passwd"}).allowed)
+        self.assertTrue(self.evaluate("run_command", {"command": "rm -rf /tmp/x"}).allowed)
         saved = zerochat.get_security_policy_data()
         self.assertEqual((saved["globalMcpPolicy"], list(saved["tools"])), ("ask", ["db_tool"]))
 

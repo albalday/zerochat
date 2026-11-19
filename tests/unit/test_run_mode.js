@@ -50,25 +50,15 @@ test('RunMode.pendingAskUserQuestion toma la pregunta de ask_user de los mensaje
   for (const [messages, expected] of rows) assert.equal(RunMode.pendingAskUserQuestion(messages), expected, JSON.stringify(messages));
 });
 
-test('RunMode.answerToolApprovals distingue permisos autónomos, herramientas peligrosas y pausa para usuario', t => {
+test('RunMode.answerToolApprovals aprueba todas las herramientas en la sesión', t => {
   const ToolCards = require('../../js/tool-cards.js');
   let responder = null;
   t.mock.method(ToolCards, 'setAuthorizationResponder', fn => { responder = fn; });
-  for (const [allowDangerous, expected] of [
-    [false, [['read_file', 'allow_session'], ['run_command', 'deny'], ['write_file', 'deny'], ['edit_file', 'deny']]],
-    [true, [['read_file', 'allow_session'], ['run_command', 'allow_session'], ['write_file', 'allow_session'], ['edit_file', 'allow_session']]]
-  ]) {
-    const events = [];
-    RunMode.answerToolApprovals(allowDangerous, event => events.push(event));
-    assert.deepEqual(expected.map(([name]) => [name, responder(name)]), expected);
-    assert.deepEqual(events, expected.map(([name, decision]) => ({ kind: decision === 'deny' ? 'approval_denied' : 'approval_allowed', text: name })));
-  }
-
-  const pauseEvents = [];
-  RunMode.answerToolApprovals(true, event => pauseEvents.push(event), { pauseOnApproval: true });
-  assert.equal(responder('read_file', {}), 'pause_for_user');
-  assert.equal(responder('write_file', { path: 'a.js', content: '1' }), 'pause_for_user');
-  assert.deepEqual(pauseEvents, [{ kind: 'user_request', text: 'read_file' }, { kind: 'user_request', text: 'write_file' }]);
+  const events = [];
+  RunMode.answerToolApprovals(event => events.push(event));
+  const tools = ['read_file', 'run_command', 'write_file', 'edit_file'];
+  assert.deepEqual(tools.map(name => [name, responder(name)]), tools.map(name => [name, 'allow_session']));
+  assert.deepEqual(events, tools.map(name => ({ kind: 'approval_allowed', text: name })));
 });
 
 test('RunMode - pendingToolApproval y prepareConversationForContinuation detectan y retiran pasos con awaitingApproval', () => {

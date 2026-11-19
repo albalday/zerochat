@@ -120,6 +120,15 @@
   const sessionDate = session => new Date(session.updatedAt || session.createdAt || Date.now());
 
   /**
+   * Proyecto seleccionado en el filtro del historial: `null` para todos los proyectos, `''` para la
+   * carpeta general, o la ruta del proyecto actual.
+   */
+  function getSelectedProject(select, project) {
+    if (select.value === 'all') return null;
+    return select.value === 'none' || !project ? '' : project;
+  }
+
+  /**
    * Selector de proyecto, siempre visible: el actual (la carpeta general sin servidor), general si el actual es
    * otro, y todos. Devuelve el proyecto de la vista, o null para la de todos.
    */
@@ -130,8 +139,7 @@
     const none = select.querySelector('option[value="none"]');
     none.hidden = !project;
     if (none.hidden && select.value === 'none') select.value = 'current';
-    if (select.value === 'all') return null;
-    return select.value === 'none' ? '' : project;
+    return getSelectedProject(select, project);
   }
 
   /**
@@ -395,6 +403,7 @@
     openSidebar,
     closeSidebar,
     renderSidebarChats,
+    getSelectedProject,
     getChronologicalCategory,
     mount
   };

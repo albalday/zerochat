@@ -618,6 +618,10 @@ class StorageEngineTest(unittest.TestCase):
         self.assertIsNone(zerochat.get_blob(project_blob))
         self.assertIsNotNone(zerochat.get_blob(shared))
 
+        save("conv_keep", [shared], project="/keep")
+        self.assertEqual(zerochat.delete_project_conversations(""), ["conv_b"])
+        self.assertIsNotNone(zerochat.get_blob(shared))
+
         self.assertEqual(zerochat.delete_all_conversations(), 1)
         self.assertIsNone(zerochat.get_blob(shared))
         self.assertIsNotNone(zerochat.get_blob(pending))

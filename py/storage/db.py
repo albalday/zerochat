@@ -648,11 +648,18 @@ def delete_conversation(session_id: str) -> bool:
 
 
 def delete_project_conversations(project: str) -> list[str]:
-    """Elimina las conversaciones de un proyecto con sus mensajes y blobs propios, y devuelve sus identificadores."""
-    if not isinstance(project, str) or not project.strip() or len(project) > MAX_PATH_LENGTH:
+    """Elimina las conversaciones de un proyecto (o de la carpeta general si es vacío) con sus mensajes y blobs propios."""
+    if not isinstance(project, str) or (project and not project.strip()) or len(project) > MAX_PATH_LENGTH:
         raise ValueError("El proyecto de las conversaciones debe ser una ruta")
+    clean_project = project.strip()
     with open_storage() as conn:
-        return _delete_conversations(conn, "json_extract(extra_json, '$.project') = ?", (project.strip(),))
+        if not clean_project:
+            return _delete_conversations(
+                conn,
+                "json_extract(extra_json, '$.project') IS NULL OR json_extract(extra_json, '$.project') = ''",
+                (),
+            )
+        return _delete_conversations(conn, "json_extract(extra_json, '$.project') = ?", (clean_project,))
 
 
 def delete_all_conversations() -> int:
