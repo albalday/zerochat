@@ -6907,7 +6907,9 @@ class AccessController:
         base, sep, rest = pattern.partition("*")
         if base:
             # Mismo resolutor que SecurityContext.resolve_path (destino y base de la regla).
-            target = Path(base) if (not workspace_dir or os.path.isabs(base)) else Path(workspace_dir) / base
+            target = Path(base)
+            if workspace_dir and not target.is_absolute():
+                target = Path(workspace_dir) / target
             real_base = normalize_directory_path(str(target.resolve(strict=False)))
             if sep and base.endswith("/") and not real_base.endswith("/"):
                 real_base += "/"
@@ -6923,6 +6925,10 @@ class AccessController:
         normalized_dest = normalize_directory_path(str(resolved_target))
         if not normalized_dest:
             return {"allowed": False, "rule": None, "path": ""}
+
+        full_rule = self._full_directory_access_rule(user_rules)
+        if full_rule and access in ("R", "W"):
+            return {"allowed": True, "rule": full_rule, "path": normalized_dest}
 
         matching_user_rules = []
         for raw_rule in user_rules:
@@ -7162,14 +7168,18 @@ class AccessController:
         return POLICY_ASK, "mcp_default_ask", "", None
 
     @staticmethod
-    def _has_full_directory_access(rules: list[str]) -> bool:
+    def _full_directory_access_rule(rules: list[str]) -> str | None:
+        """Primera regla RW sobre la raíz (RW:/** o RW:/), o None."""
+        for raw in rules:
+            parsed = parse_directory_rule(raw)
+            if parsed is not None and parsed["access"] == "RW" and parsed["path"] in ("/**", "/"):
+                return parsed["rule"]
+        return None
+
+    @classmethod
+    def _has_full_directory_access(cls, rules: list[str]) -> bool:
         """Indica si el proyecto tiene acceso RW a todo el sistema de ficheros (RW:/** o RW:/)."""
-        return any(
-            (parsed := parse_directory_rule(raw)) is not None
-            and parsed["access"] == "RW"
-            and parsed["path"] in ("/**", "/")
-            for raw in rules
-        )
+        return cls._full_directory_access_rule(rules) is not None
 
     @staticmethod
     def _command_target(cwd: Path, raw_path: str) -> str:
