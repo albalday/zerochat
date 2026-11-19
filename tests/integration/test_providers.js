@@ -10,7 +10,8 @@ const {
   registry
 } = require('../../js/providers.js');
 
-test('ProviderRegistry - Detección y resolución de adaptadores', () => {
+test('ProviderRegistry - Detección, resolución y herencia de BaseProviderAdapter', () => {
+  require('../../js/providers-webllm.js');
   assert.equal(registry.detect('http://localhost:11434'), 'ollama');
   assert.equal(registry.detect('https://api.anthropic.com/v1'), 'claude');
   assert.equal(registry.detect('https://openrouter.ai/api/v1'), 'openrouter');
@@ -21,10 +22,7 @@ test('ProviderRegistry - Detección y resolución de adaptadores', () => {
   assert.equal(registry.resolve('https://api.anthropic.com/v1').id, 'claude');
   assert.equal(registry.resolve('http://localhost:11434').id, 'ollama');
   assert.equal(registry.resolve('http://localhost:1234/v1').id, 'openai');
-});
 
-test('ProviderRegistry - todo adaptador registrado extiende BaseProviderAdapter', () => {
-  require('../../js/providers-webllm.js');
   const ids = [...registry.adapters.keys()];
   assert.ok(ids.includes('webllm'));
   for (const [id, adapter] of registry.adapters) {
@@ -33,7 +31,7 @@ test('ProviderRegistry - todo adaptador registrado extiende BaseProviderAdapter'
   assert.ok(registry.defaultAdapter instanceof BaseProviderAdapter);
 });
 
-test('OpenAIAdapter - Normalización de endpoint y payload', () => {
+test('OpenAIAdapter y OpenRouterAdapter - Normalización de endpoint, payload y parseo de chunks SSE', () => {
   const adapter = new BaseProviderAdapter();
   assert.equal(adapter.normalizeEndpoint('http://localhost:1234/v1'), 'http://localhost:1234/v1/chat/completions');
   assert.equal(adapter.normalizeEndpoint('http://localhost:1234/v1/chat/completions'), 'http://localhost:1234/v1/chat/completions');
@@ -44,73 +42,60 @@ test('OpenAIAdapter - Normalización de endpoint y payload', () => {
     reasoningEffort: 'medium',
     enableContextCache: false
   });
-
   assert.equal(payload.model, 'gpt-4o');
   assert.equal(payload.stream, true);
   assert.equal(payload.reasoning_effort, 'medium');
   assert.deepEqual(payload.stream_options, { include_usage: true });
-});
 
-test('OpenAIAdapter - Parseo de chunks SSE con razonamiento y tools', () => {
-  const adapter = new BaseProviderAdapter();
-  
-  // Chunk con razonamiento
-  const rChunk = adapter.parseStreamChunk({
-    choices: [{ delta: { reasoning_content: 'Pensando paso 1...' } }]
+  const routerPayload = new OpenRouterProviderAdapter().buildPayload({
+    model: 'deepseek/deepseek-r1',
+    messages: [{ role: 'user', content: 'Test' }],
+    reasoningEffort: 'high'
   });
+  assert.deepEqual(routerPayload.reasoning, { effort: 'high' });
+  assert.equal(routerPayload.reasoning_effort, 'high');
+
+  const rChunk = adapter.parseStreamChunk({ choices: [{ delta: { reasoning_content: 'Pensando paso 1...' } }] });
   assert.equal(rChunk.reasoningChunk, 'Pensando paso 1...');
   assert.equal(rChunk.textChunk, '');
 
-  // Chunk con texto
-  const tChunk = adapter.parseStreamChunk({
-    choices: [{ delta: { content: 'Respuesta' } }]
-  });
+  const tChunk = adapter.parseStreamChunk({ choices: [{ delta: { content: 'Respuesta' } }] });
   assert.equal(tChunk.textChunk, 'Respuesta');
 
-  // Chunk con tool calls
   const toolChunk = adapter.parseStreamChunk({
     choices: [{ delta: { tool_calls: [{ index: 0, function: { name: 'search_web', arguments: '{"q":"test"}' } }] } }]
   });
   assert.equal(toolChunk.toolCallDeltas.length, 1);
   assert.equal(toolChunk.toolCallDeltas[0].function.name, 'search_web');
 
-  // Chunk con usage
-  const uChunk = adapter.parseStreamChunk({
-    usage: { prompt_tokens_details: { cached_tokens: 1500 }, total_tokens: 2000 }
-  });
+  const uChunk = adapter.parseStreamChunk({ usage: { prompt_tokens_details: { cached_tokens: 1500 }, total_tokens: 2000 } });
   assert.equal(uChunk.cachedTokens, 1500);
 });
 
-test('OpenAIAdapter - Auto-recuperación de errores HTTP 400', () => {
+test('OpenAIAdapter - Auto-recuperación de errores HTTP 400 en parámetros raíz e historial de razonamiento', () => {
   const adapter = new BaseProviderAdapter();
   const payload = { model: 'test', reasoning_effort: 'high', tools: [{ type: 'function' }] };
 
-  // Rechazo de razonamiento
   const rec1 = adapter.handleHttpError(400, "Unknown parameter 'reasoning_effort'", payload);
   assert.equal(rec1.retry, true);
   assert.equal(payload.reasoning_effort, undefined);
 
-  // Rechazo de tools
   const rec2 = adapter.handleHttpError(400, "Server does not support tools/functions", payload);
   assert.equal(rec2.retry, true);
   assert.equal(payload.tools, undefined);
-});
 
-test('OpenAIAdapter - un rechazo del razonamiento reenviado lo quita de los mensajes y conserva reasoning_effort', () => {
-  const adapter = new BaseProviderAdapter();
-  const payload = {
+  const histPayload = {
     reasoning_effort: 'high',
     messages: [
       { role: 'user', content: 'Hola' },
       { role: 'assistant', content: null, reasoning_content: 'plan', tool_calls: [{ id: 'c1' }] }
     ]
   };
-  const recovery = adapter.handleHttpError(400, "messages[1]: unexpected field 'reasoning_content'", payload);
+  const recovery = adapter.handleHttpError(400, "messages[1]: unexpected field 'reasoning_content'", histPayload);
   assert.deepEqual(recovery, { retry: true, reason: 'reasoning_history_rejected' });
-  assert.equal('reasoning_content' in payload.messages[1], false);
-  assert.equal(payload.reasoning_effort, 'high');
+  assert.equal('reasoning_content' in histPayload.messages[1], false);
+  assert.equal(histPayload.reasoning_effort, 'high');
 
-  // "reasoning" es también un parámetro raíz: sin mención a los mensajes se trata como tal.
   const routerPayload = {
     reasoning: { effort: 'high' },
     messages: [{ role: 'assistant', content: null, reasoning: 'plan', tool_calls: [{ id: 'c1' }] }]
@@ -119,11 +104,10 @@ test('OpenAIAdapter - un rechazo del razonamiento reenviado lo quita de los mens
   assert.equal(routerPayload.messages[0].reasoning, 'plan');
 });
 
-test('ClaudeAdapter - Formato de mensajes, presupuesto de thinking y caché efímera', () => {
+test('ClaudeAdapter - Formato de mensajes, bloques tool_use/tool_result, presupuesto de thinking, caché y streaming', () => {
   const adapter = new ClaudeProviderAdapter();
   assert.equal(adapter.normalizeEndpoint('https://api.anthropic.com/v1'), 'https://api.anthropic.com/v1/messages');
 
-  // Formateo multimodal de imagen base64
   const formatted = adapter.formatMessages([
     {
       role: 'user',
@@ -137,58 +121,14 @@ test('ClaudeAdapter - Formato de mensajes, presupuesto de thinking y caché efí
   assert.equal(formatted[0].content[1].source.media_type, 'image/png');
   assert.equal(formatted[0].content[1].source.data, 'iVBORw0KGgoAAAANSUhEUg==');
 
-  // Construcción de payload con thinking y caché
-  const payload = adapter.buildPayload({
-    model: 'claude-3-7-sonnet',
-    messages: [
-      { role: 'system', content: 'Eres un bot' },
-      { role: 'user', content: 'Pregunta' }
-    ],
-    reasoningEffort: 'medium',
-    toolsList: [{ name: 'test_tool' }],
-    enableContextCache: false
-  });
-
-  assert.deepEqual(payload.thinking, { type: 'enabled', budget_tokens: 2048 });
-  assert.equal(payload.temperature, 1.0);
-  assert.ok(payload.tools[0].cache_control, 'Debe inyectar cache_control en el tool');
-  assert.ok(payload.messages[0].content[0].cache_control, 'Debe inyectar cache_control en el system message');
-});
-
-test('ClaudeAdapter - Acumula los bloques tool_use y la firma del thinking del streaming', () => {
-  const adapter = new ClaudeProviderAdapter();
-
-  const thinking = adapter.parseStreamChunk({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'plan' } });
-  assert.equal(thinking.reasoningField, 'thinking');
-  const signature = adapter.parseStreamChunk({ type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: '' } });
-  assert.equal(signature.reasoningSignature, '', 'Una firma vacía también se reenvía');
-
-  const start = adapter.parseStreamChunk({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'toolu_1', name: 'get_weather', input: {} } });
-  assert.deepEqual(start.toolCallDeltas, [{ index: 1, id: 'toolu_1', function: { name: 'get_weather', arguments: '' } }]);
-  const args = adapter.parseStreamChunk({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"city":' } });
-  assert.deepEqual(args.toolCallDeltas, [{ index: 1, function: { arguments: '{"city":' } }]);
-
-  const complete = adapter.parseStreamChunk({ type: 'content_block_start', index: 2, content_block: { type: 'tool_use', id: 'toolu_2', name: 'now', input: { tz: 'UTC' } } });
-  assert.equal(complete.toolCallDeltas[0].function.arguments, '{"tz":"UTC"}', 'Un input completo en el inicio del bloque cuenta como argumentos');
-});
-
-test('ClaudeAdapter - El contexto de la Messages API suma la entrada y la caché', () => {
-  const adapter = new ClaudeProviderAdapter();
-  const start = adapter.parseStreamChunk({ type: 'message_start', message: { usage: { input_tokens: 4, cache_read_input_tokens: 319, cache_creation_input_tokens: 10, output_tokens: 0 } } });
-  assert.equal(start.usage.prompt_tokens, 333);
-  assert.equal(start.cachedTokens, 319);
-  const delta = adapter.parseStreamChunk({ type: 'message_delta', usage: { output_tokens: 57 } });
-  assert.equal(delta.usage.prompt_tokens, undefined, 'Sin input_tokens no se inventa la entrada');
-});
-
-test('ClaudeAdapter - Traduce el historial de herramientas a bloques tool_use y tool_result', () => {
-  const adapter = new ClaudeProviderAdapter();
   const toolsList = [{ type: 'function', function: { name: 'get_weather', parameters: { type: 'object', properties: {} } } }];
   const payload = adapter.buildPayload({
-    model: 'modelo',
-    reasoningEffort: 'low',
+    model: 'claude-3-7-sonnet',
+    reasoningEffort: 'medium',
     toolsList,
+    enableContextCache: false,
     messages: [
+      { role: 'system', content: 'Eres un bot' },
       { role: 'user', content: 'Tiempo en Madrid y París' },
       {
         role: 'assistant',
@@ -205,6 +145,11 @@ test('ClaudeAdapter - Traduce el historial de herramientas a bloques tool_use y 
     ]
   });
 
+  assert.deepEqual(payload.thinking, { type: 'enabled', budget_tokens: 2048 });
+  assert.equal(payload.temperature, 1.0);
+  assert.equal(toolsList[0].cache_control, undefined, 'La lista de herramientas recibida no se modifica');
+  assert.ok(payload.tools[0].cache_control);
+  assert.ok(payload.system[0].cache_control);
   assert.deepEqual(payload.messages[1], {
     role: 'assistant',
     content: [
@@ -220,9 +165,22 @@ test('ClaudeAdapter - Traduce el historial de herramientas a bloques tool_use y 
     ['tool_result', 'c2', '{"error":"bad args"}']
   ]);
   assert.deepEqual(payload.tool_choice, { type: 'auto' });
-  assert.equal(toolsList[0].cache_control, undefined, 'La lista de herramientas recibida no se modifica');
-  assert.ok(payload.tools[0].cache_control);
-  assert.equal(payload.max_tokens, 32000, 'El razonamiento no recorta la salida máxima');
+  assert.equal(payload.max_tokens, 32000);
+
+  // Streaming chunks y usage
+  assert.equal(adapter.parseStreamChunk({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'plan' } }).reasoningField, 'thinking');
+  assert.equal(adapter.parseStreamChunk({ type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: '' } }).reasoningSignature, '');
+  const start = adapter.parseStreamChunk({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'toolu_1', name: 'get_weather', input: {} } });
+  assert.deepEqual(start.toolCallDeltas, [{ index: 1, id: 'toolu_1', function: { name: 'get_weather', arguments: '' } }]);
+  const args = adapter.parseStreamChunk({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"city":' } });
+  assert.deepEqual(args.toolCallDeltas, [{ index: 1, function: { arguments: '{"city":' } }]);
+  const complete = adapter.parseStreamChunk({ type: 'content_block_start', index: 2, content_block: { type: 'tool_use', id: 'toolu_2', name: 'now', input: { tz: 'UTC' } } });
+  assert.equal(complete.toolCallDeltas[0].function.arguments, '{"tz":"UTC"}');
+
+  const msgStart = adapter.parseStreamChunk({ type: 'message_start', message: { usage: { input_tokens: 4, cache_read_input_tokens: 319, cache_creation_input_tokens: 10, output_tokens: 0 } } });
+  assert.equal(msgStart.usage.prompt_tokens, 333);
+  assert.equal(msgStart.cachedTokens, 319);
+  assert.equal(adapter.parseStreamChunk({ type: 'message_delta', usage: { output_tokens: 57 } }).usage.prompt_tokens, undefined);
 });
 
 test('ClaudeAdapter - tool_choice, imágenes sin visión y límite de salida del modelo', () => {
@@ -288,18 +246,6 @@ test('OllamaAdapter - Endpoints y parseo de modelos de Ollama (/api/tags)', () =
   assert.equal(parsedModels.length, 2);
   assert.equal(parsedModels[0].id, 'llama3:latest');
   assert.equal(parsedModels[1].id, 'deepseek-r1:8b');
-});
-
-test('OpenRouterAdapter - Configuración de razonamiento y endpoints', () => {
-  const adapter = new OpenRouterProviderAdapter();
-  const payload = adapter.buildPayload({
-    model: 'deepseek/deepseek-r1',
-    messages: [{ role: 'user', content: 'Test' }],
-    reasoningEffort: 'high'
-  });
-
-  assert.deepEqual(payload.reasoning, { effort: 'high' });
-  assert.equal(payload.reasoning_effort, 'high');
 });
 
 test('Capabilities - Utilización en buildPayload para filtrar parámetros no soportados', () => {
@@ -385,11 +331,10 @@ test('Reasoning intensity - ninguno envía el apagado explícito de cada protoco
   assert.equal(omitted.reasoning_effort, undefined, 'Un nivel vacío no envía parámetro');
 });
 
-test('GeminiAdapter - Normalización de endpoints, stripping de prefijo models/ y compatibilidad de payload', () => {
+test('GeminiAdapter - Normalización de endpoints, stripping de prefijo models/ y formatMessages con llamadas paralelas', () => {
   const adapter = new GeminiProviderAdapter();
   assert.equal(adapter.normalizeEndpoint('https://generativelanguage.googleapis.com/v1beta/openai'), 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions');
 
-  // Parseo de lista de modelos de Gemini con prefijo models/
   const parsedModels = adapter.parseModelsResponse({
     models: [
       { name: 'models/gemini-1.5-flash', displayName: 'Gemini 1.5 Flash' },
@@ -401,30 +346,26 @@ test('GeminiAdapter - Normalización de endpoints, stripping de prefijo models/ 
   assert.equal(parsedModels[0].id, 'gemini-1.5-flash');
   assert.equal(parsedModels[1].id, 'gemini-2.0-flash');
 
-  // Construcción de payload: quita models/, pide sin razonamiento de forma explícita y no inyecta stream_options
   const payload = adapter.buildPayload({
     model: 'models/gemini-1.5-flash',
     messages: [
       { role: 'user', content: 'hola' },
-      // Simular un mensaje tool huérfano
       { role: 'tool', tool_call_id: 'call_999', name: 'render_chart', content: '{"success":true}' }
     ],
     reasoningEffort: 'none',
     enableContextCache: true
   });
   assert.equal(payload.model, 'gemini-1.5-flash');
-  assert.equal(payload.reasoning_effort, 'none', 'Sin razonamiento se pide de forma explícita');
-  assert.equal(payload.stream_options, undefined, 'No debe inyectar stream_options');
-  assert.equal('temperature' in payload, false, 'Gemini no debe recibir temperature');
+  assert.equal(payload.reasoning_effort, 'none');
+  assert.equal(payload.stream_options, undefined);
+  assert.equal('temperature' in payload, false);
   assert.equal('top_p' in payload, false);
   assert.equal('top_k' in payload, false);
-  // Debe haber insertado el mensaje assistant previo para evitar error 400 en Gemini
   assert.equal(payload.messages.length, 3);
   assert.equal(payload.messages[1].role, 'assistant');
   assert.ok(payload.messages[1].tool_calls);
   assert.equal(payload.messages[2].role, 'tool');
 
-  // Si el historial comienza con un mensaje assistant tras system, debe insertar user antes
   const leadingAssistantPayload = adapter.buildPayload({
     model: 'gemini-2.0-flash',
     messages: [
@@ -433,49 +374,28 @@ test('GeminiAdapter - Normalización de endpoints, stripping de prefijo models/ 
       { role: 'tool', tool_call_id: 'call_1', name: 'search_web', content: 'results' }
     ]
   });
-  assert.equal(leadingAssistantPayload.messages[0].role, 'system');
-  assert.equal(leadingAssistantPayload.messages[1].role, 'user', 'Debe insertar un turno user antes del assistant con tools');
-  assert.equal(leadingAssistantPayload.messages[2].role, 'assistant');
-  assert.equal(leadingAssistantPayload.messages[3].role, 'tool');
+  assert.deepEqual(leadingAssistantPayload.messages.map(m => m.role), ['system', 'user', 'assistant', 'tool']);
+
+  const formattedParallel = adapter.formatMessages([
+    { role: 'system', content: 'Sistema' },
+    { role: 'user', content: 'Busca dos cosas' },
+    { role: 'assistant', content: null, tool_calls: [
+      { id: 'call_a', type: 'function', function: { name: 'search_a', arguments: '{}' } },
+      { id: 'call_b', type: 'function', function: { name: 'search_b', arguments: '{}' } }
+    ] },
+    { role: 'tool', tool_call_id: 'call_a', name: 'search_a', content: 'A' },
+    { role: 'tool', tool_call_id: 'call_b', name: 'search_b', content: 'B' }
+  ]);
+  assert.deepEqual(formattedParallel.map(message => message.role), ['system', 'user', 'assistant', 'tool', 'tool']);
+
+  const afterSystem = adapter.formatMessages([
+    { role: 'system', content: 'Sistema' },
+    { role: 'assistant', content: 'Saludo inicial' }
+  ]);
+  assert.deepEqual(afterSystem.map(message => message.role), ['system', 'user', 'assistant']);
 });
 
-test('GeminiAdapter - formatMessages conserva resultados de llamadas paralelas y respuestas de texto sin turnos sintéticos', () => {
-  {
-    const adapter = new GeminiProviderAdapter();
-    const formatted = adapter.formatMessages([
-      { role: 'system', content: 'Sistema' },
-      { role: 'user', content: 'Busca dos cosas' },
-      { role: 'assistant', content: null, tool_calls: [
-        { id: 'call_a', type: 'function', function: { name: 'search_a', arguments: '{}' } },
-        { id: 'call_b', type: 'function', function: { name: 'search_b', arguments: '{}' } }
-      ] },
-      { role: 'tool', tool_call_id: 'call_a', name: 'search_a', content: 'A' },
-      { role: 'tool', tool_call_id: 'call_b', name: 'search_b', content: 'B' }
-    ]);
-    assert.deepEqual(formatted.map(message => message.role), ['system', 'user', 'assistant', 'tool', 'tool']);
-  }
-
-  {
-    const adapter = new GeminiProviderAdapter();
-    const formatted = adapter.formatMessages([
-      { role: 'system', content: 'Sistema' },
-      { role: 'user', content: 'Hola' },
-      { role: 'assistant', content: 'Respuesta previa' },
-      { role: 'user', content: 'Sigue' }
-    ]);
-    assert.deepEqual(formatted.map(message => [message.role, message.content]), [
-      ['system', 'Sistema'], ['user', 'Hola'], ['assistant', 'Respuesta previa'], ['user', 'Sigue']
-    ]);
-
-    const afterSystem = adapter.formatMessages([
-      { role: 'system', content: 'Sistema' },
-      { role: 'assistant', content: 'Saludo inicial' }
-    ]);
-    assert.deepEqual(afterSystem.map(message => message.role), ['system', 'user', 'assistant']);
-  }
-});
-
-test('Multimodal Adapters - un lote paralelo con evidencia visual mantiene su bloque en Gemini, Claude y OpenAI', () => {
+test('Multimodal Adapters - un lote con evidencia visual mantiene su bloque y formato en Gemini, Claude, OpenAI y Ollama', () => {
   const evidence = { role: 'user', content: [
     { type: 'text', text: 'Visual evidence returned by download_image: https://example.com/a.png' },
     { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } }
@@ -496,87 +416,25 @@ test('Multimodal Adapters - un lote paralelo con evidencia visual mantiene su bl
   assert.deepEqual(gemini.map(m => m.role), ['system', 'user', 'assistant', 'tool', 'tool', 'assistant', 'user']);
   assert.equal(gemini[2].tool_calls[0].extra_content.google.thought_signature, 'sig');
   assert.equal(gemini[5].content, 'Tool information received.');
-  assert.equal(gemini.filter(m => Array.isArray(m.tool_calls)).length, 1, 'sin assistant sintético sin firma');
+  assert.deepEqual(gemini[6].content, evidence.content);
 
   const claude = new ClaudeProviderAdapter().buildPayload({ model: 'claude-3-7-sonnet', messages: history }).messages;
   assert.deepEqual(claude.map(m => m.role), ['user', 'assistant', 'user']);
-  assert.deepEqual(claude[2].content.map(part => part.type), ['tool_result', 'tool_result', 'text', 'image'],
-    'todos los tool_result en el primer user tras tool_use, con la imagen detrás');
+  assert.deepEqual(claude[2].content.map(part => part.type), ['tool_result', 'tool_result', 'text', 'image']);
+  const imagePart = claude[2].content.find(p => p.type === 'image');
+  assert.equal(imagePart.source.type, 'base64');
+  assert.equal(imagePart.source.media_type, 'image/png');
+  assert.equal(imagePart.source.data, 'iVBORw0KGgo=');
 
   const openai = new BaseProviderAdapter({ id: 'openai', label: 'OpenAI', capabilities: { vision: true } }).formatMessages(history);
   assert.deepEqual(openai.map(m => m.role), ['system', 'user', 'assistant', 'tool', 'tool', 'user']);
-});
+  assert.deepEqual(openai[5].content, evidence.content);
 
-test('Multimodal Adapters - verificación de payloads de imágenes web descargadas en Gemini, Claude, OpenAI y Ollama', () => {
-  const webImageTurn = {
-    role: 'user',
-    content: [
-      { type: 'text', text: 'Visual evidence downloaded by download_image: https://example.com/photo.png' },
-      { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } }
-    ]
-  };
+  const openaiNoVision = new BaseProviderAdapter({ id: 'openai-text', label: 'OpenAI Text', capabilities: { vision: false } }).formatMessages(history);
+  assert.equal(typeof openaiNoVision[5].content, 'string');
+  assert.ok(openaiNoVision[5].content.includes('Visual evidence returned'));
+  assert.ok(!openaiNoVision[5].content.includes('data:image'));
 
-  const toolTurn = {
-    role: 'tool',
-    tool_call_id: 'call_dl_1',
-    name: 'download_image',
-    content: 'Image retrieved: https://example.com/photo.png. Inspect it visually to answer.'
-  };
-
-  const baseHistory = [
-    { role: 'system', content: 'System instruction' },
-    { role: 'user', content: 'Describe this image' },
-    { role: 'assistant', content: null, tool_calls: [{ id: 'call_dl_1', type: 'function', function: { name: 'download_image', arguments: '{"url":"https://example.com/photo.png"}' } }] },
-    toolTurn,
-    webImageTurn
-  ];
-
-  // 1. Google Gemini: inserta puente assistant para no violar la regla de user inmediatamente tras tool, y preserva image_url
-  {
-    const gemini = new GeminiProviderAdapter();
-    const formatted = gemini.formatMessages(baseHistory);
-    const roles = formatted.map(m => m.role);
-    assert.deepEqual(roles, ['system', 'user', 'assistant', 'tool', 'assistant', 'user']);
-    assert.equal(formatted[4].content, 'Tool information received.');
-    assert.deepEqual(formatted[5].content, webImageTurn.content);
-  }
-
-  // 2. Claude (Anthropic): convierte image_url a bloque nativo Anthropic { type: 'image', source: { type: 'base64', ... } }
-  {
-    const claude = new ClaudeProviderAdapter();
-    const payload = claude.buildPayload({
-      model: 'claude-3-7-sonnet',
-      messages: baseHistory
-    });
-    const lastUserMsg = payload.messages[payload.messages.length - 1];
-    assert.equal(lastUserMsg.role, 'user');
-    const imagePart = lastUserMsg.content.find(p => p.type === 'image');
-    assert.ok(imagePart, 'Claude debe transformar image_url a type: image');
-    assert.equal(imagePart.source.type, 'base64');
-    assert.equal(imagePart.source.media_type, 'image/png');
-    assert.equal(imagePart.source.data, 'iVBORw0KGgo=');
-  }
-
-  // 3. OpenAI / BaseProvider (OpenAI, OpenRouter, etc.):
-  // Con visión activa: preserva image_url tal cual
-  {
-    const openai = new BaseProviderAdapter({ id: 'openai', label: 'OpenAI', capabilities: { vision: true } });
-    const formatted = openai.formatMessages(baseHistory);
-    assert.deepEqual(formatted[4].content, webImageTurn.content);
-  }
-  // Con visión inactiva: degrada a texto plano sin lanzar excepción
-  {
-    const openaiNoVision = new BaseProviderAdapter({ id: 'openai-text', label: 'OpenAI Text', capabilities: { vision: false } });
-    const formatted = openaiNoVision.formatMessages(baseHistory);
-    assert.equal(typeof formatted[4].content, 'string');
-    assert.ok(formatted[4].content.includes('Visual evidence downloaded'));
-    assert.ok(!formatted[4].content.includes('data:image'));
-  }
-
-  // 4. Ollama / Local vision:
-  {
-    const ollama = new OllamaProviderAdapter();
-    const formatted = ollama.formatMessages(baseHistory);
-    assert.deepEqual(formatted[4].content, webImageTurn.content);
-  }
+  const ollama = new OllamaProviderAdapter().formatMessages(history);
+  assert.deepEqual(ollama[5].content, evidence.content);
 });

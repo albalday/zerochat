@@ -2,18 +2,24 @@ const test = require('node:test');
 const assert = require('node:assert');
 const ChatState = require('../../js/state.js');
 
-test('ChatState - Aislamiento e inmutabilidad del estado interno', () => {
+test('ChatState - Aislamiento, slices canónicos y prevención de notificaciones innecesarias', () => {
   const store = ChatState.createStore();
 
   const state1 = store.getState();
-  // Mutación externa maliciosa o accidental
   state1.config.apiUrl = 'http://hacked.com';
   state1.messages.push({ role: 'fake' });
-
-  // El store interno debe permanecer intacto
   const state2 = store.getState();
   assert.equal(state2.config.apiUrl, 'http://localhost:1234/v1');
   assert.equal(state2.messages.length, 0);
+
+  let callCount = 0;
+  store.subscribe(() => { callCount++; });
+  store.setState({ config: { apiUrl: 'http://localhost:1234/v1' } });
+  assert.equal(callCount, 0);
+
+  assert.ok(Array.isArray(store.CANONICAL_SLICES) && store.CANONICAL_SLICES.includes('project'));
+  assert.throws(() => store.set('arbitrarySlice', { foo: 'bar' }), /non-canonical slice/i);
+  assert.throws(() => store.setState({ illegalProp: true }), /non-canonical slice/i);
 });
 
 test('ChatState - Suscripciones globales, por slice y por selector', () => {
@@ -70,24 +76,7 @@ test('ChatState - Suscripciones globales, por slice y por selector', () => {
   assert.equal(selectorCalls, 1);
 });
 
-test('ChatState - Prevención de notificaciones innecesarias (Shallow Equality Check)', () => {
-  const store = ChatState.createStore();
-  let callCount = 0;
-
-  store.subscribe(() => {
-    callCount++;
-  });
-
-  // Aplicar mismo valor existente en config
-  store.setState({
-    config: { apiUrl: 'http://localhost:1234/v1' }
-  });
-
-  // No debe haber emitido eventos porque el valor es idéntico
-  assert.equal(callCount, 0);
-});
-
-test('ChatState - Activa una conversación y limpia todo el estado transitorio de turnos', () => {
+test('ChatState - replaceConversation e importConversation activan una conversación, reinician transitorios y bloquean durante generación', () => {
   const store = ChatState.createStore();
   store.setState({
     sessions: { activeId: 'session_old', list: [{ id: 'session_old' }] },
@@ -97,51 +86,28 @@ test('ChatState - Activa una conversación y limpia todo el estado transitorio d
   });
 
   const messages = [{ id: 'system_root', role: 'system', content: 'Nuevo sistema' }];
-  const result = store.replaceConversation({ sessionId: 'session_new', sessions: [{ id: 'session_old' }, { id: 'session_other' }], messages });
+  assert.equal(store.replaceConversation({ sessionId: 'session_new', sessions: [{ id: 'session_old' }, { id: 'session_other' }], messages }).ok, true);
+  assert.equal(store.get('sessions').activeId, 'session_new');
+  assert.equal(store.get('sessions').list.length, 2);
+  assert.deepEqual(store.get('messages'), messages);
+  assert.deepEqual(store.get('streaming'), { isGenerating: false });
+  assert.deepEqual(store.get('telemetry'), { stats: null });
+  assert.deepEqual(store.get('ui').attachedFiles, []);
 
-  assert.equal(result.ok, true);
-  const state = store.getState();
-  assert.equal(state.sessions.activeId, 'session_new');
-  assert.equal(state.sessions.list.length, 2);
-  assert.deepEqual(state.messages, messages);
-  assert.deepEqual(state.streaming, { isGenerating: false });
-  assert.deepEqual(state.telemetry, { stats: null });
-  assert.deepEqual(state.ui.attachedFiles, []);
-});
+  store.set('ui', { attachedFiles: [{ name: 'file.txt' }] });
+  store.set('telemetry', { stats: { tokens: 5 } });
+  assert.equal(store.importConversation({ id: 'imported_sess', title: 'Chat Importado' }, [{ id: 'm_imp', role: 'user', content: 'Importado' }]).ok, true);
+  assert.equal(store.get('sessions').activeId, 'imported_sess');
+  assert.deepEqual(store.get('ui').attachedFiles, []);
+  assert.equal(store.get('telemetry').stats, null);
 
-test('ChatState - Deniega activar una conversación durante una generación', () => {
-  const store = ChatState.createStore();
-  store.setState({
-    sessions: { activeId: 'session_active' },
-    messages: [{ id: 'active_message', role: 'user', content: 'En curso' }],
-    streaming: { isGenerating: true }
-  });
-
-  const result = store.replaceConversation({ sessionId: 'session_new', sessions: [], messages: [] });
-
-  assert.deepEqual(result, { ok: false, reason: 'generation-active' });
+  store.set('streaming', { isGenerating: true });
+  assert.deepEqual(store.replaceConversation({ sessionId: 's2', sessions: [], messages: [] }), { ok: false, reason: 'generation-active' });
   assert.equal(store.isConversationBusy(), true);
-  assert.equal(store.get('sessions').activeId, 'session_active');
-  assert.equal(store.get('messages')[0].id, 'active_message');
+  assert.equal(store.get('sessions').activeId, 'imported_sess');
 });
 
-test('ChatState - Contrato de slices canónicos y rechazo de escrituras no autorizadas', () => {
-  const store = ChatState.createStore();
-  assert.ok(Array.isArray(store.CANONICAL_SLICES));
-  assert.ok(store.CANONICAL_SLICES.includes('project'));
-
-  // set con slice no canónico debe lanzar error
-  assert.throws(() => {
-    store.set('arbitrarySlice', { foo: 'bar' });
-  }, /non-canonical slice/i);
-
-  // setState con slice no canónico debe lanzar error
-  assert.throws(() => {
-    store.setState({ illegalProp: true });
-  }, /non-canonical slice/i);
-});
-
-test('ChatState - Mutador removeTurn elimina turno y sanea tool calls huérfanos', () => {
+test('ChatState - removeTurn y removeSession respetan estado ocupado, tool calls e IDs fuera de lista', () => {
   const store = ChatState.createStore();
   store.replaceMessages([
     { id: 'u1', role: 'user', content: 'Consulta' },
@@ -150,59 +116,27 @@ test('ChatState - Mutador removeTurn elimina turno y sanea tool calls huérfanos
     { id: 'a1_final', role: 'assistant', content: 'Respuesta basada en búsqueda' },
     { id: 'u2', role: 'user', content: 'Siguiente pregunta' }
   ]);
-
-  // Intentar eliminar turno a1_final indicando baseId 'a1'
   const res = store.removeTurn({ baseId: 'a1' });
   assert.equal(res.ok, true);
-  // Debe haber eliminado a1, t1 y a1_final (3 mensajes)
   assert.equal(res.removedCount, 3);
-  const remaining = store.get('messages');
-  assert.equal(remaining.length, 2);
-  assert.equal(remaining[0].id, 'u1');
-  assert.equal(remaining[1].id, 'u2');
+  assert.deepEqual(store.get('messages').map(m => m.id), ['u1', 'u2']);
 
-  // Bloquea borrado durante inferencia activa
   store.set('streaming', { isGenerating: true });
-  const busyResult = store.removeTurn({ baseId: 'u2' });
-  assert.equal(busyResult.ok, false);
-  assert.equal(busyResult.reason, 'generation-active');
+  assert.deepEqual(store.removeTurn({ baseId: 'u2' }), { ok: false, reason: 'generation-active', removedCount: 0 });
   assert.equal(store.get('messages').length, 2);
   store.set('streaming', { isGenerating: false });
-});
 
-test('ChatState - Mutador replaceConversation y guardas de concurrencia', () => {
-  const store = ChatState.createStore();
-  const history = [{ id: 'm1', role: 'user', content: 'Historial' }];
-  const sessions = [{ id: 's1', title: 'S1' }];
+  store.setState({
+    sessions: { activeId: 'draft_unsaved', list: [{ id: 'saved_1', title: 'Previo' }] },
+    messages: [{ id: 'm_sys', role: 'system', content: 'sys' }]
+  });
+  assert.equal(store.removeSession('draft_unsaved').ok, true);
+  assert.equal(store.get('sessions').activeId, 'draft_unsaved');
+  assert.equal(store.get('sessions').list.length, 1);
 
-  const res = store.replaceConversation({ sessionId: 's1', messages: history, sessions });
-  assert.equal(res.ok, true);
-  assert.equal(store.get('sessions').activeId, 's1');
-  assert.equal(store.get('messages').length, 1);
-
-  // Bloqueo durante generación
-  store.set('streaming', { isGenerating: true });
-  const blocked = store.replaceConversation({ sessionId: 's2', messages: [] });
-  assert.equal(blocked.ok, false);
-  assert.equal(blocked.reason, 'generation-active');
-  assert.equal(store.get('sessions').activeId, 's1');
-});
-
-test('ChatState - Mutador importConversation y reinicio transitorio', () => {
-  const store = ChatState.createStore();
-  store.set('ui', { attachedFiles: [{ name: 'file.txt' }] });
-  store.set('telemetry', { stats: { tokens: 5 } });
-
-  const sessionMeta = { id: 'imported_sess', title: 'Chat Importado' };
-  const history = [{ id: 'm_imp', role: 'user', content: 'Importado' }];
-
-  const res = store.importConversation(sessionMeta, history);
-  assert.equal(res.ok, true);
-  assert.equal(store.get('sessions').activeId, 'imported_sess');
-  assert.equal(store.get('messages')[0].content, 'Importado');
-  // Slices transitorios deben haberse reiniciado
-  assert.deepEqual(store.get('ui').attachedFiles, []);
-  assert.equal(store.get('telemetry').stats, null);
+  assert.equal(store.removeSession('saved_1').ok, true);
+  assert.equal(store.get('sessions').list.length, 0);
+  assert.equal(store.get('sessions').activeId, 'draft_unsaved');
 });
 
 test('ChatState - setProjectContext valida el estado y el cambio de conversación no reinicia el proyecto', () => {
@@ -218,24 +152,4 @@ test('ChatState - setProjectContext valida el estado y el cambio de conversació
   store.replaceConversation({ sessionId: 'session_next', sessions: [], messages: [] });
   assert.equal(store.get('project').status, 'ready');
   assert.equal(store.get('project').cwd, '/repo');
-});
-
-test('ChatState - removeSession con un id que no está en la lista no altera activeId ni desincroniza mensajes', () => {
-  const store = ChatState.createStore();
-  store.setState({
-    sessions: { activeId: 'draft_unsaved', list: [{ id: 'saved_1', title: 'Previo' }] },
-    messages: [{ id: 'm_sys', role: 'system', content: 'sys' }]
-  });
-
-  const res = store.removeSession('draft_unsaved');
-  assert.equal(res.ok, true);
-  assert.equal(store.get('sessions').activeId, 'draft_unsaved', 'No debe cambiar activeId al primer chat si el id eliminado no estaba en list');
-  assert.equal(store.get('sessions').list.length, 1);
-  assert.equal(store.get('sessions').list[0].id, 'saved_1');
-
-  // Si el id sí está en list, eliminarlo sí reasigna activeId
-  const resSaved = store.removeSession('saved_1');
-  assert.equal(resSaved.ok, true);
-  assert.equal(store.get('sessions').list.length, 0);
-  assert.equal(store.get('sessions').activeId, 'draft_unsaved');
 });

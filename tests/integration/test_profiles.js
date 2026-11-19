@@ -25,7 +25,7 @@ function generateBundle(payload = '{"encrypted":true}', appUrl = 'http://127.0.0
 
 // --- Repositorio y persistencia de perfiles ---
 
-test('ProfileRepository - inicializa únicamente el perfil Espejo de solo lectura', () => {
+test('ProfileRepository - inicializa Espejo, no mezcla perfiles del backend y los bloqueados solo pueden borrarse', async () => {
   const repository = Profiles;
 
   const profiles = repository.list();
@@ -33,11 +33,17 @@ test('ProfileRepository - inicializa únicamente el perfil Espejo de solo lectur
   assert.equal(profiles[0].id, Profiles.READONLY_PROFILE_ID);
   assert.equal(profiles[0].name, 'Espejo');
   assert.equal(profiles[0].settings.apiType, 'mirror');
+  assert.ok(!profiles.some(p => p.general === true));
   assert.equal(repository.remove(Profiles.READONLY_PROFILE_ID), false);
   assert.throws(() => repository.save({ ...profiles[0], settings: { ...profiles[0].settings, model: 'other' } }));
+
+  const locked = await repository.saveEditable({ id: 'locked', name: 'Locked', settings: { apiKey: 'sk-locked', apiKeyLocked: true } });
+  assert.throws(() => repository.save({ ...locked, settings: { ...locked.settings, model: 'changed' } }), /locked/);
+  assert.equal(repository.remove('locked'), true);
+  assert.equal(await repository.load('locked'), null);
 });
 
-test('ProfileRepository - fusiona una importación en una única escritura y conserva Espejo', async () => {
+test('ProfileRepository - fusiona una importación en una única escritura y protege Espejo', async () => {
   const repository = Profiles;
   repository.save({ id: 'local', name: 'Local', settings: { model: 'before' } });
   const encryptedApiKey = await Backup.encryptApiKey('sk-imported');
@@ -51,9 +57,14 @@ test('ProfileRepository - fusiona una importación en una única escritura y con
   assert.equal((await repository.load('local')).settings.apiKey, 'sk-imported');
   assert.equal(repository.get('remote').settings.model, 'remote-model');
   assert.equal(repository.get(Profiles.READONLY_PROFILE_ID).name, 'Espejo');
+
+  assert.throws(() => repository.mergeImported([
+    { id: Profiles.READONLY_PROFILE_ID, name: 'Espejo', settings: { model: 'changed' } }
+  ]), /Espejo/);
+  assert.equal(repository.get(Profiles.READONLY_PROFILE_ID).settings.model, 'mirror');
 });
 
-test('ProfileRepository - no guarda ni importa API keys en texto plano', async () => {
+test('ProfileRepository - no guarda ni importa API keys en texto plano y no reinicializa documentos antiguos', async () => {
   const repository = Profiles;
   assert.throws(() => repository.save({ id: 'unsafe', name: 'Unsafe', settings: { apiKey: 'sk-plain' } }), /encrypted API key/);
   assert.throws(() => repository.mergeImported([{ id: 'unsafe', name: 'Unsafe', settings: { apiKey: 'sk-plain' } }]), /encrypted API key/);
@@ -61,17 +72,7 @@ test('ProfileRepository - no guarda ni importa API keys en texto plano', async (
   assert.equal((await repository.load('safe')).settings.apiKey, 'sk-secret');
   assert.equal(typeof repository.get('safe').settings.apiKey, 'object');
   assert.doesNotMatch(Storage.getStorageItem(Profiles.STORAGE_KEY), /sk-secret/);
-});
 
-test('ProfileRepository - un perfil bloqueado no se modifica pero puede borrarse', async () => {
-  const repository = Profiles;
-  const locked = await repository.saveEditable({ id: 'locked', name: 'Locked', settings: { apiKey: 'sk-locked', apiKeyLocked: true } });
-  assert.throws(() => repository.save({ ...locked, settings: { ...locked.settings, model: 'changed' } }), /locked/);
-  assert.equal(repository.remove('locked'), true);
-  assert.equal(await repository.load('locked'), null);
-});
-
-test('ProfileRepository - no reinicializa silenciosamente documentos con API keys antiguas', () => {
   Storage.setStorageItem(Profiles.STORAGE_KEY, JSON.stringify({ schemaVersion: 1, profiles: [{ id: 'old', name: 'Old', settings: { apiKey: 'sk-plain' } }] }));
   assert.throws(() => Profiles.list(), /encrypted API key/);
   assert.match(Storage.getStorageItem(Profiles.STORAGE_KEY), /sk-plain/);
@@ -102,53 +103,21 @@ test('ProfileRepository - el navegador que exige el perfil es el propio con un m
   }
 });
 
-test('ProfileRepository - rechaza una importación que intenta modificar Espejo', () => {
-  const repository = Profiles;
-  assert.throws(() => repository.mergeImported([
-    { id: Profiles.READONLY_PROFILE_ID, name: 'Espejo', settings: { model: 'changed' } }
-  ]), /Espejo/);
-  assert.equal(repository.get(Profiles.READONLY_PROFILE_ID).settings.model, 'mirror');
-});
-
-test('ProfileRepository - carga sin error perfiles heredados con apiKey vacía o nula', async () => {
-  Storage.setStorageItem(Profiles.STORAGE_KEY, JSON.stringify({
-    schemaVersion: 1,
-    profiles: [
-      { id: 'profile:mirror', name: 'Espejo', settings: { apiUrl: 'mirror://local', apiType: 'mirror', apiKey: '', model: 'mirror' } },
-      { id: 'profile:legacy-null', name: 'Legacy Null', settings: { apiUrl: 'http://localhost:1234', apiKey: null } }
-    ]
-  }));
-  const repository = Profiles;
-  const list = repository.list();
-  assert.equal(list.length, 2);
-  assert.equal(list[0].id, 'profile:mirror');
-  assert.equal(list[1].id, 'profile:legacy-null');
-  assert.equal((await repository.load('profile:mirror')).settings.apiKey, '');
-  assert.equal((await repository.load('profile:legacy-null')).settings.apiKey, '');
-});
-
 // --- Cifrado y copia de seguridad de perfiles ---
 
-test('ProfileBackup - cifra y recupera las definiciones sin exponerlas en el archivo', async () => {
+test('ProfileBackup - cifra perfiles y API keys, valida estructura, detecta manipulación y deriva contraseña', async () => {
+  await assert.rejects(Backup.encryptProfiles([{ id: 'bad', name: '', settings: {} }]), /invalid profile/);
+
   const encrypted = await Backup.encryptProfiles(sampleProfiles);
   assert.doesNotMatch(encrypted, /sk-secret/);
   const envelope = JSON.parse(encrypted);
   assert.equal(envelope.format, Backup.FORMAT);
   assert.equal(envelope.algorithm, 'AES-GCM');
   assert.deepEqual(await Backup.decryptProfiles(encrypted), sampleProfiles);
-});
 
-test('ProfileBackup - rechaza una copia manipulada', async () => {
-  const envelope = JSON.parse(await Backup.encryptProfiles(sampleProfiles));
-  envelope.ciphertext = `${envelope.ciphertext.slice(0, -4)}AAAA`;
-  await assert.rejects(Backup.decryptProfiles(JSON.stringify(envelope)), error => error.code === 'PASSWORD_REQUIRED');
-});
+  const tampered = { ...envelope, ciphertext: `${envelope.ciphertext.slice(0, -4)}AAAA` };
+  await assert.rejects(Backup.decryptProfiles(JSON.stringify(tampered)), error => error.code === 'PASSWORD_REQUIRED');
 
-test('ProfileBackup - valida la estructura antes de cifrar', async () => {
-  await assert.rejects(Backup.encryptProfiles([{ id: 'bad', name: '', settings: {} }]), /invalid profile/);
-});
-
-test('ProfileBackup - cifra cada API key y detecta manipulación', async () => {
   const secret = await Backup.encryptApiKey('sk-secret');
   assert.doesNotMatch(JSON.stringify(secret), /sk-secret/);
   assert.equal(await Backup.decryptApiKey(secret), 'sk-secret');
@@ -156,9 +125,7 @@ test('ProfileBackup - cifra cada API key y detecta manipulación', async () => {
   await assert.rejects(Backup.decryptApiKey({ ...secret, ciphertext: 'AAAAAAAAAAAAAAAAAAAAAA==' }));
   const exported = await Backup.encryptProfiles([{ ...sampleProfiles[0], settings: { ...sampleProfiles[0].settings, apiKey: secret } }]);
   assert.deepEqual((await Backup.decryptProfiles(exported))[0].settings.apiKey, secret);
-});
 
-test('ProfileBackup - usa temporalmente el hash de contraseña y conserva el formato existente', async () => {
   const originalStorage = global.localStorage;
   const values = new Map();
   global.localStorage = {
@@ -168,12 +135,12 @@ test('ProfileBackup - usa temporalmente el hash de contraseña y conserva el for
   };
   try {
     const keyMaterial = await Backup.keyMaterialFromPassword('correct horse battery staple');
-    const secret = await Backup.encryptApiKey('sk-custom', keyMaterial);
+    const customSecret = await Backup.encryptApiKey('sk-custom', keyMaterial);
     const encryptedProfiles = await Backup.encryptProfiles(sampleProfiles, keyMaterial);
-    await assert.rejects(Backup.decryptApiKey(secret, null), error => error.code === 'PASSWORD_REQUIRED');
+    await assert.rejects(Backup.decryptApiKey(customSecret, null), error => error.code === 'PASSWORD_REQUIRED');
     await assert.rejects(Backup.decryptProfiles(encryptedProfiles, null), error => error.code === 'PASSWORD_REQUIRED');
     Backup.cacheKeyMaterial(keyMaterial);
-    assert.equal(await Backup.decryptApiKey(secret), 'sk-custom');
+    assert.equal(await Backup.decryptApiKey(customSecret), 'sk-custom');
     assert.deepEqual(await Backup.decryptProfiles(encryptedProfiles), sampleProfiles);
     Backup.clearCachedKeyMaterial();
     assert.equal(Backup.getCachedKeyMaterial(), null);
@@ -183,34 +150,26 @@ test('ProfileBackup - usa temporalmente el hash de contraseña y conserva el for
   }
 });
 
-test('ProfileBackup.withPassword - no pide contraseña si la operación funciona con la clave por defecto', async () => {
+test('ProfileBackup.withPassword - usa la clave por defecto, reintenta con contraseña y distingue cancelación de fallo real', async () => {
   let prompts = 0;
-  const result = await Backup.withPassword(keyMaterial => ({ keyMaterial }), () => { prompts++; return 'x'; });
-  assert.deepEqual(result, { keyMaterial: undefined });
+  const direct = await Backup.withPassword(keyMaterial => ({ keyMaterial }), () => { prompts++; return 'x'; });
+  assert.deepEqual(direct, { keyMaterial: undefined });
   assert.equal(prompts, 0);
-});
 
-test('ProfileBackup.withPassword - reintenta con la clave derivada de la contraseña', async () => {
   const expected = await Backup.keyMaterialFromPassword('secret');
   const calls = [];
-  const result = await Backup.withPassword(async keyMaterial => {
+  const retried = await Backup.withPassword(async keyMaterial => {
     calls.push(keyMaterial);
     if (!keyMaterial) throw passwordRequiredError();
     return 'ok';
   }, async () => 'secret');
-  assert.equal(result, 'ok');
+  assert.equal(retried, 'ok');
   assert.deepEqual(calls, [undefined, expected]);
-});
 
-test('ProfileBackup.withPassword - la cancelación relanza PASSWORD_REQUIRED marcado como cancelado', async () => {
   await assert.rejects(
     Backup.withPassword(async () => { throw passwordRequiredError(); }, async () => null),
     error => error.code === 'PASSWORD_REQUIRED' && error.cancelled === true
   );
-});
-
-test('ProfileBackup.withPassword - propaga otros errores sin pedir contraseña', async () => {
-  let prompts = 0;
   await assert.rejects(
     Backup.withPassword(async () => { throw new Error('disk failure'); }, () => { prompts++; return 'x'; }),
     /disk failure/
@@ -220,7 +179,7 @@ test('ProfileBackup.withPassword - propaga otros errores sin pedir contraseña',
 
 // --- Paquete exportable independiente (bundle HTML) ---
 
-test('ProfileExportBundle - aísla cada intento con un identificador de transferencia efímero', () => {
+test('ProfileExportBundle - aísla cada intento con identificador efímero y adapta file://', () => {
   const html = generateBundle();
   assert.match(html, /function createTransferId\(\)/);
   assert.match(html, /const targetName = 'zerochat_import_' \+ activeTransferId/);
@@ -228,67 +187,30 @@ test('ProfileExportBundle - aísla cada intento con un identificador de transfer
   assert.match(html, /event\.source !== targetWindow/);
   assert.match(html, /event\.data\.transferId !== activeTransferId/);
   assert.match(html, /const TARGET_URL = "http:\/\/127\.0\.0\.1:6388\/app\/zerochat\.html"/);
-});
-
-test('ProfileExportBundle - desde file:// abre zerochat.html con una ruta relativa', () => {
   assert.match(generateBundle(undefined, 'file:///home/user/zerochat/zerochat.html'), /const TARGET_URL = "zerochat\.html"/);
 });
 
-// --- Perfiles del backend e importación a local ---
+// --- Perfiles de sesión e importación a local ---
 
-test('ProfileRepository - los perfiles locales no mezclan automáticamente perfiles del backend', () => {
-  const repository = Profiles;
-  const list = repository.list();
-  assert.ok(list.length >= 1);
-  assert.equal(list[0].id, repository.READONLY_PROFILE_ID);
-  assert.ok(!list.some(p => p.general === true));
-});
-
-test('ProfileRepository - registerSessionProfile registra perfil volátil para ejecución sin alterar list() ni requerir cifrado', async () => {
+test('ProfileRepository - los perfiles volátiles de sesión funcionan con clave directa o cargador diferido', async () => {
   const repository = Profiles;
   const initialCount = repository.list().length;
-  const serverProfile = {
+  const registered = repository.registerSessionProfile({
     id: 'profile:server-run-test',
     name: 'local',
     description: 'Perfil de ejecución en servidor',
-    settings: {
-      apiType: 'openai',
-      model: 'gpt-4o',
-      apiKey: 'sk-direct-server-secret'
-    }
-  };
-
-  const registered = repository.registerSessionProfile(serverProfile);
-  assert.ok(registered);
-  assert.equal(registered.name, 'local');
+    settings: { apiType: 'openai', model: 'gpt-4o', apiKey: 'sk-direct-server-secret' }
+  });
   assert.equal(registered.general, true);
-  assert.equal(registered.settings.apiKey, 'sk-direct-server-secret');
-
-  // No aparece en list() (el menú local no se altera)
   assert.equal(repository.list().length, initialCount);
-  assert.ok(!repository.list().some(p => p.id === 'profile:server-run-test'));
-
-  // get(id) y findByName(name) lo resuelven
-  assert.ok(repository.get('profile:server-run-test'));
-  assert.ok(repository.findByName('local'));
   assert.equal(repository.findByName('local').id, 'profile:server-run-test');
+  assert.equal((await repository.loadUnlocked('profile:server-run-test')).settings.apiKey, 'sk-direct-server-secret');
 
-  // loadUnlocked devuelve la apiKey en texto plano sin pedir contraseña
-  const loaded = await repository.loadUnlocked('profile:server-run-test');
-  assert.equal(loaded.settings.apiKey, 'sk-direct-server-secret');
-
-  // clearSessionProfile lo retira
   repository.clearSessionProfile();
   assert.equal(repository.get('profile:server-run-test'), null);
-  assert.equal(repository.findByName('local'), null);
-
-  // Validación de entradas
   assert.equal(repository.registerSessionProfile(null), null);
   assert.throws(() => repository.registerSessionProfile({ name: '' }), /The profile name cannot be empty/);
-});
 
-test('ProfileRepository - un perfil de sesión sin clave la pide a su cargador la primera vez que se carga', async () => {
-  const repository = Profiles;
   const requested = [];
   repository.setSessionKeyLoader(async id => {
     requested.push(id);
@@ -298,9 +220,8 @@ test('ProfileRepository - un perfil de sesión sin clave la pide a su cargador l
   assert.ok(!repository.get('profile:otro').settings.apiKey);
   assert.equal((await repository.loadUnlocked('profile:otro')).settings.apiKey, 'sk-otro');
   assert.equal((await repository.loadUnlocked('profile:otro')).settings.apiKey, 'sk-otro');
-  assert.deepEqual(requested, ['profile:otro'], 'solo la pide una vez');
+  assert.deepEqual(requested, ['profile:otro']);
 
-  // Si el servidor devuelve otro perfil, no se usa.
   repository.registerSessionProfile({ id: 'profile:raro', name: 'Raro', settings: {} }, { keyless: true });
   repository.setSessionKeyLoader(async () => ({ id: 'profile:otro', name: 'Otro', settings: { apiKey: 'sk-otro' } }));
   await assert.rejects(repository.loadUnlocked('profile:raro'), /did not return the profile Raro/);

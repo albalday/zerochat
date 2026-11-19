@@ -52,94 +52,37 @@ Done when: Next done
   };
 }
 
-test('task.py - done marca la tarea y detecta automáticamente la siguiente', () => {
+test('task.py - done actualiza plan.md/state.md/log.md, --drop, fin de hito y literales con barras invertidas', () => {
   const env = setupMockZerochatDir();
   try {
-    runTaskScript(['done', 'M1-T1', '--date', '2026-10-15'], { dir: env.dir });
+    const planWithSlash = fs.readFileSync(path.join(env.dir, 'plan.md'), 'utf-8')
+      .replace('- [ ] M1-T2 Second task', '- [ ] M1-T2 Pintar `\\r` y `\\1` como en una terminal');
+    fs.writeFileSync(path.join(env.dir, 'plan.md'), planWithSlash, 'utf-8');
 
-    const plan = fs.readFileSync(path.join(env.dir, 'plan.md'), 'utf-8');
-    assert.match(plan, /- \[x\] M1-T1 First task \(2026-10-15\)/);
-    assert.match(plan, /- \[ \] M1-T2 Second task/);
-
-    const state = fs.readFileSync(path.join(env.dir, 'state.md'), 'utf-8');
-    assert.match(state, /- Next task: M1-T2 Second task/);
-    assert.match(state, /- Last updated: 2026-10-15/);
-  } finally {
-    env.cleanup();
-  }
-});
-
-test('task.py - done con decisión registra el siguiente ID correlativo en log.md', () => {
-  const env = setupMockZerochatDir();
-  try {
     runTaskScript(['done', 'M1-T1', '-d', 'Nueva arquitectura de pruebas', '--date', '2026-10-15'], { dir: env.dir });
-
+    const plan1 = fs.readFileSync(path.join(env.dir, 'plan.md'), 'utf-8');
+    assert.match(plan1, /- \[x\] M1-T1 First task \(2026-10-15\)/);
+    const state1 = fs.readFileSync(path.join(env.dir, 'state.md'), 'utf-8');
+    assert.ok(state1.includes('- Next task: M1-T2 Pintar `\\r` y `\\1` como en una terminal\n'), state1);
+    assert.ok(!state1.includes('\r'));
+    assert.match(state1, /- Last updated: 2026-10-15/);
     const log = fs.readFileSync(path.join(env.dir, 'log.md'), 'utf-8');
     assert.match(log, /- 2026-10-15 M1-D2 Nueva arquitectura de pruebas \(M1-T1\)/);
+
+    runTaskScript(['done', 'M1-T2', '--drop', 'obsoleta por cambios en requisitos'], { dir: env.dir });
+    assert.match(fs.readFileSync(path.join(env.dir, 'plan.md'), 'utf-8'), /- \[x\] M1-T2 .* \(dropped: obsoleta por cambios en requisitos\)/);
+    assert.match(fs.readFileSync(path.join(env.dir, 'state.md'), 'utf-8'), /- Next task: none pending/);
   } finally {
     env.cleanup();
   }
 });
 
-test('task.py - done al terminar el hito marca none pending si no quedan tareas', () => {
-  const env = setupMockZerochatDir();
-  try {
-    runTaskScript(['done', 'M1-T1', '--date', '2026-10-15'], { dir: env.dir });
-    runTaskScript(['done', 'M1-T2', '--date', '2026-10-15'], { dir: env.dir });
-
-    const state = fs.readFileSync(path.join(env.dir, 'state.md'), 'utf-8');
-    assert.match(state, /- Next task: none pending/);
-  } finally {
-    env.cleanup();
-  }
-});
-
-test('task.py - done con --drop marca la tarea como descartada con motivo', () => {
-  const env = setupMockZerochatDir();
-  try {
-    runTaskScript(['done', 'M1-T1', '--drop', 'obsoleta por cambios en requisitos'], { dir: env.dir });
-
-    const plan = fs.readFileSync(path.join(env.dir, 'plan.md'), 'utf-8');
-    assert.match(plan, /- \[x\] M1-T1 First task \(dropped: obsoleta por cambios en requisitos\)/);
-  } finally {
-    env.cleanup();
-  }
-});
-
-test('task.py - add-task añade una tarea numerada consecutivamente al hito', () => {
+test('task.py - add-task añade tarea numerada y rechaza IDs de tarea inválidos', () => {
   const env = setupMockZerochatDir();
   try {
     runTaskScript(['add-task', 'M1', 'Tercera tarea agregada'], { dir: env.dir });
-
-    const plan = fs.readFileSync(path.join(env.dir, 'plan.md'), 'utf-8');
-    assert.match(plan, /- \[ \] M1-T3 Tercera tarea agregada/);
-  } finally {
-    env.cleanup();
-  }
-});
-
-test('task.py - rechaza IDs de tarea inválidos', () => {
-  const env = setupMockZerochatDir();
-  try {
-    assert.throws(() => {
-      runTaskScript(['done', 'invalid-task-id'], { dir: env.dir });
-    }, /Invalid task ID/);
-  } finally {
-    env.cleanup();
-  }
-});
-
-test('task.py - una siguiente tarea con barras invertidas se copia tal cual en state.md', () => {
-  const env = setupMockZerochatDir();
-  try {
-    const plan = fs.readFileSync(path.join(env.dir, 'plan.md'), 'utf-8')
-      .replace('- [ ] M1-T2 Second task', '- [ ] M1-T2 Pintar `\\r` y `\\1` como en una terminal');
-    fs.writeFileSync(path.join(env.dir, 'plan.md'), plan, 'utf-8');
-    runTaskScript(['done', 'M1-T1', '--date', '2026-10-15'], { dir: env.dir });
-
-    const state = fs.readFileSync(path.join(env.dir, 'state.md'), 'utf-8');
-    assert.ok(state.includes('- Next task: M1-T2 Pintar `\\r` y `\\1` como en una terminal\n'), state);
-    assert.ok(!state.includes('\r'), 'Sin retornos de carro de verdad');
+    assert.match(fs.readFileSync(path.join(env.dir, 'plan.md'), 'utf-8'), /- \[ \] M1-T3 Tercera tarea agregada/);
+    assert.throws(() => runTaskScript(['done', 'invalid-task-id'], { dir: env.dir }), /Invalid task ID/);
   } finally {
     env.cleanup();
   }

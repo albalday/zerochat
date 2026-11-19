@@ -8,13 +8,12 @@ const { Tool, ToolRegistry, ToolExecutor, AgentRuntime } = AgentCore;
 const makeTool = ({ name, description, parameters, ...options }) => new Tool({ definition: { name, description, parameters }, ...options });
 const call = (name, args = {}) => ({ id: `call_${name}`, type: 'function', function: { name, arguments: typeof args === 'string' ? args : JSON.stringify(args) } });
 
-test('AgentCore - el registro resuelve las nativas por nombre y por alias', () => {
+test('AgentCore - ToolRegistry resuelve nativas/alias y conserva mayúsculas en MCP', () => {
   const registry = new ToolRegistry();
 
   for (const name of ['execute_javascript', 'search_web', 'fetch_web_page', 'download_doc', 'render_chart']) {
     assert.equal(registry.getTool(name).name, name);
   }
-  // Alias declarados, con o sin guiones bajos, en mayúsculas o con guiones.
   assert.equal(registry.getTool('executejs').name, 'execute_javascript');
   assert.equal(registry.getTool('run_js').name, 'execute_javascript');
   assert.equal(registry.getTool('eval_javascript').name, 'execute_javascript');
@@ -32,16 +31,11 @@ test('AgentCore - el registro resuelve las nativas por nombre y por alias', () =
   const jsDef = registry.getActiveDefinitions(ConfigStore.normalize({})).find(d => d.function.name === 'execute_javascript');
   assert.equal(jsDef.type, 'function');
   assert.ok(jsDef.function.parameters.required.includes('code'));
-});
 
-test('AgentCore - MCP conserva identificadores que solo difieren por mayúsculas', () => {
-  const registry = new ToolRegistry();
   const upper = makeTool({ name: 'composio_SEARCH', category: 'mcp', execute: async () => ({}) });
   const lower = makeTool({ name: 'composio_search', category: 'mcp', execute: async () => ({}) });
-
   registry.registerTool(upper);
   registry.registerTool(lower);
-
   assert.equal(registry.getTool('composio_SEARCH'), upper);
   assert.equal(registry.getTool('composio_search'), lower);
   assert.equal(registry.getTool('COMPOSIO_SEARCH'), null);
@@ -50,22 +44,17 @@ test('AgentCore - MCP conserva identificadores que solo difieren por mayúsculas
   assert.equal(registry.getTool('composio_search'), lower);
 });
 
-test('AgentCore - ToolExecutor no ejecuta un reto del backend sin quien responda al usuario', async () => {
-  const registry = new ToolRegistry();
-  registry.registerTool(makeTool({ name: 'mcp_blocked_run', category: 'mcp', execute: async () => ({ requiresAuthorization: true, challengeId: 'ch-1' }) }));
-
-  const result = await new ToolExecutor(registry).executeToolCall(call('mcp_blocked_run'));
-
-  assert.equal(result.success, false);
-  assert.match(result.error, /explicit user authorization/i);
-});
-
-test('AgentCore - ToolExecutor captura errores, herramientas inexistentes y argumentos no JSON sin ejecutar la herramienta', async () => {
+test('AgentCore - ToolExecutor valida autorización, errores, argumentos y cancelación antes de ejecutar', async () => {
   let executed = false;
   const registry = new ToolRegistry();
+  registry.registerTool(makeTool({ name: 'mcp_blocked_run', category: 'mcp', execute: async () => ({ requiresAuthorization: true, challengeId: 'ch-1' }) }));
   registry.registerTool(makeTool({ name: 'failing_tool', execute: async () => { throw new Error('Fallo crítico simulado'); } }));
   registry.registerTool(makeTool({ name: 'guarded_tool', execute: async () => { executed = true; return { success: true }; } }));
   const executor = new ToolExecutor(registry);
+
+  const authRes = await executor.executeToolCall(call('mcp_blocked_run'));
+  assert.equal(authRes.success, false);
+  assert.match(authRes.error, /explicit user authorization/i);
 
   const failRes = await executor.executeToolCall(call('failing_tool'));
   assert.equal(failRes.success, false);
@@ -81,6 +70,13 @@ test('AgentCore - ToolExecutor captura errores, herramientas inexistentes y argu
   assert.equal(badArgs.success, false);
   assert.match(badArgs.error, /Invalid tool arguments/);
 
+  const controller = new AbortController();
+  controller.abort();
+  const aborted = await executor.executeToolCall(call('guarded_tool'), { signal: controller.signal });
+  assert.equal(executed, false);
+  assert.equal(aborted.success, false);
+  assert.match(aborted.error, /cancelled/i);
+
   assert.equal(executor.parseArguments('url: "https://example.com"'), null);
   assert.equal(executor.parseArguments('[1, 2]'), null);
   assert.equal(executor.parseArguments('"texto"'), null);
@@ -88,31 +84,21 @@ test('AgentCore - ToolExecutor captura errores, herramientas inexistentes y argu
   assert.deepEqual(executor.parseArguments('{"a":1}'), { a: 1 });
 });
 
-test('AgentCore - ToolExecutor no ejecuta una herramienta tras cancelar el turno', async () => {
-  let executed = false;
-  const registry = new ToolRegistry();
-  registry.registerTool(makeTool({ name: 'slow_tool', execute: async () => { executed = true; return { success: true }; } }));
-  const controller = new AbortController();
-  controller.abort();
-
-  const res = await new ToolExecutor(registry).executeToolCall(call('slow_tool'), { signal: controller.signal });
-
-  assert.equal(executed, false);
-  assert.equal(res.success, false);
-  assert.match(res.error, /cancelled/i);
-});
-
-test('AgentCore - el despacho serializa el resultado y el Markdown con el contrato de la herramienta', async () => {
+test('AgentCore - dispatchToolCall y executeToolBatch respetan contratos toModel/toMarkdown, isError y errores previos', async () => {
+  const commandText = JSON.stringify({ success: false, status: 'timeout', job_id: 3, output: 'Arrancando ComfyUI...', note: 'Killed after 30 s. Re-run it with background=true.' });
   const registry = new ToolRegistry();
   registry.registerTool(makeTool({
     name: 'delegated_result',
     execute: async () => ({ success: true, payload: 42 }),
-    result: {
-      toModel: (_args, result) => `model:${result.payload}`,
-      toMarkdown: (_args, result) => `> export:${result.payload}`
-    }
+    result: { toModel: (_args, result) => `model:${result.payload}`, toMarkdown: (_args, result) => `> export:${result.payload}` }
   }));
   registry.registerTool(makeTool({ name: 'default_result', execute: async () => ({ success: true, value: 'x' }) }));
+  registry.registerTool(makeTool({
+    name: 'run_command',
+    category: 'mcp',
+    execute: async () => ({ success: false, isError: true, content: commandText }),
+    result: { toModel: (_args, result) => result.content }
+  }));
   const executor = new ToolExecutor(registry);
 
   const custom = await executor.dispatchToolCall(call('delegated_result'));
@@ -122,21 +108,25 @@ test('AgentCore - el despacho serializa el resultado y el Markdown con el contra
   const fallback = await executor.dispatchToolCall(call('default_result'));
   assert.equal(fallback.resultText, '{"success":true,"value":"x"}');
   assert.match(fallback.markdownBlock, /\*\*default_result\*\*/);
-});
 
-test('AgentCore - el despacho de una llamada no ejecutada devuelve su error y registra los argumentos recibidos', async () => {
-  const registry = new ToolRegistry();
-  registry.registerTool(makeTool({
-    name: 'content_result',
-    execute: async () => ({ success: true, content: 'x' }),
-    result: { toModel: (_args, result) => result.content }
-  }));
   const logs = [];
-
-  const res = await new ToolExecutor(registry).dispatchToolCall(call('content_result', '{"a":1}{"b":2}'), { onLog: (type, text) => logs.push(text) });
-
-  assert.match(res.resultText, /^Invalid tool arguments/);
+  const invalidRes = await executor.dispatchToolCall(call('delegated_result', '{"a":1}{"b":2}'), { onLog: (_t, text) => logs.push(text) });
+  assert.match(invalidRes.resultText, /^Invalid tool arguments/);
   assert.ok(logs.some(text => text.includes('{"a":1}{"b":2}')));
+
+  const runtime = new AgentRuntime({ registry, executor });
+  const batch = (toolCalls) => runtime.executeToolBatch(toolCalls, {
+    stepIndex: 0,
+    toolContext: {},
+    signal: new AbortController().signal,
+    dispatchToolCall: (toolCall, context) => runtime.executor.dispatchToolCall(toolCall, context),
+    createMessageId: () => 'msg',
+    callbacks: {}
+  });
+  const { toolMessages } = await batch([call('run_command', { command: './myui run bego-plata' })]);
+  assert.equal(toolMessages[0].content, commandText);
+  const { toolMessages: missing } = await batch([call('no_existe')]);
+  assert.deepEqual(JSON.parse(missing[0].content), { success: false, error: "Tool 'no_existe' is not registered." });
 });
 
 test('AgentCore - la detección de bucles ignora el orden de las claves pero no el de las llamadas', () => {
@@ -212,32 +202,4 @@ test('AgentCore - una herramienta MCP activa sustituye a las nativas que declara
   // Apagar la MCP en Ajustes devuelve la nativa; encender la que empezaba apagada la activa con su sustitución.
   assert.deepEqual(web({ brave_brave_web_search: false }), ['search_web', 'fetch_web_page']);
   assert.deepEqual(web({ brave_brave_news_search: true }), ['brave_brave_web_search', 'brave_brave_news_search']);
-});
-
-test('AgentCore - una herramienta que se ejecuta y falla entrega al modelo su propio texto, no un error genérico', async () => {
-  const registry = new ToolRegistry();
-  // Como run_command del servidor local: un resultado MCP con isError, cuyo texto lleva la salida y el aviso.
-  const commandText = JSON.stringify({ success: false, status: 'timeout', job_id: 3, output: 'Arrancando ComfyUI...', note: 'Killed after 30 s. Re-run it with background=true.' });
-  registry.registerTool(makeTool({
-    name: 'run_command',
-    category: 'mcp',
-    execute: async () => ({ success: false, isError: true, content: commandText }),
-    result: { toModel: (_args, result) => result.content }
-  }));
-  const runtime = new AgentRuntime({ registry, executor: new ToolExecutor(registry) });
-  const batch = (toolCalls) => runtime.executeToolBatch(toolCalls, {
-    stepIndex: 0,
-    toolContext: {},
-    signal: new AbortController().signal,
-    dispatchToolCall: (toolCall, context) => runtime.executor.dispatchToolCall(toolCall, context),
-    createMessageId: () => 'msg',
-    callbacks: {}
-  });
-
-  const { toolMessages } = await batch([call('run_command', { command: './myui run bego-plata' })]);
-  assert.equal(toolMessages[0].content, commandText);
-
-  // Una llamada que no llegó a ejecutarse sigue devolviendo su error.
-  const { toolMessages: missing } = await batch([call('no_existe')]);
-  assert.deepEqual(JSON.parse(missing[0].content), { success: false, error: "Tool 'no_existe' is not registered." });
 });

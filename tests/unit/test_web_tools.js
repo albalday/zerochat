@@ -40,30 +40,6 @@ test('WebSearch - DuckDuckGo HTML: resultados con la URL real, sin repetidos, y 
   assert.match(challenge.error, /anti-bot verification or anomaly challenge/i);
 });
 
-test('PageFetcher - Validación de URLs y protección anti-SSRF', () => {
-  // Protocolos válidos
-  assert.equal(WebBrowser.validateUrlForFetch('https://es.wikipedia.org/wiki/Sol').valid, true);
-  assert.equal(WebBrowser.validateUrlForFetch('http://example.com/api').valid, true);
-  assert.equal(WebBrowser.validateUrlForFetch('example.com/path').valid, true); // Auto antepone https://
-
-  // Protocolos prohibidos
-  assert.equal(WebBrowser.validateUrlForFetch('file:///etc/passwd').valid, false);
-  assert.equal(WebBrowser.validateUrlForFetch('data:text/html,<h1>Hacked</h1>').valid, false);
-  assert.equal(WebBrowser.validateUrlForFetch('javascript:alert(1)').valid, false);
-  assert.equal(WebBrowser.validateUrlForFetch('blob:http://example.com/123').valid, false);
-
-  // Endpoints de metadatos cloud (SSRF)
-  assert.equal(WebBrowser.validateUrlForFetch('http://169.254.169.254/latest/meta-data/').valid, false);
-  assert.equal(WebBrowser.validateUrlForFetch('http://metadata.google.internal/computeMetadata/v1/').valid, false);
-  assert.equal(WebBrowser.validateUrlForFetch('http://instance-data/latest/').valid, false);
-  assert.equal(WebBrowser.validateUrlForFetch('http://100.100.100.200/latest/meta-data/').valid, false);
-
-  // Evasiones decimales / hexadecimales de IP
-  assert.equal(WebBrowser.validateUrlForFetch('http://2852039166/').valid, false); // 169.254.169.254 en decimal
-  assert.equal(WebBrowser.validateUrlForFetch('http://2130706433/').valid, false); // 127.0.0.1 en decimal
-  assert.equal(WebBrowser.validateUrlForFetch('http://0x7f000001/').valid, false); // 127.0.0.1 en hex
-});
-
 test('fetchPage - límite de longitud de contenido y error de Jina Reader', async t => {
   const fetchMock = t.mock.method(global, 'fetch', async () => new Response('A'.repeat(70000), { status: 200, headers: { 'content-type': 'text/html' } }));
   const res = await WebBrowser.fetchPage('https://example.com/large-page');
@@ -166,33 +142,30 @@ test('fetchBinaryResource - límites en el borde (N y N+1), Content-Length, vac�
   }
 });
 
-test('ImageFetcher - detectVisionImageMimeType reconoce formatos de visión raster y rechaza SVG y otros', () => {
-  // Por Content-Type
-  assert.equal(WebBrowser.detectVisionImageMimeType('', 'image/png'), 'image/png');
-  assert.equal(WebBrowser.detectVisionImageMimeType('', 'image/jpeg'), 'image/jpeg');
-  assert.equal(WebBrowser.detectVisionImageMimeType('', 'image/jpg'), 'image/jpeg');
-  assert.equal(WebBrowser.detectVisionImageMimeType('', 'image/webp'), 'image/webp');
-  assert.equal(WebBrowser.detectVisionImageMimeType('', 'image/gif'), 'image/gif');
-  assert.equal(WebBrowser.detectVisionImageMimeType('', 'image/png; charset=utf-8'), 'image/png');
+test('ImageFetcher - detectVisionImageMimeType, validación MIME y conversión base64 dataUrl', async t => {
+  for (const [name, contentType, expected] of [
+    ['', 'image/png', 'image/png'],
+    ['', 'image/jpeg', 'image/jpeg'],
+    ['', 'image/jpg', 'image/jpeg'],
+    ['', 'image/webp', 'image/webp'],
+    ['', 'image/gif', 'image/gif'],
+    ['', 'image/png; charset=utf-8', 'image/png'],
+    ['chart.png', 'application/octet-stream', 'image/png'],
+    ['photo.jpg', '', 'image/jpeg'],
+    ['photo.jpeg', '', 'image/jpeg'],
+    ['image.webp?w=400&h=300', '', 'image/webp'],
+    ['animation.gif', '', 'image/gif'],
+    ['vector.svg', 'image/svg+xml', ''],
+    ['vector.svg', '', ''],
+    ['doc.pdf', 'application/pdf', ''],
+    ['page.html', 'text/html', ''],
+    ['bitmap.bmp', 'image/bmp', ''],
+    ['', '', '']
+  ]) {
+    assert.equal(WebBrowser.detectVisionImageMimeType(name, contentType), expected, `${name} ${contentType}`);
+  }
 
-  // Por extensión en nombre o URL
-  assert.equal(WebBrowser.detectVisionImageMimeType('chart.png', 'application/octet-stream'), 'image/png');
-  assert.equal(WebBrowser.detectVisionImageMimeType('photo.jpg', ''), 'image/jpeg');
-  assert.equal(WebBrowser.detectVisionImageMimeType('photo.jpeg', ''), 'image/jpeg');
-  assert.equal(WebBrowser.detectVisionImageMimeType('image.webp?w=400&h=300', ''), 'image/webp');
-  assert.equal(WebBrowser.detectVisionImageMimeType('animation.gif', ''), 'image/gif');
-
-  // Rechazo de SVG, PDF, HTML y tipos no soportados
-  assert.equal(WebBrowser.detectVisionImageMimeType('vector.svg', 'image/svg+xml'), '');
-  assert.equal(WebBrowser.detectVisionImageMimeType('vector.svg', ''), '');
-  assert.equal(WebBrowser.detectVisionImageMimeType('doc.pdf', 'application/pdf'), '');
-  assert.equal(WebBrowser.detectVisionImageMimeType('page.html', 'text/html'), '');
-  assert.equal(WebBrowser.detectVisionImageMimeType('bitmap.bmp', 'image/bmp'), '');
-  assert.equal(WebBrowser.detectVisionImageMimeType('', ''), '');
-});
-
-test('ImageFetcher - validación de tipos MIME y conversión base64 dataUrl', async t => {
-  const sampleBytes = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]); // PNG header bytes
+  const sampleBytes = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
   const fetchMock = t.mock.method(global, 'fetch', async () => new Response(sampleBytes, { status: 200, headers: { 'content-type': 'image/png' } }));
   const res = await WebBrowser.fetchImage('https://example.com/sample.png');
   assert.equal(res.success, true);
@@ -200,14 +173,25 @@ test('ImageFetcher - validación de tipos MIME y conversión base64 dataUrl', as
   assert.equal(res.byteSize, sampleBytes.byteLength);
   assert.equal(res.dataUrl, 'data:image/png;base64,iVBORw0KGgo=');
 
-  // Rechazo de formato no admitido (SVG)
   fetchMock.mock.mockImplementation(async () => new Response('<svg></svg>', { status: 200, headers: { 'content-type': 'image/svg+xml' } }));
   const resSvg = await WebBrowser.fetchImage('https://example.com/vector.svg');
   assert.equal(resSvg.success, false);
   assert.ok(resSvg.error.includes('Unsupported image format'));
 });
 
-test('ChatWebBrowser.webFetch - valida la URL antes de cualquier petición, sea quien sea quien llama', async t => {
+test('ChatWebBrowser.webFetch - valida URLs, bloquea protocolos/SSRF antes de pedir y normaliza esquemas', async t => {
+  for (const okUrl of ['https://es.wikipedia.org/wiki/Sol', 'http://example.com/api', 'example.com/path']) {
+    assert.equal(WebBrowser.validateUrlForFetch(okUrl).valid, true, okUrl);
+  }
+  for (const badUrl of [
+    'file:///etc/passwd', 'data:text/html,<h1>Hacked</h1>', 'javascript:alert(1)', 'blob:http://example.com/123',
+    'http://169.254.169.254/latest/meta-data/', 'http://metadata.google.internal/computeMetadata/v1/',
+    'http://instance-data/latest/', 'http://100.100.100.200/latest/meta-data/',
+    'http://2852039166/', 'http://2130706433/', 'http://0x7f000001/'
+  ]) {
+    assert.equal(WebBrowser.validateUrlForFetch(badUrl).valid, false, badUrl);
+  }
+
   const requested = [];
   t.mock.method(global, 'fetch', async url => { requested.push(String(url)); return new Response('ok', { status: 200 }); });
   t.mock.method(ChatMCP.manager, 'fetchWebResource', async url => { requested.push(`backend:${url}`); return { ok: true, status: 200, text: 'ok' }; });
@@ -226,7 +210,6 @@ test('ChatWebBrowser.webFetch - valida la URL antes de cualquier petición, sea 
   }
   assert.deepEqual(requested, []);
 
-  // Las herramientas ya no validan por su cuenta: el motivo del rechazo de webFetch llega al modelo
   const page = await WebBrowser.fetchPage('http://127.0.0.1/report.pdf');
   assert.equal(page.success, false);
   assert.match(page.error, /SSRF protection/);
@@ -235,7 +218,6 @@ test('ChatWebBrowser.webFetch - valida la URL antes de cualquier petición, sea 
   assert.match(image.error, /SSRF protection/);
   assert.deepEqual(requested, []);
 
-  // Una URL sin esquema se pide con https:// y se informa normalizada
   const read = await WebBrowser.fetchPage(' example.com ');
   assert.equal(read.url, 'https://example.com/');
   assert.deepEqual(requested, ['https://r.jina.ai/https://example.com/']);

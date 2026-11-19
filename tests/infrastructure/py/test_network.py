@@ -143,7 +143,7 @@ class WebFetchTest(unittest.TestCase):
 
         server = ThreadingHTTPServer(("127.0.0.1", 0), Chain)
         self.addCleanup(server.server_close)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
+        threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
         self.addCleanup(server.shutdown)
         base = f"http://127.0.0.1:{server.server_address[1]}/r"
         limit = zerochat.WEB_FETCH_MAX_REDIRECTS
@@ -171,7 +171,7 @@ class WebFetchTest(unittest.TestCase):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 zerochat.fetch_web_resource({"url": url})
 
-    def test_fetch_web_resource_cabeceras_y_respuesta_202(self):
+    def test_duckduckgo_lleva_cabeceras_pasa_por_el_limitador_y_detecta_reto_202(self):
         class MockResponse:
             def __init__(self, status=200, headers=None, body=b"<html>OK</html>"):
                 self.status = status
@@ -197,20 +197,22 @@ class WebFetchTest(unittest.TestCase):
                 pass
 
         captured_requests = []
-        original_open = zerochat._WEB_OPENER.open
-        original_sleep = time.sleep
-        try:
-            def mock_open(req, timeout=10.0):
-                captured_requests.append(req)
-                status = 202 if "anomaly" in req.full_url else 200
-                return MockResponse(status=status)
+        timeouts = []
 
-            zerochat._WEB_OPENER.open = mock_open
-            time.__dict__["sleep"] = lambda _s: None  # sin esperas reales en este test
+        def opener(req, timeout=10.0):
+            captured_requests.append(req)
+            timeouts.append(timeout)
+            return MockResponse(status=202 if "anomaly" in req.full_url else 200)
 
-            # 1. Petición a DuckDuckGo lleva cabeceras de navegación y Referer
-            res = zerochat.fetch_web_resource({"url": "https://html.duckduckgo.com/html/?q=test"})
+        policy = zerochat.RatePolicy(concurrency=1, min_interval_s=0.4)
+        with patch.object(zerochat, "is_dangerous_host", return_value=False), \
+                patch.object(zerochat, "RATE_LIMITER", zerochat.RateLimiter()), \
+                patch.dict(zerochat.WEB_FETCH_DOMAIN_LIMITS, {"duckduckgo.com": policy}, clear=True), \
+                patch.object(zerochat._WEB_OPENER, "open", opener):
+            # 1. Subdominio de DuckDuckGo: lleva cabeceras de navegación, espera la separación y la descuenta del plazo.
+            res = zerochat.fetch_web_resource({"url": "https://html.duckduckgo.com/html/?q=a", "timeout_s": 5})
             self.assertTrue(res["ok"])
+            self.assertLess(timeouts[-1], 5 - 0.2)
             req = captured_requests[0]
             self.assertEqual(req.headers.get("User-agent"), zerochat.ACTIVE_USER_AGENT)
             self.assertEqual(req.headers.get("Referer"), "https://html.duckduckgo.com/")
@@ -218,59 +220,22 @@ class WebFetchTest(unittest.TestCase):
             self.assertEqual(req.headers.get("Sec-fetch-mode"), "navigate")
             self.assertIn("Chromium", req.headers.get("Sec-ch-ua"))
 
-            # 2. Petición con respuesta 202 se detecta como reto/anomalía y devuelve ok: False
-            res_202 = zerochat.fetch_web_resource({"url": "https://html.duckduckgo.com/anomaly"})
-            self.assertFalse(res_202["ok"])
-            self.assertEqual(res_202["status"], 202)
-            self.assertIn("Reto anti-bot", res_202["error"])
-        finally:
-            zerochat._WEB_OPENER.open = original_open
-            time.__dict__["sleep"] = original_sleep
-
-    def test_duckduckgo_pasa_por_el_limitador_y_la_espera_sale_del_plazo_de_la_peticion(self):
-        timeouts = []
-
-        class MockResponse:
-            status = 200
-            headers = email.message.EmailMessage({"Content-Type": "text/html"})
-
-            def read(self, amt=None):
-                return b""
-
-            def getheaders(self):
-                return list(self.headers.items())
-
-            def geturl(self):
-                return "https://html.duckduckgo.com/html/?q=test"
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *args):
-                pass
-
-        def opener(_req, timeout=10.0):
-            timeouts.append(timeout)
-            return MockResponse()
-
-        # Una separación holgada frente a lo que tarde la máquina entre crear el limitador y pedir (la CI es lenta).
-        policy = zerochat.RatePolicy(concurrency=1, min_interval_s=1.0)
-        with patch.object(zerochat, "RATE_LIMITER", zerochat.RateLimiter()), \
-                patch.dict(zerochat.WEB_FETCH_DOMAIN_LIMITS, {"duckduckgo.com": policy}), \
-                patch.object(zerochat._WEB_OPENER, "open", opener):
-            # Un subdominio cuenta como el dominio: la primera tras arrancar espera la separación, y esa espera
-            # se descuenta del plazo con el que se descarga.
-            zerochat.fetch_web_resource({"url": "https://html.duckduckgo.com/html/?q=a", "timeout_s": 5})
-            self.assertLess(timeouts[-1], 5 - 0.5)
-            # Otro dominio no espera ni pierde plazo.
+            # 2. Otro dominio no espera ni pierde plazo.
             zerochat.fetch_web_resource({"url": "https://example.com/", "timeout_s": 5})
             self.assertEqual(timeouts[-1], 5)
-            # Si el turno no llega dentro del plazo, falla enseguida con el motivo, sin descargar.
+
+            # 3. Si el turno no llega dentro del plazo, falla enseguida con el motivo, sin descargar.
             slow = zerochat.RatePolicy(concurrency=1, min_interval_s=10)
-            with patch.dict(zerochat.WEB_FETCH_DOMAIN_LIMITS, {"duckduckgo.com": slow}):
+            with patch.dict(zerochat.WEB_FETCH_DOMAIN_LIMITS, {"duckduckgo.com": slow}, clear=True):
                 busy = zerochat.fetch_web_resource({"url": "https://duckduckgo.com/html/?q=b", "timeout_s": 2})
             self.assertEqual((busy["ok"], len(timeouts)), (False, 2))
             self.assertIn("duckduckgo.com está ocupado", busy["error"])
+
+            # 4. Respuesta 202 se detecta como reto/anomalía y devuelve ok: False.
+            with patch.dict(zerochat.WEB_FETCH_DOMAIN_LIMITS, {}, clear=True):
+                res_202 = zerochat.fetch_web_resource({"url": "https://html.duckduckgo.com/anomaly"})
+            self.assertEqual((res_202["ok"], res_202["status"]), (False, 202))
+            self.assertIn("Reto anti-bot", res_202["error"])
 
     def test_capture_frontend_user_agent(self):
         """El User-Agent de la primera petición del frontend se adopta; el resto no lo toca."""

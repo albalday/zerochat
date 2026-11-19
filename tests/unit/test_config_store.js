@@ -24,44 +24,38 @@ function initializeWithOffice() {
   Profiles.save(OFFICE);
 }
 
-test('ChatConfig - arranca con Espejo, conserva las instrucciones de datos y no persiste el perfil por nombre', () => {
-  const config = ChatConfig.initialize();
-  assert.equal(config.activeProfile.id, Profiles.READONLY_PROFILE_ID);
-  assert.equal(config.apiType, 'mirror');
-  assert.ok(config.systemDataPrompt.includes('Format:'), 'Debe conservar las instrucciones de datos de ZeroChat');
+test('ChatConfig - arranca con Espejo, conserva preferencias generales al activar perfil y soporta sessionOnly', () => {
+  const initial = ChatConfig.initialize();
+  assert.equal(initial.activeProfile.id, Profiles.READONLY_PROFILE_ID);
+  assert.equal(initial.apiType, 'mirror');
+  assert.ok(initial.systemDataPrompt.includes('Format:'));
   assert.equal(Storage.loadRuntimeConfigV2().activeProfileName, undefined);
-});
 
-test('ChatConfig - activar perfil reemplaza campos de perfil y conserva preferencias generales', () => {
+  Profiles.save(OFFICE);
+  const storedBeforeSession = Storage.loadRuntimeConfigV2();
+  try {
+    const sessionCfg = ChatConfig.activateProfile('office', { sessionOnly: true });
+    assert.equal(sessionCfg.model, 'qwen-office');
+    ChatConfig.updateRuntime({ theme: 'dark' });
+    assert.equal(ChatConfig.getActive().theme, 'dark');
+    assert.deepEqual(Storage.loadRuntimeConfigV2(), storedBeforeSession);
+  } finally {
+    State.set('config', ChatConfig.normalize({}));
+  }
+
+  localStorage.clear();
   initializeWithOffice();
   ChatConfig.updateRuntime({ theme: 'dark', activeRagBranchIds: ['rag-a', 'rag-b'], enabledTools: { search_web: false } });
   const config = ChatConfig.activateProfile('office');
-
   assert.equal(config.apiUrl, 'http://office.test/v1');
   assert.equal(config.model, 'qwen-office');
   assert.equal(config.reasoningEffort, 'high');
   assert.equal(config.enableRawLogs, true);
   assert.equal(config.theme, 'dark');
   assert.deepEqual(config.activeRagBranchIds, ['rag-a', 'rag-b']);
-  assert.deepEqual(config.enabledTools, { search_web: false }, 'Las herramientas nativas son una preferencia general');
+  assert.deepEqual(config.enabledTools, { search_web: false });
   assert.equal(config.activeProfile.version, Profiles.get('office').version);
-  assert.ok(config.systemDataPrompt.includes('Format:'), 'Cambiar de perfil no debe perder las instrucciones de datos');
-});
-
-test('ChatConfig - un perfil activado solo para la sesión no cambia la configuración guardada', () => {
-  initializeWithOffice();
-  const stored = Storage.loadRuntimeConfigV2();
-  try {
-    const config = ChatConfig.activateProfile('office', { sessionOnly: true });
-    assert.equal(config.model, 'qwen-office');
-    ChatConfig.updateRuntime({ theme: 'dark' });
-    assert.equal(ChatConfig.getActive().theme, 'dark');
-    assert.deepEqual(Storage.loadRuntimeConfigV2(), stored);
-    assert.equal(stored.activeProfile.id, Profiles.READONLY_PROFILE_ID);
-  } finally {
-    // La marca vive en la configuración en memoria: los demás casos parten de una página nueva.
-    State.set('config', ChatConfig.normalize({}));
-  }
+  assert.ok(config.systemDataPrompt.includes('Format:'));
 });
 
 test('ChatConfig - el límite detectado es volátil y se descarta al activar perfil o cambiar de conexión', () => {

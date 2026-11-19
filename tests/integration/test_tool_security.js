@@ -127,52 +127,40 @@ test('ChatToolSecurity - mutaciones envían parches parciales y adoptan la respu
   assert.equal(manager.listAuthorizedServers().length, 0);
 });
 
-test('ChatToolSecurity - las políticas se buscan por id exacto y propio', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager();
-  manager.applyPolicies({ tools: { MyTool: { policy: 'allow' } }, servers: { PlayWright: { policy: 'allow' } } });
-  assert.equal(manager.getToolPolicy('MyTool'), 'allow');
-  assert.equal(manager.getToolPolicy('mytool'), null);
-  assert.equal(manager.getToolPolicy('__proto__'), null);
-  assert.equal(manager.getServerPolicy('playwright'), null);
-});
-
-test('ChatToolSecurity - authorizeChallenge ejecuta y adopta las políticas devueltas sin pedir security/get extra', async () => {
-  const mockClient = createMockClient({
-    tools: { initial_tool: { policy: 'allow' } }
-  });
-  const manager = new ChatToolSecurity.ToolSecurityManager();
-  manager.setMcpClient(mockClient);
-
-  mockClient.calls.length = 0;
-  const res = await manager.authorizeChallenge('ch-123', 'allow_once');
-  assert.equal(res.authorized, true);
-  assert.equal(manager.getToolPolicy('initial_tool'), 'allow');
-
-  assert.deepEqual(mockClient.calls.map(c => c.method), ['zerochat/security/authorize']);
-  assert.equal(mockClient.calls[0].params.challengeId, 'ch-123');
-});
-
-test('ChatToolSecurity - setCommandPatterns sustituye los patrones guardados y nunca envía los de sesión', async () => {
-  const mockClient = createMockClient({ commandPatterns: { global: ['git *'], projects: {}, session: ['make *'] } });
-  const manager = new ChatToolSecurity.ToolSecurityManager();
-  manager.setMcpClient(mockClient);
-  manager.applyPolicies(mockClient.state);
-  assert.deepEqual(manager.getCommandPatterns().session, ['make *']);
-
-  await manager.setCommandPatterns({ global: ['git status *'], projects: { '/repo': ['npm test *'] } });
-  assert.deepEqual(mockClient.calls.at(-1).params, { commandPatterns: { global: ['git status *'], projects: { '/repo': ['npm test *'] } } });
-  assert.deepEqual(manager.getCommandPatterns(), { global: ['git status *'], projects: { '/repo': ['npm test *'] }, session: ['make *'] });
-});
-
-test('ChatToolSecurity - un listener que falla no detiene la notificación a los demás', (t) => {
+test('ChatToolSecurity - busca por id exacto/propio y aísla listeners que fallan', (t) => {
   t.mock.method(console, 'warn', () => {});
   const manager = new ChatToolSecurity.ToolSecurityManager();
   let notified = false;
   manager.subscribe(() => { throw new Error('broken listener'); });
   manager.subscribe(() => { notified = true; });
 
-  manager.applyPolicies({});
-
+  manager.applyPolicies({ tools: { MyTool: { policy: 'allow' } }, servers: { PlayWright: { policy: 'allow' } } });
   assert.equal(notified, true);
   assert.equal(console.warn.mock.callCount(), 1);
+  assert.equal(manager.getToolPolicy('MyTool'), 'allow');
+  assert.equal(manager.getToolPolicy('mytool'), null);
+  assert.equal(manager.getToolPolicy('__proto__'), null);
+  assert.equal(manager.getServerPolicy('playwright'), null);
+});
+
+test('ChatToolSecurity - authorizeChallenge y setCommandPatterns adoptan políticas sin peticiones extra ni patrones de sesión', async () => {
+  const authClient = createMockClient({ tools: { initial_tool: { policy: 'allow' } } });
+  const authManager = new ChatToolSecurity.ToolSecurityManager();
+  authManager.setMcpClient(authClient);
+  authClient.calls.length = 0;
+  const res = await authManager.authorizeChallenge('ch-123', 'allow_once');
+  assert.equal(res.authorized, true);
+  assert.equal(authManager.getToolPolicy('initial_tool'), 'allow');
+  assert.deepEqual(authClient.calls.map(c => c.method), ['zerochat/security/authorize']);
+  assert.equal(authClient.calls[0].params.challengeId, 'ch-123');
+
+  const patClient = createMockClient({ commandPatterns: { global: ['git *'], projects: {}, session: ['make *'] } });
+  const patManager = new ChatToolSecurity.ToolSecurityManager();
+  patManager.setMcpClient(patClient);
+  patManager.applyPolicies(patClient.state);
+  assert.deepEqual(patManager.getCommandPatterns().session, ['make *']);
+
+  await patManager.setCommandPatterns({ global: ['git status *'], projects: { '/repo': ['npm test *'] } });
+  assert.deepEqual(patClient.calls.at(-1).params, { commandPatterns: { global: ['git status *'], projects: { '/repo': ['npm test *'] } } });
+  assert.deepEqual(patManager.getCommandPatterns(), { global: ['git status *'], projects: { '/repo': ['npm test *'] }, session: ['make *'] });
 });

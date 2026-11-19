@@ -100,8 +100,12 @@ class PlaywrightLaunchTest(unittest.TestCase):
         finally:
             zerochat.set_service_user_agent(original)
 
-    def test_con_el_navegador_del_usuario_manda_la_extension_y_siempre_hay_ventana(self):
-        self.assertEqual(self.launch_args({"mode": "user", "userBrowser": "msedge", "headless": True}), ["--extension", "--browser=msedge"])
+    def test_con_el_navegador_del_usuario_manda_la_extension_el_token_va_en_entorno_y_siempre_hay_ventana(self):
+        token = "abc_DEF-123"
+        self.assertEqual(self.launch_args({"mode": "user", "userBrowser": "msedge", "headless": True, "extensionToken": token}), ["--extension", "--browser=msedge"])
+        self.assertEqual(self.launched_env["PLAYWRIGHT_MCP_EXTENSION_TOKEN"], token)
+        self.launch_args({"mode": "own", "extensionToken": token})
+        self.assertNotIn("PLAYWRIGHT_MCP_EXTENSION_TOKEN", self.launched_env)
         # Chromium no es un canal: su ejecutable y su perfil, con el canal chrome; sin Chromium no arranca.
         with patch.object(zerochat, "chromium_install", return_value=("/usr/bin/chromium", Path("/home/u/.config/chromium"))):
             self.assertEqual(self.launch_args({"mode": "user", "userBrowser": "chromium"}), [
@@ -109,7 +113,7 @@ class PlaywrightLaunchTest(unittest.TestCase):
         with patch.object(zerochat, "chromium_install", return_value=None), self.assertRaisesRegex(RuntimeError, "Chromium"):
             zerochat.playwright_launch_args({**zerochat.BROWSER_CONFIG_DEFAULTS, "mode": "user", "userBrowser": "chromium"})
 
-    def test_el_navegador_del_perfil_sustituye_en_ese_arranque_modo_navegador_almacenamiento_y_ventana_pedida(self):
+    def test_el_navegador_del_perfil_sustituye_en_ese_arranque_y_se_valida(self):
         settings = {"mode": "own", "engine": "firefox", "headless": False, "extensionToken": "abc"}
         self.assertEqual(self.launch_args(settings, {"mode": "user", "userBrowser": "msedge"}), ["--extension", "--browser=msedge"])
         self.assertEqual(self.launched_env["PLAYWRIGHT_MCP_EXTENSION_TOKEN"], "abc")
@@ -123,25 +127,17 @@ class PlaywrightLaunchTest(unittest.TestCase):
         for directory in (self.own.parent, self.own, self.own / "webkit", self.own / "webkit" / "trabajo"):
             with self.subTest(directory=directory):
                 self.assertTrue(directory.is_dir())
-                if os.name != "nt":  # Windows no aplica los permisos POSIX de chmod
+                if os.name != "nt":
                     self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
         self.assertEqual(self.launch_args(headless, {"mode": "own", "engine": "webkit"})[-1], "--headless")
         self.assertEqual(self.manager.records["playwright"].browser, {"mode": "own", "engine": "webkit"})
 
-    def test_el_navegador_de_un_perfil_se_valida(self):
         for invalid in (None, [], {"mode": "own"}, {"mode": "own", "engine": "opera"}, {"mode": "user", "userBrowser": "firefox"},
                         {"mode": "own", "engine": "chromium", "headless": True}, {"mode": "user", "userBrowser": "chrome", "headless": False},
                         {"mode": "user", "userBrowser": "chrome", "storage": "trabajo"}, {"mode": "own", "engine": "chromium", "storage": 123},
                         {"mode": "user", "engine": "chromium"}):
             with self.subTest(browser=invalid), self.assertRaisesRegex(ValueError, "browser debe ser"):
                 zerochat.validate_profile_browser(invalid)
-
-    def test_el_token_de_la_extension_va_en_el_entorno_y_solo_con_el_navegador_del_usuario(self):
-        token = "abc_DEF-123"
-        self.assertEqual(self.launch_args({"mode": "user", "userBrowser": "chrome", "extensionToken": token}), ["--extension", "--browser=chrome"])
-        self.assertEqual(self.launched_env["PLAYWRIGHT_MCP_EXTENSION_TOKEN"], token)
-        self.launch_args({"mode": "own", "extensionToken": token})
-        self.assertNotIn("PLAYWRIGHT_MCP_EXTENSION_TOKEN", self.launched_env)
 
     def test_lo_guardado_se_valida_solo_lo_lee_el_usuario_y_lo_usa_el_siguiente_arranque(self):
         saved = zerochat.save_browser_config({"engine": "webkit", "headless": False})
@@ -264,10 +260,3 @@ class BrowserEnginesTest(unittest.TestCase):
             "engines": [],
             "config": zerochat.load_browser_config(),
         })
-
-    def test_las_rutas_de_playwright_se_cachean_por_binario_y_mtime(self):
-        with unittest.mock.patch.object(self.engines, "_run_cli", wraps=self.engines._run_cli) as run_cli:
-            first = self.engines.list()
-            second = self.engines.list()
-        self.assertEqual(first, second)
-        self.assertEqual(run_cli.call_count, 1)

@@ -11,23 +11,19 @@ class VersionTest(unittest.TestCase):
         zerochat.reset_notices()
         self.addCleanup(zerochat.reset_notices)
 
-    def test_en_el_repositorio_no_se_comprueba_la_version(self):
-        self.assertIsNotNone(zerochat.get_dev_root())
-        output = io.StringIO()
-        with contextlib.redirect_stdout(output):
-            zerochat.check_version()
-        self.assertNotIn("Nueva versión disponible", output.getvalue())
-        self.assertNotIn("_read_package_version", output.getvalue())
-        self.assertEqual(zerochat.get_notices(), ())
-
-    def test_las_versiones_se_comparan_como_semver_y_solo_major_minor_actualiza_el_ejecutable(self):
+    def test_las_versiones_se_comparan_como_semver_y_solo_instalado_consulta_github(self):
         self.assertEqual(zerochat.parse_version("7.0.5"), (7, 0, 5))
         self.assertGreater(zerochat.parse_version("7.0.10"), zerochat.parse_version("7.0.5"))
         self.assertFalse(zerochat.parse_version("7.0.5") > zerochat.parse_version("7.0.5"))
         self.assertFalse(zerochat.has_new_backend_version("7.4.9", "7.4"))
         self.assertTrue(zerochat.has_new_backend_version("7.5.0", "7.4"))
 
-    def test_la_comprobacion_consulta_github_pages_para_la_interfaz_y_github_para_el_ejecutable(self):
+        self.assertIsNotNone(zerochat.get_dev_root())
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            zerochat.check_version()
+        self.assertEqual(zerochat.get_notices(), ())
+
         newer_version = f"{int(zerochat.VERSION.split('.')[0]) + 1}.0.0"
         with patch.object(zerochat, "get_dev_root", return_value=None), \
                 patch.object(zerochat, "is_installed_runtime", return_value=True), \

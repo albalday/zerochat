@@ -25,7 +25,7 @@ class ProjectFilesTest(unittest.TestCase):
         result, error, _ = zerochat.dispatch_files(method, params, self.ctx)
         return result, error
 
-    def test_lista_carpetas_primero_por_nombre_con_tamano_y_fecha(self):
+    def test_lista_carpetas_primero_por_nombre_y_respeta_el_tope_de_entradas_en_el_borde(self):
         listing, error = self.call("zerochat/files/list")
         self.assertIsNone(error)
         self.assertEqual(listing["path"], "")
@@ -38,7 +38,6 @@ class ProjectFilesTest(unittest.TestCase):
         nested, _ = self.call("zerochat/files/list", path="src")
         self.assertEqual((nested["path"], [e["name"] for e in nested["entries"]]), ("src", ["main.py"]))
 
-    def test_el_tope_de_entradas_por_carpeta_se_respeta_en_el_borde(self):
         many = self.root / "muchos"
         many.mkdir()
         for i in range(4):
@@ -64,7 +63,7 @@ class ProjectFilesTest(unittest.TestCase):
         self.assertIsNone(error)
         self.assertEqual(inner["text"], "# Hola\n")
 
-    def test_un_fichero_es_texto_salvo_byte_nulo_o_utf8_no_valido(self):
+    def test_un_fichero_es_texto_salvo_binario_o_mayor_que_el_tope_de_la_vista(self):
         (self.root / "dato.bin").write_bytes(b"PNG\0\x01\x02")
         (self.root / "latin1.txt").write_bytes("canción".encode("latin-1"))
         # Un carácter de varios bytes partido en el borde del comienzo examinado no lo hace binario.
@@ -78,7 +77,6 @@ class ProjectFilesTest(unittest.TestCase):
                 self.assertEqual(result["binary"], binary)
                 self.assertEqual("text" in result, not binary)
 
-    def test_un_texto_mayor_que_el_tope_de_la_vista_no_se_devuelve_y_se_descarga(self):
         (self.root / "grande.txt").write_text("a" * 10, encoding="utf-8", newline="\n")
         for limit, too_large in ((10, False), (9, True)):
             with self.subTest(limit=limit), patch.object(zerochat, "MAX_TEXT_VIEW_BYTES", limit):

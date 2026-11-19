@@ -29,42 +29,37 @@ test('Application does not call native browser dialogs', () => {
   }
 });
 
-test('Confirmations remain independent and require explicit acceptance', () => {
+test('Confirmations, item lists and prompts remain independent and return explicit results', () => {
   const store = State.createStore();
-  const notice = { message: 'Delete?', title: 'Confirm', type: 'info', mode: 'confirm' };
-  const first = store.enqueueNotice(notice);
-  const second = store.enqueueNotice(notice);
-  assert.notEqual(first, second);
-  store.dismissNotice(first, true);
-  assert.deepEqual(store.get('ui').noticeResult, { id: first, accepted: true });
-  store.dismissNotice(second);
-  assert.deepEqual(store.get('ui').noticeResult, { id: second, accepted: false });
-});
 
-test('Item lists return only the offered items kept on acceptance', () => {
-  const store = State.createStore();
-  const notice = { message: 'Start?', title: 'Services', type: 'info', mode: 'confirm', items: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] };
-  const first = store.enqueueNotice(notice);
-  assert.deepEqual(store.get('ui').notices[0].items, notice.items);
-  store.dismissNotice(first, true, null, false, ['b', 'b', 'injected']);
-  assert.deepEqual(store.get('ui').noticeResult, { id: first, accepted: true, items: ['b'] });
-  const second = store.enqueueNotice(notice);
-  store.dismissNotice(second, false, null, false, ['a']);
-  assert.deepEqual(store.get('ui').noticeResult, { id: second, accepted: false, items: null });
-  assert.throws(() => store.enqueueNotice({ ...notice, items: [{ id: '', label: 'Empty' }] }), TypeError);
-  assert.throws(() => store.enqueueNotice({ ...notice, items: [{ id: 'x'.repeat(201), label: 'Long' }] }), TypeError);
-  assert.throws(() => store.enqueueNotice({ ...notice, items: 'a' }), TypeError);
-});
+  const confirmNotice = { message: 'Delete?', title: 'Confirm', type: 'info', mode: 'confirm' };
+  const c1 = store.enqueueNotice(confirmNotice);
+  const c2 = store.enqueueNotice(confirmNotice);
+  assert.notEqual(c1, c2);
+  store.dismissNotice(c1, true);
+  assert.deepEqual(store.get('ui').noticeResult, { id: c1, accepted: true });
+  store.dismissNotice(c2);
+  assert.deepEqual(store.get('ui').noticeResult, { id: c2, accepted: false });
 
-test('Prompts preserve initial text and distinguish empty acceptance from cancellation', () => {
-  const store = State.createStore();
-  const notice = { message: 'Name', title: 'Input', type: 'info', mode: 'prompt', value: '<text>' };
-  const first = store.enqueueNotice(notice);
-  const second = store.enqueueNotice(notice);
-  assert.notEqual(first, second);
+  const itemNotice = { message: 'Start?', title: 'Services', type: 'info', mode: 'confirm', items: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] };
+  const i1 = store.enqueueNotice(itemNotice);
+  assert.deepEqual(store.get('ui').notices[0].items, itemNotice.items);
+  store.dismissNotice(i1, true, null, false, ['b', 'b', 'injected']);
+  assert.deepEqual(store.get('ui').noticeResult, { id: i1, accepted: true, items: ['b'] });
+  const i2 = store.enqueueNotice(itemNotice);
+  store.dismissNotice(i2, false, null, false, ['a']);
+  assert.deepEqual(store.get('ui').noticeResult, { id: i2, accepted: false, items: null });
+  assert.throws(() => store.enqueueNotice({ ...itemNotice, items: [{ id: '', label: 'Empty' }] }), TypeError);
+  assert.throws(() => store.enqueueNotice({ ...itemNotice, items: [{ id: 'x'.repeat(201), label: 'Long' }] }), TypeError);
+  assert.throws(() => store.enqueueNotice({ ...itemNotice, items: 'a' }), TypeError);
+
+  const promptNotice = { message: 'Name', title: 'Input', type: 'info', mode: 'prompt', value: '<text>' };
+  const p1 = store.enqueueNotice(promptNotice);
+  const p2 = store.enqueueNotice(promptNotice);
+  assert.notEqual(p1, p2);
   assert.equal(store.get('ui').notices[0].value, '<text>');
-  store.dismissNotice(first, true, '');
+  store.dismissNotice(p1, true, '');
   assert.equal(store.get('ui').noticeResult.value, '');
-  store.dismissNotice(second, false, 'discard');
+  store.dismissNotice(p2, false, 'discard');
   assert.equal(store.get('ui').noticeResult.value, null);
 });

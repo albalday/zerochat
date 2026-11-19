@@ -138,26 +138,16 @@ test('delegate_task - el subagente trabaja con contexto propio y devuelve solo s
   assert.equal(result.history.some(message => message.name === 'read_file'), false);
 });
 
-test('delegate_task - valida el encargo y no arranca sin herramientas de lectura', async t => {
+test('delegate_task - valida encargo, herramientas requeridas, fallos del proveedor y truncado del informe', async t => {
   const { registry, context } = createHarness([]);
   let requests = 0;
-  stubApi(t, async () => { requests++; return { accumulatedText: 'x', toolCalls: [] }; });
+  let respond = async () => ({ accumulatedText: 'x', toolCalls: [] });
+  stubApi(t, params => { requests++; return respond(params); });
 
   assert.match((await delegateTask.execute({ task: '  ' }, context)).error, /non-empty/);
   assert.match((await delegateTask.execute({ task: 'x'.repeat(8001) }, context)).error, /must not exceed/);
 
-  registry.unregisterTool('read_file');
-  const noTools = await delegateTask.execute({ task: 'Investigate' }, context);
-  assert.equal(noTools.success, false);
-  assert.match(noTools.error, /No read-only tools/);
-  assert.equal(requests, 0);
-});
-
-test('delegate_task - un informe vacío o un error del proveedor se devuelven como fallo', async t => {
-  const { context } = createHarness([]);
-  let respond = async () => ({ accumulatedText: '   ', toolCalls: [] });
-  stubApi(t, params => respond(params));
-
+  respond = async () => ({ accumulatedText: '   ', toolCalls: [] });
   const empty = await delegateTask.execute({ task: 'Investigate' }, context);
   assert.equal(empty.success, false);
   assert.match(delegateTask.toModel({}, empty), /"success":false[\s\S]*without a report/);
@@ -169,9 +159,16 @@ test('delegate_task - un informe vacío o un error del proveedor se devuelven co
   const long = await delegateTask.execute({ task: 'Investigate' }, context);
   assert.equal(long.success, true);
   assert.match(long.report, /\[Report truncated at 20000 characters\.\]$/);
+
+  const countBeforeNoTools = requests;
+  registry.unregisterTool('read_file');
+  const noTools = await delegateTask.execute({ task: 'Investigate' }, context);
+  assert.equal(noTools.success, false);
+  assert.match(noTools.error, /No read-only tools/);
+  assert.equal(requests, countBeforeNoTools);
 });
 
-test('delegate_task - un perfil «Subagente» da al subagente su propio modelo', async t => {
+test('delegate_task - usa el perfil Subagente si existe, si no el principal, y falla explícitamente si es ilegible', async t => {
   const { services, context } = createHarness([]);
   const loaded = [];
   const summarizers = [];
@@ -187,48 +184,37 @@ test('delegate_task - un perfil «Subagente» da al subagente su propio modelo',
   services.engine = { createHistorySummarizer: options => { summarizers.push(options); return async () => 'summary'; } };
   const requests = [];
   stubApi(t, async params => { requests.push(params); return { accumulatedText: 'Informe', toolCalls: [] }; });
-  const result = await delegateTask.execute({ task: 'Investigate' }, {
+
+  const mainContext = {
     ...context,
     agent: {
       ...context.agent,
       apiUrl: 'http://main/v1', apiType: 'anthropic', apiKey: 'main-key', model: 'main-model', temperature: '0.9',
       contextOptions: { totalContextLimit: 200000, summarizerAddendum: 'addendum' }
     }
-  });
-
-  assert.equal(result.success, true);
-  assert.deepEqual(loaded, ['profile:Subagente']);
-  const [request] = requests;
-  assert.deepEqual(
-    { apiUrl: request.apiUrl, apiType: request.apiType, apiKey: request.apiKey, model: request.model },
-    { apiUrl: 'http://sub/v1', apiType: 'openai', apiKey: 'sub-key', model: 'sub-model' }
-  );
-  assert.equal(summarizers.length, 1, 'La compactación del subagente usa la conexión del perfil');
-  assert.equal(summarizers[0].model, 'sub-model');
-  assert.equal(summarizers[0].apiKey, 'sub-key');
-});
-
-test('delegate_task - sin perfil «Subagente» usa el modelo principal; uno ilegible o incompleto es un error', async t => {
-  const { services, context } = createHarness([]);
-  const requests = [];
-  stubApi(t, async params => { requests.push(params); return { accumulatedText: 'Informe', toolCalls: [] }; });
-  const mainContext = { ...context, agent: { ...context.agent, apiUrl: 'http://main/v1', apiType: 'openai', apiKey: 'main-key', model: 'main-model' } };
-
-  services.profiles = { list: () => [{ id: 'profile:Main', name: 'Main', settings: {} }], loadUnlocked: async () => assert.fail('No debe cargar perfiles') };
+  };
   assert.equal((await delegateTask.execute({ task: 'Investigate' }, mainContext)).success, true);
-  assert.equal(requests[0].model, 'main-model');
-  assert.equal(requests[0].apiKey, 'main-key');
+  assert.deepEqual(loaded, ['profile:Subagente']);
+  assert.equal(requests[0].model, 'sub-model');
+  assert.equal(requests[0].apiKey, 'sub-key');
+  assert.equal(summarizers.length, 1);
+  assert.equal(summarizers[0].model, 'sub-model');
 
+  // Sin perfil Subagente recurre al principal
+  services.profiles = { list: () => [{ id: 'profile:Main', name: 'Main', settings: {} }], loadUnlocked: async () => assert.fail('No debe cargar') };
+  assert.equal((await delegateTask.execute({ task: 'Investigate' }, mainContext)).success, true);
+  assert.equal(requests[1].model, 'main-model');
+  assert.equal(requests[1].apiKey, 'main-key');
+
+  // Perfiles ilegibles o incompletos fallan sin silenciar
   const subagentList = () => [{ id: 'profile:Subagent', name: 'Subagent', settings: {} }];
   services.profiles = { list: subagentList, loadUnlocked: async () => { throw new Error('Password required'); } };
-  const failed = await delegateTask.execute({ task: 'Investigate' }, mainContext);
-  assert.equal(failed.success, false);
-  assert.match(failed.error, /"Subagent" profile could not be loaded: Password required/);
+  assert.match((await delegateTask.execute({ task: 'Investigate' }, mainContext)).error, /"Subagent" profile could not be loaded: Password required/);
 
   services.profiles = { list: subagentList, loadUnlocked: async () => ({ settings: { apiUrl: 'http://sub/v1', apiType: 'openai', model: '' } }) };
   assert.match((await delegateTask.execute({ task: 'Investigate' }, mainContext)).error, /"Subagent" profile is incomplete: missing model\./);
 
   services.profiles = { list: () => { throw new Error('corrupt storage'); } };
   assert.match((await delegateTask.execute({ task: 'Investigate' }, mainContext)).error, /profiles could not be read: corrupt storage/);
-  assert.equal(requests.length, 1, 'No recurre en silencio al modelo principal');
+  assert.equal(requests.length, 2);
 });

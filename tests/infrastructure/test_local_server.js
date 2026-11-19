@@ -74,50 +74,40 @@ describe('Servidor local zerochat.py', () => {
 
   after(() => serverProc?.kill('SIGTERM'));
 
-  test('el arranque detecta el entorno de desarrollo y muestra la URL', () => {
+  test('initialize publica el servidor, su versión, el SO, la carpeta general y el estado vivo del latido', async () => {
     assert.match(serverOutput, /Desarrollo local/, 'Debe detectar el entorno de desarrollo');
     assert.match(serverOutput, new RegExp(baseUrl.replace(/\./g, '\\.')), 'Debe mostrar la URL destino en el arranque');
+    assert.equal(initResult.serverInfo?.name, 'ZeroChat Local Server');
+    const noProjectDir = path.join(fs.realpathSync(dataDir), 'general');
+    assert.equal(initResult.serverInfo?.noProjectDir, noProjectDir);
+    assert.ok(fs.statSync(noProjectDir).isDirectory(), 'initialize crea la carpeta general');
+    assert.equal(initResult.serverInfo?.version, pkg.version.split('.').slice(0, 2).join('.'));
+    assert.ok(typeof initResult.serverInfo?.os === 'string', 'serverInfo debe publicar el SO detectado');
+    assert.deepEqual(Object.keys(initResult.liveState).sort(), Object.keys(await heartbeat()).sort());
+    assert.equal(initResult.liveState.exit_on_close, true);
   });
 
-  test('solo el token de sesión en cabecera autoriza, nunca en la URL', async () => {
-    assert.equal((await post('initialize', {}, { headers: { Authorization: '' } })).status, 401, 'Petición POST sin token debe ser rechazada con 401');
-    assert.equal((await post('initialize', {}, { headers: { Authorization: 'Bearer wrong-token' } })).status, 401, 'Petición con token erróneo debe ser 401');
-    assert.equal((await post('initialize', {}, { endpoint: `?token=${testToken}`, headers: { Authorization: '' } })).status, 401, 'El token en query string debe ser rechazado');
+  test('solo el token en cabecera autoriza, zerochat/login admite hasta 4096 bytes sin token y la API va por POST con CORS', async () => {
+    assert.equal((await post('initialize', {}, { headers: { Authorization: '' } })).status, 401);
+    assert.equal((await post('initialize', {}, { headers: { Authorization: 'Bearer wrong-token' } })).status, 401);
+    assert.equal((await post('initialize', {}, { endpoint: `?token=${testToken}`, headers: { Authorization: '' } })).status, 401);
     const byHeader = await post('tools/list', {}, { headers: { Authorization: '', 'X-ZeroChat-Token': testToken } });
-    assert.equal(byHeader.status, 200, 'X-ZeroChat-Token también autoriza');
+    assert.equal(byHeader.status, 200);
     await byHeader.text();
-  });
 
-  test('sin token solo se atiende zerochat/login, con un cuerpo de hasta 4096 bytes', async () => {
     const loginBody = size => {
       const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'zerochat/login', params: { user: '', password: '' } });
       return body.slice(0, -1) + ' '.repeat(size - body.length) + '}';
     };
-    const send = body => fetch(baseUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: ORIGIN }, body });
-    const atLimit = await send(loginBody(4096));
+    const sendNoToken = body => fetch(baseUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: ORIGIN }, body });
+    const atLimit = await sendNoToken(loginBody(4096));
     assert.equal(atLimit.status, 200);
-    assert.equal((await atLimit.json()).error?.code, -32602, 'la petición llega a zerochat/login, que valida sus parámetros');
-    assert.equal((await send(loginBody(4097))).status, 401);
+    assert.equal((await atLimit.json()).error?.code, -32602);
+    assert.equal((await sendNoToken(loginBody(4097))).status, 401);
     assert.equal((await post('zerochat/heartbeat', {}, { headers: { Authorization: '' } })).status, 401);
-  });
 
-  test('el cuerpo de una petición es un objeto JSON de hasta 1 MiB', async () => {
-    const send = body => fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Origin: ORIGIN, Authorization: `Bearer ${testToken}` },
-      body
-    });
-    assert.equal((await send(JSON.stringify([]))).status, 400, 'Una petición JSON que no sea un objeto debe rechazarse');
-    try {
-      assert.equal((await send('x'.repeat(1024 * 1024 + 1))).status, 413, 'Un cuerpo superior al límite debe rechazarse');
-    } catch (err) {
-      if (err?.cause?.code !== 'EPIPE' && err?.cause?.code !== 'ECONNRESET') throw err;
-    }
-  });
-
-  test('la API va solo por POST, CORS admite exactamente las cabeceras que envía la interfaz y el cliente MCP las usa', async () => {
     const api = await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });
-    assert.equal(api.status, 404, 'GET no da acceso a la API');
+    assert.equal(api.status, 404);
     await api.text();
     const preflight = await fetch(baseUrl, {
       method: 'OPTIONS',
@@ -131,7 +121,19 @@ describe('Servidor local zerochat.py', () => {
     assert.ok(Array.isArray((await client.request('tools/list')).tools));
   });
 
-  test('la subida de blobs por zerochat/blobs/put con X-ZeroChat-Blob admite más de 1 MiB', async () => {
+  test('el cuerpo es un objeto JSON de hasta 1 MiB, salvo zerochat/blobs/put con X-ZeroChat-Blob', async () => {
+    const send = body => fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: ORIGIN, Authorization: `Bearer ${testToken}` },
+      body
+    });
+    assert.equal((await send(JSON.stringify([]))).status, 400);
+    try {
+      assert.equal((await send('x'.repeat(1024 * 1024 + 1))).status, 413);
+    } catch (err) {
+      if (err?.cause?.code !== 'EPIPE' && err?.cause?.code !== 'ECONNRESET') throw err;
+    }
+
     const rawData = 'B'.repeat(1024 * 1024 + 100);
     const b64Data = Buffer.from(rawData).toString('base64');
     const client = new McpClient({ url: baseUrl, token: testToken });
@@ -142,56 +144,20 @@ describe('Servidor local zerochat.py', () => {
     assert.ok(res?.id);
     assert.equal(res.size, rawData.length);
 
-    // Sin la cabecera X-ZeroChat-Blob, el cuerpo > 1 MiB es rechazado con 413
     try {
-      const rejected = await fetch(baseUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: ORIGIN, Authorization: `Bearer ${testToken}` },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 998,
-          method: 'zerochat/blobs/put',
-          params: { mimeType: 'text/plain', data: `data:text/plain;base64,${b64Data}` }
-        })
-      });
+      const rejected = await send(JSON.stringify({
+        jsonrpc: '2.0',
+        id: 998,
+        method: 'zerochat/blobs/put',
+        params: { mimeType: 'text/plain', data: `data:text/plain;base64,${b64Data}` }
+      }));
       assert.equal(rejected.status, 413);
     } catch (err) {
       if (err?.cause?.code !== 'EPIPE' && err?.cause?.code !== 'ECONNRESET') throw err;
     }
   });
 
-  test('initialize publica el servidor, su versión, el SO, la carpeta general y el estado vivo del latido', async () => {
-    assert.equal(initResult.serverInfo?.name, 'ZeroChat Local Server');
-    const noProjectDir = path.join(fs.realpathSync(dataDir), 'general');
-    assert.equal(initResult.serverInfo?.noProjectDir, noProjectDir);
-    assert.ok(fs.statSync(noProjectDir).isDirectory(), 'initialize crea la carpeta general');
-    assert.equal(initResult.serverInfo?.version, pkg.version.split('.').slice(0, 2).join('.'));
-    assert.ok(typeof initResult.serverInfo?.os === 'string', 'serverInfo debe publicar el SO detectado');
-    assert.deepEqual(Object.keys(initResult.liveState).sort(), Object.keys(await heartbeat()).sort());
-    assert.equal(initResult.liveState.exit_on_close, true);
-  });
-
-  test('tools/call aplica control de acceso en backend y soporta autorización de herramientas', async () => {
-    const client = new McpClient({ id: 'mcp_proxy', url: baseUrl, token: testToken });
-    assert.equal((await client.initialize()).success, true);
-    // list_directory en '.' está cubierto por la regla por defecto del workspace
-    assert.equal((await client.callTool('list_directory', { path: '.' })).success, true);
-
-    // run_command requiere autorización del usuario por defecto
-    const cmdRes = await client.request('tools/call', { name: 'run_command', arguments: { command: 'echo test' } });
-    assert.equal(cmdRes.requiresAuthorization, true);
-    assert.ok(cmdRes.challengeId, 'Debe devolver un challengeId para autorizar');
-
-    // Autorizar el reto con allow_once y ejecutarlo
-    const authRes = await client.request('zerochat/security/authorize', {
-      challengeId: cmdRes.challengeId,
-      decision: 'allow_once'
-    });
-    assert.equal(authRes.authorized, true);
-    assert.ok(authRes.result?.content?.[0]?.text?.includes('test'));
-  });
-
-  test('tools/list publica las herramientas core con sus esquemas estrictos', async () => {
+  test('tools/list publica las herramientas core con sus esquemas estrictos y tools/call valida argumentos y control de acceso', async () => {
     const tools = (await rpc('tools/list')).result?.tools || [];
     const toolNames = tools.map(tool => tool.name);
     for (const name of ['list_directory', 'read_file', 'write_file', 'edit_file', 'run_command', 'check_command', 'search_files', 'get_diagnostics', 'browser_action']) {
@@ -203,35 +169,27 @@ describe('Servidor local zerochat.py', () => {
     assert.match(runTool.description, /fresh/, 'run_command debe advertir de que cada llamada empieza de cero');
     assert.deepEqual(Object.keys(runTool.inputSchema.properties).sort(), ['background', 'command', 'timeout_seconds'], 'run_command no admite cwd');
     const editFile = tools.find(tool => tool.name === 'edit_file');
-    assert.deepEqual(Object.keys(editFile.inputSchema.properties).sort(), ['new_str', 'old_str', 'path', 'replace_all'],
-      'edit_file solo publica el reemplazo exacto; write_file cubre la escritura completa');
-    assert.match(editFile.description, /several edit_file calls in the same response/,
-      'edit_file indica al modelo que varias ediciones van en varias llamadas de la misma respuesta');
+    assert.deepEqual(Object.keys(editFile.inputSchema.properties).sort(), ['new_str', 'old_str', 'path', 'replace_all']);
+    assert.match(editFile.description, /several edit_file calls in the same response/);
     assert.deepEqual(editFile.inputSchema.required.sort(), ['new_str', 'old_str', 'path']);
+
+    const badArgs = await post('tools/call', { name: 'run_command', arguments: { command: 'pwd', cwd: '/tmp' } });
+    assert.equal(badArgs.status, 400);
+    assert.match((await badArgs.json()).error || '', /Argumento no permitido: cwd/);
+
+    const client = new McpClient({ id: 'mcp_proxy', url: baseUrl, token: testToken });
+    assert.equal((await client.initialize()).success, true);
+    assert.equal((await client.callTool('list_directory', { path: '.' })).success, true);
+
+    const cmdRes = await client.request('tools/call', { name: 'run_command', arguments: { command: 'echo test' } });
+    assert.equal(cmdRes.requiresAuthorization, true);
+    assert.ok(cmdRes.challengeId);
+    const authRes = await client.request('zerochat/security/authorize', { challengeId: cmdRes.challengeId, decision: 'allow_once' });
+    assert.equal(authRes.authorized, true);
+    assert.ok(authRes.result?.content?.[0]?.text?.includes('test'));
   });
 
-  test('tools/call rechaza con 400 los argumentos que no cumplen el esquema publicado', async () => {
-    const res = await post('tools/call', { name: 'run_command', arguments: { command: 'pwd', cwd: '/tmp' } });
-    assert.equal(res.status, 400);
-    assert.match((await res.json()).error || '', /Argumento no permitido: cwd/);
-  });
-
-  test('set_directory rechaza carpetas no válidas, browse y create_directory están publicados y el latido publica Playwright', async () => {
-    const projectDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-project-')));
-    try {
-      for (const params of [{ path: path.join(projectDir, 'missing') }, { path: 7 }, {}]) {
-        assert.equal((await rpc('zerochat/project/set_directory', params)).error?.code, -32602, JSON.stringify(params));
-      }
-      fs.mkdirSync(path.join(projectDir, 'sub'));
-      assert.deepEqual((await rpc('zerochat/project/browse', { path: projectDir })).result?.directories, ['sub']);
-      assert.equal((await rpc('zerochat/project/create_directory', { parent: projectDir, name: '../x' })).error?.code, -32602);
-      assert.deepEqual((await heartbeat()).playwright, { installed: true, browserAction: { available: true } }, 'El heartbeat publica el estado de Playwright');
-    } finally {
-      fs.rmSync(projectDir, { recursive: true, force: true });
-    }
-  });
-
-  test('las herramientas de archivos responden por tools/call y sus errores llegan con isError', async t => {
+  test('herramientas de archivos y run_command responden por tools/call y sus errores llegan con isError', async t => {
     const read = await callTool('read_file', { path: 'package.json', max_lines: 10 });
     assert.equal(read.json.result?.isError, false);
     assert.match(read.parsed.content, new RegExp(`"version": "${pkg.version}"`));
@@ -244,19 +202,25 @@ describe('Servidor local zerochat.py', () => {
     const notFound = await callTool('edit_file', { path: testFilePath, old_str: 'inexistente', new_str: 'x' });
     assert.equal(notFound.json.result.isError, true);
     assert.match(notFound.parsed.error, /Target text was not found/);
-  });
 
-  test('run_command empieza en el proyecto y un código de salida distinto de cero llega con isError', async () => {
     const failing = await callTool('run_command', { command: 'pwd; echo dos >&2; exit 2' });
     assert.equal(failing.json.result.isError, true);
     assert.equal(failing.parsed.exit_code, 2);
     assert.equal(failing.parsed.output, `${fs.realpathSync(repoRoot)}\ndos\n`);
   });
 
-  test('cada pestaña trabaja en el proyecto de su cabecera y una carpeta que ya no existe no cae en otra', async () => {
+  test('cada pestaña trabaja en el proyecto de su cabecera, set_directory/browse/create_directory validan rutas y el latido publica Playwright', async () => {
     const projects = ['a', 'b'].map(name => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `zc-proyecto-${name}-`))));
     const header = dir => ({ 'X-ZeroChat-Project': encodeURIComponent(dir) });
     try {
+      for (const params of [{ path: path.join(projects[0], 'missing') }, { path: 7 }, {}]) {
+        assert.equal((await rpc('zerochat/project/set_directory', params)).error?.code, -32602, JSON.stringify(params));
+      }
+      fs.mkdirSync(path.join(projects[0], 'sub'));
+      assert.deepEqual((await rpc('zerochat/project/browse', { path: projects[0] })).result?.directories, ['sub']);
+      assert.equal((await rpc('zerochat/project/create_directory', { parent: projects[0], name: '../x' })).error?.code, -32602);
+      assert.deepEqual((await heartbeat()).playwright, { installed: true, browserAction: { available: true } });
+
       for (const dir of projects) {
         assert.equal((await callTool('run_command', { command: 'pwd' }, null, header(dir))).parsed.output, `${dir}\n`);
         assert.equal((await rpc('zerochat/heartbeat', {}, { headers: header(dir) })).result.cwd, dir);
@@ -358,9 +322,19 @@ describe('Servidor local zerochat.py', () => {
     const stoppedExample = ((await rpc('zerochat/external/servers/stop', { serverId: 'ejemplo' })).result?.servers || []).find(server => server.id === 'ejemplo');
     assert.equal(stoppedExample?.status, 'stopped');
     assert.equal(stoppedExample?.toolCount, 0);
+
+    for (const action of ['start', 'stop', 'configure']) {
+      const method = `zerochat/external/servers/${action}`;
+      const unknown = await rpc(method, { serverId: 'no-existe', options: {}, remember: false });
+      assert.equal(unknown.error?.code, -32602, `${method} con servidor desconocido`);
+      assert.match(unknown.error?.message, /no-existe/);
+      const invalidId = await rpc(method, { serverId: 42 });
+      assert.equal(invalidId.error?.code, -32602, `${method} con serverId no textual`);
+    }
+    assert.equal((await rpc('zerochat/external/servers/configure', { serverId: 'ejemplo', options: 'x' })).error?.code, -32602);
   });
 
-  test('en desarrollo local sirve zerochat.html y sus estáticos sin token, sin salir de la raíz', async () => {
+  test('en desarrollo local sirve zerochat.html y sus estáticos sin token y rechaza segmentos .. en cualquier método', async () => {
     const htmlRes = await fetch(`${baseUrl}/zerochat.html`);
     assert.equal(htmlRes.status, 200, 'Debe servir zerochat.html con 200 OK');
     assert.match(htmlRes.headers.get('content-type') || '', /text\/html/);
@@ -377,9 +351,7 @@ describe('Servidor local zerochat.py', () => {
       assert.equal(res.status, status, file);
       await res.text();
     }
-  });
 
-  test('una URL con un segmento .. recibe 400 en cualquier método, antes del token y del origen', async () => {
     // fetch normaliza la ruta antes de enviarla: estas peticiones van tal cual por http.request.
     const raw = (method, rawPath, headers = {}) => new Promise((resolve, reject) => {
       const req = http.request({ host: '127.0.0.1', port: Number(new URL(baseUrl).port), method, path: rawPath, headers }, res => {
@@ -401,7 +373,7 @@ describe('Servidor local zerochat.py', () => {
 });
 
 
-test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos comprometidos y con detalle de errores', async () => {
+test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos comprometidos y --keep-server desactiva el watchdog', async () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const serverPath = path.resolve(repoRoot, 'zerochat.py');
   const port = await freePort();
@@ -409,166 +381,85 @@ test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos co
   const testToken = 'super-secret-token-xyz-987';
 
   const serverProc = spawn('python3', [
-    serverPath, '--port', String(port), '--no-browser', '--no-venv'
+    serverPath, '--port', String(port), '--no-browser', '--keep-server', '--no-venv'
   ], { env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken) }, stdio: ['ignore', 'pipe', 'pipe'] });
 
   let serverOutput = '';
   serverProc.stdout.on('data', chunk => { serverOutput += chunk.toString(); });
 
   try {
-    // Esperar arranque comprobando probe con token
     await waitForServer(baseUrl, testToken, serverProc);
 
-    // 1. Petición POST sin token (401 Unauthorized)
+    // 1. Petición POST sin token (401 Unauthorized) y GET fuera de la interfaz (404)
     await fetch(baseUrl, { method: 'POST', body: '{}' });
-
-    // 2. Petición GET fuera de la interfaz de desarrollo (404)
     await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });
 
-    // 3. Petición POST con initialize
+    // 2. Petición POST con initialize
     await fetch(baseUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${testToken}`
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${testToken}` },
       body: JSON.stringify({ jsonrpc: '2.0', id: 10, method: 'initialize', params: {} })
     });
 
-    // 4. Petición POST con tools/call fallida (archivo no existente) con argumento sensible
+    // 3. Petición POST con tools/call fallida con argumento no permitido y sensible
     await fetch(baseUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${testToken}`
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${testToken}` },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 11,
         method: 'tools/call',
         params: {
           name: 'read_file',
-          arguments: {
-            path: 'archivo_que_no_existe_12345.txt',
-            secret_payload: 'super_secret_payload_content_12345'
-          }
+          arguments: { path: 'archivo_que_no_existe_12345.txt', secret_payload: 'super_secret_payload_content_12345' }
         }
       })
     });
 
-    // 5. Petición POST con JSON malformado (400 Bad Request)
+    // 4. Petición POST con JSON malformado (400 Bad Request) y herramienta no existente (-32601)
     await fetch(baseUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${testToken}`
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${testToken}` },
       body: '{ json_invalido: true '
     });
-
-    // 6. Petición POST con herramienta no existente (-32601)
-    const unknownBody = JSON.stringify({
-      jsonrpc: '2.0', id: 12, method: 'tools/call',
-      params: { name: 'herramienta_fantasma', arguments: { secret_api_key: 'confidential_key_abc_999' } }
-    });
     await fetch(baseUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${testToken}`
-      },
-      body: unknownBody
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${testToken}` },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 12, method: 'tools/call',
+        params: { name: 'herramienta_fantasma', arguments: { secret_api_key: 'confidential_key_abc_999' } }
+      })
     });
 
-    // 7. Las consultas periódicas de la interfaz no se registran; detener un comando, sí.
-    const controlRpc = (id, method, params) => fetch(baseUrl, {
+    // 5. Las consultas periódicas de la interfaz no se registran; detener un comando, sí.
+    const controlRpc = async (id, method, params) => (await fetch(baseUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-ZeroChat-Token': testToken },
       body: JSON.stringify({ jsonrpc: '2.0', id, method, params })
-    });
+    })).json();
     await controlRpc(13, 'zerochat/jobs/list', {});
     await controlRpc(14, 'zerochat/jobs/get', { key: 'clave-inexistente' });
     await controlRpc(15, 'zerochat/jobs/log', { id: 999, offset: 0 });
     await controlRpc(16, 'zerochat/jobs/stop', { id: 999 });
-    await controlRpc(17, 'zerochat/heartbeat', {});
+    const hb = await controlRpc(17, 'zerochat/heartbeat', {});
+    assert.equal(hb.result.exit_on_close, false, 'Con --keep-server cerrar la pestaña no detendrá el servidor');
 
-    // Dar margen para vaciar buffers de stdout
     await new Promise(resolve => setTimeout(resolve, 150));
 
+    assert.match(serverOutput, /Auto-cierre\s*:\s*Desactivado/);
     assert.ok(!/zerochat\/(heartbeat|jobs\/(list|get|log))/.test(serverOutput), 'Las consultas periódicas de la interfaz no deben llenar la consola');
     assert.match(serverOutput, /\[rpc: zerochat\/jobs\/stop\]/, 'Las acciones sobre comandos sí se registran');
+    assert.match(serverOutput, /\[\d{2}:\d{2}:\d{2}\]\s+-->\s+GET\s+\//);
+    assert.match(serverOutput, /\[\d{2}:\d{2}:\d{2}\]\s+<--\s+401 Unauthorized/);
 
-    // Validar líneas con formato [HH:MM:SS]
-    const timestampRegex = /\[\d{2}:\d{2}:\d{2}\]/;
-    assert.match(serverOutput, timestampRegex, 'Los logs deben incluir marca temporal [HH:MM:SS]');
-
-    // Validar líneas de petición (-->) y respuesta (<--)
-    assert.match(serverOutput, /\[\d{2}:\d{2}:\d{2}\]\s+-->\s+GET\s+\//, 'Debe registrarse línea de petición GET');
-    assert.match(serverOutput, /\[\d{2}:\d{2}:\d{2}\]\s+<--\s+401 Unauthorized/, 'Debe registrarse error 401');
-
-    // Validar que el token NUNCA se filtre en texto plano en stdout de las peticiones
-    const logsWithoutBanner = serverOutput.split('=' .repeat(30)).pop() || '';
+    const logsWithoutBanner = serverOutput.split('='.repeat(30)).pop() || '';
     assert.ok(!logsWithoutBanner.includes(testToken), 'El token de sesión no debe fugarse en los logs de peticiones');
-
-    // Validar que NO se filtran los argumentos/payloads de las herramientas
-    assert.ok(!serverOutput.includes('super_secret_payload_content_12345'), 'Los payloads confidenciales no deben imprimirse');
-    assert.ok(!serverOutput.includes('confidential_key_abc_999'), 'Las claves en argumentos no deben imprimirse');
-
-    // Validar que el tag de la herramienta y el error se registran
-    assert.match(serverOutput, /Argumento no permitido: secret_payload/, 'Debe registrarse el rechazo del argumento no permitido');
-    assert.match(serverOutput, /ERROR:/, 'Debe registrarse la etiqueta ERROR en fallos de herramientas');
-    assert.match(serverOutput, /<--\s+400 Bad Request/, 'Debe registrarse error 400 en JSON malformado');
-    assert.match(serverOutput, /\[-32601\]\s*Herramienta local 'herramienta_fantasma' no encontrada/, 'Debe registrarse error descriptivo de herramienta no encontrada');
-  } finally {
-    serverProc.kill('SIGTERM');
-  }
-});
-test('Servidor local zerochat.py: --keep-server desactiva el watchdog', async () => {
-  const repoRoot = path.resolve(__dirname, '../..');
-  const serverPath = path.resolve(repoRoot, 'zerochat.py');
-  const port = await freePort();
-  const baseUrl = `http://127.0.0.1:${port}`;
-  const testToken = 'no-exit-token-99999';
-
-  const serverProc = spawn('python3', [
-    serverPath, '--port', String(port), '--no-browser', '--keep-server', '--no-venv'
-  ], {
-    env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken) },
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
-
-  let serverOutput = '';
-  serverProc.stdout.on('data', chunk => { serverOutput += chunk; });
-
-  try {
-    await waitForServer(baseUrl, testToken, serverProc);
-
-    // Métodos de control MCP: error JSON-RPC ante entradas inválidas
-    const rpc = async (method, params) => {
-      const res = await fetch(baseUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${testToken}` },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
-      });
-      assert.equal(res.status, 200, method);
-      return res.json();
-    };
-    assert.equal((await rpc('zerochat/heartbeat', {})).result.exit_on_close, false, 'Cerrar la pestaña no detendrá los comandos');
-
-    assert.match(serverOutput, /Auto-cierre\s*:\s*Desactivado/, 'El banner debe indicar auto-cierre desactivado');
-
-    for (const action of ['start', 'stop', 'configure']) {
-      const method = `zerochat/external/servers/${action}`;
-      const unknown = await rpc(method, { serverId: 'no-existe', options: {}, remember: false });
-      assert.equal(unknown.error?.code, -32602, `${method} con servidor desconocido`);
-      assert.match(unknown.error?.message, /no-existe/);
-      const invalidId = await rpc(method, { serverId: 42 });
-      assert.equal(invalidId.error?.code, -32602, `${method} con serverId no textual`);
-    }
-    const invalidOptions = await rpc('zerochat/external/servers/configure', { serverId: 'ejemplo', options: 'x' });
-    assert.equal(invalidOptions.error?.code, -32602);
-    const heartbeat = (await rpc('zerochat/heartbeat', {})).result;
-    assert.equal(heartbeat.servers.some(server => server.id === 'no-existe'), false);
+    assert.ok(!serverOutput.includes('super_secret_payload_content_12345'));
+    assert.ok(!serverOutput.includes('confidential_key_abc_999'));
+    assert.match(serverOutput, /Argumento no permitido: secret_payload/);
+    assert.match(serverOutput, /ERROR:/);
+    assert.match(serverOutput, /<--\s+400 Bad Request/);
+    assert.match(serverOutput, /\[-32601\]\s*Herramienta local 'herramienta_fantasma' no encontrada/);
   } finally {
     serverProc.kill('SIGTERM');
   }

@@ -22,16 +22,14 @@ function assertRedPng(images, page) {
   assert.match(images[0].dataUrl, /^data:image\/png;base64,iVBORw0KGgo/);
 }
 
-test('getOfficeFormat reconoce formatos actuales, con macros, ODF y antiguos por extensión', () => {
+test('getOfficeFormat y getOfficeDocumentKind cubren formatos actuales, con macros, ODF y antiguos', () => {
   const cases = {
     'a.docx': 'docx', 'A.DOCM': 'docx', 'b.xlsx': 'xlsx', 'b.xlsm': 'xlsx', 'c.pptx': 'pptx', 'c.pptm': 'pptx',
     'd.odt': 'odt', 'e.ods': 'ods', 'f.odp': 'odp', 'g.doc': 'doc', 'h.xls': 'xls', 'i.ppt': 'ppt',
     'notes.txt': '', 'docx': '', 'informe.pdf': ''
   };
   for (const [name, format] of Object.entries(cases)) assert.equal(OfficeParser.getOfficeFormat(name), format, name);
-});
 
-test('getOfficeDocumentKind devuelve el nombre legible según la tabla unificada (F-03)', () => {
   assert.equal(OfficeParser.getOfficeDocumentKind('docx'), 'Word document');
   assert.equal(OfficeParser.getOfficeDocumentKind('xlsx'), 'Excel spreadsheet');
   assert.equal(OfficeParser.getOfficeDocumentKind('pptx'), 'PowerPoint presentation');
@@ -108,13 +106,11 @@ for (const fixture of ['exceljs.xlsx', 'libreoffice.xlsx', 'libreoffice.ods']) {
   });
 }
 
-test('las imágenes EMF quedan como marcadores de texto', async () => {
+test('las imágenes EMF y los archivos binarios antiguos o dañados se manejan explícitamente', async () => {
   const emf = await parseFixture('emf-image.pptx');
   assert.match(emf.text, /\[Image not shown: Image 1 \(slide 2\) \(EMF format is not supported\)\]/);
   assert.deepEqual(emf.images, []);
-});
 
-test('los formatos binarios antiguos y los archivos dañados se rechazan con un mensaje claro', async () => {
   await assert.rejects(OfficeParser.parseOfficeDocument(new ArrayBuffer(8), 'acta.doc'),
     /Word 97-2003 files \(\.doc\) are not supported\. Save the file as \.docx/);
   await assert.rejects(OfficeParser.parseOfficeDocument(new ArrayBuffer(8), 'datos.xls'), /Save the file as \.xlsx/);
@@ -124,46 +120,40 @@ test('los formatos binarios antiguos y los archivos dañados se rechazan con un 
       /could not be read\. It may be damaged or password protected\./);
   }
   await assert.rejects(OfficeParser.parseOfficeDocument(new ArrayBuffer(8), 'notas.txt'), /not a supported office document/);
+
+  const fflate = require('fflate');
+  const incompleteZip = fflate.zipSync({ 'dummy.txt': Buffer.from('nada') });
+  await assert.rejects(
+    OfficeParser.parseOfficeDocument(incompleteZip.buffer, 'incompleto.pptx'),
+    /The PowerPoint presentation could not be read\. It may be damaged or password protected\./
+  );
+  await assert.rejects(
+    OfficeParser.parseOfficeDocument(incompleteZip.buffer, 'incompleto.xlsx'),
+    /The Excel spreadsheet could not be read\. It may be damaged or password protected\./
+  );
 });
 
-test('ODS no pierde filas tras un hueco de más de 500 filas vacías (F-01)', async () => {
+test('ODS no pierde filas tras un hueco de 600 vacías y convierte saltos de página sin saltos redundantes', async () => {
   const fflate = require('fflate');
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+  const odsSheetXml = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
   xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0"
   xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
   <office:body>
     <office:spreadsheet>
       <table:table table:name="Sheet1">
-        <table:table-row>
-          <table:table-cell><text:p>Fila 1</text:p></table:table-cell>
-        </table:table-row>
+        <table:table-row><table:table-cell><text:p>Fila 1</text:p></table:table-cell></table:table-row>
         <table:table-row table:number-rows-repeated="600"/>
-        <table:table-row>
-          <table:table-cell><text:p>Fila 2</text:p></table:table-cell>
-        </table:table-row>
+        <table:table-row><table:table-cell><text:p>Fila 2</text:p></table:table-cell></table:table-row>
       </table:table>
     </office:spreadsheet>
   </office:body>
 </office:document-content>`;
-  const zip = fflate.zipSync({ 'content.xml': Buffer.from(xml) });
-  const { text } = await OfficeParser.parseOfficeDocument(zip.buffer, 'hueco.ods');
-  assert.match(text, /Fila 1/);
-  assert.match(text, /Fila 2/);
-});
+  const sheetRes = await OfficeParser.parseOfficeDocument(fflate.zipSync({ 'content.xml': Buffer.from(odsSheetXml) }).buffer, 'hueco.ods');
+  assert.match(sheetRes.text, /Fila 1/);
+  assert.match(sheetRes.text, /Fila 2/);
 
-test('pptx sin presentation.xml se trata como archivo dañado (F-02)', async () => {
-  const fflate = require('fflate');
-  const zip = fflate.zipSync({ 'dummy.txt': Buffer.from('nada') });
-  await assert.rejects(
-    OfficeParser.parseOfficeDocument(zip.buffer, 'incompleto.pptx'),
-    /The PowerPoint presentation could not be read\. It may be damaged or password protected\./
-  );
-});
-
-test('odt con saltos de página genera marcadores de página limpios sin saltos redundantes (F-08)', async () => {
-  const fflate = require('fflate');
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+  const odtXml = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
   xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
   <office:body>
@@ -174,9 +164,8 @@ test('odt con saltos de página genera marcadores de página limpios sin saltos 
     </office:text>
   </office:body>
 </office:document-content>`;
-  const zip = fflate.zipSync({ 'content.xml': Buffer.from(xml) });
-  const { text } = await OfficeParser.parseOfficeDocument(zip.buffer, 'paginas.odt');
-  assert.equal(text, '--- Page 1 ---\nPágina uno\n\n--- Page 2 ---\nPágina dos');
+  const docRes = await OfficeParser.parseOfficeDocument(fflate.zipSync({ 'content.xml': Buffer.from(odtXml) }).buffer, 'paginas.odt');
+  assert.equal(docRes.text, '--- Page 1 ---\nPágina uno\n\n--- Page 2 ---\nPágina dos');
 });
 
 const SHEET_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet';
@@ -212,74 +201,41 @@ const columnLetters = index => (index >= 26 ? columnLetters(Math.floor(index / 2
 const numberRows = (count, columns = 1) => Array.from({ length: count }, (_, r) => (
   `<row r="${r + 1}">${Array.from({ length: columns }, (_, c) => `<c r="${columnLetters(c)}${r + 1}"><v>${r}</v></c>`).join('')}</row>`)).join('');
 
-test('xlsx nativo con celdas booleanas, errores, texto inline, columnas dispersas y hojas ocultas', async () => {
+test('xlsx nativo: tipos de celda, espacios de nombres, fonética/gráficos, fechas 1900/1904 e imágenes', async () => {
   const text = await parseXlsx({
+    extra: { 'xl/sharedStrings.xml': '<sst><si><r><t>東京</t></r><rPh sb="0" eb="2"><t>トウキョウ</t></rPh></si><si><t>Dos</t></si></sst>' },
     sheets: [
       {
         name: 'Resumen',
         state: 'visible',
-        xml: sheetXml('<row r="1"><c r="A1" t="b"><v>1</v></c><c r="C1" t="inlineStr"><is><t>Texto directo</t></is></c><c r="D1" t="e"><v>#N/A</v></c></row>')
+        xml: sheetXml('<row r="1"><c r="A1" t="b"><v>1</v></c><c r="C1" t="inlineStr"><is><t>Texto directo</t></is></c><c r="D1" t="e"><v>#N/A</v></c><c r="E1" t="s"><v>0</v></c><c r="F1" t="s"><v>1</v></c></row>')
       },
-      { name: 'Oculta', state: 'hidden', xml: sheetXml('<row r="1"><c r="A1" t="str"><v>Dato oculto</v></c></row>') }
+      { name: 'Oculta', state: 'hidden', xml: sheetXml('<row r="1"><c r="A1" t="str"><v>Dato oculto</v></c></row>') },
+      { name: 'Prefijo', xml: '<x:worksheet xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><x:sheetData><x:row r="1"><x:c r="A1" t="inlineStr"><x:is><x:t>hola</x:t></x:is></x:c></x:row></x:sheetData></x:worksheet>' },
+      { name: 'Grafico', rel: CHARTSHEET_REL, xml: '<chartsheet/>' }
     ]
   });
-  assert.match(text, /## Sheet: Resumen\n\n\| TRUE \|  \| Texto directo \| #N\/A \|/);
+  assert.match(text, /## Sheet: Resumen\n\n\| TRUE \|  \| Texto directo \| #N\/A \| 東京 \| Dos \|/);
   assert.match(text, /## Sheet: Oculta \(hidden\)\n\n\| Dato oculto \|/);
-});
-
-test('xlsx sin xl/workbook.xml se trata como archivo dañado', async () => {
-  const fflate = require('fflate');
-  const zip = fflate.zipSync({ 'dummy.txt': Buffer.from('nada') });
-  await assert.rejects(
-    OfficeParser.parseOfficeDocument(zip.buffer, 'incompleto.xlsx'),
-    /The Excel spreadsheet could not be read\. It may be damaged or password protected\./
-  );
-});
-
-test('xlsx con etiquetas con prefijo de espacio de nombres (x:row, x:c) se lee igual', async () => {
-  const text = await parseXlsx({
-    sheets: [{
-      name: 'Prefijo',
-      xml: '<x:worksheet xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><x:sheetData><x:row r="1"><x:c r="A1" t="inlineStr"><x:is><x:t>hola</x:t></x:is></x:c></x:row></x:sheetData></x:worksheet>'
-    }]
-  });
   assert.match(text, /## Sheet: Prefijo\n\n\| hola \|/);
-});
+  assert.doesNotMatch(text, /トウキョウ|Grafico/);
 
-test('xlsx convierte fechas con formatos integrados y personalizados, y respeta el calendario 1904', async () => {
   const styles = `<styleSheet><numFmts count="2"><numFmt numFmtId="164" formatCode="dd/mm/yyyy hh:mm"/><numFmt numFmtId="165" formatCode="&quot;Total&quot; 0.00 [Red]"/></numFmts>
 <cellXfs><xf numFmtId="0"/><xf numFmtId="14"/><xf numFmtId="164"/><xf numFmtId="165"/></cellXfs></styleSheet>`;
   const cells = '<row r="1"><c r="A1" s="1"><v>45000</v></c><c r="B1" s="2"><v>45000.5</v></c><c r="C1" s="3"><v>45000</v></c><c r="D1" s="0"><v>45000</v></c></row>';
   const base = { extra: { 'xl/styles.xml': styles } };
-  const text1900 = await parseXlsx({ ...base, sheets: [{ name: 'D', xml: sheetXml(cells) }] });
-  assert.match(text1900, /\| 2023-03-15 \| 2023-03-15T12:00:00Z \| 45000 \| 45000 \|/);
-  const text1904 = await parseXlsx({ ...base, workbookPr: '<workbookPr date1904="1"/>', sheets: [{ name: 'D', xml: sheetXml(cells) }] });
-  assert.match(text1904, /\| 2027-03-16 \| 2027-03-16T12:00:00Z \| 45000 \| 45000 \|/);
+  assert.match(await parseXlsx({ ...base, sheets: [{ name: 'D', xml: sheetXml(cells) }] }), /\| 2023-03-15 \| 2023-03-15T12:00:00Z \| 45000 \| 45000 \|/);
+  assert.match(await parseXlsx({ ...base, workbookPr: '<workbookPr date1904="1"/>', sheets: [{ name: 'D', xml: sheetXml(cells) }] }), /\| 2027-03-16 \| 2027-03-16T12:00:00Z \| 45000 \| 45000 \|/);
 });
 
-test('xlsx ignora las lecturas fonéticas de las cadenas compartidas y las hojas de gráfico', async () => {
-  const sharedStrings = '<sst><si><r><t>東京</t></r><rPh sb="0" eb="2"><t>トウキョウ</t></rPh></si><si><t>Dos</t></si></sst>';
-  const text = await parseXlsx({
-    extra: { 'xl/sharedStrings.xml': sharedStrings },
-    sheets: [
-      { name: 'Datos', xml: sheetXml('<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>') },
-      { name: 'Grafico', rel: CHARTSHEET_REL, xml: '<chartsheet/>' }
-    ]
-  });
-  assert.match(text, /\| 東京 \| Dos \|/);
-  assert.doesNotMatch(text, /トウキョウ|Grafico/);
-});
-
-test('xlsx en el borde del tope de filas: 500 filas completas y 501 con aviso de truncado', async () => {
+test('xlsx en el borde exacto del tope de filas (500/501) y columnas (50/51)', async () => {
   const at500 = await parseXlsx({ sheets: [{ name: 'H', xml: sheetXml(numberRows(500)) }] });
   assert.equal(at500.match(/^\| \d+ \|$/gm).length, 500);
   assert.doesNotMatch(at500, /Showing the first/);
   const at501 = await parseXlsx({ sheets: [{ name: 'H', xml: sheetXml(numberRows(501)) }] });
   assert.equal(at501.match(/^\| \d+ \|$/gm).length, 500);
   assert.match(at501, /\[Showing the first 500 of 501 rows\]/);
-});
 
-test('xlsx en el borde del tope de columnas: 50 se conservan y la 51 se descarta', async () => {
   const at50 = await parseXlsx({ sheets: [{ name: 'C', xml: sheetXml(numberRows(1, 50)) }] });
   assert.equal(at50.split('\n')[2].split('|').length - 2, 50);
   const at51 = await parseXlsx({ sheets: [{ name: 'C', xml: sheetXml(numberRows(1, 51)) }] });

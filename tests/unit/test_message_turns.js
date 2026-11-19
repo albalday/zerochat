@@ -13,7 +13,7 @@ test('Turns.extractBaseId - normaliza identificadores y descarta sufijos de turn
   assert.equal(Turns.extractBaseId(123), '');
 });
 
-test('Turns.removeSelectedTurn - elimina llamadas seleccionadas y resultados huérfanos sin mutar el array de entrada', () => {
+test('Turns.removeSelectedTurn - elimina el turno seleccionado sin mutar, distingue prefijos y respeta llamadas paralelas', () => {
   const history = [
     { id: 'u1', role: 'user', content: 'Question' },
     { id: 'a1', role: 'assistant', tool_calls: [{ id: 'c1', function: { name: 'search' } }] },
@@ -27,52 +27,22 @@ test('Turns.removeSelectedTurn - elimina llamadas seleccionadas y resultados hu�
   ];
   const original = structuredClone(history);
   const selection = { baseId: 'a1', explicitIds: new Set(['a1']) };
-
-  const result = Turns.removeSelectedTurn(history, selection);
-
-  // Inmutabilidad verificada
+  assert.deepEqual(Turns.removeSelectedTurn(history, selection).map(m => m.id), ['u1', 'u2', 'a2', 't2', 'a2_final']);
   assert.deepEqual(history, original);
   assert.deepEqual([...selection.explicitIds], ['a1']);
 
-  // Resultado esperado: 'a1', 't1', 'a1_final' y el 'orphan' eliminados; 'u1', 'u2', 'a2', 't2', 'a2_final' preservados
-  assert.deepEqual(result.map(m => m.id), ['u1', 'u2', 'a2', 't2', 'a2_final']);
-});
-
-test('Turns.removeSelectedTurn - preserva compatibilidad por nombre y distingue prefijos de identificadores contiguos', () => {
-  const history = [
+  // Distingue prefijos ('a1' no borra 'a10'), acepta explicitIds en array y entradas vacías.
+  assert.deepEqual(Turns.removeSelectedTurn([
     { id: 'a1', role: 'assistant' },
     { id: 'a10', role: 'assistant', tool_calls: [{ function: { name: 'read' } }] },
     { id: 'result', role: 'tool', name: 'read' }
-  ];
-
-  // Si se elimina baseId 'a1', 'a10' NO debe eliminarse
-  const withoutA1 = Turns.removeSelectedTurn(history, { baseId: 'a1' });
-  assert.deepEqual(withoutA1.map(m => m.id), ['a10', 'result']);
-
-  // Selección explícita por explicitIds
-  const onlyUsers = Turns.removeSelectedTurn([
-    { id: 'u1', role: 'user' },
-    { id: 'a1', role: 'assistant' }
-  ], { explicitIds: ['a1'] });
-  assert.deepEqual(onlyUsers.map(m => m.id), ['u1']);
-
-  // Entradas vacías o nulas
+  ], { baseId: 'a1' }).map(m => m.id), ['a10', 'result']);
+  assert.deepEqual(Turns.removeSelectedTurn([{ id: 'u1', role: 'user' }, { id: 'a1', role: 'assistant' }], { explicitIds: ['a1'] }).map(m => m.id), ['u1']);
   assert.deepEqual(Turns.removeSelectedTurn([], { baseId: 'a1' }), []);
   assert.deepEqual(Turns.removeSelectedTurn(null, { baseId: 'a1' }), []);
-});
 
-test('Turns.hasMatchingToolCall - acepta resultados paralelos del mismo turno assistant', () => {
-  const assistant = { role: 'assistant', content: null, tool_calls: [{ id: 'call_a', function: { name: 'a' } }, { id: 'call_b', function: { name: 'b' } }] };
-  const toolA = { role: 'tool', tool_call_id: 'call_a', name: 'a', content: 'A' };
-  assert.equal(Turns.hasMatchingToolCall([assistant], toolA), true);
-  assert.equal(Turns.hasMatchingToolCall([assistant, toolA], { tool_call_id: 'call_b', name: 'b' }), true);
-  assert.equal(Turns.hasMatchingToolCall([assistant, toolA], { tool_call_id: 'call_x', name: 'x' }), false);
-  assert.equal(Turns.hasMatchingToolCall([{ role: 'user', content: 'Hola' }, toolA], toolA), false);
-  assert.equal(Turns.hasMatchingToolCall([], toolA), false);
-});
-
-test('Turns.removeSelectedTurn - conserva todos los resultados de llamadas paralelas ajenas al turno borrado', () => {
-  const history = [
+  // Conserva todos los resultados de llamadas paralelas ajenas al turno borrado.
+  assert.deepEqual(Turns.removeSelectedTurn([
     { id: 'u1', role: 'user', content: 'Primera' },
     { id: 'u1_turn_0_assistant', role: 'assistant', content: null, tool_calls: [{ id: 'call_a', function: { name: 'a' } }, { id: 'call_b', function: { name: 'b' } }] },
     { id: 'u1_turn_0_tool_a', role: 'tool', tool_call_id: 'call_a', name: 'a', content: 'A' },
@@ -80,18 +50,24 @@ test('Turns.removeSelectedTurn - conserva todos los resultados de llamadas paral
     { id: 'u1_final', role: 'assistant', content: 'Respuesta' },
     { id: 'u2', role: 'user', content: 'Segunda' },
     { id: 'u2_final', role: 'assistant', content: 'Otra' }
-  ];
-  const result = Turns.removeSelectedTurn(history, { baseId: 'u2' });
-  assert.deepEqual(result.map(message => message.id), ['u1', 'u1_turn_0_assistant', 'u1_turn_0_tool_a', 'u1_turn_0_tool_b', 'u1_final']);
+  ], { baseId: 'u2' }).map(m => m.id), ['u1', 'u1_turn_0_assistant', 'u1_turn_0_tool_a', 'u1_turn_0_tool_b', 'u1_final']);
 });
 
-test('Turns.dropOrphanToolMessages - descarta resultados sin turno assistant que los declare', () => {
-  const result = Turns.dropOrphanToolMessages([
+test('Turns.hasMatchingToolCall & dropOrphanToolMessages - emparejan llamadas paralelas y descartan huérfanos', () => {
+  const assistant = { role: 'assistant', content: null, tool_calls: [{ id: 'call_a', function: { name: 'a' } }, { id: 'call_b', function: { name: 'b' } }] };
+  const toolA = { role: 'tool', tool_call_id: 'call_a', name: 'a', content: 'A' };
+  assert.equal(Turns.hasMatchingToolCall([assistant], toolA), true);
+  assert.equal(Turns.hasMatchingToolCall([assistant, toolA], { tool_call_id: 'call_b', name: 'b' }), true);
+  assert.equal(Turns.hasMatchingToolCall([assistant, toolA], { tool_call_id: 'call_x', name: 'x' }), false);
+  assert.equal(Turns.hasMatchingToolCall([{ role: 'user', content: 'Hola' }, toolA], toolA), false);
+  assert.equal(Turns.hasMatchingToolCall([], toolA), false);
+
+  const dropped = Turns.dropOrphanToolMessages([
     { role: 'user', content: 'Hola' },
     { role: 'tool', tool_call_id: 'call_x', name: 'x', content: 'huérfano' },
     { role: 'assistant', content: 'Fin' }
   ]);
-  assert.deepEqual(result.map(message => message.role), ['user', 'assistant']);
+  assert.deepEqual(dropped.map(m => m.role), ['user', 'assistant']);
 });
 
 test('Turns.getLastUserPrompt - devuelve el texto del último mensaje del usuario', () => {
@@ -105,61 +81,37 @@ test('Turns.getLastUserPrompt - devuelve el texto del último mensaje del usuari
   ]), 'segundo');
 });
 
-test('Turns.sanitizeTurnBoundaries - sanea resultados huérfanos y llamadas a herramientas no respondidas', () => {
-  const history = [
+test('Turns.sanitizeTurnBoundaries - sanea huérfanos, llamadas no respondidas y respuestas paralelas 1:1', () => {
+  const sanitized = Turns.sanitizeTurnBoundaries([
     { role: 'user', content: 'primero' },
-    // 1. Tool huérfano antes de cualquier llamada
     { role: 'tool', tool_call_id: 'call_orphan', name: 'orphan', content: 'descartar' },
-    // 2. Assistant con llamada respondida y llamada no respondida
     {
       role: 'assistant',
       content: 'Buscando...',
-      tool_calls: [
-        { id: 'call_1', function: { name: 'tool_a', arguments: '{}' } },
-        { id: 'call_2', function: { name: 'tool_b', arguments: '{}' } }
-      ]
+      tool_calls: [{ id: 'call_1', function: { name: 'tool_a', arguments: '{}' } }, { id: 'call_2', function: { name: 'tool_b', arguments: '{}' } }]
     },
     { role: 'tool', tool_call_id: 'call_1', name: 'tool_a', content: 'resultado 1' },
-    // 3. Assistant final con llamada no respondida y texto
-    {
-      role: 'assistant',
-      content: 'Texto conservado',
-      tool_calls: [{ id: 'call_unanswered', function: { name: 'tool_c', arguments: '{}' } }]
-    },
-    // 4. Assistant sin texto con llamada no respondida (ej. interrumpido)
+    { role: 'assistant', content: 'Texto conservado', tool_calls: [{ id: 'call_unanswered', function: { name: 'tool_c', arguments: '{}' } }] },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'call_interrupted', function: { name: 'tool_d', arguments: '{}' } }] }
+  ]);
+  assert.equal(sanitized.length, 4);
+  assert.deepEqual(sanitized[1].tool_calls.map(c => c.id), ['call_1']);
+  assert.equal(sanitized[3].content, 'Texto conservado');
+  assert.equal(sanitized[3].tool_calls, undefined);
+
+  const parallel = Turns.sanitizeTurnBoundaries([
+    { role: 'user', content: 'busca' },
     {
       role: 'assistant',
       content: null,
-      tool_calls: [{ id: 'call_interrupted', function: { name: 'tool_d', arguments: '{}' } }]
-    }
-  ];
-
-  const sanitized = Turns.sanitizeTurnBoundaries(history);
-
-  assert.equal(sanitized.length, 4);
-  assert.equal(sanitized[0].role, 'user');
-  assert.equal(sanitized[1].role, 'assistant');
-  // call_2 fue descartada porque no tenía tool message
-  assert.deepEqual(sanitized[1].tool_calls.map(c => c.id), ['call_1']);
-  assert.equal(sanitized[2].role, 'tool');
-  assert.equal(sanitized[2].tool_call_id, 'call_1');
-  // call_unanswered fue descartada pero el texto se conserva sin campo tool_calls
-  assert.equal(sanitized[3].role, 'assistant');
-  assert.equal(sanitized[3].content, 'Texto conservado');
-  assert.equal(sanitized[3].tool_calls, undefined);
-});
-
-test('Turns.sanitizeTurnBoundaries - cada resultado responde a una sola llamada paralela de la misma herramienta', () => {
-  const calls = [
-    { id: 'call_a', function: { name: 'search_web', arguments: '{"q":"a"}' } },
-    { id: 'call_b', function: { name: 'search_web', arguments: '{"q":"b"}' } },
-    { id: 'call_c', function: { name: 'search_web', arguments: '{"q":"c"}' } }
-  ];
-  const sanitized = Turns.sanitizeTurnBoundaries([
-    { role: 'user', content: 'busca' },
-    { role: 'assistant', content: null, tool_calls: calls },
+      tool_calls: [
+        { id: 'call_a', function: { name: 'search_web', arguments: '{"q":"a"}' } },
+        { id: 'call_b', function: { name: 'search_web', arguments: '{"q":"b"}' } },
+        { id: 'call_c', function: { name: 'search_web', arguments: '{"q":"c"}' } }
+      ]
+    },
     { role: 'tool', tool_call_id: 'call_b', name: 'search_web', content: 'B' },
     { role: 'tool', tool_call_id: 'generated_id', name: 'search_web', content: 'sin id propio' }
   ]);
-  assert.deepEqual(sanitized[1].tool_calls.map(c => c.id), ['call_a', 'call_b']);
+  assert.deepEqual(parallel[1].tool_calls.map(c => c.id), ['call_a', 'call_b']);
 });

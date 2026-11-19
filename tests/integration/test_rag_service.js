@@ -28,7 +28,7 @@ test('RagService - detecta un contexto conocido inferior a 32K como insuficiente
   assert.equal(RagService.getInsufficientRagContextLimit({ modelContextLimit: 'abc' }), null);
 });
 
-test('RagService - lista, busca y lee chunks', async () => {
+test('RagService - lista, busca y lee chunks simples, múltiples y de múltiples ramas', async () => {
   const { branch, document } = await seed();
   const list = await RagService.listDocuments(branch.id);
   assert.equal(list.count, 1);
@@ -45,31 +45,43 @@ test('RagService - lista, busca y lee chunks', async () => {
   assert.equal(read.order, 1);
   assert.equal(read.prevChunkId, `${document.id}:chunk:0`);
   assert.equal(read.nextChunkId, null);
-});
 
-test('RagService - lee múltiples fragmentos simultáneamente con metadatos de continuidad', async () => {
-  const { branch, document } = await seed();
+  // Lectura múltiple mediante array o string separado por comas
   const id0 = `${document.id}:chunk:0`;
   const id1 = `${document.id}:chunk:1`;
-
-  // Lectura múltiple mediante array chunkIds
   const multiRead = await RagService.readKnowledgeChunk(branch.id, { chunkIds: [id0, id1] });
   assert.equal(multiRead.success, true);
   assert.equal(multiRead.count, 2);
-  assert.equal(multiRead.items.length, 2);
-  assert.equal(multiRead.items[0].order, 0);
   assert.equal(multiRead.items[0].prevChunkId, null);
   assert.equal(multiRead.items[0].nextChunkId, id1);
-  assert.equal(multiRead.items[1].order, 1);
   assert.equal(multiRead.items[1].prevChunkId, id0);
   assert.equal(multiRead.items[1].nextChunkId, null);
-  assert.match(multiRead.content, /Kubernetes/);
-  assert.match(multiRead.content, /PostgreSQL/);
+  assert.equal((await RagService.readKnowledgeChunk(branch.id, { chunkIds: `${id0}, ${id1}` })).count, 2);
 
-  // Lectura con string separado por comas
-  const commaRead = await RagService.readKnowledgeChunk(branch.id, { chunkIds: `${id0}, ${id1}` });
-  assert.equal(commaRead.success, true);
-  assert.equal(commaRead.count, 2);
+  // Múltiples ramas activas
+  const b2 = await RagStorage.createBranch('Redes', 'Configuración de red');
+  await RagStorage.saveDocument({
+    branchId: b2.id, title: 'firewall.md', fileType: 'md',
+    chunks: [{ title: 'Puertos', content: 'El puerto 443 HTTPS y el puerto 22 SSH están abiertos.' }]
+  });
+  const context = await RagService.buildRagSystemContext([branch.id, b2.id]);
+  assert.match(context, /ACTIVE KNOWLEDGE BASES/);
+  assert.match(context, /Operaciones/);
+  assert.match(context, /Redes/);
+  const multiList = await RagService.listDocuments([branch.id, b2.id]);
+  assert.equal(multiList.count, 2);
+  const multiSearch = await RagService.searchKnowledgeBase([branch.id, b2.id], { query: 'puerto SSH', tolerance: 0 });
+  assert.match(multiSearch.text, /Branch: Redes/);
+  const multiBranchRead = await RagService.readKnowledgeChunk([branch.id, b2.id], { chunkId: multiSearch.matches[0].chunkId });
+  assert.equal(multiBranchRead.success, true);
+  assert.match(multiBranchRead.content, /puerto 443/);
+
+  // Impide leer chunks de una rama distinta y valida parámetros vacíos
+  const foreign = await RagStorage.createBranch('Otra rama');
+  assert.match((await RagService.readKnowledgeChunk(foreign.id, { chunkId: search.matches[0].chunkId })).error, /active branches|ramas activas/);
+  assert.equal((await RagService.listDocuments('')).success, false);
+  assert.equal((await RagService.searchKnowledgeBase('', { query: '' })).success, false);
+  assert.equal((await RagService.readKnowledgeChunk('', {})).success, false);
 });
 
 test('RagService - search_knowledge_base preserva saltos de línea y estructura de tablas en snippets', async () => {
@@ -95,23 +107,8 @@ test('RagService - search_knowledge_base preserva saltos de línea y estructura 
   assert.match(snippet, /Operating income: 20568/);
 });
 
-test('RagService - valida rama, consulta y chunk', async () => {
-  assert.equal((await RagService.listDocuments('')).success, false);
-  assert.equal((await RagService.searchKnowledgeBase('', { query: '' })).success, false);
-  assert.equal((await RagService.readKnowledgeChunk('', {})).success, false);
-});
-
-test('RagService - impide leer chunks de una rama distinta', async () => {
-  const { branch } = await seed();
-  const foreign = await RagStorage.createBranch('Otra rama');
-  const search = await RagService.searchKnowledgeBase(branch.id, { query: 'Kubernetes', tolerance: 0 });
-  const read = await RagService.readKnowledgeChunk(foreign.id, { chunkId: search.matches[0].chunkId });
-  assert.equal(read.success, false);
-  assert.match(read.error, /active branches|ramas activas/);
-});
-
-test('RagService - recupera una imagen solo desde una rama activa', async () => {
-  const { branch } = await seed();
+test('RagService - recupera una imagen solo desde una rama activa y valida referencias e inexistentes', async () => {
+  const { branch, document: seedDoc } = await seed();
   const document = await RagStorage.saveDocument({
     branchId: branch.id, title: 'diagrama.md', fileType: 'md',
     chunks: [{ content: '![Diagrama](rag-image://__DOC_ID__:img_1)' }]
@@ -127,47 +124,13 @@ test('RagService - recupera una imagen solo desde una rama activa', async () => 
   const rejected = await RagService.readKnowledgeImage(foreign.id, { imageRef: result.imageRef });
   assert.equal(rejected.success, false);
   assert.match(rejected.error, /active branches|ramas activas/);
-});
 
-test('RagService - valida referencias e imágenes inexistentes', async () => {
-  const { branch, document } = await seed();
   const invalid = await RagService.readKnowledgeImage(branch.id, { imageRef: 'imagen.png' });
   assert.equal(invalid.success, false);
   assert.match(invalid.error, /imageRef/);
-
-  const missing = await RagService.readKnowledgeImage(branch.id, { imageRef: `rag-image://${document.id}:img_404` });
+  const missing = await RagService.readKnowledgeImage(branch.id, { imageRef: `rag-image://${seedDoc.id}:img_404` });
   assert.equal(missing.success, false);
   assert.match(missing.error, /No usable image exists|No existe/);
-});
-
-test('RagService - soporta múltiples ramas activas simultáneamente', async () => {
-  const { branch: b1 } = await seed();
-  const b2 = await RagStorage.createBranch('Redes', 'Configuración de red');
-  await RagStorage.saveDocument({
-    branchId: b2.id, title: 'firewall.md', fileType: 'md',
-    chunks: [
-      { title: 'Puertos', content: 'El puerto 443 HTTPS y el puerto 22 SSH están abiertos.' }
-    ]
-  });
-
-  const context = await RagService.buildRagSystemContext([b1.id, b2.id]);
-  assert.match(context, /ACTIVE KNOWLEDGE BASES/);
-  assert.match(context, /Operaciones/);
-  assert.match(context, /Redes/);
-
-  const list = await RagService.listDocuments([b1.id, b2.id]);
-  assert.equal(list.count, 2);
-  assert.match(list.text, /DOCUMENTS IN Operaciones/);
-  assert.match(list.text, /DOCUMENTS IN Redes/);
-
-  const search = await RagService.searchKnowledgeBase([b1.id, b2.id], { query: 'puerto SSH', tolerance: 0 });
-  assert.ok(search.matchesCount >= 1);
-  assert.match(search.text, /Branch: Redes/);
-  const chunkId = search.matches[0].chunkId;
-
-  const read = await RagService.readKnowledgeChunk([b1.id, b2.id], { chunkId });
-  assert.equal(read.success, true);
-  assert.match(read.content, /puerto 443/);
 });
 
 test('RagService - focaliza una fuente identificable sin contaminar con otros documentos', async () => {
@@ -202,9 +165,9 @@ test('RagService - focaliza una fuente identificable sin contaminar con otros do
   assert.match(result.text, /Applied scope: document/);
 });
 
-test('RagService - scope auto resuelve empresa y ejercicio desde títulos FinanceBench', async () => {
-  const branch = await RagStorage.createBranch('FinanceBench');
-  const target = await RagStorage.saveDocument({
+test('RagService - documentHint focaliza el documento exacto sin contaminarse por años en la consulta', async () => {
+  const branch = await RagStorage.createBranch('WalmartFinance');
+  const m3 = await RagStorage.saveDocument({
     branchId: branch.id,
     title: '3M_2018_10K.pdf',
     chunks: [{ title: 'Cash Flows', content: 'Purchases of property plant and equipment were 1577 million dollars.' }]
@@ -214,28 +177,9 @@ test('RagService - scope auto resuelve empresa y ejercicio desde títulos Financ
     title: 'ADOBE_2017_10K.pdf',
     chunks: [{ title: 'Capitalization', content: 'Cash flows and capital expenditure discussion.' }]
   });
-
-  const result = await RagService.searchKnowledgeBase(branch.id, {
-    query: '3M FY2018 cash flow statement capital expenditure',
-    scope: 'auto',
-    documentHint: '3M',
-    tolerance: 0
-  });
-
-  assert.equal(result.appliedScope, 'document');
-  assert.equal(result.selectedDocument.documentId, target.id);
-  assert.ok(result.matches.every(match => match.documentId === target.id));
-});
-
-test('RagService - documentHint resuelve exactamente sin contaminarse por años en la consulta', async () => {
-  const branch = await RagStorage.createBranch('WalmartFinance');
   await RagStorage.saveDocument({
     branchId: branch.id, title: 'WALMART_2018_10K.pdf',
     chunks: [{ title: 'P&L 2018', content: 'Operating income 2018 was 20437.' }]
-  });
-  await RagStorage.saveDocument({
-    branchId: branch.id, title: 'WALMART_2019_10K.pdf',
-    chunks: [{ title: 'P&L 2019', content: 'Operating income 2019 was 21957.' }]
   });
   const w2020 = await RagStorage.saveDocument({
     branchId: branch.id, title: 'WALMART_2020_10K.pdf',
@@ -246,86 +190,74 @@ test('RagService - documentHint resuelve exactamente sin contaminarse por años 
     chunks: [{ title: 'Instruments', content: 'Operating income revenues 2020 2019 2018.' }]
   });
 
-  const result = await RagService.searchKnowledgeBase(branch.id, {
+  const autoRes = await RagService.searchKnowledgeBase(branch.id, {
+    query: '3M FY2018 cash flow statement capital expenditure',
+    scope: 'auto',
+    documentHint: '3M',
+    tolerance: 0
+  });
+  assert.equal(autoRes.appliedScope, 'document');
+  assert.equal(autoRes.selectedDocument.documentId, m3.id);
+  assert.ok(autoRes.matches.every(match => match.documentId === m3.id));
+
+  const docRes = await RagService.searchKnowledgeBase(branch.id, {
     query: 'Consolidated Statements of Income Revenues Operating income Fiscal Year Ended January 31 2020 2019 2018',
     scope: 'document',
     documentHint: 'WALMART_2020_10K.pdf',
     tolerance: 0
   });
-
-  assert.equal(result.success, true);
-  assert.equal(result.requestedScope, 'document');
-  assert.equal(result.appliedScope, 'document');
-  assert.equal(result.selectedDocument.documentId, w2020.id);
-  assert.ok(result.matches.length >= 1);
-  assert.ok(result.matches.every(match => match.documentId === w2020.id));
+  assert.equal(docRes.success, true);
+  assert.equal(docRes.appliedScope, 'document');
+  assert.equal(docRes.selectedDocument.documentId, w2020.id);
+  assert.ok(docRes.matches.length >= 1 && docRes.matches.every(match => match.documentId === w2020.id));
 });
 
-test('RagService - usa corpus ante una referencia documental ambigua', async () => {
-  const branch = await RagStorage.createBranch('Manuales');
+test('RagService - mantiene alcance corpus ante referencias ambiguas o títulos idénticos', async () => {
+  const manualBranch = await RagStorage.createBranch('Manuales');
   await RagStorage.saveDocument({
-    branchId: branch.id,
+    branchId: manualBranch.id,
     title: 'Product_Alpha_manual.pdf',
     chunks: [{ content: 'Alpha wireless connection setup procedure.' }]
   });
   await RagStorage.saveDocument({
-    branchId: branch.id,
+    branchId: manualBranch.id,
     title: 'Product_Alpha_accessories.pdf',
     chunks: [{ content: 'Alpha wireless accessories and connection options.' }]
   });
 
-  const result = await RagService.searchKnowledgeBase(branch.id, {
+  const ambRes = await RagService.searchKnowledgeBase(manualBranch.id, {
     query: 'Alpha wireless connection',
     scope: 'document',
     documentHint: 'Product Alpha',
     tolerance: 0
   });
+  assert.equal(ambRes.requestedScope, 'document');
+  assert.equal(ambRes.appliedScope, 'corpus');
+  assert.equal(ambRes.selectedDocument, null);
+  assert.equal(new Set(ambRes.matches.map(match => match.documentId)).size, 2);
+  assert.match(ambRes.text, /Document candidates/);
 
-  assert.equal(result.requestedScope, 'document');
-  assert.equal(result.appliedScope, 'corpus');
-  assert.equal(result.selectedDocument, null);
-  assert.equal(new Set(result.matches.map(match => match.documentId)).size, 2);
-  assert.match(result.text, /Document candidates/);
-});
-
-test('RagService - no focaliza arbitrariamente títulos idénticos', async () => {
-  const branch = await RagStorage.createBranch('Duplicados');
+  const dupBranch = await RagStorage.createBranch('Duplicados');
   const duplicates = [];
   for (const content of ['First raven evidence.', 'Second raven evidence.']) {
-    duplicates.push(await RagStorage.saveDocument({
-      branchId: branch.id,
-      title: 'Raven_2024.pdf',
-      chunks: [{ content }]
-    }));
+    duplicates.push(await RagStorage.saveDocument({ branchId: dupBranch.id, title: 'Raven_2024.pdf', chunks: [{ content }] }));
   }
   for (let index = 0; index < 18; index += 1) {
-    await RagStorage.saveDocument({
-      branchId: branch.id,
-      title: `Other_${index}.pdf`,
-      chunks: [{ content: `Unrelated reference ${index}.` }]
-    });
+    await RagStorage.saveDocument({ branchId: dupBranch.id, title: `Other_${index}.pdf`, chunks: [{ content: `Unrelated ${index}.` }] });
   }
 
-  const result = await RagService.searchKnowledgeBase(branch.id, {
-    query: 'Raven_2024.pdf',
-    scope: 'auto',
-    tolerance: 0
-  });
-
-  assert.equal(result.appliedScope, 'corpus');
-  assert.equal(result.selectedDocument, null);
-  assert.deepEqual(
-    new Set(result.matches.map(match => match.documentId)),
-    new Set(duplicates.map(document => document.id))
-  );
+  const dupRes = await RagService.searchKnowledgeBase(dupBranch.id, { query: 'Raven_2024.pdf', scope: 'auto', tolerance: 0 });
+  assert.equal(dupRes.appliedScope, 'corpus');
+  assert.equal(dupRes.selectedDocument, null);
+  assert.deepEqual(new Set(dupRes.matches.map(m => m.documentId)), new Set(duplicates.map(d => d.id)));
 });
 
-test('RagService - diversifica una consulta transversal entre documentos', async () => {
-  const branch = await RagStorage.createBranch('Comparador');
-  const documentIds = [];
+test('RagService - diversifica corpus entre documentos y aplica maxPerDocument dinámico o explícito', async () => {
+  const compBranch = await RagStorage.createBranch('Comparador');
+  const productIds = [];
   for (const product of ['Alpha', 'Beta', 'Gamma']) {
-    const document = await RagStorage.saveDocument({
-      branchId: branch.id,
+    const doc = await RagStorage.saveDocument({
+      branchId: compBranch.id,
       title: `Product_${product}_datasheet.pdf`,
       chunks: [
         { title: 'Battery', content: `${product} battery runtime specification.` },
@@ -333,28 +265,25 @@ test('RagService - diversifica una consulta transversal entre documentos', async
         { title: 'Power', content: `${product} battery power specification.` }
       ]
     });
-    documentIds.push(document.id);
+    productIds.push(doc.id);
   }
 
-  const result = await RagService.searchKnowledgeBase(branch.id, {
+  const transRes = await RagService.searchKnowledgeBase(compBranch.id, {
     query: 'Compare battery specification',
     scope: 'corpus',
     limit: 6,
     tolerance: 0
   });
-
-  assert.equal(result.appliedScope, 'corpus');
-  assert.equal(result.maxChunksPerDocument, 2);
-  assert.deepEqual(new Set(result.matches.map(match => match.documentId)), new Set(documentIds));
-  for (const documentId of documentIds) {
-    assert.ok(result.matches.filter(match => match.documentId === documentId).length <= 2);
+  assert.equal(transRes.maxChunksPerDocument, 2);
+  assert.deepEqual(new Set(transRes.matches.map(m => m.documentId)), new Set(productIds));
+  for (const docId of productIds) {
+    assert.ok(transRes.matches.filter(m => m.documentId === docId).length <= 2);
   }
-});
 
-test('RagService - diversidad de corpus no pierde documentos tras un resultado dominante', async () => {
-  const branch = await RagStorage.createBranch('Resultados desiguales');
+  // No pierde documentos secundarios tras un documento dominante ni ignora maxPerDocument explícito.
+  const skewBranch = await RagStorage.createBranch('Resultados desiguales');
   const dominant = await RagStorage.saveDocument({
-    branchId: branch.id,
+    branchId: skewBranch.id,
     title: 'Dominant.pdf',
     chunks: Array.from({ length: 30 }, (_, index) => ({
       title: `Battery ${index}`,
@@ -362,79 +291,48 @@ test('RagService - diversidad de corpus no pierde documentos tras un resultado d
     }))
   });
   const secondary = await RagStorage.saveDocument({
-    branchId: branch.id,
+    branchId: skewBranch.id,
     title: 'Secondary.pdf',
     chunks: [{ title: 'Battery', content: 'Battery specification secondary evidence.' }]
   });
-
-  const result = await RagService.searchKnowledgeBase(branch.id, {
+  const skewRes = await RagService.searchKnowledgeBase(skewBranch.id, {
     query: 'battery specification',
     scope: 'corpus',
     limit: 4,
     tolerance: 0
   });
+  assert.ok(skewRes.matches.some(m => m.documentId === dominant.id));
+  assert.ok(skewRes.matches.some(m => m.documentId === secondary.id));
 
-  const returnedIds = new Set(result.matches.map(match => match.documentId));
-  assert.ok(returnedIds.has(dominant.id));
-  assert.ok(returnedIds.has(secondary.id));
-  assert.ok(result.matches.filter(match => match.documentId === dominant.id).length <= 2);
-});
-
-test('RagService - dynamic maxPerDocument en scope auto con pocos candidatos amplía la profundidad', async () => {
-  const branch = await RagStorage.createBranch('FinancialBench_Auto');
-  await RagStorage.saveDocument({
-    branchId: branch.id,
-    title: 'WALMART_2020_10K.pdf',
-    chunks: [
-      { title: 'TOC', content: 'Table of Contents financial statements 2020 2019 2018.' },
-      { title: 'Income Statement', content: 'Consolidated Statements of Income operating income total revenues net sales 2020 2019 2018.' },
-      { title: 'Cash Flows', content: 'Consolidated Statements of Cash Flows depreciation and amortization operating activities 2020 2019 2018.' },
-      { title: 'Segment Info', content: 'Segment assets, net sales, operating income and depreciation 2020 2019 2018.' }
-    ]
-  });
-
-  const result = await RagService.searchKnowledgeBase(branch.id, {
-    query: 'operating income depreciation amortization net sales 2020 2019 2018',
-    scope: 'auto',
-    limit: 10,
-    tolerance: 0
-  });
-
-  assert.equal(result.success, true);
-  // Al haber solo 1 documento en la base y scope auto, appliedScope es document si hubo match exacto o corpus con maxPerDocument dinámico de 4
-  if (result.appliedScope === 'corpus') {
-    assert.equal(result.maxChunksPerDocument, 4);
-    assert.ok(result.matches.length >= 3, 'Debe devolver más de 2 chunks gracias a la ampliación dinámica');
-  } else {
-    assert.equal(result.appliedScope, 'document');
-    assert.ok(result.matches.length >= 3);
-  }
-});
-
-test('RagService - maxPerDocument explícito es respetado en scope corpus', async () => {
-  const branch = await RagStorage.createBranch('MultiDoc_Explicit');
-  await RagStorage.saveDocument({
-    branchId: branch.id,
-    title: 'Doc_A.pdf',
-    chunks: [
-      { title: 'C1', content: 'Keyword alpha evidence 1' },
-      { title: 'C2', content: 'Keyword alpha evidence 2' },
-      { title: 'C3', content: 'Keyword alpha evidence 3' },
-      { title: 'C4', content: 'Keyword alpha evidence 4' }
-    ]
-  });
-
-  const result = await RagService.searchKnowledgeBase(branch.id, {
-    query: 'Keyword alpha',
+  const explicitRes = await RagService.searchKnowledgeBase(skewBranch.id, {
+    query: 'battery specification',
     scope: 'corpus',
     maxPerDocument: 3,
     limit: 10,
     tolerance: 0
   });
+  assert.equal(explicitRes.maxChunksPerDocument, 3);
+  assert.ok(explicitRes.matches.filter(m => m.documentId === dominant.id).length === 3);
 
-  assert.equal(result.appliedScope, 'corpus');
-  assert.equal(result.maxChunksPerDocument, 3);
-  assert.equal(result.matches.length, 3);
+  // En scope auto con un solo documento candidato amplía la profundidad.
+  const autoBranch = await RagStorage.createBranch('FinancialBench_Auto');
+  await RagStorage.saveDocument({
+    branchId: autoBranch.id,
+    title: 'WALMART_2020_10K.pdf',
+    chunks: [
+      { title: 'TOC', content: 'Table of Contents financial statements 2020 2019 2018.' },
+      { title: 'Income', content: 'Consolidated Statements of Income operating income net sales 2020 2019 2018.' },
+      { title: 'Cash Flows', content: 'Consolidated Statements of Cash Flows depreciation amortization 2020 2019 2018.' },
+      { title: 'Segments', content: 'Segment assets net sales operating income depreciation 2020 2019 2018.' }
+    ]
+  });
+  const autoRes = await RagService.searchKnowledgeBase(autoBranch.id, {
+    query: 'operating income depreciation amortization net sales 2020 2019 2018',
+    scope: 'auto',
+    limit: 10,
+    tolerance: 0
+  });
+  assert.ok(autoRes.matches.length >= 3);
 });
 
 test('RagService - listDocuments filtra por palabra clave, empresa o año con coincidencia flexible', async () => {

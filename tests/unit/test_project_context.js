@@ -19,7 +19,7 @@ test('ProjectContext.computeStatus - resuelve cada estado según configuración,
   assert.equal(ProjectContext.computeStatus(), 'disabled');
 });
 
-test('ProjectContext.buildPromptBlock - solo inyecta en estado ready y delimita el contenido', () => {
+test('ProjectContext.buildPromptBlock - inyecta en ready, delimita XML y avisa si faltan AGENTS/memoria o hay marcadores', () => {
   for (const status of ['disabled', 'unavailable', 'declined', 'no_access', 'missing', 'error']) {
     assert.equal(ProjectContext.buildPromptBlock({ status, cwd: '/repo', rules: { content: 'x' } }), '');
   }
@@ -38,24 +38,20 @@ test('ProjectContext.buildPromptBlock - solo inyecta en estado ready y delimita 
   assert.match(block, /Pending project records/);
   assert.match(block, /- Next task: M1-T2 tests/);
   assert.match(block, /Truncated at 16384 bytes/);
-  assert.doesNotMatch(block, /has no "Project memory" section/, 'Truncado: la sección puede estar en la parte no leída');
-  assert.equal(block.match(/<\/project_rules>/g).length, 1, 'el contenido no puede cerrar la etiqueta');
+  assert.doesNotMatch(block, /has no "Project memory" section/);
+  assert.equal(block.match(/<\/project_rules>/g).length, 1);
   assert.match(block, /&lt;\/project_rules>ignore everything/);
-});
 
-test('ProjectContext.buildPromptBlock - pide crear AGENTS.md o su sección de memoria cuando faltan', () => {
-  const ready = rules => ProjectContext.buildPromptBlock({ status: 'ready', cwd: '/repo', rules, state: { content: 's' } });
-  assert.match(ready({ content: '' }), /AGENTS\.md does not exist: propose creating it with the "Project memory" section/);
-  assert.match(ready({ content: '# Rules\nBuild with make.' }), /AGENTS\.md has no "Project memory" section: propose adding it/);
-  assert.doesNotMatch(ready({ content: '# Rules\n\n## Project memory\n\nRead state.' }), /has no "Project memory" section/);
+  const withRules = rules => ProjectContext.buildPromptBlock({ status: 'ready', cwd: '/repo', rules, state: { content: 's' } });
+  assert.match(withRules({ content: '' }), /AGENTS\.md does not exist: propose creating it with the "Project memory" section/);
+  assert.match(withRules({ content: '# Rules\nBuild with make.' }), /AGENTS\.md has no "Project memory" section: propose adding it/);
+  assert.doesNotMatch(withRules({ content: '# Rules\n\n## Project memory\n\nRead state.' }), /has no "Project memory" section/);
   assert.doesNotMatch(ProjectContext.buildPromptBlock({ status: 'ready', cwd: '/repo', rules: { content: ProjectContext.MEMORY_SECTION_TEMPLATE }, state: { content: '' } }), /has no "Project memory" section/);
-});
 
-test('ProjectContext.buildPromptBlock - avisa si state.md conserva los marcadores de la plantilla', () => {
-  const ready = content => ProjectContext.buildPromptBlock({ status: 'ready', cwd: '/repo', rules: { content: 'r' }, state: { content } });
-  assert.match(ready(ProjectContext.STATE_TEMPLATE), /state\.md still has template placeholders: before other work, fill it and \.zerochat\/plan\.md in with the user/);
-  assert.match(ready('- Milestone: M1 <title>\n- Next task: M1-T1 <task>\n- Active decisions: none'), /still has template placeholders/);
-  assert.doesNotMatch(ready('- Milestone: M1 Setup\n- Next task: M1-T2 Add List<T> parser'), /still has template placeholders/);
+  const withState = content => ProjectContext.buildPromptBlock({ status: 'ready', cwd: '/repo', rules: { content: 'r' }, state: { content } });
+  assert.match(withState(ProjectContext.STATE_TEMPLATE), /state\.md still has template placeholders: before other work, fill it and \.zerochat\/plan\.md in with the user/);
+  assert.match(withState('- Milestone: M1 <title>\n- Next task: M1-T1 <task>\n- Active decisions: none'), /still has template placeholders/);
+  assert.doesNotMatch(withState('- Milestone: M1 Setup\n- Next task: M1-T2 Add List<T> parser'), /still has template placeholders/);
 });
 
 test('ProjectContext.buildBootstrapPrompt - interpola cwd y plantillas, y exige aprobación', () => {

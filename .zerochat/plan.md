@@ -59,3 +59,5 @@ Done when: las tareas del navegador de ficheros y de chats sin proyecto están h
 - [x] M79-T33 Revisión de higiene y calidad del código de M79: retirar zerochat/browser/config/get y ramas muertas, fijar caché de blobs por PROXY_ID y sincronizar README (2026-11-18)
 - [x] M79-T34 Al cambiar de carpeta desde el panel de razonamiento, abrir siempre un chat nuevo (también desde uno vacío) (2026-11-18)
 - [x] M79-T35 Mostrar línea de estado en la base del historial al sincronizar o buscar conversaciones (2026-11-18)
+- [x] M79-T36 Optimizar esperas de cierre de servidor HTTP en los tests del runner (2026-11-19)
+- [x] M79-T37 Simplificación conceptual y agrupación de la suite de pruebas (2026-11-19)

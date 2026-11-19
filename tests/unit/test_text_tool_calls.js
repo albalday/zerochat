@@ -7,31 +7,27 @@ const searchTool = {
   function: { name: 'search_web', description: 'Search', parameters: { type: 'object', properties: { query: { type: 'string' } } } }
 };
 
-test('TextToolCalls.extractToolCalls - extrae llamadas válidas y deja el texto restante', () => {
-  const result = TextToolCalls.extractToolCalls('Busco.\n<tool_call>\n{"name": "search_web", "arguments": {"query": "webgpu"}}\n</tool_call>');
-  assert.equal(result.text, 'Busco.');
-  assert.equal(result.toolCalls.length, 1);
-  assert.equal(result.toolCalls[0].type, 'function');
-  assert.match(result.toolCalls[0].id, /^call_text_/);
-  assert.deepEqual(result.toolCalls[0].function, { name: 'search_web', arguments: '{"query":"webgpu"}' });
-});
+test('TextToolCalls.extractToolCalls - extrae bloques simples, múltiples, abiertos, con vallas json o forma OpenAI y preserva texto sin llamadas', () => {
+  const single = TextToolCalls.extractToolCalls('Busco.\n<tool_call>\n{"name": "search_web", "arguments": {"query": "webgpu"}}\n</tool_call>');
+  assert.equal(single.text, 'Busco.');
+  assert.equal(single.toolCalls.length, 1);
+  assert.equal(single.toolCalls[0].type, 'function');
+  assert.match(single.toolCalls[0].id, /^call_text_/);
+  assert.deepEqual(single.toolCalls[0].function, { name: 'search_web', arguments: '{"query":"webgpu"}' });
 
-test('TextToolCalls.extractToolCalls - admite varias llamadas, bloque sin cerrar, vallas json y forma OpenAI', () => {
-  const text = [
+  const multiText = [
     '<tool_call>```json\n{"name": "search_web", "arguments": {"query": "a"}}\n```</tool_call>',
     '<tool_call>[{"function": {"name": "fetch_web_page", "arguments": "{\\"url\\":\\"https://x\\"}"}}]</tool_call>',
     '<tool_call>{"name": "render_chart", "parameters": {"title": "ok"}}'
   ].join('\n');
-  const { text: rest, toolCalls } = TextToolCalls.extractToolCalls(text);
-  assert.equal(rest, '');
-  assert.deepEqual(toolCalls.map(call => call.function), [
+  const multi = TextToolCalls.extractToolCalls(multiText);
+  assert.equal(multi.text, '');
+  assert.deepEqual(multi.toolCalls.map(call => call.function), [
     { name: 'search_web', arguments: '{"query":"a"}' },
     { name: 'fetch_web_page', arguments: '{"url":"https://x"}' },
     { name: 'render_chart', arguments: '{"title":"ok"}' }
   ]);
-});
 
-test('TextToolCalls.extractToolCalls - sin llamadas válidas conserva el texto intacto', () => {
   assert.deepEqual(TextToolCalls.extractToolCalls('Hola'), { text: 'Hola', toolCalls: null });
   const malformed = 'Texto <tool_call>{name: search_web}</tool_call>';
   assert.deepEqual(TextToolCalls.extractToolCalls(malformed), { text: malformed, toolCalls: null });

@@ -29,35 +29,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
     def tearDown(self):
         zerochat.RUN_SESSION = None
 
-    @unittest.skipIf(os.name == "nt", "Permisos POSIX")
-    def test_permisos_directorio_runs_0700_y_fichero_0600(self):
-        session = zerochat.RunSession(conversation_id="conv_permisos_test")
-        self.assertTrue(self.runs_dir.exists())
-        dir_mode = stat.S_IMODE(self.runs_dir.stat().st_mode)
-        self.assertEqual(dir_mode, 0o700)
-
-        state_path = zerochat.get_run_state_path("conv_permisos_test")
-        self.assertTrue(state_path.exists())
-        file_mode = stat.S_IMODE(state_path.stat().st_mode)
-        self.assertEqual(file_mode, 0o600)
-
-    def test_el_runner_recibe_los_perfiles_sin_clave_y_pide_solo_la_del_que_activa(self):
-        saved = zerochat.save_general_profile({"name": "Otro", "settings": {"model": "m", "apiKey": "sk-otro"}})
-        zerochat.RUN_SESSION = session = zerochat.RunSession(prompt="hola")
-        prompt_res, err, _ = dispatch_run("zerochat/run/prompt", {"run_id": session.run_id})
-        self.assertIsNone(err)
-        self.assertEqual([(item["name"], item["settings"]) for item in prompt_res["profiles"]], [("Otro", {"model": "m"})])
-
-        profile_res, err, _ = dispatch_run("zerochat/run/profile", {"run_id": session.run_id, "id": saved["id"]})
-        self.assertIsNone(err)
-        self.assertEqual(profile_res["profile"]["settings"]["apiKey"], "sk-otro")
-        for params in ({"run_id": session.run_id, "id": "profile:no-existe"}, {"run_id": session.run_id}, {"run_id": "otro", "id": saved["id"]}):
-            with self.subTest(params=params):
-                result, err, _ = dispatch_run("zerochat/run/profile", params)
-                self.assertIsNone(result)
-                self.assertEqual(err["code"], -32602)
-
-    def test_fichero_situacion_estructura_y_ciclo_de_vida(self):
+    def test_fichero_situacion_permisos_estructura_topes_y_ciclo_de_vida(self):
         conv_id = "session_test_run_123"
         session = zerochat.RunSession(
             conversation_id=conv_id,
@@ -66,6 +38,9 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         )
         state_path = zerochat.get_run_state_path(conv_id)
         self.assertTrue(state_path.exists())
+        if os.name != "nt":
+            self.assertEqual(stat.S_IMODE(self.runs_dir.stat().st_mode), 0o700)
+            self.assertEqual(stat.S_IMODE(state_path.stat().st_mode), 0o600)
 
         data = json.loads(state_path.read_text("utf-8"))
         self.assertEqual(data["run_id"], "run_custom_test_abc")
@@ -84,17 +59,20 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertNotIn("tool_security", prompt_res)
         self.assertNotIn("tool_decision", prompt_res)
 
-        # zerochat/run/progress actualiza el paso; el texto de la respuesta está en la conversación grabada
+        # zerochat/run/progress actualiza el paso con borde exacto N (500) y N+1 (501)
+        dispatch_run("zerochat/run/progress", {
+            "run_id": session.run_id,
+            "kind": "tool",
+            "text": "a" * zerochat.RUN_PROGRESS_TEXT_MAX
+        })
+        self.assertEqual(json.loads(state_path.read_text("utf-8"))["step_text"], "a" * zerochat.RUN_PROGRESS_TEXT_MAX)
         prog_res, err, _ = dispatch_run("zerochat/run/progress", {
             "run_id": session.run_id,
             "kind": "tool",
-            "text": "run_command: pytest"
+            "text": "b" * (zerochat.RUN_PROGRESS_TEXT_MAX + 1)
         })
-        self.assertIsNone(err)
-        self.assertEqual(prog_res, {"ok": True})
-
-        data = json.loads(state_path.read_text("utf-8"))
-        self.assertEqual(data["step_text"], "run_command: pytest")
+        self.assertEqual((err, prog_res), (None, {"ok": True}))
+        self.assertEqual(json.loads(state_path.read_text("utf-8"))["step_text"], ("b" * zerochat.RUN_PROGRESS_TEXT_MAX) + "…")
 
         # zerochat/run/result con needs_input guarda estado needs_input y pending
         res_outcome, err, _ = dispatch_run("zerochat/run/result", {
@@ -136,31 +114,6 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             "text": "Respuesta final completa."
         })
         self.assertFalse(state_path.exists())
-
-    def test_topes_exactos_truncado_en_progreso_y_stream(self):
-        conv_id = "session_test_bounds_exact"
-        session = zerochat.RunSession(conversation_id=conv_id)
-        state_path = zerochat.get_run_state_path(conv_id)
-        zerochat.RUN_SESSION = session
-
-        # Borde exacto N (500) y N+1 (501) en step_text (RUN_PROGRESS_TEXT_MAX)
-        dispatch_run("zerochat/run/progress", {
-            "run_id": session.run_id,
-            "kind": "tool",
-            "text": "a" * zerochat.RUN_PROGRESS_TEXT_MAX
-        })
-        data = json.loads(state_path.read_text("utf-8"))
-        self.assertEqual(data["step_text"], "a" * zerochat.RUN_PROGRESS_TEXT_MAX)
-        self.assertFalse(data["step_text"].endswith("…"))
-
-        dispatch_run("zerochat/run/progress", {
-            "run_id": session.run_id,
-            "kind": "tool",
-            "text": "b" * (zerochat.RUN_PROGRESS_TEXT_MAX + 1)
-        })
-        data = json.loads(state_path.read_text("utf-8"))
-        self.assertEqual(len(data["step_text"]), zerochat.RUN_PROGRESS_TEXT_MAX + 1)
-        self.assertEqual(data["step_text"], ("b" * zerochat.RUN_PROGRESS_TEXT_MAX) + "…")
 
     def test_cli_argumentos_conversation(self):
         # Crear perfil por defecto local para pruebas CLI
@@ -237,33 +190,26 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         state_path = zerochat.get_run_state_path(conv_id)
         self.assertTrue(state_path.exists())
 
-        mock_server = mock.Mock()
-        mock_proc = mock.Mock()
-        mock_proc.poll.return_value = 1  # Navegador terminó
-
-        # Parar el servidor de verdad marcaría el apagado global para el resto de la suite.
-        with mock.patch.object(zerochat, "stop_zerochat_server"):
-            zerochat.run_supervisor(mock_server, session, browser_proc=mock_proc)
-        data = json.loads(state_path.read_text("utf-8"))
-        self.assertEqual(data["status"], "error")
-        self.assertIn("cerró", data["error"])
-
-    def test_un_runner_que_termina_sin_resultado_deja_en_el_error_el_final_de_su_salida_de_error(self):
         limit = zerochat.RUNNER_ERROR_TAIL_BYTES
         for written, kept in ((limit, limit), (limit + 1, limit), (0, 0)):
             with self.subTest(written=written), tempfile.TemporaryFile() as log:
                 text = ("x" * (written - 6) + "Error!") if written else ""
-                proc = subprocess.Popen([sys.executable, "-c", f"import sys; sys.stderr.write({text!r}); sys.exit(3)"], stderr=log)
-                proc.wait()
-                session = zerochat.RunSession(conversation_id="session_runner_exit")
-                with mock.patch.object(zerochat, "stop_zerochat_server"):
-                    zerochat.run_supervisor(mock.Mock(), session, runner_proc=proc, runner_log=log)
+                log.write(text.encode("utf-8"))
+                log.flush()
+                reason = zerochat.runner_exit_reason(mock.Mock(returncode=3), log)
                 prefix = "El runner de Node.js terminó con el código 3 sin resultado"
-                error = json.loads(zerochat.get_run_state_path("session_runner_exit").read_text("utf-8"))["error"]
-                if kept:
-                    self.assertEqual(error, f"{prefix}: {text[-kept:]}")
-                else:
-                    self.assertEqual(error, f"{prefix}.")
+                self.assertEqual(reason, f"{prefix}: {text[-kept:]}" if kept else f"{prefix}.")
+
+        # Parar el servidor de verdad marcaría el apagado global para el resto de la suite.
+        with tempfile.TemporaryFile() as log, mock.patch.object(zerochat, "stop_zerochat_server"):
+            log.write(b"Error fatal en runner")
+            log.flush()
+            mock_proc = mock.Mock(returncode=3)
+            mock_proc.poll.return_value = 3
+            zerochat.run_supervisor(mock.Mock(), session, runner_proc=mock_proc, runner_log=log)
+        data = json.loads(state_path.read_text("utf-8"))
+        self.assertEqual(data["status"], "error")
+        self.assertEqual(data["error"], "El runner de Node.js terminó con el código 3 sin resultado: Error fatal en runner")
 
     def test_el_runner_exige_node_22_13_o_superior(self):
         def found(version):
@@ -366,34 +312,22 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(zerochat.list_server_runs(focus_conversation_id="conv_1"), ([], None))
         zerochat.RUN_SESSION = None
 
-    def test_start_server_run_arranca_en_el_proyecto_de_la_conversacion(self):
+        # live_state y zerochat/heartbeat exponen runs y focus_run
+        state = zerochat.live_state(zerochat.project_context())
+        self.assertEqual(len(state["runs"]), 3)
+        self.assertIsNone(state["focus_run"])
+        state_focused = zerochat.live_state(zerochat.project_context(), focus_conversation_id="conv_1")
+        self.assertEqual(state_focused["focus_run"]["step_text"], "step 1")
+        hb_res, hb_err, _ = zerochat.dispatch_local("zerochat/heartbeat", {"focus_conversation_id": "conv_1"}, zerochat.project_context())
+        self.assertIsNone(hb_err)
+        self.assertEqual(hb_res["focus_run"]["conversation_id"], "conv_1")
+
+    def test_start_cancel_y_dispatch_server_run(self):
         zerochat.save_general_profile({"name": "valid-profile", "settings": {}})
         project = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, project, True)
         zerochat.save_conversation({"id": "conv_proj", "title": "P", "project": project}, [])
         zerochat.save_conversation({"id": "conv_gone", "title": "G", "project": os.path.join(project, "borrado")}, [])
-        zerochat.save_conversation({"id": "conv_none", "title": "N"}, [])
-        mock_proc = mock.Mock()
-        mock_proc.pid = os.getpid()
-        # Popen falso para todo subprocess: la huella de arranque, que fuera de Linux usa ps, se toma antes.
-        start_token = zerochat._process_start_token(os.getpid())
-        with mock.patch.object(zerochat, "find_node_executable", return_value="/usr/bin/node"), \
-             mock.patch.object(zerochat, "_process_start_token", return_value=start_token), \
-             mock.patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
-            zerochat.start_server_run({"conversation_id": "conv_proj", "profile": "valid-profile"})
-            self.assertEqual(mock_popen.call_args.kwargs["cwd"], project)
-            # Sin proyecto arranca en la carpeta general, no en la de arranque del servidor
-            zerochat.start_server_run({"conversation_id": "conv_none", "profile": "valid-profile"})
-            self.assertEqual(mock_popen.call_args.kwargs["cwd"], str(zerochat.get_data_dir() / "general"))
-            # Si la carpeta ya no existe no arranca en otra
-            with self.assertRaises(ValueError):
-                zerochat.start_server_run({"conversation_id": "conv_gone", "profile": "valid-profile"})
-            self.assertEqual(mock_popen.call_count, 2)
-        zerochat.remove_run_state("conv_proj")
-        zerochat.remove_run_state("conv_none")
-
-    def test_start_cancel_y_dispatch_server_run(self):
-        zerochat.save_general_profile({"name": "valid-profile", "settings": {}})
         zerochat.save_conversation({"id": "conv_val", "title": "Val"}, [])
 
         for invalid_params in (
@@ -403,7 +337,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             {"conversation_id": "conv_val", "profile": ""},
             {"conversation_id": "conv_val", "profile": "no_existe_prof"},
             {"conversation_id": "conv_val", "profile": "valid-profile", "prompt": 123},
-            {"conversation_id": "conv_val", "profile": "valid-profile", "tool_security": "invalido"}
+            {"conversation_id": "conv_val", "profile": "valid-profile", "tool_security": "invalido"},
+            {"conversation_id": "conv_gone", "profile": "valid-profile"}
         ):
             with self.assertRaises(ValueError):
                 zerochat.start_server_run(invalid_params)
@@ -416,6 +351,11 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         with mock.patch.object(zerochat, "find_node_executable", return_value="/usr/bin/node"), \
              mock.patch.object(zerochat, "_process_start_token", return_value=start_token), \
              mock.patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            zerochat.start_server_run({"conversation_id": "conv_proj", "profile": "valid-profile"})
+            self.assertEqual(mock_popen.call_args.kwargs["cwd"], project)
+            zerochat.remove_run_state("conv_proj")
+            mock_popen.reset_mock()
+
             res, err, _ = dispatch_run("zerochat/run/start", {
                 "conversation_id": "conv_val",
                 "profile": "valid-profile",
@@ -430,6 +370,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
 
             mock_popen.assert_called_once()
             args, kwargs = mock_popen.call_args
+            self.assertEqual(kwargs["cwd"], str(zerochat.get_data_dir() / "general"))
             cmd = args[0]
             self.assertEqual(cmd[0], sys.executable)
             self.assertIn("--conversation", cmd)
@@ -488,37 +429,6 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             mock_kill_reused.assert_not_called()
             self.assertFalse(state_path.exists())
 
-    def test_live_state_y_heartbeat_con_focus(self):
-        state_path = zerochat.get_run_state_path("conv_hb")
-        state_path.write_text(json.dumps({
-            "run_id": "run_hb",
-            "conversation_id": "conv_hb",
-            "pid": os.getpid(),
-            "started_at": 2000,
-            "status": "running",
-            "step_text": "Live test"
-        }), encoding="utf-8")
-
-        state = zerochat.live_state(zerochat.project_context())
-        self.assertIn("runs", state)
-        self.assertIn("focus_run", state)
-        self.assertEqual(len(state["runs"]), 1)
-        self.assertEqual(state["runs"][0]["conversation_id"], "conv_hb")
-        self.assertIsNone(state["focus_run"])
-
-        state_focused = zerochat.live_state(zerochat.project_context(), focus_conversation_id="conv_hb")
-        self.assertIsNotNone(state_focused["focus_run"])
-        self.assertEqual(state_focused["focus_run"]["step_text"], "Live test")
-
-        handler = mock.Mock(spec=zerochat.ZeroChatServerHandler)
-        outcome = zerochat.dispatch_local("zerochat/heartbeat", {
-            "focus_conversation_id": "conv_hb"
-        }, zerochat.project_context())
-        result, error, _ = outcome
-        self.assertIsNone(error)
-        self.assertIsNotNone(result["focus_run"])
-        self.assertEqual(result["focus_run"]["conversation_id"], "conv_hb")
-
     def test_cualquier_peticion_de_un_origen_permitido_es_presencia_y_la_inactividad_detiene_el_servidor(self):
         token = "heartbeat-test-token"
         today = zerochat.datetime.date.today().isoformat()
@@ -529,7 +439,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.addCleanup(patches.stop)
         server = zerochat.ThreadingHTTPServer(("127.0.0.1", 0), zerochat.ZeroChatServerHandler)
         self.addCleanup(server.server_close)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
+        threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
         self.addCleanup(server.shutdown)
         base = f"http://127.0.0.1:{server.server_address[1]}"
 

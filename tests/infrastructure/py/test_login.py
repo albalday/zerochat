@@ -32,7 +32,7 @@ class LoginTest(unittest.TestCase):
         except zerochat.LoginError as exc:
             return exc
 
-    def test_la_cuenta_que_ejecuta_zerochat_recibe_un_token_remoto_propio(self):
+    def test_la_cuenta_que_ejecuta_zerochat_recibe_un_token_remoto_y_otro_usuario_falla_sin_delatarla(self):
         local_token = zerochat.get_daily_token()
         result = self.attempt()
         remote_token = result.get("token", "")
@@ -48,9 +48,9 @@ class LoginTest(unittest.TestCase):
         self.assertIsNone(zerochat.resolve_token(tokens[0]))
         self.assertIsNotNone(zerochat.resolve_token(tokens[-1]))
 
-    def test_otro_usuario_falla_como_una_contrasena_erronea_sin_delatar_la_cuenta(self):
-        result = self.attempt(user="root")
-        self.assertEqual(result.code, zerochat.LOGIN_FAILED_CODE)
+        self.checked.clear()
+        other = self.attempt(user="root")
+        self.assertEqual(other.code, zerochat.LOGIN_FAILED_CODE)
         self.assertEqual(self.checked, ["ana"], "se comprueba la contraseña de la cuenta propia también con otro usuario")
         self.assertEqual(zerochat.LOGIN_FAILURES, 1)
 

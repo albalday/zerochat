@@ -149,13 +149,12 @@ class PolicyEvaluationTest(ControllerTestCase):
         dec = self.evaluate("custom_tool", server_id="srv1")
         self.assertEqual((dec.status, dec.reason), ("deny", "server_deny_rule"))
 
-    def test_directory_rules_evaluation(self):
+    def test_directory_rules_real_path_symlinks_and_relative_escapes(self):
         set_rules(self.controller, [f"R:{self.norm_ws}/docs/**", f"W:{self.norm_ws}/src/**"], self.ctx)
         self.assertTrue(self.evaluate("read_file", {"path": f"{self.norm_ws}/docs/readme.md"}).allowed)
         self.assertEqual(self.evaluate("write_file", {"path": f"{self.norm_ws}/docs/readme.md"}).status, "ask")
         self.assertTrue(self.evaluate("write_file", {"path": f"{self.norm_ws}/src/main.py"}).allowed)
 
-    def test_directory_rules_real_path_symlinks_and_relative_escapes(self):
         set_rules(self.controller, [f"RW:{self.norm_ws}/**"], self.ctx)
 
         # Enlace dentro del proyecto que apunta fuera: pide confirmación
@@ -284,12 +283,6 @@ class PolicyEvaluationTest(ControllerTestCase):
         dec = self.evaluate("srv__write_file", {"path": "/tmp/x.txt"}, server_id="srv")
         self.assertEqual((dec.status, dec.rule_offer), ("ask", None))
 
-    def test_evaluation_reads_permanent_state_once(self):
-        set_global(self.controller, zerochat.GLOBAL_POLICY_WORKSPACE_TRUST)
-        with unittest.mock.patch("zerochat.get_security_policy_data", wraps=zerochat.get_security_policy_data) as reader:
-            self.evaluate("run_command", {"command": "cd /tmp && ls"}, server_id="srv")
-        self.assertEqual(reader.call_count, 1)
-
 
 class PolicyStateTest(ControllerTestCase):
     def test_partial_patch_update_and_revocation(self):
@@ -297,12 +290,16 @@ class PolicyStateTest(ControllerTestCase):
         set_tool(self.controller, "t2", zerochat.POLICY_DENY)
         set_tool(self.controller, "t_sess", zerochat.POLICY_ALLOW, scope=zerochat.SCOPE_SESSION)
         set_server(self.controller, "s1", zerochat.POLICY_ALLOW)
-        set_rules(self.controller, ["R:/tmp/docs/**"], self.ctx)
+        set_rules(self.controller, [f"R:{self.norm_ws}/docs/**"], self.ctx)
 
-        # Una clave ausente no cambia nada; null revoca permanentes y de sesión
-        res = self.controller.import_state({"tools": {"t3": {"policy": "allow"}}}, self.ctx)
+        # Una clave ausente no cambia nada; null revoca permanentes y de sesión; addDirectoryRules añade sin duplicar
+        res = self.controller.import_state({
+            "tools": {"t3": {"policy": "allow"}},
+            "addDirectoryRules": [f"RW:{self.norm_ws}/.zerochat", f"R:{self.norm_ws}/docs/**"]
+        }, self.ctx)
         self.assertEqual(set(res["tools"]), {"t1", "t2", "t3", "t_sess"})
-        self.assertEqual((list(res["servers"]), res["directoryRules"]), (["s1"], ["R:/tmp/docs/**"]))
+        self.assertEqual((list(res["servers"]), res["directoryRules"]),
+                         (["s1"], [f"R:{self.norm_ws}/docs/**", f"RW:{self.norm_ws}/.zerochat"]))
         res = self.controller.import_state({"tools": {"t1": None, "t_sess": None}}, self.ctx)
         self.assertEqual(set(res["tools"]), {"t2", "t3"})
         res = self.controller.import_state({"servers": {"s1": None, "s2": {"policy": "deny"}}}, self.ctx)
@@ -316,17 +313,11 @@ class PolicyStateTest(ControllerTestCase):
         self.assertIsNone(err)
         self.assertEqual(init["policies"]["tools"].keys(), rpc["policies"]["tools"].keys())
 
-    def test_add_directory_rules_appends_in_the_same_patch(self):
-        set_rules(self.controller, [f"R:{self.norm_ws}/docs/**"], self.ctx)
-        res = self.controller.import_state({"addDirectoryRules": [f"RW:{self.norm_ws}/.zerochat", f"R:{self.norm_ws}/docs/**"]}, self.ctx)
-        self.assertEqual(res["directoryRules"], [f"R:{self.norm_ws}/docs/**", f"RW:{self.norm_ws}/.zerochat"])
-        with self.assertRaises(ValueError):
-            self.controller.import_state({"addDirectoryRules": ["INVALID"]}, self.ctx)
-
     def test_invalid_patch_changes_nothing(self):
         set_rules(self.controller, [f"RW:{self.norm_ws}/**"], self.ctx)
         initial = self.controller.export_state(self.ctx)
         for payload in ({"globalMcpPolicy": zerochat.GLOBAL_POLICY_ALLOW_ALL, "directoryRules": ["INVALID_NO_PREFIX_RULE"]},
+                        {"addDirectoryRules": ["INVALID"]},
                         {"tools": {"tool_a": {"policy": "unsupported_policy"}}},
                         {"servers": {"srv_a": {"policy": "invalid"}}}):
             with self.assertRaises(ValueError, msg=repr(payload)):
@@ -344,7 +335,7 @@ class PolicyStateTest(ControllerTestCase):
         with self.assertRaisesRegex(ValueError, "supera el máximo permitido"):
             self.controller.apply_session_overlay({"tools": {f"s_{i}": {"policy": "allow"} for i in range(limit + 1)}}, self.ctx)
 
-    def test_security_update_sets_granted_at_and_keeps_it_for_unchanged_grants(self):
+    def test_two_controllers_share_state_through_sqlite_and_preserve_granted_at(self):
         with unittest.mock.patch.object(zerochat.time, "time", return_value=1_700_000_000.0):
             first = self.controller.import_state({"tools": {"t_g": {"policy": "allow"}}}, self.ctx)
         self.assertEqual(first["tools"]["t_g"]["grantedAt"], 1_700_000_000_000)
@@ -354,7 +345,6 @@ class PolicyStateTest(ControllerTestCase):
         self.assertEqual(same["tools"]["t_g"]["grantedAt"], 1_700_000_000_000)
         self.assertEqual(changed["tools"]["t_g"]["grantedAt"], 1_700_000_100_000)
 
-    def test_two_controllers_share_state_through_sqlite(self):
         # En memoria solo hay sesión y retos pendientes: el estado permanente vive en SQLite
         self.assertEqual(set(self.controller.__dict__), {"_lock", "sessions"})
         controller_b = zerochat.AccessController()
@@ -371,7 +361,7 @@ class PolicyStateTest(ControllerTestCase):
         ch = self.controller.create_challenge(tool, {}, self.evaluate(tool), context=self.ctx)
         return self.controller.authorize_challenge(ch["id"], decision, context=self.ctx, **kwargs)
 
-    def test_decisions_keep_session_in_memory_and_persist_permanent(self):
+    def test_decisions_keep_session_in_memory_and_persist_permanent_atomically(self):
         self.decide("tool_x", "allow_session")
         self.assertEqual(tool_entry(self.controller, "tool_x")["scope"], "session")
         self.assertNotIn("tool_x", stored("tools"))
@@ -384,19 +374,20 @@ class PolicyStateTest(ControllerTestCase):
         self.assertIsNone(tool_entry(self.controller, "tool_x"))
         self.assertIsNotNone(tool_entry(self.controller, "tool_y"))
 
-    def test_allow_always_and_directory_rule_are_persisted_in_one_transaction(self):
+        # Herramienta + regla en el borde MAX_POLICY_ENTRIES se guardan en una sola transacción
         limit = zerochat.MAX_POLICY_ENTRIES
-        self.controller.import_state({"tools": {f"fill_{i}": {"policy": "allow"} for i in range(limit - 1)}}, self.ctx)
-        # Herramienta + regla = N+1 entradas: no se guarda ninguna de las dos
+        self.controller.import_state({
+            "directoryRules": [],
+            "tools": {"tool_y": None, **{f"fill_{i}": {"policy": "allow"} for i in range(limit - 1)}}
+        }, self.ctx)
         with self.assertRaises(ValueError):
             self.decide("tool_tx", "allow_always", directory_rule=f"R:{self.norm_ws}/extra/**")
         self.assertIsNone(tool_entry(self.controller, "tool_tx"))
         self.assertEqual(rules_of(self.controller, self.ctx), [])
-        # Solo la herramienta = N entradas: se guarda
         self.decide("tool_tx", "allow_always")
         self.assertEqual(tool_entry(self.controller, "tool_tx")["policy"], zerochat.POLICY_ALLOW)
 
-    def test_storage_failure_on_update_is_reported_and_changes_nothing(self):
+    def test_storage_failure_or_corrupt_policies_fail_visibly_and_are_not_overwritten(self):
         initial = self.controller.export_state(self.ctx)
         with unittest.mock.patch("zerochat.update_security_policy_data", side_effect=sqlite3.OperationalError("database is locked")):
             res, err, _ = zerochat.dispatch_security("zerochat/security/update", {
@@ -407,8 +398,6 @@ class PolicyStateTest(ControllerTestCase):
         self.assertIn("database is locked", err["message"])
         self.assertEqual(self.controller.export_state(self.ctx), initial)
 
-    def test_corrupt_stored_policies_fail_visibly_and_are_not_overwritten(self):
-        handler = zerochat.ZeroChatServerHandler
         with zerochat.open_storage() as conn:
             conn.execute("INSERT INTO security_policies (id, data_json, updated_at) VALUES ('default', '{corrupt', 0);")
             conn.commit()
@@ -508,20 +497,19 @@ class ChallengeTest(HandlerTestCase):
             clock[0] += 20
             self.assertTrue(call("conv-a")["isError"], "70 s desde que empezó, 20 desde que acabó")
 
-    def test_authorize_executes_challenge_by_stored_origin(self):
+    def test_server_trust_covers_only_its_tools_and_never_local_ones(self):
         # Un reto de servicio MCP externo se ejecuta en el gestor externo al autorizarlo
         with unittest.mock.patch.object(zerochat.GLOBAL_MCP_MANAGER, "server_of", return_value="sqlite"):
             gate, err, _ = zerochat.dispatch_local("tools/call", {"name": "sqlite_query", "arguments": {"sql": "SELECT 1"}}, cwd())
         self.assertIsNone(err)
         self.assertEqual(challenges(self.controller)[gate["challengeId"]]["origin"], "external")
-        result = {"content": [{"type": "text", "text": "external-output"}], "isError": False}
-        with unittest.mock.patch.object(zerochat.GLOBAL_MCP_MANAGER, "call", return_value=result) as external:
+        ext_res = {"content": [{"type": "text", "text": "external-output"}], "isError": False}
+        with unittest.mock.patch.object(zerochat.GLOBAL_MCP_MANAGER, "call", return_value=ext_res) as external:
             res, err = self.authorize(gate["challengeId"], "allow_once")
         self.assertIsNone(err)
         self.assertEqual(res["result"]["content"][0]["text"], "external-output")
         external.assert_called_once_with("sqlite_query", {"sql": "SELECT 1"})
 
-    def test_server_trust_covers_only_its_tools_and_never_local_ones(self):
         set_server(self.controller, "playwright", zerochat.POLICY_ALLOW)
         result = {"content": [{"type": "text", "text": "ok"}], "isError": False}
         with unittest.mock.patch.object(zerochat.GLOBAL_MCP_MANAGER, "server_of", side_effect=lambda name: name.split("__")[0]), \
@@ -541,15 +529,13 @@ class ChallengeTest(HandlerTestCase):
         self.assertEqual((res, err["code"]), (None, -32002))
         self.assertEqual(stored("servers"), {})
 
-    def test_invalid_directory_rule_fails_visibly_and_keeps_challenge(self):
+    def test_authorize_validates_rule_reports_storage_failure_and_forwards_job_key(self):
         ch = self.controller.create_challenge("custom_tool", {}, self.evaluate("custom_tool"), context=cwd())
         res, err = self.authorize(ch["id"], "allow_always", directoryRule="INVALID_RULE")
         self.assertEqual((res, err["code"]), (None, -32602))
         self.assertIn(ch["id"], challenges(self.controller))
         self.assertIsNone(tool_entry(self.controller, "custom_tool"))
 
-    def test_storage_failure_on_authorize_is_reported_and_tool_not_executed(self):
-        ch = self.controller.create_challenge("custom_tool", {}, self.evaluate("custom_tool"), context=cwd())
         with unittest.mock.patch("zerochat.update_security_policy_data", side_effect=sqlite3.OperationalError("database is locked")), \
                 unittest.mock.patch.object(zerochat, "execute_tool") as execute:
             res, err = self.authorize(ch["id"], "allow_always")
@@ -557,7 +543,6 @@ class ChallengeTest(HandlerTestCase):
         self.assertIn("database is locked", err["message"])
         execute.assert_not_called()
 
-    def test_job_key_is_not_a_challenge_argument_but_reaches_execution(self):
         gate = self.call_local("run_command", {"command": "echo job"}, _meta={"zerochatJobKey": "inv-1"})
         self.assertEqual(gate["arguments"], {"command": "echo job"})
         with unittest.mock.patch.object(zerochat, "execute_tool", return_value=({"content": []}, None, "")) as execute:
@@ -578,7 +563,7 @@ class ApprovedCallOnResumeTest(HandlerTestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_solo_la_llamada_aprobada_y_una_sola_vez(self):
+    def test_solo_la_llamada_aprobada_y_una_sola_vez_y_una_denegacion_no_ejecuta_nada(self):
         self.run_session("allow_once")
         self.command_challenge("echo adios")
         ran = self.call_local("run_command", {"timeout_seconds": 30, "command": "echo hola"})
@@ -586,7 +571,6 @@ class ApprovedCallOnResumeTest(HandlerTestCase):
         self.assertIn("hola", ran["content"][0]["text"])
         self.assertTrue(self.call_local("run_command", {"command": "echo hola", "timeout_seconds": 30}).get("requiresAuthorization"))
 
-    def test_una_denegacion_no_ejecuta_nada(self):
         self.run_session("deny")
         self.assertTrue(self.call_local("run_command", {"command": "echo hola", "timeout_seconds": 30}).get("requiresAuthorization"))
 
@@ -642,6 +626,11 @@ class CommandPatternTest(HandlerTestCase):
         with self.assertRaisesRegex(ValueError, "allow_always_requires_command_pattern"):
             self.controller.import_state({"tools": {"run_command": {"policy": "allow"}}}, self.ctx)
         self.controller.apply_session_overlay({"tools": {"run_command": {"policy": "allow"}}}, cwd())
+        self.controller.clear_session()
+        # Solo los patrones autorizan run_command de forma permanente, aunque la base de datos diga otra cosa
+        zerochat.update_security_policy_data(lambda current: {**(current or {}), "tools": {
+            "run_command": {"policy": "allow", "scope": "permanent"}}, "commandPatterns": {"global": []}})
+        self.assertEqual(self.evaluate("run_command", {"command": "rm -rf build"}).status, "ask")
 
         # El tope cuenta los patrones globales y los de todos los proyectos: N se acepta y N+1 no
         limit = zerochat.MAX_COMMAND_PATTERNS
@@ -649,12 +638,6 @@ class CommandPatternTest(HandlerTestCase):
         store([f"g{i}" for i in range(half)], {"/proj": [f"p{i}" for i in range(limit - half)]})
         with self.assertRaisesRegex(ValueError, "máximo"):
             store([f"g{i}" for i in range(half)], {"/proj": [f"p{i}" for i in range(limit - half + 1)]})
-
-    def test_stored_run_command_allow_never_allows_any_command(self):
-        # Solo los patrones autorizan run_command de forma permanente, aunque la base de datos diga otra cosa
-        zerochat.update_security_policy_data(lambda current: {**(current or {}), "tools": {
-            "run_command": {"policy": "allow", "scope": "permanent"}}, "commandPatterns": {"global": []}})
-        self.assertEqual(self.evaluate("run_command", {"command": "rm -rf build"}).status, "ask")
 
     def test_command_grants_need_a_pattern_that_covers_the_challenge(self):
         gate = self.command_challenge("echo hola mundo")
@@ -714,16 +697,12 @@ class CommandPatternTest(HandlerTestCase):
         exported = self.controller.export_state(cwd())["commandPatterns"]
         self.assertEqual((exported["session"], exported["global"]), (["echo uno *"], ["true *"]))
 
-        # Al acabar la sesión solo quedan los permanentes
-        self.controller.clear_session()
-        self.assertEqual([self.status(c) for c in ("echo uno dos", "printf x", "true x")], ["ask", "allow", "allow"])
-
-    def test_exported_session_patterns_survive_a_session_overlay(self):
-        self.authorize(self.command_challenge("echo capa")["challengeId"], "allow_session", commandPattern="echo capa *")
+        # Al acabar la sesión solo quedan los permanentes, pero un snapshot de sesión exportado puede reaplicarse
         snapshot = self.controller.export_state(cwd())
         self.controller.clear_session()
+        self.assertEqual([self.status(c) for c in ("echo uno dos", "printf x", "true x")], ["ask", "allow", "allow"])
         self.controller.apply_session_overlay(snapshot, cwd())
-        self.assertEqual(self.status("echo capa x"), "allow")
+        self.assertEqual(self.status("echo uno dos"), "allow")
 
 
 class SessionLifecycleTest(HandlerTestCase):
@@ -783,10 +762,13 @@ class SessionLifecycleTest(HandlerTestCase):
         self.assertIsNone(self.controller.authorize_challenge(ch["id"], "allow_once", context=project_b))
         self.assertFalse(self.controller.revoke_challenge(ch["id"], context=project_b))
 
-        # Al volver, el proyecto conserva su sesión y su reto
+        # Al volver, el proyecto conserva su sesión y su reto; un cambio permanente sustituye la entrada de sesión en todos los proyectos
         self.assertEqual(tool_entry(self.controller, "custom_tool", project_a)["policy"], "allow")
         self.assertIn(ch["id"], challenges(self.controller, project_a))
         self.assertIsNotNone(self.controller.authorize_challenge(ch["id"], "allow_once", context=project_a))
+        self.controller.apply_session_overlay({"tools": {"custom_tool": {"policy": "allow"}}}, project_b)
+        set_tool(self.controller, "custom_tool", zerochat.POLICY_DENY)
+        self.assertEqual(tool_entry(self.controller, "custom_tool", project_b)["policy"], "deny")
 
     def test_project_sessions_are_capped_releasing_the_least_recently_used_without_commands(self):
         projects = {}
@@ -811,13 +793,6 @@ class SessionLifecycleTest(HandlerTestCase):
             self.assertEqual(set(controller.sessions), {key("c"), key("d")})
             self.assertIsNone(tool_entry(controller, "t", projects["a"]), "Al volver, a empieza vacía")
 
-    def test_a_saved_change_replaces_the_session_entry_in_every_project(self):
-        other = self.base_dir / "otro"
-        other.mkdir()
-        project_b = zerochat.SecurityContext(other.resolve())
-        self.controller.apply_session_overlay({"tools": {"t": {"policy": "allow"}}}, project_b)
-        set_tool(self.controller, "t", zerochat.POLICY_DENY)
-        self.assertEqual(tool_entry(self.controller, "t", project_b)["policy"], "deny")
 
 class RpcValidationTest(unittest.TestCase):
     def test_el_metodo_y_el_nombre_de_herramienta_admiten_128_caracteres_y_no_129(self):

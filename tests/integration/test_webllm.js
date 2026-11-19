@@ -56,7 +56,7 @@ function adapterWith(manager) {
   return adapter;
 }
 
-test('WebLLM - el catálogo usa Cache Storage por defecto sin requerir IndexedDB', async () => {
+test('WebLLM - el catálogo usa Cache Storage por defecto, exige descarga confirmada y elimina modelos de la caché', async () => {
   const result = await WebLLM.listModels({ loader: async () => fakeModule({
     hasModelInCache: async (_model, appConfig) => {
       observedAppConfig = appConfig;
@@ -83,43 +83,14 @@ test('WebLLM - el catálogo usa Cache Storage por defecto sin requerir IndexedDB
       max_context_length: 4096
     }
   });
-});
 
-test('WebLLM - borrar un modelo elimina su caché y no lo declara disponible', async () => {
-  cached = true;
-  assert.equal(await WebLLM.adapter.deleteModel('test-model'), true);
-  assert.equal(cached, false);
-});
-
-test('WebLLM - el catálogo exige una descarga confirmada antes de ofrecer el modelo', async () => {
-  const originalStorage = global.ChatStorage;
-  const values = new Map([[WebLLM.COMPLETED_MODELS_STORAGE_KEY, '[]']]);
-  global.ChatStorage = {
-    getStorageItem: key => values.get(key) || null,
-    setStorageItem: (key, value) => values.set(key, value)
-  };
-  try {
-    cached = true;
-    let result = await WebLLM.listModels();
-    assert.equal(result.models[0].details.webllmCache, 'incomplete');
-    values.set(WebLLM.COMPLETED_MODELS_STORAGE_KEY, '["test-model"]');
-    result = await WebLLM.listModels();
-    assert.equal(result.models[0].details.webllmCache, 'cached');
-  } finally {
-    global.ChatStorage = originalStorage;
-  }
-});
-
-test('WebLLM - la ejecución incompleta falla antes de crear un motor', async () => {
+  // Sin descarga confirmada en almacenamiento, queda incomplete y falla antes de crear un motor
+  storageValues.set(WebLLM.COMPLETED_MODELS_STORAGE_KEY, '[]');
+  assert.equal((await WebLLM.listModels()).models[0].details.webllmCache, 'incomplete');
   const webllm = await WebLLM.loadWebLLM();
   const originalCreate = webllm.CreateMLCEngine;
   let engineCreated = false;
-  cached = true;
-  storageValues.set(WebLLM.COMPLETED_MODELS_STORAGE_KEY, '[]');
-  webllm.CreateMLCEngine = async () => {
-    engineCreated = true;
-    return originalCreate();
-  };
+  webllm.CreateMLCEngine = async () => { engineCreated = true; return originalCreate(); };
   try {
     const adapter = new WebLLM.WebLLMProviderAdapter();
     await assert.rejects(adapter.createStreamResponse({ payload: { model: 'test-model', messages: [] } }), /not fully available/);
@@ -128,33 +99,22 @@ test('WebLLM - la ejecución incompleta falla antes de crear un motor', async ()
     webllm.CreateMLCEngine = originalCreate;
     storageValues.set(WebLLM.COMPLETED_MODELS_STORAGE_KEY, '["test-model"]');
   }
+
+  assert.equal((await WebLLM.listModels()).models[0].details.webllmCache, 'cached');
+  assert.equal(await WebLLM.adapter.deleteModel('test-model'), true);
+  assert.equal(cached, false);
 });
 
-test('WebLLM - omite parámetros de razonamiento no garantizados (incluido none) y no fuerza otros valores', () => {
-  {
-    const adapter = new WebLLM.WebLLMProviderAdapter();
-    const payload = adapter.buildPayload({
-      model: 'test-model', messages: [{ role: 'user', content: 'hello' }], reasoningEffort: 'high',
-      toolsList: [{ type: 'function', function: { name: 'tool' } }]
-    });
-    assert.equal(adapter.normalizeEndpoint(), 'webllm://local');
-    assert.equal(adapter.getCapabilities().tools, false);
-    assert.equal(payload.reasoning_effort, undefined);
-    assert.equal(payload.tools, undefined);
-    assert.equal(payload.stream_options, undefined);
-    const minimumPayload = adapter.buildPayload({
-      model: 'test-model', messages: [], reasoningEffort: 'none'
-    });
-    assert.equal(minimumPayload.reasoning_effort, undefined);
-  }
-});
-
-test('WebLLM - describe las herramientas en texto y convierte el historial de llamadas', () => {
+test('WebLLM - omite razonamiento, describe herramientas en texto y aplica overrides sin mutar', () => {
   const adapter = new WebLLM.WebLLMProviderAdapter();
+  assert.equal(adapter.normalizeEndpoint(), 'webllm://local');
+  assert.equal(adapter.getCapabilities().tools, false);
   assert.equal(adapter.getCapabilities().textTools, true);
+
   const tool = { type: 'function', function: { name: 'search_web', parameters: { type: 'object', properties: {} } } };
   const payload = adapter.buildPayload({
     model: 'test-model',
+    reasoningEffort: 'high',
     toolsList: [tool],
     messages: [
       { role: 'system', content: 'Base' },
@@ -163,13 +123,26 @@ test('WebLLM - describe las herramientas en texto y convierte el historial de ll
       { role: 'tool', tool_call_id: 'c1', name: 'search_web', content: 'R1' }
     ]
   });
+  assert.equal(payload.reasoning_effort, undefined);
   assert.equal(payload.tools, undefined);
+  assert.equal(payload.stream_options, undefined);
+  assert.equal(adapter.buildPayload({ model: 'test-model', messages: [], reasoningEffort: 'none' }).reasoning_effort, undefined);
   assert.equal(payload.messages.filter(message => message.role === 'system').length, 1);
   assert.match(payload.messages[0].content, /^Base\n\n# Tools/);
   assert.ok(payload.messages[0].content.includes('"name":"search_web"'));
   assert.equal(payload.messages[2].content, '<tool_call>\n{"name":"search_web","arguments":{"query":"a"}}\n</tool_call>');
   assert.deepEqual(payload.messages[3], { role: 'user', content: '<tool_response>\nR1\n</tool_response>' });
   assert.ok(payload.messages.every(message => typeof message.content === 'string' && message.role !== 'tool'));
+
+  assert.equal(WebLLM.extractOverrides(null), null);
+  assert.equal(WebLLM.extractOverrides({ context_window_size: 'default', prefill_chunk_size: null }), null);
+  const overrides = WebLLM.extractOverrides({ context_window_size: '16384', prefill_chunk_size: '2048' });
+  assert.deepEqual(overrides, { context_window_size: 16384, prefill_chunk_size: 2048 });
+  const originalAppConfig = { model_list: [{ model_id: 'model-a', overrides: { existing: 1 } }, { model_id: 'model-b' }] };
+  const updated = WebLLM.applyModelOverrides(originalAppConfig, 'model-a', overrides);
+  assert.equal(originalAppConfig.model_list[0].overrides.context_window_size, undefined);
+  assert.deepEqual(updated.model_list[0].overrides, { existing: 1, context_window_size: 16384, prefill_chunk_size: 2048 });
+  assert.equal(updated.model_list[1].overrides, undefined);
 });
 
 test('WebLLM - reutiliza el motor ya cargado entre turnos del mismo modelo', async () => {
@@ -201,6 +174,21 @@ test('WebLLM - reutiliza el motor ya cargado entre turnos del mismo modelo', asy
   } finally {
     await adapter.disposeActiveEngine();
   }
+});
+
+test('WebLLM - el gestor cancela una preparación pendiente al desactivarse', async () => {
+  let cancelled = false;
+  const manager = engineManager((_webllm, _model, _config, _progress, signal) => new Promise((resolve, reject) => {
+    signal.addEventListener('abort', () => {
+      cancelled = true;
+      reject(Object.assign(new Error('Aborted'), { name: 'AbortError' }));
+    }, { once: true });
+  }));
+  const pending = manager.acquire({}, 'model-a', {}, () => {});
+  const rejected = assert.rejects(pending, error => error.name === 'AbortError');
+  await manager.dispose();
+  await rejected;
+  assert.equal(cancelled, true);
 });
 
 test('WebLLM - descarta el motor si se pierde la GPU durante la generación', async () => {
@@ -247,28 +235,49 @@ test('WebLLM - compareCatalogModels ordena descargados y después recomendados p
   assert.deepEqual([...models].sort((x, y) => WebLLM.compareCatalogModels(x, y, model => completed.has(model.id))).map(model => model.id), ['a', 'b', 'c']);
 });
 
-test('WebLLM - no oculta como fallback un error real de preparación', async () => {
+test('WebLLM - rechaza sin fallback al hilo principal si no hay Web Worker, si falla al arrancar o si hay un error real', async () => {
   const originalWorker = global.Worker;
   const originalCreateObjectURL = URL.createObjectURL;
   const originalRevokeObjectURL = URL.revokeObjectURL;
   const originalConsoleError = console.error;
   console.error = () => {};
   let mainThreadEngineCreated = false;
-  global.Worker = class {
-    addEventListener() {}
-    removeEventListener() {}
-    terminate() {}
-  };
-  URL.createObjectURL = () => 'blob:test-webllm-worker';
-  URL.revokeObjectURL = () => {};
   try {
+    global.Worker = undefined;
+    await assert.rejects(WebLLM.createWorkerEngine({
+      CreateMLCEngine: async () => { mainThreadEngineCreated = true; }
+    }, 'test-model', {}, () => {}), error => error.code === 'WEBLLM_WORKER_UNAVAILABLE');
+
+    URL.createObjectURL = () => 'blob:test-webllm-worker';
+    URL.revokeObjectURL = () => {};
+
+    // Error del worker al cargar el script -> WEBLLM_WORKER_UNAVAILABLE tras terminar el worker
+    let terminated = false;
+    global.Worker = class {
+      constructor() { this.listeners = new Map(); }
+      addEventListener(type, handler) {
+        this.listeners.set(type, handler);
+        if (type === 'error') queueMicrotask(() => handler({ message: 'Failed to fetch dynamically imported module' }));
+      }
+      removeEventListener(type) { this.listeners.delete(type); }
+      terminate() { terminated = true; }
+    };
+    await assert.rejects(WebLLM.createWorkerEngine({
+      CreateWebWorkerMLCEngine: async () => new Promise(() => {}),
+      CreateMLCEngine: async () => { mainThreadEngineCreated = true; return { unload: async () => {} }; }
+    }, 'test-model', {}, () => {}), error => error.code === 'WEBLLM_WORKER_UNAVAILABLE');
+    assert.equal(terminated, true);
+
+    // Errores reales de preparación se propagan sin ocultarse
+    global.Worker = class {
+      addEventListener() {}
+      removeEventListener() {}
+      terminate() {}
+    };
     const originalError = new Error('GPU allocation failed');
     await assert.rejects(WebLLM.createWorkerEngine({
       CreateWebWorkerMLCEngine: async () => { throw originalError; },
-      CreateMLCEngine: async () => {
-        mainThreadEngineCreated = true;
-        return { unload: async () => {} };
-      }
+      CreateMLCEngine: async () => { mainThreadEngineCreated = true; return { unload: async () => {} }; }
     }, 'test-model', {}, () => {}), error => error === originalError);
     for (const detail of ['SecurityError: Cache Storage access denied', 'NS_ERROR_FILE_NO_DEVICE_SPACE']) {
       await assert.rejects(WebLLM.createWorkerEngine({
@@ -281,72 +290,6 @@ test('WebLLM - no oculta como fallback un error real de preparación', async () 
       });
     }
     assert.equal(mainThreadEngineCreated, false);
-  } finally {
-    global.Worker = originalWorker;
-    URL.createObjectURL = originalCreateObjectURL;
-    URL.revokeObjectURL = originalRevokeObjectURL;
-    console.error = originalConsoleError;
-  }
-});
-
-test('WebLLM - el gestor cancela una preparación pendiente al desactivarse', async () => {
-  let cancelled = false;
-  const manager = engineManager((_webllm, _model, _config, _progress, signal) => new Promise((resolve, reject) => {
-    signal.addEventListener('abort', () => {
-      cancelled = true;
-      reject(Object.assign(new Error('Aborted'), { name: 'AbortError' }));
-    }, { once: true });
-  }));
-  const pending = manager.acquire({}, 'model-a', {}, () => {});
-  const rejected = assert.rejects(pending, error => error.name === 'AbortError');
-  await manager.dispose();
-  await rejected;
-  assert.equal(cancelled, true);
-});
-
-test('WebLLM - rechaza sin iniciar un motor principal si no hay Web Worker', async () => {
-  const originalWorker = global.Worker;
-  let mainThreadEngineCreated = false;
-  global.Worker = undefined;
-  try {
-    await assert.rejects(WebLLM.createWorkerEngine({
-      CreateMLCEngine: async () => { mainThreadEngineCreated = true; }
-    }, 'test-model', {}, () => {}), error => error.code === 'WEBLLM_WORKER_UNAVAILABLE');
-    assert.equal(mainThreadEngineCreated, false);
-  } finally {
-    global.Worker = originalWorker;
-  }
-});
-
-test('WebLLM - no usa el motor principal si el worker no puede arrancar', async () => {
-  const originalWorker = global.Worker;
-  const originalCreateObjectURL = URL.createObjectURL;
-  const originalRevokeObjectURL = URL.revokeObjectURL;
-  const originalConsoleError = console.error;
-  console.error = () => {};
-  let terminated = false;
-  global.Worker = class {
-    constructor() { this.listeners = new Map(); }
-    addEventListener(type, handler) {
-      this.listeners.set(type, handler);
-      if (type === 'error') queueMicrotask(() => handler({ message: 'Failed to fetch dynamically imported module' }));
-    }
-    removeEventListener(type) { this.listeners.delete(type); }
-    terminate() { terminated = true; }
-  };
-  URL.createObjectURL = () => 'blob:test-webllm-worker';
-  URL.revokeObjectURL = () => {};
-  try {
-    let mainThreadEngineCreated = false;
-    await assert.rejects(WebLLM.createWorkerEngine({
-      CreateWebWorkerMLCEngine: async () => new Promise(() => {}),
-      CreateMLCEngine: async () => {
-        mainThreadEngineCreated = true;
-        return { unload: async () => {} };
-      }
-    }, 'test-model', {}, () => {}), error => error.code === 'WEBLLM_WORKER_UNAVAILABLE');
-    assert.equal(mainThreadEngineCreated, false);
-    assert.equal(terminated, true);
   } finally {
     global.Worker = originalWorker;
     URL.createObjectURL = originalCreateObjectURL;
@@ -377,47 +320,5 @@ test('WebLLM - ChatAPI usa el transporte local sin fetch y conserva el streaming
   } finally {
     WebLLM.adapter.createStreamResponse = originalCreate;
     global.fetch = originalFetch;
-  }
-});
-
-test('WebLLM - extractOverrides y applyModelOverrides solo inyectan valores numéricos en el modelo seleccionado', () => {
-  {
-    assert.equal(WebLLM.extractOverrides(null), null);
-    assert.equal(WebLLM.extractOverrides({}), null);
-    assert.equal(WebLLM.extractOverrides({
-      context_window_size: 'default',
-      prefill_chunk_size: null
-    }), null);
-
-    const overrides = WebLLM.extractOverrides({
-      context_window_size: '8192',
-      prefill_chunk_size: '2048'
-    });
-    assert.deepEqual(overrides, {
-      context_window_size: 8192,
-      prefill_chunk_size: 2048
-    });
-  }
-
-  {
-    const originalAppConfig = {
-      model_list: [
-        { model_id: 'model-a', overrides: { existing: 1 } },
-        { model_id: 'model-b' }
-      ]
-    };
-    const overrides = { context_window_size: 16384, prefill_chunk_size: 2048 };
-    const updated = WebLLM.applyModelOverrides(originalAppConfig, 'model-a', overrides);
-
-    // No debe mutar el original
-    assert.equal(originalAppConfig.model_list[0].overrides.context_window_size, undefined);
-
-    // Debe inyectar en el clon
-    assert.deepEqual(updated.model_list[0].overrides, {
-      existing: 1,
-      context_window_size: 16384,
-      prefill_chunk_size: 2048
-    });
-    assert.equal(updated.model_list[1].overrides, undefined);
   }
 });

@@ -27,10 +27,17 @@ class GuiDiffToolTest(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_sin_visor_en_git_se_propone_el_primero_instalado(self):
+    def test_sin_visor_en_git_se_propone_el_primero_instalado_y_solo_se_configuran_conocidos(self):
         # Las órdenes propuestas son las que configure_gui_diff_tool aplica después.
         with patch("shutil.which", which_only("gvim", "meld", "webdiff")):
             self.assertEqual(zerochat.detect_gui_diff_tool(), {"tool": "meld", "install": False, "commands": ["git config --global diff.guitool meld"]})
+            self.assertEqual(zerochat.configure_gui_diff_tool("meld"), {"tool": "meld"})
+            self.assertEqual(git_get("diff.guitool"), "meld")
+            for bad in ("nano", None, ["meld"], "kompare"):
+                with self.subTest(tool=bad), self.assertRaises(ValueError):
+                    zerochat.configure_gui_diff_tool(bad)
+            self.assertEqual(git_get("diff.guitool"), "meld")
+        REAL_RUN(["git", "config", "--global", "--unset", "diff.guitool"], check=True)
         with patch("shutil.which", which_only("code", "meld")):
             self.assertEqual(zerochat.detect_gui_diff_tool()["tool"], "vscode")
         with patch("shutil.which", which_only("webdiff")):
@@ -72,15 +79,6 @@ class GuiDiffToolTest(unittest.TestCase):
         with patch("shutil.which", which_only("webdiff")):
             self.assertIn(str(venv_webdiff), zerochat.detect_gui_diff_tool()["commands"][0])
 
-    def test_solo_se_configuran_visores_conocidos(self):
-        with patch("shutil.which", which_only("meld")):
-            self.assertEqual(zerochat.configure_gui_diff_tool("meld"), {"tool": "meld"})
-            self.assertEqual(git_get("diff.guitool"), "meld")
-            for bad in ("nano", None, ["meld"], "kompare"):
-                with self.subTest(tool=bad), self.assertRaises(ValueError):
-                    zerochat.configure_gui_diff_tool(bad)
-            self.assertEqual(git_get("diff.guitool"), "meld")
-
 
 class BuiltinDiffTest(unittest.TestCase):
     def test_render_diff_html_escapes_and_formats(self):
@@ -115,17 +113,10 @@ index 1234567..89abcdef 100644
         self.assertIn("Abrir fichero completo", html_out)
         self.assertIn("openFullFile()", html_out)
 
-    def test_generate_file_diff_validations(self):
-        with self.assertRaises(ValueError):
-            zerochat.generate_file_diff("", zerochat.project_context())
-        with self.assertRaises(ValueError):
-            zerochat.generate_file_diff("   ", zerochat.project_context())
-        with self.assertRaises(ValueError):
-            zerochat.generate_file_diff("a" * (zerochat.MAX_PATH_LENGTH + 1), zerochat.project_context())
-        with self.assertRaises(ValueError):
-            zerochat.generate_file_diff("/path/to/nonexistent/file_xyz.txt", zerochat.project_context())
-
-    def test_generate_file_diff_working_tree_and_commit(self):
+    def test_generate_file_diff_validations_working_tree_and_commit(self):
+        for bad_path in ("", "   ", "a" * (zerochat.MAX_PATH_LENGTH + 1), "/path/to/nonexistent/file_xyz.txt"):
+            with self.subTest(bad_path=bad_path), self.assertRaises(ValueError):
+                zerochat.generate_file_diff(bad_path, zerochat.project_context())
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_path = Path(tmp_dir).resolve()
             subprocess.run(["git", "init"], cwd=str(repo_path), check=True, capture_output=True)

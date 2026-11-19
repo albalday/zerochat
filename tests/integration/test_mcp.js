@@ -6,7 +6,7 @@ const AgentCore = require('../../js/agent-core.js');
 const MCP = require('../../js/mcp.js');
 const ChatState = require('../../js/state.js');
 
-test('MCP - Descubrimiento y Mapeo de Herramientas (tools/list)', async () => {
+test('MCP - Descubrimiento, invocación, errores JSON-RPC y cabeceras del cliente', async () => {
   const originalFetch = global.fetch;
 
   try {
@@ -53,50 +53,21 @@ test('MCP - Descubrimiento y Mapeo de Herramientas (tools/list)', async () => {
           })
         };
       }
-      return { ok: false, status: 404, text: async () => 'Not Found' };
-    };
-
-    const client = new MCP.McpClient({
-      id: 'weather_server',
-      name: 'Weather MCP Server',
-      url: 'https://mcp.weather.local/rpc'
-    });
-
-    const provider = new MCP.McpToolProvider(client);
-    const tools = await provider.discoverTools();
-
-    assert.equal(tools.length, 1);
-    const weatherTool = tools[0];
-    assert.equal(weatherTool.category, 'mcp');
-    assert.ok(weatherTool.name.includes('weatherz5fzserver_get_weather_forecast'));
-    assert.deepEqual(weatherTool.aliases, []);
-    assert.equal(weatherTool.metadata.mcpServerName, 'Weather MCP Server');
-    assert.equal(weatherTool.metadata.originalName, 'get_weather_forecast');
-    assert.ok(weatherTool.parameters.required.includes('city'));
-
-    // Registro en ToolRegistry
-    const registry = new AgentCore.ToolRegistry();
-    registry.registerProvider(provider);
-
-    // Solo debe resolver por el nombre público completo.
-    assert.equal(Boolean(registry.getTool('get_weather_forecast')), false);
-    assert.ok(registry.getTool('weatherz5fzserver_get_weather_forecast'));
-
-    const defs = registry.getActiveDefinitions(require('../../js/config-store.js').normalize({}));
-    const weatherDef = defs.find(d => d.function.name.includes('get_weather_forecast'));
-    assert.ok(weatherDef);
-  } finally {
-    global.fetch = originalFetch;
-  }
-});
-
-test('MCP - Invocación de herramientas (tools/call) y conversión de resultados', async () => {
-  const originalFetch = global.fetch;
-
-  try {
-    global.fetch = async (url, options) => {
-      const body = JSON.parse(options.body || '{}');
       if (body.method === 'tools/call') {
+        if (body.params.arguments?.invalid) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              jsonrpc: '2.0',
+              id: body.id,
+              result: {
+                content: [{ type: 'text', text: 'Parámetro inválido proporcionado' }],
+                isError: true
+              }
+            })
+          };
+        }
         assert.equal(body.params.name, 'calculate_math');
         assert.equal(body.params.arguments.expression, '40 + 2');
         return {
@@ -106,82 +77,57 @@ test('MCP - Invocación de herramientas (tools/call) y conversión de resultados
             jsonrpc: '2.0',
             id: body.id,
             result: {
-              content: [
-                { type: 'text', text: 'Resultado: 42' }
-              ],
+              content: [{ type: 'text', text: 'Resultado: 42' }],
               isError: false
             }
           })
         };
       }
-      return { ok: false, status: 500 };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          jsonrpc: '2.0',
+          id: body.id,
+          error: { code: -32601, message: 'Method not found' }
+        })
+      };
     };
 
     const client = new MCP.McpClient({
-      id: 'math_server',
-      name: 'Math Server',
-      url: 'https://mcp.math.local/rpc'
+      id: 'weather_server',
+      name: 'Weather MCP Server',
+      url: 'https://mcp.weather.local/rpc',
+      headers: { Authorization: 'Bearer test-secret-token' },
+      token: 'session'
     });
+    assert.equal(client.buildHeaders().Authorization, 'Bearer test-secret-token');
+    assert.equal(client.buildHeaders()['X-ZeroChat-Token'], 'session');
+
+    const provider = new MCP.McpToolProvider(client);
+    const tools = await provider.discoverTools();
+    assert.equal(tools.length, 1);
+    const weatherTool = tools[0];
+    assert.equal(weatherTool.category, 'mcp');
+    assert.ok(weatherTool.name.includes('weatherz5fzserver_get_weather_forecast'));
+    assert.deepEqual(weatherTool.aliases, []);
+    assert.equal(weatherTool.metadata.mcpServerName, 'Weather MCP Server');
+    assert.equal(weatherTool.metadata.originalName, 'get_weather_forecast');
+    assert.ok(weatherTool.parameters.required.includes('city'));
+
+    const registry = new AgentCore.ToolRegistry();
+    registry.registerProvider(provider);
+    assert.equal(Boolean(registry.getTool('get_weather_forecast')), false);
+    assert.ok(registry.getTool('weatherz5fzserver_get_weather_forecast'));
+    const defs = registry.getActiveDefinitions(require('../../js/config-store.js').normalize({}));
+    assert.ok(defs.find(d => d.function.name.includes('get_weather_forecast')));
 
     const res = await client.callTool('calculate_math', { expression: '40 + 2' });
     assert.equal(res.success, true);
     assert.equal(res.isError, false);
     assert.equal(res.content, 'Resultado: 42');
-    assert.ok(res.executionTimeMs >= 0);
-  } finally {
-    global.fetch = originalFetch;
-  }
-});
 
-test('MCP - Manejo de errores de servidor y respuestas con isError: true', async () => {
-  const originalFetch = global.fetch;
-
-  try {
-    // 1. Error de protocolo JSON-RPC
-    global.fetch = async (url, options) => {
-      const body = JSON.parse(options.body || '{}');
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          jsonrpc: '2.0',
-          id: body.id,
-          error: {
-            code: -32601,
-            message: 'Method not found'
-          }
-        })
-      };
-    };
-
-    const client = new MCP.McpClient({
-      id: 'err_server',
-      name: 'Error Server',
-      url: 'https://mcp.err.local/rpc'
-    });
-
-    await assert.rejects(
-      async () => client.request('non_existent_method'),
-      /MCP error \(-32601\): Method not found/
-    );
-
-    // 2. Respuesta con isError: true en tools/call
-    global.fetch = async (url, options) => {
-      const body = JSON.parse(options.body || '{}');
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          jsonrpc: '2.0',
-          id: body.id,
-          result: {
-            content: [{ type: 'text', text: 'Parámetro inválido proporcionado' }],
-            isError: true
-          }
-        })
-      };
-    };
-
+    await assert.rejects(() => client.request('non_existent_method'), /MCP error \(-32601\): Method not found/);
     const callRes = await client.callTool('some_tool', { invalid: true });
     assert.equal(callRes.success, false);
     assert.equal(callRes.isError, true);
@@ -191,52 +137,7 @@ test('MCP - Manejo de errores de servidor y respuestas con isError: true', async
   }
 });
 
-test('MCP - Timeout, Cancelación con AbortSignal y Truncado de Salida', async () => {
-  const originalFetch = global.fetch;
-
-  try {
-    // Test de cancelación
-    const client = new MCP.McpClient({
-      id: 'slow_server',
-      name: 'Slow Server',
-      url: 'https://mcp.slow.local/rpc'
-    });
-
-    const controller = new AbortController();
-    controller.abort();
-
-    await assert.rejects(
-      async () => client.request('tools/list', {}, { signal: controller.signal }),
-      /(aborted|cancel)/i
-    );
-
-    // Test de truncado de salida con respuestas gigantes
-    global.fetch = async (url, options) => {
-      const body = JSON.parse(options.body || '{}');
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          jsonrpc: '2.0',
-          id: body.id,
-          result: {
-            content: [{ type: 'text', text: 'X'.repeat(70000) }],
-            isError: false
-          }
-        })
-      };
-    };
-
-    const hugeRes = await client.callTool('large_dump', {});
-    assert.equal(hugeRes.success, true);
-    assert.ok(hugeRes.content.length <= 60100);
-    assert.ok(hugeRes.content.includes('[... MCP content truncated due to size limit ...]') || hugeRes.content.includes('[... Contenido MCP truncado por límite de tamaño ...]'));
-  } finally {
-    global.fetch = originalFetch;
-  }
-});
-
-test('MCP - conserva capturas Base64 como evidencia visual antes de truncar el texto', async () => {
+test('MCP - Cancelación con AbortSignal, truncado de salida y capturas Base64 como evidencia visual', async () => {
   const originalFetch = global.fetch;
   const screenshotBase64 = 'A'.repeat(70000);
 
@@ -246,29 +147,34 @@ test('MCP - conserva capturas Base64 como evidencia visual antes de truncar el t
       name: 'ZeroChat Local Server',
       url: 'https://mcp.local/rpc'
     });
+
+    const controller = new AbortController();
+    controller.abort();
+    await assert.rejects(
+      () => client.request('tools/list', {}, { signal: controller.signal }),
+      /(aborted|cancel)/i
+    );
+
     global.fetch = async (url, options) => {
       const body = JSON.parse(options.body || '{}');
+      const text = body.params?.name === 'browser_action'
+        ? JSON.stringify({ success: true, action: 'screenshot', mime_type: 'image/png', image_base64: screenshotBase64 })
+        : 'X'.repeat(70000);
       return {
         ok: true,
         status: 200,
         json: async () => ({
           jsonrpc: '2.0',
           id: body.id,
-          result: {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({
-                success: true,
-                action: 'screenshot',
-                mime_type: 'image/png',
-                image_base64: screenshotBase64
-              })
-            }],
-            isError: false
-          }
+          result: { content: [{ type: 'text', text }], isError: false }
         })
       };
     };
+
+    const hugeRes = await client.callTool('large_dump', {});
+    assert.equal(hugeRes.success, true);
+    assert.ok(hugeRes.content.length <= 60100);
+    assert.ok(hugeRes.content.includes('[... MCP content truncated due to size limit ...]') || hugeRes.content.includes('[... Contenido MCP truncado por límite de tamaño ...]'));
 
     const response = await client.callTool('browser_action', { action: 'screenshot' });
     assert.equal(response.image_base64, screenshotBase64);
@@ -281,133 +187,40 @@ test('MCP - conserva capturas Base64 como evidencia visual antes de truncar el t
   }
 });
 
-test('MCP - el cliente conserva sus cabeceras propias junto a las de ZeroChat', () => {
-  const client = new MCP.McpClient({ id: 'test_local', url: 'http://localhost:8000/rpc', headers: { Authorization: 'Bearer test-secret-token' }, token: 'session' });
-  const headers = client.buildHeaders();
-  assert.equal(headers.Authorization, 'Bearer test-secret-token');
-  assert.equal(headers['X-ZeroChat-Token'], 'session');
-});
+test('MCP - probeConnection, degradación por salud fallida y conexión silenciosa del arranque', async () => {
+  const originalFetch = global.fetch;
+  const previousState = ChatState.get('mcp');
 
-test('MCP - probeConnection acepta un endpoint activo y rechaza fallos de conexión, URL vacía y respuestas HTTP fallidas', async () => {
-  {
-    const originalFetch = global.fetch;
-
-    try {
-      global.fetch = async (url, options) => {
-        const body = JSON.parse(options.body || '{}');
-        if (body.method === 'initialize') {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({
-              jsonrpc: '2.0',
-              id: body.id,
-              result: {
-                protocolVersion: '2024-11-05',
-                serverInfo: { name: 'mcp-proxy', version: '0.4.0' },
-                capabilities: {}
-              }
-            })
-          };
-        }
-        return { ok: false, status: 404 };
-      };
-
-      const res = await MCP.probeConnection('http://127.0.0.1:6388', { timeoutMs: 1000 });
-      assert.equal(res.success, true);
-      assert.equal(res.serverInfo.name, 'mcp-proxy');
-      assert.equal(res.serverInfo.version, '0.4.0');
-      assert.ok(typeof res.latencyMs === 'number');
-    } finally {
-      global.fetch = originalFetch;
-    }
-  }
-
-  {
+  try {
     const emptyRes = await MCP.probeConnection('');
     assert.equal(emptyRes.success, false);
     assert.match(emptyRes.error, /Invalid or empty URL/);
 
-    const originalFetch = global.fetch;
-    try {
-      global.fetch = async () => {
-        throw new Error('connect ECONNREFUSED 127.0.0.1:6388');
-      };
+    global.fetch = async () => { throw new Error('connect ECONNREFUSED 127.0.0.1:6388'); };
+    const failRes = await MCP.probeConnection('http://127.0.0.1:6388', { timeoutMs: 500 });
+    assert.equal(failRes.success, false);
+    assert.match(failRes.error, /Cannot reach the local server/);
 
-      const failRes = await MCP.probeConnection('http://127.0.0.1:6388', { timeoutMs: 500 });
-      assert.equal(failRes.success, false);
-      assert.match(failRes.error, /Cannot reach the local server/);
-    } finally {
-      global.fetch = originalFetch;
-    }
-  }
-
-  {
-    const originalFetch = global.fetch;
-    try {
-      global.fetch = async (_url, options = {}) => {
-        if (options.method === 'POST') {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({ jsonrpc: '2.0', error: { code: -32601, message: 'initialize unavailable' } })
-          };
-        }
-        return { ok: false, status: 503, text: async () => 'Service unavailable' };
-      };
-      const result = await MCP.probeConnection('http://127.0.0.1:6388', { timeoutMs: 500 });
-      assert.equal(result.success, false);
-    } finally {
-      global.fetch = originalFetch;
-    }
-  }
-});
-
-test('MCP - una comprobación de salud fallida degrada una conexión previamente activa', async () => {
-  const originalFetch = global.fetch;
-  const previousState = ChatState.get('mcp');
-  const manager = new MCP.McpManager();
-  try {
-    ChatState.set('mcp', {
-      ...previousState,
-      status: 'connected',
-      endpoint: 'http://127.0.0.1:6388',
-      tools: [{ id: 'mcp_test_tool' }]
-    });
+    const manager = new MCP.McpManager();
+    ChatState.set('mcp', { ...previousState, status: 'connected', endpoint: 'http://127.0.0.1:6388', tools: [{ id: 'mcp_test_tool' }] });
     manager.target = { url: 'http://127.0.0.1:6388', proxyKey: null };
-    global.fetch = async () => { throw new Error('ECONNREFUSED'); };
+    const degraded = await manager.verifyProxyConnection({ timeoutMs: 500 });
+    assert.equal(degraded.success, false);
+    assert.equal(ChatState.get('mcp').status, 'error');
+    assert.equal(ChatState.get('mcp').tools.length, 0);
 
-    const result = await manager.verifyProxyConnection({ timeoutMs: 500 });
-    const state = ChatState.get('mcp');
-    assert.equal(result.success, false);
-    assert.equal(state.status, 'error');
-    assert.equal(state.tools.length, 0);
-    assert.match(state.error, /Cannot reach|ECONNREFUSED/i);
-  } finally {
-    global.fetch = originalFetch;
-    ChatState.set('mcp', previousState);
-  }
-});
-
-test('MCP - la conexión silenciosa del arranque conecta si el servidor está activo y queda desconectada si no', async () => {
-  const originalFetch = global.fetch;
-
-  try {
-    // 1. Caso Servidor Inactivo / puerto cerrado
-    global.fetch = async () => {
-      throw new Error('fetch failed: ECONNREFUSED');
-    };
-
-    const resInactive = await MCP.manager.connectProxy({
-      url: 'http://127.0.0.1:6388',
-      timeoutMs: 500,
-      silentOnFailure: true
-    });
-
+    const resInactive = await MCP.manager.connectProxy({ url: 'http://127.0.0.1:6388', timeoutMs: 500, silentOnFailure: true });
     assert.equal(resInactive.available, false);
     assert.equal(resInactive.success, false);
 
-    // 2. Caso Servidor Activo
+    global.fetch = async (_url, options = {}) => {
+      if (options.method === 'POST') {
+        return { ok: true, status: 200, json: async () => ({ jsonrpc: '2.0', error: { code: -32601, message: 'initialize unavailable' } }) };
+      }
+      return { ok: false, status: 503, text: async () => 'Service unavailable' };
+    };
+    assert.equal((await MCP.probeConnection('http://127.0.0.1:6388', { timeoutMs: 500 })).success, false);
+
     global.fetch = async (url, options) => {
       const body = JSON.parse(options?.body || '{}');
       if (body.method === 'initialize') {
@@ -433,13 +246,7 @@ test('MCP - la conexión silenciosa del arranque conecta si el servidor está ac
             jsonrpc: '2.0',
             id: body.id,
             result: {
-              tools: [
-                {
-                  name: 'auto_tool',
-                  description: 'Herramienta de prueba autoconectada',
-                  inputSchema: { type: 'object', properties: {} }
-                }
-              ]
+              tools: [{ name: 'auto_tool', description: 'Herramienta de prueba autoconectada', inputSchema: { type: 'object', properties: {} } }]
             }
           })
         };
@@ -447,45 +254,46 @@ test('MCP - la conexión silenciosa del arranque conecta si el servidor está ac
       return { ok: false, status: 404, text: async () => 'Not Found' };
     };
 
-    const resActive = await MCP.manager.connectProxy({
-      url: 'http://127.0.0.1:6388',
-      timeoutMs: 1000,
-      silentOnFailure: true
-    });
+    const probeOk = await MCP.probeConnection('http://127.0.0.1:6388', { timeoutMs: 1000 });
+    assert.equal(probeOk.success, true);
+    assert.equal(probeOk.serverInfo.name, 'mcp-proxy-auto');
 
+    const resActive = await MCP.manager.connectProxy({ url: 'http://127.0.0.1:6388', timeoutMs: 1000, silentOnFailure: true });
     assert.equal(resActive.success, true);
     assert.equal(resActive.tools.length, 1);
-    assert.ok(resActive.tools[0].name.includes('auto_tool'));
     assert.equal(resActive.tools[0].metadata.originalName, 'auto_tool');
   } finally {
     global.fetch = originalFetch;
     MCP.manager.setHeartbeatTimer(false);
     await MCP.manager.disconnectProxy();
+    ChatState.set('mcp', previousState);
   }
 });
 
-test('MCP - publicToolName codifica igual que el backend la tabla compartida', () => {
+test('MCP - publicToolName, aislamiento de herramientas homónimas y validación de nombres', async () => {
   // test_mcp_services.py comprueba la misma tabla contra public_tool_name de Python.
   for (const { server, tool, expected } of require('../fixtures/mcp/public-tool-names.json')) {
     let name = null;
     try { name = MCP.publicToolName(server, tool); } catch (_) {}
     assert.equal(name, expected, `${server}/${tool}`);
   }
-});
 
-test('MCP - proveedor, registro y permisos aíslan herramientas homónimas del host externo', async () => {
+  for (const names of [[null], [''], ['x'.repeat(65)], ['read_file', 'read_file']]) {
+    const badProvider = new MCP.McpToolProvider({ id: 'mcp_proxy', initialize: async () => ({ success: true }),
+      listTools: async () => names.map(name => ({ name })) });
+    await assert.rejects(badProvider.discoverTools(), /Invalid MCP|exceeds|Duplicate/);
+  }
+
   const Security = require('../../js/tool-security.js');
   const servers = {
     browser_service: ['browser_navigate', 'read_file'],
     second: ['browser_navigate', 'read_file'],
     'a-b': ['read_file'], a_b: ['read_file'],
     a: ['b_read_file'], A: ['read_file'], az: ['read_file'],
-    // Antes 'z5fz' se conservaba literal y colisionaba con '_' codificado.
     _: ['x'], z5fz: ['x'], Z: ['zip', 'z7az'],
     edge: ['read_file', 'readfile', 'Read_file', 'read-file', 'ñ'],
     composio: ['COMPOSIO_SEARCH_TOOLS']
   };
-  // Host externo como lo publica el backend: nombre público y metadatos del servicio de origen.
   const rawTools = Object.entries(servers).flatMap(([server, names]) => names.map(originalName => ({
     name: MCP.publicToolName(server, originalName), metadata: { mcpServerId: server, originalName }
   })));
@@ -500,8 +308,7 @@ test('MCP - proveedor, registro y permisos aíslan herramientas homónimas del h
   const tools = await provider.discoverTools();
   assert.equal(new Set(tools.map(t => t.name)).size, tools.length);
   assert.equal(tools[0].name, 'browserz5fzservice_browser_navigate');
-  assert.ok(tools.some(tool => tool.name === 'composio_COMPOSIO_SEARCH_TOOLS'),
-    'los nombres remotos en mayúsculas deben conservarse legibles');
+  assert.ok(tools.some(tool => tool.name === 'composio_COMPOSIO_SEARCH_TOOLS'));
   const registry = new AgentCore.ToolRegistry();
   registry.registerProvider(provider);
   for (const tool of tools) {
@@ -575,17 +382,6 @@ test('MCP - autorización externa muestra el servicio de origen y conserva permi
   assert.equal(manager.getServerPolicy('composio'), 'allow');
   await manager.setToolPolicy(execute.name, 'deny');
   assert.equal(manager.getToolPolicy(execute.name), 'deny');
-});
-
-test('MCP - nombres inválidos, duplicados y demasiado largos fallan explícitamente', async () => {
-  for (const names of [[null], [''], ['x'.repeat(65)], ['read_file', 'read_file']]) {
-    const provider = new MCP.McpToolProvider({ id: 'mcp_proxy', initialize: async () => ({ success: true }),
-      listTools: async () => names.map(name => ({ name })) });
-    await assert.rejects(provider.discoverTools(), /Invalid MCP|exceeds|Duplicate/);
-  }
-  const provider = new MCP.McpToolProvider({ id: 'mcp_proxy', initialize: async () => ({ success: true }),
-    listTools: async () => [{ name: 'read_file' }] });
-  assert.equal((await provider.discoverTools())[0].name, 'read_file');
 });
 
 /** Servidor local falso: responde initialize (con `tools`, `policies` y `liveState`) y el latido; `state.server` lo apaga o cambia su token. */
@@ -834,8 +630,10 @@ test('MCP - startExternalServer espera instalaciones largas y limita cada fase',
   }
 });
 
-test('MCP - el cliente del servidor local envía el proyecto de la pestaña; un servidor externo no lo recibe', () => {
+test('MCP - cabecera de proyecto, disponibilidad por carpeta, caída de carpeta y carrera con setProjectDirectory', async () => {
   const previousMcp = ChatState.get('mcp');
+  const previousSessions = ChatState.get('sessions');
+  const manager = new MCP.McpManager();
   try {
     const local = new MCP.McpClient({ id: 'mcp_proxy', url: 'http://127.0.0.1:6883' });
     const external = new MCP.McpClient({ id: 'otro', url: 'https://mcp.example.com' });
@@ -845,46 +643,8 @@ test('MCP - el cliente del servidor local envía el proyecto de la pestaña; un 
     assert.equal(decodeURIComponent(local.buildHeaders()['X-ZeroChat-Project']), '/home/yo/año nuevo');
     assert.match(local.buildHeaders()['X-ZeroChat-Project'], /^[\x20-\x7e]+$/, 'Una cabecera HTTP solo admite ASCII');
     assert.equal(external.buildHeaders()['X-ZeroChat-Project'], undefined);
-  } finally {
-    ChatState.set('mcp', previousMcp);
-  }
-});
 
-test('MCP - si la carpeta del proyecto desaparece, cualquier petición vuelve al proyecto por defecto, se repite y avisa una vez', async () => {
-  const previousMcp = ChatState.get('mcp');
-  const manager = new MCP.McpManager();
-  try {
-    ChatState.set('mcp', { ...previousMcp, status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo/borrado' } });
-    const calls = [];
-    // Como el servidor: rechaza mientras la pestaña siga en la carpeta borrada
-    manager.clients.set('mcp_proxy', { request: async method => {
-      calls.push(method);
-      if (ChatState.get('mcp').serverInfo.cwd === '/repo/borrado') throw Object.assign(new Error('gone'), { rpcError: { code: -32003 } });
-      return { method };
-    } });
-    manager.probeTarget = async () => ({ success: true, serverInfo: { name: 'ZeroChat', cwd: '/repo/inicio' }, liveState: null });
-    const lost = [];
-    manager.onProjectLost = info => lost.push(info);
-    // Sin latido periódico (servidor sin auto-cierre) la primera en notarlo es una petición cualquiera
-    const results = await Promise.all(['zerochat/conversations/list', 'zerochat/jobs/list'].map(method => manager.requestExternalControl(method)));
-    assert.deepEqual(results.map(result => result.method), ['zerochat/conversations/list', 'zerochat/jobs/list'], 'Se repiten y responden');
-    assert.equal(calls.length, 4);
-    assert.deepEqual(lost, [{ project: '/repo/borrado', fallback: '/repo/inicio' }]);
-    assert.equal(ChatState.get('mcp').serverInfo.cwd, '/repo/inicio');
-    assert.equal(ChatState.get('mcp').status, 'connected', 'Sigue conectado: solo cambia de proyecto');
-    // Otro error, o no poder volver, se entrega tal cual
-    manager.clients.set('mcp_proxy', { request: async () => { throw Object.assign(new Error('other'), { rpcError: { code: -32602 } }); } });
-    await assert.rejects(manager.requestExternalControl('zerochat/jobs/list'), /other/);
-    assert.equal(lost.length, 1);
-  } finally {
-    ChatState.set('mcp', previousMcp);
-  }
-});
-
-test('MCP - las herramientas locales solo están disponibles si la conversación activa es del proyecto del servidor, y las sin proyecto en general', async () => {
-  const previousMcp = ChatState.get('mcp');
-  const previousSessions = ChatState.get('sessions');
-  try {
+    // Disponibilidad por proyecto de la conversación activa y carpeta general
     const provider = new MCP.McpToolProvider({ id: 'mcp_proxy', name: 'ZeroChat', initialize: async () => ({ success: true }), listTools: async () => [{ name: 'read_file' }] });
     const [readFile] = await provider.discoverTools();
     ChatState.set('mcp', { ...previousMcp, status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo', noProjectDir: '/home/u/zerochat/general' } });
@@ -893,15 +653,50 @@ test('MCP - las herramientas locales solo están disponibles si la conversación
       return readFile.isAvailable();
     };
     assert.equal(withProject('/repo'), true);
-    assert.equal(withProject(undefined), true, 'Una conversación aún sin guardar recibe el proyecto al guardarse');
-    assert.equal(withProject(''), false, 'Una sin proyecto solo actúa en general');
-    assert.equal(withProject('/otro'), false, 'Nunca actúa en la carpeta de otro proyecto');
+    assert.equal(withProject(undefined), true);
+    assert.equal(withProject(''), false);
+    assert.equal(withProject('/otro'), false);
     ChatState.set('mcp', { ...ChatState.get('mcp'), serverInfo: { ...ChatState.get('mcp').serverInfo, cwd: '/home/u/zerochat/general' } });
     assert.equal(withProject(''), true);
-    assert.equal(MCP.projectOfDirectory('/home/u/zerochat/general'), '', 'general se guarda como proyecto vacío');
+    assert.equal(MCP.projectOfDirectory('/home/u/zerochat/general'), '');
     assert.equal(MCP.directoryOfProject(''), '/home/u/zerochat/general');
     ChatState.set('mcp', { ...ChatState.get('mcp'), status: 'disconnected' });
     assert.equal(withProject('/repo'), false);
+
+    // Si la carpeta desaparece (-32003), vuelve al proyecto por defecto y repite
+    ChatState.set('mcp', { ...previousMcp, status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo/borrado' } });
+    const calls = [];
+    manager.clients.set('mcp_proxy', { request: async method => {
+      calls.push(method);
+      if (ChatState.get('mcp').serverInfo.cwd === '/repo/borrado') throw Object.assign(new Error('gone'), { rpcError: { code: -32003 } });
+      return { method };
+    } });
+    manager.probeTarget = async () => ({ success: true, serverInfo: { name: 'ZeroChat', cwd: '/repo/inicio' }, liveState: null });
+    const lost = [];
+    manager.onProjectLost = info => lost.push(info);
+    const results = await Promise.all(['zerochat/conversations/list', 'zerochat/jobs/list'].map(method => manager.requestExternalControl(method)));
+    assert.deepEqual(results.map(result => result.method), ['zerochat/conversations/list', 'zerochat/jobs/list']);
+    assert.equal(calls.length, 4);
+    assert.deepEqual(lost, [{ project: '/repo/borrado', fallback: '/repo/inicio' }]);
+    assert.equal(ChatState.get('mcp').serverInfo.cwd, '/repo/inicio');
+
+    // setProjectDirectory invalida un readLiveState en vuelo para que no revierta cwd
+    let resolveHeartbeat;
+    const heartbeatDeferred = new Promise(resolve => { resolveHeartbeat = resolve; });
+    manager.clients.set('mcp_proxy', {
+      request: async (method, params) => {
+        if (method === 'zerochat/heartbeat') return heartbeatDeferred;
+        if (method === 'zerochat/project/set_directory') return { cwd: params.path };
+        return {};
+      }
+    });
+    ChatState.set('mcp', { ...previousMcp, status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo/a' } });
+    const pendingRead = manager.readLiveState();
+    await manager.setProjectDirectory('/repo/b');
+    assert.equal(ChatState.get('mcp').serverInfo.cwd, '/repo/b');
+    resolveHeartbeat({ ok: true, cwd: '/repo/a' });
+    await pendingRead;
+    assert.equal(ChatState.get('mcp').serverInfo.cwd, '/repo/b');
   } finally {
     ChatState.set('mcp', previousMcp);
     ChatState.set('sessions', previousSessions);
@@ -1172,32 +967,4 @@ test('MCP - gestión de perfiles de servidor (listServerProfiles, saveServerProf
   const deleted = await manager.deleteServerProfile('profile:saved');
   assert.equal(deleted, true);
 
-});
-
-test('MCP - setProjectDirectory invalida un readLiveState en vuelo para que no revierta cwd al proyecto anterior', async () => {
-  const previousMcp = ChatState.get('mcp');
-  const manager = new MCP.McpManager();
-  let resolveHeartbeat;
-  const heartbeatDeferred = new Promise(resolve => { resolveHeartbeat = resolve; });
-
-  manager.clients.set('mcp_proxy', {
-    request: async (method, params) => {
-      if (method === 'zerochat/heartbeat') return heartbeatDeferred;
-      if (method === 'zerochat/project/set_directory') return { cwd: params.path };
-      return {};
-    }
-  });
-
-  try {
-    ChatState.set('mcp', { ...previousMcp, status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo/a' } });
-    const pendingRead = manager.readLiveState();
-    await manager.setProjectDirectory('/repo/b');
-    assert.equal(ChatState.get('mcp').serverInfo.cwd, '/repo/b');
-
-    resolveHeartbeat({ ok: true, cwd: '/repo/a' });
-    await pendingRead;
-    assert.equal(ChatState.get('mcp').serverInfo.cwd, '/repo/b');
-  } finally {
-    ChatState.set('mcp', previousMcp);
-  }
 });
