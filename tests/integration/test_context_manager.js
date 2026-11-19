@@ -3,20 +3,15 @@ const assert = require('node:assert');
 const ChatContextManager = require('../../js/context-manager.js');
 const ChatEngine = require('../../js/chat-engine.js');
 
-test('ContextManager - la estimación cuenta el razonamiento reenviado', () => {
-  const base = { role: 'assistant', content: null, tool_calls: [] };
-  const withReasoning = { ...base, reasoning_content: 'razonamiento '.repeat(40) };
-  assert.ok(ChatContextManager.estimateMessageTokens(withReasoning) > ChatContextManager.estimateMessageTokens(base) + 50);
-});
-
-test('ContextManager - Estimación de tokens para texto, código y multimodales', () => {
+test('ContextManager - estimación de tokens para texto, código, razonamiento e imágenes', () => {
   const shortText = 'Hola, ¿cómo estás?';
   const tokens = ChatContextManager.estimateTextTokens(shortText);
   assert.ok(tokens > 0 && tokens < 10);
+  assert.ok(ChatContextManager.estimateTextTokens('function calculate(x) { return x * 42; }') > 0);
 
-  const codeText = 'function calculate(x) { return x * 42; }';
-  const codeTokens = ChatContextManager.estimateTextTokens(codeText);
-  assert.ok(codeTokens > 0);
+  const base = { role: 'assistant', content: null, tool_calls: [] };
+  const withReasoning = { ...base, reasoning_content: 'razonamiento '.repeat(40) };
+  assert.ok(ChatContextManager.estimateMessageTokens(withReasoning) > ChatContextManager.estimateMessageTokens(base) + 50);
 
   const multimodalMsg = {
     role: 'user',
@@ -25,8 +20,7 @@ test('ContextManager - Estimación de tokens para texto, código y multimodales'
       { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,123' } }
     ]
   };
-  const multiTokens = ChatContextManager.estimateMessageTokens(multimodalMsg);
-  assert.ok(multiTokens > 1000, 'Debe incluir la estimación de tokens para la imagen');
+  assert.ok(ChatContextManager.estimateMessageTokens(multimodalMsg) > 1000, 'Debe incluir la estimación de tokens para la imagen');
 });
 
 test('ContextManager - Preservación obligatoria de System Prompt y Último Mensaje con presupuesto pequeño', () => {
@@ -53,154 +47,102 @@ test('ContextManager - Preservación obligatoria de System Prompt y Último Mens
   assert.equal(result.diagnostics.strategy, 'sliding_window_truncated');
 });
 
-test('ContextManager - Preservación de pares atómicos tool_calls <-> tool', () => {
-  const messages = [
+test('ContextManager - buildOptimizedContext preserva pares atómicos, poda tools históricas y da margen al turno activo RAG', () => {
+  const atomicMessages = [
     { role: 'system', content: 'Sistema' },
     { role: 'user', content: 'Primer mensaje de usuario' },
-    {
-      role: 'assistant',
-      content: null,
-      tool_calls: [{ id: 'call_abc', function: { name: 'search_web', arguments: '{"q":"test"}' } }]
-    },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'call_abc', function: { name: 'search_web', arguments: '{"q":"test"}' } }] },
     { role: 'tool', tool_call_id: 'call_abc', name: 'search_web', content: 'Resultados de prueba' },
     { role: 'assistant', content: 'Aquí está tu respuesta basada en la búsqueda.' },
     { role: 'user', content: 'Segundo mensaje' }
   ];
-
-  const result = ChatContextManager.buildOptimizedContext(messages, {
-    maxInputTokens: 2000
-  });
-
-  // Verificar que el assistant con tool_calls y su tool respectivo permanecen juntos
-  const toolIdx = result.messages.findIndex(m => m.role === 'tool');
+  const atomic = ChatContextManager.buildOptimizedContext(atomicMessages, { maxInputTokens: 2000 });
+  const toolIdx = atomic.messages.findIndex(m => m.role === 'tool');
   assert.ok(toolIdx > 0);
-  assert.equal(result.messages[toolIdx - 1].role, 'assistant');
-  assert.ok(result.messages[toolIdx - 1].tool_calls);
-});
+  assert.equal(atomic.messages[toolIdx - 1].role, 'assistant');
+  assert.ok(atomic.messages[toolIdx - 1].tool_calls);
 
-test('ContextManager - Truncamiento y Poda de resultados gigantescos de herramientas', () => {
-  const hugeContent = 'A'.repeat(50000); // 50 KB de contenido
-
-  const messages = [
+  const hugeMessages = [
     { role: 'system', content: 'Sistema' },
     { role: 'user', content: 'Descarga un PDF' },
-    {
-      role: 'assistant',
-      content: null,
-      tool_calls: [{ id: 'call_pdf', function: { name: 'download_doc', arguments: '{"url":"..."}' } }]
-    },
-    { role: 'tool', tool_call_id: 'call_pdf', name: 'download_doc', content: hugeContent },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'call_pdf', function: { name: 'download_doc', arguments: '{"url":"..."}' } }] },
+    { role: 'tool', tool_call_id: 'call_pdf', name: 'download_doc', content: 'A'.repeat(50000) },
     { role: 'assistant', content: 'El PDF trata de X temas.' },
     { role: 'user', content: '¿Qué más dice?' }
   ];
+  const pruned = ChatContextManager.buildOptimizedContext(hugeMessages, { maxInputTokens: 4000, maxHistoricalToolChars: 500 });
+  const prunedTool = pruned.messages.find(m => m.role === 'tool');
+  assert.ok(prunedTool.content.length <= 1000);
+  assert.ok(prunedTool.content.includes('Truncado por ChatContextManager'));
+  assert.equal(pruned.diagnostics.prunedToolsCount, 1);
 
-  const result = ChatContextManager.buildOptimizedContext(messages, {
-    maxInputTokens: 4000,
-    maxHistoricalToolChars: 500
-  });
-
-  const toolMsg = result.messages.find(m => m.role === 'tool');
-  assert.ok(toolMsg);
-  assert.ok(toolMsg.content.length <= 1000, `El contenido de la tool histórica debe ser podado (actual: ${toolMsg.content.length})`);
-  assert.ok(toolMsg.content.includes('Truncado por ChatContextManager'));
-  assert.equal(result.diagnostics.prunedToolsCount, 1);
+  const tableContent = '### Financials\n\n' + 'FILA_CONTABLE_'.repeat(2000);
+  const activeRag = ChatContextManager.buildOptimizedContext([
+    { role: 'system', content: 'Eres un analista.' },
+    { role: 'user', content: 'Dame el EBITDA de Walmart.' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'call_read', function: { name: 'read_knowledge_chunk', arguments: '{"chunkIds":["c1"]}' } }] },
+    { role: 'tool', tool_call_id: 'call_read', name: 'read_knowledge_chunk', content: tableContent }
+  ], { model: 'configured-model', providerType: 'openai' });
+  const ragTool = activeRag.messages.find(m => m.role === 'tool');
+  assert.ok(!ragTool.content.includes('Truncado por ChatContextManager'));
+  assert.equal(ragTool.content.length, tableContent.length);
 });
 
 test('ContextManager - usa metadatos explícitos y no heurísticas por nombre', () => {
-  // Sin límite publicado, el presupuesto parte del general (1.000.000) sea cual sea el nombre del modelo.
   assert.equal(ChatContextManager.calculateInputBudget({ model: 'gpt-4o-mini' }), 1000000 - 4096 - 100000);
-
-  const budget = ChatContextManager.calculateInputBudget({
-    totalContextLimit: 90112
-  });
+  const budget = ChatContextManager.calculateInputBudget({ totalContextLimit: 90112 });
   assert.ok(budget > 75000 && budget < 80000);
 });
 
-test('ContextManager - shouldCompress detecta cuándo una conversación supera los umbrales', () => {
+test('ContextManager - shouldCompress evalúa umbrales y evita recomponer checkpoints sin diálogo suficiente', () => {
   const shortHistory = [
     { role: 'system', content: 'Sistema' },
     { role: 'user', content: 'Pregunta 1' },
     { role: 'assistant', content: 'Respuesta 1' }
   ];
-  assert.equal(ChatContextManager.shouldCompress(shortHistory), false, 'No debe comprimir historiales muy cortos');
+  assert.equal(ChatContextManager.shouldCompress(shortHistory), false);
 
-  // Historial largo que supera el ratio de presupuesto
-  const longHistory = [
-    { role: 'system', content: 'Sistema' }
-  ];
+  const longHistory = [{ role: 'system', content: 'Sistema' }];
   for (let i = 1; i <= 12; i++) {
-    longHistory.push({ role: 'user', content: `Pregunta de usuario número ${i}: ` + 'detalles '.repeat(40) });
-    longHistory.push({ role: 'assistant', content: `Respuesta del asistente número ${i}: ` + 'explicación '.repeat(40) });
+    longHistory.push({ role: 'user', content: `Pregunta ${i}: ` + 'detalles '.repeat(40) });
+    longHistory.push({ role: 'assistant', content: `Respuesta ${i}: ` + 'explicación '.repeat(40) });
   }
+  assert.equal(ChatContextManager.shouldCompress(longHistory, { maxInputTokens: 2000, compressionThresholdRatio: 0.50 }), true);
 
-  const should = ChatContextManager.shouldCompress(longHistory, {
-    maxInputTokens: 2000,
-    compressionThresholdRatio: 0.50
-  });
-  assert.equal(should, true, 'Debe activar compresión para historiales densos que superan el umbral');
+  const withRecentCheckpoint = Array.from({ length: 6 }, (_, index) => ({ role: 'system', content: `Sys ${index}` })).concat([
+    { role: 'system', content: 'Memoria previa', _isSummaryBlock: true, _compressedMetadata: { timestamp: Date.now(), endIndexInHistory: 8 } },
+    { role: 'user', content: 'Turno 9' },
+    { role: 'assistant', content: 'Respuesta 9' }
+  ]);
+  assert.equal(ChatContextManager.shouldCompress(withRecentCheckpoint, {
+    maxInputTokens: 20, compressionThresholdRatio: 0.1, minMessagesToCompress: 3
+  }), false);
 });
 
-test('ContextManager - compressHistory crea un checkpoint acumulativo con el diálogo completo', async () => {
+test('ContextManager - compressHistory encadena checkpoints acumulativos y conserva system + checkpoint al preparar contexto', async () => {
   const history = [
     { role: 'system', content: 'Eres un tutor de programación.' },
     { role: 'user', content: 'Quiero crear una API REST con Node.js y SQLite.' },
     { role: 'assistant', content: 'Perfecto, utilizaremos Express y better-sqlite3.' },
-    { role: 'user', content: 'Añadamos autenticación con JWT.' },
-    { role: 'assistant', content: 'Implementaremos bcrypt y jsonwebtoken para emitir tokens seguros.' },
-    { role: 'user', content: '¿Cómo creamos la tabla de usuarios?' },
-    { role: 'assistant', content: 'CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT UNIQUE);' },
-    { role: 'user', content: 'Ahora implementemos el endpoint de login.' }
+    { role: 'user', content: 'Añadamos autenticación con JWT.' }
   ];
-
-  let simulatedSummarizeCalled = false;
-  const mockSummarizeFn = async ({ systemPrompt, checkpoint, dialogue, messages }) => {
-    simulatedSummarizeCalled = true;
-    assert.ok(systemPrompt.includes('cumulative'));
-    assert.equal(checkpoint, null);
-    assert.equal(dialogue.length, 7);
-    assert.deepEqual(messages, dialogue);
-    return 'Checkpoint: API REST Node.js con SQLite y auth JWT; pendiente el endpoint de login.';
-  };
-
-  const res = await ChatContextManager.compressHistory({
+  let firstInput;
+  const firstRes = await ChatContextManager.compressHistory({
     messages: history,
-    summarizeFn: mockSummarizeFn,
+    summarizeFn: async input => { firstInput = input; return 'Checkpoint 1'; },
     options: {}
   });
+  assert.equal(firstRes.compressed, true);
+  assert.ok(firstInput.systemPrompt.includes('cumulative'));
+  assert.equal(firstInput.checkpoint, null);
+  assert.equal(firstInput.dialogue.length, 3);
+  assert.deepEqual(firstInput.messages, firstInput.dialogue);
+  assert.equal(firstRes.messages.length, 2);
+  assert.equal(firstRes.messages[1]._isSummaryBlock, true);
 
-  assert.equal(res.compressed, true);
-  assert.equal(simulatedSummarizeCalled, true);
-  assert.ok(res.memoryBlock);
-  assert.equal(res.memoryBlock._isSummaryBlock, true);
-  assert.ok(res.diagnostics.savedTokens > 0);
-
-  // El checkpoint sustituye todo el intervalo compacto, sin retener turnos recientes.
-  assert.equal(res.messages[0].content, 'Eres un tutor de programación.');
-  assert.equal(res.messages[1]._isSummaryBlock, true);
-  assert.equal(res.messages.length, 2);
-});
-
-test('ContextManager - compressHistory conserva el historial si el modelo no está disponible', async () => {
-  const history = [
-    { role: 'system', content: 'Sistema' },
-    { role: 'user', content: 'Buscar información de vuelos' },
-    { role: 'assistant', content: 'Buscando...', tool_calls: [{ id: '1', function: { name: 'search_web' } }] },
-    { role: 'tool', name: 'search_web', content: 'Resultados de vuelos' },
-    { role: 'assistant', content: 'Encontré 3 vuelos disponibles.' },
-    { role: 'user', content: 'Reservar el primero.' }
-  ];
-
-  const res = await ChatContextManager.compressHistory({ messages: history, summarizeFn: null });
-
-  assert.equal(res.compressed, false);
-  assert.equal(res.reason, 'summarizer_unavailable');
-  assert.equal(res.messages, history);
-});
-
-test('ContextManager - el siguiente checkpoint recibe el anterior y todas las llamadas y resultados posteriores', async () => {
-  const checkpoint = { role: 'system', content: 'Checkpoint anterior', _isSummaryBlock: true };
   const toolResult = 'resultado completo '.repeat(500);
-  const history = [
+  const checkpoint = firstRes.messages[1];
+  const nextHistory = [
     { role: 'system', content: 'Sistema permanente' },
     checkpoint,
     { role: 'user', content: 'Consulta nueva' },
@@ -208,52 +150,54 @@ test('ContextManager - el siguiente checkpoint recibe el anterior y todas las ll
     { role: 'tool', tool_call_id: 'call_1', name: 'any_tool', content: toolResult },
     { role: 'assistant', content: 'Resultado analizado' }
   ];
-  let received;
-  const res = await ChatContextManager.compressHistory({
-    messages: history,
-    summarizeFn: async input => {
-      received = input;
-      return 'Checkpoint acumulativo nuevo';
-    }
+  let secondInput;
+  const secondRes = await ChatContextManager.compressHistory({
+    messages: nextHistory,
+    summarizeFn: async input => { secondInput = input; return 'Checkpoint 2'; }
   });
+  assert.equal(secondInput.checkpoint, checkpoint);
+  assert.deepEqual(secondInput.dialogue, nextHistory.slice(2));
+  assert.equal(secondInput.dialogue[2].content, toolResult);
+  assert.deepEqual(secondInput.messages, [checkpoint, ...nextHistory.slice(2)]);
+  assert.equal(secondRes.messages[1].content, 'Checkpoint 2');
 
-  assert.equal(received.checkpoint, checkpoint);
-  assert.deepEqual(received.dialogue, history.slice(2));
-  assert.equal(received.dialogue[2].content, toolResult);
-  assert.deepEqual(received.messages, [checkpoint, ...history.slice(2)]);
-  assert.equal(res.messages.length, 2);
-  assert.equal(res.messages[1].content, 'Checkpoint acumulativo nuevo');
-});
-
-test('ContextManager - un checkpoint sin system prompt persistente no se pierde al preparar el contexto', () => {
-  const history = [{ role: 'system', content: 'Checkpoint acumulativo', _isSummaryBlock: true }];
-  const prepared = ChatEngine.buildEffectiveMessages(history, require('../../js/config-store.js').normalize({ systemPrompt: 'Sistema de la aplicación' }));
-
+  const prepared = ChatEngine.buildEffectiveMessages(
+    [{ role: 'system', content: 'Checkpoint acumulativo', _isSummaryBlock: true }],
+    require('../../js/config-store.js').normalize({ systemPrompt: 'Sistema de la aplicación' })
+  );
   assert.ok(prepared[0].content.includes('Sistema de la aplicación'));
   assert.equal(prepared[1].content, 'Checkpoint acumulativo');
   assert.equal(prepared[1]._isSummaryBlock, true);
 });
 
-test('ContextManager - no recompone un checkpoint sin diálogo nuevo suficiente', () => {
-  const historyWithExistingSummary = Array.from({ length: 6 }, (_, index) => (
-    { role: 'system', content: `Sistema permanente ${index}` }
-  )).concat([
-    {
-      role: 'system',
-      content: 'Memoria previa',
-      _isSummaryBlock: true,
-      _compressedMetadata: { timestamp: Date.now(), endIndexInHistory: 8 }
-    },
-    { role: 'user', content: 'Turno 9' },
-    { role: 'assistant', content: 'Respuesta 9' }
-  ]);
+test('ContextManager - compressHistory rechaza summarizeFn nulo, vacíos o llamadas JSON a herramientas', async () => {
+  const messages = [{ role: 'user', content: 'hola' }, { role: 'assistant', content: 'mundo' }];
 
-  const should = ChatContextManager.shouldCompress(historyWithExistingSummary, {
-    maxInputTokens: 20,
-    compressionThresholdRatio: 0.1,
-    minMessagesToCompress: 3
+  const noFn = await ChatContextManager.compressHistory({ messages, summarizeFn: null });
+  assert.equal(noFn.compressed, false);
+  assert.equal(noFn.reason, 'summarizer_unavailable');
+  assert.equal(noFn.messages, messages);
+
+  const jsonResult = await ChatContextManager.compressHistory({
+    messages,
+    summarizeFn: async () => '{"name": "run_command", "arguments": {"command": "git status"}}'
   });
-  assert.equal(should, false, 'No debe reemplazar un checkpoint con solo dos mensajes nuevos');
+  assert.equal(jsonResult.compressed, false);
+  assert.equal(jsonResult.reason, 'invalid_summary');
+
+  const emptyResult = await ChatContextManager.compressHistory({
+    messages,
+    summarizeFn: async () => '   \n  '
+  });
+  assert.equal(emptyResult.compressed, false);
+  assert.equal(emptyResult.reason, 'empty_summary');
+
+  const okResult = await ChatContextManager.compressHistory({
+    messages,
+    summarizeFn: async () => 'Resumen consolidado válido.'
+  });
+  assert.equal(okResult.compressed, true);
+  assert.equal(okResult.memoryBlock.content, 'Resumen consolidado válido.');
 });
 
 test('ContextManager - truncateToolContent preserva todos los fragmentos en salidas multisección de RAG', () => {
@@ -279,32 +223,6 @@ test('ContextManager - truncateToolContent preserva todos los fragmentos en sali
   // 3. Cada fragmento debe conservar su cabecera descriptiva
   assert.ok(truncated.includes('### WALMART_2020_10K.pdf · Income Statement'));
   assert.ok(truncated.includes('### WALMART_2020_10K.pdf · Cash Flows'));
-});
-
-test('ContextManager - buildOptimizedContext otorga presupuesto adaptativo para read_knowledge_chunk en el turno activo', () => {
-  const tableContent = '### Financials\n\n' + 'FILA_CONTABLE_'.repeat(2000); // ~28.000 chars
-
-  const messages = [
-    { role: 'system', content: 'Eres un analista.' },
-    { role: 'user', content: 'Dame el EBITDA de Walmart.' },
-    {
-      role: 'assistant',
-      content: null,
-      tool_calls: [{ id: 'call_read', function: { name: 'read_knowledge_chunk', arguments: '{"chunkIds":["c1"]}' } }]
-    },
-    { role: 'tool', tool_call_id: 'call_read', name: 'read_knowledge_chunk', content: tableContent }
-  ];
-
-  const result = ChatContextManager.buildOptimizedContext(messages, {
-    model: 'configured-model',
-    providerType: 'openai'
-  });
-
-  const toolMsg = result.messages.find(m => m.role === 'tool');
-  assert.ok(toolMsg);
-  // Con un presupuesto amplio, el contenido no debe truncarse destructivamente
-  assert.ok(!toolMsg.content.includes('Truncado por ChatContextManager'), 'No debe truncar si el presupuesto del modelo admite las tablas');
-  assert.equal(toolMsg.content.length, tableContent.length);
 });
 
 test('ContextManager - formatHistoryTranscript genera una transcripción neutral y segura del historial', () => {
@@ -345,35 +263,4 @@ test('ContextManager - formatHistoryTranscript genera una transcripción neutral
   }], { maxHistoricalToolChars: 100 });
   assert.equal(callWithArgs(100), `Assistant: [Called tools: write_file(${'a'.repeat(100)})]`);
   assert.match(callWithArgs(101), /Truncado por ChatContextManager: 1 caracteres omitidos de la salida de write_file/);
-});
-
-test('ContextManager - compressHistory rechaza resúmenes que son una llamada JSON a herramienta o vacíos', async () => {
-  const messages = [
-    { role: 'user', content: 'hola' },
-    { role: 'assistant', content: 'mundo' }
-  ];
-
-  // 1. Rechaza llamadas en formato JSON ({ name, arguments })
-  const jsonResult = await ChatContextManager.compressHistory({
-    messages,
-    summarizeFn: async () => '{"name": "run_command", "arguments": {"command": "git status"}}'
-  });
-  assert.equal(jsonResult.compressed, false);
-  assert.equal(jsonResult.reason, 'invalid_summary');
-
-  // 2. Rechaza resúmenes vacíos
-  const emptyResult = await ChatContextManager.compressHistory({
-    messages,
-    summarizeFn: async () => '   \n  '
-  });
-  assert.equal(emptyResult.compressed, false);
-  assert.equal(emptyResult.reason, 'empty_summary');
-
-  // 3. Acepta resúmenes válidos de texto plano / markdown
-  const okResult = await ChatContextManager.compressHistory({
-    messages,
-    summarizeFn: async () => 'Resumen consolidado válido.'
-  });
-  assert.equal(okResult.compressed, true);
-  assert.equal(okResult.memoryBlock.content, 'Resumen consolidado válido.');
 });

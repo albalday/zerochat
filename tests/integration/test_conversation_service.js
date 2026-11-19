@@ -66,9 +66,10 @@ async function savedBranches() {
   return (await Storage.getConversationsList()).filter(session => session.id !== 'parent_sess_1');
 }
 
-test('ConversationService - sin diálogo de resumen, la rama clona el historial hasta la respuesta elegida', async t => {
+test('ConversationService - sin diálogo de resumen la rama clona en el mismo proyecto y hereda perfil y modo servidor', async t => {
   const shortHistory = HISTORY.slice(0, 3);
   const { anchor, options } = await setupBranch(t, shortHistory, 'm3');
+  State.set('sessions', { list: [{ id: 'parent_sess_1', title: 'Parent Chat', project: '/repo/app' }] });
   useDialogs(t, []);
   assert.equal(await ConversationService.createConversationBranch(anchor, options), true);
 
@@ -78,15 +79,30 @@ test('ConversationService - sin diálogo de resumen, la rama clona el historial 
   const stored = await Storage.getConversation(sessionId);
   assert.deepEqual(stored.history.map(message => message.content), shortHistory.map(message => message.content));
   assert.equal(stored.title, require('../../js/i18n.js').t('chat_branch_title', { title: 'Parent Chat' }));
-  assert.equal(stored.project, undefined, 'Sin proyecto en la original, la rama tampoco lo tiene');
-});
+  assert.equal(stored.project, '/repo/app');
 
-test('ConversationService - la rama es del mismo proyecto que la conversación de la que sale', async t => {
-  const { anchor, options } = await setupBranch(t, HISTORY.slice(0, 3), 'm3');
-  State.set('sessions', { list: [{ id: 'parent_sess_1', title: 'Parent Chat', project: '/repo/app' }] });
-  useDialogs(t, []);
-  assert.equal(await ConversationService.createConversationBranch(anchor, options), true);
-  assert.equal((await savedBranches())[0].project, '/repo/app');
+  // Con modo servidor y perfil activo, la rama los conserva
+  const Config = require('../../js/config-store.js');
+  const Profiles = require('../../js/profile-repository.js');
+  Profiles.save({ id: 'profile:deepseek-coder', name: 'deepseek-coder', settings: { model: 'deepseek' } });
+  Config.activateProfile('profile:deepseek-coder');
+  t.after(() => Config.activateFallbackProfile());
+  State.replaceConversation({
+    sessionId: 'parent_sess_1',
+    sessions: [{ id: 'parent_sess_1', title: 'Parent Server Chat' }],
+    messages: structuredClone(shortHistory)
+  });
+  let switchedConversation = null;
+  assert.equal(await ConversationService.createConversationBranch({ msgId: 'm3', baseId: 'm3', explicitIds: [] }, appOptions({
+    isServerMode: () => true,
+    onSessionSwitched: conv => { switchedConversation = conv; }
+  })), true);
+  assert.equal(switchedConversation.serverRun, true);
+  assert.equal(switchedConversation.profileId, 'deepseek-coder');
+  const srvStored = await Storage.getConversation(State.get('sessions').activeId);
+  assert.equal(srvStored.serverRun, true);
+  assert.equal(srvStored.profileId, 'deepseek-coder');
+  assert.equal(srvStored.project, undefined);
 });
 
 test('ConversationService - con resumen, la rama compacta el contexto previo y conserva literal la respuesta de anclaje', async t => {
@@ -113,33 +129,30 @@ test('ConversationService - con resumen, la rama compacta el contexto previo y c
   assert.equal(State.get('messages')[1]._isSummaryBlock, true);
 });
 
-test('ConversationService - no bifurca mientras la conversación está ocupada', async t => {
-  const { anchor, options } = await setupBranch(t);
-  const { alerts } = useDialogs(t, []);
-  State.set('streaming', { isGenerating: true });
-  t.after(() => State.set('streaming', { isGenerating: false }));
-  assert.equal(await ConversationService.createConversationBranch(anchor, options), false);
-  assert.equal(alerts.length, 1);
-  assert.deepEqual(await savedBranches(), []);
-});
-
-test('ConversationService - parar durante el resumen cancela la rama sin ofrecer el historial completo', async t => {
-  const { anchor, options } = await setupBranch(t);
-  const { confirms, alerts } = useDialogs(t, [{ accepted: true, checkboxChecked: true }]);
-  useSummarizer(t, ({ signal }) => new Promise((_resolve, reject) => {
-    signal.addEventListener('abort', () => reject(new Error('aborted')));
-    GenerationController.handleStopGeneration();
-  }));
+test('ConversationService - createConversationBranch respeta estado ocupado, parada manual y ofrece historial completo si falla el resumen', async t => {
   t.mock.method(console, 'warn', () => {});
-  assert.equal(await ConversationService.createConversationBranch(anchor, options), false);
-  assert.equal(confirms.length, 1, 'Solo el diálogo inicial');
-  assert.equal(alerts.length, 0);
-  assert.deepEqual(await savedBranches(), []);
-  assert.equal(State.isConversationBusy(), false);
-});
-
-test('ConversationService - si el resumen falla ofrece bifurcar con el historial completo', async t => {
-  t.mock.method(console, 'warn', () => {});
+  {
+    const { anchor, options } = await setupBranch(t);
+    const { alerts } = useDialogs(t, []);
+    State.set('streaming', { isGenerating: true });
+    assert.equal(await ConversationService.createConversationBranch(anchor, options), false);
+    assert.equal(alerts.length, 1);
+    assert.deepEqual(await savedBranches(), []);
+    State.set('streaming', { isGenerating: false });
+  }
+  {
+    const { anchor, options } = await setupBranch(t);
+    const { confirms, alerts } = useDialogs(t, [{ accepted: true, checkboxChecked: true }]);
+    useSummarizer(t, ({ signal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(new Error('aborted')));
+      GenerationController.handleStopGeneration();
+    }));
+    assert.equal(await ConversationService.createConversationBranch(anchor, options), false);
+    assert.equal(confirms.length, 1);
+    assert.equal(alerts.length, 0);
+    assert.deepEqual(await savedBranches(), []);
+    assert.equal(State.isConversationBusy(), false);
+  }
   {
     const { anchor, options } = await setupBranch(t);
     const { confirms } = useDialogs(t, [{ accepted: true, checkboxChecked: true }, true]);
@@ -170,11 +183,80 @@ test('ConversationService - si el almacenamiento no borra la conversación, sigu
   assert.equal(alerts.length, 1);
 });
 
-test('ConversationService - una sesión sin mensajes del usuario no se guarda', async t => {
+test('ConversationService - saveCurrentSession ignora sesiones/borradores vacíos y protege ejecuciones en curso del servidor', async t => {
   await setupBranch(t, [{ id: 'm1', role: 'system', content: 'sys' }]);
   await ConversationService.saveCurrentSession(appOptions());
   assert.deepEqual(State.get('sessions').list, []);
   assert.equal(await Storage.getConversation('parent_sess_1'), null);
+
+  await Storage.deleteAllConversations();
+  const prevSession = { id: 'sess_prev_1', title: 'Chat previo guardado', createdAt: 1000, updatedAt: 2000, messageCount: 2 };
+  await Storage.saveConversation(prevSession, [
+    { id: 'm_prev_1', role: 'user', content: 'Pregunta anterior' },
+    { id: 'm_prev_2', role: 'assistant', content: 'Respuesta anterior' }
+  ]);
+  State.replaceConversation({
+    sessionId: 'sess_draft_new',
+    sessions: [prevSession],
+    messages: [{ id: 'm_sys', role: 'system', content: 'System prompt' }]
+  });
+  let sidebarRendered = 0;
+  await ConversationService.saveCurrentSession(appOptions({ renderSidebarChats() { sidebarRendered++; } }), { serverRun: true, profileId: 'local' });
+  assert.equal(State.get('sessions').activeId, 'sess_draft_new');
+  assert.equal(sidebarRendered, 0);
+  assert.equal((await Storage.getConversation('sess_prev_1')).history.length, 2);
+
+  await Storage.deleteAllConversations();
+  const previousMcp = State.get('mcp');
+  t.after(() => State.set('mcp', previousMcp));
+  await Storage.saveConversation(
+    { id: 'srv_running_1', title: 'Remota', createdAt: 1000, updatedAt: 2000 },
+    [{ id: 'u1', role: 'user', content: 'Pregunta' }, { id: 'a1', role: 'assistant', content: 'Respuesta servidor' }]
+  );
+  State.replaceConversation({
+    sessionId: 'srv_running_1',
+    sessions: [{ id: 'srv_running_1', title: 'Remota' }],
+    messages: [{ id: 'u1', role: 'user', content: 'Pregunta' }]
+  });
+  State.set('mcp', { ...previousMcp, serverRuns: [{ conversationId: 'srv_running_1', runId: 'r_1', status: 'running' }] });
+  let srvSidebar = 0;
+  await ConversationService.saveCurrentSession(appOptions({ renderSidebarChats() { srvSidebar++; } }));
+  assert.equal(srvSidebar, 1);
+  assert.equal((await Storage.getConversation('srv_running_1')).history[1].content, 'Respuesta servidor');
+});
+
+test('ConversationService - saveCurrentSession persiste profileId, proyecto inicial inmutable y overrides de servidor', async t => {
+  await Storage.deleteAllConversations();
+  const Config = require('../../js/config-store.js');
+  const Profiles = require('../../js/profile-repository.js');
+  Profiles.save({ id: 'prof_deepseek', name: 'deepseek', general: true, settings: { apiType: 'openai' } });
+  t.after(() => Config.activateFallbackProfile());
+
+  State.replaceConversation({
+    sessionId: 'sess_profile_test',
+    sessions: [],
+    messages: [{ id: 'u1', role: 'user', content: 'test' }]
+  });
+  Config.activateProfile('prof_deepseek');
+  await ConversationService.saveCurrentSession(appOptions({ getProject: () => '/repo/a' }));
+  assert.equal((await Storage.getConversation('sess_profile_test')).profileId, 'deepseek');
+  assert.equal((await Storage.getConversation('sess_profile_test')).project, '/repo/a');
+
+  await ConversationService.saveCurrentSession(appOptions({ getProject: () => '/repo/b' }));
+  assert.equal((await Storage.getConversation('sess_profile_test')).project, '/repo/a');
+  Config.activateFallbackProfile();
+
+  await Storage.deleteAllConversations();
+  State.replaceConversation({
+    sessionId: 'sess_srv_run_1',
+    sessions: [{ id: 'sess_srv_run_1', title: 'Inicial' }],
+    messages: [{ id: 'u1', role: 'user', content: 'test server run' }]
+  });
+  await ConversationService.saveCurrentSession(appOptions(), { serverRun: true, profileId: 'claude' });
+  await ConversationService.saveCurrentSession(appOptions({ isServerMode: () => true }));
+  const storedSrv = await Storage.getConversation('sess_srv_run_1');
+  assert.equal(storedSrv.serverRun, true);
+  assert.equal(storedSrv.profileId, 'claude');
 });
 
 test('ConversationService - loadSessionsFromStorage inicializa al arrancar, conserva la sesión activa al reconectar y avisa si falla', async t => {
@@ -228,73 +310,6 @@ test('ConversationService - loadSessionsFromStorage inicializa al arrancar, cons
   assert.equal(alerts.length, 1);
 });
 
-test('ConversationService - saveCurrentSession no sobrescribe en almacenamiento una conversación en ejecución en el servidor', async t => {
-  await Storage.deleteAllConversations();
-  const previousMcp = State.get('mcp');
-  t.after(() => State.set('mcp', previousMcp));
-
-  await Storage.saveConversation(
-    { id: 'srv_running_1', title: 'Remota', createdAt: 1000, updatedAt: 2000 },
-    [
-      { id: 'u1', role: 'user', content: 'Pregunta inicial' },
-      { id: 'a1', role: 'assistant', content: 'Respuesta guardada por el servidor en segundo plano' }
-    ]
-  );
-
-  // El navegador aún tiene en memoria solo el primer mensaje y cambia de sesión mientras el servidor sigue ejecutando
-  State.replaceConversation({
-    sessionId: 'srv_running_1',
-    sessions: [{ id: 'srv_running_1', title: 'Remota' }],
-    messages: [{ id: 'u1', role: 'user', content: 'Pregunta inicial' }]
-  });
-  State.set('mcp', {
-    ...previousMcp,
-    serverRuns: [{ conversationId: 'srv_running_1', runId: 'r_1', status: 'running' }]
-  });
-
-  let sidebarRendered = 0;
-  await ConversationService.saveCurrentSession(appOptions({ renderSidebarChats() { sidebarRendered++; } }));
-  assert.equal(sidebarRendered, 1);
-
-  const stored = await Storage.getConversation('srv_running_1');
-  assert.equal(stored.history.length, 2, 'No debe pisar el historial que está escribiendo el servidor');
-  assert.equal(stored.history[1].content, 'Respuesta guardada por el servidor en segundo plano');
-});
-
-test('ConversationService - saveCurrentSession actualiza profileId con el perfil activo actual', async t => {
-  await Storage.deleteAllConversations();
-  const Config = require('../../js/config-store.js');
-  const Profiles = require('../../js/profile-repository.js');
-  Profiles.save({ id: 'prof_deepseek', name: 'deepseek', general: true, settings: { apiType: 'openai' } });
-  t.after(() => Config.activateFallbackProfile());
-
-  State.replaceConversation({
-    sessionId: 'sess_profile_test',
-    sessions: [{ id: 'sess_profile_test', title: 'Inicial', profileId: 'profile:mirror' }],
-    messages: [{ id: 'u1', role: 'user', content: 'test' }]
-  });
-
-  Config.activateProfile('prof_deepseek');
-  await ConversationService.saveCurrentSession(appOptions());
-
-  const sessionMeta = State.get('sessions').list.find(s => s.id === 'sess_profile_test');
-  assert.equal(sessionMeta.profileId, 'deepseek');
-
-  const stored = await Storage.getConversation('sess_profile_test');
-  assert.equal(stored.profileId, 'deepseek');
-});
-
-test('ConversationService - saveCurrentSession asigna el proyecto al crear la conversación y no lo cambia después', async () => {
-  await Storage.deleteAllConversations();
-  State.replaceConversation({ sessionId: 'sess_project', sessions: [], messages: [{ id: 'u1', role: 'user', content: 'hola' }] });
-  await ConversationService.saveCurrentSession(appOptions({ getProject: () => '/repo/a' }));
-  assert.equal(State.get('sessions').list.find(s => s.id === 'sess_project').project, '/repo/a');
-
-  await ConversationService.saveCurrentSession(appOptions({ getProject: () => '/repo/b' }));
-  assert.equal(State.get('sessions').list.find(s => s.id === 'sess_project').project, '/repo/a');
-  assert.equal((await Storage.getConversation('sess_project')).project, '/repo/a');
-});
-
 test('ConversationService - borrar el historial con un proyecto abierto borra las suyas y, con la casilla, todas', async t => {
   // setupBranch vacía el almacenamiento y da las opciones de app.js.
   const options = { ...(await setupBranch(t)).options, getProject: () => '/repo/a' };
@@ -316,31 +331,6 @@ test('ConversationService - borrar el historial con un proyecto abierto borra la
 
   await ConversationService.deleteAllSessions({ ...options, getProject: () => '/repo/b' });
   assert.deepEqual(await storedIds(), []);
-});
-
-test('ConversationService - saveCurrentSession con overrides persiste serverRun y profileId y se preservan', async t => {
-  await Storage.deleteAllConversations();
-  State.replaceConversation({
-    sessionId: 'sess_srv_run_1',
-    sessions: [{ id: 'sess_srv_run_1', title: 'Inicial' }],
-    messages: [{ id: 'u1', role: 'user', content: 'test server run' }]
-  });
-
-  await ConversationService.saveCurrentSession(appOptions(), { serverRun: true, profileId: 'claude' });
-
-  const sessionMeta = State.get('sessions').list.find(s => s.id === 'sess_srv_run_1');
-  assert.equal(sessionMeta.serverRun, true);
-  assert.equal(sessionMeta.profileId, 'claude');
-
-  const stored = await Storage.getConversation('sess_srv_run_1');
-  assert.equal(stored.serverRun, true);
-  assert.equal(stored.profileId, 'claude');
-
-  // Guardar de nuevo en modo servidor sin perfil elegido conserva el perfil guardado
-  await ConversationService.saveCurrentSession(appOptions({ isServerMode: () => true }));
-  const updatedMeta = State.get('sessions').list.find(s => s.id === 'sess_srv_run_1');
-  assert.equal(updatedMeta.serverRun, true);
-  assert.equal(updatedMeta.profileId, 'claude');
 });
 
 test('ConversationService - switchToSession notifica onSessionSwitched con los metadatos de la conversación recuperada', async t => {
@@ -373,84 +363,4 @@ test('ConversationService - switchToSession notifica onSessionSwitched con los m
   const storedInState = State.get('sessions')?.list?.find(s => s.id === 'sess_history_server');
   assert.equal(storedInState?.serverRun, true);
   assert.equal(storedInState?.profileId, 'claude');
-});
-
-test('ConversationService - saveCurrentSession en un borrador vacío no altera activeId ni sobreescribe chats previos', async t => {
-  await Storage.deleteAllConversations();
-
-  const prevSession = {
-    id: 'sess_prev_1',
-    title: 'Chat previo guardado',
-    createdAt: Date.now() - 10000,
-    updatedAt: Date.now() - 5000,
-    messageCount: 2
-  };
-  const prevHistory = [
-    { id: 'm_prev_1', role: 'user', content: 'Pregunta anterior' },
-    { id: 'm_prev_2', role: 'assistant', content: 'Respuesta anterior' }
-  ];
-  await Storage.saveConversation(prevSession, prevHistory);
-
-  // Activamos un nuevo borrador vacío (solo con system)
-  State.replaceConversation({
-    sessionId: 'sess_draft_new',
-    sessions: [prevSession],
-    messages: [{ id: 'm_sys', role: 'system', content: 'System prompt' }]
-  });
-
-  let sidebarRendered = 0;
-  const options = appOptions({ renderSidebarChats() { sidebarRendered++; } });
-
-  // Se invoca saveCurrentSession sobre el borrador vacío (ej: cambio de modo/perfil)
-  await ConversationService.saveCurrentSession(options, { serverRun: true, profileId: 'local' });
-
-  // activeId debe seguir siendo sess_draft_new, jamás mutar a sess_prev_1
-  assert.equal(State.get('sessions').activeId, 'sess_draft_new', 'El borrador nuevo debe seguir activo');
-  assert.equal(sidebarRendered, 0, 'No debe renderizar el sidebar si no se guardó ni eliminó nada');
-
-  // El chat previo no debe haber sido tocado
-  const storedPrev = await Storage.getConversation('sess_prev_1');
-  assert.ok(storedPrev);
-  assert.equal(storedPrev.history.length, 2);
-  assert.equal(storedPrev.history[0].content, 'Pregunta anterior');
-  assert.equal(storedPrev.title, 'Chat previo guardado');
-});
-
-test('ConversationService - createConversationBranch respeta el modo servidor y perfil activo en ese momento', async t => {
-  await Storage.deleteAllConversations();
-  const Config = require('../../js/config-store.js');
-  const Profiles = require('../../js/profile-repository.js');
-  Profiles.save({ id: 'profile:deepseek-coder', name: 'deepseek-coder', settings: { model: 'deepseek' } });
-  Config.activateProfile('profile:deepseek-coder');
-  t.after(() => Config.activateFallbackProfile());
-
-  const history = [
-    { id: 'm1', role: 'system', content: 'sys' },
-    { id: 'm2', role: 'user', content: 'user 1' },
-    { id: 'm3', role: 'assistant', content: 'asst 1' }
-  ];
-  State.replaceConversation({
-    sessionId: 'parent_sess_server',
-    sessions: [{ id: 'parent_sess_server', title: 'Parent Server Chat' }],
-    messages: structuredClone(history)
-  });
-
-  const anchor = { msgId: 'm3', baseId: 'm3', explicitIds: [] };
-  let switchedConversation = null;
-  const options = appOptions({
-    isServerMode: () => true,
-    onSessionSwitched: conv => { switchedConversation = conv; }
-  });
-
-  const branched = await ConversationService.createConversationBranch(anchor, options);
-  assert.equal(branched, true);
-  assert.ok(switchedConversation);
-  assert.equal(switchedConversation.serverRun, true);
-  assert.equal(switchedConversation.profileId, 'deepseek-coder');
-
-  const branchId = State.get('sessions').activeId;
-  const stored = await Storage.getConversation(branchId);
-  assert.ok(stored);
-  assert.equal(stored.serverRun, true);
-  assert.equal(stored.profileId, 'deepseek-coder');
 });

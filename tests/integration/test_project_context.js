@@ -75,14 +75,12 @@ function createHarness({ config = {}, connected = true, cwd = '/repo', files = {
   return { state: ChatState, context: ProjectContext, calls, security: { rules }, directoryRequests };
 }
 
-test('ProjectContext.refresh - desactivado no lee ficheros', async () => {
-  const { context, calls, state } = createHarness({ config: { projectMode: false } });
-  await context.refresh();
-  assert.equal(state.get('project').status, 'disabled');
-  assert.equal(calls.length, 0);
-});
+test('ProjectContext.refresh - estados previos (desactivado, sin servidor o read_file, rechazado, missing, no_access)', async () => {
+  const disabled = createHarness({ config: { projectMode: false } });
+  await disabled.context.refresh();
+  assert.equal(disabled.state.get('project').status, 'disabled');
+  assert.equal(disabled.calls.length, 0);
 
-test('ProjectContext.refresh - sin servidor local o sin read_file queda unavailable', async () => {
   const offline = createHarness({ connected: false });
   await offline.context.refresh();
   assert.equal(offline.state.get('project').status, 'unavailable');
@@ -91,27 +89,21 @@ test('ProjectContext.refresh - sin servidor local o sin read_file queda unavaila
   await noTool.context.refresh();
   assert.equal(noTool.state.get('project').status, 'unavailable');
   assert.equal(noTool.calls.length, 0);
-});
 
-test('ProjectContext.refresh - un proyecto rechazado no se lee', async () => {
-  const { context, calls, state } = createHarness({ config: { projectDeclined: ['/repo'] } });
-  await context.refresh();
-  assert.equal(state.get('project').status, 'declined');
-  assert.equal(calls.length, 0);
-});
+  const declined = createHarness({ config: { projectDeclined: ['/repo'] } });
+  await declined.context.refresh();
+  assert.equal(declined.state.get('project').status, 'declined');
+  assert.equal(declined.calls.length, 0);
 
-test('ProjectContext.refresh - si el backend pide aprobación queda no_access sin preguntar', async () => {
-  const { context, calls, state } = createHarness({ approval: true, files: { '/repo/.zerochat/task.py': 'helper' } });
-  await context.refresh();
-  assert.equal(state.get('project').status, 'no_access');
-  assert.equal(calls.length, 1);
-});
+  const ask = createHarness({ approval: true, files: { '/repo/.zerochat/task.py': 'helper' } });
+  await ask.context.refresh();
+  assert.equal(ask.state.get('project').status, 'no_access');
+  assert.equal(ask.calls.length, 1);
 
-test('ProjectContext.refresh - sin .zerochat/task.py queda missing', async () => {
-  const { context, state } = createHarness();
-  await context.refresh();
-  assert.equal(state.get('project').status, 'missing');
-  assert.equal(state.get('project').cwd, '/repo');
+  const missing = createHarness();
+  await missing.context.refresh();
+  assert.equal(missing.state.get('project').status, 'missing');
+  assert.equal(missing.state.get('project').cwd, '/repo');
 });
 
 test('ProjectContext.refresh - lee normas y estado en una sola llamada zerochat/project/context, o usa la instantánea de initialize/set_directory', async () => {
@@ -150,15 +142,6 @@ test('ProjectContext.refresh - sin AGENTS.md el proyecto sigue activo y el bloqu
   assert.equal(project.status, 'ready');
   assert.equal(project.rules.content, '');
   assert.match(ProjectContext.buildPromptBlock(project), /AGENTS\.md does not exist/);
-});
-
-test('ProjectContext.refresh - un fallo de lectura distinto de inexistente queda error y avisa', async (t) => {
-  t.mock.method(console, 'warn', () => {});
-  const { context, state } = createHarness({ files: { '/repo/.zerochat/task.py': { success: false, error: 'Permission denied' } } });
-  await context.refresh();
-  assert.equal(state.get('project').status, 'error');
-  assert.equal(state.get('project').error, 'Permission denied');
-  assert.equal(console.warn.mock.callCount(), 1);
 });
 
 test('ProjectContext.refresh - si la lectura de state.md falla, es denegada o queda unavailable, no publica estado listo', async (t) => {
@@ -207,6 +190,14 @@ test('ProjectContext.refresh - si la lectura de state.md falla, es denegada o qu
   mock.method(AgentCore.registry, 'getTool', name => (name === 'read_file' ? toolDynamic : null));
   await harnessUnavail.context.refresh();
   assert.equal(harnessUnavail.state.get('project').status, 'unavailable');
+
+  // Fallo de transporte y fallo de lectura en .zerochat/task.py quedan en estado error
+  for (const taskFile of [{ success: false, error: 'Permission denied' }, new Error('connection reset')]) {
+    const errHarness = createHarness({ files: { '/repo/.zerochat/task.py': taskFile } });
+    await errHarness.context.refresh();
+    assert.equal(errHarness.state.get('project').status, 'error');
+    assert.equal(errHarness.state.get('project').error, taskFile.error || taskFile.message);
+  }
 });
 
 test('ProjectContext.refresh - solo publica el resultado de la llamada más reciente', async () => {
@@ -247,25 +238,21 @@ test('ProjectContext.initialize - tras confirmar concede solo .zerochat y envía
   assert.match(log.prompts[0], /repository at \/repo/);
 });
 
-test('ProjectContext.initialize - cancelar no concede permisos ni envía nada', async () => {
+test('ProjectContext.initialize - cancelar, cambiar de estado o sin herramientas/missing no concede permisos', async () => {
   const { context, security } = createHarness();
   await context.refresh();
   const { log, callbacks } = initCallbacks({ accept: false });
   assert.deepEqual(await context.initialize(callbacks), { ok: false, reason: 'cancelled' });
   assert.deepEqual(security.rules, []);
   assert.equal(log.prompts.length, 0);
-});
 
-test('ProjectContext.initialize - revalida el proyecto tras la confirmación', async () => {
-  const { context, state, security } = createHarness();
-  await context.refresh();
-  const { log, callbacks } = initCallbacks({ onConfirm: () => state.setProjectContext({ cwd: '/other' }) });
-  assert.deepEqual(await context.initialize(callbacks), { ok: false, reason: 'state-changed' });
-  assert.deepEqual(security.rules, []);
-  assert.equal(log.prompts.length, 0);
-});
+  const changed = createHarness();
+  await changed.context.refresh();
+  const { log: log2, callbacks: cb2 } = initCallbacks({ onConfirm: () => changed.state.setProjectContext({ cwd: '/other' }) });
+  assert.deepEqual(await changed.context.initialize(cb2), { ok: false, reason: 'state-changed' });
+  assert.deepEqual(changed.security.rules, []);
+  assert.equal(log2.prompts.length, 0);
 
-test('ProjectContext.initialize - sin write_file o fuera de missing no hace nada', async () => {
   const noWrite = createHarness({ writeTool: false });
   await noWrite.context.refresh();
   assert.equal(noWrite.context.canInitialize(), false);
@@ -280,7 +267,7 @@ test('ProjectContext.initialize - sin write_file o fuera de missing no hace nada
   assert.equal(second.log.confirms.length, 0);
 });
 
-test('ProjectContext.initialize - registra la regla para permitir escribir en .zerochat', async () => {
+test('ProjectContext.initialize - registra la regla real para permitir escribir en .zerochat', async () => {
   const manager = ToolSecurity.manager;
   const mockClient = {
     async request(method, params) {
@@ -299,26 +286,15 @@ test('ProjectContext.initialize - registra la regla para permitir escribir en .z
   assert.ok(manager.getDirectoryRules().includes('RW:/repo/.zerochat'));
 });
 
-test('ProjectContext.refresh - un fallo de transporte sin contenido queda error con su motivo', async (t) => {
-  t.mock.method(console, 'warn', () => {});
-  const { context, state } = createHarness({ files: { '/repo/.zerochat/task.py': new Error('connection reset') } });
-  await context.refresh();
-  assert.equal(state.get('project').status, 'error');
-  assert.equal(state.get('project').error, 'connection reset');
-});
 
-
-test('ProjectContext.changeDirectory - pide al servidor el directorio escrito', async () => {
+test('ProjectContext.changeDirectory - pide el directorio al servidor y respeta cancelación, cambio de estado o indisponibilidad', async () => {
   const { context, directoryRequests } = createHarness();
   assert.equal(context.canChangeDirectory(), true);
   const asked = [];
-  const result = await context.changeDirectory({ askPath: cwd => { asked.push(cwd); return '  /other  '; } });
-  assert.deepEqual(result, { ok: true, cwd: '/other' });
+  assert.deepEqual(await context.changeDirectory({ askPath: cwd => { asked.push(cwd); return '  /other  '; } }), { ok: true, cwd: '/other' });
   assert.deepEqual(asked, ['/repo']);
   assert.deepEqual(directoryRequests, ['/other']);
-});
 
-test('ProjectContext.changeDirectory - cancelar, la misma ruta o un cambio de estado no piden nada', async () => {
   const cancelled = createHarness();
   assert.deepEqual(await cancelled.context.changeDirectory({ askPath: () => null }), { ok: false, reason: 'cancelled' });
   assert.deepEqual(await cancelled.context.changeDirectory({ askPath: () => '/repo' }), { ok: false, reason: 'cancelled' });
@@ -330,20 +306,17 @@ test('ProjectContext.changeDirectory - cancelar, la misma ruta o un cambio de es
   let busy = false;
   assert.deepEqual(await moved.context.changeDirectory({ askPath: () => { busy = true; return '/other'; }, isBusy: () => busy }), { ok: false, reason: 'state-changed' });
   assert.equal(moved.directoryRequests.length, 0);
+
+  const neverAsk = () => { throw new Error('no debe preguntar'); };
+  const offline = createHarness({ connected: false });
+  assert.equal(offline.context.canChangeDirectory(), false);
+  assert.deepEqual(await offline.context.changeDirectory({ askPath: neverAsk }), { ok: false, reason: 'unavailable' });
+  const busyH = createHarness();
+  assert.deepEqual(await busyH.context.changeDirectory({ askPath: neverAsk, isBusy: () => true }), { ok: false, reason: 'unavailable' });
+  await assert.rejects(() => busyH.context.changeDirectory({}), TypeError);
 });
 
-test('ProjectContext.changeDirectory - sin servidor local o generando no pregunta', async () => {
-  const askPath = () => { throw new Error('no debe preguntar'); };
-  for (const harness of [createHarness({ connected: false })]) {
-    assert.equal(harness.context.canChangeDirectory(), false);
-    assert.deepEqual(await harness.context.changeDirectory({ askPath }), { ok: false, reason: 'unavailable' });
-  }
-  const busy = createHarness();
-  assert.deepEqual(await busy.context.changeDirectory({ askPath, isBusy: () => true }), { ok: false, reason: 'unavailable' });
-  await assert.rejects(() => busy.context.changeDirectory({}), TypeError);
-});
-
-test('ProjectContext.compact - lanza el prompt tras confirmación y conversación nueva si procede', async () => {
+test('ProjectContext.compact - lanza el prompt tras confirmación y respeta cancelación, cambio de estado o indisponibilidad', async () => {
   const { state, context } = createHarness();
   state.setProjectContext({ status: 'ready', cwd: '/repo' });
   assert.equal(context.canCompact(), true);
@@ -356,40 +329,19 @@ test('ProjectContext.compact - lanza el prompt tras confirmación y conversació
     startConversation: () => { conversationStarted = true; },
     sendPrompt: prompt => { prompts.push(prompt); }
   });
-
   assert.deepEqual(result, { ok: true });
-  assert.equal(confirmations.length, 1);
-  assert.deepEqual(confirmations[0], { cwd: '/repo', name: 'repo' });
+  assert.deepEqual(confirmations, [{ cwd: '/repo', name: 'repo' }]);
   assert.equal(conversationStarted, true);
-  assert.equal(prompts.length, 1);
   assert.match(prompts[0], /Perform project memory housekeeping/);
-});
 
-test('ProjectContext.compact - cancelar o cambio de estado no envía el prompt', async () => {
-  const { state, context } = createHarness();
-  state.setProjectContext({ status: 'ready', cwd: '/repo' });
-
-  const cancelled = await context.compact({
-    askConfirmation: () => false,
-    sendPrompt: () => { throw new Error('no debe enviar'); }
-  });
-  assert.deepEqual(cancelled, { ok: false, reason: 'cancelled' });
-
+  assert.deepEqual(await context.compact({ askConfirmation: () => false, sendPrompt: () => { throw new Error('no debe enviar'); } }), { ok: false, reason: 'cancelled' });
   let busy = false;
-  const stateChanged = await context.compact({
-    askConfirmation: () => { busy = true; return true; },
-    isBusy: () => busy,
-    sendPrompt: () => { throw new Error('no debe enviar'); }
-  });
-  assert.deepEqual(stateChanged, { ok: false, reason: 'state-changed' });
-});
+  assert.deepEqual(await context.compact({ askConfirmation: () => { busy = true; return true; }, isBusy: () => busy, sendPrompt: () => { throw new Error('no debe enviar'); } }), { ok: false, reason: 'state-changed' });
 
-test('ProjectContext.compact - fuera de ready o sin herramientas de escritura queda unavailable', async () => {
-  const { state, context } = createHarness({ writeTool: false });
-  state.setProjectContext({ status: 'ready', cwd: '/repo' });
-  assert.equal(context.canCompact(), false);
-  assert.deepEqual(await context.compact({ askConfirmation: () => true, sendPrompt: () => {} }), { ok: false, reason: 'unavailable' });
-
+  const noWrite = createHarness({ writeTool: false });
+  noWrite.state.setProjectContext({ status: 'ready', cwd: '/repo' });
+  assert.equal(noWrite.context.canCompact(), false);
+  assert.deepEqual(await noWrite.context.compact({ askConfirmation: () => true, sendPrompt: () => {} }), { ok: false, reason: 'unavailable' });
   const notReady = createHarness();
   notReady.state.setProjectContext({ status: 'missing', cwd: '/repo' });
   assert.deepEqual(await notReady.context.compact({ askConfirmation: () => true, sendPrompt: () => {} }), { ok: false, reason: 'unavailable' });

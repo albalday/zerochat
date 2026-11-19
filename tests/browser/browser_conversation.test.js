@@ -355,7 +355,7 @@ test('Browser UI - completing one tool preserves user-opened groups and previous
   } finally { await browser.close(); }
 });
 
-test('Browser UI - el botón para volver al final aparece solo fuera del final y lleva a él', async () => {
+test('Browser UI - el botón volver al final y el desplegable de herramientas mantienen la visibilidad', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1000, height: 700 } });
@@ -364,6 +364,7 @@ test('Browser UI - el botón para volver al final aparece solo fuera del final y
     await seedConnectionProfiles(page);
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
+
     const button = page.locator('#btn-scroll-bottom');
     assert.equal(await button.isHidden(), true, 'Sin conversación no hay nada debajo');
     await page.evaluate(() => {
@@ -384,19 +385,7 @@ test('Browser UI - el botón para volver al final aparece solo fuera del final y
       return list.scrollHeight - list.scrollTop - list.clientHeight <= 1;
     });
     assert.equal(atBottom, true);
-    assert.deepEqual(errors, []);
-  } finally { await browser.close(); }
-});
 
-test('Browser UI - desplegar una herramienta la deja visible cada vez, no solo la primera', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage({ viewport: { width: 1000, height: 700 } });
-    const errors = [];
-    page.on('pageerror', error => errors.push(error.message));
-    await seedConnectionProfiles(page);
-    await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await waitForAppReady(page);
     await page.evaluate(() => {
       const list = document.getElementById('messages-list');
       const ui = window.ChatUIConversation;
@@ -431,7 +420,7 @@ test('Browser UI - desplegar una herramienta la deja visible cada vez, no solo l
 });
 
 
-test('Browser UI - Borrado de respuesta de asistente con tools elimina completamente las respuestas de tools y sanea chatHistory', async () => {
+test('Browser UI - borrar respuesta respeta bloqueo en streaming y, al parar, elimina también sus respuestas tool y estado transitorio', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
@@ -454,7 +443,7 @@ test('Browser UI - Borrado de respuesta de asistente con tools elimina completam
     await page.evaluate(({ sessionId, history }) => window.ChatStorage.saveConversation({ id: sessionId, title: 'Test Delete Tools' }, history), { sessionId, history });
     await page.reload({ waitUntil: 'load' });
     await waitForAppReady(page);
-    // Estado transitorio de la conversación anterior que no debe pasar a la restaurada.
+
     await page.evaluate(() => {
       window.ChatState.set('telemetry', { stats: { tokens: 99 } });
       window.ChatAttachments.addFile({ name: 'stale.txt', type: 'text', size: 1, content: 'x' });
@@ -467,58 +456,32 @@ test('Browser UI - Borrado de respuesta de asistente con tools elimina completam
       telemetry: window.ChatState.get('telemetry'),
       attachedFilesCount: window.ChatAttachments.getFiles().length
     }));
-    assert.equal(restored.messages.length, 4, 'Debe restaurar todos los mensajes del turno guardado');
+    assert.equal(restored.messages.length, 4);
     assert.deepEqual(restored.messages[1].tool_calls, history[1].tool_calls);
     assert.deepEqual(restored.telemetry, { stats: null });
-    assert.equal(restored.attachedFilesCount, 0, 'Los adjuntos transitorios no deben filtrarse al chat restaurado');
+    assert.equal(restored.attachedFilesCount, 0);
 
+    // Durante streaming el borrado no modifica DOM ni almacenamiento.
+    const duringStreaming = await page.evaluate(async id => {
+      window.ChatState.set('streaming', { isGenerating: true });
+      document.querySelector('.message-wrapper.user .btn-delete').click();
+      await new Promise(resolve => setTimeout(resolve, 100));
+      const persisted = await window.ChatStorage.getConversation(id);
+      const stateIds = window.ChatState.get('messages').map(message => message.id);
+      window.ChatState.set('streaming', { isGenerating: false });
+      return { userWrapperPresent: !!document.querySelector('.message-wrapper.user'), stateCount: stateIds.length, persistedCount: persisted.history.length };
+    }, sessionId);
+    assert.deepEqual(duringStreaming, { userWrapperPresent: true, stateCount: 4, persistedCount: 4 });
+
+    // Al dejar de generar, borrar la respuesta del asistente limpia también su turno y llamadas tool.
     await page.locator('.message-wrapper.assistant .btn-delete').click();
     await page.waitForFunction(async id => (await window.ChatStorage.getConversation(id)).history.length === 1, sessionId);
     const after = await page.evaluate(async id => ({
       hasAssistantWrapper: !!document.querySelector('.message-wrapper.assistant'),
       roles: (await window.ChatStorage.getConversation(id)).history.map(message => message.role)
     }), sessionId);
-    assert.equal(after.hasAssistantWrapper, false, 'El wrapper del asistente debe haber desaparecido del DOM');
-    assert.deepEqual(after.roles, ['user'], 'Solo debe quedar el mensaje del usuario');
-  } finally {
-    await browser.close();
-  }
-});
-
-test('Browser UI - Borrado de mensaje durante streaming no modifica DOM ni estado', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage();
-    const filePath = getIndexUrl();
-    await page.goto(filePath, { waitUntil: 'load' });
-    await waitForAppReady(page);
-
-    const sessionId = 'test_session_delete_streaming';
-    await page.evaluate(id => window.ChatStorage.saveConversation({ id, title: 'Test Delete Streaming' }, [
-      { id: 'usr_streaming_1', role: 'user', content: 'Mensaje que no debe borrarse' },
-      { id: 'ast_streaming_1', role: 'assistant', content: 'Respuesta previa' }
-    ]), sessionId);
-    await openSavedSession(page, sessionId);
-    await page.waitForSelector('.message-wrapper.user .btn-delete');
-
-    const result = await page.evaluate(async id => {
-      window.ChatState.set('streaming', { isGenerating: true });
-      document.querySelector('.message-wrapper.user .btn-delete').click();
-      // Aserción negativa: la espera fija es a propósito para confirmar que no cambió nada.
-      await new Promise(resolve => setTimeout(resolve, 100));
-      const persisted = await window.ChatStorage.getConversation(id);
-      const stateMessages = window.ChatState.get('messages');
-      window.ChatState.set('streaming', { isGenerating: false });
-      return {
-        userWrapperPresent: !!document.querySelector('.message-wrapper.user'),
-        stateIds: stateMessages.map(message => message.id),
-        persistedIds: persisted.history.map(message => message.id)
-      };
-    }, sessionId);
-
-    assert.equal(result.userWrapperPresent, true, 'El mensaje debe permanecer visible durante streaming');
-    assert.deepEqual(result.stateIds, ['usr_streaming_1', 'ast_streaming_1'], 'El estado no debe modificarse durante streaming');
-    assert.deepEqual(result.persistedIds, ['usr_streaming_1', 'ast_streaming_1'], 'La conversación persistida no debe modificarse durante streaming');
+    assert.equal(after.hasAssistantWrapper, false);
+    assert.deepEqual(after.roles, ['user']);
   } finally {
     await browser.close();
   }

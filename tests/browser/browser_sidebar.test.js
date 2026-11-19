@@ -7,10 +7,18 @@ describe('Browser UI - sidebar', { concurrency: 2 }, () => {
     await closeGlobalBrowser();
   });
 
-test('Browser UI - el menú contextual de un chat es táctil y no activa la conversación', async () => {
+test('Browser UI - en móvil la barra ocupa toda la pantalla, deja el chat inerte y el menú contextual es táctil', async () => {
   await withTestApp({ viewport: { width: 390, height: 800 }, isMobile: true }, async page => {
+    const state = () => page.evaluate(() => ({
+      visible: document.getElementById('chat-sidebar').classList.contains('sidebar-visible'),
+      inert: document.getElementById('chat-container').hasAttribute('inert'),
+      toggleHidden: document.getElementById('btn-toggle-sidebar').hidden
+    }));
     await page.click('#btn-toggle-sidebar');
-    await page.waitForFunction(() => !document.getElementById('chat-sidebar').classList.contains('sidebar-hidden'));
+    assert.deepEqual(await state(), { visible: true, inert: true, toggleHidden: true });
+    await page.waitForFunction(() => document.getElementById('chat-sidebar').getBoundingClientRect().left === 0);
+    assert.equal(await page.evaluate(() => document.getElementById('chat-sidebar').getBoundingClientRect().width), 390);
+
     const activeSessionId = await page.evaluate(() => {
       ChatState.saveSessionMetadata({ id: 'chat-options', title: 'Opciones táctiles', updatedAt: Date.now() });
       const elements = { sidebarChatsList: document.getElementById('sidebar-chats-list'), sidebarSearchInput: document.getElementById('sidebar-search-input'), sidebarProjectFilter: document.getElementById('sidebar-project-filter') };
@@ -24,7 +32,6 @@ test('Browser UI - el menú contextual de un chat es táctil y no activa la conv
     assert.equal(await trigger.getAttribute('aria-expanded'), 'true');
     assert.equal(await page.locator('.sidebar-chat-actions').isVisible(), true);
     await page.locator('.btn-rename').click();
-    // Renombrar pide el título nuevo sin cambiar de conversación.
     await page.waitForFunction(() => document.getElementById('notice-dialog').open);
     const actionResult = await page.evaluate(() => ({
       prompt: document.getElementById('notice-input').value,
@@ -35,6 +42,9 @@ test('Browser UI - el menú contextual de un chat es táctil y no activa la conv
     assert.equal(actionResult.currentId, activeSessionId);
     assert.equal(actionResult.menuOpen, false);
     await page.click('#notice-cancel');
+
+    await page.click('#btn-close-sidebar');
+    assert.deepEqual(await state(), { visible: false, inert: false, toggleHidden: false });
   });
 });
 
@@ -212,24 +222,26 @@ test('Browser UI - cada grupo pinta 50 conversaciones y "Mostrar más" añade el
   });
 });
 
-test('Browser UI - abrir una conversación de otro proyecto lleva el servidor a su carpeta y, si no existe, avisa', async () => {
+test('Browser UI - abrir conversación de otro proyecto y botones de cabecera de proyecto y general', async () => {
   await withTestApp(async page => {
-    await page.evaluate(async () => {
+    const noProjectDir = '/home/u/zerochat/general';
+    await page.evaluate(async noProjectDir => {
       for (const [id, project] of [['p_ok', '/repo/b'], ['p_gone', '/repo/borrado']]) {
         await window.ChatStorage.saveConversation({ id, title: id, project, createdAt: Date.now(), updatedAt: Date.now() }, [{ id: `${id}_m`, role: 'user', content: 'hola' }]);
       }
+      await window.ChatStorage.saveConversation({ id: 'n_1', title: 'N', createdAt: Date.now(), updatedAt: Date.now() }, [{ id: 'n_1_m', role: 'user', content: 'hola' }]);
       window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), list: await window.ChatStorage.getConversationsList() });
-      window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo/a' } });
+      window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo/a', noProjectDir } });
       window.__dirs = [];
       window.ChatMCP.manager.setProjectDirectory = async path => {
         window.__dirs.push(path);
         if (path === '/repo/borrado') throw new Error('Error MCP (-32602): no existe');
-        window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), serverInfo: { name: 'ZeroChat', cwd: path } });
+        window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), serverInfo: { ...window.ChatState.get('mcp').serverInfo, cwd: path } });
         return { cwd: path };
       };
-    });
+    }, noProjectDir);
+
     await page.selectOption('#sidebar-project-filter', 'all');
-    // Los proyectos que no son el actual aparecen plegados.
     await page.click('.sidebar-group-toggle[data-group-key="/repo/b"]');
     await page.locator('.sidebar-chat-item[data-session-id="p_ok"]').click();
     await page.waitForFunction(() => window.__dirs.length === 1);
@@ -240,25 +252,13 @@ test('Browser UI - abrir una conversación de otro proyecto lleva el servidor a 
     await page.waitForFunction(() => document.getElementById('notice-dialog').open);
     const notice = await page.textContent('#notice-dialog');
     assert.ok(notice.includes('/repo/borrado') && notice.includes('no existe'), notice);
-    assert.equal(await page.evaluate(() => window.ChatState.get('mcp').serverInfo.cwd), '/repo/b', 'No se queda en otra carpeta: sigue la anterior y sin herramientas');
-  });
-});
+    assert.equal(await page.evaluate(() => window.ChatState.get('mcp').serverInfo.cwd), '/repo/b');
+    await page.click('#notice-accept');
+    await page.waitForFunction(() => !document.getElementById('notice-dialog').open);
 
-test('Browser UI - el icono de la cabecera de un proyecto abre un chat nuevo en su carpeta sin plegarlo ni cambiar el perfil', async () => {
-  await withTestApp(async page => {
-    await page.evaluate(async () => {
-      await window.ChatStorage.saveConversation({ id: 'p_b', title: 'B', project: '/repo/b', createdAt: Date.now(), updatedAt: Date.now() }, [{ id: 'p_b_m', role: 'user', content: 'hola' }]);
-      window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), list: await window.ChatStorage.getConversationsList() });
-      window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo/a' } });
-      window.ChatMCP.manager.setProjectDirectory = async path => {
-        window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), serverInfo: { name: 'ZeroChat', cwd: path } });
-        return { cwd: path };
-      };
-    });
-    await page.selectOption('#sidebar-project-filter', 'all');
+    // Cabecera de proyecto: link de ficheros + nuevo chat en su carpeta sin cambiar perfil
     const previousId = await page.evaluate(() => window.ChatState.get('sessions').activeId);
     const before = await page.evaluate(() => ({ profile: window.ChatConfig.getActive().activeProfile?.id, serverMode: window.ChatUIProfiles.isServerMode() }));
-    // Junto al de chat nuevo, el de carpeta abre los ficheros del proyecto en una pestaña propia.
     const filesLink = await page.evaluate(() => {
       const button = document.querySelector('.btn-project-new-chat[data-project="/repo/b"]');
       const link = button.previousElementSibling;
@@ -266,7 +266,7 @@ test('Browser UI - el icono de la cabecera de un proyecto abre un chat nuevo en 
     });
     assert.deepEqual(filesLink, { cls: 'btn-project-files', href: 'files.html?project=%2Frepo%2Fb', target: '_blank', rel: 'noopener', label: 'Ficheros de b', icon: true });
     await page.click('.btn-project-new-chat[data-project="/repo/b"]');
-    await page.waitForFunction(() => window.ChatState.get('mcp').serverInfo.cwd === '/repo/b');
+    await page.waitForFunction(prev => window.ChatState.get('sessions').activeId !== prev, previousId);
     const after = await page.evaluate(() => ({
       activeId: window.ChatState.get('sessions').activeId,
       profile: window.ChatConfig.getActive().activeProfile?.id,
@@ -274,51 +274,18 @@ test('Browser UI - el icono de la cabecera de un proyecto abre un chat nuevo en 
     }));
     assert.notEqual(after.activeId, previousId);
     assert.deepEqual({ profile: after.profile, serverMode: after.serverMode }, before);
-  });
-});
 
-test('Browser UI - la cabecera de general abre sus ficheros y un chat nuevo en su carpeta', async () => {
-  await withTestApp(async page => {
-    const noProjectDir = '/home/u/zerochat/general';
-    await page.evaluate(async noProjectDir => {
-      await window.ChatStorage.saveConversation({ id: 'n_1', title: 'N', createdAt: Date.now(), updatedAt: Date.now() }, [{ id: 'n_1_m', role: 'user', content: 'hola' }]);
-      window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), list: await window.ChatStorage.getConversationsList() });
-      window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo/a', noProjectDir } });
-      window.ChatMCP.manager.setProjectDirectory = async path => {
-        window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), serverInfo: { ...window.ChatState.get('mcp').serverInfo, cwd: path } });
-        return { cwd: path };
-      };
-    }, noProjectDir);
-    await page.selectOption('#sidebar-project-filter', 'all');
+    // Cabecera de general: link a noProjectDir y nuevo chat en general
     assert.equal(await page.getAttribute('.btn-project-new-chat[data-project=""]', 'aria-label'),
       await page.evaluate(() => window.ChatI18n.t('sidebar_project_new_chat_title', { name: 'general' })));
     assert.equal(await page.evaluate(() => document.querySelector('.btn-project-new-chat[data-project=""]').previousElementSibling.getAttribute('href')),
       `files.html?project=${encodeURIComponent(noProjectDir)}`);
-
     await page.click('.btn-project-new-chat[data-project=""]');
     await page.waitForFunction(dir => window.ChatState.get('mcp').serverInfo.cwd === dir, noProjectDir);
-    // En general el proyecto actual es general y el selector no lo repite.
     assert.equal(await page.$eval('#sidebar-project-filter option[value="none"]', option => option.hidden), true);
   });
 });
 
-test('Browser UI - en móvil la barra ocupa toda la pantalla y deja el chat inerte hasta cerrarla', async () => {
-  await withTestApp({ viewport: { width: 390, height: 800 }, isMobile: true }, async page => {
-    const state = () => page.evaluate(() => ({
-      visible: document.getElementById('chat-sidebar').classList.contains('sidebar-visible'),
-      inert: document.getElementById('chat-container').hasAttribute('inert'),
-      toggleHidden: document.getElementById('btn-toggle-sidebar').hidden
-    }));
-    await page.click('#btn-toggle-sidebar');
-    assert.deepEqual(await state(), { visible: true, inert: true, toggleHidden: true });
-    await page.waitForFunction(() => document.getElementById('chat-sidebar').getBoundingClientRect().left === 0);
-    assert.equal(await page.evaluate(() => document.getElementById('chat-sidebar').getBoundingClientRect().width), 390);
-    await page.click('#btn-close-sidebar');
-    assert.deepEqual(await state(), { visible: false, inert: false, toggleHidden: false });
-  });
-});
-
-/** Abre el menú de la conversación, pulsa Exportar y descarga con el formato pedido. */
 /** Entrega un archivo al selector de importación como lo haría el navegador. */
 function importFile(page, { name, content = '', size = 0 }) {
   return page.evaluate(({ name, content, size }) => {

@@ -14,23 +14,7 @@ class StorageEngineTest(unittest.TestCase):
         self.storage_dir = self.data_dir / "storage"
         self.db_path = self.storage_dir / "zerochat.db"
 
-    def test_inicializacion_crea_tablas_y_aplica_migraciones(self):
-        with zerochat.open_storage() as conn:
-            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall()}
-            migrations = {row["version"] for row in conn.execute("SELECT version FROM schema_migrations;").fetchall()}
-            columns = {row["name"] for row in conn.execute("PRAGMA table_info(conversations);").fetchall()}
-        self.assertTrue(self.db_path.exists())
-        self.assertIn("schema_migrations", tables)
-        self.assertIn("profiles", tables)
-        self.assertIn("conversations", tables)
-        self.assertIn("messages", tables)
-        self.assertIn("blobs", tables)
-        self.assertIn("conversation_blobs", tables)
-        self.assertIn("security_policies", tables)
-        self.assertEqual(migrations, {1, 2, 3, 4, 5, 6, 7, 8})
-        self.assertIn("extra_json", columns)
-
-    def test_migracion_v4_aplica_a_base_existente(self):
+    def test_inicializacion_permisos_y_migracion_a_base_existente(self):
         # Simula una base existente con migraciones 1, 2 y 3 aplicadas (sin extra_json en conversations)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(self.db_path))
@@ -77,13 +61,19 @@ class StorageEngineTest(unittest.TestCase):
         conn.commit()
         conn.close()
 
-        # Al abrir con zerochat.open_storage, se deben aplicar las migraciones 4 a 8 sin errores
+        # Al abrir con zerochat.open_storage, se deben aplicar las migraciones 4 a 8 sin errores y fijar permisos 0700/0600
         with zerochat.open_storage() as conn:
+            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall()}
             migrations = {row["version"] for row in conn.execute("SELECT version FROM schema_migrations;").fetchall()}
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(conversations);").fetchall()}
             stored_key = conn.execute("SELECT api_key FROM profiles WHERE id = 'profile:viejo';").fetchone()["api_key"]
+        for expected_table in ("schema_migrations", "profiles", "conversations", "messages", "blobs", "conversation_blobs", "security_policies"):
+            self.assertIn(expected_table, tables)
         self.assertEqual(migrations, {1, 2, 3, 4, 5, 6, 7, 8})
         self.assertIn("extra_json", columns)
+        if os.name != "nt":
+            self.assertEqual(stat.S_IMODE(self.storage_dir.stat().st_mode), 0o700)
+            self.assertEqual(stat.S_IMODE(self.db_path.stat().st_mode), 0o600)
         # La 7 ofusca la clave que estaba en claro, que sigue sirviendo.
         self.assertNotIn("sk-en-claro", stored_key)
         self.assertEqual(zerochat.get_general_profile_with_key("profile:viejo")["settings"]["apiKey"], "sk-en-claro")
@@ -98,18 +88,16 @@ class StorageEngineTest(unittest.TestCase):
         listed = zerochat.list_conversations()
         self.assertTrue(any(c["id"] == "migrated_conv_1" and c["profileId"] == "deepseek" for c in listed))
 
-    @unittest.skipIf(os.name == "nt", "Permisos POSIX")
-    def test_permisos_directorio_0700_y_fichero_0600(self):
-        zerochat.list_general_profiles()
-        dir_mode = stat.S_IMODE(self.storage_dir.stat().st_mode)
-        db_mode = stat.S_IMODE(self.db_path.stat().st_mode)
-        self.assertEqual(dir_mode, 0o700)
-        self.assertEqual(db_mode, 0o600)
-
     def test_guardar_listar_recuperar_actualizar_y_borrar_perfil_general(self):
+        first_id = zerochat.get_server_id()
+        self.assertTrue(first_id)
+        self.assertEqual(zerochat.get_server_id(), first_id)
+        self.assertEqual(zerochat.live_state(zerochat.project_context())["serverId"], first_id)
+
         sample = {
             "name": "OpenAI GPT-4o",
             "description": "Perfil de prueba en backend",
+            "updatedAt": 1700000123456,
             "settings": {
                 "apiUrl": "https://api.openai.com/v1",
                 "apiType": "openai",
@@ -120,6 +108,7 @@ class StorageEngineTest(unittest.TestCase):
         saved = zerochat.save_general_profile(sample)
         self.assertEqual(saved["id"], "profile:OpenAI%20GPT-4o")
         self.assertEqual(saved["name"], "OpenAI GPT-4o")
+        self.assertEqual(saved["updatedAt"], 1700000123456)
         self.assertTrue(saved["general"])
         # Ni lo guardado ni el listado ni la búsqueda llevan la clave: solo hasApiKey.
         listed = zerochat.list_general_profiles()
@@ -141,8 +130,9 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(by_name["id"], saved["id"])
 
         # Actualizar sin enviar apiKey conserva la existente; enviar "" la vacía
-        updated = zerochat.save_general_profile({**saved, "description": "Descripción actualizada", "settings": {"model": "gpt-4.1"}})
+        updated = zerochat.save_general_profile({**saved, "updatedAt": 1700000999000, "description": "Descripción actualizada", "settings": {"model": "gpt-4.1"}})
         self.assertEqual(updated["version"], 2)
+        self.assertEqual(updated["updatedAt"], 1700000999000)
         self.assertEqual(updated["description"], "Descripción actualizada")
         self.assertEqual(zerochat.get_general_profile_with_key(saved["id"])["settings"]["apiKey"], "sk-secret-12345678")
 
@@ -154,33 +144,11 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(len(zerochat.list_general_profiles()), 0)
         self.assertFalse(zerochat.delete_general_profile("inexistente"))
 
-    def test_server_id_persistente_en_live_state_y_updated_at_preservado(self):
-        first_id = zerochat.get_server_id()
-        self.assertTrue(first_id)
-        self.assertEqual(zerochat.get_server_id(), first_id)
-        self.assertEqual(zerochat.live_state(zerochat.project_context())["serverId"], first_id)
-
-        created = zerochat.save_general_profile({
-            "name": "Sync Test",
-            "updatedAt": 1700000123456,
-            "settings": {"model": "m1"}
-        })
-        self.assertEqual(created["id"], "profile:Sync%20Test")
-        self.assertEqual(created["updatedAt"], 1700000123456)
-
-        updated = zerochat.save_general_profile({
-            **created,
-            "updatedAt": 1700000999000,
-            "settings": {"model": "m2"}
-        })
-        self.assertEqual(updated["updatedAt"], 1700000999000)
-
+    def test_validacion_bordes_duplicados_espejo_y_bloqueo(self):
         for bad_ts in (0, -5, "123", True):
             with self.subTest(bad_ts=bad_ts):
                 with self.assertRaises(ValueError):
                     zerochat.save_general_profile({"name": "Bad TS", "updatedAt": bad_ts, "settings": {}})
-
-    def test_validacion_bordes_duplicados_espejo_y_bloqueo(self):
         # Borde exacto N y N+1 en nombre (128/129) y descripción (2048/2049)
         max_name = "a" * zerochat.MAX_PROFILE_NAME_LENGTH
         max_desc = "d" * zerochat.MAX_PROFILE_DESCRIPTION_LENGTH
@@ -386,7 +354,7 @@ class StorageEngineTest(unittest.TestCase):
         self.assertIsNotNone(err)
         self.assertEqual(err["code"], -32601)
 
-    def test_cli_resolucion_perfiles_desde_sqlite(self):
+    def test_cli_resolucion_perfiles_y_list_conversations(self):
         parser = zerochat.build_parser()
         # Sin --profile y sin local guardado en SQLite, falla con RUN_EXIT_ARGS (4).
         with self.assertRaises(SystemExit) as missing_default:
@@ -414,7 +382,6 @@ class StorageEngineTest(unittest.TestCase):
         session_unknown = zerochat.run_session_from_args(parser, args_unknown)
         self.assertEqual(session_unknown.profile, "Desconocido")
 
-    def test_cli_list_conversations(self):
         output_empty = io.StringIO()
         with mock.patch.object(sys, "argv", ["zerochat.py", "--list-conversations"]), mock.patch.object(sys, "stdout", output_empty):
             zerochat.main()
@@ -569,35 +536,58 @@ class StorageEngineTest(unittest.TestCase):
         self.assertFalse(zerochat.rename_conversation("no_existe", "Nuevo"))
         self.assertFalse(zerochat.delete_conversation("no_existe"))
 
-    def test_blobs_crud_y_deduplicacion(self):
+    def test_blobs_crud_deduplicacion_y_limites(self):
+        import base64
         data1 = b"Hello, ZeroChat Blob Storage!"
         sha1 = zerochat.hashlib.sha256(data1).hexdigest()
 
-        # put_blob calcula el hash SHA-256
+        # put_blob calcula el hash SHA-256 y re-guardar mismos datos es idempotente
         saved1 = zerochat.put_blob(data1, mime_type="text/plain")
-        self.assertEqual(saved1["id"], sha1)
-        self.assertEqual(saved1["mime_type"], "text/plain")
-        self.assertEqual(saved1["size"], len(data1))
+        self.assertEqual((saved1["id"], saved1["mime_type"], saved1["size"]), (sha1, "text/plain", len(data1)))
+        self.assertEqual(zerochat.put_blob(data1, mime_type="text/plain", blob_id=sha1)["id"], sha1)
 
-        # Re-guardar mismos datos es idempotente
-        saved2 = zerochat.put_blob(data1, mime_type="text/plain", blob_id=sha1)
-        self.assertEqual(saved2["id"], sha1)
-
-        # get_blob recupera los bytes exactos
+        # get_blob y has_blobs
         retrieved = zerochat.get_blob(sha1)
-        self.assertIsNotNone(retrieved)
-        self.assertEqual(retrieved["id"], sha1)
-        self.assertEqual(retrieved["mime_type"], "text/plain")
-        self.assertEqual(retrieved["size"], len(data1))
-        self.assertEqual(retrieved["data"], data1)
-
-        # has_blobs consulta existentes y faltantes
+        self.assertEqual((retrieved["id"], retrieved["mime_type"], retrieved["size"], retrieved["data"]),
+                         (sha1, "text/plain", len(data1), data1))
         fake_id = "0" * 64
-        status = zerochat.has_blobs([sha1, fake_id])
-        self.assertEqual(status["existing"], [sha1])
-        self.assertEqual(status["missing"], [fake_id])
+        self.assertEqual(zerochat.has_blobs([sha1, fake_id]), {"existing": [sha1], "missing": [fake_id]})
 
-    def test_borrar_conversaciones_borra_los_blobs_que_solo_ellas_usaban(self):
+        # Validaciones y borde exacto N y N+1 en MAX_BLOB_SIZE
+        for bad_data, bad_id in ((b"", None), ("no es bytes", None), (b"datos", "invalido"),
+                                 (b"datos", "1" * 63), (b"datos", "1" * 65), (b"datos", "a" * 64)):
+            with self.subTest(bad_id=bad_id), self.assertRaises(ValueError):
+                zerochat.put_blob(bad_data, blob_id=bad_id)
+
+        data_limit = b"x" * zerochat.MAX_BLOB_SIZE
+        with mock.patch("zerochat.open_storage") as mock_open:
+            mock_open.return_value.__enter__.return_value = mock.MagicMock()
+            self.assertEqual(zerochat.put_blob(data_limit)["size"], zerochat.MAX_BLOB_SIZE)
+
+        class BigBytes(bytes):
+            def __len__(self):
+                return zerochat.MAX_BLOB_SIZE + 1
+
+        with self.assertRaises(ValueError):
+            zerochat.put_blob(BigBytes())
+        with self.assertRaises(ValueError):
+            zerochat.has_blobs(["f" * 64] * 1001)
+
+        # RPC zerochat/blobs/*
+        raw = b"png-binary-content-test"
+        b64 = base64.b64encode(raw).decode("ascii")
+        expected_id = zerochat.hashlib.sha256(raw).hexdigest()
+        res, err, _ = zerochat.dispatch_local("zerochat/blobs/put", {"mimeType": "image/png", "data": f"data:image/png;base64,{b64}"}, zerochat.project_context())
+        self.assertIsNone(err)
+        self.assertEqual((res["id"], res["mimeType"], res["size"]), (expected_id, "image/png", len(raw)))
+        res, err, _ = zerochat.dispatch_local("zerochat/blobs/get", {"id": expected_id}, zerochat.project_context())
+        self.assertIsNone(err)
+        self.assertEqual((res["blob"]["id"], res["blob"]["data"]), (expected_id, b64))
+        res, err, _ = zerochat.dispatch_local("zerochat/blobs/has", {"ids": [expected_id, "0" * 64]}, zerochat.project_context())
+        self.assertEqual((err, res["existing"], res["missing"]), (None, [expected_id], ["0" * 64]))
+        self.assertEqual(zerochat.dispatch_local("zerochat/blobs/put", {}, zerochat.project_context())[1]["code"], -32602)
+
+    def test_borrar_o_actualizar_conversaciones_borra_los_blobs_que_quedan_sin_referencia(self):
         def blob(data):
             return zerochat.put_blob(data, mime_type="image/png")["id"]
 
@@ -609,9 +599,16 @@ class StorageEngineTest(unittest.TestCase):
         own, shared, pending = blob(b"propia"), blob(b"compartida"), blob(b"subida sin guardar")
         save("conv_a", [own, shared])
         save("conv_b", [shared])
+        # Al guardar quitando las imágenes de una conversación, desaparece el blob propio y se conserva el compartido.
+        save("conv_a", [shared])
+        self.assertIsNone(zerochat.get_blob(own))
+        self.assertIsNotNone(zerochat.get_blob(shared))
+
+        own2 = blob(b"propia-2")
+        save("conv_a", [own2, shared])
         # Borrar una conversación borra el blob que solo ella usaba y conserva el compartido y el pendiente.
         self.assertTrue(zerochat.delete_conversation("conv_a"))
-        self.assertIsNone(zerochat.get_blob(own))
+        self.assertIsNone(zerochat.get_blob(own2))
         self.assertIsNotNone(zerochat.get_blob(shared))
         self.assertIsNotNone(zerochat.get_blob(pending))
 
@@ -624,102 +621,3 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(zerochat.delete_all_conversations(), 1)
         self.assertIsNone(zerochat.get_blob(shared))
         self.assertIsNotNone(zerochat.get_blob(pending))
-
-    def test_guardar_conversacion_recoge_blobs_sin_referencia(self):
-        def blob(data):
-            return zerochat.put_blob(data, mime_type="image/png")["id"]
-
-        own, shared = blob(b"solo-en-mensaje"), blob(b"compartido-en-otra")
-        zerochat.save_conversation(
-            {"id": "conv_edit", "title": "Edit"},
-            [
-                {"id": "m1", "role": "user", "content": "con imagen", "images": [{"blobId": own, "mimeType": "image/png"}]},
-                {"id": "m2", "role": "user", "content": "compartida", "images": [{"blobId": shared, "mimeType": "image/png"}]},
-            ],
-        )
-        zerochat.save_conversation(
-            {"id": "conv_other", "title": "Other"},
-            [{"id": "m3", "role": "user", "content": "otra", "images": [{"blobId": shared, "mimeType": "image/png"}]}],
-        )
-
-        # Al guardar quitando los mensajes con imagen, desaparece el blob propio y se conserva el compartido.
-        zerochat.save_conversation(
-            {"id": "conv_edit", "title": "Edit"},
-            [{"id": "m4", "role": "user", "content": "sin imagenes"}],
-        )
-        self.assertIsNone(zerochat.get_blob(own))
-        self.assertIsNotNone(zerochat.get_blob(shared))
-
-    def test_blobs_validaciones_y_limites(self):
-        # Vacío o no-bytes
-        with self.assertRaises(ValueError):
-            zerochat.put_blob(b"")
-        with self.assertRaises(ValueError):
-            zerochat.put_blob("no es bytes")
-
-        # ID inválido
-        with self.assertRaises(ValueError):
-            zerochat.put_blob(b"datos", blob_id="invalido")
-        with self.assertRaises(ValueError):
-            zerochat.put_blob(b"datos", blob_id="1" * 63)
-        with self.assertRaises(ValueError):
-            zerochat.put_blob(b"datos", blob_id="1" * 65)
-
-        # ID no coincide con el hash
-        with self.assertRaises(ValueError):
-            zerochat.put_blob(b"datos", blob_id="a" * 64)
-
-        # Borde exacto N y N+1 en MAX_BLOB_SIZE
-        data_limit = b"x" * zerochat.MAX_BLOB_SIZE
-        # N: se acepta con mock en memoria sin escribir a disco para no agotar espacio
-        with mock.patch("zerochat.open_storage") as mock_open:
-            mock_conn = mock.MagicMock()
-            mock_open.return_value.__enter__.return_value = mock_conn
-            res = zerochat.put_blob(data_limit)
-            self.assertEqual(res["size"], zerochat.MAX_BLOB_SIZE)
-
-        # N+1: se rechaza con ValueError
-        class BigBytes(bytes):
-            def __len__(self):
-                return zerochat.MAX_BLOB_SIZE + 1
-
-        with self.assertRaises(ValueError):
-            zerochat.put_blob(BigBytes())
-
-        # has_blobs límite de 1000 IDs
-        valid_id = "f" * 64
-        with self.assertRaises(ValueError):
-            zerochat.has_blobs([valid_id] * 1001)
-
-    def test_rpc_dispatch_blobs(self):
-        import base64
-        handler = object.__new__(zerochat.ZeroChatServerHandler)
-        raw = b"png-binary-content-test"
-        b64 = base64.b64encode(raw).decode("ascii")
-        expected_id = zerochat.hashlib.sha256(raw).hexdigest()
-
-        # zerochat/blobs/put
-        res, err, _ = zerochat.dispatch_local("zerochat/blobs/put", {
-            "mimeType": "image/png",
-            "data": f"data:image/png;base64,{b64}"
-        }, zerochat.project_context())
-        self.assertIsNone(err)
-        self.assertEqual(res["id"], expected_id)
-        self.assertEqual(res["mimeType"], "image/png")
-        self.assertEqual(res["size"], len(raw))
-
-        # zerochat/blobs/get
-        res, err, _ = zerochat.dispatch_local("zerochat/blobs/get", {"id": expected_id}, zerochat.project_context())
-        self.assertIsNone(err)
-        self.assertEqual(res["blob"]["id"], expected_id)
-        self.assertEqual(res["blob"]["data"], b64)
-
-        # zerochat/blobs/has
-        res, err, _ = zerochat.dispatch_local("zerochat/blobs/has", {"ids": [expected_id, "0" * 64]}, zerochat.project_context())
-        self.assertIsNone(err)
-        self.assertEqual(res["existing"], [expected_id])
-        self.assertEqual(res["missing"], ["0" * 64])
-
-        # Error en put sin data
-        res, err, _ = zerochat.dispatch_local("zerochat/blobs/put", {}, zerochat.project_context())
-        self.assertEqual(err["code"], -32602)

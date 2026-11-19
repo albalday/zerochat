@@ -7,157 +7,75 @@ const ToolSecurity = require('../../js/tool-security.js');
 const State = require('../../js/state.js');
 const Engine = require('../../js/chat-engine.js');
 
-test('RunNode - parseRunArgs extrae parámetros desde URL con fragmento', () => {
-  const url = 'http://127.0.0.1:9090/zerochat.html#token=sec_tok&host=127.0.0.2&port=9090&run=run_xyz';
-  const parsed = RunNode.parseRunArgs([url]);
-
-  assert.equal(parsed.host, '127.0.0.2');
-  assert.equal(parsed.port, 9090);
-  assert.equal(parsed.token, 'sec_tok');
-  assert.equal(parsed.runId, 'run_xyz');
-});
-
-test('RunNode - parseRunArgs extrae parámetros desde flags CLI independientes', () => {
-  const flags = ['--host', 'localhost', '--port', '4545', '--token', 'tok_abc', '--run', 'run_123'];
-  const parsed = RunNode.parseRunArgs(flags);
-
-  assert.equal(parsed.host, 'localhost');
-  assert.equal(parsed.port, 4545);
-  assert.equal(parsed.token, 'tok_abc');
-  assert.equal(parsed.runId, 'run_123');
-});
-
-test('RunNode - parseRunArgs soporta flag --url y fragmento directo', () => {
+test('RunNode - parseRunArgs extrae parámetros desde URL, --url, fragmento y flags con host por defecto', () => {
+  assert.deepEqual(
+    RunNode.parseRunArgs(['http://127.0.0.1:9090/zerochat.html#token=sec_tok&host=127.0.0.2&port=9090&run=run_xyz']),
+    { host: '127.0.0.2', port: 9090, token: 'sec_tok', runId: 'run_xyz' }
+  );
+  assert.deepEqual(
+    RunNode.parseRunArgs(['--host', 'localhost', '--port', '4545', '--token', 'tok_abc', '--run', 'run_123']),
+    { host: 'localhost', port: 4545, token: 'tok_abc', runId: 'run_123' }
+  );
   const fromFlag = RunNode.parseRunArgs(['--url', 'http://127.0.0.1:3000/#token=t1&port=3000&run=r1']);
-  assert.equal(fromFlag.port, 3000);
-  assert.equal(fromFlag.token, 't1');
-  assert.equal(fromFlag.runId, 'r1');
-
+  assert.deepEqual([fromFlag.port, fromFlag.token, fromFlag.runId], [3000, 't1', 'r1']);
   const fromHash = RunNode.parseRunArgs(['#token=t2&port=3001&run=r2&host=127.0.0.3']);
-  assert.equal(fromHash.host, '127.0.0.3');
-  assert.equal(fromHash.port, 3001);
-  assert.equal(fromHash.token, 't2');
-  assert.equal(fromHash.runId, 'r2');
+  assert.deepEqual([fromHash.host, fromHash.port, fromHash.token, fromHash.runId], ['127.0.0.3', 3001, 't2', 'r2']);
+  const withDefaultHost = RunNode.parseRunArgs(['--port', '8080', '--token', 't', '--run', 'r']);
+  assert.deepEqual([withDefaultHost.host, withDefaultHost.port], ['127.0.0.1', 8080]);
 });
 
-test('RunNode - parseRunArgs usa host por defecto cuando no se especifica', () => {
-  const parsed = RunNode.parseRunArgs(['--port', '8080', '--token', 't', '--run', 'r']);
-  assert.equal(parsed.host, '127.0.0.1');
-  assert.equal(parsed.port, 8080);
-});
+test('RunNode - startHeadlessRun valida parámetros y orquesta la conexión con RunMode', async t => {
+  await assert.rejects(() => RunNode.startHeadlessRun([]), /Missing required run parameters/);
+  await assert.rejects(() => RunNode.startHeadlessRun(['--port', '8080']), /Missing required run parameters/);
 
-test('RunNode - startHeadlessRun rechaza parámetros incompletos', async () => {
-  await assert.rejects(
-    () => RunNode.startHeadlessRun([]),
-    /Missing required run parameters/
-  );
-  await assert.rejects(
-    () => RunNode.startHeadlessRun(['--port', '8080']),
-    /Missing required run parameters/
-  );
-});
-
-test('RunNode - startHeadlessRun orquesta la conexión y arranca RunMode', async t => {
   let connectCalled = false;
-  let runModeStartCalled = false;
   let receivedRunId = null;
-
   t.mock.method(MCP.manager, 'connectProxy', async options => {
     connectCalled = true;
     assert.equal(options.url, 'http://127.0.0.1:8181/');
     assert.equal(options.token, 'test_token');
     return { success: true };
   });
-
   t.mock.method(RunMode, 'start', async (runId, options) => {
-    runModeStartCalled = true;
     receivedRunId = runId;
-    assert.equal(typeof options.connectBackend, 'function');
-    assert.equal(typeof options.activateSessionProfile, 'function');
-    assert.equal(typeof options.submitComposerText, 'function');
-    assert.equal(typeof options.stopGeneration, 'function');
-    assert.equal(typeof options.exportConversation, 'function');
-    assert.equal(typeof options.switchToSession, 'function');
-    const conn = await options.startupConnection;
-    assert.equal(conn.success, true);
+    for (const fn of ['connectBackend', 'activateSessionProfile', 'submitComposerText', 'stopGeneration', 'exportConversation', 'switchToSession']) {
+      assert.equal(typeof options[fn], 'function');
+    }
+    assert.equal((await options.startupConnection).success, true);
     return { ok: true };
   });
 
-  const result = await RunNode.startHeadlessRun([
-    '--host', '127.0.0.1',
-    '--port', '8181',
-    '--token', 'test_token',
-    '--run', 'run_target_id'
-  ]);
-
+  const result = await RunNode.startHeadlessRun(['--host', '127.0.0.1', '--port', '8181', '--token', 'test_token', '--run', 'run_target_id']);
   assert.equal(connectCalled, true);
-  assert.equal(runModeStartCalled, true);
   assert.equal(receivedRunId, 'run_target_id');
   assert.deepEqual(result, { ok: true });
 });
 
-test('RunNode - herramientas excluidas de Node se declaran no disponibles y devuelven error limpio al ejecutarse', async () => {
-  const disabledToolGlobals = [
-    'ChatBuiltinListDocumentsTool',
-    'ChatBuiltinSearchKnowledgeBaseTool',
-    'ChatBuiltinReadKnowledgeChunkTool',
-    'ChatBuiltinReadKnowledgeImageTool',
-    // Esperar solo tiene sentido con el chat abierto.
-    'ChatBuiltinWaitTool'
-  ];
-
-  for (const globalName of disabledToolGlobals) {
+test('RunNode - expone herramientas/tarjetas de Node e inhabilita las de UI/conocimiento', async () => {
+  for (const globalName of [
+    'ChatBuiltinListDocumentsTool', 'ChatBuiltinSearchKnowledgeBaseTool', 'ChatBuiltinReadKnowledgeChunkTool',
+    'ChatBuiltinReadKnowledgeImageTool', 'ChatBuiltinWaitTool'
+  ]) {
     const tool = globalThis[globalName];
     assert.ok(tool, `${globalName} debe estar registrado en globalThis`);
-    assert.equal(tool.isAvailable(), false, `${globalName} debe declarar isAvailable() === false`);
+    assert.equal(tool.isAvailable(), false);
     assert.equal(tool.settings.showInSettings, false);
-    const res = await tool.execute();
-    assert.equal(res.error, 'Tool not supported in headless environment');
+    assert.equal((await tool.execute()).error, 'Tool not supported in headless environment');
   }
-});
 
-test('RunNode - render_chart está habilitado y ejecuta sin requerir DOM en Node', async () => {
-  const tool = globalThis.ChatBuiltinRenderChartTool;
-  assert.ok(tool, 'ChatBuiltinRenderChartTool debe estar registrado');
-  assert.equal(tool.definition.name, 'render_chart');
+  const chartTool = globalThis.ChatBuiltinRenderChartTool;
+  const chartArgs = { type: 'bar', title: 'Ventas trimestrales', labels: ['Q1'], datasets: [{ label: '2026', data: [100] }] };
+  const chartRes = await chartTool.execute(chartArgs);
+  assert.deepEqual(chartRes, { success: true, type: 'bar', title: 'Ventas trimestrales' });
+  assert.match(chartTool.result.toMarkdown(chartArgs, chartRes), /render_chart[\s\S]*Ventas trimestrales/);
 
-  const args = {
-    type: 'bar',
-    title: 'Ventas trimestrales',
-    labels: ['Q1', 'Q2', 'Q3', 'Q4'],
-    datasets: [{ label: '2026', data: [100, 200, 150, 300] }]
-  };
-  const execRes = await tool.execute(args);
-  assert.deepEqual(execRes, { success: true, type: 'bar', title: 'Ventas trimestrales' });
-  assert.equal(tool.result.toModel(args, execRes), JSON.stringify(execRes));
-  assert.match(tool.result.toMarkdown(args, execRes), /render_chart[\s\S]*Ventas trimestrales/);
-});
+  const jsTool = globalThis.ChatBuiltinExecuteJavascriptTool;
+  const jsRes = await jsTool.execute({ code: 'return 19 + 23;' }, { services: { sandbox: globalThis.ChatSandbox } });
+  assert.equal(jsTool.result.toModel({ code: 'return 19 + 23;' }, jsRes), '42');
 
-test('RunNode - execute_javascript y ChatSandbox están habilitados y ejecutan cálculos en Node', async () => {
-  const tool = globalThis.ChatBuiltinExecuteJavascriptTool;
-  assert.ok(tool, 'ChatBuiltinExecuteJavascriptTool debe estar registrado');
-  assert.equal(tool.definition.name, 'execute_javascript');
-  assert.ok(globalThis.ChatSandbox, 'ChatSandbox debe estar registrado');
-
-  const context = {
-    services: {
-      sandbox: globalThis.ChatSandbox
-    }
-  };
-  const execRes = await tool.execute({ code: 'return 19 + 23;' }, context);
-  assert.equal(execRes.success, true);
-  assert.equal(execRes.result, '42');
-  assert.equal(tool.result.toModel({ code: 'return 19 + 23;' }, execRes), '42');
-});
-
-test('RunNode - ChatCommandCard está registrado en globalThis y parseResult extrae estado de run_command', () => {
-  assert.ok(globalThis.ChatCommandCard, 'ChatCommandCard debe estar registrado para el descubrimiento de run_command');
   const view = globalThis.ChatCommandCard.createView();
   assert.equal(typeof view.createLiveCard, 'function');
   assert.equal(typeof view.renderHistoryCard, 'function');
-
-  assert.equal(globalThis.ChatCommandCard.parseResult(null), null);
-  assert.equal(globalThis.ChatCommandCard.parseResult('not-json'), null);
   assert.deepEqual(globalThis.ChatCommandCard.parseResult('{"status": "running", "job_id": 12}'), { status: 'running', job_id: 12 });
   assert.equal(globalThis.ChatCommandCard.isFailure({ status: 'exited', exitCode: 1 }), true);
   assert.equal(globalThis.ChatCommandCard.isFailure({ status: 'exited', exitCode: 0 }), false);

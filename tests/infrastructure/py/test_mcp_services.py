@@ -96,25 +96,32 @@ class ManagedServicesTest(unittest.TestCase):
         self.data_dir = use_data_dir(self)
         self.root = self.data_dir / "services"
 
-    def test_composio_se_lanza_con_su_cliente_oauth_y_el_protocolo_legacy(self):
+    def test_composio_y_brave_declaran_oauth_secretos_en_entorno_y_rate_limit(self):
         args = json.loads((REPO_SERVICES / "composio" / "service.json").read_text(encoding="utf-8"))["launch"]["args"]
         self.assertEqual(json.loads(args[args.index("--static-oauth-client-metadata") + 1])["client_name"], "zerochat-mcp-remote")
         self.assertEqual(args[args.index("--protocol") + 1], "legacy")
 
-    def test_brave_toma_su_clave_de_los_secretos_solo_en_el_entorno(self):
-        # La prueba del mecanismo de secretos está más abajo; aquí, que la definición publicada lo usa bien.
         definition = json.loads((REPO_SERVICES / "brave" / "service.json").read_text(encoding="utf-8"))
         self.assertEqual([secret["name"] for secret in zerochat.service_secrets(definition)], ["BRAVE_API_KEY"])
         self.assertEqual(definition["launch"]["env"]["BRAVE_API_KEY"], "${secret:BRAVE_API_KEY}")
         self.assertNotIn("${secret:", json.dumps(definition["launch"]["args"]))
         self.assertEqual(definition["launch"]["args"][-2:], ["--transport", "stdio"])
-        # Solo la búsqueda web empieza activa y sustituye a search_web; el resto, del mismo saldo de Brave, apagadas.
         settings = {name: zerochat.service_tool_settings(definition, name) for name in definition["tools"]}
         self.assertEqual(settings.pop("brave_web_search"), {"replaces": ["search_web"], "enabledByDefault": True})
         self.assertTrue(settings)
         self.assertEqual({name: value["enabledByDefault"] for name, value in settings.items()}, dict.fromkeys(settings, False))
-        # Una llamada a la vez a la API de Brave y 1,1 s entre respuestas: no pasar del límite por segundo de la clave.
         self.assertEqual(zerochat.parse_rate_policy(definition["rateLimit"]), zerochat.RatePolicy(1, 1.1))
+
+        # Depuración de declaraciones rotas y ocultación de state/code en trazas OAuth
+        noisy_def = {"tools": {"buscar": {"replaces": ["search_web", "Mal Nombre", 3, "../x"], "enabledByDefault": "no"}}}
+        self.assertEqual(zerochat.service_tool_settings(noisy_def, "buscar"), {"replaces": ["search_web"], "enabledByDefault": True})
+        for broken in ({}, {"tools": []}, {"tools": {"buscar": "x"}}, {"tools": {"buscar": {"replaces": "search_web"}}}):
+            with self.subTest(broken=broken):
+                self.assertEqual(zerochat.service_tool_settings(broken, "buscar"), {"replaces": [], "enabledByDefault": True})
+        trace = zerochat._mcp_trace_text("https://auth.example/authorize?state=csrf-value&code=oauth-code&scope=openid")
+        self.assertNotIn("csrf-value", trace)
+        self.assertNotIn("oauth-code", trace)
+        self.assertIn("scope=openid", trace)
 
     def test_las_llamadas_a_un_servicio_respetan_el_rate_limit_que_declara(self):
         manager = zerochat.McpServiceManager(self.root)
@@ -133,19 +140,6 @@ class ManagedServicesTest(unittest.TestCase):
             elapsed("lento_echo")
             self.assertGreaterEqual(elapsed("lento_echo"), 0.25)
             self.assertLess(elapsed("libre_echo"), 0.05)
-
-    def test_la_declaracion_de_una_herramienta_se_depura_y_sin_ella_empieza_activa_sin_sustituir_nada(self):
-        definition = {"tools": {"buscar": {"replaces": ["search_web", "Mal Nombre", 3, "../x"], "enabledByDefault": "no"}}}
-        self.assertEqual(zerochat.service_tool_settings(definition, "buscar"), {"replaces": ["search_web"], "enabledByDefault": True})
-        for broken in ({}, {"tools": []}, {"tools": {"buscar": "x"}}, {"tools": {"buscar": {"replaces": "search_web"}}}):
-            with self.subTest(broken=broken):
-                self.assertEqual(zerochat.service_tool_settings(broken, "buscar"), {"replaces": [], "enabledByDefault": True})
-
-    def test_las_trazas_ocultan_el_state_y_el_code_de_oauth(self):
-        trace = zerochat._mcp_trace_text("https://auth.example/authorize?state=csrf-value&code=oauth-code&scope=openid")
-        self.assertNotIn("csrf-value", trace)
-        self.assertNotIn("oauth-code", trace)
-        self.assertIn("scope=openid", trace)
 
     def test_un_mcp_propio_conserva_su_api_key_local_y_la_pasa_desde_launch_env(self):
         traces = capture_console(self)
@@ -249,7 +243,7 @@ class ServiceCatalogTest(unittest.TestCase):
         self.site = data_dir / "site"
         self.site.mkdir()
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), partial(QuietFiles, directory=str(self.site)))
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
         self.addCleanup(self.server.server_close)
         self.base = zerochat.catalog_base(f"http://127.0.0.1:{self.server.server_address[1]}/zerochat.html#token=t")
         self.manager = zerochat.McpServiceManager(self.root)
@@ -332,7 +326,7 @@ class ServiceCatalogTest(unittest.TestCase):
         self.assertIn("se usan los servicios instalados", self.traces[-1])
         self.assertEqual(sorted(server["id"] for server in self.manager.list_servers()), ["demo", "other"])
 
-    def test_el_catalogo_no_admite_rutas_fuera_del_servicio_ni_ocultas(self):
+    def test_el_catalogo_no_admite_rutas_fuera_ni_ocultas_acota_descargas_y_esta_al_dia(self):
         digest = "0" * 64
         def catalog(server_id="demo", files=None, schema=1):
             files = {"service.json": digest, **(files or {})}
@@ -352,7 +346,6 @@ class ServiceCatalogTest(unittest.TestCase):
             with self.subTest(label), self.assertRaises(ValueError):
                 zerochat.parse_catalog(raw)
 
-    def test_cada_descarga_admite_catalog_max_bytes_y_uno_mas_se_rechaza(self):
         (self.site / "file").write_bytes(b"x" * 64)
         url = self.base + "file"
         with patch.object(zerochat, "CATALOG_MAX_BYTES", 64):
@@ -360,14 +353,12 @@ class ServiceCatalogTest(unittest.TestCase):
         with patch.object(zerochat, "CATALOG_MAX_BYTES", 63), self.assertRaisesRegex(ValueError, "excede 63 bytes"):
             zerochat.download(url)
 
-    def test_el_catalogo_del_repositorio_esta_al_dia_con_services(self):
-        catalog = zerochat.parse_catalog((REPO_SERVICES / "manifest.json").read_bytes())
-        self.assertEqual(sorted(catalog), sorted(d.name for d in REPO_SERVICES.iterdir() if (d / "service.json").is_file()))
-        for server_id, entry in catalog.items():
+        repo_catalog = zerochat.parse_catalog((REPO_SERVICES / "manifest.json").read_bytes())
+        self.assertEqual(sorted(repo_catalog), sorted(d.name for d in REPO_SERVICES.iterdir() if (d / "service.json").is_file()))
+        for server_id, entry in repo_catalog.items():
             definition = json.loads((REPO_SERVICES / server_id / "service.json").read_text(encoding="utf-8"))
             self.assertEqual(entry["version"], definition["version"], server_id)
             for path, digest in entry["files"].items():
-                # Con LF, como se publica, también en un checkout de Windows que lo pase a CRLF.
                 data = (REPO_SERVICES / server_id / path).read_bytes().replace(b"\r\n", b"\n")
                 self.assertEqual(hashlib.sha256(data).hexdigest(), digest, f"{server_id}/{path}: npm run build:managed-services")
 
@@ -519,7 +510,7 @@ class McpToolsTest(unittest.TestCase):
         self.manager = zerochat.McpServiceManager(use_data_dir(self) / "services")
         self.traces = capture_console(self)
 
-    def test_public_tool_name_codifica_igual_que_el_navegador_la_tabla_compartida(self):
+    def test_public_tool_name_codifica_la_tabla_compartida_y_descarta_nombres_invalidos_o_duplicados(self):
         # test_mcp.js comprueba la misma tabla contra publicToolName de js/mcp.js.
         for case in json.loads(PUBLIC_TOOL_NAMES.read_text(encoding="utf-8")):
             with self.subTest(server=case["server"], tool=case["tool"]):
@@ -528,6 +519,14 @@ class McpToolsTest(unittest.TestCase):
                         zerochat.public_tool_name(case["server"], case["tool"])
                 else:
                     self.assertEqual(zerochat.public_tool_name(case["server"], case["tool"]), case["expected"])
+
+        client = Mock(tools=[{"name": "lookup"}, {"name": "lookup"}, {"name": "x" * 80}, {"name": ""}])
+        client.running.return_value = True
+        self.manager.records["demo"] = zerochat.McpServiceRecord(phase="running", client=client)
+        self.assertEqual([tool["name"] for tool in self.manager.tools()], ["demo_lookup"])
+        joined = "\n".join(self.traces)
+        self.assertIn("duplicate public name demo_lookup", joined)
+        self.assertEqual(joined.count("tool discarded"), 3)
 
     def test_una_llamada_a_herramienta_externa_no_bloquea_al_gestor_mientras_se_ejecuta(self):
         client = Mock(tools=[{"name": "lookup"}])
@@ -544,15 +543,6 @@ class McpToolsTest(unittest.TestCase):
         self.assertEqual(self.manager.call(zerochat.public_tool_name("demo", "lookup"), {"q": 1}), {"content": []})
         with self.assertRaises(ValueError):
             self.manager.call("demo_missing", {})
-
-    def test_se_descartan_y_registran_nombres_publicos_invalidos_o_duplicados(self):
-        client = Mock(tools=[{"name": "lookup"}, {"name": "lookup"}, {"name": "x" * 80}, {"name": ""}])
-        client.running.return_value = True
-        self.manager.records["demo"] = zerochat.McpServiceRecord(phase="running", client=client)
-        self.assertEqual([tool["name"] for tool in self.manager.tools()], ["demo_lookup"])
-        joined = "\n".join(self.traces)
-        self.assertIn("duplicate public name demo_lookup", joined)
-        self.assertEqual(joined.count("tool discarded"), 3)
 
 
 class LocalToolArgumentsTest(unittest.TestCase):

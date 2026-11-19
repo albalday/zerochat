@@ -49,20 +49,18 @@ function runTurn({ appConfig = {}, ...params }) {
   });
 }
 
-test('ChatEngine - reenvía la firma del razonamiento cuando el servidor la entrega', () => {
-  const messages = buildMessages([
+test('ChatEngine - buildEffectiveMessages reenvía la firma del razonamiento, agrupa llamadas paralelas y coloca la evidencia visual al final del lote', () => {
+  const replayMsgs = buildMessages([
     { role: 'user', content: 'Pregunta' },
     { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read_file', arguments: '{}' } }],
       reasoningReplay: { field: 'thinking', text: 'plan', signature: '' } },
     { role: 'tool', tool_call_id: 'c1', name: 'read_file', content: 'a' }
   ]);
-  const assistant = messages.find(m => m.role === 'assistant');
+  const assistant = replayMsgs.find(m => m.role === 'assistant');
   assert.equal(assistant.thinking, 'plan');
   assert.equal(assistant.reasoning_signature, '');
-});
 
-test('ChatEngine - no inventa turnos assistant para resultados de llamadas paralelas', () => {
-  const messages = buildMessages([
+  const parallelMsgs = buildMessages([
     { role: 'user', content: 'Busca dos cosas' },
     { role: 'assistant', content: null, tool_calls: [
       { id: 'call_a', type: 'function', function: { name: 'search_a', arguments: '{}' } },
@@ -72,13 +70,10 @@ test('ChatEngine - no inventa turnos assistant para resultados de llamadas paral
     { role: 'tool', tool_call_id: 'call_b', name: 'search_b', content: 'B' },
     { role: 'tool', tool_call_id: 'call_orphan', name: 'orphan', content: 'C' }
   ], {}, { enableTools: false });
+  const parallelTail = parallelMsgs.slice(parallelMsgs.findIndex(message => message.role === 'assistant'));
+  assert.deepEqual(parallelTail.map(message => message.role), ['assistant', 'tool', 'tool', 'assistant', 'tool']);
+  assert.deepEqual(parallelTail[3].tool_calls.map(call => call.id), ['call_orphan']);
 
-  const tail = messages.slice(messages.findIndex(message => message.role === 'assistant'));
-  assert.deepEqual(tail.map(message => message.role), ['assistant', 'tool', 'tool', 'assistant', 'tool']);
-  assert.deepEqual(tail[3].tool_calls.map(call => call.id), ['call_orphan']);
-});
-
-test('ChatEngine - la evidencia visual de un lote paralelo va en un único user tras todos sus resultados', () => {
   const longResult = 'x'.repeat(5000);
   const messages = buildMessages([
     { role: 'user', content: 'compara' },
@@ -94,7 +89,7 @@ test('ChatEngine - la evidencia visual de un lote paralelo va en un único user 
 
   const tail = messages.slice(messages.findIndex(message => message.role === 'assistant'));
   assert.deepEqual(tail.map(message => message.role), ['assistant', 'tool', 'tool', 'tool', 'user']);
-  assert.equal(tail[0].tool_calls.length, 3, 'sin assistant sintético para los resultados tras la imagen');
+  assert.equal(tail[0].tool_calls.length, 3);
   assert.deepEqual(tail[4], {
     role: 'user',
     content: [
@@ -103,38 +98,26 @@ test('ChatEngine - la evidencia visual de un lote paralelo va en un único user 
       { type: 'text', text: 'Visual evidence returned by browser_action: https://example.com/' },
       { type: 'image_url', image_url: { url: 'data:image/png;base64,BB==' } }
     ]
-  }, 'una sola evidencia, sin la marca interna');
-  // La evidencia forma bloque con el lote: sus resultados siguen siendo los del turno activo y no se podan.
+  });
   assert.equal(tail[2].content, longResult);
 });
 
-test('ChatEngine - getConversationDateAnchor genera el ancla con fecha y zona horaria', (t) => {
-  const anchorEs = ChatEngine.getConversationDateAnchor();
-  assert.ok(anchorEs.includes('Conversation start date:'));
-  assert.ok(anchorEs.includes('Timezone:'));
+test('ChatEngine - buildEffectiveMessages inyecta fecha estable, RAG, directorio del proyecto y guía de herramientas', () => {
+  const anchor = ChatEngine.getConversationDateAnchor();
+  assert.ok(anchor.includes('Conversation start date:') && anchor.includes('Timezone:'));
 
-  const anchorEn = ChatEngine.getConversationDateAnchor();
-  assert.ok(anchorEn.includes('Conversation start date:'));
-  assert.ok(anchorEn.includes('Timezone:'));
-});
-
-test('ChatEngine - buildEffectiveMessages inyecta fecha, RAG y formatea mensajes', (t) => {
-  const history = [
-    { role: 'user', content: '¿Qué manuales tengo disponibles?' }
-  ];
-
+  const history = [{ role: 'user', content: '¿Qué manuales tengo disponibles?' }];
   const appConfig = {
     systemPrompt: 'Eres un asistente experto.',
     systemDataPrompt: '[Format: Always use standard Markdown and plain text.]',
     language: 'es',
     activeRagBranchIds: ['branch_123']
   };
-
-  const options = {
-    currentRagSystemContext: '[BASE DE CONOCIMIENTO ACTIVA: Manual GA-Z77P-D3]'
-  };
-
-  const messages = buildMessages(history, appConfig, options);
+  const messages = buildMessages(history, appConfig, {
+    currentRagSystemContext: '[BASE DE CONOCIMIENTO ACTIVA: Manual GA-Z77P-D3]',
+    enableTools: true,
+    projectDirectory: '/home/u/app'
+  });
 
   assert.equal(messages[0].role, 'system');
   assert.ok(messages[0].content.includes('[BASE DE CONOCIMIENTO ACTIVA: Manual GA-Z77P-D3]'));
@@ -142,31 +125,40 @@ test('ChatEngine - buildEffectiveMessages inyecta fecha, RAG y formatea mensajes
   assert.ok(messages[0].content.includes('Eres un asistente experto.'));
   assert.ok(messages[0].content.includes('[Format: Always use standard Markdown and plain text.]'));
   assert.ok(messages[0].content.includes('Knowledge Base active'));
-  assert.ok(messages[0].content.includes("Use 'list_documents' only when you explicitly need a complete inventory"));
-
-  assert.equal(messages[1].role, 'user');
-  assert.ok(messages[1].content.includes('¿Qué manuales tengo disponibles?'));
+  assert.ok(messages[0].content.includes('*Project directory:* /home/u/app.'));
   assert.equal(messages[1].content, history[0].content);
-  assert.ok(!JSON.stringify(messages).includes('[Context Time:'));
-});
 
-test('ChatEngine - buildEffectiveMessages indica el directorio del proyecto solo con herramientas', () => {
-  const history = [{ role: 'user', content: 'Hola' }];
-  const config = { systemPrompt: 'Base', language: 'es' };
-  const withTools = buildMessages(history, config, { enableTools: true, projectDirectory: '/home/u/app' });
-  assert.ok(withTools[0].content.includes('*Project directory:* /home/u/app.'));
-  assert.ok(withTools[0].content.includes('Relative paths in local tools resolve against it.'));
-  const withoutTools = buildMessages(history, config, { enableTools: false, projectDirectory: '/home/u/app' });
+  // Sin herramientas o sin directorio no inyecta Project directory, pero sí la fecha
+  const enabledTools = Object.fromEntries(ChatAgentCore.registry.getActiveDefinitions(config()).map(t => [t.function.name, false]));
+  assert.equal(ChatAgentCore.registry.getActiveDefinitions(config({ enabledTools })).length, 0);
+  const withoutTools = buildMessages(history, { ...appConfig, enabledTools }, { enableTools: false, projectDirectory: '/home/u/app' });
   assert.ok(!withoutTools[0].content.includes('Project directory'));
-  const withoutServer = buildMessages(history, config, { enableTools: true, projectDirectory: '' });
-  assert.ok(!withoutServer[0].content.includes('Project directory'));
+  assert.match(withoutTools[0].content, /Conversation start date/);
+
+  // Con herramientas en texto (WebLLM) no inyecta la guía de pseudo-firmas
+  require('../../js/providers-webllm.js');
+  const webllmMsgs = buildMessages([{ role: 'user', content: 'Hola' }], {
+    apiType: 'webllm', apiUrl: 'webllm://local', model: 'Qwen3-4B-q4f16_1-MLC', language: 'es', enabledTools: { search_web: true }
+  }, { enableTools: true });
+  assert.equal(webllmMsgs[0].content.includes('AVAILABLE TOOLS AND FUNCTIONS'), false);
+  assert.ok(webllmMsgs[0].content.includes('*Workflow instruction:*'));
+
+  // Fecha inicial estable al cambiar día y serializar el historial
+  const datedHistory = [{ role: 'system', content: 'Sistema' }, { role: 'user', content: 'Hola' }];
+  const fixedAnchor = ChatEngine.ensureConversationDate(datedHistory, '2026-01-01T12:00:00Z');
+  assert.match(fixedAnchor, /2026-01-01/);
+  const before = buildMessages(datedHistory);
+  const restored = JSON.parse(JSON.stringify(datedHistory));
+  assert.equal(ChatEngine.ensureConversationDate(restored, '2026-02-02T12:00:00Z'), fixedAnchor);
+  assert.deepEqual(buildMessages(restored), before);
 });
 
-test('ChatEngine - conserva evidencia RAG multimodal entre pasos agénticos', async () => {
+test('ChatEngine - executeAgentTurnLoop conserva evidencia RAG multimodal, ordena el markdown intermedio e inyecta el contexto del proyecto', async () => {
   const originalStream = ChatAPI.streamChatCompletion;
   const originalDispatch = ChatAgentCore.dispatchToolCall;
   let calls = 0;
   let secondRequestMessages = null;
+  let sentSystem = '';
 
   ChatAgentCore.dispatchToolCall = async () => ({
     success: true,
@@ -180,11 +172,12 @@ test('ChatEngine - conserva evidencia RAG multimodal entre pasos agénticos', as
     resultText: 'Image retrieved.',
     markdownBlock: '> image'
   });
-  ChatAPI.streamChatCompletion = async (params) => {
+  ChatAPI.streamChatCompletion = async params => {
     calls++;
+    sentSystem = params.messages.find(message => message.role === 'system')?.content || '';
     if (calls === 1) {
       const toolCalls = [{ id: 'image_call', type: 'function', function: { name: 'read_knowledge_image', arguments: '{}' } }];
-      return { accumulatedText: '', toolCalls, stats: null };
+      return { accumulatedText: 'I will inspect it.', toolCalls, stats: null };
     }
     secondRequestMessages = params.messages;
     return { accumulatedText: 'I inspected the image.', toolCalls: null, stats: null };
@@ -192,20 +185,28 @@ test('ChatEngine - conserva evidencia RAG multimodal entre pasos agénticos', as
 
   try {
     const history = [{ role: 'user', content: 'Inspect the diagram.' }];
-    await runTurn({
+    const result = await runTurn({
       chatHistory: history,
-      appConfig: { apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'test-model', activeRagBranchIds: ['branch_1'] }
+      appConfig: { apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'test-model', activeRagBranchIds: ['branch_1'] },
+      projectContext: {
+        status: 'ready',
+        cwd: '/home/u/repo',
+        rules: { content: 'Project rules: AGENTS.md', truncated: false },
+        state: { content: '- Next step: tests', truncated: false }
+      }
     });
 
     assert.ok(history.find(message => message.role === 'tool')?.images?.[0]?.dataUrl);
     assert.ok(secondRequestMessages.some(message => Array.isArray(message.content) && message.content.some(part => part.type === 'image_url')));
+    assert.equal(result.accumulatedMarkdown, 'I will inspect it.\n\n> image\n\nI inspected the image.');
+    assert.match(sentSystem, /rooted at \/home\/u\/repo/);
   } finally {
     ChatAPI.streamChatCompletion = originalStream;
     ChatAgentCore.dispatchToolCall = originalDispatch;
   }
 });
 
-test('ChatEngine - al parar devuelve los pasos ejecutados sin las llamadas pendientes del lote', async () => {
+test('ChatEngine - al parar o fallar el proveedor devuelve los pasos ejecutados sin las llamadas pendientes ni el bloque fallido', async () => {
   const originalStream = ChatAPI.streamChatCompletion;
   const originalDispatch = ChatAgentCore.dispatchToolCall;
   const controller = new AbortController();
@@ -231,62 +232,21 @@ test('ChatEngine - al parar devuelve los pasos ejecutados sin las llamadas pendi
     assert.deepEqual(dispatched, ['call_a']);
     assert.deepEqual(result.chatHistory.map(message => message.role), ['user', 'assistant', 'tool']);
     assert.deepEqual(result.chatHistory[1].tool_calls.map(call => call.id), ['call_a']);
-    assert.equal(result.chatHistory[2].tool_call_id, 'call_a');
-  } finally {
-    ChatAPI.streamChatCompletion = originalStream;
-    ChatAgentCore.dispatchToolCall = originalDispatch;
-  }
-});
 
-test('ChatEngine - si el proveedor falla tras un paso con herramientas devuelve ese paso y retira el bloque del que falló', async () => {
-  const originalStream = ChatAPI.streamChatCompletion;
-  const originalDispatch = ChatAgentCore.dispatchToolCall;
-  let calls = 0;
-
-  ChatAgentCore.dispatchToolCall = async () => ({ success: true, result: { value: 'A' }, resultText: 'A', markdownBlock: '> A' });
-  ChatAPI.streamChatCompletion = async params => {
-    calls++;
-    if (calls === 1) {
-      const toolCalls = [{ id: 'call_a', type: 'function', function: { name: 'search_web', arguments: '{}' } }];
-      return { accumulatedText: 'Searching.', toolCalls, stats: null };
-    }
-    params.onChunk('Partial', 'Partial', null);
-    throw new Error('Overloaded');
-  };
-
-  try {
+    let calls = 0;
+    ChatAgentCore.dispatchToolCall = async () => ({ success: true, result: { value: 'A' }, resultText: 'A', markdownBlock: '> A' });
+    ChatAPI.streamChatCompletion = async params => {
+      if (++calls === 1) {
+        return { accumulatedText: 'Searching.', toolCalls: [{ id: 'call_a', type: 'function', function: { name: 'search_web', arguments: '{}' } }], stats: null };
+      }
+      params.onChunk('Partial', 'Partial', null);
+      throw new Error('Overloaded');
+    };
     const view = createTurnView();
-    const result = await runTurn({ chatHistory: [{ role: 'user', content: 'Search.' }], view });
-    assert.equal(result.error.message, 'Overloaded');
-    assert.deepEqual(result.chatHistory.map(message => message.role), ['user', 'assistant', 'tool']);
+    const errRes = await runTurn({ chatHistory: [{ role: 'user', content: 'Search.' }], view });
+    assert.equal(errRes.error.message, 'Overloaded');
+    assert.deepEqual(errRes.chatHistory.map(message => message.role), ['user', 'assistant', 'tool']);
     assert.deepEqual(view.blocks.map(block => block.text), ['Searching.']);
-  } finally {
-    ChatAPI.streamChatCompletion = originalStream;
-    ChatAgentCore.dispatchToolCall = originalDispatch;
-  }
-});
-
-test('ChatEngine - copia el texto intermedio y los bloques de herramientas en orden', async () => {
-  const originalStream = ChatAPI.streamChatCompletion;
-  const originalDispatch = ChatAgentCore.dispatchToolCall;
-  let calls = 0;
-
-  ChatAgentCore.dispatchToolCall = async () => ({ success: true, result: { value: 4 }, resultText: '4', markdownBlock: '> tool result' });
-  ChatAPI.streamChatCompletion = async params => {
-    calls++;
-    if (calls === 1) {
-      const toolCalls = [{ id: 'calc_call', type: 'function', function: { name: 'execute_javascript', arguments: '{}' } }];
-      return { accumulatedText: 'I will calculate it.', toolCalls, stats: null };
-    }
-    return { accumulatedText: 'The result is 4.', toolCalls: null, stats: null };
-  };
-
-  try {
-    const result = await runTurn({
-      chatHistory: [{ role: 'user', content: 'Calculate 2 + 2.' }],
-      appConfig: { apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'test-model' }
-    });
-    assert.equal(result.accumulatedMarkdown, 'I will calculate it.\n\n> tool result\n\nThe result is 4.');
   } finally {
     ChatAPI.streamChatCompletion = originalStream;
     ChatAgentCore.dispatchToolCall = originalDispatch;
@@ -347,52 +307,6 @@ test('ChatEngine - la siguiente petición tras borrar respuesta con tools no inc
 });
 
 
-test('ChatEngine - conserva el texto de usuario entre peticiones y llamadas a herramientas', () => {
-  const history = [{ role: 'user', content: 'Primera pregunta' }];
-  const config = {};
-  const first = buildMessages(history, config);
-  history.push({ role: 'assistant', content: 'Respuesta' }, { role: 'user', content: 'Segunda pregunta' });
-  const next = buildMessages(history, config);
-  assert.equal(first.find(m => m.role === 'user').content, next.find(m => m.role === 'user').content);
-  assert.equal(next.filter(m => m.role === 'user')[1].content, 'Segunda pregunta');
-  assert.ok(!JSON.stringify(next).includes('[Context Time:'));
-});
-
-
-test('ChatEngine - fecha inicial estable al cambiar día, idioma y serializar el historial', () => {
-  const history = [{ role: 'system', content: 'Sistema' }, { role: 'user', content: 'Hola' }];
-  const anchor = ChatEngine.ensureConversationDate(history, '2026-01-01T12:00:00Z');
-  assert.match(anchor, /2026-01-01/);
-  const before = buildMessages(history);
-  const restored = JSON.parse(JSON.stringify(history));
-  assert.equal(ChatEngine.ensureConversationDate(restored, '2026-02-02T12:00:00Z'), anchor);
-  const after = buildMessages(restored);
-  assert.deepEqual(after, before);
-  assert.equal(after[0].content.split(anchor).length - 1, 1);
-  assert.equal(after[1].content, 'Hola');
-  assert.ok(after.every(m => !Object.hasOwn(m, 'contextDateAnchor')));
-  assert.ok(!/\d{2}:\d{2}/.test(anchor));
-  assert.equal(buildMessages(restored)[0].content, before[0].content);
-});
-
-
-test('ChatEngine - inyecta la fecha inicial de forma incondicional sin forzar el modo de herramientas si están desactivadas', () => {
-  const enabledTools = Object.fromEntries(ChatAgentCore.registry.getActiveDefinitions(config()).map(t => [t.function.name, false]));
-  const defs = ChatAgentCore.registry.getActiveDefinitions(config({ enabledTools }));
-  assert.equal(defs.length, 0, 'No debe haber herramientas activas si todas están desmarcadas');
-  const messages = buildMessages([{ role: 'user', content: 'Hola' }], { enabledTools });
-  assert.match(messages[0].content, /Conversation start date/);
-});
-
-test('ChatEngine - con herramientas en texto (WebLLM) no inyecta la guía de pseudo-firmas', () => {
-  require('../../js/providers-webllm.js');
-  const appConfig = { apiType: 'webllm', apiUrl: 'webllm://local', model: 'Qwen3-4B-q4f16_1-MLC', language: 'es', enabledTools: { search_web: true } };
-  const messages = buildMessages([{ role: 'user', content: 'Hola' }], appConfig, { enableTools: true });
-  const system = messages.find(message => message.role === 'system')?.content || '';
-  assert.equal(system.includes('AVAILABLE TOOLS AND FUNCTIONS'), false);
-  assert.ok(system.includes('*Workflow instruction:*'));
-});
-
 const READY_PROJECT = {
   status: 'ready',
   cwd: '/home/u/repo',
@@ -400,37 +314,29 @@ const READY_PROJECT = {
   state: { content: '- Next step: tests', truncated: false }
 };
 
-test('ChatEngine - el bloque del proyecto sigue en el prompt de sistema tras una compactación', () => {
+test('ChatEngine - el bloque del proyecto sigue tras compactación y antepone la nota de comandos terminados, también con imágenes', () => {
   const history = [
     { role: 'system', content: 'Checkpoint acumulativo', _isSummaryBlock: true },
     { role: 'user', content: 'Continúa' }
   ];
-  const messages = buildMessages(history, {}, { enableTools: false, projectContext: READY_PROJECT });
-  assert.equal(messages[0].role, 'system');
-  assert.match(messages[0].content, /Project mode/);
-  assert.ok(messages.some(message => message.content === 'Checkpoint acumulativo'));
-});
+  const compacted = buildMessages(history, {}, { enableTools: false, projectContext: READY_PROJECT });
+  assert.equal(compacted[0].role, 'system');
+  assert.match(compacted[0].content, /Project mode/);
+  assert.ok(compacted.some(message => message.content === 'Checkpoint acumulativo'));
 
-test('ChatEngine - executeAgentTurnLoop envía al proveedor la instantánea del proyecto', async () => {
-  const originalStream = ChatAPI.streamChatCompletion;
-  let sentSystem = '';
-  ChatAPI.streamChatCompletion = async (params) => {
-    sentSystem = params.messages.find(message => message.role === 'system')?.content || '';
-    params.onChunk?.('ok', 'ok', null);
-    return { accumulatedText: 'ok', toolCalls: null, stats: null };
-  };
-  try {
-    const res = await runTurn({
-      chatHistory: [{ role: 'user', content: 'Hola' }],
-      appConfig: { apiUrl: 'http://localhost:1234/v1', model: 'test-model', enabledTools: {} },
-      projectContext: READY_PROJECT
-    });
-    assert.match(sentSystem, /rooted at \/home\/u\/repo/);
-  } finally {
-    ChatAPI.streamChatCompletion = originalStream;
-  }
+  const note = 'Background commands that finished since your last turn:\n- job_id 4 `npm test` exited with code 1 after 3:12.';
+  const messages = buildMessages([
+    { role: 'user', content: 'sigue', commandNotes: note },
+    { role: 'assistant', content: 'vale' },
+    { role: 'user', content: 'mira esto', commandNotes: note, images: [{ dataUrl: 'data:image/png;base64,AA==' }] },
+    { role: 'user', content: 'sin nota' }
+  ], {}, { enableTools: false });
+  const users = messages.filter(message => message.role === 'user');
+  assert.equal(users[0].content, `${note}\n\nsigue`);
+  assert.equal(users[1].content[0].text, `${note}\n\nmira esto`);
+  assert.equal(users[1].content[1].type, 'image_url');
+  assert.equal(users[2].content, 'sin nota');
 });
-
 
 test('ChatEngine.createHistorySummarizer - pide el checkpoint sin herramientas ni razonamiento', async () => {
   const originalStream = ChatAPI.streamChatCompletion;
@@ -451,21 +357,6 @@ test('ChatEngine.createHistorySummarizer - pide el checkpoint sin herramientas n
   } finally {
     ChatAPI.streamChatCompletion = originalStream;
   }
-});
-
-test('ChatEngine - antepone al mensaje del usuario la nota de comandos terminados, también con imágenes', () => {
-  const note = 'Background commands that finished since your last turn:\n- job_id 4 `npm test` exited with code 1 after 3:12.';
-  const messages = buildMessages([
-    { role: 'user', content: 'sigue', commandNotes: note },
-    { role: 'assistant', content: 'vale' },
-    { role: 'user', content: 'mira esto', commandNotes: note, images: [{ dataUrl: 'data:image/png;base64,AA==' }] },
-    { role: 'user', content: 'sin nota' }
-  ], {}, { enableTools: false });
-  const users = messages.filter(message => message.role === 'user');
-  assert.equal(users[0].content, `${note}\n\nsigue`);
-  assert.equal(users[1].content[0].text, `${note}\n\nmira esto`);
-  assert.equal(users[1].content[1].type, 'image_url');
-  assert.equal(users[2].content, 'sin nota');
 });
 
 

@@ -22,7 +22,7 @@ class ProjectDirectoriesTest(unittest.TestCase):
         home.start()
         self.addCleanup(home.stop)
 
-    def test_lista_solo_subcarpetas_no_ocultas_por_nombre_desde_el_proyecto(self):
+    def test_lista_solo_subcarpetas_no_ocultas_por_nombre_y_avisa_si_pasan_del_tope(self):
         listing = zerochat.browse_directories({}, self.ctx)
         self.assertEqual(listing, {
             "path": str(self.root),
@@ -38,7 +38,6 @@ class ProjectDirectoriesTest(unittest.TestCase):
             with self.subTest(path=bad), self.assertRaises(ValueError):
                 zerochat.browse_directories({"path": bad}, self.ctx)
 
-    def test_avisa_de_las_subcarpetas_que_pasan_del_tope(self):
         with patch.object(zerochat, "MAX_BROWSE_ENTRIES", 3):
             listing = zerochat.browse_directories({}, self.ctx)
             self.assertEqual((len(listing["directories"]), listing["total"], listing["truncated"]), (3, 3, False))

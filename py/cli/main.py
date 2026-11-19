@@ -426,7 +426,7 @@ def install_signal_handlers(server: ThreadingHTTPServer):
 def serve(server: ThreadingHTTPServer):
     """Atiende peticiones hasta la parada y libera después el servidor y la consola."""
     try:
-        server.serve_forever()
+        server.serve_forever(poll_interval=0.05)
     finally:
         stop_zerochat_server(server)
         server.server_close()

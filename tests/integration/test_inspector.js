@@ -31,58 +31,23 @@ test('ProviderInspector - Capacidades declaradas por defecto y seguridad de API 
   assert.equal(report.capabilities.jsonMode.status, 'declared');
 });
 
-test('ProviderInspector - Detección de fallo de conexión (servidor caído o error de red)', async () => {
+test('ProviderInspector - detecta fallo de red y error de autenticación HTTP 401', async t => {
   const adapter = new Providers.BaseProviderAdapter({ id: 'openai' });
 
-  const originalFetch = global.fetch;
-  try {
-    global.fetch = async () => {
-      throw new TypeError('fetch failed: connect ECONNREFUSED 127.0.0.1:9999');
-    };
+  t.mock.method(globalThis, 'fetch', async () => { throw new TypeError('fetch failed: connect ECONNREFUSED 127.0.0.1:9999'); });
+  const down = await adapter.inspect({ apiUrl: 'http://localhost:9999/v1', model: 'my-model', runProbes: true });
+  assert.equal(down.success, false);
+  assert.equal(down.connected, false);
+  assert.ok(down.error.includes('Connection error'));
+  assert.equal(down.capabilities.streaming.status, 'unknown');
 
-    const report = await adapter.inspect({
-      apiUrl: 'http://localhost:9999/v1',
-      model: 'my-model',
-      runProbes: true
-    });
-
-    assert.equal(report.success, false, 'El informe debe indicar success: false si no se pudo conectar');
-    assert.equal(report.connected, false, 'El informe debe indicar connected: false');
-    assert.ok(report.error, 'Debe incluir un mensaje de error descriptivo');
-    assert.ok(report.error.includes('Connection error'), 'El mensaje debe indicar fallo de conexión');
-    assert.equal(report.capabilities.streaming.status, 'unknown', 'Las capacidades no deben aparecer como declaradas si la conexión falló');
-  } finally {
-    global.fetch = originalFetch;
-  }
-});
-
-test('ProviderInspector - Detección de fallo de conexión por error de autenticación HTTP 401', async () => {
-  const adapter = new Providers.BaseProviderAdapter({ id: 'openai' });
-
-  const originalFetch = global.fetch;
-  try {
-    global.fetch = async () => {
-      return {
-        ok: false,
-        status: 401,
-        statusText: 'Unauthorized',
-        text: async () => 'Incorrect API key provided'
-      };
-    };
-
-    const report = await adapter.inspect({
-      apiUrl: 'https://api.openai.com/v1',
-      apiKey: 'sk-invalid-key',
-      model: 'gpt-4o',
-      runProbes: true
-    });
-
-    assert.equal(report.success, false);
-    assert.equal(report.connected, false);
-    assert.match(report.error, /Authentication error \(HTTP 401\)/);
-  } finally {
-    global.fetch = originalFetch;
-  }
+  t.mock.method(globalThis, 'fetch', async () => ({
+    ok: false, status: 401, statusText: 'Unauthorized', text: async () => 'Incorrect API key provided'
+  }));
+  const auth = await adapter.inspect({ apiUrl: 'https://api.openai.com/v1', apiKey: 'sk-invalid-key', model: 'gpt-4o', runProbes: true });
+  assert.equal(auth.success, false);
+  assert.equal(auth.connected, false);
+  assert.match(auth.error, /Authentication error \(HTTP 401\)/);
 });
 
 

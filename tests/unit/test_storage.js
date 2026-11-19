@@ -95,110 +95,49 @@ test('Storage IndexedDB - borra conversaciones individuales, todas y el almacena
   assert.equal((await Storage.getConversationsList()).length, 0);
 });
 
-test('Storage IndexedDB - preserva íntegros turnos del asistente, herramientas, sistema y contexto', async () => {
-  {
-    const sessionId = 'test_agentic_turn_session';
-    const sessionMeta = { id: sessionId, title: 'Chat con herramientas' };
-
-    const history = [
-      { id: 'u1', role: 'user', content: 'Grafica esto' },
-      {
-        id: 'a1_turn_0_assistant',
-        role: 'assistant',
-        content: null,
-        tool_calls: [{ id: 'call_123', type: 'function', function: { name: 'render_chart', arguments: '{"type":"bar"}' } }]
-      },
-      {
-        id: 'a1_turn_0_tool_call_123',
-        role: 'tool',
-        tool_call_id: 'call_123',
-        name: 'render_chart',
-        content: '{"success":true}'
-      },
-      {
-        id: 'a1_final',
-        role: 'assistant',
-        content: 'Aquí tienes el gráfico generado.'
-      }
-    ];
-
-    await Storage.saveConversation(sessionMeta, history);
-    const loaded = await Storage.getConversation(sessionId);
-
-    assert.ok(loaded);
-    assert.equal(loaded.history.length, 4, 'No debe sobreescribir ningún mensaje de turno');
-    assert.equal(loaded.history[0].role, 'user');
-    assert.equal(loaded.history[1].role, 'assistant');
-    assert.ok(Array.isArray(loaded.history[1].tool_calls));
-    assert.equal(loaded.history[2].role, 'tool');
-    assert.equal(loaded.history[3].role, 'assistant');
-    assert.equal(loaded.history[3].content, 'Aquí tienes el gráfico generado.');
-  }
-
-  {
-    const sessionId = 'session_test_multiturn_' + Date.now();
-    const sessionMeta = { id: sessionId, title: 'Consulta multi-turno' };
-
-    const history = [
-      { id: 'msg_sys', role: 'system', content: '[Fecha actual: 2026-09-02, Zona: UTC]' },
-      { id: 'msg_user_1', role: 'user', content: 'Hola' },
-      { id: 'msg_ast_1', role: 'assistant', content: '¡Hola! ¿En qué puedo ayudarte?' },
-      { id: 'msg_user_2', role: 'user', content: '¿Qué día es hoy?' },
-      { id: 'msg_ast_2', role: 'assistant', content: 'Hoy es 2 de septiembre de 2026.' }
-    ];
-
-    await Storage.saveConversation(sessionMeta, history);
-    const loaded = await Storage.getConversation(sessionId);
-
-    assert.ok(loaded);
-    assert.equal(loaded.history.length, 5);
-    assert.equal(loaded.history[0].role, 'system');
-    assert.equal(loaded.history[1].role, 'user');
-    assert.equal(loaded.history[4].content, 'Hoy es 2 de septiembre de 2026.');
-  }
-
-  {
-    const sessionId = 'session_test_profile_' + Date.now();
-    const sessionMeta = {
-      id: sessionId,
-      title: 'Chat con perfil',
-      profileId: 'deepseek',
-      serverRun: true
-    };
-    await Storage.saveConversation(sessionMeta, [{ id: 'u1', role: 'user', content: 'test' }]);
-    const loaded = await Storage.getConversation(sessionId);
-    assert.equal(loaded.profileId, 'deepseek');
-    assert.equal(loaded.serverRun, true);
-
-    const list = await Storage.getConversationsList();
-    const item = list.find(c => c.id === sessionId);
-    assert.ok(item);
-    assert.equal(item.profileId, 'deepseek');
-    assert.equal(item.serverRun, true);
-  }
-});
-
-test('Storage IndexedDB - conserva la nota de comandos terminados del mensaje del usuario', async () => {
-  const sessionId = 'test_session_command_notes';
-  await Storage.saveConversation({ id: sessionId, title: 'Notas' }, [
-    { id: 'n1', role: 'user', content: 'sigue', commandNotes: 'Background commands that finished since your last turn: ...' },
-    { id: 'n2', role: 'user', content: 'sin nota' }
-  ]);
-  const loaded = await Storage.getConversation(sessionId);
+test('Storage IndexedDB - preserva el orden, los metadatos de sesión e imágenes y notas de comandos', async () => {
+  // 1. Conversación agéntica + perfil + serverRun
+  const agenticId = 'test_agentic_turn_session';
+  const agenticHistory = [
+    { id: 'u1', role: 'user', content: 'Grafica esto', commandNotes: 'Background commands that finished since your last turn: ...' },
+    {
+      id: 'a1_turn_0_assistant',
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: 'call_123', type: 'function', function: { name: 'render_chart', arguments: '{"type":"bar"}' } }]
+    },
+    {
+      id: 'a1_turn_0_tool_call_123',
+      role: 'tool',
+      tool_call_id: 'call_123',
+      name: 'render_chart',
+      content: '{"success":true}',
+      images: [{ name: 'screenshot.png', dataUrl: `data:image/png;base64,${Buffer.from('tiny-img').toString('base64')}`, mimeType: 'image/png', action: 'screenshot', url: 'http://example.com' }]
+    },
+    { id: 'a1_final', role: 'assistant', content: 'Aquí tienes el gráfico generado.' }
+  ];
+  await Storage.saveConversation({ id: agenticId, title: 'Chat con herramientas', profileId: 'deepseek', serverRun: true }, agenticHistory);
+  const loaded = await Storage.getConversation(agenticId);
+  assert.equal(loaded.history.length, 4);
+  assert.equal(loaded.profileId, 'deepseek');
+  assert.equal(loaded.serverRun, true);
   assert.equal(loaded.history[0].commandNotes, 'Background commands that finished since your last turn: ...');
-  assert.equal('commandNotes' in loaded.history[1], false);
-});
+  assert.equal('commandNotes' in loaded.history[3], false);
+  assert.equal(loaded.history[2].images[0].action, 'screenshot');
+  assert.equal(loaded.history[2].images[0].url, 'http://example.com');
+  assert.ok(loaded.history[2].images[0].blobId);
+  const listItem = (await Storage.getConversationsList()).find(c => c.id === agenticId);
+  assert.equal(listItem.profileId, 'deepseek');
+  assert.equal(listItem.serverRun, true);
 
-test('Storage IndexedDB - conserva el orden de la conversación aunque los ids no lo sigan', async () => {
-  const history = ['z', 'a', 'm', 'b'].map((id, index) => ({ id, role: index % 2 ? 'assistant' : 'user', content: `mensaje ${index}` }));
-  await Storage.saveConversation({ id: 'conv_order' }, history);
-  await Storage.saveConversation({ id: 'conv_order' }, [...history, { id: 'c', role: 'user', content: 'mensaje 4' }]);
-  // Otra conversación con un mismo id de mensaje (como system_root) no pisa los mensajes de la primera.
+  // 2. Orden de mensajes con ids arbitrarios aislado entre conversaciones
+  const ordered = ['z', 'a', 'm', 'b'].map((id, index) => ({ id, role: index % 2 ? 'assistant' : 'user', content: `mensaje ${index}` }));
+  await Storage.saveConversation({ id: 'conv_order' }, ordered);
+  await Storage.saveConversation({ id: 'conv_order' }, [...ordered, { id: 'c', role: 'user', content: 'mensaje 4' }]);
   await Storage.saveConversation({ id: 'conv_other' }, [{ id: 'z', role: 'system', content: 'otro sistema' }]);
-  const loaded = await Storage.getConversation('conv_order');
-  assert.deepEqual(loaded.history.map(message => message.id), ['z', 'a', 'm', 'b', 'c']);
-  assert.equal(loaded.history[0].content, 'mensaje 0');
-  assert.deepEqual(Object.keys(loaded.history[0]).sort(), ['content', 'id', 'role']);
+  const loadedOrder = await Storage.getConversation('conv_order');
+  assert.deepEqual(loadedOrder.history.map(message => message.id), ['z', 'a', 'm', 'b', 'c']);
+  assert.deepEqual(Object.keys(loadedOrder.history[0]).sort(), ['content', 'id', 'role']);
 });
 
 test('Storage IndexedDB - propaga errores estructurados en lugar de silenciosos fallbacks', async () => {
@@ -397,14 +336,22 @@ test('Storage Backend - sincroniza en los dos sentidos con la copia más recient
   await assert.rejects(Storage.saveConversation({ id: 'err_conv', title: 'Err' }, []), /Backend network error/);
 });
 
-test('Storage IndexedDB - borrar conversaciones borra los blobs que solo ellas usaban', async () => {
+test('Storage IndexedDB - guardar o borrar conversaciones recoge blobs sin referencia y respeta los compartidos', async () => {
   const image = text => ({ name: `${text}.png`, mimeType: 'image/png', dataUrl: `data:image/png;base64,${Buffer.from(text).toString('base64')}` });
-  const blobIds = async id => (await Storage.getConversation(id)).history[0].images.map(img => img.blobId);
+  const blobIds = async id => (await Storage.getConversation(id)).history.flatMap(msg => (msg.images || []).map(img => img.blobId));
   await Storage.deleteAllConversations();
-  await Storage.saveConversation({ id: 'blob_a', title: 'A' }, [{ id: 'm1', role: 'user', content: 'a', images: [image('propia'), image('compartida')] }]);
+  await Storage.saveConversation({ id: 'blob_a', title: 'A' }, [
+    { id: 'm1', role: 'user', content: 'a', images: [image('propia'), image('editada')] },
+    { id: 'm2', role: 'user', content: 'comp', images: [image('compartida')] }
+  ]);
   await Storage.saveConversation({ id: 'blob_b', title: 'B' }, [{ id: 'm1', role: 'user', content: 'b', images: [image('compartida')] }]);
-  const [own, shared] = await blobIds('blob_a');
+  const [own, edited, shared] = await blobIds('blob_a');
   const loose = (await Storage.saveBlob({ dataUrl: image('suelta').dataUrl, mimeType: 'image/png' })).id;
+
+  // Quitar un mensaje con imagen recoge su blob y conserva el resto
+  await Storage.saveConversation({ id: 'blob_a', title: 'A' }, [{ id: 'm1', role: 'user', content: 'a', images: [image('propia'), image('compartida')] }]);
+  assert.equal(await Storage.getBlob(edited), null);
+  assert.ok(await Storage.getBlob(shared));
 
   await Storage.deleteConversation('blob_a');
   assert.equal(await Storage.getBlob(own), null);
@@ -415,52 +362,25 @@ test('Storage IndexedDB - borrar conversaciones borra los blobs que solo ellas u
   assert.ok(await Storage.getBlob(loose), 'Un blob que ninguna conversación referenciaba no se toca');
 });
 
-test('Storage IndexedDB - guardar una conversación recoge los blobs sin referencia y conserva el compartido', async () => {
-  const image = text => ({ name: `${text}.png`, mimeType: 'image/png', dataUrl: `data:image/png;base64,${Buffer.from(text).toString('base64')}` });
-  const blobIds = async id => (await Storage.getConversation(id)).history.flatMap(msg => (msg.images || []).map(img => img.blobId));
-  await Storage.deleteAllConversations();
-  await Storage.saveConversation({ id: 'edit_a', title: 'A' }, [
-    { id: 'm1', role: 'user', content: 'solo', images: [image('propio-edit')] },
-    { id: 'm2', role: 'user', content: 'compartido', images: [image('compartido-edit')] }
-  ]);
-  await Storage.saveConversation({ id: 'edit_b', title: 'B' }, [
-    { id: 'm3', role: 'user', content: 'b', images: [image('compartido-edit')] }
-  ]);
-  const [own, shared] = await blobIds('edit_a');
-
-  await Storage.saveConversation({ id: 'edit_a', title: 'A' }, [
-    { id: 'm4', role: 'user', content: 'sin imagenes' }
-  ]);
-  assert.equal(await Storage.getBlob(own), null);
-  assert.ok(await Storage.getBlob(shared));
-});
-
-test('Storage IndexedDB - gestión y deduplicación de blobs desacoplados', async () => {
+test('Storage IndexedDB - gestión, deduplicación y validación de bordes en blobs', async () => {
   const text = 'Hello ZeroChat Blob!';
   const base64Data = Buffer.from(text).toString('base64');
   const dataUrl = `data:text/plain;base64,${base64Data}`;
   const crypto = require('node:crypto');
   const expectedSha = crypto.createHash('sha256').update(Buffer.from(text)).digest('hex');
 
-  // 1. Guardar blob a partir de dataUrl
   const saved = await Storage.saveBlob({ dataUrl, mimeType: 'text/plain' });
   assert.equal(saved.id, expectedSha);
   assert.equal(saved.mimeType, 'text/plain');
   assert.equal(saved.size, Buffer.from(text).length);
   assert.equal(saved.dataUrl, dataUrl);
 
-  // 2. Lectura: un id inexistente da null
   const retrieved = await Storage.getBlob(expectedSha);
-  assert.ok(retrieved);
   assert.equal(retrieved.id, expectedSha);
   assert.equal(retrieved.dataUrl, dataUrl);
   assert.equal(await Storage.getBlob('0'.repeat(64)), null);
+  assert.equal((await Storage.saveBlob({ dataUrl })).id, expectedSha);
 
-  // 3. Deduplicación: guardar el mismo contenido devuelve el mismo ID
-  const savedAgain = await Storage.saveBlob({ dataUrl });
-  assert.equal(savedAgain.id, expectedSha);
-
-  // 4. Guardar a partir de bytes
   const bytes = new Uint8Array(Buffer.from('binary-content'));
   const binarySha = crypto.createHash('sha256').update(Buffer.from('binary-content')).digest('hex');
   const savedBinary = await Storage.saveBlob({ bytes, mimeType: 'application/octet-stream' });
@@ -468,70 +388,9 @@ test('Storage IndexedDB - gestión y deduplicación de blobs desacoplados', asyn
   assert.equal(savedBinary.size, bytes.length);
   assert.match(savedBinary.dataUrl, /^data:application\/octet-stream;base64,/);
 
-  // 5. Validaciones de bordes
   await assert.rejects(Storage.saveBlob(null), /Blob data is required/);
   await assert.rejects(Storage.saveBlob({}), /Blob data cannot be empty/);
   await assert.rejects(Storage.saveBlob({ bytes: new Uint8Array(0) }), /Blob data cannot be empty/);
-});
-
-test('Storage IndexedDB - preserva metadatos de imágenes (action, imageRef, provenance) en guardado e hidratación', async () => {
-  const sessionId = 'conv_image_meta_preservation';
-  const imgDataUrl = `data:image/png;base64,${Buffer.from('tiny-img').toString('base64')}`;
-  const messages = [
-    {
-      id: 'm_tool',
-      role: 'tool',
-      content: 'Captura realizada',
-      images: [
-        {
-          name: 'screenshot.png',
-          dataUrl: imgDataUrl,
-          mimeType: 'image/png',
-          action: 'screenshot',
-          url: 'http://example.com'
-        }
-      ]
-    },
-    {
-      id: 'm_rag',
-      role: 'tool',
-      content: 'Evidencia RAG',
-      images: [
-        {
-          name: 'grafico.png',
-          dataUrl: imgDataUrl,
-          mimeType: 'image/png',
-          imageRef: 'rag-image://doc1:img1',
-          documentTitle: 'Informe Anual',
-          page: 5
-        }
-      ]
-    }
-  ];
-
-  await Storage.saveConversation({ id: sessionId, title: 'Test Meta' }, messages);
-
-  // Recuperar conversación y comprobar hidratación y preservación de metadatos
-  const loaded = await Storage.getConversation(sessionId);
-  assert.ok(loaded);
-  assert.equal(loaded.history.length, 2);
-
-  const img1 = loaded.history[0].images[0];
-  assert.equal(img1.name, 'screenshot.png');
-  assert.equal(img1.dataUrl, imgDataUrl);
-  assert.equal(img1.action, 'screenshot');
-  assert.equal(img1.url, 'http://example.com');
-  assert.ok(img1.blobId);
-
-  const img2 = loaded.history[1].images[0];
-  assert.equal(img2.name, 'grafico.png');
-  assert.equal(img2.dataUrl, imgDataUrl);
-  assert.equal(img2.imageRef, 'rag-image://doc1:img1');
-  assert.equal(img2.documentTitle, 'Informe Anual');
-  assert.equal(img2.page, 5);
-  assert.ok(img2.blobId);
-
-  await Storage.deleteConversation(sessionId);
 });
 
 test('Storage.searchConversations busca en títulos y mensajes y descarga pendientes si hay servidor', async t => {

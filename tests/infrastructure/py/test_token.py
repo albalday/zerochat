@@ -12,10 +12,25 @@ class DailyTokenTest(unittest.TestCase):
         self.config_dir = use_data_dir(self) / "config"
         self.token_file = self.config_dir / "token.json"
 
-    def test_el_token_diario_es_estable_en_el_mismo_dia_y_largo(self):
+    def test_el_token_diario_es_estable_y_con_el_servidor_en_marcha_el_del_dia_anterior_se_renueva(self):
         token = zerochat.get_daily_token()
         self.assertEqual(zerochat.get_daily_token(), token)
         self.assertGreater(len(token), 20)
+
+        old = "x" * 43
+        with mock.patch.multiple(zerochat, SESSION_TOKEN=old, SESSION_TOKEN_DATE="2000-01-01", ACTIVE_HOST="127.0.0.1", ACTIVE_PORT=6388):
+            handler = object.__new__(zerochat.ZeroChatServerHandler)
+            handler.headers = {"X-ZeroChat-Token": old}
+            self.assertFalse(handler.verify_token())
+            new_token = json.loads(self.token_file.read_text(encoding="utf-8"))["token"]
+            self.assertNotEqual(new_token, old)
+            # Tras el proxy inverso, Authorization lleva la clave del proxy y el token va en X-ZeroChat-Token.
+            handler.headers = {"X-ZeroChat-Token": new_token, "Authorization": "Bearer clave-del-proxy"}
+            self.assertTrue(handler.verify_token())
+            handler.headers = {"Authorization": f"Bearer {new_token}"}
+            self.assertTrue(handler.verify_token())
+            # La consola abre el navegador con el token vigente, no con el del arranque.
+            self.assertIn(f"#token={new_token}&", zerochat.launch_url("http://127.0.0.1:6388/zerochat.html"))
 
     @unittest.skipIf(os.name == "nt", "Permisos POSIX")
     def test_un_token_caducado_se_renueva_privado_y_solo_main_lo_genera(self):
@@ -40,22 +55,6 @@ class DailyTokenTest(unittest.TestCase):
         self.token_file.chmod(0o644)
         self.assertEqual(zerochat.get_daily_token(), token)
         self.assertEqual(stat.S_IMODE(self.token_file.stat().st_mode), 0o600)
-
-    def test_con_el_servidor_en_marcha_el_token_del_dia_anterior_se_rechaza_y_se_genera_el_nuevo(self):
-        old = "x" * 43
-        with mock.patch.multiple(zerochat, SESSION_TOKEN=old, SESSION_TOKEN_DATE="2000-01-01", ACTIVE_HOST="127.0.0.1", ACTIVE_PORT=6388):
-            handler = object.__new__(zerochat.ZeroChatServerHandler)
-            handler.headers = {"X-ZeroChat-Token": old}
-            self.assertFalse(handler.verify_token())
-            token = json.loads(self.token_file.read_text(encoding="utf-8"))["token"]
-            self.assertNotEqual(token, old)
-            # Tras el proxy inverso, Authorization lleva la clave del proxy y el token va en X-ZeroChat-Token.
-            handler.headers = {"X-ZeroChat-Token": token, "Authorization": "Bearer clave-del-proxy"}
-            self.assertTrue(handler.verify_token())
-            handler.headers = {"Authorization": f"Bearer {token}"}
-            self.assertTrue(handler.verify_token())
-            # La consola abre el navegador con el token vigente, no con el del arranque.
-            self.assertIn(f"#token={token}&", zerochat.launch_url("http://127.0.0.1:6388/zerochat.html"))
 
     def test_runner_token_acota_metodos_y_conversacion_y_se_revoca(self):
         runner_token = zerochat.issue_runner_token("run-1", conversation_id="conv-1")

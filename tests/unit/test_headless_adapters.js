@@ -23,50 +23,26 @@ test('HeadlessAdapters - createHeadlessTurnView gestiona bloques de texto sin DO
   assert.equal(block2.getText(), 'reset block');
 });
 
-test('HeadlessAdapters - createHeadlessTurnView responde a autorizaciones usando el responder activo', async () => {
-  let activeResponder = name => (name === 'read_file' ? 'allow_session' : 'deny');
+test('HeadlessAdapters - createHeadlessTurnView delega autorizaciones al responder activo, al inyectado o deniega por defecto', async () => {
   globalThis.ChatToolCards = ToolCards;
-  ToolCards.setAuthorizationResponder(activeResponder);
+  ToolCards.setAuthorizationResponder(name => (name === 'read_file' ? 'allow_session' : 'deny'));
   try {
     const view = HeadlessAdapters.createHeadlessTurnView();
     const card = view.cards.open('read_file', {}, 'inv_1');
-
     assert.equal(card.element, null);
-    assert.equal(typeof card.attachListeners, 'function');
-    assert.equal(typeof card.nest, 'function');
-    assert.equal(typeof card.complete, 'function');
-
-    const decision = await card.requestAuthorization({ function: { name: 'read_file' } }, { name: 'read_file' });
-    assert.equal(decision, 'allow_session');
-
-    const denied = await card.requestAuthorization({ function: { name: 'run_command' } }, { name: 'run_command' });
-    assert.equal(denied, 'deny');
+    for (const fn of ['attachListeners', 'nest', 'complete']) assert.equal(typeof card[fn], 'function');
+    assert.equal(await card.requestAuthorization({ function: { name: 'read_file' } }, { name: 'read_file' }), 'allow_session');
+    assert.equal(await card.requestAuthorization({ function: { name: 'run_command' } }, { name: 'run_command' }), 'deny');
   } finally {
     ToolCards.setAuthorizationResponder(null);
   }
-});
 
-test('HeadlessAdapters - createHeadlessTurnView usa getAuthorizationResponder inyectado si se especifica', async () => {
-  const customResponder = name => (name === 'write_file' ? 'allow_once' : 'deny');
-  const view = HeadlessAdapters.createHeadlessTurnView({ getAuthorizationResponder: () => customResponder });
-  const card = view.cards.open('write_file', {}, 'inv_2');
+  const customView = HeadlessAdapters.createHeadlessTurnView({ getAuthorizationResponder: () => (name => (name === 'write_file' ? 'allow_once' : 'deny')) });
+  const nestedCard = customView.cards.open('write_file', {}, 'inv_2').nest().open('write_file', {}, 'inv_nested');
+  assert.equal(await nestedCard.requestAuthorization({ function: { name: 'write_file' } }, { name: 'write_file' }), 'allow_once');
 
-  const decision = await card.requestAuthorization({ function: { name: 'write_file' } }, { name: 'write_file' });
-  assert.equal(decision, 'allow_once');
-
-  const nested = card.nest();
-  const nestedCard = nested.open('write_file', {}, 'inv_nested');
-  const nestedDecision = await nestedCard.requestAuthorization({ function: { name: 'write_file' } }, { name: 'write_file' });
-  assert.equal(nestedDecision, 'allow_once');
-});
-
-test('HeadlessAdapters - createHeadlessTurnView deniega por defecto si no hay responder activo', async () => {
-  ToolCards.setAuthorizationResponder(null);
-  const view = HeadlessAdapters.createHeadlessTurnView();
-  const card = view.cards.open('write_file', {}, 'inv_3');
-
-  const decision = await card.requestAuthorization({ function: { name: 'write_file' } }, { name: 'write_file' });
-  assert.equal(decision, 'deny');
+  const noResponderView = HeadlessAdapters.createHeadlessTurnView();
+  assert.equal(await noResponderView.cards.open('write_file', {}, 'inv_3').requestAuthorization({ function: { name: 'write_file' } }, { name: 'write_file' }), 'deny');
 });
 
 test('HeadlessAdapters - createHeadlessConversationStore interactúa con el backend RPC', async () => {

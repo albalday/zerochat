@@ -1575,7 +1575,7 @@ def dispatch_browser(method: str, params: dict) -> RpcOutcome:
 
 
 
-SOURCE_BACKEND_VERSION = "10.25.0"
+SOURCE_BACKEND_VERSION = "10.26.0"
 
 
 def _read_source_version(filename: str) -> str | None:
@@ -9932,7 +9932,7 @@ def install_signal_handlers(server: ThreadingHTTPServer):
 def serve(server: ThreadingHTTPServer):
     """Atiende peticiones hasta la parada y libera después el servidor y la consola."""
     try:
-        server.serve_forever()
+        server.serve_forever(poll_interval=0.05)
     finally:
         stop_zerochat_server(server)
         server.server_close()

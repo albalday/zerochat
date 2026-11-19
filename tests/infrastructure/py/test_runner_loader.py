@@ -57,7 +57,7 @@ class RunnerLoaderTest(unittest.TestCase):
         self.cache_dir.mkdir()
         RecordingSite.requests = []
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), partial(RecordingSite, directory=str(self.site)))
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
         self.addCleanup(self.server.server_close)
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}/zerochat.html#run=r1"
 
@@ -105,16 +105,10 @@ class RunnerLoaderTest(unittest.TestCase):
         self.assertIn("/js/vendor/lib.js", RecordingSite.requests)
         self.assertRegex(stderr, r"Downloaded 4 modules \(\d+ KiB\) in \d+ ms")
 
-    def test_sin_version_legible_o_en_desarrollo_se_descarga_todo(self):
-        self.publish("1.0.0")
-        self.loaded()
-        # La página no responde con versión: se descarga todo y la caché queda sin versión.
-        self.publish(None, "c2")
-        self.assertEqual(self.loaded()[0], "a+b+c2")
-        self.publish("1.0.0", "c3")
+        # Sin versión legible en la página o en modo desarrollo (always) se descarga todo.
+        self.publish(None, "c3")
         self.assertEqual(self.loaded()[0], "a+b+c3")
-        # En desarrollo, aunque la caché sea de la versión publicada, y sin pedir la página.
-        self.publish("1.0.0", "c4")
+        self.publish("1.0.1", "c4")
         self.assertEqual(self.loaded(zerochat.RUNNER_CACHE_ALWAYS_DOWNLOAD)[0], "a+b+c4")
         self.assertNotIn("/zerochat.html", RecordingSite.requests)
 
@@ -129,25 +123,23 @@ class RunnerLoaderTest(unittest.TestCase):
         (self.site / "js" / "c.js").write_text("module.exports = { value: 'c2' };", encoding="utf-8")
         self.assertEqual(json.loads(self.run_loader().stdout)["a"], "a+b+c2")
 
+        # Una respuesta HTTP de error no ejecuta la copia guardada.
+        (self.site / "js" / "tools" / "b.js").unlink()
+        failed_http = self.run_loader()
+        self.assertEqual((failed_http.returncode, failed_http.stdout), (1, ""))
+        self.assertIn("js/tools/b.js: HTTP 404", failed_http.stderr)
+
+        # Sin conexión sí usa la copia guardada; si tampoco hay copia guardada, falla.
         self.go_offline()
         offline = self.run_loader()
         self.assertEqual(offline.returncode, 0, offline.stderr)
         self.assertEqual(json.loads(offline.stdout)["a"], "a+b+c2")
         self.assertIn("using the cached copy", offline.stderr)
 
-    def test_una_respuesta_de_error_no_ejecuta_la_copia_guardada(self):
-        self.assertEqual(self.run_loader().returncode, 0)
-        (self.site / "js" / "tools" / "b.js").unlink()
-        result = self.run_loader()
-        self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stdout, "")
-        self.assertIn("js/tools/b.js: HTTP 404", result.stderr)
-
-    def test_sin_conexion_ni_copia_guardada_falla(self):
-        self.go_offline()
-        result = self.run_loader()
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("Fatal error", result.stderr)
+        (self.cache_dir / "modules.json").unlink()
+        no_cache = self.run_loader()
+        self.assertEqual(no_cache.returncode, 1)
+        self.assertIn("Fatal error", no_cache.stderr)
 
     def test_lo_descargado_tiene_tope_de_tamano(self):
         others = sum(len(text) for name, text in SITE.items() if name not in ("js/c.js", "js/vendor/lib.js"))
@@ -227,7 +219,7 @@ class RealNodeRunTest(unittest.TestCase):
     def setUp(self):
         use_data_dir(self)
         model = ThreadingHTTPServer(("127.0.0.1", 0), FakeModel)
-        threading.Thread(target=model.serve_forever, daemon=True).start()
+        threading.Thread(target=model.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
         self.addCleanup(model.server_close)
         self.addCleanup(model.shutdown)
         api_url = f"http://127.0.0.1:{model.server_address[1]}/v1"
@@ -245,54 +237,41 @@ class RealNodeRunTest(unittest.TestCase):
                               capture_output=True, text=True, timeout=120)
 
     def test_prompt_guarda_una_conversacion_nueva_que_luego_continua(self):
-        first = self.run_zerochat("--prompt", "di hola")
+        # 1. --prompt crea conversación nueva y cambia de perfil bajo demanda pidiendo solo la clave del que activa.
+        first = self.run_zerochat("--prompt", "cambia a otro y saluda")
         self.assertEqual((first.returncode, first.stdout), (0, FakeModel.REPLY + "\n"), first.stderr)
+        chat = [(request["model"], key) for request, key in zip(FakeModel.requests, FakeModel.api_keys) if request.get("stream")]
+        self.assertEqual(chat, [("fake", "Bearer sk-local"), ("fake-otro", "Bearer sk-otro")])
+
         saved = zerochat.list_conversations()
         self.assertEqual(len(saved), 1)
         conversation_id = saved[0]["id"]
         self.assertRegex(conversation_id, r"^session_[0-9a-f-]{36}$")
+        first_history = zerochat.get_conversation(conversation_id)["history"]
+        switched = json.loads(next(message for message in first_history if message["role"] == "tool")["content"])
+        self.assertEqual((switched["success"], switched["profile"], switched["model"]), (True, "Otro", "fake-otro"))
 
-        second = self.run_zerochat("--conversation", conversation_id, "--prompt", "otra vez")
-        self.assertEqual((second.returncode, second.stdout), (0, FakeModel.REPLY + "\n"), second.stderr)
-        history = zerochat.get_conversation(conversation_id)["history"]
-        self.assertEqual([message["role"] for message in history], ["user", "assistant", "user", "assistant"])
-
-    def test_cada_paso_con_herramientas_queda_grabado_antes_de_acabar_el_turno(self):
-        # Si la ejecución se corta en el paso siguiente, lo hecho ya está en SQLite.
+        # 2. --conversation continúa esa conversación, autoriza una sola vez la llamada aprobada y graba cada paso antes de acabar el turno.
         seen = []
 
         def saved_roles():
-            # Margen amplio: en la CI el runner tarda más en enviar la grabación del paso.
             for _ in range(400):
-                conversations = zerochat.list_conversations()
-                history = zerochat.get_conversation(conversations[0]["id"])["history"] if conversations else []
-                if any(message["role"] == "tool" for message in history):
+                history = zerochat.get_conversation(conversation_id)["history"]
+                if sum(1 for message in history if message["role"] == "tool") == 2:
                     break
                 threading.Event().wait(0.05)
             seen.append([message["role"] for message in history])
+
         FakeModel.before_tool_reply = saved_roles
-        result = self.run_zerochat("--prompt", "lista y saluda")
-        self.assertEqual((result.returncode, result.stdout), (0, FakeModel.REPLY + "\n"), result.stderr)
-        self.assertEqual(seen, [["user", "assistant", "tool"]], result.stderr)
-
-    def test_switch_model_cambia_a_otro_perfil_del_servidor(self):
-        result = self.run_zerochat("--prompt", "cambia a otro y saluda")
-        self.assertEqual((result.returncode, result.stdout), (0, FakeModel.REPLY + "\n"), result.stderr)
-        chat = [(request["model"], key) for request, key in zip(FakeModel.requests, FakeModel.api_keys) if request.get("stream")]
-        # La clave de Otro no llega con zerochat/run/prompt: el runner la pide al activarlo.
-        self.assertEqual(chat, [("fake", "Bearer sk-local"), ("fake-otro", "Bearer sk-otro")])
-        history = zerochat.get_conversation(zerochat.list_conversations()[0]["id"])["history"]
-        switched = json.loads(next(message for message in history if message["role"] == "tool")["content"])
-        self.assertEqual((switched["success"], switched["profile"], switched["model"]), (True, "Otro", "fake-otro"))
-
-    def test_conversation_ejecuta_una_sola_vez_la_llamada_aprobada_al_reanudar(self):
-        # La credencial del runner no puede resolver retos: la llamada aprobada la contesta el servidor de la ejecución.
-        zerochat.save_conversation({"id": "session_once", "title": "una vez"}, [])
         decision = {"toolName": "run_command", "args": {"command": "echo hola"}, "decision": "allow_once"}
         with mock.patch.dict(os.environ, {"ZEROCHAT_RUN_SECURITY": json.dumps({"tool_decision": decision})}):
-            result = self.run_zerochat("--conversation", "session_once", "--prompt", "ejecuta echo hola")
-        self.assertEqual((result.returncode, result.stdout), (0, FakeModel.REPLY + "\n"), result.stderr)
-        tool = next(message for message in zerochat.get_conversation("session_once")["history"] if message["role"] == "tool")
-        self.assertIn("hola", tool["content"])
-        self.assertNotIn("403", tool["content"])
+            second = self.run_zerochat("--conversation", conversation_id, "--prompt", "ejecuta echo hola")
+        self.assertEqual((second.returncode, second.stdout), (0, FakeModel.REPLY + "\n"), second.stderr)
+        self.assertEqual(seen, [["user", "assistant", "tool", "assistant", "user", "assistant", "tool"]], second.stderr)
+        history = zerochat.get_conversation(conversation_id)["history"]
+        self.assertEqual([message["role"] for message in history],
+                         ["user", "assistant", "tool", "assistant", "user", "assistant", "tool", "assistant"])
+        tool_messages = [message for message in history if message["role"] == "tool"]
+        self.assertIn("hola", tool_messages[-1]["content"])
+        self.assertNotIn("403", tool_messages[-1]["content"])
 

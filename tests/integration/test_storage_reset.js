@@ -33,32 +33,30 @@ test('Full reset deletes ZeroChat RAG data and model caches without deleting unr
   }
 });
 
-test('Full reset reports cache failure while still deleting IndexedDB', async () => {
+test('Full reset tolerates unavailable Service Worker and reports cache errors without skipping IndexedDB', async () => {
   await Database.openDatabase();
   const originalCaches = global.caches;
+  const navigatorDescriptor = Object.getOwnPropertyDescriptor(global, 'navigator');
   global.caches = { keys: async () => { throw new Error('Storage denied'); } };
   try {
     assert.equal(await Storage.clearAllStorage(), false);
     assert.match(Storage.getLastClearAllStorageError(), /^Cache Storage: Storage denied$/);
     assert.deepEqual(await indexedDB.databases(), []);
-  } finally { global.caches = originalCaches; }
-});
 
-test('Full reset ignores an unavailable Service Worker API on file origins', async () => {
-  const navigatorDescriptor = Object.getOwnPropertyDescriptor(global, 'navigator');
-  Object.defineProperty(global, 'navigator', {
-    configurable: true,
-    value: {
-      serviceWorker: {
-        getRegistrations: async () => {
-          throw new Error("Failed to get ServiceWorkerRegistration objects: The URL protocol of the current origin ('null') is not supported.");
+    global.caches = originalCaches;
+    Object.defineProperty(global, 'navigator', {
+      configurable: true,
+      value: {
+        serviceWorker: {
+          getRegistrations: async () => {
+            throw new Error("Failed to get ServiceWorkerRegistration objects: The URL protocol of the current origin ('null') is not supported.");
+          }
         }
       }
-    }
-  });
-  try {
+    });
     assert.equal(await Storage.clearAllStorage(), true);
   } finally {
+    global.caches = originalCaches;
     if (navigatorDescriptor) Object.defineProperty(global, 'navigator', navigatorDescriptor);
     else delete global.navigator;
   }

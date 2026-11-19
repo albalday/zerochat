@@ -32,9 +32,26 @@ class OpenBrowserTest(unittest.TestCase):
         self.assertIs(kwargs.get("start_new_session"), True)
         self.assertEqual((kwargs.get("stdout"), kwargs.get("stderr")), (subprocess.DEVNULL, subprocess.DEVNULL))
 
-    def test_linux_de_escritorio_usa_xdg_open(self):
+    def test_lanzadores_de_escritorio_webbrowser_y_error_diagnosticable(self):
         popen = self.open_on("linux", {}, which_in("/usr/bin/", "xdg-open"))
         self.assert_detached(popen, ["xdg-open", URL])
+
+        popen = self.open_on("linux", {}, which_in("/usr/bin/", "gio"))
+        popen.assert_called_once()
+        self.assertEqual(popen.call_args.args[0], ["gio", "open", URL])
+        self.assertIs(popen.call_args.kwargs.get("start_new_session"), True)
+
+        with patch("shutil.which", return_value=None), patch("webbrowser.open", return_value=True) as webbrowser_open, \
+                patch.dict(os.environ, {}, clear=True), patch.object(sys, "platform", "linux"):
+            self.assertIs(zerochat.open_browser(URL), True)
+        webbrowser_open.assert_called_once_with(URL)
+
+        with patch("shutil.which", return_value=None), patch("webbrowser.open", return_value=False), \
+                patch.dict(os.environ, {}, clear=True), patch.object(sys, "platform", "linux"), \
+                self.assertRaises(RuntimeError) as raised:
+            zerochat.open_browser(URL)
+        for detail in ("Ningún lanzador de navegador aceptó", "termux_detectado=False", "webbrowser: devolvió False"):
+            self.assertIn(detail, str(raised.exception))
 
     def test_termux_lanzador_deteccion_y_comando(self):
         cases = [
@@ -50,7 +67,6 @@ class OpenBrowserTest(unittest.TestCase):
         with self.subTest("prefix_absoluto_sin_path"):
             with patch.object(zerochat.Path, "is_file", return_value=True):
                 popen = self.open_on("linux", TERMUX_PREFIX, lambda cmd: None)
-            # La ruta se compone con Path: en el anfitrión de la prueba lleva su separador.
             self.assertEqual(popen.call_args.args[0], [str(zerochat.Path(TERMUX_BIN) / "termux-open-url"), URL])
 
         with self.subTest("comando_manual"):
@@ -66,26 +82,6 @@ class OpenBrowserTest(unittest.TestCase):
                 zerochat.open_browser(URL)
             self.assertIn("permiso denegado", str(raised.exception))
             self.assertIn("termux_detectado=True", str(raised.exception))
-
-    def test_linux_sin_xdg_open_usa_gio(self):
-        popen = self.open_on("linux", {}, which_in("/usr/bin/", "gio"))
-        popen.assert_called_once()
-        self.assertEqual(popen.call_args.args[0], ["gio", "open", URL])
-        self.assertIs(popen.call_args.kwargs.get("start_new_session"), True)
-
-    def test_sin_lanzadores_del_sistema_se_usa_webbrowser(self):
-        with patch("shutil.which", return_value=None), patch("webbrowser.open", return_value=True) as webbrowser_open, \
-                patch.dict(os.environ, {}, clear=True), patch.object(sys, "platform", "linux"):
-            self.assertIs(zerochat.open_browser(URL), True)
-        webbrowser_open.assert_called_once_with(URL)
-
-    def test_un_navegador_que_rechaza_la_url_deja_un_error_diagnosticable(self):
-        with patch("shutil.which", return_value=None), patch("webbrowser.open", return_value=False), \
-                patch.dict(os.environ, {}, clear=True), patch.object(sys, "platform", "linux"), \
-                self.assertRaises(RuntimeError) as raised:
-            zerochat.open_browser(URL)
-        for detail in ("Ningún lanzador de navegador aceptó", "termux_detectado=False", "webbrowser: devolvió False"):
-            self.assertIn(detail, str(raised.exception))
 
 
 class BrowserActionTest(unittest.TestCase):
@@ -148,12 +144,10 @@ class BrowserActionTest(unittest.TestCase):
                 zerochat.run_session_from_args(parser, parser.parse_args(bad_args))
             self.assertEqual(err.exception.code, zerochat.RUN_EXIT_ARGS)
 
-    def test_launch_playwright_chromium_y_headless_desactivan_bloqueos_de_red_local(self):
         with patch.object(zerochat, "playwright_chromium_executable", return_value="/bin/chrome-headless-shell"), \
              patch("subprocess.Popen") as mock_popen:
             zerochat.launch_playwright_chromium("https://example.com#token=1")
-            args, _ = mock_popen.call_args
-            self.assertEqual(args[0], [
+            self.assertEqual(mock_popen.call_args.args[0], [
                 "/bin/chrome-headless-shell",
                 "--headless",
                 "--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests",
@@ -163,8 +157,7 @@ class BrowserActionTest(unittest.TestCase):
         with patch.object(zerochat, "default_browser_executable", return_value="/bin/google-chrome"), \
              patch("subprocess.Popen") as mock_popen:
             zerochat.launch_headless_browser("https://example.com#token=2")
-            args, _ = mock_popen.call_args
-            self.assertEqual(args[0], [
+            self.assertEqual(mock_popen.call_args.args[0], [
                 "/bin/google-chrome",
                 "--headless",
                 "--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests",

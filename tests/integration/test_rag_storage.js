@@ -5,8 +5,12 @@ const { clearRagData } = require('../helpers/rag-data.js');
 
 beforeEach(clearRagData);
 
-test('RagStorage - guarda metadatos y chunks por separado sin archivo fuente', async () => {
+test('RagStorage - guarda, consulta por alias, elimina en cascada y valida entradas', async () => {
+  await assert.rejects(() => RagStorage.createBranch(''), { name: 'ValidationError' });
   const branch = await RagStorage.createBranch('Arquitectura');
+  await assert.rejects(() => RagStorage.saveDocument({ branchId: branch.id }), { name: 'ValidationError' });
+  await assert.rejects(() => RagStorage.saveDocument({ branchId: 'inexistente', title: 'a.txt' }), { name: 'NotFoundError' });
+
   const document = await RagStorage.saveDocument({
     branchId: branch.id,
     title: 'manual.pdf',
@@ -14,185 +18,92 @@ test('RagStorage - guarda metadatos y chunks por separado sin archivo fuente', a
     mimeType: 'application/pdf',
     fileSize: 4,
     chunks: [
-      { title: 'CPU', content: 'Instalación del procesador LGA1155.', pageStart: 1, pageEnd: 2 },
-      { title: 'RAM', content: 'Configuración de memoria DDR3.', pageStart: 3, pageEnd: 3 }
+      { order: 0, title: 'CPU', content: 'Instalación del procesador LGA1155.', pageStart: 1, pageEnd: 2 },
+      { order: 1, title: 'RAM', content: 'Configuración de memoria DDR3.', pageStart: 3, pageEnd: 3 }
     ]
   });
+  const second = await RagStorage.saveDocument({
+    branchId: branch.id, title: 'dos.txt', fileType: 'txt', chunks: [{ content: 'Dos' }]
+  }, 'Dos');
 
   const stored = await RagStorage.getDocumentById(document.id);
   assert.equal(stored.chunkCount, 2);
   assert.equal(stored.imageCount, 0);
   assert.equal(stored.chunks, undefined);
+  assert.equal((await RagStorage.getChunksByDocument(document.id)).length, 2);
+  assert.equal((await RagStorage.getChunksByBranch(branch.id)).length, 3);
 
-  const chunks = await RagStorage.getChunksByDocument(document.id);
-  assert.equal(chunks.length, 2);
-  assert.equal(chunks[0].id, `${document.id}:chunk:0`);
-  assert.equal(chunks[1].content, 'Configuración de memoria DDR3.');
-  assert.equal((await RagStorage.getChunksByBranch(branch.id)).length, 2);
-});
+  // Alias comunes de getChunkById: canónico, docId#idx y documentId directo.
+  assert.equal((await RagStorage.getChunkById(`${document.id}:chunk:0`)).content, 'Instalación del procesador LGA1155.');
+  assert.equal((await RagStorage.getChunkById(`${document.id}#1`)).content, 'Configuración de memoria DDR3.');
+  assert.equal((await RagStorage.getChunkById(document.id)).content, 'Instalación del procesador LGA1155.');
 
-test('RagStorage - elimina documentos y ramas en cascada', async () => {
-  const branch = await RagStorage.createBranch('Temporal');
-  const first = await RagStorage.saveDocument({
-    branchId: branch.id, title: 'uno.txt', fileType: 'txt', chunks: [{ content: 'Uno' }]
-  }, 'Uno');
-  await RagStorage.saveDocument({
-    branchId: branch.id, title: 'dos.txt', fileType: 'txt', chunks: [{ content: 'Dos' }]
-  }, 'Dos');
-
-  assert.equal(await RagStorage.deleteDocument(first.id), true);
-  assert.equal(await RagStorage.getChunkById(`${first.id}:chunk:0`), null);
+  // Eliminación individual y en cascada por rama.
+  assert.equal(await RagStorage.deleteDocument(second.id), true);
+  assert.equal(await RagStorage.getChunkById(`${second.id}:chunk:0`), null);
   const result = await RagStorage.deleteBranch(branch.id);
   assert.equal(result.deletedDocumentsCount, 1);
   assert.equal((await RagStorage.getDocumentsByBranch(branch.id)).length, 0);
   assert.equal((await RagStorage.getChunksByBranch(branch.id)).length, 0);
 });
 
-test('RagStorage - valida entradas', async () => {
-  await assert.rejects(() => RagStorage.createBranch(''), { name: 'ValidationError' });
-  const branch = await RagStorage.createBranch('Validación');
-  await assert.rejects(() => RagStorage.saveDocument({ branchId: branch.id }), { name: 'ValidationError' });
-  await assert.rejects(() => RagStorage.saveDocument({ branchId: 'inexistente', title: 'a.txt' }), { name: 'NotFoundError' });
-});
+test('RagStorage - exporta e importa respaldos JSON y gzip con imágenes reasignadas', async () => {
+  await assert.rejects(
+    () => RagStorage.importBranch({ schema: 'unsupported-format', version: 99, branch: {}, documents: [] }),
+    { name: 'ValidationError' }
+  );
 
-test('RagStorage - exporta e importa únicamente el formato actual', async () => {
-  const branch = await RagStorage.createBranch('Respaldo', 'Copia portable');
+  // Respaldo JSON plano (v2 sin fuente original).
+  const jsonBranch = await RagStorage.createBranch('Respaldo', 'Copia portable');
   await RagStorage.saveDocument({
-    branchId: branch.id,
+    branchId: jsonBranch.id,
     title: 'notas.txt',
     fileType: 'txt',
     mimeType: 'text/plain',
     fileSize: 5,
     chunks: [{ title: 'Nota', content: 'cinco' }]
   });
-
-  const { blob, compressed, filename } = await RagStorage.exportBranchBlob(branch.id, { compress: false });
-  assert.equal(compressed, false);
-  assert.match(filename, /^Respaldo\.zerochat-knowledge\.json$/);
-  const backup = JSON.parse(await RagStorage.readBackupText(new File([blob], filename)));
+  const plain = await RagStorage.exportBranchBlob(jsonBranch.id, { compress: false });
+  assert.equal(plain.compressed, false);
+  assert.match(plain.filename, /^Respaldo\.zerochat-knowledge\.json$/);
+  const backup = JSON.parse(await RagStorage.readBackupText(new File([plain.blob], plain.filename)));
   assert.equal(backup.schema, 'zerochat-knowledge');
   assert.equal(backup.version, 2);
   assert.equal(backup.documents[0].source, undefined);
 
   await clearRagData();
-  const restoredBranch = await RagStorage.importBranch(JSON.stringify(backup));
-  const restoredDocuments = await RagStorage.getDocumentsByBranch(restoredBranch.id);
-  assert.equal(restoredBranch.name, 'Respaldo');
-  assert.equal(restoredDocuments.length, 1);
-  assert.equal((await RagStorage.getChunksByDocument(restoredDocuments[0].id))[0].content, 'cinco');
+  const restoredJson = await RagStorage.importBranch(JSON.stringify(backup));
+  const restoredDocs = await RagStorage.getDocumentsByBranch(restoredJson.id);
+  assert.equal(restoredJson.name, 'Respaldo');
+  assert.equal((await RagStorage.getChunksByDocument(restoredDocs[0].id))[0].content, 'cinco');
 
-  await assert.rejects(
-    () => RagStorage.importBranch({ schema: 'unsupported-format', version: 99, branch: {}, documents: [] }),
-    { name: 'ValidationError' }
-  );
-});
-
-test('RagStorage - exportBranchBlob genera un respaldo gzip que readBackupText lee por extensión o por firma', async () => {
-  const branch = await RagStorage.createBranch('GzipTest');
-  await RagStorage.saveDocument({
-    branchId: branch.id,
-    title: 'large-doc.txt',
-    fileType: 'txt',
-    chunks: [
-      { order: 0, title: 'Parte 1', content: 'Contenido extenso de prueba para compresión gzip.' }
-    ]
-  });
-
-  const { blob, compressed, filename } = await RagStorage.exportBranchBlob(branch.id, { compress: true });
-  assert.equal(compressed, true);
-  assert.ok(filename.endsWith('.zerochat-knowledge.json.gz'));
-  assert.ok(blob.size > 0);
-
-  const decompressedText = await RagStorage.readBackupText(new File([blob], filename));
-  assert.equal(await RagStorage.readBackupText(new File([blob], 'renombrada.json')), decompressedText);
-  const parsed = JSON.parse(decompressedText);
-  assert.equal(parsed.schema, 'zerochat-knowledge');
-  assert.equal(parsed.documents.length, 1);
-  assert.equal(parsed.documents[0].chunks[0].content, 'Contenido extenso de prueba para compresión gzip.');
-
-  // Probar importación tras limpiar datos
-  await clearRagData();
-  const restored = await RagStorage.importBranch(decompressedText);
-  assert.equal(restored.name, 'GzipTest');
-  const docs = await RagStorage.getDocumentsByBranch(restored.id);
-  assert.equal(docs.length, 1);
-});
-
-test('RagStorage - exporta e importa información de imágenes y reasigna referencias en chunks', async () => {
-  const branch = await RagStorage.createBranch('ImagesTest');
+  // Respaldo gzip con imágenes: lectura por extensión o por firma y reasignación de docId.
+  const imgBranch = await RagStorage.createBranch('ImagesTest');
   await RagStorage.saveDocument({
     id: 'doc_original',
-    branchId: branch.id,
+    branchId: imgBranch.id,
     title: 'doc-with-image.pdf',
     fileType: 'pdf',
-    chunks: [
-      { order: 0, title: 'Sección con gráfico', content: 'Aquí está el balance: ![Balance](rag-image://doc_original:img_1)' }
-    ]
-  }, [
-    { id: 'img_1', page: 1, mimeType: 'image/jpeg', dataUrl: 'data:image/jpeg;base64,1234', label: 'Balance' }
-  ]);
+    chunks: [{ order: 0, title: 'Sección', content: 'Balance: ![Balance](rag-image://doc_original:img_1)' }]
+  }, [{ id: 'img_1', page: 1, mimeType: 'image/jpeg', dataUrl: 'data:image/jpeg;base64,1234', label: 'Balance' }]);
 
   let progressCalled = false;
-  const { blob, filename } = await RagStorage.exportBranchBlob(branch.id, {
+  const gz = await RagStorage.exportBranchBlob(imgBranch.id, {
     compress: true,
-    onProgress: (p) => {
-      if (p.percent === 100) progressCalled = true;
-    }
+    onProgress: p => { if (p.percent === 100) progressCalled = true; }
   });
+  assert.equal(gz.compressed, true);
+  assert.ok(gz.filename.endsWith('.zerochat-knowledge.json.gz'));
   assert.ok(progressCalled);
 
-  const decompressedText = await RagStorage.readBackupText(new File([blob], filename));
-  const parsed = JSON.parse(decompressedText);
-  assert.equal(parsed.documents[0].imageCount, 1);
-  assert.equal(parsed.documents[0].images.length, 1);
-  assert.equal(parsed.documents[0].images[0].id, 'img_1');
-
-  // Restaurar en una nueva rama sin borrar la anterior (provocará asignación de nuevo document.id)
-  const restoredBranch = await RagStorage.importBranch(decompressedText);
-  const restoredDocs = await RagStorage.getDocumentsByBranch(restoredBranch.id);
-  assert.equal(restoredDocs.length, 1);
-  assert.equal(restoredDocs[0].imageCount, 1);
-
-  // Las imágenes deben haberse guardado para el nuevo documento
-  const restoredImages = await RagStorage.getDocumentImages(restoredDocs[0].id);
-  assert.equal(restoredImages.length, 1);
-  assert.equal(restoredImages[0].dataUrl, 'data:image/jpeg;base64,1234');
-
-  // Los chunks deben haber reasignado la referencia de imagen al nuevo ID de documento
-  const restoredChunks = await RagStorage.getChunksByDocument(restoredDocs[0].id);
-  assert.ok(restoredChunks[0].content.includes(`rag-image://${restoredDocs[0].id}:img_1`));
-});
-
-test('RagStorage - getChunkById resuelve alias comunes generados por LLMs (docId#0, docId:0)', async () => {
-  const branch = await RagStorage.createBranch('AliasTest');
-  const doc = await RagStorage.saveDocument({
-    branchId: branch.id,
-    title: 'doc.txt',
-    fileType: 'txt',
-    chunks: [
-      { order: 0, title: 'Sección 0', content: 'Contenido sección 0' },
-      { order: 1, title: 'Sección 1', content: 'Contenido sección 1' }
-    ]
-  }, 'doc');
-
-  // Consulta por ID canónico
-  const c0 = await RagStorage.getChunkById(`${doc.id}:chunk:0`);
-  assert.equal(c0.content, 'Contenido sección 0');
-
-  // Consulta por alias con almohadilla: doc_id#0
-  const c0Hash = await RagStorage.getChunkById(`${doc.id}#0`);
-  assert.ok(c0Hash);
-  assert.equal(c0Hash.content, 'Contenido sección 0');
-
-  // Consulta por alias doc_id#1
-  const c1Hash = await RagStorage.getChunkById(`${doc.id}#1`);
-  assert.ok(c1Hash);
-  assert.equal(c1Hash.content, 'Contenido sección 1');
-
-  // Consulta pasando directamente el documentId
-  const cDoc = await RagStorage.getChunkById(doc.id);
-  assert.ok(cDoc);
-  assert.equal(cDoc.content, 'Contenido sección 0');
+  const decompressedText = await RagStorage.readBackupText(new File([gz.blob], gz.filename));
+  assert.equal(await RagStorage.readBackupText(new File([gz.blob], 'renombrada.json')), decompressedText);
+  const restoredImgBranch = await RagStorage.importBranch(decompressedText);
+  const [restoredImgDoc] = await RagStorage.getDocumentsByBranch(restoredImgBranch.id);
+  assert.equal(restoredImgDoc.imageCount, 1);
+  assert.equal((await RagStorage.getDocumentImages(restoredImgDoc.id))[0].dataUrl, 'data:image/jpeg;base64,1234');
+  const [restoredChunk] = await RagStorage.getChunksByDocument(restoredImgDoc.id);
+  assert.ok(restoredChunk.content.includes(`rag-image://${restoredImgDoc.id}:img_1`));
 });
 
 test('RagStorage - coherencia de formatos admitidos con ChatOfficeParser (F-15)', async () => {

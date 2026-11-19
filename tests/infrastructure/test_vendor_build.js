@@ -11,8 +11,13 @@ const VendorLoader = require(path.join(root, 'js/vendor-loader.js'));
 const loadManifest = () => import(pathToFileURL(path.join(root, 'scripts/vendor-manifest.mjs')).href);
 const outfileOf = vendor => VendorLoader.bundleInfo(vendor.id).path;
 
-test('build:vendor reproduce exactamente los bundles, las licencias y los avisos versionados', async () => {
+test('build:vendor reproduce los bundles, las licencias completas y los avisos con versiones exactas', async () => {
   const { VENDORS } = await loadManifest();
+  const { dependencies } = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  for (const vendor of VENDORS) {
+    assert.match(dependencies[vendor.package] || '', /^\d+\.\d+\.\d+$/, `${vendor.package} debe fijarse a una versión exacta`);
+  }
+
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-vendor-'));
   try {
     execFileSync('node', ['scripts/build-vendor.mjs', '--out-dir', outDir], { cwd: root, stdio: 'pipe' });
@@ -26,9 +31,7 @@ test('build:vendor reproduce exactamente los bundles, las licencias y los avisos
   } finally {
     fs.rmSync(outDir, { recursive: true, force: true });
   }
-});
 
-test('build:vendor incluye el texto de licencia de cada paquete empaquetado', () => {
   const notices = fs.readFileSync(path.join(root, 'THIRD_PARTY_NOTICES.md'), 'utf8');
   const linked = [...notices.matchAll(/\]\((licenses\/[^)]+)\)/g)].map(match => match[1]);
   for (const file of linked) {
@@ -38,14 +41,6 @@ test('build:vendor incluye el texto de licencia de cada paquete empaquetado', ()
   assert.deepEqual([...new Set(linked)].sort(), fs.readdirSync(path.join(root, 'licenses')).map(name => `licenses/${name}`).sort());
   for (const bundled of ['jszip', 'dingbat-to-unicode', 'lop', 'underscore', 'xmlbuilder']) {
     assert.match(notices, new RegExp(`^- \`${bundled}\``, 'm'), `${bundled} va dentro de un bundle y debe figurar en los avisos`);
-  }
-});
-
-test('build:vendor exige versiones exactas para las librerías empaquetadas', async () => {
-  const { VENDORS } = await loadManifest();
-  const { dependencies } = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-  for (const vendor of VENDORS) {
-    assert.match(dependencies[vendor.package] || '', /^\d+\.\d+\.\d+$/, `${vendor.package} debe fijarse a una versión exacta`);
   }
 });
 
