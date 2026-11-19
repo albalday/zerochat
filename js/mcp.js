@@ -56,6 +56,11 @@
   const projectOfDirectory = cwd => (cwd && cwd === noProjectDirectory() ? '' : cwd || '');
   /** Carpeta del servidor en la que trabaja el proyecto guardado `project`: la carpeta general para el vacío. */
   const directoryOfProject = project => project || noProjectDirectory();
+  /** Proyecto del servidor conectado (vacío sin conexión o en la carpeta general). */
+  function currentProject() {
+    const mcp = getState().get('mcp');
+    return mcp.status === 'connected' ? projectOfDirectory(mcp.serverInfo?.cwd) : '';
+  }
 
   /**
    * Las herramientas del servidor local actúan en su directorio: solo están disponibles con el servidor
@@ -1026,6 +1031,7 @@
     manager,
     projectOfDirectory,
     directoryOfProject,
+    currentProject,
     withCommandJobStop,
     PROXY_ID,
     PROJECT_GONE_CODE,

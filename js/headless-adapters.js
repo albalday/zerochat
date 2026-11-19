@@ -14,6 +14,9 @@
 
   const { resolveDep } = Utils;
   const getToolCards = () => resolveDep('ChatToolCards');
+  const getState = () => resolveDep('ChatState', './state.js');
+  const getMCP = () => resolveDep('ChatMCP', './mcp.js');
+  const getConversationService = () => resolveDep('ChatConversationService', './conversation-service.js');
 
   /**
    * Vista de turno desacoplada del DOM para ChatEngine.executeAgentTurnLoop.
@@ -89,8 +92,79 @@
     };
   }
 
+  /**
+   * Gestiona el ciclo de vida de la conversación en entorno headless sobre `store`,
+   * reutilizando los metadatos canónicos de ChatConversationService y ChatMCP.currentProject().
+   */
+  function createHeadlessSessionManager(store) {
+    if (!store || typeof store.getConversation !== 'function' || typeof store.saveConversation !== 'function') {
+      throw new Error('store must provide getConversation and saveConversation');
+    }
+
+    // Las grabaciones van en fila: la de un paso no puede llegar después de la del final del turno.
+    let pendingSave = Promise.resolve();
+
+    function saveActiveConversation(history) {
+      const State = getState();
+      const activeSessionId = State.get('sessions')?.activeId;
+      if (!activeSessionId) return pendingSave;
+      const list = State.get('sessions')?.list || [];
+      const existing = list.find(s => s.id === activeSessionId) || null;
+      const sessionMeta = getConversationService().buildSessionMetadata({
+        sessionId: activeSessionId,
+        existing,
+        history,
+        options: {
+          isServerMode: () => (existing?.serverRun !== undefined ? Boolean(existing.serverRun) : true),
+          getProject: () => getMCP().currentProject()
+        }
+      });
+      State.saveSessionMetadata(sessionMeta);
+      pendingSave = pendingSave.catch(() => {}).then(() => store.saveConversation(sessionMeta, history));
+      return pendingSave;
+    }
+
+    async function switchToSession(sessionId) {
+      const conversation = await store.getConversation(sessionId);
+      if (!conversation) throw new Error(`Conversation not found: ${sessionId}`);
+      const State = getState();
+      const messages = conversation.history || [];
+      const { history: _history, ...header } = conversation;
+      const currentList = State.get('sessions')?.list || [];
+      const sessionEntry = {
+        ...header,
+        id: sessionId,
+        title: header.title || 'Conversation',
+        createdAt: header.createdAt || Date.now(),
+        updatedAt: header.updatedAt || Date.now(),
+        profileId: header.profileId || null,
+        serverRun: header.serverRun !== undefined ? Boolean(header.serverRun) : true
+      };
+      const updatedList = currentList.some(s => s.id === sessionId)
+        ? currentList.map(s => (s.id === sessionId ? { ...s, ...sessionEntry } : s))
+        : [...currentList, sessionEntry];
+
+      State.replaceConversation({
+        sessionId,
+        messages,
+        sessions: updatedList
+      });
+    }
+
+    function startNewSession(sessionId) {
+      getState().replaceConversation({ sessionId, messages: [], sessions: [] });
+    }
+
+    return {
+      saveActiveConversation,
+      switchToSession,
+      startNewSession
+    };
+  }
+
   return {
     createHeadlessTurnView,
-    createHeadlessConversationStore
+    createHeadlessConversationStore,
+    createHeadlessSessionManager
   };
 }));

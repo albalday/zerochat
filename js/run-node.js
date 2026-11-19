@@ -176,6 +176,9 @@
     const Export = require('./export.js');
     globalThis.ChatExport = Export;
 
+    const ConversationService = require('./conversation-service.js');
+    globalThis.ChatConversationService = ConversationService;
+
     const HeadlessAdapters = require('./headless-adapters.js');
     globalThis.ChatHeadlessAdapters = HeadlessAdapters;
 
@@ -335,23 +338,7 @@
       return { started, unavailable };
     };
 
-    // Las grabaciones van en fila: la de un paso no puede llegar después de la del final del turno.
-    let pendingSave = Promise.resolve();
-    const saveActiveConversation = history => {
-      const activeSessionId = State.get('sessions')?.activeId;
-      if (!activeSessionId) return pendingSave;
-      const currentMeta = (State.get('sessions')?.list || []).find(s => s.id === activeSessionId) || { id: activeSessionId };
-      const activeConfig = Config.getActive();
-      const sessionMeta = {
-        ...currentMeta,
-        updatedAt: Date.now(),
-        messageCount: history.length,
-        profileId: currentMeta.profileId || activeConfig?.activeProfile?.id || activeConfig?.activeProfile?.name || null,
-        serverRun: currentMeta.serverRun !== undefined ? Boolean(currentMeta.serverRun) : true
-      };
-      pendingSave = pendingSave.catch(() => {}).then(() => conversationStore.saveConversation(sessionMeta, history));
-      return pendingSave;
-    };
+    const sessionManager = HeadlessAdapters.createHeadlessSessionManager(conversationStore);
 
     const submitComposerText = async (text, sendOptions = {}) => {
       const resume = Boolean(sendOptions.resume);
@@ -384,7 +371,7 @@
         onProgress: sendOptions.onProgress,
         // Cada paso cerrado queda grabado: si la ejecución se corta, se conserva lo hecho.
         onStepHistory: history => {
-          saveActiveConversation(history).catch(error => console.warn('[RunNode] Could not save the step:', error));
+          sessionManager.saveActiveConversation(history).catch(error => console.warn('[RunNode] Could not save the step:', error));
         },
         onGenerationStatus: update => {
           sendOptions.onProgress?.({
@@ -396,7 +383,7 @@
 
       if (loopResult.chatHistory) {
         State.replaceMessages(loopResult.chatHistory);
-        await saveActiveConversation(loopResult.chatHistory);
+        await sessionManager.saveActiveConversation(loopResult.chatHistory);
       }
 
       if (loopResult.loopDetected) {
@@ -418,35 +405,6 @@
       return result?.content || '';
     };
 
-    const switchToSession = async sessionId => {
-      const conversation = await conversationStore.getConversation(sessionId);
-      if (!conversation) throw new Error(`Conversation not found: ${sessionId}`);
-      const messages = conversation.history || [];
-      const currentList = State.get('sessions')?.list || [];
-      const sessionEntry = {
-        id: sessionId,
-        title: conversation.title || 'Conversation',
-        createdAt: conversation.createdAt || Date.now(),
-        updatedAt: conversation.updatedAt || Date.now(),
-        profileId: conversation.profileId || null,
-        ...(conversation.project ? { project: conversation.project } : {}),
-        serverRun: conversation.serverRun !== undefined ? Boolean(conversation.serverRun) : true
-      };
-      const updatedList = currentList.some(s => s.id === sessionId)
-        ? currentList.map(s => (s.id === sessionId ? { ...s, ...sessionEntry } : s))
-        : [...currentList, sessionEntry];
-
-      State.replaceConversation({
-        sessionId,
-        messages,
-        sessions: updatedList
-      });
-    };
-
-    const startNewSession = sessionId => {
-      State.replaceConversation({ sessionId, messages: [], sessions: [] });
-    };
-
     const startupConnection = connectBackend();
 
     return RunMode.start(runId, {
@@ -457,8 +415,8 @@
       submitComposerText,
       stopGeneration,
       exportConversation,
-      switchToSession,
-      startNewSession
+      switchToSession: sessionManager.switchToSession,
+      startNewSession: sessionManager.startNewSession
     });
   }
 

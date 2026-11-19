@@ -49,7 +49,13 @@ from mcp.manager import GLOBAL_MCP_MANAGER
 from run_mode.supervisor import fall_back_when_headless_exits, launch_node_runner, run_supervisor
 from security.context import PROJECT_DIR, SecurityContext, project_context
 from security.controller import ACCESS_CONTROLLER
-from security.rules import GLOBAL_POLICY_ALLOW_ALL, POLICY_ALLOW, POLICY_DENY
+from security.rules import (
+    COMMAND_TOOL,
+    GLOBAL_POLICY_WORKSPACE_TRUST,
+    POLICY_ALLOW,
+    POLICY_DENY,
+    get_integrated_path_access,
+)
 from server.handler import ZeroChatHTTPServer, ZeroChatServerHandler
 from server.state import (
     DEFAULT_HEARTBEAT_GRACE,
@@ -277,11 +283,13 @@ def reset_session_authorizations():
                 ACCESS_CONTROLLER.apply_tool_decision(tool_decision, ctx, server_id=server_id)
         permanent_tools = ACCESS_CONTROLLER.export_state(ctx).get("tools") or {}
         ACCESS_CONTROLLER.apply_session_overlay({
-            "globalMcpPolicy": GLOBAL_POLICY_ALLOW_ALL,
+            "globalMcpPolicy": GLOBAL_POLICY_WORKSPACE_TRUST,
             "tools": {
                 name: {"policy": POLICY_ALLOW}
                 for name in LOCAL_TOOL_HANDLERS
-                if (permanent_tools.get(name) or {}).get("policy") != POLICY_DENY
+                if name != COMMAND_TOOL
+                and not get_integrated_path_access(name)
+                and (permanent_tools.get(name) or {}).get("policy") != POLICY_DENY
             }
         }, ctx)
 

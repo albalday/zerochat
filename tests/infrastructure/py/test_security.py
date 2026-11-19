@@ -203,15 +203,23 @@ class PolicyEvaluationTest(ControllerTestCase):
         exported_a = self.controller.export_state(ctx_a)
         self.assertEqual((exported_a["directoryRules"], exported_a["defaultDirectoryRule"]), ([], rule_a))
         self.controller.import_state({**exported_a, "directoryRules": [rule_a]}, context=ctx_a)
-        self.assertEqual(zerochat.get_security_policy_data().get("directoryRules"), [])
+        self.assertEqual(zerochat.get_security_policy_data().get("directoryRules"), {})
 
         # En el proyecto B rige su propia regla y A deja de estar autorizado
         self.assertTrue(self.evaluate("write_file", {"path": file_b}, ctx_b).allowed)
         self.assertEqual(self.evaluate("read_file", {"path": file_a}, ctx_b).status, "ask")
 
-        # Desde B, la regla de A sí es una regla más y se guarda
+        # Desde B, la regla de A se guarda solo para B y no se filtra a A
         set_rules(self.controller, [rule_a, self.controller.get_default_directory_rule(ctx_b)], ctx_b)
-        self.assertEqual(zerochat.get_security_policy_data().get("directoryRules"), [rule_a])
+        self.assertEqual(zerochat.get_security_policy_data().get("directoryRules"), {ctx_b.key: [rule_a]})
+        self.assertEqual(self.controller.export_state(ctx_a)["directoryRules"], [])
+        self.assertEqual(self.evaluate("read_file", {"path": file_b}, ctx_a).status, "ask")
+
+        # Guardar reglas en B tampoco borra las reglas de sesión de A
+        self.controller.apply_session_overlay({"directoryRules": [f"R:{zerochat.normalize_directory_path(str(proj_b.resolve()))}/**"]}, ctx_a)
+        set_rules(self.controller, [], ctx_b)
+        self.assertEqual(self.controller.export_state(ctx_b)["directoryRules"], [])
+        self.assertTrue(self.evaluate("read_file", {"path": file_b}, ctx_a).allowed)
 
     def test_workspace_trust_allows_local_commands_and_paths_but_not_references_outside(self):
         set_global(self.controller, zerochat.GLOBAL_POLICY_WORKSPACE_TRUST)
@@ -228,6 +236,30 @@ class PolicyEvaluationTest(ControllerTestCase):
         # Un patrón guardado es una vía más de permitir: no hace más estricto Workspace Trust
         set_patterns(self.controller, "git status *")
         self.assertEqual(self.evaluate("run_command", {"command": "npm test"}).reason, "workspace_trust_command")
+
+        # Una regla RW de proyecto amplía también los argumentos de ruta de run_command (R: solo lecturas de fichero)
+        extra_ro = self.base_dir / "extra_ro"
+        extra_rw = self.base_dir / "extra_rw"
+        extra_ro.mkdir()
+        extra_rw.mkdir()
+        norm_ro = zerochat.normalize_directory_path(str(extra_ro.resolve()))
+        norm_rw = zerochat.normalize_directory_path(str(extra_rw.resolve()))
+        set_rules(self.controller, [f"R:{norm_ro}/**", f"RW:{norm_rw}/**"], self.ctx)
+        self.assertTrue(self.evaluate("read_file", {"path": f"{norm_ro}/a.txt"}).allowed)
+        self.assertEqual(self.evaluate("run_command", {"command": f"ls {norm_ro}"}).status, "ask")
+        self.assertTrue(self.evaluate("run_command", {"command": f"ls {norm_rw}"}).allowed)
+        self.assertTrue(self.evaluate("run_command", {"command": f"git -C {norm_rw} status"}).allowed)
+        self.assertTrue(self.evaluate("run_command", {"command": f"cd {norm_rw} && ls ../extra_rw/x"}).allowed)
+        self.assertEqual(self.evaluate("run_command", {"command": f"python3 -c \"import os; os.system('cat {norm_rw}/x')\""}).status, "ask")
+        self.assertEqual(self.evaluate("run_command", {"command": f"ls {norm_rw}/../extra_ro"}).status, "ask")
+
+        # RW:/** desbloquea todo el árbol y comandos compuestos solo en ese proyecto
+        other = self.base_dir / "restricted_other"
+        other.mkdir()
+        ctx_other = zerochat.SecurityContext(other.resolve())
+        set_rules(self.controller, ["RW:/**"], self.ctx)
+        self.assertTrue(self.evaluate("run_command", {"command": "cat /etc/passwd > /tmp/out && $(true)"}).allowed)
+        self.assertEqual(self.evaluate("run_command", {"command": "cat /etc/passwd"}, ctx_other).status, "ask")
 
     def test_compound_commands_are_validated_by_subcommand(self):
         set_patterns(self.controller, "git *", "npm run *")
@@ -565,14 +597,17 @@ class ApprovedCallOnResumeTest(HandlerTestCase):
 
     def test_solo_la_llamada_aprobada_y_una_sola_vez_y_una_denegacion_no_ejecuta_nada(self):
         self.run_session("allow_once")
-        self.command_challenge("echo adios")
+        denied_other = self.call_local("run_command", {"command": "echo adios"})
+        self.assertEqual((denied_other.get("isError"), denied_other.get("securityStatus")), (True, "deny"))
         ran = self.call_local("run_command", {"timeout_seconds": 30, "command": "echo hola"})
         self.assertNotIn("requiresAuthorization", ran)
         self.assertIn("hola", ran["content"][0]["text"])
-        self.assertTrue(self.call_local("run_command", {"command": "echo hola", "timeout_seconds": 30}).get("requiresAuthorization"))
+        denied_repeat = self.call_local("run_command", {"command": "echo hola", "timeout_seconds": 30})
+        self.assertEqual((denied_repeat.get("isError"), denied_repeat.get("securityStatus")), (True, "deny"))
 
         self.run_session("deny")
-        self.assertTrue(self.call_local("run_command", {"command": "echo hola", "timeout_seconds": 30}).get("requiresAuthorization"))
+        denied = self.call_local("run_command", {"command": "echo hola", "timeout_seconds": 30})
+        self.assertEqual((denied.get("isError"), denied.get("securityStatus")), (True, "deny"))
 
 
 class CommandPatternTest(HandlerTestCase):
@@ -711,17 +746,36 @@ class SessionLifecycleTest(HandlerTestCase):
         set_tool(self.controller, "db_tool", zerochat.POLICY_DENY)
         self.addCleanup(setattr, zerochat, "RUN_SESSION", None)
         zerochat.RUN_SESSION = zerochat.RunSession(prompt="test", tool_security={
-            "globalMcpPolicy": "workspace_trust", "tools": {"custom_tool": {"policy": "allow"}}, "directoryRules": ["RW:/test/**"]
+            "globalMcpPolicy": "allow_all", "tools": {"custom_tool": {"policy": "allow"}}, "directoryRules": ["RW:/test/**"]
         })
         zerochat.reset_session_authorizations()
 
-        for tool in ("write_file", "edit_file", "run_command", "custom_tool"):
+        for tool in ("browser_action", "custom_tool"):
             self.assertEqual(tool_entry(self.controller, tool)["policy"], "allow", tool)
+        for tool in ("read_file", "write_file", "edit_file", "run_command"):
+            self.assertIsNone(tool_entry(self.controller, tool), tool)
         self.assertEqual(tool_entry(self.controller, "db_tool")["policy"], "deny")
-        self.assertEqual(global_policy(self.controller), "allow_all")
+        self.assertEqual(global_policy(self.controller), "workspace_trust")
         self.assertTrue(self.evaluate("custom_tool").allowed)
-        self.assertTrue(self.evaluate("write_file", {"path": "/etc/passwd"}).allowed)
-        self.assertTrue(self.evaluate("run_command", {"command": "rm -rf /tmp/x"}).allowed)
+        self.assertTrue(self.evaluate("write_file", {"path": f"{self.norm_ws}/ok.txt"}).allowed)
+        self.assertTrue(self.evaluate("write_file", {"path": "/test/ok.txt"}).allowed)
+        self.assertTrue(self.evaluate("run_command", {"command": "echo ok"}).allowed)
+
+        # Fuera de las reglas del proyecto, en ejecución desatendida se deniega sin crear reto ni ejecutar
+        outside_write = self.call_local("write_file", {"path": "/etc/passwd", "content": "x"})
+        outside_cmd = self.call_local("run_command", {"command": "rm -rf /tmp/x"})
+        self.assertEqual((outside_write.get("isError"), outside_write.get("securityStatus")), (True, "deny"))
+        self.assertEqual((outside_cmd.get("isError"), outside_cmd.get("securityStatus")), (True, "deny"))
+        self.assertEqual(challenges(self.controller), {})
+
+        # Un servicio MCP externo sigue permitido salvo denegación explícita
+        with unittest.mock.patch.object(zerochat.GLOBAL_MCP_MANAGER, "server_of", return_value="ext_srv"), \
+             unittest.mock.patch.object(zerochat.GLOBAL_MCP_MANAGER, "call", return_value={"content": [{"type": "text", "text": "ok"}]}) as mock_ext:
+            res, err, _ = zerochat.call_tool({"name": "ext_srv__ping", "arguments": {}}, self.ctx)
+            self.assertIsNone(err)
+            self.assertEqual(res["content"][0]["text"], "ok")
+            mock_ext.assert_called_once()
+
         saved = zerochat.get_security_policy_data()
         self.assertEqual((saved["globalMcpPolicy"], list(saved["tools"])), ("ask", ["db_tool"]))
 
@@ -729,6 +783,26 @@ class SessionLifecycleTest(HandlerTestCase):
         zerochat.reset_session_authorizations()
         self.assertEqual(global_policy(self.controller), "ask")
         self.assertIsNone(tool_entry(self.controller, "custom_tool"))
+
+    def test_maintenance_directory_with_root_rw_allows_unrestricted_run_while_other_stays_contained(self):
+        maint_dir = self.base_dir / "mantenimiento"
+        restricted_dir = self.base_dir / "contenido"
+        maint_dir.mkdir()
+        restricted_dir.mkdir()
+        ctx_maint = zerochat.SecurityContext(maint_dir.resolve())
+        ctx_restricted = zerochat.SecurityContext(restricted_dir.resolve())
+        set_rules(self.controller, ["RW:/**"], ctx_maint)
+
+        self.addCleanup(setattr, zerochat, "RUN_SESSION", None)
+        zerochat.RUN_SESSION = zerochat.RunSession(prompt="mantenimiento")
+        use_project(self, maint_dir)
+        zerochat.reset_session_authorizations()
+
+        self.assertTrue(self.evaluate("write_file", {"path": "/etc/passwd"}, ctx_maint).allowed)
+        self.assertTrue(self.evaluate("run_command", {"command": "cat /etc/passwd > /tmp/out"}, ctx_maint).allowed)
+        # El proyecto sin RW:/** sigue contenido en la misma ejecución
+        denied = zerochat.call_tool({"name": "read_file", "arguments": {"path": "/etc/passwd"}}, ctx_restricted)[0]
+        self.assertEqual((denied.get("isError"), denied.get("securityStatus")), (True, "deny"))
 
     def test_rotating_the_daily_token_forgets_session_authorizations_and_challenges(self):
         set_tool(self.controller, "tool_x", zerochat.POLICY_ALLOW, scope=zerochat.SCOPE_SESSION)

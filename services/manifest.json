@@ -24,6 +24,14 @@
         "service.json": "55fe65968dd62379a27a2e63ada4e7ab177c16c2f411da7e94646c5974c21407"
       }
     },
+    "mail": {
+      "version": "1.0.0",
+      "files": {
+        "mail_mcp_server.py": "44d603f8c3b3db0e62dbafc2674bd3702ce8de7239b5a0f95b4101e90e69805c",
+        "README.md": "33070af54300cb6f76dff9950cb17cd11a3093f86bc50b1f22646821876de891",
+        "service.json": "3eea671d6c667c1e5287955b38798647053d3d6b6224cb8b63195e064170b17a"
+      }
+    },
     "memory": {
       "version": "1.0.0",
       "files": {

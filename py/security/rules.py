@@ -50,6 +50,8 @@ WORKSPACE_TRUST_PIPE_FILTERS = frozenset([
 ])
 WORKSPACE_TRUST_GLOBAL_COMMANDS = re.compile(r"(?:^|\s)(?:sudo|su|doas|mkfs|reboot|shutdown|systemctl)\b")
 WORKSPACE_TRUST_OUTSIDE_REFERENCE = re.compile(r"(?:^|[\s=:'\"])(?:[\\/~]|[A-Za-z]:[\\/])|\$|(?:^|[\s=:'\"\\/])\.\.(?=[\s\\/'\"]|$)")
+_COMMAND_PATH_START = re.compile(r"^(?:[/\\]|(?:\.\.(?:$|[/\\]))|[A-Za-z]:[\\/])")
+_COMMAND_INTERNAL_OUTSIDE_REF = re.compile(r"[\s:'\"](?:[\\/~]|[A-Za-z]:[\\/]|\.\.(?:$|[\s\\/]))")
 
 
 def parse_directory_rule(raw_rule: str) -> dict | None:
@@ -169,6 +171,34 @@ def get_integrated_path_access(tool_name: str) -> str:
 def is_workspace_local_command(segment: str) -> bool:
     """Filtro de Workspace Trust para un subcomando: sin órdenes globales ni referencias fuera del proyecto."""
     return not WORKSPACE_TRUST_GLOBAL_COMMANDS.search(segment) and not WORKSPACE_TRUST_OUTSIDE_REFERENCE.search(segment)
+
+
+def command_outside_references(segment: str) -> list[str] | None:
+    """
+    Rutas externas o con '..' que aparecen como argumentos del subcomando para validarlas frente a
+    directoryRules; [] si es local al proyecto, o None si lleva órdenes globales, $, ~ o texto con
+    rutas incrustadas no validables como argumento de ruta.
+    """
+    if is_workspace_local_command(segment):
+        return []
+    if WORKSPACE_TRUST_GLOBAL_COMMANDS.search(segment) or "$" in segment or "~" in segment:
+        return None
+    try:
+        tokens = shlex.split(segment)
+    except ValueError:
+        return None
+    if not tokens:
+        return None
+    refs = []
+    for token in tokens:
+        if not WORKSPACE_TRUST_OUTSIDE_REFERENCE.search(token):
+            continue
+        candidate = token.split("=", 1)[1] if ("=" in token and not _COMMAND_PATH_START.match(token)) else token
+        tail = candidate[2:] if re.match(r"^[A-Za-z]:[\\/]", candidate) else candidate[1:]
+        if not _COMMAND_PATH_START.match(candidate) or _COMMAND_INTERNAL_OUTSIDE_REF.search(tail):
+            return None
+        refs.append(candidate)
+    return refs
 
 
 @functools.lru_cache(maxsize=512)

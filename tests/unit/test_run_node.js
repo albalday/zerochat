@@ -140,4 +140,46 @@ test('RunNode - switchToSession y submitComposerText preservan serverRun y profi
   assert.equal(savedPayload.conversation.profileId, 'perfil_remoto');
 });
 
+test('RunNode - startNewSession guarda project, title y createdAt del proyecto conectado y omite general', async t => {
+  let capturedOptions = null;
+  t.mock.method(MCP.manager, 'connectProxy', async () => ({ success: true }));
+  t.mock.method(RunMode, 'start', async (_runId, opts) => {
+    capturedOptions = opts;
+    return { ok: true };
+  });
+
+  await RunNode.startHeadlessRun([
+    '--port', '8283',
+    '--token', 'test_tok',
+    '--run', 'run_new_session_project'
+  ]);
+
+  const savedPayloads = [];
+  t.mock.method(MCP.manager, 'requestExternalControl', async (method, params) => {
+    if (method === 'zerochat/conversations/save') savedPayloads.push(params);
+    return { success: true };
+  });
+  t.mock.method(Engine, 'executeAgentTurnLoop', async ({ chatHistory }) => ({
+    chatHistory: [...chatHistory, { id: 'm2', role: 'assistant', content: 'ok' }],
+    finalAssistantText: 'ok'
+  }));
+
+  State.set('mcp', { status: 'connected', serverInfo: { cwd: '/repo/proyecto-a', noProjectDir: '/home/u/zerochat/general' } });
+  t.after(() => State.set('mcp', { status: 'disconnected', serverInfo: null }));
+  capturedOptions.startNewSession('session_prompt_proj');
+  await capturedOptions.submitComposerText('Revisa el estado del repo');
+
+  assert.equal(savedPayloads[0].conversation.id, 'session_prompt_proj');
+  assert.equal(savedPayloads[0].conversation.project, '/repo/proyecto-a');
+  assert.equal(savedPayloads[0].conversation.title, 'Revisa el estado del repo');
+  assert.equal(typeof savedPayloads[0].conversation.createdAt, 'number');
+
+  State.set('mcp', { status: 'connected', serverInfo: { cwd: '/home/u/zerochat/general', noProjectDir: '/home/u/zerochat/general' } });
+  capturedOptions.startNewSession('session_prompt_general');
+  await capturedOptions.submitComposerText('Hola en general');
+
+  assert.equal(savedPayloads[1].conversation.id, 'session_prompt_general');
+  assert.equal('project' in savedPayloads[1].conversation, false);
+});
+
 
