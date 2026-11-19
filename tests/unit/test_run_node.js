@@ -107,6 +107,7 @@ test('RunNode - switchToSession y submitComposerText preservan serverRun y profi
           createdAt: 1000,
           updatedAt: 2000,
           profileId: 'perfil_remoto',
+          project: '/repo/demo',
           serverRun: true
         }
       };
@@ -123,6 +124,7 @@ test('RunNode - switchToSession y submitComposerText preservan serverRun y profi
   assert.ok(sessionEntry);
   assert.equal(sessionEntry.serverRun, true);
   assert.equal(sessionEntry.profileId, 'perfil_remoto');
+  assert.equal(sessionEntry.project, '/repo/demo');
 
   t.mock.method(Engine, 'executeAgentTurnLoop', async () => {
     return {
