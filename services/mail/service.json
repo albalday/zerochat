@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "id": "mail",
+  "version": "1.0.0",
+  "displayName": {
+    "es": "Correo (IMAP / SMTP)",
+    "en": "Email (IMAP / SMTP)"
+  },
+  "description": {
+    "es": "Lee, busca y crea borradores por IMAP y envía mensajes por SMTP (desactivado por defecto). Funciona con Gmail usando una contraseña de aplicación y con cualquier servidor IMAP/SMTP estándar.",
+    "en": "Read, search and create drafts via IMAP and send messages via SMTP (disabled by default). Works with Gmail using an App Password and with any standard IMAP/SMTP server."
+  },
+  "help": {
+    "url": "https://myaccount.google.com/apppasswords",
+    "label": {
+      "es": "Crear contraseña de aplicación de Google",
+      "en": "Create a Google App Password"
+    }
+  },
+  "enabledByDefault": false,
+  "transport": "stdio",
+  "secrets": [
+    {
+      "name": "MAIL_IMAP_HOST",
+      "label": {
+        "es": "Servidor IMAP (p. ej. imap.gmail.com)",
+        "en": "IMAP server (e.g. imap.gmail.com)"
+      }
+    },
+    {
+      "name": "MAIL_USER",
+      "label": {
+        "es": "Correo o usuario",
+        "en": "Email address or username"
+      }
+    },
+    {
+      "name": "MAIL_PASSWORD",
+      "label": {
+        "es": "Contraseña o contraseña de aplicación",
+        "en": "Password or App Password"
+      }
+    }
+  ],
+  "tools": {
+    "list_folders": {
+      "enabledByDefault": true
+    },
+    "search_messages": {
+      "enabledByDefault": true
+    },
+    "read_message": {
+      "enabledByDefault": true
+    },
+    "create_draft": {
+      "enabledByDefault": true
+    },
+    "send_email": {
+      "enabledByDefault": false
+    }
+  },
+  "rateLimit": {
+    "concurrency": 2,
+    "minIntervalS": 0.2
+  },
+  "launch": {
+    "executable": "${pythonExecutable}",
+    "args": [
+      "${serviceDir}/mail_mcp_server.py"
+    ],
+    "cwd": "${serviceDir}",
+    "env": {
+      "MAIL_IMAP_HOST": "${secret:MAIL_IMAP_HOST}",
+      "MAIL_USER": "${secret:MAIL_USER}",
+      "MAIL_PASSWORD": "${secret:MAIL_PASSWORD}"
+    },
+    "handshakeTimeoutSeconds": 15,
+    "callTimeoutSeconds": 30
+  }
+}

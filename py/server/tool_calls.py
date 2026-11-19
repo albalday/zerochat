@@ -89,6 +89,16 @@ def with_job_key(args: dict, job_key: str | None) -> dict:
     return {**args, "job_key": job_key} if job_key else args
 
 
+def _security_deny_result(reason: str, detail: str = "") -> tuple[dict, None, str]:
+    err_msg = f"Bloqueado por política de seguridad: {detail or reason}"
+    return {
+        "content": [{"type": "text", "text": f"Error: {err_msg}"}],
+        "isError": True,
+        "securityStatus": "deny",
+        "reason": reason
+    }, None, err_msg
+
+
 def authorize_or_challenge(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
                            job_key: str | None = None, conversation_id: str = "") -> tuple[dict | None, dict | None, str] | None:
     """Evalúa la política de seguridad y devuelve respuesta de denegación o reto si procede."""
@@ -102,13 +112,16 @@ def authorize_or_challenge(origin: str, tool_name: str, args: dict, ctx: Securit
         tool_name, args, context=ctx, server_name=server_name, server_id=server_id
     )
     if decision.status == POLICY_DENY:
-        err_msg = f"Bloqueado por política de seguridad: {decision.reason}"
-        return {"content": [{"type": "text", "text": f"Error: {err_msg}"}], "isError": True, "securityStatus": "deny", "reason": decision.reason}, None, err_msg
+        return _security_deny_result(decision.reason)
     if decision.status == POLICY_ASK:
         session = current_run_session()
-        if session is not None and session.take_approved_call(tool_name, args):
-            log_event(f"[run] {tool_name}: se ejecuta la llamada que la persona aprobó al reanudar")
-            return None
+        if session is not None:
+            if session.take_approved_call(tool_name, args):
+                log_event(f"[run] {tool_name}: se ejecuta la llamada que la persona aprobó al reanudar")
+                return None
+            if origin == "external":
+                return None
+            return _security_deny_result(decision.reason, decision.details)
         ch =ACCESS_CONTROLLER.create_challenge(
             tool_name, args, decision, server_name=server_name, server_id=server_id, origin=origin,
             context=ctx, job_key=job_key, conversation_id=conversation_id

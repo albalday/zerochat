@@ -31,12 +31,12 @@ from security.rules import (
     WORKSPACE_TRUST_PIPE_FILTERS,
     cd_target,
     clean_pattern_list,
+    command_outside_references,
     command_rule_offer,
     directory_rule_offer,
     get_command_arg,
     get_integrated_path_access,
     get_path_arg,
-    is_workspace_local_command,
     matches_command_pattern,
     matches_directory_pattern,
     normalize_command_pattern,
@@ -47,7 +47,7 @@ from security.rules import (
 from storage.db import get_security_policy_data, update_security_policy_data
 from tools.jobs import JOBS
 
-POLICY_STATE_VERSION = 6
+POLICY_STATE_VERSION = 7
 CHALLENGE_TTL_MS = 600_000
 MAX_POLICY_ENTRIES = 500
 # Proyectos con sesión en memoria: al pasar del tope se olvida la del usado hace más tiempo sin comandos en marcha.
@@ -100,13 +100,19 @@ class AccessController:
         """Única definición del estado permanente y de sus valores por defecto."""
         data = raw if isinstance(raw, dict) else {}
         patterns = data.get("commandPatterns") if isinstance(data.get("commandPatterns"), dict) else {}
+        raw_dir_rules = data.get("directoryRules")
+        dir_rules = {
+            str(project): list(rules)
+            for project, rules in raw_dir_rules.items()
+            if isinstance(project, str) and isinstance(rules, list) and rules
+        } if isinstance(raw_dir_rules, dict) else {}
         # run_command nunca se guarda autorizado entero: sus permisos permanentes son patrones.
         tools = {tid: entry for tid, entry in dict(data.get("tools") or {}).items()
                  if not (tid == COMMAND_TOOL and isinstance(entry, dict) and entry.get("policy") == POLICY_ALLOW)}
         return {
             "version": POLICY_STATE_VERSION,
             "globalMcpPolicy": data.get("globalMcpPolicy") or GLOBAL_POLICY_ASK,
-            "directoryRules": list(data.get("directoryRules") or []),
+            "directoryRules": dir_rules,
             "tools": tools,
             "servers": dict(data.get("servers") or {}),
             "commandPatterns": {"global": list(patterns.get("global") or []), "projects": dict(patterns.get("projects") or {})}
@@ -127,7 +133,11 @@ class AccessController:
             session = self._session(context)
             return {
                 "globalMcpPolicy": session.global_policy if session.global_policy is not None else state["globalMcpPolicy"],
-                "directoryRules": list(session.directory_rules) if session.directory_rules is not None else state["directoryRules"],
+                "directoryRules": (
+                    list(session.directory_rules)
+                    if session.directory_rules is not None
+                    else list(state["directoryRules"].get(context.key) or [])
+                ),
                 "tools": {**state["tools"], **session.tools},
                 "servers": {**state["servers"], **session.servers},
                 "commandPatterns": {**state["commandPatterns"], "session": list(session.command_patterns)}
@@ -203,7 +213,9 @@ class AccessController:
     @staticmethod
     def _check_entry_limit(state: dict):
         """Único tope de entradas, sobre el estado resultante (guardado o capa de sesión)."""
-        total = len(state.get("directoryRules") or []) + len(state.get("tools") or {}) + len(state.get("servers") or {})
+        dir_rules = state.get("directoryRules")
+        dir_count = sum(len(v) for v in dir_rules.values()) if isinstance(dir_rules, dict) else len(dir_rules or [])
+        total = dir_count + len(state.get("tools") or {}) + len(state.get("servers") or {})
         if total > MAX_POLICY_ENTRIES:
             raise ValueError(f"El número total de entradas ({total}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
 
@@ -233,22 +245,29 @@ class AccessController:
         added_rules = self._validate_directory_rules(state["addDirectoryRules"], context) if "addDirectoryRules" in state else []
         clean_patterns = normalize_command_patterns(state["commandPatterns"]) if "commandPatterns" in state else None
 
+        project = context.key
+
         def mutator(current: dict) -> dict:
-            self._apply_state_patch(current, clean_global, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns)
+            self._apply_state_patch(current, project, clean_global, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns)
             self._check_entry_limit(current)
             return current
         self._update_permanent(mutator)
-        self._forget_session_overrides(clean_global, clean_rules, added_rules, clean_tools, clean_servers)
+        self._forget_session_overrides(project, clean_global, clean_rules, added_rules, clean_tools, clean_servers)
         return self.export_state(context)
 
-    def _apply_state_patch(self, current: dict, clean_global, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns):
+    def _apply_state_patch(self, current: dict, project: str, clean_global, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns):
         """Aplica sobre el estado guardado los apartados del parche que vienen (None es «no cambiar»)."""
         if clean_global is not None:
             current["globalMcpPolicy"] = clean_global
         if clean_rules is not None:
-            current["directoryRules"] = clean_rules
+            if clean_rules:
+                current["directoryRules"][project] = clean_rules
+            else:
+                current["directoryRules"].pop(project, None)
         if added_rules:
-            current["directoryRules"] = self._append_rules(current["directoryRules"], added_rules)
+            merged = self._append_rules(current["directoryRules"].get(project) or [], added_rules)
+            if merged:
+                current["directoryRules"][project] = merged
         if clean_tools is not None:
             current["tools"] = self._apply_entry_patch(current.get("tools"), clean_tools)
         if clean_servers is not None:
@@ -256,16 +275,17 @@ class AccessController:
         if clean_patterns is not None:
             current["commandPatterns"] = clean_patterns
 
-    def _forget_session_overrides(self, clean_global, clean_rules, added_rules, clean_tools, clean_servers):
-        """Lo guardado vale para todos los proyectos: sustituye o revoca lo equivalente en la sesión de cada uno."""
+    def _forget_session_overrides(self, project: str, clean_global, clean_rules, added_rules, clean_tools, clean_servers):
+        """Lo guardado sustituye o revoca lo equivalente en la sesión (las reglas de carpeta, solo en su proyecto)."""
         with self._lock:
-            for session in self.sessions.values():
+            for key, session in self.sessions.items():
                 if clean_global is not None:
                     session.global_policy = None
-                if clean_rules is not None:
-                    session.directory_rules = None
-                elif added_rules and session.directory_rules is not None:
-                    session.directory_rules = self._append_rules(session.directory_rules, added_rules)
+                if key == project:
+                    if clean_rules is not None:
+                        session.directory_rules = None
+                    elif added_rules and session.directory_rules is not None:
+                        session.directory_rules = self._append_rules(session.directory_rules, added_rules)
                 for kind, patch in (("tools", clean_tools), ("servers", clean_servers)):
                     for item_id in patch or {}:
                         session.entries(kind).pop(item_id, None)
@@ -493,11 +513,13 @@ class AccessController:
         def mutator(state: dict) -> dict:
             self._store_decision(state, decision, pattern, project, tool, server_name, server_id)
             if rules:
-                state["directoryRules"] = self._append_rules(state["directoryRules"], rules)
+                merged = self._append_rules(state["directoryRules"].get(project) or [], rules)
+                if merged:
+                    state["directoryRules"][project] = merged
             self._check_entry_limit(state)
             return state
         self._update_permanent(mutator)
-        self._drop_superseded_session_entries(decision, pattern, tool, server_id, rules)
+        self._drop_superseded_session_entries(decision, pattern, tool, server_id, project, rules)
 
     def _allow_for_session(self, context: SecurityContext, tool: str, server_name: str, pattern: str | None):
         """«Permitir en la sesión»: el patrón de comando aprobado o, sin él, la herramienta."""
@@ -523,15 +545,16 @@ class AccessController:
         elif decision == "allow_server_always":
             state["servers"][server_id] = self._make_entry("servers", POLICY_ALLOW, SCOPE_PERMANENT, server_name or server_id)
 
-    def _drop_superseded_session_entries(self, decision: str, pattern: str | None, tool: str, server_id: str, rules: list[str]):
-        """Lo que se acaba de guardar sustituye a lo equivalente en la sesión de cada proyecto."""
+    def _drop_superseded_session_entries(self, decision: str, pattern: str | None, tool: str, server_id: str,
+                                         project: str, rules: list[str]):
+        """Lo que se acaba de guardar sustituye a lo equivalente en la sesión (las reglas de carpeta, solo en su proyecto)."""
         with self._lock:
-            for session in self.sessions.values():
+            for key, session in self.sessions.items():
                 if decision == "allow_always" and not pattern:
                     session.tools.pop(tool, None)
                 elif decision == "allow_server_always":
                     session.servers.pop(server_id, None)
-                if rules and session.directory_rules is not None:
+                if key == project and rules and session.directory_rules is not None:
                     session.directory_rules = self._append_rules(session.directory_rules, rules)
 
     def evaluate_authorization(self, tool_name: str, raw_args: dict | None, context: SecurityContext,
@@ -577,31 +600,57 @@ class AccessController:
             return self._evaluate_path(tool_name, access, path, view, ctx)
         return POLICY_ASK, "mcp_default_ask", "", None
 
+    @staticmethod
+    def _has_full_directory_access(rules: list[str]) -> bool:
+        """Indica si el proyecto tiene acceso RW a todo el sistema de ficheros (RW:/** o RW:/)."""
+        return any(
+            (parsed := parse_directory_rule(raw)) is not None
+            and parsed["access"] == "RW"
+            and parsed["path"] in ("/**", "/")
+            for raw in rules
+        )
+
+    @staticmethod
+    def _command_target(cwd: Path, raw_path: str) -> str:
+        return raw_path if re.match(r"^(/|[A-Za-z]:[\\/])", raw_path) else str(cwd / raw_path)
+
+    def _is_allowed_trust_segment(self, segment: str, cwd: Path, directory_rules: list[str], ctx: SecurityContext) -> bool:
+        """Subcomando permitido por Workspace Trust: local o con argumentos de ruta dentro de reglas RW del proyecto."""
+        refs = command_outside_references(segment)
+        if refs is None:
+            return False
+        return all(
+            self.evaluate_directory_rule("RW", self._command_target(cwd, ref), directory_rules, ctx)["allowed"]
+            for ref in refs
+        )
+
     def _evaluate_command(self, raw_command: str, view: dict, ctx: SecurityContext) -> tuple[str, str, str, dict | None]:
         """
         Valida cada subcomando por separado: un cd tiene que llevar a una carpeta cubierta por las reglas
         de directorio, y los subcomandos siguientes se ejecutan en ella; el resto tiene que estar cubierto
-        por un patrón o, con Workspace Trust, quedarse en el proyecto (tras una tubería, solo un filtro).
-        Un patrón es una vía más de permitir, nunca una puerta que anule Workspace Trust.
+        por un patrón o, con Workspace Trust, quedarse en el proyecto o en reglas RW del proyecto (tras una
+        tubería, solo un filtro). Con RW:/** en Workspace Trust, el proyecto queda sin restricción de comandos.
         """
+        trust = view["globalMcpPolicy"] == GLOBAL_POLICY_WORKSPACE_TRUST
+        if trust and self._has_full_directory_access(view["directoryRules"]):
+            return POLICY_ALLOW, "directory_rule_allow", "", None
         segments = split_command(raw_command)
         if segments is None:
             return (POLICY_ASK, "command_chaining_requires_approval",
                     f"El comando usa sintaxis de shell que no se puede validar por partes: {raw_command}", None)
         patterns = self._command_patterns(view, ctx)
-        trust = view["globalMcpPolicy"] == GLOBAL_POLICY_WORKSPACE_TRUST
         cwd, by_trust, uncovered = ctx.workspace_dir, False, []
         for operator, segment in segments:
             directory = cd_target(segment)
             if directory is not None:
-                target = directory if re.match(r"^(/|[A-Za-z]:[\\/])", directory) else str(cwd / directory)
+                target = self._command_target(cwd, directory)
                 if not any(self.evaluate_directory_rule(a, target, view["directoryRules"], ctx)["allowed"] for a in ("R", "W")):
                     return (POLICY_ASK, "command_directory_outside_rules",
                             f"El comando se ejecuta fuera de las reglas de directorio: {directory}", None)
-                cwd = ctx.resolve_path(target)
+                cwd = ctx.resolve_path(target) or cwd
             elif any(matches_command_pattern(segment, p) for p in patterns):
                 continue
-            elif trust and is_workspace_local_command(segment) and (
+            elif trust and self._is_allowed_trust_segment(segment, cwd, view["directoryRules"], ctx) and (
                     operator != "|" or segment.split()[0] in WORKSPACE_TRUST_PIPE_FILTERS):
                 by_trust = True
             else:
