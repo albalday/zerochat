@@ -1099,7 +1099,7 @@ def parse_nonneg_int(value, label: str, default: int | None = None) -> int | Non
 
 
 
-SOURCE_BACKEND_VERSION = "10.34.0"
+SOURCE_BACKEND_VERSION = "10.35.0"
 
 
 def _read_source_version(filename: str) -> str | None:
