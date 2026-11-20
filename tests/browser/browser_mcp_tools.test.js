@@ -338,7 +338,7 @@ test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajust
     await page.click('#btn-open-settings');
     const savedState = () => page.evaluate(() => ({
       enabledTools: window.ChatConfig.getActive().enabledTools,
-      policy: window.ChatToolSecurity.manager.getGlobalMcpPolicy(),
+      allowAll: window.ChatToolSecurity.manager.getAllowAll(),
       rules: window.ChatToolSecurity.manager.getDirectoryRules()
     }));
     const before = await savedState();
@@ -367,21 +367,21 @@ test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajust
 
     await page.click('[data-section="permissions"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
-    await page.locator('.mcp-policy-option:has(#mcp-policy-allow-all)').click();
+    await page.locator('.switch:has(#mcp-allow-all)').click();
     await page.fill('#mcp-directory-rules', 'RW:/tmp/descartado');
     assert.equal(await page.$eval('#settings-dialog', dialog => dialog.dataset.settingsDirty), 'true');
     await page.click('#btn-close-settings');
     await page.waitForFunction(() => document.getElementById('notice-dialog')?.open);
     await page.click('#notice-accept');
     await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
-    assert.deepEqual(await savedState(), before, 'Descartar no guarda herramientas, política ni reglas');
+    assert.deepEqual(await savedState(), before, 'Descartar no guarda herramientas, permitir todo ni reglas');
 
     await page.click('[data-section="permissions"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
     assert.deepEqual(await page.evaluate(() => ({
-      policy: document.querySelector('input[name="mcp-global-policy"]:checked')?.value,
+      allowAll: document.getElementById('mcp-allow-all').checked,
       rules: document.getElementById('mcp-directory-rules').value
-    })), { policy: before.policy, rules: before.rules.join('\n') }, 'Reabrir restaura los permisos guardados');
+    })), { allowAll: before.allowAll, rules: before.rules.join('\n') }, 'Reabrir restaura los permisos guardados');
   } finally {
     await browser.close();
   }

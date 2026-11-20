@@ -11,12 +11,12 @@ from backend import use_data_dir, use_project, zerochat
 # con el directorio actual como contexto, igual que la RPC.
 def cwd():
     return zerochat.project_context()
-def set_global(controller, policy):
-    controller.import_state({"globalMcpPolicy": policy}, cwd())
+def set_allow_all(controller, allow_all, ctx=None):
+    controller.import_state({"allowAll": allow_all}, ctx or cwd())
 
 
-def global_policy(controller):
-    return controller.export_state(cwd())["globalMcpPolicy"]
+def allow_all_of(controller, ctx=None):
+    return controller.export_state(ctx or cwd())["allowAll"]
 
 
 def set_rules(controller, rules, ctx=None):
@@ -137,11 +137,16 @@ class PolicyEvaluationTest(ControllerTestCase):
         dec = self.evaluate("run_command", {"command": "cat /etc/passwd"})
         self.assertEqual((dec.status, dec.requires_approval), ("ask", True))
 
-        set_global(self.controller, zerochat.GLOBAL_POLICY_ALLOW_ALL)
+        set_allow_all(self.controller, True)
         dec = self.evaluate("run_command", {"command": "rm -rf /"})
-        self.assertEqual((dec.status, dec.reason), ("allow", "mcp_global_allow_all"))
+        self.assertEqual((dec.status, dec.reason), ("allow", "project_allow_all"))
 
-        # Una denegación concreta prevalece sobre allow_all
+        # allowAll es por proyecto: otro proyecto sigue gobernado por sus reglas RWX y confirmando fuera
+        other_ctx = zerochat.SecurityContext(workspace_dir=(self.base_dir / "other").resolve())
+        self.assertFalse(allow_all_of(self.controller, other_ctx))
+        self.assertEqual(self.evaluate("run_command", {"command": "cat /etc/passwd"}, other_ctx).status, "ask")
+
+        # Una denegación concreta prevalece sobre allowAll
         set_tool(self.controller, "run_command", zerochat.POLICY_DENY)
         dec = self.evaluate("run_command", {"command": "echo 1"})
         self.assertEqual((dec.status, dec.reason), ("deny", "granular_deny_rule"))
@@ -244,11 +249,7 @@ class PolicyEvaluationTest(ControllerTestCase):
         self.assertTrue(self.evaluate("run_command", {"command": "ls"}, ctx_b).allowed)
 
     def test_ask_with_rwx_allows_local_commands_and_paths_but_not_references_outside(self):
-        # El valor heredado "workspace_trust" se normaliza a "ask" tanto en RPC como al leer SQLite
-        self.controller.import_state({"globalMcpPolicy": "workspace_trust"}, self.ctx)
-        self.assertEqual(global_policy(self.controller), zerochat.GLOBAL_POLICY_ASK)
-        zerochat.update_security_policy_data(lambda current: {**(current or {}), "globalMcpPolicy": "workspace_trust"})
-        self.assertEqual(global_policy(self.controller), zerochat.GLOBAL_POLICY_ASK)
+        self.assertFalse(allow_all_of(self.controller, self.ctx))
 
         set_rules(self.controller, [f"RWX:{self.norm_ws}/**"], self.ctx)
         self.assertTrue(self.evaluate("read_file", {"path": f"{self.norm_ws}/inside.txt"}).allowed)
@@ -377,7 +378,8 @@ class PolicyStateTest(ControllerTestCase):
     def test_invalid_patch_changes_nothing(self):
         set_rules(self.controller, [f"RW:{self.norm_ws}/**"], self.ctx)
         initial = self.controller.export_state(self.ctx)
-        for payload in ({"globalMcpPolicy": zerochat.GLOBAL_POLICY_ALLOW_ALL, "directoryRules": ["INVALID_NO_PREFIX_RULE"]},
+        for payload in ({"allowAll": True, "directoryRules": ["INVALID_NO_PREFIX_RULE"]},
+                        {"allowAll": "yes"},
                         {"addDirectoryRules": ["INVALID"]},
                         {"tools": {"tool_a": {"policy": "unsupported_policy"}}},
                         {"servers": {"srv_a": {"policy": "invalid"}}}):
@@ -409,10 +411,10 @@ class PolicyStateTest(ControllerTestCase):
         # En memoria solo hay sesión y retos pendientes: el estado permanente vive en SQLite
         self.assertEqual(set(self.controller.__dict__), {"_lock", "sessions"})
         controller_b = zerochat.AccessController()
-        set_global(self.controller, zerochat.GLOBAL_POLICY_ALLOW_ALL)
+        set_allow_all(self.controller, True)
         set_tool(self.controller, "tool_shared", zerochat.POLICY_ALLOW)
         set_server(self.controller, "srv_shared", zerochat.POLICY_ALLOW)
-        self.assertEqual(global_policy(controller_b), zerochat.GLOBAL_POLICY_ALLOW_ALL)
+        self.assertTrue(allow_all_of(controller_b))
         self.assertEqual(tool_entry(controller_b, "tool_shared")["policy"], zerochat.POLICY_ALLOW)
         self.assertEqual(server_entry(controller_b, "srv_shared")["policy"], zerochat.POLICY_ALLOW)
         revoke(controller_b, "tools", "tool_shared")
@@ -452,7 +454,7 @@ class PolicyStateTest(ControllerTestCase):
         initial = self.controller.export_state(self.ctx)
         with unittest.mock.patch("zerochat.update_security_policy_data", side_effect=sqlite3.OperationalError("database is locked")):
             res, err, _ = zerochat.dispatch_security("zerochat/security/update", {
-                "globalMcpPolicy": zerochat.GLOBAL_POLICY_ALLOW_ALL, "tools": {"my_tool": {"policy": "allow"}}
+                "allowAll": True, "tools": {"my_tool": {"policy": "allow"}}
             }, self.ctx)
         self.assertIsNone(res)
         self.assertEqual(err["code"], -32603)
@@ -462,7 +464,7 @@ class PolicyStateTest(ControllerTestCase):
         with zerochat.open_storage() as conn:
             conn.execute("INSERT INTO security_policies (id, data_json, updated_at) VALUES ('default', '{corrupt', 0);")
             conn.commit()
-        res, err, _ = zerochat.dispatch_security("zerochat/security/update", {"globalMcpPolicy": "allow_all"}, cwd())
+        res, err, _ = zerochat.dispatch_security("zerochat/security/update", {"allowAll": True}, cwd())
         self.assertIsNone(res)
         self.assertEqual(err["code"], -32603)
         self.assertIn("corruptas", err["message"])
@@ -791,11 +793,11 @@ class CommandPatternTest(HandlerTestCase):
 
 class SessionLifecycleTest(HandlerTestCase):
     def test_reset_session_authorizations_applies_the_run_overlay_without_storing_it(self):
-        set_global(self.controller, zerochat.GLOBAL_POLICY_ASK)
+        set_allow_all(self.controller, False)
         set_tool(self.controller, "db_tool", zerochat.POLICY_DENY)
         self.addCleanup(setattr, zerochat, "RUN_SESSION", None)
         zerochat.RUN_SESSION = zerochat.RunSession(prompt="test", tool_security={
-            "globalMcpPolicy": "allow_all", "tools": {"custom_tool": {"policy": "allow"}},
+            "allowAll": True, "tools": {"custom_tool": {"policy": "allow"}},
             "directoryRules": [f"RWX:{zerochat.normalize_directory_path(str(zerochat.PROJECT_DIR))}/**", "RW:/test/**"]
         })
         zerochat.reset_session_authorizations()
@@ -805,7 +807,7 @@ class SessionLifecycleTest(HandlerTestCase):
         for tool in ("read_file", "write_file", "edit_file", "run_command"):
             self.assertIsNone(tool_entry(self.controller, tool), tool)
         self.assertEqual(tool_entry(self.controller, "db_tool")["policy"], "deny")
-        self.assertEqual(global_policy(self.controller), "ask")
+        self.assertFalse(allow_all_of(self.controller))
         self.assertTrue(self.evaluate("custom_tool").allowed)
         self.assertTrue(self.evaluate("write_file", {"path": f"{self.norm_ws}/ok.txt"}).allowed)
         self.assertTrue(self.evaluate("write_file", {"path": "/test/ok.txt"}).allowed)
@@ -827,11 +829,11 @@ class SessionLifecycleTest(HandlerTestCase):
             mock_ext.assert_called_once()
 
         saved = zerochat.get_security_policy_data()
-        self.assertEqual((saved["globalMcpPolicy"], list(saved["tools"])), ("ask", ["db_tool"]))
+        self.assertEqual((saved["allowAll"], list(saved["tools"])), ({}, ["db_tool"]))
 
         zerochat.RUN_SESSION = None
         zerochat.reset_session_authorizations()
-        self.assertEqual(global_policy(self.controller), "ask")
+        self.assertFalse(allow_all_of(self.controller))
         self.assertIsNone(tool_entry(self.controller, "custom_tool"))
 
     def test_maintenance_directory_with_root_rw_allows_unrestricted_run_while_other_stays_contained(self):

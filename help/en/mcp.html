@@ -102,11 +102,10 @@ py zerochat.py</code></pre></div>
 
     <div class="card">
       <h2>4. Review permissions</h2>
-      <p>In <strong>Settings → Permissions</strong>, choose the global policy and review saved authorizations. In the MCP panel, choose Ask, Allow or Deny for each tool.</p>
+      <p>In <strong>Settings → Permissions</strong>, configure access for the active project and review saved authorizations. In the MCP panel, choose Ask, Allow or Deny for each tool.</p>
       <ul>
-        <li><strong>Ask for authorization:</strong> prompts when existing rules do not resolve the call.</li>
-        <li><strong>Trust the workspace:</strong> besides directory rules, allows files with relative paths inside the project and commands that stay inside the project: no absolute paths, <code>~</code>, variables or <code>..</code>, no redirection to files, and pipes only into filters such as <code>head</code>, <code>grep</code> or <code>wc</code>. A command chained with <code>&amp;&amp;</code>, <code>||</code> or <code>;</code> is checked part by part (see below). Anything else asks for confirmation. It is not isolation: a simple command such as <code>python3 script.py</code> acts with your permissions.</li>
-        <li><strong>Allow everything:</strong> runs without confirmation, except for explicit blocks that take precedence.</li>
+        <li><strong>Default (switch off):</strong> applies the project's <code>RWX</code> directory rules and saved authorizations; prompts for anything else. It is not isolation: an allowed command such as <code>python3 script.py</code> acts with your permissions.</li>
+        <li><strong>Allow all in this project:</strong> runs any tool or command in that project without confirmation, except explicit blocks that take precedence.</li>
       </ul>
       <p>Decisions may apply to one call, the project session (until you close ZeroChat; it is shared by the tabs and devices working on that project and changing project does not clear it) or permanently. External tools are named <code>&lt;service&gt;_&lt;tool&gt;</code>: trusting <code>composio</code> authorizes its tools, not those of other services. Allowing one tool does not authorize the whole service.</p>
       <p><strong>Allowed directories:</strong> by default, the current project directory starts with read, write and command execution access (<code>RWX:&lt;project&gt;/**</code>), and you can edit or add rules for that project: one per line combining <code>R</code> (read), <code>W</code> (write) and <code>X</code> (executing <code>run_command</code>, without which no commands can run; <code>RWX:/**</code> grants full access), using <code>*</code> for one segment and <code>**</code> for subdirectories. Relative paths resolve relative to the project; paths with unresolved <code>~</code> or variables are rejected. Commands also have prefix rules and additional checks.</p>

@@ -29,7 +29,7 @@ async function withMcpPanel(mcp, fn) {
           }
           return {
             policies: {
-              globalMcpPolicy: patch?.globalMcpPolicy || window.ChatToolSecurity.manager.policies.globalMcpPolicy,
+              allowAll: patch?.allowAll ?? window.ChatToolSecurity.manager.policies.allowAll,
               directoryRules: patch?.directoryRules || window.ChatToolSecurity.manager.policies.directoryRules,
               tools,
               servers,
@@ -190,15 +190,15 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
       assert.equal(await page.evaluate(() => window.ChatToolSecurity.manager.getToolPolicy('mcp_test_tool_2')), null);
       assert.equal(await select('mcp_test_tool_2').evaluate(element => element.classList.contains('status-ask')), true);
 
-      const global = await page.evaluate(async tools => {
-        await window.ChatToolSecurity.manager.setGlobalMcpPolicy('allow_all');
+      const projectAll = await page.evaluate(async tools => {
+        await window.ChatToolSecurity.manager.setAllowAll(true);
         const container = document.getElementById('mcp-tools-container');
         window.ChatUIMcp.renderToolsList(container, tools, {});
         const text = container.textContent;
-        await window.ChatToolSecurity.manager.setGlobalMcpPolicy('ask');
+        await window.ChatToolSecurity.manager.setAllowAll(false);
         return text;
       }, tools);
-      assert.match(global, /\(Global\)/);
+      assert.match(projectAll, /\(Proyecto\)/);
 
       const revoke = await page.evaluate(async () => {
         window.ChatToolSecurity.manager.applyPolicies({

@@ -51,7 +51,6 @@ from security.context import PROJECT_DIR, SecurityContext, project_context
 from security.controller import ACCESS_CONTROLLER
 from security.rules import (
     COMMAND_TOOL,
-    GLOBAL_POLICY_ASK,
     POLICY_ALLOW,
     POLICY_DENY,
     get_integrated_path_access,
@@ -283,7 +282,7 @@ def reset_session_authorizations():
                 ACCESS_CONTROLLER.apply_tool_decision(tool_decision, ctx, server_id=server_id)
         permanent_tools = ACCESS_CONTROLLER.export_state(ctx).get("tools") or {}
         ACCESS_CONTROLLER.apply_session_overlay({
-            "globalMcpPolicy": GLOBAL_POLICY_ASK,
+            "allowAll": False,
             "tools": {
                 name: {"policy": POLICY_ALLOW}
                 for name in LOCAL_TOOL_HANDLERS

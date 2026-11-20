@@ -401,7 +401,7 @@ function fakeLocalServer(state) {
         serverInfo: { name: 'zerochat' },
         capabilities: {},
         tools: [{ name: 'edit_file' }],
-        policies: state.policies || { globalMcpPolicy: 'ask', directoryRules: ['RWX:/repo/**'] },
+        policies: state.policies || { allowAll: false, directoryRules: ['RWX:/repo/**'] },
         liveState
       });
     }
@@ -873,7 +873,7 @@ test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversatio
     const started = await manager.startServerRun({
       conversationId: 'conv_srv_1',
       profile: 'Server',
-      toolSecurity: { globalMcpPolicy: 'ask' }
+      toolSecurity: { allowAll: false }
     });
     assert.equal(started.run_id, 'run_srv_1');
     assert.deepEqual(ChatState.get('mcp').serverRuns, [

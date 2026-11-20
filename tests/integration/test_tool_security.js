@@ -5,8 +5,8 @@ const ChatToolSecurity = require('../../js/tool-security.js');
 function createMockClient(initialState = {}) {
   const calls = [];
   const state = {
-    version: 7,
-    globalMcpPolicy: 'ask',
+    version: 8,
+    allowAll: false,
     directoryRules: [],
     tools: {},
     servers: {},
@@ -19,7 +19,7 @@ function createMockClient(initialState = {}) {
     async request(method, params) {
       calls.push({ method, params });
       if (method === 'zerochat/security/update') {
-        if (params.globalMcpPolicy !== undefined) state.globalMcpPolicy = params.globalMcpPolicy;
+        if (params.allowAll !== undefined) state.allowAll = Boolean(params.allowAll);
         if (params.directoryRules !== undefined) state.directoryRules = [...params.directoryRules];
         if (params.addDirectoryRules !== undefined) state.directoryRules = [...new Set([...state.directoryRules, ...params.addDirectoryRules])];
         if (params.tools !== undefined) {
@@ -56,7 +56,7 @@ test('ChatToolSecurity - sin servidor conectado los setters y retos lanzan error
     () => manager.revokeToolPolicy('tool1'),
     () => manager.setServerPolicy('srv1', 'allow'),
     () => manager.revokeServerPolicy('srv1'),
-    () => manager.setGlobalMcpPolicy('allow_all'),
+    () => manager.setAllowAll(true),
     () => manager.setDirectoryRules(['R:/workspace/**']),
     () => manager.addDirectoryRule('R:/workspace/**'),
     () => manager.setCommandPatterns({ global: ['git *'] }),
@@ -107,11 +107,11 @@ test('ChatToolSecurity - mutaciones envían parches parciales y adoptan la respu
   assert.deepEqual(revokeSrvCall.params, { servers: { srv1: null } });
   assert.equal(manager.getServerPolicy('srv1'), null);
 
-  // 5. Global policy y directoryRules
-  await manager.setGlobalMcpPolicy('allow_all');
-  assert.equal(manager.getGlobalMcpPolicy(), 'allow_all');
-  await manager.setGlobalMcpPolicy('ask');
-  assert.equal(manager.getGlobalMcpPolicy(), 'ask');
+  // 5. allowAll del proyecto y directoryRules
+  await manager.setAllowAll(true);
+  assert.equal(manager.getAllowAll(), true);
+  await manager.setAllowAll(false);
+  assert.equal(manager.getAllowAll(), false);
 
   await manager.setDirectoryRules(['R:/proj/**']);
   assert.deepEqual(manager.getDirectoryRules(), ['R:/proj/**']);

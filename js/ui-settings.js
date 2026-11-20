@@ -104,11 +104,11 @@
     badge.hidden = !cwd;
   }
 
-  /** Pinta la política MCP global y las reglas de directorios guardadas en ChatToolSecurity. */
+  /** Pinta el interruptor permitir todo del proyecto y las reglas de directorios guardadas en ChatToolSecurity. */
   function loadPermissionControls(elements) {
     const security = getToolSecurity().manager;
-    const policy = security.getGlobalMcpPolicy();
-    elements.settingsDialog.querySelectorAll('input[name="mcp-global-policy"]').forEach(radio => { radio.checked = radio.value === policy; });
+    const toggle = elements.settingsDialog.querySelector('#mcp-allow-all');
+    if (toggle) toggle.checked = security.getAllowAll();
     syncDirectoryRulesProject(elements);
     elements.mcpDirectoryRules.value = security.getDirectoryRules().join('\n');
     elements.mcpDirectoryRulesError.textContent = '';
@@ -169,11 +169,11 @@
     }
   }
 
-  async function saveMcpGlobalPolicyFromSettings(elements) {
+  async function saveAllowAllFromSettings(elements) {
     const security = getToolSecurity().manager;
     if (!security.mcpClient) return;
-    const checked = elements.settingsDialog.querySelector('input[name="mcp-global-policy"]:checked');
-    if (checked) await security.setGlobalMcpPolicy(checked.value);
+    const toggle = elements.settingsDialog.querySelector('#mcp-allow-all');
+    if (toggle) await security.setAllowAll(toggle.checked);
   }
 
   /** Cierra los ajustes; con cambios sin guardar pide confirmación salvo con `force`. */
@@ -202,7 +202,7 @@
       openSettingsSection(elements, appConfig, 'connection');
       return false;
     }
-    await saveMcpGlobalPolicyFromSettings(elements);
+    await saveAllowAllFromSettings(elements);
     if (!await getUIBrowser().save()) {
       openSettingsSection(elements, appConfig, 'browser');
       return false;
@@ -424,20 +424,14 @@ zerochat</code></pre>
             </div>
             <p class="label-hint mcp-section-hint" data-i18n="mcp_security_desc">Controla cuándo se ejecutan las herramientas del servidor MCP en tu sistema local.</p>
 
-            <div class="mcp-policy-options">
-              <label class="mcp-policy-option">
-                <input type="radio" name="mcp-global-policy" value="ask" id="mcp-policy-ask" checked>
-                <div class="mcp-policy-text">
-                  <strong data-i18n="mcp_security_policy_ask">Reglas del proyecto y confirmación interactiva (Recomendado)</strong>
-                  <p class="label-hint" data-i18n="mcp_security_policy_ask_hint">Aplica las reglas RWX de directorio del proyecto y las autorizaciones guardadas; pide confirmación para el resto. No es un aislamiento del sistema.</p>
-                </div>
-              </label>
-              <label class="mcp-policy-option">
-                <input type="radio" name="mcp-global-policy" value="allow_all" id="mcp-policy-allow-all">
-                <div class="mcp-policy-text">
-                  <strong data-i18n="mcp_security_policy_allow_all">Todo autorizado (Modo desatendido)</strong>
-                  <p class="label-hint" data-i18n="mcp_security_policy_allow_all_hint">Ejecuta inmediatamente cualquier herramienta o comando sin pausas de confirmación, salvo las denegadas explícitamente.</p>
-                </div>
+            <div class="setting-toggle-card">
+              <div class="toggle-card-info">
+                <div class="toggle-card-title"><span data-i18n="mcp_security_allow_all">Permitir todo en este proyecto</span></div>
+                <p class="toggle-card-desc" data-i18n="mcp_security_allow_all_hint">Ejecuta inmediatamente cualquier herramienta o comando en este proyecto sin pedir confirmación, salvo lo denegado explícitamente.</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="mcp-allow-all" data-i18n-aria="mcp_security_allow_all" aria-label="Permitir todo en este proyecto">
+                <span class="slider"></span>
               </label>
             </div>
           </div>

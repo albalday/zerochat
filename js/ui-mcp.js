@@ -84,8 +84,8 @@
   function renderToolAuthorization(tool, serverName, originalName) {
     const security = getSecurity();
     const allowed = escapeHtml(t('mcp_security_badge_allowed'));
-    if (security.getGlobalMcpPolicy() === 'allow_all') {
-      return `<span class="mcp-auth-badge status-allowed" title="${escapeHtml(t('mcp_security_policy_allow_all'))}">${allowed} (Global)</span>`;
+    if (security.getAllowAll()) {
+      return `<span class="mcp-auth-badge status-allowed" title="${escapeHtml(t('mcp_security_allow_all'))}">${allowed} (${escapeHtml(t('mcp_security_badge_project'))})</span>`;
     }
     const policy = security.getToolPolicy(tool.name) || 'ask';
     const serverId = tool.metadata.mcpServerId;

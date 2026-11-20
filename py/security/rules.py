@@ -10,9 +10,6 @@ import shlex
 
 from security.context import normalize_directory_path
 
-GLOBAL_POLICY_ASK = "ask"
-GLOBAL_POLICY_ALLOW_ALL = "allow_all"
-GLOBAL_POLICIES = (GLOBAL_POLICY_ASK, GLOBAL_POLICY_ALLOW_ALL)
 POLICY_ALLOW = "allow"
 POLICY_DENY = "deny"
 POLICY_ASK = "ask"

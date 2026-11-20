@@ -54,10 +54,10 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
                 throw new Error('Invalid directory rule. Use R, W, X followed by :path.');
               }
               const currentRules = params.directoryRules !== undefined ? params.directoryRules : window.ChatToolSecurity.manager.getDirectoryRules();
-              const currentPolicy = params.globalMcpPolicy !== undefined ? params.globalMcpPolicy : window.ChatToolSecurity.manager.getGlobalMcpPolicy();
+              const currentAllowAll = params.allowAll !== undefined ? params.allowAll : window.ChatToolSecurity.manager.getAllowAll();
               return { policies: {
                 directoryRules: currentRules,
-                globalMcpPolicy: currentPolicy
+                allowAll: currentAllowAll
               }};
             }
             return {};
@@ -72,20 +72,20 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       assert.notEqual(await page.evaluate(() => window.ChatConfig.getActive().enabledTools.search_web), false, 'El interruptor espera a Guardar');
 
       await openSettings(page, 'permissions');
-      assert.deepEqual(await page.$$eval('input[name="mcp-global-policy"]', els => els.map(el => el.value)), ['ask', 'allow_all']);
+      assert.equal(await page.isChecked('#mcp-allow-all'), false);
       assert.equal(await page.inputValue('#mcp-directory-rules'), 'RWX:/workspace/**', 'El campo arranca con la regla editable del proyecto');
       await page.fill('#mcp-directory-rules', 'R:/workspace/**\nW:/tmp\n\n');
-      await page.locator('.mcp-policy-option:has(#mcp-policy-allow-all)').click();
+      await page.locator('.switch:has(#mcp-allow-all)').click();
       await openSettings(page, 'model');
       await page.fill('#setting-system-data-prompt', 'Datos propios');
       await page.click('#btn-save-settings');
       await page.waitForFunction(() => !document.getElementById('settings-dialog').open);
       assert.deepEqual(await page.evaluate(() => ({
         rules: window.ChatToolSecurity.manager.getDirectoryRules(),
-        policy: window.ChatToolSecurity.manager.getGlobalMcpPolicy(),
+        allowAll: window.ChatToolSecurity.manager.getAllowAll(),
         dataPrompt: window.ChatConfig.getActive().systemDataPrompt,
         searchWeb: window.ChatConfig.getActive().enabledTools.search_web
-      })), { rules: ['R:/workspace/**', 'W:/tmp'], policy: 'allow_all', dataPrompt: 'Datos propios', searchWeb: false });
+      })), { rules: ['R:/workspace/**', 'W:/tmp'], allowAll: true, dataPrompt: 'Datos propios', searchWeb: false });
 
       await openSettings(page, 'permissions');
       assert.equal(await page.locator('#mcp-directory-rules-project').isVisible(), true);

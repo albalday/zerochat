@@ -943,52 +943,6 @@
   font-weight: 500;
 }
 
-.mcp-policy-options {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  background: var(--bg-surface-subtle);
-  padding: 0.35rem;
-  border-radius: var(--radius-md);
-  margin-top: 0.75rem;
-}
-
-.mcp-policy-option {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.65rem;
-  cursor: pointer;
-  user-select: none;
-  padding: 0.45rem 0.6rem;
-  border-radius: var(--radius-sm);
-  transition: background 0.15s ease;
-}
-
-.mcp-policy-option:hover {
-  background: var(--bg-surface);
-}
-
-.mcp-policy-option input[type="radio"] {
-  margin-top: 0.15rem;
-  cursor: pointer;
-}
-
-.mcp-policy-text {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.mcp-policy-text strong {
-  display: block;
-  font-size: 0.825rem;
-  color: var(--text-main);
-}
-
-.mcp-policy-text .label-hint {
-  font-size: 0.75rem;
-  margin-top: 0.1rem;
-}
-
 .mcp-saved-auths-list {
   display: flex;
   flex-direction: column;

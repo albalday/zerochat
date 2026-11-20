@@ -111,7 +111,7 @@ Done when: los perfiles no conservan ni gestionan MCPs ni navegador (incluido SQ
 - [ ] M80-T4 Separar el menú de Ajustes en sección global (Idioma, Tema, Cifrado, RAG) y bloque de proyecto identificado con el proyecto activo (Modelo, Agente, MCP, Navegador, Permisos) en `zerochat.html`, `js/ui-sidebar.js`, `js/ui-settings.js`, `js/app.js`, CSS e i18n
 - [ ] M80-T5 Aplicar el entorno del proyecto al cambiar de proyecto y en `--prompt`/`--conversation`: actualizar `ChatConfig` desde los valores guardados del proyecto y conciliar arranque y parada de servicios MCP externos (incluido Playwright MCP) según el proyecto activo
 - [ ] M80-T6 Pruebas integrales de separación global/proyecto, persistencia por proyecto, arranque y parada de MCPs/navegador al cambiar de proyecto y sincronización de documentación (`py/README.md`, `js/README.md`, `help/`)
-- [ ] M80-T7 Sustituir globalMcpPolicy por un interruptor por proyecto de permitir todo (allowAll) y simplificar el panel de Permisos (manteniendo RWX cuando no esté activo)
+- [x] M80-T7 Sustituir globalMcpPolicy por un interruptor por proyecto de permitir todo (allowAll) y simplificar el panel de Permisos (manteniendo RWX cuando no esté activo) (2026-11-20)
 
 
 
