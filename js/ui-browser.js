@@ -1,6 +1,6 @@
 /**
  * Sección Navegador de los ajustes: la herramienta de navegación (configuración del cliente) y,
- * con Playwright MCP, su navegador (config/browser.json del servidor local): el propio de ZeroChat
+ * con Playwright MCP, su navegador (guardado en SQLite del servidor local): el propio de ZeroChat
  * con sus motores y sus datos, o el del usuario (Chrome, Edge o Chromium) mediante la extensión de Playwright.
  * Se organiza en tres zonas: el modelo (estado de la sección y consultas al estado MCP), la vista
  * (plantillas que pintan ese estado) y el controlador (acciones, peticiones al servidor local y
@@ -28,7 +28,7 @@
 
   const ENGINE_NAMES = { chromium: 'Chromium', firefox: 'Firefox', webkit: 'WebKit' };
   const { USER_BROWSERS } = Defaults;
-  const ENGINE_POLL_MS = 1000;
+  const ENGINE_WAIT_MS = 25000;
   const CONFIG_KEYS = ['mode', 'engine', 'userBrowser', 'headless', 'extensionToken'];
   // La extensión muestra el token como variable de entorno: se admite pegar la línea entera.
   const TOKEN_ENV_PREFIX = /^PLAYWRIGHT_MCP_EXTENSION_TOKEN\s*=\s*/;
@@ -36,12 +36,12 @@
 
   // Lo que muestra la sección: la herramienta y la configuración en edición, la guardada y los motores.
   let section = { tool: null, config: null, savedConfig: null, engines: null, notice: null };
-  let pollTimer = null;
+  let waitAbort = null;
   // Fijados al montar: el contenedor que se pinta y cómo abrir otra sección de los ajustes.
   let container = null;
   let openSection = null;
 
-  const request = (method, params = {}) => getMCP().manager.requestExternalControl(method, params);
+  const request = (method, params = {}, options = {}) => getMCP().manager.requestExternalControl(method, params, options);
   const isConnected = () => getState().get('mcp').status === 'connected';
   const playwrightStatus = () => getState().get('mcp').externalServers.find(server => server.id === 'playwright')?.status || null;
 
@@ -194,17 +194,38 @@
   // 3. Controlador: acciones y eventos
   // ==========================================================================
 
-  /** Consulta la lista de motores y la repite mientras alguno se esté instalando. */
+  /** Consulta la lista de motores y sigue sus cambios por long-poll mientras alguno se esté instalando. */
   async function refreshEngines() {
-    clearTimeout(pollTimer);
-    section.engines = await request('zerochat/browser/engines/list');
-    if (section.engines?.config && !section.savedConfig) {
-      section.savedConfig = section.engines.config;
-      section.config = { ...section.engines.config };
-    }
-    render();
-    if (section.engines.engines.some(engine => engine.status === 'installing')) {
-      pollTimer = setTimeout(() => refreshEngines().catch(showError), ENGINE_POLL_MS);
+    waitAbort?.abort();
+    const abortController = new AbortController();
+    waitAbort = abortController;
+    try {
+      section.engines = await request('zerochat/browser/engines/list', {}, { signal: abortController.signal });
+      if (abortController.signal.aborted) return;
+      if (section.engines?.config && !section.savedConfig) {
+        section.savedConfig = section.engines.config;
+        section.config = { ...section.engines.config };
+      }
+      render();
+      while (!abortController.signal.aborted && section.engines?.engines?.some(engine => engine.status === 'installing')) {
+        const startedAt = Date.now();
+        const prevRev = section.engines.rev;
+        const update = await request(
+          'zerochat/browser/engines/list',
+          { since_rev: prevRev, wait_ms: ENGINE_WAIT_MS, engines_only: true },
+          { signal: abortController.signal, timeoutMs: ENGINE_WAIT_MS + 5000 }
+        );
+        if (abortController.signal.aborted) return;
+        section.engines = { ...section.engines, ...update };
+        render();
+        if (update?.rev === prevRev && Date.now() - startedAt < 50) {
+          await new Promise(resolve => { setTimeout(resolve, 500); });
+        }
+      }
+    } catch (error) {
+      if (!abortController.signal.aborted) throw error;
+    } finally {
+      if (waitAbort === abortController) waitAbort = null;
     }
   }
 
@@ -221,6 +242,7 @@
 
   /** Carga la sección al abrir los ajustes con la herramienta de navegación de la configuración. */
   function load(tool, { fetch = true } = {}) {
+    waitAbort?.abort();
     section = { tool, config: null, savedConfig: null, engines: null, notice: null };
     render();
     if (fetch) refreshServerData().catch(showError);

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
+import threading
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import IO
@@ -16,13 +17,18 @@ from core.logging import log_event
 from run_mode.runner_loader import RUNNER_CACHE_ALWAYS_DOWNLOAD, RUNNER_CACHE_BY_VERSION, RUNNER_LOADER_SCRIPT
 from run_mode.state import (
     NODE_REQUIRED_MESSAGE,
-    RUN_POLL_SECONDS,
     RunSession,
     find_node_executable,
     run_error,
     write_run_state,
 )
-from server.state import _SERVER_SHUTTING_DOWN, heartbeat_initialized, stop_zerochat_server
+from server.state import (
+    _SERVER_SHUTTING_DOWN,
+    heartbeat_initialized,
+    register_shutdown_event,
+    stop_zerochat_server,
+    unregister_shutdown_event,
+)
 
 
 # Final de la salida de error del runner que acompaña al motivo de un final sin resultado.
@@ -48,14 +54,27 @@ def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc
     """Detiene el servidor al recibir el resultado o si termina el runner propio. Sin plazos: lo que dura una ejecución
     lo decide quien la lanza (la cancela o la interrumpe), y cada paso cerrado ya está grabado."""
     proc = runner_proc if runner_proc is not None else browser_proc
-    while not session.finished.wait(RUN_POLL_SECONDS):
+    wake = threading.Event()
+    proc_done = threading.Event()
+    session.set_wake_event(wake)
+    register_shutdown_event(wake)
+    try:
+        if proc is not None:
+            def _watch_proc():
+                proc.wait()
+                proc_done.set()
+                wake.set()
+            threading.Thread(target=_watch_proc, name="run-proc-wait", daemon=True).start()
+        wake.wait()
         # El latido o una señal ya detienen el servidor: el resultado queda vacío.
         if _SERVER_SHUTTING_DOWN.is_set():
             return
-        if proc is not None and proc.poll() is not None and not session.finished.wait(0.2):
+        if proc_done.is_set() and not session.finished.wait(0.2):
             if runner_proc is not None:
                 session.stop_reason = runner_exit_reason(runner_proc, runner_log)
-            break
+    finally:
+        unregister_shutdown_event(wake)
+        session.set_wake_event(None)
     if session.result is None and session.conversation_id:
         with session.lock:
             session.status = "error"

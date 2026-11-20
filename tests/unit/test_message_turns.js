@@ -13,44 +13,35 @@ test('Turns.extractBaseId - normaliza identificadores y descarta sufijos de turn
   assert.equal(Turns.extractBaseId(123), '');
 });
 
-test('Turns.removeSelectedTurn - elimina el turno seleccionado sin mutar, distingue prefijos y respeta llamadas paralelas', () => {
+test('Turns.removeLastTurn - retira el último turno completo sin mutar, extrae su prompt y gestiona bordes', () => {
   const history = [
-    { id: 'u1', role: 'user', content: 'Question' },
-    { id: 'a1', role: 'assistant', tool_calls: [{ id: 'c1', function: { name: 'search' } }] },
-    { id: 't1', role: 'tool', tool_call_id: 'c1', content: 'Result' },
-    { id: 'a1_final', role: 'assistant', content: 'Answer' },
+    { id: 'u1', role: 'user', content: 'Question 1' },
+    { id: 'a1', role: 'assistant', content: 'Answer 1' },
     { id: 'u2', role: 'user', content: 'Next question' },
     { id: 'a2', role: 'assistant', tool_calls: [{ id: 'c2', function: { name: 'read' } }] },
     { id: 't2', role: 'tool', tool_call_id: 'c2', content: 'Kept result' },
-    { id: 'a2_final', role: 'assistant', content: 'Kept answer' },
-    { id: 'orphan', role: 'tool', tool_call_id: 'unknown' }
+    { id: 'a2_final', role: 'assistant', content: 'Kept answer' }
   ];
   const original = structuredClone(history);
-  const selection = { baseId: 'a1', explicitIds: new Set(['a1']) };
-  assert.deepEqual(Turns.removeSelectedTurn(history, selection).map(m => m.id), ['u1', 'u2', 'a2', 't2', 'a2_final']);
+  const res = Turns.removeLastTurn(history);
+  assert.deepEqual(res.messages.map(m => m.id), ['u1', 'a1']);
+  assert.equal(res.removedPrompt, 'Next question');
+  assert.equal(res.removedCount, 4);
   assert.deepEqual(history, original);
-  assert.deepEqual([...selection.explicitIds], ['a1']);
 
-  // Distingue prefijos ('a1' no borra 'a10'), acepta explicitIds en array y entradas vacías.
-  assert.deepEqual(Turns.removeSelectedTurn([
-    { id: 'a1', role: 'assistant' },
-    { id: 'a10', role: 'assistant', tool_calls: [{ function: { name: 'read' } }] },
-    { id: 'result', role: 'tool', name: 'read' }
-  ], { baseId: 'a1' }).map(m => m.id), ['a10', 'result']);
-  assert.deepEqual(Turns.removeSelectedTurn([{ id: 'u1', role: 'user' }, { id: 'a1', role: 'assistant' }], { explicitIds: ['a1'] }).map(m => m.id), ['u1']);
-  assert.deepEqual(Turns.removeSelectedTurn([], { baseId: 'a1' }), []);
-  assert.deepEqual(Turns.removeSelectedTurn(null, { baseId: 'a1' }), []);
+  // Turno solo con pregunta multimodal
+  const soloUser = Turns.removeLastTurn([
+    { id: 'u1', role: 'user', content: [{ type: 'text', text: 'Con imagen' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } }] }
+  ]);
+  assert.deepEqual(soloUser, { messages: [], removedPrompt: 'Con imagen', removedCount: 1 });
 
-  // Conserva todos los resultados de llamadas paralelas ajenas al turno borrado.
-  assert.deepEqual(Turns.removeSelectedTurn([
-    { id: 'u1', role: 'user', content: 'Primera' },
-    { id: 'u1_turn_0_assistant', role: 'assistant', content: null, tool_calls: [{ id: 'call_a', function: { name: 'a' } }, { id: 'call_b', function: { name: 'b' } }] },
-    { id: 'u1_turn_0_tool_a', role: 'tool', tool_call_id: 'call_a', name: 'a', content: 'A' },
-    { id: 'u1_turn_0_tool_b', role: 'tool', tool_call_id: 'call_b', name: 'b', content: 'B' },
-    { id: 'u1_final', role: 'assistant', content: 'Respuesta' },
-    { id: 'u2', role: 'user', content: 'Segunda' },
-    { id: 'u2_final', role: 'assistant', content: 'Otra' }
-  ], { baseId: 'u2' }).map(m => m.id), ['u1', 'u1_turn_0_assistant', 'u1_turn_0_tool_a', 'u1_turn_0_tool_b', 'u1_final']);
+  assert.deepEqual(Turns.removeLastTurn([]), { messages: [], removedPrompt: '', removedCount: 0 });
+  assert.deepEqual(Turns.removeLastTurn(null), { messages: [], removedPrompt: '', removedCount: 0 });
+  assert.deepEqual(Turns.removeLastTurn([{ id: 's1', role: 'system', content: 'sys' }]), {
+    messages: [{ id: 's1', role: 'system', content: 'sys' }],
+    removedPrompt: '',
+    removedCount: 0
+  });
 });
 
 test('Turns.hasMatchingToolCall & dropOrphanToolMessages - emparejan llamadas paralelas y descartan huérfanos', () => {

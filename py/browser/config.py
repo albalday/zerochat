@@ -2,36 +2,33 @@
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import shutil
 import sys
 from pathlib import Path
 
-from core.environment import _write_private_text, get_data_dir
+from core.environment import get_data_dir
 from core.logging import log_event
+from storage.db import get_secret, get_setting, save_browser_config_storage
 
 
 # Configuración del navegador de Playwright MCP (sección Navegador de Ajustes).
 # Modo propio: un motor de Playwright en memoria (--isolated), o con almacenamiento persistente con nombre
 # en ~/zerochat/playwright/profile/<motor>/<nombre>.
 # Modo del usuario: su Chrome, Edge o Chromium mediante la extensión de Playwright (--extension).
-BROWSER_TOOLS = ("none", "browser_action", "playwright")
 BROWSER_MODES = ("own", "user")
 OWN_BROWSER_ENGINES = ("chromium", "firefox", "webkit")
 USER_BROWSERS = ("chrome", "msedge", "chromium")
 BROWSER_CONFIG_DEFAULTS = {"mode": "own", "engine": "chromium", "userBrowser": "chrome", "headless": True, "extensionToken": ""}
+BROWSER_CONFIG_KEY = "browser"
+BROWSER_EXTENSION_TOKEN_KEY = "browser:extension_token"  # noqa: S105 - nombre de fila en la tabla secrets
 # Identificador de la extensión de Playwright en la tienda de Chrome, que también usa Edge.
 PLAYWRIGHT_SERVER_ID = "playwright"
 PLAYWRIGHT_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm"
 # Token que muestra la extensión: con él la conexión no pide aceptarla en el navegador.
 _EXTENSION_TOKEN = re.compile(r"^[A-Za-z0-9_-]{0,256}$")
 _BROWSER_CONFIG_CHOICES = {"mode": BROWSER_MODES, "engine": OWN_BROWSER_ENGINES, "userBrowser": USER_BROWSERS}
-
-
-def browser_config_file() -> Path:
-    return get_data_dir() / "config" / "browser.json"
 
 
 def own_browser_profile_dir(engine: str) -> Path:
@@ -57,22 +54,24 @@ def validate_browser_config(raw) -> dict:
 
 
 def load_browser_config() -> dict:
-    path = browser_config_file()
-    if not path.exists():
-        return dict(BROWSER_CONFIG_DEFAULTS)
     try:
-        return validate_browser_config(json.loads(path.read_text(encoding="utf-8")))
-    except (OSError, ValueError) as err:
-        log_event(f"[zerochat] Configuración del navegador no válida en {path}, se usan los valores por defecto: {err}")
+        stored = get_setting(BROWSER_CONFIG_KEY)
+        token = get_secret(BROWSER_EXTENSION_TOKEN_KEY) or ""
+        if stored is None and not token:
+            return dict(BROWSER_CONFIG_DEFAULTS)
+        raw = stored if isinstance(stored, dict) else {}
+        if stored is not None and not isinstance(stored, dict):
+            raise ValueError("La configuración del navegador debe ser un objeto")
+        return validate_browser_config({**raw, "extensionToken": token})
+    except (OSError, ValueError, TypeError) as err:
+        log_event(f"[zerochat] Configuración del navegador no válida en SQLite, se usan los valores por defecto: {err}")
         return dict(BROWSER_CONFIG_DEFAULTS)
 
 
 def save_browser_config(raw) -> dict:
     config = validate_browser_config(raw)
-    path = browser_config_file()
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    # Guarda el token de la extensión: solo lo lee el usuario.
-    _write_private_text(path, json.dumps(config, indent=2))
+    public_config = {key: value for key, value in config.items() if key != "extensionToken"}
+    save_browser_config_storage(public_config, config["extensionToken"], BROWSER_CONFIG_KEY, BROWSER_EXTENSION_TOKEN_KEY)
     return config
 
 

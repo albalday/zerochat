@@ -435,8 +435,9 @@ test('MCP - connectProxy publica el estado vivo de initialize y registra las her
     assert.ok(AgentCore.registry.getTool('sqlite_query'), 'sqlite_query debe seguir registrada tras reconectar');
 
     // El latido es el método zerochat/heartbeat del servidor local.
+    const beatsBefore = state.beats || 0;
     await manager.sendHeartbeat();
-    assert.equal(state.beats, 1);
+    assert.ok(state.beats > beatsBefore);
     await manager.disconnectProxy();
   } finally {
     manager.setHeartbeatTimer(false);
@@ -452,7 +453,7 @@ test('MCP - con sesión, el latido conecta cuando el servidor local arranca o vu
     const failed = await manager.connectProxy({ url: 'http://127.0.0.1:6388', token: 'tok' });
     assert.equal(failed.success, false);
     assert.equal(ChatState.get('mcp').status, 'error');
-    assert.ok(manager.heartbeatTimer, 'el latido vigila el destino aunque la conexión falle');
+    assert.equal(manager.heartbeatActive, true, 'el seguimiento vigila el destino aunque la conexión falle');
 
     // Mientras sigue caído, el latido no cambia el estado.
     const downState = ChatState.get('mcp');
@@ -469,7 +470,7 @@ test('MCP - con sesión, el latido conecta cuando el servidor local arranca o vu
     await manager.sendHeartbeat();
     assert.equal(ChatState.get('mcp').status, 'error');
     assert.equal(manager.isProxyConnected(), false);
-    assert.ok(manager.heartbeatTimer);
+    assert.equal(manager.heartbeatActive, true);
 
     // Vuelve con otro token diario: se pide identificarse en lugar de mostrar el fallo de red anterior.
     state.server = 'newToken';
@@ -548,19 +549,20 @@ test('MCP - el latido periódico y la vuelta a la pestaña funcionan igual con y
   const manager = new MCP.McpManager();
   try {
     assert.equal((await manager.connectProxy({ url: 'http://127.0.0.1:6388', token: 'tok' })).success, true);
-    assert.ok(manager.heartbeatTimer, 'sin auto-cierre también hay temporizador de latido');
+    assert.equal(manager.heartbeatActive, true, 'sin auto-cierre también hay seguimiento activo');
 
     // Otra pestaña cambia el directorio: se ve al volver a esta sin esperar al siguiente tick.
     state.live = { ...state.live, cwd: '/otro' };
+    const beatsBefore = state.beats || 0;
     await manager.onPageVisible();
-    assert.equal(state.beats, 1);
+    assert.ok(state.beats > beatsBefore);
     assert.equal(ChatState.get('mcp').serverInfo.cwd, '/otro');
 
     // El servidor se reinicia: al volver se detecta la caída y luego reconecta.
     state.server = 'down';
     await manager.onPageVisible();
     assert.equal(ChatState.get('mcp').status, 'error');
-    assert.ok(manager.heartbeatTimer);
+    assert.equal(manager.heartbeatActive, true);
     state.server = 'up';
     await manager.onPageVisible();
     assert.equal(ChatState.get('mcp').status, 'connected');
@@ -568,10 +570,10 @@ test('MCP - el latido periódico y la vuelta a la pestaña funcionan igual con y
     // Con auto-cierre también relee enseguida al volver a la pestaña.
     state.live = { ...state.live, exit_on_close: true };
     await manager.connectProxy({ url: 'http://127.0.0.1:6388' });
-    assert.ok(manager.heartbeatTimer);
-    const beats = state.beats;
+    assert.equal(manager.heartbeatActive, true);
+    const beats = state.beats || 0;
     await manager.onPageVisible();
-    assert.equal(state.beats, beats + 1);
+    assert.ok(state.beats > beats);
   } finally {
     manager.setHeartbeatTimer(false);
     await manager.disconnectProxy();
@@ -589,7 +591,7 @@ test('MCP - una lectura del latido colgada se corta al cumplirse su intervalo pa
   let settled = false;
   const read = manager.readLiveState().finally(() => { settled = true; });
   await new Promise(resolve => setImmediate(resolve));
-  t.mock.timers.tick(9999);
+  t.mock.timers.tick(29999);
   await Promise.resolve();
   assert.equal(settled, false);
   t.mock.timers.tick(1);
@@ -606,99 +608,108 @@ async function flushMicrotasks() {
   await new Promise(resolve => setImmediate(resolve));
 }
 
-test('ChatMCP - start: resuelve timeouts a estado vivo, propaga errores inmediatos y rechaza estados terminales', async t => {
+test('ChatMCP - start: resuelve timeouts con wait, propaga errores inmediatos y rechaza estados terminales', async t => {
   const manager = MCP.manager;
 
-  for (const errFactory of [() => makeAbortError(), () => Object.assign(new Error('SSE response timed out'), { code: 'MCP_REQUEST_TIMEOUT' })]) {
-    const req = t.mock.method(manager, 'requestExternalControl', async () => { throw errFactory(); });
-    const read = t.mock.method(manager, 'readLiveState', async () => ({ servers: [{ id: 'ejemplo', status: 'running' }] }));
+  for (const errFactory of [() => makeAbortError(), () => Object.assign(new Error('HTTP response timed out'), { code: 'MCP_REQUEST_TIMEOUT' })]) {
+    let calls = 0;
+    const req = t.mock.method(manager, 'requestExternalControl', async method => {
+      calls += 1;
+      if (method === 'zerochat/external/servers/start') throw errFactory();
+      if (method === 'zerochat/external/servers/wait') return { servers: [{ id: 'ejemplo', status: 'running' }], rev: 'r1' };
+      throw new Error(`Unexpected method ${method}`);
+    });
     const waits = [];
     const res = await manager.startExternalServer('ejemplo', (a, tot) => waits.push([a, tot]));
     assert.equal(res.servers[0].status, 'running');
     assert.deepEqual(waits, []);
-    assert.equal(read.mock.callCount(), 1);
+    assert.equal(calls, 2);
     req.mock.restore();
-    read.mock.restore();
   }
 
-  // Estados terminales o fallo al consultar estado rechazan sin esperar.
-  const reqAbort = t.mock.method(manager, 'requestExternalControl', async () => { throw makeAbortError(); });
+  // Estados terminales o fallo al consultar wait rechazan sin esperar.
   let waits = 0;
   for (const status of ['error', 'available', 'stopped', undefined]) {
-    const fetch = t.mock.method(manager, 'readLiveState', async () => ({ servers: status ? [{ id: 'ejemplo', status }] : [] }));
+    const req = t.mock.method(manager, 'requestExternalControl', async method => {
+      if (method === 'zerochat/external/servers/start') throw makeAbortError();
+      return { servers: status ? [{ id: 'ejemplo', status }] : [], rev: 'r1' };
+    });
     await assert.rejects(manager.startExternalServer('ejemplo', () => { waits += 1; }), error => error.code === 'EXTERNAL_START_STATUS_UNAVAILABLE');
-    assert.equal(fetch.mock.callCount(), 1);
-    fetch.mock.restore();
+    assert.equal(req.mock.callCount(), 2);
+    req.mock.restore();
   }
   assert.equal(waits, 0);
 
-  const fetchFail = t.mock.method(manager, 'readLiveState', async () => { throw new Error('Status unavailable'); });
+  const reqFail = t.mock.method(manager, 'requestExternalControl', async method => {
+    if (method === 'zerochat/external/servers/start') throw makeAbortError();
+    throw new Error('Status unavailable');
+  });
   await assert.rejects(manager.startExternalServer('ejemplo', null),
     error => error.code === 'EXTERNAL_START_STATUS_UNAVAILABLE' && error.cause.message === 'Status unavailable');
-  reqAbort.mock.restore();
-  fetchFail.mock.restore();
+  reqFail.mock.restore();
 
-  // Error distinto de timeout se propaga sin consultar estado.
-  t.mock.method(manager, 'requestExternalControl', async () => { throw new Error('Sin conexión'); });
-  const fetchSpy = t.mock.method(manager, 'readLiveState', async () => ({ servers: [] }));
+  // Error distinto de timeout en start se propaga sin consultar wait.
+  const callsDirect = [];
+  t.mock.method(manager, 'requestExternalControl', async method => {
+    callsDirect.push(method);
+    throw new Error('Sin conexión');
+  });
   await assert.rejects(() => manager.startExternalServer('ejemplo', null), /Sin conexión/);
-  assert.equal(fetchSpy.mock.callCount(), 0);
+  assert.deepEqual(callsDirect, ['zerochat/external/servers/start']);
 });
 
-test('ChatMCP - start: espera en installing/starting con oauthUrl hasta 10 intentos antes de rendirse', async t => {
+test('ChatMCP - start: sigue fases por long-poll con oauthUrl y respeta su presupuesto', async t => {
   const manager = MCP.manager;
 
-  // 1. Límite de 10 comprobaciones cuando permanece en starting
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const req1 = t.mock.method(manager, 'requestExternalControl', async () => { throw makeAbortError(); });
-  let fetchCalls = 0;
-  const read1 = t.mock.method(manager, 'readLiveState', async () => {
-    fetchCalls += 1;
-    return { servers: [{ id: 'ejemplo', status: 'starting' }] };
+  // 1. Límite de 6 waits de 25 s (150 s) cuando permanece en starting sin oauthUrl
+  let waitCalls1 = 0;
+  const seenSinceRev = [];
+  const req1 = t.mock.method(manager, 'requestExternalControl', async (method, params) => {
+    if (method === 'zerochat/external/servers/start') {
+      assert.equal(params.wait_ms, 25000);
+      return { servers: [{ id: 'ejemplo', status: 'starting' }], rev: 'r0' };
+    }
+    seenSinceRev.push(params.since_rev);
+    waitCalls1 += 1;
+    return { servers: [{ id: 'ejemplo', status: 'starting' }], rev: `r${waitCalls1}` };
   });
   const waits1 = [];
-  const pending1 = assert.rejects(
+  await assert.rejects(
     manager.startExternalServer('ejemplo', (attempt, total) => waits1.push([attempt, total])),
     error => error.code === 'EXTERNAL_START_WAIT_TIMEOUT' && error.externalServer.status === 'starting'
   );
-  for (let i = 0; i < 10; i += 1) {
-    await flushMicrotasks();
-    t.mock.timers.tick(15000);
-    await flushMicrotasks();
-  }
-  await pending1;
-  assert.equal(fetchCalls, 11);
-  assert.deepEqual([waits1[0], waits1[9]], [[1, 10], [10, 10]]);
-  t.mock.timers.reset();
+  assert.equal(waitCalls1, 6);
+  assert.deepEqual(seenSinceRev, ['r0', 'r1', 'r2', 'r3', 'r4', 'r5']);
+  assert.deepEqual([waits1[0], waits1[5]], [[1, 6], [6, 6]]);
   req1.mock.restore();
-  read1.mock.restore();
 
-  // 2. OAuth termina durante la espera sin reenviar arranque y propaga oauthUrl
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const req2 = t.mock.method(manager, 'requestExternalControl', async () => { throw makeAbortError(); });
+  // 2. OAuth y transición installing -> starting despiertan sin reenviar arranque y propagan oauthUrl
   let checks = 0;
-  t.mock.method(manager, 'readLiveState', async () => ({
-    servers: [{
-      id: 'composio',
-      status: ++checks === 3 ? 'running' : checks === 1 ? 'installing' : 'starting',
-      oauthUrl: checks === 2 ? 'https://example.com/oauth' : null
-    }]
-  }));
+  const methods2 = [];
+  const req2 = t.mock.method(manager, 'requestExternalControl', async (method, params) => {
+    methods2.push({ method, params });
+    checks += 1;
+    if (checks === 1) return { servers: [{ id: 'composio', status: 'installing', oauthUrl: null }], rev: 's1' };
+    if (checks === 2) return { servers: [{ id: 'composio', status: 'starting', oauthUrl: 'https://example.com/oauth' }], rev: 's2' };
+    return { servers: [{ id: 'composio', status: 'running', oauthUrl: null }], rev: 's3' };
+  });
   const waits2 = [];
   const receivedServers = [];
-  const pending2 = manager.startExternalServer('composio', (a, tot, st, srv) => {
+  const res2 = await manager.startExternalServer('composio', (a, tot, st, srv) => {
     waits2.push([a, tot, st]);
     receivedServers.push(srv);
   });
-  await flushMicrotasks();
-  assert.deepEqual(waits2, [[1, 80, 'installing']]);
-  t.mock.timers.tick(15000);
-  await flushMicrotasks();
-  assert.deepEqual(waits2, [[1, 80, 'installing'], [1, 80, 'starting']]);
+  assert.equal(res2.servers[0].status, 'running');
+  assert.deepEqual(waits2, [[1, 48, 'installing'], [1, 48, 'starting']]);
   assert.equal(receivedServers[1].oauthUrl, 'https://example.com/oauth');
-  t.mock.timers.tick(15000);
-  assert.equal((await pending2).servers[0].status, 'running');
-  assert.equal(req2.mock.callCount(), 1);
+  assert.deepEqual(methods2.map(c => c.method), [
+    'zerochat/external/servers/start',
+    'zerochat/external/servers/wait',
+    'zerochat/external/servers/wait'
+  ]);
+  assert.equal(methods2[1].params.since_rev, 's1');
+  assert.equal(methods2[2].params.since_rev, 's2');
+  req2.mock.restore();
 });
 
 test('ChatMCP - runExternalServerAction: el plazo de espera agotado deja el servicio en starting con el aviso de OAuth', async t => {
@@ -920,7 +931,7 @@ test('MCP - buildCommandNotes redacta en inglés los comandos en segundo plano t
   assert.equal(await manager.buildCommandNotes(messages), '');
 });
 
-test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversation_id y latido de 2 s solo con la ejecución en marcha abierta', async () => {
+test('MCP - startServerRun, cancelServerRun y readLiveState con focus_conversation_id y long-poll sin sondeo de 2 s', async () => {
   const previousMcp = ChatState.get('mcp');
   const previousSessions = ChatState.get('sessions');
   const manager = new MCP.McpManager();
@@ -928,6 +939,7 @@ test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversatio
   const calls = [];
   let heartbeatResponse = {
     ok: true,
+    rev: 'rev_1',
     exit_on_close: false,
     runs: [{ conversation_id: 'conv_srv_1', run_id: 'run_srv_1', status: 'running' }],
     focus_run: { conversation_id: 'conv_srv_1', run_id: 'run_srv_1', status: 'running', step_text: 'step 1' }
@@ -941,6 +953,7 @@ test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversatio
       if (method === 'zerochat/run/cancel') {
         heartbeatResponse = {
           ok: true,
+          rev: 'rev_3',
           exit_on_close: false,
           runs: [],
           focus_run: null
@@ -958,7 +971,7 @@ test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversatio
     ChatState.set('mcp', { ...previousMcp, status: 'connected', serverRuns: [], focusRun: null });
     ChatState.set('sessions', { activeId: 'conv_srv_1', list: [] });
 
-    // 1. startServerRun publica el estado 'running' y activa el temporizador rápido de 2 s
+    // 1. startServerRun publica el estado 'running' y activa el seguimiento de latido sin temporizador de 2 s
     const started = await manager.startServerRun({
       conversationId: 'conv_srv_1',
       profile: 'Server',
@@ -968,38 +981,38 @@ test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversatio
     assert.deepEqual(ChatState.get('mcp').serverRuns, [
       { conversationId: 'conv_srv_1', runId: 'run_srv_1', status: 'running' }
     ]);
-    assert.equal(manager.heartbeatIntervalMs, 2000);
-    assert.ok(manager.heartbeatTimer);
+    assert.equal(manager.heartbeatActive, true);
 
-    // 2. readLiveState envía focus_conversation_id y publica focusRun
+    // 2. readLiveState envía focus_conversation_id y publica focusRun y liveStateRev
     await manager.readLiveState();
     assert.deepEqual(calls[1], {
       method: 'zerochat/heartbeat',
       params: { focus_conversation_id: 'conv_srv_1' }
     });
     assert.equal(ChatState.get('mcp').focusRun?.step_text, 'step 1');
-    assert.equal(manager.heartbeatIntervalMs, 2000, 'Sigue a 2 s con su conversación abierta aunque exit_on_close sea false');
+    assert.equal(manager.liveStateRev, 'rev_1');
 
-    // Con otra conversación abierta baja al latido normal de 10 s; al volver a la enfocada, vuelve a 2 s.
+    // Al cambiar de conversación y volver, sigue manteniendo el seguimiento activo único.
     ChatState.set('sessions', { activeId: 'conv_otra', list: [] });
     await manager.readLiveState();
-    assert.equal(manager.heartbeatIntervalMs, 10000);
+    assert.equal(manager.heartbeatActive, true);
     ChatState.set('sessions', { activeId: 'conv_srv_1', list: [] });
     await manager.readLiveState();
-    assert.equal(manager.heartbeatIntervalMs, 2000);
+    assert.equal(manager.heartbeatActive, true);
 
-    // 3. Cuando la tarea pasa a needs_input y exit_on_close es true, el latido baja a 10 s (10000 ms)
+    // 3. Cuando la tarea pasa a needs_input y exit_on_close es true, actualiza rev y estado
     heartbeatResponse = {
       ok: true,
+      rev: 'rev_2',
       exit_on_close: true,
       runs: [{ conversation_id: 'conv_srv_1', run_id: 'run_srv_1', status: 'needs_input' }],
       focus_run: { conversation_id: 'conv_srv_1', run_id: 'run_srv_1', status: 'needs_input', pending_reason: 'ask_user' }
     };
     await manager.readLiveState();
     assert.equal(ChatState.get('mcp').serverRuns[0].status, 'needs_input');
-    assert.equal(manager.heartbeatIntervalMs, 10000);
+    assert.equal(manager.liveStateRev, 'rev_2');
 
-    // 4. cancelServerRun invoca zerochat/run/cancel y relee el estado vivo (vuelve a 10 s también con exit_on_close: false)
+    // 4. cancelServerRun invoca zerochat/run/cancel y relee el estado vivo
     await manager.cancelServerRun('conv_srv_1');
     assert.deepEqual(calls[5], {
       method: 'zerochat/run/cancel',
@@ -1007,10 +1020,11 @@ test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversatio
     });
     assert.deepEqual(ChatState.get('mcp').serverRuns, []);
     assert.equal(ChatState.get('mcp').focusRun, null);
-    assert.equal(manager.heartbeatIntervalMs, 10000);
-    assert.ok(manager.heartbeatTimer);
+    assert.equal(manager.liveStateRev, 'rev_3');
+    assert.equal(manager.heartbeatActive, true);
   } finally {
     manager.setHeartbeatTimer(false);
+    assert.equal(manager.heartbeatActive, false);
     ChatState.set('mcp', previousMcp);
     ChatState.set('sessions', previousSessions);
   }
@@ -1051,12 +1065,12 @@ test('MCP - setProjectDirectory aplica projectEnvironment guardado y concilia ar
       if (method === 'zerochat/external/servers/start') {
         serverStates[params.serverId] = 'running';
         envEvents.push(`start:${params.serverId}`);
-        return { servers: listServers() };
+        return { servers: listServers(), externalTools: [] };
       }
       if (method === 'zerochat/external/servers/stop') {
         serverStates[params.serverId] = 'stopped';
         envEvents.push(`stop:${params.serverId}`);
-        return { servers: listServers() };
+        return { servers: listServers(), externalTools: [] };
       }
       if (method === 'tools/list') return { tools: [] };
       return {};

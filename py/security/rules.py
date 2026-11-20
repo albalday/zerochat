@@ -269,30 +269,11 @@ def clean_pattern_list(raw, label: str) -> list[str]:
     return [p for p in unique if not any(q != p and matches_command_pattern(p, q) for q in unique)]
 
 
-def normalize_command_patterns(raw) -> dict:
-    """
-    Valida los patrones de comando guardados: `global` (todos los proyectos) y `projects` (ruta absoluta
-    del proyecto -> patrones), sin repetidos ni cubiertos por otro más amplio y como máximo
-    MAX_COMMAND_PATTERNS en total. Los de sesión nunca forman parte del estado guardado.
-    """
-    if not isinstance(raw, dict):
-        raise ValueError("commandPatterns debe ser un diccionario con global y project.")
-    raw_projects = raw.get("projects") or {}
-    if not isinstance(raw_projects, dict):
-        raise ValueError("commandPatterns.projects debe ser un diccionario de proyecto a patrones.")
-    projects: dict[str, list[str]] = {}
-    for raw_path, raw_list in raw_projects.items():
-        path = normalize_directory_path(str(raw_path))
-        if not path or not re.match(r"^(/|[A-Za-z]:/)", path):
-            raise ValueError(f"Proyecto no válido en commandPatterns.projects: '{raw_path}'.")
-        patterns = clean_pattern_list(projects.get(path, []) + clean_pattern_list(raw_list, "commandPatterns.projects"), "commandPatterns.projects")
-        if patterns:
-            projects[path] = patterns
-    global_patterns = clean_pattern_list(raw.get("global") or [], "commandPatterns.global")
-    total = len(global_patterns) + sum(len(v) for v in projects.values())
+def check_command_pattern_limit(global_patterns: list[str], project_patterns: list[str], other_project_count: int = 0) -> None:
+    """Comprueba que el total de patrones globales y de todos los proyectos no supere MAX_COMMAND_PATTERNS."""
+    total = len(global_patterns) + len(project_patterns) + other_project_count
     if total > MAX_COMMAND_PATTERNS:
         raise ValueError(f"Hay {total} patrones de comando; el máximo es {MAX_COMMAND_PATTERNS}.")
-    return {"global": global_patterns, "projects": projects}
 
 
 def suggest_command_prefix(command: str) -> str:

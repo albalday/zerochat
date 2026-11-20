@@ -67,9 +67,9 @@ class StorageEngineTest(unittest.TestCase):
             migrations = {row["version"] for row in conn.execute("SELECT version FROM schema_migrations;").fetchall()}
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(conversations);").fetchall()}
             stored_key = conn.execute("SELECT api_key FROM profiles WHERE id = 'profile:viejo';").fetchone()["api_key"]
-        for expected_table in ("schema_migrations", "profiles", "conversations", "messages", "blobs", "conversation_blobs", "security_policies", "project_environments"):
+        for expected_table in ("schema_migrations", "profiles", "conversations", "messages", "blobs", "conversation_blobs", "security_policies", "project_environments", "settings", "runs"):
             self.assertIn(expected_table, tables)
-        self.assertEqual(migrations, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
+        self.assertEqual(migrations, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12})
         self.assertIn("extra_json", columns)
         if os.name != "nt":
             self.assertEqual(stat.S_IMODE(self.storage_dir.stat().st_mode), 0o700)
@@ -775,6 +775,7 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(initial_a["projectEnvironment"]["saved"], False)
         self.assertEqual(initial_a["projectEnvironment"]["browser"], "browser_action")
         self.assertEqual(initial_a["projectEnvironment"]["mcpServers"], [])
+        self.assertEqual(initial_a["projectEnvironment"]["activeRagBranchIds"], [])
 
         # Parche parcial en proyecto A y en general quedan aislados; otro parche parcial conserva el resto.
         res_a, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {
@@ -782,6 +783,7 @@ class StorageEngineTest(unittest.TestCase):
             "enabledTools": {"search_web": False, "run_command": True},
             "mcpServers": [" memory ", "memory", "brave"],
             "browser": "playwright",
+            "activeRagBranchIds": [" branch-1 ", "branch-1", "branch-2"],
         }, ctx_a)
         self.assertIsNone(err)
         env_a = res_a["projectEnvironment"]
@@ -790,12 +792,14 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(env_a["enabledTools"], {"search_web": False, "run_command": True})
         self.assertEqual(env_a["mcpServers"], ["memory", "brave"])
         self.assertEqual(env_a["browser"], "playwright")
+        self.assertEqual(env_a["activeRagBranchIds"], ["branch-1", "branch-2"])
 
-        # Actualizar solo browser conserva systemDataPrompt, enabledTools y mcpServers de A.
+        # Actualizar solo browser conserva systemDataPrompt, enabledTools, mcpServers y activeRagBranchIds de A.
         updated_a, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"browser": "none"}, ctx_a)
         self.assertIsNone(err)
         self.assertEqual(updated_a["projectEnvironment"]["systemDataPrompt"], "Usa Python 3.")
         self.assertEqual(updated_a["projectEnvironment"]["mcpServers"], ["memory", "brave"])
+        self.assertEqual(updated_a["projectEnvironment"]["activeRagBranchIds"], ["branch-1", "branch-2"])
         self.assertEqual(updated_a["projectEnvironment"]["browser"], "none")
 
         # general usa su propia fila (get_no_project_dir) sin mezclarse con A ni B.
@@ -825,6 +829,12 @@ class StorageEngineTest(unittest.TestCase):
         _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"mcpServers": max_servers}, ctx_b)
         self.assertIsNone(err)
         _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"mcpServers": [*max_servers, "extra"]}, ctx_b)
+        self.assertEqual(err["code"], -32602)
+
+        max_branches = [f"branch_{i}" for i in range(zerochat.MAX_PROJECT_RAG_BRANCHES)]
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"activeRagBranchIds": max_branches}, ctx_b)
+        self.assertIsNone(err)
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"activeRagBranchIds": [*max_branches, "extra"]}, ctx_b)
         self.assertEqual(err["code"], -32602)
 
         max_tools = {f"tool_{i}": True for i in range(zerochat.MAX_PROJECT_ENABLED_TOOLS)}

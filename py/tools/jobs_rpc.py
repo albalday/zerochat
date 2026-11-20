@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from core.rpc import INVALID_PARAMS, RpcOutcome, dispatch_table, rpc_error, rpc_not_supported, rpc_result
+from core.limits import LONG_POLL_MAX_WAIT_MS
+from core.rpc import INVALID_PARAMS, RpcOutcome, dispatch_table, parse_nonneg_int, rpc_error, rpc_not_supported, rpc_result
 from security.context import SecurityContext
 from tools.job_waits import WAITS
 from tools.jobs import JOBS, JOB_LOG_PAGE_BYTES, job_details
@@ -19,16 +20,19 @@ def _log(params: dict, job) -> RpcOutcome:
     tail = params.get("tail")
     offset = params.get("offset", 0)
     limit = params.get("limit", JOB_LOG_PAGE_BYTES)
-    if tail is not None:
-        if isinstance(tail, bool) or not isinstance(tail, int) or tail < 0:
-            return rpc_error(INVALID_PARAMS, "tail debe ser un entero no negativo.")
-        start = max(0, job.total - tail)
-    else:
-        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
-            return rpc_error(INVALID_PARAMS, "offset debe ser un entero no negativo.")
-        start = offset
+    try:
+        wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms", 0) or 0
+        if tail is not None:
+            parsed_tail = parse_nonneg_int(tail, "tail", 0) or 0
+            start = max(0, job.total - parsed_tail)
+        else:
+            start = parse_nonneg_int(offset, "offset", 0) or 0
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
     if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
         return rpc_error(INVALID_PARAMS, "limit debe ser un entero positivo.")
+    if wait_ms > 0 and tail is None and not job.done.is_set() and start >= job.total:
+        job.wait_change(start, min(wait_ms, LONG_POLL_MAX_WAIT_MS) / 1000.0)
     text, next_offset = job.read_range(start, min(limit, JOB_LOG_PAGE_BYTES))
     return rpc_result({
         "text": text,

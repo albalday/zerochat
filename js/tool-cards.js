@@ -9,6 +9,7 @@
   const getMcp = () => resolveDep('ChatMCP', './mcp.js');
   const getMcpResults = () => resolveDep('ChatMcpResults', './mcp-results.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
+  const getTabAlert = () => resolveDep('ChatTabAlert', './tab-alert.js');
   const getView = name => getRegistry().getTool(name)?.view || null;
 
   const SPINNER_SVG = Icons.get('spinner', { size: 12, strokeWidth: 2.5, className: 'ui-icon-spin' });
@@ -665,6 +666,7 @@
         if (resolved) return;
         resolved = true;
         cleanup();
+        if (!document.querySelector('.tool-card-auth-active')) getTabAlert().clearPermission();
 
         const decisionType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;
 
@@ -790,6 +792,7 @@
         const autoDecision = authorizationResponder(toolName, options.args);
         if (autoDecision) handleDecision(autoDecision);
       }
+      if (!resolved) getTabAlert().notifyPermission();
     });
   }
 

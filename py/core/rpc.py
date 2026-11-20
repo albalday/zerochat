@@ -27,3 +27,12 @@ def dispatch_table(handlers: dict[str, Callable[..., RpcOutcome]], method: str, 
     """Atiende el método con su función de la tabla, que recibe *args; sin ella, «no soportado»."""
     handler = handlers.get(method)
     return handler(*args) if handler else rpc_not_supported(method)
+
+
+def parse_nonneg_int(value, label: str, default: int | None = None) -> int | None:
+    """Valida un parámetro entero no negativo (sin booleanos); devuelve `default` si es None."""
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{label} debe ser un entero no negativo.")
+    return value

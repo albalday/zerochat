@@ -16,9 +16,8 @@ import urllib.parse
 import uuid
 from pathlib import Path
 
-from browser.config import BROWSER_TOOLS
 from core.environment import get_data_dir
-from core.limits import MAX_PATH_LENGTH
+from core.limits import BROWSER_TOOLS, MAX_PATH_LENGTH
 from storage.obfuscation import OBFUSCATION_PREFIX, obfuscate_secret, reveal_secret
 
 
@@ -39,6 +38,18 @@ MAX_STAGED_CONVERSATION_BYTES = 64 * 1024 * 1024
 MAX_CONVERSATION_UPLOAD_CHUNKS = 512
 _UPLOAD_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 _PENDING_CONVERSATION_UPLOADS: dict[str, dict] = {}
+_STORAGE_LIVE_HOOKS: list = []
+
+
+def on_storage_live_change(hook):
+    """Registra una función sin argumentos que se avisa cuando cambian ejecuciones o conversaciones."""
+    _STORAGE_LIVE_HOOKS.append(hook)
+    return hook
+
+
+def _notify_storage_live_change():
+    for hook in _STORAGE_LIVE_HOOKS:
+        hook()
 def _obfuscate_saved_api_keys(conn: sqlite3.Connection):
     """Las API keys de los perfiles del servidor, guardadas en claro hasta ahora, pasan a guardarse ofuscadas."""
     rows = conn.execute("SELECT id, api_key FROM profiles WHERE api_key != '';").fetchall()
@@ -154,13 +165,37 @@ STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connecti
             config_json TEXT NOT NULL,
             updated_at INTEGER NOT NULL
         );
-    """)
+    """),
+    (11, "011_create_settings_and_runs_tables", """
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value_json TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS runs (
+            conversation_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            pid INTEGER,
+            pid_start TEXT,
+            started_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            step_text TEXT NOT NULL DEFAULT '',
+            pending_json TEXT,
+            error TEXT
+        );
+    """),
+    (12, "012_split_security_policies_by_project", """
+        DELETE FROM security_policies WHERE id = 'default';
+    """),
 ]
 # Tope de un secreto guardado (una API key cabe de sobra).
 MAX_SECRET_LENGTH = 4096
-PROJECT_ENVIRONMENT_KEYS = frozenset({"systemDataPrompt", "enabledTools", "mcpServers", "browser"})
+PROJECT_ENVIRONMENT_FIELDS = ("systemDataPrompt", "enabledTools", "mcpServers", "browser", "activeRagBranchIds")
+PROJECT_ENVIRONMENT_KEYS = frozenset(PROJECT_ENVIRONMENT_FIELDS)
 MAX_PROJECT_PROMPT_LENGTH = 32768
 MAX_PROJECT_MCP_SERVERS = 64
+MAX_PROJECT_RAG_BRANCHES = 64
 MAX_PROJECT_ENABLED_TOOLS = 256
 MAX_PROJECT_TOOL_ID_LENGTH = 128
 
@@ -613,7 +648,9 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
         _replace_conversation_blobs(conn, session_id, new_blob_ids)
         conn.commit()
         row = conn.execute("SELECT * FROM conversations WHERE id = ?;", (session_id,)).fetchone()
-        return _row_to_conversation_header(row)
+        saved = _row_to_conversation_header(row)
+    _notify_storage_live_change()
+    return saved
 
 
 def _validate_int_in_range(value, name: str, min_value: int, max_value: int) -> int:
@@ -793,9 +830,10 @@ def mark_conversation_server_run(session_id: str, profile_name: str | None = Non
                 cur_extra["profile_id"] = str(profile_name).strip()
             conn.execute("UPDATE conversations SET extra_json = ? WHERE id = ?;", (json.dumps(cur_extra, ensure_ascii=False), clean_id))
             conn.commit()
-            return True
     except (sqlite3.Error, OSError, json.JSONDecodeError):
         return False
+    _notify_storage_live_change()
+    return True
 
 
 def rename_conversation(session_id: str, new_title: str) -> bool:
@@ -809,7 +847,10 @@ def rename_conversation(session_id: str, new_title: str) -> bool:
             (title, now, clean_id)
         )
         conn.commit()
-        return cursor.rowcount > 0
+        changed = cursor.rowcount > 0
+    if changed:
+        _notify_storage_live_change()
+    return changed
 
 
 def _delete_conversations(conn: sqlite3.Connection, where: str, params: tuple) -> list[str]:
@@ -834,6 +875,8 @@ def _delete_conversations(conn: sqlite3.Connection, where: str, params: tuple) -
             conn.execute(f"DELETE FROM conversations WHERE id IN ({marks});", ids)  # noqa: S608
             _delete_orphan_blobs(conn, candidates)
         conn.execute("COMMIT;")
+        if ids:
+            _notify_storage_live_change()
         return ids
     except Exception:
         conn.execute("ROLLBACK;")
@@ -943,6 +986,18 @@ def has_blobs(blob_ids: list[str]) -> dict:
         }
 
 
+GLOBAL_SECURITY_POLICY_ID = "global"
+PROJECT_SECURITY_POLICY_PREFIX = "project:"
+
+
+def project_security_policy_id(project_key: str) -> str:
+    """Clave de fila en `security_policies` para un proyecto concreto."""
+    clean_key = str(project_key or "").strip()
+    if not clean_key:
+        raise ValueError("project_key es obligatorio")
+    return f"{PROJECT_SECURITY_POLICY_PREFIX}{clean_key}"
+
+
 def _parse_security_policy_row(row) -> dict | None:
     """Decodifica la fila de políticas; un JSON corrupto es un error visible, nunca un estado vacío."""
     if not row:
@@ -956,35 +1011,74 @@ def _parse_security_policy_row(row) -> dict | None:
     return data
 
 
-def get_security_policy_data() -> dict | None:
-    """Recupera los datos de políticas de seguridad guardados en SQLite (None si no hay ninguno)."""
+def _upsert_security_policy_row(conn: sqlite3.Connection, row_id: str, data: dict, now: int) -> None:
+    conn.execute("""
+        INSERT INTO security_policies (id, data_json, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            data_json = excluded.data_json,
+            updated_at = excluded.updated_at;
+    """, (row_id, json.dumps(data, ensure_ascii=False), now))
+
+
+def _count_other_project_patterns(conn: sqlite3.Connection, excluded_id: str) -> int:
+    rows = conn.execute(
+        "SELECT data_json FROM security_policies WHERE id LIKE 'project:%' AND id != ?;",
+        (excluded_id,),
+    ).fetchall()
+    total = 0
+    for row in rows:
+        parsed = _parse_security_policy_row(row)
+        if parsed and isinstance(parsed.get("commandPatterns"), list):
+            total += len(parsed["commandPatterns"])
+    return total
+
+
+def get_security_policy_data(project_key: str) -> tuple[dict | None, dict | None]:
+    """Recupera de SQLite las políticas globales y las del proyecto (None si aún no existen)."""
+    proj_id = project_security_policy_id(project_key)
     with open_storage() as conn:
-        row = conn.execute("SELECT data_json FROM security_policies WHERE id = 'default';").fetchone()
-        return _parse_security_policy_row(row)
+        global_row = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (GLOBAL_SECURITY_POLICY_ID,)).fetchone()
+        proj_row = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (proj_id,)).fetchone()
+        return _parse_security_policy_row(global_row), _parse_security_policy_row(proj_row)
 
 
-def update_security_policy_data(mutator: typing.Callable[[dict | None], dict]) -> dict:
-    """Ejecuta una lectura-modificación-escritura atómica en una transacción BEGIN IMMEDIATE."""
+def update_security_policy_data(
+    project_key: str,
+    mutator: typing.Callable[[dict | None, dict | None, int], tuple[dict, dict | None]],
+) -> tuple[dict, dict | None]:
+    """Ejecuta una lectura-modificación-escritura atómica sobre la fila global y la del proyecto en BEGIN IMMEDIATE."""
+    proj_id = project_security_policy_id(project_key)
     with open_storage() as conn:
         conn.isolation_level = None
         conn.execute("BEGIN IMMEDIATE;")
         try:
-            row = conn.execute("SELECT data_json FROM security_policies WHERE id = 'default';").fetchone()
-            updated = mutator(_parse_security_policy_row(row))
-            data_str = json.dumps(updated, ensure_ascii=False)
+            global_row = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (GLOBAL_SECURITY_POLICY_ID,)).fetchone()
+            proj_row = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (proj_id,)).fetchone()
+            other_pattern_count = _count_other_project_patterns(conn, proj_id)
+            new_global, new_project = mutator(
+                _parse_security_policy_row(global_row),
+                _parse_security_policy_row(proj_row),
+                other_pattern_count,
+            )
             now = int(time.time() * 1000)
-            conn.execute("""
-                INSERT INTO security_policies (id, data_json, updated_at)
-                VALUES ('default', ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    data_json = excluded.data_json,
-                    updated_at = excluded.updated_at;
-            """, (data_str, now))
+            _upsert_security_policy_row(conn, GLOBAL_SECURITY_POLICY_ID, new_global, now)
+            if new_project is None:
+                conn.execute("DELETE FROM security_policies WHERE id = ?;", (proj_id,))
+            else:
+                _upsert_security_policy_row(conn, proj_id, new_project, now)
             conn.execute("COMMIT;")
-            return updated
+            return new_global, new_project
         except Exception:
             conn.execute("ROLLBACK;")
             raise
+
+
+def _write_secret_on_conn(conn: sqlite3.Connection, name: str, value: str, now: int):
+    conn.execute("""
+        INSERT INTO secrets (name, value, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
+    """, (name, obfuscate_secret(value), now))
 
 
 def save_secret(name: str, value: str):
@@ -994,10 +1088,7 @@ def save_secret(name: str, value: str):
     if len(value) > MAX_SECRET_LENGTH:
         raise ValueError(f"El secreto no puede superar {MAX_SECRET_LENGTH} caracteres")
     with open_storage() as conn:
-        conn.execute("""
-            INSERT INTO secrets (name, value, updated_at) VALUES (?, ?, ?)
-            ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
-        """, (name, obfuscate_secret(value.strip()), int(time.time() * 1000)))
+        _write_secret_on_conn(conn, name, value.strip(), int(time.time() * 1000))
         conn.commit()
 
 
@@ -1006,6 +1097,133 @@ def delete_secret(name: str) -> bool:
         cursor = conn.execute("DELETE FROM secrets WHERE name = ?;", (name,))
         conn.commit()
         return cursor.rowcount > 0
+
+
+def get_setting(key: str):
+    """Lee un ajuste JSON guardado en la tabla `settings`; None si no existe."""
+    with open_storage() as conn:
+        row = conn.execute("SELECT value_json FROM settings WHERE key = ?;", (key,)).fetchone()
+        if not row:
+            return None
+        return json.loads(row["value_json"])
+
+
+def set_setting(key: str, value) -> None:
+    """Guarda un ajuste JSON en la tabla `settings`."""
+    payload = json.dumps(value, ensure_ascii=False)
+    now = int(time.time() * 1000)
+    with open_storage() as conn:
+        conn.execute("""
+            INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at;
+        """, (key, payload, now))
+        conn.commit()
+
+
+def save_browser_config_storage(public_config: dict, extension_token: str, key: str, secret_key: str) -> None:
+    """Guarda atómicamente la configuración del navegador en `settings` y su token en `secrets`."""
+    payload = json.dumps(public_config, ensure_ascii=False)
+    now = int(time.time() * 1000)
+    with open_storage() as conn:
+        conn.isolation_level = None
+        conn.execute("BEGIN IMMEDIATE;")
+        try:
+            conn.execute("""
+                INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at;
+            """, (key, payload, now))
+            if extension_token:
+                _write_secret_on_conn(conn, secret_key, extension_token, now)
+            else:
+                conn.execute("DELETE FROM secrets WHERE name = ?;", (secret_key,))
+            conn.execute("COMMIT;")
+        except Exception:
+            conn.execute("ROLLBACK;")
+            raise
+
+
+def _row_to_run_state(row: sqlite3.Row) -> dict:
+    pending = None
+    if row["pending_json"]:
+        try:
+            pending = json.loads(row["pending_json"])
+        except (ValueError, TypeError):
+            pending = None
+    return {
+        "run_id": row["run_id"],
+        "conversation_id": row["conversation_id"],
+        "pid": row["pid"],
+        "pid_start": row["pid_start"],
+        "started_at": row["started_at"],
+        "updated_at": row["updated_at"],
+        "status": row["status"],
+        "step_text": row["step_text"] or "",
+        "pending": pending,
+        "error": row["error"],
+    }
+
+
+def upsert_run_state(payload: dict) -> None:
+    """Guarda o actualiza en SQLite el estado en vivo de una ejecución en servidor."""
+    conv_id = _validate_conversation_id(payload.get("conversation_id"))
+    pending = payload.get("pending")
+    pending_json = json.dumps(pending, ensure_ascii=False) if pending is not None else None
+    now = int(time.time() * 1000)
+    with open_storage() as conn:
+        conn.execute("""
+            INSERT INTO runs (conversation_id, run_id, pid, pid_start, started_at, updated_at, status, step_text, pending_json, error)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(conversation_id) DO UPDATE SET
+                run_id = excluded.run_id,
+                pid = excluded.pid,
+                pid_start = excluded.pid_start,
+                started_at = excluded.started_at,
+                updated_at = excluded.updated_at,
+                status = excluded.status,
+                step_text = excluded.step_text,
+                pending_json = excluded.pending_json,
+                error = excluded.error;
+        """, (
+            conv_id,
+            str(payload.get("run_id") or ""),
+            payload.get("pid"),
+            payload.get("pid_start"),
+            int(payload.get("started_at") or now),
+            int(payload.get("updated_at") or now),
+            str(payload.get("status") or "running"),
+            str(payload.get("step_text") or ""),
+            pending_json,
+            payload.get("error"),
+        ))
+        conn.commit()
+    _notify_storage_live_change()
+
+
+def get_run_state(conversation_id: str) -> dict | None:
+    """Recupera de SQLite el estado en vivo de la ejecución de una conversación."""
+    clean_id = _validate_conversation_id(conversation_id)
+    with open_storage() as conn:
+        row = conn.execute("SELECT * FROM runs WHERE conversation_id = ?;", (clean_id,)).fetchone()
+        return _row_to_run_state(row) if row else None
+
+
+def list_run_states() -> list[dict]:
+    """Lista todas las ejecuciones registradas en SQLite ordenadas por inicio."""
+    with open_storage() as conn:
+        rows = conn.execute("SELECT * FROM runs ORDER BY started_at ASC, conversation_id ASC;").fetchall()
+        return [_row_to_run_state(row) for row in rows]
+
+
+def delete_run_state(conversation_id: str) -> bool:
+    """Elimina de SQLite el estado de la ejecución de una conversación."""
+    clean_id = _validate_conversation_id(conversation_id)
+    with open_storage() as conn:
+        cursor = conn.execute("DELETE FROM runs WHERE conversation_id = ?;", (clean_id,))
+        conn.commit()
+        deleted = cursor.rowcount > 0
+    if deleted:
+        _notify_storage_live_change()
+    return deleted
 
 
 def get_secret(name: str) -> str | None:
@@ -1051,6 +1269,7 @@ def _empty_project_environment() -> dict:
         "enabledTools": {},
         "mcpServers": [],
         "browser": "browser_action",
+        "activeRagBranchIds": [],
         "saved": False,
         "updatedAt": 0,
     }
@@ -1090,13 +1309,13 @@ def _validate_enabled_tools(tools) -> dict[str, bool]:
     return clean_tools
 
 
-def _validate_project_mcp_servers(servers) -> list[str]:
-    if not isinstance(servers, list):
-        raise ValueError("mcpServers debe ser una lista")
-    unique_servers = list(dict.fromkeys(_clean_project_tool_id(item, "mcpServers") for item in servers))
-    if len(unique_servers) > MAX_PROJECT_MCP_SERVERS:
-        raise ValueError(f"Un proyecto no puede tener más de {MAX_PROJECT_MCP_SERVERS} servicios MCP")
-    return unique_servers
+def _validate_project_id_list(raw, label: str, max_items: int) -> list[str]:
+    if not isinstance(raw, list):
+        raise ValueError(f"{label} debe ser una lista")
+    unique_items = list(dict.fromkeys(_clean_project_tool_id(item, label) for item in raw))
+    if len(unique_items) > max_items:
+        raise ValueError(f"Un proyecto no puede tener más de {max_items} entradas en {label}")
+    return unique_items
 
 
 def _validate_project_browser(browser) -> str:
@@ -1108,8 +1327,9 @@ def _validate_project_browser(browser) -> str:
 _PROJECT_ENV_VALIDATORS = {
     "systemDataPrompt": _validate_project_prompt,
     "enabledTools": _validate_enabled_tools,
-    "mcpServers": _validate_project_mcp_servers,
+    "mcpServers": lambda raw: _validate_project_id_list(raw, "mcpServers", MAX_PROJECT_MCP_SERVERS),
     "browser": _validate_project_browser,
+    "activeRagBranchIds": lambda raw: _validate_project_id_list(raw, "activeRagBranchIds", MAX_PROJECT_RAG_BRANCHES),
 }
 
 
@@ -1164,7 +1384,7 @@ def save_project_environment(project_key: str, raw_patch: dict) -> dict:
                 (clean_key,),
             ).fetchone()
             base = _row_to_project_environment(row) if row else _empty_project_environment()
-            stored = {key: patch[key] if key in patch else base[key] for key in ("systemDataPrompt", "enabledTools", "mcpServers", "browser")}
+            stored = {key: patch[key] if key in patch else base[key] for key in PROJECT_ENVIRONMENT_FIELDS}
             conn.execute("""
                 INSERT INTO project_environments (project_key, config_json, updated_at)
                 VALUES (?, ?, ?)

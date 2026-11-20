@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import base64
-import urllib.parse
 
 from core.logging import log_event
 from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, RpcOutcome, dispatch_table, rpc_error, rpc_result
-from run_mode.state import cancel_server_run, get_runs_dir
+from run_mode.state import cancel_server_run
 from storage.db import (
     commit_conversation_upload,
     delete_all_conversations,
@@ -21,6 +20,7 @@ from storage.db import (
     has_blobs,
     list_conversations,
     list_general_profiles,
+    list_run_states,
     put_blob,
     rename_conversation,
     save_conversation,
@@ -95,7 +95,7 @@ def _cancel_runs(conversation_ids):
 
 def _rpc_delete_conversations(params: dict) -> RpcOutcome:
     if params.get("all") is True:
-        _cancel_runs(urllib.parse.unquote(run_file.stem) for run_file in get_runs_dir().glob("*.json"))
+        _cancel_runs(entry["conversation_id"] for entry in list_run_states())
         return rpc_result({"deleted": True, "count": delete_all_conversations()})
     if "project" in params:
         deleted_ids = delete_project_conversations(params.get("project"))

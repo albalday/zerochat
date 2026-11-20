@@ -71,6 +71,8 @@ MAX_PATH_LENGTH = 4096
 MAX_COMMAND_LENGTH = 16384
 MAX_RPC_METHOD_LENGTH = 128
 MAX_TOOL_NAME_LENGTH = 128
+LONG_POLL_MAX_WAIT_MS = 30000
+BROWSER_TOOLS = ("none", "browser_action", "playwright")
 
 # --- core.logging ---
 """Registro en consola con la hora local; la consola interactiva, si existe, recibe las líneas."""
@@ -836,382 +838,6 @@ def login(params: dict) -> dict:
         LOGIN_FAILURES = 0
     return {"token": issue_login_token()}
 
-# --- browser.config ---
-"""Navegador de Playwright MCP: configuración guardada y argumentos de arranque."""
-
-
-
-
-
-# Configuración del navegador de Playwright MCP (sección Navegador de Ajustes).
-# Modo propio: un motor de Playwright en memoria (--isolated), o con almacenamiento persistente con nombre
-# en ~/zerochat/playwright/profile/<motor>/<nombre>.
-# Modo del usuario: su Chrome, Edge o Chromium mediante la extensión de Playwright (--extension).
-BROWSER_TOOLS = ("none", "browser_action", "playwright")
-BROWSER_MODES = ("own", "user")
-OWN_BROWSER_ENGINES = ("chromium", "firefox", "webkit")
-USER_BROWSERS = ("chrome", "msedge", "chromium")
-BROWSER_CONFIG_DEFAULTS = {"mode": "own", "engine": "chromium", "userBrowser": "chrome", "headless": True, "extensionToken": ""}
-# Identificador de la extensión de Playwright en la tienda de Chrome, que también usa Edge.
-PLAYWRIGHT_SERVER_ID = "playwright"
-PLAYWRIGHT_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm"
-# Token que muestra la extensión: con él la conexión no pide aceptarla en el navegador.
-_EXTENSION_TOKEN = re.compile(r"^[A-Za-z0-9_-]{0,256}$")
-_BROWSER_CONFIG_CHOICES = {"mode": BROWSER_MODES, "engine": OWN_BROWSER_ENGINES, "userBrowser": USER_BROWSERS}
-
-
-def browser_config_file() -> Path:
-    return get_data_dir() / "config" / "browser.json"
-
-
-def own_browser_profile_dir(engine: str) -> Path:
-    return get_data_dir() / "playwright" / "profile" / engine
-
-
-def validate_browser_config(raw) -> dict:
-    """Devuelve la configuración completa o lanza ValueError; los campos que faltan toman su valor por defecto."""
-    if not isinstance(raw, dict):
-        raise ValueError("La configuración del navegador debe ser un objeto")
-    unknown = sorted(set(raw) - set(BROWSER_CONFIG_DEFAULTS))
-    if unknown:
-        raise ValueError(f"Campos desconocidos en la configuración del navegador: {', '.join(unknown)}")
-    config = {**BROWSER_CONFIG_DEFAULTS, **raw}
-    for key, choices in _BROWSER_CONFIG_CHOICES.items():
-        if config[key] not in choices:
-            raise ValueError(f"{key} debe ser uno de: {', '.join(choices)}")
-    if not isinstance(config["headless"], bool):
-        raise ValueError("headless debe ser un booleano")
-    if not isinstance(config["extensionToken"], str) or not _EXTENSION_TOKEN.match(config["extensionToken"]):
-        raise ValueError("extensionToken debe tener hasta 256 letras, cifras, guiones o guiones bajos")
-    return config
-
-
-def load_browser_config() -> dict:
-    path = browser_config_file()
-    if not path.exists():
-        return dict(BROWSER_CONFIG_DEFAULTS)
-    try:
-        return validate_browser_config(json.loads(path.read_text(encoding="utf-8")))
-    except (OSError, ValueError) as err:
-        log_event(f"[zerochat] Configuración del navegador no válida en {path}, se usan los valores por defecto: {err}")
-        return dict(BROWSER_CONFIG_DEFAULTS)
-
-
-def save_browser_config(raw) -> dict:
-    config = validate_browser_config(raw)
-    path = browser_config_file()
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    # Guarda el token de la extensión: solo lo lee el usuario.
-    _write_private_text(path, json.dumps(config, indent=2))
-    return config
-
-
-def chromium_install() -> tuple[str, Path] | None:
-    """Chromium del sistema: ejecutable y carpeta de datos del usuario, o None si no está."""
-    if sys.platform == "darwin":
-        executable = "/Applications/Chromium.app/Contents/MacOS/Chromium"
-        data_dir = Path.home() / "Library" / "Application Support" / "Chromium"
-    elif sys.platform.startswith("win"):
-        local = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
-        executable = str(local / "Chromium" / "Application" / "chrome.exe")
-        data_dir = local / "Chromium" / "User Data"
-    else:
-        executable = shutil.which("chromium") or shutil.which("chromium-browser") or ""
-        # El Chromium de snap guarda el perfil dentro de su confinamiento.
-        snap = os.path.realpath(executable).startswith("/snap/")
-        data_dir = Path.home() / ("snap/chromium/common/chromium" if snap else ".config/chromium")
-    return (executable, data_dir) if executable and os.path.isfile(executable) else None
-
-
-def playwright_launch_args(config: dict, user_agent: str | None = None) -> list[str]:
-    """Argumentos de Playwright MCP para la configuración del navegador."""
-    if config["mode"] == "user":
-        # La extensión maneja el navegador abierto del usuario: siempre con ventana.
-        if config["userBrowser"] != "chromium":
-            return ["--extension", f"--browser={config['userBrowser']}"]
-        # Chromium no es un canal de Playwright: se da su ejecutable y su perfil, con el canal chrome
-        # para que no lo lance sin sandbox si no está abierto.
-        install = chromium_install()
-        if not install:
-            raise RuntimeError("No se encuentra Chromium en el sistema: elige otro navegador en Ajustes › Navegador.")
-        executable, data_dir = install
-        return ["--extension", "--browser=chrome", f"--executable-path={executable}", f"--user-data-dir={data_dir}"]
-    args = [f"--browser={config['engine']}", "--isolated"]
-    # El motor propio usa el User-Agent de ZeroChat; en modo user lo pone el navegador del usuario.
-    if user_agent:
-        args.append(f"--user-agent={user_agent}")
-    if config["headless"]:
-        args.append("--headless")
-    return args
-
-
-def playwright_launch_env(config: dict) -> dict[str, str]:
-    """Entorno de Playwright MCP: el token de la extensión, que no aparece en la línea de órdenes ni en el log."""
-    if config["mode"] == "user" and config["extensionToken"]:
-        return {"PLAYWRIGHT_MCP_EXTENSION_TOKEN": config["extensionToken"]}
-    return {}
-
-
-def _playwright_launch(user_agent: str | None = None) -> tuple[list[str], dict[str, str]]:
-    """Argumentos y entorno de Playwright MCP según la configuración guardada."""
-    config = load_browser_config()
-    return playwright_launch_args(config, user_agent), playwright_launch_env(config)
-
-
-# User-Agent que usan los motores propios de Playwright; lo fija el servidor con el User-Agent
-# activo de las salidas web (ff-server) para que ambos compartan el mismo fingerprint.
-SERVICE_USER_AGENT: str | None = None
-
-
-def set_service_user_agent(user_agent: str | None) -> None:
-    global SERVICE_USER_AGENT
-    SERVICE_USER_AGENT = user_agent
-
-
-# Argumentos y entorno que añade ZeroChat al arrancar un servicio gestionado,
-# calculados en cada arranque.
-SERVICE_LAUNCH = {PLAYWRIGHT_SERVER_ID: lambda: _playwright_launch(SERVICE_USER_AGENT)}
-
-# --- browser.engines ---
-"""Motores propios de Playwright (listar, instalar y quitar) y navegadores del sistema con la extensión de Playwright."""
-
-
-
-
-
-# Si Playwright MCP está en marcha: lo registra el gestor de servicios MCP (on_playwright_status).
-PLAYWRIGHT_STATUS_CHECK: list = []
-
-
-def on_playwright_status(check):
-    """Registra la función, sin argumentos, que dice si Playwright MCP está arrancando o en marcha."""
-    PLAYWRIGHT_STATUS_CHECK[:] = [check]
-    return check
-
-
-def _playwright_active() -> bool:
-    return any(check() for check in PLAYWRIGHT_STATUS_CHECK)
-
-
-def clear_own_browser_data(engine) -> dict:
-    """Borra el perfil persistente del motor (cookies, sesiones, almacenamiento de los sitios)."""
-    if engine not in OWN_BROWSER_ENGINES:
-        raise ValueError(f"engine debe ser uno de: {', '.join(OWN_BROWSER_ENGINES)}")
-    # El navegador abierto tiene el perfil bloqueado y volvería a escribirlo.
-    if _playwright_active():
-        raise ValueError("Detén Playwright MCP antes de borrar los datos del navegador.")
-    shutil.rmtree(own_browser_profile_dir(engine), ignore_errors=True)
-    return {"cleared": engine}
-
-
-# Motores propios de Playwright: cada uno se compone de las entradas de la caché que instala
-# "playwright install <motor>"; ffmpeg es común y no se quita.
-ENGINE_CACHE_ENTRIES = {"chromium": ("chromium", "chromium-headless-shell"), "firefox": ("firefox",), "webkit": ("webkit",)}
-ENGINE_INSTALL_TIMEOUT_SECONDS = 1200
-_DRY_RUN_ENTRY = re.compile(r"^(.+?) \(playwright (\S+) v\d+\)\n\s+Install location:\s+(.+)$", re.MULTILINE)
-_INSTALL_PERCENT = re.compile(r"(\d{1,3})% of ")
-_INSTALL_DOWNLOAD = re.compile(r"^Downloading (.+?) \(playwright ")
-
-
-def playwright_engine_cache() -> Path:
-    """Caché de motores de Playwright sin lanzar Node: PLAYWRIGHT_BROWSERS_PATH o la ruta por defecto de la plataforma."""
-    configured = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "").strip()
-    if configured:
-        return Path(configured).expanduser()
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Caches" / "ms-playwright"
-    if sys.platform.startswith("win"):
-        return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "ms-playwright"
-    return Path.home() / ".cache" / "ms-playwright"
-
-
-def cached_engine_entries() -> set[str]:
-    """Entradas de ENGINE_CACHE_ENTRIES con alguna revisión completa en la caché; la revisión exacta de esta
-    versión de Playwright solo la da BrowserEngines.list lanzando Node."""
-    try:
-        folders = [child.name for child in playwright_engine_cache().iterdir() if (child / "INSTALLATION_COMPLETE").is_file()]
-    except OSError:
-        return set()
-    # Las carpetas se llaman como la entrada con guiones bajos y su revisión: chromium_headless_shell-1187.
-    names = {name for entries in ENGINE_CACHE_ENTRIES.values() for name in entries}
-    return {name for name in names if any(folder.startswith(name.replace("-", "_") + "-") for folder in folders)}
-
-
-def playwright_service_module() -> Path:
-    return get_data_dir() / "services" / "playwright" / "node_modules" / "playwright"
-
-
-def playwright_service_cli() -> Path:
-    return playwright_service_module() / "cli.js"
-
-
-def system_browsers() -> dict[str, bool]:
-    """Chrome y Edge en las rutas donde los busca Playwright para --browser=chrome|msedge, Chromium donde lo
-    busca chromium_install; Firefox solo se informa."""
-    if sys.platform == "darwin":
-        candidates = {
-            "chrome": ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"],
-            "msedge": ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"],
-            "firefox": ["/Applications/Firefox.app/Contents/MacOS/firefox"],
-        }
-    elif sys.platform.startswith("win"):
-        roots = [os.environ.get(name) for name in ("LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)")]
-        roots = [root for root in roots if root]
-        candidates = {
-            "chrome": [os.path.join(root, "Google", "Chrome", "Application", "chrome.exe") for root in roots],
-            "msedge": [os.path.join(root, "Microsoft", "Edge", "Application", "msedge.exe") for root in roots],
-            "firefox": [os.path.join(root, "Mozilla Firefox", "firefox.exe") for root in roots],
-        }
-    else:
-        candidates = {
-            "chrome": ["/opt/google/chrome/chrome"],
-            "msedge": ["/opt/microsoft/msedge/msedge"],
-            "firefox": [shutil.which("firefox") or ""],
-        }
-    found = {name: any(path and os.path.isfile(path) for path in paths) for name, paths in candidates.items()}
-    return {**found, "chromium": chromium_install() is not None}
-
-
-def user_browser_data_dir(browser: str) -> Path | None:
-    """Carpeta de datos del usuario de Chrome, Edge o Chromium, donde están sus perfiles."""
-    if browser == "chromium":
-        install = chromium_install()
-        return install[1] if install else None
-    if sys.platform == "darwin":
-        root, paths = Path.home() / "Library" / "Application Support", {"chrome": "Google/Chrome", "msedge": "Microsoft Edge"}
-    elif sys.platform.startswith("win"):
-        root = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
-        paths = {"chrome": "Google/Chrome/User Data", "msedge": "Microsoft/Edge/User Data"}
-    else:
-        root, paths = Path.home() / ".config", {"chrome": "google-chrome", "msedge": "microsoft-edge"}
-    return root / paths[browser]
-
-
-def user_browser_extensions() -> dict[str, bool]:
-    """Si algún perfil de cada navegador del usuario tiene instalada la extensión de Playwright desde la tienda."""
-    found = {}
-    for browser in USER_BROWSERS:
-        data_dir = user_browser_data_dir(browser)
-        found[browser] = bool(data_dir) and any(data_dir.glob(f"*/Extensions/{PLAYWRIGHT_EXTENSION_ID}"))
-    return found
-
-
-class BrowserEngines:
-    """Lista, instala y quita los motores propios de Playwright en su caché, nunca en el sistema."""
-
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._jobs: dict[str, dict] = {}
-        self._locations_cache: tuple[tuple[str, int], dict[str, tuple[str, Path]]] | None = None
-
-    @staticmethod
-    def _run_cli(cli: Path, *args: str, timeout: float) -> subprocess.CompletedProcess:
-        return subprocess.run([shutil.which("node") or "node", str(cli), *args], cwd=cli.parent,
-                              capture_output=True, text=True, timeout=timeout)
-
-    def _locations(self, cli: Path) -> dict[str, tuple[str, Path]]:
-        """Entradas de la caché de esta versión de Playwright: nombre -> (título con versión, ruta)."""
-        key = (str(cli), cli.stat().st_mtime_ns)
-        cached = self._locations_cache
-        if cached is not None and cached[0] == key:
-            return cached[1]
-        names = [name for entries in ENGINE_CACHE_ENTRIES.values() for name in entries]
-        result = self._run_cli(cli, "install", "--dry-run", *names, timeout=30)
-        if result.returncode != 0:
-            raise RuntimeError(f"Playwright no pudo listar sus navegadores: {(result.stderr or result.stdout).strip()}")
-        locations = {name: (title, Path(location.strip())) for title, name, location in _DRY_RUN_ENTRY.findall(result.stdout)}
-        self._locations_cache = (key, locations)
-        return locations
-
-    def list(self) -> dict:
-        """Navegadores del sistema y motores de Playwright; sin Playwright del servicio no hay motores."""
-        cli = playwright_service_cli()
-        result = {
-            "systemBrowsers": system_browsers(),
-            "extensions": user_browser_extensions(),
-            "engines": [],
-            "config": load_browser_config(),
-        }
-        if not cli.is_file():
-            return result
-        locations = self._locations(cli)
-        with self._lock:
-            jobs = {engine: dict(job) for engine, job in self._jobs.items()}
-        for engine, entries in ENGINE_CACHE_ENTRIES.items():
-            title = locations.get(entries[0], (engine,))[0]
-            installed = all(name in locations and (locations[name][1] / "INSTALLATION_COMPLETE").is_file() for name in entries)
-            result["engines"].append({"id": engine, "title": title, "installed": installed, **jobs.get(engine, {})})
-        return result
-
-    def _check_engine(self, engine) -> Path:
-        if engine not in ENGINE_CACHE_ENTRIES:
-            raise ValueError(f"engine debe ser uno de: {', '.join(ENGINE_CACHE_ENTRIES)}")
-        cli = playwright_service_cli()
-        if not cli.is_file():
-            raise ValueError("Playwright MCP no está instalado: arráncalo una vez desde Ajustes › MCP.")
-        if self._jobs.get(engine, {}).get("status") == "installing":
-            raise ValueError(f"{engine} ya se está instalando.")
-        return cli
-
-    def install(self, engine) -> dict:
-        with self._lock:
-            cli = self._check_engine(engine)
-            self._jobs[engine] = {"status": "installing", "percent": 0}
-        threading.Thread(target=self._install, args=(cli, engine), daemon=True).start()
-        return self.list()
-
-    def _install(self, cli: Path, engine: str):
-        log_event(f"[zerochat] Instalando el motor {engine} de Playwright")
-        lines = []
-        try:
-            proc = subprocess.Popen([shutil.which("node") or "node", str(cli), "install", engine], cwd=cli.parent,
-                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            timer = threading.Timer(ENGINE_INSTALL_TIMEOUT_SECONDS, proc.kill)
-            timer.start()
-            try:
-                for line in proc.stdout:
-                    lines = (lines + [line.rstrip()])[-20:]
-                    percent, download = _INSTALL_PERCENT.search(line), _INSTALL_DOWNLOAD.match(line)
-                    with self._lock:
-                        if download:
-                            self._jobs[engine].update(download=download.group(1), percent=0)
-                        elif percent:
-                            self._jobs[engine]["percent"] = min(100, int(percent.group(1)))
-                code = proc.wait()
-            finally:
-                timer.cancel()
-            if code != 0:
-                raise RuntimeError("\n".join(lines[-5:]) or f"código {code}")
-            with self._lock:
-                self._jobs.pop(engine, None)
-            log_event(f"[zerochat] Motor {engine} de Playwright instalado")
-        except (OSError, RuntimeError, subprocess.SubprocessError) as err:
-            with self._lock:
-                self._jobs[engine] = {"status": "error", "error": format_log_error(str(err), 500)}
-            log_event(f"[zerochat] Fallo instalando el motor {engine} de Playwright: {format_log_error(str(err))}")
-
-    def remove(self, engine) -> dict:
-        with self._lock:
-            cli = self._check_engine(engine)
-            # Borrar un motor en uso deja al navegador abierto sin sus ficheros.
-            if _playwright_active():
-                raise ValueError("Detén Playwright MCP antes de quitar un motor.")
-            locations = self._locations(cli)
-            for name in ENGINE_CACHE_ENTRIES[engine]:
-                if name in locations:
-                    shutil.rmtree(locations[name][1], ignore_errors=True)
-            self._jobs.pop(engine, None)
-        result = self.list()
-        # La configuración no se queda con un motor quitado si hay otro instalado.
-        config = result["config"]
-        replacement = next((item["id"] for item in result["engines"] if item["installed"]), None)
-        if config["engine"] == engine and replacement:
-            result["config"] = save_browser_config({**config, "engine": replacement})
-        return result
-
-
-BROWSER_ENGINES = BrowserEngines()
-
 # --- core.process ---
 """Procesos del sistema: si siguen vivos, su huella de arranque y la terminación de su árbol."""
 
@@ -1243,9 +869,16 @@ def _kill_process_tree(target: subprocess.Popen | int, *, grace_seconds: float =
             send = os.killpg if os.getpgid(pid) == pid else os.kill
             if grace_seconds > 0:
                 send(pid, signal.SIGTERM)
-                time.sleep(grace_seconds)
-                if not _pid_alive(pid):
-                    return
+                if proc is not None:
+                    try:
+                        proc.wait(timeout=grace_seconds)
+                        return
+                    except subprocess.TimeoutExpired:
+                        pass
+                else:
+                    time.sleep(grace_seconds)
+                    if not _pid_alive(pid):
+                        return
             send(pid, signal.SIGKILL)
         else:
             os.kill(pid, signal.SIGKILL)
@@ -1451,26 +1084,14 @@ def dispatch_table(handlers: dict[str, Callable[..., RpcOutcome]], method: str, 
     handler = handlers.get(method)
     return handler(*args) if handler else rpc_not_supported(method)
 
-# --- browser.rpc ---
-"""Métodos JSON-RPC de la sección Navegador de Ajustes: configuración, datos y motores propios de Playwright."""
 
-
-
-
-BROWSER_METHODS = {
-    "zerochat/browser/config/set": lambda params: rpc_result(save_browser_config(params.get("config"))),
-    "zerochat/browser/data/clear": lambda params: rpc_result(clear_own_browser_data(params.get("engine"))),
-    "zerochat/browser/engines/list": lambda _params: rpc_result(BROWSER_ENGINES.list()),
-    "zerochat/browser/engines/install": lambda params: rpc_result(BROWSER_ENGINES.install(params.get("engine"))),
-    "zerochat/browser/engines/remove": lambda params: rpc_result(BROWSER_ENGINES.remove(params.get("engine"))),
-}
-
-
-def dispatch_browser(method: str, params: dict) -> RpcOutcome:
-    try:
-        return dispatch_table(BROWSER_METHODS, method, params)
-    except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
-        return rpc_error(INVALID_PARAMS, str(exc))
+def parse_nonneg_int(value, label: str, default: int | None = None) -> int | None:
+    """Valida un parámetro entero no negativo (sin booleanos); devuelve `default` si es None."""
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{label} debe ser un entero no negativo.")
+    return value
 
 # --- core.version ---
 """Versiones del backend y de la interfaz, y direcciones desde las que se publican."""
@@ -1478,7 +1099,7 @@ def dispatch_browser(method: str, params: dict) -> RpcOutcome:
 
 
 
-SOURCE_BACKEND_VERSION = "10.34.0"
+SOURCE_BACKEND_VERSION = "10.35.0"
 
 
 def _read_source_version(filename: str) -> str | None:
@@ -1764,7 +1385,7 @@ class StdioMcpClient:
     max_message_chars = MAX_MCP_MESSAGE_CHARS
 
     def __init__(self, command: str, args: list[str], cwd: str, env: dict[str, str], trace=None,
-                 call_timeout: float = DEFAULT_MCP_CALL_TIMEOUT_SECONDS):
+                 call_timeout: float = DEFAULT_MCP_CALL_TIMEOUT_SECONDS, on_oauth_url=None):
         self.command = command
         self.args = args
         self.cwd = cwd
@@ -1781,6 +1402,7 @@ class StdioMcpClient:
         self.tools: list[dict] = []
         self.oauth_url: str | None = None
         self._trace = trace or (lambda _message: None)
+        self._on_oauth_url = on_oauth_url
 
     def running(self) -> bool:
         return self._alive and self.process is not None and self.process.poll() is None
@@ -1845,6 +1467,8 @@ class StdioMcpClient:
                     url = m.group(0).rstrip('.,;)')
                     self.oauth_url = url
                     self._trace(f"oauth_url detected for frontend: {_mcp_trace_text(url)}")
+                    if self._on_oauth_url:
+                        self._on_oauth_url(url)
                     pending_oauth = False
 
 
@@ -2546,30 +2170,11 @@ def clean_pattern_list(raw, label: str) -> list[str]:
     return [p for p in unique if not any(q != p and matches_command_pattern(p, q) for q in unique)]
 
 
-def normalize_command_patterns(raw) -> dict:
-    """
-    Valida los patrones de comando guardados: `global` (todos los proyectos) y `projects` (ruta absoluta
-    del proyecto -> patrones), sin repetidos ni cubiertos por otro más amplio y como máximo
-    MAX_COMMAND_PATTERNS en total. Los de sesión nunca forman parte del estado guardado.
-    """
-    if not isinstance(raw, dict):
-        raise ValueError("commandPatterns debe ser un diccionario con global y project.")
-    raw_projects = raw.get("projects") or {}
-    if not isinstance(raw_projects, dict):
-        raise ValueError("commandPatterns.projects debe ser un diccionario de proyecto a patrones.")
-    projects: dict[str, list[str]] = {}
-    for raw_path, raw_list in raw_projects.items():
-        path = normalize_directory_path(str(raw_path))
-        if not path or not re.match(r"^(/|[A-Za-z]:/)", path):
-            raise ValueError(f"Proyecto no válido en commandPatterns.projects: '{raw_path}'.")
-        patterns = clean_pattern_list(projects.get(path, []) + clean_pattern_list(raw_list, "commandPatterns.projects"), "commandPatterns.projects")
-        if patterns:
-            projects[path] = patterns
-    global_patterns = clean_pattern_list(raw.get("global") or [], "commandPatterns.global")
-    total = len(global_patterns) + sum(len(v) for v in projects.values())
+def check_command_pattern_limit(global_patterns: list[str], project_patterns: list[str], other_project_count: int = 0) -> None:
+    """Comprueba que el total de patrones globales y de todos los proyectos no supere MAX_COMMAND_PATTERNS."""
+    total = len(global_patterns) + len(project_patterns) + other_project_count
     if total > MAX_COMMAND_PATTERNS:
         raise ValueError(f"Hay {total} patrones de comando; el máximo es {MAX_COMMAND_PATTERNS}.")
-    return {"global": global_patterns, "projects": projects}
 
 
 def suggest_command_prefix(command: str) -> str:
@@ -2690,6 +2295,18 @@ MAX_STAGED_CONVERSATION_BYTES = 64 * 1024 * 1024
 MAX_CONVERSATION_UPLOAD_CHUNKS = 512
 _UPLOAD_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 _PENDING_CONVERSATION_UPLOADS: dict[str, dict] = {}
+_STORAGE_LIVE_HOOKS: list = []
+
+
+def on_storage_live_change(hook):
+    """Registra una función sin argumentos que se avisa cuando cambian ejecuciones o conversaciones."""
+    _STORAGE_LIVE_HOOKS.append(hook)
+    return hook
+
+
+def _notify_storage_live_change():
+    for hook in _STORAGE_LIVE_HOOKS:
+        hook()
 def _obfuscate_saved_api_keys(conn: sqlite3.Connection):
     """Las API keys de los perfiles del servidor, guardadas en claro hasta ahora, pasan a guardarse ofuscadas."""
     rows = conn.execute("SELECT id, api_key FROM profiles WHERE api_key != '';").fetchall()
@@ -2805,13 +2422,37 @@ STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connecti
             config_json TEXT NOT NULL,
             updated_at INTEGER NOT NULL
         );
-    """)
+    """),
+    (11, "011_create_settings_and_runs_tables", """
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value_json TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS runs (
+            conversation_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            pid INTEGER,
+            pid_start TEXT,
+            started_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            step_text TEXT NOT NULL DEFAULT '',
+            pending_json TEXT,
+            error TEXT
+        );
+    """),
+    (12, "012_split_security_policies_by_project", """
+        DELETE FROM security_policies WHERE id = 'default';
+    """),
 ]
 # Tope de un secreto guardado (una API key cabe de sobra).
 MAX_SECRET_LENGTH = 4096
-PROJECT_ENVIRONMENT_KEYS = frozenset({"systemDataPrompt", "enabledTools", "mcpServers", "browser"})
+PROJECT_ENVIRONMENT_FIELDS = ("systemDataPrompt", "enabledTools", "mcpServers", "browser", "activeRagBranchIds")
+PROJECT_ENVIRONMENT_KEYS = frozenset(PROJECT_ENVIRONMENT_FIELDS)
 MAX_PROJECT_PROMPT_LENGTH = 32768
 MAX_PROJECT_MCP_SERVERS = 64
+MAX_PROJECT_RAG_BRANCHES = 64
 MAX_PROJECT_ENABLED_TOOLS = 256
 MAX_PROJECT_TOOL_ID_LENGTH = 128
 
@@ -3264,7 +2905,9 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
         _replace_conversation_blobs(conn, session_id, new_blob_ids)
         conn.commit()
         row = conn.execute("SELECT * FROM conversations WHERE id = ?;", (session_id,)).fetchone()
-        return _row_to_conversation_header(row)
+        saved = _row_to_conversation_header(row)
+    _notify_storage_live_change()
+    return saved
 
 
 def _validate_int_in_range(value, name: str, min_value: int, max_value: int) -> int:
@@ -3444,9 +3087,10 @@ def mark_conversation_server_run(session_id: str, profile_name: str | None = Non
                 cur_extra["profile_id"] = str(profile_name).strip()
             conn.execute("UPDATE conversations SET extra_json = ? WHERE id = ?;", (json.dumps(cur_extra, ensure_ascii=False), clean_id))
             conn.commit()
-            return True
     except (sqlite3.Error, OSError, json.JSONDecodeError):
         return False
+    _notify_storage_live_change()
+    return True
 
 
 def rename_conversation(session_id: str, new_title: str) -> bool:
@@ -3460,7 +3104,10 @@ def rename_conversation(session_id: str, new_title: str) -> bool:
             (title, now, clean_id)
         )
         conn.commit()
-        return cursor.rowcount > 0
+        changed = cursor.rowcount > 0
+    if changed:
+        _notify_storage_live_change()
+    return changed
 
 
 def _delete_conversations(conn: sqlite3.Connection, where: str, params: tuple) -> list[str]:
@@ -3485,6 +3132,8 @@ def _delete_conversations(conn: sqlite3.Connection, where: str, params: tuple) -
             conn.execute(f"DELETE FROM conversations WHERE id IN ({marks});", ids)  # noqa: S608
             _delete_orphan_blobs(conn, candidates)
         conn.execute("COMMIT;")
+        if ids:
+            _notify_storage_live_change()
         return ids
     except Exception:
         conn.execute("ROLLBACK;")
@@ -3594,6 +3243,18 @@ def has_blobs(blob_ids: list[str]) -> dict:
         }
 
 
+GLOBAL_SECURITY_POLICY_ID = "global"
+PROJECT_SECURITY_POLICY_PREFIX = "project:"
+
+
+def project_security_policy_id(project_key: str) -> str:
+    """Clave de fila en `security_policies` para un proyecto concreto."""
+    clean_key = str(project_key or "").strip()
+    if not clean_key:
+        raise ValueError("project_key es obligatorio")
+    return f"{PROJECT_SECURITY_POLICY_PREFIX}{clean_key}"
+
+
 def _parse_security_policy_row(row) -> dict | None:
     """Decodifica la fila de políticas; un JSON corrupto es un error visible, nunca un estado vacío."""
     if not row:
@@ -3607,35 +3268,74 @@ def _parse_security_policy_row(row) -> dict | None:
     return data
 
 
-def get_security_policy_data() -> dict | None:
-    """Recupera los datos de políticas de seguridad guardados en SQLite (None si no hay ninguno)."""
+def _upsert_security_policy_row(conn: sqlite3.Connection, row_id: str, data: dict, now: int) -> None:
+    conn.execute("""
+        INSERT INTO security_policies (id, data_json, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            data_json = excluded.data_json,
+            updated_at = excluded.updated_at;
+    """, (row_id, json.dumps(data, ensure_ascii=False), now))
+
+
+def _count_other_project_patterns(conn: sqlite3.Connection, excluded_id: str) -> int:
+    rows = conn.execute(
+        "SELECT data_json FROM security_policies WHERE id LIKE 'project:%' AND id != ?;",
+        (excluded_id,),
+    ).fetchall()
+    total = 0
+    for row in rows:
+        parsed = _parse_security_policy_row(row)
+        if parsed and isinstance(parsed.get("commandPatterns"), list):
+            total += len(parsed["commandPatterns"])
+    return total
+
+
+def get_security_policy_data(project_key: str) -> tuple[dict | None, dict | None]:
+    """Recupera de SQLite las políticas globales y las del proyecto (None si aún no existen)."""
+    proj_id = project_security_policy_id(project_key)
     with open_storage() as conn:
-        row = conn.execute("SELECT data_json FROM security_policies WHERE id = 'default';").fetchone()
-        return _parse_security_policy_row(row)
+        global_row = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (GLOBAL_SECURITY_POLICY_ID,)).fetchone()
+        proj_row = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (proj_id,)).fetchone()
+        return _parse_security_policy_row(global_row), _parse_security_policy_row(proj_row)
 
 
-def update_security_policy_data(mutator: typing.Callable[[dict | None], dict]) -> dict:
-    """Ejecuta una lectura-modificación-escritura atómica en una transacción BEGIN IMMEDIATE."""
+def update_security_policy_data(
+    project_key: str,
+    mutator: typing.Callable[[dict | None, dict | None, int], tuple[dict, dict | None]],
+) -> tuple[dict, dict | None]:
+    """Ejecuta una lectura-modificación-escritura atómica sobre la fila global y la del proyecto en BEGIN IMMEDIATE."""
+    proj_id = project_security_policy_id(project_key)
     with open_storage() as conn:
         conn.isolation_level = None
         conn.execute("BEGIN IMMEDIATE;")
         try:
-            row = conn.execute("SELECT data_json FROM security_policies WHERE id = 'default';").fetchone()
-            updated = mutator(_parse_security_policy_row(row))
-            data_str = json.dumps(updated, ensure_ascii=False)
+            global_row = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (GLOBAL_SECURITY_POLICY_ID,)).fetchone()
+            proj_row = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (proj_id,)).fetchone()
+            other_pattern_count = _count_other_project_patterns(conn, proj_id)
+            new_global, new_project = mutator(
+                _parse_security_policy_row(global_row),
+                _parse_security_policy_row(proj_row),
+                other_pattern_count,
+            )
             now = int(time.time() * 1000)
-            conn.execute("""
-                INSERT INTO security_policies (id, data_json, updated_at)
-                VALUES ('default', ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    data_json = excluded.data_json,
-                    updated_at = excluded.updated_at;
-            """, (data_str, now))
+            _upsert_security_policy_row(conn, GLOBAL_SECURITY_POLICY_ID, new_global, now)
+            if new_project is None:
+                conn.execute("DELETE FROM security_policies WHERE id = ?;", (proj_id,))
+            else:
+                _upsert_security_policy_row(conn, proj_id, new_project, now)
             conn.execute("COMMIT;")
-            return updated
+            return new_global, new_project
         except Exception:
             conn.execute("ROLLBACK;")
             raise
+
+
+def _write_secret_on_conn(conn: sqlite3.Connection, name: str, value: str, now: int):
+    conn.execute("""
+        INSERT INTO secrets (name, value, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
+    """, (name, obfuscate_secret(value), now))
 
 
 def save_secret(name: str, value: str):
@@ -3645,10 +3345,7 @@ def save_secret(name: str, value: str):
     if len(value) > MAX_SECRET_LENGTH:
         raise ValueError(f"El secreto no puede superar {MAX_SECRET_LENGTH} caracteres")
     with open_storage() as conn:
-        conn.execute("""
-            INSERT INTO secrets (name, value, updated_at) VALUES (?, ?, ?)
-            ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
-        """, (name, obfuscate_secret(value.strip()), int(time.time() * 1000)))
+        _write_secret_on_conn(conn, name, value.strip(), int(time.time() * 1000))
         conn.commit()
 
 
@@ -3657,6 +3354,133 @@ def delete_secret(name: str) -> bool:
         cursor = conn.execute("DELETE FROM secrets WHERE name = ?;", (name,))
         conn.commit()
         return cursor.rowcount > 0
+
+
+def get_setting(key: str):
+    """Lee un ajuste JSON guardado en la tabla `settings`; None si no existe."""
+    with open_storage() as conn:
+        row = conn.execute("SELECT value_json FROM settings WHERE key = ?;", (key,)).fetchone()
+        if not row:
+            return None
+        return json.loads(row["value_json"])
+
+
+def set_setting(key: str, value) -> None:
+    """Guarda un ajuste JSON en la tabla `settings`."""
+    payload = json.dumps(value, ensure_ascii=False)
+    now = int(time.time() * 1000)
+    with open_storage() as conn:
+        conn.execute("""
+            INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at;
+        """, (key, payload, now))
+        conn.commit()
+
+
+def save_browser_config_storage(public_config: dict, extension_token: str, key: str, secret_key: str) -> None:
+    """Guarda atómicamente la configuración del navegador en `settings` y su token en `secrets`."""
+    payload = json.dumps(public_config, ensure_ascii=False)
+    now = int(time.time() * 1000)
+    with open_storage() as conn:
+        conn.isolation_level = None
+        conn.execute("BEGIN IMMEDIATE;")
+        try:
+            conn.execute("""
+                INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at;
+            """, (key, payload, now))
+            if extension_token:
+                _write_secret_on_conn(conn, secret_key, extension_token, now)
+            else:
+                conn.execute("DELETE FROM secrets WHERE name = ?;", (secret_key,))
+            conn.execute("COMMIT;")
+        except Exception:
+            conn.execute("ROLLBACK;")
+            raise
+
+
+def _row_to_run_state(row: sqlite3.Row) -> dict:
+    pending = None
+    if row["pending_json"]:
+        try:
+            pending = json.loads(row["pending_json"])
+        except (ValueError, TypeError):
+            pending = None
+    return {
+        "run_id": row["run_id"],
+        "conversation_id": row["conversation_id"],
+        "pid": row["pid"],
+        "pid_start": row["pid_start"],
+        "started_at": row["started_at"],
+        "updated_at": row["updated_at"],
+        "status": row["status"],
+        "step_text": row["step_text"] or "",
+        "pending": pending,
+        "error": row["error"],
+    }
+
+
+def upsert_run_state(payload: dict) -> None:
+    """Guarda o actualiza en SQLite el estado en vivo de una ejecución en servidor."""
+    conv_id = _validate_conversation_id(payload.get("conversation_id"))
+    pending = payload.get("pending")
+    pending_json = json.dumps(pending, ensure_ascii=False) if pending is not None else None
+    now = int(time.time() * 1000)
+    with open_storage() as conn:
+        conn.execute("""
+            INSERT INTO runs (conversation_id, run_id, pid, pid_start, started_at, updated_at, status, step_text, pending_json, error)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(conversation_id) DO UPDATE SET
+                run_id = excluded.run_id,
+                pid = excluded.pid,
+                pid_start = excluded.pid_start,
+                started_at = excluded.started_at,
+                updated_at = excluded.updated_at,
+                status = excluded.status,
+                step_text = excluded.step_text,
+                pending_json = excluded.pending_json,
+                error = excluded.error;
+        """, (
+            conv_id,
+            str(payload.get("run_id") or ""),
+            payload.get("pid"),
+            payload.get("pid_start"),
+            int(payload.get("started_at") or now),
+            int(payload.get("updated_at") or now),
+            str(payload.get("status") or "running"),
+            str(payload.get("step_text") or ""),
+            pending_json,
+            payload.get("error"),
+        ))
+        conn.commit()
+    _notify_storage_live_change()
+
+
+def get_run_state(conversation_id: str) -> dict | None:
+    """Recupera de SQLite el estado en vivo de la ejecución de una conversación."""
+    clean_id = _validate_conversation_id(conversation_id)
+    with open_storage() as conn:
+        row = conn.execute("SELECT * FROM runs WHERE conversation_id = ?;", (clean_id,)).fetchone()
+        return _row_to_run_state(row) if row else None
+
+
+def list_run_states() -> list[dict]:
+    """Lista todas las ejecuciones registradas en SQLite ordenadas por inicio."""
+    with open_storage() as conn:
+        rows = conn.execute("SELECT * FROM runs ORDER BY started_at ASC, conversation_id ASC;").fetchall()
+        return [_row_to_run_state(row) for row in rows]
+
+
+def delete_run_state(conversation_id: str) -> bool:
+    """Elimina de SQLite el estado de la ejecución de una conversación."""
+    clean_id = _validate_conversation_id(conversation_id)
+    with open_storage() as conn:
+        cursor = conn.execute("DELETE FROM runs WHERE conversation_id = ?;", (clean_id,))
+        conn.commit()
+        deleted = cursor.rowcount > 0
+    if deleted:
+        _notify_storage_live_change()
+    return deleted
 
 
 def get_secret(name: str) -> str | None:
@@ -3702,6 +3526,7 @@ def _empty_project_environment() -> dict:
         "enabledTools": {},
         "mcpServers": [],
         "browser": "browser_action",
+        "activeRagBranchIds": [],
         "saved": False,
         "updatedAt": 0,
     }
@@ -3741,13 +3566,13 @@ def _validate_enabled_tools(tools) -> dict[str, bool]:
     return clean_tools
 
 
-def _validate_project_mcp_servers(servers) -> list[str]:
-    if not isinstance(servers, list):
-        raise ValueError("mcpServers debe ser una lista")
-    unique_servers = list(dict.fromkeys(_clean_project_tool_id(item, "mcpServers") for item in servers))
-    if len(unique_servers) > MAX_PROJECT_MCP_SERVERS:
-        raise ValueError(f"Un proyecto no puede tener más de {MAX_PROJECT_MCP_SERVERS} servicios MCP")
-    return unique_servers
+def _validate_project_id_list(raw, label: str, max_items: int) -> list[str]:
+    if not isinstance(raw, list):
+        raise ValueError(f"{label} debe ser una lista")
+    unique_items = list(dict.fromkeys(_clean_project_tool_id(item, label) for item in raw))
+    if len(unique_items) > max_items:
+        raise ValueError(f"Un proyecto no puede tener más de {max_items} entradas en {label}")
+    return unique_items
 
 
 def _validate_project_browser(browser) -> str:
@@ -3759,8 +3584,9 @@ def _validate_project_browser(browser) -> str:
 _PROJECT_ENV_VALIDATORS = {
     "systemDataPrompt": _validate_project_prompt,
     "enabledTools": _validate_enabled_tools,
-    "mcpServers": _validate_project_mcp_servers,
+    "mcpServers": lambda raw: _validate_project_id_list(raw, "mcpServers", MAX_PROJECT_MCP_SERVERS),
     "browser": _validate_project_browser,
+    "activeRagBranchIds": lambda raw: _validate_project_id_list(raw, "activeRagBranchIds", MAX_PROJECT_RAG_BRANCHES),
 }
 
 
@@ -3815,7 +3641,7 @@ def save_project_environment(project_key: str, raw_patch: dict) -> dict:
                 (clean_key,),
             ).fetchone()
             base = _row_to_project_environment(row) if row else _empty_project_environment()
-            stored = {key: patch[key] if key in patch else base[key] for key in ("systemDataPrompt", "enabledTools", "mcpServers", "browser")}
+            stored = {key: patch[key] if key in patch else base[key] for key in PROJECT_ENVIRONMENT_FIELDS}
             conn.execute("""
                 INSERT INTO project_environments (project_key, config_json, updated_at)
                 VALUES (?, ?, ?)
@@ -3828,6 +3654,452 @@ def save_project_environment(project_key: str, raw_patch: dict) -> dict:
         except Exception:
             conn.execute("ROLLBACK;")
             raise
+
+# --- browser.config ---
+"""Navegador de Playwright MCP: configuración guardada y argumentos de arranque."""
+
+
+
+
+
+# Configuración del navegador de Playwright MCP (sección Navegador de Ajustes).
+# Modo propio: un motor de Playwright en memoria (--isolated), o con almacenamiento persistente con nombre
+# en ~/zerochat/playwright/profile/<motor>/<nombre>.
+# Modo del usuario: su Chrome, Edge o Chromium mediante la extensión de Playwright (--extension).
+BROWSER_MODES = ("own", "user")
+OWN_BROWSER_ENGINES = ("chromium", "firefox", "webkit")
+USER_BROWSERS = ("chrome", "msedge", "chromium")
+BROWSER_CONFIG_DEFAULTS = {"mode": "own", "engine": "chromium", "userBrowser": "chrome", "headless": True, "extensionToken": ""}
+BROWSER_CONFIG_KEY = "browser"
+BROWSER_EXTENSION_TOKEN_KEY = "browser:extension_token"  # noqa: S105 - nombre de fila en la tabla secrets
+# Identificador de la extensión de Playwright en la tienda de Chrome, que también usa Edge.
+PLAYWRIGHT_SERVER_ID = "playwright"
+PLAYWRIGHT_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm"
+# Token que muestra la extensión: con él la conexión no pide aceptarla en el navegador.
+_EXTENSION_TOKEN = re.compile(r"^[A-Za-z0-9_-]{0,256}$")
+_BROWSER_CONFIG_CHOICES = {"mode": BROWSER_MODES, "engine": OWN_BROWSER_ENGINES, "userBrowser": USER_BROWSERS}
+
+
+def own_browser_profile_dir(engine: str) -> Path:
+    return get_data_dir() / "playwright" / "profile" / engine
+
+
+def validate_browser_config(raw) -> dict:
+    """Devuelve la configuración completa o lanza ValueError; los campos que faltan toman su valor por defecto."""
+    if not isinstance(raw, dict):
+        raise ValueError("La configuración del navegador debe ser un objeto")
+    unknown = sorted(set(raw) - set(BROWSER_CONFIG_DEFAULTS))
+    if unknown:
+        raise ValueError(f"Campos desconocidos en la configuración del navegador: {', '.join(unknown)}")
+    config = {**BROWSER_CONFIG_DEFAULTS, **raw}
+    for key, choices in _BROWSER_CONFIG_CHOICES.items():
+        if config[key] not in choices:
+            raise ValueError(f"{key} debe ser uno de: {', '.join(choices)}")
+    if not isinstance(config["headless"], bool):
+        raise ValueError("headless debe ser un booleano")
+    if not isinstance(config["extensionToken"], str) or not _EXTENSION_TOKEN.match(config["extensionToken"]):
+        raise ValueError("extensionToken debe tener hasta 256 letras, cifras, guiones o guiones bajos")
+    return config
+
+
+def load_browser_config() -> dict:
+    try:
+        stored = get_setting(BROWSER_CONFIG_KEY)
+        token = get_secret(BROWSER_EXTENSION_TOKEN_KEY) or ""
+        if stored is None and not token:
+            return dict(BROWSER_CONFIG_DEFAULTS)
+        raw = stored if isinstance(stored, dict) else {}
+        if stored is not None and not isinstance(stored, dict):
+            raise ValueError("La configuración del navegador debe ser un objeto")
+        return validate_browser_config({**raw, "extensionToken": token})
+    except (OSError, ValueError, TypeError) as err:
+        log_event(f"[zerochat] Configuración del navegador no válida en SQLite, se usan los valores por defecto: {err}")
+        return dict(BROWSER_CONFIG_DEFAULTS)
+
+
+def save_browser_config(raw) -> dict:
+    config = validate_browser_config(raw)
+    public_config = {key: value for key, value in config.items() if key != "extensionToken"}
+    save_browser_config_storage(public_config, config["extensionToken"], BROWSER_CONFIG_KEY, BROWSER_EXTENSION_TOKEN_KEY)
+    return config
+
+
+def chromium_install() -> tuple[str, Path] | None:
+    """Chromium del sistema: ejecutable y carpeta de datos del usuario, o None si no está."""
+    if sys.platform == "darwin":
+        executable = "/Applications/Chromium.app/Contents/MacOS/Chromium"
+        data_dir = Path.home() / "Library" / "Application Support" / "Chromium"
+    elif sys.platform.startswith("win"):
+        local = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+        executable = str(local / "Chromium" / "Application" / "chrome.exe")
+        data_dir = local / "Chromium" / "User Data"
+    else:
+        executable = shutil.which("chromium") or shutil.which("chromium-browser") or ""
+        # El Chromium de snap guarda el perfil dentro de su confinamiento.
+        snap = os.path.realpath(executable).startswith("/snap/")
+        data_dir = Path.home() / ("snap/chromium/common/chromium" if snap else ".config/chromium")
+    return (executable, data_dir) if executable and os.path.isfile(executable) else None
+
+
+def playwright_launch_args(config: dict, user_agent: str | None = None) -> list[str]:
+    """Argumentos de Playwright MCP para la configuración del navegador."""
+    if config["mode"] == "user":
+        # La extensión maneja el navegador abierto del usuario: siempre con ventana.
+        if config["userBrowser"] != "chromium":
+            return ["--extension", f"--browser={config['userBrowser']}"]
+        # Chromium no es un canal de Playwright: se da su ejecutable y su perfil, con el canal chrome
+        # para que no lo lance sin sandbox si no está abierto.
+        install = chromium_install()
+        if not install:
+            raise RuntimeError("No se encuentra Chromium en el sistema: elige otro navegador en Ajustes › Navegador.")
+        executable, data_dir = install
+        return ["--extension", "--browser=chrome", f"--executable-path={executable}", f"--user-data-dir={data_dir}"]
+    args = [f"--browser={config['engine']}", "--isolated"]
+    # El motor propio usa el User-Agent de ZeroChat; en modo user lo pone el navegador del usuario.
+    if user_agent:
+        args.append(f"--user-agent={user_agent}")
+    if config["headless"]:
+        args.append("--headless")
+    return args
+
+
+def playwright_launch_env(config: dict) -> dict[str, str]:
+    """Entorno de Playwright MCP: el token de la extensión, que no aparece en la línea de órdenes ni en el log."""
+    if config["mode"] == "user" and config["extensionToken"]:
+        return {"PLAYWRIGHT_MCP_EXTENSION_TOKEN": config["extensionToken"]}
+    return {}
+
+
+def _playwright_launch(user_agent: str | None = None) -> tuple[list[str], dict[str, str]]:
+    """Argumentos y entorno de Playwright MCP según la configuración guardada."""
+    config = load_browser_config()
+    return playwright_launch_args(config, user_agent), playwright_launch_env(config)
+
+
+# User-Agent que usan los motores propios de Playwright; lo fija el servidor con el User-Agent
+# activo de las salidas web (ff-server) para que ambos compartan el mismo fingerprint.
+SERVICE_USER_AGENT: str | None = None
+
+
+def set_service_user_agent(user_agent: str | None) -> None:
+    global SERVICE_USER_AGENT
+    SERVICE_USER_AGENT = user_agent
+
+
+# Argumentos y entorno que añade ZeroChat al arrancar un servicio gestionado,
+# calculados en cada arranque.
+SERVICE_LAUNCH = {PLAYWRIGHT_SERVER_ID: lambda: _playwright_launch(SERVICE_USER_AGENT)}
+
+# --- browser.engines ---
+"""Motores propios de Playwright (listar, instalar y quitar) y navegadores del sistema con la extensión de Playwright."""
+
+
+
+
+
+# Si Playwright MCP está en marcha: lo registra el gestor de servicios MCP (on_playwright_status).
+PLAYWRIGHT_STATUS_CHECK: list = []
+
+
+def on_playwright_status(check):
+    """Registra la función, sin argumentos, que dice si Playwright MCP está arrancando o en marcha."""
+    PLAYWRIGHT_STATUS_CHECK[:] = [check]
+    return check
+
+
+def _playwright_active() -> bool:
+    return any(check() for check in PLAYWRIGHT_STATUS_CHECK)
+
+
+def clear_own_browser_data(engine) -> dict:
+    """Borra el perfil persistente del motor (cookies, sesiones, almacenamiento de los sitios)."""
+    if engine not in OWN_BROWSER_ENGINES:
+        raise ValueError(f"engine debe ser uno de: {', '.join(OWN_BROWSER_ENGINES)}")
+    # El navegador abierto tiene el perfil bloqueado y volvería a escribirlo.
+    if _playwright_active():
+        raise ValueError("Detén Playwright MCP antes de borrar los datos del navegador.")
+    shutil.rmtree(own_browser_profile_dir(engine), ignore_errors=True)
+    return {"cleared": engine}
+
+
+# Motores propios de Playwright: cada uno se compone de las entradas de la caché que instala
+# "playwright install <motor>"; ffmpeg es común y no se quita.
+ENGINE_CACHE_ENTRIES = {"chromium": ("chromium", "chromium-headless-shell"), "firefox": ("firefox",), "webkit": ("webkit",)}
+ENGINE_INSTALL_TIMEOUT_SECONDS = 1200
+_DRY_RUN_ENTRY = re.compile(r"^(.+?) \(playwright (\S+) v\d+\)\n\s+Install location:\s+(.+)$", re.MULTILINE)
+_INSTALL_PERCENT = re.compile(r"(\d{1,3})% of ")
+_INSTALL_DOWNLOAD = re.compile(r"^Downloading (.+?) \(playwright ")
+
+
+def playwright_engine_cache() -> Path:
+    """Caché de motores de Playwright sin lanzar Node: PLAYWRIGHT_BROWSERS_PATH o la ruta por defecto de la plataforma."""
+    configured = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "ms-playwright"
+    if sys.platform.startswith("win"):
+        return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "ms-playwright"
+    return Path.home() / ".cache" / "ms-playwright"
+
+
+def cached_engine_entries() -> set[str]:
+    """Entradas de ENGINE_CACHE_ENTRIES con alguna revisión completa en la caché; la revisión exacta de esta
+    versión de Playwright solo la da BrowserEngines.list lanzando Node."""
+    try:
+        folders = [child.name for child in playwright_engine_cache().iterdir() if (child / "INSTALLATION_COMPLETE").is_file()]
+    except OSError:
+        return set()
+    # Las carpetas se llaman como la entrada con guiones bajos y su revisión: chromium_headless_shell-1187.
+    names = {name for entries in ENGINE_CACHE_ENTRIES.values() for name in entries}
+    return {name for name in names if any(folder.startswith(name.replace("-", "_") + "-") for folder in folders)}
+
+
+def playwright_service_module() -> Path:
+    return get_data_dir() / "services" / "playwright" / "node_modules" / "playwright"
+
+
+def playwright_service_cli() -> Path:
+    return playwright_service_module() / "cli.js"
+
+
+def system_browsers() -> dict[str, bool]:
+    """Chrome y Edge en las rutas donde los busca Playwright para --browser=chrome|msedge, Chromium donde lo
+    busca chromium_install; Firefox solo se informa."""
+    if sys.platform == "darwin":
+        candidates = {
+            "chrome": ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"],
+            "msedge": ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"],
+            "firefox": ["/Applications/Firefox.app/Contents/MacOS/firefox"],
+        }
+    elif sys.platform.startswith("win"):
+        roots = [os.environ.get(name) for name in ("LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)")]
+        roots = [root for root in roots if root]
+        candidates = {
+            "chrome": [os.path.join(root, "Google", "Chrome", "Application", "chrome.exe") for root in roots],
+            "msedge": [os.path.join(root, "Microsoft", "Edge", "Application", "msedge.exe") for root in roots],
+            "firefox": [os.path.join(root, "Mozilla Firefox", "firefox.exe") for root in roots],
+        }
+    else:
+        candidates = {
+            "chrome": ["/opt/google/chrome/chrome"],
+            "msedge": ["/opt/microsoft/msedge/msedge"],
+            "firefox": [shutil.which("firefox") or ""],
+        }
+    found = {name: any(path and os.path.isfile(path) for path in paths) for name, paths in candidates.items()}
+    return {**found, "chromium": chromium_install() is not None}
+
+
+def user_browser_data_dir(browser: str) -> Path | None:
+    """Carpeta de datos del usuario de Chrome, Edge o Chromium, donde están sus perfiles."""
+    if browser == "chromium":
+        install = chromium_install()
+        return install[1] if install else None
+    if sys.platform == "darwin":
+        root, paths = Path.home() / "Library" / "Application Support", {"chrome": "Google/Chrome", "msedge": "Microsoft Edge"}
+    elif sys.platform.startswith("win"):
+        root = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+        paths = {"chrome": "Google/Chrome/User Data", "msedge": "Microsoft/Edge/User Data"}
+    else:
+        root, paths = Path.home() / ".config", {"chrome": "google-chrome", "msedge": "microsoft-edge"}
+    return root / paths[browser]
+
+
+def user_browser_extensions() -> dict[str, bool]:
+    """Si algún perfil de cada navegador del usuario tiene instalada la extensión de Playwright desde la tienda."""
+    found = {}
+    for browser in USER_BROWSERS:
+        data_dir = user_browser_data_dir(browser)
+        found[browser] = bool(data_dir) and any(data_dir.glob(f"*/Extensions/{PLAYWRIGHT_EXTENSION_ID}"))
+    return found
+
+
+_ENGINES_CHANGE_HOOKS: list = []
+
+
+def on_browser_engines_change(hook):
+    """Registra una función sin argumentos que se avisa cuando cambian los motores de Playwright."""
+    _ENGINES_CHANGE_HOOKS.append(hook)
+    return hook
+
+
+def _notify_browser_engines_changed():
+    for hook in _ENGINES_CHANGE_HOOKS:
+        hook()
+
+
+class BrowserEngines:
+    """Lista, instala y quita los motores propios de Playwright en su caché, nunca en el sistema."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._changed = threading.Condition(self._lock)
+        self._rev = 0
+        self._stopping = False
+        self._jobs: dict[str, dict] = {}
+        self._locations_cache: tuple[tuple[str, int], dict[str, tuple[str, Path]]] | None = None
+
+    def close(self):
+        """Despierta cualquier long-poll pendiente en list() al detener el servidor."""
+        with self._changed:
+            self._stopping = True
+            self._changed.notify_all()
+
+    @staticmethod
+    def _run_cli(cli: Path, *args: str, timeout: float) -> subprocess.CompletedProcess:
+        return subprocess.run([shutil.which("node") or "node", str(cli), *args], cwd=cli.parent,
+                              capture_output=True, text=True, timeout=timeout)
+
+    def _locations(self, cli: Path) -> dict[str, tuple[str, Path]]:
+        """Entradas de la caché de esta versión de Playwright: nombre -> (título con versión, ruta)."""
+        key = (str(cli), cli.stat().st_mtime_ns)
+        cached = self._locations_cache
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        names = [name for entries in ENGINE_CACHE_ENTRIES.values() for name in entries]
+        result = self._run_cli(cli, "install", "--dry-run", *names, timeout=30)
+        if result.returncode != 0:
+            raise RuntimeError(f"Playwright no pudo listar sus navegadores: {(result.stderr or result.stdout).strip()}")
+        locations = {name: (title, Path(location.strip())) for title, name, location in _DRY_RUN_ENTRY.findall(result.stdout)}
+        self._locations_cache = (key, locations)
+        return locations
+
+    def _notify_locked(self):
+        self._rev += 1
+        self._changed.notify_all()
+
+    def list(self, *, since_rev: int | None = None, wait_ms: int = 0, engines_only: bool = False) -> dict:
+        """Navegadores del sistema y motores de Playwright; con since_rev/wait_ms espera cambios sin re-escanear navegadores del sistema."""
+        if since_rev is not None and wait_ms > 0:
+            with self._changed:
+                self._changed.wait_for(
+                    lambda: self._stopping or self._rev != since_rev or not any(j.get("status") == "installing" for j in self._jobs.values()),
+                    min(wait_ms, LONG_POLL_MAX_WAIT_MS) / 1000.0,
+                )
+        cli = playwright_service_cli()
+        with self._lock:
+            rev = self._rev
+            jobs = {engine: dict(job) for engine, job in self._jobs.items()}
+        result: dict = {"rev": rev, "engines": [], "config": load_browser_config()}
+        if not engines_only:
+            result["systemBrowsers"] = system_browsers()
+            result["extensions"] = user_browser_extensions()
+        if not cli.is_file():
+            return result
+        locations = self._locations(cli)
+        for engine, entries in ENGINE_CACHE_ENTRIES.items():
+            title = locations.get(entries[0], (engine,))[0]
+            installed = all(name in locations and (locations[name][1] / "INSTALLATION_COMPLETE").is_file() for name in entries)
+            result["engines"].append({"id": engine, "title": title, "installed": installed, **jobs.get(engine, {})})
+        return result
+
+    def _check_engine(self, engine) -> Path:
+        if engine not in ENGINE_CACHE_ENTRIES:
+            raise ValueError(f"engine debe ser uno de: {', '.join(ENGINE_CACHE_ENTRIES)}")
+        cli = playwright_service_cli()
+        if not cli.is_file():
+            raise ValueError("Playwright MCP no está instalado: arráncalo una vez desde Ajustes › MCP.")
+        if self._jobs.get(engine, {}).get("status") == "installing":
+            raise ValueError(f"{engine} ya se está instalando.")
+        return cli
+
+    def install(self, engine) -> dict:
+        with self._lock:
+            cli = self._check_engine(engine)
+            self._jobs[engine] = {"status": "installing", "percent": 0}
+            self._notify_locked()
+        _notify_browser_engines_changed()
+        threading.Thread(target=self._install, args=(cli, engine), daemon=True).start()
+        return self.list()
+
+    def _install(self, cli: Path, engine: str):
+        log_event(f"[zerochat] Instalando el motor {engine} de Playwright")
+        lines = []
+        try:
+            proc = subprocess.Popen([shutil.which("node") or "node", str(cli), "install", engine], cwd=cli.parent,
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            timer = threading.Timer(ENGINE_INSTALL_TIMEOUT_SECONDS, proc.kill)
+            timer.start()
+            try:
+                for line in proc.stdout:
+                    lines = (lines + [line.rstrip()])[-20:]
+                    percent, download = _INSTALL_PERCENT.search(line), _INSTALL_DOWNLOAD.match(line)
+                    with self._lock:
+                        if download:
+                            self._jobs[engine].update(download=download.group(1), percent=0)
+                            self._notify_locked()
+                        elif percent:
+                            self._jobs[engine]["percent"] = min(100, int(percent.group(1)))
+                            self._notify_locked()
+                code = proc.wait()
+            finally:
+                timer.cancel()
+            if code != 0:
+                raise RuntimeError("\n".join(lines[-5:]) or f"código {code}")
+            with self._lock:
+                self._jobs.pop(engine, None)
+                self._notify_locked()
+            log_event(f"[zerochat] Motor {engine} de Playwright instalado")
+        except (OSError, RuntimeError, subprocess.SubprocessError) as err:
+            with self._lock:
+                self._jobs[engine] = {"status": "error", "error": format_log_error(str(err), 500)}
+                self._notify_locked()
+            log_event(f"[zerochat] Fallo instalando el motor {engine} de Playwright: {format_log_error(str(err))}")
+        _notify_browser_engines_changed()
+
+    def remove(self, engine) -> dict:
+        with self._lock:
+            cli = self._check_engine(engine)
+            # Borrar un motor en uso deja al navegador abierto sin sus ficheros.
+            if _playwright_active():
+                raise ValueError("Detén Playwright MCP antes de quitar un motor.")
+            locations = self._locations(cli)
+            for name in ENGINE_CACHE_ENTRIES[engine]:
+                if name in locations:
+                    shutil.rmtree(locations[name][1], ignore_errors=True)
+            self._jobs.pop(engine, None)
+            self._notify_locked()
+        _notify_browser_engines_changed()
+        result = self.list()
+        # La configuración no se queda con un motor quitado si hay otro instalado.
+        config = result["config"]
+        replacement = next((item["id"] for item in result["engines"] if item["installed"]), None)
+        if config["engine"] == engine and replacement:
+            result["config"] = save_browser_config({**config, "engine": replacement})
+        return result
+
+
+BROWSER_ENGINES = BrowserEngines()
+
+# --- browser.rpc ---
+"""Métodos JSON-RPC de la sección Navegador de Ajustes: configuración, datos y motores propios de Playwright."""
+
+
+
+
+def _engines_list(params: dict) -> RpcOutcome:
+    since_rev = parse_nonneg_int(params.get("since_rev"), "since_rev")
+    wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms", 0) or 0
+    engines_only = params.get("engines_only", False)
+    if not isinstance(engines_only, bool):
+        raise ValueError("engines_only debe ser un booleano")
+    return rpc_result(BROWSER_ENGINES.list(since_rev=since_rev, wait_ms=wait_ms, engines_only=engines_only))
+
+
+BROWSER_METHODS = {
+    "zerochat/browser/config/set": lambda params: rpc_result(save_browser_config(params.get("config"))),
+    "zerochat/browser/data/clear": lambda params: rpc_result(clear_own_browser_data(params.get("engine"))),
+    "zerochat/browser/engines/list": _engines_list,
+    "zerochat/browser/engines/install": lambda params: rpc_result(BROWSER_ENGINES.install(params.get("engine"))),
+    "zerochat/browser/engines/remove": lambda params: rpc_result(BROWSER_ENGINES.remove(params.get("engine"))),
+}
+
+
+def dispatch_browser(method: str, params: dict) -> RpcOutcome:
+    try:
+        return dispatch_table(BROWSER_METHODS, method, params)
+    except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
 
 # --- mcp.manager ---
 """Gestor de servicios MCP: descubrimiento en ~/zerochat/services, actualización desde el catálogo, preferencias,
@@ -3909,6 +4181,13 @@ def service_status(record: McpServiceRecord, alive: bool, exit_code: int | None)
 
 # Cada cuánto se vuelve a mirar el catálogo publicado con el servidor en marcha.
 CATALOG_REFRESH_SECONDS = 3600
+_MCP_STATE_HOOKS: list = []
+
+
+def on_mcp_state_change(hook):
+    """Registra una función sin argumentos que se avisa cuando cambia el estado de los servicios MCP."""
+    _MCP_STATE_HOOKS.append(hook)
+    return hook
 
 
 def _npm_install_needed(marker: Path, package_dir: Path, package: str, version: str) -> bool:
@@ -3935,12 +4214,22 @@ class McpServiceManager:
     def __init__(self, services_root: Path | None = None):
         # Crearlo no toca el disco: el gestor global existe desde que se importa zerochat.
         self.services_root = Path(services_root) if services_root else get_data_dir() / "services"
-        self.config_file = get_data_dir() / "config" / "services.json"
         self.records: dict[str, McpServiceRecord] = {}
         self._lock = threading.Lock()
+        self._state_changed = threading.Condition()
+        self._state_rev = 0
+        self._starting: set[str] = set()
         self._catalog_stop = threading.Event()
         self._services: dict[str, dict] | None = None
         self._preferences: dict | None = None
+        self._preferences_db: Path | None = None
+
+    def _notify_state_changed(self):
+        with self._state_changed:
+            self._state_rev += 1
+            self._state_changed.notify_all()
+        for hook in _MCP_STATE_HOOKS:
+            hook()
 
     @property
     def services(self) -> dict[str, dict]:
@@ -3954,8 +4243,10 @@ class McpServiceManager:
 
     @property
     def preferences(self) -> dict:
-        if self._preferences is None:
+        db_path = get_storage_db_path()
+        if self._preferences is None or self._preferences_db != db_path:
             self._preferences = self._load_preferences()
+            self._preferences_db = db_path
         return self._preferences
 
     @staticmethod
@@ -3983,21 +4274,18 @@ class McpServiceManager:
         return servers
 
     def _load_preferences(self) -> dict:
-        if self.config_file.exists():
-            try:
-                return json.loads(self.config_file.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                return {}
-        return {}
+        try:
+            stored = get_setting("mcp_services")
+            return stored if isinstance(stored, dict) else {}
+        except (OSError, ValueError) as err:
+            log_event(f"[zerochat] Advertencia al leer preferencias MCP en SQLite: {err}")
+            return {}
 
     def _save_preferences(self):
         try:
-            self.config_file.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.config_file.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self.preferences, indent=2), encoding="utf-8")
-            tmp.replace(self.config_file)
-        except OSError as err:
-            log_event(f"[zerochat] Advertencia al guardar preferencias MCP en {self.config_file}: {err}")
+            set_setting("mcp_services", self.preferences)
+        except (OSError, ValueError) as err:
+            log_event(f"[zerochat] Advertencia al guardar preferencias MCP en SQLite: {err}")
 
     def list_servers(self) -> list[dict]:
         self.services = self._load_services()
@@ -4075,6 +4363,7 @@ class McpServiceManager:
             self._trace(server_id, f"npm package already installed: {package}@{version}")
             return
         self.records[server_id].phase = "installing"
+        self._notify_state_changed()
         self._trace(server_id, f"installing npm package: {package}@{version}")
         manifest = service_dir / "package.json"
         manifest.write_text(json.dumps({"private": True, "dependencies": {package: version}}, indent=2), encoding="utf-8")
@@ -4115,10 +4404,61 @@ class McpServiceManager:
 
     def start(self, server_id: str) -> list[dict]:
         """Arranca un servicio MCP externo y devuelve la lista actualizada de servicios."""
-        with self._lock:
+        try:
+            with self._lock:
+                self.services = self._load_services()
+                self._start_locked(server_id)
+                return self.list_servers()
+        finally:
+            with self._state_changed:
+                self._starting.discard(server_id)
+                self._state_changed.notify_all()
+
+    def start_async(self, server_id: str) -> int:
+        """Lanza en segundo plano el arranque de un servicio MCP y devuelve la revisión inicial."""
+        if server_id not in self.services:
             self.services = self._load_services()
-            self._start_locked(server_id)
-            return self.list_servers()
+        if server_id not in self.services:
+            raise KeyError(f"Servidor MCP desconocido: {server_id}")
+        with self._state_changed:
+            record = self.records.setdefault(server_id, McpServiceRecord())
+            if record.client and record.client.running():
+                return self._state_rev
+            should_launch = server_id not in self._starting
+            if should_launch:
+                self._starting.add(server_id)
+                record.phase, record.error = "starting", None
+                self._state_rev += 1
+                self._state_changed.notify_all()
+            rev = self._state_rev
+        if should_launch:
+            for hook in _MCP_STATE_HOOKS:
+                hook()
+            threading.Thread(target=self.start, args=(server_id,), name=f"mcp-start-{server_id}", daemon=True).start()
+        return rev
+
+    def wait_server(self, server_id: str, since_rev: int | None = None, wait_ms: int = 25000) -> dict:
+        """Espera cambios de fase, aparición de oauthUrl o fin del arranque de un servicio MCP."""
+        if server_id not in self.services:
+            self.services = self._load_services()
+        if server_id not in self.services:
+            raise KeyError(f"Servidor MCP desconocido: {server_id}")
+        deadline = time.monotonic() + min(max(0, wait_ms), LONG_POLL_MAX_WAIT_MS) / 1000.0
+        with self._state_changed:
+            while True:
+                record = self.records.get(server_id)
+                phase = record.phase if record else "stopped"
+                oauth_url = record.client.oauth_url if record and record.client else None
+                terminal = phase not in ("installing", "starting")
+                changed = (since_rev is not None and self._state_rev != since_rev) or (since_rev is None and (terminal or bool(oauth_url) or phase == "installing"))
+                if terminal or changed:
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._state_changed.wait(remaining)
+            rev = self._state_rev
+        return {"servers": self.list_servers(), "externalTools": self.tools(), "rev": rev}
 
     def _start_locked(self, server_id: str):
         server = self.services.get(server_id)
@@ -4128,6 +4468,7 @@ class McpServiceManager:
         if record.client and record.client.running():
             return
         record.phase, record.error = "starting", None
+        self._notify_state_changed()
         client = None
         self._trace(server_id, "start requested")
         try:
@@ -4160,15 +4501,19 @@ class McpServiceManager:
             client = StdioMcpClient(
                 command, args, str(service_dir), env,
                 trace=lambda message: self._trace(server_id, message),
-                call_timeout=_positive_seconds(launch.get("callTimeoutSeconds"), DEFAULT_MCP_CALL_TIMEOUT_SECONDS)
+                call_timeout=_positive_seconds(launch.get("callTimeoutSeconds"), DEFAULT_MCP_CALL_TIMEOUT_SECONDS),
+                on_oauth_url=lambda _url: self._notify_state_changed(),
             )
             # _prepare_service puede haber dejado el estado en "installing".
             record.phase, record.client = "starting", client
+            self._notify_state_changed()
             client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
             record.phase = "running"
+            self._notify_state_changed()
             self._trace(server_id, "started successfully")
         except Exception as exc:
             record.phase, record.error = "error", str(exc)
+            self._notify_state_changed()
             self._trace(server_id, f"start failed: {exc}")
             stale, record.client = record.client or client, None
             if stale:
@@ -4204,6 +4549,7 @@ class McpServiceManager:
             record = self.records.pop(server_id, None)
             if record and record.client:
                 record.client.stop()
+            self._notify_state_changed()
             return self.list_servers()
 
     def stop(self, server_id: str) -> list[dict]:
@@ -4214,6 +4560,7 @@ class McpServiceManager:
                 raise KeyError(f"Servidor MCP desconocido: {server_id}")
             if record.client:
                 record.client.stop()
+            self._notify_state_changed()
             return self.list_servers()
 
     def configure(self, server_id: str, options: dict | None = None) -> list[dict]:
@@ -4226,48 +4573,47 @@ class McpServiceManager:
                 opts = entry.setdefault("options", {})
                 opts.update(options)
             self._save_preferences()
+            self._notify_state_changed()
             return self.list_servers()
 
     def _running_clients(self) -> list[tuple[str, StdioMcpClient]]:
-        return [(server_id, record.client) for server_id, record in self.records.items()
+        return [(server_id, record.client) for server_id, record in list(self.records.items())
                 if record.client and record.client.running()]
 
     def tools(self) -> list[dict]:
         aggregated = []
         seen: set[str] = set()
-        with self._lock:
-            for server_id, client in self._running_clients():
-                for t in client.tools:
-                    original = t.get("name") if isinstance(t, dict) else None
-                    try:
-                        pname = public_tool_name(server_id, original)
-                    except Exception as exc:
-                        self._trace(server_id, f"tool discarded ({original!r}): {exc}")
-                        continue
-                    if pname in seen:
-                        self._trace(server_id, f"tool discarded ({original!r}): duplicate public name {pname}")
-                        continue
-                    seen.add(pname)
-                    tcopy = dict(t)
-                    tcopy["name"] = pname
-                    tcopy["metadata"] = {
-                        "mcpServerId": server_id,
-                        "originalName": original,
-                        **service_tool_settings(self.services.get(server_id, {}), original),
-                    }
-                    aggregated.append(tcopy)
+        for server_id, client in self._running_clients():
+            for t in list(client.tools):
+                original = t.get("name") if isinstance(t, dict) else None
+                try:
+                    pname = public_tool_name(server_id, original)
+                except Exception as exc:
+                    self._trace(server_id, f"tool discarded ({original!r}): {exc}")
+                    continue
+                if pname in seen:
+                    self._trace(server_id, f"tool discarded ({original!r}): duplicate public name {pname}")
+                    continue
+                seen.add(pname)
+                tcopy = dict(t)
+                tcopy["name"] = pname
+                tcopy["metadata"] = {
+                    "mcpServerId": server_id,
+                    "originalName": original,
+                    **service_tool_settings(self.services.get(server_id, {}), original),
+                }
+                aggregated.append(tcopy)
         return aggregated
 
     def _resolve_tool(self, public_name: str) -> tuple[str, StdioMcpClient, str] | None:
-        with self._lock:
-            for server_id, client in self._running_clients():
-                for t in client.tools:
-                    try:
-                        matches = public_tool_name(server_id, t.get("name")) == public_name
-                    except (ValueError, TypeError):
-                        continue
-                    if matches:
-                        return server_id, client, t["name"]
+        for server_id, client in self._running_clients():
+            for t in list(client.tools):
+                try:
+                    matches = public_tool_name(server_id, t.get("name")) == public_name
+                except (ValueError, TypeError):
+                    continue
+                if matches:
+                    return server_id, client, t["name"]
         return None
 
     def server_of(self, public_name: str) -> str | None:
@@ -4345,6 +4691,8 @@ class McpServiceManager:
                 self._trace(server_id, "restarting with the updated version")
                 record.client.stop()
                 self._start_locked(server_id)
+        if downloads:
+            self._notify_state_changed()
 
     def close(self):
         self._catalog_stop.set()
@@ -4353,6 +4701,7 @@ class McpServiceManager:
                 if record.client:
                     record.client.stop()
                 record.phase, record.client, record.error = "stopped", None, None
+        self._notify_state_changed()
 
 
 GLOBAL_MCP_MANAGER = McpServiceManager()
@@ -4370,6 +4719,7 @@ def _playwright_service_running() -> bool:
 
 SERVER_CONTROL_METHODS = frozenset({
     "zerochat/external/servers/start",
+    "zerochat/external/servers/wait",
     "zerochat/external/servers/stop",
     "zerochat/external/servers/configure",
     "zerochat/external/servers/secret",
@@ -4379,7 +4729,6 @@ SERVER_CONTROL_METHODS = frozenset({
 def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
     server_id = params.get("serverId")
     opts = params.get("options", {})
-    starting = method == "zerochat/external/servers/start"
     if not isinstance(server_id, str) or not server_id:
         return rpc_error(INVALID_PARAMS, "serverId debe ser un texto no vacío.")
     if not isinstance(opts, dict):
@@ -4387,14 +4736,28 @@ def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
     if method == "zerochat/external/servers/secret":
         return _set_secret(server_id, params)
     try:
-        if starting:
+        if method == "zerochat/external/servers/start":
+            wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms")
+            if wait_ms is not None and wait_ms > 0:
+                GLOBAL_MCP_MANAGER.start_async(server_id)
+                return rpc_result(GLOBAL_MCP_MANAGER.wait_server(server_id, wait_ms=wait_ms))
             servers = GLOBAL_MCP_MANAGER.start(server_id)
+        elif method == "zerochat/external/servers/wait":
+            since_rev = parse_nonneg_int(params.get("since_rev"), "since_rev")
+            wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms", 25000)
+            return rpc_result(GLOBAL_MCP_MANAGER.wait_server(
+                server_id,
+                since_rev=since_rev,
+                wait_ms=25000 if wait_ms is None else wait_ms,
+            ))
         elif method == "zerochat/external/servers/stop":
             servers = GLOBAL_MCP_MANAGER.stop(server_id)
         else:
             servers = GLOBAL_MCP_MANAGER.configure(server_id, opts)
     except KeyError as exc:
         return rpc_error(INVALID_PARAMS, str(exc.args[0]) if exc.args else str(exc))
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
     return rpc_result({"servers": servers, "externalTools": GLOBAL_MCP_MANAGER.tools()})
 
 
@@ -4414,13 +4777,12 @@ def _set_secret(server_id: str, params: dict) -> RpcOutcome:
         return rpc_error(INVALID_PARAMS, str(exc))
 
 # --- run_mode.state ---
-"""Estado de la ejecución desatendida: la sesión de --prompt o --conversation, sus ficheros en ~/zerochat/runs, el arranque en segundo plano, sus códigos de salida y sus métodos zerochat/run/*."""
+"""Estado de la ejecución desatendida: la sesión de --prompt o --conversation, su persistencia en SQLite, el arranque en segundo plano, sus códigos de salida y sus métodos zerochat/run/*."""
 
 
 
 
 
-RUN_POLL_SECONDS = 0.2
 RUN_PROGRESS_TEXT_MAX = 500
 RUN_PROGRESS_KIND_PATTERN = re.compile(r"[a-z_]{1,32}")
 RUN_EXIT_DONE = 0
@@ -4437,21 +4799,6 @@ RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json", ".html": "html"}
 RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 
 
-def get_runs_dir() -> Path:
-    """Directorio persistente con permisos 0700 para los ficheros de situación de ejecuciones en servidor."""
-    runs_dir = get_data_dir() / "runs"
-    runs_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if os.name != "nt":
-        runs_dir.chmod(0o700)
-    return runs_dir
-
-
-def get_run_state_path(conversation_id: str) -> Path:
-    """Ruta al fichero de situación de la conversación en ~/zerochat/runs/."""
-    clean_name = urllib.parse.quote(conversation_id.strip(), safe="")
-    return get_runs_dir() / f"{clean_name}.json"
-
-
 def _run_process_alive(data: dict) -> bool:
     """Comprueba si el proceso de una ejecución sigue activo y corresponde al arranque original."""
     pid = data.get("pid")
@@ -4466,10 +4813,9 @@ def _run_process_alive(data: dict) -> bool:
 
 
 def write_run_state(session: RunSession) -> None:
-    """Escribe atómicamente el estado en vivo de la ejecución en ~/zerochat/runs/<conversation_id>.json (0600)."""
+    """Guarda atómicamente el estado en vivo de la ejecución en SQLite."""
     if not session.conversation_id:
         return
-    state_path = get_run_state_path(session.conversation_id)
     now = int(time.time() * 1000)
     session.updated_at = now
     payload = {
@@ -4484,22 +4830,22 @@ def write_run_state(session: RunSession) -> None:
         "pending": session.pending,
         "error": session.error
     }
-    _write_private_text(state_path, json.dumps(payload, ensure_ascii=False, indent=2))
+    upsert_run_state(payload)
 
 
 def remove_run_state(conversation_id: str | None) -> None:
-    """Elimina el fichero de situación de la conversación al completarse con éxito."""
+    """Elimina de SQLite el estado de la ejecución de la conversación al completarse con éxito."""
     if not conversation_id:
         return
     try:
-        get_run_state_path(conversation_id).unlink(missing_ok=True)
-    except OSError:
+        delete_run_state(conversation_id)
+    except ValueError:
         pass
 
 
 def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dict], dict | None]:
     """
-    Lee las situaciones en ~/zerochat/runs/*.json. Si un proceso 'running' ya murió,
+    Lee las ejecuciones en la tabla `runs` de SQLite. Si un proceso 'running' ya murió,
     lo marca como 'error'. Devuelve (runs, focus_run), donde runs es una lista ligera
     ordenada por started_at, y focus_run es el detalle completo si coincide con focus_conversation_id.
     En un servidor de ejecución (--prompt o --conversation) devuelve ([], None) para que el propio
@@ -4507,17 +4853,10 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
     """
     if RUN_SESSION is not None:
         return [], None
-    runs_dir = get_runs_dir()
     entries = []
     clean_focus_id = focus_conversation_id.strip() if (isinstance(focus_conversation_id, str) and focus_conversation_id.strip()) else None
 
-    for path in sorted(runs_dir.glob("*.json")):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
-        if not isinstance(data, dict):
-            continue
+    for data in list_run_states():
         conv_id = data.get("conversation_id")
         if not conv_id or not isinstance(conv_id, str):
             continue
@@ -4528,10 +4867,7 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
             data["status"] = "error"
             data["error"] = "El proceso de ejecución terminó inesperadamente."
             data["updated_at"] = int(time.time() * 1000)
-            try:
-                _write_private_text(path, json.dumps(data, ensure_ascii=False, indent=2))
-            except OSError:
-                pass
+            upsert_run_state(data)
 
         light = {
             "conversation_id": conv_id,
@@ -4583,13 +4919,10 @@ def _run_target(params: dict) -> tuple[str, dict, str]:
     return clean_conv_id, conv, profile_entry.get("name", profile.strip())
 
 
-def _check_no_active_run(state_path: Path, conv_id: str):
-    """Una conversación solo tiene una ejecución en marcha; un estado ilegible no cuenta como tal."""
-    try:
-        existing = json.loads(state_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return
-    if isinstance(existing, dict) and existing.get("status") == "running" and _run_process_alive(existing):
+def _check_no_active_run(conv_id: str):
+    """Una conversación solo tiene una ejecución en marcha."""
+    existing = get_run_state(conv_id)
+    if existing and existing.get("status") == "running" and _run_process_alive(existing):
         raise ValueError(f"Ya hay una ejecución en marcha para la conversación '{conv_id}'.")
 
 
@@ -4598,8 +4931,7 @@ def start_server_run(params: dict) -> dict:
     if not isinstance(params, dict):
         raise ValueError("Parámetros no válidos.")
     clean_conv_id, conv, profile_name = _run_target(params)
-    state_path = get_run_state_path(clean_conv_id)
-    _check_no_active_run(state_path, clean_conv_id)
+    _check_no_active_run(clean_conv_id)
 
     prompt = params.get("prompt")
     if prompt is not None and not isinstance(prompt, str):
@@ -4651,24 +4983,20 @@ def start_server_run(params: dict) -> dict:
         "pending": None,
         "error": None
     }
-    _write_private_text(state_path, json.dumps(payload, ensure_ascii=False, indent=2))
+    upsert_run_state(payload)
 
     return {"ok": True, "run_id": run_id, "conversation_id": clean_conv_id, "status": "running"}
 
 
 def cancel_server_run(conversation_id: str) -> dict:
-    """Cancela una ejecución en segundo plano: termina el proceso si sigue en marcha y elimina el fichero."""
+    """Cancela una ejecución en segundo plano: termina el proceso si sigue en marcha y elimina su estado."""
     if not isinstance(conversation_id, str) or not conversation_id.strip():
         raise ValueError("conversation_id requerido.")
     clean_conv_id = _validate_conversation_id(conversation_id)
-    state_path = get_run_state_path(clean_conv_id)
-    if state_path.exists():
-        try:
-            data = json.loads(state_path.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and data.get("status") == "running" and _run_process_alive(data):
-                _kill_process_tree(data.get("pid"), grace_seconds=0.05)
-        except (json.JSONDecodeError, OSError):
-            pass
+    data = get_run_state(clean_conv_id)
+    if data:
+        if data.get("status") == "running" and _run_process_alive(data):
+            _kill_process_tree(data.get("pid"), grace_seconds=0.05)
         remove_run_state(clean_conv_id)
     return {"cancelled": True}
 
@@ -4721,6 +5049,7 @@ class RunSession:
         self.result: dict | None = None
         self.stop_reason: str | None = None
         self.finished = threading.Event()
+        self._wake: threading.Event | None = None
         self.pid = os.getpid()
         self.pid_start = _process_start_token(self.pid)
         self.started_at = int(time.time() * 1000)
@@ -4732,6 +5061,13 @@ class RunSession:
         self.runner_token: str | None = None
         if self.conversation_id:
             write_run_state(self)
+
+    def set_wake_event(self, event: threading.Event | None) -> None:
+        """Asocia un evento compartido al que despertar cuando llegue el resultado."""
+        with self.lock:
+            self._wake = event
+            if event is not None and self.finished.is_set():
+                event.set()
 
     def take_approved_call(self, tool_name: str, args: dict) -> bool:
         """Si es la llamada que la persona aprobó en la tarjeta pausada (mismo nombre y argumentos), la consume:
@@ -4876,6 +5212,9 @@ def _rpc_result(params: dict, session: RunSession) -> RpcOutcome:
             session.error = error
             write_run_state(session)
     session.finished.set()
+    with session.lock:
+        if session._wake is not None:
+            session._wake.set()
     return rpc_result({"ok": True})
 
 
@@ -5032,7 +5371,7 @@ def _cancel_runs(conversation_ids):
 
 def _rpc_delete_conversations(params: dict) -> RpcOutcome:
     if params.get("all") is True:
-        _cancel_runs(urllib.parse.unquote(run_file.stem) for run_file in get_runs_dir().glob("*.json"))
+        _cancel_runs(entry["conversation_id"] for entry in list_run_states())
         return rpc_result({"deleted": True, "count": delete_all_conversations()})
     if "project" in params:
         deleted_ids = delete_project_conversations(params.get("project"))
@@ -6036,23 +6375,20 @@ texto o al agotar el plazo, que es un máximo. La persona puede cortarlas con la
 
 
 
-# Cada cuánto comprueba una espera si la persona la ha cortado.
-WAIT_SLICE_SECONDS = 0.25
-
 
 class CancellableWaits:
     """Esperas en curso, por la clave de su invocación: zerochat/jobs/end_wait corta la de esa clave."""
 
     def __init__(self):
         self._lock = threading.Lock()
-        self._waits: dict[str, threading.Event] = {}
+        self._waits: dict[str, tuple[threading.Event, typing.Any]] = {}
 
-    def open(self, key: str | None) -> threading.Event:
+    def open(self, key: str | None, job=None) -> threading.Event:
         """Registra una espera que se puede cortar con cancel(key); sin clave no se puede cortar."""
         event = threading.Event()
         if key:
             with self._lock:
-                self._waits[key] = event
+                self._waits[key] = (event, job)
         return event
 
     def close(self, key: str | None):
@@ -6061,12 +6397,15 @@ class CancellableWaits:
                 self._waits.pop(key, None)
 
     def cancel(self, key) -> bool:
-        """Corta la espera con esa clave; devuelve si había una en curso."""
+        """Corta la espera con esa clave y despierta al hilo que espera en job._changed."""
         with self._lock:
-            event = self._waits.get(key) if isinstance(key, str) else None
-        if event is None:
+            entry = self._waits.get(key) if isinstance(key, str) else None
+        if entry is None:
             return False
+        event, job = entry
         event.set()
+        if job is not None:
+            job.notify_finished()
         return True
 
 
@@ -6102,10 +6441,7 @@ def _wait_job(job, wait: float, terms: tuple[str, ...] | None, cancel: threading
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return "wait_elapsed", None
-        if terms is None:
-            job.done.wait(min(remaining, WAIT_SLICE_SECONDS))
-        else:
-            job.wait_change(pos, min(remaining, WAIT_SLICE_SECONDS))
+        job.wait_change(pos if terms is not None else None, remaining, cancel)
 
 # --- tools.jobs ---
 """Comandos del servidor local (run_command y check_command): tareas con su log, plazos, segundo plano y limpieza de huérfanos."""
@@ -6137,6 +6473,18 @@ MATCHED_LINE_MAX_CHARS = 500
 # Última línea de salida de cada comando en marcha en el latido, para su tarjeta plegada.
 LAST_LINE_MAX_CHARS = 200
 REPORT_TAIL_BYTES = 4096
+_JOBS_LIVE_HOOKS: list = []
+
+
+def on_jobs_live_change(hook):
+    """Registra una función sin argumentos que se avisa cuando cambia el estado vivo de los comandos."""
+    _JOBS_LIVE_HOOKS.append(hook)
+    return hook
+
+
+def _notify_jobs_live_change():
+    for hook in _JOBS_LIVE_HOOKS:
+        hook()
 
 
 def truncate_terminal_output(text: str, max_chars: int = 8000, head_lines: int = 50, tail_lines: int = 30) -> tuple[str, bool]:
@@ -6368,6 +6716,8 @@ class CommandJob:
                     del self._tail[:overflow]
                     self._tail_start += overflow
             self._changed.notify_all()
+        if self.background:
+            _notify_jobs_live_change()
 
     def _read_output(self, stream):
         try:
@@ -6453,10 +6803,15 @@ class CommandJob:
         omitted = total - start - 2 * MODEL_OUTPUT_READ_BYTES
         return head + f"\n[... {omitted} bytes omitted ...]\n" + tail
 
-    def wait_change(self, seen_total: int, timeout: float):
-        """Espera como mucho timeout segundos a que haya salida más allá de seen_total o a que el comando termine."""
+    def wait_change(self, seen_total: int | None, timeout: float, cancel: threading.Event | None = None):
+        """Espera como mucho timeout segundos a que haya salida nueva, termine o se cancele la espera."""
         with self._changed:
-            self._changed.wait_for(lambda: self._total > seen_total or self.done.is_set(), timeout)
+            self._changed.wait_for(
+                lambda: (seen_total is not None and self._total > seen_total)
+                or self.done.is_set()
+                or (cancel is not None and cancel.is_set()),
+                timeout,
+            )
 
     def notify_finished(self):
         with self._changed:
@@ -6576,6 +6931,7 @@ class JobManager:
             job._log.close()
             job.log_path.unlink(missing_ok=True)
             raise
+        _notify_jobs_live_change()
         return job
 
     def _launch(self, job: CommandJob):
@@ -6645,6 +7001,7 @@ class JobManager:
         self._write_registry()
         job.done.set()
         job.notify_finished()
+        _notify_jobs_live_change()
 
     def get(self, project: str, job_id=None, key=None) -> CommandJob | None:
         jobs = self.list(project)
@@ -6802,7 +7159,7 @@ def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool =
     wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
     if not wait and terms is None:
         return _job_result(job, output_field="new_output")
-    cancel = WAITS.open(job_key)
+    cancel = WAITS.open(job_key, job)
     started = time.monotonic()
     try:
         reason, line = _wait_job(job, wait, terms, cancel)
@@ -6878,63 +7235,85 @@ class AccessController:
             return session
 
     @staticmethod
-    def _normalize_state(raw: dict | None) -> dict:
-        """Única definición del estado permanente y de sus valores por defecto."""
+    def _normalize_global(raw: dict | None) -> dict:
+        """Única definición de las políticas globales guardadas en SQLite."""
         data = raw if isinstance(raw, dict) else {}
-        patterns = data.get("commandPatterns") if isinstance(data.get("commandPatterns"), dict) else {}
-        raw_dir_rules = data.get("directoryRules")
-        dir_rules = {
-            str(project): list(rules)
-            for project, rules in raw_dir_rules.items()
-            if isinstance(project, str) and isinstance(rules, list)
-        } if isinstance(raw_dir_rules, dict) else {}
         # run_command nunca se guarda autorizado entero: sus permisos permanentes son patrones.
         tools = {tid: entry for tid, entry in dict(data.get("tools") or {}).items()
                  if not (tid == COMMAND_TOOL and isinstance(entry, dict) and entry.get("policy") == POLICY_ALLOW)}
-        raw_allow_all = data.get("allowAll")
-        allow_all = {
-            str(project): True
-            for project, enabled in raw_allow_all.items()
-            if isinstance(project, str) and enabled is True
-        } if isinstance(raw_allow_all, dict) else {}
+        raw_patterns = data.get("commandPatterns")
+        patterns = list(raw_patterns) if isinstance(raw_patterns, list) else []
         return {
             "version": POLICY_STATE_VERSION,
-            "allowAll": allow_all,
-            "directoryRules": dir_rules,
             "tools": tools,
             "servers": dict(data.get("servers") or {}),
-            "commandPatterns": {"global": list(patterns.get("global") or []), "projects": dict(patterns.get("projects") or {})}
+            "commandPatterns": patterns,
         }
 
-    def _read_permanent_state(self) -> dict:
-        """Lee el estado permanente de SQLite; un fallo de lectura se propaga al llamador."""
-        return self._normalize_state(get_security_policy_data())
+    @staticmethod
+    def _normalize_project(raw: dict | None) -> dict:
+        """Única definición de las políticas por proyecto guardadas en SQLite."""
+        data = raw if isinstance(raw, dict) else {}
+        raw_rules = data.get("directoryRules")
+        raw_patterns = data.get("commandPatterns")
+        return {
+            "allowAll": data.get("allowAll") is True,
+            "directoryRules": list(raw_rules) if isinstance(raw_rules, list) else None,
+            "commandPatterns": list(raw_patterns) if isinstance(raw_patterns, list) else [],
+        }
 
-    def _update_permanent(self, mutator: typing.Callable[[dict], dict]) -> dict:
-        """Lectura-modificación-escritura transaccional sobre el estado permanente normalizado."""
-        return update_security_policy_data(lambda raw: mutator(self._normalize_state(raw)))
+    @staticmethod
+    def _compact_project(project_state: dict) -> dict | None:
+        """Omite la fila del proyecto en SQLite cuando todo queda en sus valores por defecto."""
+        stored: dict = {}
+        if project_state["allowAll"]:
+            stored["allowAll"] = True
+        if project_state["directoryRules"] is not None:
+            stored["directoryRules"] = list(project_state["directoryRules"])
+        if project_state["commandPatterns"]:
+            stored["commandPatterns"] = list(project_state["commandPatterns"])
+        return stored or None
+
+    def _read_permanent_state(self, context: SecurityContext) -> tuple[dict, dict]:
+        """Lee el estado permanente global y del proyecto en SQLite; un fallo se propaga."""
+        raw_global, raw_project = get_security_policy_data(context.key)
+        return self._normalize_global(raw_global), self._normalize_project(raw_project)
+
+    def _update_permanent(self, context: SecurityContext, mutator: typing.Callable[[dict, dict, int], None]) -> tuple[dict, dict | None]:
+        """Lectura-modificación-escritura transaccional sobre las filas global y del proyecto."""
+        def apply(raw_global: dict | None, raw_project: dict | None, other_pattern_count: int) -> tuple[dict, dict | None]:
+            global_state = self._normalize_global(raw_global)
+            project_state = self._normalize_project(raw_project)
+            mutator(global_state, project_state, other_pattern_count)
+            check_command_pattern_limit(global_state["commandPatterns"], project_state["commandPatterns"], other_pattern_count)
+            self._check_entry_limit({
+                "directoryRules": project_state["directoryRules"] or [],
+                "tools": global_state["tools"],
+                "servers": global_state["servers"],
+            })
+            return global_state, self._compact_project(project_state)
+        return update_security_policy_data(context.key, apply)
 
     def _effective_state(self, context: SecurityContext) -> dict:
         """Una sola lectura del estado permanente combinada con la capa de sesión del proyecto."""
-        state = self._read_permanent_state()
+        global_state, project_state = self._read_permanent_state(context)
         default_rule = self.get_default_directory_rule(context)
         with self._lock:
             session = self._session(context)
             if session.directory_rules is not None:
                 dir_rules = list(session.directory_rules)
-            elif context.key in state["directoryRules"]:
-                dir_rules = list(state["directoryRules"][context.key])
+            elif project_state["directoryRules"] is not None:
+                dir_rules = list(project_state["directoryRules"])
             else:
                 dir_rules = [default_rule]
-            saved_patterns = state["commandPatterns"]
             return {
-                "allowAll": session.allow_all if session.allow_all is not None else bool(state["allowAll"].get(context.key, False)),
+                "allowAll": session.allow_all if session.allow_all is not None else project_state["allowAll"],
                 "directoryRules": dir_rules,
-                "tools": {**state["tools"], **session.tools},
-                "servers": {**state["servers"], **session.servers},
+                "tools": {**global_state["tools"], **session.tools},
+                "servers": {**global_state["servers"], **session.servers},
                 "commandPatterns": {
-                    "global": list(saved_patterns["global"]),
-                    "project": list(saved_patterns["projects"].get(context.key) or []),
+                    "global": list(global_state["commandPatterns"]),
+                    "project": list(project_state["commandPatterns"]),
                     "session": list(session.command_patterns)
                 }
             }
@@ -7051,48 +7430,28 @@ class AccessController:
         project = context.key
         default_rule = self.get_default_directory_rule(context)
 
-        def mutator(current: dict) -> dict:
-            self._apply_state_patch(current, project, default_rule, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns)
-            self._check_entry_limit(current)
-            return current
-        self._update_permanent(mutator)
+        def mutator(global_state: dict, project_state: dict, _other_patterns: int) -> None:
+            self._apply_state_patch(global_state, project_state, default_rule, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns)
+        self._update_permanent(context, mutator)
         self._forget_session_overrides(project, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers)
         return self.export_state(context)
 
-    def _apply_state_patch(self, current: dict, project: str, default_rule: str, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns):
+    def _apply_state_patch(self, global_state: dict, project_state: dict, default_rule: str, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns):
         """Aplica sobre el estado guardado los apartados del parche que vienen (None es «no cambiar»)."""
         if clean_allow_all is not None:
-            if clean_allow_all:
-                current["allowAll"][project] = True
-            else:
-                current["allowAll"].pop(project, None)
+            project_state["allowAll"] = clean_allow_all
         if clean_rules is not None:
-            if clean_rules == [default_rule]:
-                current["directoryRules"].pop(project, None)
-            else:
-                current["directoryRules"][project] = clean_rules
+            project_state["directoryRules"] = None if clean_rules == [default_rule] else clean_rules
         if added_rules:
-            base_rules = self._project_rules_base(current["directoryRules"], project, default_rule)
-            current["directoryRules"][project] = self._append_rules(base_rules, added_rules)
+            base_rules = project_state["directoryRules"] if project_state["directoryRules"] is not None else [default_rule]
+            project_state["directoryRules"] = self._append_rules(base_rules, added_rules)
         if clean_tools is not None:
-            current["tools"] = self._apply_entry_patch(current.get("tools"), clean_tools)
+            global_state["tools"] = self._apply_entry_patch(global_state.get("tools"), clean_tools)
         if clean_servers is not None:
-            current["servers"] = self._apply_entry_patch(current.get("servers"), clean_servers)
+            global_state["servers"] = self._apply_entry_patch(global_state.get("servers"), clean_servers)
         if clean_patterns is not None:
-            current["commandPatterns"] = self._merge_command_patterns(current["commandPatterns"], clean_patterns, project)
-
-    @staticmethod
-    def _project_rules_base(directory_rules: dict[str, list[str]], project: str, default_rule: str) -> list[str]:
-        return directory_rules[project] if project in directory_rules else [default_rule]
-
-    @staticmethod
-    def _merge_command_patterns(current_patterns: dict, patch: dict, project: str) -> dict:
-        projects = dict(current_patterns["projects"])
-        if patch["project"]:
-            projects[project] = patch["project"]
-        else:
-            projects.pop(project, None)
-        return normalize_command_patterns({"global": patch["global"], "projects": projects})
+            global_state["commandPatterns"] = clean_pattern_list(clean_patterns["global"], "commandPatterns.global")
+            project_state["commandPatterns"] = clean_pattern_list(clean_patterns["project"], "commandPatterns.project")
 
     def _forget_session_overrides(self, project: str, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers):
         """Lo guardado sustituye o revoca lo equivalente en la sesión (las reglas y permitir todo, solo en su proyecto)."""
@@ -7321,14 +7680,12 @@ class AccessController:
             return
         project = context.key
 
-        def mutator(state: dict) -> dict:
-            self._store_decision(state, decision, pattern, project, tool, server_name, server_id)
+        def mutator(global_state: dict, project_state: dict, _other_patterns: int) -> None:
+            self._store_decision(global_state, project_state, decision, pattern, tool, server_name, server_id)
             if rules:
-                base_rules = self._project_rules_base(state["directoryRules"], project, self.get_default_directory_rule(context))
-                state["directoryRules"][project] = self._append_rules(base_rules, rules)
-            self._check_entry_limit(state)
-            return state
-        self._update_permanent(mutator)
+                base_rules = project_state["directoryRules"] if project_state["directoryRules"] is not None else [self.get_default_directory_rule(context)]
+                project_state["directoryRules"] = self._append_rules(base_rules, rules)
+        self._update_permanent(context, mutator)
         self._drop_superseded_session_entries(decision, pattern, tool, server_id, project, rules)
 
     def _allow_for_session(self, context: SecurityContext, tool: str, server_name: str, pattern: str | None):
@@ -7341,19 +7698,17 @@ class AccessController:
             else:
                 session.tools[tool] = self._make_entry("tools", POLICY_ALLOW, SCOPE_SESSION, server_name, tool)
 
-    def _store_decision(self, state: dict, decision: str, pattern: str | None, project: str, tool: str,
+    def _store_decision(self, global_state: dict, project_state: dict, decision: str, pattern: str | None, tool: str,
                         server_name: str, server_id: str):
         """Guarda una decisión permanente: el patrón del proyecto o global, la herramienta o el servidor."""
-        saved = state["commandPatterns"]
         if pattern and decision == "allow_project":
-            projects = {**saved["projects"], project: [*(saved["projects"].get(project) or []), pattern]}
-            state["commandPatterns"] = normalize_command_patterns({**saved, "projects": projects})
+            project_state["commandPatterns"] = clean_pattern_list([*project_state["commandPatterns"], pattern], "commandPatterns.project")
         elif pattern and decision == "allow_always":
-            state["commandPatterns"] = normalize_command_patterns({**saved, "global": [*saved["global"], pattern]})
+            global_state["commandPatterns"] = clean_pattern_list([*global_state["commandPatterns"], pattern], "commandPatterns.global")
         elif decision == "allow_always":
-            state["tools"][tool] = self._make_entry("tools", POLICY_ALLOW, SCOPE_PERMANENT, server_name, tool)
+            global_state["tools"][tool] = self._make_entry("tools", POLICY_ALLOW, SCOPE_PERMANENT, server_name, tool)
         elif decision == "allow_server_always":
-            state["servers"][server_id] = self._make_entry("servers", POLICY_ALLOW, SCOPE_PERMANENT, server_name or server_id)
+            global_state["servers"][server_id] = self._make_entry("servers", POLICY_ALLOW, SCOPE_PERMANENT, server_name or server_id)
 
     def _drop_superseded_session_entries(self, decision: str, pattern: str | None, tool: str, server_id: str,
                                          project: str, rules: list[str]):
@@ -7503,13 +7858,32 @@ ACCESS_CONTROLLER = AccessController()
 
 DEFAULT_HEARTBEAT_TIMEOUT = 60.0
 DEFAULT_HEARTBEAT_GRACE = 45.0
-DEFAULT_HEARTBEAT_POLL = 5.0
+_RUN_ACTIVE_CHECK_INTERVAL = 1.0
 HEARTBEAT_LAST_SEEN = 0.0
 HEARTBEAT_INITIALIZED = False
 HEARTBEAT_WATCHDOG_STOP = threading.Event()
+_LIVE_STATE_COND = threading.Condition()
+_LIVE_STATE_SEQ = 0
+_WATCHDOG_COND = threading.Condition()
 _SERVER_SHUTTING_DOWN = threading.Event()
+_SHUTDOWN_LOCK = threading.Lock()
+_SHUTDOWN_LISTENERS: set[threading.Event] = set()
 # Si el servidor se detiene al cerrar el navegador, cerrar la pestaña detiene también los comandos.
 EXIT_ON_CLOSE = False
+
+
+def register_shutdown_event(event: threading.Event) -> None:
+    """Registra un evento que se activa al iniciar el apagado del servidor."""
+    with _SHUTDOWN_LOCK:
+        if _SERVER_SHUTTING_DOWN.is_set():
+            event.set()
+        else:
+            _SHUTDOWN_LISTENERS.add(event)
+
+
+def unregister_shutdown_event(event: threading.Event) -> None:
+    with _SHUTDOWN_LOCK:
+        _SHUTDOWN_LISTENERS.discard(event)
 
 
 def set_exit_on_close(value: bool):
@@ -7547,17 +7921,45 @@ class BrowserLease:
 BROWSER_LEASES = BrowserLease()
 
 
+def notify_live_state_changed() -> None:
+    """Despierta a los latidos en espera y al watchdog ante cambios del estado vivo."""
+    global _LIVE_STATE_SEQ
+    with _LIVE_STATE_COND:
+        _LIVE_STATE_SEQ += 1
+        _LIVE_STATE_COND.notify_all()
+    with _WATCHDOG_COND:
+        _WATCHDOG_COND.notify_all()
+
+
+on_storage_live_change(notify_live_state_changed)
+on_jobs_live_change(notify_live_state_changed)
+on_mcp_state_change(notify_live_state_changed)
+on_browser_engines_change(notify_live_state_changed)
+
+
 def mark_browser_active():
     """Registra la presencia del navegador ante cualquier petición de un origen permitido, aunque su
     token haya caducado: el auto-cierre no detiene el servidor ni sus comandos al cambiar el día."""
     global HEARTBEAT_LAST_SEEN, HEARTBEAT_INITIALIZED
-    HEARTBEAT_LAST_SEEN = time.monotonic()
-    HEARTBEAT_INITIALIZED = True
+    with _WATCHDOG_COND:
+        HEARTBEAT_LAST_SEEN = time.monotonic()
+        HEARTBEAT_INITIALIZED = True
+        _WATCHDOG_COND.notify_all()
 
 
 def heartbeat_initialized() -> bool:
     """Si el navegador ha dado ya alguna señal de vida."""
     return HEARTBEAT_INITIALIZED
+
+
+def _live_state_rev(state: dict) -> str:
+    # Excluir campos volátiles (elapsed_s) para no despertar al latido mientras nada real cambia.
+    stable = {
+        **state,
+        "jobs": [{k: v for k, v in job.items() if k != "elapsed_s"} for job in state["jobs"]],
+    }
+    encoded = json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:16]
 
 
 def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -> dict:
@@ -7570,7 +7972,7 @@ def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -
     en segundo plano; y focus_run, estado detallado de la ejecución enfocada por el usuario.
     """
     runs, focus_run = list_server_runs(focus_conversation_id)
-    return {
+    state = {
         "serverId": get_server_id(),
         "cwd": str(ctx.workspace_dir),
         "jobs": JOBS.running_summaries(ctx.key),
@@ -7582,6 +7984,36 @@ def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -
         "focus_run": focus_run,
         "conversations_rev": conversations_revision()
     }
+    state["rev"] = _live_state_rev(state)
+    return state
+
+
+def wait_live_state(
+    ctx: SecurityContext,
+    focus_conversation_id: str | None = None,
+    since_rev: str | None = None,
+    wait_ms: int = 0,
+) -> dict:
+    """Devuelve el estado vivo; con since_rev y wait_ms espera cambios sin sondeo activo."""
+    state = live_state(ctx, focus_conversation_id)
+    clamped_ms = min(max(0, wait_ms), LONG_POLL_MAX_WAIT_MS)
+    if not since_rev or clamped_ms <= 0 or state["rev"] != since_rev or _SERVER_SHUTTING_DOWN.is_set():
+        return state
+    deadline = time.monotonic() + clamped_ms / 1000.0
+    while True:
+        with _LIVE_STATE_COND:
+            seq = _LIVE_STATE_SEQ
+        state = live_state(ctx, focus_conversation_id)
+        if state["rev"] != since_rev or _SERVER_SHUTTING_DOWN.is_set():
+            return state
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return state
+        # Las ejecuciones en segundo plano (--conversation) corren en otro proceso y actualizan SQLite.
+        slice_s = min(remaining, _RUN_ACTIVE_CHECK_INTERVAL) if any(r.get("status") == "running" for r in state["runs"]) else remaining
+        with _LIVE_STATE_COND:
+            if _LIVE_STATE_SEQ == seq and not _SERVER_SHUTTING_DOWN.is_set():
+                _LIVE_STATE_COND.wait(slice_s)
 
 
 def stop_zerochat_server(server: ThreadingHTTPServer):
@@ -7589,13 +8021,44 @@ def stop_zerochat_server(server: ThreadingHTTPServer):
     if _SERVER_SHUTTING_DOWN.is_set():
         return
     _SERVER_SHUTTING_DOWN.set()
+    with _SHUTDOWN_LOCK:
+        for listener in list(_SHUTDOWN_LISTENERS):
+            listener.set()
     HEARTBEAT_WATCHDOG_STOP.set()
+    notify_live_state_changed()
     running = JOBS.running(None)
     if running:
         console_log(timestamp_message(f"Deteniendo {len(running)} comando(s) en marcha: " + ", ".join(job.command[:60] for job in running)))
     JOBS.stop_all("shutdown")
     GLOBAL_MCP_MANAGER.close()
+    BROWSER_ENGINES.close()
     threading.Thread(target=server.shutdown, daemon=True).start()
+
+
+def _watchdog_wait_step(
+    start_time: float,
+    initial_grace_seconds: float,
+    inactivity_timeout_seconds: float,
+    require_initial_connection: bool,
+) -> str | None:
+    """Espera en _WATCHDOG_COND hasta que venza el plazo actual; devuelve el mensaje de cierre o None."""
+    with _WATCHDOG_COND:
+        while not HEARTBEAT_WATCHDOG_STOP.is_set():
+            if not HEARTBEAT_INITIALIZED:
+                if not require_initial_connection:
+                    _WATCHDOG_COND.wait()
+                    continue
+                remaining = start_time + initial_grace_seconds - time.monotonic()
+                if remaining <= 0:
+                    return f"Tiempo de espera del navegador agotado ({initial_grace_seconds:.0f}s). Deteniendo servidor ZeroChat..."
+                _WATCHDOG_COND.wait(remaining)
+                continue
+            remaining = HEARTBEAT_LAST_SEEN + inactivity_timeout_seconds - time.monotonic()
+            if remaining > 0:
+                _WATCHDOG_COND.wait(remaining)
+                continue
+            return "Navegador desconectado (cierre detectado). Deteniendo servidor ZeroChat..."
+    return None
 
 
 def heartbeat_watchdog(server: ThreadingHTTPServer, initial_grace_seconds: float = DEFAULT_HEARTBEAT_GRACE, inactivity_timeout_seconds: float = DEFAULT_HEARTBEAT_TIMEOUT, require_initial_connection: bool = True):
@@ -7604,29 +8067,20 @@ def heartbeat_watchdog(server: ThreadingHTTPServer, initial_grace_seconds: float
     Si el navegador se cierra o deja de emitir latidos, detiene el servidor automáticamente.
     """
     start_time = time.monotonic()
-    poll_interval = min(DEFAULT_HEARTBEAT_POLL, max(0.02, inactivity_timeout_seconds / 2))
+    active_slice = min(_RUN_ACTIVE_CHECK_INTERVAL, max(0.05, inactivity_timeout_seconds))
     while not HEARTBEAT_WATCHDOG_STOP.is_set():
-        if HEARTBEAT_WATCHDOG_STOP.wait(timeout=poll_interval):
-            break
-
-        now = time.monotonic()
-
-        # 1. Periodo de gracia inicial (solo si zerochat abrió el navegador)
-        if not HEARTBEAT_INITIALIZED:
-            if require_initial_connection and (now - start_time > initial_grace_seconds):
-                log_event(f"Tiempo de espera del navegador agotado ({initial_grace_seconds:.0f}s). Deteniendo servidor ZeroChat...")
-                stop_zerochat_server(server)
-                break
-            continue
-
-        # 2. Inactividad tras haber recibido latidos
-        if now - HEARTBEAT_LAST_SEEN > inactivity_timeout_seconds:
+        reason = _watchdog_wait_step(start_time, initial_grace_seconds, inactivity_timeout_seconds, require_initial_connection)
+        if reason is None:
+            return
+        if HEARTBEAT_INITIALIZED:
             runs, _ = list_server_runs()
             if any(r.get("status") == "running" for r in runs):
+                with _WATCHDOG_COND:
+                    _WATCHDOG_COND.wait(active_slice)
                 continue
-            log_event("Navegador desconectado (cierre detectado). Deteniendo servidor ZeroChat...")
-            stop_zerochat_server(server)
-            break
+        log_event(reason)
+        stop_zerochat_server(server)
+        return
 
 # --- cli.console ---
 """Consola interactiva del servidor: una línea de ayuda tras un rato sin actividad y órdenes de teclado (abrir la interfaz, salir)."""
@@ -7758,14 +8212,27 @@ def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc
     """Detiene el servidor al recibir el resultado o si termina el runner propio. Sin plazos: lo que dura una ejecución
     lo decide quien la lanza (la cancela o la interrumpe), y cada paso cerrado ya está grabado."""
     proc = runner_proc if runner_proc is not None else browser_proc
-    while not session.finished.wait(RUN_POLL_SECONDS):
+    wake = threading.Event()
+    proc_done = threading.Event()
+    session.set_wake_event(wake)
+    register_shutdown_event(wake)
+    try:
+        if proc is not None:
+            def _watch_proc():
+                proc.wait()
+                proc_done.set()
+                wake.set()
+            threading.Thread(target=_watch_proc, name="run-proc-wait", daemon=True).start()
+        wake.wait()
         # El latido o una señal ya detienen el servidor: el resultado queda vacío.
         if _SERVER_SHUTTING_DOWN.is_set():
             return
-        if proc is not None and proc.poll() is not None and not session.finished.wait(0.2):
+        if proc_done.is_set() and not session.finished.wait(0.2):
             if runner_proc is not None:
                 session.stop_reason = runner_exit_reason(runner_proc, runner_log)
-            break
+    finally:
+        unregister_shutdown_event(wake)
+        session.set_wake_event(None)
     if session.result is None and session.conversation_id:
         with session.lock:
             session.status = "error"
@@ -8415,16 +8882,19 @@ def _log(params: dict, job) -> RpcOutcome:
     tail = params.get("tail")
     offset = params.get("offset", 0)
     limit = params.get("limit", JOB_LOG_PAGE_BYTES)
-    if tail is not None:
-        if isinstance(tail, bool) or not isinstance(tail, int) or tail < 0:
-            return rpc_error(INVALID_PARAMS, "tail debe ser un entero no negativo.")
-        start = max(0, job.total - tail)
-    else:
-        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
-            return rpc_error(INVALID_PARAMS, "offset debe ser un entero no negativo.")
-        start = offset
+    try:
+        wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms", 0) or 0
+        if tail is not None:
+            parsed_tail = parse_nonneg_int(tail, "tail", 0) or 0
+            start = max(0, job.total - parsed_tail)
+        else:
+            start = parse_nonneg_int(offset, "offset", 0) or 0
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
     if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
         return rpc_error(INVALID_PARAMS, "limit debe ser un entero positivo.")
+    if wait_ms > 0 and tail is None and not job.done.is_set() and start >= job.total:
+        job.wait_change(start, min(wait_ms, LONG_POLL_MAX_WAIT_MS) / 1000.0)
     text, next_offset = job.read_range(start, min(limit, JOB_LOG_PAGE_BYTES))
     return rpc_result({
         "text": text,
@@ -9089,7 +9559,7 @@ def execute_js_sandbox(code: str, timeout_ms: int | float | None = None) -> dict
     try:
         stdout, stderr = proc.communicate(input=payload, timeout=(resolved_timeout + 250) / 1000.0)
     except subprocess.TimeoutExpired:
-        _kill_process_tree(proc.pid, grace_seconds=0.05)
+        _kill_process_tree(proc, grace_seconds=0.05)
         try:
             proc.wait(timeout=1.0)
         except subprocess.TimeoutExpired:
@@ -9392,7 +9862,14 @@ def _initialize(_params: dict, ctx: SecurityContext) -> RpcOutcome:
 
 
 def _heartbeat(params: dict, ctx: SecurityContext) -> RpcOutcome:
-    return rpc_result(live_state(ctx, params.get("focus_conversation_id")))
+    since_rev = params.get("since_rev")
+    if since_rev is not None and not isinstance(since_rev, str):
+        return rpc_error(INVALID_PARAMS, "since_rev debe ser texto")
+    try:
+        wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms", 0) or 0
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+    return rpc_result(wait_live_state(ctx, params.get("focus_conversation_id"), since_rev=since_rev, wait_ms=wait_ms))
 
 
 def _set_project_directory(params: dict, ctx: SecurityContext) -> RpcOutcome:

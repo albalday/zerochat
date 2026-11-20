@@ -2,27 +2,50 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import threading
 import time
 from http.server import ThreadingHTTPServer
 
+from browser.engines import BROWSER_ENGINES, on_browser_engines_change
+from core.limits import LONG_POLL_MAX_WAIT_MS
 from core.logging import console_log, log_event, timestamp_message
-from mcp.manager import GLOBAL_MCP_MANAGER
+from mcp.manager import GLOBAL_MCP_MANAGER, on_mcp_state_change
 from run_mode.state import list_server_runs
 from security.context import SecurityContext
-from storage.db import conversations_revision, get_server_id
+from storage.db import conversations_revision, get_server_id, on_storage_live_change
 from tools.browser_action import playwright_status
-from tools.jobs import JOBS
+from tools.jobs import JOBS, on_jobs_live_change
 
 DEFAULT_HEARTBEAT_TIMEOUT = 60.0
 DEFAULT_HEARTBEAT_GRACE = 45.0
-DEFAULT_HEARTBEAT_POLL = 5.0
+_RUN_ACTIVE_CHECK_INTERVAL = 1.0
 HEARTBEAT_LAST_SEEN = 0.0
 HEARTBEAT_INITIALIZED = False
 HEARTBEAT_WATCHDOG_STOP = threading.Event()
+_LIVE_STATE_COND = threading.Condition()
+_LIVE_STATE_SEQ = 0
+_WATCHDOG_COND = threading.Condition()
 _SERVER_SHUTTING_DOWN = threading.Event()
+_SHUTDOWN_LOCK = threading.Lock()
+_SHUTDOWN_LISTENERS: set[threading.Event] = set()
 # Si el servidor se detiene al cerrar el navegador, cerrar la pestaña detiene también los comandos.
 EXIT_ON_CLOSE = False
+
+
+def register_shutdown_event(event: threading.Event) -> None:
+    """Registra un evento que se activa al iniciar el apagado del servidor."""
+    with _SHUTDOWN_LOCK:
+        if _SERVER_SHUTTING_DOWN.is_set():
+            event.set()
+        else:
+            _SHUTDOWN_LISTENERS.add(event)
+
+
+def unregister_shutdown_event(event: threading.Event) -> None:
+    with _SHUTDOWN_LOCK:
+        _SHUTDOWN_LISTENERS.discard(event)
 
 
 def set_exit_on_close(value: bool):
@@ -60,17 +83,45 @@ class BrowserLease:
 BROWSER_LEASES = BrowserLease()
 
 
+def notify_live_state_changed() -> None:
+    """Despierta a los latidos en espera y al watchdog ante cambios del estado vivo."""
+    global _LIVE_STATE_SEQ
+    with _LIVE_STATE_COND:
+        _LIVE_STATE_SEQ += 1
+        _LIVE_STATE_COND.notify_all()
+    with _WATCHDOG_COND:
+        _WATCHDOG_COND.notify_all()
+
+
+on_storage_live_change(notify_live_state_changed)
+on_jobs_live_change(notify_live_state_changed)
+on_mcp_state_change(notify_live_state_changed)
+on_browser_engines_change(notify_live_state_changed)
+
+
 def mark_browser_active():
     """Registra la presencia del navegador ante cualquier petición de un origen permitido, aunque su
     token haya caducado: el auto-cierre no detiene el servidor ni sus comandos al cambiar el día."""
     global HEARTBEAT_LAST_SEEN, HEARTBEAT_INITIALIZED
-    HEARTBEAT_LAST_SEEN = time.monotonic()
-    HEARTBEAT_INITIALIZED = True
+    with _WATCHDOG_COND:
+        HEARTBEAT_LAST_SEEN = time.monotonic()
+        HEARTBEAT_INITIALIZED = True
+        _WATCHDOG_COND.notify_all()
 
 
 def heartbeat_initialized() -> bool:
     """Si el navegador ha dado ya alguna señal de vida."""
     return HEARTBEAT_INITIALIZED
+
+
+def _live_state_rev(state: dict) -> str:
+    # Excluir campos volátiles (elapsed_s) para no despertar al latido mientras nada real cambia.
+    stable = {
+        **state,
+        "jobs": [{k: v for k, v in job.items() if k != "elapsed_s"} for job in state["jobs"]],
+    }
+    encoded = json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:16]
 
 
 def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -> dict:
@@ -83,7 +134,7 @@ def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -
     en segundo plano; y focus_run, estado detallado de la ejecución enfocada por el usuario.
     """
     runs, focus_run = list_server_runs(focus_conversation_id)
-    return {
+    state = {
         "serverId": get_server_id(),
         "cwd": str(ctx.workspace_dir),
         "jobs": JOBS.running_summaries(ctx.key),
@@ -95,6 +146,36 @@ def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -
         "focus_run": focus_run,
         "conversations_rev": conversations_revision()
     }
+    state["rev"] = _live_state_rev(state)
+    return state
+
+
+def wait_live_state(
+    ctx: SecurityContext,
+    focus_conversation_id: str | None = None,
+    since_rev: str | None = None,
+    wait_ms: int = 0,
+) -> dict:
+    """Devuelve el estado vivo; con since_rev y wait_ms espera cambios sin sondeo activo."""
+    state = live_state(ctx, focus_conversation_id)
+    clamped_ms = min(max(0, wait_ms), LONG_POLL_MAX_WAIT_MS)
+    if not since_rev or clamped_ms <= 0 or state["rev"] != since_rev or _SERVER_SHUTTING_DOWN.is_set():
+        return state
+    deadline = time.monotonic() + clamped_ms / 1000.0
+    while True:
+        with _LIVE_STATE_COND:
+            seq = _LIVE_STATE_SEQ
+        state = live_state(ctx, focus_conversation_id)
+        if state["rev"] != since_rev or _SERVER_SHUTTING_DOWN.is_set():
+            return state
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return state
+        # Las ejecuciones en segundo plano (--conversation) corren en otro proceso y actualizan SQLite.
+        slice_s = min(remaining, _RUN_ACTIVE_CHECK_INTERVAL) if any(r.get("status") == "running" for r in state["runs"]) else remaining
+        with _LIVE_STATE_COND:
+            if _LIVE_STATE_SEQ == seq and not _SERVER_SHUTTING_DOWN.is_set():
+                _LIVE_STATE_COND.wait(slice_s)
 
 
 def stop_zerochat_server(server: ThreadingHTTPServer):
@@ -102,13 +183,44 @@ def stop_zerochat_server(server: ThreadingHTTPServer):
     if _SERVER_SHUTTING_DOWN.is_set():
         return
     _SERVER_SHUTTING_DOWN.set()
+    with _SHUTDOWN_LOCK:
+        for listener in list(_SHUTDOWN_LISTENERS):
+            listener.set()
     HEARTBEAT_WATCHDOG_STOP.set()
+    notify_live_state_changed()
     running = JOBS.running(None)
     if running:
         console_log(timestamp_message(f"Deteniendo {len(running)} comando(s) en marcha: " + ", ".join(job.command[:60] for job in running)))
     JOBS.stop_all("shutdown")
     GLOBAL_MCP_MANAGER.close()
+    BROWSER_ENGINES.close()
     threading.Thread(target=server.shutdown, daemon=True).start()
+
+
+def _watchdog_wait_step(
+    start_time: float,
+    initial_grace_seconds: float,
+    inactivity_timeout_seconds: float,
+    require_initial_connection: bool,
+) -> str | None:
+    """Espera en _WATCHDOG_COND hasta que venza el plazo actual; devuelve el mensaje de cierre o None."""
+    with _WATCHDOG_COND:
+        while not HEARTBEAT_WATCHDOG_STOP.is_set():
+            if not HEARTBEAT_INITIALIZED:
+                if not require_initial_connection:
+                    _WATCHDOG_COND.wait()
+                    continue
+                remaining = start_time + initial_grace_seconds - time.monotonic()
+                if remaining <= 0:
+                    return f"Tiempo de espera del navegador agotado ({initial_grace_seconds:.0f}s). Deteniendo servidor ZeroChat..."
+                _WATCHDOG_COND.wait(remaining)
+                continue
+            remaining = HEARTBEAT_LAST_SEEN + inactivity_timeout_seconds - time.monotonic()
+            if remaining > 0:
+                _WATCHDOG_COND.wait(remaining)
+                continue
+            return "Navegador desconectado (cierre detectado). Deteniendo servidor ZeroChat..."
+    return None
 
 
 def heartbeat_watchdog(server: ThreadingHTTPServer, initial_grace_seconds: float = DEFAULT_HEARTBEAT_GRACE, inactivity_timeout_seconds: float = DEFAULT_HEARTBEAT_TIMEOUT, require_initial_connection: bool = True):
@@ -117,26 +229,17 @@ def heartbeat_watchdog(server: ThreadingHTTPServer, initial_grace_seconds: float
     Si el navegador se cierra o deja de emitir latidos, detiene el servidor automáticamente.
     """
     start_time = time.monotonic()
-    poll_interval = min(DEFAULT_HEARTBEAT_POLL, max(0.02, inactivity_timeout_seconds / 2))
+    active_slice = min(_RUN_ACTIVE_CHECK_INTERVAL, max(0.05, inactivity_timeout_seconds))
     while not HEARTBEAT_WATCHDOG_STOP.is_set():
-        if HEARTBEAT_WATCHDOG_STOP.wait(timeout=poll_interval):
-            break
-
-        now = time.monotonic()
-
-        # 1. Periodo de gracia inicial (solo si zerochat abrió el navegador)
-        if not HEARTBEAT_INITIALIZED:
-            if require_initial_connection and (now - start_time > initial_grace_seconds):
-                log_event(f"Tiempo de espera del navegador agotado ({initial_grace_seconds:.0f}s). Deteniendo servidor ZeroChat...")
-                stop_zerochat_server(server)
-                break
-            continue
-
-        # 2. Inactividad tras haber recibido latidos
-        if now - HEARTBEAT_LAST_SEEN > inactivity_timeout_seconds:
+        reason = _watchdog_wait_step(start_time, initial_grace_seconds, inactivity_timeout_seconds, require_initial_connection)
+        if reason is None:
+            return
+        if HEARTBEAT_INITIALIZED:
             runs, _ = list_server_runs()
             if any(r.get("status") == "running" for r in runs):
+                with _WATCHDOG_COND:
+                    _WATCHDOG_COND.wait(active_slice)
                 continue
-            log_event("Navegador desconectado (cierre detectado). Deteniendo servidor ZeroChat...")
-            stop_zerochat_server(server)
-            break
+        log_event(reason)
+        stop_zerochat_server(server)
+        return

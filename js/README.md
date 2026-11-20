@@ -39,7 +39,7 @@ Este documento contiene las especificaciones técnicas y normas de desarrollo pa
   * `ui`: estado transitorio de la interfaz.
   * `mcp`: herramientas locales y servicios MCP activos.
   * `project`: contexto y normas del proyecto local.
-* **Mutadores atómicos:** Prohibido usar variables globales mutables de módulo que provoquen fugas entre conversaciones. Cualquier cambio de estado debe realizarse exclusivamente a través de los mutadores de dominio específicos (`appendMessage`, `replaceMessages`, `removeTurn`, `saveSessionMetadata`, `removeSession`, `replaceConversation`, `importConversation`, `setAttachments`, etc.).
+* **Mutadores atómicos:** Prohibido usar variables globales mutables de módulo que provoquen fugas entre conversaciones. Cualquier cambio de estado debe realizarse exclusivamente a través de los mutadores de dominio específicos (`appendMessage`, `replaceMessages`, `removeLastTurn`, `saveSessionMetadata`, `removeSession`, `replaceConversation`, `importConversation`, `setAttachments`, etc.).
 
 ---
 
@@ -105,5 +105,5 @@ Este documento contiene las especificaciones técnicas y normas de desarrollo pa
 
 ## 11. Entorno de ejecución por proyecto (`js/config-store.js`, `js/mcp.js`, `js/mcp-external.js`)
 
-* **Ajustes globales vs. proyecto:** El menú de configuración separa los ajustes globales (`Idioma`, `Tema`, `Cifrado`, `RAG`) de los del proyecto identificado activo (`Modelo`, `Agente`, `MCP`, `Navegador`, `Permisos`).
+* **Ajustes globales vs. proyecto:** El menú de configuración separa los ajustes globales (`Idioma`, `Tema`, `Cifrado`, `Modo proyecto`, `Conexión`, guardados en `runtime_config_v2`) de los del proyecto identificado activo (`Modelo` del perfil activo, `Agente`, `MCP`, `Navegador`, `Ramas RAG activas`, `Permisos`).
 * **Aplicación y conciliación de MCPs:** Al conectar (`initialize` con `projectEnvironment`), cambiar de carpeta (`setProjectDirectory`), recuperar un proyecto perdido o iniciar `--prompt`/`--conversation` (`RunMode.start`), `ChatConfig.applyProjectEnvironment` aplica la configuración del proyecto (respaldada sin conexión hasta 50 proyectos en `project_environments_v1`, o restablecida a valores predeterminados en proyectos sin guardar) y `McpManager.reconcileProjectServers` concilia en serie los servicios MCP externos deteniendo los que sobran y arrancando los configurados del proyecto (incluido `playwright` cuando `browser === 'playwright'`).

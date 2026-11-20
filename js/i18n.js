@@ -35,6 +35,8 @@
 
       // Metadatos y Encabezados
       app_title: APP_TITLE,
+      tab_alert_done: 'Listo · {title}',
+      tab_alert_permission: 'Permiso · {title}',
       app_description: 'ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación',
       
       // Estado de Bienvenida inicial
@@ -300,8 +302,7 @@
       // Mensajes del chat y acciones
       btn_reuse_title: 'Colocar mensaje en la caja de texto',
       btn_delete: 'Borrar',
-      btn_delete_usr_title: 'Eliminar esta pregunta',
-      btn_delete_ast_title: 'Eliminar esta respuesta',
+      btn_undo_last_turn_title: 'Deshacer último turno',
       btn_copy_title: 'Copiar respuesta completa al portapapeles',
       btn_copy_user_title: 'Copiar mensaje al portapapeles',
       btn_branch_title: 'Crear una rama desde esta respuesta',
@@ -315,7 +316,7 @@
       chat_branch_summary_title: 'Contexto previo resumido',
       chat_branch_summary_failed: 'No se pudo generar el resumen del contexto. ¿Deseas bifurcar con el historial completo?',
       copied_text: '¡Copiado!',
-      msg_deleted_log: 'Mensaje [{id}] eliminado de la memoria y la interfaz ({count} turnos retirados).',
+      msg_deleted_log: 'Último turno eliminado de la memoria y la interfaz ({count} mensajes retirados).',
 
       // Estadísticas
       stat_ttft: '1º token: {sec}s',
@@ -750,9 +751,8 @@
       confirm_rag_branch_unsaved_changes: 'Hay cambios sin guardar en la rama. ¿Deseas descartarlos y cerrar?',
       confirm_delete_profile: '¿Estás seguro de que deseas eliminar el perfil "{name}"?',
       profile_sync_server_change_title: 'Perfiles de otro servidor',
-      profile_sync_server_change_desc: 'Este navegador tiene {localCount} perfil(es) de otro servidor y el servidor actual tiene {remoteCount}. ¿Quieres usar solo los de este servidor o fusionar los actuales con él?',
-      profile_sync_first_server_desc: 'Este navegador tiene {localCount} perfil(es) locales y este servidor ya tiene {remoteCount}. ¿Quieres usar los de este servidor o fusionar ambos conjuntos?',
-      profile_sync_use_server: 'Usar los de este servidor',
+      profile_sync_server_change_desc: 'Este navegador tiene {localCount} perfil(es) de otro servidor y el servidor actual tiene {remoteCount}. ¿Quieres fusionar tus perfiles con este servidor o cancelar la sincronización?',
+      profile_sync_first_server_desc: 'Este navegador tiene {localCount} perfil(es) locales y este servidor ya tiene {remoteCount}. ¿Quieres fusionar ambos conjuntos o cancelar la sincronización?',
       profile_sync_merge: 'Fusionar con este servidor',
       err_profile_name_exists: 'Ya existe un perfil llamado "{name}".',
       err_profile_read_only: 'El perfil Espejo no se puede modificar ni eliminar.',
@@ -990,6 +990,8 @@
 
       // Metadata & Headers
       app_title: APP_TITLE,
+      tab_alert_done: 'Done · {title}',
+      tab_alert_permission: 'Permission · {title}',
       app_description: 'ZeroChat - Universal web chat client, autonomous AI agent, and local RAG in a single zero-install file',
       
       // Welcome state
@@ -1255,8 +1257,7 @@
       // Mensajes del chat y acciones
       btn_reuse_title: 'Put message into the input box',
       btn_delete: 'Delete',
-      btn_delete_usr_title: 'Delete this question',
-      btn_delete_ast_title: 'Delete this response',
+      btn_undo_last_turn_title: 'Undo last turn',
       btn_copy_title: 'Copy full response to clipboard',
       btn_copy_user_title: 'Copy message to clipboard',
       btn_branch_title: 'Create a branch from this response',
@@ -1270,7 +1271,7 @@
       chat_branch_summary_title: 'Summarized previous context',
       chat_branch_summary_failed: 'Could not generate context summary. Do you want to branch with full history?',
       copied_text: 'Copied!',
-      msg_deleted_log: 'Message [{id}] removed from memory and UI ({count} turns cleared).',
+      msg_deleted_log: 'Last turn removed from memory and UI ({count} messages cleared).',
 
       // Estadísticas
       stat_ttft: '1st token: {sec}s',
@@ -1705,9 +1706,8 @@
       confirm_rag_branch_unsaved_changes: 'There are unsaved branch changes. Do you want to discard them and close?',
       confirm_delete_profile: 'Are you sure you want to delete profile "{name}"?',
       profile_sync_server_change_title: 'Profiles from another server',
-      profile_sync_server_change_desc: 'This browser has {localCount} profile(s) from another server and the current server has {remoteCount}. Do you want to use only this server\'s profiles or merge your current ones with it?',
-      profile_sync_first_server_desc: 'This browser has {localCount} local profile(s) and this server already has {remoteCount}. Do you want to use this server\'s profiles or merge both sets?',
-      profile_sync_use_server: 'Use this server\'s profiles',
+      profile_sync_server_change_desc: 'This browser has {localCount} profile(s) from another server and the current server has {remoteCount}. Do you want to merge your profiles with this server or cancel synchronization?',
+      profile_sync_first_server_desc: 'This browser has {localCount} local profile(s) and this server already has {remoteCount}. Do you want to merge both sets or cancel synchronization?',
       profile_sync_merge: 'Merge with this server',
       err_profile_name_exists: 'A profile named "{name}" already exists.',
       err_profile_read_only: 'The Mirror profile cannot be changed or deleted.',

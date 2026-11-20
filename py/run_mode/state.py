@@ -1,4 +1,4 @@
-"""Estado de la ejecución desatendida: la sesión de --prompt o --conversation, sus ficheros en ~/zerochat/runs, el arranque en segundo plano, sus códigos de salida y sus métodos zerochat/run/*."""
+"""Estado de la ejecución desatendida: la sesión de --prompt o --conversation, su persistencia en SQLite, el arranque en segundo plano, sus códigos de salida y sus métodos zerochat/run/*."""
 
 from __future__ import annotations
 
@@ -12,11 +12,10 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.parse
 import uuid
 from pathlib import Path
 
-from core.environment import DETECTED_OS, _write_private_text, get_data_dir, get_no_project_dir
+from core.environment import DETECTED_OS, get_no_project_dir
 from core.limits import MAX_HTTP_BODY_BYTES
 from core.logging import console_error, log_event, timestamp_message
 from core.process import _kill_process_tree, _pid_alive, _process_start_token
@@ -24,17 +23,20 @@ from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, RpcOutcom
 from security.context import SecurityContext
 from storage.db import (
     _validate_conversation_id,
+    delete_run_state,
     get_conversation,
     get_conversation_updated_at,
     get_general_profile,
     get_general_profile_by_name,
     get_general_profile_with_key,
+    get_run_state,
     list_general_profiles,
+    list_run_states,
     mark_conversation_server_run,
+    upsert_run_state,
 )
 
 
-RUN_POLL_SECONDS = 0.2
 RUN_PROGRESS_TEXT_MAX = 500
 RUN_PROGRESS_KIND_PATTERN = re.compile(r"[a-z_]{1,32}")
 RUN_EXIT_DONE = 0
@@ -51,21 +53,6 @@ RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json", ".html": "html"}
 RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 
 
-def get_runs_dir() -> Path:
-    """Directorio persistente con permisos 0700 para los ficheros de situación de ejecuciones en servidor."""
-    runs_dir = get_data_dir() / "runs"
-    runs_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if os.name != "nt":
-        runs_dir.chmod(0o700)
-    return runs_dir
-
-
-def get_run_state_path(conversation_id: str) -> Path:
-    """Ruta al fichero de situación de la conversación en ~/zerochat/runs/."""
-    clean_name = urllib.parse.quote(conversation_id.strip(), safe="")
-    return get_runs_dir() / f"{clean_name}.json"
-
-
 def _run_process_alive(data: dict) -> bool:
     """Comprueba si el proceso de una ejecución sigue activo y corresponde al arranque original."""
     pid = data.get("pid")
@@ -80,10 +67,9 @@ def _run_process_alive(data: dict) -> bool:
 
 
 def write_run_state(session: RunSession) -> None:
-    """Escribe atómicamente el estado en vivo de la ejecución en ~/zerochat/runs/<conversation_id>.json (0600)."""
+    """Guarda atómicamente el estado en vivo de la ejecución en SQLite."""
     if not session.conversation_id:
         return
-    state_path = get_run_state_path(session.conversation_id)
     now = int(time.time() * 1000)
     session.updated_at = now
     payload = {
@@ -98,22 +84,22 @@ def write_run_state(session: RunSession) -> None:
         "pending": session.pending,
         "error": session.error
     }
-    _write_private_text(state_path, json.dumps(payload, ensure_ascii=False, indent=2))
+    upsert_run_state(payload)
 
 
 def remove_run_state(conversation_id: str | None) -> None:
-    """Elimina el fichero de situación de la conversación al completarse con éxito."""
+    """Elimina de SQLite el estado de la ejecución de la conversación al completarse con éxito."""
     if not conversation_id:
         return
     try:
-        get_run_state_path(conversation_id).unlink(missing_ok=True)
-    except OSError:
+        delete_run_state(conversation_id)
+    except ValueError:
         pass
 
 
 def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dict], dict | None]:
     """
-    Lee las situaciones en ~/zerochat/runs/*.json. Si un proceso 'running' ya murió,
+    Lee las ejecuciones en la tabla `runs` de SQLite. Si un proceso 'running' ya murió,
     lo marca como 'error'. Devuelve (runs, focus_run), donde runs es una lista ligera
     ordenada por started_at, y focus_run es el detalle completo si coincide con focus_conversation_id.
     En un servidor de ejecución (--prompt o --conversation) devuelve ([], None) para que el propio
@@ -121,17 +107,10 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
     """
     if RUN_SESSION is not None:
         return [], None
-    runs_dir = get_runs_dir()
     entries = []
     clean_focus_id = focus_conversation_id.strip() if (isinstance(focus_conversation_id, str) and focus_conversation_id.strip()) else None
 
-    for path in sorted(runs_dir.glob("*.json")):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
-        if not isinstance(data, dict):
-            continue
+    for data in list_run_states():
         conv_id = data.get("conversation_id")
         if not conv_id or not isinstance(conv_id, str):
             continue
@@ -142,10 +121,7 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
             data["status"] = "error"
             data["error"] = "El proceso de ejecución terminó inesperadamente."
             data["updated_at"] = int(time.time() * 1000)
-            try:
-                _write_private_text(path, json.dumps(data, ensure_ascii=False, indent=2))
-            except OSError:
-                pass
+            upsert_run_state(data)
 
         light = {
             "conversation_id": conv_id,
@@ -197,13 +173,10 @@ def _run_target(params: dict) -> tuple[str, dict, str]:
     return clean_conv_id, conv, profile_entry.get("name", profile.strip())
 
 
-def _check_no_active_run(state_path: Path, conv_id: str):
-    """Una conversación solo tiene una ejecución en marcha; un estado ilegible no cuenta como tal."""
-    try:
-        existing = json.loads(state_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return
-    if isinstance(existing, dict) and existing.get("status") == "running" and _run_process_alive(existing):
+def _check_no_active_run(conv_id: str):
+    """Una conversación solo tiene una ejecución en marcha."""
+    existing = get_run_state(conv_id)
+    if existing and existing.get("status") == "running" and _run_process_alive(existing):
         raise ValueError(f"Ya hay una ejecución en marcha para la conversación '{conv_id}'.")
 
 
@@ -212,8 +185,7 @@ def start_server_run(params: dict) -> dict:
     if not isinstance(params, dict):
         raise ValueError("Parámetros no válidos.")
     clean_conv_id, conv, profile_name = _run_target(params)
-    state_path = get_run_state_path(clean_conv_id)
-    _check_no_active_run(state_path, clean_conv_id)
+    _check_no_active_run(clean_conv_id)
 
     prompt = params.get("prompt")
     if prompt is not None and not isinstance(prompt, str):
@@ -265,24 +237,20 @@ def start_server_run(params: dict) -> dict:
         "pending": None,
         "error": None
     }
-    _write_private_text(state_path, json.dumps(payload, ensure_ascii=False, indent=2))
+    upsert_run_state(payload)
 
     return {"ok": True, "run_id": run_id, "conversation_id": clean_conv_id, "status": "running"}
 
 
 def cancel_server_run(conversation_id: str) -> dict:
-    """Cancela una ejecución en segundo plano: termina el proceso si sigue en marcha y elimina el fichero."""
+    """Cancela una ejecución en segundo plano: termina el proceso si sigue en marcha y elimina su estado."""
     if not isinstance(conversation_id, str) or not conversation_id.strip():
         raise ValueError("conversation_id requerido.")
     clean_conv_id = _validate_conversation_id(conversation_id)
-    state_path = get_run_state_path(clean_conv_id)
-    if state_path.exists():
-        try:
-            data = json.loads(state_path.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and data.get("status") == "running" and _run_process_alive(data):
-                _kill_process_tree(data.get("pid"), grace_seconds=0.05)
-        except (json.JSONDecodeError, OSError):
-            pass
+    data = get_run_state(clean_conv_id)
+    if data:
+        if data.get("status") == "running" and _run_process_alive(data):
+            _kill_process_tree(data.get("pid"), grace_seconds=0.05)
         remove_run_state(clean_conv_id)
     return {"cancelled": True}
 
@@ -335,6 +303,7 @@ class RunSession:
         self.result: dict | None = None
         self.stop_reason: str | None = None
         self.finished = threading.Event()
+        self._wake: threading.Event | None = None
         self.pid = os.getpid()
         self.pid_start = _process_start_token(self.pid)
         self.started_at = int(time.time() * 1000)
@@ -346,6 +315,13 @@ class RunSession:
         self.runner_token: str | None = None
         if self.conversation_id:
             write_run_state(self)
+
+    def set_wake_event(self, event: threading.Event | None) -> None:
+        """Asocia un evento compartido al que despertar cuando llegue el resultado."""
+        with self.lock:
+            self._wake = event
+            if event is not None and self.finished.is_set():
+                event.set()
 
     def take_approved_call(self, tool_name: str, args: dict) -> bool:
         """Si es la llamada que la persona aprobó en la tarjeta pausada (mismo nombre y argumentos), la consume:
@@ -490,6 +466,9 @@ def _rpc_result(params: dict, session: RunSession) -> RpcOutcome:
             session.error = error
             write_run_state(session)
     session.finished.set()
+    with session.lock:
+        if session._wake is not None:
+            session._wake.set()
     return rpc_result({"ok": True})
 
 

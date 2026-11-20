@@ -11,12 +11,14 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import urllib.parse
 from pathlib import Path
 
 from browser.config import PLAYWRIGHT_SERVER_ID, SERVICE_LAUNCH
 from browser.engines import on_playwright_status
 from core.environment import get_data_dir, get_venv_dir, get_venv_python
+from core.limits import LONG_POLL_MAX_WAIT_MS
 from core.logging import log_event
 from core.rate_limit import RATE_LIMITER, parse_rate_policy
 from mcp.catalog import (
@@ -34,7 +36,7 @@ from mcp.stdio_client import (
     _mcp_trace_text,
     _positive_seconds,
 )
-from storage.db import delete_secret, get_secret, save_secret, secret_names
+from storage.db import delete_secret, get_secret, get_setting, get_storage_db_path, save_secret, secret_names, set_setting
 
 
 def public_tool_name(server_id: str, original: str) -> str:
@@ -109,6 +111,13 @@ def service_status(record: McpServiceRecord, alive: bool, exit_code: int | None)
 
 # Cada cuánto se vuelve a mirar el catálogo publicado con el servidor en marcha.
 CATALOG_REFRESH_SECONDS = 3600
+_MCP_STATE_HOOKS: list = []
+
+
+def on_mcp_state_change(hook):
+    """Registra una función sin argumentos que se avisa cuando cambia el estado de los servicios MCP."""
+    _MCP_STATE_HOOKS.append(hook)
+    return hook
 
 
 def _npm_install_needed(marker: Path, package_dir: Path, package: str, version: str) -> bool:
@@ -135,12 +144,22 @@ class McpServiceManager:
     def __init__(self, services_root: Path | None = None):
         # Crearlo no toca el disco: el gestor global existe desde que se importa zerochat.
         self.services_root = Path(services_root) if services_root else get_data_dir() / "services"
-        self.config_file = get_data_dir() / "config" / "services.json"
         self.records: dict[str, McpServiceRecord] = {}
         self._lock = threading.Lock()
+        self._state_changed = threading.Condition()
+        self._state_rev = 0
+        self._starting: set[str] = set()
         self._catalog_stop = threading.Event()
         self._services: dict[str, dict] | None = None
         self._preferences: dict | None = None
+        self._preferences_db: Path | None = None
+
+    def _notify_state_changed(self):
+        with self._state_changed:
+            self._state_rev += 1
+            self._state_changed.notify_all()
+        for hook in _MCP_STATE_HOOKS:
+            hook()
 
     @property
     def services(self) -> dict[str, dict]:
@@ -154,8 +173,10 @@ class McpServiceManager:
 
     @property
     def preferences(self) -> dict:
-        if self._preferences is None:
+        db_path = get_storage_db_path()
+        if self._preferences is None or self._preferences_db != db_path:
             self._preferences = self._load_preferences()
+            self._preferences_db = db_path
         return self._preferences
 
     @staticmethod
@@ -183,21 +204,18 @@ class McpServiceManager:
         return servers
 
     def _load_preferences(self) -> dict:
-        if self.config_file.exists():
-            try:
-                return json.loads(self.config_file.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                return {}
-        return {}
+        try:
+            stored = get_setting("mcp_services")
+            return stored if isinstance(stored, dict) else {}
+        except (OSError, ValueError) as err:
+            log_event(f"[zerochat] Advertencia al leer preferencias MCP en SQLite: {err}")
+            return {}
 
     def _save_preferences(self):
         try:
-            self.config_file.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.config_file.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self.preferences, indent=2), encoding="utf-8")
-            tmp.replace(self.config_file)
-        except OSError as err:
-            log_event(f"[zerochat] Advertencia al guardar preferencias MCP en {self.config_file}: {err}")
+            set_setting("mcp_services", self.preferences)
+        except (OSError, ValueError) as err:
+            log_event(f"[zerochat] Advertencia al guardar preferencias MCP en SQLite: {err}")
 
     def list_servers(self) -> list[dict]:
         self.services = self._load_services()
@@ -275,6 +293,7 @@ class McpServiceManager:
             self._trace(server_id, f"npm package already installed: {package}@{version}")
             return
         self.records[server_id].phase = "installing"
+        self._notify_state_changed()
         self._trace(server_id, f"installing npm package: {package}@{version}")
         manifest = service_dir / "package.json"
         manifest.write_text(json.dumps({"private": True, "dependencies": {package: version}}, indent=2), encoding="utf-8")
@@ -315,10 +334,61 @@ class McpServiceManager:
 
     def start(self, server_id: str) -> list[dict]:
         """Arranca un servicio MCP externo y devuelve la lista actualizada de servicios."""
-        with self._lock:
+        try:
+            with self._lock:
+                self.services = self._load_services()
+                self._start_locked(server_id)
+                return self.list_servers()
+        finally:
+            with self._state_changed:
+                self._starting.discard(server_id)
+                self._state_changed.notify_all()
+
+    def start_async(self, server_id: str) -> int:
+        """Lanza en segundo plano el arranque de un servicio MCP y devuelve la revisión inicial."""
+        if server_id not in self.services:
             self.services = self._load_services()
-            self._start_locked(server_id)
-            return self.list_servers()
+        if server_id not in self.services:
+            raise KeyError(f"Servidor MCP desconocido: {server_id}")
+        with self._state_changed:
+            record = self.records.setdefault(server_id, McpServiceRecord())
+            if record.client and record.client.running():
+                return self._state_rev
+            should_launch = server_id not in self._starting
+            if should_launch:
+                self._starting.add(server_id)
+                record.phase, record.error = "starting", None
+                self._state_rev += 1
+                self._state_changed.notify_all()
+            rev = self._state_rev
+        if should_launch:
+            for hook in _MCP_STATE_HOOKS:
+                hook()
+            threading.Thread(target=self.start, args=(server_id,), name=f"mcp-start-{server_id}", daemon=True).start()
+        return rev
+
+    def wait_server(self, server_id: str, since_rev: int | None = None, wait_ms: int = 25000) -> dict:
+        """Espera cambios de fase, aparición de oauthUrl o fin del arranque de un servicio MCP."""
+        if server_id not in self.services:
+            self.services = self._load_services()
+        if server_id not in self.services:
+            raise KeyError(f"Servidor MCP desconocido: {server_id}")
+        deadline = time.monotonic() + min(max(0, wait_ms), LONG_POLL_MAX_WAIT_MS) / 1000.0
+        with self._state_changed:
+            while True:
+                record = self.records.get(server_id)
+                phase = record.phase if record else "stopped"
+                oauth_url = record.client.oauth_url if record and record.client else None
+                terminal = phase not in ("installing", "starting")
+                changed = (since_rev is not None and self._state_rev != since_rev) or (since_rev is None and (terminal or bool(oauth_url) or phase == "installing"))
+                if terminal or changed:
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._state_changed.wait(remaining)
+            rev = self._state_rev
+        return {"servers": self.list_servers(), "externalTools": self.tools(), "rev": rev}
 
     def _start_locked(self, server_id: str):
         server = self.services.get(server_id)
@@ -328,6 +398,7 @@ class McpServiceManager:
         if record.client and record.client.running():
             return
         record.phase, record.error = "starting", None
+        self._notify_state_changed()
         client = None
         self._trace(server_id, "start requested")
         try:
@@ -360,15 +431,19 @@ class McpServiceManager:
             client = StdioMcpClient(
                 command, args, str(service_dir), env,
                 trace=lambda message: self._trace(server_id, message),
-                call_timeout=_positive_seconds(launch.get("callTimeoutSeconds"), DEFAULT_MCP_CALL_TIMEOUT_SECONDS)
+                call_timeout=_positive_seconds(launch.get("callTimeoutSeconds"), DEFAULT_MCP_CALL_TIMEOUT_SECONDS),
+                on_oauth_url=lambda _url: self._notify_state_changed(),
             )
             # _prepare_service puede haber dejado el estado en "installing".
             record.phase, record.client = "starting", client
+            self._notify_state_changed()
             client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
             record.phase = "running"
+            self._notify_state_changed()
             self._trace(server_id, "started successfully")
         except Exception as exc:
             record.phase, record.error = "error", str(exc)
+            self._notify_state_changed()
             self._trace(server_id, f"start failed: {exc}")
             stale, record.client = record.client or client, None
             if stale:
@@ -404,6 +479,7 @@ class McpServiceManager:
             record = self.records.pop(server_id, None)
             if record and record.client:
                 record.client.stop()
+            self._notify_state_changed()
             return self.list_servers()
 
     def stop(self, server_id: str) -> list[dict]:
@@ -414,6 +490,7 @@ class McpServiceManager:
                 raise KeyError(f"Servidor MCP desconocido: {server_id}")
             if record.client:
                 record.client.stop()
+            self._notify_state_changed()
             return self.list_servers()
 
     def configure(self, server_id: str, options: dict | None = None) -> list[dict]:
@@ -426,48 +503,47 @@ class McpServiceManager:
                 opts = entry.setdefault("options", {})
                 opts.update(options)
             self._save_preferences()
+            self._notify_state_changed()
             return self.list_servers()
 
     def _running_clients(self) -> list[tuple[str, StdioMcpClient]]:
-        return [(server_id, record.client) for server_id, record in self.records.items()
+        return [(server_id, record.client) for server_id, record in list(self.records.items())
                 if record.client and record.client.running()]
 
     def tools(self) -> list[dict]:
         aggregated = []
         seen: set[str] = set()
-        with self._lock:
-            for server_id, client in self._running_clients():
-                for t in client.tools:
-                    original = t.get("name") if isinstance(t, dict) else None
-                    try:
-                        pname = public_tool_name(server_id, original)
-                    except Exception as exc:
-                        self._trace(server_id, f"tool discarded ({original!r}): {exc}")
-                        continue
-                    if pname in seen:
-                        self._trace(server_id, f"tool discarded ({original!r}): duplicate public name {pname}")
-                        continue
-                    seen.add(pname)
-                    tcopy = dict(t)
-                    tcopy["name"] = pname
-                    tcopy["metadata"] = {
-                        "mcpServerId": server_id,
-                        "originalName": original,
-                        **service_tool_settings(self.services.get(server_id, {}), original),
-                    }
-                    aggregated.append(tcopy)
+        for server_id, client in self._running_clients():
+            for t in list(client.tools):
+                original = t.get("name") if isinstance(t, dict) else None
+                try:
+                    pname = public_tool_name(server_id, original)
+                except Exception as exc:
+                    self._trace(server_id, f"tool discarded ({original!r}): {exc}")
+                    continue
+                if pname in seen:
+                    self._trace(server_id, f"tool discarded ({original!r}): duplicate public name {pname}")
+                    continue
+                seen.add(pname)
+                tcopy = dict(t)
+                tcopy["name"] = pname
+                tcopy["metadata"] = {
+                    "mcpServerId": server_id,
+                    "originalName": original,
+                    **service_tool_settings(self.services.get(server_id, {}), original),
+                }
+                aggregated.append(tcopy)
         return aggregated
 
     def _resolve_tool(self, public_name: str) -> tuple[str, StdioMcpClient, str] | None:
-        with self._lock:
-            for server_id, client in self._running_clients():
-                for t in client.tools:
-                    try:
-                        matches = public_tool_name(server_id, t.get("name")) == public_name
-                    except (ValueError, TypeError):
-                        continue
-                    if matches:
-                        return server_id, client, t["name"]
+        for server_id, client in self._running_clients():
+            for t in list(client.tools):
+                try:
+                    matches = public_tool_name(server_id, t.get("name")) == public_name
+                except (ValueError, TypeError):
+                    continue
+                if matches:
+                    return server_id, client, t["name"]
         return None
 
     def server_of(self, public_name: str) -> str | None:
@@ -545,6 +621,8 @@ class McpServiceManager:
                 self._trace(server_id, "restarting with the updated version")
                 record.client.stop()
                 self._start_locked(server_id)
+        if downloads:
+            self._notify_state_changed()
 
     def close(self):
         self._catalog_stop.set()
@@ -553,6 +631,7 @@ class McpServiceManager:
                 if record.client:
                     record.client.stop()
                 record.phase, record.client, record.error = "stopped", None, None
+        self._notify_state_changed()
 
 
 GLOBAL_MCP_MANAGER = McpServiceManager()

@@ -26,7 +26,7 @@ test('Browser UI - pintado de mensajes: bloques independientes, copia, cursor, e
       const calls = { reused: null, deleted: null, branched: null, telemetry: [] };
       const callbacks = {
         onReuse: text => { calls.reused = text; },
-        onDelete: wrapper => { calls.deleted = wrapper; },
+        onDelete: () => { calls.deleted = true; },
         onBranch: wrapper => { calls.branched = wrapper; },
         resetTelemetry: () => calls.telemetry.push('reset'),
         updateTelemetry: () => calls.telemetry.push('update')
@@ -80,7 +80,7 @@ test('Browser UI - pintado de mensajes: bloques independientes, copia, cursor, e
         text: user.querySelector('.message-content').textContent.trim().startsWith('Hola mundo'),
         copyButton: copy.classList.contains('btn-copy-user'),
         reused: calls.reused,
-        deleted: calls.deleted === user,
+        deleted: Boolean(calls.deleted),
         imageItems: user.querySelectorAll('.message-images-grid .message-image-item').length,
         images: [...user.querySelectorAll('.message-images-grid img')].map(img => [img.getAttribute('src'), img.getAttribute('alt')]),
         scripts: user.querySelectorAll('script').length
@@ -396,6 +396,8 @@ test('Browser UI - borrar respuesta respeta bloqueo en streaming y, al parar, el
     const sessionId = 'test_session_delete_tools';
     const baseId = 'msg_ast_interactive_test';
     const history = [
+      { id: 'usr_msg_0', role: 'user', content: 'Hola inicial' },
+      { id: 'ast_msg_0', role: 'assistant', content: 'Hola, dime.' },
       { id: 'usr_msg_1', role: 'user', content: '¿Qué hora es?' },
       {
         id: `${baseId}_turn_0_assistant`,
@@ -415,39 +417,46 @@ test('Browser UI - borrar respuesta respeta bloqueo en streaming y, al parar, el
       window.ChatAttachments.addFile({ name: 'stale.txt', type: 'text', size: 1, content: 'x' });
     });
     await page.locator(`.sidebar-chat-item[data-session-id="${sessionId}"]`).evaluate(item => item.click());
-    await page.waitForSelector('.message-wrapper.assistant .btn-delete');
+    await page.waitForSelector('.message-wrapper.assistant:last-of-type .btn-delete:not([hidden])');
 
     const restored = await page.evaluate(() => ({
       messages: window.ChatState.get('messages'),
       telemetry: window.ChatState.get('telemetry'),
-      attachedFilesCount: window.ChatAttachments.getFiles().length
+      attachedFilesCount: window.ChatAttachments.getFiles().length,
+      deleteHiddenStates: [...document.querySelectorAll('.message-wrapper .btn-delete')].map(btn => btn.hidden)
     }));
-    assert.equal(restored.messages.length, 4);
-    assert.deepEqual(restored.messages[1].tool_calls, history[1].tool_calls);
+    assert.equal(restored.messages.length, 6);
+    assert.deepEqual(restored.messages[3].tool_calls, history[3].tool_calls);
     assert.deepEqual(restored.telemetry, { stats: null });
     assert.equal(restored.attachedFilesCount, 0);
+    // Solo las burbujas del último turno (user + assistant) muestran la papelera.
+    assert.deepEqual(restored.deleteHiddenStates, [true, true, false, false]);
 
     // Durante streaming el borrado no modifica DOM ni almacenamiento.
     const duringStreaming = await page.evaluate(async id => {
       window.ChatState.set('streaming', { isGenerating: true });
-      document.querySelector('.message-wrapper.user .btn-delete').click();
+      document.querySelectorAll('.message-wrapper.user .btn-delete')[1].click();
       await new Promise(resolve => setTimeout(resolve, 100));
       const persisted = await window.ChatStorage.getConversation(id);
       const stateIds = window.ChatState.get('messages').map(message => message.id);
       window.ChatState.set('streaming', { isGenerating: false });
-      return { userWrapperPresent: !!document.querySelector('.message-wrapper.user'), stateCount: stateIds.length, persistedCount: persisted.history.length };
+      return { wrapperCount: document.querySelectorAll('.message-wrapper').length, stateCount: stateIds.length, persistedCount: persisted.history.length };
     }, sessionId);
-    assert.deepEqual(duringStreaming, { userWrapperPresent: true, stateCount: 4, persistedCount: 4 });
+    assert.deepEqual(duringStreaming, { wrapperCount: 4, stateCount: 6, persistedCount: 6 });
 
-    // Al dejar de generar, borrar la respuesta del asistente limpia también su turno y llamadas tool.
-    await page.locator('.message-wrapper.assistant .btn-delete').click();
-    await page.waitForFunction(async id => (await window.ChatStorage.getConversation(id)).history.length === 1, sessionId);
+    // Al dejar de generar, pulsar la papelera en la última respuesta retira el último turno entero y coloca el prompt en el composer.
+    await page.locator('.message-wrapper.assistant .btn-delete:not([hidden])').click();
+    await page.waitForFunction(async id => (await window.ChatStorage.getConversation(id)).history.length === 2, sessionId);
     const after = await page.evaluate(async id => ({
-      hasAssistantWrapper: !!document.querySelector('.message-wrapper.assistant'),
+      wrapperRoles: [...document.querySelectorAll('.message-wrapper')].map(el => el.classList.contains('user') ? 'user' : 'assistant'),
+      deleteHiddenStates: [...document.querySelectorAll('.message-wrapper .btn-delete')].map(btn => btn.hidden),
+      composerValue: document.getElementById('user-input').value,
       roles: (await window.ChatStorage.getConversation(id)).history.map(message => message.role)
     }), sessionId);
-    assert.equal(after.hasAssistantWrapper, false);
-    assert.deepEqual(after.roles, ['user']);
+    assert.deepEqual(after.wrapperRoles, ['user', 'assistant']);
+    assert.deepEqual(after.deleteHiddenStates, [false, false]);
+    assert.equal(after.composerValue, '¿Qué hora es?');
+    assert.deepEqual(after.roles, ['user', 'assistant']);
   } finally {
     await browser.close();
   }

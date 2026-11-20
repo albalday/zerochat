@@ -36,9 +36,16 @@ def _kill_process_tree(target: subprocess.Popen | int, *, grace_seconds: float =
             send = os.killpg if os.getpgid(pid) == pid else os.kill
             if grace_seconds > 0:
                 send(pid, signal.SIGTERM)
-                time.sleep(grace_seconds)
-                if not _pid_alive(pid):
-                    return
+                if proc is not None:
+                    try:
+                        proc.wait(timeout=grace_seconds)
+                        return
+                    except subprocess.TimeoutExpired:
+                        pass
+                else:
+                    time.sleep(grace_seconds)
+                    if not _pid_alive(pid):
+                        return
             send(pid, signal.SIGKILL)
         else:
             os.kill(pid, signal.SIGKILL)

@@ -45,6 +45,18 @@ MATCHED_LINE_MAX_CHARS = 500
 # Última línea de salida de cada comando en marcha en el latido, para su tarjeta plegada.
 LAST_LINE_MAX_CHARS = 200
 REPORT_TAIL_BYTES = 4096
+_JOBS_LIVE_HOOKS: list = []
+
+
+def on_jobs_live_change(hook):
+    """Registra una función sin argumentos que se avisa cuando cambia el estado vivo de los comandos."""
+    _JOBS_LIVE_HOOKS.append(hook)
+    return hook
+
+
+def _notify_jobs_live_change():
+    for hook in _JOBS_LIVE_HOOKS:
+        hook()
 
 
 def truncate_terminal_output(text: str, max_chars: int = 8000, head_lines: int = 50, tail_lines: int = 30) -> tuple[str, bool]:
@@ -276,6 +288,8 @@ class CommandJob:
                     del self._tail[:overflow]
                     self._tail_start += overflow
             self._changed.notify_all()
+        if self.background:
+            _notify_jobs_live_change()
 
     def _read_output(self, stream):
         try:
@@ -361,10 +375,15 @@ class CommandJob:
         omitted = total - start - 2 * MODEL_OUTPUT_READ_BYTES
         return head + f"\n[... {omitted} bytes omitted ...]\n" + tail
 
-    def wait_change(self, seen_total: int, timeout: float):
-        """Espera como mucho timeout segundos a que haya salida más allá de seen_total o a que el comando termine."""
+    def wait_change(self, seen_total: int | None, timeout: float, cancel: threading.Event | None = None):
+        """Espera como mucho timeout segundos a que haya salida nueva, termine o se cancele la espera."""
         with self._changed:
-            self._changed.wait_for(lambda: self._total > seen_total or self.done.is_set(), timeout)
+            self._changed.wait_for(
+                lambda: (seen_total is not None and self._total > seen_total)
+                or self.done.is_set()
+                or (cancel is not None and cancel.is_set()),
+                timeout,
+            )
 
     def notify_finished(self):
         with self._changed:
@@ -484,6 +503,7 @@ class JobManager:
             job._log.close()
             job.log_path.unlink(missing_ok=True)
             raise
+        _notify_jobs_live_change()
         return job
 
     def _launch(self, job: CommandJob):
@@ -553,6 +573,7 @@ class JobManager:
         self._write_registry()
         job.done.set()
         job.notify_finished()
+        _notify_jobs_live_change()
 
     def get(self, project: str, job_id=None, key=None) -> CommandJob | None:
         jobs = self.list(project)
@@ -710,7 +731,7 @@ def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool =
     wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
     if not wait and terms is None:
         return _job_result(job, output_field="new_output")
-    cancel = WAITS.open(job_key)
+    cancel = WAITS.open(job_key, job)
     started = time.monotonic()
     try:
         reason, line = _wait_job(job, wait, terms, cancel)

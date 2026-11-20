@@ -6,12 +6,21 @@ import subprocess
 
 from browser.config import save_browser_config
 from browser.engines import BROWSER_ENGINES, clear_own_browser_data
-from core.rpc import INVALID_PARAMS, RpcOutcome, dispatch_table, rpc_error, rpc_result
+from core.rpc import INVALID_PARAMS, RpcOutcome, dispatch_table, parse_nonneg_int, rpc_error, rpc_result
+
+def _engines_list(params: dict) -> RpcOutcome:
+    since_rev = parse_nonneg_int(params.get("since_rev"), "since_rev")
+    wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms", 0) or 0
+    engines_only = params.get("engines_only", False)
+    if not isinstance(engines_only, bool):
+        raise ValueError("engines_only debe ser un booleano")
+    return rpc_result(BROWSER_ENGINES.list(since_rev=since_rev, wait_ms=wait_ms, engines_only=engines_only))
+
 
 BROWSER_METHODS = {
     "zerochat/browser/config/set": lambda params: rpc_result(save_browser_config(params.get("config"))),
     "zerochat/browser/data/clear": lambda params: rpc_result(clear_own_browser_data(params.get("engine"))),
-    "zerochat/browser/engines/list": lambda _params: rpc_result(BROWSER_ENGINES.list()),
+    "zerochat/browser/engines/list": _engines_list,
     "zerochat/browser/engines/install": lambda params: rpc_result(BROWSER_ENGINES.install(params.get("engine"))),
     "zerochat/browser/engines/remove": lambda params: rpc_result(BROWSER_ENGINES.remove(params.get("engine"))),
 }

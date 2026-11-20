@@ -36,29 +36,23 @@
     return sanitized;
   }
 
-  // Callers normalize their public selection contracts before reaching this rule.
-  function removeSelectedTurn(history, { msgId = '', baseId = '', explicitIds = [] } = {}) {
-    if (!Array.isArray(history)) return [];
-    const ids = new Set(Array.isArray(explicitIds) || explicitIds instanceof Set ? explicitIds : []);
-    if (msgId) ids.add(msgId);
-    if (baseId) ids.add(baseId);
-    const isTarget = message => {
-      const id = message?.id;
-      return Boolean(id && (ids.has(id) ||
-        (baseId && id.startsWith(`${baseId}_`)) ||
-        (msgId && id.startsWith(`${msgId}_`))));
-    };
-    const deletedCalls = new Set();
-    for (const message of history) {
-      if (!isTarget(message)) continue;
-      if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
-        for (const call of message.tool_calls) if (call?.id) deletedCalls.add(call.id);
-      }
-      if (message.role === 'tool' && message.tool_call_id) deletedCalls.add(message.tool_call_id);
+  /**
+   * Retira el último turno completo de la conversación (el último mensaje `user` y toda su
+   * respuesta/tools posteriores) y devuelve `{ messages, removedPrompt, removedCount }`.
+   */
+  function removeLastTurn(history) {
+    if (!Array.isArray(history) || history.length === 0) {
+      return { messages: [], removedPrompt: '', removedCount: 0 };
     }
-    const remaining = history.filter(message => message && !isTarget(message) &&
-      !(message.role === 'tool' && message.tool_call_id && deletedCalls.has(message.tool_call_id)));
-    return dropOrphanToolMessages(remaining);
+    const lastUserIndex = history.findLastIndex(message => message?.role === 'user');
+    if (lastUserIndex < 0) {
+      return { messages: history.slice(), removedPrompt: '', removedCount: 0 };
+    }
+    return {
+      messages: history.slice(0, lastUserIndex),
+      removedPrompt: getLastUserPrompt(history),
+      removedCount: history.length - lastUserIndex
+    };
   }
 
   function getLastUserPrompt(messages) {
@@ -121,5 +115,5 @@
     return result;
   }
 
-  return { extractBaseId, hasMatchingToolCall, dropOrphanToolMessages, removeSelectedTurn, getLastUserPrompt, sanitizeTurnBoundaries };
+  return { extractBaseId, hasMatchingToolCall, dropOrphanToolMessages, removeLastTurn, getLastUserPrompt, sanitizeTurnBoundaries };
 });

@@ -24,7 +24,6 @@ def dispatch_run(method, params):
 class ServerRunsInfrastructureTest(unittest.TestCase):
     def setUp(self):
         self.data_dir = use_data_dir(self)
-        self.runs_dir = self.data_dir / "runs"
 
     def tearDown(self):
         zerochat.RUN_SESSION = None
@@ -36,13 +35,12 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             run_id="run_custom_test_abc",
             tool_security={"directoryRules": ["R:/workspace"], "tool_decision": {"toolName": "write_file", "args": {}, "decision": "allow_once"}}
         )
-        state_path = zerochat.get_run_state_path(conv_id)
-        self.assertTrue(state_path.exists())
+        data = zerochat.get_run_state(conv_id)
+        self.assertIsNotNone(data)
         if os.name != "nt":
-            self.assertEqual(stat.S_IMODE(self.runs_dir.stat().st_mode), 0o700)
-            self.assertEqual(stat.S_IMODE(state_path.stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE(zerochat.get_storage_dir().stat().st_mode), 0o700)
+            self.assertEqual(stat.S_IMODE(zerochat.get_storage_db_path().stat().st_mode), 0o600)
 
-        data = json.loads(state_path.read_text("utf-8"))
         self.assertEqual(data["run_id"], "run_custom_test_abc")
         self.assertEqual(data["conversation_id"], conv_id)
         self.assertEqual(data["status"], "running")
@@ -65,14 +63,14 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             "kind": "tool",
             "text": "a" * zerochat.RUN_PROGRESS_TEXT_MAX
         })
-        self.assertEqual(json.loads(state_path.read_text("utf-8"))["step_text"], "a" * zerochat.RUN_PROGRESS_TEXT_MAX)
+        self.assertEqual(zerochat.get_run_state(conv_id)["step_text"], "a" * zerochat.RUN_PROGRESS_TEXT_MAX)
         prog_res, err, _ = dispatch_run("zerochat/run/progress", {
             "run_id": session.run_id,
             "kind": "tool",
             "text": "b" * (zerochat.RUN_PROGRESS_TEXT_MAX + 1)
         })
         self.assertEqual((err, prog_res), (None, {"ok": True}))
-        self.assertEqual(json.loads(state_path.read_text("utf-8"))["step_text"], ("b" * zerochat.RUN_PROGRESS_TEXT_MAX) + "…")
+        self.assertEqual(zerochat.get_run_state(conv_id)["step_text"], ("b" * zerochat.RUN_PROGRESS_TEXT_MAX) + "…")
 
         # zerochat/run/result con needs_input guarda estado needs_input y pending
         res_outcome, err, _ = dispatch_run("zerochat/run/result", {
@@ -83,37 +81,35 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(res_outcome, {"ok": True})
         self.assertTrue(session.finished.is_set())
 
-        data = json.loads(state_path.read_text("utf-8"))
+        data = zerochat.get_run_state(conv_id)
         self.assertEqual(data["status"], "needs_input")
         self.assertEqual(data["pending"], {"kind": "ask_user", "question": "¿Deseas continuar?"})
-        self.assertTrue(state_path.exists())
 
         # run_outcome con needs_input devuelve código 0 y JSON en text
         code, text = zerochat.run_outcome(session)
         self.assertEqual(code, zerochat.RUN_EXIT_DONE)
         self.assertEqual(json.loads(text), {"kind": "ask_user", "question": "¿Deseas continuar?"})
 
-        # Nueva sesión con resultado error actualiza el fichero de situación
+        # Nueva sesión con resultado error actualiza el estado en SQLite
         session_err = zerochat.RunSession(conversation_id=conv_id)
         zerochat.RUN_SESSION = session_err
         dispatch_run("zerochat/run/result", {
             "run_id": session_err.run_id,
             "error": "Modelo no disponible"
         })
-        self.assertTrue(state_path.exists())
-        data_err = json.loads(state_path.read_text("utf-8"))
+        data_err = zerochat.get_run_state(conv_id)
         self.assertEqual(data_err["status"], "error")
         self.assertEqual(data_err["error"], "Modelo no disponible")
 
-        # Nueva sesión con resultado text elimina el fichero de situación al completarse
+        # Nueva sesión con resultado text elimina el estado al completarse
         session2 = zerochat.RunSession(conversation_id=conv_id)
-        self.assertTrue(state_path.exists())
+        self.assertIsNotNone(zerochat.get_run_state(conv_id))
         zerochat.RUN_SESSION = session2
         dispatch_run("zerochat/run/result", {
             "run_id": session2.run_id,
             "text": "Respuesta final completa."
         })
-        self.assertFalse(state_path.exists())
+        self.assertIsNone(zerochat.get_run_state(conv_id))
 
     def test_cli_argumentos_conversation(self):
         # Crear perfil por defecto local para pruebas CLI
@@ -181,8 +177,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
     def test_supervisor_detiene_y_registra_error_si_cierra_sin_resultado(self):
         conv_id = "session_supervisor_test"
         session = zerochat.RunSession(conversation_id=conv_id)
-        state_path = zerochat.get_run_state_path(conv_id)
-        self.assertTrue(state_path.exists())
+        self.assertIsNotNone(zerochat.get_run_state(conv_id))
 
         limit = zerochat.RUNNER_ERROR_TAIL_BYTES
         for written, kept in ((limit, limit), (limit + 1, limit), (0, 0)):
@@ -199,9 +194,9 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             log.write(b"Error fatal en runner")
             log.flush()
             mock_proc = mock.Mock(returncode=3)
-            mock_proc.poll.return_value = 3
             zerochat.run_supervisor(mock.Mock(), session, runner_proc=mock_proc, runner_log=log)
-        data = json.loads(state_path.read_text("utf-8"))
+            mock_proc.wait.assert_called_once_with()
+        data = zerochat.get_run_state(conv_id)
         self.assertEqual(data["status"], "error")
         self.assertEqual(data["error"], "El runner de Node.js terminó con el código 3 sin resultado: Error fatal en runner")
 
@@ -275,10 +270,9 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             "pending": None,
             "error": None
         }
-        zerochat.get_run_state_path("conv_1").write_text(json.dumps(state1), encoding="utf-8")
-        zerochat.get_run_state_path("conv_2").write_text(json.dumps(state2), encoding="utf-8")
-        path_dead = zerochat.get_run_state_path("conv_dead")
-        path_dead.write_text(json.dumps(state_dead), encoding="utf-8")
+        zerochat.upsert_run_state(state1)
+        zerochat.upsert_run_state(state2)
+        zerochat.upsert_run_state(state_dead)
 
         runs, focus = zerochat.list_server_runs(focus_conversation_id="conv_1")
         self.assertEqual(len(runs), 3)
@@ -297,7 +291,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         _, focus_miss = zerochat.list_server_runs(focus_conversation_id="conv_otro")
         self.assertIsNone(focus_miss)
 
-        disk_dead = json.loads(path_dead.read_text("utf-8"))
+        disk_dead = zerochat.get_run_state("conv_dead")
         self.assertEqual(disk_dead["status"], "error")
         self.assertIn("inesperadamente", disk_dead["error"])
 
@@ -378,10 +372,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             self.assertEqual(env["ZEROCHAT_RUN_ID"], run_id)
             self.assertEqual(json.loads(env["ZEROCHAT_RUN_SECURITY"])["directoryRules"], ["R:/test"])
 
-            state_path = zerochat.get_run_state_path("conv_val")
-            self.assertTrue(state_path.exists())
-            if os.name != "nt":
-                self.assertEqual(stat.S_IMODE(state_path.stat().st_mode), 0o600)
+            self.assertIsNotNone(zerochat.get_run_state("conv_val"))
             conv_data = zerochat.get_conversation("conv_val")
             self.assertEqual(conv_data.get("serverRun"), True)
             self.assertEqual(conv_data.get("profileId"), "valid-profile")
@@ -397,31 +388,31 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             self.assertIsNone(err_c)
             self.assertTrue(res_c["cancelled"])
             mock_kill.assert_called_once_with(os.getpid(), grace_seconds=0.05)
-            self.assertFalse(state_path.exists())
+            self.assertIsNone(zerochat.get_run_state("conv_val"))
 
-        # Si el fichero está en needs_input o pid_start no coincide (PID reutilizado), cancel_server_run borra el fichero sin matar el PID
-        state_path.write_text(json.dumps({
+        # Si el estado está en needs_input o pid_start no coincide (PID reutilizado), cancel_server_run borra el estado sin matar el PID
+        zerochat.upsert_run_state({
             "run_id": "run_paused",
             "conversation_id": "conv_val",
             "pid": os.getpid(),
             "status": "needs_input"
-        }), encoding="utf-8")
+        })
         with mock.patch.object(zerochat, "_kill_process_tree") as mock_kill_paused:
             zerochat.cancel_server_run("conv_val")
             mock_kill_paused.assert_not_called()
-            self.assertFalse(state_path.exists())
+            self.assertIsNone(zerochat.get_run_state("conv_val"))
 
-        state_path.write_text(json.dumps({
+        zerochat.upsert_run_state({
             "run_id": "run_reused_pid",
             "conversation_id": "conv_val",
             "pid": os.getpid(),
             "pid_start": "token_de_proceso_anterior_distinto",
             "status": "running"
-        }), encoding="utf-8")
+        })
         with mock.patch.object(zerochat, "_kill_process_tree") as mock_kill_reused:
             zerochat.cancel_server_run("conv_val")
             mock_kill_reused.assert_not_called()
-            self.assertFalse(state_path.exists())
+            self.assertIsNone(zerochat.get_run_state("conv_val"))
 
     def test_cualquier_peticion_de_un_origen_permitido_es_presencia_y_la_inactividad_detiene_el_servidor(self):
         token = "heartbeat-test-token"
@@ -465,13 +456,12 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         stop.assert_called_once_with(server)
 
     def test_heartbeat_watchdog_no_apaga_si_hay_run_activo(self):
-        state_path = zerochat.get_run_state_path("conv_watchdog")
-        state_path.write_text(json.dumps({
+        zerochat.upsert_run_state({
             "run_id": "run_wd",
             "conversation_id": "conv_watchdog",
             "pid": os.getpid(),
             "status": "running"
-        }), encoding="utf-8")
+        })
 
         mock_server = mock.Mock()
         zerochat.HEARTBEAT_INITIALIZED = True
@@ -479,12 +469,12 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
 
         def stop_after_delay():
             time.sleep(0.15)
-            state_path.write_text(json.dumps({
+            zerochat.upsert_run_state({
                 "run_id": "run_wd",
                 "conversation_id": "conv_watchdog",
                 "pid": os.getpid(),
                 "status": "completed"
-            }), encoding="utf-8")
+            })
 
         threading.Thread(target=stop_after_delay, daemon=True).start()
 
@@ -492,41 +482,62 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             zerochat.heartbeat_watchdog(mock_server, inactivity_timeout_seconds=0.05)
             mock_stop.assert_called_once_with(mock_server)
 
+    def test_heartbeat_long_poll_despierta_con_cambio(self):
+        ctx = zerochat.SecurityContext(workspace_dir=self.data_dir)
+        initial = zerochat.live_state(ctx)
+        self.assertEqual(initial["rev"], zerochat.live_state(ctx)["rev"])
+
+        def trigger_change():
+            time.sleep(0.08)
+            zerochat.upsert_run_state({
+                "run_id": "run_lp",
+                "conversation_id": "conv_lp",
+                "pid": os.getpid(),
+                "status": "needs_input"
+            })
+
+        started = time.monotonic()
+        threading.Thread(target=trigger_change, daemon=True).start()
+        updated = zerochat.wait_live_state(ctx, since_rev=initial["rev"], wait_ms=5000)
+        self.assertLess(time.monotonic() - started, 2.0)
+        self.assertNotEqual(updated["rev"], initial["rev"])
+        self.assertEqual([r["conversation_id"] for r in updated["runs"]], ["conv_lp"])
+        _, err, _ = zerochat._heartbeat({"wait_ms": -5}, ctx)
+        self.assertEqual(err["code"], -32602)
+
     def test_borrar_conversaciones_limpia_runs(self):
-        state_path1 = zerochat.get_run_state_path("conv_del_1")
-        state_path1.write_text(json.dumps({
+        zerochat.upsert_run_state({
             "run_id": "run_1",
             "conversation_id": "conv_del_1",
             "pid": 33333,
             "status": "needs_input"
-        }), encoding="utf-8")
-        state_path2 = zerochat.get_run_state_path("conv_del_2")
-        state_path2.write_text(json.dumps({
+        })
+        zerochat.upsert_run_state({
             "run_id": "run_2",
             "conversation_id": "conv_del_2",
             "pid": 33334,
             "status": "needs_input"
-        }), encoding="utf-8")
+        })
 
         zerochat.save_conversation({"id": "conv_del_1", "title": "Del 1"}, [])
         zerochat.save_conversation({"id": "conv_del_2", "title": "Del 2", "project": "/repo/b"}, [])
         zerochat.save_conversation({"id": "conv_del_3", "title": "Del 3", "project": "/repo/c"}, [])
 
         zerochat.dispatch_conversations("zerochat/conversations/delete", {"id": "conv_del_1"})
-        self.assertFalse(state_path1.exists())
-        self.assertTrue(state_path2.exists())
+        self.assertIsNone(zerochat.get_run_state("conv_del_1"))
+        self.assertIsNotNone(zerochat.get_run_state("conv_del_2"))
 
         # Por proyecto: solo sus conversaciones y sus ejecuciones.
         result, error, _ = zerochat.dispatch_conversations("zerochat/conversations/delete", {"project": "/repo/c"})
         self.assertIsNone(error)
         self.assertEqual(result["count"], 1)
-        self.assertTrue(state_path2.exists())
+        self.assertIsNotNone(zerochat.get_run_state("conv_del_2"))
         self.assertEqual([c["id"] for c in zerochat.list_conversations()], ["conv_del_2"])
         _, error, _ = zerochat.dispatch_conversations("zerochat/conversations/delete", {"project": "  "})
         self.assertEqual(error["code"], -32602)
 
         zerochat.dispatch_conversations("zerochat/conversations/delete", {"all": True})
-        self.assertFalse(state_path2.exists())
+        self.assertIsNone(zerochat.get_run_state("conv_del_2"))
 
 
 class FinishRunOutputTest(unittest.TestCase):

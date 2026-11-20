@@ -361,21 +361,20 @@ test('Browser UI - el selector único incluye switch superior de ejecución en s
   }
 });
 
-test('Browser UI - cambiar de serverId con perfiles previos pregunta antes de fusionar y por defecto usa los del servidor', async () => {
+test('Browser UI - cambiar de serverId con perfiles previos pregunta antes de fusionar y cancelar conserva los locales', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
 
-    // Simular perfiles previamente sincronizados con srv-A y conectar ahora a srv-B sin mezclar.
+    // Simular perfiles previamente sincronizados con srv-A y conectar ahora a srv-B.
     const resultPromise = page.evaluate(async () => {
       const repo = window.ChatProfileRepository;
       await repo.syncWithBackend({
         serverId: 'srv-A',
         listRemote: async () => [{ id: 'profile:a', name: 'De A', hasApiKey: false, updatedAt: 1000, settings: { apiType: 'openai', model: 'm-a' } }],
-        saveRemote: async p => p,
-        deleteRemote: async () => true
+        saveRemote: async p => p
       });
       const mcp = window.ChatMCP.manager;
       mcp.clients.set('mcp_proxy', {
@@ -389,12 +388,14 @@ test('Browser UI - cambiar de serverId con perfiles previos pregunta antes de fu
       return mcp.syncProfiles('srv-B', { onServerChange: window.ChatUIProfiles.confirmServerProfileSync });
     });
 
-    // Debe abrirse el diálogo con la opción por defecto (cancel = Usar los de este servidor).
+    // Debe abrirse el diálogo; al cancelar, no sincroniza ni borra los perfiles locales.
     await page.waitForFunction(() => document.getElementById('notice-dialog').open);
     await page.click('#notice-cancel');
 
     const syncResult = await resultPromise;
-    assert.equal(syncResult.replaced, true);
+    assert.equal(syncResult.cancelled, true);
+    const localIds = await page.evaluate(() => window.ChatProfileRepository.list().map(p => p.id));
+    assert.ok(localIds.includes('profile:a'));
   } finally {
     await browser.close();
   }

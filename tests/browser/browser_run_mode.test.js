@@ -445,7 +445,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     const liveView = await page.evaluate(() => ({
       banner: document.querySelector('.server-run-banner-title')?.textContent,
       step: document.querySelector('.server-run-step')?.textContent,
-      heartbeatMs: window.ChatMCP.manager.heartbeatIntervalMs,
+      heartbeatActive: window.ChatMCP.manager.heartbeatActive,
       sendDisabled: document.getElementById('btn-send').disabled,
       stopVisible: !document.getElementById('btn-stop-stream').hidden,
       sidebarRunningIcon: Boolean(document.querySelector(`.sidebar-chat-item[data-session-id="${window.ChatState.get('sessions').activeId}"] .sidebar-chat-status-icon.running`))
@@ -453,7 +453,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     assert.deepEqual(liveView, {
       banner: 'Ejecutándose en el servidor: tarea srv_run_1',
       step: '1',
-      heartbeatMs: 2000,
+      heartbeatActive: true,
       sendDisabled: true,
       stopVisible: true,
       sidebarRunningIcon: true
@@ -468,14 +468,11 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
       stopHidden: document.getElementById('btn-stop-stream').hidden
     }));
     assert.deepEqual(newSessionView, { liveWrapper: false, sendDisabled: false, stopHidden: true });
-    // Fuera de la conversación en marcha el latido vuelve al de siempre (10 s, con auto-cierre).
-    await page.waitForFunction(() => window.ChatMCP.manager.heartbeatIntervalMs === 10000);
 
     // Volver a la conversación en ejecución restaura su vista en vivo y bloqueo de envío.
     await page.locator(`.sidebar-chat-item[data-session-id="${activeConvId}"]`).evaluate(el => el.click());
     await page.waitForFunction(id => window.ChatState.get('sessions').activeId === id, activeConvId);
     assert.equal(await page.locator('.server-run-live-wrapper').count(), 1);
-    await page.waitForFunction(() => window.ChatMCP.manager.heartbeatIntervalMs === 2000);
 
     // La ejecución en el servidor se pausa pidiendo permiso de write_file (needs_input).
     const convRecord = savedConversations.get(activeConvId);

@@ -11,14 +11,14 @@ from pathlib import Path
 from auth.login import LoginError, login
 from browser.rpc import dispatch_browser
 from core.environment import DETECTED_OS, get_no_project_dir
-from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, RpcOutcome, rpc_error, rpc_not_supported, rpc_result
+from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, RpcOutcome, parse_nonneg_int, rpc_error, rpc_not_supported, rpc_result
 from core.version import VERSION
 from mcp.manager import GLOBAL_MCP_MANAGER
 from mcp.rpc import SERVER_CONTROL_METHODS, dispatch_server_control
 from run_mode.state import dispatch_run
 from security.context import SecurityContext
 from security.controller import ACCESS_CONTROLLER
-from server.state import live_state
+from server.state import live_state, wait_live_state
 from server.tool_calls import call_tool, dispatch_security
 from storage.db import get_project_environment, save_project_environment
 from storage.rpc import dispatch_blobs, dispatch_conversations, dispatch_profiles
@@ -70,7 +70,14 @@ def _initialize(_params: dict, ctx: SecurityContext) -> RpcOutcome:
 
 
 def _heartbeat(params: dict, ctx: SecurityContext) -> RpcOutcome:
-    return rpc_result(live_state(ctx, params.get("focus_conversation_id")))
+    since_rev = params.get("since_rev")
+    if since_rev is not None and not isinstance(since_rev, str):
+        return rpc_error(INVALID_PARAMS, "since_rev debe ser texto")
+    try:
+        wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms", 0) or 0
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+    return rpc_result(wait_live_state(ctx, params.get("focus_conversation_id"), since_rev=since_rev, wait_ms=wait_ms))
 
 
 def _set_project_directory(params: dict, ctx: SecurityContext) -> RpcOutcome:

@@ -250,9 +250,11 @@ test('ChatEngine - al parar o fallar el proveedor devuelve los pasos ejecutados 
   }
 });
 
-test('ChatEngine - la siguiente petición tras borrar respuesta con tools no incluye ningún tool ni turno huérfano', () => {
+test('ChatEngine - la siguiente petición tras deshacer el último turno con tools no incluye ningún tool ni turno huérfano', () => {
   const baseId = 'turn_with_tools_deleted';
   const chatHistory = [
+    { id: 'u0', role: 'user', content: 'Hola inicial' },
+    { id: 'a0', role: 'assistant', content: 'Hola.' },
     { id: 'u1', role: 'user', content: '¿Qué temperatura hace?' },
     {
       id: `${baseId}_turn_0_assistant`,
@@ -274,8 +276,8 @@ test('ChatEngine - la siguiente petición tras borrar respuesta con tools no inc
     }
   ];
 
-  // 1. Borrar la respuesta del asistente (con todas sus herramientas)
-  const cleanedHistory = MessageTurns.removeSelectedTurn(chatHistory, { msgId: baseId, baseId });
+  // 1. Deshacer el último turno (pregunta + respuesta + herramientas)
+  const { messages: cleanedHistory } = MessageTurns.removeLastTurn(chatHistory);
 
   // 2. El usuario envía una siguiente petición
   cleanedHistory.push({
@@ -299,7 +301,7 @@ test('ChatEngine - la siguiente petición tras borrar respuesta con tools no inc
 
   const userMessages = effective.filter(m => m.role === 'user');
   assert.equal(userMessages.length, 2, 'Deben conservarse los mensajes de usuario válidos');
-  assert.equal(userMessages[0].content, '¿Qué temperatura hace?');
+  assert.equal(userMessages[0].content, 'Hola inicial');
   assert.ok(userMessages[1].content.includes('Ahora dime la hora'));
 });
 

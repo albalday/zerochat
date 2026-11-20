@@ -1,6 +1,6 @@
 /**
  * Ciclo de vida de los servicios MCP externos gestionados por el servidor local:
- * registro de herramientas, arranque con polling por fases y OAuth, parada y configuración.
+ * registro de herramientas, arranque con long-poll por fases y OAuth, parada y configuración.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -13,11 +13,12 @@
 
   const { resolveDep } = Utils;
 
-  const EXTERNAL_START_POLL_ATTEMPTS = 10;
-  const EXTERNAL_START_POLL_INTERVAL_MS = 15000;
+  const EXTERNAL_START_WAIT_MS = 25000;
+  const EXTERNAL_START_TIMEOUT_MS = 30000;
+  const EXTERNAL_START_MAX_MS = 150000;
   // Cubre los límites del backend (npm install y descarga del navegador, 600 s cada uno)
   // y la espera de la autorización OAuth.
-  const EXTERNAL_LONG_START_POLL_ATTEMPTS = 80;
+  const EXTERNAL_LONG_START_MAX_MS = 1200000;
 
   const getAgentCore = () => resolveDep('ChatAgentCore', './agent-core.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
@@ -53,56 +54,83 @@
     getState().set('mcp', { externalTools: tools });
   }
 
-  /** Arranca un servicio externo y sigue su progreso hasta estar en marcha. */
+  /** Arranca un servicio externo y sigue su progreso con long-poll hasta estar en marcha. */
   async function startExternalServer(manager, serverId, onWait) {
-    let result = null;
-    try {
-      result = await manager.requestExternalControl('zerochat/external/servers/start', { serverId });
-    } catch (error) {
-      // El timeout inicial no implica fallo: el backend puede estar aún
-      // iniciando el servicio (p. ej. esperando la autorización OAuth).
-      if (error.name !== 'AbortError' && error.code !== 'MCP_REQUEST_TIMEOUT') throw error;
-    }
-    if (result) {
-      await manager.applyLiveState(result);
-      return result;
-    }
-    // Cada fase (installing, starting) dispone de su propio presupuesto de esperas.
-    let phase = null;
-    let attempt = 0;
-    for (;;) {
-      let status;
-      try {
-        status = await manager.readLiveState();
-      } catch (cause) {
-        const error = new Error('Unable to check MCP startup status.', { cause });
-        error.code = 'EXTERNAL_START_STATUS_UNAVAILABLE';
-        throw error;
-      }
+    const checkStatus = async status => {
+      await manager.applyLiveState(status);
       const server = (status?.servers || []).find(item => item?.id === serverId);
-      if (McpStatus.isRunning(server?.status)) return status;
+      if (McpStatus.isRunning(server?.status)) return { done: true, server };
       if (!McpStatus.isBusy(server?.status)) {
         const error = new Error(`MCP server '${serverId}' did not start: ${server?.status || 'unknown'}`);
         error.code = 'EXTERNAL_START_STATUS_UNAVAILABLE';
         error.externalServer = server;
         throw error;
       }
-      if (server.status !== phase) {
-        phase = server.status;
-        attempt = 0;
+      return { done: false, server };
+    };
+
+    let currentServer = null;
+    let sinceRev = null;
+    try {
+      const started = await manager.requestExternalControl(
+        'zerochat/external/servers/start',
+        { serverId, wait_ms: EXTERNAL_START_WAIT_MS },
+        { timeoutMs: EXTERNAL_START_TIMEOUT_MS }
+      );
+      if (started) {
+        const checked = await checkStatus(started);
+        if (checked.done) return started;
+        currentServer = checked.server;
+        sinceRev = started.rev ?? null;
       }
-      const maxAttempts = server.oauthUrl || server.status === 'installing'
-        ? EXTERNAL_LONG_START_POLL_ATTEMPTS
-        : EXTERNAL_START_POLL_ATTEMPTS;
-      if (attempt >= maxAttempts) {
-        const error = new Error(`MCP server '${serverId}' is still starting after ${maxAttempts} waits.`);
-        error.code = 'EXTERNAL_START_WAIT_TIMEOUT';
-        error.externalServer = server;
+    } catch (error) {
+      // El timeout inicial no implica fallo: el backend puede seguir instalando o esperando OAuth.
+      if (error.name !== 'AbortError' && error.code !== 'MCP_REQUEST_TIMEOUT') throw error;
+    }
+
+    // Cada fase (installing, starting) dispone de su propio presupuesto de espera.
+    let phase = currentServer?.status ?? null;
+    let phaseStartedAt = Date.now();
+    let attempt = 0;
+    for (;;) {
+      if (currentServer) {
+        if (currentServer.status !== phase) {
+          phase = currentServer.status;
+          phaseStartedAt = Date.now();
+          attempt = 0;
+        }
+        const maxMs = currentServer.oauthUrl || currentServer.status === 'installing'
+          ? EXTERNAL_LONG_START_MAX_MS
+          : EXTERNAL_START_MAX_MS;
+        const maxAttempts = Math.ceil(maxMs / EXTERNAL_START_WAIT_MS);
+        if (attempt >= maxAttempts || Date.now() - phaseStartedAt >= maxMs) {
+          const error = new Error(`MCP server '${serverId}' is still starting after ${maxAttempts} waits.`);
+          error.code = 'EXTERNAL_START_WAIT_TIMEOUT';
+          error.externalServer = currentServer;
+          throw error;
+        }
+        attempt += 1;
+        onWait?.(attempt, maxAttempts, currentServer.status, currentServer);
+      }
+      let status;
+      try {
+        const params = sinceRev === null
+          ? { serverId, wait_ms: EXTERNAL_START_WAIT_MS }
+          : { serverId, since_rev: sinceRev, wait_ms: EXTERNAL_START_WAIT_MS };
+        status = await manager.requestExternalControl(
+          'zerochat/external/servers/wait',
+          params,
+          { timeoutMs: EXTERNAL_START_TIMEOUT_MS }
+        );
+      } catch (cause) {
+        const error = new Error('Unable to check MCP startup status.', { cause });
+        error.code = 'EXTERNAL_START_STATUS_UNAVAILABLE';
         throw error;
       }
-      attempt += 1;
-      onWait?.(attempt, maxAttempts, server.status, server);
-      await new Promise(resolve => setTimeout(resolve, EXTERNAL_START_POLL_INTERVAL_MS));
+      sinceRev = status?.rev ?? sinceRev;
+      const checked = await checkStatus(status);
+      if (checked.done) return status;
+      currentServer = checked.server;
     }
   }
 

@@ -526,16 +526,14 @@
     const displayName = formatProfileDisplayName(profile);
     if (!await getDialogs().confirm(t('confirm_delete_profile', { name: displayName }))) return false;
 
-    let deletedOnServer = false;
     if (getMCP().manager.isProxyConnected()) {
       try {
         await getMCP().manager.deleteServerProfile(profile.id);
-        deletedOnServer = true;
       } catch (error) {
-        console.warn('[UIProfiles] Could not delete profile on server; queued for sync:', error);
+        console.warn('[UIProfiles] Could not delete profile on server:', error);
       }
     }
-    if (!Profiles.remove(profile.id, { synced: deletedOnServer })) return false;
+    if (!Profiles.remove(profile.id)) return false;
     if (runtimeConfig().activeProfile?.id === profile.id) getConfig().activateFallbackProfile();
     const nextActiveId = runtimeConfig().activeProfile?.id || '';
     populateProfileSelector(nextActiveId);
@@ -951,9 +949,9 @@
     const merge = await getDialogs().confirm(t(key, { localCount, remoteCount }), {
       title: t('profile_sync_server_change_title'),
       acceptText: t('profile_sync_merge'),
-      cancelText: t('profile_sync_use_server')
+      cancelText: t('notice_cancel')
     });
-    return merge ? 'merge' : 'replace';
+    return merge ? 'merge' : 'cancel';
   }
 
   /**
