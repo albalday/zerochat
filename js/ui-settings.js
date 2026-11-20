@@ -105,30 +105,30 @@
   }
 
   /** Muestra el proyecto al que pertenecen las reglas de directorio mostradas en Ajustes. */
-  function syncDirectoryRulesProject(elements) {
+  function syncDirectoryRulesProject(elements, scope = activeProjectScope()) {
     const badge = elements.mcpDirectoryRulesProject;
     if (!badge) return;
-    const mcp = getState().get('mcp');
-    const cwd = mcp.status === 'connected' ? String(mcp.serverInfo?.cwd || '').trim() : '';
-    badge.textContent = cwd ? t('mcp_directory_rules_project', { name: projectName(cwd) }) : '';
+    const { cwd, name } = scope;
+    badge.textContent = cwd ? t('settings_group_project', { name }) : '';
     badge.title = cwd;
     badge.hidden = !cwd;
   }
 
   /** Identifica el proyecto activo tanto en el menú de Ajustes como en el título del diálogo de sección. */
   function syncProjectScopeLabels(elements) {
-    const { cwd, name } = activeProjectScope();
+    const scope = activeProjectScope();
+    const { cwd, name } = scope;
     if (elements.sidebarSettingsProjectLabel) {
       elements.sidebarSettingsProjectLabel.textContent = t('settings_group_project', { name });
       elements.sidebarSettingsProjectLabel.title = cwd;
     }
     if (elements.settingsProjectBadge) {
       const inProjectSection = PROJECT_SECTIONS.has(elements.settingsDialog?.dataset?.section || '');
-      elements.settingsProjectBadge.textContent = t('mcp_directory_rules_project', { name });
+      elements.settingsProjectBadge.textContent = t('settings_group_project', { name });
       elements.settingsProjectBadge.title = cwd;
       elements.settingsProjectBadge.hidden = !inProjectSection;
     }
-    syncDirectoryRulesProject(elements);
+    syncDirectoryRulesProject(elements, scope);
   }
 
   /** Pinta el interruptor permitir todo del proyecto y las reglas de directorios guardadas en ChatToolSecurity. */

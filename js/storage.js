@@ -756,20 +756,20 @@
   async function renameConversation(sessionId, newTitle) {
     if (!sessionId || !newTitle) return false;
     const title = newTitle.trim();
-    const renamed = await attempt('rename the conversation', async db => {
+    const remoteResult = isBackendConnected()
+      ? await requestBackend('zerochat/conversations/rename', { id: sessionId, title })
+      : null;
+    const updatedAt = Number(remoteResult?.updatedAt) || Date.now();
+    return attempt('rename the conversation', async db => {
       const tx = db.transaction(STORES.conversations, 'readwrite');
       const store = tx.objectStore(STORES.conversations);
       const conversation = await requestResult(store.get(sessionId));
-      // Renombrada sin conexión, se sube al conectar; conectada, el servidor fija su propia fecha.
+      // Renombrada sin conexión, se sube al conectar; conectada, conserva la fecha exacta de SQLite.
       const { synced: _synced, ...record } = conversation || {};
-      if (conversation) store.put({ ...record, title, updatedAt: Date.now(), ...(isBackendConnected() && conversation.synced ? { synced: true } : {}) });
+      if (conversation) store.put({ ...record, title, updatedAt, ...(remoteResult && conversation.synced ? { synced: true } : {}) });
       await transactionDone(tx);
       return Boolean(conversation);
     });
-    if (isBackendConnected()) {
-      await requestBackend('zerochat/conversations/rename', { id: sessionId, title });
-    }
-    return renamed;
   }
 
   function dataUrlToBytes(dataUrl) {

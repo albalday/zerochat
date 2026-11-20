@@ -269,9 +269,11 @@ class StorageEngineTest(unittest.TestCase):
         res, err, _ = zerochat.dispatch_local("zerochat/conversations/rename", {"id": "rpc_conv_1", "title": "Título Modificado"}, zerochat.project_context())
         self.assertIsNone(err)
         self.assertTrue(res["renamed"])
+        self.assertIsInstance(res.get("updatedAt"), int)
 
-        res, _, _ = zerochat.dispatch_conversations("zerochat/conversations/get", {"id": "rpc_conv_1"})
-        self.assertEqual(res["conversation"]["title"], "Título Modificado")
+        res_get, _, _ = zerochat.dispatch_conversations("zerochat/conversations/get", {"id": "rpc_conv_1"})
+        self.assertEqual(res_get["conversation"]["title"], "Título Modificado")
+        self.assertEqual(res_get["conversation"]["updatedAt"], res["updatedAt"])
 
         res_ren_inexist, err, _ = zerochat.dispatch_conversations("zerochat/conversations/rename", {"id": "inexistente", "title": "Nuevo"})
         self.assertIsNone(err)

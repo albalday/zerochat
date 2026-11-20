@@ -61,8 +61,11 @@ def stored(kind):
     return (zerochat.get_security_policy_data() or {}).get(kind) or {}
 
 
-def set_patterns(controller, *patterns, projects=None):
-    controller.import_state({"commandPatterns": {"global": list(patterns), "projects": projects or {}}}, cwd())
+def set_patterns(controller, *patterns, project_patterns=None):
+    controller.import_state(
+        {"commandPatterns": {"global": list(patterns), **({"project": list(project_patterns)} if project_patterns is not None else {})}},
+        cwd(),
+    )
 
 
 def saved_patterns():
@@ -682,14 +685,14 @@ class CommandPatternTest(HandlerTestCase):
         set_patterns(self.controller, "git status *", "git  status  *", "git status", "git diff *", "git diff --stat")
         self.assertEqual(saved_patterns()["global"], ["git status *", "git diff *"])
 
-        def store(global_patterns, projects=None):
-            self.controller.import_state({"commandPatterns": {"global": global_patterns, "projects": projects or {}}}, self.ctx)
+        def store(global_patterns, project_patterns=None):
+            self.controller.import_state({"commandPatterns": {"global": global_patterns, "project": project_patterns or []}}, self.ctx)
 
         for bad in (["git; rm"], ["git $(x)"], [""], ["*"], ["g* log"], ["git **"], ["git 'x'"], [3], "git"):
             with self.assertRaises(ValueError, msg=repr(bad)):
                 store(bad)
         with self.assertRaises(ValueError):
-            store([], {"relativo": ["git"]})
+            store([], ["git; rm"])
         # Guardar run_command sin patrones autorizaría cualquier comando; en la sesión sí se admite
         with self.assertRaisesRegex(ValueError, "allow_always_requires_command_pattern"):
             self.controller.import_state({"tools": {"run_command": {"policy": "allow"}}}, self.ctx)

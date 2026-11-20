@@ -205,8 +205,11 @@ test('Storage Backend - sincroniza en los dos sentidos con la copia más recient
     }
     if (method === 'zerochat/conversations/rename') {
       const existing = backendStore.get(params.id);
-      if (existing) existing.title = params.title;
-      return { renamed: Boolean(existing) };
+      if (existing) {
+        existing.title = params.title;
+        existing.updatedAt = (existing.updatedAt || Date.now()) + 123;
+      }
+      return { renamed: Boolean(existing), ...(existing ? { updatedAt: existing.updatedAt } : {}) };
     }
     if (method === 'zerochat/conversations/delete') {
       if (refuseDelete) throw new Error('Run in progress');
@@ -304,6 +307,9 @@ test('Storage Backend - sincroniza en los dos sentidos con la copia más recient
   await Storage.renameConversation('dual_conv', 'Nuevo Titulo');
   assert.equal(backendCalls.pop().method, 'zerochat/conversations/rename');
   assert.equal((await Storage.getConversation('dual_conv')).title, 'Nuevo Titulo');
+  // Al volver a listar, la copia local conserva el updatedAt exacto del servidor y no queda messagesPending.
+  const listedAfterRename = await Storage.getConversationsList();
+  assert.equal(listedAfterRename.find(item => item.id === 'dual_conv')?.messagesPending, undefined);
 
   // Si el servidor rechaza el borrado, la copia local se conserva
   refuseDelete = true;

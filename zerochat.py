@@ -5136,13 +5136,19 @@ def _rpc_save_conversation(params: dict) -> RpcOutcome:
     return rpc_result({"conversation": save_conversation(params.get("conversation"), params.get("messages"))})
 
 
+def _rpc_rename_conversation(params: dict) -> RpcOutcome:
+    conv_id = params.get("id")
+    renamed = rename_conversation(conv_id, params.get("title"))
+    updated_at = get_conversation_updated_at(conv_id) if renamed and isinstance(conv_id, str) else None
+    return rpc_result({"renamed": renamed, **({"updatedAt": updated_at} if updated_at is not None else {})})
+
+
 CONVERSATION_METHODS = {
     "zerochat/conversations/list": lambda _params: rpc_result({"conversations": list_conversations()}),
     "zerochat/conversations/get": lambda params: rpc_result({"conversation": get_conversation(params.get("id"))}),
     "zerochat/conversations/save": _rpc_save_conversation,
     "zerochat/conversations/save_chunk": lambda params: rpc_result(save_conversation_chunk(params)),
-    "zerochat/conversations/rename": lambda params: rpc_result(
-        {"renamed": rename_conversation(params.get("id"), params.get("title"))}),
+    "zerochat/conversations/rename": _rpc_rename_conversation,
     "zerochat/conversations/delete": _rpc_delete_conversations,
 }
 
@@ -7105,20 +7111,12 @@ class AccessController:
 
     @staticmethod
     def _validate_command_patterns_patch(raw) -> dict:
-        """Valida un parche de commandPatterns: {global, project} o legado {global, projects}."""
+        """Valida un parche de commandPatterns: {global, project} para el proyecto activo."""
         if not isinstance(raw, dict):
             raise ValueError("commandPatterns debe ser un diccionario con global y project.")
-        has_projects = "projects" in raw
-        if has_projects and "project" not in raw:
-            return {"mode": "full", "patterns": normalize_command_patterns(raw)}
-        global_patterns = clean_pattern_list(raw.get("global") or [], "commandPatterns.global")
-        project_patterns = clean_pattern_list(raw.get("project") or [], "commandPatterns.project")
-        base = normalize_command_patterns({"global": global_patterns, "projects": raw["projects"]}) if has_projects else None
         return {
-            "mode": "scoped",
-            "global": global_patterns,
-            "project": project_patterns,
-            "projects": base["projects"] if base is not None else None,
+            "global": clean_pattern_list(raw.get("global") or [], "commandPatterns.global"),
+            "project": clean_pattern_list(raw.get("project") or [], "commandPatterns.project"),
         }
 
     def import_state(self, state: dict, context: SecurityContext):
@@ -7155,7 +7153,7 @@ class AccessController:
             else:
                 current["directoryRules"][project] = clean_rules
         if added_rules:
-            base_rules = current["directoryRules"][project] if project in current["directoryRules"] else [default_rule]
+            base_rules = self._project_rules_base(current["directoryRules"], project, default_rule)
             current["directoryRules"][project] = self._append_rules(base_rules, added_rules)
         if clean_tools is not None:
             current["tools"] = self._apply_entry_patch(current.get("tools"), clean_tools)
@@ -7165,10 +7163,12 @@ class AccessController:
             current["commandPatterns"] = self._merge_command_patterns(current["commandPatterns"], clean_patterns, project)
 
     @staticmethod
+    def _project_rules_base(directory_rules: dict[str, list[str]], project: str, default_rule: str) -> list[str]:
+        return directory_rules[project] if project in directory_rules else [default_rule]
+
+    @staticmethod
     def _merge_command_patterns(current_patterns: dict, patch: dict, project: str) -> dict:
-        if patch["mode"] == "full":
-            return patch["patterns"]
-        projects = dict(patch["projects"] if patch["projects"] is not None else current_patterns["projects"])
+        projects = dict(current_patterns["projects"])
         if patch["project"]:
             projects[project] = patch["project"]
         else:
@@ -7405,11 +7405,7 @@ class AccessController:
         def mutator(state: dict) -> dict:
             self._store_decision(state, decision, pattern, project, tool, server_name, server_id)
             if rules:
-                base_rules = (
-                    state["directoryRules"][project]
-                    if project in state["directoryRules"]
-                    else [self.get_default_directory_rule(context)]
-                )
+                base_rules = self._project_rules_base(state["directoryRules"], project, self.get_default_directory_rule(context))
                 state["directoryRules"][project] = self._append_rules(base_rules, rules)
             self._check_entry_limit(state)
             return state
