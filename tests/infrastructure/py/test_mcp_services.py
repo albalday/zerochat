@@ -288,14 +288,13 @@ class ServiceCatalogTest(unittest.TestCase):
             self.assertEqual((self.root / path).read_text(encoding="utf-8"), text)
         self.assertEqual(sorted(server["id"] for server in self.manager.list_servers()), ["custom", "demo", "other"])
 
-    def test_un_servicio_actualizado_en_marcha_se_reinicia_con_su_navegador_y_los_detenidos_no_arrancan(self):
+    def test_un_servicio_actualizado_en_marcha_se_reinicia_y_los_detenidos_no_arrancan(self):
         self.publish({"demo": ("1.0.0", {}), "idle": ("1.0.0", {})})
         self.manager.refresh_catalog(self.base)
         old = Mock(tools=[])
         old.running.return_value = True
         old.stop.side_effect = lambda: old.running.configure_mock(return_value=False)
-        browser = {"mode": "own", "engine": "firefox"}
-        self.manager.records["demo"] = zerochat.McpServiceRecord(phase="running", client=old, browser=browser)
+        self.manager.records["demo"] = zerochat.McpServiceRecord(phase="running", client=old)
         new = Mock(tools=[])
         new.running.return_value = True
         self.publish({"demo": ("2.0.0", {}), "idle": ("2.0.0", {})})
@@ -303,7 +302,7 @@ class ServiceCatalogTest(unittest.TestCase):
                 patch.object(self.manager, "_start_locked", wraps=self.manager._start_locked) as start:
             self.assertEqual(self.manager.refresh_catalog(self.base), ["demo", "idle"])
         old.stop.assert_called_once()
-        start.assert_called_once_with("demo", False, browser)
+        start.assert_called_once_with("demo", False)
         constructor.assert_called_once()
         new.start.assert_called_once()
         self.assertEqual(status_of(self.manager, "demo")["status"], "running")
@@ -392,13 +391,13 @@ class ServiceStatusTest(unittest.TestCase):
         client.running.return_value = True
         for action in (lambda: manager.stop("demo"), manager.close):
             with self.subTest(action=action):
-                manager.records["demo"] = zerochat.McpServiceRecord(phase="running", client=client, browser={"mode": "user", "userBrowser": "chrome"})
+                manager.records["demo"] = zerochat.McpServiceRecord(phase="running", client=client)
                 self.assertEqual((status_of(manager, "demo")["status"], status_of(manager, "demo")["toolCount"]), ("running", 1))
                 client.stop.reset_mock()
                 action()
                 client.stop.assert_called_once()
                 status = status_of(manager, "demo")
-                self.assertEqual((status["status"], status["error"], status["toolCount"], status["browser"]), ("stopped", None, 0, None))
+                self.assertEqual((status["status"], status["error"], status["toolCount"]), ("stopped", None, 0))
                 self.assertEqual(manager.tools(), [])
 
 

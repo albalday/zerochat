@@ -223,33 +223,6 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     assert.ok(serverRun.backend.calls.some(call => call.method === 'zerochat/run/profile' && call.params.id === 'profile:server-local'));
   });
 
-  test('Browser UI - el modo ejecución arranca solo los servicios MCP del perfil y Playwright MCP si es la herramienta de navegación o el perfil lo exige, y falla si alguno no está configurado', async () => {
-    const externalServers = () => ['memory', 'github', 'playwright'].map(id => ({ id, displayName: { es: id, en: id }, status: 'stopped', enabled: false }));
-    const run = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileSettings: { mcpServers: ['memory'] }, browserTool: 'playwright', externalServers: externalServers() });
-    await run.page.evaluate(() => {
-      window.ChatAPI.streamChatCompletion = async () => ({ accumulatedText: 'ok', toolCalls: null, stats: null });
-    });
-    run.backend.release();
-    await run.page.waitForFunction(() => window.__closed === true);
-    assert.deepEqual(resultOf(run.backend), { run_id: RUN_ID, text: 'ok' });
-    assert.deepEqual(run.backend.started, [{ id: 'memory', remember: false }, { id: 'playwright', remember: false }], 'solo arranca los servicios del perfil y Playwright MCP, sin guardarlos como activos');
-
-    // Un perfil que exige Playwright MCP lo arranca con su navegador aunque Ajustes no lo elija.
-    const required = { mode: 'own', engine: 'firefox' };
-    const forced = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileSettings: { playwrightBrowser: required }, externalServers: externalServers() });
-    await forced.page.evaluate(() => {
-      window.ChatAPI.streamChatCompletion = async () => ({ accumulatedText: 'ok', toolCalls: null, stats: null });
-    });
-    forced.backend.release();
-    await forced.page.waitForFunction(() => window.__closed === true);
-    assert.deepEqual(forced.backend.started, [{ id: 'playwright', remember: false, browser: required }]);
-
-    const missing = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileSettings: { mcpServers: ['memory', 'ghost'] }, externalServers: externalServers() });
-    missing.backend.release();
-    await missing.page.waitForFunction(() => window.__closed === true);
-    assert.deepEqual(resultOf(missing.backend), { run_id: RUN_ID, error: 'MCP servers of the profile are not available: ghost' });
-  });
-
   test('Browser UI - el modo ejecución exporta la conversación en HTML como se ve en el chat, devuelve el error de generación y deja la página abierta con keep_page', async () => {
     const { page, backend } = await openRun(browser, server, 'Hola', { exportFormat: 'html', keepPage: true });
     await page.evaluate(() => {

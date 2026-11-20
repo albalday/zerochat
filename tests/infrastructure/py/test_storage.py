@@ -35,7 +35,7 @@ class StorageEngineTest(unittest.TestCase):
         """)
         # Una clave guardada en claro antes de la migración 7.
         conn.execute("INSERT INTO profiles (id, name, settings_json, api_key, created_at, updated_at) "
-                     "VALUES ('profile:viejo', 'Viejo', '{}', 'sk-en-claro', 1, 1);")
+                     "VALUES ('profile:viejo', 'Viejo', '{\"model\":\"gpt-4\",\"mcpServers\":[\"memory\"],\"playwrightBrowser\":{\"mode\":\"own\",\"engine\":\"chromium\"}}', 'sk-en-claro', 1, 1);")
         conn.execute("INSERT INTO schema_migrations VALUES (2, 2000, '002_create_conversations_tables');")
         conn.execute("""
             CREATE TABLE conversations (
@@ -61,7 +61,7 @@ class StorageEngineTest(unittest.TestCase):
         conn.commit()
         conn.close()
 
-        # Al abrir con zerochat.open_storage, se deben aplicar las migraciones 4 a 8 sin errores y fijar permisos 0700/0600
+        # Al abrir con zerochat.open_storage, se deben aplicar las migraciones 4 a 9 sin errores y fijar permisos 0700/0600
         with zerochat.open_storage() as conn:
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall()}
             migrations = {row["version"] for row in conn.execute("SELECT version FROM schema_migrations;").fetchall()}
@@ -69,14 +69,17 @@ class StorageEngineTest(unittest.TestCase):
             stored_key = conn.execute("SELECT api_key FROM profiles WHERE id = 'profile:viejo';").fetchone()["api_key"]
         for expected_table in ("schema_migrations", "profiles", "conversations", "messages", "blobs", "conversation_blobs", "security_policies"):
             self.assertIn(expected_table, tables)
-        self.assertEqual(migrations, {1, 2, 3, 4, 5, 6, 7, 8})
+        self.assertEqual(migrations, {1, 2, 3, 4, 5, 6, 7, 8, 9})
         self.assertIn("extra_json", columns)
         if os.name != "nt":
             self.assertEqual(stat.S_IMODE(self.storage_dir.stat().st_mode), 0o700)
             self.assertEqual(stat.S_IMODE(self.db_path.stat().st_mode), 0o600)
-        # La 7 ofusca la clave que estaba en claro, que sigue sirviendo.
+        # La 7 ofusca la clave que estaba en claro y la 9 retira mcpServers/playwrightBrowser de los perfiles.
         self.assertNotIn("sk-en-claro", stored_key)
-        self.assertEqual(zerochat.get_general_profile_with_key("profile:viejo")["settings"]["apiKey"], "sk-en-claro")
+        migrated_profile = zerochat.get_general_profile_with_key("profile:viejo")
+        self.assertEqual(migrated_profile["settings"]["apiKey"], "sk-en-claro")
+        self.assertNotIn("mcpServers", migrated_profile["settings"])
+        self.assertNotIn("playwrightBrowser", migrated_profile["settings"])
 
         # list_conversations y save_conversation funcionan correctamente tras la migración
         saved = zerochat.save_conversation({

@@ -54,7 +54,7 @@ test('UIProfiles - los ajustes guardados parten del perfil editado y completan l
   const base = { ...ProfileRepository.NEW_PROFILE_SETTINGS, apiUrl: 'http://gpu.lan:1234/v1', contextLimitOverride: 32768, webllmConfig: { context_window_size: '8192' } };
   const form = {
     apiType: 'openai', apiUrl: '  ', apiKey: ' sk-nueva ', apiKeyLocked: true, model: ' gemma ', systemPrompt: ' Sé breve. ',
-    temperature: '', webllmContextWindow: '', webllmPrefillChunk: '', mcpServers: ['memory'], playwrightBrowser: { mode: 'own', engine: 'chromium' }
+    temperature: '', webllmContextWindow: '', webllmPrefillChunk: ''
   };
   const settings = UIProfiles.buildProfileSettings(base, form);
   assert.deepEqual(settings, {
@@ -65,29 +65,10 @@ test('UIProfiles - los ajustes guardados parten del perfil editado y completan l
     model: 'gemma',
     systemPrompt: 'Sé breve.',
     temperature: '0.7',
-    webllmConfig: { context_window_size: '8192', prefill_chunk_size: 'default' },
-    mcpServers: ['memory'],
-    playwrightBrowser: { mode: 'own', engine: 'chromium' }
+    webllmConfig: { context_window_size: '8192', prefill_chunk_size: 'default' }
   });
   // Sin URL guardada se usa la del proveedor elegido, y el formulario manda sobre lo guardado.
   const ollama = UIProfiles.buildProfileSettings({ ...base, apiUrl: '' }, { ...form, apiType: 'ollama', temperature: '1.2', webllmPrefillChunk: '1024' });
   assert.deepEqual({ apiType: ollama.apiType, apiUrl: ollama.apiUrl, temperature: ollama.temperature, prefill: ollama.webllmConfig.prefill_chunk_size },
     { apiType: 'ollama', apiUrl: 'http://localhost:11434', temperature: '1.2', prefill: '1024' });
-});
-
-test('UIProfiles - reportProfileServers solo avisa cuando algún servicio requerido no está disponible', async t => {
-  const previous = globalThis.ChatDialogs;
-  const alerts = [];
-  globalThis.ChatDialogs = { alert: async (message, options) => { alerts.push({ message, options }); } };
-  t.after(() => { globalThis.ChatDialogs = previous; });
-
-  await UIProfiles.reportProfileServers({ started: ['Brave Search', 'Playwright'], unavailable: [], browser: 'Playwright' });
-  assert.equal(alerts.length, 0);
-
-  await UIProfiles.reportProfileServers({ started: ['Memoria'], unavailable: ['Brave Search', 'Playwright'], browser: 'Playwright' });
-  assert.equal(alerts.length, 1);
-  assert.equal(alerts[0].options.type, 'warning');
-  assert.match(alerts[0].message, /Brave Search/);
-  assert.match(alerts[0].message, /Playwright/);
-  assert.doesNotMatch(alerts[0].message, /Memoria/);
 });

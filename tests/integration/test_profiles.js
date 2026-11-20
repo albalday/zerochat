@@ -78,31 +78,6 @@ test('ProfileRepository - no guarda ni importa API keys en texto plano y no rein
   assert.match(Storage.getStorageItem(Profiles.STORAGE_KEY), /sk-plain/);
 });
 
-test('ProfileRepository - los servicios MCP del perfil son identificadores únicos y acotados', () => {
-  const ids = count => Array.from({ length: count }, (_, index) => `server-${index}`);
-  const save = mcpServers => Profiles.save({ id: 'mcp', name: 'MCP', settings: { mcpServers } });
-  assert.deepEqual(save([' memory ', 'memory', 'github']).settings.mcpServers, ['memory', 'github']);
-  assert.equal(save(ids(Profiles.MAX_PROFILE_MCP_SERVERS)).settings.mcpServers.length, Profiles.MAX_PROFILE_MCP_SERVERS);
-  assert.throws(() => save(ids(Profiles.MAX_PROFILE_MCP_SERVERS + 1)), /more than 64 MCP servers/);
-  assert.equal(save(['x'.repeat(128)]).settings.mcpServers[0].length, 128);
-  for (const invalid of ['memory', [''], [42], ['x'.repeat(129)]]) {
-    assert.throws(() => save(invalid), /MCP server/, JSON.stringify(invalid));
-  }
-});
-
-test('ProfileRepository - el navegador que exige el perfil es el propio con un motor, y quizá su ventana, o el del usuario con un navegador', () => {
-  const save = playwrightBrowser => Profiles.save({ id: 'browser', name: 'Navegador', settings: { playwrightBrowser } }).settings.playwrightBrowser;
-  assert.equal(save(null), null);
-  assert.deepEqual(save({ mode: 'own', engine: 'webkit' }), { mode: 'own', engine: 'webkit' });
-  assert.deepEqual(save({ mode: 'own', engine: 'webkit', headless: false, storage: 'trabajo_1' }), { mode: 'own', engine: 'webkit', headless: false, storage: 'trabajo_1' });
-  assert.deepEqual(save({ userBrowser: 'msedge', mode: 'user' }), { userBrowser: 'msedge', mode: 'user' });
-  for (const invalid of ['playwright', [], {}, { mode: 'own' }, { mode: 'own', engine: 'opera' }, { mode: 'user', userBrowser: 'firefox' },
-    { mode: 'user', engine: 'chromium' }, { mode: 'own', engine: 'chromium', headless: true }, { mode: 'own', engine: 'chromium', storage: 'mal nombre' },
-    { mode: 'user', userBrowser: 'chrome', storage: 'trabajo' }, { mode: 'user', userBrowser: 'chrome', headless: false }]) {
-    assert.throws(() => save(invalid), /browser the profile requires/, JSON.stringify(invalid));
-  }
-});
-
 // --- Cifrado y copia de seguridad de perfiles ---
 
 test('ProfileBackup - cifra perfiles y API keys, valida estructura, detecta manipulación y deriva contraseña', async () => {

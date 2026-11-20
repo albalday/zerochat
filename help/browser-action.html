@@ -30,7 +30,7 @@
 
     <div class="card" id="navegador-propio">
       <h2>Navegador propio de ZeroChat</h2>
-      <p>Playwright MCP abre un navegador aparte en memoria (<code>--isolated</code>), separado del tuyo: conserva las cookies y sesiones mientras dura la sesión, no guarda nada en disco al cerrar y admite varias ejecuciones simultáneas de <code>zerochat</code>. Si un perfil indica un nombre de almacenamiento persistente en su capítulo <a href="profiles.html">Navegador</a>, sus cookies y sesiones se guardan entre usos en <code>~/zerochat/playwright/profile/&lt;motor&gt;/&lt;almacenamiento&gt;</code>.</p>
+      <p>Playwright MCP abre un navegador aparte en memoria (<code>--isolated</code>), separado del tuyo: conserva las cookies y sesiones mientras dura la sesión, no guarda nada en disco al cerrar y admite varias ejecuciones simultáneas de <code>zerochat</code>.</p>
       <ul>
         <li><strong>Motores:</strong> Chromium, Firefox o WebKit, descargados en la caché de Playwright, nunca en el sistema. Chromium se instala con el servicio; <strong>Instalar</strong> descarga los demás y muestra el progreso, y <strong>Quitar</strong> los borra de la caché. Solo se elige un motor instalado; si quitas el elegido, se pasa a otro instalado. WebKit y Firefox pueden necesitar bibliotecas del sistema en Linux.</li>
         <li><strong>Datos del navegador:</strong> <strong>Limpiar</strong> borra todos los almacenamientos persistentes guardados del motor elegido en <code>~/zerochat/playwright/profile/&lt;motor&gt;</code>. Tendrás que volver a iniciar sesión en esos sitios.</li>
@@ -54,7 +54,6 @@
     <div class="card">
       <h2>Al guardar</h2>
       <p>Con <strong>Guardar</strong>, la herramienta elegida pasa a ofrecerse al modelo, y las opciones de Playwright se guardan en <code>~/zerochat/config/browser.json</code> y se usan en el siguiente arranque de Playwright MCP; si está en marcha, ZeroChat pregunta si lo reinicia ahora. Sin el servidor local, la sección solo permite elegir la herramienta.</p>
-      <p>Un perfil puede necesitar Playwright MCP con un navegador, y con el propio su ventana visible, en su capítulo <a href="profiles.html">Navegador</a>. Mientras ese perfil está activo, Playwright MCP es la herramienta de navegación y arranca con ese navegador, sin cambiar lo guardado aquí; la sección lo avisa.</p>
     </div>
 
     <div class="alert alert-warning">

@@ -181,12 +181,6 @@
     profileSummaryConnection: 'profile-summary-connection',
     profileSummaryWebllm: 'profile-summary-webllm',
     profileSummaryBehavior: 'profile-summary-behavior',
-    profileSummaryMcp: 'profile-summary-mcp',
-    profileSummaryBrowser: 'profile-summary-browser',
-    profileBrowser: 'profile-browser',
-    profileSummaryMcpWarning: 'profile-summary-mcp-warning',
-    profileMcpServers: 'profile-mcp-servers',
-    profileMcpDisconnected: 'profile-mcp-disconnected',
     webllmLocalHint: 'webllm-local-hint',
     webllmHelpLink: 'webllm-help-link',
     apiKeyHintText: 'api-key-hint-text',
@@ -901,7 +895,6 @@
       loginPassword: elements.loginPassword, loginError: elements.loginError,
       loginCancel: elements.loginCancel, loginSubmit: elements.loginSubmit
     }, { connect: backendSession.connectConfigured, login: backendSession.login });
-    UIBrowser.mountProfileBrowser(elements.profileBrowser);
     UIMcp.initMcpUI({
       statusBadge: elements.mcpStatusBadge, statusText: elements.mcpStatusText,
       serverDetails: elements.mcpServerDetails, commandSnippet: elements.mcpTerminalCommand,
@@ -952,7 +945,6 @@
         if (reloading) return;
         const connection = await startupMcpConnection;
         if (!connection.success) return;
-        await UIProfiles.startActiveProfileServers();
         await UIMcp.restoreEnabledExternalServices(State.get('mcp').externalServers);
       }).catch(error => console.warn('[App] Could not check MCP services on startup:', error));
     }

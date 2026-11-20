@@ -332,10 +332,7 @@
 
     const activateSessionProfile = async profileId => {
       Config.activateProfile(profileId, { sessionOnly: true });
-      const activeConfig = Config.getActive();
-      const { started = [], unavailable = [] } = await MCP.manager.startProfileServers(activeConfig);
       await MCP.manager.startEnabledServers();
-      return { started, unavailable };
     };
 
     const sessionManager = HeadlessAdapters.createHeadlessSessionManager(conversationStore);

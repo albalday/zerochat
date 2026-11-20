@@ -86,8 +86,8 @@
     return null;
   }
 
-  /** Herramienta de navegación activa: Playwright MCP si el perfil lo exige; si no, la de Ajustes › Navegador. */
-  const activeBrowserTool = appConfig => (appConfig.playwrightBrowser ? 'playwright' : appConfig.browser);
+  /** Herramienta de navegación activa según la configuración de ejecución. */
+  const activeBrowserTool = appConfig => appConfig.browser;
 
   function withoutReasoningReplay(message) {
     if (!message.reasoningReplay) return message;

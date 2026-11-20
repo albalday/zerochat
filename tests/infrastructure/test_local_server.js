@@ -293,9 +293,6 @@ describe('Servidor local zerochat.py', () => {
     });
 
     const start = params => rpc('zerochat/external/servers/start', { serverId: 'ejemplo', ...params });
-    // Solo Playwright MCP admite el navegador que exige un perfil.
-    assert.deepEqual((await start({ remember: false, browser: { mode: 'own', engine: 'chromium' } })).error,
-      { code: -32602, message: 'ejemplo no admite elegir navegador.' });
     // Arrancar sin decir si se recuerda es un error del cliente.
     assert.deepEqual((await start({})).error, { code: -32602, message: 'remember es obligatorio al arrancar y debe ser un booleano.' });
 
@@ -303,7 +300,6 @@ describe('Servidor local zerochat.py', () => {
     const runningExample = (started?.servers || []).find(server => server.id === 'ejemplo');
     assert.equal(runningExample?.status, 'running');
     assert.equal(runningExample?.toolCount, 1);
-    assert.equal(runningExample?.browser, null);
 
     const extToolNames = (started?.externalTools || []).map(tool => tool.name);
     assert.ok(extToolNames.includes('ejemplo_echo'));

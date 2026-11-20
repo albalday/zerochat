@@ -200,8 +200,7 @@
       if (profile) {
         const match = getProfiles().findByName(profile) || getProfiles().get(profile);
         if (!match) throw new Error(`Profile not found: ${profile}`);
-        const { unavailable } = await activateSessionProfile(match.id);
-        if (unavailable.length > 0) throw new Error(`MCP servers of the profile are not available: ${unavailable.join(', ')}`);
+        await activateSessionProfile(match.id);
         report({ kind: 'profile', text: match.name });
       }
 

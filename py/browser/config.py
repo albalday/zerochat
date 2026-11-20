@@ -1,4 +1,4 @@
-"""Navegador de Playwright MCP: configuración guardada, navegador de cada perfil y argumentos de arranque."""
+"""Navegador de Playwright MCP: configuración guardada y argumentos de arranque."""
 
 from __future__ import annotations
 
@@ -26,7 +26,6 @@ PLAYWRIGHT_SERVER_ID = "playwright"
 PLAYWRIGHT_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm"
 # Token que muestra la extensión: con él la conexión no pide aceptarla en el navegador.
 _EXTENSION_TOKEN = re.compile(r"^[A-Za-z0-9_-]{0,256}$")
-_STORAGE_NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _BROWSER_CONFIG_CHOICES = {"mode": BROWSER_MODES, "engine": OWN_BROWSER_ENGINES, "userBrowser": USER_BROWSERS}
 
 
@@ -106,15 +105,7 @@ def playwright_launch_args(config: dict, user_agent: str | None = None) -> list[
             raise RuntimeError("No se encuentra Chromium en el sistema: elige otro navegador en Ajustes › Navegador.")
         executable, data_dir = install
         return ["--extension", "--browser=chrome", f"--executable-path={executable}", f"--user-data-dir={data_dir}"]
-    args = [f"--browser={config['engine']}"]
-    storage = config.get("storage")
-    if storage:
-        profile_dir = own_browser_profile_dir(config["engine"]) / storage
-        for directory in (profile_dir.parent.parent.parent, profile_dir.parent.parent, profile_dir.parent, profile_dir):
-            directory.mkdir(mode=0o700, exist_ok=True)
-        args.append(f"--user-data-dir={profile_dir}")
-    else:
-        args.append("--isolated")
+    args = [f"--browser={config['engine']}", "--isolated"]
     # El motor propio usa el User-Agent de ZeroChat; en modo user lo pone el navegador del usuario.
     if user_agent:
         args.append(f"--user-agent={user_agent}")
@@ -130,44 +121,10 @@ def playwright_launch_env(config: dict) -> dict[str, str]:
     return {}
 
 
-def validate_profile_browser(raw) -> dict:
-    """Navegador que exige un perfil: el propio con un motor (y opcionalmente headless False y storage
-    con nombre), o el del usuario con uno de sus navegadores."""
-    if isinstance(raw, dict) and raw.get("mode") == "own" and raw.get("engine") in OWN_BROWSER_ENGINES:
-        if set(raw) <= {"mode", "engine", "headless", "storage"}:
-            headless_ok = "headless" not in raw or raw["headless"] is False
-            storage = raw.get("storage")
-            storage_ok = "storage" not in raw or (isinstance(storage, str) and bool(_STORAGE_NAME.match(storage)))
-            if headless_ok and storage_ok:
-                result = {"mode": "own", "engine": raw["engine"]}
-                if "headless" in raw:
-                    result["headless"] = False
-                if "storage" in raw:
-                    result["storage"] = storage
-                return result
-    if isinstance(raw, dict) and raw.get("mode") == "user" and set(raw) == {"mode", "userBrowser"} and raw["userBrowser"] in USER_BROWSERS:
-        return {"mode": "user", "userBrowser": raw["userBrowser"]}
-    raise ValueError("browser debe ser {mode: own, engine[, headless: false][, storage]} o {mode: user, userBrowser} con un motor o navegador admitido")
-
-
-def browser_choice(config: dict) -> dict:
-    """Modo y navegador con los que arranca Playwright MCP, en la forma de validate_profile_browser."""
-    if config["mode"] == "own":
-        return {
-            "mode": "own",
-            "engine": config["engine"],
-            **({} if config["headless"] else {"headless": False}),
-            **({"storage": config["storage"]} if config.get("storage") else {}),
-        }
-    return {"mode": "user", "userBrowser": config["userBrowser"]}
-
-
-def _playwright_launch(browser: dict | None, user_agent: str | None = None) -> tuple[list[str], dict[str, str], dict]:
-    """La configuración de Ajustes › Navegador con el modo y el navegador que exija el perfil activo."""
+def _playwright_launch(user_agent: str | None = None) -> tuple[list[str], dict[str, str]]:
+    """Argumentos y entorno de Playwright MCP según la configuración guardada."""
     config = load_browser_config()
-    if browser is not None:
-        config = {**config, **validate_profile_browser(browser)}
-    return playwright_launch_args(config, user_agent), playwright_launch_env(config), browser_choice(config)
+    return playwright_launch_args(config, user_agent), playwright_launch_env(config)
 
 
 # User-Agent que usan los motores propios de Playwright; lo fija el servidor con el User-Agent
@@ -180,6 +137,6 @@ def set_service_user_agent(user_agent: str | None) -> None:
     SERVICE_USER_AGENT = user_agent
 
 
-# Argumentos, entorno y navegador elegido que añade ZeroChat al arrancar un servicio gestionado,
+# Argumentos y entorno que añade ZeroChat al arrancar un servicio gestionado,
 # calculados en cada arranque.
-SERVICE_LAUNCH = {PLAYWRIGHT_SERVER_ID: lambda browser: _playwright_launch(browser, SERVICE_USER_AGENT)}
+SERVICE_LAUNCH = {PLAYWRIGHT_SERVER_ID: lambda: _playwright_launch(SERVICE_USER_AGENT)}

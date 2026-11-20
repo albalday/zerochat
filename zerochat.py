@@ -623,7 +623,7 @@ def login(params: dict) -> dict:
     return {"token": issue_login_token()}
 
 # --- browser.config ---
-"""Navegador de Playwright MCP: configuración guardada, navegador de cada perfil y argumentos de arranque."""
+"""Navegador de Playwright MCP: configuración guardada y argumentos de arranque."""
 
 
 
@@ -642,7 +642,6 @@ PLAYWRIGHT_SERVER_ID = "playwright"
 PLAYWRIGHT_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm"
 # Token que muestra la extensión: con él la conexión no pide aceptarla en el navegador.
 _EXTENSION_TOKEN = re.compile(r"^[A-Za-z0-9_-]{0,256}$")
-_STORAGE_NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _BROWSER_CONFIG_CHOICES = {"mode": BROWSER_MODES, "engine": OWN_BROWSER_ENGINES, "userBrowser": USER_BROWSERS}
 
 
@@ -722,15 +721,7 @@ def playwright_launch_args(config: dict, user_agent: str | None = None) -> list[
             raise RuntimeError("No se encuentra Chromium en el sistema: elige otro navegador en Ajustes › Navegador.")
         executable, data_dir = install
         return ["--extension", "--browser=chrome", f"--executable-path={executable}", f"--user-data-dir={data_dir}"]
-    args = [f"--browser={config['engine']}"]
-    storage = config.get("storage")
-    if storage:
-        profile_dir = own_browser_profile_dir(config["engine"]) / storage
-        for directory in (profile_dir.parent.parent.parent, profile_dir.parent.parent, profile_dir.parent, profile_dir):
-            directory.mkdir(mode=0o700, exist_ok=True)
-        args.append(f"--user-data-dir={profile_dir}")
-    else:
-        args.append("--isolated")
+    args = [f"--browser={config['engine']}", "--isolated"]
     # El motor propio usa el User-Agent de ZeroChat; en modo user lo pone el navegador del usuario.
     if user_agent:
         args.append(f"--user-agent={user_agent}")
@@ -746,44 +737,10 @@ def playwright_launch_env(config: dict) -> dict[str, str]:
     return {}
 
 
-def validate_profile_browser(raw) -> dict:
-    """Navegador que exige un perfil: el propio con un motor (y opcionalmente headless False y storage
-    con nombre), o el del usuario con uno de sus navegadores."""
-    if isinstance(raw, dict) and raw.get("mode") == "own" and raw.get("engine") in OWN_BROWSER_ENGINES:
-        if set(raw) <= {"mode", "engine", "headless", "storage"}:
-            headless_ok = "headless" not in raw or raw["headless"] is False
-            storage = raw.get("storage")
-            storage_ok = "storage" not in raw or (isinstance(storage, str) and bool(_STORAGE_NAME.match(storage)))
-            if headless_ok and storage_ok:
-                result = {"mode": "own", "engine": raw["engine"]}
-                if "headless" in raw:
-                    result["headless"] = False
-                if "storage" in raw:
-                    result["storage"] = storage
-                return result
-    if isinstance(raw, dict) and raw.get("mode") == "user" and set(raw) == {"mode", "userBrowser"} and raw["userBrowser"] in USER_BROWSERS:
-        return {"mode": "user", "userBrowser": raw["userBrowser"]}
-    raise ValueError("browser debe ser {mode: own, engine[, headless: false][, storage]} o {mode: user, userBrowser} con un motor o navegador admitido")
-
-
-def browser_choice(config: dict) -> dict:
-    """Modo y navegador con los que arranca Playwright MCP, en la forma de validate_profile_browser."""
-    if config["mode"] == "own":
-        return {
-            "mode": "own",
-            "engine": config["engine"],
-            **({} if config["headless"] else {"headless": False}),
-            **({"storage": config["storage"]} if config.get("storage") else {}),
-        }
-    return {"mode": "user", "userBrowser": config["userBrowser"]}
-
-
-def _playwright_launch(browser: dict | None, user_agent: str | None = None) -> tuple[list[str], dict[str, str], dict]:
-    """La configuración de Ajustes › Navegador con el modo y el navegador que exija el perfil activo."""
+def _playwright_launch(user_agent: str | None = None) -> tuple[list[str], dict[str, str]]:
+    """Argumentos y entorno de Playwright MCP según la configuración guardada."""
     config = load_browser_config()
-    if browser is not None:
-        config = {**config, **validate_profile_browser(browser)}
-    return playwright_launch_args(config, user_agent), playwright_launch_env(config), browser_choice(config)
+    return playwright_launch_args(config, user_agent), playwright_launch_env(config)
 
 
 # User-Agent que usan los motores propios de Playwright; lo fija el servidor con el User-Agent
@@ -796,9 +753,9 @@ def set_service_user_agent(user_agent: str | None) -> None:
     SERVICE_USER_AGENT = user_agent
 
 
-# Argumentos, entorno y navegador elegido que añade ZeroChat al arrancar un servicio gestionado,
+# Argumentos y entorno que añade ZeroChat al arrancar un servicio gestionado,
 # calculados en cada arranque.
-SERVICE_LAUNCH = {PLAYWRIGHT_SERVER_ID: lambda browser: _playwright_launch(browser, SERVICE_USER_AGENT)}
+SERVICE_LAUNCH = {PLAYWRIGHT_SERVER_ID: lambda: _playwright_launch(SERVICE_USER_AGENT)}
 
 # --- browser.engines ---
 """Motores propios de Playwright (listar, instalar y quitar) y navegadores del sistema con la extensión de Playwright."""
@@ -2817,6 +2774,24 @@ def _obfuscate_saved_api_keys(conn: sqlite3.Connection):
             conn.execute("UPDATE profiles SET api_key = ? WHERE id = ?;", (obfuscate_secret(row["api_key"]), row["id"]))
 
 
+def _strip_profile_mcp_and_browser(conn: sqlite3.Connection):
+    """Retira `mcpServers` y `playwrightBrowser` de todos los perfiles: el entorno de ejecución pasa a definirse por proyecto."""
+    rows = conn.execute("SELECT id, settings_json FROM profiles;").fetchall()
+    for row in rows:
+        try:
+            settings = json.loads(row["settings_json"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(settings, dict):
+            continue
+        removed = any(key in settings for key in ("mcpServers", "playwrightBrowser"))
+        if not removed:
+            continue
+        settings.pop("mcpServers", None)
+        settings.pop("playwrightBrowser", None)
+        conn.execute("UPDATE profiles SET settings_json = ? WHERE id = ?;", (json.dumps(settings), row["id"]))
+
+
 # Cada migración es SQL o, si necesita código (ofuscar), una función que recibe la conexión.
 STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connection], None]]] = [
     (1, "001_create_profiles_table", """
@@ -2898,7 +2873,8 @@ STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connecti
             value TEXT NOT NULL,
             updated_at INTEGER NOT NULL
         );
-    """)
+    """),
+    (9, "009_strip_profile_mcp_and_browser", _strip_profile_mcp_and_browser)
 ]
 # Tope de un secreto guardado (una API key cabe de sobra).
 MAX_SECRET_LENGTH = 4096
@@ -3015,6 +2991,8 @@ def validate_profile_payload(record: dict) -> tuple[str, str, str, dict, str | N
         raise ValueError("Los ajustes del perfil deben ser un objeto")
 
     settings = dict(settings_source)
+    settings.pop("mcpServers", None)
+    settings.pop("playwrightBrowser", None)
     has_api_key = "apiKey" in settings or "apiKey" in record
     raw_key = settings.pop("apiKey", None)
     if raw_key is None:
@@ -3806,12 +3784,10 @@ def public_tool_name(server_id: str, original: str) -> str:
 
 @dataclasses.dataclass
 class McpServiceRecord:
-    """Estado de un servicio MCP en este proceso: fase del ciclo de vida, cliente, último error y
-    modo y navegador con los que arrancó (solo los servicios de SERVICE_LAUNCH)."""
+    """Estado de un servicio MCP en este proceso: fase del ciclo de vida, cliente y último error."""
     phase: str = "stopped"  # stopped, installing, starting, running o error
     client: StdioMcpClient | None = None
     error: str | None = None
-    browser: dict | None = None
 
 
 # Nombre de la variable de entorno de un secreto que declara un servicio en su service.json ("secrets").
@@ -3984,7 +3960,6 @@ class McpServiceManager:
                 "options": server.get("options", []),
                 "userOptions": pref.get("options", {}),
                 "oauthUrl": client.oauth_url if client else None,
-                "browser": record.browser if running else None,
                 # Solo si cada secreto está guardado: su valor nunca sale del backend.
                 "secrets": [{**secret, "configured": service_secret_key(server_id, secret["name"]) in saved_secrets}
                             for secret in service_secrets(server)],
@@ -4076,15 +4051,14 @@ class McpServiceManager:
         if int(version_match.group(1)) < required_node_major:
             raise RuntimeError(f"{server_id} requiere Node.js {required_node_major}+; se detectó {detected}")
 
-    def start(self, server_id: str, remember: bool, browser: dict | None = None) -> list[dict]:
-        """Arranca un servicio; con remember lo guarda como activo para ofrecerlo en la siguiente sesión.
-        `browser` es el navegador que exige el perfil activo, solo para Playwright MCP."""
+    def start(self, server_id: str, remember: bool) -> list[dict]:
+        """Arranca un servicio; con remember lo guarda como activo para ofrecerlo en la siguiente sesión."""
         with self._lock:
             self.services = self._load_services()
-            self._start_locked(server_id, remember, browser)
+            self._start_locked(server_id, remember)
             return self.list_servers()
 
-    def _start_locked(self, server_id: str, remember: bool, browser: dict | None):
+    def _start_locked(self, server_id: str, remember: bool):
         server = self.services.get(server_id)
         if not server:
             raise KeyError(f"Servidor MCP desconocido: {server_id}")
@@ -4116,9 +4090,8 @@ class McpServiceManager:
             env = os.environ.copy()
             for k, v in launch.get("env", {}).items():
                 env[k] = self._expand(v, env_values)
-            record.browser = None
             if server_id in SERVICE_LAUNCH:
-                extra_args, extra_env, record.browser = SERVICE_LAUNCH[server_id](browser)
+                extra_args, extra_env = SERVICE_LAUNCH[server_id]()
                 args += extra_args
                 env.update(extra_env)
 
@@ -4310,10 +4283,10 @@ class McpServiceManager:
                 record = self.records.get(server_id)
                 if not (record and record.client and record.client.running()):
                     continue
-                # Se reinicia con el navegador con el que arrancó y sin cambiar si se recuerda.
+                # Se reinicia sin cambiar si se recuerda.
                 self._trace(server_id, "restarting with the updated version")
                 record.client.stop()
-                self._start_locked(server_id, False, record.browser)
+                self._start_locked(server_id, False)
 
     def close(self):
         self._catalog_stop.set()
@@ -4349,7 +4322,6 @@ def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
     server_id = params.get("serverId")
     opts = params.get("options", {})
     remember = params.get("remember")
-    browser = params.get("browser")
     starting = method == "zerochat/external/servers/start"
     if not isinstance(server_id, str) or not server_id:
         return rpc_error(INVALID_PARAMS, "serverId debe ser un texto no vacío.")
@@ -4358,18 +4330,11 @@ def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
     # Al arrancar, el cliente decide siempre si el servicio se recuerda para la siguiente sesión.
     if starting and not isinstance(remember, bool):
         return rpc_error(INVALID_PARAMS, "remember es obligatorio al arrancar y debe ser un booleano.")
-    if starting and browser is not None:
-        if server_id not in SERVICE_LAUNCH:
-            return rpc_error(INVALID_PARAMS, f"{server_id} no admite elegir navegador.")
-        try:
-            browser = validate_profile_browser(browser)
-        except ValueError as exc:
-            return rpc_error(INVALID_PARAMS, str(exc))
     if method == "zerochat/external/servers/secret":
         return _set_secret(server_id, params)
     try:
         if starting:
-            servers = GLOBAL_MCP_MANAGER.start(server_id, remember, browser)
+            servers = GLOBAL_MCP_MANAGER.start(server_id, remember)
         elif method == "zerochat/external/servers/stop":
             servers = GLOBAL_MCP_MANAGER.stop(server_id)
         else:

@@ -13,7 +13,6 @@
 
   const { resolveDep } = Utils;
 
-  const PLAYWRIGHT_SERVER_ID = 'playwright';
   const EXTERNAL_START_POLL_ATTEMPTS = 10;
   const EXTERNAL_START_POLL_INTERVAL_MS = 15000;
   // Cubre los límites del backend (npm install y descarga del navegador, 600 s cada uno)
@@ -22,7 +21,6 @@
 
   const getAgentCore = () => resolveDep('ChatAgentCore', './agent-core.js');
   const getState = () => resolveDep('ChatState', './state.js');
-  const getConfig = () => resolveDep('ChatConfig', './config-store.js');
 
   /** Cambia en ChatState los campos de un servicio externo; su tarjeta en Ajustes › MCP los pinta. */
   function updateExternalServerState(serverId, changes) {
@@ -30,14 +28,6 @@
       ...current,
       externalServers: current.externalServers.map(server => (server.id === serverId ? { ...server, ...changes } : server))
     }));
-  }
-
-  /** El Playwright MCP en marcha usa otro navegador o almacenamiento del que exige el perfil, o no muestra la ventana que pide. */
-  function usesOtherBrowser(server, required) {
-    return server.id === PLAYWRIGHT_SERVER_ID && Boolean(required) && McpStatus.isRunning(server.status)
-      && (server.browser?.mode !== required.mode || server.browser.engine !== required.engine || server.browser.userBrowser !== required.userBrowser
-        || (server.browser.storage || '') !== (required.storage || '')
-        || (required.headless === false && server.browser.headless !== false));
   }
 
   /** Vuelve a registrar las herramientas de los servicios externos, o las retira si no hay ninguno en marcha. */
@@ -66,10 +56,10 @@
    * Arranca un servicio externo; con `remember` el servidor local lo guarda como activo y lo
    * ofrece de nuevo en la siguiente sesión.
    */
-  async function startExternalServer(manager, serverId, onWait, { remember, browser = null }) {
+  async function startExternalServer(manager, serverId, onWait, { remember }) {
     let result = null;
     try {
-      result = await manager.requestExternalControl('zerochat/external/servers/start', { serverId, remember, ...(browser ? { browser } : {}) });
+      result = await manager.requestExternalControl('zerochat/external/servers/start', { serverId, remember });
     } catch (error) {
       // El timeout inicial no implica fallo: el backend puede estar aún
       // iniciando el servicio (p. ej. esperando la autorización OAuth).
@@ -138,9 +128,8 @@
   }
 
   /**
-   * Inicia o detiene un servicio externo y refleja el progreso en ChatState. Playwright MCP arranca
-   * con el navegador que exija el perfil activo, y la autorización OAuth que pida el arranque se abre
-   * una vez en otra pestaña. Devuelve true si la acción terminó correctamente.
+   * Inicia o detiene un servicio externo y refleja el progreso en ChatState. La autorización OAuth que
+   * pida el arranque se abre una vez en otra pestaña. Devuelve true si la acción terminó correctamente.
    */
   async function runExternalServerAction(manager, serverId, action, { remember = true } = {}) {
     updateExternalServerState(serverId, { status: action === 'start' ? 'starting' : 'stopped', error: null, startWait: null, oauthUrl: null });
@@ -154,8 +143,7 @@
       updateExternalServerState(serverId, { status, ...(oauthUrl ? { oauthUrl } : {}), error: null, startWait: { attempt, total } });
     };
     try {
-      const browser = serverId === PLAYWRIGHT_SERVER_ID ? getConfig().getActive().playwrightBrowser : null;
-      if (action === 'start') await manager.startExternalServer(serverId, reportStartWait, { remember, ...(browser ? { browser } : {}) });
+      if (action === 'start') await manager.startExternalServer(serverId, reportStartWait, { remember });
       else await manager.stopExternalServer(serverId);
       return true;
     } catch (error) {
@@ -192,35 +180,6 @@
   }
 
   /**
-   * Arranca los servicios externos de un perfil (los suyos y Playwright MCP si es la herramienta de
-   * navegación activa) que no estén ya en marcha, sin parar los demás ni guardarlos como activos para
-   * la siguiente sesión. Si el perfil exige otro navegador del que usa Playwright MCP, o su ventana
-   * visible, lo reinicia. Devuelve { started, unavailable }: los ids de los que ha arrancado y de los
-   * que no están configurados en el servidor local o no han arrancado. Sin conexión no arranca nada.
-   */
-  async function startProfileServers(manager, appConfig) {
-    const State = getState();
-    const started = [];
-    const unavailable = [];
-    if (State.get('mcp').status !== 'connected') return { started, unavailable };
-    const ids = getAgentCore().activeBrowserTool(appConfig) === 'playwright' ? [...appConfig.mcpServers, PLAYWRIGHT_SERVER_ID] : appConfig.mcpServers;
-    for (const id of ids) {
-      const server = State.get('mcp').externalServers.find(item => item.id === id);
-      if (!server) {
-        unavailable.push(id);
-        continue;
-      }
-      if (usesOtherBrowser(server, appConfig.playwrightBrowser)) {
-        (await manager.withExternalServerStopped(id) ? started : unavailable).push(id);
-        continue;
-      }
-      if (McpStatus.isActive(server.status)) continue;
-      (await manager.runExternalServerAction(id, 'start', { remember: false }) ? started : unavailable).push(id);
-    }
-    return { started, unavailable };
-  }
-
-  /**
    * Arranca en silencio los servicios externos recordados como activos (`enabled: true`) que siguen
    * detenidos, sin alterar su preferencia ni preguntar. Devuelve `{ started, failed }` con sus ids.
    */
@@ -249,7 +208,6 @@
     setExternalServerSecret,
     runExternalServerAction,
     withExternalServerStopped,
-    startProfileServers,
     startEnabledServers
   };
 });

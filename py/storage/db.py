@@ -46,6 +46,24 @@ def _obfuscate_saved_api_keys(conn: sqlite3.Connection):
             conn.execute("UPDATE profiles SET api_key = ? WHERE id = ?;", (obfuscate_secret(row["api_key"]), row["id"]))
 
 
+def _strip_profile_mcp_and_browser(conn: sqlite3.Connection):
+    """Retira `mcpServers` y `playwrightBrowser` de todos los perfiles: el entorno de ejecución pasa a definirse por proyecto."""
+    rows = conn.execute("SELECT id, settings_json FROM profiles;").fetchall()
+    for row in rows:
+        try:
+            settings = json.loads(row["settings_json"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(settings, dict):
+            continue
+        removed = any(key in settings for key in ("mcpServers", "playwrightBrowser"))
+        if not removed:
+            continue
+        settings.pop("mcpServers", None)
+        settings.pop("playwrightBrowser", None)
+        conn.execute("UPDATE profiles SET settings_json = ? WHERE id = ?;", (json.dumps(settings), row["id"]))
+
+
 # Cada migración es SQL o, si necesita código (ofuscar), una función que recibe la conexión.
 STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connection], None]]] = [
     (1, "001_create_profiles_table", """
@@ -127,7 +145,8 @@ STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connecti
             value TEXT NOT NULL,
             updated_at INTEGER NOT NULL
         );
-    """)
+    """),
+    (9, "009_strip_profile_mcp_and_browser", _strip_profile_mcp_and_browser)
 ]
 # Tope de un secreto guardado (una API key cabe de sobra).
 MAX_SECRET_LENGTH = 4096
@@ -244,6 +263,8 @@ def validate_profile_payload(record: dict) -> tuple[str, str, str, dict, str | N
         raise ValueError("Los ajustes del perfil deben ser un objeto")
 
     settings = dict(settings_source)
+    settings.pop("mcpServers", None)
+    settings.pop("playwrightBrowser", None)
     has_api_key = "apiKey" in settings or "apiKey" in record
     raw_key = settings.pop("apiKey", None)
     if raw_key is None:

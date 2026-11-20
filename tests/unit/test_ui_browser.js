@@ -40,12 +40,6 @@ test('UIBrowser - motores, navegadores del usuario y tokens de la extensión coi
   for (const extensionToken of CONTRACT.extensionTokens.invalid) {
     assert.deepEqual(plan({ config: { ...SAVED, extensionToken } }, 'running'), { ...NOTHING, tokenInvalid: true }, extensionToken);
   }
-  for (const storage of CONTRACT.storageNames.valid) {
-    assert.equal(Defaults.isPlaywrightBrowser({ mode: 'own', engine: 'chromium', storage }), true, storage);
-  }
-  for (const storage of CONTRACT.storageNames.invalid) {
-    assert.equal(Defaults.isPlaywrightBrowser({ mode: 'own', engine: 'chromium', storage }), false, storage);
-  }
 });
 
 test('UIBrowser - el token admite pegar la línea de entorno que muestra la extensión, con o sin comillas', () => {

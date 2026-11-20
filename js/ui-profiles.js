@@ -22,10 +22,7 @@
   const getProviders = () => resolveDep('ChatProviders', './providers.js');
   const getWebLLM = () => resolveDep('ChatWebLLM', './providers-webllm.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
-  const getUIBrowser = () => resolveDep('ChatUIBrowser', './ui-browser.js');
   const getMCP = () => resolveDep('ChatMCP', './mcp.js');
-  const getUIMcp = () => resolveDep('ChatUIMcp', './ui-mcp.js');
-  const getState = () => resolveDep('ChatState', './state.js');
 
   const FREE_TIER_HELP = { openrouter: 'help/openrouter-free.html', gemini: 'help/gemini-free.html' };
 
@@ -104,9 +101,7 @@
         prefill_chunk_size: selectOr(form.webllmPrefillChunk, base.webllmConfig?.prefill_chunk_size)
       },
       apiKey: form.apiKey.trim(),
-      apiKeyLocked: form.apiKeyLocked,
-      mcpServers: form.mcpServers,
-      playwrightBrowser: form.playwrightBrowser
+      apiKeyLocked: form.apiKeyLocked
     };
   }
 
@@ -173,9 +168,6 @@
     };
     selectValue(els.settingWebllmContextWindow, webllmConfig.context_window_size, String(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE));
     selectValue(els.settingWebllmPrefillChunk, webllmConfig.prefill_chunk_size, 'default');
-    renderProfileMcpServers(profileData.mcpServers || []);
-    const browserOpen = Boolean(els.profilesDialog.open && els.profilesDialog.querySelector('#profile-chapter-browser')?.open);
-    getUIBrowser().loadProfileBrowser(profileData.playwrightBrowser ?? null, { fetch: browserOpen });
     syncProviderFields();
     syncApiKeyLock();
   }
@@ -195,7 +187,6 @@
         || (control === els.settingTemperature && !providerSupportsTemperature());
     });
     els.settingApiKeyLocked.disabled = disabled;
-    getUIBrowser().setProfileBrowserDisabled(disabled);
   }
 
   /** Ajusta el editor al proveedor elegido: endpoint, credenciales, temperatura y campos de WebLLM. */
@@ -254,63 +245,12 @@
     syncProfileSaveState();
   }
 
-  /** Nombres en el idioma de la interfaz de los servicios MCP externos; su id si el servidor local no lo conoce. */
-  function serviceNames(ids) {
-    const servers = getState().get('mcp').externalServers;
-    const language = I18n.getLanguage();
-    return ids.map(id => getUIMcp().getServiceName(servers.find(server => server.id === id) || { id }, language));
-  }
-
-  /**
-   * Arranca los servicios MCP del perfil activo y Playwright MCP si es la herramienta de navegación.
-   * Devuelve { started, unavailable } con sus nombres y, en `browser`, el de Playwright MCP cuando lo
-   * pide Ajustes › Navegador y no el perfil, para no atribuírselo al avisar.
-   */
-  async function startProfileServers() {
-    const config = runtimeConfig();
-    const { started, unavailable } = await getMCP().manager.startProfileServers(config);
-    const bySettings = [...started, ...unavailable].includes('playwright') && !config.playwrightBrowser;
-    return {
-      started: serviceNames(started),
-      unavailable: serviceNames(unavailable),
-      browser: bySettings ? serviceNames(['playwright'])[0] : null
-    };
-  }
-
-  /**
-   * Activa un perfil y arranca sus servicios MCP externos y, si es la herramienta de navegación, Playwright MCP.
-   * Devuelve una promesa con { started, unavailable, browser }, para que cada llamada decida cómo avisar.
-   */
+  /** Activa un perfil de conexión en ChatConfig y actualiza modelo y telemetría. */
   function activateConnectionProfile(profileId, activationOptions) {
     getWebLLM().adapter.disposeActiveEngine().catch(() => {});
     getConfig().activateProfile(profileId, activationOptions);
     options.loadCachedModels();
     options.resetTelemetryDisplay();
-    return startProfileServers();
-  }
-
-  /**
-   * Avisa solo si alguno de los servicios MCP requeridos por el perfil (o Playwright MCP pedido por
-   * Ajustes › Navegador) no ha podido arrancarse o no está disponible; si arrancan bien, no molesta.
-   */
-  async function reportProfileServers({ unavailable = [], browser = null }) {
-    const ofProfile = unavailable.filter(name => name !== browser);
-    const lines = [];
-    if (ofProfile.length > 0) lines.push(t('profile_mcp_unavailable', { names: ofProfile.join(', ') }));
-    if (browser && unavailable.includes(browser)) lines.push(t('browser_mcp_unavailable', { name: browser }));
-    if (lines.length === 0) return;
-    await getDialogs().alert(lines.join('\n\n'), { type: 'warning' });
-  }
-
-  /** Activa un perfil desde la interfaz y avisa de los servicios MCP que ha arrancado o no. */
-  function activateProfileFromUI(profileId) {
-    activateConnectionProfile(profileId).then(reportProfileServers)
-      .catch(error => console.warn('[UIProfiles] Could not start the profile MCP servers:', error));
-  }
-
-  /** Arranca los servicios MCP del perfil activo al conectar con el servidor local. */
-  function startActiveProfileServers() {
-    return startProfileServers().then(reportProfileServers);
   }
 
   /** Menú del perfil activo: cada perfil con inspeccionar, editar y, salvo Espejo, borrar. */
@@ -348,44 +288,7 @@
     const behavior = [t(els.settingSystemPrompt.value.trim() ? 'profile_summary_custom_prompt' : 'profile_summary_no_prompt')];
     if (providerSupportsTemperature()) behavior.push(t('profile_summary_temperature', { val: els.settingTemperature.value }));
     els.profileSummaryBehavior.textContent = behavior.join(' · ');
-    const servers = [...els.profileMcpServers.querySelectorAll('.profile-mcp-checkbox:checked')];
-    els.profileSummaryMcp.textContent = servers.map(checkbox => checkbox.dataset.name).join(', ') || t('profile_summary_none');
-    const missing = servers.filter(checkbox => checkbox.dataset.missing === 'true').length;
-    els.profileSummaryMcpWarning.parentElement.hidden = missing === 0;
-    els.profileSummaryMcpWarning.textContent = t('profile_mcp_missing_count', { count: missing });
-    els.profileSummaryBrowser.textContent = getUIBrowser().profileBrowserSummary();
   }
-
-  /**
-   * Servicios MCP externos que el perfil puede arrancar: los del servidor local y los que el perfil
-   * pide sin estar configurados en él, marcados como no disponibles.
-   */
-  function renderProfileMcpServers(selectedIds) {
-    const mcp = getState().get('mcp');
-    const connected = mcp.status === 'connected';
-    const language = I18n.getLanguage();
-    // Playwright MCP no se elige aquí: es una opción de Ajustes › Navegador.
-    const known = connected ? mcp.externalServers.filter(server => server.id !== 'playwright') : [];
-    const rows = known.map(server => ({
-      id: server.id,
-      name: getUIMcp().getServiceName(server, language),
-      status: t(`mcp_external_status_${server.status || 'stopped'}`),
-      missing: false
-    }));
-    selectedIds.filter(id => id !== 'playwright' && !known.some(server => server.id === id)).forEach(id => rows.push({
-      id, name: id, status: t(connected ? 'profile_mcp_not_configured' : 'profile_mcp_unknown'), missing: connected
-    }));
-    els.profileMcpDisconnected.hidden = connected;
-    els.profileMcpServers.innerHTML = rows.length === 0
-      ? `<p class="label-hint">${escapeHtml(t('profile_mcp_empty'))}</p>`
-      : rows.map(row => `<label class="profile-mcp-server${row.missing ? ' is-missing' : ''}">
-          <input type="checkbox" class="profile-mcp-checkbox" value="${escapeHtml(row.id)}" data-name="${escapeHtml(row.name)}" data-missing="${row.missing}"${selectedIds.includes(row.id) ? ' checked' : ''}>
-          <span class="profile-mcp-name">${escapeHtml(row.name)}</span>
-          <span class="profile-mcp-status">${escapeHtml(row.status)}</span>
-        </label>`).join('');
-  }
-
-  const gatherProfileMcpServers = () => [...els.profileMcpServers.querySelectorAll('.profile-mcp-checkbox:checked')].map(checkbox => checkbox.value);
 
   /** Al abrir el editor solo se despliega la conexión. */
   function resetProfileChapters() {
@@ -395,8 +298,8 @@
   }
 
   /** Capítulo plegable del editor de perfiles; su cabecera resume el contenido aunque esté cerrado. */
-  const profileChapter = (id, summaryId, titleKey, body, warningId = '') => `<details id="${id}" class="profile-chapter">
-          <summary class="profile-chapter-summary"><svg class="ui-icon profile-chapter-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><use href="#icon-chevron-right"></use></svg><span class="profile-chapter-title" data-i18n="${titleKey}">${t(titleKey)}</span><span id="${summaryId}" class="profile-chapter-detail"></span>${warningId ? `<span class="profile-chapter-warning" hidden>${Icons.get('alert-triangle', { size: 12 })}<span id="${warningId}"></span></span>` : ''}</summary>
+  const profileChapter = (id, summaryId, titleKey, body) => `<details id="${id}" class="profile-chapter">
+          <summary class="profile-chapter-summary"><svg class="ui-icon profile-chapter-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><use href="#icon-chevron-right"></use></svg><span class="profile-chapter-title" data-i18n="${titleKey}">${t(titleKey)}</span><span id="${summaryId}" class="profile-chapter-detail"></span></summary>
           <div class="profile-chapter-body">${body}</div>
         </details>`;
 
@@ -442,14 +345,6 @@
               <label for="setting-temperature"><strong><span data-i18n="field_temperature">Temperatura</span>: <span id="temperature-val">0.7</span></strong><span class="label-hint" id="temperature-hint" data-i18n="field_temperature_hint">Controla la creatividad de las respuestas (0 = determinista/preciso, 1 = creativo).</span></label>
               <input type="range" id="setting-temperature" min="0" max="1.5" step="0.1" value="0.7">
             </div>
-        `)}
-        ${profileChapter('profile-chapter-mcp', 'profile-summary-mcp', 'profile_chapter_mcp', `
-            <p class="label-hint" data-i18n="profile_mcp_hint">${t('profile_mcp_hint')}</p>
-            <p id="profile-mcp-disconnected" class="label-hint" data-i18n="profile_mcp_disconnected" hidden>${t('profile_mcp_disconnected')}</p>
-            <div id="profile-mcp-servers" class="profile-mcp-servers"></div>
-        `, 'profile-summary-mcp-warning')}
-        ${profileChapter('profile-chapter-browser', 'profile-summary-browser', 'profile_chapter_browser', `
-            <div id="profile-browser"></div>
         `)}
         </div>
       </div>
@@ -565,9 +460,7 @@
       systemPrompt: els.settingSystemPrompt.value,
       temperature: els.settingTemperature.value,
       webllmContextWindow: els.settingWebllmContextWindow.value,
-      webllmPrefillChunk: els.settingWebllmPrefillChunk.value,
-      mcpServers: gatherProfileMcpServers(),
-      playwrightBrowser: getUIBrowser().getProfileBrowser()
+      webllmPrefillChunk: els.settingWebllmPrefillChunk.value
     };
   }
 
@@ -617,7 +510,7 @@
     populateProfileSelector(saved.id);
     updateEditor({ dirty: false, loadedApiKey: settings.apiKey });
     setProfileQueryState(false);
-    activateProfileFromUI(saved.id);
+    activateConnectionProfile(saved.id);
     const displayName = formatProfileDisplayName(saved);
     showProfileFeedback(t(pendingSync ? 'msg_profile_saved_pending_sync' : 'msg_profile_saved', { name: displayName }), pendingSync ? 'warning' : 'success');
     return true;
@@ -896,7 +789,7 @@
     els.profileSelectHelper.value = profile.id;
     applyProfileToForm(profile.settings, profile.id);
     els.settingProfileDescription.value = profile.description || '';
-    activateProfileFromUI(profile.id);
+    activateConnectionProfile(profile.id);
     updateEditor({ dirty: false });
     setProfileQueryState(false);
   }
@@ -919,7 +812,6 @@
     // Un capítulo abierto al fondo del panel queda a la vista: entero si cabe y, si no, desde su cabecera.
     els.profilesDialog.querySelectorAll('.profile-chapter').forEach(chapter => listen(chapter, 'toggle', () => {
       if (chapter.open) {
-        if (chapter.id === 'profile-chapter-browser') getUIBrowser().ensureProfileBrowserLoaded();
         chapter.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }
     }));
@@ -1020,7 +912,7 @@
       }
       const option = event.target.closest('[data-profile-id]');
       if (!option || !getProfiles().get(option.dataset.profileId)) return;
-      activateProfileFromUI(option.dataset.profileId);
+      activateConnectionProfile(option.dataset.profileId);
       const { allowed } = getBackgroundEligibility(runtimeConfig(), getMCP().manager.isProxyConnected());
       if (serverModeActive && !allowed) {
         setServerMode(false);
@@ -1087,8 +979,6 @@
     setProfileQueryState,
     closeProfilesModal,
     activateConnectionProfile,
-    startActiveProfileServers,
-    reportProfileServers,
     handleEncryptionPassword,
     handleUseDefaultEncryptionKey,
     startImportMode,

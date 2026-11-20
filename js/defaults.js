@@ -40,25 +40,6 @@
   /** Motores propios de Playwright y navegadores del usuario que maneja su extensión. */
   const PLAYWRIGHT_ENGINES = Object.freeze(['chromium', 'firefox', 'webkit']);
   const USER_BROWSERS = Object.freeze(['chrome', 'msedge', 'chromium']);
-  const PLAYWRIGHT_STORAGE_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
-
-  /**
-   * Navegador que exige un perfil para Playwright MCP: el propio con un motor (y opcionalmente
-   * `headless: false` si exige la ventana visible y `storage` para guardar datos en disco), o el del
-   * usuario con uno de sus navegadores. El resto de la configuración es la de Ajustes › Navegador.
-   */
-  function isPlaywrightBrowser(value) {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-    const keys = Object.keys(value);
-    if (value.mode === 'own') {
-      return PLAYWRIGHT_ENGINES.includes(value.engine)
-        && keys.every(key => ['mode', 'engine', 'headless', 'storage'].includes(key))
-        && (value.headless === undefined || value.headless === false)
-        && (value.storage === undefined || (typeof value.storage === 'string' && PLAYWRIGHT_STORAGE_PATTERN.test(value.storage)));
-    }
-    if (value.mode === 'user') return keys.sort().join(',') === 'mode,userBrowser' && USER_BROWSERS.includes(value.userBrowser);
-    return false;
-  }
 
   /** Configuración de ejecución por defecto: estado inicial de ChatState y base de ChatConfig.normalize. */
   // Servidor local de este equipo en su puerto por defecto: la conexión salvo que se elija otra.
@@ -74,7 +55,7 @@
     apiKeyLocked: false,
     theme: DEFAULT_THEME, language: getBrowserLanguage(), enableDebugMessages: false,
     activeRagBranchIds: Object.freeze([]),
-    mcpServers: Object.freeze([]), browser: 'browser_action', playwrightBrowser: null,
+    browser: 'browser_action',
     // Conexión: el servidor local por defecto o uno remoto (su URL y, tras un proxy inverso, la clave del proxy).
     localBackend: true, backendUrl: '', useProxy: false, proxyKey: '',
     projectMode: true, projectDeclined: Object.freeze([]),
@@ -89,8 +70,6 @@
     BROWSER_TOOLS,
     PLAYWRIGHT_ENGINES,
     USER_BROWSERS,
-    PLAYWRIGHT_STORAGE_PATTERN,
-    isPlaywrightBrowser,
     DEFAULT_THEME,
     DEFAULT_SYSTEM_DATA_PROMPT,
     CONFIG_DEFAULTS,
