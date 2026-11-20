@@ -8,7 +8,8 @@ import threading
 import time
 from http.server import ThreadingHTTPServer
 
-from browser.engines import on_browser_engines_change
+from browser.engines import BROWSER_ENGINES, on_browser_engines_change
+from core.limits import LONG_POLL_MAX_WAIT_MS
 from core.logging import console_log, log_event, timestamp_message
 from mcp.manager import GLOBAL_MCP_MANAGER, on_mcp_state_change
 from run_mode.state import list_server_runs
@@ -19,7 +20,6 @@ from tools.jobs import JOBS, on_jobs_live_change
 
 DEFAULT_HEARTBEAT_TIMEOUT = 60.0
 DEFAULT_HEARTBEAT_GRACE = 45.0
-HEARTBEAT_MAX_WAIT_MS = 30000
 _RUN_ACTIVE_CHECK_INTERVAL = 1.0
 HEARTBEAT_LAST_SEEN = 0.0
 HEARTBEAT_INITIALIZED = False
@@ -158,7 +158,7 @@ def wait_live_state(
 ) -> dict:
     """Devuelve el estado vivo; con since_rev y wait_ms espera cambios sin sondeo activo."""
     state = live_state(ctx, focus_conversation_id)
-    clamped_ms = min(max(0, wait_ms), HEARTBEAT_MAX_WAIT_MS)
+    clamped_ms = min(max(0, wait_ms), LONG_POLL_MAX_WAIT_MS)
     if not since_rev or clamped_ms <= 0 or state["rev"] != since_rev or _SERVER_SHUTTING_DOWN.is_set():
         return state
     deadline = time.monotonic() + clamped_ms / 1000.0
@@ -193,6 +193,7 @@ def stop_zerochat_server(server: ThreadingHTTPServer):
         console_log(timestamp_message(f"Deteniendo {len(running)} comando(s) en marcha: " + ", ".join(job.command[:60] for job in running)))
     JOBS.stop_all("shutdown")
     GLOBAL_MCP_MANAGER.close()
+    BROWSER_ENGINES.close()
     threading.Thread(target=server.shutdown, daemon=True).start()
 
 

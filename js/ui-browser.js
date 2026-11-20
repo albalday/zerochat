@@ -208,14 +208,19 @@
       }
       render();
       while (!abortController.signal.aborted && section.engines?.engines?.some(engine => engine.status === 'installing')) {
+        const startedAt = Date.now();
+        const prevRev = section.engines.rev;
         const update = await request(
           'zerochat/browser/engines/list',
-          { since_rev: section.engines.rev, wait_ms: ENGINE_WAIT_MS, engines_only: true },
+          { since_rev: prevRev, wait_ms: ENGINE_WAIT_MS, engines_only: true },
           { signal: abortController.signal, timeoutMs: ENGINE_WAIT_MS + 5000 }
         );
         if (abortController.signal.aborted) return;
         section.engines = { ...section.engines, ...update };
         render();
+        if (update?.rev === prevRev && Date.now() - startedAt < 50) {
+          await new Promise(resolve => { setTimeout(resolve, 500); });
+        }
       }
     } catch (error) {
       if (!abortController.signal.aborted) throw error;

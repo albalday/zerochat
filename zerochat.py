@@ -71,6 +71,7 @@ MAX_PATH_LENGTH = 4096
 MAX_COMMAND_LENGTH = 16384
 MAX_RPC_METHOD_LENGTH = 128
 MAX_TOOL_NAME_LENGTH = 128
+LONG_POLL_MAX_WAIT_MS = 30000
 BROWSER_TOOLS = ("none", "browser_action", "playwright")
 
 # --- core.logging ---
@@ -1082,6 +1083,15 @@ def dispatch_table(handlers: dict[str, Callable[..., RpcOutcome]], method: str, 
     """Atiende el método con su función de la tabla, que recibe *args; sin ella, «no soportado»."""
     handler = handlers.get(method)
     return handler(*args) if handler else rpc_not_supported(method)
+
+
+def parse_nonneg_int(value, label: str, default: int | None = None) -> int | None:
+    """Valida un parámetro entero no negativo (sin booleanos); devuelve `default` si es None."""
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{label} debe ser un entero no negativo.")
+    return value
 
 # --- core.version ---
 """Versiones del backend y de la interfaz, y direcciones desde las que se publican."""
@@ -3921,14 +3931,19 @@ def _notify_browser_engines_changed():
 class BrowserEngines:
     """Lista, instala y quita los motores propios de Playwright en su caché, nunca en el sistema."""
 
-    MAX_WAIT_MS = 30000
-
     def __init__(self):
         self._lock = threading.Lock()
         self._changed = threading.Condition(self._lock)
         self._rev = 0
+        self._stopping = False
         self._jobs: dict[str, dict] = {}
         self._locations_cache: tuple[tuple[str, int], dict[str, tuple[str, Path]]] | None = None
+
+    def close(self):
+        """Despierta cualquier long-poll pendiente en list() al detener el servidor."""
+        with self._changed:
+            self._stopping = True
+            self._changed.notify_all()
 
     @staticmethod
     def _run_cli(cli: Path, *args: str, timeout: float) -> subprocess.CompletedProcess:
@@ -3958,8 +3973,8 @@ class BrowserEngines:
         if since_rev is not None and wait_ms > 0:
             with self._changed:
                 self._changed.wait_for(
-                    lambda: self._rev != since_rev or not any(j.get("status") == "installing" for j in self._jobs.values()),
-                    min(wait_ms, self.MAX_WAIT_MS) / 1000.0,
+                    lambda: self._stopping or self._rev != since_rev or not any(j.get("status") == "installing" for j in self._jobs.values()),
+                    min(wait_ms, LONG_POLL_MAX_WAIT_MS) / 1000.0,
                 )
         cli = playwright_service_cli()
         with self._lock:
@@ -4063,13 +4078,9 @@ BROWSER_ENGINES = BrowserEngines()
 
 
 def _engines_list(params: dict) -> RpcOutcome:
-    since_rev = params.get("since_rev")
-    wait_ms = params.get("wait_ms", 0)
+    since_rev = parse_nonneg_int(params.get("since_rev"), "since_rev")
+    wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms", 0) or 0
     engines_only = params.get("engines_only", False)
-    if since_rev is not None and (isinstance(since_rev, bool) or not isinstance(since_rev, int) or since_rev < 0):
-        raise ValueError("since_rev debe ser un entero no negativo")
-    if isinstance(wait_ms, bool) or not isinstance(wait_ms, int) or wait_ms < 0:
-        raise ValueError("wait_ms debe ser un entero no negativo")
     if not isinstance(engines_only, bool):
         raise ValueError("engines_only debe ser un booleano")
     return rpc_result(BROWSER_ENGINES.list(since_rev=since_rev, wait_ms=wait_ms, engines_only=engines_only))
@@ -4170,7 +4181,6 @@ def service_status(record: McpServiceRecord, alive: bool, exit_code: int | None)
 
 # Cada cuánto se vuelve a mirar el catálogo publicado con el servidor en marcha.
 CATALOG_REFRESH_SECONDS = 3600
-MCP_START_MAX_WAIT_MS = 30000
 _MCP_STATE_HOOKS: list = []
 
 
@@ -4433,7 +4443,7 @@ class McpServiceManager:
             self.services = self._load_services()
         if server_id not in self.services:
             raise KeyError(f"Servidor MCP desconocido: {server_id}")
-        deadline = time.monotonic() + min(max(0, wait_ms), MCP_START_MAX_WAIT_MS) / 1000.0
+        deadline = time.monotonic() + min(max(0, wait_ms), LONG_POLL_MAX_WAIT_MS) / 1000.0
         with self._state_changed:
             while True:
                 record = self.records.get(server_id)
@@ -4716,14 +4726,6 @@ SERVER_CONTROL_METHODS = frozenset({
 })
 
 
-def _optional_nonneg_int(value, label: str) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise ValueError(f"{label} debe ser un entero no negativo.")
-    return value
-
-
 def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
     server_id = params.get("serverId")
     opts = params.get("options", {})
@@ -4735,14 +4737,14 @@ def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
         return _set_secret(server_id, params)
     try:
         if method == "zerochat/external/servers/start":
-            wait_ms = _optional_nonneg_int(params.get("wait_ms"), "wait_ms")
+            wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms")
             if wait_ms is not None and wait_ms > 0:
                 GLOBAL_MCP_MANAGER.start_async(server_id)
                 return rpc_result(GLOBAL_MCP_MANAGER.wait_server(server_id, wait_ms=wait_ms))
             servers = GLOBAL_MCP_MANAGER.start(server_id)
         elif method == "zerochat/external/servers/wait":
-            since_rev = _optional_nonneg_int(params.get("since_rev"), "since_rev")
-            wait_ms = _optional_nonneg_int(params.get("wait_ms"), "wait_ms")
+            since_rev = parse_nonneg_int(params.get("since_rev"), "since_rev")
+            wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms", 25000)
             return rpc_result(GLOBAL_MCP_MANAGER.wait_server(
                 server_id,
                 since_rev=since_rev,
@@ -7856,7 +7858,6 @@ ACCESS_CONTROLLER = AccessController()
 
 DEFAULT_HEARTBEAT_TIMEOUT = 60.0
 DEFAULT_HEARTBEAT_GRACE = 45.0
-HEARTBEAT_MAX_WAIT_MS = 30000
 _RUN_ACTIVE_CHECK_INTERVAL = 1.0
 HEARTBEAT_LAST_SEEN = 0.0
 HEARTBEAT_INITIALIZED = False
@@ -7995,7 +7996,7 @@ def wait_live_state(
 ) -> dict:
     """Devuelve el estado vivo; con since_rev y wait_ms espera cambios sin sondeo activo."""
     state = live_state(ctx, focus_conversation_id)
-    clamped_ms = min(max(0, wait_ms), HEARTBEAT_MAX_WAIT_MS)
+    clamped_ms = min(max(0, wait_ms), LONG_POLL_MAX_WAIT_MS)
     if not since_rev or clamped_ms <= 0 or state["rev"] != since_rev or _SERVER_SHUTTING_DOWN.is_set():
         return state
     deadline = time.monotonic() + clamped_ms / 1000.0
@@ -8030,6 +8031,7 @@ def stop_zerochat_server(server: ThreadingHTTPServer):
         console_log(timestamp_message(f"Deteniendo {len(running)} comando(s) en marcha: " + ", ".join(job.command[:60] for job in running)))
     JOBS.stop_all("shutdown")
     GLOBAL_MCP_MANAGER.close()
+    BROWSER_ENGINES.close()
     threading.Thread(target=server.shutdown, daemon=True).start()
 
 
@@ -8869,9 +8871,6 @@ def get_diagnostics(path: str | None = None, *, ctx: SecurityContext) -> str:
 
 
 
-MAX_LOG_WAIT_MS = 30000
-
-
 def _report(params: dict, project: str) -> RpcOutcome:
     ids = params.get("ids")
     if not isinstance(ids, list) or len(ids) > 100 or any(isinstance(i, bool) or not isinstance(i, int) for i in ids):
@@ -8883,21 +8882,19 @@ def _log(params: dict, job) -> RpcOutcome:
     tail = params.get("tail")
     offset = params.get("offset", 0)
     limit = params.get("limit", JOB_LOG_PAGE_BYTES)
-    wait_ms = params.get("wait_ms", 0)
-    if tail is not None:
-        if isinstance(tail, bool) or not isinstance(tail, int) or tail < 0:
-            return rpc_error(INVALID_PARAMS, "tail debe ser un entero no negativo.")
-        start = max(0, job.total - tail)
-    else:
-        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
-            return rpc_error(INVALID_PARAMS, "offset debe ser un entero no negativo.")
-        start = offset
+    try:
+        wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms", 0) or 0
+        if tail is not None:
+            parsed_tail = parse_nonneg_int(tail, "tail", 0) or 0
+            start = max(0, job.total - parsed_tail)
+        else:
+            start = parse_nonneg_int(offset, "offset", 0) or 0
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
     if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
         return rpc_error(INVALID_PARAMS, "limit debe ser un entero positivo.")
-    if isinstance(wait_ms, bool) or not isinstance(wait_ms, int) or wait_ms < 0:
-        return rpc_error(INVALID_PARAMS, "wait_ms debe ser un entero no negativo.")
     if wait_ms > 0 and tail is None and not job.done.is_set() and start >= job.total:
-        job.wait_change(start, min(wait_ms, MAX_LOG_WAIT_MS) / 1000.0)
+        job.wait_change(start, min(wait_ms, LONG_POLL_MAX_WAIT_MS) / 1000.0)
     text, next_offset = job.read_range(start, min(limit, JOB_LOG_PAGE_BYTES))
     return rpc_result({
         "text": text,
@@ -9868,9 +9865,10 @@ def _heartbeat(params: dict, ctx: SecurityContext) -> RpcOutcome:
     since_rev = params.get("since_rev")
     if since_rev is not None and not isinstance(since_rev, str):
         return rpc_error(INVALID_PARAMS, "since_rev debe ser texto")
-    wait_ms = params.get("wait_ms", 0)
-    if isinstance(wait_ms, bool) or not isinstance(wait_ms, int) or wait_ms < 0:
-        return rpc_error(INVALID_PARAMS, "wait_ms debe ser un entero no negativo")
+    try:
+        wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms", 0) or 0
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
     return rpc_result(wait_live_state(ctx, params.get("focus_conversation_id"), since_rev=since_rev, wait_ms=wait_ms))
 
 

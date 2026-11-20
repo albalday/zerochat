@@ -1,6 +1,6 @@
 /**
  * Ciclo de vida de los servicios MCP externos gestionados por el servidor local:
- * registro de herramientas, arranque con polling por fases y OAuth, parada y configuración.
+ * registro de herramientas, arranque con long-poll por fases y OAuth, parada y configuración.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {

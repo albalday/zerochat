@@ -443,8 +443,8 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-    // Reloj simulado: los sondeos del log (700 ms y luego cada 2 s) y el reloj de la tarjeta avanzan
-    // con runFor en lugar de esperarse.
+    // Reloj simulado: la espera del log por long-poll y el reloj de la tarjeta avanzan
+    // con runFor en lugar de esperarse en tiempo real.
     await page.clock.install();
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);

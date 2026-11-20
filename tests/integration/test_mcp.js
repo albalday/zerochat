@@ -982,7 +982,6 @@ test('MCP - startServerRun, cancelServerRun y readLiveState con focus_conversati
       { conversationId: 'conv_srv_1', runId: 'run_srv_1', status: 'running' }
     ]);
     assert.equal(manager.heartbeatActive, true);
-    assert.equal(manager.heartbeatTimer, undefined);
 
     // 2. readLiveState envía focus_conversation_id y publica focusRun y liveStateRev
     await manager.readLiveState();
@@ -1066,12 +1065,12 @@ test('MCP - setProjectDirectory aplica projectEnvironment guardado y concilia ar
       if (method === 'zerochat/external/servers/start') {
         serverStates[params.serverId] = 'running';
         envEvents.push(`start:${params.serverId}`);
-        return { servers: listServers() };
+        return { servers: listServers(), externalTools: [] };
       }
       if (method === 'zerochat/external/servers/stop') {
         serverStates[params.serverId] = 'stopped';
         envEvents.push(`stop:${params.serverId}`);
-        return { servers: listServers() };
+        return { servers: listServers(), externalTools: [] };
       }
       if (method === 'tools/list') return { tools: [] };
       return {};

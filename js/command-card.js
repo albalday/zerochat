@@ -312,6 +312,27 @@
     }
   }
 
+  function waitUntilVisible(setCleanup) {
+    if (!document.hidden) return Promise.resolve();
+    return new Promise(resolve => {
+      const onVisible = () => {
+        if (!document.hidden) {
+          cleanup();
+          resolve();
+        }
+      };
+      const cleanup = () => {
+        document.removeEventListener('visibilitychange', onVisible);
+        setCleanup(null);
+      };
+      setCleanup(() => {
+        cleanup();
+        resolve();
+      });
+      document.addEventListener('visibilitychange', onVisible);
+    });
+  }
+
   class CommandCardController {
     constructor(card) {
       this.card = card;
@@ -414,24 +435,7 @@
     }
 
     waitUntilVisible() {
-      if (!document.hidden) return Promise.resolve();
-      return new Promise(resolve => {
-        const onVisible = () => {
-          if (!document.hidden) {
-            cleanup();
-            resolve();
-          }
-        };
-        const cleanup = () => {
-          document.removeEventListener('visibilitychange', onVisible);
-          this.logVisibilityCleanup = null;
-        };
-        this.logVisibilityCleanup = () => {
-          cleanup();
-          resolve();
-        };
-        document.addEventListener('visibilitychange', onVisible);
-      });
+      return waitUntilVisible(fn => { this.logVisibilityCleanup = fn; });
     }
 
     scheduleLogRetry(delayMs = LOG_RETRY_DELAY_MS) {
@@ -709,6 +713,7 @@
       this.clockTimer = null;
       this.logTimer = null;
       this.logAbort = null;
+      this.logVisibilityCleanup = null;
       this.logNext = null;
       this.logText = '';
       this.logEarlier = false;
@@ -744,6 +749,8 @@
       this.logTimer = null;
       this.logAbort?.abort();
       this.logAbort = null;
+      this.logVisibilityCleanup?.();
+      this.logVisibilityCleanup = null;
     }
 
     renderBadge() {
@@ -766,35 +773,37 @@
     /** La salida nueva del comando que se espera: desde donde iba al empezar la espera (long-poll). */
     async followLog() {
       if (this.state.returned || !this.card.isConnected) return;
+      if (document.hidden) {
+        await waitUntilVisible(fn => { this.logVisibilityCleanup = fn; });
+        if (this.state.returned || !this.card.isConnected) return;
+      }
       const mcp = getMcp();
       const ref = { id: this.state.request.jobId };
       let ok = false;
       let changed = false;
       const started = Date.now();
-      if (!document.hidden) {
-        const abortController = new AbortController();
-        this.logAbort = abortController;
-        try {
-          const query = this.logNext === null
-            ? { ...ref, tail: 0, limit: LOG_PAGE_BYTES }
-            : { ...ref, offset: this.logNext, limit: LOG_PAGE_BYTES, wait_ms: LOG_WAIT_MS };
-          const options = { signal: abortController.signal, ...(this.logNext !== null ? { timeoutMs: LOG_REQUEST_TIMEOUT_MS } : {}) };
-          const page = await mcp.requestExternalControl('zerochat/jobs/log', query, options);
-          ok = true;
-          this.logNext = Number(page?.next) ?? this.logNext;
-          if (page?.text) {
-            changed = true;
-            const kept = appendLog(this.logText, String(page.text));
-            this.logText = kept.text;
-            this.logEarlier = this.logEarlier || kept.trimmed;
-            if (!this.state.returned) this.showText(this.logText, this.logEarlier);
-          }
-          if (page?.done === true) return;
-        } catch (_) {
-          // El comando ya no existe o se canceló la espera.
-        } finally {
-          if (this.logAbort === abortController) this.logAbort = null;
+      const abortController = new AbortController();
+      this.logAbort = abortController;
+      try {
+        const query = this.logNext === null
+          ? { ...ref, tail: 0, limit: LOG_PAGE_BYTES }
+          : { ...ref, offset: this.logNext, limit: LOG_PAGE_BYTES, wait_ms: LOG_WAIT_MS };
+        const options = { signal: abortController.signal, ...(this.logNext !== null ? { timeoutMs: LOG_REQUEST_TIMEOUT_MS } : {}) };
+        const page = await mcp.requestExternalControl('zerochat/jobs/log', query, options);
+        ok = true;
+        if (Number.isInteger(page?.next)) this.logNext = page.next;
+        if (page?.text) {
+          changed = true;
+          const kept = appendLog(this.logText, String(page.text));
+          this.logText = kept.text;
+          this.logEarlier = this.logEarlier || kept.trimmed;
+          if (!this.state.returned) this.showText(this.logText, this.logEarlier);
         }
+        if (page?.done === true) return;
+      } catch (_) {
+        // El comando ya no existe o se canceló la espera.
+      } finally {
+        if (this.logAbort === abortController) this.logAbort = null;
       }
       if (this.state.returned || !this.card.isConnected) return;
       if (ok && (changed || Date.now() - started >= 50)) {

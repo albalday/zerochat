@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from core.rpc import INVALID_PARAMS, RpcOutcome, rpc_error, rpc_result
+from core.rpc import INVALID_PARAMS, RpcOutcome, parse_nonneg_int, rpc_error, rpc_result
 from mcp.manager import GLOBAL_MCP_MANAGER
 
 SERVER_CONTROL_METHODS = frozenset({
@@ -12,14 +12,6 @@ SERVER_CONTROL_METHODS = frozenset({
     "zerochat/external/servers/configure",
     "zerochat/external/servers/secret",
 })
-
-
-def _optional_nonneg_int(value, label: str) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise ValueError(f"{label} debe ser un entero no negativo.")
-    return value
 
 
 def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
@@ -33,14 +25,14 @@ def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
         return _set_secret(server_id, params)
     try:
         if method == "zerochat/external/servers/start":
-            wait_ms = _optional_nonneg_int(params.get("wait_ms"), "wait_ms")
+            wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms")
             if wait_ms is not None and wait_ms > 0:
                 GLOBAL_MCP_MANAGER.start_async(server_id)
                 return rpc_result(GLOBAL_MCP_MANAGER.wait_server(server_id, wait_ms=wait_ms))
             servers = GLOBAL_MCP_MANAGER.start(server_id)
         elif method == "zerochat/external/servers/wait":
-            since_rev = _optional_nonneg_int(params.get("since_rev"), "since_rev")
-            wait_ms = _optional_nonneg_int(params.get("wait_ms"), "wait_ms")
+            since_rev = parse_nonneg_int(params.get("since_rev"), "since_rev")
+            wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms", 25000)
             return rpc_result(GLOBAL_MCP_MANAGER.wait_server(
                 server_id,
                 since_rev=since_rev,

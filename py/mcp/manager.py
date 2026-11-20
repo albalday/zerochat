@@ -18,6 +18,7 @@ from pathlib import Path
 from browser.config import PLAYWRIGHT_SERVER_ID, SERVICE_LAUNCH
 from browser.engines import on_playwright_status
 from core.environment import get_data_dir, get_venv_dir, get_venv_python
+from core.limits import LONG_POLL_MAX_WAIT_MS
 from core.logging import log_event
 from core.rate_limit import RATE_LIMITER, parse_rate_policy
 from mcp.catalog import (
@@ -110,7 +111,6 @@ def service_status(record: McpServiceRecord, alive: bool, exit_code: int | None)
 
 # Cada cuánto se vuelve a mirar el catálogo publicado con el servidor en marcha.
 CATALOG_REFRESH_SECONDS = 3600
-MCP_START_MAX_WAIT_MS = 30000
 _MCP_STATE_HOOKS: list = []
 
 
@@ -373,7 +373,7 @@ class McpServiceManager:
             self.services = self._load_services()
         if server_id not in self.services:
             raise KeyError(f"Servidor MCP desconocido: {server_id}")
-        deadline = time.monotonic() + min(max(0, wait_ms), MCP_START_MAX_WAIT_MS) / 1000.0
+        deadline = time.monotonic() + min(max(0, wait_ms), LONG_POLL_MAX_WAIT_MS) / 1000.0
         with self._state_changed:
             while True:
                 record = self.records.get(server_id)

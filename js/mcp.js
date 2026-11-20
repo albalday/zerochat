@@ -846,10 +846,9 @@
     }
 
     /**
-     * Latido al servidor local, cada 10 s o al volver a la pestaña. Conectado, publica su estado vivo
-     * (applyLiveState) y, si no responde, comprueba la conexión. Sin conexión, sondea el destino y
-     * reconecta si responde; el sondeo previo evita que cada intento fallido de connectProxy reescriba
-     * el estado.
+     * Comprueba o refresca de inmediato el estado del servidor local (p. ej. al volver a la pestaña).
+     * Conectado, publica su estado vivo (`applyLiveState`) y, si no responde, comprueba la conexión.
+     * Sin conexión, sondea el destino y reconecta si responde.
      */
     async sendHeartbeat() {
       if (this.heartbeatCheckInFlight) return;

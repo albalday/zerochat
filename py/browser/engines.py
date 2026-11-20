@@ -20,6 +20,7 @@ from browser.config import (
     save_browser_config,
 )
 from core.environment import get_data_dir
+from core.limits import LONG_POLL_MAX_WAIT_MS
 from core.logging import format_log_error, log_event
 
 
@@ -157,14 +158,19 @@ def _notify_browser_engines_changed():
 class BrowserEngines:
     """Lista, instala y quita los motores propios de Playwright en su caché, nunca en el sistema."""
 
-    MAX_WAIT_MS = 30000
-
     def __init__(self):
         self._lock = threading.Lock()
         self._changed = threading.Condition(self._lock)
         self._rev = 0
+        self._stopping = False
         self._jobs: dict[str, dict] = {}
         self._locations_cache: tuple[tuple[str, int], dict[str, tuple[str, Path]]] | None = None
+
+    def close(self):
+        """Despierta cualquier long-poll pendiente en list() al detener el servidor."""
+        with self._changed:
+            self._stopping = True
+            self._changed.notify_all()
 
     @staticmethod
     def _run_cli(cli: Path, *args: str, timeout: float) -> subprocess.CompletedProcess:
@@ -194,8 +200,8 @@ class BrowserEngines:
         if since_rev is not None and wait_ms > 0:
             with self._changed:
                 self._changed.wait_for(
-                    lambda: self._rev != since_rev or not any(j.get("status") == "installing" for j in self._jobs.values()),
-                    min(wait_ms, self.MAX_WAIT_MS) / 1000.0,
+                    lambda: self._stopping or self._rev != since_rev or not any(j.get("status") == "installing" for j in self._jobs.values()),
+                    min(wait_ms, LONG_POLL_MAX_WAIT_MS) / 1000.0,
                 )
         cli = playwright_service_cli()
         with self._lock:
