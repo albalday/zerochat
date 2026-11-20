@@ -5,14 +5,14 @@
       "version": "1.2.0",
       "files": {
         "installer.json": "b3f4b25d188c19041b66c3bf8ace2d200fbfd31e0ea68403cdbc5047fa4ececc",
-        "service.json": "603ef3fc2bbb6254fd7c5db553ea93860f566ea65e0249c1c7ce9904beaaa7a9"
+        "service.json": "524322ba6d6ae65b063ced35fd767f596e06ecb8f39cb2b7a93b5f214117c13d"
       }
     },
     "composio": {
       "version": "1.0.0",
       "files": {
         "installer.json": "cda8b1e6261c064d6b35b1c5eccd87a9ab77b45a6bb1e37873eb7d09958f6c60",
-        "service.json": "b8cf5d7cd7ca917d2c77f0e00aaca9fca16b497cf40f479a40bcf832c5bb60d2"
+        "service.json": "aae82de4e134291b4e4b5e3c641b3922ff9f225237190118d97cef7cf2ce00b2"
       }
     },
     "ejemplo": {
@@ -21,7 +21,7 @@
         "ejemplo_mcp_server.py": "9f9be071bdf75e2b858c2316f467ea6f83c559369ed7c17a75d67c2d656b443b",
         "installer.json.example": "701acdf0cef210077bbba5e574a05683951e3f4bc34a8d5d429e5b7aeb55fd97",
         "README.md": "d491e0ec0ae4cecf5621ca0ea9432facb255a405303bb7444d4f5eac26721b7c",
-        "service.json": "55fe65968dd62379a27a2e63ada4e7ab177c16c2f411da7e94646c5974c21407"
+        "service.json": "c19c4e1fcb09d13cb60c492939896523f35a8ea61e1b5b58ee162348c6bbaaff"
       }
     },
     "mail": {
@@ -29,21 +29,21 @@
       "files": {
         "mail_mcp_server.py": "31bd84c193344b05e602fa79fe0595127f2c0ccc3cc1ccfd830fc82f6a6c69ac",
         "README.md": "33070af54300cb6f76dff9950cb17cd11a3093f86bc50b1f22646821876de891",
-        "service.json": "3277e422d2c2e1838f519d1acdc9ebec89f834bf7c765c3fad1569af49805028"
+        "service.json": "18a381ae5eb473dd83cccacfa71fb85cd102067e34c0c7a05b542571eca82ec1"
       }
     },
     "memory": {
       "version": "1.0.0",
       "files": {
         "installer.json": "e5861363916df405e4f0d357c5c1e77ac48a547143582ef5cf749f49250cd9c1",
-        "service.json": "83e4431e70ecc0fff6ef9929eb838d3a9e190e2afe59e05b71b1cf0df1338708"
+        "service.json": "2df7cae26196fc4ad867b48ca8530fdcd293d3999e5f1c3a73873cc8890befbc"
       }
     },
     "playwright": {
       "version": "1.0.0",
       "files": {
         "installer.json": "18860def7ac85efa743ddc2a5cc2c4906cf35e0c9965e433420f8b90a5df2e1f",
-        "service.json": "075118046e6ea94b29a94cd3a2599bd0939744c377c49ab0d4cb087cae9aa1a4"
+        "service.json": "62f1b569f8a83b3ed080e05b99eaa668e040b162d6b21c78e9f78cf373648b50"
       }
     }
   }

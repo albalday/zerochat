@@ -87,17 +87,6 @@ class SecurityContext:
         except (ValueError, RuntimeError, OSError):
             return None
 
-    def is_inside_workspace(self, path_str: str) -> bool:
-        """Determina si la ruta reside estrictamente dentro del espacio de trabajo del contexto."""
-        resolved = self.resolve_path(path_str)
-        if resolved is None:
-            return False
-        try:
-            resolved.relative_to(self.workspace_dir.resolve())
-            return True
-        except ValueError:
-            return False
-
 
 def contains_unresolved_reference(value: str) -> bool:
     """Detecta variables de entorno ($VAR, ${VAR}) o expansiones de usuario (~)."""

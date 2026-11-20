@@ -342,16 +342,3 @@ class AccessDecision:
     server_id: str = ""
     details: str = ""
     rule_offer: dict | None = None
-
-    def to_dict(self) -> dict:
-        return {
-            "allowed": self.allowed,
-            "status": self.status,
-            "reason": self.reason,
-            "requiresApproval": self.requires_approval,
-            "toolId": self.tool_id,
-            "serverName": self.server_name,
-            "serverId": self.server_id,
-            "details": self.details,
-            "ruleOffer": self.rule_offer
-        }

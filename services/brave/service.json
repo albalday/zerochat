@@ -17,7 +17,6 @@
       "en": "Get a Brave Search key"
     }
   },
-  "enabledByDefault": false,
   "transport": "stdio",
   "secrets": [
     {

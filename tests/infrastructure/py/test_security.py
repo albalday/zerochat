@@ -81,11 +81,8 @@ class SecurityContextTest(unittest.TestCase):
         ctx = zerochat.SecurityContext(workspace_dir=workspace)
 
         self.assertEqual(ctx.resolve_path("file.txt"), (workspace / "file.txt").resolve())
-        self.assertTrue(ctx.is_inside_workspace("file.txt"))
         for unresolved in ("~/secret", "$HOME/secret", "${SECRET}/file", "path\0evil"):
             self.assertIsNone(ctx.resolve_path(unresolved), unresolved)
-        self.assertFalse(ctx.is_inside_workspace("../outside.txt"))
-        self.assertFalse(ctx.is_inside_workspace(str(base_dir / "outside.txt")))
 
 
 class ControllerTestCase(unittest.TestCase):

@@ -17,7 +17,6 @@
       "en": "Guide to creating a managed MCP"
     }
   },
-  "enabledByDefault": false,
   "transport": "stdio",
   "launch": {
     "executable": "${pythonExecutable}",

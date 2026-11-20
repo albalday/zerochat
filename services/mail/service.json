@@ -17,7 +17,6 @@
       "en": "Create a Google App Password"
     }
   },
-  "enabledByDefault": false,
   "transport": "stdio",
   "secrets": [
     {

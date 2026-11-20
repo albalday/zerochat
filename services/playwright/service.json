@@ -10,7 +10,6 @@
     "es": "Automatización de navegador mediante el servidor MCP oficial de Playwright.",
     "en": "Browser automation through the official Playwright MCP server."
   },
-  "enabledByDefault": false,
   "transport": "stdio",
   "launch": {
     "executable": "${nodeExecutable}",

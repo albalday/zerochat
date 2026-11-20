@@ -776,7 +776,7 @@ class StorageEngineTest(unittest.TestCase):
         ctx_general = zerochat.SecurityContext(workspace_dir=zerochat.get_no_project_dir().resolve())
 
         # Proyecto nuevo devuelve valores base sin fila persistida en SQLite.
-        initial_a, err, _ = zerochat.dispatch_local("zerochat/project/environment/get", {}, ctx_a)
+        initial_a, err, _ = zerochat.dispatch_local("initialize", {}, ctx_a)
         self.assertIsNone(err)
         self.assertEqual(initial_a["projectEnvironment"]["saved"], False)
         self.assertEqual(initial_a["projectEnvironment"]["browser"], "browser_action")

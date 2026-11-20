@@ -153,7 +153,6 @@ LOCAL_METHODS = {
     "tools/list": lambda _params, _ctx: rpc_result({"tools": _local_tools() + GLOBAL_MCP_MANAGER.tools()}),
     "tools/call": call_tool,
     "zerochat/project/context": lambda _params, ctx: rpc_result(read_project_context(ctx)),
-    "zerochat/project/environment/get": lambda _params, ctx: rpc_result({"projectEnvironment": get_project_environment(ctx.key)}),
     "zerochat/project/environment/set": _set_project_environment,
     "zerochat/project/set_directory": _set_project_directory,
     "zerochat/project/browse": _browse_directories,

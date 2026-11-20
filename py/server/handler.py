@@ -168,10 +168,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 token_candidate = auth_header[7:].strip()
         return resolve_token(token_candidate)
 
-    def verify_token(self) -> bool:
-        """Comprueba si hay una credencial vigente en cabeceras HTTP."""
-        return self._resolve_grant() is not None
-
     def _reject_dot_segment(self, verb: str, safe_path: str, t0: float) -> bool:
         """Responde 400 a una URL con `..` antes de mirar el origen, el token o el cuerpo; devuelve si lo hizo."""
         if not has_dot_segment(self.path):
@@ -248,7 +244,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         self._send_json_response(status, data)
         self._log_res(status, safe_path, (time.monotonic() - t0) * 1000, log_message)
 
-    def _read_rpc_request(self, safe_path: str, t0: float) -> tuple[dict, bytes] | None:
+    def _read_rpc_request(self, safe_path: str, t0: float) -> dict | None:
         """Lee y valida el cuerpo JSON-RPC; si no es válido responde y devuelve None."""
         try:
             content_len = int(self.headers.get("Content-Length"))
@@ -297,7 +293,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_req("POST", safe_path)
             self._reject(400, {"error": rpc_error[0]}, safe_path, t0, rpc_error[1])
             return None
-        return req, post_data
+        return req
 
     @staticmethod
     def _validate_rpc(req) -> tuple[str, str] | None:
@@ -363,7 +359,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         safe_path = sanitize_log_path(self.path)
         if self._reject_dot_segment("POST", safe_path, t0):
             return
-        req_path = self.path.split("?", 1)[0].rstrip("/")
         origin = self.headers.get("Origin")
         if not is_allowed_origin(origin):
             self._log_req("POST", safe_path)
@@ -387,15 +382,14 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             }, safe_path, t0, "Token de sesión ausente o inválido")
             return
 
-        parsed = self._read_rpc_request(safe_path, t0)
-        if parsed is None:
+        req = self._read_rpc_request(safe_path, t0)
+        if req is None:
             return
-        req, post_data = parsed
         req_id = req.get("id")
         method = req["method"]
         params = req.get("params", {})
 
-        if not grant.allows(req_path, method, params):
+        if not grant.allows(method, params):
             self._log_req("POST", f"{safe_path} [rpc: {method}]")
             self._reject(403, {
                 "jsonrpc": "2.0",

@@ -21,14 +21,14 @@ class DailyTokenTest(unittest.TestCase):
         with mock.patch.multiple(zerochat, SESSION_TOKEN=old, SESSION_TOKEN_DATE="2000-01-01", ACTIVE_HOST="127.0.0.1", ACTIVE_PORT=6388):
             handler = object.__new__(zerochat.ZeroChatServerHandler)
             handler.headers = {"X-ZeroChat-Token": old}
-            self.assertFalse(handler.verify_token())
+            self.assertIsNone(handler._resolve_grant())
             new_token = json.loads(self.token_file.read_text(encoding="utf-8"))["token"]
             self.assertNotEqual(new_token, old)
             # Tras el proxy inverso, Authorization lleva la clave del proxy y el token va en X-ZeroChat-Token.
             handler.headers = {"X-ZeroChat-Token": new_token, "Authorization": "Bearer clave-del-proxy"}
-            self.assertTrue(handler.verify_token())
+            self.assertIsNotNone(handler._resolve_grant())
             handler.headers = {"Authorization": f"Bearer {new_token}"}
-            self.assertTrue(handler.verify_token())
+            self.assertIsNotNone(handler._resolve_grant())
             # La consola abre el navegador con el token vigente, no con el del arranque.
             self.assertIn(f"#token={new_token}&", zerochat.launch_url("http://127.0.0.1:6388/zerochat.html"))
 
@@ -61,18 +61,18 @@ class DailyTokenTest(unittest.TestCase):
         grant = zerochat.resolve_token(runner_token)
         self.assertIsNotNone(grant)
         self.assertEqual(grant.kind, "runner")
-        self.assertTrue(grant.allows("/mcp", "tools/call", {"name": "read_file"}))
-        self.assertTrue(grant.allows("/mcp", "zerochat/run/prompt", {}))
-        self.assertTrue(grant.allows("/mcp", "zerochat/sandbox/execute", {"code": "1+1"}))
-        self.assertTrue(grant.allows("/mcp", "zerochat/conversations/get", {"id": "conv-1"}))
-        self.assertTrue(grant.allows("/mcp", "zerochat/conversations/save", {"conversation": {"id": "conv-1"}}))
-        self.assertTrue(grant.allows("/mcp", "zerochat/conversations/save_chunk", {"conversationId": "conv-1"}))
-        self.assertFalse(grant.allows("/mcp", "zerochat/conversations/save_chunk", {"conversationId": "conv-2"}))
-        self.assertFalse(grant.allows("/mcp", "zerochat/conversations/get", {"id": "conv-2"}))
-        self.assertFalse(grant.allows("/mcp", "zerochat/conversations/list", {}))
-        self.assertFalse(grant.allows("/mcp", "zerochat/security/policies", {}))
-        self.assertFalse(grant.allows("/mcp", "zerochat/profiles/list", {}))
-        self.assertFalse(grant.allows("/mcp", "zerochat/blobs/put", {}))
+        self.assertTrue(grant.allows("tools/call", {"name": "read_file"}))
+        self.assertTrue(grant.allows("zerochat/run/prompt", {}))
+        self.assertTrue(grant.allows("zerochat/sandbox/execute", {"code": "1+1"}))
+        self.assertTrue(grant.allows("zerochat/conversations/get", {"id": "conv-1"}))
+        self.assertTrue(grant.allows("zerochat/conversations/save", {"conversation": {"id": "conv-1"}}))
+        self.assertTrue(grant.allows("zerochat/conversations/save_chunk", {"conversationId": "conv-1"}))
+        self.assertFalse(grant.allows("zerochat/conversations/save_chunk", {"conversationId": "conv-2"}))
+        self.assertFalse(grant.allows("zerochat/conversations/get", {"id": "conv-2"}))
+        self.assertFalse(grant.allows("zerochat/conversations/list", {}))
+        self.assertFalse(grant.allows("zerochat/security/policies", {}))
+        self.assertFalse(grant.allows("zerochat/profiles/list", {}))
+        self.assertFalse(grant.allows("zerochat/blobs/put", {}))
 
         zerochat.revoke_token(runner_token)
         self.assertIsNone(zerochat.resolve_token(runner_token))
