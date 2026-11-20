@@ -53,14 +53,11 @@
     getState().set('mcp', { externalTools: tools });
   }
 
-  /**
-   * Arranca un servicio externo; con `remember` el servidor local lo guarda como activo y lo
-   * ofrece de nuevo en la siguiente sesión.
-   */
-  async function startExternalServer(manager, serverId, onWait, { remember }) {
+  /** Arranca un servicio externo y sigue su progreso hasta estar en marcha. */
+  async function startExternalServer(manager, serverId, onWait) {
     let result = null;
     try {
-      result = await manager.requestExternalControl('zerochat/external/servers/start', { serverId, remember });
+      result = await manager.requestExternalControl('zerochat/external/servers/start', { serverId });
     } catch (error) {
       // El timeout inicial no implica fallo: el backend puede estar aún
       // iniciando el servicio (p. ej. esperando la autorización OAuth).
@@ -132,7 +129,7 @@
    * Inicia o detiene un servicio externo y refleja el progreso en ChatState. La autorización OAuth que
    * pida el arranque se abre una vez en otra pestaña. Devuelve true si la acción terminó correctamente.
    */
-  async function runExternalServerAction(manager, serverId, action, { remember = true } = {}) {
+  async function runExternalServerAction(manager, serverId, action) {
     updateExternalServerState(serverId, { status: action === 'start' ? 'starting' : 'stopped', error: null, startWait: null, oauthUrl: null });
     let didAutoOpenOAuth = false;
     const reportStartWait = (attempt, total, status = 'starting', serverData = null) => {
@@ -144,7 +141,7 @@
       updateExternalServerState(serverId, { status, ...(oauthUrl ? { oauthUrl } : {}), error: null, startWait: { attempt, total } });
     };
     try {
-      if (action === 'start') await manager.startExternalServer(serverId, reportStartWait, { remember });
+      if (action === 'start') await manager.startExternalServer(serverId, reportStartWait);
       else await manager.stopExternalServer(serverId);
       return true;
     } catch (error) {
@@ -162,20 +159,18 @@
   }
 
   /**
-   * Ejecuta `action` con el servicio detenido y lo vuelve a arrancar si estaba en marcha, sin cambiar
-   * si queda recordado para la siguiente sesión (detenerlo lo desmarca). Devuelve false si no se pudo
-   * detener o volver a arrancar.
+   * Ejecuta `action` con el servicio detenido y lo vuelve a arrancar si estaba en marcha.
+   * Devuelve false si no se pudo detener o volver a arrancar.
    */
   async function withExternalServerStopped(manager, serverId, action = async () => {}) {
     const server = getState().get('mcp').externalServers.find(item => item.id === serverId);
     const wasRunning = McpStatus.isRunning(server?.status);
-    const remember = server?.enabled === true;
     if (wasRunning && !await manager.runExternalServerAction(serverId, 'stop')) return false;
     let restarted = true;
     try {
       await action();
     } finally {
-      if (wasRunning) restarted = await manager.runExternalServerAction(serverId, 'start', { remember });
+      if (wasRunning) restarted = await manager.runExternalServerAction(serverId, 'start');
     }
     return restarted;
   }
@@ -217,7 +212,7 @@
         const liveList = State.get('mcp').externalServers || [];
         const current = liveList.find(item => item?.id === serverId) || initialServers.find(item => item?.id === serverId);
         if (!current || !McpStatus.canStart(current.status)) continue;
-        if (await manager.runExternalServerAction(serverId, 'start', { remember: false })) started.push(serverId);
+        if (await manager.runExternalServerAction(serverId, 'start')) started.push(serverId);
         else failed.push(serverId);
       }
 

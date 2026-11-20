@@ -158,7 +158,7 @@ class ManagedServicesTest(unittest.TestCase):
         client.running.return_value = True
         with patch.dict(os.environ, {"SERVICE_API_KEY": "inherited-fixture"}), \
                 patch.object(zerochat, "StdioMcpClient", return_value=client) as constructor:
-            manager.start("custom-key", remember=True)
+            manager.start("custom-key")
             env = constructor.call_args.args[3]
             self.assertEqual((env["SERVICE_API_KEY"], env["HOME"]), ("fixture-key", str(custom)))
             self.assertIn("PATH", env)
@@ -188,7 +188,7 @@ class ManagedServicesTest(unittest.TestCase):
 
         # Sin la clave guardada no arranca y dice cuál falta; el listado solo dice si está guardada.
         with patch.object(zerochat, "StdioMcpClient", return_value=client) as constructor:
-            manager.start("brave", remember=False)
+            manager.start("brave")
             constructor.assert_not_called()
         self.assertIn("BRAVE_API_KEY", status_of(manager, "brave")["error"])
         self.assertEqual(status_of(manager, "brave")["secrets"], [{"name": "BRAVE_API_KEY", "label": {"es": "Clave", "en": "Key"}, "configured": False}])
@@ -198,7 +198,7 @@ class ManagedServicesTest(unittest.TestCase):
         self.assertNotIn("bsa-secreta", json.dumps(outcome))
         self.assertTrue(status_of(manager, "brave")["secrets"][0]["configured"])
         with patch.object(zerochat, "StdioMcpClient", return_value=client) as constructor:
-            manager.start("brave", remember=False)
+            manager.start("brave")
             command, args, _cwd, env = constructor.call_args.args[:4]
         # En el entorno sí; en los argumentos, que se ven en la lista de procesos, no se sustituye.
         self.assertEqual(env["BRAVE_API_KEY"], "bsa-secreta")
@@ -302,7 +302,7 @@ class ServiceCatalogTest(unittest.TestCase):
                 patch.object(self.manager, "_start_locked", wraps=self.manager._start_locked) as start:
             self.assertEqual(self.manager.refresh_catalog(self.base), ["demo", "idle"])
         old.stop.assert_called_once()
-        start.assert_called_once_with("demo", False)
+        start.assert_called_once_with("demo")
         constructor.assert_called_once()
         new.start.assert_called_once()
         self.assertEqual(status_of(self.manager, "demo")["status"], "running")
@@ -401,57 +401,6 @@ class ServiceStatusTest(unittest.TestCase):
                 self.assertEqual(manager.tools(), [])
 
 
-class RememberTest(unittest.TestCase):
-    def setUp(self):
-        data_dir = use_data_dir(self)
-        self.root = data_dir / "services"
-        self.preferences = data_dir / "config" / "services.json"
-        (self.root / "demo").mkdir(parents=True)
-        (self.root / "demo" / "service.json").write_text(json.dumps({"id": "demo", "launch": {"args": []}}), encoding="utf-8")
-
-    def run_actions(self, remembered, actions, fails=False):
-        """Aplica las acciones a un servicio con ese estado recordado de la sesión anterior y devuelve
-        si queda recordado para la siguiente."""
-        if remembered is not None:
-            self.preferences.write_text(json.dumps({"demo": {"enabled": remembered}}), encoding="utf-8")
-        client = Mock(tools=[], oauth_url=None, process=None)
-        client.running.return_value = True
-        if fails:
-            client.start.side_effect = RuntimeError("handshake failed")
-        manager = zerochat.McpServiceManager(self.root)
-        self.addCleanup(manager.close)
-        with patch.object(zerochat, "StdioMcpClient", return_value=client):
-            for action, *remember in actions:
-                if action == "start":
-                    manager.start("demo", remember=remember[0])
-                elif action == "stop":
-                    manager.stop("demo")
-                else:
-                    # Reinicio de McpManager.withExternalServerStopped (js/mcp.js): arranca con el valor previo.
-                    before = status_of(manager, "demo")["enabled"]
-                    manager.stop("demo")
-                    manager.start("demo", remember=before)
-        return status_of(zerochat.McpServiceManager(self.root), "demo")["enabled"]
-
-    def test_solo_un_arranque_con_remember_lo_recuerda_y_detenerlo_lo_olvida(self):
-        # (descripción, recordado antes, acciones, recordado después)
-        for name, remembered, actions, expected in (
-            ("arranque desde Ajustes › MCP", None, [("start", True)], True),
-            ("arranque sin remember", None, [("start", False)], False),
-            ("arranque de un perfil sobre uno recordado", True, [("start", False)], True),
-            ("arranque de un perfil sobre uno olvidado", False, [("start", False)], False),
-            ("detener", True, [("start", False), ("stop",)], False),
-            ("reinicio de uno recordado", True, [("start", False), ("restart",)], True),
-            ("reinicio de uno arrancado por un perfil", None, [("start", False), ("restart",)], False),
-            ("reinicio tras arrancarlo desde Ajustes", None, [("start", True), ("restart",)], True),
-        ):
-            with self.subTest(name):
-                self.preferences.unlink(missing_ok=True)
-                self.assertIs(self.run_actions(remembered, actions), expected)
-        self.preferences.unlink()
-        self.assertIs(self.run_actions(None, [("start", True)], fails=True), False, "un arranque fallido no se recuerda")
-
-
 class McpStartTest(unittest.TestCase):
     def setUp(self):
         self.root = use_data_dir(self) / "services"
@@ -462,8 +411,8 @@ class McpStartTest(unittest.TestCase):
         write_service(self.root, "broken", BROKEN_MCP, handshakeTimeoutSeconds=2)
         manager = zerochat.McpServiceManager(self.root)
         self.addCleanup(manager.close)
-        self.assertEqual(next(item for item in manager.start("healthy", remember=True) if item["id"] == "healthy")["status"], "running")
-        self.assertEqual(next(item for item in manager.start("broken", remember=True) if item["id"] == "broken")["status"], "error")
+        self.assertEqual(next(item for item in manager.start("healthy") if item["id"] == "healthy")["status"], "running")
+        self.assertEqual(next(item for item in manager.start("broken") if item["id"] == "broken")["status"], "error")
         time.sleep(0.1)
         manager.close()
         joined = "\n".join(self.traces)
@@ -498,7 +447,7 @@ class McpStartTest(unittest.TestCase):
 
                 client.start.side_effect = handshake
                 with patch.object(manager, "_prepare_service", side_effect=prepare), patch.object(zerochat, "StdioMcpClient", return_value=client):
-                    manager.start("oauth-fixture", remember=True)
+                    manager.start("oauth-fixture")
                 status = status_of(manager, "oauth-fixture")
                 self.assertEqual((status["status"], status["error"]), ("error", "OAuth failed") if fail else ("running", None))
                 self.assertEqual(client.stop.call_count, 1 if fail else 0)
@@ -611,7 +560,7 @@ class StdioClientTest(unittest.TestCase):
         self.addCleanup(patcher.stop)
         manager = zerochat.McpServiceManager(root)
         self.addCleanup(manager.close)
-        self.assertEqual(next(item for item in manager.start("limits", remember=True) if item["id"] == "limits")["status"], "running")
+        self.assertEqual(next(item for item in manager.start("limits") if item["id"] == "limits")["status"], "running")
         client = manager.records["limits"].client
         self.assertEqual(client.call_timeout, 0.5)
 

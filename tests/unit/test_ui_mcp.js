@@ -58,8 +58,8 @@ test('ChatUIMcp - concilia servicios del proyecto en silencio, detiene los sobra
   const stopped = [];
   const alerts = [];
   const confirms = useDialogs(t, null, alerts);
-  t.mock.method(ChatMCP.manager, 'startExternalServer', async (id, _onWait, opts) => {
-    started.push({ id, remember: opts?.remember });
+  t.mock.method(ChatMCP.manager, 'startExternalServer', async id => {
+    started.push(id);
     if (id === 'composio') throw new Error('connection failed');
   });
   t.mock.method(console, 'error', () => {});
@@ -70,11 +70,7 @@ test('ChatUIMcp - concilia servicios del proyecto en silencio, detiene los sobra
   assert.deepEqual(await ChatUIMcp.reconcileProjectServices(servers), ['memory', 'playwright']);
   assert.equal(confirms.length, 0);
   assert.deepEqual(stopped, ['obsolete']);
-  assert.deepEqual(started, [
-    { id: 'memory', remember: false },
-    { id: 'composio', remember: false },
-    { id: 'playwright', remember: false }
-  ]);
+  assert.deepEqual(started, ['memory', 'composio', 'playwright']);
   assert.equal(alerts.length, 1);
   assert.equal(alerts[0].options.type, 'error');
   assert.match(alerts[0].message, /Composio/);
@@ -92,7 +88,7 @@ test('ChatUIMcp - concilia servicios del proyecto en silencio, detiene los sobra
   ChatConfig.updateRuntime({ mcpServers: ['memory'], browser: 'browser_action' });
   assert.deepEqual(await ChatUIMcp.reconcileProjectServices(switched), ['memory']);
   assert.deepEqual(stopped, ['playwright']);
-  assert.deepEqual(started, [{ id: 'memory', remember: false }]);
+  assert.deepEqual(started, ['memory']);
   assert.equal(alerts.length, 0);
 
   // No vuelve a arrancar uno que ya pasó a activo en el estado vivo antes de llegar su turno.
@@ -122,7 +118,7 @@ test('ChatMCP - start: resuelve timeouts a estado vivo, propaga errores inmediat
     const req = t.mock.method(manager, 'requestExternalControl', async () => { throw errFactory(); });
     const read = t.mock.method(manager, 'readLiveState', async () => ({ servers: [{ id: 'ejemplo', status: 'running' }] }));
     const waits = [];
-    const res = await manager.startExternalServer('ejemplo', (a, tot) => waits.push([a, tot]), { remember: true });
+    const res = await manager.startExternalServer('ejemplo', (a, tot) => waits.push([a, tot]));
     assert.equal(res.servers[0].status, 'running');
     assert.deepEqual(waits, []);
     assert.equal(read.mock.callCount(), 1);
@@ -135,14 +131,14 @@ test('ChatMCP - start: resuelve timeouts a estado vivo, propaga errores inmediat
   let waits = 0;
   for (const status of ['error', 'available', 'stopped', undefined]) {
     const fetch = t.mock.method(manager, 'readLiveState', async () => ({ servers: status ? [{ id: 'ejemplo', status }] : [] }));
-    await assert.rejects(manager.startExternalServer('ejemplo', () => { waits += 1; }, { remember: true }), error => error.code === 'EXTERNAL_START_STATUS_UNAVAILABLE');
+    await assert.rejects(manager.startExternalServer('ejemplo', () => { waits += 1; }), error => error.code === 'EXTERNAL_START_STATUS_UNAVAILABLE');
     assert.equal(fetch.mock.callCount(), 1);
     fetch.mock.restore();
   }
   assert.equal(waits, 0);
 
   const fetchFail = t.mock.method(manager, 'readLiveState', async () => { throw new Error('Status unavailable'); });
-  await assert.rejects(manager.startExternalServer('ejemplo', null, { remember: true }),
+  await assert.rejects(manager.startExternalServer('ejemplo', null),
     error => error.code === 'EXTERNAL_START_STATUS_UNAVAILABLE' && error.cause.message === 'Status unavailable');
   reqAbort.mock.restore();
   fetchFail.mock.restore();
@@ -150,7 +146,7 @@ test('ChatMCP - start: resuelve timeouts a estado vivo, propaga errores inmediat
   // Error distinto de timeout se propaga sin consultar estado.
   t.mock.method(manager, 'requestExternalControl', async () => { throw new Error('Sin conexión'); });
   const fetchSpy = t.mock.method(manager, 'readLiveState', async () => ({ servers: [] }));
-  await assert.rejects(() => manager.startExternalServer('ejemplo', null, { remember: true }), /Sin conexión/);
+  await assert.rejects(() => manager.startExternalServer('ejemplo', null), /Sin conexión/);
   assert.equal(fetchSpy.mock.callCount(), 0);
 });
 
@@ -167,7 +163,7 @@ test('ChatMCP - start: espera en installing/starting con oauthUrl hasta 10 inten
   });
   const waits1 = [];
   const pending1 = assert.rejects(
-    manager.startExternalServer('ejemplo', (attempt, total) => waits1.push([attempt, total]), { remember: true }),
+    manager.startExternalServer('ejemplo', (attempt, total) => waits1.push([attempt, total])),
     error => error.code === 'EXTERNAL_START_WAIT_TIMEOUT' && error.externalServer.status === 'starting'
   );
   for (let i = 0; i < 10; i += 1) {
@@ -198,7 +194,7 @@ test('ChatMCP - start: espera en installing/starting con oauthUrl hasta 10 inten
   const pending2 = manager.startExternalServer('composio', (a, tot, st, srv) => {
     waits2.push([a, tot, st]);
     receivedServers.push(srv);
-  }, { remember: true });
+  });
   await flushMicrotasks();
   assert.deepEqual(waits2, [[1, 80, 'installing']]);
   t.mock.timers.tick(15000);

@@ -16,20 +16,16 @@ SERVER_CONTROL_METHODS = frozenset({
 def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
     server_id = params.get("serverId")
     opts = params.get("options", {})
-    remember = params.get("remember")
     starting = method == "zerochat/external/servers/start"
     if not isinstance(server_id, str) or not server_id:
         return rpc_error(INVALID_PARAMS, "serverId debe ser un texto no vacío.")
     if not isinstance(opts, dict):
         return rpc_error(INVALID_PARAMS, "options debe ser un objeto.")
-    # Al arrancar, el cliente decide siempre si el servicio se recuerda para la siguiente sesión.
-    if starting and not isinstance(remember, bool):
-        return rpc_error(INVALID_PARAMS, "remember es obligatorio al arrancar y debe ser un booleano.")
     if method == "zerochat/external/servers/secret":
         return _set_secret(server_id, params)
     try:
         if starting:
-            servers = GLOBAL_MCP_MANAGER.start(server_id, remember)
+            servers = GLOBAL_MCP_MANAGER.start(server_id)
         elif method == "zerochat/external/servers/stop":
             servers = GLOBAL_MCP_MANAGER.stop(server_id)
         else:

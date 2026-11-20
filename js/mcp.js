@@ -1018,8 +1018,8 @@
       });
     }
 
-    startExternalServer(serverId, onWait, options) {
-      return getMcpExternal().startExternalServer(this, serverId, onWait, options);
+    startExternalServer(serverId, onWait) {
+      return getMcpExternal().startExternalServer(this, serverId, onWait);
     }
 
     stopExternalServer(serverId) {
@@ -1034,8 +1034,8 @@
       return getMcpExternal().setExternalServerSecret(this, serverId, name, value);
     }
 
-    runExternalServerAction(serverId, action, options) {
-      return getMcpExternal().runExternalServerAction(this, serverId, action, options);
+    runExternalServerAction(serverId, action) {
+      return getMcpExternal().runExternalServerAction(this, serverId, action);
     }
 
     withExternalServerStopped(serverId, action) {

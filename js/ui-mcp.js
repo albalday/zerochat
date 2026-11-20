@@ -304,7 +304,7 @@
     if (toggle) {
       const serverId = toggle.getAttribute('data-server-id');
       const action = toggle.getAttribute('data-action');
-      const ok = await getMCP().manager.runExternalServerAction(serverId, action, { remember: false });
+      const ok = await getMCP().manager.runExternalServerAction(serverId, action);
       if (ok) {
         const Config = getConfig();
         const current = Config.getActive().mcpServers || [];

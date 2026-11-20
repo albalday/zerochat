@@ -62,7 +62,7 @@ class PlaywrightLaunchTest(unittest.TestCase):
             self.config_file.write_text(config if isinstance(config, str) else json.dumps(config), encoding="utf-8")
         with patch.object(self.manager, "_prepare_service", return_value={"serviceDir": "/svc", "nodeExecutable": "node", "pythonExecutable": "python"}), \
                 patch.object(zerochat, "StdioMcpClient", return_value=self.client) as constructor:
-            self.manager.start("playwright", remember=False)
+            self.manager.start("playwright")
             self.manager.close()
         self.launched_env = constructor.call_args.args[3]
         return constructor.call_args.args[1][1:]

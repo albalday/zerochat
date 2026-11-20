@@ -167,7 +167,7 @@ class MailMcpStdioIntegrationTest(unittest.TestCase):
         zerochat.save_secret("mcp:mail:MAIL_USER", "bot@gmail.com")
         zerochat.save_secret("mcp:mail:MAIL_PASSWORD", "app-secret")
 
-        servers = manager.start("mail", remember=False)
+        servers = manager.start("mail")
         mail_status = next(s for s in servers if s["id"] == "mail")
         self.assertEqual(mail_status["status"], "running", mail_status.get("error"))
         tools = {t["name"]: t for t in manager.tools()}

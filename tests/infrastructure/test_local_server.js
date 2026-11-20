@@ -300,10 +300,7 @@ describe('Servidor local zerochat.py', () => {
     });
 
     const start = params => rpc('zerochat/external/servers/start', { serverId: 'ejemplo', ...params });
-    // Arrancar sin decir si se recuerda es un error del cliente.
-    assert.deepEqual((await start({})).error, { code: -32602, message: 'remember es obligatorio al arrancar y debe ser un booleano.' });
-
-    const started = (await start({ remember: true })).result;
+    const started = (await start({})).result;
     const runningExample = (started?.servers || []).find(server => server.id === 'ejemplo');
     assert.equal(runningExample?.status, 'running');
     assert.equal(runningExample?.toolCount, 1);
@@ -328,7 +325,7 @@ describe('Servidor local zerochat.py', () => {
 
     for (const action of ['start', 'stop', 'configure']) {
       const method = `zerochat/external/servers/${action}`;
-      const unknown = await rpc(method, { serverId: 'no-existe', options: {}, remember: false });
+      const unknown = await rpc(method, { serverId: 'no-existe', options: {} });
       assert.equal(unknown.error?.code, -32602, `${method} con servidor desconocido`);
       assert.match(unknown.error?.message, /no-existe/);
       const invalidId = await rpc(method, { serverId: 42 });

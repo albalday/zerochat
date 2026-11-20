@@ -35,7 +35,7 @@
   const TOKEN_PATTERN = /^[A-Za-z0-9_-]{0,256}$/;
 
   // Lo que muestra la sección: la herramienta y la configuración en edición, la guardada y los motores.
-  let section = { tool: null, savedTool: null, config: null, savedConfig: null, engines: null, notice: null };
+  let section = { tool: null, config: null, savedConfig: null, engines: null, notice: null };
   let pollTimer = null;
   // Fijados al montar: el contenedor que se pinta y cómo abrir otra sección de los ajustes.
   let container = null;
@@ -69,19 +69,18 @@
   /**
    * Qué hace Guardar en la sección según lo elegido y el estado de Playwright MCP en el servidor
    * (`status`, null sin conexión). La configuración del navegador solo se valida y se envía con
-   * Playwright MCP elegido; un cambio con el servidor en marcha ofrece reiniciarlo y elegirlo de nuevo
-   * lo arranca si está detenido.
+   * Playwright MCP elegido; un cambio con el servidor en marcha ofrece reiniciarlo. El arranque y la
+   * parada de Playwright MCP los concilia `reconcileProjectServers`.
    */
-  function getSavePlan({ tool, savedTool, config, savedConfig }, status) {
-    const plan = { tokenInvalid: false, setConfig: false, offerRestart: false, start: false };
+  function getSavePlan({ tool, config, savedConfig }, status) {
+    const plan = { tokenInvalid: false, setConfig: false, offerRestart: false };
     if (tool !== 'playwright') return plan;
     if (config && !tokenValid(config)) return { ...plan, tokenInvalid: true };
     const setConfig = Boolean(config && savedConfig) && !sameConfig(config, savedConfig);
     return {
       ...plan,
       setConfig,
-      offerRestart: setConfig && McpStatus.isRunning(status),
-      start: savedTool !== 'playwright' && McpStatus.canStart(status)
+      offerRestart: setConfig && McpStatus.isRunning(status)
     };
   }
 
@@ -222,7 +221,7 @@
 
   /** Carga la sección al abrir los ajustes con la herramienta de navegación de la configuración. */
   function load(tool, { fetch = true } = {}) {
-    section = { tool, savedTool: tool, config: null, savedConfig: null, engines: null, notice: null };
+    section = { tool, config: null, savedConfig: null, engines: null, notice: null };
     render();
     if (fetch) refreshServerData().catch(showError);
   }
@@ -305,9 +304,6 @@
     })) {
       manager.withExternalServerStopped('playwright');
     }
-    // Arrancado al elegirlo, queda recordado para la siguiente sesión.
-    if (plan.start) manager.runExternalServerAction('playwright', 'start');
-    section.savedTool = section.tool;
     return true;
   }
 
