@@ -109,7 +109,6 @@ class HandlerTestCase(ControllerTestCase):
         self.controller = zerochat.ACCESS_CONTROLLER
         self.controller.clear_session()
         self.addCleanup(self.controller.clear_session)
-        self.handler = zerochat.ZeroChatServerHandler.__new__(zerochat.ZeroChatServerHandler)
 
     def call_local(self, name, arguments, **extra):
         res, err, _ = zerochat.dispatch_local("tools/call", {"name": name, "arguments": arguments, **extra}, cwd())

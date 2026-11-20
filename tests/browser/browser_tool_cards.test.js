@@ -2,9 +2,8 @@ const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { withTestApp, closeGlobalBrowser } = require('../helpers/browser-env.js');
 
-// Tarjetas de herramientas, contenido Markdown interactivo, gráficos, chips de adjuntos y
-// utilidades de DOM en el navegador real. Las pestañas nuevas se registran sustituyendo
-// window.open, y los Blob que se abren, envolviendo URL.createObjectURL.
+// Tarjetas de herramientas, gráficos y utilidades de DOM en el navegador real. Las pestañas nuevas
+// se registran sustituyendo window.open, y los Blob que se abren, envolviendo URL.createObjectURL.
 
 
 describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, () => {

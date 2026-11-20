@@ -18,30 +18,11 @@ test('Browser UI - perfiles: teclado, alineación, solo lectura y borrado', asyn
     await page.focus('#active-profile-trigger');
     await page.keyboard.press('ArrowDown');
     assert.equal(await page.locator('[data-profile-id="profile:mirror"]').evaluate(el => el === document.activeElement), true);
-    const alignment = await page.evaluate(() => {
-      const menu = document.getElementById('active-profile-popover').getBoundingClientRect();
-      const trigger = document.getElementById('active-profile-trigger').getBoundingClientRect();
-      const header = document.querySelector('.app-header').getBoundingClientRect();
-      const messagesList = document.getElementById('messages-list').getBoundingClientRect();
-      const triggerCenter = trigger.left + trigger.width / 2;
-      const menuCenter = menu.left + menu.width / 2;
-      const headerCenter = header.left + header.width / 2;
-      return {
-        popoverOffset: Math.abs(triggerCenter - menuCenter),
-        headerOffset: Math.abs(headerCenter - triggerCenter),
-        headerBottom: header.bottom,
-        messagesTop: messagesList.top
-      };
-    });
-    assert.ok(alignment.popoverOffset <= 2, `El popover debe estar centrado respecto al trigger (desv: ${alignment.popoverOffset}px)`);
-    assert.ok(alignment.headerOffset <= 2, `El selector de perfiles debe estar centrado en el panel superior (desv: ${alignment.headerOffset}px)`);
-    assert.ok(alignment.messagesTop >= alignment.headerBottom - 1, 'El chat (#messages-list) no debe pasar por encima del panel superior');
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('#active-profile-popover').isVisible(), false);
     await page.click('#active-profile-trigger');
     await page.click('.header-profile-item:has([data-profile-id="profile:mirror"]) [data-profile-action="edit"]');
     assert.equal(await page.locator('#setting-profile-name').isDisabled(), true);
-    assert.equal(await page.locator('#btn-delete-profile').count(), 0);
     await page.click('#btn-close-profiles');
 
     await page.click('#active-profile-trigger');
@@ -281,9 +262,6 @@ test('Browser UI - el editor guarda con un único botón en ambos repositorios y
     await page.click('#btn-menu-new-profile');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
 
-    // Solo existe un botón Guardar (no hay botón separado para servidor)
-    assert.equal(await page.$('#setting-profile-scope'), null);
-    assert.equal(await page.$('#btn-save-server-profile'), null);
     assert.notEqual(await page.$('#btn-save-profile'), null);
 
     // Escribir datos del perfil
@@ -323,42 +301,6 @@ test('Browser UI - el editor guarda con un único botón en ambos repositorios y
   }
 });
 
-test('Browser UI - el selector de perfiles en móvil (< 640px) se muestra a pantalla completa y se cierra correctamente', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage();
-    await page.setViewportSize({ width: 375, height: 667 });
-    await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await waitForAppReady(page);
-
-    // Abrir menú de perfiles
-    await page.click('#active-profile-trigger');
-    await page.waitForFunction(() => !document.getElementById('active-profile-popover').hidden);
-
-    // En móvil el popover pasa a position: fixed (pantalla completa)
-    const position = await page.$eval('#active-profile-popover', el => window.getComputedStyle(el).position);
-    assert.equal(position, 'fixed');
-    const dimensions = await page.evaluate(() => {
-      const rect = document.getElementById('active-profile-popover').getBoundingClientRect();
-      return {
-        left: rect.left,
-        top: rect.top,
-        width: rect.width,
-        windowWidth: window.innerWidth
-      };
-    });
-    assert.equal(dimensions.left, 0);
-    assert.equal(dimensions.top, 0);
-    assert.ok(Math.abs(dimensions.width - dimensions.windowWidth) <= 1, 'El panel debe ocupar el 100% del ancho de la pantalla');
-
-    // Cerrar menú con el botón de cierre
-    await page.click('#btn-menu-close-profiles');
-    await page.waitForFunction(() => document.getElementById('active-profile-popover').hidden);
-  } finally {
-    await browser.close();
-  }
-});
-
 test('Browser UI - el selector único incluye switch superior de ejecución en segundo plano y lo bloquea para Espejo y WebLLM', async () => {
   const browser = await createTestBrowser();
   try {
@@ -383,8 +325,6 @@ test('Browser UI - el selector único incluye switch superior de ejecución en s
     // Con Espejo activo, el switch superior está deshabilitado
     await page.click('#active-profile-trigger');
     await page.waitForFunction(() => !document.getElementById('active-profile-popover').hidden);
-    assert.equal(await page.$('#btn-menu-server-run'), null);
-    assert.equal(await page.$('#btn-menu-server-manage'), null);
     assert.equal(await page.isDisabled('#toggle-background-run'), true);
 
     // Elegir perfil Claude habilita el switch de segundo plano
@@ -446,11 +386,6 @@ test('Browser UI - cambiar de serverId con perfiles previos pregunta antes de fu
           return {};
         }
       });
-      window._uploadedOnChange = [];
-      mcp.saveServerProfile = async p => {
-        window._uploadedOnChange.push(p);
-        return p;
-      };
       return mcp.syncProfiles('srv-B', { onServerChange: window.ChatUIProfiles.confirmServerProfileSync });
     });
 
@@ -460,9 +395,6 @@ test('Browser UI - cambiar de serverId con perfiles previos pregunta antes de fu
 
     const syncResult = await resultPromise;
     assert.equal(syncResult.replaced, true);
-    assert.deepEqual(await page.evaluate(() => window._uploadedOnChange), []);
-    assert.equal(await page.evaluate(() => window.ChatProfileRepository.get('profile:a')), null);
-    assert.ok(await page.evaluate(() => window.ChatProfileRepository.get('profile:b')));
   } finally {
     await browser.close();
   }

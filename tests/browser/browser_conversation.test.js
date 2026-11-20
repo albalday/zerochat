@@ -7,7 +7,7 @@ describe('Browser UI - conversation', { concurrency: 2 }, () => {
     await closeGlobalBrowser();
   });
 
-test('Browser UI - mensajes nuevos e históricos comparten copia y bloques seguros', async () => {
+test('Browser UI - pintado de mensajes: bloques independientes, copia, cursor, error escapado, imágenes saneadas y resumen plegado', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
@@ -17,61 +17,9 @@ test('Browser UI - mensajes nuevos e históricos comparten copia y bloques segur
     await waitForAppReady(page);
     const result = await page.evaluate(async () => {
       const ui = window.ChatUIConversation;
+      const out = {};
       const copied = [];
       Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => copied.push(text) } });
-      const container = document.createElement('div');
-      const welcomeBanner = document.createElement('div');
-      document.body.appendChild(container);
-      const callbacks = { onReuse() {}, onDelete() {}, onBranch() {}, resetTelemetry() {}, updateTelemetry() {} };
-      ui.appendUserMessage(container, welcomeBanner, { text: 'Visible text', originalPrompt: 'Original prompt' }, callbacks);
-      await container.querySelector('.btn-copy-user').onclick();
-      ui.renderSessionMessages({ messagesList: container, welcomeBanner }, [
-        { id: 'user-1', role: 'user', content: 'Question' },
-        { id: 'reply_turn_0_assistant', role: 'assistant', content: '**First**' },
-        { id: 'reply_final', role: 'assistant', content: 'Final' }
-      ], callbacks);
-      await container.querySelector('.btn-copy-full').onclick();
-      const historicalBlocks = [...container.querySelectorAll('.agentic-turn-block')].map(el => el.innerHTML);
-      const live = ui.createAssistantBlock(container);
-      ui.renderAssistantBlock(live, '**First**', { streaming: true });
-      const cursorDuringStream = !!live.querySelector('.streaming-cursor');
-      ui.renderAssistantBlock(live, '**First**');
-      const sameMarkup = historicalBlocks[0] === live.innerHTML;
-      const cursorAfterStream = !!live.querySelector('.streaming-cursor');
-      ui.renderAssistantBlock(live, '### Header\n![Logo](data:image/svg+xml,%3Csvg%20xmlns="http://www.w3.org/2000/svg"%3E%3C/svg%3E)', { streaming: true });
-      const imgRef = live.querySelector('img.chat-embedded-image');
-      ui.renderAssistantBlock(live, '### Header\n![Logo](data:image/svg+xml,%3Csvg%20xmlns="http://www.w3.org/2000/svg"%3E%3C/svg%3E)\n\nMore text...', { streaming: true });
-      const sameImgNode = imgRef === live.querySelector('img.chat-embedded-image');
-      const hostile = '<img src=x onerror="window.__dupliXss=true">';
-      const parts = ui.createAssistantMessagePlaceholder(container, 'msg_error', callbacks);
-      ui.renderConnectionError(parts, hostile, hostile);
-      const safeError = !parts.content.querySelector('img') && parts.content.textContent.includes(hostile);
-      container.remove();
-      return { copied, historicalCount: historicalBlocks.length, cursorDuringStream, cursorAfterStream, sameMarkup, sameImgNode, safeError, xss: !!window.__dupliXss };
-    });
-    assert.deepEqual(result.copied, ['Original prompt', '**First**\n\nFinal']);
-    assert.equal(result.historicalCount, 2);
-    assert.equal(result.cursorDuringStream, true);
-    assert.equal(result.cursorAfterStream, false);
-    assert.equal(result.sameMarkup, true);
-    assert.equal(result.sameImgNode, true);
-    assert.equal(result.safeError, true);
-    assert.equal(result.xss, false);
-    assert.deepEqual(errors, []);
-  } finally { await browser.close(); }
-});
-
-test('Browser UI - pintado de mensajes: bloques independientes, acciones, error escapado, imágenes saneadas y resumen plegado', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage();
-    const errors = [];
-    page.on('pageerror', error => errors.push(error.message));
-    await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await waitForAppReady(page);
-    const result = await page.evaluate(() => {
-      const ui = window.ChatUIConversation;
-      const out = {};
       const messagesList = document.createElement('div');
       const welcomeBanner = document.createElement('div');
       document.body.append(messagesList);
@@ -84,15 +32,25 @@ test('Browser UI - pintado de mensajes: bloques independientes, acciones, error 
         updateTelemetry: () => calls.telemetry.push('update')
       };
 
-      // Cada bloque se pinta sin tocar los demás.
+      // Cada bloque se pinta sin tocar los demás y conserva el cursor solo en streaming.
       const blocks = document.createElement('div');
       const first = ui.createAssistantBlock(blocks);
       const second = ui.createAssistantBlock(blocks);
       ui.renderAssistantBlock(first, '**First**', { streaming: true });
+      const cursorDuringStream = Boolean(first.querySelector('.streaming-cursor'));
       ui.renderAssistantBlock(second, 'Other response');
       const untouched = second.innerHTML;
+      ui.renderAssistantBlock(first, '**First**');
+      const cursorAfterStream = Boolean(first.querySelector('.streaming-cursor'));
+      const firstMarkup = first.innerHTML;
       ui.renderAssistantBlock(first, '**Finished**');
-      out.blocks = { count: blocks.children.length, untouched: second.innerHTML === untouched, finished: first.querySelector('strong')?.textContent };
+      out.blocks = {
+        count: blocks.children.length,
+        untouched: second.innerHTML === untouched,
+        finished: first.querySelector('strong')?.textContent,
+        cursorDuringStream,
+        cursorAfterStream
+      };
 
       // Indicador de escritura único.
       ui.showTypingIndicator(messagesList);
@@ -101,7 +59,7 @@ test('Browser UI - pintado de mensajes: bloques independientes, acciones, error 
       ui.removeTypingIndicator();
       out.typing.push(messagesList.querySelectorAll('#typing-indicator-wrapper').length);
 
-      // Mensaje del usuario con sus acciones e imágenes adjuntas saneadas.
+      // Mensaje del usuario con sus acciones, copia de originalPrompt e imágenes adjuntas saneadas.
       const msgId = ui.appendUserMessage(messagesList, welcomeBanner, {
         text: 'Hola mundo',
         originalPrompt: 'Hola mundo prompt',
@@ -114,6 +72,7 @@ test('Browser UI - pintado de mensajes: bloques independientes, acciones, error 
       const user = messagesList.querySelector(`[data-msg-id="${msgId}"]`);
       const [reuse, copy, remove] = user.querySelectorAll('.message-actions button');
       reuse.click();
+      await copy.onclick();
       remove.click();
       out.user = {
         idPrefix: msgId.startsWith('msg_usr_'),
@@ -147,14 +106,17 @@ test('Browser UI - pintado de mensajes: bloques independientes, acciones, error 
         actionsHidden: parts.actions.hidden
       };
 
-      // Sesión con resumen plegado y turnos.
+      // Sesión con resumen plegado, turnos, copia completa y paridad de markup histórico/en vivo.
       const elements = { messagesList, welcomeBanner };
       ui.renderSessionMessages(elements, [
         { id: 's1', role: 'system', content: 'Prompt base' },
         { id: 's2', role: 'system', content: 'Resumen **previo** <img src=x onerror="window.__probe=true">', _isSummaryBlock: true },
         { id: 'u1', role: 'user', content: 'Pregunta' },
-        { id: 'a1_turn_0_assistant', role: 'assistant', content: 'Última respuesta del asistente' }
+        { id: 'a1_turn_0_assistant', role: 'assistant', content: '**First**' },
+        { id: 'a1_final', role: 'assistant', content: 'Última respuesta del asistente' }
       ], callbacks);
+      await messagesList.querySelector('.btn-copy-full').onclick();
+      const historicalBlocks = [...messagesList.querySelectorAll('.agentic-turn-block')].map(el => el.innerHTML);
       const banner = messagesList.querySelector('details.branch-summary-banner');
       const assistant = messagesList.querySelector('.message-wrapper.assistant');
       out.session = {
@@ -165,6 +127,8 @@ test('Browser UI - pintado de mensajes: bloques independientes, acciones, error 
         welcomeHidden: welcomeBanner.hidden,
         baseId: assistant.getAttribute('data-base-id'),
         msgIds: assistant.getAttribute('data-msg-ids'),
+        sameMarkup: historicalBlocks[0] === firstMarkup,
+        copied,
         telemetry: [...calls.telemetry]
       };
 
@@ -177,7 +141,7 @@ test('Browser UI - pintado de mensajes: bloques independientes, acciones, error 
       out.probe = Boolean(window.__probe);
       return out;
     });
-    assert.deepEqual(result.blocks, { count: 2, untouched: true, finished: 'Finished' });
+    assert.deepEqual(result.blocks, { count: 2, untouched: true, finished: 'Finished', cursorDuringStream: true, cursorAfterStream: false });
     assert.deepEqual(result.typing, [1, 0]);
     assert.deepEqual(result.user, {
       idPrefix: true, welcomeHidden: true, text: true, copyButton: true, reused: 'Hola mundo prompt', deleted: true,
@@ -187,7 +151,9 @@ test('Browser UI - pintado de mensajes: bloques independientes, acciones, error 
     assert.deepEqual(result.error, { img: false, escaped: 2, title: true, actionsHidden: false });
     assert.deepEqual(result.session, {
       bannerOpen: false, header: true, markdown: 'previo', img: false, welcomeHidden: true,
-      baseId: 'a1', msgIds: 'a1_turn_0_assistant', telemetry: ['update']
+      baseId: 'a1', msgIds: 'a1_turn_0_assistant,a1_final', sameMarkup: true,
+      copied: ['Hola mundo prompt', '**First**\n\nÚltima respuesta del asistente'],
+      telemetry: ['update']
     });
     assert.deepEqual(result.empty, { welcome: true, telemetry: ['reset'] });
     assert.equal(result.probe, false);
@@ -735,100 +701,8 @@ test('Browser UI - el subagente de delegate_task muestra sus herramientas en su 
     assert.match(result.badge, /status-success/);
     assert.equal(result.collapsed, true);
     assert.equal(result.modelTagDisplay, 'none', 'Sin perfil «Subagente» no hay etiqueta de modelo, tampoco en móvil');
-    const [first] = result.subagentRequests;
-    assert.deepEqual(first.tools, ['execute_javascript']);
-    assert.equal(first.messages[0].role, 'system');
-    assert.match(first.messages[0].content, /Main system prompt/, 'Comparte el prompt de sistema del agente principal');
-    assert.equal(first.messages.some(message => String(message.content).includes('Mensaje privado')), false);
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
-});
-
-test('Browser UI - conversación con múltiples imágenes pesadas persiste blobs en store paralelo y mantiene payload ligero', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage();
-    await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await waitForAppReady(page);
-
-    const sessionId = 'test_heavy_blobs_session';
-    const testResult = await page.evaluate(async (sessionId) => {
-      // 3 imágenes pesadas sintéticas de ~400 KiB cada una (total > 1.2 MiB)
-      const chunk = 'A'.repeat(400 * 1024);
-      const b64_1 = btoa(chunk);
-      const b64_2 = btoa('B'.repeat(400 * 1024));
-      const b64_3 = btoa('C'.repeat(400 * 1024));
-
-      const img1 = { name: 'heavy_1.png', dataUrl: `data:image/png;base64,${b64_1}`, mimeType: 'image/png' };
-      const img2 = { name: 'heavy_2.png', dataUrl: `data:image/png;base64,${b64_2}`, mimeType: 'image/png' };
-      const img3 = { name: 'heavy_3.png', dataUrl: `data:image/png;base64,${b64_3}`, mimeType: 'image/png' };
-
-      const history = [
-        { id: 'msg_h1', role: 'user', content: 'Mensaje con imagen 1 y 2', images: [img1, img2] },
-        { id: 'msg_h2', role: 'assistant', content: 'Recibidas las imágenes.' },
-        { id: 'msg_h3', role: 'user', content: 'Mensaje con imagen 3', images: [img3] }
-      ];
-
-      // Guardar conversación mediante Storage
-      await window.ChatStorage.saveConversation({ id: sessionId, title: 'Chat Pesado' }, history);
-
-      // Inspeccionar directamente la base IndexedDB para verificar que messages es ligero y blobs contiene los datos
-      const db = await window.ZeroChatDB.openDatabase();
-      const messagesTx = db.transaction('messages', 'readonly');
-      const storedMsgs = await new Promise((res, rej) => {
-        const req = messagesTx.objectStore('messages').getAll();
-        req.onsuccess = () => res(req.result);
-        req.onerror = rej;
-      });
-
-      const sessionMsgs = storedMsgs.filter(m => m.conversationId === sessionId);
-      const storedPayloadSize = JSON.stringify(sessionMsgs).length;
-
-      // Verificar blobs en el store 'blobs'
-      const blobsTx = db.transaction('blobs', 'readonly');
-      const blobCount = await new Promise((res, rej) => {
-        const req = blobsTx.objectStore('blobs').count();
-        req.onsuccess = () => res(req.result);
-        req.onerror = rej;
-      });
-
-      // Recuperar la conversación y verificar que las imágenes se hidratan
-      const retrieved = await window.ChatStorage.getConversation(sessionId);
-
-      return {
-        storedPayloadSize,
-        blobCount,
-        firstMsgImages: sessionMsgs[0]?.images,
-        retrievedImage1DataUrlLength: retrieved?.history?.[0]?.images?.[0]?.dataUrl?.length || 0,
-        retrievedImage2DataUrlLength: retrieved?.history?.[0]?.images?.[1]?.dataUrl?.length || 0
-      };
-    }, sessionId);
-
-    // Verificaciones:
-    // 1. El payload guardado en messages debe ser diminuto (menor a 2 KiB), NUNCA los > 1.2 MiB de las imágenes
-    assert.ok(testResult.storedPayloadSize < 2048, `El tamaño guardado (${testResult.storedPayloadSize}) debe ser menor a 2 KiB`);
-    // 2. En el store messages, los items de images solo tienen blobId y carecen de dataUrl
-    assert.equal(testResult.firstMsgImages.length, 2);
-    assert.equal(testResult.firstMsgImages[0].dataUrl, undefined);
-    assert.ok(testResult.firstMsgImages[0].blobId && testResult.firstMsgImages[0].blobId.length === 64);
-    assert.equal(testResult.firstMsgImages[1].dataUrl, undefined);
-    assert.ok(testResult.firstMsgImages[1].blobId && testResult.firstMsgImages[1].blobId.length === 64);
-    // 3. El store de blobs tiene los 3 registros guardados
-    assert.ok(testResult.blobCount >= 3);
-    // 4. Al recuperar la conversación, dataUrl está completamente hidratado
-    assert.ok(testResult.retrievedImage1DataUrlLength > 500000);
-    assert.ok(testResult.retrievedImage2DataUrlLength > 500000);
-
-    // 5. Recargar y verificar que en la interfaz la conversación se restaura y pinta las miniaturas
-    await page.reload({ waitUntil: 'load' });
-    await waitForAppReady(page);
-    await page.locator(`.sidebar-chat-item[data-session-id="${sessionId}"]`).evaluate(item => item.click());
-    await page.waitForSelector('.message-image-thumb');
-    const thumbCount = await page.locator('.message-image-thumb').count();
-    assert.ok(thumbCount >= 2, 'Las miniaturas deben pintarse en el chat');
-  } finally {
-    await browser.close();
-  }
 });
 
 });

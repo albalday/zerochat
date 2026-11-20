@@ -2,8 +2,8 @@ const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { withTestApp, closeGlobalBrowser } = require('../helpers/browser-env.js');
 
-// Envío de mensajes, estado de generación, telemetría, menú de razonamiento, panel de depuración y
-// borrado de datos sobre la aplicación real. El proveedor se sustituye en ChatAPI.streamChatCompletion.
+// Envío de mensajes, estado de generación y errores de proveedor sobre la aplicación real.
+// El proveedor se sustituye en ChatAPI.streamChatCompletion.
 
 /** Sustituye la respuesta del proveedor por `respond` (una función que se evalúa en la página). */
 function useProvider(page, respond) {
@@ -31,7 +31,7 @@ describe('Browser UI - generación, estado y paneles auxiliares', { concurrency:
   test('Browser UI - sin modelo, un error del proveedor o un error en el streaming se muestran escapados en su tarjeta', async () => {
     await withTestApp(async page => {
       page.on('console', () => {});
-      await page.evaluate(() => window.ChatConfig.updateRuntime({ model: '', apiUrl: 'http://x/<img src=x onerror="window.__probe=1">', apiType: 'openai', activeProfile: null }));
+      await page.evaluate(() => window.ChatConfig.updateRuntime({ model: '', apiUrl: 'http://x/<img src=x onerror="window.__probe=1">', apiType: 'openai' }));
       await send(page, 'Hola');
       const noModel = lastAssistant(page);
       assert.match(await noModel.textContent(), new RegExp(await page.evaluate(() => window.ChatI18n.t('err_no_model_title'))));
@@ -71,7 +71,7 @@ describe('Browser UI - generación, estado y paneles auxiliares', { concurrency:
       await page.reload({ waitUntil: 'load' });
       await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready') && window.ChatState.get('messages').length > 0);
       await page.evaluate(() => {
-        window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
+        window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai' });
         const real = window.ChatAPI.streamChatCompletion;
         window.ChatAPI.streamChatCompletion = params => real({ ...params, apiType: 'claude' });
       });

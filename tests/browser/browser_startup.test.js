@@ -118,12 +118,11 @@ test('Browser PWA - no ofrece instalación al abrir directamente ni desde la ayu
         window.dispatchEvent(event);
         return {
           prevented: event.defaultPrevented,
-          hasButton: Boolean(document.getElementById('btn-install-pwa')),
           hasManifest: Boolean(document.querySelector('link[rel="manifest"]')),
           prompted
         };
       });
-      assert.deepEqual(eventState, { prevented: true, hasButton: false, hasManifest: true, prompted: false });
+      assert.deepEqual(eventState, { prevented: true, hasManifest: true, prompted: false });
       assert.deepEqual(pageErrors, []);
       await page.close();
     }
@@ -228,7 +227,7 @@ for (const outcome of ['later', 'reload', 'none', 'offline']) {
           window.ChatMCP.manager.startExternalServer = async serverId => {
             window.__recordStartup('mcp');
             window.__mcpStartedId = serverId;
-            return { servers: [{ id: serverId, enabled: true, status: 'running' }] };
+            return { servers: [{ id: serverId, status: 'running' }] };
           };
           window.ChatDialogs.confirm = async (message, options) => {
             window.__updateNotice = { message, options };

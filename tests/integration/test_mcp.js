@@ -1015,3 +1015,71 @@ test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversatio
     ChatState.set('sessions', previousSessions);
   }
 });
+
+test('MCP - setProjectDirectory aplica projectEnvironment guardado y concilia arranque/parada de MCPs y Navegador', async t => {
+  const ChatConfig = require('../../js/config-store.js');
+  const previousMcp = ChatState.get('mcp');
+  const manager = MCP.manager;
+  const envEvents = [];
+  const savedEnvs = {
+    '/proj/a': {
+      saved: true,
+      systemDataPrompt: 'Instrucciones proyecto A',
+      enabledTools: { search_web: false },
+      mcpServers: ['memory'],
+      browser: 'playwright',
+      updatedAt: 100
+    },
+    '/proj/b': { saved: false, systemDataPrompt: null, enabledTools: {}, mcpServers: [], browser: 'browser_action', updatedAt: 0 }
+  };
+  const serverStates = { memory: 'stopped', playwright: 'stopped' };
+  const listServers = () => [
+    { id: 'memory', status: serverStates.memory, displayName: { es: 'Memoria' } },
+    { id: 'playwright', status: serverStates.playwright, displayName: { es: 'Playwright' } }
+  ];
+  const previousClient = manager.clients.get('mcp_proxy');
+  manager.clients.set('mcp_proxy', {
+    async request(method, params) {
+      if (method === 'zerochat/project/set_directory') {
+        const cwd = params.path;
+        return {
+          cwd,
+          policies: { allowAll: false, tools: {}, servers: {}, directoryRules: [`RWX:${cwd}/**`], commandPatterns: { global: [], project: [], session: [] } },
+          projectEnvironment: savedEnvs[cwd] || savedEnvs['/proj/b']
+        };
+      }
+      if (method === 'zerochat/external/servers/start') {
+        serverStates[params.serverId] = 'running';
+        envEvents.push(`start:${params.serverId}`);
+        return { servers: listServers() };
+      }
+      if (method === 'zerochat/external/servers/stop') {
+        serverStates[params.serverId] = 'stopped';
+        envEvents.push(`stop:${params.serverId}`);
+        return { servers: listServers() };
+      }
+      if (method === 'tools/list') return { tools: [] };
+      return {};
+    }
+  });
+  ChatState.set('mcp', { status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/proj/init' }, externalServers: listServers() });
+  t.after(() => {
+    if (previousClient) manager.clients.set('mcp_proxy', previousClient);
+    else manager.clients.delete('mcp_proxy');
+    ChatState.set('mcp', previousMcp);
+  });
+
+  await manager.setProjectDirectory('/proj/a');
+  assert.equal(ChatConfig.getActive().systemDataPrompt, 'Instrucciones proyecto A');
+  assert.equal(ChatConfig.getActive().enabledTools.search_web, false);
+  assert.deepEqual(ChatConfig.getActive().mcpServers, ['memory']);
+  assert.equal(ChatConfig.getActive().browser, 'playwright');
+  assert.deepEqual(envEvents, ['start:memory', 'start:playwright']);
+
+  envEvents.length = 0;
+  await manager.setProjectDirectory('/proj/b');
+  assert.equal(ChatConfig.getActive().systemDataPrompt, ChatConfig.DEFAULT_SYSTEM_DATA_PROMPT);
+  assert.deepEqual(ChatConfig.getActive().mcpServers, []);
+  assert.equal(ChatConfig.getActive().browser, 'browser_action');
+  assert.deepEqual(envEvents, ['stop:memory', 'stop:playwright']);
+});

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { withTestApp, closeGlobalBrowser } = require('../helpers/browser-env.js');
 
 // Consulta de modelos e inspector de conexión sobre el editor de perfiles real. La red se sustituye
-// en ChatAPI (fetchServerModels, inspectProvider y las operaciones de WebLLM).
+// en ChatAPI (fetchServerModels e inspectProvider).
 
 /**
  * Página con el editor de perfiles preparado. `window.appElements()` devuelve los elementos con id

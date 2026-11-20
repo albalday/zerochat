@@ -61,7 +61,7 @@ class StorageEngineTest(unittest.TestCase):
         conn.commit()
         conn.close()
 
-        # Al abrir con zerochat.open_storage, se deben aplicar las migraciones 4 a 9 sin errores y fijar permisos 0700/0600
+        # Al abrir con zerochat.open_storage, se deben aplicar todas las migraciones sin errores y fijar permisos 0700/0600
         with zerochat.open_storage() as conn:
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall()}
             migrations = {row["version"] for row in conn.execute("SELECT version FROM schema_migrations;").fetchall()}
@@ -187,8 +187,6 @@ class StorageEngineTest(unittest.TestCase):
         self.assertTrue(zerochat.delete_general_profile(locked["id"]))
 
     def test_rpc_dispatch_profiles_crud(self):
-        handler = object.__new__(zerochat.ZeroChatServerHandler)
-
         payload = {
             "name": "Claude Sonnet",
             "description": "Perfil general via RPC",
@@ -219,9 +217,7 @@ class StorageEngineTest(unittest.TestCase):
         self.assertTrue(res["deleted"])
 
     def test_rpc_dispatch_conversations_crud(self):
-        handler = object.__new__(zerochat.ZeroChatServerHandler)
-
-        # 1. Guardar conversación mediante _dispatch_local
+        # 1. Guardar conversación mediante dispatch_local
         payload1 = {
             "conversation": {"id": "rpc_conv_1", "title": "Conversación RPC", "createdAt": 1700000000000, "updatedAt": 1700000001000},
             "messages": [{"id": "m1", "role": "user", "content": "Hola desde RPC"}]
@@ -298,8 +294,6 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(len(res_empty["conversations"]), 0)
 
     def test_rpc_dispatch_conversations_validaciones(self):
-        handler = object.__new__(zerochat.ZeroChatServerHandler)
-
         # get: id vacío o ausente (-32602)
         for bad_id in ({}, {"id": ""}, {"id": "   "}, {"id": 123}):
             with self.subTest(bad_id=bad_id):
