@@ -21,6 +21,18 @@
   .app-header {
     --header-height: 3rem;
   }
+
+  .header-left,
+  .header-right {
+    gap: 0.2rem;
+  }
+
+  .header-center {
+    position: static;
+    transform: none;
+    flex: 1 1 auto;
+    max-width: none;
+  }
 }
 
 .header-left,
@@ -69,6 +81,7 @@
   color: var(--text-secondary);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
+  text-decoration: none;
   cursor: pointer;
   transition: all 0.15s ease;
 }

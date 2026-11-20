@@ -9,19 +9,21 @@ from core.logging import log_event
 from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, RpcOutcome, dispatch_table, rpc_error, rpc_result
 from run_mode.state import cancel_server_run, get_runs_dir
 from storage.db import (
+    commit_conversation_upload,
     delete_all_conversations,
     delete_conversation,
     delete_general_profile,
     delete_project_conversations,
     get_blob,
-    get_conversation,
     get_general_profile_with_key,
+    get_conversation,
     has_blobs,
     list_conversations,
     list_general_profiles,
     put_blob,
     rename_conversation,
     save_conversation,
+    save_conversation_chunk,
     save_general_profile,
 )
 
@@ -104,11 +106,22 @@ def _rpc_delete_conversations(params: dict) -> RpcOutcome:
     return rpc_result({"deleted": delete_conversation(params.get("id"))})
 
 
+def _rpc_save_conversation(params: dict) -> RpcOutcome:
+    if not isinstance(params, dict):
+        raise ValueError("Los parámetros deben ser un objeto")
+    upload_id = params.get("uploadId")
+    if upload_id is not None:
+        if params.get("messages") is not None:
+            raise ValueError("No se puede combinar uploadId y messages")
+        return rpc_result({"conversation": commit_conversation_upload(params.get("conversation"), upload_id)})
+    return rpc_result({"conversation": save_conversation(params.get("conversation"), params.get("messages"))})
+
+
 CONVERSATION_METHODS = {
     "zerochat/conversations/list": lambda _params: rpc_result({"conversations": list_conversations()}),
     "zerochat/conversations/get": lambda params: rpc_result({"conversation": get_conversation(params.get("id"))}),
-    "zerochat/conversations/save": lambda params: rpc_result(
-        {"conversation": save_conversation(params.get("conversation"), params.get("messages"))}),
+    "zerochat/conversations/save": _rpc_save_conversation,
+    "zerochat/conversations/save_chunk": lambda params: rpc_result(save_conversation_chunk(params)),
     "zerochat/conversations/rename": lambda params: rpc_result(
         {"renamed": rename_conversation(params.get("id"), params.get("title"))}),
     "zerochat/conversations/delete": _rpc_delete_conversations,

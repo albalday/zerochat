@@ -19,6 +19,10 @@
   const STORAGE_PREFIX = 'zerochat_';
   const BACKEND_SESSION_COOKIE = 'zerochat_backend_session_v1';
   const BACKEND_SESSION_MAX_AGE_SECONDS = 26 * 60 * 60;
+  const CONVERSATION_SAVE_CHUNK_BYTES = 512 * 1024;
+  const textEncoder = new TextEncoder();
+  const utf8ByteLength = text => textEncoder.encode(text).length;
+  const rpcRequestByteSize = (method, params) => utf8ByteLength(JSON.stringify({ jsonrpc: '2.0', id: 999999, method, params }));
   // Campos opcionales de un mensaje que se guardan cuando están presentes.
   const OPTIONAL_MESSAGE_FIELDS = ['tool_calls', 'tool_call_id', 'name', 'stats', 'contextDateAnchor', 'images', 'commandNotes', '_isSummaryBlock', '_compressedMetadata'];
   let lastClearAllStorageError = '';
@@ -359,10 +363,132 @@
     });
   }
 
+  function fitMessageContentSlice(text, startOffset, makeParams, maxBytes) {
+    let low = 1;
+    let high = Math.min(text.length - startOffset, maxBytes);
+    let best = 0;
+    while (low <= high) {
+      const mid = (low + high) >> 1;
+      if (rpcRequestByteSize('zerochat/conversations/save_chunk', makeParams(text.slice(startOffset, startOffset + mid))) <= maxBytes) {
+        best = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    if (best === 0) throw new Error('Message metadata exceeds the maximum HTTP chunk size.');
+    // Evita partir un par sustituto UTF-16 en la frontera del tramo.
+    if (startOffset + best < text.length) {
+      const lastCode = text.charCodeAt(startOffset + best - 1);
+      if (lastCode >= 0xD800 && lastCode <= 0xDBFF) {
+        if (best === 1) throw new Error('Message metadata exceeds the maximum HTTP chunk size.');
+        best -= 1;
+      }
+    }
+    return startOffset + best;
+  }
+
+  function splitOversizedMessage(uploadId, conversationId, msg, maxBytes) {
+    if (typeof msg?.content !== 'string') {
+      throw new Error('Single message exceeds the maximum HTTP chunk size.');
+    }
+    const { content, ...msgShell } = msg;
+    const slices = [];
+    let offset = 0;
+    while (offset < content.length) {
+      const partIndex = slices.length;
+      const makeParams = chunkText => ({
+        uploadId,
+        conversationId,
+        chunkIndex: 999,
+        totalChunks: 999,
+        messagePart: {
+          partIndex,
+          totalParts: 999,
+          content: chunkText,
+          ...(partIndex === 0 ? { message: { ...msgShell, content: '' } } : {})
+        }
+      });
+      const end = fitMessageContentSlice(content, offset, makeParams, maxBytes);
+      slices.push(content.slice(offset, end));
+      offset = end;
+    }
+    const totalParts = slices.length;
+    return slices.map((chunkText, partIndex) => ({
+      messagePart: {
+        partIndex,
+        totalParts,
+        content: chunkText,
+        ...(partIndex === 0 ? { message: { ...msgShell, content: '' } } : {})
+      }
+    }));
+  }
+
+  function buildConversationChunks(uploadId, conversationId, messages, maxBytes) {
+    const envelopeBytes = rpcRequestByteSize('zerochat/conversations/save_chunk', {
+      uploadId,
+      conversationId,
+      chunkIndex: 999,
+      totalChunks: 999,
+      messages: []
+    });
+    const chunks = [];
+    let batch = [];
+    let batchBytes = envelopeBytes;
+
+    for (const msg of messages) {
+      const msgBytes = utf8ByteLength(JSON.stringify(msg));
+      const nextBytes = batchBytes + msgBytes + (batch.length > 0 ? 1 : 0);
+      if (nextBytes <= maxBytes) {
+        batch.push(msg);
+        batchBytes = nextBytes;
+        continue;
+      }
+      if (batch.length > 0) {
+        chunks.push({ messages: batch });
+        batch = [];
+        batchBytes = envelopeBytes;
+        if (envelopeBytes + msgBytes <= maxBytes) {
+          batch.push(msg);
+          batchBytes = envelopeBytes + msgBytes;
+          continue;
+        }
+      }
+      chunks.push(...splitOversizedMessage(uploadId, conversationId, msg, maxBytes));
+    }
+    if (batch.length > 0) chunks.push({ messages: batch });
+    return chunks;
+  }
+
+  /** Sube al servidor una conversación dividiéndola en tramos bajo el tope HTTP cuando es necesario. */
+  async function saveRemoteConversation(requestBackend, sessionMeta, messages = []) {
+    const list = Array.isArray(messages) ? messages : [];
+    const directParams = { conversation: sessionMeta, messages: list };
+    if (rpcRequestByteSize('zerochat/conversations/save', directParams) <= CONVERSATION_SAVE_CHUNK_BYTES) {
+      return requestBackend('zerochat/conversations/save', directParams);
+    }
+    const uploadId = createId('upload');
+    const chunks = buildConversationChunks(uploadId, sessionMeta.id, list, CONVERSATION_SAVE_CHUNK_BYTES);
+    const totalChunks = chunks.length;
+    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+      await requestBackend('zerochat/conversations/save_chunk', {
+        uploadId,
+        conversationId: sessionMeta.id,
+        chunkIndex,
+        totalChunks,
+        ...chunks[chunkIndex]
+      });
+    }
+    return requestBackend('zerochat/conversations/save', {
+      conversation: sessionMeta,
+      uploadId
+    });
+  }
+
   /** Sube al servidor una conversación con sus blobs y marca sincronizada la copia local. */
   async function uploadConversation(sessionMeta, preparedMessages) {
     await syncPendingBlobs(preparedMessages);
-    await requestBackend('zerochat/conversations/save', { conversation: sessionMeta, messages: preparedMessages });
+    await saveRemoteConversation(requestBackend, sessionMeta, preparedMessages);
     await markSynced(sessionMeta.id, sessionMeta.updatedAt);
   }
 
@@ -759,6 +885,8 @@
     getConversation,
     searchConversations,
     saveConversation,
+    saveRemoteConversation,
+    CONVERSATION_SAVE_CHUNK_BYTES,
     deleteConversation,
     deleteAllConversations,
     deleteProjectConversations,

@@ -446,6 +446,12 @@
       this.projectSnapshot = null;
       this.profileSyncHandler = null;
       this.profileSyncPromise = null;
+      this.initialProject = '';
+    }
+
+    /** Proyecto pedido en la URL de la pestaña al abrirla, antes de conectar con el servidor. */
+    setInitialProject(project) {
+      this.initialProject = typeof project === 'string' ? project.trim() : '';
     }
 
     /** Instantánea del contexto de proyecto entregada por initialize o set_directory para `cwd`, de un solo uso. */
@@ -626,7 +632,11 @@
      */
     /** Sondea el destino de la conexión con el token de la sesión. */
     probeTarget(timeoutMs = PROBE_TIMEOUT_MS) {
-      return probeConnection(this.target.url, { timeoutMs, token: this.sessionToken, headers: { ...proxyHeaders(this.target.proxyKey), ...projectHeaders() } });
+      const headers = { ...proxyHeaders(this.target.proxyKey), ...projectHeaders() };
+      if (!headers['X-ZeroChat-Project'] && this.initialProject) {
+        headers['X-ZeroChat-Project'] = encodeURIComponent(this.initialProject);
+      }
+      return probeConnection(this.target.url, { timeoutMs, token: this.sessionToken, headers });
     }
 
     /**
@@ -682,6 +692,7 @@
         error
       });
       if (error) return { success: false, available: true, probe, error, tools };
+      this.initialProject = '';
 
       // initialize trae los servicios externos y el resto del estado vivo.
       this.liveServers = null;

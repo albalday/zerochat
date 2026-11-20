@@ -337,6 +337,8 @@ class TokenGrant:
             if method == "zerochat/conversations/save":
                 conv = params.get("conversation")
                 return isinstance(conv, dict) and conv.get("id") == self.conversation_id
+            if method == "zerochat/conversations/save_chunk":
+                return params.get("conversationId") == self.conversation_id
         return False
 
 
@@ -1575,7 +1577,7 @@ def dispatch_browser(method: str, params: dict) -> RpcOutcome:
 
 
 
-SOURCE_BACKEND_VERSION = "10.30.0"
+SOURCE_BACKEND_VERSION = "10.31.0"
 
 
 def _read_source_version(filename: str) -> str | None:
@@ -2802,6 +2804,12 @@ MAX_CONVERSATION_ID_LENGTH = 128
 MAX_CONVERSATION_TITLE_LENGTH = 256
 MAX_BLOB_SIZE = 50 * 1024 * 1024
 MAX_BLOB_HTTP_BYTES = 72 * 1024 * 1024
+CONVERSATION_UPLOAD_TTL_SECONDS = 300
+MAX_PENDING_CONVERSATION_UPLOADS = 16
+MAX_STAGED_CONVERSATION_BYTES = 64 * 1024 * 1024
+MAX_CONVERSATION_UPLOAD_CHUNKS = 512
+_UPLOAD_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
+_PENDING_CONVERSATION_UPLOADS: dict[str, dict] = {}
 def _obfuscate_saved_api_keys(conn: sqlite3.Connection):
     """Las API keys de los perfiles del servidor, guardadas en claro hasta ahora, pasan a guardarse ofuscadas."""
     rows = conn.execute("SELECT id, api_key FROM profiles WHERE api_key != '';").fetchall()
@@ -3344,6 +3352,166 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
         conn.commit()
         row = conn.execute("SELECT * FROM conversations WHERE id = ?;", (session_id,)).fetchone()
         return _row_to_conversation_header(row)
+
+
+def _validate_int_in_range(value, name: str, min_value: int, max_value: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{name} debe ser un entero")
+    if value < min_value or value > max_value:
+        raise ValueError(f"{name} fuera de rango ({min_value}..{max_value})")
+    return value
+
+
+def _validate_upload_id(upload_id) -> str:
+    if not isinstance(upload_id, str) or not _UPLOAD_ID_PATTERN.fullmatch(upload_id):
+        raise ValueError("uploadId no válido")
+    return upload_id
+
+
+def _purge_expired_conversation_uploads(now: float):
+    expired = [
+        uid for uid, entry in _PENDING_CONVERSATION_UPLOADS.items()
+        if now - entry["updated_at"] > CONVERSATION_UPLOAD_TTL_SECONDS
+    ]
+    for uid in expired:
+        del _PENDING_CONVERSATION_UPLOADS[uid]
+
+
+def _parse_chunk_payload(messages, message_part) -> tuple[int, list[dict] | None, tuple | None]:
+    if messages is not None and message_part is not None:
+        raise ValueError("No se puede combinar messages y messagePart")
+    if messages is None and message_part is None:
+        raise ValueError("Cada tramo debe incluir messages o messagePart")
+    if messages is not None:
+        if not isinstance(messages, list) or not all(isinstance(msg, dict) for msg in messages):
+            raise ValueError("Los mensajes del tramo deben ser una lista de objetos")
+        return len(json.dumps(messages, ensure_ascii=False).encode("utf-8")), messages, None
+    if not isinstance(message_part, dict):
+        raise ValueError("messagePart debe ser un objeto")
+    total_parts = _validate_int_in_range(message_part.get("totalParts"), "totalParts", 1, MAX_CONVERSATION_UPLOAD_CHUNKS)
+    part_index = _validate_int_in_range(message_part.get("partIndex"), "partIndex", 0, total_parts - 1)
+    content = message_part.get("content")
+    if not isinstance(content, str):
+        raise ValueError("content de messagePart debe ser texto")
+    msg_shell = message_part.get("message")
+    if part_index == 0 and not isinstance(msg_shell, dict):
+        raise ValueError("El primer fragmento debe incluir message")
+    if part_index > 0 and msg_shell is not None:
+        raise ValueError("Solo el primer fragmento debe incluir message")
+    shell_bytes = len(json.dumps(msg_shell, ensure_ascii=False).encode("utf-8")) if part_index == 0 else 0
+    return len(content.encode("utf-8")) + shell_bytes, None, (part_index, total_parts, content, msg_shell)
+
+
+def _acquire_conversation_upload_entry(
+    upload_id: str,
+    conv_id: str,
+    chunk_index: int,
+    total_chunks: int,
+    chunk_bytes: int,
+    part_info: tuple | None,
+    now: float,
+) -> dict:
+    staged_bytes = sum(item["bytes"] for item in _PENDING_CONVERSATION_UPLOADS.values())
+    if staged_bytes + chunk_bytes > MAX_STAGED_CONVERSATION_BYTES:
+        raise ValueError("Se superó el límite temporal de subida de conversaciones")
+    if chunk_index == 0:
+        if upload_id in _PENDING_CONVERSATION_UPLOADS:
+            raise ValueError("uploadId ya existe")
+        if len(_PENDING_CONVERSATION_UPLOADS) >= MAX_PENDING_CONVERSATION_UPLOADS:
+            raise ValueError("Demasiadas subidas de conversación en curso")
+        if part_info is not None and part_info[0] != 0:
+            raise ValueError("El primer fragmento de un mensaje parcial debe tener partIndex 0")
+        entry = {
+            "conversation_id": conv_id,
+            "total_chunks": total_chunks,
+            "next_index": 0,
+            "messages": [],
+            "partial_message": None,
+            "bytes": 0,
+            "updated_at": now,
+        }
+        _PENDING_CONVERSATION_UPLOADS[upload_id] = entry
+        return entry
+    entry = _PENDING_CONVERSATION_UPLOADS.get(upload_id)
+    if not entry:
+        raise ValueError("Subida de conversación no encontrada o caducada")
+    if entry["conversation_id"] != conv_id or entry["total_chunks"] != total_chunks:
+        raise ValueError("La cabecera del tramo no coincide con la subida")
+    if entry["next_index"] != chunk_index:
+        raise ValueError("Tramo de conversación fuera de orden")
+    return entry
+
+
+def _apply_chunk_message_part(entry: dict, part_info: tuple):
+    part_index, total_parts, content, msg_shell = part_info
+    if part_index == 0:
+        if entry["partial_message"] is not None:
+            raise ValueError("Ya hay un mensaje parcial en curso")
+        entry["partial_message"] = {
+            "message": dict(msg_shell),
+            "parts": [content],
+            "next_part": 1,
+            "total_parts": total_parts,
+        }
+    else:
+        partial = entry["partial_message"]
+        if not partial or partial["total_parts"] != total_parts or partial["next_part"] != part_index:
+            raise ValueError("Fragmento de mensaje fuera de orden")
+        partial["parts"].append(content)
+        partial["next_part"] += 1
+    partial = entry["partial_message"]
+    if partial and partial["next_part"] == partial["total_parts"]:
+        full_msg = dict(partial["message"])
+        full_msg["content"] = "".join(partial["parts"])
+        entry["messages"].append(full_msg)
+        entry["partial_message"] = None
+
+
+def save_conversation_chunk(params: dict) -> dict:
+    """Almacena temporalmente un tramo de mensajes de una conversación para su guardado atómico final."""
+    if not isinstance(params, dict):
+        raise ValueError("Los parámetros deben ser un objeto")
+    upload_id = _validate_upload_id(params.get("uploadId"))
+    conv_id = _validate_conversation_id(params.get("conversationId"))
+    total_chunks = _validate_int_in_range(params.get("totalChunks"), "totalChunks", 1, MAX_CONVERSATION_UPLOAD_CHUNKS)
+    chunk_index = _validate_int_in_range(params.get("chunkIndex"), "chunkIndex", 0, total_chunks - 1)
+    chunk_bytes, messages, part_info = _parse_chunk_payload(params.get("messages"), params.get("messagePart"))
+
+    with _STORAGE_LOCK:
+        now = time.monotonic()
+        _purge_expired_conversation_uploads(now)
+        entry = _acquire_conversation_upload_entry(
+            upload_id, conv_id, chunk_index, total_chunks, chunk_bytes, part_info, now
+        )
+        if messages is not None:
+            if entry["partial_message"] is not None:
+                raise ValueError("Faltan fragmentos del mensaje parcial anterior")
+            entry["messages"].extend(messages)
+        elif part_info is not None:
+            _apply_chunk_message_part(entry, part_info)
+        entry["next_index"] = chunk_index + 1
+        entry["bytes"] += chunk_bytes
+        entry["updated_at"] = now
+        return {"ok": True, "uploadId": upload_id, "receivedChunks": entry["next_index"]}
+
+
+def commit_conversation_upload(session_meta: dict, upload_id: str) -> dict:
+    """Consolida atómicamente en SQLite una conversación subida por tramos."""
+    if not isinstance(session_meta, dict):
+        raise ValueError("Los metadatos de la conversación deben ser un objeto")
+    session_id = _validate_conversation_id(session_meta.get("id"))
+    clean_upload_id = _validate_upload_id(upload_id)
+    with _STORAGE_LOCK:
+        _purge_expired_conversation_uploads(time.monotonic())
+        entry = _PENDING_CONVERSATION_UPLOADS.get(clean_upload_id)
+        if not entry:
+            raise ValueError("Subida de conversación no encontrada o caducada")
+        if entry["conversation_id"] != session_id:
+            raise ValueError("La conversación no coincide con la subida")
+        if entry["next_index"] != entry["total_chunks"] or entry["partial_message"] is not None:
+            raise ValueError("La subida de conversación está incompleta")
+        messages = _PENDING_CONVERSATION_UPLOADS.pop(clean_upload_id)["messages"]
+    return save_conversation(session_meta, messages)
 
 
 def mark_conversation_server_run(session_id: str, profile_name: str | None = None) -> bool:
@@ -4858,11 +5026,22 @@ def _rpc_delete_conversations(params: dict) -> RpcOutcome:
     return rpc_result({"deleted": delete_conversation(params.get("id"))})
 
 
+def _rpc_save_conversation(params: dict) -> RpcOutcome:
+    if not isinstance(params, dict):
+        raise ValueError("Los parámetros deben ser un objeto")
+    upload_id = params.get("uploadId")
+    if upload_id is not None:
+        if params.get("messages") is not None:
+            raise ValueError("No se puede combinar uploadId y messages")
+        return rpc_result({"conversation": commit_conversation_upload(params.get("conversation"), upload_id)})
+    return rpc_result({"conversation": save_conversation(params.get("conversation"), params.get("messages"))})
+
+
 CONVERSATION_METHODS = {
     "zerochat/conversations/list": lambda _params: rpc_result({"conversations": list_conversations()}),
     "zerochat/conversations/get": lambda params: rpc_result({"conversation": get_conversation(params.get("id"))}),
-    "zerochat/conversations/save": lambda params: rpc_result(
-        {"conversation": save_conversation(params.get("conversation"), params.get("messages"))}),
+    "zerochat/conversations/save": _rpc_save_conversation,
+    "zerochat/conversations/save_chunk": lambda params: rpc_result(save_conversation_chunk(params)),
     "zerochat/conversations/rename": lambda params: rpc_result(
         {"renamed": rename_conversation(params.get("id"), params.get("title"))}),
     "zerochat/conversations/delete": _rpc_delete_conversations,

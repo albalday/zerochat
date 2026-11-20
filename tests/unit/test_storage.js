@@ -451,3 +451,56 @@ test('Storage.searchConversations busca en títulos y mensajes y descarga pendie
   connected = false;
   await Storage.deleteAllConversations();
 });
+
+test('Storage.saveRemoteConversation divide conversaciones grandes en tramos bajo el tope y parte mensajes enormes sin romper sustitutos UTF-16', async () => {
+  const chunkLimit = Storage.CONVERSATION_SAVE_CHUNK_BYTES;
+  const encoder = new TextEncoder();
+  const calls = [];
+  const fakeBackend = async (method, params) => {
+    const wireBytes = encoder.encode(JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })).length;
+    assert.ok(wireBytes <= chunkLimit, `${method} (${wireBytes} B) debe quedar bajo ${chunkLimit} B`);
+    calls.push({ method, params });
+    return { ok: true };
+  };
+
+  // Varios mensajes que juntos superan el tope de tramo, más un único mensaje con emojis en la frontera UTF-16.
+  const hugeContent = `${'A'.repeat(chunkLimit - 1024)}${'🚀'.repeat(40000)}`;
+  const messages = [
+    { id: 'm1', role: 'user', content: 'x'.repeat(Math.floor(chunkLimit * 0.6)) },
+    { id: 'm2', role: 'assistant', content: 'y'.repeat(Math.floor(chunkLimit * 0.6)) },
+    { id: 'm3', role: 'tool', content: hugeContent, tool_call_id: 'call_1' }
+  ];
+
+  await Storage.saveRemoteConversation(fakeBackend, { id: 'conv_chunked', title: 'Grande' }, messages);
+
+  assert.ok(calls.length >= 4);
+  assert.equal(calls.at(-1).method, 'zerochat/conversations/save');
+  assert.ok(calls.at(-1).params.uploadId);
+  assert.equal(calls.at(-1).params.messages, undefined);
+
+  const chunkCalls = calls.slice(0, -1);
+  assert.ok(chunkCalls.every((c, i) => c.method === 'zerochat/conversations/save_chunk' && c.params.chunkIndex === i && c.params.totalChunks === chunkCalls.length));
+
+  // Reconstruir los mensajes recibidos y verificar que los emojis no tienen reemplazo \uFFFD.
+  const reconstructed = [];
+  let parts = [];
+  let partBase = null;
+  for (const c of chunkCalls) {
+    if (c.params.messages) {
+      reconstructed.push(...c.params.messages);
+    } else if (c.params.messagePart) {
+      const mp = c.params.messagePart;
+      if (mp.partIndex === 0) partBase = { ...mp.message };
+      parts.push(mp.content);
+      if (mp.partIndex === mp.totalParts - 1) {
+        reconstructed.push({ ...partBase, content: parts.join('') });
+        parts = [];
+        partBase = null;
+      }
+    }
+  }
+  assert.equal(reconstructed.length, 3);
+  assert.equal(reconstructed[2].content, hugeContent);
+  assert.equal(reconstructed[2].tool_call_id, 'call_1');
+  assert.ok(!reconstructed[2].content.includes('\uFFFD'));
+});

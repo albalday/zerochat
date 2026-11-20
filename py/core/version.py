@@ -12,7 +12,7 @@ from pathlib import Path
 
 from core.environment import add_notice, get_dev_root
 
-SOURCE_BACKEND_VERSION = "10.30.0"
+SOURCE_BACKEND_VERSION = "10.31.0"
 
 
 def _read_source_version(filename: str) -> str | None:

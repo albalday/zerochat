@@ -18,6 +18,9 @@ test('BackendSession.parseLaunchSession solo adopta un servidor de este equipo c
   for (const [hash, expected] of rows) {
     assert.deepEqual(BackendSession.parseLaunchSession(hash), expected, hash);
   }
+  assert.equal(BackendSession.parseLaunchProject('?project=%2Frepo%2Fb'), '/repo/b');
+  assert.equal(BackendSession.parseLaunchProject('?foo=1&project=%20%2Frepo%2Fa%20'), '/repo/a');
+  assert.equal(BackendSession.parseLaunchProject(''), '');
 });
 
 test('BackendSession.sessionConnection usa la sesión guardada y la clave del proxy solo si es del destino configurado', () => {

@@ -160,9 +160,21 @@
   }
 
   async function switchToSession(sessionId, options) {
-    const { force = false, saveCurrent = true } = options;
+    const { force = false, saveCurrent = true, confirmProjectSwitch = false } = options;
     if (!force && sessionId === getActiveSessionId()) return true;
     if (await blockSessionTransitionIfBusy('chat_switch_blocked_generating')) return false;
+
+    const targetSession = getSavedSessions().find(session => session.id === sessionId);
+    if (confirmProjectSwitch && targetSession && getState().get('mcp').status === 'connected') {
+      const currentProject = options.getProject();
+      const targetProject = targetSession.project || '';
+      if (targetProject !== currentProject) {
+        const name = targetProject ? projectName(targetProject) : NO_PROJECT_NAME;
+        if (!await getDialogs().confirm(t('chat_switch_project_confirm', { name }))) return false;
+        if (await blockSessionTransitionIfBusy('chat_switch_blocked_generating')) return false;
+      }
+    }
+
     if (saveCurrent) await saveCurrentSession(options);
 
     let conversation = null;

@@ -15,6 +15,7 @@
   const { resolveDep } = Utils;
   const getToolCards = () => resolveDep('ChatToolCards');
   const getState = () => resolveDep('ChatState', './state.js');
+  const getStorage = () => resolveDep('ChatStorage', './storage.js');
   const getMCP = () => resolveDep('ChatMCP', './mcp.js');
   const getConversationService = () => resolveDep('ChatConversationService', './conversation-service.js');
 
@@ -83,10 +84,7 @@
       },
       async saveConversation(sessionMeta, messages = []) {
         if (!sessionMeta?.id) return false;
-        await requestBackend('zerochat/conversations/save', {
-          conversation: sessionMeta,
-          messages
-        });
+        await getStorage().saveRemoteConversation(requestBackend, sessionMeta, messages);
         return true;
       }
     };
