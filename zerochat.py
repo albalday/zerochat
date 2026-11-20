@@ -1375,7 +1375,7 @@ class StdioMcpClient:
     max_message_chars = MAX_MCP_MESSAGE_CHARS
 
     def __init__(self, command: str, args: list[str], cwd: str, env: dict[str, str], trace=None,
-                 call_timeout: float = DEFAULT_MCP_CALL_TIMEOUT_SECONDS):
+                 call_timeout: float = DEFAULT_MCP_CALL_TIMEOUT_SECONDS, on_oauth_url=None):
         self.command = command
         self.args = args
         self.cwd = cwd
@@ -1392,6 +1392,7 @@ class StdioMcpClient:
         self.tools: list[dict] = []
         self.oauth_url: str | None = None
         self._trace = trace or (lambda _message: None)
+        self._on_oauth_url = on_oauth_url
 
     def running(self) -> bool:
         return self._alive and self.process is not None and self.process.poll() is None
@@ -1456,6 +1457,8 @@ class StdioMcpClient:
                     url = m.group(0).rstrip('.,;)')
                     self.oauth_url = url
                     self._trace(f"oauth_url detected for frontend: {_mcp_trace_text(url)}")
+                    if self._on_oauth_url:
+                        self._on_oauth_url(url)
                     pending_oauth = False
 
 
@@ -2282,6 +2285,18 @@ MAX_STAGED_CONVERSATION_BYTES = 64 * 1024 * 1024
 MAX_CONVERSATION_UPLOAD_CHUNKS = 512
 _UPLOAD_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 _PENDING_CONVERSATION_UPLOADS: dict[str, dict] = {}
+_STORAGE_LIVE_HOOKS: list = []
+
+
+def on_storage_live_change(hook):
+    """Registra una función sin argumentos que se avisa cuando cambian ejecuciones o conversaciones."""
+    _STORAGE_LIVE_HOOKS.append(hook)
+    return hook
+
+
+def _notify_storage_live_change():
+    for hook in _STORAGE_LIVE_HOOKS:
+        hook()
 def _obfuscate_saved_api_keys(conn: sqlite3.Connection):
     """Las API keys de los perfiles del servidor, guardadas en claro hasta ahora, pasan a guardarse ofuscadas."""
     rows = conn.execute("SELECT id, api_key FROM profiles WHERE api_key != '';").fetchall()
@@ -2880,7 +2895,9 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
         _replace_conversation_blobs(conn, session_id, new_blob_ids)
         conn.commit()
         row = conn.execute("SELECT * FROM conversations WHERE id = ?;", (session_id,)).fetchone()
-        return _row_to_conversation_header(row)
+        saved = _row_to_conversation_header(row)
+    _notify_storage_live_change()
+    return saved
 
 
 def _validate_int_in_range(value, name: str, min_value: int, max_value: int) -> int:
@@ -3060,9 +3077,10 @@ def mark_conversation_server_run(session_id: str, profile_name: str | None = Non
                 cur_extra["profile_id"] = str(profile_name).strip()
             conn.execute("UPDATE conversations SET extra_json = ? WHERE id = ?;", (json.dumps(cur_extra, ensure_ascii=False), clean_id))
             conn.commit()
-            return True
     except (sqlite3.Error, OSError, json.JSONDecodeError):
         return False
+    _notify_storage_live_change()
+    return True
 
 
 def rename_conversation(session_id: str, new_title: str) -> bool:
@@ -3076,7 +3094,10 @@ def rename_conversation(session_id: str, new_title: str) -> bool:
             (title, now, clean_id)
         )
         conn.commit()
-        return cursor.rowcount > 0
+        changed = cursor.rowcount > 0
+    if changed:
+        _notify_storage_live_change()
+    return changed
 
 
 def _delete_conversations(conn: sqlite3.Connection, where: str, params: tuple) -> list[str]:
@@ -3101,6 +3122,8 @@ def _delete_conversations(conn: sqlite3.Connection, where: str, params: tuple) -
             conn.execute(f"DELETE FROM conversations WHERE id IN ({marks});", ids)  # noqa: S608
             _delete_orphan_blobs(conn, candidates)
         conn.execute("COMMIT;")
+        if ids:
+            _notify_storage_live_change()
         return ids
     except Exception:
         conn.execute("ROLLBACK;")
@@ -3420,6 +3443,7 @@ def upsert_run_state(payload: dict) -> None:
             payload.get("error"),
         ))
         conn.commit()
+    _notify_storage_live_change()
 
 
 def get_run_state(conversation_id: str) -> dict | None:
@@ -3443,7 +3467,10 @@ def delete_run_state(conversation_id: str) -> bool:
     with open_storage() as conn:
         cursor = conn.execute("DELETE FROM runs WHERE conversation_id = ?;", (clean_id,))
         conn.commit()
-        return cursor.rowcount > 0
+        deleted = cursor.rowcount > 0
+    if deleted:
+        _notify_storage_live_change()
+    return deleted
 
 
 def get_secret(name: str) -> str | None:
@@ -3877,6 +3904,20 @@ def user_browser_extensions() -> dict[str, bool]:
     return found
 
 
+_ENGINES_CHANGE_HOOKS: list = []
+
+
+def on_browser_engines_change(hook):
+    """Registra una función sin argumentos que se avisa cuando cambian los motores de Playwright."""
+    _ENGINES_CHANGE_HOOKS.append(hook)
+    return hook
+
+
+def _notify_browser_engines_changed():
+    for hook in _ENGINES_CHANGE_HOOKS:
+        hook()
+
+
 class BrowserEngines:
     """Lista, instala y quita los motores propios de Playwright en su caché, nunca en el sistema."""
 
@@ -3952,6 +3993,7 @@ class BrowserEngines:
             cli = self._check_engine(engine)
             self._jobs[engine] = {"status": "installing", "percent": 0}
             self._notify_locked()
+        _notify_browser_engines_changed()
         threading.Thread(target=self._install, args=(cli, engine), daemon=True).start()
         return self.list()
 
@@ -3988,6 +4030,7 @@ class BrowserEngines:
                 self._jobs[engine] = {"status": "error", "error": format_log_error(str(err), 500)}
                 self._notify_locked()
             log_event(f"[zerochat] Fallo instalando el motor {engine} de Playwright: {format_log_error(str(err))}")
+        _notify_browser_engines_changed()
 
     def remove(self, engine) -> dict:
         with self._lock:
@@ -4001,6 +4044,7 @@ class BrowserEngines:
                     shutil.rmtree(locations[name][1], ignore_errors=True)
             self._jobs.pop(engine, None)
             self._notify_locked()
+        _notify_browser_engines_changed()
         result = self.list()
         # La configuración no se queda con un motor quitado si hay otro instalado.
         config = result["config"]
@@ -4126,6 +4170,14 @@ def service_status(record: McpServiceRecord, alive: bool, exit_code: int | None)
 
 # Cada cuánto se vuelve a mirar el catálogo publicado con el servidor en marcha.
 CATALOG_REFRESH_SECONDS = 3600
+MCP_START_MAX_WAIT_MS = 30000
+_MCP_STATE_HOOKS: list = []
+
+
+def on_mcp_state_change(hook):
+    """Registra una función sin argumentos que se avisa cuando cambia el estado de los servicios MCP."""
+    _MCP_STATE_HOOKS.append(hook)
+    return hook
 
 
 def _npm_install_needed(marker: Path, package_dir: Path, package: str, version: str) -> bool:
@@ -4154,10 +4206,20 @@ class McpServiceManager:
         self.services_root = Path(services_root) if services_root else get_data_dir() / "services"
         self.records: dict[str, McpServiceRecord] = {}
         self._lock = threading.Lock()
+        self._state_changed = threading.Condition()
+        self._state_rev = 0
+        self._starting: set[str] = set()
         self._catalog_stop = threading.Event()
         self._services: dict[str, dict] | None = None
         self._preferences: dict | None = None
         self._preferences_db: Path | None = None
+
+    def _notify_state_changed(self):
+        with self._state_changed:
+            self._state_rev += 1
+            self._state_changed.notify_all()
+        for hook in _MCP_STATE_HOOKS:
+            hook()
 
     @property
     def services(self) -> dict[str, dict]:
@@ -4291,6 +4353,7 @@ class McpServiceManager:
             self._trace(server_id, f"npm package already installed: {package}@{version}")
             return
         self.records[server_id].phase = "installing"
+        self._notify_state_changed()
         self._trace(server_id, f"installing npm package: {package}@{version}")
         manifest = service_dir / "package.json"
         manifest.write_text(json.dumps({"private": True, "dependencies": {package: version}}, indent=2), encoding="utf-8")
@@ -4331,10 +4394,61 @@ class McpServiceManager:
 
     def start(self, server_id: str) -> list[dict]:
         """Arranca un servicio MCP externo y devuelve la lista actualizada de servicios."""
-        with self._lock:
+        try:
+            with self._lock:
+                self.services = self._load_services()
+                self._start_locked(server_id)
+                return self.list_servers()
+        finally:
+            with self._state_changed:
+                self._starting.discard(server_id)
+                self._state_changed.notify_all()
+
+    def start_async(self, server_id: str) -> int:
+        """Lanza en segundo plano el arranque de un servicio MCP y devuelve la revisión inicial."""
+        if server_id not in self.services:
             self.services = self._load_services()
-            self._start_locked(server_id)
-            return self.list_servers()
+        if server_id not in self.services:
+            raise KeyError(f"Servidor MCP desconocido: {server_id}")
+        with self._state_changed:
+            record = self.records.setdefault(server_id, McpServiceRecord())
+            if record.client and record.client.running():
+                return self._state_rev
+            should_launch = server_id not in self._starting
+            if should_launch:
+                self._starting.add(server_id)
+                record.phase, record.error = "starting", None
+                self._state_rev += 1
+                self._state_changed.notify_all()
+            rev = self._state_rev
+        if should_launch:
+            for hook in _MCP_STATE_HOOKS:
+                hook()
+            threading.Thread(target=self.start, args=(server_id,), name=f"mcp-start-{server_id}", daemon=True).start()
+        return rev
+
+    def wait_server(self, server_id: str, since_rev: int | None = None, wait_ms: int = 25000) -> dict:
+        """Espera cambios de fase, aparición de oauthUrl o fin del arranque de un servicio MCP."""
+        if server_id not in self.services:
+            self.services = self._load_services()
+        if server_id not in self.services:
+            raise KeyError(f"Servidor MCP desconocido: {server_id}")
+        deadline = time.monotonic() + min(max(0, wait_ms), MCP_START_MAX_WAIT_MS) / 1000.0
+        with self._state_changed:
+            while True:
+                record = self.records.get(server_id)
+                phase = record.phase if record else "stopped"
+                oauth_url = record.client.oauth_url if record and record.client else None
+                terminal = phase not in ("installing", "starting")
+                changed = (since_rev is not None and self._state_rev != since_rev) or (since_rev is None and (terminal or bool(oauth_url) or phase == "installing"))
+                if terminal or changed:
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._state_changed.wait(remaining)
+            rev = self._state_rev
+        return {"servers": self.list_servers(), "externalTools": self.tools(), "rev": rev}
 
     def _start_locked(self, server_id: str):
         server = self.services.get(server_id)
@@ -4344,6 +4458,7 @@ class McpServiceManager:
         if record.client and record.client.running():
             return
         record.phase, record.error = "starting", None
+        self._notify_state_changed()
         client = None
         self._trace(server_id, "start requested")
         try:
@@ -4376,15 +4491,19 @@ class McpServiceManager:
             client = StdioMcpClient(
                 command, args, str(service_dir), env,
                 trace=lambda message: self._trace(server_id, message),
-                call_timeout=_positive_seconds(launch.get("callTimeoutSeconds"), DEFAULT_MCP_CALL_TIMEOUT_SECONDS)
+                call_timeout=_positive_seconds(launch.get("callTimeoutSeconds"), DEFAULT_MCP_CALL_TIMEOUT_SECONDS),
+                on_oauth_url=lambda _url: self._notify_state_changed(),
             )
             # _prepare_service puede haber dejado el estado en "installing".
             record.phase, record.client = "starting", client
+            self._notify_state_changed()
             client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
             record.phase = "running"
+            self._notify_state_changed()
             self._trace(server_id, "started successfully")
         except Exception as exc:
             record.phase, record.error = "error", str(exc)
+            self._notify_state_changed()
             self._trace(server_id, f"start failed: {exc}")
             stale, record.client = record.client or client, None
             if stale:
@@ -4420,6 +4539,7 @@ class McpServiceManager:
             record = self.records.pop(server_id, None)
             if record and record.client:
                 record.client.stop()
+            self._notify_state_changed()
             return self.list_servers()
 
     def stop(self, server_id: str) -> list[dict]:
@@ -4430,6 +4550,7 @@ class McpServiceManager:
                 raise KeyError(f"Servidor MCP desconocido: {server_id}")
             if record.client:
                 record.client.stop()
+            self._notify_state_changed()
             return self.list_servers()
 
     def configure(self, server_id: str, options: dict | None = None) -> list[dict]:
@@ -4442,48 +4563,47 @@ class McpServiceManager:
                 opts = entry.setdefault("options", {})
                 opts.update(options)
             self._save_preferences()
+            self._notify_state_changed()
             return self.list_servers()
 
     def _running_clients(self) -> list[tuple[str, StdioMcpClient]]:
-        return [(server_id, record.client) for server_id, record in self.records.items()
+        return [(server_id, record.client) for server_id, record in list(self.records.items())
                 if record.client and record.client.running()]
 
     def tools(self) -> list[dict]:
         aggregated = []
         seen: set[str] = set()
-        with self._lock:
-            for server_id, client in self._running_clients():
-                for t in client.tools:
-                    original = t.get("name") if isinstance(t, dict) else None
-                    try:
-                        pname = public_tool_name(server_id, original)
-                    except Exception as exc:
-                        self._trace(server_id, f"tool discarded ({original!r}): {exc}")
-                        continue
-                    if pname in seen:
-                        self._trace(server_id, f"tool discarded ({original!r}): duplicate public name {pname}")
-                        continue
-                    seen.add(pname)
-                    tcopy = dict(t)
-                    tcopy["name"] = pname
-                    tcopy["metadata"] = {
-                        "mcpServerId": server_id,
-                        "originalName": original,
-                        **service_tool_settings(self.services.get(server_id, {}), original),
-                    }
-                    aggregated.append(tcopy)
+        for server_id, client in self._running_clients():
+            for t in list(client.tools):
+                original = t.get("name") if isinstance(t, dict) else None
+                try:
+                    pname = public_tool_name(server_id, original)
+                except Exception as exc:
+                    self._trace(server_id, f"tool discarded ({original!r}): {exc}")
+                    continue
+                if pname in seen:
+                    self._trace(server_id, f"tool discarded ({original!r}): duplicate public name {pname}")
+                    continue
+                seen.add(pname)
+                tcopy = dict(t)
+                tcopy["name"] = pname
+                tcopy["metadata"] = {
+                    "mcpServerId": server_id,
+                    "originalName": original,
+                    **service_tool_settings(self.services.get(server_id, {}), original),
+                }
+                aggregated.append(tcopy)
         return aggregated
 
     def _resolve_tool(self, public_name: str) -> tuple[str, StdioMcpClient, str] | None:
-        with self._lock:
-            for server_id, client in self._running_clients():
-                for t in client.tools:
-                    try:
-                        matches = public_tool_name(server_id, t.get("name")) == public_name
-                    except (ValueError, TypeError):
-                        continue
-                    if matches:
-                        return server_id, client, t["name"]
+        for server_id, client in self._running_clients():
+            for t in list(client.tools):
+                try:
+                    matches = public_tool_name(server_id, t.get("name")) == public_name
+                except (ValueError, TypeError):
+                    continue
+                if matches:
+                    return server_id, client, t["name"]
         return None
 
     def server_of(self, public_name: str) -> str | None:
@@ -4561,6 +4681,8 @@ class McpServiceManager:
                 self._trace(server_id, "restarting with the updated version")
                 record.client.stop()
                 self._start_locked(server_id)
+        if downloads:
+            self._notify_state_changed()
 
     def close(self):
         self._catalog_stop.set()
@@ -4569,6 +4691,7 @@ class McpServiceManager:
                 if record.client:
                     record.client.stop()
                 record.phase, record.client, record.error = "stopped", None, None
+        self._notify_state_changed()
 
 
 GLOBAL_MCP_MANAGER = McpServiceManager()
@@ -4586,16 +4709,24 @@ def _playwright_service_running() -> bool:
 
 SERVER_CONTROL_METHODS = frozenset({
     "zerochat/external/servers/start",
+    "zerochat/external/servers/wait",
     "zerochat/external/servers/stop",
     "zerochat/external/servers/configure",
     "zerochat/external/servers/secret",
 })
 
 
+def _optional_nonneg_int(value, label: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{label} debe ser un entero no negativo.")
+    return value
+
+
 def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
     server_id = params.get("serverId")
     opts = params.get("options", {})
-    starting = method == "zerochat/external/servers/start"
     if not isinstance(server_id, str) or not server_id:
         return rpc_error(INVALID_PARAMS, "serverId debe ser un texto no vacío.")
     if not isinstance(opts, dict):
@@ -4603,14 +4734,28 @@ def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
     if method == "zerochat/external/servers/secret":
         return _set_secret(server_id, params)
     try:
-        if starting:
+        if method == "zerochat/external/servers/start":
+            wait_ms = _optional_nonneg_int(params.get("wait_ms"), "wait_ms")
+            if wait_ms is not None and wait_ms > 0:
+                GLOBAL_MCP_MANAGER.start_async(server_id)
+                return rpc_result(GLOBAL_MCP_MANAGER.wait_server(server_id, wait_ms=wait_ms))
             servers = GLOBAL_MCP_MANAGER.start(server_id)
+        elif method == "zerochat/external/servers/wait":
+            since_rev = _optional_nonneg_int(params.get("since_rev"), "since_rev")
+            wait_ms = _optional_nonneg_int(params.get("wait_ms"), "wait_ms")
+            return rpc_result(GLOBAL_MCP_MANAGER.wait_server(
+                server_id,
+                since_rev=since_rev,
+                wait_ms=25000 if wait_ms is None else wait_ms,
+            ))
         elif method == "zerochat/external/servers/stop":
             servers = GLOBAL_MCP_MANAGER.stop(server_id)
         else:
             servers = GLOBAL_MCP_MANAGER.configure(server_id, opts)
     except KeyError as exc:
         return rpc_error(INVALID_PARAMS, str(exc.args[0]) if exc.args else str(exc))
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
     return rpc_result({"servers": servers, "externalTools": GLOBAL_MCP_MANAGER.tools()})
 
 
@@ -6326,6 +6471,18 @@ MATCHED_LINE_MAX_CHARS = 500
 # Última línea de salida de cada comando en marcha en el latido, para su tarjeta plegada.
 LAST_LINE_MAX_CHARS = 200
 REPORT_TAIL_BYTES = 4096
+_JOBS_LIVE_HOOKS: list = []
+
+
+def on_jobs_live_change(hook):
+    """Registra una función sin argumentos que se avisa cuando cambia el estado vivo de los comandos."""
+    _JOBS_LIVE_HOOKS.append(hook)
+    return hook
+
+
+def _notify_jobs_live_change():
+    for hook in _JOBS_LIVE_HOOKS:
+        hook()
 
 
 def truncate_terminal_output(text: str, max_chars: int = 8000, head_lines: int = 50, tail_lines: int = 30) -> tuple[str, bool]:
@@ -6557,6 +6714,8 @@ class CommandJob:
                     del self._tail[:overflow]
                     self._tail_start += overflow
             self._changed.notify_all()
+        if self.background:
+            _notify_jobs_live_change()
 
     def _read_output(self, stream):
         try:
@@ -6770,6 +6929,7 @@ class JobManager:
             job._log.close()
             job.log_path.unlink(missing_ok=True)
             raise
+        _notify_jobs_live_change()
         return job
 
     def _launch(self, job: CommandJob):
@@ -6839,6 +6999,7 @@ class JobManager:
         self._write_registry()
         job.done.set()
         job.notify_finished()
+        _notify_jobs_live_change()
 
     def get(self, project: str, job_id=None, key=None) -> CommandJob | None:
         jobs = self.list(project)
@@ -7695,10 +7856,14 @@ ACCESS_CONTROLLER = AccessController()
 
 DEFAULT_HEARTBEAT_TIMEOUT = 60.0
 DEFAULT_HEARTBEAT_GRACE = 45.0
-DEFAULT_HEARTBEAT_POLL = 5.0
+HEARTBEAT_MAX_WAIT_MS = 30000
+_RUN_ACTIVE_CHECK_INTERVAL = 1.0
 HEARTBEAT_LAST_SEEN = 0.0
 HEARTBEAT_INITIALIZED = False
 HEARTBEAT_WATCHDOG_STOP = threading.Event()
+_LIVE_STATE_COND = threading.Condition()
+_LIVE_STATE_SEQ = 0
+_WATCHDOG_COND = threading.Condition()
 _SERVER_SHUTTING_DOWN = threading.Event()
 _SHUTDOWN_LOCK = threading.Lock()
 _SHUTDOWN_LISTENERS: set[threading.Event] = set()
@@ -7755,17 +7920,45 @@ class BrowserLease:
 BROWSER_LEASES = BrowserLease()
 
 
+def notify_live_state_changed() -> None:
+    """Despierta a los latidos en espera y al watchdog ante cambios del estado vivo."""
+    global _LIVE_STATE_SEQ
+    with _LIVE_STATE_COND:
+        _LIVE_STATE_SEQ += 1
+        _LIVE_STATE_COND.notify_all()
+    with _WATCHDOG_COND:
+        _WATCHDOG_COND.notify_all()
+
+
+on_storage_live_change(notify_live_state_changed)
+on_jobs_live_change(notify_live_state_changed)
+on_mcp_state_change(notify_live_state_changed)
+on_browser_engines_change(notify_live_state_changed)
+
+
 def mark_browser_active():
     """Registra la presencia del navegador ante cualquier petición de un origen permitido, aunque su
     token haya caducado: el auto-cierre no detiene el servidor ni sus comandos al cambiar el día."""
     global HEARTBEAT_LAST_SEEN, HEARTBEAT_INITIALIZED
-    HEARTBEAT_LAST_SEEN = time.monotonic()
-    HEARTBEAT_INITIALIZED = True
+    with _WATCHDOG_COND:
+        HEARTBEAT_LAST_SEEN = time.monotonic()
+        HEARTBEAT_INITIALIZED = True
+        _WATCHDOG_COND.notify_all()
 
 
 def heartbeat_initialized() -> bool:
     """Si el navegador ha dado ya alguna señal de vida."""
     return HEARTBEAT_INITIALIZED
+
+
+def _live_state_rev(state: dict) -> str:
+    # Excluir campos volátiles (elapsed_s) para no despertar al latido mientras nada real cambia.
+    stable = {
+        **state,
+        "jobs": [{k: v for k, v in job.items() if k != "elapsed_s"} for job in state["jobs"]],
+    }
+    encoded = json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:16]
 
 
 def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -> dict:
@@ -7778,7 +7971,7 @@ def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -
     en segundo plano; y focus_run, estado detallado de la ejecución enfocada por el usuario.
     """
     runs, focus_run = list_server_runs(focus_conversation_id)
-    return {
+    state = {
         "serverId": get_server_id(),
         "cwd": str(ctx.workspace_dir),
         "jobs": JOBS.running_summaries(ctx.key),
@@ -7790,6 +7983,36 @@ def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -
         "focus_run": focus_run,
         "conversations_rev": conversations_revision()
     }
+    state["rev"] = _live_state_rev(state)
+    return state
+
+
+def wait_live_state(
+    ctx: SecurityContext,
+    focus_conversation_id: str | None = None,
+    since_rev: str | None = None,
+    wait_ms: int = 0,
+) -> dict:
+    """Devuelve el estado vivo; con since_rev y wait_ms espera cambios sin sondeo activo."""
+    state = live_state(ctx, focus_conversation_id)
+    clamped_ms = min(max(0, wait_ms), HEARTBEAT_MAX_WAIT_MS)
+    if not since_rev or clamped_ms <= 0 or state["rev"] != since_rev or _SERVER_SHUTTING_DOWN.is_set():
+        return state
+    deadline = time.monotonic() + clamped_ms / 1000.0
+    while True:
+        with _LIVE_STATE_COND:
+            seq = _LIVE_STATE_SEQ
+        state = live_state(ctx, focus_conversation_id)
+        if state["rev"] != since_rev or _SERVER_SHUTTING_DOWN.is_set():
+            return state
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return state
+        # Las ejecuciones en segundo plano (--conversation) corren en otro proceso y actualizan SQLite.
+        slice_s = min(remaining, _RUN_ACTIVE_CHECK_INTERVAL) if any(r.get("status") == "running" for r in state["runs"]) else remaining
+        with _LIVE_STATE_COND:
+            if _LIVE_STATE_SEQ == seq and not _SERVER_SHUTTING_DOWN.is_set():
+                _LIVE_STATE_COND.wait(slice_s)
 
 
 def stop_zerochat_server(server: ThreadingHTTPServer):
@@ -7801,6 +8024,7 @@ def stop_zerochat_server(server: ThreadingHTTPServer):
         for listener in list(_SHUTDOWN_LISTENERS):
             listener.set()
     HEARTBEAT_WATCHDOG_STOP.set()
+    notify_live_state_changed()
     running = JOBS.running(None)
     if running:
         console_log(timestamp_message(f"Deteniendo {len(running)} comando(s) en marcha: " + ", ".join(job.command[:60] for job in running)))
@@ -7809,35 +8033,52 @@ def stop_zerochat_server(server: ThreadingHTTPServer):
     threading.Thread(target=server.shutdown, daemon=True).start()
 
 
+def _watchdog_wait_step(
+    start_time: float,
+    initial_grace_seconds: float,
+    inactivity_timeout_seconds: float,
+    require_initial_connection: bool,
+) -> str | None:
+    """Espera en _WATCHDOG_COND hasta que venza el plazo actual; devuelve el mensaje de cierre o None."""
+    with _WATCHDOG_COND:
+        while not HEARTBEAT_WATCHDOG_STOP.is_set():
+            if not HEARTBEAT_INITIALIZED:
+                if not require_initial_connection:
+                    _WATCHDOG_COND.wait()
+                    continue
+                remaining = start_time + initial_grace_seconds - time.monotonic()
+                if remaining <= 0:
+                    return f"Tiempo de espera del navegador agotado ({initial_grace_seconds:.0f}s). Deteniendo servidor ZeroChat..."
+                _WATCHDOG_COND.wait(remaining)
+                continue
+            remaining = HEARTBEAT_LAST_SEEN + inactivity_timeout_seconds - time.monotonic()
+            if remaining > 0:
+                _WATCHDOG_COND.wait(remaining)
+                continue
+            return "Navegador desconectado (cierre detectado). Deteniendo servidor ZeroChat..."
+    return None
+
+
 def heartbeat_watchdog(server: ThreadingHTTPServer, initial_grace_seconds: float = DEFAULT_HEARTBEAT_GRACE, inactivity_timeout_seconds: float = DEFAULT_HEARTBEAT_TIMEOUT, require_initial_connection: bool = True):
     """
     Supervisa la presencia de la pestaña del navegador mediante latidos HTTP.
     Si el navegador se cierra o deja de emitir latidos, detiene el servidor automáticamente.
     """
     start_time = time.monotonic()
-    poll_interval = min(DEFAULT_HEARTBEAT_POLL, max(0.02, inactivity_timeout_seconds / 2))
+    active_slice = min(_RUN_ACTIVE_CHECK_INTERVAL, max(0.05, inactivity_timeout_seconds))
     while not HEARTBEAT_WATCHDOG_STOP.is_set():
-        if HEARTBEAT_WATCHDOG_STOP.wait(timeout=poll_interval):
-            break
-
-        now = time.monotonic()
-
-        # 1. Periodo de gracia inicial (solo si zerochat abrió el navegador)
-        if not HEARTBEAT_INITIALIZED:
-            if require_initial_connection and (now - start_time > initial_grace_seconds):
-                log_event(f"Tiempo de espera del navegador agotado ({initial_grace_seconds:.0f}s). Deteniendo servidor ZeroChat...")
-                stop_zerochat_server(server)
-                break
-            continue
-
-        # 2. Inactividad tras haber recibido latidos
-        if now - HEARTBEAT_LAST_SEEN > inactivity_timeout_seconds:
+        reason = _watchdog_wait_step(start_time, initial_grace_seconds, inactivity_timeout_seconds, require_initial_connection)
+        if reason is None:
+            return
+        if HEARTBEAT_INITIALIZED:
             runs, _ = list_server_runs()
             if any(r.get("status") == "running" for r in runs):
+                with _WATCHDOG_COND:
+                    _WATCHDOG_COND.wait(active_slice)
                 continue
-            log_event("Navegador desconectado (cierre detectado). Deteniendo servidor ZeroChat...")
-            stop_zerochat_server(server)
-            break
+        log_event(reason)
+        stop_zerochat_server(server)
+        return
 
 # --- cli.console ---
 """Consola interactiva del servidor: una línea de ayuda tras un rato sin actividad y órdenes de teclado (abrir la interfaz, salir)."""
@@ -9624,7 +9865,13 @@ def _initialize(_params: dict, ctx: SecurityContext) -> RpcOutcome:
 
 
 def _heartbeat(params: dict, ctx: SecurityContext) -> RpcOutcome:
-    return rpc_result(live_state(ctx, params.get("focus_conversation_id")))
+    since_rev = params.get("since_rev")
+    if since_rev is not None and not isinstance(since_rev, str):
+        return rpc_error(INVALID_PARAMS, "since_rev debe ser texto")
+    wait_ms = params.get("wait_ms", 0)
+    if isinstance(wait_ms, bool) or not isinstance(wait_ms, int) or wait_ms < 0:
+        return rpc_error(INVALID_PARAMS, "wait_ms debe ser un entero no negativo")
+    return rpc_result(wait_live_state(ctx, params.get("focus_conversation_id"), since_rev=since_rev, wait_ms=wait_ms))
 
 
 def _set_project_directory(params: dict, ctx: SecurityContext) -> RpcOutcome:

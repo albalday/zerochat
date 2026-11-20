@@ -601,3 +601,37 @@ class StdioClientTest(unittest.TestCase):
                 return
             time.sleep(0.05)
         self.fail("stop() debe terminar los procesos hijos del MCP")
+
+    def test_start_async_y_wait_server_despiertan_con_oauth_y_fin(self):
+        root = use_data_dir(self) / "services"
+        wait_script = (
+            "import json, sys, time\n"
+            "req = json.loads(sys.stdin.readline())\n"
+            "time.sleep(0.1)\n"
+            "print('https://example.com/oauth/authorize?code=123', file=sys.stderr, flush=True)\n"
+            "time.sleep(0.1)\n"
+            "print(json.dumps({'jsonrpc': '2.0', 'id': req['id'], 'result': {'protocolVersion': '2024-11-05', 'serverInfo': {'name': 'wait_srv'}}}), flush=True)\n"
+            "for line in sys.stdin:\n"
+            "    msg = json.loads(line)\n"
+            "    if msg.get('method') == 'tools/list':\n"
+            "        print(json.dumps({'jsonrpc': '2.0', 'id': msg['id'], 'result': {'tools': []}}), flush=True)\n"
+        )
+        write_service(root, "wait_srv", wait_script)
+        manager = zerochat.McpServiceManager(root)
+        self.addCleanup(manager.close)
+        rev0 = manager.start_async("wait_srv")
+        started = time.monotonic()
+        saw_oauth = False
+        rev = rev0
+        while True:
+            waited = manager.wait_server("wait_srv", since_rev=rev, wait_ms=5000)
+            rev = waited["rev"]
+            srv = next(item for item in waited["servers"] if item["id"] == "wait_srv")
+            if srv.get("oauthUrl"):
+                saw_oauth = True
+            if srv["status"] == "running":
+                break
+        self.assertLess(time.monotonic() - started, 3.0)
+        self.assertTrue(saw_oauth)
+        _, error, _ = zerochat.dispatch_server_control("zerochat/external/servers/wait", {"serverId": "wait_srv", "wait_ms": -1})
+        self.assertEqual(error["code"], -32602)

@@ -61,7 +61,7 @@ class StdioMcpClient:
     max_message_chars = MAX_MCP_MESSAGE_CHARS
 
     def __init__(self, command: str, args: list[str], cwd: str, env: dict[str, str], trace=None,
-                 call_timeout: float = DEFAULT_MCP_CALL_TIMEOUT_SECONDS):
+                 call_timeout: float = DEFAULT_MCP_CALL_TIMEOUT_SECONDS, on_oauth_url=None):
         self.command = command
         self.args = args
         self.cwd = cwd
@@ -78,6 +78,7 @@ class StdioMcpClient:
         self.tools: list[dict] = []
         self.oauth_url: str | None = None
         self._trace = trace or (lambda _message: None)
+        self._on_oauth_url = on_oauth_url
 
     def running(self) -> bool:
         return self._alive and self.process is not None and self.process.poll() is None
@@ -142,6 +143,8 @@ class StdioMcpClient:
                     url = m.group(0).rstrip('.,;)')
                     self.oauth_url = url
                     self._trace(f"oauth_url detected for frontend: {_mcp_trace_text(url)}")
+                    if self._on_oauth_url:
+                        self._on_oauth_url(url)
                     pending_oauth = False
 
 

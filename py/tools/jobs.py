@@ -45,6 +45,18 @@ MATCHED_LINE_MAX_CHARS = 500
 # Última línea de salida de cada comando en marcha en el latido, para su tarjeta plegada.
 LAST_LINE_MAX_CHARS = 200
 REPORT_TAIL_BYTES = 4096
+_JOBS_LIVE_HOOKS: list = []
+
+
+def on_jobs_live_change(hook):
+    """Registra una función sin argumentos que se avisa cuando cambia el estado vivo de los comandos."""
+    _JOBS_LIVE_HOOKS.append(hook)
+    return hook
+
+
+def _notify_jobs_live_change():
+    for hook in _JOBS_LIVE_HOOKS:
+        hook()
 
 
 def truncate_terminal_output(text: str, max_chars: int = 8000, head_lines: int = 50, tail_lines: int = 30) -> tuple[str, bool]:
@@ -276,6 +288,8 @@ class CommandJob:
                     del self._tail[:overflow]
                     self._tail_start += overflow
             self._changed.notify_all()
+        if self.background:
+            _notify_jobs_live_change()
 
     def _read_output(self, stream):
         try:
@@ -489,6 +503,7 @@ class JobManager:
             job._log.close()
             job.log_path.unlink(missing_ok=True)
             raise
+        _notify_jobs_live_change()
         return job
 
     def _launch(self, job: CommandJob):
@@ -558,6 +573,7 @@ class JobManager:
         self._write_registry()
         job.done.set()
         job.notify_finished()
+        _notify_jobs_live_change()
 
     def get(self, project: str, job_id=None, key=None) -> CommandJob | None:
         jobs = self.list(project)

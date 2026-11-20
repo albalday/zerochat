@@ -482,6 +482,29 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             zerochat.heartbeat_watchdog(mock_server, inactivity_timeout_seconds=0.05)
             mock_stop.assert_called_once_with(mock_server)
 
+    def test_heartbeat_long_poll_despierta_con_cambio(self):
+        ctx = zerochat.SecurityContext(workspace_dir=self.data_dir)
+        initial = zerochat.live_state(ctx)
+        self.assertEqual(initial["rev"], zerochat.live_state(ctx)["rev"])
+
+        def trigger_change():
+            time.sleep(0.08)
+            zerochat.upsert_run_state({
+                "run_id": "run_lp",
+                "conversation_id": "conv_lp",
+                "pid": os.getpid(),
+                "status": "needs_input"
+            })
+
+        started = time.monotonic()
+        threading.Thread(target=trigger_change, daemon=True).start()
+        updated = zerochat.wait_live_state(ctx, since_rev=initial["rev"], wait_ms=5000)
+        self.assertLess(time.monotonic() - started, 2.0)
+        self.assertNotEqual(updated["rev"], initial["rev"])
+        self.assertEqual([r["conversation_id"] for r in updated["runs"]], ["conv_lp"])
+        _, err, _ = zerochat._heartbeat({"wait_ms": -5}, ctx)
+        self.assertEqual(err["code"], -32602)
+
     def test_borrar_conversaciones_limpia_runs(self):
         zerochat.upsert_run_state({
             "run_id": "run_1",

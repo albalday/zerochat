@@ -38,6 +38,18 @@ MAX_STAGED_CONVERSATION_BYTES = 64 * 1024 * 1024
 MAX_CONVERSATION_UPLOAD_CHUNKS = 512
 _UPLOAD_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 _PENDING_CONVERSATION_UPLOADS: dict[str, dict] = {}
+_STORAGE_LIVE_HOOKS: list = []
+
+
+def on_storage_live_change(hook):
+    """Registra una función sin argumentos que se avisa cuando cambian ejecuciones o conversaciones."""
+    _STORAGE_LIVE_HOOKS.append(hook)
+    return hook
+
+
+def _notify_storage_live_change():
+    for hook in _STORAGE_LIVE_HOOKS:
+        hook()
 def _obfuscate_saved_api_keys(conn: sqlite3.Connection):
     """Las API keys de los perfiles del servidor, guardadas en claro hasta ahora, pasan a guardarse ofuscadas."""
     rows = conn.execute("SELECT id, api_key FROM profiles WHERE api_key != '';").fetchall()
@@ -636,7 +648,9 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
         _replace_conversation_blobs(conn, session_id, new_blob_ids)
         conn.commit()
         row = conn.execute("SELECT * FROM conversations WHERE id = ?;", (session_id,)).fetchone()
-        return _row_to_conversation_header(row)
+        saved = _row_to_conversation_header(row)
+    _notify_storage_live_change()
+    return saved
 
 
 def _validate_int_in_range(value, name: str, min_value: int, max_value: int) -> int:
@@ -816,9 +830,10 @@ def mark_conversation_server_run(session_id: str, profile_name: str | None = Non
                 cur_extra["profile_id"] = str(profile_name).strip()
             conn.execute("UPDATE conversations SET extra_json = ? WHERE id = ?;", (json.dumps(cur_extra, ensure_ascii=False), clean_id))
             conn.commit()
-            return True
     except (sqlite3.Error, OSError, json.JSONDecodeError):
         return False
+    _notify_storage_live_change()
+    return True
 
 
 def rename_conversation(session_id: str, new_title: str) -> bool:
@@ -832,7 +847,10 @@ def rename_conversation(session_id: str, new_title: str) -> bool:
             (title, now, clean_id)
         )
         conn.commit()
-        return cursor.rowcount > 0
+        changed = cursor.rowcount > 0
+    if changed:
+        _notify_storage_live_change()
+    return changed
 
 
 def _delete_conversations(conn: sqlite3.Connection, where: str, params: tuple) -> list[str]:
@@ -857,6 +875,8 @@ def _delete_conversations(conn: sqlite3.Connection, where: str, params: tuple) -
             conn.execute(f"DELETE FROM conversations WHERE id IN ({marks});", ids)  # noqa: S608
             _delete_orphan_blobs(conn, candidates)
         conn.execute("COMMIT;")
+        if ids:
+            _notify_storage_live_change()
         return ids
     except Exception:
         conn.execute("ROLLBACK;")
@@ -1176,6 +1196,7 @@ def upsert_run_state(payload: dict) -> None:
             payload.get("error"),
         ))
         conn.commit()
+    _notify_storage_live_change()
 
 
 def get_run_state(conversation_id: str) -> dict | None:
@@ -1199,7 +1220,10 @@ def delete_run_state(conversation_id: str) -> bool:
     with open_storage() as conn:
         cursor = conn.execute("DELETE FROM runs WHERE conversation_id = ?;", (clean_id,))
         conn.commit()
-        return cursor.rowcount > 0
+        deleted = cursor.rowcount > 0
+    if deleted:
+        _notify_storage_live_change()
+    return deleted
 
 
 def get_secret(name: str) -> str | None:
