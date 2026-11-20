@@ -868,9 +868,16 @@ def _kill_process_tree(target: subprocess.Popen | int, *, grace_seconds: float =
             send = os.killpg if os.getpgid(pid) == pid else os.kill
             if grace_seconds > 0:
                 send(pid, signal.SIGTERM)
-                time.sleep(grace_seconds)
-                if not _pid_alive(pid):
-                    return
+                if proc is not None:
+                    try:
+                        proc.wait(timeout=grace_seconds)
+                        return
+                    except subprocess.TimeoutExpired:
+                        pass
+                else:
+                    time.sleep(grace_seconds)
+                    if not _pid_alive(pid):
+                        return
             send(pid, signal.SIGKILL)
         else:
             os.kill(pid, signal.SIGKILL)
@@ -4597,7 +4604,6 @@ def _set_secret(server_id: str, params: dict) -> RpcOutcome:
 
 
 
-RUN_POLL_SECONDS = 0.2
 RUN_PROGRESS_TEXT_MAX = 500
 RUN_PROGRESS_KIND_PATTERN = re.compile(r"[a-z_]{1,32}")
 RUN_EXIT_DONE = 0
@@ -4864,6 +4870,7 @@ class RunSession:
         self.result: dict | None = None
         self.stop_reason: str | None = None
         self.finished = threading.Event()
+        self._wake: threading.Event | None = None
         self.pid = os.getpid()
         self.pid_start = _process_start_token(self.pid)
         self.started_at = int(time.time() * 1000)
@@ -4875,6 +4882,13 @@ class RunSession:
         self.runner_token: str | None = None
         if self.conversation_id:
             write_run_state(self)
+
+    def set_wake_event(self, event: threading.Event | None) -> None:
+        """Asocia un evento compartido al que despertar cuando llegue el resultado."""
+        with self.lock:
+            self._wake = event
+            if event is not None and self.finished.is_set():
+                event.set()
 
     def take_approved_call(self, tool_name: str, args: dict) -> bool:
         """Si es la llamada que la persona aprobó en la tarjeta pausada (mismo nombre y argumentos), la consume:
@@ -5019,6 +5033,9 @@ def _rpc_result(params: dict, session: RunSession) -> RpcOutcome:
             session.error = error
             write_run_state(session)
     session.finished.set()
+    with session.lock:
+        if session._wake is not None:
+            session._wake.set()
     return rpc_result({"ok": True})
 
 
@@ -6179,23 +6196,20 @@ texto o al agotar el plazo, que es un máximo. La persona puede cortarlas con la
 
 
 
-# Cada cuánto comprueba una espera si la persona la ha cortado.
-WAIT_SLICE_SECONDS = 0.25
-
 
 class CancellableWaits:
     """Esperas en curso, por la clave de su invocación: zerochat/jobs/end_wait corta la de esa clave."""
 
     def __init__(self):
         self._lock = threading.Lock()
-        self._waits: dict[str, threading.Event] = {}
+        self._waits: dict[str, tuple[threading.Event, typing.Any]] = {}
 
-    def open(self, key: str | None) -> threading.Event:
+    def open(self, key: str | None, job=None) -> threading.Event:
         """Registra una espera que se puede cortar con cancel(key); sin clave no se puede cortar."""
         event = threading.Event()
         if key:
             with self._lock:
-                self._waits[key] = event
+                self._waits[key] = (event, job)
         return event
 
     def close(self, key: str | None):
@@ -6204,12 +6218,15 @@ class CancellableWaits:
                 self._waits.pop(key, None)
 
     def cancel(self, key) -> bool:
-        """Corta la espera con esa clave; devuelve si había una en curso."""
+        """Corta la espera con esa clave y despierta al hilo que espera en job._changed."""
         with self._lock:
-            event = self._waits.get(key) if isinstance(key, str) else None
-        if event is None:
+            entry = self._waits.get(key) if isinstance(key, str) else None
+        if entry is None:
             return False
+        event, job = entry
         event.set()
+        if job is not None:
+            job.notify_finished()
         return True
 
 
@@ -6245,10 +6262,7 @@ def _wait_job(job, wait: float, terms: tuple[str, ...] | None, cancel: threading
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return "wait_elapsed", None
-        if terms is None:
-            job.done.wait(min(remaining, WAIT_SLICE_SECONDS))
-        else:
-            job.wait_change(pos, min(remaining, WAIT_SLICE_SECONDS))
+        job.wait_change(pos if terms is not None else None, remaining, cancel)
 
 # --- tools.jobs ---
 """Comandos del servidor local (run_command y check_command): tareas con su log, plazos, segundo plano y limpieza de huérfanos."""
@@ -6596,10 +6610,15 @@ class CommandJob:
         omitted = total - start - 2 * MODEL_OUTPUT_READ_BYTES
         return head + f"\n[... {omitted} bytes omitted ...]\n" + tail
 
-    def wait_change(self, seen_total: int, timeout: float):
-        """Espera como mucho timeout segundos a que haya salida más allá de seen_total o a que el comando termine."""
+    def wait_change(self, seen_total: int | None, timeout: float, cancel: threading.Event | None = None):
+        """Espera como mucho timeout segundos a que haya salida nueva, termine o se cancele la espera."""
         with self._changed:
-            self._changed.wait_for(lambda: self._total > seen_total or self.done.is_set(), timeout)
+            self._changed.wait_for(
+                lambda: (seen_total is not None and self._total > seen_total)
+                or self.done.is_set()
+                or (cancel is not None and cancel.is_set()),
+                timeout,
+            )
 
     def notify_finished(self):
         with self._changed:
@@ -6945,7 +6964,7 @@ def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool =
     wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
     if not wait and terms is None:
         return _job_result(job, output_field="new_output")
-    cancel = WAITS.open(job_key)
+    cancel = WAITS.open(job_key, job)
     started = time.monotonic()
     try:
         reason, line = _wait_job(job, wait, terms, cancel)
@@ -7649,8 +7668,24 @@ HEARTBEAT_LAST_SEEN = 0.0
 HEARTBEAT_INITIALIZED = False
 HEARTBEAT_WATCHDOG_STOP = threading.Event()
 _SERVER_SHUTTING_DOWN = threading.Event()
+_SHUTDOWN_LOCK = threading.Lock()
+_SHUTDOWN_LISTENERS: set[threading.Event] = set()
 # Si el servidor se detiene al cerrar el navegador, cerrar la pestaña detiene también los comandos.
 EXIT_ON_CLOSE = False
+
+
+def register_shutdown_event(event: threading.Event) -> None:
+    """Registra un evento que se activa al iniciar el apagado del servidor."""
+    with _SHUTDOWN_LOCK:
+        if _SERVER_SHUTTING_DOWN.is_set():
+            event.set()
+        else:
+            _SHUTDOWN_LISTENERS.add(event)
+
+
+def unregister_shutdown_event(event: threading.Event) -> None:
+    with _SHUTDOWN_LOCK:
+        _SHUTDOWN_LISTENERS.discard(event)
 
 
 def set_exit_on_close(value: bool):
@@ -7730,6 +7765,9 @@ def stop_zerochat_server(server: ThreadingHTTPServer):
     if _SERVER_SHUTTING_DOWN.is_set():
         return
     _SERVER_SHUTTING_DOWN.set()
+    with _SHUTDOWN_LOCK:
+        for listener in list(_SHUTDOWN_LISTENERS):
+            listener.set()
     HEARTBEAT_WATCHDOG_STOP.set()
     running = JOBS.running(None)
     if running:
@@ -7899,14 +7937,27 @@ def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc
     """Detiene el servidor al recibir el resultado o si termina el runner propio. Sin plazos: lo que dura una ejecución
     lo decide quien la lanza (la cancela o la interrumpe), y cada paso cerrado ya está grabado."""
     proc = runner_proc if runner_proc is not None else browser_proc
-    while not session.finished.wait(RUN_POLL_SECONDS):
+    wake = threading.Event()
+    proc_done = threading.Event()
+    session.set_wake_event(wake)
+    register_shutdown_event(wake)
+    try:
+        if proc is not None:
+            def _watch_proc():
+                proc.wait()
+                proc_done.set()
+                wake.set()
+            threading.Thread(target=_watch_proc, name="run-proc-wait", daemon=True).start()
+        wake.wait()
         # El latido o una señal ya detienen el servidor: el resultado queda vacío.
         if _SERVER_SHUTTING_DOWN.is_set():
             return
-        if proc is not None and proc.poll() is not None and not session.finished.wait(0.2):
+        if proc_done.is_set() and not session.finished.wait(0.2):
             if runner_proc is not None:
                 session.stop_reason = runner_exit_reason(runner_proc, runner_log)
-            break
+    finally:
+        unregister_shutdown_event(wake)
+        session.set_wake_event(None)
     if session.result is None and session.conversation_id:
         with session.lock:
             session.status = "error"
@@ -9230,7 +9281,7 @@ def execute_js_sandbox(code: str, timeout_ms: int | float | None = None) -> dict
     try:
         stdout, stderr = proc.communicate(input=payload, timeout=(resolved_timeout + 250) / 1000.0)
     except subprocess.TimeoutExpired:
-        _kill_process_tree(proc.pid, grace_seconds=0.05)
+        _kill_process_tree(proc, grace_seconds=0.05)
         try:
             proc.wait(timeout=1.0)
         except subprocess.TimeoutExpired:

@@ -21,8 +21,24 @@ HEARTBEAT_LAST_SEEN = 0.0
 HEARTBEAT_INITIALIZED = False
 HEARTBEAT_WATCHDOG_STOP = threading.Event()
 _SERVER_SHUTTING_DOWN = threading.Event()
+_SHUTDOWN_LOCK = threading.Lock()
+_SHUTDOWN_LISTENERS: set[threading.Event] = set()
 # Si el servidor se detiene al cerrar el navegador, cerrar la pestaña detiene también los comandos.
 EXIT_ON_CLOSE = False
+
+
+def register_shutdown_event(event: threading.Event) -> None:
+    """Registra un evento que se activa al iniciar el apagado del servidor."""
+    with _SHUTDOWN_LOCK:
+        if _SERVER_SHUTTING_DOWN.is_set():
+            event.set()
+        else:
+            _SHUTDOWN_LISTENERS.add(event)
+
+
+def unregister_shutdown_event(event: threading.Event) -> None:
+    with _SHUTDOWN_LOCK:
+        _SHUTDOWN_LISTENERS.discard(event)
 
 
 def set_exit_on_close(value: bool):
@@ -102,6 +118,9 @@ def stop_zerochat_server(server: ThreadingHTTPServer):
     if _SERVER_SHUTTING_DOWN.is_set():
         return
     _SERVER_SHUTTING_DOWN.set()
+    with _SHUTDOWN_LOCK:
+        for listener in list(_SHUTDOWN_LISTENERS):
+            listener.set()
     HEARTBEAT_WATCHDOG_STOP.set()
     running = JOBS.running(None)
     if running:

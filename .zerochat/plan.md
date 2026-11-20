@@ -25,9 +25,9 @@
 - [x] M81-T14 Simplificación: unificar el modelo de proyecto (mover activeRagBranchIds al entorno por proyecto, adelgazar runtime_config_v2 a preferencias globales y separar por proyecto security_policies) (2026-11-20)
 - [ ] M81-T15 A discutir con el usuario: simplificación de búsqueda de conversaciones delegando searchConversations a SQLite (zerochat/conversations/search) cuando hay backend conectado en lugar de descargar pendientes a IndexedDB
 - [ ] M81-T16 A discutir con el usuario: simplificación de la réplica bidireccional de perfiles y conversaciones usando SQLite como fuente directa con servidor conectado y localStorage/IndexedDB solo sin servidor
-- [ ] M81-T17 Quitar polling: en check_command (py/tools/job_waits.py), eliminar WAIT_SLICE_SECONDS haciendo que WAITS.cancel notifique job._changed para esperar en un solo wait(remaining)
-- [ ] M81-T18 Quitar polling: en _kill_process_tree (py/core/process.py), sustituir time.sleep(grace_seconds) por proc.wait(timeout=grace_seconds) cuando el objetivo es un Popen
-- [ ] M81-T19 Quitar polling: en run_supervisor (py/run_mode/supervisor.py), sustituir el bucle RUN_POLL_SECONDS/proc.poll() por espera síncrona sobre un evento compartido con proc.wait() y el apagado
+- [x] M81-T17 Quitar polling: en check_command (py/tools/job_waits.py), eliminar WAIT_SLICE_SECONDS haciendo que WAITS.cancel notifique job._changed para esperar en un solo wait(remaining) (2026-11-20)
+- [x] M81-T18 Quitar polling: en _kill_process_tree (py/core/process.py), sustituir time.sleep(grace_seconds) por proc.wait(timeout=grace_seconds) cuando el objetivo es un Popen (2026-11-20)
+- [x] M81-T19 Quitar polling: en run_supervisor (py/run_mode/supervisor.py), sustituir el bucle RUN_POLL_SECONDS/proc.poll() por espera síncrona sobre un evento compartido con proc.wait() y el apagado (2026-11-20)
 - [ ] M81-T20 Quitar polling: en arranque de servicios MCP (js/mcp-external.js, py/mcp/), sustituir el timeout corto + polling de 15 s por espera síncrona / long-poll al cambiar de fase, aparecer oauthUrl o terminar
 - [ ] M81-T21 Quitar polling: en log en vivo de comandos (js/command-card.js, py/tools/jobs_rpc.py), sustituir pollLog() cada 2 s por long-poll (wait_ms) reutilizando job.wait_change
 - [ ] M81-T22 Quitar polling: en instalación de motores Playwright (js/ui-browser.js, py/browser/engines.py), sustituir el sondeo cada 1 s de engines/list por espera síncrona o long-poll con Condition sin re-escanear navegadores del sistema

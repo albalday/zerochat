@@ -194,8 +194,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             log.write(b"Error fatal en runner")
             log.flush()
             mock_proc = mock.Mock(returncode=3)
-            mock_proc.poll.return_value = 3
             zerochat.run_supervisor(mock.Mock(), session, runner_proc=mock_proc, runner_log=log)
+            mock_proc.wait.assert_called_once_with()
         data = zerochat.get_run_state(conv_id)
         self.assertEqual(data["status"], "error")
         self.assertEqual(data["error"], "El runner de Node.js terminó con el código 3 sin resultado: Error fatal en runner")

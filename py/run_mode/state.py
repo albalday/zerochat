@@ -37,7 +37,6 @@ from storage.db import (
 )
 
 
-RUN_POLL_SECONDS = 0.2
 RUN_PROGRESS_TEXT_MAX = 500
 RUN_PROGRESS_KIND_PATTERN = re.compile(r"[a-z_]{1,32}")
 RUN_EXIT_DONE = 0
@@ -304,6 +303,7 @@ class RunSession:
         self.result: dict | None = None
         self.stop_reason: str | None = None
         self.finished = threading.Event()
+        self._wake: threading.Event | None = None
         self.pid = os.getpid()
         self.pid_start = _process_start_token(self.pid)
         self.started_at = int(time.time() * 1000)
@@ -315,6 +315,13 @@ class RunSession:
         self.runner_token: str | None = None
         if self.conversation_id:
             write_run_state(self)
+
+    def set_wake_event(self, event: threading.Event | None) -> None:
+        """Asocia un evento compartido al que despertar cuando llegue el resultado."""
+        with self.lock:
+            self._wake = event
+            if event is not None and self.finished.is_set():
+                event.set()
 
     def take_approved_call(self, tool_name: str, args: dict) -> bool:
         """Si es la llamada que la persona aprobó en la tarjeta pausada (mismo nombre y argumentos), la consume:
@@ -459,6 +466,9 @@ def _rpc_result(params: dict, session: RunSession) -> RpcOutcome:
             session.error = error
             write_run_state(session)
     session.finished.set()
+    with session.lock:
+        if session._wake is not None:
+            session._wake.set()
     return rpc_result({"ok": True})
 
 

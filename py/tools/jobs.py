@@ -361,10 +361,15 @@ class CommandJob:
         omitted = total - start - 2 * MODEL_OUTPUT_READ_BYTES
         return head + f"\n[... {omitted} bytes omitted ...]\n" + tail
 
-    def wait_change(self, seen_total: int, timeout: float):
-        """Espera como mucho timeout segundos a que haya salida más allá de seen_total o a que el comando termine."""
+    def wait_change(self, seen_total: int | None, timeout: float, cancel: threading.Event | None = None):
+        """Espera como mucho timeout segundos a que haya salida nueva, termine o se cancele la espera."""
         with self._changed:
-            self._changed.wait_for(lambda: self._total > seen_total or self.done.is_set(), timeout)
+            self._changed.wait_for(
+                lambda: (seen_total is not None and self._total > seen_total)
+                or self.done.is_set()
+                or (cancel is not None and cancel.is_set()),
+                timeout,
+            )
 
     def notify_finished(self):
         with self._changed:
@@ -710,7 +715,7 @@ def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool =
     wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
     if not wait and terms is None:
         return _job_result(job, output_field="new_output")
-    cancel = WAITS.open(job_key)
+    cancel = WAITS.open(job_key, job)
     started = time.monotonic()
     try:
         reason, line = _wait_job(job, wait, terms, cancel)

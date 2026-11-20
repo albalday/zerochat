@@ -62,7 +62,7 @@ def execute_js_sandbox(code: str, timeout_ms: int | float | None = None) -> dict
     try:
         stdout, stderr = proc.communicate(input=payload, timeout=(resolved_timeout + 250) / 1000.0)
     except subprocess.TimeoutExpired:
-        _kill_process_tree(proc.pid, grace_seconds=0.05)
+        _kill_process_tree(proc, grace_seconds=0.05)
         try:
             proc.wait(timeout=1.0)
         except subprocess.TimeoutExpired:

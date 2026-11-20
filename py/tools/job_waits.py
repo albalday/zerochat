@@ -5,11 +5,9 @@ from __future__ import annotations
 
 import threading
 import time
+import typing
 
 from tools.common import line_matches
-
-# Cada cuánto comprueba una espera si la persona la ha cortado.
-WAIT_SLICE_SECONDS = 0.25
 
 
 class CancellableWaits:
@@ -17,14 +15,14 @@ class CancellableWaits:
 
     def __init__(self):
         self._lock = threading.Lock()
-        self._waits: dict[str, threading.Event] = {}
+        self._waits: dict[str, tuple[threading.Event, typing.Any]] = {}
 
-    def open(self, key: str | None) -> threading.Event:
+    def open(self, key: str | None, job=None) -> threading.Event:
         """Registra una espera que se puede cortar con cancel(key); sin clave no se puede cortar."""
         event = threading.Event()
         if key:
             with self._lock:
-                self._waits[key] = event
+                self._waits[key] = (event, job)
         return event
 
     def close(self, key: str | None):
@@ -33,12 +31,15 @@ class CancellableWaits:
                 self._waits.pop(key, None)
 
     def cancel(self, key) -> bool:
-        """Corta la espera con esa clave; devuelve si había una en curso."""
+        """Corta la espera con esa clave y despierta al hilo que espera en job._changed."""
         with self._lock:
-            event = self._waits.get(key) if isinstance(key, str) else None
-        if event is None:
+            entry = self._waits.get(key) if isinstance(key, str) else None
+        if entry is None:
             return False
+        event, job = entry
         event.set()
+        if job is not None:
+            job.notify_finished()
         return True
 
 
@@ -74,7 +75,4 @@ def _wait_job(job, wait: float, terms: tuple[str, ...] | None, cancel: threading
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return "wait_elapsed", None
-        if terms is None:
-            job.done.wait(min(remaining, WAIT_SLICE_SECONDS))
-        else:
-            job.wait_change(pos, min(remaining, WAIT_SLICE_SECONDS))
+        job.wait_change(pos if terms is not None else None, remaining, cancel)
