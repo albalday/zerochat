@@ -818,7 +818,6 @@
     TOOL_WORKFLOW_INSTRUCTION,
     isToolEnabled,
     browserOfTool,
-    activeBrowserTool,
     Tool,
     ToolRegistry,
     ToolExecutor,

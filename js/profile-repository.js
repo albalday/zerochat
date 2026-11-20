@@ -552,7 +552,7 @@
   }
 
   return {
-    STORAGE_KEY, SCHEMA_VERSION, PROFILE_FIELDS, STORAGE_PROFILE_FIELDS, READONLY_PROFILE_ID, MIRROR_PROFILE: clone(MIRROR_PROFILE), NEW_PROFILE_SETTINGS: clone(NEW_PROFILE_SETTINGS),
+    STORAGE_KEY, PROFILE_FIELDS, READONLY_PROFILE_ID, NEW_PROFILE_SETTINGS: clone(NEW_PROFILE_SETTINGS),
     createId, initialize, list, get, load, setPasswordPrompt, loadUnlocked, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported, syncWithBackend,
     registerSessionProfile, setSessionKeyLoader, listSessionProfiles, clearSessionProfile
   };

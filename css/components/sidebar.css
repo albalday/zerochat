@@ -371,7 +371,6 @@
 }
 
 #btn-open-connection[data-status="connecting"] .connection-status-dot,
-#btn-open-connection[data-status="checking"] .connection-status-dot,
 #btn-open-connection[data-status="login_required"] .connection-status-dot {
   background: var(--warning);
 }

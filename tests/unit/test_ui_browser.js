@@ -25,7 +25,6 @@ test('UIBrowser.getSavePlan - decide validación, envío y reinicio según herra
 
 test('UIBrowser - motores, navegadores del usuario y tokens de la extensión coinciden con el backend (tests/fixtures/mcp/contract.json)', () => {
   assert.deepEqual(Defaults.BROWSER_TOOLS, CONTRACT.browserTools);
-  assert.deepEqual(Defaults.PLAYWRIGHT_ENGINES, CONTRACT.playwrightEngines);
   assert.deepEqual(Defaults.USER_BROWSERS, CONTRACT.userBrowsers);
   for (const extensionToken of CONTRACT.extensionTokens.valid) {
     assert.deepEqual(plan({ config: { ...SAVED, extensionToken } }, 'running'), { ...NOTHING, setConfig: extensionToken !== '', offerRestart: extensionToken !== '' }, extensionToken);

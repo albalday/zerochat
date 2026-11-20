@@ -230,7 +230,6 @@
     setExternalServerSecret,
     runExternalServerAction,
     withExternalServerStopped,
-    desiredExternalServers,
     reconcileProjectServers
   };
 });

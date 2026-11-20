@@ -610,7 +610,6 @@
   return {
     generateTerminalCommand,
     getServiceHelp,
-    getServiceName,
     renderConnectionStatus,
     renderToolsList,
     renderExternalServers,

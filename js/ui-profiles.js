@@ -1,6 +1,6 @@
 /**
- * Interfaz de los perfiles: menú del perfil activo, editor de perfiles (marcado, capítulos, campos
- * del proveedor y servicios MCP) con detección de cambios sin guardar, borrado, exportación cifrada,
+ * Interfaz de los perfiles: menú del perfil activo, editor de perfiles (marcado, capítulos y campos
+ * del proveedor) con detección de cambios sin guardar, borrado, exportación cifrada,
  * importación desde un paquete exportado y contraseña de cifrado de las API keys.
  */
 (function (root, factory) {
@@ -987,7 +987,6 @@
     getSaveDecision,
     getCloseConfirmation,
     buildProfileSettings,
-    formatProfileDisplayName,
     getBackgroundEligibility,
     isServerMode,
     setServerMode,

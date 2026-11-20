@@ -37,8 +37,7 @@
 
   /** Herramientas de navegación de Ajustes › Navegador: ninguna, browser_action o Playwright MCP. */
   const BROWSER_TOOLS = Object.freeze(['none', 'browser_action', 'playwright']);
-  /** Motores propios de Playwright y navegadores del usuario que maneja su extensión. */
-  const PLAYWRIGHT_ENGINES = Object.freeze(['chromium', 'firefox', 'webkit']);
+  /** Navegadores del usuario que maneja la extensión de Playwright. */
   const USER_BROWSERS = Object.freeze(['chrome', 'msedge', 'chromium']);
 
   /** Configuración de ejecución por defecto: estado inicial de ChatState y base de ChatConfig.normalize. */
@@ -69,9 +68,7 @@
   return Object.freeze({
     APP_VERSION,
     BROWSER_TOOLS,
-    PLAYWRIGHT_ENGINES,
     USER_BROWSERS,
-    DEFAULT_THEME,
     DEFAULT_SYSTEM_DATA_PROMPT,
     CONFIG_DEFAULTS,
     LOCAL_BACKEND_URL,

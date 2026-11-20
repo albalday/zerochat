@@ -71,7 +71,6 @@
     btnExportHtml: 'btn-export-html',
     btnExportPrint: 'btn-export-print',
     // Perfil activo e inspector
-    activeProfileMenu: 'active-profile-menu',
     activeProfileTrigger: 'active-profile-trigger',
     activeProfileName: 'active-profile-name',
     activeProfilePopover: 'active-profile-popover',

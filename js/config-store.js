@@ -257,8 +257,8 @@
   }
 
   return {
-    DEFAULT_SYSTEM_DATA_PROMPT, DEFAULTS: clone(DEFAULTS), normalize,
-    normalizeProjectEnvironment, getProjectEnvironment, saveProjectEnvironmentBackup, applyProjectEnvironment,
+    DEFAULT_SYSTEM_DATA_PROMPT, normalize,
+    getProjectEnvironment, saveProjectEnvironmentBackup, applyProjectEnvironment,
     initialize, getActive, updateRuntime, activateProfile, activateFallbackProfile, refreshActiveProfile, subscribe
   };
 }));
