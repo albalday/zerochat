@@ -17,6 +17,7 @@ from core.logging import log_event
 # Modo propio: un motor de Playwright en memoria (--isolated), o con almacenamiento persistente con nombre
 # en ~/zerochat/playwright/profile/<motor>/<nombre>.
 # Modo del usuario: su Chrome, Edge o Chromium mediante la extensión de Playwright (--extension).
+BROWSER_TOOLS = ("none", "browser_action", "playwright")
 BROWSER_MODES = ("own", "user")
 OWN_BROWSER_ENGINES = ("chromium", "firefox", "webkit")
 USER_BROWSERS = ("chrome", "msedge", "chromium")

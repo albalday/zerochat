@@ -1,4 +1,9 @@
 {
+  "browserTools": [
+    "none",
+    "browser_action",
+    "playwright"
+  ],
   "playwrightEngines": [
     "chromium",
     "firefox",

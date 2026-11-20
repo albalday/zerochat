@@ -131,3 +131,29 @@ test('ChatDefaults - el contexto WebLLM predeterminado es 4K en móviles y 16K e
   assert.equal(Defaults.getWebllmDefaultContextWindowSize({ userAgent: 'Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0' }), 16384);
   assert.ok(Defaults.WEBLLM_CONTEXT_WINDOW_SIZES.includes(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE));
 });
+
+test('ChatConfig - el respaldo offline de entornos por proyecto normaliza, separa general y acota a 50 proyectos', () => {
+  assert.equal(ChatConfig.getProjectEnvironment(''), null);
+  ChatConfig.saveProjectEnvironmentBackup('', {
+    systemDataPrompt: '  General prompt  ',
+    enabledTools: { search_web: false, bad: 'nope' },
+    mcpServers: [' memory ', 'memory', 'brave'],
+    browser: 'invalid_browser',
+    updatedAt: 100
+  });
+  assert.deepEqual(ChatConfig.getProjectEnvironment(''), {
+    systemDataPrompt: 'General prompt',
+    enabledTools: { search_web: false },
+    mcpServers: ['memory', 'brave'],
+    browser: 'browser_action',
+    updatedAt: 100
+  });
+
+  for (let i = 1; i <= 50; i++) {
+    ChatConfig.saveProjectEnvironmentBackup(`/repo/${i}`, { browser: 'playwright', updatedAt: 1000 + i });
+  }
+  assert.equal(Object.keys(Storage.loadProjectEnvironments()).length, 50);
+  // Al pasar de 50 se expulsa el más antiguo (general con updatedAt 100).
+  assert.equal(ChatConfig.getProjectEnvironment(''), null);
+  assert.equal(ChatConfig.getProjectEnvironment('/repo/50').browser, 'playwright');
+});

@@ -67,9 +67,9 @@ class StorageEngineTest(unittest.TestCase):
             migrations = {row["version"] for row in conn.execute("SELECT version FROM schema_migrations;").fetchall()}
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(conversations);").fetchall()}
             stored_key = conn.execute("SELECT api_key FROM profiles WHERE id = 'profile:viejo';").fetchone()["api_key"]
-        for expected_table in ("schema_migrations", "profiles", "conversations", "messages", "blobs", "conversation_blobs", "security_policies"):
+        for expected_table in ("schema_migrations", "profiles", "conversations", "messages", "blobs", "conversation_blobs", "security_policies", "project_environments"):
             self.assertIn(expected_table, tables)
-        self.assertEqual(migrations, {1, 2, 3, 4, 5, 6, 7, 8, 9})
+        self.assertEqual(migrations, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
         self.assertIn("extra_json", columns)
         if os.name != "nt":
             self.assertEqual(stat.S_IMODE(self.storage_dir.stat().st_mode), 0o700)
@@ -763,3 +763,86 @@ class StorageEngineTest(unittest.TestCase):
                 "messages": [{"id": "2", "role": "user", "content": "y" * 64}],
             })
             self.assertEqual(err["code"], -32602)
+
+    def test_entorno_por_proyecto_sqlite_y_rpc(self):
+        project_a = self.data_dir / "proj_a"
+        project_b = self.data_dir / "proj_b"
+        project_a.mkdir()
+        project_b.mkdir()
+        ctx_a = zerochat.SecurityContext(workspace_dir=project_a.resolve())
+        ctx_b = zerochat.SecurityContext(workspace_dir=project_b.resolve())
+        ctx_general = zerochat.SecurityContext(workspace_dir=zerochat.get_no_project_dir().resolve())
+
+        # Proyecto nuevo devuelve valores base sin fila persistida en SQLite.
+        initial_a, err, _ = zerochat.dispatch_local("zerochat/project/environment/get", {}, ctx_a)
+        self.assertIsNone(err)
+        self.assertEqual(initial_a["projectEnvironment"]["saved"], False)
+        self.assertEqual(initial_a["projectEnvironment"]["browser"], "browser_action")
+        self.assertEqual(initial_a["projectEnvironment"]["mcpServers"], [])
+
+        # Parche parcial en proyecto A y en general quedan aislados; otro parche parcial conserva el resto.
+        res_a, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {
+            "systemDataPrompt": "  Usa Python 3.  ",
+            "enabledTools": {"search_web": False, "run_command": True},
+            "mcpServers": [" memory ", "memory", "brave"],
+            "browser": "playwright",
+        }, ctx_a)
+        self.assertIsNone(err)
+        env_a = res_a["projectEnvironment"]
+        self.assertTrue(env_a["saved"])
+        self.assertEqual(env_a["systemDataPrompt"], "Usa Python 3.")
+        self.assertEqual(env_a["enabledTools"], {"search_web": False, "run_command": True})
+        self.assertEqual(env_a["mcpServers"], ["memory", "brave"])
+        self.assertEqual(env_a["browser"], "playwright")
+
+        # Actualizar solo browser conserva systemDataPrompt, enabledTools y mcpServers de A.
+        updated_a, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"browser": "none"}, ctx_a)
+        self.assertIsNone(err)
+        self.assertEqual(updated_a["projectEnvironment"]["systemDataPrompt"], "Usa Python 3.")
+        self.assertEqual(updated_a["projectEnvironment"]["mcpServers"], ["memory", "brave"])
+        self.assertEqual(updated_a["projectEnvironment"]["browser"], "none")
+
+        # general usa su propia fila (get_no_project_dir) sin mezclarse con A ni B.
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"mcpServers": ["github"]}, ctx_general)
+        self.assertIsNone(err)
+        init_general, err, _ = zerochat.dispatch_local("initialize", {}, ctx_general)
+        self.assertIsNone(err)
+        self.assertEqual(init_general["projectEnvironment"]["mcpServers"], ["github"])
+
+        # zerochat/project/set_directory entrega el entorno del nuevo proyecto (B vacío, A guardado).
+        switched_b, err, _ = zerochat.dispatch_local("zerochat/project/set_directory", {"path": str(project_b)}, ctx_a)
+        self.assertIsNone(err)
+        self.assertEqual(switched_b["projectEnvironment"]["saved"], False)
+        switched_a, err, _ = zerochat.dispatch_local("zerochat/project/set_directory", {"path": str(project_a)}, ctx_b)
+        self.assertIsNone(err)
+        self.assertEqual(switched_a["projectEnvironment"]["browser"], "none")
+        self.assertEqual(switched_a["projectEnvironment"]["mcpServers"], ["memory", "brave"])
+
+        # Topes en el borde exacto N / N+1 y rechazo de entradas inválidas.
+        max_prompt = "x" * zerochat.MAX_PROJECT_PROMPT_LENGTH
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"systemDataPrompt": max_prompt}, ctx_b)
+        self.assertIsNone(err)
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"systemDataPrompt": max_prompt + "x"}, ctx_b)
+        self.assertEqual(err["code"], -32602)
+
+        max_servers = [f"srv_{i}" for i in range(zerochat.MAX_PROJECT_MCP_SERVERS)]
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"mcpServers": max_servers}, ctx_b)
+        self.assertIsNone(err)
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"mcpServers": [*max_servers, "extra"]}, ctx_b)
+        self.assertEqual(err["code"], -32602)
+
+        for invalid in (
+            {"unknownField": 1},
+            {"browser": "chrome"},
+            {"enabledTools": {"bad": "yes"}},
+            {"mcpServers": ["ok", ""]},
+        ):
+            _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", invalid, ctx_b)
+            self.assertEqual(err["code"], -32602, invalid)
+
+        # JSON corrupto en SQLite falla explícitamente sin devolver valores por defecto.
+        with zerochat.open_storage() as conn:
+            conn.execute("UPDATE project_environments SET config_json = '{corrupt' WHERE project_key = ?;", (ctx_a.key,))
+            conn.commit()
+        with self.assertRaisesRegex(RuntimeError, "corrupto"):
+            zerochat.get_project_environment(ctx_a.key)

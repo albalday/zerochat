@@ -19,6 +19,7 @@
   const getDataResetService = () => resolveDep('ChatDataResetService', './data-reset-service.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
+  const getMCP = () => resolveDep('ChatMCP', './mcp.js');
   const getUIMcp = () => resolveDep('ChatUIMcp', './ui-mcp.js');
   const getToolSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
   const getSidebar = () => resolveDep('ChatUISidebar', './ui-sidebar.js');
@@ -208,6 +209,11 @@
       return false;
     }
     const savedConfig = getConfig().updateRuntime(gatherSettingsFormConfig(elements, appConfig, connection));
+    await getMCP().manager.saveProjectEnvironment({
+      systemDataPrompt: savedConfig.systemDataPrompt,
+      enabledTools: savedConfig.enabledTools,
+      browser: savedConfig.browser
+    });
     setSettingsFormDirty(elements, false);
     callbacks.loadCachedModels();
     callbacks.onConfigSaved(savedConfig);

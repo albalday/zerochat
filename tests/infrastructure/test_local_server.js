@@ -225,17 +225,24 @@ describe('Servidor local zerochat.py', () => {
         assert.equal((await callTool('run_command', { command: 'pwd' }, null, header(dir))).parsed.output, `${dir}\n`);
         assert.equal((await rpc('zerochat/heartbeat', {}, { headers: header(dir) })).result.cwd, dir);
       }
-      // Elegir carpeta solo la valida para la pestaña y devuelve sus políticas: sin cabecera sigue el proyecto por defecto
+      // Elegir carpeta solo la valida para la pestaña y devuelve sus políticas y entorno: sin cabecera sigue el proyecto por defecto
+      const setEnv = await rpc('zerochat/project/environment/set', { systemDataPrompt: 'Regla B', browser: 'playwright', mcpServers: ['memory'] }, { headers: header(projects[1]) });
+      assert.equal(setEnv.result.projectEnvironment.browser, 'playwright');
+      assert.deepEqual(setEnv.result.projectEnvironment.mcpServers, ['memory']);
       const chosen = await rpc('zerochat/project/set_directory', { path: projects[1] }, { headers: header(projects[0]) });
       assert.equal(chosen.result.cwd, projects[1]);
       assert.equal(chosen.result.policies.directoryRules[0], `RWX:${projects[1]}/**`);
+      assert.equal(chosen.result.projectEnvironment.browser, 'playwright');
+      assert.equal(chosen.result.projectEnvironment.systemDataPrompt, 'Regla B');
       assert.equal((await rpc('zerochat/heartbeat')).result.cwd, fs.realpathSync(repoRoot));
 
       fs.rmSync(projects[1], { recursive: true });
       const gone = await post('tools/call', { name: 'run_command', arguments: { command: 'pwd' } }, { headers: header(projects[1]) });
       assert.equal((await gone.json()).error.code, -32003, 'Nunca se ejecuta en otra carpeta');
-      // initialize sí responde, con el proyecto por defecto, para que la pestaña sepa dónde está
-      assert.equal((await rpc('initialize', {}, { headers: header(projects[1]) })).result.serverInfo.cwd, fs.realpathSync(repoRoot));
+      // initialize sí responde, con el proyecto por defecto y su entorno, para que la pestaña sepa dónde está
+      const fallbackInit = await rpc('initialize', {}, { headers: header(projects[1]) });
+      assert.equal(fallbackInit.result.serverInfo.cwd, fs.realpathSync(repoRoot));
+      assert.equal(fallbackInit.result.projectEnvironment.saved, false);
     } finally {
       projects.forEach(dir => fs.rmSync(dir, { recursive: true, force: true }));
     }

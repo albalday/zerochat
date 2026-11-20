@@ -16,6 +16,7 @@ import urllib.parse
 import uuid
 from pathlib import Path
 
+from browser.config import BROWSER_TOOLS
 from core.environment import get_data_dir
 from core.limits import MAX_PATH_LENGTH
 from storage.obfuscation import OBFUSCATION_PREFIX, obfuscate_secret, reveal_secret
@@ -146,10 +147,22 @@ STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connecti
             updated_at INTEGER NOT NULL
         );
     """),
-    (9, "009_strip_profile_mcp_and_browser", _strip_profile_mcp_and_browser)
+    (9, "009_strip_profile_mcp_and_browser", _strip_profile_mcp_and_browser),
+    (10, "010_create_project_environments_table", """
+        CREATE TABLE IF NOT EXISTS project_environments (
+            project_key TEXT PRIMARY KEY,
+            config_json TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+    """)
 ]
 # Tope de un secreto guardado (una API key cabe de sobra).
 MAX_SECRET_LENGTH = 4096
+PROJECT_ENVIRONMENT_KEYS = frozenset({"systemDataPrompt", "enabledTools", "mcpServers", "browser"})
+MAX_PROJECT_PROMPT_LENGTH = 32768
+MAX_PROJECT_MCP_SERVERS = 64
+MAX_PROJECT_ENABLED_TOOLS = 256
+MAX_PROJECT_TOOL_ID_LENGTH = 128
 
 
 def get_storage_dir() -> Path:
@@ -1030,3 +1043,137 @@ def get_server_id() -> str:
         server_id = str(uuid.uuid4())
         save_secret(SERVER_ID_KEY, server_id)
         return server_id
+
+
+def _empty_project_environment() -> dict:
+    return {
+        "systemDataPrompt": None,
+        "enabledTools": {},
+        "mcpServers": [],
+        "browser": "browser_action",
+        "saved": False,
+        "updatedAt": 0,
+    }
+
+
+def _clean_project_tool_id(raw, label: str) -> str:
+    if not isinstance(raw, str):
+        raise ValueError(f"{label} debe ser un texto")
+    clean = raw.strip()
+    if not clean or len(clean) > MAX_PROJECT_TOOL_ID_LENGTH:
+        raise ValueError(f"{label} debe tener entre 1 y {MAX_PROJECT_TOOL_ID_LENGTH} caracteres")
+    return clean
+
+
+def _validate_project_prompt(prompt) -> str | None:
+    if prompt is None:
+        return None
+    if not isinstance(prompt, str):
+        raise ValueError("systemDataPrompt debe ser texto o null")
+    clean = prompt.strip()
+    if len(clean) > MAX_PROJECT_PROMPT_LENGTH:
+        raise ValueError(f"systemDataPrompt no puede superar {MAX_PROJECT_PROMPT_LENGTH} caracteres")
+    return clean
+
+
+def _validate_enabled_tools(tools) -> dict[str, bool]:
+    if not isinstance(tools, dict):
+        raise ValueError("enabledTools debe ser un objeto")
+    if len(tools) > MAX_PROJECT_ENABLED_TOOLS:
+        raise ValueError(f"enabledTools no puede superar {MAX_PROJECT_ENABLED_TOOLS} herramientas")
+    clean_tools: dict[str, bool] = {}
+    for key, value in tools.items():
+        clean_key = _clean_project_tool_id(key, "enabledTools")
+        if not isinstance(value, bool):
+            raise ValueError(f"El estado de '{clean_key}' debe ser un booleano")
+        clean_tools[clean_key] = value
+    return clean_tools
+
+
+def _validate_project_mcp_servers(servers) -> list[str]:
+    if not isinstance(servers, list):
+        raise ValueError("mcpServers debe ser una lista")
+    unique_servers = list(dict.fromkeys(_clean_project_tool_id(item, "mcpServers") for item in servers))
+    if len(unique_servers) > MAX_PROJECT_MCP_SERVERS:
+        raise ValueError(f"Un proyecto no puede tener más de {MAX_PROJECT_MCP_SERVERS} servicios MCP")
+    return unique_servers
+
+
+def _validate_project_browser(browser) -> str:
+    if browser not in BROWSER_TOOLS:
+        raise ValueError(f"browser debe ser uno de: {', '.join(BROWSER_TOOLS)}")
+    return browser
+
+
+_PROJECT_ENV_VALIDATORS = {
+    "systemDataPrompt": _validate_project_prompt,
+    "enabledTools": _validate_enabled_tools,
+    "mcpServers": _validate_project_mcp_servers,
+    "browser": _validate_project_browser,
+}
+
+
+def validate_project_environment_patch(raw) -> dict:
+    """Valida un parche parcial del entorno de ejecución de un proyecto."""
+    if not isinstance(raw, dict):
+        raise ValueError("El entorno del proyecto debe ser un objeto JSON")
+    unknown = sorted(set(raw) - PROJECT_ENVIRONMENT_KEYS)
+    if unknown:
+        raise ValueError(f"Campos desconocidos en el entorno del proyecto: {', '.join(unknown)}")
+    return {key: _PROJECT_ENV_VALIDATORS[key](raw[key]) for key in raw}
+
+
+def _row_to_project_environment(row) -> dict:
+    try:
+        data = json.loads(row["config_json"])
+    except (ValueError, TypeError) as exc:
+        raise RuntimeError(f"El entorno guardado del proyecto está corrupto: {exc}") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError("El entorno guardado del proyecto no es un objeto JSON.")
+    base = _empty_project_environment()
+    validated = validate_project_environment_patch({k: v for k, v in data.items() if k in PROJECT_ENVIRONMENT_KEYS})
+    return {**base, **validated, "saved": True, "updatedAt": int(row["updated_at"])}
+
+
+def get_project_environment(project_key: str) -> dict:
+    """Devuelve el entorno guardado del proyecto (`general` usa get_no_project_dir()), o los valores base."""
+    clean_key = str(project_key or "").strip()
+    if not clean_key:
+        raise ValueError("project_key es obligatorio")
+    with open_storage() as conn:
+        row = conn.execute(
+            "SELECT config_json, updated_at FROM project_environments WHERE project_key = ?;",
+            (clean_key,),
+        ).fetchone()
+        return _row_to_project_environment(row) if row else _empty_project_environment()
+
+
+def save_project_environment(project_key: str, raw_patch: dict) -> dict:
+    """Actualiza atómicamente en SQLite el entorno de ejecución guardado del proyecto."""
+    clean_key = str(project_key or "").strip()
+    if not clean_key:
+        raise ValueError("project_key es obligatorio")
+    patch = validate_project_environment_patch(raw_patch)
+    now = int(time.time() * 1000)
+    with open_storage() as conn:
+        conn.isolation_level = None
+        conn.execute("BEGIN IMMEDIATE;")
+        try:
+            row = conn.execute(
+                "SELECT config_json, updated_at FROM project_environments WHERE project_key = ?;",
+                (clean_key,),
+            ).fetchone()
+            base = _row_to_project_environment(row) if row else _empty_project_environment()
+            stored = {key: patch[key] if key in patch else base[key] for key in ("systemDataPrompt", "enabledTools", "mcpServers", "browser")}
+            conn.execute("""
+                INSERT INTO project_environments (project_key, config_json, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(project_key) DO UPDATE SET
+                    config_json = excluded.config_json,
+                    updated_at = excluded.updated_at;
+            """, (clean_key, json.dumps(stored, ensure_ascii=False), now))
+            conn.execute("COMMIT;")
+            return {**stored, "saved": True, "updatedAt": now}
+        except Exception:
+            conn.execute("ROLLBACK;")
+            raise

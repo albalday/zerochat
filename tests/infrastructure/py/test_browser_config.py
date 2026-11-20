@@ -131,6 +131,7 @@ class PlaywrightLaunchTest(unittest.TestCase):
 
     def test_motores_navegadores_y_tokens_coinciden_con_el_cliente(self):
         # Fixture compartido con tests/unit/test_ui_browser.js.
+        self.assertEqual(list(zerochat.BROWSER_TOOLS), CONTRACT["browserTools"])
         self.assertEqual(list(zerochat.OWN_BROWSER_ENGINES), CONTRACT["playwrightEngines"])
         self.assertEqual(list(zerochat.ENGINE_CACHE_ENTRIES), CONTRACT["playwrightEngines"])
         self.assertEqual(list(zerochat.USER_BROWSERS), CONTRACT["userBrowsers"])

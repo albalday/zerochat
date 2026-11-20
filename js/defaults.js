@@ -55,6 +55,7 @@
     apiKeyLocked: false,
     theme: DEFAULT_THEME, language: getBrowserLanguage(), enableDebugMessages: false,
     activeRagBranchIds: Object.freeze([]),
+    mcpServers: Object.freeze([]),
     browser: 'browser_action',
     // Conexión: el servidor local por defecto o uno remoto (su URL y, tras un proxy inverso, la clave del proxy).
     localBackend: true, backendUrl: '', useProxy: false, proxyKey: '',

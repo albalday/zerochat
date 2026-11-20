@@ -22,6 +22,42 @@
     return (Array.isArray(value) ? value : []).map(String).map(id => id.trim()).filter(Boolean);
   }
 
+  function normalizeMcpServers(value) {
+    if (!Array.isArray(value)) return [];
+    return [...new Set(value.filter(id => typeof id === 'string').map(id => id.trim()).filter(Boolean))];
+  }
+
+  function normalizeProjectEnvironment(env = {}) {
+    const source = env && typeof env === 'object' && !Array.isArray(env) ? env : {};
+    const enabledTools = {};
+    if (source.enabledTools && typeof source.enabledTools === 'object' && !Array.isArray(source.enabledTools)) {
+      for (const [key, val] of Object.entries(source.enabledTools)) {
+        const cleanKey = String(key || '').trim();
+        if (cleanKey && typeof val === 'boolean') enabledTools[cleanKey] = val;
+      }
+    }
+    return {
+      systemDataPrompt: typeof source.systemDataPrompt === 'string' ? source.systemDataPrompt.trim() : null,
+      enabledTools,
+      mcpServers: normalizeMcpServers(source.mcpServers),
+      browser: Defaults.BROWSER_TOOLS.includes(source.browser) ? source.browser : DEFAULTS.browser,
+      updatedAt: Number.isFinite(Number(source.updatedAt)) ? Number(source.updatedAt) : 0
+    };
+  }
+
+  function getProjectEnvironment(projectKey) {
+    const key = String(projectKey || '').trim() || 'general';
+    const all = Storage.loadProjectEnvironments();
+    return Object.hasOwn(all, key) ? normalizeProjectEnvironment(all[key]) : null;
+  }
+
+  function saveProjectEnvironmentBackup(projectKey, env) {
+    const key = String(projectKey || '').trim() || 'general';
+    const normalized = normalizeProjectEnvironment(env);
+    Storage.saveProjectEnvironment(key, normalized);
+    return normalized;
+  }
+
   const MAX_DECLINED_PROJECTS = 50;
   const MAX_PROJECT_PATH_LENGTH = 4096;
 
@@ -60,6 +96,7 @@
     next.projectMode = next.projectMode !== false;
     next.projectDeclined = normalizeDeclinedProjects(next.projectDeclined);
     next.activeRagBranchIds = normalizeBranchIds(next.activeRagBranchIds);
+    next.mcpServers = normalizeMcpServers(next.mcpServers);
     next.browser = Defaults.BROWSER_TOOLS.includes(next.browser) ? next.browser : DEFAULTS.browser;
     next.modelReasoningConfig = next.modelReasoningConfig && typeof next.modelReasoningConfig === 'object' ? clone(next.modelReasoningConfig) : null;
     const webllmConfig = next.webllmConfig && typeof next.webllmConfig === 'object' ? clone(next.webllmConfig) : clone(DEFAULTS.webllmConfig);
@@ -187,6 +224,7 @@
 
   return {
     DEFAULT_SYSTEM_DATA_PROMPT, DEFAULTS: clone(DEFAULTS), normalize,
+    normalizeProjectEnvironment, getProjectEnvironment, saveProjectEnvironmentBackup,
     initialize, getActive, updateRuntime, activateProfile, activateFallbackProfile, refreshActiveProfile, subscribe
   };
 }));

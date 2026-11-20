@@ -256,6 +256,7 @@
         tools: Array.isArray(result?.tools) ? result.tools : null,
         policies: result?.policies || null,
         projectContext: result?.projectContext || null,
+        projectEnvironment: result?.projectEnvironment || null,
         liveState: result?.liveState || null
       };
     }
@@ -457,6 +458,23 @@
     /** Instantánea del contexto de proyecto entregada por initialize o set_directory para `cwd`, de un solo uso. */
     recordProjectContext(cwd, data) {
       this.projectSnapshot = data ? { cwd: cwd || '', data } : null;
+    }
+
+    /** Respalda en almacenamiento local el entorno guardado por el servidor para `cwd` (`general` si vacío). */
+    recordProjectEnvironment(cwd, env) {
+      if (env?.saved) getConfig().saveProjectEnvironmentBackup(projectOfDirectory(cwd), env);
+    }
+
+    /** Guarda el entorno de ejecución del proyecto activo en SQLite (si conectado) y en el respaldo local offline. */
+    async saveProjectEnvironment(patch) {
+      const Config = getConfig();
+      const projectKey = currentProject();
+      if (this.isProxyConnected()) {
+        const res = await this.requestExternalControl('zerochat/project/environment/set', patch);
+        if (res?.projectEnvironment) return Config.saveProjectEnvironmentBackup(projectKey, res.projectEnvironment);
+      }
+      const base = Config.getProjectEnvironment(projectKey) || {};
+      return Config.saveProjectEnvironmentBackup(projectKey, { ...base, ...patch, updatedAt: Date.now() });
     }
 
     takeProjectContext(cwd) {
@@ -683,6 +701,7 @@
       }
 
       this.recordProjectContext(probe.serverInfo?.cwd, probe.projectContext);
+      this.recordProjectEnvironment(probe.serverInfo?.cwd, probe.projectEnvironment);
       State.set('mcp', {
         status: error ? 'error' : 'connected',
         endpoint: url,
@@ -778,6 +797,7 @@
           return false;
         }
         this.recordProjectContext(probe.serverInfo?.cwd, probe.projectContext);
+        this.recordProjectEnvironment(probe.serverInfo?.cwd, probe.projectEnvironment);
         getState().set('mcp', { serverInfo: probe.serverInfo });
         getSecurity().manager.applyPolicies(probe.policies);
         await this.applyLiveState(probe.liveState);
@@ -859,6 +879,7 @@
       const result = await this.requestExternalControl('zerochat/project/set_directory', { path });
       this.liveStateSeq += 1;
       this.recordProjectContext(result?.cwd, result?.projectContext);
+      this.recordProjectEnvironment(result?.cwd, result?.projectEnvironment);
       await this.applyLiveState({ cwd: result?.cwd, policies: result?.policies });
       return result;
     }
