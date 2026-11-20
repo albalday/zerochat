@@ -46,20 +46,6 @@
     }
   });
 
-  function normalizeDeletedIds(entries) {
-    if (!Array.isArray(entries)) return [];
-    const byId = new Map();
-    for (const entry of entries) {
-      const id = typeof entry === 'string' ? entry.trim() : String(entry?.id || '').trim();
-      if (!id || id === READONLY_PROFILE_ID) continue;
-      const rawAt = typeof entry === 'object' && entry !== null ? Number(entry.deletedAt) : NaN;
-      const deletedAt = Number.isFinite(rawAt) && rawAt > 0 ? rawAt : Date.now();
-      const prev = byId.get(id);
-      if (!prev || deletedAt > prev.deletedAt) byId.set(id, { id, deletedAt });
-    }
-    return [...byId.values()];
-  }
-
   function validTimestamp(value, fallback = Date.now()) {
     const num = Number(value);
     return Number.isFinite(num) && num > 0 ? num : fallback;
@@ -121,7 +107,6 @@
     return {
       schemaVersion: SCHEMA_VERSION,
       serverId,
-      deletedIds: normalizeDeletedIds(doc.deletedIds),
       profiles: doc.profiles.map(rec => normalizeRecord(rec))
     };
   }
@@ -130,7 +115,6 @@
     Storage.setStorageItem(STORAGE_KEY, JSON.stringify({
       schemaVersion: SCHEMA_VERSION,
       serverId: document.serverId || null,
-      deletedIds: normalizeDeletedIds(document.deletedIds),
       profiles: document.profiles
     }));
   }
@@ -145,7 +129,7 @@
       return clone(existing);
     }
 
-    const document = { schemaVersion: SCHEMA_VERSION, serverId: null, deletedIds: [], profiles: [normalizeRecord(MIRROR_PROFILE)] };
+    const document = { schemaVersion: SCHEMA_VERSION, serverId: null, profiles: [normalizeRecord(MIRROR_PROFILE)] };
     writeDocument(document);
     return clone(document);
   }
@@ -264,7 +248,6 @@
     }
     normalized.updatedAt = preserveUpdatedAt ? validTimestamp(record.updatedAt) : Date.now();
     normalized.synced = Boolean(synced);
-    current.deletedIds = current.deletedIds.filter(entry => entry.id !== normalized.id);
     if (index >= 0) current.profiles[index] = normalized;
     else current.profiles.push(normalized);
     writeDocument(current);
@@ -306,18 +289,13 @@
     return true;
   }
 
-  function remove(id, { synced = false } = {}) {
+  function remove(id) {
     const cleanId = String(id || '');
     if (cleanId === READONLY_PROFILE_ID) return false;
     const current = initialize();
     const index = current.profiles.findIndex(profile => profile.id === cleanId);
     if (index < 0) return false;
     current.profiles.splice(index, 1);
-    if (synced) {
-      current.deletedIds = current.deletedIds.filter(entry => entry.id !== cleanId);
-    } else {
-      current.deletedIds = normalizeDeletedIds([...current.deletedIds, { id: cleanId, deletedAt: Date.now() }]);
-    }
     writeDocument(current);
     return true;
   }
@@ -406,18 +384,17 @@
    * Sincroniza la lista única del navegador con un servidor identificado por `serverId`.
    * Conserva el `updatedAt` de origen y, si el servidor cambia respecto al guardado, consulta `onServerChange`.
    */
-  async function syncWithBackend({ serverId, listRemote, saveRemote, deleteRemote, revealRemote = null, onServerChange = null, onPasswordRequired = requestPassword }) {
+  async function syncWithBackend({ serverId, listRemote, saveRemote, revealRemote = null, onServerChange = null, onPasswordRequired = requestPassword }) {
     const cleanServerId = typeof serverId === 'string' ? serverId.trim() : '';
     if (!cleanServerId) throw new Error('The backend server identifier is required.');
 
     const doc = initialize();
     let editableLocal = doc.profiles.filter(profile => profile.id !== READONLY_PROFILE_ID);
-    let pendingDeleted = [...doc.deletedIds];
     const remoteList = (await listRemote()).filter(profile => profile?.id && profile.id !== READONLY_PROFILE_ID);
 
     const serverChanged = Boolean(doc.serverId && doc.serverId !== cleanServerId);
     const firstServerConflict = Boolean(!doc.serverId && editableLocal.length > 0 && remoteList.length > 0);
-    if ((serverChanged && (editableLocal.length > 0 || pendingDeleted.length > 0)) || firstServerConflict) {
+    if ((serverChanged && editableLocal.length > 0) || firstServerConflict) {
       const choice = typeof onServerChange === 'function'
         ? await onServerChange({
           previousServerId: doc.serverId,
@@ -426,42 +403,11 @@
           remoteCount: remoteList.length
         })
         : 'merge';
-      if (choice === 'cancel') return { cancelled: true, serverId: doc.serverId };
-      if (choice === 'replace') {
-        const replacedProfiles = await Promise.all(remoteList.map(remote => remoteToLocalRecord(remote, { revealRemote })));
-        writeDocument({
-          schemaVersion: SCHEMA_VERSION,
-          serverId: cleanServerId,
-          deletedIds: [],
-          profiles: [normalizeRecord(MIRROR_PROFILE), ...replacedProfiles]
-        });
-        return {
-          replaced: true,
-          serverId: cleanServerId,
-          uploaded: 0,
-          downloaded: replacedProfiles.length,
-          deletedRemote: 0,
-          deletedLocal: editableLocal.length,
-          pendingPassword: 0
-        };
-      }
+      if (choice !== 'merge') return { cancelled: true, serverId: doc.serverId };
       editableLocal = editableLocal.map(profile => ({ ...profile, synced: false }));
-      pendingDeleted = [];
     }
 
     const remoteMap = new Map(remoteList.map(profile => [profile.id, profile]));
-    let deletedRemote = 0;
-    for (const entry of pendingDeleted) {
-      const remote = remoteMap.get(entry.id);
-      if (remote && validTimestamp(remote.updatedAt, 0) > entry.deletedAt) continue;
-      if (remote) {
-        await deleteRemote(entry.id);
-        remoteMap.delete(entry.id);
-        deletedRemote += 1;
-      }
-    }
-
-    const remoteByName = new Map([...remoteMap.values()].map(profile => [String(profile.name || '').trim().toLowerCase(), profile]));
     const nextProfiles = [];
     let uploaded = 0;
     let downloaded = 0;
@@ -492,20 +438,6 @@
     for (const local of editableLocal) {
       const remote = remoteMap.get(local.id);
       if (!remote) {
-        const sameNameRemote = remoteByName.get(local.name.toLowerCase());
-        if (sameNameRemote) {
-          const localTime = validTimestamp(local.updatedAt, 0);
-          const remoteTime = validTimestamp(sameNameRemote.updatedAt, 0);
-          if (remoteTime >= localTime) {
-            // El perfil remoto con el mismo nombre gana o empata: se conserva el remoto en el paso siguiente.
-            continue;
-          }
-          await deleteRemote(sameNameRemote.id);
-          remoteMap.delete(sameNameRemote.id);
-          remoteByName.delete(local.name.toLowerCase());
-          await pushLocal(local);
-          continue;
-        }
         if (local.synced) {
           deletedLocal += 1;
           continue;
@@ -515,7 +447,6 @@
       }
 
       remoteMap.delete(local.id);
-      remoteByName.delete(String(remote.name || '').trim().toLowerCase());
       const localTime = validTimestamp(local.updatedAt, 0);
       const remoteTime = validTimestamp(remote.updatedAt, 0);
       if (remoteTime > localTime) {
@@ -536,16 +467,14 @@
     writeDocument({
       schemaVersion: SCHEMA_VERSION,
       serverId: cleanServerId,
-      deletedIds: [],
       profiles: [normalizeRecord(MIRROR_PROFILE), ...nextProfiles]
     });
 
     return {
-      replaced: false,
+      cancelled: false,
       serverId: cleanServerId,
       uploaded,
       downloaded,
-      deletedRemote,
       deletedLocal,
       pendingPassword
     };

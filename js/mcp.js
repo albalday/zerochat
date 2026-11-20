@@ -1075,7 +1075,6 @@
           serverId,
           listRemote: () => this.listServerProfiles(),
           saveRemote: profileData => this.saveServerProfile(profileData),
-          deleteRemote: profileId => this.deleteServerProfile(profileId),
           revealRemote: id => this.revealServerProfile(id),
           ...options
         });

@@ -249,7 +249,6 @@ test('ProfileRepository - syncWithBackend consolida por updatedAt, conserva upda
       serverProfiles.set(payload.id, { ...payload, hasApiKey: Boolean(payload.settings?.apiKey) });
       return { ...payload, hasApiKey: Boolean(payload.settings?.apiKey) };
     },
-    deleteRemote: async id => serverProfiles.delete(id),
     revealRemote: async id => {
       revealCalls.push(id);
       return { ...serverProfiles.get(id), settings: { ...serverProfiles.get(id).settings, apiKey: serverKeys.get(id) } };
@@ -292,7 +291,7 @@ test('ProfileRepository - syncWithBackend consolida por updatedAt, conserva upda
   assert.equal((await repository.loadUnlocked('profile:remoto-nuevo')).settings.apiKey, 'sk-remota-v2');
 });
 
-test('ProfileRepository - borrados con synced y deletedIds, y aislamiento ante cambio de serverId', async () => {
+test('ProfileRepository - borrados con synced y protección al cancelar cambio de serverId', async () => {
   const repository = Profiles;
   const serverA = new Map([
     ['profile:a1', { id: 'profile:a1', name: 'A1', hasApiKey: false, updatedAt: 1000, settings: { apiType: 'openai', model: 'm1' } }],
@@ -302,62 +301,53 @@ test('ProfileRepository - borrados con synced y deletedIds, y aislamiento ante c
   await repository.syncWithBackend({
     serverId: 'srv-A',
     listRemote: async () => [...serverA.values()],
-    saveRemote: async p => p,
-    deleteRemote: async id => serverA.delete(id)
+    saveRemote: async p => p
   });
 
-  // 1. Borrado en servidor (a1 desaparece en srv-A) + borrado offline en navegador (a2 con deletedIds).
+  // 1. Borrado en servidor (a1 desaparece en srv-A): se elimina la copia local marcada synced.
   serverA.delete('profile:a1');
-  assert.equal(repository.remove('profile:a2', { synced: false }), true);
-  assert.equal(repository.initialize().deletedIds.length, 1);
 
-  const deletedOnServer = [];
   const resSame = await repository.syncWithBackend({
     serverId: 'srv-A',
     listRemote: async () => [...serverA.values()],
-    saveRemote: async p => p,
-    deleteRemote: async id => { deletedOnServer.push(id); return serverA.delete(id); }
+    saveRemote: async p => p
   });
   assert.equal(resSame.deletedLocal, 1, 'a1 tenía synced:true y faltaba en servidor');
-  assert.equal(resSame.deletedRemote, 1, 'a2 estaba en deletedIds y se borra en servidor');
-  assert.deepEqual(deletedOnServer, ['profile:a2']);
-  assert.equal(repository.initialize().deletedIds.length, 0);
+  assert.equal(repository.get('profile:a1'), null);
 
-  // 2. Cambio de serverId: con elección 'replace', los perfiles de srv-A NO se copian a srv-B.
+  // 2. Cambio de serverId con elección 'cancel': conserva todos los perfiles locales y no sube nada a srv-B.
   await repository.saveEditable({ id: 'profile:privado-a', name: 'Privado A', settings: { apiType: 'openai', model: 'm', apiKey: 'sk-privado-a' } });
   const serverB = new Map([
     ['profile:b1', { id: 'profile:b1', name: 'B1', hasApiKey: false, updatedAt: 5000, settings: { apiType: 'ollama', model: 'llama' } }]
   ]);
   const uploadedToB = [];
   let changeArgs = null;
-  const resReplace = await repository.syncWithBackend({
+  const resCancel = await repository.syncWithBackend({
     serverId: 'srv-B',
     listRemote: async () => [...serverB.values()],
     saveRemote: async p => { uploadedToB.push(p); return p; },
-    deleteRemote: async () => true,
-    onServerChange: async info => { changeArgs = info; return 'replace'; }
+    onServerChange: async info => { changeArgs = info; return 'cancel'; }
   });
   assert.equal(changeArgs.previousServerId, 'srv-A');
   assert.equal(changeArgs.nextServerId, 'srv-B');
-  assert.equal(resReplace.replaced, true);
-  assert.deepEqual(uploadedToB, [], 'replace no debe filtrar perfiles de A hacia B');
-  assert.equal(repository.get('profile:privado-a'), null);
-  assert.ok(repository.get('profile:b1'));
-  assert.equal(repository.initialize().serverId, 'srv-B');
+  assert.equal(resCancel.cancelled, true);
+  assert.deepEqual(uploadedToB, [], 'cancel no debe subir perfiles de A hacia B');
+  assert.ok(repository.get('profile:privado-a'), 'cancel debe conservar el perfil local');
+  assert.ok(repository.get('profile:a2'), 'cancel debe conservar los perfiles sincronizados previos');
+  assert.equal(repository.get('profile:b1'), null);
+  assert.equal(repository.initialize().serverId, 'srv-A');
 
-  // 3. Cambio de serverId con elección 'merge' conserva y sube el perfil local sin descartarlo como borrado.
-  await repository.saveEditable({ id: 'profile:local-c', name: 'Local C', settings: { apiType: 'openai', model: 'm', apiKey: '' } });
+  // 3. Cambio de serverId con elección 'merge': conserva y sube los perfiles locales sin descartarlos como borrados.
   const serverC = [];
   const resMerge = await repository.syncWithBackend({
     serverId: 'srv-C',
     listRemote: async () => serverC,
     saveRemote: async p => { serverC.push(p); return p; },
-    deleteRemote: async () => true,
     onServerChange: async () => 'merge'
   });
-  assert.equal(resMerge.replaced, false);
-  assert.equal(resMerge.uploaded, 2, 'b1 y Local C pasan al nuevo servidor al elegir merge');
-  assert.ok(serverC.some(p => p.id === 'profile:b1'));
-  assert.ok(serverC.some(p => p.id === 'profile:local-c'));
+  assert.equal(resMerge.cancelled, false);
+  assert.equal(resMerge.uploaded, 2, 'a2 y Privado A pasan al nuevo servidor al elegir merge');
+  assert.ok(serverC.some(p => p.id === 'profile:a2'));
+  assert.ok(serverC.some(p => p.id === 'profile:privado-a'));
 });
 
