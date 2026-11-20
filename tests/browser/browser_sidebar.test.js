@@ -366,7 +366,7 @@ test('Browser UI - abrir nueva pestaña desde el icono usa el proyecto actual', 
           serverInfo: { name: 'ZeroChat', cwd: project, noProjectDir: '/home/u/zerochat/general' },
           capabilities: { tools: {} },
           tools: [],
-          policies: { globalPolicy: 'ask', tools: {}, servers: {}, directoryRules: [], defaultDirectoryRule: '', commandPatterns: { global: [], projects: {}, session: [] } },
+          policies: { globalPolicy: 'ask', tools: {}, servers: {}, directoryRules: [], defaultDirectoryRule: '', commandPatterns: { global: [], project: [], session: [] } },
           liveState: { cwd: project, servers: [], jobs: [], runs: [] }
         }
         : body.method === 'zerochat/project/set_directory'

@@ -81,9 +81,9 @@ class DailyTokenTest(unittest.TestCase):
         # Antes se guardaba por nombre: la primera llamada a run_command pasaba con cualquier argumento.
         controller = zerochat.AccessController()
         ctx = zerochat.SecurityContext(self.config_dir)
-        once = {"toolName": "run_command", "args": {"command": "npm test"}, "decision": "allow_once"}
+        once = {"toolName": "run_command", "args": {"command": "sudo npm test"}, "decision": "allow_once"}
         controller.apply_tool_decision(once, ctx)
-        for args in ({"command": "npm test"}, {"command": "rm -rf build"}):
+        for args in ({"command": "sudo npm test"}, {"command": "sudo rm -rf build"}):
             with self.subTest(args=args):
                 decision = controller.evaluate_authorization("run_command", args, ctx)
                 self.assertEqual((decision.allowed, decision.requires_approval), (False, True))
@@ -92,7 +92,7 @@ class DailyTokenTest(unittest.TestCase):
                 mock.patch.object(zerochat, "ACCESS_CONTROLLER", controller), \
                 mock.patch.object(zerochat, "project_context", return_value=ctx):
             zerochat.reset_session_authorizations()
-        self.assertTrue(controller.evaluate_authorization("run_command", {"command": "npm test"}, ctx).requires_approval)
+        self.assertTrue(controller.evaluate_authorization("run_command", {"command": "sudo npm test"}, ctx).requires_approval)
         # Las decisiones que sí se guardan siguen aplicándose al reanudar.
-        controller.apply_tool_decision({"toolName": "run_command", "decision": {"decision": "allow_session", "commandPattern": "npm test"}}, ctx)
-        self.assertTrue(controller.evaluate_authorization("run_command", {"command": "npm test"}, ctx).allowed)
+        controller.apply_tool_decision({"toolName": "run_command", "decision": {"decision": "allow_session", "commandPattern": "sudo npm test"}}, ctx)
+        self.assertTrue(controller.evaluate_authorization("run_command", {"command": "sudo npm test"}, ctx).allowed)

@@ -34,7 +34,7 @@ async function withMcpPanel(mcp, fn) {
               tools,
               servers,
               commandPatterns: patch?.commandPatterns
-                ? { global: [], projects: {}, ...patch.commandPatterns, session: window.ChatToolSecurity.manager.policies.commandPatterns.session }
+                ? { global: [], project: [], ...patch.commandPatterns, session: window.ChatToolSecurity.manager.policies.commandPatterns.session }
                 : window.ChatToolSecurity.manager.policies.commandPatterns
             }
           };
@@ -201,15 +201,20 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
       assert.match(global, /\(Global\)/);
 
       const revoke = await page.evaluate(async () => {
-        await window.ChatToolSecurity.manager.setToolPolicy('mcp_compact_revoke_test', 'allow', { originalName: 'compact revoke test' });
+        window.ChatToolSecurity.manager.applyPolicies({
+          tools: { mcp_compact_revoke_test: { policy: 'allow', scope: 'permanent', originalName: 'compact revoke test' } },
+          servers: { srv_session: { policy: 'allow', scope: 'session', serverName: 'srv_session' } }
+        });
         window.ChatUIMcp.renderSavedAuthorizations();
+        const scopes = [...document.querySelectorAll('#mcp-saved-auths-list .mcp-auth-scope-badge')].map(el => el.textContent.trim());
         const button = document.querySelector('#mcp-saved-auths-list .btn-revoke-auth');
         const shape = { title: button.title, aria: button.getAttribute('aria-label'), icon: Boolean(button.querySelector('.ui-icon')), text: button.textContent.trim() };
         button.click();
         await new Promise(r => setTimeout(r, 20));
-        return { ...shape, policy: window.ChatToolSecurity.manager.getToolPolicy('mcp_compact_revoke_test') };
+        await window.ChatToolSecurity.manager.revokeServerPolicy('srv_session');
+        return { ...shape, scopes, policy: window.ChatToolSecurity.manager.getToolPolicy('mcp_compact_revoke_test') };
       });
-      assert.deepEqual(revoke, { title: 'Revocar', aria: 'Revocar', icon: true, text: '', policy: null });
+      assert.deepEqual(revoke, { title: 'Revocar', aria: 'Revocar', icon: true, text: '', scopes: ['Sesión', 'Global'], policy: null });
     });
   });
 
@@ -220,15 +225,14 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
       const removePattern = pattern => page.evaluate(p => document.querySelector(`#mcp-saved-auths-list .btn-remove-cmd-pattern[data-pattern="${p}"]`).click(), pattern);
       await page.evaluate(() => {
         window.ChatToolSecurity.manager.applyPolicies({
-          commandPatterns: { global: ['git status *', 'git diff'], projects: { '/repo': ['npm test *'] }, session: ['make *'] }
+          commandPatterns: { global: ['git status *', 'git diff'], project: ['npm test *'], session: ['make *'] }
         });
         window.ChatUIMcp.renderSavedAuthorizations();
       });
-      // Agrupados por alcance: todos los proyectos, cada proyecto y la sesión (esta sin botón de quitar)
+      // Agrupados por alcance: todos los proyectos, proyecto actual y sesión (esta sin botón de quitar)
       assert.deepEqual(await chips(), ['git status *', 'git diff', 'npm test *', 'make *']);
-      // Cada proyecto se nombra por su carpeta, con la ruta completa en el título
       assert.deepEqual(await page.$$eval('#mcp-saved-auths-list .mcp-auth-cmd-scope', els => els.map(el => [el.textContent.trim(), el.title])),
-        [['Todos los proyectos', 'Todos los proyectos'], ['repo', '/repo'], ['Sesión', await page.evaluate(() => window.ChatI18n.t('tool_auth_cmd_session_title'))]]);
+        [['Todos los proyectos', 'Todos los proyectos'], ['Este proyecto (app)', '/home/yo/app'], ['Sesión', await page.evaluate(() => window.ChatI18n.t('tool_auth_cmd_session_title'))]]);
       assert.equal(await page.$$eval('#mcp-saved-auths-list .btn-remove-cmd-pattern', els => els.length), 3);
 
       await page.evaluate(() => {
@@ -243,8 +247,8 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
       assert.deepEqual(await patterns(), ['git status *', 'git log *']);
 
       // Quitar un patrón de proyecto no toca los globales
-      await page.evaluate(() => document.querySelector('#mcp-saved-auths-list .btn-remove-cmd-pattern[data-project="/repo"]').click());
-      await page.waitForFunction(() => !window.ChatToolSecurity.manager.getCommandPatterns().projects['/repo']?.length);
+      await page.evaluate(() => document.querySelector('#mcp-saved-auths-list .btn-remove-cmd-pattern[data-scope="project"]').click());
+      await page.waitForFunction(() => !window.ChatToolSecurity.manager.getCommandPatterns().project.length);
       assert.deepEqual(await patterns(), ['git status *', 'git log *']);
 
       // Un rechazo del backend se muestra junto al editor sin cambiar nada
@@ -265,15 +269,15 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
       assert.deepEqual(shown, { hidden: false, text: 'Patrón de comando no válido' });
       assert.deepEqual(await patterns(), ['git status *', 'git log *']);
 
-      // El alta elige el alcance: el proyecto actual guarda el patrón solo para ese proyecto
+      // El alta elige el alcance: el proyecto actual guarda el patrón en project
       await page.evaluate(() => {
         const editor = document.querySelector('#mcp-saved-auths-list .mcp-auth-cmd-add');
-        editor.querySelector('.mcp-auth-cmd-scope-select').value = '/home/yo/app';
+        editor.querySelector('.mcp-auth-cmd-scope-select').value = 'project';
         editor.querySelector('.mcp-auth-cmd-input').value = 'npm test *';
         editor.querySelector('.btn-add-cmd-pattern').click();
       });
-      await page.waitForFunction(() => window.ChatToolSecurity.manager.getCommandPatterns().projects['/home/yo/app']);
-      assert.deepEqual(await page.evaluate(() => window.ChatToolSecurity.manager.getCommandPatterns().projects), { '/repo': [], '/home/yo/app': ['npm test *'] });
+      await page.waitForFunction(() => window.ChatToolSecurity.manager.getCommandPatterns().project.length === 1);
+      assert.deepEqual(await page.evaluate(() => window.ChatToolSecurity.manager.getCommandPatterns().project), ['npm test *']);
       assert.deepEqual(await patterns(), ['git status *', 'git log *']);
     });
   });
