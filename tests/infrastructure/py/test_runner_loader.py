@@ -279,8 +279,9 @@ class RealNodeRunTest(unittest.TestCase):
 
     def test_prompt_y_conversation_aplican_entorno_de_proyecto_guardado(self):
         with tempfile.TemporaryDirectory() as proj_tmp:
-            proj_dir = str(Path(proj_tmp).resolve())
-            zerochat.save_project_environment(proj_dir, {
+            proj_path = Path(proj_tmp).resolve()
+            proj_dir = str(proj_path)
+            zerochat.save_project_environment(zerochat.SecurityContext(proj_path).key, {
                 "systemDataPrompt": "Entorno exclusivo proyecto CLI",
                 "enabledTools": {"search_web": False},
                 "mcpServers": [],
