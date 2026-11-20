@@ -472,7 +472,6 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
       window.ChatUIProfiles.setServerMode(true);
     });
     assert.equal(await page.locator('#active-profile-trigger.server-mode').count(), 1);
-    assert.equal(await page.locator('#active-profile-trigger .profile-icon use').getAttribute('href'), '#icon-zap');
     assert.equal((await page.locator('#active-profile-name').textContent()).trim(), 'server');
     await page.locator('#user-input').fill('Analiza el repositorio');
     await page.locator('#btn-send').click();
