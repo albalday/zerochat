@@ -381,8 +381,7 @@
     const tools = security.listAuthorizedTools();
     const servers = security.listAuthorizedServers();
     const patterns = security.getCommandPatterns();
-    const projectPatterns = Object.entries(patterns.projects).filter(([, list]) => list.length);
-    const hasPatterns = Boolean(patterns.global.length || projectPatterns.length || patterns.session.length);
+    const hasPatterns = Boolean(patterns.global.length || patterns.project.length || patterns.session.length);
 
     if (tools.length === 0 && servers.length === 0 && !hasPatterns) {
       container.innerHTML = `<div class="mcp-no-auths-msg label-hint">${escapeHtml(t('mcp_security_no_saved_auths'))}</div>`;
@@ -397,7 +396,7 @@
       const allowed = item.policy === 'allow';
       return { className: allowed ? 'status-allowed' : 'status-denied', text: escapeHtml(t(allowed ? 'mcp_security_badge_allowed' : 'tool_auth_denied_badge')) };
     };
-    const scopeBadge = item => (item.scope === 'session' ? `<span class="mcp-auth-scope-badge">${escapeHtml(t('mcp_security_scope_session'))}</span>` : '');
+    const scopeBadge = item => `<span class="mcp-auth-scope-badge">${escapeHtml(t(item.scope === 'session' ? 'mcp_security_scope_session' : 'mcp_security_scope_permanent'))}</span>`;
 
     const serverItems = servers.map(item => {
       const { className, text } = badge(item);
@@ -428,34 +427,30 @@
         </div>`;
     });
 
-    container.innerHTML = serverItems.join('') + toolItems.join('') + (hasPatterns ? renderCommandPatterns(patterns, projectPatterns, revokeLabel, trashIcon) : '');
+    container.innerHTML = serverItems.join('') + toolItems.join('') + (hasPatterns ? renderCommandPatterns(patterns, revokeLabel, trashIcon) : '');
   }
 
   /**
    * Patrones de comando de run_command, una fila por alcance: etiqueta a la izquierda y sus patrones a la
-   * derecha. Los globales y de proyecto se quitan uno a uno; los de sesión duran hasta que se cierra ZeroChat
-   * o se cambia de proyecto. La papelera quita todos los guardados.
+   * derecha. Los globales y del proyecto actual se quitan uno a uno; los de sesión duran hasta que se cierra
+   * ZeroChat o se cambia de proyecto. La papelera quita todos los guardados del alcance visible.
    */
-  function renderCommandPatterns(patterns, projectPatterns, revokeLabel, trashIcon) {
+  function renderCommandPatterns(patterns, revokeLabel, trashIcon) {
     const addLabel = escapeHtml(t('mcp_security_add_pattern_label'));
     const projectDir = String(getState().get('mcp').serverInfo?.cwd || '').trim();
     const folderName = dir => dir.split(/[\\/]+/).filter(Boolean).pop() || dir;
-    const chip = (pattern, project) => {
+    const projectLabel = projectDir ? t('mcp_security_scope_this_project', { name: folderName(projectDir) }) : t('tool_auth_cmd_project');
+    const chip = (pattern, scope) => {
       const removeLabel = escapeHtml(t('mcp_security_remove_pattern', { cmd: pattern }));
-      const projectAttr = project === null ? '' : ` data-project="${escapeHtml(project)}"`;
-      return `<span class="mcp-auth-constraint-tag mcp-auth-cmd-chip"><code>${escapeHtml(pattern)}</code><button type="button" class="btn-remove-cmd-pattern" data-pattern="${escapeHtml(pattern)}"${projectAttr} title="${removeLabel}" aria-label="${removeLabel}">${Icons.get('close', { size: 10 })}</button></span>`;
+      return `<span class="mcp-auth-constraint-tag mcp-auth-cmd-chip"><code>${escapeHtml(pattern)}</code><button type="button" class="btn-remove-cmd-pattern" data-pattern="${escapeHtml(pattern)}" data-scope="${scope}" title="${removeLabel}" aria-label="${removeLabel}">${Icons.get('close', { size: 10 })}</button></span>`;
     };
     const sessionChip = pattern => `<span class="mcp-auth-constraint-tag mcp-auth-cmd-chip is-session"><code>${escapeHtml(pattern)}</code></span>`;
     const group = (icon, label, title, chips) => `
               <span class="mcp-auth-cmd-scope" title="${escapeHtml(title)}">${icon}<span class="mcp-auth-cmd-scope-label">${escapeHtml(label)}</span></span>
               <div class="mcp-auth-cmd-chips">${chips}</div>`;
-    const projectGroup = ([project, list]) => {
-      const label = project === projectDir ? t('mcp_security_scope_this_project', { name: folderName(project) }) : folderName(project);
-      return group(Icons.get('folder', { size: 12 }), label, project, list.map(pattern => chip(pattern, project)).join(''));
-    };
     const scopeOptions = [
-      `<option value="">${escapeHtml(t('mcp_security_scope_global'))}</option>`,
-      projectDir ? `<option value="${escapeHtml(projectDir)}">${escapeHtml(t('mcp_security_scope_this_project', { name: folderName(projectDir) }))}</option>` : ''
+      `<option value="global">${escapeHtml(t('mcp_security_scope_global'))}</option>`,
+      `<option value="project">${escapeHtml(projectLabel)}</option>`
     ].join('');
     const toolName = escapeHtml(getMCP().LOCAL_COMMAND_TOOL);
     return `
@@ -466,8 +461,8 @@
             <span class="mcp-auth-badge status-allowed">${escapeHtml(t('mcp_security_badge_allowed'))} (${escapeHtml(t('mcp_security_constrained'))})</span>
           </div>
             <div class="mcp-auth-cmd-patterns">
-              ${patterns.global.length ? group(Icons.get('globe', { size: 12 }), t('mcp_security_scope_global'), t('mcp_security_scope_global'), patterns.global.map(pattern => chip(pattern, null)).join('')) : ''}
-              ${projectPatterns.map(projectGroup).join('')}
+              ${patterns.global.length ? group(Icons.get('globe', { size: 12 }), t('mcp_security_scope_global'), t('mcp_security_scope_global'), patterns.global.map(pattern => chip(pattern, 'global')).join('')) : ''}
+              ${patterns.project.length ? group(Icons.get('folder', { size: 12 }), projectLabel, projectDir || projectLabel, patterns.project.map(pattern => chip(pattern, 'project')).join('')) : ''}
               ${patterns.session.length ? group(Icons.get('clock', { size: 12 }), t('mcp_security_scope_session'), t('tool_auth_cmd_session_title'), patterns.session.map(sessionChip).join('')) : ''}
               <div class="mcp-auth-cmd-add">
                 <select class="mcp-auth-cmd-scope-select" aria-label="${escapeHtml(t('mcp_security_add_scope_label'))}">${scopeOptions}</select>
@@ -482,15 +477,15 @@
   }
 
   /**
-   * Cambia los patrones guardados: `change` recibe y devuelve `{ global, projects }`.
+   * Cambia los patrones guardados: `change` recibe y devuelve `{ global, project }`.
    * Un rechazo del backend se muestra junto al editor.
    */
   async function updateCommandPatterns(origin, change) {
     const security = getSecurity();
     const errorEl = origin.closest('.mcp-auth-cmd-patterns')?.querySelector('.mcp-auth-cmd-error');
-    const { global, projects } = security.getCommandPatterns();
+    const { global, project } = security.getCommandPatterns();
     try {
-      await security.setCommandPatterns(change({ global, projects }));
+      await security.setCommandPatterns(change({ global, project }));
     } catch (err) {
       if (!errorEl) throw err;
       setText(errorEl, err?.message || String(err));
@@ -502,9 +497,9 @@
   async function addCommandPattern(editor) {
     const value = editor?.querySelector('.mcp-auth-cmd-input').value.trim();
     if (!value) return;
-    const project = editor.querySelector('.mcp-auth-cmd-scope-select').value;
-    await updateCommandPatterns(editor, current => (project
-      ? { ...current, projects: { ...current.projects, [project]: [...(current.projects[project] || []), value] } }
+    const scope = editor.querySelector('.mcp-auth-cmd-scope-select').value;
+    await updateCommandPatterns(editor, current => (scope === 'project'
+      ? { ...current, project: [...current.project, value] }
       : { ...current, global: [...current.global, value] }));
   }
 
@@ -545,14 +540,14 @@
       if (tool) await security.revokeToolPolicy(tool.getAttribute('data-tool-id'));
       const server = event.target.closest('.btn-revoke-server-auth');
       if (server) await security.revokeServerPolicy(server.getAttribute('data-server-id'));
-      if (event.target.closest('.btn-revoke-cmd-patterns')) await security.setCommandPatterns({});
+      if (event.target.closest('.btn-revoke-cmd-patterns')) await security.setCommandPatterns({ global: [], project: [] });
       const removePattern = event.target.closest('.btn-remove-cmd-pattern');
       if (removePattern) {
         const pattern = removePattern.getAttribute('data-pattern');
-        const project = removePattern.getAttribute('data-project');
-        await updateCommandPatterns(removePattern, current => (project === null
-          ? { ...current, global: current.global.filter(p => p !== pattern) }
-          : { ...current, projects: { ...current.projects, [project]: (current.projects[project] || []).filter(p => p !== pattern) } }));
+        const scope = removePattern.getAttribute('data-scope');
+        await updateCommandPatterns(removePattern, current => (scope === 'project'
+          ? { ...current, project: current.project.filter(p => p !== pattern) }
+          : { ...current, global: current.global.filter(p => p !== pattern) }));
       }
       const addPattern = event.target.closest('.btn-add-cmd-pattern');
       if (addPattern) await addCommandPattern(addPattern.closest('.mcp-auth-cmd-add'));

@@ -24,7 +24,7 @@
     directoryRules: [],
     tools: {},
     servers: {},
-    commandPatterns: { global: [], projects: {}, session: [] }
+    commandPatterns: { global: [], project: [], session: [] }
   });
 
   const entryOf = (map, id) => (typeof id === 'string' && Object.hasOwn(map, id) ? map[id] : null);
@@ -142,15 +142,15 @@
       await this._patchBackend({ servers: { [serverId]: null } });
     }
 
-    /** Patrones de comando que rigen: de todos los proyectos, por proyecto y de la sesión. */
+    /** Patrones de comando que rigen: de todos los proyectos, de este proyecto y de la sesión. */
     getCommandPatterns() {
-      const { global = [], projects = {}, session = [] } = this.policies.commandPatterns || {};
-      return { global: [...global], projects: { ...projects }, session: [...session] };
+      const { global = [], project = [], session = [] } = this.policies.commandPatterns || {};
+      return { global: [...global], project: [...project], session: [...session] };
     }
 
-    /** Sustituye los patrones de comando guardados (`global` y `projects`); los de sesión no se guardan. */
-    async setCommandPatterns({ global = [], projects = {} } = {}) {
-      await this._patchBackend({ commandPatterns: { global, projects } });
+    /** Sustituye los patrones de comando guardados (`global` y `project`); los de sesión no se guardan. */
+    async setCommandPatterns({ global = [], project = [] } = {}) {
+      await this._patchBackend({ commandPatterns: { global, project } });
     }
 
     async clearAllAuthorizations() {
@@ -158,7 +158,7 @@
       await this._patchBackend({
         tools: revokeAll(this.policies.tools),
         servers: revokeAll(this.policies.servers),
-        commandPatterns: { global: [], projects: {} }
+        commandPatterns: { global: [], project: [] }
       });
     }
 
