@@ -12,8 +12,7 @@ from security.context import normalize_directory_path
 
 GLOBAL_POLICY_ASK = "ask"
 GLOBAL_POLICY_ALLOW_ALL = "allow_all"
-GLOBAL_POLICY_WORKSPACE_TRUST = "workspace_trust"
-GLOBAL_POLICIES = (GLOBAL_POLICY_ASK, GLOBAL_POLICY_ALLOW_ALL, GLOBAL_POLICY_WORKSPACE_TRUST)
+GLOBAL_POLICIES = (GLOBAL_POLICY_ASK, GLOBAL_POLICY_ALLOW_ALL)
 POLICY_ALLOW = "allow"
 POLICY_DENY = "deny"
 POLICY_ASK = "ask"
@@ -280,7 +279,7 @@ def normalize_command_patterns(raw) -> dict:
     MAX_COMMAND_PATTERNS en total. Los de sesión nunca forman parte del estado guardado.
     """
     if not isinstance(raw, dict):
-        raise ValueError("commandPatterns debe ser un diccionario con global y projects.")
+        raise ValueError("commandPatterns debe ser un diccionario con global y project.")
     raw_projects = raw.get("projects") or {}
     if not isinstance(raw_projects, dict):
         raise ValueError("commandPatterns.projects debe ser un diccionario de proyecto a patrones.")

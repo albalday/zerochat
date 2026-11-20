@@ -181,7 +181,7 @@ describe('Servidor local zerochat.py', () => {
     assert.equal((await client.initialize()).success, true);
     assert.equal((await client.callTool('list_directory', { path: '.' })).success, true);
 
-    const cmdRes = await client.request('tools/call', { name: 'run_command', arguments: { command: 'echo test' } });
+    const cmdRes = await client.request('tools/call', { name: 'run_command', arguments: { command: 'echo test $X' } });
     assert.equal(cmdRes.requiresAuthorization, true);
     assert.ok(cmdRes.challengeId);
     const authRes = await client.request('zerochat/security/authorize', { challengeId: cmdRes.challengeId, decision: 'allow_once' });

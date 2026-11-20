@@ -134,7 +134,7 @@ class HandlerTestCase(ControllerTestCase):
 
 class PolicyEvaluationTest(ControllerTestCase):
     def test_policy_precedence(self):
-        dec = self.evaluate("run_command", {"command": "ls"})
+        dec = self.evaluate("run_command", {"command": "cat /etc/passwd"})
         self.assertEqual((dec.status, dec.requires_approval), ("ask", True))
 
         set_global(self.controller, zerochat.GLOBAL_POLICY_ALLOW_ALL)
@@ -221,15 +221,14 @@ class PolicyEvaluationTest(ControllerTestCase):
         self.assertEqual(self.controller.export_state(ctx_a)["directoryRules"], [rule_a])
         self.assertEqual(self.evaluate("read_file", {"path": file_b}, ctx_a).status, "ask")
 
-        # Vaciar las reglas de B deja al proyecto sin permisos automáticos (ni siquiera en Workspace Trust)
+        # Vaciar las reglas de B deja al proyecto sin permisos automáticos
         self.controller.apply_session_overlay({"directoryRules": [f"R:{zerochat.normalize_directory_path(str(proj_b.resolve()))}/**"]}, ctx_a)
         set_rules(self.controller, [], ctx_b)
         self.assertEqual(self.controller.export_state(ctx_b)["directoryRules"], [])
         self.assertEqual(self.evaluate("read_file", {"path": file_b}, ctx_b).status, "ask")
         self.assertTrue(self.evaluate("read_file", {"path": file_b}, ctx_a).allowed)
 
-        # Editar a R: deja el proyecto en solo lectura real incluso bajo Workspace Trust y con patrones
-        set_global(self.controller, zerochat.GLOBAL_POLICY_WORKSPACE_TRUST)
+        # Editar a R: deja el proyecto en solo lectura real incluso con patrones
         set_patterns(self.controller, "ls *")
         set_rules(self.controller, [f"R:{zerochat.normalize_directory_path(str(proj_b.resolve()))}/**"], ctx_b)
         self.assertTrue(self.evaluate("read_file", {"path": file_b}, ctx_b).allowed)
@@ -244,8 +243,13 @@ class PolicyEvaluationTest(ControllerTestCase):
         self.assertEqual(self.evaluate("write_file", {"path": file_b}, ctx_b).status, "ask")
         self.assertTrue(self.evaluate("run_command", {"command": "ls"}, ctx_b).allowed)
 
-    def test_workspace_trust_allows_local_commands_and_paths_but_not_references_outside(self):
-        set_global(self.controller, zerochat.GLOBAL_POLICY_WORKSPACE_TRUST)
+    def test_ask_with_rwx_allows_local_commands_and_paths_but_not_references_outside(self):
+        # El valor heredado "workspace_trust" se normaliza a "ask" tanto en RPC como al leer SQLite
+        self.controller.import_state({"globalMcpPolicy": "workspace_trust"}, self.ctx)
+        self.assertEqual(global_policy(self.controller), zerochat.GLOBAL_POLICY_ASK)
+        zerochat.update_security_policy_data(lambda current: {**(current or {}), "globalMcpPolicy": "workspace_trust"})
+        self.assertEqual(global_policy(self.controller), zerochat.GLOBAL_POLICY_ASK)
+
         set_rules(self.controller, [f"RWX:{self.norm_ws}/**"], self.ctx)
         self.assertTrue(self.evaluate("read_file", {"path": f"{self.norm_ws}/inside.txt"}).allowed)
         self.assertTrue(self.evaluate("run_command", {"command": "ls -la | grep test"}).allowed)
@@ -256,9 +260,9 @@ class PolicyEvaluationTest(ControllerTestCase):
         for path in ("/etc/passwd", "~/.ssh/id_rsa", "$HOME/.bashrc", "../outside.txt", "/workspace/../etc/passwd"):
             self.assertEqual(self.evaluate("read_file", {"path": path}).status, "ask", path)
         self.assertEqual(self.evaluate("run_command", {"command": "sudo apt update"}).status, "ask")
-        # Un patrón guardado es una vía más de permitir: no hace más estricto Workspace Trust
+        # Un patrón guardado es una vía más de permitir: no hace más estrictas las reglas RWX del proyecto
         set_patterns(self.controller, "git status *")
-        self.assertEqual(self.evaluate("run_command", {"command": "npm test"}).reason, "workspace_trust_command")
+        self.assertEqual(self.evaluate("run_command", {"command": "npm test"}).reason, "directory_rule_allow")
 
         # Una regla RW de proyecto amplía los argumentos de ruta de run_command (R: solo lecturas de fichero) y RWX permite cd+ejecución
         extra_ro = self.base_dir / "extra_ro"
@@ -292,7 +296,7 @@ class PolicyEvaluationTest(ControllerTestCase):
                    'git commit -m "a && b; c | d"')
         for command in allowed:
             self.assertTrue(self.evaluate("run_command", {"command": command}).allowed, command)
-        for command, offer in (("git status && ls", "ls *"), ("git log | head -5", "head *"), ("make; git status", "make *")):
+        for command, offer in (("git status && cat /etc/passwd", "cat /etc/passwd"), ("git log | sh", "sh *"), ("sudo make; git status", "sudo make *")):
             dec = self.evaluate("run_command", {"command": command})
             self.assertEqual((dec.reason, dec.rule_offer["command"]), ("command_outside_allowed_patterns", offer), command)
         # Lo que no se puede validar por partes pide permiso sin oferta de patrón
@@ -321,16 +325,16 @@ class PolicyEvaluationTest(ControllerTestCase):
     def test_rule_offer_for_commands_and_directories(self):
         set_rules(self.controller, [f"RX:{self.norm_ws}/**"], self.ctx)
         offers = {
-            "./myui --port 8080": "./myui *",
-            f"cd {self.norm_ws} && git status": "git status *",  # el cd no forma parte del patrón
-            "npm run a && npm run b": "npm run *",               # un patrón común a los subcomandos
-            "ls -la": "ls *",                            # una opción no es un subcomando
+            "sudo ./myui --port 8080": "sudo *",
+            f"cd {self.norm_ws} && sudo git status": "sudo git *",  # el cd no forma parte del patrón
+            "sudo npm a && sudo npm b": "sudo npm *",              # un patrón común a los subcomandos
+            "git log | tee -a out.log": "tee *",                    # una opción no es un subcomando
         }
         for command, pattern in offers.items():
             offer = self.evaluate("run_command", {"command": command}).rule_offer
             self.assertEqual((offer["type"], offer["command"]), ("command", pattern), command)
         # Sin patrón común a los subcomandos, o con un cd fuera de las reglas, no hay oferta
-        for command in ("npm test && git status", "cd /tmp && git status"):
+        for command in ("sudo npm test && cat /etc/hosts", "cd /tmp && git status"):
             self.assertIsNone(self.evaluate("run_command", {"command": command}).rule_offer, command)
 
         offer = self.evaluate("write_file", {"path": f"{self.norm_ws}/src/app.py"}).rule_offer
@@ -405,10 +409,10 @@ class PolicyStateTest(ControllerTestCase):
         # En memoria solo hay sesión y retos pendientes: el estado permanente vive en SQLite
         self.assertEqual(set(self.controller.__dict__), {"_lock", "sessions"})
         controller_b = zerochat.AccessController()
-        set_global(self.controller, zerochat.GLOBAL_POLICY_WORKSPACE_TRUST)
+        set_global(self.controller, zerochat.GLOBAL_POLICY_ALLOW_ALL)
         set_tool(self.controller, "tool_shared", zerochat.POLICY_ALLOW)
         set_server(self.controller, "srv_shared", zerochat.POLICY_ALLOW)
-        self.assertEqual(global_policy(controller_b), zerochat.GLOBAL_POLICY_WORKSPACE_TRUST)
+        self.assertEqual(global_policy(controller_b), zerochat.GLOBAL_POLICY_ALLOW_ALL)
         self.assertEqual(tool_entry(controller_b, "tool_shared")["policy"], zerochat.POLICY_ALLOW)
         self.assertEqual(server_entry(controller_b, "srv_shared")["policy"], zerochat.POLICY_ALLOW)
         revoke(controller_b, "tools", "tool_shared")
@@ -580,7 +584,7 @@ class ChallengeTest(HandlerTestCase):
 
         # allow_server_always sobre una herramienta local se rechaza y no añade servidores
         revoke(self.controller, "servers", "playwright")
-        gate = self.command_challenge("echo local_test")
+        gate = self.command_challenge("cat /etc/hosts")
         self.assertEqual(gate.get("serverId"), "")
         res, err = self.authorize(gate["challengeId"], "allow_server_always", serverId="mcp-proxy")
         self.assertEqual((res, err["code"]), (None, -32002))
@@ -600,38 +604,40 @@ class ChallengeTest(HandlerTestCase):
         self.assertIn("database is locked", err["message"])
         execute.assert_not_called()
 
-        gate = self.call_local("run_command", {"command": "echo job"}, _meta={"zerochatJobKey": "inv-1"})
-        self.assertEqual(gate["arguments"], {"command": "echo job"})
+        gate = self.call_local("run_command", {"command": "cat /etc/hosts"}, _meta={"zerochatJobKey": "inv-1"})
+        self.assertEqual(gate["arguments"], {"command": "cat /etc/hosts"})
         with unittest.mock.patch.object(zerochat, "execute_tool", return_value=({"content": []}, None, "")) as execute:
             res, err = self.authorize(gate["challengeId"], "allow_once")
         self.assertIsNone(err)
         self.assertTrue(res["authorized"])
-        execute.assert_called_once_with("local", "run_command", {"command": "echo job", "job_key": "inv-1"}, cwd(), "")
+        execute.assert_called_once_with("local", "run_command", {"command": "cat /etc/hosts", "job_key": "inv-1"}, cwd(), "")
 
 
 class ApprovedCallOnResumeTest(HandlerTestCase):
     """Al reanudar una ejecución en servidor, la llamada aprobada en la tarjeta pausada la contesta este servidor,
     porque la credencial del runner no puede resolver retos: solo esa llamada y una sola vez."""
 
-    def run_session(self, decision):
-        tool_decision = {"toolName": "run_command", "args": {"command": "echo hola", "timeout_seconds": 30}, "decision": decision}
+    def run_session(self, decision, target):
+        tool_decision = {"toolName": "write_file", "args": {"path": target, "content": "hola"}, "decision": decision}
         session = zerochat.RunSession(prompt="hola", tool_security={"tool_decision": tool_decision})
         patcher = unittest.mock.patch.object(zerochat, "RUN_SESSION", session)
         patcher.start()
         self.addCleanup(patcher.stop)
 
     def test_solo_la_llamada_aprobada_y_una_sola_vez_y_una_denegacion_no_ejecuta_nada(self):
-        self.run_session("allow_once")
-        denied_other = self.call_local("run_command", {"command": "echo adios"})
+        target = str(self.base_dir / "approved.txt")
+        other = str(self.base_dir / "other.txt")
+        self.run_session("allow_once", target)
+        denied_other = self.call_local("write_file", {"path": other, "content": "adios"})
         self.assertEqual((denied_other.get("isError"), denied_other.get("securityStatus")), (True, "deny"))
-        ran = self.call_local("run_command", {"timeout_seconds": 30, "command": "echo hola"})
+        ran = self.call_local("write_file", {"content": "hola", "path": target})
         self.assertNotIn("requiresAuthorization", ran)
-        self.assertIn("hola", ran["content"][0]["text"])
-        denied_repeat = self.call_local("run_command", {"command": "echo hola", "timeout_seconds": 30})
+        self.assertEqual((self.base_dir / "approved.txt").read_text(encoding="utf-8"), "hola")
+        denied_repeat = self.call_local("write_file", {"path": target, "content": "hola"})
         self.assertEqual((denied_repeat.get("isError"), denied_repeat.get("securityStatus")), (True, "deny"))
 
-        self.run_session("deny")
-        denied = self.call_local("run_command", {"command": "echo hola", "timeout_seconds": 30})
+        self.run_session("deny", target)
+        denied = self.call_local("write_file", {"path": target, "content": "hola"})
         self.assertEqual((denied.get("isError"), denied.get("securityStatus")), (True, "deny"))
 
 
@@ -690,33 +696,50 @@ class CommandPatternTest(HandlerTestCase):
         # Solo los patrones autorizan run_command de forma permanente, aunque la base de datos diga otra cosa
         zerochat.update_security_policy_data(lambda current: {**(current or {}), "tools": {
             "run_command": {"policy": "allow", "scope": "permanent"}}, "commandPatterns": {"global": []}})
-        self.assertEqual(self.evaluate("run_command", {"command": "rm -rf build"}).status, "ask")
+        self.assertEqual(self.evaluate("run_command", {"command": "sudo rm -rf build"}).status, "ask")
+
+        # export_state solo expone {global, project, session} y update desde A no expone ni borra los de B
+        proj_a = self.base_dir / "pat_a"
+        proj_b = self.base_dir / "pat_b"
+        proj_a.mkdir()
+        proj_b.mkdir()
+        ctx_a = zerochat.SecurityContext(workspace_dir=proj_a.resolve())
+        ctx_b = zerochat.SecurityContext(workspace_dir=proj_b.resolve())
+        self.controller.import_state({"commandPatterns": {"global": ["git status *"], "project": ["npm test *"]}}, ctx_b)
+        exported_a = self.controller.import_state({"commandPatterns": {"global": ["git status *"], "project": ["pytest *"]}}, ctx_a)
+        self.assertEqual(exported_a["commandPatterns"], {"global": ["git status *"], "project": ["pytest *"], "session": []})
+        self.assertEqual(self.controller.export_state(ctx_b)["commandPatterns"], {"global": ["git status *"], "project": ["npm test *"], "session": []})
+        # Vaciar patrones desde A elimina la clave de A en SQLite pero conserva intactos los de B
+        self.controller.import_state({"commandPatterns": {"global": [], "project": []}}, ctx_a)
+        self.assertEqual(saved_patterns(), {"global": [], "projects": {ctx_b.key: ["npm test *"]}})
 
         # El tope cuenta los patrones globales y los de todos los proyectos: N se acepta y N+1 no
         limit = zerochat.MAX_COMMAND_PATTERNS
         half = limit // 2
-        store([f"g{i}" for i in range(half)], {"/proj": [f"p{i}" for i in range(limit - half)]})
+        self.controller.import_state({"commandPatterns": {"global": [], "project": [f"b{i}" for i in range(half)]}}, ctx_b)
+        self.controller.import_state({"commandPatterns": {"global": [], "project": [f"a{i}" for i in range(limit - half)]}}, ctx_a)
         with self.assertRaisesRegex(ValueError, "máximo"):
-            store([f"g{i}" for i in range(half)], {"/proj": [f"p{i}" for i in range(limit - half + 1)]})
+            self.controller.import_state({"commandPatterns": {"global": [], "project": [f"a{i}" for i in range(limit - half + 1)]}}, ctx_a)
+        self.assertEqual(len(saved_patterns()["projects"][ctx_b.key]), half)
 
     def test_command_grants_need_a_pattern_that_covers_the_challenge(self):
-        gate = self.command_challenge("echo hola mundo")
+        gate = self.command_challenge("sudo echo hola mundo")
         cid = gate["challengeId"]
-        self.assertEqual(gate["ruleOffer"]["command"], "echo hola *")
+        self.assertEqual(gate["ruleOffer"]["command"], "sudo echo *")
         # Si el * no cubriría los argumentos (fuera del proyecto), se ofrece el comando exacto
         self.assertEqual(self.command_challenge("cat /etc/hosts")["ruleOffer"]["command"], "cat /etc/hosts")
         # En un comando compuesto el patrón tiene que cubrir alguno de sus subcomandos
-        chained = self.command_challenge("npm run test:unit && npm run test:integration")
-        self.assertEqual(chained["ruleOffer"]["command"], "npm run *")
-        res, err = self.authorize(chained["challengeId"], "allow_session", commandPattern="npm test *")
+        chained = self.command_challenge("sudo npm test:unit && sudo npm test:integration")
+        self.assertEqual(chained["ruleOffer"]["command"], "sudo npm *")
+        res, err = self.authorize(chained["challengeId"], "allow_session", commandPattern="sudo yarn *")
         self.assertEqual((res, err["code"]), (None, -32602))
-        # 'npm run test*' cubre cada subcomando ('test:unit' es una sola palabra)
-        res, err = self.authorize(chained["challengeId"], "allow_session", commandPattern="npm run test*")
+        # 'sudo npm test*' cubre cada subcomando ('test:unit' es una sola palabra)
+        res, err = self.authorize(chained["challengeId"], "allow_session", commandPattern="sudo npm test*")
         self.assertIsNone(err)
         rejected = (
             ("allow_always", {}, "allow_always_requires_command_pattern"),
             ("allow_project", {}, "allow_project_requires_command_pattern"),
-            ("allow_always", {"commandPattern": "echo adios *"}, None),
+            ("allow_always", {"commandPattern": "sudo echo adios *"}, None),
         )
         for decision, extra, message in rejected:
             res, err = self.authorize(cid, decision, **extra)
@@ -725,44 +748,45 @@ class CommandPatternTest(HandlerTestCase):
                 self.assertEqual(err["message"], message)
             self.assertIn(cid, challenges(self.controller))
 
-        res, err = self.authorize(cid, "allow_always", commandPattern="echo *")
+        res, err = self.authorize(cid, "allow_always", commandPattern="sudo echo *")
         self.assertIsNone(err)
         self.assertTrue(res["authorized"])
-        self.assertEqual(saved_patterns()["global"], ["echo *"])
-        self.assertEqual(self.status("echo otra cosa"), "allow")
-        self.assertEqual(self.status("rm -rf /"), "ask")
+        self.assertEqual(saved_patterns()["global"], ["sudo echo *"])
+        self.assertEqual(self.status("sudo echo otra cosa"), "allow")
+        self.assertEqual(self.status("sudo rm -rf /"), "ask")
 
     def test_command_pattern_scopes_session_project_and_global(self):
         other_project = zerochat.SecurityContext(workspace_dir=self.base_dir.resolve())
         project = zerochat.normalize_directory_path(str(zerochat.PROJECT_DIR))
 
         # Sesión: solo ese patrón, en memoria y sin guardarse
-        res, err = self.authorize(self.command_challenge("echo uno")["challengeId"], "allow_session", commandPattern="echo uno *")
+        res, err = self.authorize(self.command_challenge("sudo echo uno")["challengeId"], "allow_session", commandPattern="sudo echo uno *")
         self.assertIsNone(err)
-        self.assertEqual((self.status("echo uno dos"), self.status("echo otro")), ("allow", "ask"))
+        self.assertEqual((self.status("sudo echo uno dos"), self.status("sudo echo otro")), ("allow", "ask"))
         self.assertEqual(saved_patterns(), {})
 
         # Proyecto: guardado ligado al proyecto actual; en otro proyecto vuelve a preguntar
-        res, err = self.authorize(self.command_challenge("printf proyecto")["challengeId"], "allow_project", commandPattern="printf *")
+        res, err = self.authorize(self.command_challenge("sudo printf proyecto")["challengeId"], "allow_project", commandPattern="sudo printf *")
         self.assertIsNone(err)
-        self.assertEqual(saved_patterns(), {"global": [], "projects": {project: ["printf *"]}})
-        self.assertEqual((self.status("printf x"), self.status("printf x", other_project)), ("allow", "ask"))
+        self.assertEqual(saved_patterns(), {"global": [], "projects": {project: ["sudo printf *"]}})
+        self.assertEqual((self.status("sudo printf x"), self.status("sudo printf x", other_project)), ("allow", "ask"))
         # La escritura permanente no retira los patrones de sesión: se suman
-        self.assertEqual(self.status("echo uno dos"), "allow")
+        self.assertEqual(self.status("sudo echo uno dos"), "allow")
 
         # Global: vale en cualquier proyecto
-        res, err = self.authorize(self.command_challenge("true global")["challengeId"], "allow_always", commandPattern="true *")
+        res, err = self.authorize(self.command_challenge("sudo true global")["challengeId"], "allow_always", commandPattern="sudo true *")
         self.assertIsNone(err)
-        self.assertEqual(self.status("true x", other_project), "allow")
+        self.assertEqual(self.status("sudo true x", other_project), "allow")
         exported = self.controller.export_state(cwd())["commandPatterns"]
-        self.assertEqual((exported["session"], exported["global"]), (["echo uno *"], ["true *"]))
+        self.assertEqual(exported, {"global": ["sudo true *"], "project": ["sudo printf *"], "session": ["sudo echo uno *"]})
+        self.assertEqual(self.controller.export_state(other_project)["commandPatterns"], {"global": ["sudo true *"], "project": [], "session": []})
 
         # Al acabar la sesión solo quedan los permanentes, pero un snapshot de sesión exportado puede reaplicarse
         snapshot = self.controller.export_state(cwd())
         self.controller.clear_session()
-        self.assertEqual([self.status(c) for c in ("echo uno dos", "printf x", "true x")], ["ask", "allow", "allow"])
+        self.assertEqual([self.status(c) for c in ("sudo echo uno dos", "sudo printf x", "sudo true x")], ["ask", "allow", "allow"])
         self.controller.apply_session_overlay(snapshot, cwd())
-        self.assertEqual(self.status("echo uno dos"), "allow")
+        self.assertEqual(self.status("sudo echo uno dos"), "allow")
 
 
 class SessionLifecycleTest(HandlerTestCase):
@@ -781,7 +805,7 @@ class SessionLifecycleTest(HandlerTestCase):
         for tool in ("read_file", "write_file", "edit_file", "run_command"):
             self.assertIsNone(tool_entry(self.controller, tool), tool)
         self.assertEqual(tool_entry(self.controller, "db_tool")["policy"], "deny")
-        self.assertEqual(global_policy(self.controller), "workspace_trust")
+        self.assertEqual(global_policy(self.controller), "ask")
         self.assertTrue(self.evaluate("custom_tool").allowed)
         self.assertTrue(self.evaluate("write_file", {"path": f"{self.norm_ws}/ok.txt"}).allowed)
         self.assertTrue(self.evaluate("write_file", {"path": "/test/ok.txt"}).allowed)

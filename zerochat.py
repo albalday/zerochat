@@ -2392,8 +2392,7 @@ def normalize_directory_path(value: str) -> str:
 
 GLOBAL_POLICY_ASK = "ask"
 GLOBAL_POLICY_ALLOW_ALL = "allow_all"
-GLOBAL_POLICY_WORKSPACE_TRUST = "workspace_trust"
-GLOBAL_POLICIES = (GLOBAL_POLICY_ASK, GLOBAL_POLICY_ALLOW_ALL, GLOBAL_POLICY_WORKSPACE_TRUST)
+GLOBAL_POLICIES = (GLOBAL_POLICY_ASK, GLOBAL_POLICY_ALLOW_ALL)
 POLICY_ALLOW = "allow"
 POLICY_DENY = "deny"
 POLICY_ASK = "ask"
@@ -2660,7 +2659,7 @@ def normalize_command_patterns(raw) -> dict:
     MAX_COMMAND_PATTERNS en total. Los de sesión nunca forman parte del estado guardado.
     """
     if not isinstance(raw, dict):
-        raise ValueError("commandPatterns debe ser un diccionario con global y projects.")
+        raise ValueError("commandPatterns debe ser un diccionario con global y project.")
     raw_projects = raw.get("projects") or {}
     if not isinstance(raw_projects, dict):
         raise ValueError("commandPatterns.projects debe ser un diccionario de proyecto a patrones.")
@@ -6867,9 +6866,11 @@ class AccessController:
         # run_command nunca se guarda autorizado entero: sus permisos permanentes son patrones.
         tools = {tid: entry for tid, entry in dict(data.get("tools") or {}).items()
                  if not (tid == COMMAND_TOOL and isinstance(entry, dict) and entry.get("policy") == POLICY_ALLOW)}
+        raw_global = data.get("globalMcpPolicy")
+        global_policy = GLOBAL_POLICY_ASK if raw_global in (None, "", "workspace_trust") else raw_global
         return {
             "version": POLICY_STATE_VERSION,
-            "globalMcpPolicy": data.get("globalMcpPolicy") or GLOBAL_POLICY_ASK,
+            "globalMcpPolicy": global_policy,
             "directoryRules": dir_rules,
             "tools": tools,
             "servers": dict(data.get("servers") or {}),
@@ -6896,18 +6897,23 @@ class AccessController:
                 dir_rules = list(state["directoryRules"][context.key])
             else:
                 dir_rules = [default_rule]
+            saved_patterns = state["commandPatterns"]
             return {
                 "globalMcpPolicy": session.global_policy if session.global_policy is not None else state["globalMcpPolicy"],
                 "directoryRules": dir_rules,
                 "tools": {**state["tools"], **session.tools},
                 "servers": {**state["servers"], **session.servers},
-                "commandPatterns": {**state["commandPatterns"], "session": list(session.command_patterns)}
+                "commandPatterns": {
+                    "global": list(saved_patterns["global"]),
+                    "project": list(saved_patterns["projects"].get(context.key) or []),
+                    "session": list(session.command_patterns)
+                }
             }
 
-    def _command_patterns(self, view: dict, context: SecurityContext) -> list[str]:
+    def _command_patterns(self, view: dict) -> list[str]:
         """Patrones que rigen en el proyecto: los de todos los proyectos, los de este y los de la sesión."""
         patterns = view["commandPatterns"]
-        return [*patterns["global"], *(patterns["projects"].get(context.key) or []), *patterns["session"]]
+        return [*patterns["global"], *patterns["project"], *patterns["session"]]
 
     def export_state(self, context: SecurityContext) -> dict:
         return {
@@ -6984,7 +6990,7 @@ class AccessController:
 
         clean_global = None
         if "globalMcpPolicy" in state:
-            pol = state["globalMcpPolicy"]
+            pol = GLOBAL_POLICY_ASK if state["globalMcpPolicy"] == "workspace_trust" else state["globalMcpPolicy"]
             if pol not in GLOBAL_POLICIES:
                 raise ValueError(f"Política global no válida: '{pol}'. Válidas: {GLOBAL_POLICIES}")
             clean_global = pol
@@ -6994,15 +7000,33 @@ class AccessController:
         clean_servers = self._validate_policy_entries(state["servers"], "servers", scope) if "servers" in state else None
         return clean_global, clean_rules, clean_tools, clean_servers
 
+    @staticmethod
+    def _validate_command_patterns_patch(raw) -> dict:
+        """Valida un parche de commandPatterns: {global, project} o legado {global, projects}."""
+        if not isinstance(raw, dict):
+            raise ValueError("commandPatterns debe ser un diccionario con global y project.")
+        has_projects = "projects" in raw
+        if has_projects and "project" not in raw:
+            return {"mode": "full", "patterns": normalize_command_patterns(raw)}
+        global_patterns = clean_pattern_list(raw.get("global") or [], "commandPatterns.global")
+        project_patterns = clean_pattern_list(raw.get("project") or [], "commandPatterns.project")
+        base = normalize_command_patterns({"global": global_patterns, "projects": raw["projects"]}) if has_projects else None
+        return {
+            "mode": "scoped",
+            "global": global_patterns,
+            "project": project_patterns,
+            "projects": base["projects"] if base is not None else None,
+        }
+
     def import_state(self, state: dict, context: SecurityContext):
         """
         Aplica un parche parcial persistente (None revoca) y devuelve el estado exportado.
         `addDirectoryRules` añade reglas a las guardadas dentro de la misma transacción y
-        `commandPatterns` sustituye los patrones de comando guardados.
+        `commandPatterns` sustituye los patrones globales y del proyecto actual sin tocar otros proyectos.
         """
         clean_global, clean_rules, clean_tools, clean_servers = self._validate_state_payload(state, SCOPE_PERMANENT)
         added_rules = self._validate_directory_rules(state["addDirectoryRules"]) if "addDirectoryRules" in state else []
-        clean_patterns = normalize_command_patterns(state["commandPatterns"]) if "commandPatterns" in state else None
+        clean_patterns = self._validate_command_patterns_patch(state["commandPatterns"]) if "commandPatterns" in state else None
 
         project = context.key
         default_rule = self.get_default_directory_rule(context)
@@ -7032,7 +7056,18 @@ class AccessController:
         if clean_servers is not None:
             current["servers"] = self._apply_entry_patch(current.get("servers"), clean_servers)
         if clean_patterns is not None:
-            current["commandPatterns"] = clean_patterns
+            current["commandPatterns"] = self._merge_command_patterns(current["commandPatterns"], clean_patterns, project)
+
+    @staticmethod
+    def _merge_command_patterns(current_patterns: dict, patch: dict, project: str) -> dict:
+        if patch["mode"] == "full":
+            return patch["patterns"]
+        projects = dict(patch["projects"] if patch["projects"] is not None else current_patterns["projects"])
+        if patch["project"]:
+            projects[project] = patch["project"]
+        else:
+            projects.pop(project, None)
+        return normalize_command_patterns({"global": patch["global"], "projects": projects})
 
     def _forget_session_overrides(self, project: str, clean_global, clean_rules, added_rules, clean_tools, clean_servers):
         """Lo guardado sustituye o revoca lo equivalente en la sesión (las reglas de carpeta, solo en su proyecto)."""
@@ -7321,8 +7356,8 @@ class AccessController:
         3. Política global allow_all -> allow incondicional.
         4. Política granular de herramienta -> allow.
         5. Política de servidor completo -> allow incondicional para sus herramientas.
-        6. run_command: patrones de comando y, si no lo cubren, Workspace Trust.
-        7. Herramientas con ruta: reglas de directorio y Workspace Trust.
+        6. run_command: reglas de directorio (RWX:/** permite todo; X habilita la carpeta) y patrones de comando.
+        7. Herramientas con ruta: reglas de directorio.
         8. Por defecto -> ask (solicitar confirmación), con la regla sugerida si la hay.
         """
         status, reason, details, offer = self._evaluate(tool_name, dict(raw_args or {}), context, server_id)
@@ -7373,7 +7408,7 @@ class AccessController:
         return raw_path if re.match(r"^(/|[A-Za-z]:[\\/])", raw_path) else str(cwd / raw_path)
 
     def _is_allowed_trust_segment(self, segment: str, cwd: Path, directory_rules: list[str], ctx: SecurityContext) -> bool:
-        """Subcomando permitido por Workspace Trust: local o con argumentos de ruta dentro de reglas RW del proyecto."""
+        """Subcomando permitido por las reglas del proyecto: local o con rutas dentro de reglas RW."""
         refs = command_outside_references(segment)
         if refs is None:
             return False
@@ -7384,14 +7419,13 @@ class AccessController:
 
     def _evaluate_command(self, raw_command: str, view: dict, ctx: SecurityContext) -> tuple[str, str, str, dict | None]:
         """
-        Valida cada subcomando por separado: la carpeta donde se ejecuta (inicial y tras cada cd) requiere
-        permiso X en directoryRules; cada cd debe llevar a una carpeta cubierta por las reglas de directorio,
-        y el resto tiene que estar cubierto por un patrón o, con Workspace Trust, quedarse en el proyecto o en
-        reglas RW del proyecto (tras una tubería, solo un filtro). Con RWX:/** en Workspace Trust, el proyecto
-        queda sin restricción de comandos.
+        Valida cada subcomando por separado: con RWX:/** el proyecto queda sin restricción de comandos.
+        En otro caso, la carpeta donde se ejecuta (inicial y tras cada cd) requiere permiso X en directoryRules;
+        cada cd debe llevar a una carpeta cubierta por las reglas de directorio, y el resto tiene que estar
+        cubierto por un patrón o quedarse en el proyecto o en reglas RW del proyecto (tras una tubería, solo
+        un filtro).
         """
-        trust = view["globalMcpPolicy"] == GLOBAL_POLICY_WORKSPACE_TRUST
-        if trust and self._has_full_directory_access(view["directoryRules"]):
+        if self._has_full_directory_access(view["directoryRules"]):
             return POLICY_ALLOW, "directory_rule_allow", "", None
         if not self.evaluate_directory_rule("X", str(ctx.workspace_dir), view["directoryRules"], ctx)["allowed"]:
             return (POLICY_ASK, "command_directory_without_execute",
@@ -7400,8 +7434,8 @@ class AccessController:
         if segments is None:
             return (POLICY_ASK, "command_chaining_requires_approval",
                     f"El comando usa sintaxis de shell que no se puede validar por partes: {raw_command}", None)
-        patterns = self._command_patterns(view, ctx)
-        cwd, by_trust, uncovered = ctx.workspace_dir, False, []
+        patterns = self._command_patterns(view)
+        cwd, by_rule, uncovered = ctx.workspace_dir, False, []
         for operator, segment in segments:
             directory = cd_target(segment)
             if directory is not None:
@@ -7415,17 +7449,18 @@ class AccessController:
                             f"La carpeta no tiene permiso de ejecución (X): {cwd}", None)
             elif any(matches_command_pattern(segment, p) for p in patterns):
                 continue
-            elif trust and self._is_allowed_trust_segment(segment, cwd, view["directoryRules"], ctx) and (
+            elif self._is_allowed_trust_segment(segment, cwd, view["directoryRules"], ctx) and (
                     operator != "|" or segment.split()[0] in WORKSPACE_TRUST_PIPE_FILTERS):
-                by_trust = True
+                by_rule = True
             else:
                 uncovered.append(segment)
         if not uncovered:
-            return POLICY_ALLOW, "workspace_trust_command" if by_trust else "command_pattern_allow", "", None
-        if trust:
-            reason, details = "workspace_trust_external_or_global_command", "El comando accede a recursos globales o rutas fuera del espacio de trabajo."
-        else:
-            reason, details = ("command_outside_allowed_patterns", f"Comando fuera de los patrones autorizados: {'; '.join(uncovered)}") if patterns else ("mcp_default_ask", "")
+            return POLICY_ALLOW, "directory_rule_allow" if by_rule else "command_pattern_allow", "", None
+        reason, details = (
+            ("command_outside_allowed_patterns", f"Comando fuera de los patrones autorizados: {'; '.join(uncovered)}")
+            if patterns
+            else ("command_outside_directory_rules", "El comando accede a recursos globales o rutas fuera de las reglas de directorio.")
+        )
         return POLICY_ASK, reason, details, command_rule_offer(uncovered)
 
     def _evaluate_path(self, tool_name: str, access: str, path: str, view: dict, ctx: SecurityContext) -> tuple[str, str, str, dict | None]:
@@ -10082,7 +10117,7 @@ def reset_session_authorizations():
                 ACCESS_CONTROLLER.apply_tool_decision(tool_decision, ctx, server_id=server_id)
         permanent_tools = ACCESS_CONTROLLER.export_state(ctx).get("tools") or {}
         ACCESS_CONTROLLER.apply_session_overlay({
-            "globalMcpPolicy": GLOBAL_POLICY_WORKSPACE_TRUST,
+            "globalMcpPolicy": GLOBAL_POLICY_ASK,
             "tools": {
                 name: {"policy": POLICY_ALLOW}
                 for name in LOCAL_TOOL_HANDLERS

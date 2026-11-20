@@ -428,22 +428,15 @@ zerochat</code></pre>
               <label class="mcp-policy-option">
                 <input type="radio" name="mcp-global-policy" value="ask" id="mcp-policy-ask" checked>
                 <div class="mcp-policy-text">
-                  <strong data-i18n="mcp_security_policy_ask">Pedir autorización antes de ejecutar (Recomendado)</strong>
-                  <p class="label-hint" data-i18n="mcp_security_policy_ask_hint">El chat te pedirá confirmar cada comando o herramienta MCP no autorizada previamente.</p>
-                </div>
-              </label>
-              <label class="mcp-policy-option">
-                <input type="radio" name="mcp-global-policy" value="workspace_trust" id="mcp-policy-workspace-trust">
-                <div class="mcp-policy-text">
-                  <strong data-i18n="mcp_security_policy_workspace_trust">Confiar en el espacio de trabajo (Workspace Trust)</strong>
-                  <p class="label-hint" data-i18n="mcp_security_policy_workspace_trust_hint">Confía automáticamente en operaciones y archivos dentro del directorio del proyecto (CWD). Pregunta para accesos externos o comandos globales.</p>
+                  <strong data-i18n="mcp_security_policy_ask">Reglas del proyecto y confirmación interactiva (Recomendado)</strong>
+                  <p class="label-hint" data-i18n="mcp_security_policy_ask_hint">Aplica las reglas RWX de directorio del proyecto y las autorizaciones guardadas; pide confirmación para el resto. No es un aislamiento del sistema.</p>
                 </div>
               </label>
               <label class="mcp-policy-option">
                 <input type="radio" name="mcp-global-policy" value="allow_all" id="mcp-policy-allow-all">
                 <div class="mcp-policy-text">
                   <strong data-i18n="mcp_security_policy_allow_all">Todo autorizado (Modo desatendido)</strong>
-                  <p class="label-hint" data-i18n="mcp_security_policy_allow_all_hint">Ejecuta inmediatamente cualquier herramienta MCP sin pausas de confirmación.</p>
+                  <p class="label-hint" data-i18n="mcp_security_policy_allow_all_hint">Ejecuta inmediatamente cualquier herramienta o comando sin pausas de confirmación, salvo las denegadas explícitamente.</p>
                 </div>
               </label>
             </div>
