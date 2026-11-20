@@ -71,8 +71,9 @@ class MailMcpConfigAndParsingTest(unittest.TestCase):
         msg.set_content("<script>alert(1)</script><p>Hola <b>mundo</b></p>", subtype="html")
         msg.add_attachment(b"%PDF-1.4...", maintype="application", subtype="pdf", filename="factura.pdf")
 
-        body, attachments, truncated = mail_mcp._extract_body_and_attachments(msg)
+        body, attachments, truncated, att_truncated = mail_mcp._extract_body_and_attachments(msg)
         self.assertFalse(truncated)
+        self.assertFalse(att_truncated)
         self.assertEqual(body, "Hola mundo")
         self.assertNotIn("alert", body)
         self.assertEqual(attachments, [{"filename": "factura.pdf", "content_type": "application/pdf", "size_bytes": 11}])
@@ -111,6 +112,7 @@ class MailMcpOperationsTest(unittest.TestCase):
 
             read_res = mail_mcp.tool_read_message(self.CFG, {"uid": "42"})
             self.assertEqual(read_res["subject"], "Alerta diaria")
+            self.assertFalse(read_res["attachments_truncated"])
             self.assertIn("Todo en orden", read_res["body"])
             # Sin mark_seen=True, usa BODY.PEEK[] para no marcar el correo como leído
             self.assertEqual(conn.uid.call_args_list[2].args, ("FETCH", "42", "(BODY.PEEK[])"))
@@ -150,6 +152,17 @@ class MailMcpOperationsTest(unittest.TestCase):
             mail_mcp.tool_send_email(cfg_587, {"to": "dest@example.com", "subject": "Hola", "body": "Cuerpo"})
             smtp_tls.starttls.assert_called_once()
             smtp_tls.login.assert_called_once_with("bot@gmail.com", "app-password")
+
+    def test_adjuntos_en_el_borde_exacto_y_aviso_de_truncado(self):
+        for count, expect_truncated in ((mail_mcp.MAX_ATTACHMENTS, False), (mail_mcp.MAX_ATTACHMENTS + 1, True)):
+            msg = email.message.EmailMessage()
+            msg["Subject"] = "Con adjuntos"
+            msg.set_content("Texto")
+            for idx in range(count):
+                msg.add_attachment(b"x", maintype="application", subtype="octet-stream", filename=f"f{idx}.bin")
+            _body, attachments, _truncated, att_truncated = mail_mcp._extract_body_and_attachments(msg)
+            self.assertEqual(len(attachments), mail_mcp.MAX_ATTACHMENTS)
+            self.assertIs(att_truncated, expect_truncated)
 
 
 class MailMcpStdioIntegrationTest(unittest.TestCase):

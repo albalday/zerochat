@@ -833,6 +833,20 @@ class StorageEngineTest(unittest.TestCase):
         _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"mcpServers": [*max_servers, "extra"]}, ctx_b)
         self.assertEqual(err["code"], -32602)
 
+        max_tools = {f"tool_{i}": True for i in range(zerochat.MAX_PROJECT_ENABLED_TOOLS)}
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"enabledTools": max_tools}, ctx_b)
+        self.assertIsNone(err)
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"enabledTools": {**max_tools, "tool_extra": False}}, ctx_b)
+        self.assertEqual(err["code"], -32602)
+
+        max_id = "t" * zerochat.MAX_PROJECT_TOOL_ID_LENGTH
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"enabledTools": {max_id: True}, "mcpServers": [max_id]}, ctx_b)
+        self.assertIsNone(err)
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"enabledTools": {max_id + "x": True}}, ctx_b)
+        self.assertEqual(err["code"], -32602)
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"mcpServers": [max_id + "x"]}, ctx_b)
+        self.assertEqual(err["code"], -32602)
+
         for invalid in (
             {"unknownField": 1},
             {"browser": "chrome"},

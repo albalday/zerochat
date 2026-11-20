@@ -126,7 +126,7 @@ Done when: los perfiles no conservan ni gestionan MCPs ni navegador (incluido SQ
   - `js/ui-settings.js` (`syncDirectoryRulesProject`) y `js/i18n.js`: reutilizar `activeProjectScope()` para identificar el proyecto (incluido `general` en `noProjectDir`) y unificar la clave i18n duplicada (`mcp_directory_rules_project` y `settings_group_project` tienen texto idéntico en `es` y `en`).
   - `py/storage/rpc.py` (`_rename`), `py/storage/db.py` (`rename_conversation`) y `js/storage.js` (`renameConversation`): devolver el `updatedAt` persistido en SQLite y usarlo en IndexedDB al marcar `synced: true`, evitando que un desfase de milisegundos marque la conversación como `messagesPending` en el siguiente listado.
   - Actualizar pruebas en `tests/unit/test_i18n.js`, `tests/integration/test_storage.js` y `tests/infrastructure/py/test_security.py`.
-- [ ] M80-T11 Completar pruebas de borde exacto (N/N+1) y aviso de truncado en entorno por proyecto y servicio de correo
+- [x] M80-T11 Completar pruebas de borde exacto (N/N+1) y aviso de truncado en entorno por proyecto y servicio de correo (2026-11-20)
   - `tests/infrastructure/py/test_storage.py` (`test_entorno_por_proyecto_sqlite_y_rpc`): añadir pruebas exactas en el borde `N` y `N+1` para `MAX_PROJECT_ENABLED_TOOLS` (`256` / `257`) y `MAX_PROJECT_TOOL_ID_LENGTH` (`128` / `129`).
   - `services/mail/mail_mcp_server.py` (`_extract_body_and_attachments`, `tool_read_message`) y `tests/infrastructure/py/test_mail_mcp.py`: exponer `attachments_truncated: bool` cuando el mensaje supere `MAX_ATTACHMENTS` (`50`) y probar el borde exacto `50` / `51`, subiendo la versión en `services/mail/service.json` y ejecutando `npm run build:managed-services` si se modifica el servicio.
 
