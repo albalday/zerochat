@@ -13,7 +13,6 @@
 
   const { resolveDep } = Utils;
 
-  const PLAYWRIGHT_SERVER_ID = 'playwright';
   const EXTERNAL_START_POLL_ATTEMPTS = 10;
   const EXTERNAL_START_POLL_INTERVAL_MS = 15000;
   // Cubre los límites del backend (npm install y descarga del navegador, 600 s cada uno)
@@ -21,8 +20,8 @@
   const EXTERNAL_LONG_START_POLL_ATTEMPTS = 80;
 
   const getAgentCore = () => resolveDep('ChatAgentCore', './agent-core.js');
-  const getState = () => resolveDep('ChatState', './state.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
+  const getState = () => resolveDep('ChatState', './state.js');
 
   /** Cambia en ChatState los campos de un servicio externo; su tarjeta en Ajustes › MCP los pinta. */
   function updateExternalServerState(serverId, changes) {
@@ -30,14 +29,6 @@
       ...current,
       externalServers: current.externalServers.map(server => (server.id === serverId ? { ...server, ...changes } : server))
     }));
-  }
-
-  /** El Playwright MCP en marcha usa otro navegador o almacenamiento del que exige el perfil, o no muestra la ventana que pide. */
-  function usesOtherBrowser(server, required) {
-    return server.id === PLAYWRIGHT_SERVER_ID && Boolean(required) && McpStatus.isRunning(server.status)
-      && (server.browser?.mode !== required.mode || server.browser.engine !== required.engine || server.browser.userBrowser !== required.userBrowser
-        || (server.browser.storage || '') !== (required.storage || '')
-        || (required.headless === false && server.browser.headless !== false));
   }
 
   /** Vuelve a registrar las herramientas de los servicios externos, o las retira si no hay ninguno en marcha. */
@@ -62,14 +53,11 @@
     getState().set('mcp', { externalTools: tools });
   }
 
-  /**
-   * Arranca un servicio externo; con `remember` el servidor local lo guarda como activo y lo
-   * ofrece de nuevo en la siguiente sesión.
-   */
-  async function startExternalServer(manager, serverId, onWait, { remember, browser = null }) {
+  /** Arranca un servicio externo y sigue su progreso hasta estar en marcha. */
+  async function startExternalServer(manager, serverId, onWait) {
     let result = null;
     try {
-      result = await manager.requestExternalControl('zerochat/external/servers/start', { serverId, remember, ...(browser ? { browser } : {}) });
+      result = await manager.requestExternalControl('zerochat/external/servers/start', { serverId });
     } catch (error) {
       // El timeout inicial no implica fallo: el backend puede estar aún
       // iniciando el servicio (p. ej. esperando la autorización OAuth).
@@ -138,11 +126,10 @@
   }
 
   /**
-   * Inicia o detiene un servicio externo y refleja el progreso en ChatState. Playwright MCP arranca
-   * con el navegador que exija el perfil activo, y la autorización OAuth que pida el arranque se abre
-   * una vez en otra pestaña. Devuelve true si la acción terminó correctamente.
+   * Inicia o detiene un servicio externo y refleja el progreso en ChatState. La autorización OAuth que
+   * pida el arranque se abre una vez en otra pestaña. Devuelve true si la acción terminó correctamente.
    */
-  async function runExternalServerAction(manager, serverId, action, { remember = true } = {}) {
+  async function runExternalServerAction(manager, serverId, action) {
     updateExternalServerState(serverId, { status: action === 'start' ? 'starting' : 'stopped', error: null, startWait: null, oauthUrl: null });
     let didAutoOpenOAuth = false;
     const reportStartWait = (attempt, total, status = 'starting', serverData = null) => {
@@ -154,8 +141,7 @@
       updateExternalServerState(serverId, { status, ...(oauthUrl ? { oauthUrl } : {}), error: null, startWait: { attempt, total } });
     };
     try {
-      const browser = serverId === PLAYWRIGHT_SERVER_ID ? getConfig().getActive().playwrightBrowser : null;
-      if (action === 'start') await manager.startExternalServer(serverId, reportStartWait, { remember, ...(browser ? { browser } : {}) });
+      if (action === 'start') await manager.startExternalServer(serverId, reportStartWait);
       else await manager.stopExternalServer(serverId);
       return true;
     } catch (error) {
@@ -173,72 +159,67 @@
   }
 
   /**
-   * Ejecuta `action` con el servicio detenido y lo vuelve a arrancar si estaba en marcha, sin cambiar
-   * si queda recordado para la siguiente sesión (detenerlo lo desmarca). Devuelve false si no se pudo
-   * detener o volver a arrancar.
+   * Ejecuta `action` con el servicio detenido y lo vuelve a arrancar si estaba en marcha.
+   * Devuelve false si no se pudo detener o volver a arrancar.
    */
   async function withExternalServerStopped(manager, serverId, action = async () => {}) {
     const server = getState().get('mcp').externalServers.find(item => item.id === serverId);
     const wasRunning = McpStatus.isRunning(server?.status);
-    const remember = server?.enabled === true;
     if (wasRunning && !await manager.runExternalServerAction(serverId, 'stop')) return false;
     let restarted = true;
     try {
       await action();
     } finally {
-      if (wasRunning) restarted = await manager.runExternalServerAction(serverId, 'start', { remember });
+      if (wasRunning) restarted = await manager.runExternalServerAction(serverId, 'start');
     }
     return restarted;
   }
 
-  /**
-   * Arranca los servicios externos de un perfil (los suyos y Playwright MCP si es la herramienta de
-   * navegación activa) que no estén ya en marcha, sin parar los demás ni guardarlos como activos para
-   * la siguiente sesión. Si el perfil exige otro navegador del que usa Playwright MCP, o su ventana
-   * visible, lo reinicia. Devuelve { started, unavailable }: los ids de los que ha arrancado y de los
-   * que no están configurados en el servidor local o no han arrancado. Sin conexión no arranca nada.
-   */
-  async function startProfileServers(manager, appConfig) {
-    const State = getState();
-    const started = [];
-    const unavailable = [];
-    if (State.get('mcp').status !== 'connected') return { started, unavailable };
-    const ids = getAgentCore().activeBrowserTool(appConfig) === 'playwright' ? [...appConfig.mcpServers, PLAYWRIGHT_SERVER_ID] : appConfig.mcpServers;
-    for (const id of ids) {
-      const server = State.get('mcp').externalServers.find(item => item.id === id);
-      if (!server) {
-        unavailable.push(id);
-        continue;
-      }
-      if (usesOtherBrowser(server, appConfig.playwrightBrowser)) {
-        (await manager.withExternalServerStopped(id) ? started : unavailable).push(id);
-        continue;
-      }
-      if (McpStatus.isActive(server.status)) continue;
-      (await manager.runExternalServerAction(id, 'start', { remember: false }) ? started : unavailable).push(id);
-    }
-    return { started, unavailable };
+  const reconcileQueues = new WeakMap();
+
+  /** Identificadores de servicios MCP externos requeridos por el entorno del proyecto activo. */
+  function desiredExternalServers(appConfig = getConfig().getActive()) {
+    const ids = Array.isArray(appConfig?.mcpServers) ? appConfig.mcpServers : [];
+    const desired = ids.filter(id => typeof id === 'string' && id.trim()).map(id => id.trim());
+    if (appConfig?.browser === 'playwright' && !desired.includes('playwright')) desired.push('playwright');
+    return [...new Set(desired)];
   }
 
   /**
-   * Arranca en silencio los servicios externos recordados como activos (`enabled: true`) que siguen
-   * detenidos, sin alterar su preferencia ni preguntar. Devuelve `{ started, failed }` con sus ids.
+   * Concilia en serie los servicios externos en ejecución con el proyecto activo: detiene los que
+   * sobran (incluido Playwright si se cambia a otro navegador) y arranca los habilitados que siguen
+   * detenidos. Devuelve `{ started, stopped, failed }` con sus ids.
    */
-  async function startEnabledServers(manager, servers = getState().get('mcp').externalServers) {
-    const State = getState();
-    const started = [];
-    const failed = [];
-    if (State.get('mcp').status !== 'connected') return { started, failed };
-    const candidates = (servers || [])
-      .filter(server => server?.enabled === true && McpStatus.canStart(server.status) && typeof server.id === 'string' && server.id)
-      .slice(0, 50);
-    for (const server of candidates) {
-      // Comprobar el estado vivo actual por si otro arranque (p. ej. el perfil) ya lo inició.
-      const current = State.get('mcp').externalServers.find(item => item.id === server.id);
-      if (current && !McpStatus.canStart(current.status)) continue;
-      (await manager.runExternalServerAction(server.id, 'start', { remember: true }) ? started : failed).push(server.id);
-    }
-    return { started, failed };
+  function reconcileProjectServers(manager, appConfig = getConfig().getActive(), servers = getState().get('mcp').externalServers) {
+    const prev = reconcileQueues.get(manager) || Promise.resolve();
+    const run = prev.catch(() => {}).then(async () => {
+      const State = getState();
+      const started = [];
+      const stopped = [];
+      const failed = [];
+      if (State.get('mcp').status !== 'connected') return { started, stopped, failed };
+
+      const desired = new Set(desiredExternalServers(appConfig));
+      const initialServers = (servers || State.get('mcp').externalServers || []).slice(0, 50);
+
+      for (const server of initialServers) {
+        if (!server?.id || desired.has(server.id)) continue;
+        if (!McpStatus.isRunning(server.status) && !McpStatus.isBusy(server.status)) continue;
+        if (await manager.runExternalServerAction(server.id, 'stop')) stopped.push(server.id);
+      }
+
+      for (const serverId of desired) {
+        const liveList = State.get('mcp').externalServers || [];
+        const current = liveList.find(item => item?.id === serverId) || initialServers.find(item => item?.id === serverId);
+        if (!current || !McpStatus.canStart(current.status)) continue;
+        if (await manager.runExternalServerAction(serverId, 'start')) started.push(serverId);
+        else failed.push(serverId);
+      }
+
+      return { started, stopped, failed };
+    });
+    reconcileQueues.set(manager, run);
+    return run;
   }
 
   return {
@@ -249,7 +230,6 @@
     setExternalServerSecret,
     runExternalServerAction,
     withExternalServerStopped,
-    startProfileServers,
-    startEnabledServers
+    reconcileProjectServers
   };
 });

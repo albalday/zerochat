@@ -17,6 +17,7 @@ from storage.db import (
     get_blob,
     get_general_profile_with_key,
     get_conversation,
+    get_conversation_updated_at,
     has_blobs,
     list_conversations,
     list_general_profiles,
@@ -117,13 +118,19 @@ def _rpc_save_conversation(params: dict) -> RpcOutcome:
     return rpc_result({"conversation": save_conversation(params.get("conversation"), params.get("messages"))})
 
 
+def _rpc_rename_conversation(params: dict) -> RpcOutcome:
+    conv_id = params.get("id")
+    renamed = rename_conversation(conv_id, params.get("title"))
+    updated_at = get_conversation_updated_at(conv_id) if renamed and isinstance(conv_id, str) else None
+    return rpc_result({"renamed": renamed, **({"updatedAt": updated_at} if updated_at is not None else {})})
+
+
 CONVERSATION_METHODS = {
     "zerochat/conversations/list": lambda _params: rpc_result({"conversations": list_conversations()}),
     "zerochat/conversations/get": lambda params: rpc_result({"conversation": get_conversation(params.get("id"))}),
     "zerochat/conversations/save": _rpc_save_conversation,
     "zerochat/conversations/save_chunk": lambda params: rpc_result(save_conversation_chunk(params)),
-    "zerochat/conversations/rename": lambda params: rpc_result(
-        {"renamed": rename_conversation(params.get("id"), params.get("title"))}),
+    "zerochat/conversations/rename": _rpc_rename_conversation,
     "zerochat/conversations/delete": _rpc_delete_conversations,
 }
 

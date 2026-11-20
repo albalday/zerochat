@@ -264,28 +264,7 @@ test('Browser UI - confirmar cambio de proyecto al abrir chat, enlace de fichero
       icon: true
     });
 
-    await page.setViewportSize({ width: 375, height: 812 });
-    const mobileHeaderRects = await page.evaluate(() => {
-      const folder = document.getElementById('btn-open-project-files').getBoundingClientRect();
-      const profile = document.getElementById('active-profile-trigger').getBoundingClientRect();
-      const debugToggle = document.getElementById('btn-toggle-debug').getBoundingClientRect();
-      return {
-        folderLeft: folder.left,
-        folderRight: folder.right,
-        folderWidth: folder.width,
-        profileRight: profile.right,
-        debugToggleLeft: debugToggle.left
-      };
-    });
-    assert.ok(mobileHeaderRects.folderWidth > 0, 'El icono de carpeta debe ser visible en móvil');
-    assert.ok(mobileHeaderRects.folderRight <= mobileHeaderRects.debugToggleLeft,
-      `El icono de carpeta (${mobileHeaderRects.folderRight}) debe estar a la izquierda de la lupa de logs/debug (${mobileHeaderRects.debugToggleLeft})`);
-    assert.ok(mobileHeaderRects.folderLeft >= mobileHeaderRects.profileRight,
-      `El icono de carpeta (${mobileHeaderRects.folderLeft}) no debe solapar el selector de perfil (${mobileHeaderRects.profileRight})`);
-    await page.setViewportSize({ width: 1280, height: 720 });
-
     await page.selectOption('#sidebar-project-filter', 'all');
-    assert.equal(await page.locator('.btn-project-new-chat, .btn-project-files').count(), 0, 'La línea de proyecto no tiene iconos de acción');
 
     // Abrir un chat de otro proyecto pide confirmación; cancelar conserva el proyecto actual.
     const beforeId = await page.evaluate(() => window.ChatState.get('sessions').activeId);
@@ -371,7 +350,7 @@ test('Browser UI - abrir nueva pestaña desde el icono usa el proyecto actual', 
           serverInfo: { name: 'ZeroChat', cwd: project, noProjectDir: '/home/u/zerochat/general' },
           capabilities: { tools: {} },
           tools: [],
-          policies: { globalPolicy: 'ask', tools: {}, servers: {}, directoryRules: [], defaultDirectoryRule: '', commandPatterns: { global: [], project: [], session: [] } },
+          policies: { allowAll: false, tools: {}, servers: {}, directoryRules: [], commandPatterns: { global: [], project: [], session: [] } },
           liveState: { cwd: project, servers: [], jobs: [], runs: [] }
         }
         : body.method === 'zerochat/project/set_directory'

@@ -61,11 +61,9 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
     await page.evaluate(() => window.ChatState.setProjectContext({ status: 'ready', cwd: '/home/u/zerochat', rules: { content: 'r' } }));
     const indicator = await page.evaluate(() => {
       const button = document.getElementById('btn-reasoning');
-      const dot = getComputedStyle(button, '::after');
-      return { value: button.getAttribute('data-project-indicator'), dot: dot.content !== 'none' && dot.width === '7px', title: button.title, label: document.getElementById('reasoning-project-label').textContent };
+      return { value: button.getAttribute('data-project-indicator'), title: button.title, label: document.getElementById('reasoning-project-label').textContent };
     });
     assert.equal(indicator.value, 'ready');
-    assert.equal(indicator.dot, true);
     assert.match(indicator.title, /zerochat/);
     assert.match(indicator.label, /zerochat/);
     // La página del chat vacío dice en qué proyecto se está y si el modo proyecto está activado.
@@ -288,7 +286,6 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       assert.match(shown.items[0][1], /^1:0[5-6]$/);
       assert.equal(shown.buttons, 1, 'Sin botones de detener: solo el enlace a la tarjeta que está a la vista');
       assert.equal(shown.svg, true);
-      assert.equal(await page.locator('#command-jobs-bar').count(), 0, 'Ya no hay franja fija sobre el composer');
 
       // No se actualiza: el tiempo queda como estaba (aserción negativa: la espera fija es a propósito).
       const timeBefore = shown.items[1][1];

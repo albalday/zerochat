@@ -85,8 +85,8 @@ class ProjectDirectoriesTest(unittest.TestCase):
     def test_la_credencial_del_runner_no_puede_explorar_ni_crear_carpetas(self):
         grant = zerochat.TokenGrant(token="t", kind="runner", date="2026-01-01", created_at=0, run_id="r", conversation_id="c")
         for method in ("zerochat/project/browse", "zerochat/project/create_directory", "zerochat/project/context"):
-            self.assertFalse(grant.allows("/", method, {}))
-            self.assertTrue(zerochat.TokenGrant(token="t", kind="remote", date="2026-01-01", created_at=0).allows("/", method, {}))
+            self.assertFalse(grant.allows(method, {}))
+            self.assertTrue(zerochat.TokenGrant(token="t", kind="remote", date="2026-01-01", created_at=0).allows(method, {}))
 
     def test_read_project_context_lee_en_una_sola_llamada_respeta_permisos_y_tope_exacto(self):
         self.assertEqual(zerochat.read_project_context(self.ctx), {"status": "missing"})

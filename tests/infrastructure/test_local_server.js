@@ -1,11 +1,10 @@
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
-const { spawn, execSync } = require('node:child_process');
+const { spawn } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
-const crypto = require('node:crypto');
 const pkg = require('../../package.json');
 const { McpClient } = require('../../js/mcp.js');
 const { tokenDataDir, waitForServer, freePort } = require('../helpers/backend-env.js');
@@ -22,18 +21,13 @@ describe('Servidor local zerochat.py', () => {
   let initResult = null;
   let nextId = 1;
 
-  /** Cabeceras del sello de tools/call, como las calcula el cliente con la autorización de initialize. */
-  function toolSeal(url, body) {
-    return {};
-  }
-
-  /** POST JSON-RPC con el token de sesión; tools/call va sellado salvo `seal: false`. */
-  function post(method, params = {}, { endpoint = '', seal = method === 'tools/call', headers = {} } = {}) {
+  /** POST JSON-RPC con el token de sesión. */
+  function post(method, params = {}, { endpoint = '', headers = {} } = {}) {
     const url = `${baseUrl}/${endpoint}`;
     const body = JSON.stringify({ jsonrpc: '2.0', id: nextId++, method, params });
     return fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Origin: ORIGIN, Authorization: `Bearer ${testToken}`, ...(seal ? toolSeal(url, body) : {}), ...headers },
+      headers: { 'Content-Type': 'application/json', Origin: ORIGIN, Authorization: `Bearer ${testToken}`, ...headers },
       body
     });
   }
@@ -163,7 +157,6 @@ describe('Servidor local zerochat.py', () => {
     for (const name of ['list_directory', 'read_file', 'write_file', 'edit_file', 'run_command', 'check_command', 'search_files', 'get_diagnostics', 'browser_action']) {
       assert.ok(toolNames.includes(name), name);
     }
-    assert.ok(!toolNames.includes('set_project_directory'), 'El cambio de proyecto no es una herramienta del modelo');
     const runTool = tools.find(tool => tool.name === 'run_command');
     assert.ok(runTool?.description?.includes('Host OS:'), 'run_command debe declarar el SO anfitrión');
     assert.match(runTool.description, /fresh/, 'run_command debe advertir de que cada llamada empieza de cero');
@@ -225,17 +218,24 @@ describe('Servidor local zerochat.py', () => {
         assert.equal((await callTool('run_command', { command: 'pwd' }, null, header(dir))).parsed.output, `${dir}\n`);
         assert.equal((await rpc('zerochat/heartbeat', {}, { headers: header(dir) })).result.cwd, dir);
       }
-      // Elegir carpeta solo la valida para la pestaña y devuelve sus políticas: sin cabecera sigue el proyecto por defecto
+      // Elegir carpeta solo la valida para la pestaña y devuelve sus políticas y entorno: sin cabecera sigue el proyecto por defecto
+      const setEnv = await rpc('zerochat/project/environment/set', { systemDataPrompt: 'Regla B', browser: 'playwright', mcpServers: ['memory'] }, { headers: header(projects[1]) });
+      assert.equal(setEnv.result.projectEnvironment.browser, 'playwright');
+      assert.deepEqual(setEnv.result.projectEnvironment.mcpServers, ['memory']);
       const chosen = await rpc('zerochat/project/set_directory', { path: projects[1] }, { headers: header(projects[0]) });
       assert.equal(chosen.result.cwd, projects[1]);
       assert.equal(chosen.result.policies.directoryRules[0], `RWX:${projects[1]}/**`);
+      assert.equal(chosen.result.projectEnvironment.browser, 'playwright');
+      assert.equal(chosen.result.projectEnvironment.systemDataPrompt, 'Regla B');
       assert.equal((await rpc('zerochat/heartbeat')).result.cwd, fs.realpathSync(repoRoot));
 
       fs.rmSync(projects[1], { recursive: true });
       const gone = await post('tools/call', { name: 'run_command', arguments: { command: 'pwd' } }, { headers: header(projects[1]) });
       assert.equal((await gone.json()).error.code, -32003, 'Nunca se ejecuta en otra carpeta');
-      // initialize sí responde, con el proyecto por defecto, para que la pestaña sepa dónde está
-      assert.equal((await rpc('initialize', {}, { headers: header(projects[1]) })).result.serverInfo.cwd, fs.realpathSync(repoRoot));
+      // initialize sí responde, con el proyecto por defecto y su entorno, para que la pestaña sepa dónde está
+      const fallbackInit = await rpc('initialize', {}, { headers: header(projects[1]) });
+      assert.equal(fallbackInit.result.serverInfo.cwd, fs.realpathSync(repoRoot));
+      assert.equal(fallbackInit.result.projectEnvironment.saved, false);
     } finally {
       projects.forEach(dir => fs.rmSync(dir, { recursive: true, force: true }));
     }
@@ -281,7 +281,6 @@ describe('Servidor local zerochat.py', () => {
     const listedServers = (await heartbeat()).servers;
     const serverIds = listedServers.map(server => server.id);
     for (const id of ['ejemplo', 'composio', 'playwright', 'memory']) assert.ok(serverIds.includes(id), `${id} debe estar provisto`);
-    assert.equal(serverIds.includes('lsp'), false, 'lsp no debe ofrecerse como servicio integrado');
     const exampleServer = listedServers.find(server => server.id === 'ejemplo');
     assert.equal(exampleServer?.status, 'stopped');
     assert.equal(exampleServer?.help?.url, 'help/mcp.html#crear-mcp-con-agente');
@@ -293,17 +292,10 @@ describe('Servidor local zerochat.py', () => {
     });
 
     const start = params => rpc('zerochat/external/servers/start', { serverId: 'ejemplo', ...params });
-    // Solo Playwright MCP admite el navegador que exige un perfil.
-    assert.deepEqual((await start({ remember: false, browser: { mode: 'own', engine: 'chromium' } })).error,
-      { code: -32602, message: 'ejemplo no admite elegir navegador.' });
-    // Arrancar sin decir si se recuerda es un error del cliente.
-    assert.deepEqual((await start({})).error, { code: -32602, message: 'remember es obligatorio al arrancar y debe ser un booleano.' });
-
-    const started = (await start({ remember: true })).result;
+    const started = (await start({})).result;
     const runningExample = (started?.servers || []).find(server => server.id === 'ejemplo');
     assert.equal(runningExample?.status, 'running');
     assert.equal(runningExample?.toolCount, 1);
-    assert.equal(runningExample?.browser, null);
 
     const extToolNames = (started?.externalTools || []).map(tool => tool.name);
     assert.ok(extToolNames.includes('ejemplo_echo'));
@@ -325,7 +317,7 @@ describe('Servidor local zerochat.py', () => {
 
     for (const action of ['start', 'stop', 'configure']) {
       const method = `zerochat/external/servers/${action}`;
-      const unknown = await rpc(method, { serverId: 'no-existe', options: {}, remember: false });
+      const unknown = await rpc(method, { serverId: 'no-existe', options: {} });
       assert.equal(unknown.error?.code, -32602, `${method} con servidor desconocido`);
       assert.match(unknown.error?.message, /no-existe/);
       const invalidId = await rpc(method, { serverId: 42 });

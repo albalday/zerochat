@@ -10,7 +10,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
-  const { resolveDep, escapeHtml, projectName } = Utils;
+  const { resolveDep, escapeHtml, projectName, NO_PROJECT_NAME } = Utils;
   const { t } = I18n;
 
   const getState = () => resolveDep('ChatState', './state.js');
@@ -19,6 +19,7 @@
   const getDataResetService = () => resolveDep('ChatDataResetService', './data-reset-service.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
+  const getMCP = () => resolveDep('ChatMCP', './mcp.js');
   const getUIMcp = () => resolveDep('ChatUIMcp', './ui-mcp.js');
   const getToolSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
   const getSidebar = () => resolveDep('ChatUISidebar', './ui-sidebar.js');
@@ -26,6 +27,7 @@
   const getUIConnection = () => resolveDep('ChatUIConnection', './ui-connection.js');
 
   const SECTION_TITLES = { model: 'settings_model', agent: 'settings_agent', connection: 'settings_connection', mcp: 'settings_mcp', browser: 'settings_browser', permissions: 'settings_permissions' };
+  const PROJECT_SECTIONS = new Set(['model', 'agent', 'mcp', 'browser', 'permissions']);
 
   const markActive = (buttons, attribute, value) => buttons.forEach(button => button.classList.toggle('active', button.getAttribute(attribute) === value));
 
@@ -41,7 +43,7 @@
   function applyLanguage(elements, lang) {
     const target = I18n.setLanguage(lang === 'en' ? 'en' : 'es');
     markActive(elements.langButtons, 'data-lang', target);
-    syncDirectoryRulesProject(elements);
+    syncProjectScopeLabels(elements);
     return target;
   }
 
@@ -94,21 +96,46 @@
     };
   }
 
-  /** Muestra el proyecto al que pertenecen las reglas de directorio mostradas en Ajustes. */
-  function syncDirectoryRulesProject(elements) {
-    const badge = elements.mcpDirectoryRulesProject;
+  function activeProjectScope() {
     const mcp = getState().get('mcp');
     const cwd = mcp.status === 'connected' ? String(mcp.serverInfo?.cwd || '').trim() : '';
-    badge.textContent = cwd ? t('mcp_directory_rules_project', { name: projectName(cwd) }) : '';
+    const noProjectDir = mcp.status === 'connected' ? String(mcp.serverInfo?.noProjectDir || '').trim() : '';
+    const name = !cwd || cwd === noProjectDir ? NO_PROJECT_NAME : projectName(cwd);
+    return { cwd, name };
+  }
+
+  /** Muestra el proyecto al que pertenecen las reglas de directorio mostradas en Ajustes. */
+  function syncDirectoryRulesProject(elements, scope = activeProjectScope()) {
+    const badge = elements.mcpDirectoryRulesProject;
+    if (!badge) return;
+    const { cwd, name } = scope;
+    badge.textContent = cwd ? t('settings_group_project', { name }) : '';
     badge.title = cwd;
     badge.hidden = !cwd;
   }
 
-  /** Pinta la política MCP global y las reglas de directorios guardadas en ChatToolSecurity. */
+  /** Identifica el proyecto activo tanto en el menú de Ajustes como en el título del diálogo de sección. */
+  function syncProjectScopeLabels(elements) {
+    const scope = activeProjectScope();
+    const { cwd, name } = scope;
+    if (elements.sidebarSettingsProjectLabel) {
+      elements.sidebarSettingsProjectLabel.textContent = t('settings_group_project', { name });
+      elements.sidebarSettingsProjectLabel.title = cwd;
+    }
+    if (elements.settingsProjectBadge) {
+      const inProjectSection = PROJECT_SECTIONS.has(elements.settingsDialog?.dataset?.section || '');
+      elements.settingsProjectBadge.textContent = t('settings_group_project', { name });
+      elements.settingsProjectBadge.title = cwd;
+      elements.settingsProjectBadge.hidden = !inProjectSection;
+    }
+    syncDirectoryRulesProject(elements, scope);
+  }
+
+  /** Pinta el interruptor permitir todo del proyecto y las reglas de directorios guardadas en ChatToolSecurity. */
   function loadPermissionControls(elements) {
     const security = getToolSecurity().manager;
-    const policy = security.getGlobalMcpPolicy();
-    elements.settingsDialog.querySelectorAll('input[name="mcp-global-policy"]').forEach(radio => { radio.checked = radio.value === policy; });
+    const toggle = elements.settingsDialog.querySelector('#mcp-allow-all');
+    if (toggle) toggle.checked = security.getAllowAll();
     syncDirectoryRulesProject(elements);
     elements.mcpDirectoryRules.value = security.getDirectoryRules().join('\n');
     elements.mcpDirectoryRulesError.textContent = '';
@@ -135,15 +162,14 @@
     } else if (targetId === 'browser') {
       getUIBrowser().ensureLoaded();
     }
-    syncDirectoryRulesProject(elements);
     getUIMcp().syncSecurityControls();
-
     elements.settingsDialog.querySelectorAll('.settings-section-pane').forEach(section => {
       section.classList.toggle('active', section.id === `settings-${targetId}`);
     });
     elements.settingsDialog.dataset.section = targetId;
     elements.settingsSectionTitle.setAttribute('data-i18n', SECTION_TITLES[targetId]);
     elements.settingsSectionTitle.textContent = t(SECTION_TITLES[targetId]);
+    syncProjectScopeLabels(elements);
     getSidebar().setActiveSettingsSection(elements, targetId);
 
     if (!elements.settingsDialog.open) elements.settingsDialog.showModal();
@@ -169,11 +195,11 @@
     }
   }
 
-  async function saveMcpGlobalPolicyFromSettings(elements) {
+  async function saveAllowAllFromSettings(elements) {
     const security = getToolSecurity().manager;
     if (!security.mcpClient) return;
-    const checked = elements.settingsDialog.querySelector('input[name="mcp-global-policy"]:checked');
-    if (checked) await security.setGlobalMcpPolicy(checked.value);
+    const toggle = elements.settingsDialog.querySelector('#mcp-allow-all');
+    if (toggle) await security.setAllowAll(toggle.checked);
   }
 
   /** Cierra los ajustes; con cambios sin guardar pide confirmación salvo con `force`. */
@@ -196,18 +222,36 @@
   }
 
   async function saveCurrentSettings(elements, appConfig, callbacks) {
-    if (!await saveDirectoryRulesFromSettings(elements)) return false;
     const connection = getUIConnection().read();
     if (!connection) {
       openSettingsSection(elements, appConfig, 'connection');
       return false;
     }
-    await saveMcpGlobalPolicyFromSettings(elements);
+    if (!getUIBrowser().validate()) {
+      openSettingsSection(elements, appConfig, 'browser');
+      return false;
+    }
+    if (!await saveDirectoryRulesFromSettings(elements)) return false;
+    await saveAllowAllFromSettings(elements);
     if (!await getUIBrowser().save()) {
       openSettingsSection(elements, appConfig, 'browser');
       return false;
     }
-    const savedConfig = getConfig().updateRuntime(gatherSettingsFormConfig(elements, appConfig, connection));
+    const rawConfig = gatherSettingsFormConfig(elements, appConfig, connection);
+    const nextPatch = appConfig.browser === 'playwright' && rawConfig.browser !== 'playwright'
+      ? { ...rawConfig, mcpServers: (appConfig.mcpServers || []).filter(id => id !== 'playwright') }
+      : rawConfig;
+    const savedConfig = getConfig().updateRuntime(nextPatch);
+    await getMCP().manager.saveProjectEnvironment({
+      systemDataPrompt: savedConfig.systemDataPrompt,
+      enabledTools: savedConfig.enabledTools,
+      mcpServers: savedConfig.mcpServers,
+      browser: savedConfig.browser
+    });
+    if (getState().get('mcp').status === 'connected') {
+      getMCP().manager.reconcileProjectServers(savedConfig)
+        .catch(err => console.warn('[Settings] Could not reconcile project MCP servers:', err));
+    }
     setSettingsFormDirty(elements, false);
     callbacks.loadCachedModels();
     callbacks.onConfigSaved(savedConfig);
@@ -255,6 +299,7 @@
     return `<div class="modal-header settings-section-header">
       <div class="modal-title">
         <h3 id="settings-section-title" data-i18n="settings_model">Modelo</h3>
+        <span id="settings-project-badge" class="settings-project-badge" hidden></span>
       </div>
       <div class="settings-header-actions">
         <button type="submit" form="settings-form" id="btn-save-settings" class="btn-primary btn-save-header" data-i18n-title="btn_save" title="Guardar configuración" aria-label="Guardar">
@@ -424,20 +469,14 @@ zerochat</code></pre>
             </div>
             <p class="label-hint mcp-section-hint" data-i18n="mcp_security_desc">Controla cuándo se ejecutan las herramientas del servidor MCP en tu sistema local.</p>
 
-            <div class="mcp-policy-options">
-              <label class="mcp-policy-option">
-                <input type="radio" name="mcp-global-policy" value="ask" id="mcp-policy-ask" checked>
-                <div class="mcp-policy-text">
-                  <strong data-i18n="mcp_security_policy_ask">Reglas del proyecto y confirmación interactiva (Recomendado)</strong>
-                  <p class="label-hint" data-i18n="mcp_security_policy_ask_hint">Aplica las reglas RWX de directorio del proyecto y las autorizaciones guardadas; pide confirmación para el resto. No es un aislamiento del sistema.</p>
-                </div>
-              </label>
-              <label class="mcp-policy-option">
-                <input type="radio" name="mcp-global-policy" value="allow_all" id="mcp-policy-allow-all">
-                <div class="mcp-policy-text">
-                  <strong data-i18n="mcp_security_policy_allow_all">Todo autorizado (Modo desatendido)</strong>
-                  <p class="label-hint" data-i18n="mcp_security_policy_allow_all_hint">Ejecuta inmediatamente cualquier herramienta o comando sin pausas de confirmación, salvo las denegadas explícitamente.</p>
-                </div>
+            <div class="setting-toggle-card">
+              <div class="toggle-card-info">
+                <div class="toggle-card-title"><span data-i18n="mcp_security_allow_all">Permitir todo en este proyecto</span></div>
+                <p class="toggle-card-desc" data-i18n="mcp_security_allow_all_hint">Ejecuta inmediatamente cualquier herramienta o comando en este proyecto sin pedir confirmación, salvo lo denegado explícitamente.</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="mcp-allow-all" data-i18n-aria="mcp_security_allow_all" aria-label="Permitir todo en este proyecto">
+                <span class="slider"></span>
               </label>
             </div>
           </div>
@@ -493,6 +532,7 @@ zerochat</code></pre>
   return {
     applyTheme,
     applyLanguage,
+    syncProjectScopeLabels,
     openSettingsSection,
     closeSettingsModal,
     ensureDialogMarkup,

@@ -10,7 +10,6 @@
     "es": "Almacenamiento persistente de entidades, preferencias y contexto histórico estructurado en un grafo de conocimiento.",
     "en": "Persistent storage of entities, preferences, and historical context structured as a knowledge graph."
   },
-  "enabledByDefault": false,
   "transport": "stdio",
   "launch": {
     "executable": "${nodeExecutable}",

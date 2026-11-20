@@ -5,13 +5,13 @@ const Defaults = require('../../js/defaults.js');
 const CONTRACT = require('../fixtures/mcp/contract.json');
 
 const SAVED = { mode: 'own', engine: 'chromium', userBrowser: 'chrome', headless: true, extensionToken: '' };
-const NOTHING = { tokenInvalid: false, setConfig: false, offerRestart: false, start: false };
-const plan = (changes, status) => UIBrowser.getSavePlan({ tool: 'playwright', savedTool: 'playwright', config: SAVED, savedConfig: SAVED, ...changes }, status);
+const NOTHING = { tokenInvalid: false, setConfig: false, offerRestart: false };
+const plan = (changes, status) => UIBrowser.getSavePlan({ tool: 'playwright', config: SAVED, savedConfig: SAVED, ...changes }, status);
 
-test('UIBrowser.getSavePlan - decide envío, reinicio y arranque según herramienta, cambios y estado', () => {
+test('UIBrowser.getSavePlan - decide validación, envío y reinicio según herramienta, cambios y estado', () => {
   const autofilled = { ...SAVED, mode: 'user', extensionToken: 'contraseña guardada!' };
   for (const tool of ['browser_action', 'none']) {
-    assert.deepEqual(plan({ tool, savedTool: 'none', config: autofilled }, 'stopped'), NOTHING, tool);
+    assert.deepEqual(plan({ tool, config: autofilled }, 'stopped'), NOTHING, tool);
   }
 
   const changed = { ...SAVED, headless: false };
@@ -20,31 +20,17 @@ test('UIBrowser.getSavePlan - decide envío, reinicio y arranque según herramie
   assert.deepEqual(plan({ config: changed }, null), { ...NOTHING, setConfig: true });
   assert.deepEqual(plan({}, 'running'), NOTHING);
   assert.deepEqual(plan({ config: null, savedConfig: null }, 'running'), NOTHING);
-
-  for (const status of ['stopped', 'error']) {
-    assert.deepEqual(plan({ savedTool: 'browser_action' }, status), { ...NOTHING, start: true }, status);
-  }
-  for (const status of ['running', 'starting', null]) {
-    assert.deepEqual(plan({ savedTool: 'none' }, status), NOTHING, String(status));
-  }
-  assert.deepEqual(plan({ savedTool: 'playwright' }, 'stopped'), NOTHING);
-  assert.deepEqual(plan({ savedTool: 'none', config: { ...SAVED, engine: 'firefox' } }, 'error'), { ...NOTHING, setConfig: true, start: true });
+  assert.deepEqual(plan({ config: { ...SAVED, engine: 'firefox' } }, 'error'), { ...NOTHING, setConfig: true });
 });
 
 test('UIBrowser - motores, navegadores del usuario y tokens de la extensión coinciden con el backend (tests/fixtures/mcp/contract.json)', () => {
-  assert.deepEqual(Defaults.PLAYWRIGHT_ENGINES, CONTRACT.playwrightEngines);
+  assert.deepEqual(Defaults.BROWSER_TOOLS, CONTRACT.browserTools);
   assert.deepEqual(Defaults.USER_BROWSERS, CONTRACT.userBrowsers);
   for (const extensionToken of CONTRACT.extensionTokens.valid) {
     assert.deepEqual(plan({ config: { ...SAVED, extensionToken } }, 'running'), { ...NOTHING, setConfig: extensionToken !== '', offerRestart: extensionToken !== '' }, extensionToken);
   }
   for (const extensionToken of CONTRACT.extensionTokens.invalid) {
     assert.deepEqual(plan({ config: { ...SAVED, extensionToken } }, 'running'), { ...NOTHING, tokenInvalid: true }, extensionToken);
-  }
-  for (const storage of CONTRACT.storageNames.valid) {
-    assert.equal(Defaults.isPlaywrightBrowser({ mode: 'own', engine: 'chromium', storage }), true, storage);
-  }
-  for (const storage of CONTRACT.storageNames.invalid) {
-    assert.equal(Defaults.isPlaywrightBrowser({ mode: 'own', engine: 'chromium', storage }), false, storage);
   }
 });
 

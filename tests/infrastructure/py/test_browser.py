@@ -114,25 +114,9 @@ class BrowserActionTest(unittest.TestCase):
             zerochat.PersistentBrowserSession()._ensure_running()
             self.assertEqual(popen.call_args.kwargs["env"]["ZEROCHAT_PLAYWRIGHT_MODULE"], str(playwright.resolve()))
 
-    def test_playwright_chromium_executable_prefiere_headless_shell_y_valida_argumentos_de_prompt(self):
+    def test_prompt_y_argumentos_de_browser_validan_combinaciones(self):
         use_data_dir(self)
         zerochat.save_general_profile({"name": "local", "settings": {"model": "local"}})
-        cache = tempfile.TemporaryDirectory()
-        self.addCleanup(cache.cleanup)
-        full_bin = Path(cache.name) / "chromium-1200" / "chrome-linux64" / "chrome"
-        shell_bin = Path(cache.name) / "chromium_headless_shell-1200" / "chrome-headless-shell-linux64" / "chrome-headless-shell"
-        full_bin.parent.mkdir(parents=True)
-        full_bin.touch()
-        shell_bin.parent.mkdir(parents=True)
-        shell_bin.touch()
-
-        with patch.dict(os.environ, {"PLAYWRIGHT_BROWSERS_PATH": cache.name}):
-            self.assertIsNone(zerochat.playwright_chromium_executable())
-            (full_bin.parent.parent / "INSTALLATION_COMPLETE").touch()
-            self.assertEqual(zerochat.playwright_chromium_executable(), str(full_bin))
-            (shell_bin.parent.parent / "INSTALLATION_COMPLETE").touch()
-            self.assertEqual(zerochat.playwright_chromium_executable(), str(shell_bin))
-
         parser = zerochat.build_parser()
         # --headless y --keep-page exigen --browser; --keep-page no se combina con --headless.
         for bad_args in (
@@ -143,16 +127,6 @@ class BrowserActionTest(unittest.TestCase):
             with self.subTest(bad_args=bad_args), self.assertRaises(SystemExit) as err:
                 zerochat.run_session_from_args(parser, parser.parse_args(bad_args))
             self.assertEqual(err.exception.code, zerochat.RUN_EXIT_ARGS)
-
-        with patch.object(zerochat, "playwright_chromium_executable", return_value="/bin/chrome-headless-shell"), \
-             patch("subprocess.Popen") as mock_popen:
-            zerochat.launch_playwright_chromium("https://example.com#token=1")
-            self.assertEqual(mock_popen.call_args.args[0], [
-                "/bin/chrome-headless-shell",
-                "--headless",
-                "--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests",
-                "https://example.com#token=1",
-            ])
 
         with patch.object(zerochat, "default_browser_executable", return_value="/bin/google-chrome"), \
              patch("subprocess.Popen") as mock_popen:

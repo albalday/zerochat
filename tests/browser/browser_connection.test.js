@@ -57,8 +57,7 @@ test('Browser UI - Conectar pide identificarse ante un 401 y guarda el token dia
     const iconStatus = () => page.getAttribute('#btn-open-connection', 'data-status');
     assert.equal(await iconStatus(), 'disconnected');
 
-    // La conexión se abre con su icono en la cabecera de la lista de chats, no desde las secciones de Ajustes.
-    assert.equal(await page.locator('#sidebar-settings-nav [data-section="connection"]').count(), 0);
+    // La conexión se abre con su icono en la cabecera de la lista de chats.
     await page.locator('#btn-open-connection').evaluate(button => button.click());
     await page.waitForSelector('#settings-connection.active');
     const t = key => page.evaluate(name => window.ChatI18n.t(name), key);

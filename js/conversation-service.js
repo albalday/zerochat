@@ -195,7 +195,7 @@
     const { history: _history, ...header } = conversation;
     getState().saveSessionMetadata({ ...header, messageCount: history.length });
     showActiveSession(options, { resetComposer: false });
-    options.onSessionSwitched(conversation);
+    await options.onSessionSwitched(conversation);
     return true;
   }
 

@@ -142,6 +142,220 @@ def format_log_error(msg: str, max_len: int = 160) -> str:
         return cleaned[:max_len - 3] + "..."
     return cleaned
 
+# --- browser.launch ---
+"""Apertura de la interfaz en el navegador del usuario, en Termux o sin ventana para la ejecución desatendida."""
+
+
+
+
+
+def is_termux_environment() -> bool:
+    """Devuelve si el proceso se ejecuta dentro de la instalación de Termux."""
+    termux_prefix = "/data/data/com.termux/files/usr"
+    return bool(
+        os.environ.get("TERMUX_VERSION")
+        or os.environ.get("PREFIX", "").startswith(termux_prefix)
+        or sys.prefix.startswith(termux_prefix)
+    )
+
+
+def get_manual_browser_command(url: str) -> str | None:
+    """Devuelve un comando pegable para abrir la sesión cuando Termux no pudo hacerlo."""
+    if is_termux_environment():
+        return shlex.join(["termux-open-url", url])
+    return None
+
+
+def get_termux_open_url_executable() -> str | None:
+    """Localiza termux-open-url incluso si el venv recibió un PATH incompleto."""
+    if shutil.which("termux-open-url"):
+        return "termux-open-url"
+
+    prefix = os.environ.get("PREFIX", "/data/data/com.termux/files/usr")
+    executable = Path(prefix) / "bin" / "termux-open-url"
+    if executable.is_file():
+        return str(executable)
+    return None
+
+
+def browser_launch_diagnostics(attempts: list[str]) -> str:
+    """Resume el entorno y los lanzadores comprobados sin exponer la URL de sesión."""
+    termux_prefix = os.environ.get("PREFIX", "(no definido)")
+    configured_path = os.environ.get("PATH", "(no definido)")
+    termux_binary = Path(termux_prefix) / "bin" / "termux-open-url" if termux_prefix != "(no definido)" else None
+    lines = [
+        f"plataforma={sys.platform}",
+        f"termux_detectado={is_termux_environment()}",
+        f"TERMUX_VERSION={'definido' if os.environ.get('TERMUX_VERSION') else 'no definido'}",
+        f"PREFIX={termux_prefix}",
+        f"PATH={configured_path}",
+        f"termux-open-url_en_PATH={shutil.which('termux-open-url') or 'no encontrado'}",
+        f"termux-open-url_en_PREFIX={str(termux_binary) if termux_binary and termux_binary.is_file() else 'no encontrado'}",
+        f"xdg-open={shutil.which('xdg-open') or 'no encontrado'}",
+        f"gio={shutil.which('gio') or 'no encontrado'}",
+        "intentos=" + ("; ".join(attempts) if attempts else "ninguno"),
+    ]
+    return "\n  ".join(lines)
+
+
+def _spawn_detached(args: list[str]):
+    """Lanza el abridor sin atarlo a la terminal; OSError si no se puede iniciar."""
+    subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+def _open_in_termux(url: str):
+    termux_open_url = get_termux_open_url_executable()
+    if not termux_open_url:
+        raise FileNotFoundError(
+            "Termux fue detectado, pero no se encontró termux-open-url.\n  "
+            + browser_launch_diagnostics(["termux-open-url: no localizado"])
+        )
+    try:
+        _spawn_detached([termux_open_url, url])
+    except OSError as error:
+        raise RuntimeError(
+            f"termux-open-url no pudo iniciarse: {type(error).__name__}: {error}\n  "
+            + browser_launch_diagnostics(["termux-open-url: error al iniciar"])
+        ) from error
+
+
+def _system_openers(url: str) -> list[tuple[str, list[str] | None]]:
+    """Abridores del sistema por orden: (nombre, orden). Una orden None es os.startfile."""
+    if sys.platform.startswith("linux"):
+        return [("xdg-open", ["xdg-open", url]), ("gio", ["gio", "open", url])]
+    if sys.platform == "darwin":
+        return [("open", ["open", url])] if shutil.which("open") else []
+    if sys.platform == "win32":
+        return [("os.startfile", None)]
+    return []
+
+
+def _open_with_system(url: str, attempts: list[str]) -> bool:
+    """Prueba los abridores del sistema y anota en attempts por qué falla cada uno."""
+    for name, args in _system_openers(url):
+        if args is not None and not shutil.which(args[0]):
+            attempts.append(f"{name}: no encontrado")
+            continue
+        try:
+            if args is None:
+                os.startfile(url)  # pyright: ignore[reportAttributeAccessIssue] - solo existe en Windows
+            else:
+                _spawn_detached(args)
+            return True
+        except OSError as error:
+            attempts.append(f"{name}: {type(error).__name__}: {error}")
+    return False
+
+
+def open_browser(url: str) -> bool:
+    """
+    Abre la URL en el navegador predeterminado del usuario respetando el entorno del sistema.
+    En Termux usa termux-open-url para delegar la apertura en Android. En el resto de
+    Linux prioriza xdg-open o gio para respetar el gestor de ventanas y mimeapps.list,
+    desacoplando el proceso hijo para evitar ruidos en la terminal.
+    """
+    if is_termux_environment():
+        _open_in_termux(url)
+        return True
+    attempts: list[str] = []
+    if _open_with_system(url, attempts):
+        return True
+
+    try:
+        if webbrowser.open(url):
+            return True
+    except Exception as error:
+        attempts.append(f"webbrowser: {type(error).__name__}: {error}")
+        raise RuntimeError(
+            "El navegador predeterminado rechazó la URL de ZeroChat.\n  "
+            + browser_launch_diagnostics(attempts)
+        ) from error
+    attempts.append("webbrowser: devolvió False")
+    raise RuntimeError(
+        "Ningún lanzador de navegador aceptó la URL de ZeroChat.\n  "
+        + browser_launch_diagnostics(attempts)
+    )
+
+
+def launch_browser(url: str) -> bool:
+    """Abre el navegador en la URL de la sesión y muestra información o diagnóstico en consola."""
+    termux_detected = is_termux_environment()
+    if termux_detected:
+        log_event("Termux detectado; se abrirá mediante termux-open-url.")
+    log_event("Abriendo navegador en la interfaz configurada...")
+    try:
+        if not open_browser(url):
+            raise RuntimeError("El lanzador de navegador devolvió un resultado sin éxito.")
+        return True
+    except Exception as e:
+        log_event(f"No se pudo abrir el navegador automáticamente: {e}")
+        console_log("  Traza de diagnóstico:", flush=True)
+        traceback.print_exc()
+        manual_command = get_manual_browser_command(url)
+        if manual_command:
+            console_log("  Termux detectado. Prueba este comando exacto:", flush=True)
+            console_log(f"  {manual_command}", flush=True)
+        return False
+
+
+def default_browser_executable() -> str | None:
+    """Ejecutable del navegador predeterminado en Linux (xdg-settings y su fichero .desktop), o None."""
+    if not sys.platform.startswith("linux") or is_termux_environment() or not shutil.which("xdg-settings"):
+        return None
+    try:
+        desktop = subprocess.run(["xdg-settings", "get", "default-web-browser"], capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if not desktop.endswith(".desktop") or "/" in desktop:
+        return None
+    data_dirs = [os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")]
+    data_dirs += (os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":")
+    for data_dir in data_dirs:
+        entry = Path(data_dir) / "applications" / desktop
+        if not entry.is_file():
+            continue
+        try:
+            lines = entry.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return None
+        exec_line = next((line[5:] for line in lines if line.startswith("Exec=")), "")
+        try:
+            tokens = [token for token in shlex.split(exec_line) if token != "env" and "=" not in token]  # noqa: S105 - palabras de Exec=, no una contraseña
+        except ValueError:
+            return None
+        # Flatpak o Snap envuelven el navegador: no admiten sus opciones directamente.
+        if not tokens or Path(tokens[0]).name in ("flatpak", "snap"):
+            return None
+        return shutil.which(tokens[0])
+    return None
+
+
+def launch_headless_browser(url: str) -> subprocess.Popen | None:
+    """
+    Abre la URL en el navegador predeterminado con --headless y el perfil normal del usuario.
+    Si el navegador ya está abierto, este suele recibir la URL como una pestaña visible.
+    Devuelve el proceso lanzado, o None si no se pudo y hay que abrirlo de la forma normal.
+    """
+    executable = default_browser_executable()
+    if not executable:
+        log_event("No se pudo identificar el navegador predeterminado para abrirlo sin ventana; se abrirá de la forma normal.")
+        return None
+    log_event(f"Abriendo {Path(executable).name} sin ventana en la interfaz configurada...")
+    try:
+        return subprocess.Popen(
+            [
+                executable,
+                "--headless",
+                "--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests",
+                url,
+            ],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as error:
+        log_event(f"No se pudo abrir {executable} sin ventana ({error}); se abrirá de la forma normal.")
+        return None
+
 # --- core.environment ---
 """Entorno de ejecución: sistema operativo, directorios de datos y de desarrollo y entorno virtual."""
 
@@ -323,8 +537,8 @@ class TokenGrant:
     run_id: str | None = None
     conversation_id: str | None = None
 
-    def allows(self, req_path: str, method: str, params: dict | None = None) -> bool:
-        """Indica si esta credencial autoriza el método JSON-RPC solicitado en la ruta dada."""
+    def allows(self, method: str, params: dict | None = None) -> bool:
+        """Indica si esta credencial autoriza el método JSON-RPC solicitado."""
         if self.kind in ("local", "remote"):
             return True
         if self.kind != "runner":
@@ -623,7 +837,7 @@ def login(params: dict) -> dict:
     return {"token": issue_login_token()}
 
 # --- browser.config ---
-"""Navegador de Playwright MCP: configuración guardada, navegador de cada perfil y argumentos de arranque."""
+"""Navegador de Playwright MCP: configuración guardada y argumentos de arranque."""
 
 
 
@@ -633,6 +847,7 @@ def login(params: dict) -> dict:
 # Modo propio: un motor de Playwright en memoria (--isolated), o con almacenamiento persistente con nombre
 # en ~/zerochat/playwright/profile/<motor>/<nombre>.
 # Modo del usuario: su Chrome, Edge o Chromium mediante la extensión de Playwright (--extension).
+BROWSER_TOOLS = ("none", "browser_action", "playwright")
 BROWSER_MODES = ("own", "user")
 OWN_BROWSER_ENGINES = ("chromium", "firefox", "webkit")
 USER_BROWSERS = ("chrome", "msedge", "chromium")
@@ -642,7 +857,6 @@ PLAYWRIGHT_SERVER_ID = "playwright"
 PLAYWRIGHT_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm"
 # Token que muestra la extensión: con él la conexión no pide aceptarla en el navegador.
 _EXTENSION_TOKEN = re.compile(r"^[A-Za-z0-9_-]{0,256}$")
-_STORAGE_NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _BROWSER_CONFIG_CHOICES = {"mode": BROWSER_MODES, "engine": OWN_BROWSER_ENGINES, "userBrowser": USER_BROWSERS}
 
 
@@ -722,15 +936,7 @@ def playwright_launch_args(config: dict, user_agent: str | None = None) -> list[
             raise RuntimeError("No se encuentra Chromium en el sistema: elige otro navegador en Ajustes › Navegador.")
         executable, data_dir = install
         return ["--extension", "--browser=chrome", f"--executable-path={executable}", f"--user-data-dir={data_dir}"]
-    args = [f"--browser={config['engine']}"]
-    storage = config.get("storage")
-    if storage:
-        profile_dir = own_browser_profile_dir(config["engine"]) / storage
-        for directory in (profile_dir.parent.parent.parent, profile_dir.parent.parent, profile_dir.parent, profile_dir):
-            directory.mkdir(mode=0o700, exist_ok=True)
-        args.append(f"--user-data-dir={profile_dir}")
-    else:
-        args.append("--isolated")
+    args = [f"--browser={config['engine']}", "--isolated"]
     # El motor propio usa el User-Agent de ZeroChat; en modo user lo pone el navegador del usuario.
     if user_agent:
         args.append(f"--user-agent={user_agent}")
@@ -746,44 +952,10 @@ def playwright_launch_env(config: dict) -> dict[str, str]:
     return {}
 
 
-def validate_profile_browser(raw) -> dict:
-    """Navegador que exige un perfil: el propio con un motor (y opcionalmente headless False y storage
-    con nombre), o el del usuario con uno de sus navegadores."""
-    if isinstance(raw, dict) and raw.get("mode") == "own" and raw.get("engine") in OWN_BROWSER_ENGINES:
-        if set(raw) <= {"mode", "engine", "headless", "storage"}:
-            headless_ok = "headless" not in raw or raw["headless"] is False
-            storage = raw.get("storage")
-            storage_ok = "storage" not in raw or (isinstance(storage, str) and bool(_STORAGE_NAME.match(storage)))
-            if headless_ok and storage_ok:
-                result = {"mode": "own", "engine": raw["engine"]}
-                if "headless" in raw:
-                    result["headless"] = False
-                if "storage" in raw:
-                    result["storage"] = storage
-                return result
-    if isinstance(raw, dict) and raw.get("mode") == "user" and set(raw) == {"mode", "userBrowser"} and raw["userBrowser"] in USER_BROWSERS:
-        return {"mode": "user", "userBrowser": raw["userBrowser"]}
-    raise ValueError("browser debe ser {mode: own, engine[, headless: false][, storage]} o {mode: user, userBrowser} con un motor o navegador admitido")
-
-
-def browser_choice(config: dict) -> dict:
-    """Modo y navegador con los que arranca Playwright MCP, en la forma de validate_profile_browser."""
-    if config["mode"] == "own":
-        return {
-            "mode": "own",
-            "engine": config["engine"],
-            **({} if config["headless"] else {"headless": False}),
-            **({"storage": config["storage"]} if config.get("storage") else {}),
-        }
-    return {"mode": "user", "userBrowser": config["userBrowser"]}
-
-
-def _playwright_launch(browser: dict | None, user_agent: str | None = None) -> tuple[list[str], dict[str, str], dict]:
-    """La configuración de Ajustes › Navegador con el modo y el navegador que exija el perfil activo."""
+def _playwright_launch(user_agent: str | None = None) -> tuple[list[str], dict[str, str]]:
+    """Argumentos y entorno de Playwright MCP según la configuración guardada."""
     config = load_browser_config()
-    if browser is not None:
-        config = {**config, **validate_profile_browser(browser)}
-    return playwright_launch_args(config, user_agent), playwright_launch_env(config), browser_choice(config)
+    return playwright_launch_args(config, user_agent), playwright_launch_env(config)
 
 
 # User-Agent que usan los motores propios de Playwright; lo fija el servidor con el User-Agent
@@ -796,9 +968,9 @@ def set_service_user_agent(user_agent: str | None) -> None:
     SERVICE_USER_AGENT = user_agent
 
 
-# Argumentos, entorno y navegador elegido que añade ZeroChat al arrancar un servicio gestionado,
+# Argumentos y entorno que añade ZeroChat al arrancar un servicio gestionado,
 # calculados en cada arranque.
-SERVICE_LAUNCH = {PLAYWRIGHT_SERVER_ID: lambda browser: _playwright_launch(browser, SERVICE_USER_AGENT)}
+SERVICE_LAUNCH = {PLAYWRIGHT_SERVER_ID: lambda: _playwright_launch(SERVICE_USER_AGENT)}
 
 # --- browser.engines ---
 """Motores propios de Playwright (listar, instalar y quitar) y navegadores del sistema con la extensión de Playwright."""
@@ -1039,277 +1211,6 @@ class BrowserEngines:
 
 
 BROWSER_ENGINES = BrowserEngines()
-
-# --- browser.launch ---
-"""Apertura de la interfaz en el navegador del usuario, en Termux o sin ventana para la ejecución desatendida."""
-
-
-
-
-
-def is_termux_environment() -> bool:
-    """Devuelve si el proceso se ejecuta dentro de la instalación de Termux."""
-    termux_prefix = "/data/data/com.termux/files/usr"
-    return bool(
-        os.environ.get("TERMUX_VERSION")
-        or os.environ.get("PREFIX", "").startswith(termux_prefix)
-        or sys.prefix.startswith(termux_prefix)
-    )
-
-
-def get_manual_browser_command(url: str) -> str | None:
-    """Devuelve un comando pegable para abrir la sesión cuando Termux no pudo hacerlo."""
-    if is_termux_environment():
-        return shlex.join(["termux-open-url", url])
-    return None
-
-
-def get_termux_open_url_executable() -> str | None:
-    """Localiza termux-open-url incluso si el venv recibió un PATH incompleto."""
-    if shutil.which("termux-open-url"):
-        return "termux-open-url"
-
-    prefix = os.environ.get("PREFIX", "/data/data/com.termux/files/usr")
-    executable = Path(prefix) / "bin" / "termux-open-url"
-    if executable.is_file():
-        return str(executable)
-    return None
-
-
-def browser_launch_diagnostics(attempts: list[str]) -> str:
-    """Resume el entorno y los lanzadores comprobados sin exponer la URL de sesión."""
-    termux_prefix = os.environ.get("PREFIX", "(no definido)")
-    configured_path = os.environ.get("PATH", "(no definido)")
-    termux_binary = Path(termux_prefix) / "bin" / "termux-open-url" if termux_prefix != "(no definido)" else None
-    lines = [
-        f"plataforma={sys.platform}",
-        f"termux_detectado={is_termux_environment()}",
-        f"TERMUX_VERSION={'definido' if os.environ.get('TERMUX_VERSION') else 'no definido'}",
-        f"PREFIX={termux_prefix}",
-        f"PATH={configured_path}",
-        f"termux-open-url_en_PATH={shutil.which('termux-open-url') or 'no encontrado'}",
-        f"termux-open-url_en_PREFIX={str(termux_binary) if termux_binary and termux_binary.is_file() else 'no encontrado'}",
-        f"xdg-open={shutil.which('xdg-open') or 'no encontrado'}",
-        f"gio={shutil.which('gio') or 'no encontrado'}",
-        "intentos=" + ("; ".join(attempts) if attempts else "ninguno"),
-    ]
-    return "\n  ".join(lines)
-
-
-def _spawn_detached(args: list[str]):
-    """Lanza el abridor sin atarlo a la terminal; OSError si no se puede iniciar."""
-    subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-
-
-def _open_in_termux(url: str):
-    termux_open_url = get_termux_open_url_executable()
-    if not termux_open_url:
-        raise FileNotFoundError(
-            "Termux fue detectado, pero no se encontró termux-open-url.\n  "
-            + browser_launch_diagnostics(["termux-open-url: no localizado"])
-        )
-    try:
-        _spawn_detached([termux_open_url, url])
-    except OSError as error:
-        raise RuntimeError(
-            f"termux-open-url no pudo iniciarse: {type(error).__name__}: {error}\n  "
-            + browser_launch_diagnostics(["termux-open-url: error al iniciar"])
-        ) from error
-
-
-def _system_openers(url: str) -> list[tuple[str, list[str] | None]]:
-    """Abridores del sistema por orden: (nombre, orden). Una orden None es os.startfile."""
-    if sys.platform.startswith("linux"):
-        return [("xdg-open", ["xdg-open", url]), ("gio", ["gio", "open", url])]
-    if sys.platform == "darwin":
-        return [("open", ["open", url])] if shutil.which("open") else []
-    if sys.platform == "win32":
-        return [("os.startfile", None)]
-    return []
-
-
-def _open_with_system(url: str, attempts: list[str]) -> bool:
-    """Prueba los abridores del sistema y anota en attempts por qué falla cada uno."""
-    for name, args in _system_openers(url):
-        if args is not None and not shutil.which(args[0]):
-            attempts.append(f"{name}: no encontrado")
-            continue
-        try:
-            if args is None:
-                os.startfile(url)  # pyright: ignore[reportAttributeAccessIssue] - solo existe en Windows
-            else:
-                _spawn_detached(args)
-            return True
-        except OSError as error:
-            attempts.append(f"{name}: {type(error).__name__}: {error}")
-    return False
-
-
-def open_browser(url: str) -> bool:
-    """
-    Abre la URL en el navegador predeterminado del usuario respetando el entorno del sistema.
-    En Termux usa termux-open-url para delegar la apertura en Android. En el resto de
-    Linux prioriza xdg-open o gio para respetar el gestor de ventanas y mimeapps.list,
-    desacoplando el proceso hijo para evitar ruidos en la terminal.
-    """
-    if is_termux_environment():
-        _open_in_termux(url)
-        return True
-    attempts: list[str] = []
-    if _open_with_system(url, attempts):
-        return True
-
-    try:
-        if webbrowser.open(url):
-            return True
-    except Exception as error:
-        attempts.append(f"webbrowser: {type(error).__name__}: {error}")
-        raise RuntimeError(
-            "El navegador predeterminado rechazó la URL de ZeroChat.\n  "
-            + browser_launch_diagnostics(attempts)
-        ) from error
-    attempts.append("webbrowser: devolvió False")
-    raise RuntimeError(
-        "Ningún lanzador de navegador aceptó la URL de ZeroChat.\n  "
-        + browser_launch_diagnostics(attempts)
-    )
-
-
-def launch_browser(url: str) -> bool:
-    """Abre el navegador en la URL de la sesión y muestra información o diagnóstico en consola."""
-    termux_detected = is_termux_environment()
-    if termux_detected:
-        log_event("Termux detectado; se abrirá mediante termux-open-url.")
-    log_event("Abriendo navegador en la interfaz configurada...")
-    try:
-        if not open_browser(url):
-            raise RuntimeError("El lanzador de navegador devolvió un resultado sin éxito.")
-        return True
-    except Exception as e:
-        log_event(f"No se pudo abrir el navegador automáticamente: {e}")
-        console_log("  Traza de diagnóstico:", flush=True)
-        traceback.print_exc()
-        manual_command = get_manual_browser_command(url)
-        if manual_command:
-            console_log("  Termux detectado. Prueba este comando exacto:", flush=True)
-            console_log(f"  {manual_command}", flush=True)
-        return False
-
-
-def default_browser_executable() -> str | None:
-    """Ejecutable del navegador predeterminado en Linux (xdg-settings y su fichero .desktop), o None."""
-    if not sys.platform.startswith("linux") or is_termux_environment() or not shutil.which("xdg-settings"):
-        return None
-    try:
-        desktop = subprocess.run(["xdg-settings", "get", "default-web-browser"], capture_output=True, text=True, timeout=5).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if not desktop.endswith(".desktop") or "/" in desktop:
-        return None
-    data_dirs = [os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")]
-    data_dirs += (os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":")
-    for data_dir in data_dirs:
-        entry = Path(data_dir) / "applications" / desktop
-        if not entry.is_file():
-            continue
-        try:
-            lines = entry.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
-            return None
-        exec_line = next((line[5:] for line in lines if line.startswith("Exec=")), "")
-        try:
-            tokens = [token for token in shlex.split(exec_line) if token != "env" and "=" not in token]  # noqa: S105 - palabras de Exec=, no una contraseña
-        except ValueError:
-            return None
-        # Flatpak o Snap envuelven el navegador: no admiten sus opciones directamente.
-        if not tokens or Path(tokens[0]).name in ("flatpak", "snap"):
-            return None
-        return shutil.which(tokens[0])
-    return None
-
-
-def launch_headless_browser(url: str) -> subprocess.Popen | None:
-    """
-    Abre la URL en el navegador predeterminado con --headless y el perfil normal del usuario.
-    Si el navegador ya está abierto, este suele recibir la URL como una pestaña visible.
-    Devuelve el proceso lanzado, o None si no se pudo y hay que abrirlo de la forma normal.
-    """
-    executable = default_browser_executable()
-    if not executable:
-        log_event("No se pudo identificar el navegador predeterminado para abrirlo sin ventana; se abrirá de la forma normal.")
-        return None
-    log_event(f"Abriendo {Path(executable).name} sin ventana en la interfaz configurada...")
-    try:
-        return subprocess.Popen(
-            [
-                executable,
-                "--headless",
-                "--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests",
-                url,
-            ],
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-    except OSError as error:
-        log_event(f"No se pudo abrir {executable} sin ventana ({error}); se abrirá de la forma normal.")
-        return None
-
-
-_PLAYWRIGHT_CHROMIUM_BINARIES = (
-    ("chromium_headless_shell-", (
-        "chrome-headless-shell-*/chrome-headless-shell",
-        "chrome-headless-shell-*/chrome-headless-shell.exe",
-    )),
-    ("chromium-", (
-        "chrome-*/chrome",
-        "chrome-*/chrome.exe",
-        "chrome-*/*.app/Contents/MacOS/*",
-    )),
-)
-
-
-def playwright_chromium_executable() -> str | None:
-    """Ejecutable de Chromium en la caché de Playwright (headless shell o completo), o None."""
-    try:
-        folders = sorted(
-            (child for child in playwright_engine_cache().iterdir() if (child / "INSTALLATION_COMPLETE").is_file()),
-            key=lambda path: path.name,
-            reverse=True,
-        )
-    except OSError:
-        return None
-    for prefix, patterns in _PLAYWRIGHT_CHROMIUM_BINARIES:
-        for folder in folders:
-            if not folder.name.startswith(prefix):
-                continue
-            for pattern in patterns:
-                for binary in sorted(folder.glob(pattern)):
-                    if binary.is_file():
-                        return str(binary)
-    return None
-
-
-def launch_playwright_chromium(url: str) -> subprocess.Popen | None:
-    """Abre la URL sin ventana con el Chromium instalado en la caché de Playwright."""
-    executable = playwright_chromium_executable()
-    if not executable:
-        log_event("No está instalado el Chromium de Playwright (instálalo desde Ajustes › Navegador o usa --browser).")
-        return None
-    log_event(f"Abriendo {Path(executable).name} de Playwright sin ventana en la interfaz configurada...")
-    try:
-        return subprocess.Popen(
-            [
-                executable,
-                "--headless",
-                "--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests",
-                url,
-            ],
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-    except OSError as error:
-        log_event(f"No se pudo abrir {executable} de Playwright ({error}).")
-        return None
 
 # --- core.process ---
 """Procesos del sistema: si siguen vivos, su huella de arranque y la terminación de su árbol."""
@@ -1577,7 +1478,7 @@ def dispatch_browser(method: str, params: dict) -> RpcOutcome:
 
 
 
-SOURCE_BACKEND_VERSION = "10.32.0"
+SOURCE_BACKEND_VERSION = "10.33.0"
 
 
 def _read_source_version(filename: str) -> str | None:
@@ -2274,6 +2175,13 @@ def project_context() -> "SecurityContext":
     return SecurityContext(PROJECT_DIR)
 
 
+def set_default_project_dir(path: Path) -> Path:
+    """Fija el proyecto por defecto del servidor antes de atender peticiones (p. ej. al reanudar --conversation)."""
+    global PROJECT_DIR
+    PROJECT_DIR = path.resolve()
+    return PROJECT_DIR
+
+
 # Código JSON-RPC de una petición cuyo proyecto (cabecera X-ZeroChat-Project) ya no existe.
 PROJECT_GONE_CODE = -32003
 
@@ -2335,17 +2243,6 @@ class SecurityContext:
         except (ValueError, RuntimeError, OSError):
             return None
 
-    def is_inside_workspace(self, path_str: str) -> bool:
-        """Determina si la ruta reside estrictamente dentro del espacio de trabajo del contexto."""
-        resolved = self.resolve_path(path_str)
-        if resolved is None:
-            return False
-        try:
-            resolved.relative_to(self.workspace_dir.resolve())
-            return True
-        except ValueError:
-            return False
-
 
 def contains_unresolved_reference(value: str) -> bool:
     """Detecta variables de entorno ($VAR, ${VAR}) o expansiones de usuario (~)."""
@@ -2390,9 +2287,6 @@ def normalize_directory_path(value: str) -> str:
 
 
 
-GLOBAL_POLICY_ASK = "ask"
-GLOBAL_POLICY_ALLOW_ALL = "allow_all"
-GLOBAL_POLICIES = (GLOBAL_POLICY_ASK, GLOBAL_POLICY_ALLOW_ALL)
 POLICY_ALLOW = "allow"
 POLICY_DENY = "deny"
 POLICY_ASK = "ask"
@@ -2726,19 +2620,6 @@ class AccessDecision:
     details: str = ""
     rule_offer: dict | None = None
 
-    def to_dict(self) -> dict:
-        return {
-            "allowed": self.allowed,
-            "status": self.status,
-            "reason": self.reason,
-            "requiresApproval": self.requires_approval,
-            "toolId": self.tool_id,
-            "serverName": self.server_name,
-            "serverId": self.server_id,
-            "details": self.details,
-            "ruleOffer": self.rule_offer
-        }
-
 # --- storage.obfuscation ---
 """Ofuscación simple de los secretos que el backend guarda en SQLite (API keys de los perfiles del servidor).
 
@@ -2815,6 +2696,24 @@ def _obfuscate_saved_api_keys(conn: sqlite3.Connection):
     for row in rows:
         if not row["api_key"].startswith(OBFUSCATION_PREFIX):
             conn.execute("UPDATE profiles SET api_key = ? WHERE id = ?;", (obfuscate_secret(row["api_key"]), row["id"]))
+
+
+def _strip_profile_mcp_and_browser(conn: sqlite3.Connection):
+    """Retira `mcpServers` y `playwrightBrowser` de todos los perfiles: el entorno de ejecución pasa a definirse por proyecto."""
+    rows = conn.execute("SELECT id, settings_json FROM profiles;").fetchall()
+    for row in rows:
+        try:
+            settings = json.loads(row["settings_json"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(settings, dict):
+            continue
+        removed = any(key in settings for key in ("mcpServers", "playwrightBrowser"))
+        if not removed:
+            continue
+        settings.pop("mcpServers", None)
+        settings.pop("playwrightBrowser", None)
+        conn.execute("UPDATE profiles SET settings_json = ? WHERE id = ?;", (json.dumps(settings), row["id"]))
 
 
 # Cada migración es SQL o, si necesita código (ofuscar), una función que recibe la conexión.
@@ -2898,10 +2797,23 @@ STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connecti
             value TEXT NOT NULL,
             updated_at INTEGER NOT NULL
         );
+    """),
+    (9, "009_strip_profile_mcp_and_browser", _strip_profile_mcp_and_browser),
+    (10, "010_create_project_environments_table", """
+        CREATE TABLE IF NOT EXISTS project_environments (
+            project_key TEXT PRIMARY KEY,
+            config_json TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
     """)
 ]
 # Tope de un secreto guardado (una API key cabe de sobra).
 MAX_SECRET_LENGTH = 4096
+PROJECT_ENVIRONMENT_KEYS = frozenset({"systemDataPrompt", "enabledTools", "mcpServers", "browser"})
+MAX_PROJECT_PROMPT_LENGTH = 32768
+MAX_PROJECT_MCP_SERVERS = 64
+MAX_PROJECT_ENABLED_TOOLS = 256
+MAX_PROJECT_TOOL_ID_LENGTH = 128
 
 
 def get_storage_dir() -> Path:
@@ -3015,6 +2927,8 @@ def validate_profile_payload(record: dict) -> tuple[str, str, str, dict, str | N
         raise ValueError("Los ajustes del perfil deben ser un objeto")
 
     settings = dict(settings_source)
+    settings.pop("mcpServers", None)
+    settings.pop("playwrightBrowser", None)
     has_api_key = "apiKey" in settings or "apiKey" in record
     raw_key = settings.pop("apiKey", None)
     if raw_key is None:
@@ -3781,6 +3695,140 @@ def get_server_id() -> str:
         save_secret(SERVER_ID_KEY, server_id)
         return server_id
 
+
+def _empty_project_environment() -> dict:
+    return {
+        "systemDataPrompt": None,
+        "enabledTools": {},
+        "mcpServers": [],
+        "browser": "browser_action",
+        "saved": False,
+        "updatedAt": 0,
+    }
+
+
+def _clean_project_tool_id(raw, label: str) -> str:
+    if not isinstance(raw, str):
+        raise ValueError(f"{label} debe ser un texto")
+    clean = raw.strip()
+    if not clean or len(clean) > MAX_PROJECT_TOOL_ID_LENGTH:
+        raise ValueError(f"{label} debe tener entre 1 y {MAX_PROJECT_TOOL_ID_LENGTH} caracteres")
+    return clean
+
+
+def _validate_project_prompt(prompt) -> str | None:
+    if prompt is None:
+        return None
+    if not isinstance(prompt, str):
+        raise ValueError("systemDataPrompt debe ser texto o null")
+    clean = prompt.strip()
+    if len(clean) > MAX_PROJECT_PROMPT_LENGTH:
+        raise ValueError(f"systemDataPrompt no puede superar {MAX_PROJECT_PROMPT_LENGTH} caracteres")
+    return clean
+
+
+def _validate_enabled_tools(tools) -> dict[str, bool]:
+    if not isinstance(tools, dict):
+        raise ValueError("enabledTools debe ser un objeto")
+    if len(tools) > MAX_PROJECT_ENABLED_TOOLS:
+        raise ValueError(f"enabledTools no puede superar {MAX_PROJECT_ENABLED_TOOLS} herramientas")
+    clean_tools: dict[str, bool] = {}
+    for key, value in tools.items():
+        clean_key = _clean_project_tool_id(key, "enabledTools")
+        if not isinstance(value, bool):
+            raise ValueError(f"El estado de '{clean_key}' debe ser un booleano")
+        clean_tools[clean_key] = value
+    return clean_tools
+
+
+def _validate_project_mcp_servers(servers) -> list[str]:
+    if not isinstance(servers, list):
+        raise ValueError("mcpServers debe ser una lista")
+    unique_servers = list(dict.fromkeys(_clean_project_tool_id(item, "mcpServers") for item in servers))
+    if len(unique_servers) > MAX_PROJECT_MCP_SERVERS:
+        raise ValueError(f"Un proyecto no puede tener más de {MAX_PROJECT_MCP_SERVERS} servicios MCP")
+    return unique_servers
+
+
+def _validate_project_browser(browser) -> str:
+    if browser not in BROWSER_TOOLS:
+        raise ValueError(f"browser debe ser uno de: {', '.join(BROWSER_TOOLS)}")
+    return browser
+
+
+_PROJECT_ENV_VALIDATORS = {
+    "systemDataPrompt": _validate_project_prompt,
+    "enabledTools": _validate_enabled_tools,
+    "mcpServers": _validate_project_mcp_servers,
+    "browser": _validate_project_browser,
+}
+
+
+def validate_project_environment_patch(raw) -> dict:
+    """Valida un parche parcial del entorno de ejecución de un proyecto."""
+    if not isinstance(raw, dict):
+        raise ValueError("El entorno del proyecto debe ser un objeto JSON")
+    unknown = sorted(set(raw) - PROJECT_ENVIRONMENT_KEYS)
+    if unknown:
+        raise ValueError(f"Campos desconocidos en el entorno del proyecto: {', '.join(unknown)}")
+    return {key: _PROJECT_ENV_VALIDATORS[key](raw[key]) for key in raw}
+
+
+def _row_to_project_environment(row) -> dict:
+    try:
+        data = json.loads(row["config_json"])
+    except (ValueError, TypeError) as exc:
+        raise RuntimeError(f"El entorno guardado del proyecto está corrupto: {exc}") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError("El entorno guardado del proyecto no es un objeto JSON.")
+    base = _empty_project_environment()
+    validated = validate_project_environment_patch({k: v for k, v in data.items() if k in PROJECT_ENVIRONMENT_KEYS})
+    return {**base, **validated, "saved": True, "updatedAt": int(row["updated_at"])}
+
+
+def get_project_environment(project_key: str) -> dict:
+    """Devuelve el entorno guardado del proyecto (`general` usa get_no_project_dir()), o los valores base."""
+    clean_key = str(project_key or "").strip()
+    if not clean_key:
+        raise ValueError("project_key es obligatorio")
+    with open_storage() as conn:
+        row = conn.execute(
+            "SELECT config_json, updated_at FROM project_environments WHERE project_key = ?;",
+            (clean_key,),
+        ).fetchone()
+        return _row_to_project_environment(row) if row else _empty_project_environment()
+
+
+def save_project_environment(project_key: str, raw_patch: dict) -> dict:
+    """Actualiza atómicamente en SQLite el entorno de ejecución guardado del proyecto."""
+    clean_key = str(project_key or "").strip()
+    if not clean_key:
+        raise ValueError("project_key es obligatorio")
+    patch = validate_project_environment_patch(raw_patch)
+    now = int(time.time() * 1000)
+    with open_storage() as conn:
+        conn.isolation_level = None
+        conn.execute("BEGIN IMMEDIATE;")
+        try:
+            row = conn.execute(
+                "SELECT config_json, updated_at FROM project_environments WHERE project_key = ?;",
+                (clean_key,),
+            ).fetchone()
+            base = _row_to_project_environment(row) if row else _empty_project_environment()
+            stored = {key: patch[key] if key in patch else base[key] for key in ("systemDataPrompt", "enabledTools", "mcpServers", "browser")}
+            conn.execute("""
+                INSERT INTO project_environments (project_key, config_json, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(project_key) DO UPDATE SET
+                    config_json = excluded.config_json,
+                    updated_at = excluded.updated_at;
+            """, (clean_key, json.dumps(stored, ensure_ascii=False), now))
+            conn.execute("COMMIT;")
+            return {**stored, "saved": True, "updatedAt": now}
+        except Exception:
+            conn.execute("ROLLBACK;")
+            raise
+
 # --- mcp.manager ---
 """Gestor de servicios MCP: descubrimiento en ~/zerochat/services, actualización desde el catálogo, preferencias,
 arranque y parada, y nombres públicos de sus herramientas."""
@@ -3806,12 +3854,10 @@ def public_tool_name(server_id: str, original: str) -> str:
 
 @dataclasses.dataclass
 class McpServiceRecord:
-    """Estado de un servicio MCP en este proceso: fase del ciclo de vida, cliente, último error y
-    modo y navegador con los que arrancó (solo los servicios de SERVICE_LAUNCH)."""
+    """Estado de un servicio MCP en este proceso: fase del ciclo de vida, cliente y último error."""
     phase: str = "stopped"  # stopped, installing, starting, running o error
     client: StdioMcpClient | None = None
     error: str | None = None
-    browser: dict | None = None
 
 
 # Nombre de la variable de entorno de un secreto que declara un servicio en su service.json ("secrets").
@@ -3953,13 +3999,6 @@ class McpServiceManager:
         except OSError as err:
             log_event(f"[zerochat] Advertencia al guardar preferencias MCP en {self.config_file}: {err}")
 
-    def _remember(self, server_id: str, enabled: bool):
-        """Único sitio que guarda si un servicio queda activo para ofrecerlo en la siguiente sesión: lo
-        marca un arranque con remember y lo desmarca detenerlo. Un reinicio (detener y arrancar con el
-        valor previo) lo conserva, y un arranque sin remember, como el de un perfil, no lo cambia."""
-        self.preferences.setdefault(server_id, {})["enabled"] = enabled
-        self._save_preferences()
-
     def list_servers(self) -> list[dict]:
         self.services = self._load_services()
         saved_secrets = secret_names("mcp:")
@@ -3977,14 +4016,12 @@ class McpServiceManager:
                 "description": server.get("description", {}),
                 "help": server.get("help"),
                 "remote": server.get("remote"),
-                "enabled": pref.get("enabled", server.get("enabledByDefault", False)),
                 "status": status,
                 "toolCount": len(client.tools) if running else 0,
                 "error": error,
                 "options": server.get("options", []),
                 "userOptions": pref.get("options", {}),
                 "oauthUrl": client.oauth_url if client else None,
-                "browser": record.browser if running else None,
                 # Solo si cada secreto está guardado: su valor nunca sale del backend.
                 "secrets": [{**secret, "configured": service_secret_key(server_id, secret["name"]) in saved_secrets}
                             for secret in service_secrets(server)],
@@ -4076,15 +4113,14 @@ class McpServiceManager:
         if int(version_match.group(1)) < required_node_major:
             raise RuntimeError(f"{server_id} requiere Node.js {required_node_major}+; se detectó {detected}")
 
-    def start(self, server_id: str, remember: bool, browser: dict | None = None) -> list[dict]:
-        """Arranca un servicio; con remember lo guarda como activo para ofrecerlo en la siguiente sesión.
-        `browser` es el navegador que exige el perfil activo, solo para Playwright MCP."""
+    def start(self, server_id: str) -> list[dict]:
+        """Arranca un servicio MCP externo y devuelve la lista actualizada de servicios."""
         with self._lock:
             self.services = self._load_services()
-            self._start_locked(server_id, remember, browser)
+            self._start_locked(server_id)
             return self.list_servers()
 
-    def _start_locked(self, server_id: str, remember: bool, browser: dict | None):
+    def _start_locked(self, server_id: str):
         server = self.services.get(server_id)
         if not server:
             raise KeyError(f"Servidor MCP desconocido: {server_id}")
@@ -4116,9 +4152,8 @@ class McpServiceManager:
             env = os.environ.copy()
             for k, v in launch.get("env", {}).items():
                 env[k] = self._expand(v, env_values)
-            record.browser = None
             if server_id in SERVICE_LAUNCH:
-                extra_args, extra_env, record.browser = SERVICE_LAUNCH[server_id](browser)
+                extra_args, extra_env = SERVICE_LAUNCH[server_id]()
                 args += extra_args
                 env.update(extra_env)
 
@@ -4131,8 +4166,6 @@ class McpServiceManager:
             record.phase, record.client = "starting", client
             client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
             record.phase = "running"
-            if remember:
-                self._remember(server_id, True)
             self._trace(server_id, "started successfully")
         except Exception as exc:
             record.phase, record.error = "error", str(exc)
@@ -4181,7 +4214,6 @@ class McpServiceManager:
                 raise KeyError(f"Servidor MCP desconocido: {server_id}")
             if record.client:
                 record.client.stop()
-            self._remember(server_id, False)
             return self.list_servers()
 
     def configure(self, server_id: str, options: dict | None = None) -> list[dict]:
@@ -4310,10 +4342,9 @@ class McpServiceManager:
                 record = self.records.get(server_id)
                 if not (record and record.client and record.client.running()):
                     continue
-                # Se reinicia con el navegador con el que arrancó y sin cambiar si se recuerda.
                 self._trace(server_id, "restarting with the updated version")
                 record.client.stop()
-                self._start_locked(server_id, False, record.browser)
+                self._start_locked(server_id)
 
     def close(self):
         self._catalog_stop.set()
@@ -4348,28 +4379,16 @@ SERVER_CONTROL_METHODS = frozenset({
 def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
     server_id = params.get("serverId")
     opts = params.get("options", {})
-    remember = params.get("remember")
-    browser = params.get("browser")
     starting = method == "zerochat/external/servers/start"
     if not isinstance(server_id, str) or not server_id:
         return rpc_error(INVALID_PARAMS, "serverId debe ser un texto no vacío.")
     if not isinstance(opts, dict):
         return rpc_error(INVALID_PARAMS, "options debe ser un objeto.")
-    # Al arrancar, el cliente decide siempre si el servicio se recuerda para la siguiente sesión.
-    if starting and not isinstance(remember, bool):
-        return rpc_error(INVALID_PARAMS, "remember es obligatorio al arrancar y debe ser un booleano.")
-    if starting and browser is not None:
-        if server_id not in SERVICE_LAUNCH:
-            return rpc_error(INVALID_PARAMS, f"{server_id} no admite elegir navegador.")
-        try:
-            browser = validate_profile_browser(browser)
-        except ValueError as exc:
-            return rpc_error(INVALID_PARAMS, str(exc))
     if method == "zerochat/external/servers/secret":
         return _set_secret(server_id, params)
     try:
         if starting:
-            servers = GLOBAL_MCP_MANAGER.start(server_id, remember, browser)
+            servers = GLOBAL_MCP_MANAGER.start(server_id)
         elif method == "zerochat/external/servers/stop":
             servers = GLOBAL_MCP_MANAGER.stop(server_id)
         else:
@@ -5036,13 +5055,19 @@ def _rpc_save_conversation(params: dict) -> RpcOutcome:
     return rpc_result({"conversation": save_conversation(params.get("conversation"), params.get("messages"))})
 
 
+def _rpc_rename_conversation(params: dict) -> RpcOutcome:
+    conv_id = params.get("id")
+    renamed = rename_conversation(conv_id, params.get("title"))
+    updated_at = get_conversation_updated_at(conv_id) if renamed and isinstance(conv_id, str) else None
+    return rpc_result({"renamed": renamed, **({"updatedAt": updated_at} if updated_at is not None else {})})
+
+
 CONVERSATION_METHODS = {
     "zerochat/conversations/list": lambda _params: rpc_result({"conversations": list_conversations()}),
     "zerochat/conversations/get": lambda params: rpc_result({"conversation": get_conversation(params.get("id"))}),
     "zerochat/conversations/save": _rpc_save_conversation,
     "zerochat/conversations/save_chunk": lambda params: rpc_result(save_conversation_chunk(params)),
-    "zerochat/conversations/rename": lambda params: rpc_result(
-        {"renamed": rename_conversation(params.get("id"), params.get("title"))}),
+    "zerochat/conversations/rename": _rpc_rename_conversation,
     "zerochat/conversations/delete": _rpc_delete_conversations,
 }
 
@@ -6804,7 +6829,7 @@ def job_details(job: CommandJob) -> dict:
 
 
 
-POLICY_STATE_VERSION = 7
+POLICY_STATE_VERSION = 8
 CHALLENGE_TTL_MS = 600_000
 MAX_POLICY_ENTRIES = 500
 # Proyectos con sesión en memoria: al pasar del tope se olvida la del usado hace más tiempo sin comandos en marcha.
@@ -6818,7 +6843,7 @@ class ProjectSession:
     Lo comparten todas las pestañas y dispositivos que trabajan en ese proyecto.
     """
     last_used: float = 0.0
-    global_policy: str | None = None
+    allow_all: bool | None = None
     directory_rules: list[str] | None = None
     tools: dict[str, dict] = dataclasses.field(default_factory=dict)
     servers: dict[str, dict] = dataclasses.field(default_factory=dict)
@@ -6866,11 +6891,15 @@ class AccessController:
         # run_command nunca se guarda autorizado entero: sus permisos permanentes son patrones.
         tools = {tid: entry for tid, entry in dict(data.get("tools") or {}).items()
                  if not (tid == COMMAND_TOOL and isinstance(entry, dict) and entry.get("policy") == POLICY_ALLOW)}
-        raw_global = data.get("globalMcpPolicy")
-        global_policy = GLOBAL_POLICY_ASK if raw_global in (None, "", "workspace_trust") else raw_global
+        raw_allow_all = data.get("allowAll")
+        allow_all = {
+            str(project): True
+            for project, enabled in raw_allow_all.items()
+            if isinstance(project, str) and enabled is True
+        } if isinstance(raw_allow_all, dict) else {}
         return {
             "version": POLICY_STATE_VERSION,
-            "globalMcpPolicy": global_policy,
+            "allowAll": allow_all,
             "directoryRules": dir_rules,
             "tools": tools,
             "servers": dict(data.get("servers") or {}),
@@ -6899,7 +6928,7 @@ class AccessController:
                 dir_rules = [default_rule]
             saved_patterns = state["commandPatterns"]
             return {
-                "globalMcpPolicy": session.global_policy if session.global_policy is not None else state["globalMcpPolicy"],
+                "allowAll": session.allow_all if session.allow_all is not None else bool(state["allowAll"].get(context.key, False)),
                 "directoryRules": dir_rules,
                 "tools": {**state["tools"], **session.tools},
                 "servers": {**state["servers"], **session.servers},
@@ -6984,38 +7013,29 @@ class AccessController:
         if total > MAX_POLICY_ENTRIES:
             raise ValueError(f"El número total de entradas ({total}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
 
-    def _validate_state_payload(self, state: dict, scope: str) -> tuple[str | None, list[str] | None, dict | None, dict | None]:
+    def _validate_state_payload(self, state: dict, scope: str) -> tuple[bool | None, list[str] | None, dict | None, dict | None]:
         if not isinstance(state, dict):
             raise ValueError("El estado de políticas debe ser un diccionario.")
 
-        clean_global = None
-        if "globalMcpPolicy" in state:
-            pol = GLOBAL_POLICY_ASK if state["globalMcpPolicy"] == "workspace_trust" else state["globalMcpPolicy"]
-            if pol not in GLOBAL_POLICIES:
-                raise ValueError(f"Política global no válida: '{pol}'. Válidas: {GLOBAL_POLICIES}")
-            clean_global = pol
+        clean_allow_all = None
+        if "allowAll" in state:
+            if not isinstance(state["allowAll"], bool):
+                raise ValueError("allowAll debe ser un booleano.")
+            clean_allow_all = state["allowAll"]
 
         clean_rules = self._validate_directory_rules(state["directoryRules"]) if "directoryRules" in state else None
         clean_tools = self._validate_policy_entries(state["tools"], "tools", scope) if "tools" in state else None
         clean_servers = self._validate_policy_entries(state["servers"], "servers", scope) if "servers" in state else None
-        return clean_global, clean_rules, clean_tools, clean_servers
+        return clean_allow_all, clean_rules, clean_tools, clean_servers
 
     @staticmethod
     def _validate_command_patterns_patch(raw) -> dict:
-        """Valida un parche de commandPatterns: {global, project} o legado {global, projects}."""
+        """Valida un parche de commandPatterns: {global, project} para el proyecto activo."""
         if not isinstance(raw, dict):
             raise ValueError("commandPatterns debe ser un diccionario con global y project.")
-        has_projects = "projects" in raw
-        if has_projects and "project" not in raw:
-            return {"mode": "full", "patterns": normalize_command_patterns(raw)}
-        global_patterns = clean_pattern_list(raw.get("global") or [], "commandPatterns.global")
-        project_patterns = clean_pattern_list(raw.get("project") or [], "commandPatterns.project")
-        base = normalize_command_patterns({"global": global_patterns, "projects": raw["projects"]}) if has_projects else None
         return {
-            "mode": "scoped",
-            "global": global_patterns,
-            "project": project_patterns,
-            "projects": base["projects"] if base is not None else None,
+            "global": clean_pattern_list(raw.get("global") or [], "commandPatterns.global"),
+            "project": clean_pattern_list(raw.get("project") or [], "commandPatterns.project"),
         }
 
     def import_state(self, state: dict, context: SecurityContext):
@@ -7024,7 +7044,7 @@ class AccessController:
         `addDirectoryRules` añade reglas a las guardadas dentro de la misma transacción y
         `commandPatterns` sustituye los patrones globales y del proyecto actual sin tocar otros proyectos.
         """
-        clean_global, clean_rules, clean_tools, clean_servers = self._validate_state_payload(state, SCOPE_PERMANENT)
+        clean_allow_all, clean_rules, clean_tools, clean_servers = self._validate_state_payload(state, SCOPE_PERMANENT)
         added_rules = self._validate_directory_rules(state["addDirectoryRules"]) if "addDirectoryRules" in state else []
         clean_patterns = self._validate_command_patterns_patch(state["commandPatterns"]) if "commandPatterns" in state else None
 
@@ -7032,24 +7052,27 @@ class AccessController:
         default_rule = self.get_default_directory_rule(context)
 
         def mutator(current: dict) -> dict:
-            self._apply_state_patch(current, project, default_rule, clean_global, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns)
+            self._apply_state_patch(current, project, default_rule, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns)
             self._check_entry_limit(current)
             return current
         self._update_permanent(mutator)
-        self._forget_session_overrides(project, clean_global, clean_rules, added_rules, clean_tools, clean_servers)
+        self._forget_session_overrides(project, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers)
         return self.export_state(context)
 
-    def _apply_state_patch(self, current: dict, project: str, default_rule: str, clean_global, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns):
+    def _apply_state_patch(self, current: dict, project: str, default_rule: str, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns):
         """Aplica sobre el estado guardado los apartados del parche que vienen (None es «no cambiar»)."""
-        if clean_global is not None:
-            current["globalMcpPolicy"] = clean_global
+        if clean_allow_all is not None:
+            if clean_allow_all:
+                current["allowAll"][project] = True
+            else:
+                current["allowAll"].pop(project, None)
         if clean_rules is not None:
             if clean_rules == [default_rule]:
                 current["directoryRules"].pop(project, None)
             else:
                 current["directoryRules"][project] = clean_rules
         if added_rules:
-            base_rules = current["directoryRules"][project] if project in current["directoryRules"] else [default_rule]
+            base_rules = self._project_rules_base(current["directoryRules"], project, default_rule)
             current["directoryRules"][project] = self._append_rules(base_rules, added_rules)
         if clean_tools is not None:
             current["tools"] = self._apply_entry_patch(current.get("tools"), clean_tools)
@@ -7059,23 +7082,25 @@ class AccessController:
             current["commandPatterns"] = self._merge_command_patterns(current["commandPatterns"], clean_patterns, project)
 
     @staticmethod
+    def _project_rules_base(directory_rules: dict[str, list[str]], project: str, default_rule: str) -> list[str]:
+        return directory_rules[project] if project in directory_rules else [default_rule]
+
+    @staticmethod
     def _merge_command_patterns(current_patterns: dict, patch: dict, project: str) -> dict:
-        if patch["mode"] == "full":
-            return patch["patterns"]
-        projects = dict(patch["projects"] if patch["projects"] is not None else current_patterns["projects"])
+        projects = dict(current_patterns["projects"])
         if patch["project"]:
             projects[project] = patch["project"]
         else:
             projects.pop(project, None)
         return normalize_command_patterns({"global": patch["global"], "projects": projects})
 
-    def _forget_session_overrides(self, project: str, clean_global, clean_rules, added_rules, clean_tools, clean_servers):
-        """Lo guardado sustituye o revoca lo equivalente en la sesión (las reglas de carpeta, solo en su proyecto)."""
+    def _forget_session_overrides(self, project: str, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers):
+        """Lo guardado sustituye o revoca lo equivalente en la sesión (las reglas y permitir todo, solo en su proyecto)."""
         with self._lock:
             for key, session in self.sessions.items():
-                if clean_global is not None:
-                    session.global_policy = None
                 if key == project:
+                    if clean_allow_all is not None:
+                        session.allow_all = None
                     if clean_rules is not None:
                         session.directory_rules = None
                     elif added_rules and session.directory_rules is not None:
@@ -7106,7 +7131,7 @@ class AccessController:
         Aplica una capa de políticas temporal en memoria para una ejecución en servidor, sin persistir.
         De los patrones de comando solo toma los de sesión: los guardados se leen de la misma base de datos.
         """
-        clean_global, clean_rules, clean_tools, clean_servers = self._validate_state_payload(state, SCOPE_SESSION)
+        clean_allow_all, clean_rules, clean_tools, clean_servers = self._validate_state_payload(state, SCOPE_SESSION)
         raw_patterns = state.get("commandPatterns")
         session_patterns = self._limit_patterns(clean_pattern_list(raw_patterns.get("session") or [], "commandPatterns.session")) \
             if isinstance(raw_patterns, dict) else None
@@ -7117,8 +7142,8 @@ class AccessController:
             tools = self._apply_entry_patch(session.tools, clean_tools or {})
             servers = self._apply_entry_patch(session.servers, clean_servers or {})
             self._check_entry_limit({"directoryRules": rules, "tools": tools, "servers": servers})
-            if clean_global is not None:
-                session.global_policy = clean_global
+            if clean_allow_all is not None:
+                session.allow_all = clean_allow_all
             session.directory_rules, session.tools, session.servers = rules, tools, servers
             if session_patterns is not None:
                 session.command_patterns = session_patterns
@@ -7299,11 +7324,7 @@ class AccessController:
         def mutator(state: dict) -> dict:
             self._store_decision(state, decision, pattern, project, tool, server_name, server_id)
             if rules:
-                base_rules = (
-                    state["directoryRules"][project]
-                    if project in state["directoryRules"]
-                    else [self.get_default_directory_rule(context)]
-                )
+                base_rules = self._project_rules_base(state["directoryRules"], project, self.get_default_directory_rule(context))
                 state["directoryRules"][project] = self._append_rules(base_rules, rules)
             self._check_entry_limit(state)
             return state
@@ -7353,7 +7374,7 @@ class AccessController:
         Jerarquía:
         1. Lista negra explícita (deny individual o de servidor).
         2. Herramientas de control de procesos (check_command).
-        3. Política global allow_all -> allow incondicional.
+        3. Interruptor allowAll del proyecto -> allow incondicional.
         4. Política granular de herramienta -> allow.
         5. Política de servidor completo -> allow incondicional para sus herramientas.
         6. run_command: reglas de directorio (RWX:/** permite todo; X habilita la carpeta) y patrones de comando.
@@ -7375,8 +7396,8 @@ class AccessController:
             return POLICY_DENY, "server_deny_rule", "", None
         if tool_name == JOB_CONTROL_TOOL:
             return POLICY_ALLOW, "job_control_tool", "", None
-        if view["globalMcpPolicy"] == GLOBAL_POLICY_ALLOW_ALL:
-            return POLICY_ALLOW, "mcp_global_allow_all", "", None
+        if view["allowAll"]:
+            return POLICY_ALLOW, "project_allow_all", "", None
         if tool_policy == POLICY_ALLOW:
             return POLICY_ALLOW, "granular_allow_rule", "", None
         if server_policy == POLICY_ALLOW:
@@ -9365,6 +9386,7 @@ def _initialize(_params: dict, ctx: SecurityContext) -> RpcOutcome:
         "tools": _local_tools(),
         "policies": ACCESS_CONTROLLER.export_state(ctx),
         "projectContext": read_project_context(ctx),
+        "projectEnvironment": get_project_environment(ctx.key),
         "liveState": live_state(ctx),
     })
 
@@ -9382,8 +9404,16 @@ def _set_project_directory(params: dict, ctx: SecurityContext) -> RpcOutcome:
             **resolved,
             "policies": ACCESS_CONTROLLER.export_state(next_ctx),
             "projectContext": read_project_context(next_ctx),
+            "projectEnvironment": get_project_environment(next_ctx.key),
         })
     except (ValueError, OSError) as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+
+
+def _set_project_environment(params: dict, ctx: SecurityContext) -> RpcOutcome:
+    try:
+        return rpc_result({"projectEnvironment": save_project_environment(ctx.key, params)})
+    except ValueError as exc:
         return rpc_error(INVALID_PARAMS, str(exc))
 
 
@@ -9445,6 +9475,7 @@ LOCAL_METHODS = {
     "tools/list": lambda _params, _ctx: rpc_result({"tools": _local_tools() + GLOBAL_MCP_MANAGER.tools()}),
     "tools/call": call_tool,
     "zerochat/project/context": lambda _params, ctx: rpc_result(read_project_context(ctx)),
+    "zerochat/project/environment/set": _set_project_environment,
     "zerochat/project/set_directory": _set_project_directory,
     "zerochat/project/browse": _browse_directories,
     "zerochat/project/create_directory": _create_directory,
@@ -9633,10 +9664,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 token_candidate = auth_header[7:].strip()
         return resolve_token(token_candidate)
 
-    def verify_token(self) -> bool:
-        """Comprueba si hay una credencial vigente en cabeceras HTTP."""
-        return self._resolve_grant() is not None
-
     def _reject_dot_segment(self, verb: str, safe_path: str, t0: float) -> bool:
         """Responde 400 a una URL con `..` antes de mirar el origen, el token o el cuerpo; devuelve si lo hizo."""
         if not has_dot_segment(self.path):
@@ -9713,7 +9740,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         self._send_json_response(status, data)
         self._log_res(status, safe_path, (time.monotonic() - t0) * 1000, log_message)
 
-    def _read_rpc_request(self, safe_path: str, t0: float) -> tuple[dict, bytes] | None:
+    def _read_rpc_request(self, safe_path: str, t0: float) -> dict | None:
         """Lee y valida el cuerpo JSON-RPC; si no es válido responde y devuelve None."""
         try:
             content_len = int(self.headers.get("Content-Length"))
@@ -9762,7 +9789,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_req("POST", safe_path)
             self._reject(400, {"error": rpc_error[0]}, safe_path, t0, rpc_error[1])
             return None
-        return req, post_data
+        return req
 
     @staticmethod
     def _validate_rpc(req) -> tuple[str, str] | None:
@@ -9828,7 +9855,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         safe_path = sanitize_log_path(self.path)
         if self._reject_dot_segment("POST", safe_path, t0):
             return
-        req_path = self.path.split("?", 1)[0].rstrip("/")
         origin = self.headers.get("Origin")
         if not is_allowed_origin(origin):
             self._log_req("POST", safe_path)
@@ -9852,15 +9878,14 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             }, safe_path, t0, "Token de sesión ausente o inválido")
             return
 
-        parsed = self._read_rpc_request(safe_path, t0)
-        if parsed is None:
+        req = self._read_rpc_request(safe_path, t0)
+        if req is None:
             return
-        req, post_data = parsed
         req_id = req.get("id")
         method = req["method"]
         params = req.get("params", {})
 
-        if not grant.allows(req_path, method, params):
+        if not grant.allows(method, params):
             self._log_req("POST", f"{safe_path} [rpc: {method}]")
             self._reject(403, {
                 "jsonrpc": "2.0",
@@ -10117,7 +10142,7 @@ def reset_session_authorizations():
                 ACCESS_CONTROLLER.apply_tool_decision(tool_decision, ctx, server_id=server_id)
         permanent_tools = ACCESS_CONTROLLER.export_state(ctx).get("tools") or {}
         ACCESS_CONTROLLER.apply_session_overlay({
-            "globalMcpPolicy": GLOBAL_POLICY_ASK,
+            "allowAll": False,
             "tools": {
                 name: {"policy": POLICY_ALLOW}
                 for name in LOCAL_TOOL_HANDLERS
@@ -10178,7 +10203,7 @@ def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_cl
     """Cabecera del servidor con su configuración (sin el token)."""
     print("=" * 64)
     print(f"  ZeroChat Local Server v{VERSION} (UI {UI_VERSION})")
-    print(f"  Directorio de trabajo : {PROJECT_DIR}")
+    print(f"  Directorio de trabajo : {project_context().workspace_dir}")
     print(f"  Datos y MCP           : {get_data_dir()}")
     print(f"  Entorno MCP           : {get_venv_dir()}")
     if dev_root is not None:
@@ -10283,12 +10308,30 @@ def finish_run(headless_browser, result_out):
     sys.exit(code)
 
 
+def _apply_conversation_project(parser: ZeroChatArgumentParser, session: RunSession | None):
+    """Fija el proyecto por defecto al de la conversación indicada en --conversation."""
+    if not session or not session.conversation_id:
+        return
+    conv = get_conversation(session.conversation_id)
+    if not isinstance(conv, dict):
+        return
+    conv_project = conv.get("project")
+    if conv_project:
+        if not Path(conv_project).is_dir():
+            parser.error(f"la carpeta del proyecto de la conversación ya no existe: {conv_project}")
+        set_default_project_dir(Path(conv_project))
+    else:
+        set_default_project_dir(get_no_project_dir())
+
+
 def main():
     parser = build_parser()
     args = parser.parse_args()
     # Los avisos no persisten entre ejecuciones del servidor.
     reset_notices()
-    set_run_session(run_session_from_args(parser, args))
+    session = run_session_from_args(parser, args)
+    set_run_session(session)
+    _apply_conversation_project(parser, session)
     result_out = redirect_log(args)
 
     if getattr(args, "list_profiles", False):

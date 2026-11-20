@@ -25,6 +25,7 @@ from core.environment import (
     ensure_virtual_environment,
     get_data_dir,
     get_dev_root,
+    get_no_project_dir,
     get_static_root,
     is_loopback_host,
     get_venv_dir,
@@ -47,11 +48,10 @@ from run_mode.state import (
 )
 from mcp.manager import GLOBAL_MCP_MANAGER
 from run_mode.supervisor import fall_back_when_headless_exits, launch_node_runner, run_supervisor
-from security.context import PROJECT_DIR, SecurityContext, project_context
+from security.context import SecurityContext, project_context, set_default_project_dir
 from security.controller import ACCESS_CONTROLLER
 from security.rules import (
     COMMAND_TOOL,
-    GLOBAL_POLICY_ASK,
     POLICY_ALLOW,
     POLICY_DENY,
     get_integrated_path_access,
@@ -283,7 +283,7 @@ def reset_session_authorizations():
                 ACCESS_CONTROLLER.apply_tool_decision(tool_decision, ctx, server_id=server_id)
         permanent_tools = ACCESS_CONTROLLER.export_state(ctx).get("tools") or {}
         ACCESS_CONTROLLER.apply_session_overlay({
-            "globalMcpPolicy": GLOBAL_POLICY_ASK,
+            "allowAll": False,
             "tools": {
                 name: {"policy": POLICY_ALLOW}
                 for name in LOCAL_TOOL_HANDLERS
@@ -344,7 +344,7 @@ def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_cl
     """Cabecera del servidor con su configuración (sin el token)."""
     print("=" * 64)
     print(f"  ZeroChat Local Server v{VERSION} (UI {UI_VERSION})")
-    print(f"  Directorio de trabajo : {PROJECT_DIR}")
+    print(f"  Directorio de trabajo : {project_context().workspace_dir}")
     print(f"  Datos y MCP           : {get_data_dir()}")
     print(f"  Entorno MCP           : {get_venv_dir()}")
     if dev_root is not None:
@@ -449,12 +449,30 @@ def finish_run(headless_browser, result_out):
     sys.exit(code)
 
 
+def _apply_conversation_project(parser: ZeroChatArgumentParser, session: RunSession | None):
+    """Fija el proyecto por defecto al de la conversación indicada en --conversation."""
+    if not session or not session.conversation_id:
+        return
+    conv = get_conversation(session.conversation_id)
+    if not isinstance(conv, dict):
+        return
+    conv_project = conv.get("project")
+    if conv_project:
+        if not Path(conv_project).is_dir():
+            parser.error(f"la carpeta del proyecto de la conversación ya no existe: {conv_project}")
+        set_default_project_dir(Path(conv_project))
+    else:
+        set_default_project_dir(get_no_project_dir())
+
+
 def main():
     parser = build_parser()
     args = parser.parse_args()
     # Los avisos no persisten entre ejecuciones del servidor.
     reset_notices()
-    set_run_session(run_session_from_args(parser, args))
+    session = run_session_from_args(parser, args)
+    set_run_session(session)
+    _apply_conversation_project(parser, session)
     result_out = redirect_log(args)
 
     if getattr(args, "list_profiles", False):

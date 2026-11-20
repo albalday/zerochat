@@ -106,7 +106,7 @@ class ProjectFilesTest(unittest.TestCase):
         grant = zerochat.TokenGrant(token="t", kind="runner", date="2026-11-14", created_at=0.0, run_id="r", conversation_id="c")
         for method in ("zerochat/files/list", "zerochat/files/read", "zerochat/files/download"):
             with self.subTest(method=method):
-                self.assertFalse(grant.allows("/mcp", method, {}))
+                self.assertFalse(grant.allows(method, {}))
 
 
 if __name__ == "__main__":

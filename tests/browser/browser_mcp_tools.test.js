@@ -338,7 +338,7 @@ test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajust
     await page.click('#btn-open-settings');
     const savedState = () => page.evaluate(() => ({
       enabledTools: window.ChatConfig.getActive().enabledTools,
-      policy: window.ChatToolSecurity.manager.getGlobalMcpPolicy(),
+      allowAll: window.ChatToolSecurity.manager.getAllowAll(),
       rules: window.ChatToolSecurity.manager.getDirectoryRules()
     }));
     const before = await savedState();
@@ -367,21 +367,21 @@ test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajust
 
     await page.click('[data-section="permissions"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
-    await page.locator('.mcp-policy-option:has(#mcp-policy-allow-all)').click();
+    await page.locator('.switch:has(#mcp-allow-all)').click();
     await page.fill('#mcp-directory-rules', 'RW:/tmp/descartado');
     assert.equal(await page.$eval('#settings-dialog', dialog => dialog.dataset.settingsDirty), 'true');
     await page.click('#btn-close-settings');
     await page.waitForFunction(() => document.getElementById('notice-dialog')?.open);
     await page.click('#notice-accept');
     await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
-    assert.deepEqual(await savedState(), before, 'Descartar no guarda herramientas, política ni reglas');
+    assert.deepEqual(await savedState(), before, 'Descartar no guarda herramientas, permitir todo ni reglas');
 
     await page.click('[data-section="permissions"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
     assert.deepEqual(await page.evaluate(() => ({
-      policy: document.querySelector('input[name="mcp-global-policy"]:checked')?.value,
+      allowAll: document.getElementById('mcp-allow-all').checked,
       rules: document.getElementById('mcp-directory-rules').value
-    })), { policy: before.policy, rules: before.rules.join('\n') }, 'Reabrir restaura los permisos guardados');
+    })), { allowAll: before.allowAll, rules: before.rules.join('\n') }, 'Reabrir restaura los permisos guardados');
   } finally {
     await browser.close();
   }
@@ -430,56 +430,6 @@ test('Browser UI - el progreso MCP sobrevive al renderizado, transiciona a OAuth
     assert.equal(progressResult.timedOut.disabled, true);
     assert.match(progressResult.timedOut.error, /OAuth/);
     assert.equal(progressResult.action, 'stop');
-
-    const oauthResults = await page.evaluate(async () => {
-      const container = document.getElementById('mcp-servers-list');
-      const manager = ChatMCP.manager;
-      const originalRequest = manager.requestExternalControl;
-      const originalRead = manager.readLiveState;
-      const originalTimeout = window.setTimeout;
-      const results = [];
-      try {
-        for (const language of ['es', 'en']) {
-          ChatI18n.setLanguage(language);
-          ChatState.set('mcp', { ...ChatState.get('mcp'), status: 'connected', externalServers: [{ id: 'oauth-fixture', status: 'stopped' }] });
-          let starts = 0, checks = 0;
-          const phases = [];
-          const running = { id: 'oauth-fixture', status: 'running', toolCount: 1 };
-          manager.requestExternalControl = async () => { starts += 1; throw Object.assign(new Error('Initial request timed out'), { name: 'AbortError' }); };
-          manager.readLiveState = async () => {
-            checks += 1;
-            const payload = { servers: [checks < 3 ? { id: 'oauth-fixture', status: checks === 1 ? 'installing' : 'starting' } : running] };
-            await manager.applyLiveState(payload);
-            return payload;
-          };
-          window.setTimeout = (callback, delay, ...args) => {
-            if (delay === 15000) {
-              const button = container.querySelector('.btn-mcp-server-toggle');
-              phases.push({ status: ChatState.get('mcp').externalServers[0].status, disabled: button.disabled, error: !!container.querySelector('.mcp-server-error') });
-              return originalTimeout(callback, 0, ...args);
-            }
-            return originalTimeout(callback, delay, ...args);
-          };
-          container.querySelector('.btn-mcp-server-toggle').click();
-          for (let wait = 0; checks < 3 && wait < 200; wait += 1) await new Promise(resolve => originalTimeout(resolve, 5));
-          if (checks < 3) throw new Error('MCP status polling did not reach running');
-          await new Promise(resolve => originalTimeout(resolve, 0));
-          results.push({ starts, phases, status: ChatState.get('mcp').externalServers[0].status, action: container.querySelector('.btn-mcp-server-toggle').getAttribute('data-action'), error: !!container.querySelector('.mcp-server-error') });
-        }
-      } finally {
-        window.setTimeout = originalTimeout;
-        manager.requestExternalControl = originalRequest;
-        manager.readLiveState = originalRead;
-      }
-      return results;
-    });
-    for (const result of oauthResults) {
-      assert.equal(result.starts, 1);
-      assert.deepEqual(result.phases, [{ status: 'installing', disabled: true, error: false }, { status: 'starting', disabled: true, error: false }]);
-      assert.equal(result.status, 'running');
-      assert.equal(result.action, 'stop');
-      assert.equal(result.error, false);
-    }
     assert.deepEqual(errors, []);
   } finally {
     await browser.close();

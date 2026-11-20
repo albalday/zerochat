@@ -54,10 +54,10 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
                 throw new Error('Invalid directory rule. Use R, W, X followed by :path.');
               }
               const currentRules = params.directoryRules !== undefined ? params.directoryRules : window.ChatToolSecurity.manager.getDirectoryRules();
-              const currentPolicy = params.globalMcpPolicy !== undefined ? params.globalMcpPolicy : window.ChatToolSecurity.manager.getGlobalMcpPolicy();
+              const currentAllowAll = params.allowAll !== undefined ? params.allowAll : window.ChatToolSecurity.manager.getAllowAll();
               return { policies: {
                 directoryRules: currentRules,
-                globalMcpPolicy: currentPolicy
+                allowAll: currentAllowAll
               }};
             }
             return {};
@@ -72,26 +72,49 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       assert.notEqual(await page.evaluate(() => window.ChatConfig.getActive().enabledTools.search_web), false, 'El interruptor espera a Guardar');
 
       await openSettings(page, 'permissions');
-      assert.deepEqual(await page.$$eval('input[name="mcp-global-policy"]', els => els.map(el => el.value)), ['ask', 'allow_all']);
+      assert.equal(await page.isChecked('#mcp-allow-all'), false);
       assert.equal(await page.inputValue('#mcp-directory-rules'), 'RWX:/workspace/**', 'El campo arranca con la regla editable del proyecto');
       await page.fill('#mcp-directory-rules', 'R:/workspace/**\nW:/tmp\n\n');
-      await page.locator('.mcp-policy-option:has(#mcp-policy-allow-all)').click();
+      await page.locator('.switch:has(#mcp-allow-all)').click();
       await openSettings(page, 'model');
       await page.fill('#setting-system-data-prompt', 'Datos propios');
       await page.click('#btn-save-settings');
       await page.waitForFunction(() => !document.getElementById('settings-dialog').open);
       assert.deepEqual(await page.evaluate(() => ({
         rules: window.ChatToolSecurity.manager.getDirectoryRules(),
-        policy: window.ChatToolSecurity.manager.getGlobalMcpPolicy(),
+        allowAll: window.ChatToolSecurity.manager.getAllowAll(),
         dataPrompt: window.ChatConfig.getActive().systemDataPrompt,
         searchWeb: window.ChatConfig.getActive().enabledTools.search_web
-      })), { rules: ['R:/workspace/**', 'W:/tmp'], policy: 'allow_all', dataPrompt: 'Datos propios', searchWeb: false });
+      })), { rules: ['R:/workspace/**', 'W:/tmp'], allowAll: true, dataPrompt: 'Datos propios', searchWeb: false });
 
       await openSettings(page, 'permissions');
       assert.equal(await page.locator('#mcp-directory-rules-project').isVisible(), true);
       assert.equal(await page.textContent('#mcp-directory-rules-project'), 'Proyecto: workspace');
+      assert.equal(await page.textContent('#sidebar-settings-project-label'), 'Proyecto: workspace');
+      assert.equal(await page.textContent('#settings-project-badge'), 'Proyecto: workspace');
       assert.equal(await page.getAttribute('#mcp-directory-rules-project', 'title'), '/workspace');
       assert.equal(await page.inputValue('#mcp-directory-rules'), 'R:/workspace/**\nW:/tmp', 'El campo muestra las reglas guardadas editables');
+
+      assert.deepEqual(
+        await page.$$eval('.sidebar-settings-project-group .sidebar-settings-item', els => els.map(el => el.dataset.section)),
+        ['model', 'agent', 'mcp', 'browser', 'permissions'],
+        'El bloque de proyecto agrupa exactamente las cinco secciones de proyecto'
+      );
+      assert.equal(await page.locator('.sidebar-settings-project-group [data-section="encryption"]').count(), 0);
+      assert.equal(await page.locator('.sidebar-settings-project-group [data-section="rag"]').count(), 0);
+
+      // En una sección global como Conexión, el distintivo de proyecto en cabecera se oculta.
+      await page.click('#btn-close-settings');
+      await page.waitForFunction(() => !document.getElementById('settings-dialog').open);
+      await page.click('#btn-sidebar-back-to-chats');
+      await page.click('#btn-open-connection');
+      await page.waitForFunction(() => {
+        const dlg = document.getElementById('settings-dialog');
+        return dlg && dlg.open && document.getElementById('settings-connection')?.classList.contains('active');
+      });
+      assert.equal(await page.locator('#settings-project-badge').isVisible(), false);
+      await page.click('#btn-close-settings');
+      await page.waitForFunction(() => !document.getElementById('settings-dialog').open);
 
       // Simular cambio de directorio del proyecto
       await page.evaluate(() => {
@@ -100,6 +123,8 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       });
       await openSettings(page, 'permissions');
       assert.equal(await page.textContent('#mcp-directory-rules-project'), 'Proyecto: workspace-nuevo');
+      assert.equal(await page.textContent('#sidebar-settings-project-label'), 'Proyecto: workspace-nuevo');
+      assert.equal(await page.textContent('#settings-project-badge'), 'Proyecto: workspace-nuevo');
       assert.equal(await page.getAttribute('#mcp-directory-rules-project', 'title'), '/workspace-nuevo');
       assert.equal(await page.inputValue('#mcp-directory-rules'), 'RWX:/workspace-nuevo/**', 'La regla del proyecto cambia tras cambio de directorio');
 
@@ -109,6 +134,54 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       const errText = await page.textContent('#mcp-directory-rules-error');
       assert.match(errText, /Invalid directory rule/, 'El error del backend se muestra en el formulario');
       assert.equal(await page.evaluate(() => document.getElementById('settings-dialog').open), true, 'Una regla inválida no cierra los ajustes');
+    });
+  });
+
+  test('Browser UI - un error al guardar navegador no persiste permisos parciales y un fallo en MCP revierte el interruptor', async () => {
+    await withTestApp({ viewport: { width: 1280, height: 800 } }, async page => {
+      page.setDefaultTimeout(5000);
+      await page.evaluate(() => {
+        window.__securityUpdateCalls = 0;
+        window.ChatMCP.manager.clients.set('mcp_proxy', {
+          async request(method) {
+            if (method === 'zerochat/security/update') {
+              window.__securityUpdateCalls += 1;
+              return { policies: { allowAll: false, tools: {}, servers: {}, directoryRules: ['RWX:/p/**'], commandPatterns: { global: [], project: [], session: [] } } };
+            }
+            if (method === 'zerochat/browser/engines/list') {
+              return { config: { mode: 'user', engine: 'chromium', userBrowser: 'chrome', headless: true, extensionToken: '' }, engines: [{ id: 'chromium', installed: true }], systemBrowsers: { chrome: true }, extensions: {} };
+            }
+            if (method === 'zerochat/project/environment/set') {
+              window.__envSetFailed = true;
+              throw new Error('backend save failed');
+            }
+            return {};
+          }
+        });
+        window.ChatToolSecurity.manager.setMcpClient(window.ChatMCP.manager.clients.get('mcp_proxy'));
+        window.ChatState.set('mcp', {
+          status: 'connected',
+          serverInfo: { name: 'ZeroChat', cwd: '/p' },
+          playwright: { installed: true, browserAction: { available: true } },
+          tools: [{ name: 'mcp_demo_read', description: 'Lee', defaultEnabled: true, inputSchema: { type: 'object', properties: {} }, metadata: { mcpServerName: 'demo', originalName: 'read' } }]
+        });
+        window.ChatToolSecurity.manager.applyPolicies({ allowAll: false, directoryRules: ['RWX:/p/**'] });
+      });
+
+      // Cambiar permiso + token de extensión inválido en Navegador: no debe enviar zerochat/security/update.
+      await openSettings(page, 'permissions');
+      await page.fill('#mcp-directory-rules', 'R:/p/**');
+      await openSettings(page, 'browser');
+      await page.locator('input[name="browser-tool"][value="playwright"]').check();
+      await page.fill('#browser-extension-token', 'token invalido!');
+      await page.click('#btn-save-settings');
+      assert.equal(await page.evaluate(() => document.getElementById('settings-dialog').open), true);
+      assert.equal(await page.evaluate(() => window.__securityUpdateCalls), 0, 'Permisos no se guardan si Navegador falla validación');
+
+      // Fallo al persistir interruptor en Ajustes › MCP revierte estado y checkbox.
+      await openSettings(page, 'mcp');
+      await page.locator('#mcp-tools-container .mcp-tool-card input[type="checkbox"]').first().evaluate(input => input.click());
+      await page.waitForFunction(() => window.__envSetFailed && document.querySelector('#mcp-tools-container .mcp-tool-card input[type="checkbox"]')?.checked === true && window.ChatConfig.getActive().enabledTools.mcp_demo_read === undefined);
     });
   });
 });

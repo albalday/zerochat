@@ -131,6 +131,37 @@
     return true;
   }
 
+  const MAX_PROJECT_ENVIRONMENTS = 50;
+
+  function loadProjectEnvironments() {
+    const raw = getStorageItem('project_environments_v1');
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function saveProjectEnvironment(projectKey, environment) {
+    const key = String(projectKey || '').trim() || 'general';
+    if (!environment || typeof environment !== 'object' || Array.isArray(environment)) {
+      throw new Error('The project environment must be an object.');
+    }
+    const all = { ...loadProjectEnvironments(), [key]: environment };
+    const keys = Object.keys(all);
+    if (keys.length > MAX_PROJECT_ENVIRONMENTS) {
+      keys
+        .filter(k => k !== key)
+        .sort((a, b) => Number(all[a]?.updatedAt || 0) - Number(all[b]?.updatedAt || 0))
+        .slice(0, keys.length - MAX_PROJECT_ENVIRONMENTS)
+        .forEach(oldest => { delete all[oldest]; });
+    }
+    setStorageItem('project_environments_v1', JSON.stringify(all));
+    return true;
+  }
+
   // El origen (albalday.github.io) es compartido con otras aplicaciones: el borrado completo solo
   // toca las claves propias de ZeroChat.
   function removeOwnedStorageKeys(storage) {
@@ -725,20 +756,20 @@
   async function renameConversation(sessionId, newTitle) {
     if (!sessionId || !newTitle) return false;
     const title = newTitle.trim();
-    const renamed = await attempt('rename the conversation', async db => {
+    const remoteResult = isBackendConnected()
+      ? await requestBackend('zerochat/conversations/rename', { id: sessionId, title })
+      : null;
+    const updatedAt = Number(remoteResult?.updatedAt) || Date.now();
+    return attempt('rename the conversation', async db => {
       const tx = db.transaction(STORES.conversations, 'readwrite');
       const store = tx.objectStore(STORES.conversations);
       const conversation = await requestResult(store.get(sessionId));
-      // Renombrada sin conexión, se sube al conectar; conectada, el servidor fija su propia fecha.
+      // Renombrada sin conexión, se sube al conectar; conectada, conserva la fecha exacta de SQLite.
       const { synced: _synced, ...record } = conversation || {};
-      if (conversation) store.put({ ...record, title, updatedAt: Date.now(), ...(isBackendConnected() && conversation.synced ? { synced: true } : {}) });
+      if (conversation) store.put({ ...record, title, updatedAt, ...(remoteResult && conversation.synced ? { synced: true } : {}) });
       await transactionDone(tx);
       return Boolean(conversation);
     });
-    if (isBackendConnected()) {
-      await requestBackend('zerochat/conversations/rename', { id: sessionId, title });
-    }
-    return renamed;
   }
 
   function dataUrlToBytes(dataUrl) {
@@ -879,6 +910,8 @@
     getBackendSession,
     loadRuntimeConfigV2,
     saveRuntimeConfigV2,
+    loadProjectEnvironments,
+    saveProjectEnvironment,
     clearAllStorage,
     getLastClearAllStorageError,
     getConversationsList,

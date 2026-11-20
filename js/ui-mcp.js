@@ -64,13 +64,20 @@
     return String(localized(server.displayName, language) || server.id || '');
   }
 
-  function updateToolEnabledState(toolId, enabled) {
+  async function updateToolEnabledState(checkbox) {
+    const toolId = checkbox.getAttribute('data-tool-id');
+    const enabled = Boolean(checkbox.checked);
     const Config = getConfig();
+    const previous = { ...Config.getActive().enabledTools };
+    const enabledTools = { ...previous, [toolId]: enabled };
     try {
-      Config.updateRuntime({ enabledTools: { ...Config.getActive().enabledTools, [toolId]: enabled } });
+      Config.updateRuntime({ enabledTools });
+      await getMCP()?.manager?.saveProjectEnvironment?.({ enabledTools });
       return true;
     } catch (error) {
-      console.error('[MCP UI] Error updating enabled tool state:', error);
+      console.warn('[MCP UI] Error updating enabled tool state:', error);
+      Config.updateRuntime({ enabledTools: previous });
+      checkbox.checked = !enabled;
       return false;
     }
   }
@@ -84,8 +91,8 @@
   function renderToolAuthorization(tool, serverName, originalName) {
     const security = getSecurity();
     const allowed = escapeHtml(t('mcp_security_badge_allowed'));
-    if (security.getGlobalMcpPolicy() === 'allow_all') {
-      return `<span class="mcp-auth-badge status-allowed" title="${escapeHtml(t('mcp_security_policy_allow_all'))}">${allowed} (Global)</span>`;
+    if (security.getAllowAll()) {
+      return `<span class="mcp-auth-badge status-allowed" title="${escapeHtml(t('mcp_security_allow_all'))}">${allowed} (${escapeHtml(t('mcp_security_badge_project'))})</span>`;
     }
     const policy = security.getToolPolicy(tool.name) || 'ask';
     const serverId = tool.metadata.mcpServerId;
@@ -181,7 +188,7 @@
       return;
     }
     if (!target.matches('.mcp-tool-checkbox')) return;
-    updateToolEnabledState(target.getAttribute('data-tool-id'), target.checked);
+    await updateToolEnabledState(target);
   }
 
   function renderServerOptions(server, language) {
@@ -294,7 +301,21 @@
       return;
     }
     const toggle = target.closest('.btn-mcp-server-toggle');
-    if (toggle) getMCP().manager.runExternalServerAction(toggle.getAttribute('data-server-id'), toggle.getAttribute('data-action'));
+    if (toggle) {
+      const serverId = toggle.getAttribute('data-server-id');
+      const action = toggle.getAttribute('data-action');
+      const ok = await getMCP().manager.runExternalServerAction(serverId, action);
+      if (ok) {
+        const Config = getConfig();
+        const current = Config.getActive().mcpServers || [];
+        const mcpServers = action === 'start'
+          ? (current.includes(serverId) ? current : [...current, serverId])
+          : current.filter(id => id !== serverId);
+        Config.updateRuntime({ mcpServers });
+        getMCP().manager.saveProjectEnvironment?.({ mcpServers })
+          ?.catch?.(error => console.warn('[MCP UI] Could not save project MCP servers:', error));
+      }
+    }
     const secretButton = target.closest('.btn-mcp-secret-set, .btn-mcp-secret-delete');
     if (secretButton) await handleServerSecret(secretButton);
   }
@@ -332,15 +353,16 @@
   }
 
   /**
-   * Arranca en silencio los servicios externos que quedaron activos en la sesión anterior
-   * (`enabled: true`) y siguen detenidos; solo avisa si alguno falla al arrancar.
+   * Concilia en silencio los servicios externos con el entorno del proyecto activo;
+   * solo avisa si alguno de los requeridos falla al arrancar.
    */
-  async function restoreEnabledExternalServices(servers) {
-    const { started, failed } = await getMCP().manager.startEnabledServers(servers);
+  async function reconcileProjectServices(servers) {
+    const { started, failed } = await getMCP().manager.reconcileProjectServers(getConfig().getActive(), servers);
     if (failed.length > 0) {
       const language = I18n.getLanguage();
+      const allServers = getState().get('mcp').externalServers || servers || [];
       const names = failed.map(id => {
-        const server = (servers || []).find(item => item?.id === id) || { id };
+        const server = allServers.find(item => item?.id === id) || { id };
         return getServiceName(server, language);
       });
       await getDialogs().alert(t('mcp_external_restore_failed', { names: names.join(', ') }), { type: 'error' });
@@ -588,12 +610,11 @@
   return {
     generateTerminalCommand,
     getServiceHelp,
-    getServiceName,
     renderConnectionStatus,
     renderToolsList,
     renderExternalServers,
     renderSavedAuthorizations,
-    restoreEnabledExternalServices,
+    reconcileProjectServices,
     syncSecurityControls,
     initMcpUI,
     verifyActiveConnection

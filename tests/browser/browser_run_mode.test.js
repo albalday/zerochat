@@ -17,15 +17,14 @@ const CORS = {
  * Servidor local falso: registra las llamadas zerochat/run/* y los servicios MCP externos que se
  * arrancan, y retiene el prompt hasta `release`.
  */
-async function routeBackend(page, prompt, { profile, profileData = null, serverProfiles = [], exportFormat, keepPage = false, externalServers = [], conversationId = null, initialConversation = null } = {}) {
+async function routeBackend(page, prompt, { profile, profileData = null, serverProfiles = [], exportFormat, keepPage = false, conversationId = null, initialConversation = null } = {}) {
   const calls = [];
-  const started = [];
   const saved = [];
   let release;
   const released = new Promise(resolve => { release = resolve; });
   let receiveResult;
   const resultReceived = new Promise(resolve => { receiveResult = resolve; });
-  const liveState = () => ({ cwd: '/tmp/run', jobs: [], exit_on_close: true, servers: externalServers });
+  const liveState = () => ({ cwd: '/tmp/run', jobs: [], exit_on_close: true, servers: [] });
   const json = (route, body) => route.fulfill({ status: 200, headers: CORS, contentType: 'application/json', body: JSON.stringify(body) });
   await page.route(`http://127.0.0.1:${BACKEND_PORT}/**`, async route => {
     const request = route.request();
@@ -61,11 +60,6 @@ async function routeBackend(page, prompt, { profile, profileData = null, serverP
     if (method === 'zerochat/security/authorize') {
       return reply({ authorized: params.decision !== 'deny', challengeId: params.challengeId, result: { content: [{ type: 'text', text: 'ok' }] } });
     }
-    if (method === 'zerochat/external/servers/start') {
-      started.push({ id: params.serverId, remember: params.remember, ...(params.browser ? { browser: params.browser } : {}) });
-      externalServers.find(server => server.id === params.serverId).status = 'running';
-      return reply({ servers: externalServers });
-    }
     if (method.startsWith('zerochat/run/')) {
       calls.push({ method, params });
       if (method === 'zerochat/run/prompt') {
@@ -88,24 +82,13 @@ async function routeBackend(page, prompt, { profile, profileData = null, serverP
     }
     return json(route, { jsonrpc: '2.0', id, error: { code: -32601, message: `Unsupported ${method}` } });
   });
-  return { calls, started, saved, release, resultReceived };
+  return { calls, saved, release, resultReceived };
 }
 
 /** Abre la interfaz como la abre el modo ejecución, con window.close() registrado en vez de cerrar. */
-async function openRun(browser, server, prompt, { seedProfiles = false, profileSettings = null, browserTool = null, ...runOptions } = {}) {
+async function openRun(browser, server, prompt, { seedProfiles = false, ...runOptions } = {}) {
   const page = await browser.newPage();
   if (seedProfiles) await seedConnectionProfiles(page);
-  if (browserTool) {
-    // Herramienta de navegación de Ajustes › Navegador, guardada en la configuración del cliente.
-    await page.addInitScript(browser => localStorage.setItem('zerochat_runtime_config_v2', JSON.stringify({ browser })), browserTool);
-  }
-  if (profileSettings) {
-    await page.addInitScript(settings => {
-      const document = JSON.parse(localStorage.getItem('zerochat_profiles_v1'));
-      Object.assign(document.profiles.find(profile => profile.id === 'profile:local').settings, settings);
-      localStorage.setItem('zerochat_profiles_v1', JSON.stringify(document));
-    }, profileSettings);
-  }
   await page.addInitScript(() => {
     window.close = () => { window.__closed = true; };
   });
@@ -140,7 +123,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     const { page, backend } = await openRun(browser, server, 'Resume el proyecto');
     assert.equal(page.url().includes('run-token') || page.url().includes(RUN_ID), false, 'el fragmento se limpia');
     await page.evaluate(() => {
-      window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
+      window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai' });
       let calls = 0;
       window.ChatAPI.streamChatCompletion = async params => {
         calls += 1;
@@ -223,37 +206,10 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     assert.ok(serverRun.backend.calls.some(call => call.method === 'zerochat/run/profile' && call.params.id === 'profile:server-local'));
   });
 
-  test('Browser UI - el modo ejecución arranca solo los servicios MCP del perfil y Playwright MCP si es la herramienta de navegación o el perfil lo exige, y falla si alguno no está configurado', async () => {
-    const externalServers = () => ['memory', 'github', 'playwright'].map(id => ({ id, displayName: { es: id, en: id }, status: 'stopped', enabled: false }));
-    const run = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileSettings: { mcpServers: ['memory'] }, browserTool: 'playwright', externalServers: externalServers() });
-    await run.page.evaluate(() => {
-      window.ChatAPI.streamChatCompletion = async () => ({ accumulatedText: 'ok', toolCalls: null, stats: null });
-    });
-    run.backend.release();
-    await run.page.waitForFunction(() => window.__closed === true);
-    assert.deepEqual(resultOf(run.backend), { run_id: RUN_ID, text: 'ok' });
-    assert.deepEqual(run.backend.started, [{ id: 'memory', remember: false }, { id: 'playwright', remember: false }], 'solo arranca los servicios del perfil y Playwright MCP, sin guardarlos como activos');
-
-    // Un perfil que exige Playwright MCP lo arranca con su navegador aunque Ajustes no lo elija.
-    const required = { mode: 'own', engine: 'firefox' };
-    const forced = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileSettings: { playwrightBrowser: required }, externalServers: externalServers() });
-    await forced.page.evaluate(() => {
-      window.ChatAPI.streamChatCompletion = async () => ({ accumulatedText: 'ok', toolCalls: null, stats: null });
-    });
-    forced.backend.release();
-    await forced.page.waitForFunction(() => window.__closed === true);
-    assert.deepEqual(forced.backend.started, [{ id: 'playwright', remember: false, browser: required }]);
-
-    const missing = await openRun(browser, server, 'Hola', { profile: 'Local chat', seedProfiles: true, profileSettings: { mcpServers: ['memory', 'ghost'] }, externalServers: externalServers() });
-    missing.backend.release();
-    await missing.page.waitForFunction(() => window.__closed === true);
-    assert.deepEqual(resultOf(missing.backend), { run_id: RUN_ID, error: 'MCP servers of the profile are not available: ghost' });
-  });
-
   test('Browser UI - el modo ejecución exporta la conversación en HTML como se ve en el chat, devuelve el error de generación y deja la página abierta con keep_page', async () => {
     const { page, backend } = await openRun(browser, server, 'Hola', { exportFormat: 'html', keepPage: true });
     await page.evaluate(() => {
-      window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
+      window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai' });
       window.ChatAPI.streamChatCompletion = async () => { throw new Error('Provider unavailable'); };
     });
     backend.release();
@@ -290,7 +246,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
   test('Browser UI - el modo ejecución termina con error cuando un diálogo o ask_user preguntan al usuario', async () => {
     const dialog = await openRun(browser, server, 'Hola');
     await dialog.page.evaluate(() => {
-      window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
+      window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai' });
       window.ChatAPI.streamChatCompletion = async () => {
         await window.ChatDialogs.confirm('¿Continuar?', { title: 'Confirmar' });
         return { accumulatedText: 'no debe llegar', toolCalls: null, stats: null };
@@ -302,7 +258,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
 
     const ask = await openRun(browser, server, 'Hola');
     await ask.page.evaluate(() => {
-      window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
+      window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai' });
       window.ChatAPI.streamChatCompletion = async () => ({
         accumulatedText: '',
         toolCalls: [{ id: 'call_1', type: 'function', function: { name: 'ask_user', arguments: '{"question":"¿A o B?","options":["A","B"]}' } }],
@@ -342,7 +298,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
       initialConversation
     });
     await page.evaluate(() => {
-      window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', activeProfile: null });
+      window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai' });
       // Al reanudar, el paso pausado se retira y el modelo vuelve a ejecutarlo sin pedir permiso.
       window.ChatAPI.streamChatCompletion = async params => {
         if (!params.messages.some(message => message.role === 'tool' && message.tool_call_id === 'call_w1')) {
@@ -463,9 +419,6 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready') &&
       window.ChatState.get('mcp').status === 'connected' &&
       window.ChatProfileRepository.get('profile:server') !== null);
-
-    // Con backend conectado no hay slider independiente en cabecera; todo se gestiona en perfiles
-    assert.equal(await page.locator('#server-run-control').count(), 0);
 
     await page.evaluate(async () => {
       await window.ChatUIProfiles.activateConnectionProfile('profile:server');

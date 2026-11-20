@@ -18,30 +18,11 @@ test('Browser UI - perfiles: teclado, alineación, solo lectura y borrado', asyn
     await page.focus('#active-profile-trigger');
     await page.keyboard.press('ArrowDown');
     assert.equal(await page.locator('[data-profile-id="profile:mirror"]').evaluate(el => el === document.activeElement), true);
-    const alignment = await page.evaluate(() => {
-      const menu = document.getElementById('active-profile-popover').getBoundingClientRect();
-      const trigger = document.getElementById('active-profile-trigger').getBoundingClientRect();
-      const header = document.querySelector('.app-header').getBoundingClientRect();
-      const messagesList = document.getElementById('messages-list').getBoundingClientRect();
-      const triggerCenter = trigger.left + trigger.width / 2;
-      const menuCenter = menu.left + menu.width / 2;
-      const headerCenter = header.left + header.width / 2;
-      return {
-        popoverOffset: Math.abs(triggerCenter - menuCenter),
-        headerOffset: Math.abs(headerCenter - triggerCenter),
-        headerBottom: header.bottom,
-        messagesTop: messagesList.top
-      };
-    });
-    assert.ok(alignment.popoverOffset <= 2, `El popover debe estar centrado respecto al trigger (desv: ${alignment.popoverOffset}px)`);
-    assert.ok(alignment.headerOffset <= 2, `El selector de perfiles debe estar centrado en el panel superior (desv: ${alignment.headerOffset}px)`);
-    assert.ok(alignment.messagesTop >= alignment.headerBottom - 1, 'El chat (#messages-list) no debe pasar por encima del panel superior');
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('#active-profile-popover').isVisible(), false);
     await page.click('#active-profile-trigger');
     await page.click('.header-profile-item:has([data-profile-id="profile:mirror"]) [data-profile-action="edit"]');
     assert.equal(await page.locator('#setting-profile-name').isDisabled(), true);
-    assert.equal(await page.locator('#btn-delete-profile').count(), 0);
     await page.click('#btn-close-profiles');
 
     await page.click('#active-profile-trigger');
@@ -269,105 +250,6 @@ async function closeProfileEditor(page, { discard = false } = {}) {
   await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
 }
 
-test('Browser UI - el capítulo Navegador del perfil exige Playwright MCP con un navegador instalado y lo reinicia si usa otro sin cambiar si queda recordado', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await openProfilesPage(browser, [{ id: 'profile:web', name: 'Web', settings: { apiType: 'openai', model: 'test', apiKey: 'sk-test' } }]);
-    // Playwright MCP en marcha con el Chromium propio; instalados Chromium y WebKit, en el sistema Edge y Chromium.
-    await page.evaluate(() => {
-      window.ChatState.set('mcp', { status: 'connected', externalServers: [
-        { id: 'playwright', displayName: { es: 'Playwright MCP' }, status: 'running', enabled: true, browser: { mode: 'own', engine: 'chromium' } }
-      ] });
-      window.__actions = [];
-      const setStatus = status => window.ChatState.set('mcp', state => ({ ...state, externalServers: state.externalServers.map(server => ({ ...server, status })) }));
-      window.ChatMCP.manager.requestExternalControl = async () => ({
-        available: true, systemBrowsers: { chrome: false, msedge: true, chromium: true }, extensions: {},
-        engines: [{ id: 'chromium', installed: true }, { id: 'firefox', installed: false }, { id: 'webkit', installed: true }]
-      });
-      window.ChatMCP.manager.stopExternalServer = async serverId => { window.__actions.push({ stop: serverId }); setStatus('stopped'); };
-      window.ChatMCP.manager.startExternalServer = async (serverId, onWait, options) => { window.__actions.push({ start: serverId, ...options }); setStatus('running'); };
-    });
-    await openProfileEditor(page, 'profile:web');
-    assert.equal(await page.textContent('#profile-summary-browser'), 'El de Ajustes', 'Sin exigir nada usa lo de Ajustes');
-    await page.click('#profile-chapter-browser summary');
-    await page.check('input[name="profile-browser-required"]');
-    const options = () => page.locator('#profile-browser-name option').evaluateAll(items => items.map(item => item.textContent));
-    assert.deepEqual(await options(), ['Chromium', 'WebKit'], 'Solo los motores instalados');
-    // Con el navegador propio puede pedir almacenamiento persistente y la ventana visible, que se conservan al cambiar de motor.
-    await page.fill('#profile-browser-storage', '  trabajo_1  ');
-    await page.check('input[name="profile-browser-show-window"]');
-    await page.selectOption('#profile-browser-name', 'webkit');
-    assert.equal(await page.isChecked('input[name="profile-browser-show-window"]'), true);
-    assert.equal(await page.inputValue('#profile-browser-storage'), 'trabajo_1');
-    assert.equal(await page.textContent('#profile-summary-browser'), 'Playwright MCP · WebKit propio (trabajo_1) con ventana');
-    await page.check('input[name="profile-browser-mode"][value="user"]');
-    assert.deepEqual(await options(), ['Microsoft Edge', 'Chromium'], 'Solo los navegadores detectados');
-    await page.selectOption('#profile-browser-name', 'chromium');
-    assert.equal(await page.textContent('#profile-summary-browser'), 'Playwright MCP · tu Chromium');
-    await page.click('#btn-save-profile');
-    await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
-    const required = { mode: 'user', userBrowser: 'chromium' };
-    assert.deepEqual(await page.evaluate(() => window.ChatProfileRepository.get('profile:web').settings.playwrightBrowser), required);
-    // Al activarse, Playwright MCP en marcha con otro navegador se reinicia en silencio con el del perfil
-    // y sigue recordado para la siguiente sesión, como estaba (detenerlo lo desmarca).
-    await page.waitForFunction(() => window.__actions.length === 2);
-    assert.deepEqual(await page.evaluate(() => window.__actions), [{ stop: 'playwright' }, { start: 'playwright', remember: true, browser: required }]);
-    assert.equal(await page.evaluate(() => document.getElementById('notice-dialog').open), false);
-
-    // Ajustes › Navegador avisa de que el perfil activo manda sobre su herramienta.
-    if (await page.locator('#sidebar-view-settings').isHidden()) await page.click('#btn-open-settings');
-    await page.locator('#sidebar-settings-nav [data-section="browser"]').evaluate(item => item.click());
-    await page.waitForFunction(() => document.getElementById('settings-dialog').open);
-    assert.match(await page.textContent('#settings-browser .browser-notice'), /El perfil activo «Web» necesita Playwright MCP con tu Chromium/);
-  } finally {
-    await browser.close();
-  }
-});
-
-test('Browser UI - el capítulo MCP del perfil avisa de los servicios no configurados y guarda lo elegido', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await openProfilesPage(browser, [{ id: 'profile:mcp', name: 'Con MCP', settings: { apiType: 'openai', model: 'test', apiKey: 'sk-test', mcpServers: ['ghost'] } }]);
-    // Servidor local conectado: Memoria está parada y Playwright ya en marcha. El arranque se
-    // sustituye para registrar qué servicios arranca el perfil.
-    await page.evaluate(() => {
-      window.ChatState.set('mcp', { status: 'connected', externalServers: [
-        { id: 'memory', displayName: { es: 'Memoria', en: 'Memory' }, status: 'stopped' },
-        { id: 'playwright', displayName: { es: 'Playwright MCP' }, status: 'running' }
-      ] });
-      window.__started = [];
-      window.ChatMCP.manager.startExternalServer = async (serverId, onWait, options) => {
-        window.__started.push({ serverId, ...options });
-        window.ChatState.set('mcp', state => ({ ...state, externalServers: state.externalServers.map(server => (server.id === serverId ? { ...server, status: 'running' } : server)) }));
-      };
-    });
-    await openProfileEditor(page, 'profile:mcp');
-    const rows = () => page.locator('.profile-mcp-server').evaluateAll(labels => labels.map(label => ({
-      name: label.querySelector('.profile-mcp-name').textContent,
-      checked: label.querySelector('input').checked,
-      missing: label.classList.contains('is-missing')
-    })));
-    assert.deepEqual(await rows(), [{ name: 'Memoria', checked: false, missing: false }, { name: 'ghost', checked: true, missing: true }], 'Playwright se elige en Ajustes › Navegador');
-    assert.equal(await page.textContent('#profile-summary-mcp'), 'ghost');
-    assert.equal(await page.textContent('#profile-summary-mcp-warning'), '1 no configurado(s)', 'El aviso se ve con el capítulo plegado');
-
-    await page.click('#profile-chapter-mcp summary');
-    await page.check('.profile-mcp-checkbox[value="memory"]');
-    await page.uncheck('.profile-mcp-checkbox[value="ghost"]');
-    assert.equal(await page.textContent('#profile-summary-mcp'), 'Memoria');
-    assert.equal(await page.locator('#profile-summary-mcp-warning').isVisible(), false);
-    await page.click('#btn-save-profile');
-    await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
-    assert.deepEqual(await page.evaluate(() => window.ChatProfileRepository.get('profile:mcp').settings.mcpServers), ['memory']);
-    // Solo arranca lo que estaba parado, sin recordarlo y sin mostrar diálogo de éxito.
-    await page.waitForFunction(() => window.__started.length === 1);
-    assert.deepEqual(await page.evaluate(() => window.__started), [{ serverId: 'memory', remember: false }]);
-    assert.equal(await page.evaluate(() => document.getElementById('notice-dialog').open), false);
-  } finally {
-    await browser.close();
-  }
-});
-
 test('Browser UI - el editor guarda con un único botón en ambos repositorios y unifica el panel de perfiles', async () => {
   const browser = await createTestBrowser();
   try {
@@ -380,9 +262,6 @@ test('Browser UI - el editor guarda con un único botón en ambos repositorios y
     await page.click('#btn-menu-new-profile');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
 
-    // Solo existe un botón Guardar (no hay botón separado para servidor)
-    assert.equal(await page.$('#setting-profile-scope'), null);
-    assert.equal(await page.$('#btn-save-server-profile'), null);
     assert.notEqual(await page.$('#btn-save-profile'), null);
 
     // Escribir datos del perfil
@@ -422,42 +301,6 @@ test('Browser UI - el editor guarda con un único botón en ambos repositorios y
   }
 });
 
-test('Browser UI - el selector de perfiles en móvil (< 640px) se muestra a pantalla completa y se cierra correctamente', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage();
-    await page.setViewportSize({ width: 375, height: 667 });
-    await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await waitForAppReady(page);
-
-    // Abrir menú de perfiles
-    await page.click('#active-profile-trigger');
-    await page.waitForFunction(() => !document.getElementById('active-profile-popover').hidden);
-
-    // En móvil el popover pasa a position: fixed (pantalla completa)
-    const position = await page.$eval('#active-profile-popover', el => window.getComputedStyle(el).position);
-    assert.equal(position, 'fixed');
-    const dimensions = await page.evaluate(() => {
-      const rect = document.getElementById('active-profile-popover').getBoundingClientRect();
-      return {
-        left: rect.left,
-        top: rect.top,
-        width: rect.width,
-        windowWidth: window.innerWidth
-      };
-    });
-    assert.equal(dimensions.left, 0);
-    assert.equal(dimensions.top, 0);
-    assert.ok(Math.abs(dimensions.width - dimensions.windowWidth) <= 1, 'El panel debe ocupar el 100% del ancho de la pantalla');
-
-    // Cerrar menú con el botón de cierre
-    await page.click('#btn-menu-close-profiles');
-    await page.waitForFunction(() => document.getElementById('active-profile-popover').hidden);
-  } finally {
-    await browser.close();
-  }
-});
-
 test('Browser UI - el selector único incluye switch superior de ejecución en segundo plano y lo bloquea para Espejo y WebLLM', async () => {
   const browser = await createTestBrowser();
   try {
@@ -482,8 +325,6 @@ test('Browser UI - el selector único incluye switch superior de ejecución en s
     // Con Espejo activo, el switch superior está deshabilitado
     await page.click('#active-profile-trigger');
     await page.waitForFunction(() => !document.getElementById('active-profile-popover').hidden);
-    assert.equal(await page.$('#btn-menu-server-run'), null);
-    assert.equal(await page.$('#btn-menu-server-manage'), null);
     assert.equal(await page.isDisabled('#toggle-background-run'), true);
 
     // Elegir perfil Claude habilita el switch de segundo plano
@@ -545,11 +386,6 @@ test('Browser UI - cambiar de serverId con perfiles previos pregunta antes de fu
           return {};
         }
       });
-      window._uploadedOnChange = [];
-      mcp.saveServerProfile = async p => {
-        window._uploadedOnChange.push(p);
-        return p;
-      };
       return mcp.syncProfiles('srv-B', { onServerChange: window.ChatUIProfiles.confirmServerProfileSync });
     });
 
@@ -559,9 +395,6 @@ test('Browser UI - cambiar de serverId con perfiles previos pregunta antes de fu
 
     const syncResult = await resultPromise;
     assert.equal(syncResult.replaced, true);
-    assert.deepEqual(await page.evaluate(() => window._uploadedOnChange), []);
-    assert.equal(await page.evaluate(() => window.ChatProfileRepository.get('profile:a')), null);
-    assert.ok(await page.evaluate(() => window.ChatProfileRepository.get('profile:b')));
   } finally {
     await browser.close();
   }

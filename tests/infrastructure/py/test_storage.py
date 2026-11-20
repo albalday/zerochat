@@ -35,7 +35,7 @@ class StorageEngineTest(unittest.TestCase):
         """)
         # Una clave guardada en claro antes de la migración 7.
         conn.execute("INSERT INTO profiles (id, name, settings_json, api_key, created_at, updated_at) "
-                     "VALUES ('profile:viejo', 'Viejo', '{}', 'sk-en-claro', 1, 1);")
+                     "VALUES ('profile:viejo', 'Viejo', '{\"model\":\"gpt-4\",\"mcpServers\":[\"memory\"],\"playwrightBrowser\":{\"mode\":\"own\",\"engine\":\"chromium\"}}', 'sk-en-claro', 1, 1);")
         conn.execute("INSERT INTO schema_migrations VALUES (2, 2000, '002_create_conversations_tables');")
         conn.execute("""
             CREATE TABLE conversations (
@@ -61,22 +61,25 @@ class StorageEngineTest(unittest.TestCase):
         conn.commit()
         conn.close()
 
-        # Al abrir con zerochat.open_storage, se deben aplicar las migraciones 4 a 8 sin errores y fijar permisos 0700/0600
+        # Al abrir con zerochat.open_storage, se deben aplicar todas las migraciones sin errores y fijar permisos 0700/0600
         with zerochat.open_storage() as conn:
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall()}
             migrations = {row["version"] for row in conn.execute("SELECT version FROM schema_migrations;").fetchall()}
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(conversations);").fetchall()}
             stored_key = conn.execute("SELECT api_key FROM profiles WHERE id = 'profile:viejo';").fetchone()["api_key"]
-        for expected_table in ("schema_migrations", "profiles", "conversations", "messages", "blobs", "conversation_blobs", "security_policies"):
+        for expected_table in ("schema_migrations", "profiles", "conversations", "messages", "blobs", "conversation_blobs", "security_policies", "project_environments"):
             self.assertIn(expected_table, tables)
-        self.assertEqual(migrations, {1, 2, 3, 4, 5, 6, 7, 8})
+        self.assertEqual(migrations, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
         self.assertIn("extra_json", columns)
         if os.name != "nt":
             self.assertEqual(stat.S_IMODE(self.storage_dir.stat().st_mode), 0o700)
             self.assertEqual(stat.S_IMODE(self.db_path.stat().st_mode), 0o600)
-        # La 7 ofusca la clave que estaba en claro, que sigue sirviendo.
+        # La 7 ofusca la clave que estaba en claro y la 9 retira mcpServers/playwrightBrowser de los perfiles.
         self.assertNotIn("sk-en-claro", stored_key)
-        self.assertEqual(zerochat.get_general_profile_with_key("profile:viejo")["settings"]["apiKey"], "sk-en-claro")
+        migrated_profile = zerochat.get_general_profile_with_key("profile:viejo")
+        self.assertEqual(migrated_profile["settings"]["apiKey"], "sk-en-claro")
+        self.assertNotIn("mcpServers", migrated_profile["settings"])
+        self.assertNotIn("playwrightBrowser", migrated_profile["settings"])
 
         # list_conversations y save_conversation funcionan correctamente tras la migración
         saved = zerochat.save_conversation({
@@ -184,8 +187,6 @@ class StorageEngineTest(unittest.TestCase):
         self.assertTrue(zerochat.delete_general_profile(locked["id"]))
 
     def test_rpc_dispatch_profiles_crud(self):
-        handler = object.__new__(zerochat.ZeroChatServerHandler)
-
         payload = {
             "name": "Claude Sonnet",
             "description": "Perfil general via RPC",
@@ -216,9 +217,7 @@ class StorageEngineTest(unittest.TestCase):
         self.assertTrue(res["deleted"])
 
     def test_rpc_dispatch_conversations_crud(self):
-        handler = object.__new__(zerochat.ZeroChatServerHandler)
-
-        # 1. Guardar conversación mediante _dispatch_local
+        # 1. Guardar conversación mediante dispatch_local
         payload1 = {
             "conversation": {"id": "rpc_conv_1", "title": "Conversación RPC", "createdAt": 1700000000000, "updatedAt": 1700000001000},
             "messages": [{"id": "m1", "role": "user", "content": "Hola desde RPC"}]
@@ -266,9 +265,11 @@ class StorageEngineTest(unittest.TestCase):
         res, err, _ = zerochat.dispatch_local("zerochat/conversations/rename", {"id": "rpc_conv_1", "title": "Título Modificado"}, zerochat.project_context())
         self.assertIsNone(err)
         self.assertTrue(res["renamed"])
+        self.assertIsInstance(res.get("updatedAt"), int)
 
-        res, _, _ = zerochat.dispatch_conversations("zerochat/conversations/get", {"id": "rpc_conv_1"})
-        self.assertEqual(res["conversation"]["title"], "Título Modificado")
+        res_get, _, _ = zerochat.dispatch_conversations("zerochat/conversations/get", {"id": "rpc_conv_1"})
+        self.assertEqual(res_get["conversation"]["title"], "Título Modificado")
+        self.assertEqual(res_get["conversation"]["updatedAt"], res["updatedAt"])
 
         res_ren_inexist, err, _ = zerochat.dispatch_conversations("zerochat/conversations/rename", {"id": "inexistente", "title": "Nuevo"})
         self.assertIsNone(err)
@@ -293,8 +294,6 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(len(res_empty["conversations"]), 0)
 
     def test_rpc_dispatch_conversations_validaciones(self):
-        handler = object.__new__(zerochat.ZeroChatServerHandler)
-
         # get: id vacío o ausente (-32602)
         for bad_id in ({}, {"id": ""}, {"id": "   "}, {"id": 123}):
             with self.subTest(bad_id=bad_id):
@@ -760,3 +759,100 @@ class StorageEngineTest(unittest.TestCase):
                 "messages": [{"id": "2", "role": "user", "content": "y" * 64}],
             })
             self.assertEqual(err["code"], -32602)
+
+    def test_entorno_por_proyecto_sqlite_y_rpc(self):
+        project_a = self.data_dir / "proj_a"
+        project_b = self.data_dir / "proj_b"
+        project_a.mkdir()
+        project_b.mkdir()
+        ctx_a = zerochat.SecurityContext(workspace_dir=project_a.resolve())
+        ctx_b = zerochat.SecurityContext(workspace_dir=project_b.resolve())
+        ctx_general = zerochat.SecurityContext(workspace_dir=zerochat.get_no_project_dir().resolve())
+
+        # Proyecto nuevo devuelve valores base sin fila persistida en SQLite.
+        initial_a, err, _ = zerochat.dispatch_local("initialize", {}, ctx_a)
+        self.assertIsNone(err)
+        self.assertEqual(initial_a["projectEnvironment"]["saved"], False)
+        self.assertEqual(initial_a["projectEnvironment"]["browser"], "browser_action")
+        self.assertEqual(initial_a["projectEnvironment"]["mcpServers"], [])
+
+        # Parche parcial en proyecto A y en general quedan aislados; otro parche parcial conserva el resto.
+        res_a, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {
+            "systemDataPrompt": "  Usa Python 3.  ",
+            "enabledTools": {"search_web": False, "run_command": True},
+            "mcpServers": [" memory ", "memory", "brave"],
+            "browser": "playwright",
+        }, ctx_a)
+        self.assertIsNone(err)
+        env_a = res_a["projectEnvironment"]
+        self.assertTrue(env_a["saved"])
+        self.assertEqual(env_a["systemDataPrompt"], "Usa Python 3.")
+        self.assertEqual(env_a["enabledTools"], {"search_web": False, "run_command": True})
+        self.assertEqual(env_a["mcpServers"], ["memory", "brave"])
+        self.assertEqual(env_a["browser"], "playwright")
+
+        # Actualizar solo browser conserva systemDataPrompt, enabledTools y mcpServers de A.
+        updated_a, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"browser": "none"}, ctx_a)
+        self.assertIsNone(err)
+        self.assertEqual(updated_a["projectEnvironment"]["systemDataPrompt"], "Usa Python 3.")
+        self.assertEqual(updated_a["projectEnvironment"]["mcpServers"], ["memory", "brave"])
+        self.assertEqual(updated_a["projectEnvironment"]["browser"], "none")
+
+        # general usa su propia fila (get_no_project_dir) sin mezclarse con A ni B.
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"mcpServers": ["github"]}, ctx_general)
+        self.assertIsNone(err)
+        init_general, err, _ = zerochat.dispatch_local("initialize", {}, ctx_general)
+        self.assertIsNone(err)
+        self.assertEqual(init_general["projectEnvironment"]["mcpServers"], ["github"])
+
+        # zerochat/project/set_directory entrega el entorno del nuevo proyecto (B vacío, A guardado).
+        switched_b, err, _ = zerochat.dispatch_local("zerochat/project/set_directory", {"path": str(project_b)}, ctx_a)
+        self.assertIsNone(err)
+        self.assertEqual(switched_b["projectEnvironment"]["saved"], False)
+        switched_a, err, _ = zerochat.dispatch_local("zerochat/project/set_directory", {"path": str(project_a)}, ctx_b)
+        self.assertIsNone(err)
+        self.assertEqual(switched_a["projectEnvironment"]["browser"], "none")
+        self.assertEqual(switched_a["projectEnvironment"]["mcpServers"], ["memory", "brave"])
+
+        # Topes en el borde exacto N / N+1 y rechazo de entradas inválidas.
+        max_prompt = "x" * zerochat.MAX_PROJECT_PROMPT_LENGTH
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"systemDataPrompt": max_prompt}, ctx_b)
+        self.assertIsNone(err)
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"systemDataPrompt": max_prompt + "x"}, ctx_b)
+        self.assertEqual(err["code"], -32602)
+
+        max_servers = [f"srv_{i}" for i in range(zerochat.MAX_PROJECT_MCP_SERVERS)]
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"mcpServers": max_servers}, ctx_b)
+        self.assertIsNone(err)
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"mcpServers": [*max_servers, "extra"]}, ctx_b)
+        self.assertEqual(err["code"], -32602)
+
+        max_tools = {f"tool_{i}": True for i in range(zerochat.MAX_PROJECT_ENABLED_TOOLS)}
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"enabledTools": max_tools}, ctx_b)
+        self.assertIsNone(err)
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"enabledTools": {**max_tools, "tool_extra": False}}, ctx_b)
+        self.assertEqual(err["code"], -32602)
+
+        max_id = "t" * zerochat.MAX_PROJECT_TOOL_ID_LENGTH
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"enabledTools": {max_id: True}, "mcpServers": [max_id]}, ctx_b)
+        self.assertIsNone(err)
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"enabledTools": {max_id + "x": True}}, ctx_b)
+        self.assertEqual(err["code"], -32602)
+        _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", {"mcpServers": [max_id + "x"]}, ctx_b)
+        self.assertEqual(err["code"], -32602)
+
+        for invalid in (
+            {"unknownField": 1},
+            {"browser": "chrome"},
+            {"enabledTools": {"bad": "yes"}},
+            {"mcpServers": ["ok", ""]},
+        ):
+            _, err, _ = zerochat.dispatch_local("zerochat/project/environment/set", invalid, ctx_b)
+            self.assertEqual(err["code"], -32602, invalid)
+
+        # JSON corrupto en SQLite falla explícitamente sin devolver valores por defecto.
+        with zerochat.open_storage() as conn:
+            conn.execute("UPDATE project_environments SET config_json = '{corrupt' WHERE project_key = ?;", (ctx_a.key,))
+            conn.commit()
+        with self.assertRaisesRegex(RuntimeError, "corrupto"):
+            zerochat.get_project_environment(ctx_a.key)

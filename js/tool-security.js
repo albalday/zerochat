@@ -17,10 +17,10 @@
   'use strict';
 
   // Claves del estado exportado por el backend que guarda la caché.
-  const POLICY_KEYS = ['globalMcpPolicy', 'directoryRules', 'tools', 'servers', 'commandPatterns'];
+  const POLICY_KEYS = ['allowAll', 'directoryRules', 'tools', 'servers', 'commandPatterns'];
 
   const emptyPolicies = () => ({
-    globalMcpPolicy: 'ask',
+    allowAll: false,
     directoryRules: [],
     tools: {},
     servers: {},
@@ -96,12 +96,12 @@
       return () => this.listeners.delete(listener);
     }
 
-    getGlobalMcpPolicy() {
-      return this.policies.globalMcpPolicy;
+    getAllowAll() {
+      return this.policies.allowAll === true;
     }
 
-    async setGlobalMcpPolicy(policy) {
-      await this._patchBackend({ globalMcpPolicy: policy });
+    async setAllowAll(allowAll) {
+      await this._patchBackend({ allowAll: Boolean(allowAll) });
     }
 
     getDirectoryRules() {

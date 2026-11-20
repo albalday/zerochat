@@ -2,9 +2,9 @@
  * Sección Navegador de los ajustes: la herramienta de navegación (configuración del cliente) y,
  * con Playwright MCP, su navegador (config/browser.json del servidor local): el propio de ZeroChat
  * con sus motores y sus datos, o el del usuario (Chrome, Edge o Chromium) mediante la extensión de Playwright.
- * Incluye también el capítulo Navegador del editor de perfiles. Se organiza en tres zonas: el modelo
- * (estado de la sección y del capítulo y consultas al estado MCP), la vista (plantillas que pintan ese
- * estado) y el controlador (acciones, peticiones al servidor local y eventos delegados del montaje).
+ * Se organiza en tres zonas: el modelo (estado de la sección y consultas al estado MCP), la vista
+ * (plantillas que pintan ese estado) y el controlador (acciones, peticiones al servidor local y
+ * eventos delegados del montaje).
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -27,7 +27,7 @@
   // ==========================================================================
 
   const ENGINE_NAMES = { chromium: 'Chromium', firefox: 'Firefox', webkit: 'WebKit' };
-  const { USER_BROWSERS, PLAYWRIGHT_ENGINES } = Defaults;
+  const { USER_BROWSERS } = Defaults;
   const ENGINE_POLL_MS = 1000;
   const CONFIG_KEYS = ['mode', 'engine', 'userBrowser', 'headless', 'extensionToken'];
   // La extensión muestra el token como variable de entorno: se admite pegar la línea entera.
@@ -35,14 +35,10 @@
   const TOKEN_PATTERN = /^[A-Za-z0-9_-]{0,256}$/;
 
   // Lo que muestra la sección: la herramienta y la configuración en edición, la guardada y los motores.
-  let section = { tool: null, savedTool: null, config: null, savedConfig: null, engines: null, notice: null };
+  let section = { tool: null, config: null, savedConfig: null, engines: null, notice: null };
   let pollTimer = null;
-  // Capítulo Navegador del editor de perfiles: el perfil puede necesitar Playwright MCP con un navegador
-  // instalado y, con el propio, su ventana visible; sin necesitarlo usa lo de Ajustes › Navegador.
-  let profileChapter = { value: null, engines: null, disabled: false };
-  // Fijados al montar: los contenedores que se pintan y cómo abrir otra sección de los ajustes.
+  // Fijados al montar: el contenedor que se pinta y cómo abrir otra sección de los ajustes.
   let container = null;
-  let profileContainer = null;
   let openSection = null;
 
   const request = (method, params = {}) => getMCP().manager.requestExternalControl(method, params);
@@ -73,44 +69,24 @@
   /**
    * Qué hace Guardar en la sección según lo elegido y el estado de Playwright MCP en el servidor
    * (`status`, null sin conexión). La configuración del navegador solo se valida y se envía con
-   * Playwright MCP elegido; un cambio con el servidor en marcha ofrece reiniciarlo y elegirlo de nuevo
-   * lo arranca si está detenido.
+   * Playwright MCP elegido; un cambio con el servidor en marcha ofrece reiniciarlo. El arranque y la
+   * parada de Playwright MCP los concilia `reconcileProjectServers`.
    */
-  function getSavePlan({ tool, savedTool, config, savedConfig }, status) {
-    const plan = { tokenInvalid: false, setConfig: false, offerRestart: false, start: false };
+  function getSavePlan({ tool, config, savedConfig }, status) {
+    const plan = { tokenInvalid: false, setConfig: false, offerRestart: false };
     if (tool !== 'playwright') return plan;
     if (config && !tokenValid(config)) return { ...plan, tokenInvalid: true };
     const setConfig = Boolean(config && savedConfig) && !sameConfig(config, savedConfig);
     return {
       ...plan,
       setConfig,
-      offerRestart: setConfig && McpStatus.isRunning(status),
-      start: savedTool !== 'playwright' && McpStatus.canStart(status)
+      offerRestart: setConfig && McpStatus.isRunning(status)
     };
   }
 
   function getTool() {
     return section.tool ?? getConfig().getActive().browser;
   }
-
-  /** Navegadores que se pueden exigir en cada modo: motores instalados o navegadores detectados; null sin servidor. */
-  function installedChoices(mode) {
-    const engines = profileChapter.engines;
-    if (!engines) return null;
-    if (mode === 'own') return engines.engines.filter(engine => engine.installed).map(engine => engine.id);
-    return USER_BROWSERS.filter(id => engines.systemBrowsers[id]);
-  }
-
-  const choiceOf = (mode, id) => (mode === 'own' ? { mode, engine: id } : { mode, userBrowser: id });
-  const idOf = choice => choice.engine || choice.userBrowser;
-
-  /** Primer navegador que se puede exigir en el modo, o el predeterminado si no se sabe o no hay ninguno. */
-  function defaultChoice(mode) {
-    const installed = installedChoices(mode);
-    return choiceOf(mode, installed?.[0] || (mode === 'own' ? PLAYWRIGHT_ENGINES[0] : USER_BROWSERS[0]));
-  }
-
-  const getProfileBrowser = () => (profileChapter.value ? { ...profileChapter.value } : null);
 
   // ==========================================================================
   // 2. Vista: plantillas y DOM
@@ -191,23 +167,6 @@
       <p class="label-hint">${escapeHtml(t('browser_save_note'))}</p>`;
   }
 
-  /** Nombre de un navegador de Playwright MCP: «Chromium propio», «Chromium propio (trabajo) con ventana» o «tu Chrome». */
-  function describeBrowser(choice) {
-    if (choice.mode === 'user') return t('browser_choice_user', { name: t(`browser_user_${choice.userBrowser}`) });
-    const own = t('browser_choice_own', { name: ENGINE_NAMES[choice.engine] });
-    const withStorage = choice.storage ? `${own} (${choice.storage})` : own;
-    return choice.headless === false ? t('browser_choice_visible', { browser: withStorage }) : withStorage;
-  }
-
-  /** Aviso de que el perfil activo exige Playwright MCP, que manda sobre la herramienta elegida aquí. */
-  function renderProfileRequirement() {
-    const config = getConfig().getActive();
-    if (!config.playwrightBrowser) return '';
-    return `<p class="browser-notice">${escapeHtml(t('browser_profile_required', {
-      profile: config.activeProfile?.name || '', browser: describeBrowser(config.playwrightBrowser)
-    }))}</p>`;
-  }
-
   function render() {
     if (!container || section.tool === null) return;
     const shown = shownTool();
@@ -226,55 +185,10 @@
           <div class="browser-tool-grid">${tools}</div>
         </div>
         ${missing}
-        ${renderProfileRequirement()}
         ${notice}
         ${shown === 'playwright' ? renderPlaywright() : `<p class="label-hint">${escapeHtml(t(`browser_other_${shown}`))}</p>`}
       </div>`;
   }
-
-  function renderProfileBrowser() {
-    if (!profileContainer) return;
-    const value = profileChapter.value;
-    const disabled = profileChapter.disabled ? ' disabled' : '';
-    let body = '';
-    if (value) {
-      const installed = installedChoices(value.mode);
-      const ids = installed && installed.includes(idOf(value)) ? installed : [...(installed || []), idOf(value)];
-      const missing = installed !== null && !installed.includes(idOf(value));
-      const options = ids.map(id => {
-        const label = value.mode === 'own' ? ENGINE_NAMES[id] : t(`browser_user_${id}`);
-        const text = installed && !installed.includes(id) ? t('profile_browser_not_installed', { name: label }) : label;
-        return `<option value="${escapeHtml(id)}"${id === idOf(value) ? ' selected' : ''}>${escapeHtml(text)}</option>`;
-      }).join('');
-      const modes = ['own', 'user'].map(mode => `<label class="browser-check"><input type="radio" name="profile-browser-mode" value="${mode}"${value.mode === mode ? ' checked' : ''}${disabled}>${escapeHtml(t(`browser_mode_${mode}`))}</label>`).join('');
-      const storageOk = value.storage === undefined || Defaults.PLAYWRIGHT_STORAGE_PATTERN.test(value.storage);
-      const storageError = storageOk ? ''
-        : `<p id="profile-browser-storage-error" class="server-query-status status-error" role="alert">${escapeHtml(t('profile_browser_storage_invalid'))}</p>`;
-      body = `<div class="browser-card-body">
-          <div role="radiogroup" aria-label="${escapeHtml(t('browser_mode_aria'))}">${modes}</div>
-          <div class="form-field">
-            <label for="profile-browser-name"><strong>${escapeHtml(t('profile_browser_name'))}</strong></label>
-            <select id="profile-browser-name" name="profile-browser-name"${disabled}>${options}</select>
-          </div>
-          ${value.mode === 'own' ? `<div class="form-field">
-            <label for="profile-browser-storage"><strong>${escapeHtml(t('profile_browser_storage'))}</strong><span class="label-hint">${escapeHtml(t('profile_browser_storage_hint'))}</span></label>
-            <input type="text" id="profile-browser-storage" name="profile-browser-storage" value="${escapeHtml(value.storage || '')}" spellcheck="false"${disabled}${storageOk ? '' : ' aria-invalid="true" aria-describedby="profile-browser-storage-error"'}>
-            ${storageError}
-          </div>
-          <label class="browser-check"><input type="checkbox" name="profile-browser-show-window"${value.headless === false ? ' checked' : ''}${disabled}>${escapeHtml(t('browser_show_window'))}</label>` : ''}
-          ${installed === null ? `<p class="label-hint">${escapeHtml(t('profile_browser_disconnected'))}</p>` : ''}
-          ${missing ? `<p class="browser-warning">${Icons.get('alert-triangle', { size: 14 })}<span>${escapeHtml(t('profile_browser_missing'))}</span></p>` : ''}
-        </div>`;
-    }
-    profileContainer.innerHTML = `<p class="label-hint">${escapeHtml(t('profile_browser_hint'))}</p>
-      <label class="browser-choice"><input type="checkbox" name="profile-browser-required"${value ? ' checked' : ''}${disabled}><span class="browser-choice-text"><strong>${escapeHtml(t('profile_browser_required'))}</strong><span class="label-hint">${escapeHtml(t('profile_browser_required_hint'))}</span></span></label>
-      ${body}
-      <p class="label-hint">${escapeHtml(t('profile_browser_settings'))}</p>`;
-  }
-
-  const profileBrowserSummary = () => (profileChapter.value
-    ? t('profile_summary_browser_required', { browser: describeBrowser(profileChapter.value) })
-    : t('profile_summary_browser_settings'));
 
   // ==========================================================================
   // 3. Controlador: acciones y eventos
@@ -307,7 +221,7 @@
 
   /** Carga la sección al abrir los ajustes con la herramienta de navegación de la configuración. */
   function load(tool, { fetch = true } = {}) {
-    section = { tool, savedTool: tool, config: null, savedConfig: null, engines: null, notice: null };
+    section = { tool, config: null, savedConfig: null, engines: null, notice: null };
     render();
     if (fetch) refreshServerData().catch(showError);
   }
@@ -361,18 +275,22 @@
     render();
   }
 
+  function validate() {
+    const plan = getSavePlan(section, isConnected() ? playwrightStatus() : null);
+    if (!plan.tokenInvalid) return true;
+    render();
+    container.querySelector('#browser-extension-token')?.focus();
+    return false;
+  }
+
   /**
    * Guarda la configuración del navegador al guardar los ajustes; la herramienta la guarda la
    * configuración del cliente. Devuelve false si el token no es válido o el servidor rechaza la configuración.
    */
   async function save() {
+    if (!validate()) return false;
     const manager = getMCP().manager;
     const plan = getSavePlan(section, isConnected() ? playwrightStatus() : null);
-    if (plan.tokenInvalid) {
-      render();
-      container.querySelector('#browser-extension-token')?.focus();
-      return false;
-    }
     if (plan.setConfig) {
       try {
         section.savedConfig = await request('zerochat/browser/config/set', { config: section.config });
@@ -386,9 +304,6 @@
     })) {
       manager.withExternalServerStopped('playwright');
     }
-    // Arrancado al elegirlo, queda recordado para la siguiente sesión.
-    if (plan.start) manager.runExternalServerAction('playwright', 'start');
-    section.savedTool = section.tool;
     return true;
   }
 
@@ -418,59 +333,8 @@
     I18n.onChange(render);
   }
 
-  function handleProfileBrowserChange(target) {
-    if (target.name === 'profile-browser-required') profileChapter.value = target.checked ? defaultChoice('own') : null;
-    else if (target.name === 'profile-browser-mode') profileChapter.value = defaultChoice(target.value);
-    else if (target.name === 'profile-browser-name') {
-      // Al cambiar de motor se conservan la ventana visible y el almacenamiento.
-      const { mode, engine, userBrowser, ...ownOptions } = profileChapter.value;
-      profileChapter.value = { ...choiceOf(mode, target.value), ...(mode === 'own' ? ownOptions : {}) };
-    }
-    else if (target.name === 'profile-browser-show-window') {
-      const { headless, ...rest } = profileChapter.value;
-      profileChapter.value = target.checked ? { ...rest, headless: false } : rest;
-    }
-    else if (target.name === 'profile-browser-storage') {
-      const { storage, ...rest } = profileChapter.value;
-      const trimmed = target.value.trim();
-      profileChapter.value = trimmed ? { ...rest, storage: trimmed } : rest;
-    }
-    else return;
-    renderProfileBrowser();
-  }
-
-  /** Muestra el navegador que exige el perfil y pide al servidor local los navegadores instalados. */
-  function loadProfileBrowser(value, { fetch = true } = {}) {
-    profileChapter = { value: value ? { ...value } : null, engines: null, disabled: profileChapter.disabled };
-    renderProfileBrowser();
-    if (fetch) ensureProfileBrowserLoaded();
-  }
-
-  /** Pide los navegadores instalados al desplegar el capítulo de navegador en Perfiles. */
-  function ensureProfileBrowserLoaded() {
-    if (profileChapter.engines || !isConnected()) return;
-    request('zerochat/browser/engines/list').then(engines => {
-      profileChapter.engines = engines;
-      renderProfileBrowser();
-    }).catch(error => console.warn('[UIBrowser] Could not list the browsers for the profile:', error));
-  }
-
-  /** Perfil bloqueado o de solo lectura: el capítulo se muestra sin poder cambiarlo. */
-  function setProfileBrowserDisabled(disabled) {
-    if (profileChapter.disabled === disabled) return;
-    profileChapter.disabled = disabled;
-    renderProfileBrowser();
-  }
-
-  function mountProfileBrowser(element) {
-    profileContainer = element;
-    profileContainer.addEventListener('change', event => handleProfileBrowserChange(event.target));
-    I18n.onChange(renderProfileBrowser);
-  }
-
   return {
     getSavePlan, normalizeExtensionToken,
-    load, ensureLoaded, getTool, save, mountBrowserUI,
-    loadProfileBrowser, ensureProfileBrowserLoaded, getProfileBrowser, profileBrowserSummary, setProfileBrowserDisabled, mountProfileBrowser
+    load, ensureLoaded, getTool, validate, save, mountBrowserUI
   };
 });

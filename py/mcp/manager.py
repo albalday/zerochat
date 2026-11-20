@@ -54,12 +54,10 @@ def public_tool_name(server_id: str, original: str) -> str:
 
 @dataclasses.dataclass
 class McpServiceRecord:
-    """Estado de un servicio MCP en este proceso: fase del ciclo de vida, cliente, último error y
-    modo y navegador con los que arrancó (solo los servicios de SERVICE_LAUNCH)."""
+    """Estado de un servicio MCP en este proceso: fase del ciclo de vida, cliente y último error."""
     phase: str = "stopped"  # stopped, installing, starting, running o error
     client: StdioMcpClient | None = None
     error: str | None = None
-    browser: dict | None = None
 
 
 # Nombre de la variable de entorno de un secreto que declara un servicio en su service.json ("secrets").
@@ -201,13 +199,6 @@ class McpServiceManager:
         except OSError as err:
             log_event(f"[zerochat] Advertencia al guardar preferencias MCP en {self.config_file}: {err}")
 
-    def _remember(self, server_id: str, enabled: bool):
-        """Único sitio que guarda si un servicio queda activo para ofrecerlo en la siguiente sesión: lo
-        marca un arranque con remember y lo desmarca detenerlo. Un reinicio (detener y arrancar con el
-        valor previo) lo conserva, y un arranque sin remember, como el de un perfil, no lo cambia."""
-        self.preferences.setdefault(server_id, {})["enabled"] = enabled
-        self._save_preferences()
-
     def list_servers(self) -> list[dict]:
         self.services = self._load_services()
         saved_secrets = secret_names("mcp:")
@@ -225,14 +216,12 @@ class McpServiceManager:
                 "description": server.get("description", {}),
                 "help": server.get("help"),
                 "remote": server.get("remote"),
-                "enabled": pref.get("enabled", server.get("enabledByDefault", False)),
                 "status": status,
                 "toolCount": len(client.tools) if running else 0,
                 "error": error,
                 "options": server.get("options", []),
                 "userOptions": pref.get("options", {}),
                 "oauthUrl": client.oauth_url if client else None,
-                "browser": record.browser if running else None,
                 # Solo si cada secreto está guardado: su valor nunca sale del backend.
                 "secrets": [{**secret, "configured": service_secret_key(server_id, secret["name"]) in saved_secrets}
                             for secret in service_secrets(server)],
@@ -324,15 +313,14 @@ class McpServiceManager:
         if int(version_match.group(1)) < required_node_major:
             raise RuntimeError(f"{server_id} requiere Node.js {required_node_major}+; se detectó {detected}")
 
-    def start(self, server_id: str, remember: bool, browser: dict | None = None) -> list[dict]:
-        """Arranca un servicio; con remember lo guarda como activo para ofrecerlo en la siguiente sesión.
-        `browser` es el navegador que exige el perfil activo, solo para Playwright MCP."""
+    def start(self, server_id: str) -> list[dict]:
+        """Arranca un servicio MCP externo y devuelve la lista actualizada de servicios."""
         with self._lock:
             self.services = self._load_services()
-            self._start_locked(server_id, remember, browser)
+            self._start_locked(server_id)
             return self.list_servers()
 
-    def _start_locked(self, server_id: str, remember: bool, browser: dict | None):
+    def _start_locked(self, server_id: str):
         server = self.services.get(server_id)
         if not server:
             raise KeyError(f"Servidor MCP desconocido: {server_id}")
@@ -364,9 +352,8 @@ class McpServiceManager:
             env = os.environ.copy()
             for k, v in launch.get("env", {}).items():
                 env[k] = self._expand(v, env_values)
-            record.browser = None
             if server_id in SERVICE_LAUNCH:
-                extra_args, extra_env, record.browser = SERVICE_LAUNCH[server_id](browser)
+                extra_args, extra_env = SERVICE_LAUNCH[server_id]()
                 args += extra_args
                 env.update(extra_env)
 
@@ -379,8 +366,6 @@ class McpServiceManager:
             record.phase, record.client = "starting", client
             client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
             record.phase = "running"
-            if remember:
-                self._remember(server_id, True)
             self._trace(server_id, "started successfully")
         except Exception as exc:
             record.phase, record.error = "error", str(exc)
@@ -429,7 +414,6 @@ class McpServiceManager:
                 raise KeyError(f"Servidor MCP desconocido: {server_id}")
             if record.client:
                 record.client.stop()
-            self._remember(server_id, False)
             return self.list_servers()
 
     def configure(self, server_id: str, options: dict | None = None) -> list[dict]:
@@ -558,10 +542,9 @@ class McpServiceManager:
                 record = self.records.get(server_id)
                 if not (record and record.client and record.client.running()):
                     continue
-                # Se reinicia con el navegador con el que arrancó y sin cambiar si se recuerda.
                 self._trace(server_id, "restarting with the updated version")
                 record.client.stop()
-                self._start_locked(server_id, False, record.browser)
+                self._start_locked(server_id)
 
     def close(self):
         self._catalog_stop.set()

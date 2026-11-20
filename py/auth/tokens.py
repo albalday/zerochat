@@ -45,8 +45,8 @@ class TokenGrant:
     run_id: str | None = None
     conversation_id: str | None = None
 
-    def allows(self, req_path: str, method: str, params: dict | None = None) -> bool:
-        """Indica si esta credencial autoriza el método JSON-RPC solicitado en la ruta dada."""
+    def allows(self, method: str, params: dict | None = None) -> bool:
+        """Indica si esta credencial autoriza el método JSON-RPC solicitado."""
         if self.kind in ("local", "remote"):
             return True
         if self.kind != "runner":

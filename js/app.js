@@ -51,6 +51,7 @@
     btnSidebarBackToChats: 'btn-sidebar-back-to-chats',
     btnCloseSidebarSettings: 'btn-close-sidebar-settings',
     sidebarSettingsNav: 'sidebar-settings-nav',
+    sidebarSettingsProjectLabel: 'sidebar-settings-project-label',
     sidebarEncryptionNav: 'sidebar-encryption-nav',
     sidebarRagNav: 'sidebar-rag-nav',
     sidebarSettingsFooter: 'sidebar-settings-footer',
@@ -70,7 +71,6 @@
     btnExportHtml: 'btn-export-html',
     btnExportPrint: 'btn-export-print',
     // Perfil activo e inspector
-    activeProfileMenu: 'active-profile-menu',
     activeProfileTrigger: 'active-profile-trigger',
     activeProfileName: 'active-profile-name',
     activeProfilePopover: 'active-profile-popover',
@@ -154,6 +154,7 @@
     settingsDialog: 'settings-dialog',
     settingsForm: 'settings-form',
     settingsSectionTitle: 'settings-section-title',
+    settingsProjectBadge: 'settings-project-badge',
     btnCloseSettings: 'btn-close-settings',
     btnSaveSettings: 'btn-save-settings',
     btnClearAllData: 'btn-clear-all-data',
@@ -181,12 +182,6 @@
     profileSummaryConnection: 'profile-summary-connection',
     profileSummaryWebllm: 'profile-summary-webllm',
     profileSummaryBehavior: 'profile-summary-behavior',
-    profileSummaryMcp: 'profile-summary-mcp',
-    profileSummaryBrowser: 'profile-summary-browser',
-    profileBrowser: 'profile-browser',
-    profileSummaryMcpWarning: 'profile-summary-mcp-warning',
-    profileMcpServers: 'profile-mcp-servers',
-    profileMcpDisconnected: 'profile-mcp-disconnected',
     webllmLocalHint: 'webllm-local-hint',
     webllmHelpLink: 'webllm-help-link',
     apiKeyHintText: 'api-key-hint-text',
@@ -287,7 +282,7 @@
       },
       onSessionSwitched: conversation => {
         applySessionModeAndProfile(conversation);
-        UIProject.followConversationProject(conversation).catch(error => console.warn('[App] Could not open the conversation project:', error));
+        return UIProject.followConversationProject(conversation).catch(error => console.warn('[App] Could not open the conversation project:', error));
       },
       isServerMode: () => isServerRunEnabled(),
       getProject: () => MCP.currentProject(),
@@ -588,7 +583,8 @@
     elements.sidebarEncryptionNav.hidden = nav !== 'encryption';
     elements.sidebarRagNav.hidden = nav !== 'rag';
     elements.sidebarSettingsFooter.hidden = nav !== 'settings';
-    if (nav !== 'settings') UISidebar.setActiveSettingsSection(elements, '');
+    if (nav === 'settings') UISettings.syncProjectScopeLabels(elements);
+    else UISidebar.setActiveSettingsSection(elements, '');
   }
 
   function openSettingsSection(sectionId = 'model') {
@@ -840,6 +836,7 @@
     State.subscribe(state => ({ status: state.mcp.status, cwd: state.mcp.status === 'connected' ? state.mcp.serverInfo?.cwd || '' : '' }), () => {
       renderSidebarChats();
       updateNewTabLink();
+      UISettings.syncProjectScopeLabels(elements);
     });
     const syncSidebarSyncButton = status => { elements.btnSyncChats.hidden = status !== 'connected'; };
     State.subscribe(state => state.mcp.status, syncSidebarSyncButton);
@@ -901,7 +898,6 @@
       loginPassword: elements.loginPassword, loginError: elements.loginError,
       loginCancel: elements.loginCancel, loginSubmit: elements.loginSubmit
     }, { connect: backendSession.connectConfigured, login: backendSession.login });
-    UIBrowser.mountProfileBrowser(elements.profileBrowser);
     UIMcp.initMcpUI({
       statusBadge: elements.mcpStatusBadge, statusText: elements.mcpStatusText,
       serverDetails: elements.mcpServerDetails, commandSnippet: elements.mcpTerminalCommand,
@@ -952,8 +948,7 @@
         if (reloading) return;
         const connection = await startupMcpConnection;
         if (!connection.success) return;
-        await UIProfiles.startActiveProfileServers();
-        await UIMcp.restoreEnabledExternalServices(State.get('mcp').externalServers);
+        await UIMcp.reconcileProjectServices(State.get('mcp').externalServers);
       }).catch(error => console.warn('[App] Could not check MCP services on startup:', error));
     }
 

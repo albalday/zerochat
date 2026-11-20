@@ -1,12 +1,9 @@
 /**
- * Suite de pruebas unitarias para ChatEngine (js/chat-engine.js).
+ * Suite de pruebas de integración para ChatEngine (js/chat-engine.js).
  * Verifica:
  * 1. Formateo de fechas iniciales y guías de herramientas en System Prompt.
  * 2. Inyección y anclaje de mensajes efectivos para Context-Caching.
- * 3. Inserción semántica de cursor en streaming.
- * 4. Orquestación del bucle agéntico con streaming y llamadas a herramientas.
- * 5. Detección y protección contra bucles infinitos por llamadas idénticas consecutivas.
- * 6. Cancelación mediante AbortSignal.
+ * 3. Orquestación del bucle agéntico con streaming, llamadas a herramientas y cancelación mediante AbortSignal.
  */
 
 const test = require('node:test');

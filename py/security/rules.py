@@ -10,9 +10,6 @@ import shlex
 
 from security.context import normalize_directory_path
 
-GLOBAL_POLICY_ASK = "ask"
-GLOBAL_POLICY_ALLOW_ALL = "allow_all"
-GLOBAL_POLICIES = (GLOBAL_POLICY_ASK, GLOBAL_POLICY_ALLOW_ALL)
 POLICY_ALLOW = "allow"
 POLICY_DENY = "deny"
 POLICY_ASK = "ask"
@@ -345,16 +342,3 @@ class AccessDecision:
     server_id: str = ""
     details: str = ""
     rule_offer: dict | None = None
-
-    def to_dict(self) -> dict:
-        return {
-            "allowed": self.allowed,
-            "status": self.status,
-            "reason": self.reason,
-            "requiresApproval": self.requires_approval,
-            "toolId": self.tool_id,
-            "serverName": self.server_name,
-            "serverId": self.server_id,
-            "details": self.details,
-            "ruleOffer": self.rule_offer
-        }

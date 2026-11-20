@@ -150,10 +150,11 @@ def truncate_body(text: str, max_chars: int = MAX_BODY_CHARS) -> tuple[str, bool
     return f"{text[:max_chars]}\n\n[Truncado a {max_chars} caracteres]", True
 
 
-def _extract_body_and_attachments(msg: email.message.Message) -> tuple[str, list[dict], bool]:
+def _extract_body_and_attachments(msg: email.message.Message) -> tuple[str, list[dict], bool, bool]:
     plain_parts: list[str] = []
     html_parts: list[str] = []
     attachments: list[dict] = []
+    attachments_truncated = False
 
     parts = msg.walk() if msg.is_multipart() else [msg]
     for part in parts:
@@ -172,6 +173,8 @@ def _extract_body_and_attachments(msg: email.message.Message) -> tuple[str, list
                     "content_type": content_type,
                     "size_bytes": len(raw_bytes),
                 })
+            else:
+                attachments_truncated = True
             continue
         text = _decode_payload_bytes(raw_bytes, part.get_content_charset())
         if content_type == "text/plain":
@@ -183,7 +186,7 @@ def _extract_body_and_attachments(msg: email.message.Message) -> tuple[str, list
     if not body_text and html_parts:
         body_text = html_to_text("\n".join(html_parts))
     capped, truncated = truncate_body(body_text)
-    return capped, attachments, truncated
+    return capped, attachments, truncated, attachments_truncated
 
 
 def _open_imap(cfg: dict) -> imaplib.IMAP4_SSL:
@@ -412,7 +415,7 @@ def tool_read_message(cfg: dict, args: dict) -> dict:
         if status != "OK" or not fetched or not isinstance(fetched[0], tuple):
             raise ValueError(f"Mensaje con UID {uid} no encontrado en '{folder}'.")
         msg = email.message_from_bytes(fetched[0][1], policy=email.policy.compat32)
-        body, attachments, truncated = _extract_body_and_attachments(msg)
+        body, attachments, truncated, attachments_truncated = _extract_body_and_attachments(msg)
         return {
             "uid": uid,
             "folder": folder,
@@ -423,6 +426,7 @@ def tool_read_message(cfg: dict, args: dict) -> dict:
             "subject": _decode_mime_header(msg.get("Subject")),
             "message_id": (msg.get("Message-ID") or "").strip(),
             "attachments": attachments,
+            "attachments_truncated": attachments_truncated,
             "body": body,
             "truncated": truncated,
         }

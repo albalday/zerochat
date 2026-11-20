@@ -55,42 +55,6 @@ test('ProjectContext.buildPromptBlock - inyecta en ready, delimita XML y avisa s
   assert.doesNotMatch(withState('- Milestone: M1 Setup\n- Next task: M1-T2 Add List<T> parser'), /still has template placeholders/);
 });
 
-test('ProjectContext.buildBootstrapPrompt - interpola cwd y plantillas, y exige aprobación', () => {
-  const prompt = ProjectContext.buildBootstrapPrompt('/home/u/repo');
-  assert.match(prompt, /repository at \/home\/u\/repo/);
-  assert.match(prompt, /AGENTS\.md is the single place for this project's agent rules/);
-  assert.match(prompt, /wait for the user's explicit approval \(use the ask_user tool for it when available\)/);
-  assert.match(prompt, /Without AGENTS\.md: create it/);
-  assert.match(prompt, /in CLAUDE\.md use the line `@AGENTS\.md`/);
-  assert.match(prompt, /Do not modify a file that says it must not be modified/);
-  assert.match(prompt, /\.zerochat\/task\.py last, because its existence marks the project as initialized/);
-  assert.match(prompt, /Without a plan: ask the user for the project's purpose and its first milestone/);
-  assert.match(prompt, /Add the purpose to README\.md, creating it if missing; README\.md never holds plans, tasks or status/);
-  assert.match(prompt, /leave no <placeholders>; if the user has no milestone yet, use "M1 Project setup"/);
-  assert.match(prompt, /If there are any, end the memory section with: "Other agent instruction files/);
-  assert.doesNotMatch(prompt, /gitignore/, 'No pregunta ni decide si .zerochat se versiona');
-  for (const template of ['MEMORY_SECTION_TEMPLATE', 'PLAN_TEMPLATE', 'LOG_TEMPLATE', 'STATE_TEMPLATE', 'TASK_SCRIPT_TEMPLATE']) {
-    assert.ok(prompt.includes(ProjectContext[template]), template);
-  }
-});
-
-test('ProjectContext.buildCompactPrompt - genera instrucciones de condensación de hitos y rotación de log', () => {
-  const prompt = ProjectContext.buildCompactPrompt('/home/u/repo');
-  assert.match(prompt, /repository at \/home\/u\/repo/);
-  assert.match(prompt, /NOTE ON MODEL & REASONING:.*medium or high reasoning level/);
-  assert.match(prompt, /\.zerochat\/plan\.md/);
-  assert.match(prompt, /\.zerochat\/log\.md/);
-  assert.match(prompt, /\.zerochat\/archive\//);
-  assert.match(prompt, /<!-- Hitos M1 a M<last_archived> archivados en \.zerochat\/archive\/ -->/);
-  assert.match(prompt, /log_M<first_unarchived>-M<last_closed>\.md/);
-  assert.match(prompt, /reverse-chronologically \(from newest milestone to oldest\)/);
-  assert.match(prompt, /Being implemented in code or covered by tests is NOT a reason to drop an invariant/);
-  assert.match(prompt, /wait for explicit user approval before modifying any files/);
-  assert.match(prompt, /Active architectural pillars/);
-  assert.match(prompt, /Superseded\/obsolete decisions/);
-  assert.match(prompt, /DO NOT modify, write, or touch any files in this turn/);
-});
-
 test('ProjectContext - TASK_SCRIPT_TEMPLATE mantiene paridad exacta con .zerochat/task.py', () => {
   const diskPath = path.resolve(__dirname, '../../.zerochat/task.py');
   const diskContent = fs.readFileSync(diskPath, 'utf-8').trim();

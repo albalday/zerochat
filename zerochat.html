@@ -23,7 +23,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#0d1117">
   <meta name="description" content="ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación">
-  <title>ZeroChat v10.32.1</title>
+  <title>ZeroChat v10.33.0</title>
   <link rel="manifest" href="manifest.webmanifest">
   <!-- Carga concurrente paralela de hojas de estilo (elimina la cascada bloqueante de @import en móvil) -->
   <link rel="stylesheet" href="css/tokens.css">
@@ -161,6 +161,7 @@
       </div>
 
       <nav id="sidebar-settings-nav" class="sidebar-settings-nav" aria-label="Secciones de Configuración">
+        <div class="sidebar-settings-group-label" data-i18n="settings_group_global">Global</div>
         <!-- Elección 1: Idioma -->
         <div class="sidebar-settings-choice" id="sidebar-choice-language">
           <span class="settings-item-icon">
@@ -189,21 +190,11 @@
           </div>
         </div>
 
-        <!-- Secciones de panel -->
-        <button type="button" class="sidebar-settings-item" data-section="model">
+        <button type="button" class="sidebar-settings-item" data-section="encryption">
           <span class="settings-item-icon">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg>
+            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-shield"></use></svg>
           </span>
-          <span class="settings-item-label" data-i18n="settings_model">Modelo</span>
-          <span class="settings-item-chevron">
-            <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
-          </span>
-        </button>
-        <button type="button" class="sidebar-settings-item" data-section="agent">
-          <span class="settings-item-icon">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-bot"></use></svg>
-          </span>
-          <span class="settings-item-label" data-i18n="settings_agent">Agente</span>
+          <span class="settings-item-label" data-i18n="settings_encryption">Cifrado</span>
           <span class="settings-item-chevron">
             <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
           </span>
@@ -217,42 +208,57 @@
             <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
           </span>
         </button>
-        <button type="button" class="sidebar-settings-item" data-section="mcp">
-          <span class="settings-item-icon">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-server"></use></svg>
-          </span>
-          <span class="settings-item-label" data-i18n="settings_mcp">MCP</span>
-          <span class="settings-item-chevron">
-            <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
-          </span>
-        </button>
-        <button type="button" class="sidebar-settings-item" data-section="browser">
-          <span class="settings-item-icon">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-globe"></use></svg>
-          </span>
-          <span class="settings-item-label" data-i18n="settings_browser">Navegador</span>
-          <span class="settings-item-chevron">
-            <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
-          </span>
-        </button>
-        <button type="button" class="sidebar-settings-item" data-section="permissions">
-          <span class="settings-item-icon">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-shield"></use></svg>
-          </span>
-          <span class="settings-item-label" data-i18n="settings_permissions">Permisos</span>
-          <span class="settings-item-chevron">
-            <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
-          </span>
-        </button>
-        <button type="button" class="sidebar-settings-item" data-section="encryption">
-          <span class="settings-item-icon">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-shield"></use></svg>
-          </span>
-          <span class="settings-item-label" data-i18n="settings_encryption">Cifrado</span>
-          <span class="settings-item-chevron">
-            <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
-          </span>
-        </button>
+
+        <!-- Bloque de entorno del proyecto activo -->
+        <div class="sidebar-settings-project-group">
+          <div class="sidebar-settings-group-label sidebar-settings-project-label" id="sidebar-settings-project-label">Proyecto: general</div>
+          <button type="button" class="sidebar-settings-item" data-section="model">
+            <span class="settings-item-icon">
+              <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg>
+            </span>
+            <span class="settings-item-label" data-i18n="settings_model">Modelo</span>
+            <span class="settings-item-chevron">
+              <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
+            </span>
+          </button>
+          <button type="button" class="sidebar-settings-item" data-section="agent">
+            <span class="settings-item-icon">
+              <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-bot"></use></svg>
+            </span>
+            <span class="settings-item-label" data-i18n="settings_agent">Agente</span>
+            <span class="settings-item-chevron">
+              <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
+            </span>
+          </button>
+          <button type="button" class="sidebar-settings-item" data-section="mcp">
+            <span class="settings-item-icon">
+              <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-server"></use></svg>
+            </span>
+            <span class="settings-item-label" data-i18n="settings_mcp">MCP</span>
+            <span class="settings-item-chevron">
+              <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
+            </span>
+          </button>
+          <button type="button" class="sidebar-settings-item" data-section="browser">
+            <span class="settings-item-icon">
+              <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-globe"></use></svg>
+            </span>
+            <span class="settings-item-label" data-i18n="settings_browser">Navegador</span>
+            <span class="settings-item-chevron">
+              <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
+            </span>
+          </button>
+          <button type="button" class="sidebar-settings-item" data-section="permissions">
+            <span class="settings-item-icon">
+              <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-shield"></use></svg>
+            </span>
+            <span class="settings-item-label" data-i18n="settings_permissions">Permisos</span>
+            <span class="settings-item-chevron">
+              <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
+            </span>
+          </button>
+        </div>
+
         <a id="sidebar-settings-help" class="sidebar-settings-item" href="help/index.html" target="_blank" rel="noopener noreferrer" data-i18n-href="sidebar_help_href">
           <span class="settings-item-icon">
             <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg>
@@ -333,7 +339,7 @@
 
       <div class="header-center">
         <!-- Selector de Perfil Activo (movido desde el compositor) -->
-        <div id="active-profile-menu" class="header-profile-menu">
+        <div class="header-profile-menu">
           <button type="button" id="active-profile-trigger" class="header-profile-trigger" aria-haspopup="dialog" aria-expanded="false" aria-controls="active-profile-popover" data-i18n-title="profile_badge_title" title="Perfil activo">
             <span id="active-profile-name" class="header-profile-name">Espejo</span>
             <span class="profile-chevron"><svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-up"></use></svg></span>
@@ -367,7 +373,7 @@
         <a id="welcome-help-link" class="welcome-status-badge welcome-help-link" href="help/index.html" target="_blank" rel="noopener noreferrer" data-i18n-title="welcome_help_title" data-i18n-href="welcome_help_href" title="Abrir centro de ayuda y documentación online">
           <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg>
           <span data-i18n="welcome_help_link">Ayuda y Documentación</span>
-          <span id="welcome-version" class="welcome-version">(v10.32.1)</span>
+          <span id="welcome-version" class="welcome-version">(v10.33.0)</span>
           <svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-external-link"></use></svg>
         </a>
       </div>

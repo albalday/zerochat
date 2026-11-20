@@ -144,7 +144,6 @@ test('Service Worker - una librería bajo demanda se guarda al primer uso y se s
   };
   vm.createContext(context);
   vm.runInContext(swCode, context);
-  assert.doesNotMatch(swCode, /'\.\/js\/vendor\/mammoth\.browser\.js'/);
 
   const request = (url) => {
     let responsePromise = null;

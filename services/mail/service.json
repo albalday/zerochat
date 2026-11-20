@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "mail",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "displayName": {
     "es": "Correo (IMAP / SMTP)",
     "en": "Email (IMAP / SMTP)"
@@ -17,7 +17,6 @@
       "en": "Create a Google App Password"
     }
   },
-  "enabledByDefault": false,
   "transport": "stdio",
   "secrets": [
     {

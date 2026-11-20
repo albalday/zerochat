@@ -20,6 +20,7 @@ from security.context import SecurityContext
 from security.controller import ACCESS_CONTROLLER
 from server.state import live_state
 from server.tool_calls import call_tool, dispatch_security
+from storage.db import get_project_environment, save_project_environment
 from storage.rpc import dispatch_blobs, dispatch_conversations, dispatch_profiles
 from tools.diff import configure_gui_diff_tool, open_file_diff
 from tools.filesystem import browse_directories, create_project_directory, read_project_context, resolve_project_directory
@@ -63,6 +64,7 @@ def _initialize(_params: dict, ctx: SecurityContext) -> RpcOutcome:
         "tools": _local_tools(),
         "policies": ACCESS_CONTROLLER.export_state(ctx),
         "projectContext": read_project_context(ctx),
+        "projectEnvironment": get_project_environment(ctx.key),
         "liveState": live_state(ctx),
     })
 
@@ -80,8 +82,16 @@ def _set_project_directory(params: dict, ctx: SecurityContext) -> RpcOutcome:
             **resolved,
             "policies": ACCESS_CONTROLLER.export_state(next_ctx),
             "projectContext": read_project_context(next_ctx),
+            "projectEnvironment": get_project_environment(next_ctx.key),
         })
     except (ValueError, OSError) as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+
+
+def _set_project_environment(params: dict, ctx: SecurityContext) -> RpcOutcome:
+    try:
+        return rpc_result({"projectEnvironment": save_project_environment(ctx.key, params)})
+    except ValueError as exc:
         return rpc_error(INVALID_PARAMS, str(exc))
 
 
@@ -143,6 +153,7 @@ LOCAL_METHODS = {
     "tools/list": lambda _params, _ctx: rpc_result({"tools": _local_tools() + GLOBAL_MCP_MANAGER.tools()}),
     "tools/call": call_tool,
     "zerochat/project/context": lambda _params, ctx: rpc_result(read_project_context(ctx)),
+    "zerochat/project/environment/set": _set_project_environment,
     "zerochat/project/set_directory": _set_project_directory,
     "zerochat/project/browse": _browse_directories,
     "zerochat/project/create_directory": _create_directory,

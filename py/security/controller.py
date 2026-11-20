@@ -16,9 +16,6 @@ from security.rules import (
     AccessDecision,
     COMMAND_TOOL,
     DIRECTORY_PATH_TOOLS,
-    GLOBAL_POLICIES,
-    GLOBAL_POLICY_ALLOW_ALL,
-    GLOBAL_POLICY_ASK,
     JOB_CONTROL_TOOL,
     MAX_COMMAND_PATTERNS,
     POLICY_ALLOW,
@@ -45,7 +42,7 @@ from security.rules import (
 from storage.db import get_security_policy_data, update_security_policy_data
 from tools.jobs import JOBS
 
-POLICY_STATE_VERSION = 7
+POLICY_STATE_VERSION = 8
 CHALLENGE_TTL_MS = 600_000
 MAX_POLICY_ENTRIES = 500
 # Proyectos con sesión en memoria: al pasar del tope se olvida la del usado hace más tiempo sin comandos en marcha.
@@ -59,7 +56,7 @@ class ProjectSession:
     Lo comparten todas las pestañas y dispositivos que trabajan en ese proyecto.
     """
     last_used: float = 0.0
-    global_policy: str | None = None
+    allow_all: bool | None = None
     directory_rules: list[str] | None = None
     tools: dict[str, dict] = dataclasses.field(default_factory=dict)
     servers: dict[str, dict] = dataclasses.field(default_factory=dict)
@@ -107,11 +104,15 @@ class AccessController:
         # run_command nunca se guarda autorizado entero: sus permisos permanentes son patrones.
         tools = {tid: entry for tid, entry in dict(data.get("tools") or {}).items()
                  if not (tid == COMMAND_TOOL and isinstance(entry, dict) and entry.get("policy") == POLICY_ALLOW)}
-        raw_global = data.get("globalMcpPolicy")
-        global_policy = GLOBAL_POLICY_ASK if raw_global in (None, "", "workspace_trust") else raw_global
+        raw_allow_all = data.get("allowAll")
+        allow_all = {
+            str(project): True
+            for project, enabled in raw_allow_all.items()
+            if isinstance(project, str) and enabled is True
+        } if isinstance(raw_allow_all, dict) else {}
         return {
             "version": POLICY_STATE_VERSION,
-            "globalMcpPolicy": global_policy,
+            "allowAll": allow_all,
             "directoryRules": dir_rules,
             "tools": tools,
             "servers": dict(data.get("servers") or {}),
@@ -140,7 +141,7 @@ class AccessController:
                 dir_rules = [default_rule]
             saved_patterns = state["commandPatterns"]
             return {
-                "globalMcpPolicy": session.global_policy if session.global_policy is not None else state["globalMcpPolicy"],
+                "allowAll": session.allow_all if session.allow_all is not None else bool(state["allowAll"].get(context.key, False)),
                 "directoryRules": dir_rules,
                 "tools": {**state["tools"], **session.tools},
                 "servers": {**state["servers"], **session.servers},
@@ -225,38 +226,29 @@ class AccessController:
         if total > MAX_POLICY_ENTRIES:
             raise ValueError(f"El número total de entradas ({total}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
 
-    def _validate_state_payload(self, state: dict, scope: str) -> tuple[str | None, list[str] | None, dict | None, dict | None]:
+    def _validate_state_payload(self, state: dict, scope: str) -> tuple[bool | None, list[str] | None, dict | None, dict | None]:
         if not isinstance(state, dict):
             raise ValueError("El estado de políticas debe ser un diccionario.")
 
-        clean_global = None
-        if "globalMcpPolicy" in state:
-            pol = GLOBAL_POLICY_ASK if state["globalMcpPolicy"] == "workspace_trust" else state["globalMcpPolicy"]
-            if pol not in GLOBAL_POLICIES:
-                raise ValueError(f"Política global no válida: '{pol}'. Válidas: {GLOBAL_POLICIES}")
-            clean_global = pol
+        clean_allow_all = None
+        if "allowAll" in state:
+            if not isinstance(state["allowAll"], bool):
+                raise ValueError("allowAll debe ser un booleano.")
+            clean_allow_all = state["allowAll"]
 
         clean_rules = self._validate_directory_rules(state["directoryRules"]) if "directoryRules" in state else None
         clean_tools = self._validate_policy_entries(state["tools"], "tools", scope) if "tools" in state else None
         clean_servers = self._validate_policy_entries(state["servers"], "servers", scope) if "servers" in state else None
-        return clean_global, clean_rules, clean_tools, clean_servers
+        return clean_allow_all, clean_rules, clean_tools, clean_servers
 
     @staticmethod
     def _validate_command_patterns_patch(raw) -> dict:
-        """Valida un parche de commandPatterns: {global, project} o legado {global, projects}."""
+        """Valida un parche de commandPatterns: {global, project} para el proyecto activo."""
         if not isinstance(raw, dict):
             raise ValueError("commandPatterns debe ser un diccionario con global y project.")
-        has_projects = "projects" in raw
-        if has_projects and "project" not in raw:
-            return {"mode": "full", "patterns": normalize_command_patterns(raw)}
-        global_patterns = clean_pattern_list(raw.get("global") or [], "commandPatterns.global")
-        project_patterns = clean_pattern_list(raw.get("project") or [], "commandPatterns.project")
-        base = normalize_command_patterns({"global": global_patterns, "projects": raw["projects"]}) if has_projects else None
         return {
-            "mode": "scoped",
-            "global": global_patterns,
-            "project": project_patterns,
-            "projects": base["projects"] if base is not None else None,
+            "global": clean_pattern_list(raw.get("global") or [], "commandPatterns.global"),
+            "project": clean_pattern_list(raw.get("project") or [], "commandPatterns.project"),
         }
 
     def import_state(self, state: dict, context: SecurityContext):
@@ -265,7 +257,7 @@ class AccessController:
         `addDirectoryRules` añade reglas a las guardadas dentro de la misma transacción y
         `commandPatterns` sustituye los patrones globales y del proyecto actual sin tocar otros proyectos.
         """
-        clean_global, clean_rules, clean_tools, clean_servers = self._validate_state_payload(state, SCOPE_PERMANENT)
+        clean_allow_all, clean_rules, clean_tools, clean_servers = self._validate_state_payload(state, SCOPE_PERMANENT)
         added_rules = self._validate_directory_rules(state["addDirectoryRules"]) if "addDirectoryRules" in state else []
         clean_patterns = self._validate_command_patterns_patch(state["commandPatterns"]) if "commandPatterns" in state else None
 
@@ -273,24 +265,27 @@ class AccessController:
         default_rule = self.get_default_directory_rule(context)
 
         def mutator(current: dict) -> dict:
-            self._apply_state_patch(current, project, default_rule, clean_global, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns)
+            self._apply_state_patch(current, project, default_rule, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns)
             self._check_entry_limit(current)
             return current
         self._update_permanent(mutator)
-        self._forget_session_overrides(project, clean_global, clean_rules, added_rules, clean_tools, clean_servers)
+        self._forget_session_overrides(project, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers)
         return self.export_state(context)
 
-    def _apply_state_patch(self, current: dict, project: str, default_rule: str, clean_global, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns):
+    def _apply_state_patch(self, current: dict, project: str, default_rule: str, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns):
         """Aplica sobre el estado guardado los apartados del parche que vienen (None es «no cambiar»)."""
-        if clean_global is not None:
-            current["globalMcpPolicy"] = clean_global
+        if clean_allow_all is not None:
+            if clean_allow_all:
+                current["allowAll"][project] = True
+            else:
+                current["allowAll"].pop(project, None)
         if clean_rules is not None:
             if clean_rules == [default_rule]:
                 current["directoryRules"].pop(project, None)
             else:
                 current["directoryRules"][project] = clean_rules
         if added_rules:
-            base_rules = current["directoryRules"][project] if project in current["directoryRules"] else [default_rule]
+            base_rules = self._project_rules_base(current["directoryRules"], project, default_rule)
             current["directoryRules"][project] = self._append_rules(base_rules, added_rules)
         if clean_tools is not None:
             current["tools"] = self._apply_entry_patch(current.get("tools"), clean_tools)
@@ -300,23 +295,25 @@ class AccessController:
             current["commandPatterns"] = self._merge_command_patterns(current["commandPatterns"], clean_patterns, project)
 
     @staticmethod
+    def _project_rules_base(directory_rules: dict[str, list[str]], project: str, default_rule: str) -> list[str]:
+        return directory_rules[project] if project in directory_rules else [default_rule]
+
+    @staticmethod
     def _merge_command_patterns(current_patterns: dict, patch: dict, project: str) -> dict:
-        if patch["mode"] == "full":
-            return patch["patterns"]
-        projects = dict(patch["projects"] if patch["projects"] is not None else current_patterns["projects"])
+        projects = dict(current_patterns["projects"])
         if patch["project"]:
             projects[project] = patch["project"]
         else:
             projects.pop(project, None)
         return normalize_command_patterns({"global": patch["global"], "projects": projects})
 
-    def _forget_session_overrides(self, project: str, clean_global, clean_rules, added_rules, clean_tools, clean_servers):
-        """Lo guardado sustituye o revoca lo equivalente en la sesión (las reglas de carpeta, solo en su proyecto)."""
+    def _forget_session_overrides(self, project: str, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers):
+        """Lo guardado sustituye o revoca lo equivalente en la sesión (las reglas y permitir todo, solo en su proyecto)."""
         with self._lock:
             for key, session in self.sessions.items():
-                if clean_global is not None:
-                    session.global_policy = None
                 if key == project:
+                    if clean_allow_all is not None:
+                        session.allow_all = None
                     if clean_rules is not None:
                         session.directory_rules = None
                     elif added_rules and session.directory_rules is not None:
@@ -347,7 +344,7 @@ class AccessController:
         Aplica una capa de políticas temporal en memoria para una ejecución en servidor, sin persistir.
         De los patrones de comando solo toma los de sesión: los guardados se leen de la misma base de datos.
         """
-        clean_global, clean_rules, clean_tools, clean_servers = self._validate_state_payload(state, SCOPE_SESSION)
+        clean_allow_all, clean_rules, clean_tools, clean_servers = self._validate_state_payload(state, SCOPE_SESSION)
         raw_patterns = state.get("commandPatterns")
         session_patterns = self._limit_patterns(clean_pattern_list(raw_patterns.get("session") or [], "commandPatterns.session")) \
             if isinstance(raw_patterns, dict) else None
@@ -358,8 +355,8 @@ class AccessController:
             tools = self._apply_entry_patch(session.tools, clean_tools or {})
             servers = self._apply_entry_patch(session.servers, clean_servers or {})
             self._check_entry_limit({"directoryRules": rules, "tools": tools, "servers": servers})
-            if clean_global is not None:
-                session.global_policy = clean_global
+            if clean_allow_all is not None:
+                session.allow_all = clean_allow_all
             session.directory_rules, session.tools, session.servers = rules, tools, servers
             if session_patterns is not None:
                 session.command_patterns = session_patterns
@@ -540,11 +537,7 @@ class AccessController:
         def mutator(state: dict) -> dict:
             self._store_decision(state, decision, pattern, project, tool, server_name, server_id)
             if rules:
-                base_rules = (
-                    state["directoryRules"][project]
-                    if project in state["directoryRules"]
-                    else [self.get_default_directory_rule(context)]
-                )
+                base_rules = self._project_rules_base(state["directoryRules"], project, self.get_default_directory_rule(context))
                 state["directoryRules"][project] = self._append_rules(base_rules, rules)
             self._check_entry_limit(state)
             return state
@@ -594,7 +587,7 @@ class AccessController:
         Jerarquía:
         1. Lista negra explícita (deny individual o de servidor).
         2. Herramientas de control de procesos (check_command).
-        3. Política global allow_all -> allow incondicional.
+        3. Interruptor allowAll del proyecto -> allow incondicional.
         4. Política granular de herramienta -> allow.
         5. Política de servidor completo -> allow incondicional para sus herramientas.
         6. run_command: reglas de directorio (RWX:/** permite todo; X habilita la carpeta) y patrones de comando.
@@ -616,8 +609,8 @@ class AccessController:
             return POLICY_DENY, "server_deny_rule", "", None
         if tool_name == JOB_CONTROL_TOOL:
             return POLICY_ALLOW, "job_control_tool", "", None
-        if view["globalMcpPolicy"] == GLOBAL_POLICY_ALLOW_ALL:
-            return POLICY_ALLOW, "mcp_global_allow_all", "", None
+        if view["allowAll"]:
+            return POLICY_ALLOW, "project_allow_all", "", None
         if tool_policy == POLICY_ALLOW:
             return POLICY_ALLOW, "granular_allow_rule", "", None
         if server_policy == POLICY_ALLOW:
