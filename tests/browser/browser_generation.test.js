@@ -153,4 +153,69 @@ describe('Browser UI - generación, estado y paneles auxiliares', { concurrency:
       assert.equal(await savedSessions(page), 0, 'Las conversaciones se han borrado');
     });
   });
+
+  test('Browser UI - título y favicon avisan cuando un turno termina o pide permiso en segundo plano y se limpian al volver', async () => {
+    await withTestApp(async page => {
+      const setHidden = hidden => page.evaluate(value => {
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => value });
+        document.dispatchEvent(new Event('visibilitychange'));
+      }, hidden);
+      const baseTitle = await page.title();
+      const baseFavicon = await page.getAttribute('#app-favicon', 'href');
+      assert.ok(baseFavicon.startsWith('data:image/svg+xml,'));
+      assert.ok(!decodeURIComponent(baseFavicon).includes('<circle'));
+
+      // 1. Fin de turno en segundo plano: cambia título y añade punto verde en el favicon.
+      await page.evaluate(() => {
+        window.ChatAPI.streamChatCompletion = () => new Promise(resolve => { window.__resolveTurn = resolve; });
+      });
+      await page.fill('#user-input', 'Segundo plano');
+      await page.click('#btn-send');
+      await page.waitForFunction(() => window.ChatState.get('streaming').isGenerating);
+
+      await setHidden(true);
+      await page.evaluate(() => window.__resolveTurn({ accumulatedText: 'Hecho', toolCalls: null, stats: null }));
+      await page.waitForFunction(() => !window.ChatState.get('streaming').isGenerating);
+
+      assert.equal(await page.title(), await page.evaluate(title => window.ChatI18n.t('tab_alert_done', { title }), baseTitle));
+      const doneFavicon = decodeURIComponent(await page.getAttribute('#app-favicon', 'href'));
+      assert.ok(doneFavicon.includes('<circle'));
+
+      // Al volver a la pestaña, título y favicon recuperan su estado base.
+      await setHidden(false);
+      assert.equal(await page.title(), baseTitle);
+      assert.ok(!decodeURIComponent(await page.getAttribute('#app-favicon', 'href')).includes('<circle'));
+
+      // 2. Cancelar en segundo plano no muestra aviso de turno terminado.
+      await useProvider(page, params => new Promise((_resolve, reject) => {
+        params.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      }));
+      await page.fill('#user-input', 'Cancelar');
+      await page.click('#btn-send');
+      await page.waitForFunction(() => window.ChatState.get('streaming').isGenerating);
+      await setHidden(true);
+      await page.evaluate(() => window.ChatGenerationController.handleStopGeneration());
+      await page.waitForFunction(() => !window.ChatState.get('streaming').isGenerating);
+      assert.equal(await page.title(), baseTitle);
+
+      // 3. Petición de permiso en segundo plano prevalece sobre "Listo" y se limpia al volver o al responder.
+      await page.evaluate(() => {
+        const card = window.ChatToolCards.createLiveToolCard('run_command', { command: 'ls' });
+        document.getElementById('messages-list').appendChild(card);
+        window.__authCard = card;
+        window.__pendingAuth = window.ChatToolCards.promptToolAuthorization(card, { function: { name: 'run_command' } }, { args: { command: 'ls' } });
+        window.ChatTabAlert.notifyDone();
+      });
+      assert.equal(await page.title(), await page.evaluate(title => window.ChatI18n.t('tab_alert_permission', { title }), baseTitle));
+      assert.ok(decodeURIComponent(await page.getAttribute('#app-favicon', 'href')).includes('<circle'));
+
+      await setHidden(false);
+      assert.equal(await page.title(), baseTitle);
+      assert.ok(!decodeURIComponent(await page.getAttribute('#app-favicon', 'href')).includes('<circle'));
+      await page.evaluate(() => {
+        window.__authCard.querySelector('.btn-auth-deny').click();
+        return window.__pendingAuth;
+      });
+    });
+  });
 });

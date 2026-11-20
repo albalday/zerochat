@@ -19,7 +19,7 @@
     ChatUICommandJobs: UICommandJobs, ChatUIConversation: UIConversation,
     ChatUITelemetry: UITelemetry, ChatUIMcp: UIMcp, ChatUIBrowser: UIBrowser,
     ChatUIConnection: UIConnection, ChatRagUI: RagUI, ChatRunMode: RunMode,
-    ChatBackendSession: BackendSession, ChatServerRun: ServerRun
+    ChatBackendSession: BackendSession, ChatServerRun: ServerRun, ChatTabAlert: TabAlert
   } = window;
   const { t } = I18n;
 
@@ -824,6 +824,9 @@
         if (finishedIds.length === 0) return;
         const activeId = getCurrentSessionId();
         if (finishedIds.includes(activeId)) {
+          const finishedRun = serverRuns.find(run => run.conversationId === activeId);
+          if (finishedRun?.status === 'needs_input') TabAlert.notifyPermission();
+          else TabAlert.notifyDone();
           ConversationService.switchToSession(activeId, {
             ...getConversationServiceOptions(),
             force: true,
@@ -932,6 +935,7 @@
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') MCP.manager.onPageVisible();
     });
+    TabAlert.mount();
     updateNewTabLink();
     if (runId) {
       RunMode.start(runId, {

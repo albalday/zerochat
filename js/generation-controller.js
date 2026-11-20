@@ -29,6 +29,7 @@
   const getGenerationStatus = () => resolveDep('ChatUIGenerationStatus', './ui-generation-status.js');
   const getDebug = () => resolveDep('ChatDebug', './debug.js');
   const getStorage = () => resolveDep('ChatStorage', './storage.js');
+  const getTabAlert = () => resolveDep('ChatTabAlert', './tab-alert.js');
 
   let currentAbortController = null;
 
@@ -58,7 +59,7 @@
     }
   }
 
-  async function finishGeneration(elements, { skipSave, saveCurrentSession }) {
+  async function finishGeneration(elements, { skipSave, saveCurrentSession, notifyDone = false }) {
     getUIConversation().removeTypingIndicator();
     getGenerationStatus().clearStatus(elements.generationStatus);
     getState().set('streaming', { isGenerating: false });
@@ -68,6 +69,7 @@
     if (!window.matchMedia('(pointer: coarse)').matches) elements.userInput.focus();
     if (!skipSave) await saveCurrentSession();
     getUIConversation().scrollToBottom(elements.messagesList);
+    if (notifyDone) getTabAlert().notifyDone();
   }
 
   function updateStatsDisplay(statsContainer, stats) {
@@ -208,7 +210,7 @@
         title: t('err_no_model_title'),
         hintHtml: t('err_no_model_desc', { url: escapeHtml(config.apiUrl) })
       });
-      await finishGeneration(elements, { skipSave: false, saveCurrentSession: options.saveCurrentSession });
+      await finishGeneration(elements, { skipSave: false, saveCurrentSession: options.saveCurrentSession, notifyDone: true });
       return { error: 'No model is configured.' };
     }
 
@@ -230,6 +232,7 @@
     const mcpState = State.get('mcp');
     const projectDirectory = mcpState.status === 'connected' ? String(mcpState.serverInfo?.cwd || '') : '';
 
+    let cancelled = false;
     try {
       const activeProfile = await resolveDep('ChatProfileRepository', './profile-repository.js').loadUnlocked(config.activeProfile?.id);
       const loopResult = await getEngine().executeAgentTurnLoop({
@@ -277,6 +280,7 @@
       }
 
       if (loopResult.cancelled) {
+        cancelled = true;
         if (!wrapper.querySelector('.tool-call-group, .agentic-turn-block')) wrapper.remove();
         Debug.setStatus('idle');
         return { error: 'The generation was cancelled.' };
@@ -286,7 +290,10 @@
         Debug.setStatus('error', t('debug_status_loop_detected'));
         Debug.addLog('error', t('agent_loop_warning_notice'));
       } else if (loopResult.error) {
-        if (currentAbortController.signal.aborted) return { error: 'The generation was cancelled.' };
+        if (currentAbortController.signal.aborted) {
+          cancelled = true;
+          return { error: 'The generation was cancelled.' };
+        }
         const message = loopResult.error.message || String(loopResult.error);
         Debug.setStatus('error', t('debug_status_error'));
         Debug.addLog('error', message);
@@ -312,7 +319,10 @@
       return { text: loopResult.finalAssistantText };
     } catch (err) {
       console.error('[GenerationController] Agent inference failed:', err);
-      if (currentAbortController.signal.aborted || err?.name === 'AbortError') return { error: 'The generation was cancelled.' };
+      if (currentAbortController.signal.aborted || err?.name === 'AbortError') {
+        cancelled = true;
+        return { error: 'The generation was cancelled.' };
+      }
       const generationError = err?.message || String(err);
       Debug.setStatus('error', t('debug_status_error'));
       Debug.addLog('error', generationError);
@@ -320,7 +330,11 @@
       return { error: generationError };
     } finally {
       if (toolDecision) resolveDep('ChatToolCards', './tool-cards.js').setAuthorizationResponder(null);
-      await finishGeneration(elements, { skipSave: !isCurrentSession(), saveCurrentSession: options.saveCurrentSession });
+      await finishGeneration(elements, {
+        skipSave: !isCurrentSession(),
+        saveCurrentSession: options.saveCurrentSession,
+        notifyDone: !cancelled && isCurrentSession()
+      });
     }
   }
 

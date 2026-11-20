@@ -35,6 +35,8 @@
 
       // Metadatos y Encabezados
       app_title: APP_TITLE,
+      tab_alert_done: 'Listo · {title}',
+      tab_alert_permission: 'Permiso · {title}',
       app_description: 'ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación',
       
       // Estado de Bienvenida inicial
@@ -749,9 +751,8 @@
       confirm_rag_branch_unsaved_changes: 'Hay cambios sin guardar en la rama. ¿Deseas descartarlos y cerrar?',
       confirm_delete_profile: '¿Estás seguro de que deseas eliminar el perfil "{name}"?',
       profile_sync_server_change_title: 'Perfiles de otro servidor',
-      profile_sync_server_change_desc: 'Este navegador tiene {localCount} perfil(es) de otro servidor y el servidor actual tiene {remoteCount}. ¿Quieres usar solo los de este servidor o fusionar los actuales con él?',
-      profile_sync_first_server_desc: 'Este navegador tiene {localCount} perfil(es) locales y este servidor ya tiene {remoteCount}. ¿Quieres usar los de este servidor o fusionar ambos conjuntos?',
-      profile_sync_use_server: 'Usar los de este servidor',
+      profile_sync_server_change_desc: 'Este navegador tiene {localCount} perfil(es) de otro servidor y el servidor actual tiene {remoteCount}. ¿Quieres fusionar tus perfiles con este servidor o cancelar la sincronización?',
+      profile_sync_first_server_desc: 'Este navegador tiene {localCount} perfil(es) locales y este servidor ya tiene {remoteCount}. ¿Quieres fusionar ambos conjuntos o cancelar la sincronización?',
       profile_sync_merge: 'Fusionar con este servidor',
       err_profile_name_exists: 'Ya existe un perfil llamado "{name}".',
       err_profile_read_only: 'El perfil Espejo no se puede modificar ni eliminar.',
@@ -989,6 +990,8 @@
 
       // Metadata & Headers
       app_title: APP_TITLE,
+      tab_alert_done: 'Done · {title}',
+      tab_alert_permission: 'Permission · {title}',
       app_description: 'ZeroChat - Universal web chat client, autonomous AI agent, and local RAG in a single zero-install file',
       
       // Welcome state
@@ -1703,9 +1706,8 @@
       confirm_rag_branch_unsaved_changes: 'There are unsaved branch changes. Do you want to discard them and close?',
       confirm_delete_profile: 'Are you sure you want to delete profile "{name}"?',
       profile_sync_server_change_title: 'Profiles from another server',
-      profile_sync_server_change_desc: 'This browser has {localCount} profile(s) from another server and the current server has {remoteCount}. Do you want to use only this server\'s profiles or merge your current ones with it?',
-      profile_sync_first_server_desc: 'This browser has {localCount} local profile(s) and this server already has {remoteCount}. Do you want to use this server\'s profiles or merge both sets?',
-      profile_sync_use_server: 'Use this server\'s profiles',
+      profile_sync_server_change_desc: 'This browser has {localCount} profile(s) from another server and the current server has {remoteCount}. Do you want to merge your profiles with this server or cancel synchronization?',
+      profile_sync_first_server_desc: 'This browser has {localCount} local profile(s) and this server already has {remoteCount}. Do you want to merge both sets or cancel synchronization?',
       profile_sync_merge: 'Merge with this server',
       err_profile_name_exists: 'A profile named "{name}" already exists.',
       err_profile_read_only: 'The Mirror profile cannot be changed or deleted.',

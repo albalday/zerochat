@@ -10,8 +10,8 @@
 
 ## M81 Propuestas de mejora
 - [x] M81-T1 Propuesta: regenerar respuestas y editar la pregunta in situ, creando una rama automáticamente — descartada (2026-11-20): el botón "reutilizar prompt en el composer" ya cubre el caso y la bifurcar existente permite crear la rama manualmente
-- [ ] M81-T2 Propuesta: atajos de teclado (nueva conversación, buscar con Ctrl+K, parar con Esc, ayuda con ?)
-- [ ] M81-T3 Propuesta: notificación en el título/icono de la pestaña cuando un turno termina en segundo plano o pide permiso, sin usar la API Notification
+- [x] M81-T2 Propuesta: atajos de teclado (nueva conversación, buscar con Ctrl+K, parar con Esc, ayuda con ?) (dropped: bajo valor frente a la superficie que añade (? choca con el foco en el compositor, Ctrl+N lo reserva el navegador y Esc arriesga cortes accidentales en tareas largas))
+- [x] M81-T3 Propuesta: notificación en el título/icono de la pestaña cuando un turno termina en segundo plano o pide permiso, sin usar la API Notification (2026-11-20)
 - [ ] M81-T4 Propuesta: prompts guardados, globales o por proyecto, insertables en el compositor con /
 - [ ] M81-T5 Propuesta: asistente de primer perfil que detecta servidores locales bajo demanda y una tabla de qué funciona en navegador y servidor
 - [ ] M81-T6 Propuesta: respaldo y restauración del almacén del servidor (zerochat --backup y --restore)
@@ -23,8 +23,8 @@
 - [ ] M81-T12 Propuesta: cortar el contenedor de ejecución de tools tras 20 tarjetas y abrir uno nuevo
 - [x] M81-T13 Simplificación: unificar la persistencia del backend en SQLite (mover config/browser.json con extensionToken en secrets, config/services.json y runs/*.json a SQLite) (2026-11-20)
 - [x] M81-T14 Simplificación: unificar el modelo de proyecto (mover activeRagBranchIds al entorno por proyecto, adelgazar runtime_config_v2 a preferencias globales y separar por proyecto security_policies) (2026-11-20)
-- [ ] M81-T15 A discutir con el usuario: simplificación de búsqueda de conversaciones delegando searchConversations a SQLite (zerochat/conversations/search) cuando hay backend conectado en lugar de descargar pendientes a IndexedDB
-- [ ] M81-T16 A discutir con el usuario: simplificación de la réplica bidireccional de perfiles y conversaciones usando SQLite como fuente directa con servidor conectado y localStorage/IndexedDB solo sin servidor
+- [x] M81-T15 A discutir con el usuario: simplificación de búsqueda de conversaciones delegando searchConversations a SQLite (zerochat/conversations/search) cuando hay backend conectado en lugar de descargar pendientes a IndexedDB (dropped: la búsqueda en frontend es obligatoria para el modo sin conexión; duplicarla en SQLite añade más complejidad que replicar el texto pendiente (sin blobs) en IndexedDB)
+- [x] M81-T16 Simplificación de la réplica de perfiles: retirar deletedIds, remoteByName y la opción destructiva de reemplazo al cambiar de serverId (el diálogo de control solo ofrece fusionar o cancelar sin borrar perfiles locales) (2026-11-20)
 - [x] M81-T17 Quitar polling: en check_command (py/tools/job_waits.py), eliminar WAIT_SLICE_SECONDS haciendo que WAITS.cancel notifique job._changed para esperar en un solo wait(remaining) (2026-11-20)
 - [x] M81-T18 Quitar polling: en _kill_process_tree (py/core/process.py), sustituir time.sleep(grace_seconds) por proc.wait(timeout=grace_seconds) cuando el objetivo es un Popen (2026-11-20)
 - [x] M81-T19 Quitar polling: en run_supervisor (py/run_mode/supervisor.py), sustituir el bucle RUN_POLL_SECONDS/proc.poll() por espera síncrona sobre un evento compartido con proc.wait() y el apagado (2026-11-20)
