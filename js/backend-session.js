@@ -120,7 +120,7 @@
       const token = session?.url === target.url ? session.token : null;
       const mcp = getMcpManager();
       mcp.setSessionToken(token);
-      const result = await mcp.connectProxy({ ...target, token });
+      const result = await mcp.connectProxy({ ...target, token, reconcile: true });
       if (result.success) await loadSessions();
       return result;
     }
@@ -131,7 +131,7 @@
       const { url, proxyKey } = mcp.target;
       const token = await mcp.login(user, password);
       save({ token, url });
-      const result = await mcp.connectProxy({ url, proxyKey, token });
+      const result = await mcp.connectProxy({ url, proxyKey, token, reconcile: true });
       await loadSessions();
       return result;
     }

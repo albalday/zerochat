@@ -67,7 +67,10 @@
   function updateToolEnabledState(toolId, enabled) {
     const Config = getConfig();
     try {
-      Config.updateRuntime({ enabledTools: { ...Config.getActive().enabledTools, [toolId]: enabled } });
+      const enabledTools = { ...Config.getActive().enabledTools, [toolId]: enabled };
+      Config.updateRuntime({ enabledTools });
+      getMCP()?.manager?.saveProjectEnvironment?.({ enabledTools })
+        ?.catch?.(error => console.warn('[MCP UI] Could not save project enabled tools:', error));
       return true;
     } catch (error) {
       console.error('[MCP UI] Error updating enabled tool state:', error);
@@ -294,7 +297,21 @@
       return;
     }
     const toggle = target.closest('.btn-mcp-server-toggle');
-    if (toggle) getMCP().manager.runExternalServerAction(toggle.getAttribute('data-server-id'), toggle.getAttribute('data-action'));
+    if (toggle) {
+      const serverId = toggle.getAttribute('data-server-id');
+      const action = toggle.getAttribute('data-action');
+      const ok = await getMCP().manager.runExternalServerAction(serverId, action, { remember: false });
+      if (ok) {
+        const Config = getConfig();
+        const current = Config.getActive().mcpServers || [];
+        const mcpServers = action === 'start'
+          ? (current.includes(serverId) ? current : [...current, serverId])
+          : current.filter(id => id !== serverId);
+        Config.updateRuntime({ mcpServers });
+        getMCP().manager.saveProjectEnvironment?.({ mcpServers })
+          ?.catch?.(error => console.warn('[MCP UI] Could not save project MCP servers:', error));
+      }
+    }
     const secretButton = target.closest('.btn-mcp-secret-set, .btn-mcp-secret-delete');
     if (secretButton) await handleServerSecret(secretButton);
   }
@@ -332,15 +349,16 @@
   }
 
   /**
-   * Arranca en silencio los servicios externos que quedaron activos en la sesión anterior
-   * (`enabled: true`) y siguen detenidos; solo avisa si alguno falla al arrancar.
+   * Concilia en silencio los servicios externos con el entorno del proyecto activo;
+   * solo avisa si alguno de los requeridos falla al arrancar.
    */
-  async function restoreEnabledExternalServices(servers) {
-    const { started, failed } = await getMCP().manager.startEnabledServers(servers);
+  async function reconcileProjectServices(servers) {
+    const { started, failed } = await getMCP().manager.reconcileProjectServers(getConfig().getActive(), servers);
     if (failed.length > 0) {
       const language = I18n.getLanguage();
+      const allServers = getState().get('mcp').externalServers || servers || [];
       const names = failed.map(id => {
-        const server = (servers || []).find(item => item?.id === id) || { id };
+        const server = allServers.find(item => item?.id === id) || { id };
         return getServiceName(server, language);
       });
       await getDialogs().alert(t('mcp_external_restore_failed', { names: names.join(', ') }), { type: 'error' });
@@ -593,7 +611,7 @@
     renderToolsList,
     renderExternalServers,
     renderSavedAuthorizations,
-    restoreEnabledExternalServices,
+    reconcileProjectServices,
     syncSecurityControls,
     initMcpUI,
     verifyActiveConnection

@@ -4,10 +4,12 @@ import re
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import unittest
 from functools import partial
 from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from unittest import mock
 
 from backend import ZEROCHAT_PY, use_data_dir, zerochat
@@ -274,4 +276,25 @@ class RealNodeRunTest(unittest.TestCase):
         tool_messages = [message for message in history if message["role"] == "tool"]
         self.assertIn("hola", tool_messages[-1]["content"])
         self.assertNotIn("403", tool_messages[-1]["content"])
+
+    def test_prompt_y_conversation_aplican_entorno_de_proyecto_guardado(self):
+        with tempfile.TemporaryDirectory() as proj_tmp:
+            proj_dir = str(Path(proj_tmp).resolve())
+            zerochat.save_project_environment(proj_dir, {
+                "systemDataPrompt": "Entorno exclusivo proyecto CLI",
+                "enabledTools": {"search_web": False},
+                "mcpServers": [],
+                "browser": "none",
+            })
+            zerochat.save_conversation({"id": "conv_proj_env", "title": "Proyecto CLI", "project": proj_dir}, [
+                {"id": "usr_1", "role": "user", "content": "primer turno"}
+            ])
+            res = self.run_zerochat("--conversation", "conv_proj_env", "--prompt", "hola")
+        self.assertEqual((res.returncode, res.stdout), (0, FakeModel.REPLY + "\n"), res.stderr)
+        stream_req = next(req for req in FakeModel.requests if req.get("stream"))
+        system_text = "\n".join(str(m.get("content") or "") for m in stream_req["messages"] if m.get("role") == "system")
+        tool_names = [tool["function"]["name"] for tool in stream_req.get("tools", [])]
+        self.assertIn("Entorno exclusivo proyecto CLI", system_text)
+        self.assertNotIn("search_web", tool_names)
+        self.assertNotIn("browser_action", tool_names)
 

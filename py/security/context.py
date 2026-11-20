@@ -19,6 +19,13 @@ def project_context() -> "SecurityContext":
     return SecurityContext(PROJECT_DIR)
 
 
+def set_default_project_dir(path: Path) -> Path:
+    """Fija el proyecto por defecto del servidor antes de atender peticiones (p. ej. al reanudar --conversation)."""
+    global PROJECT_DIR
+    PROJECT_DIR = path.resolve()
+    return PROJECT_DIR
+
+
 # Código JSON-RPC de una petición cuyo proyecto (cabecera X-ZeroChat-Project) ya no existe.
 PROJECT_GONE_CODE = -32003
 

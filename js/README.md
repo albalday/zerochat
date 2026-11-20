@@ -100,3 +100,10 @@ Este documento contiene las especificaciones técnicas y normas de desarrollo pa
 * **Mutaciones asíncronas vía RPC:** Las actualizaciones de políticas (`setToolPolicy`, `setServerPolicy`, `setDirectoryRules`, `setAllowAll`) se canalizan mediante `zerochat/security/update` como parches parciales (`{ tools: { id: policy | null }, ... }`; `addDirectoryRule` envía `addDirectoryRules`; `setCommandPatterns` envía `commandPatterns: { global, project }`, que sustituye los patrones globales y del proyecto actual sin tocar los de sesión ni los de otros proyectos), adoptando atómicamente el estado exportado que devuelve el backend.
 * **Sincronización con las respuestas de estado:** Las políticas llegan con `initialize`, `zerochat/project/set_directory`, `zerochat/security/update` y `zerochat/security/authorize`, sin una consulta `security/get` independiente.
 * **Sin utilidades duplicadas de rutas:** El frontend no normaliza ni resuelve enlaces simbólicos ni patrones de directorio; Ajustes edita directamente la lista `directoryRules` del proyecto (con `RWX:<cwd>/**` por defecto desde el backend) y las comprobaciones de rutas residen exclusivamente en el backend.
+
+---
+
+## 11. Entorno de ejecución por proyecto (`js/config-store.js`, `js/mcp.js`, `js/mcp-external.js`)
+
+* **Ajustes globales vs. proyecto:** El menú de configuración separa los ajustes globales (`Idioma`, `Tema`, `Cifrado`, `RAG`) de los del proyecto identificado activo (`Modelo`, `Agente`, `MCP`, `Navegador`, `Permisos`).
+* **Aplicación y conciliación de MCPs:** Al conectar (`initialize` con `projectEnvironment`), cambiar de carpeta (`setProjectDirectory`), recuperar un proyecto perdido o iniciar `--prompt`/`--conversation` (`RunMode.start`), `ChatConfig.applyProjectEnvironment` aplica la configuración del proyecto (respaldada sin conexión hasta 50 proyectos en `project_environments_v1`, o restablecida a valores predeterminados en proyectos sin guardar) y `McpManager.reconcileProjectServers` concilia en serie los servicios MCP externos deteniendo los que sobran y arrancando los configurados del proyecto (incluido `playwright` cuando `browser === 'playwright'`).

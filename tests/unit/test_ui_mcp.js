@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const ChatUIMcp = require('../../js/ui-mcp.js');
 const ChatState = require('../../js/state.js');
 const ChatMCP = require('../../js/mcp.js');
+const ChatConfig = require('../../js/config-store.js');
 const ChatToolSecurity = require('../../js/tool-security.js');
 const ChatMcpStatus = require('../../js/mcp-status.js');
 
@@ -43,46 +44,65 @@ function useDialogs(t, confirmResult, alerts = []) {
   return confirms;
 }
 
-test('ChatUIMcp - restaura servicios activos en silencio, omite los ya activos y avisa solo si alguno falla', async t => {
+test('ChatUIMcp - concilia servicios del proyecto en silencio, detiene los sobrantes y avisa solo si alguno falla', async t => {
   const servers = [
-    { id: 'memory', enabled: true, status: 'stopped', displayName: { es: 'Memoria', en: 'Memory' } },
-    { id: 'composio', enabled: true, status: 'stopped', displayName: { es: 'Composio' } },
-    { id: 'running', enabled: true, status: 'running' },
-    { id: 'disabled', enabled: false, status: 'stopped' }
+    { id: 'memory', status: 'stopped', displayName: { es: 'Memoria', en: 'Memory' } },
+    { id: 'composio', status: 'stopped', displayName: { es: 'Composio' } },
+    { id: 'playwright', status: 'stopped', displayName: { es: 'Playwright' } },
+    { id: 'running', status: 'running' },
+    { id: 'obsolete', status: 'running' }
   ];
   setup(t, { status: 'connected', externalServers: servers });
+  ChatConfig.updateRuntime({ mcpServers: ['memory', 'composio', 'running'], browser: 'playwright' });
   const started = [];
+  const stopped = [];
   const alerts = [];
   const confirms = useDialogs(t, null, alerts);
-  t.mock.method(ChatMCP.manager, 'startExternalServer', async id => {
-    started.push(id);
+  t.mock.method(ChatMCP.manager, 'startExternalServer', async (id, _onWait, opts) => {
+    started.push({ id, remember: opts?.remember });
     if (id === 'composio') throw new Error('connection failed');
   });
   t.mock.method(console, 'error', () => {});
-  const stop = t.mock.method(ChatMCP.manager, 'stopExternalServer', async () => {});
+  t.mock.method(ChatMCP.manager, 'stopExternalServer', async id => {
+    stopped.push(id);
+  });
 
-  assert.deepEqual(await ChatUIMcp.restoreEnabledExternalServices(servers), ['memory']);
+  assert.deepEqual(await ChatUIMcp.reconcileProjectServices(servers), ['memory', 'playwright']);
   assert.equal(confirms.length, 0);
-  assert.equal(stop.mock.callCount(), 0);
-  assert.deepEqual(started, ['memory', 'composio']);
+  assert.deepEqual(stopped, ['obsolete']);
+  assert.deepEqual(started, [
+    { id: 'memory', remember: false },
+    { id: 'composio', remember: false },
+    { id: 'playwright', remember: false }
+  ]);
   assert.equal(alerts.length, 1);
   assert.equal(alerts[0].options.type, 'error');
   assert.match(alerts[0].message, /Composio/);
   assert.doesNotMatch(alerts[0].message, /Memoria/);
 
+  // Al cambiar de proyecto y desactivar Playwright, detiene playwright y arranca solo los del proyecto nuevo.
   alerts.length = 0;
   started.length = 0;
-  const okServers = [{ id: 'memory', enabled: true, status: 'stopped', displayName: { es: 'Memoria' } }];
-  setup(t, { status: 'connected', externalServers: okServers });
-  assert.deepEqual(await ChatUIMcp.restoreEnabledExternalServices(okServers), ['memory']);
+  stopped.length = 0;
+  const switched = [
+    { id: 'memory', status: 'stopped', displayName: { es: 'Memoria' } },
+    { id: 'playwright', status: 'running', displayName: { es: 'Playwright' } }
+  ];
+  setup(t, { status: 'connected', externalServers: switched });
+  ChatConfig.updateRuntime({ mcpServers: ['memory'], browser: 'browser_action' });
+  assert.deepEqual(await ChatUIMcp.reconcileProjectServices(switched), ['memory']);
+  assert.deepEqual(stopped, ['playwright']);
+  assert.deepEqual(started, [{ id: 'memory', remember: false }]);
   assert.equal(alerts.length, 0);
-  assert.deepEqual(await ChatUIMcp.restoreEnabledExternalServices([{ id: 'x', enabled: false, status: 'stopped' }]), []);
 
   // No vuelve a arrancar uno que ya pasó a activo en el estado vivo antes de llegar su turno.
   started.length = 0;
-  setup(t, { status: 'connected', externalServers: [{ id: 'memory', enabled: true, status: 'running' }] });
-  await ChatUIMcp.restoreEnabledExternalServices([{ id: 'memory', enabled: true, status: 'stopped' }]);
+  stopped.length = 0;
+  setup(t, { status: 'connected', externalServers: [{ id: 'memory', status: 'running' }] });
+  ChatConfig.updateRuntime({ mcpServers: ['memory'], browser: 'none' });
+  await ChatUIMcp.reconcileProjectServices([{ id: 'memory', status: 'stopped' }]);
   assert.deepEqual(started, []);
+  assert.deepEqual(stopped, []);
 });
 
 function makeAbortError() {

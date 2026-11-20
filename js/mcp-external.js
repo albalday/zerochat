@@ -20,6 +20,7 @@
   const EXTERNAL_LONG_START_POLL_ATTEMPTS = 80;
 
   const getAgentCore = () => resolveDep('ChatAgentCore', './agent-core.js');
+  const getConfig = () => resolveDep('ChatConfig', './config-store.js');
   const getState = () => resolveDep('ChatState', './state.js');
 
   /** Cambia en ChatState los campos de un servicio externo; su tarjeta en Ajustes › MCP los pinta. */
@@ -179,25 +180,51 @@
     return restarted;
   }
 
+  const reconcileQueues = new WeakMap();
+
+  /** Identificadores de servicios MCP externos requeridos por el entorno del proyecto activo. */
+  function desiredExternalServers(appConfig = getConfig().getActive()) {
+    const ids = Array.isArray(appConfig?.mcpServers) ? appConfig.mcpServers : [];
+    const desired = ids.filter(id => typeof id === 'string' && id.trim()).map(id => id.trim());
+    if (appConfig?.browser === 'playwright' && !desired.includes('playwright')) desired.push('playwright');
+    return [...new Set(desired)];
+  }
+
   /**
-   * Arranca en silencio los servicios externos recordados como activos (`enabled: true`) que siguen
-   * detenidos, sin alterar su preferencia ni preguntar. Devuelve `{ started, failed }` con sus ids.
+   * Concilia en serie los servicios externos en ejecución con el proyecto activo: detiene los que
+   * sobran (incluido Playwright si se cambia a otro navegador) y arranca los habilitados que siguen
+   * detenidos. Devuelve `{ started, stopped, failed }` con sus ids.
    */
-  async function startEnabledServers(manager, servers = getState().get('mcp').externalServers) {
-    const State = getState();
-    const started = [];
-    const failed = [];
-    if (State.get('mcp').status !== 'connected') return { started, failed };
-    const candidates = (servers || [])
-      .filter(server => server?.enabled === true && McpStatus.canStart(server.status) && typeof server.id === 'string' && server.id)
-      .slice(0, 50);
-    for (const server of candidates) {
-      // Comprobar el estado vivo actual por si otro arranque (p. ej. el perfil) ya lo inició.
-      const current = State.get('mcp').externalServers.find(item => item.id === server.id);
-      if (current && !McpStatus.canStart(current.status)) continue;
-      (await manager.runExternalServerAction(server.id, 'start', { remember: true }) ? started : failed).push(server.id);
-    }
-    return { started, failed };
+  function reconcileProjectServers(manager, appConfig = getConfig().getActive(), servers = getState().get('mcp').externalServers) {
+    const prev = reconcileQueues.get(manager) || Promise.resolve();
+    const run = prev.catch(() => {}).then(async () => {
+      const State = getState();
+      const started = [];
+      const stopped = [];
+      const failed = [];
+      if (State.get('mcp').status !== 'connected') return { started, stopped, failed };
+
+      const desired = new Set(desiredExternalServers(appConfig));
+      const initialServers = (servers || State.get('mcp').externalServers || []).slice(0, 50);
+
+      for (const server of initialServers) {
+        if (!server?.id || desired.has(server.id)) continue;
+        if (!McpStatus.isRunning(server.status) && !McpStatus.isBusy(server.status)) continue;
+        if (await manager.runExternalServerAction(server.id, 'stop')) stopped.push(server.id);
+      }
+
+      for (const serverId of desired) {
+        const liveList = State.get('mcp').externalServers || [];
+        const current = liveList.find(item => item?.id === serverId) || initialServers.find(item => item?.id === serverId);
+        if (!current || !McpStatus.canStart(current.status)) continue;
+        if (await manager.runExternalServerAction(serverId, 'start', { remember: false })) started.push(serverId);
+        else failed.push(serverId);
+      }
+
+      return { started, stopped, failed };
+    });
+    reconcileQueues.set(manager, run);
+    return run;
   }
 
   return {
@@ -208,6 +235,7 @@
     setExternalServerSecret,
     runExternalServerAction,
     withExternalServerStopped,
-    startEnabledServers
+    desiredExternalServers,
+    reconcileProjectServers
   };
 });

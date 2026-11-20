@@ -213,6 +213,8 @@
         startNewSession(newConversationId);
       }
 
+      await getMcpManager().reconcileProjectServers();
+
       let generated = null;
       if (!userRequest.text) {
         if (isConversationMode && (!prompt || typeof prompt !== 'string')) {

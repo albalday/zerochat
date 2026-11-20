@@ -2232,6 +2232,13 @@ def project_context() -> "SecurityContext":
     return SecurityContext(PROJECT_DIR)
 
 
+def set_default_project_dir(path: Path) -> Path:
+    """Fija el proyecto por defecto del servidor antes de atender peticiones (p. ej. al reanudar --conversation)."""
+    global PROJECT_DIR
+    PROJECT_DIR = path.resolve()
+    return PROJECT_DIR
+
+
 # Código JSON-RPC de una petición cuyo proyecto (cabecera X-ZeroChat-Project) ya no existe.
 PROJECT_GONE_CODE = -32003
 
@@ -10304,7 +10311,7 @@ def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_cl
     """Cabecera del servidor con su configuración (sin el token)."""
     print("=" * 64)
     print(f"  ZeroChat Local Server v{VERSION} (UI {UI_VERSION})")
-    print(f"  Directorio de trabajo : {PROJECT_DIR}")
+    print(f"  Directorio de trabajo : {project_context().workspace_dir}")
     print(f"  Datos y MCP           : {get_data_dir()}")
     print(f"  Entorno MCP           : {get_venv_dir()}")
     if dev_root is not None:
@@ -10409,12 +10416,30 @@ def finish_run(headless_browser, result_out):
     sys.exit(code)
 
 
+def _apply_conversation_project(parser: ZeroChatArgumentParser, session: RunSession | None):
+    """Fija el proyecto por defecto al de la conversación indicada en --conversation."""
+    if not session or not session.conversation_id:
+        return
+    conv = get_conversation(session.conversation_id)
+    if not isinstance(conv, dict):
+        return
+    conv_project = conv.get("project")
+    if conv_project:
+        if not Path(conv_project).is_dir():
+            parser.error(f"la carpeta del proyecto de la conversación ya no existe: {conv_project}")
+        set_default_project_dir(Path(conv_project))
+    else:
+        set_default_project_dir(get_no_project_dir())
+
+
 def main():
     parser = build_parser()
     args = parser.parse_args()
     # Los avisos no persisten entre ejecuciones del servidor.
     reset_notices()
-    set_run_session(run_session_from_args(parser, args))
+    session = run_session_from_args(parser, args)
+    set_run_session(session)
+    _apply_conversation_project(parser, session)
     result_out = redirect_log(args)
 
     if getattr(args, "list_profiles", False):

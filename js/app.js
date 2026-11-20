@@ -283,7 +283,7 @@
       },
       onSessionSwitched: conversation => {
         applySessionModeAndProfile(conversation);
-        UIProject.followConversationProject(conversation).catch(error => console.warn('[App] Could not open the conversation project:', error));
+        return UIProject.followConversationProject(conversation).catch(error => console.warn('[App] Could not open the conversation project:', error));
       },
       isServerMode: () => isServerRunEnabled(),
       getProject: () => MCP.currentProject(),
@@ -949,7 +949,7 @@
         if (reloading) return;
         const connection = await startupMcpConnection;
         if (!connection.success) return;
-        await UIMcp.restoreEnabledExternalServices(State.get('mcp').externalServers);
+        await UIMcp.reconcileProjectServices(State.get('mcp').externalServers);
       }).catch(error => console.warn('[App] Could not check MCP services on startup:', error));
     }
 

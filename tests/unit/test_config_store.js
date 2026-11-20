@@ -157,3 +157,32 @@ test('ChatConfig - el respaldo offline de entornos por proyecto normaliza, separ
   assert.equal(ChatConfig.getProjectEnvironment(''), null);
   assert.equal(ChatConfig.getProjectEnvironment('/repo/50').browser, 'playwright');
 });
+
+test('ChatConfig - applyProjectEnvironment aplica valores del proyecto, preserva cadena vacía y restablece proyectos sin guardar', () => {
+  ChatConfig.initialize();
+  const appliedA = ChatConfig.applyProjectEnvironment('/repo/alpha', {
+    saved: true,
+    systemDataPrompt: '',
+    enabledTools: { search_web: false },
+    mcpServers: ['memory'],
+    browser: 'playwright',
+    updatedAt: 500
+  });
+  assert.equal(appliedA.systemDataPrompt, '');
+  assert.deepEqual(appliedA.enabledTools, { search_web: false });
+  assert.deepEqual(appliedA.mcpServers, ['memory']);
+  assert.equal(appliedA.browser, 'playwright');
+  assert.equal(ChatConfig.getProjectEnvironment('/repo/alpha').browser, 'playwright');
+
+  // Proyecto nuevo sin entorno guardado en SQLite no hereda ajustes del proyecto anterior.
+  const appliedB = ChatConfig.applyProjectEnvironment('/repo/beta', { saved: false });
+  assert.equal(appliedB.systemDataPrompt, ChatConfig.DEFAULT_SYSTEM_DATA_PROMPT);
+  assert.deepEqual(appliedB.enabledTools, {});
+  assert.deepEqual(appliedB.mcpServers, []);
+  assert.equal(appliedB.browser, 'browser_action');
+
+  // Sin servidor (offline) recupera el respaldo local guardado previamente.
+  const offlineA = ChatConfig.applyProjectEnvironment('/repo/alpha');
+  assert.equal(offlineA.browser, 'playwright');
+  assert.deepEqual(offlineA.mcpServers, ['memory']);
+});

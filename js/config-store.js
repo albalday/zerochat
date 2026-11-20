@@ -58,6 +58,35 @@
     return normalized;
   }
 
+  /**
+   * Aplica el entorno del proyecto activo a la configuración en ejecución. Si el servidor entrega
+   * un entorno guardado, lo respalda; si no hay entorno guardado en el servidor o sin conexión, aplica
+   * el respaldo local (solo sin servidor) o los valores predeterminados para no arrastrar el proyecto previo.
+   */
+  function applyProjectEnvironment(projectKey, serverEnv = null) {
+    const key = String(projectKey || '').trim() || 'general';
+    let source = null;
+    if (serverEnv && typeof serverEnv === 'object') {
+      if (serverEnv.saved) source = saveProjectEnvironmentBackup(key, serverEnv);
+    } else {
+      source = getProjectEnvironment(key);
+    }
+    const patch = source
+      ? {
+          systemDataPrompt: source.systemDataPrompt === null ? DEFAULTS.systemDataPrompt : source.systemDataPrompt,
+          enabledTools: clone(source.enabledTools),
+          mcpServers: clone(source.mcpServers),
+          browser: source.browser
+        }
+      : {
+          systemDataPrompt: DEFAULTS.systemDataPrompt,
+          enabledTools: {},
+          mcpServers: [],
+          browser: DEFAULTS.browser
+        };
+    return updateRuntime(patch);
+  }
+
   const MAX_DECLINED_PROJECTS = 50;
   const MAX_PROJECT_PATH_LENGTH = 4096;
 
@@ -224,7 +253,7 @@
 
   return {
     DEFAULT_SYSTEM_DATA_PROMPT, DEFAULTS: clone(DEFAULTS), normalize,
-    normalizeProjectEnvironment, getProjectEnvironment, saveProjectEnvironmentBackup,
+    normalizeProjectEnvironment, getProjectEnvironment, saveProjectEnvironmentBackup, applyProjectEnvironment,
     initialize, getActive, updateRuntime, activateProfile, activateFallbackProfile, refreshActiveProfile, subscribe
   };
 }));

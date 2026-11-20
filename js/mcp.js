@@ -145,6 +145,7 @@
           tools: initResult.tools,
           policies: initResult.policies,
           projectContext: initResult.projectContext,
+          projectEnvironment: initResult.projectEnvironment,
           liveState: initResult.liveState
         };
       }
@@ -460,9 +461,9 @@
       this.projectSnapshot = data ? { cwd: cwd || '', data } : null;
     }
 
-    /** Respalda en almacenamiento local el entorno guardado por el servidor para `cwd` (`general` si vacío). */
-    recordProjectEnvironment(cwd, env) {
-      if (env?.saved) getConfig().saveProjectEnvironmentBackup(projectOfDirectory(cwd), env);
+    /** Aplica y respalda el entorno guardado por el servidor para `cwd` (`general` si vacío). */
+    applyProjectEnvironment(cwd, env) {
+      if (env && typeof env === 'object') getConfig().applyProjectEnvironment(projectOfDirectory(cwd), env);
     }
 
     /** Guarda el entorno de ejecución del proyecto activo en SQLite (si conectado) y en el respaldo local offline. */
@@ -664,7 +665,7 @@
      * 'disconnected' en lugar de 'error'. El latido (o la vuelta a la pestaña) vigila este destino
      * aunque falle: conecta en cuanto el servidor arranca o vuelve.
      */
-    async connectProxy({ url, proxyKey = null, timeoutMs = PROBE_TIMEOUT_MS, silentOnFailure = false, token = null }) {
+    async connectProxy({ url, proxyKey = null, timeoutMs = PROBE_TIMEOUT_MS, silentOnFailure = false, token = null, reconcile = false }) {
       if (token) this.setSessionToken(token);
       this.target = { url, proxyKey };
       this.setHeartbeatTimer(true);
@@ -701,7 +702,7 @@
       }
 
       this.recordProjectContext(probe.serverInfo?.cwd, probe.projectContext);
-      this.recordProjectEnvironment(probe.serverInfo?.cwd, probe.projectEnvironment);
+      this.applyProjectEnvironment(probe.serverInfo?.cwd, probe.projectEnvironment);
       State.set('mcp', {
         status: error ? 'error' : 'connected',
         endpoint: url,
@@ -717,6 +718,7 @@
       this.liveServers = null;
       this.liveRunning = null;
       await this.applyLiveState(probe.liveState);
+      if (reconcile) await this.reconcileProjectServers();
       if (this.profileSyncHandler && probe.liveState?.serverId) {
         await this.profileSyncHandler(probe.liveState.serverId);
       }
@@ -779,7 +781,7 @@
         this.heartbeatCheckInFlight = false;
       }
       // Fuera del bloqueo, para que connectProxy publique el estado vivo de la nueva conexión.
-      if (reconnect) await this.connectProxy({ ...this.target, silentOnFailure: true });
+      if (reconnect) await this.connectProxy({ ...this.target, silentOnFailure: true, reconcile: true });
     }
 
     /**
@@ -797,10 +799,11 @@
           return false;
         }
         this.recordProjectContext(probe.serverInfo?.cwd, probe.projectContext);
-        this.recordProjectEnvironment(probe.serverInfo?.cwd, probe.projectEnvironment);
+        this.applyProjectEnvironment(probe.serverInfo?.cwd, probe.projectEnvironment);
         getState().set('mcp', { serverInfo: probe.serverInfo });
         getSecurity().manager.applyPolicies(probe.policies);
         await this.applyLiveState(probe.liveState);
+        await this.reconcileProjectServers();
         this.onProjectLost?.({ project: lost, fallback: probe.serverInfo?.cwd || '' });
         return true;
       })().finally(() => { this.projectRecovery = null; });
@@ -879,8 +882,9 @@
       const result = await this.requestExternalControl('zerochat/project/set_directory', { path });
       this.liveStateSeq += 1;
       this.recordProjectContext(result?.cwd, result?.projectContext);
-      this.recordProjectEnvironment(result?.cwd, result?.projectEnvironment);
+      this.applyProjectEnvironment(result?.cwd, result?.projectEnvironment);
       await this.applyLiveState({ cwd: result?.cwd, policies: result?.policies });
+      await this.reconcileProjectServers();
       return result;
     }
 
@@ -1038,8 +1042,8 @@
       return getMcpExternal().withExternalServerStopped(this, serverId, action);
     }
 
-    startEnabledServers(servers) {
-      return getMcpExternal().startEnabledServers(this, servers);
+    reconcileProjectServers(appConfig, servers) {
+      return getMcpExternal().reconcileProjectServers(this, appConfig, servers);
     }
   }
 

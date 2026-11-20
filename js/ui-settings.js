@@ -233,12 +233,21 @@
       openSettingsSection(elements, appConfig, 'browser');
       return false;
     }
-    const savedConfig = getConfig().updateRuntime(gatherSettingsFormConfig(elements, appConfig, connection));
+    const rawConfig = gatherSettingsFormConfig(elements, appConfig, connection);
+    const nextPatch = appConfig.browser === 'playwright' && rawConfig.browser !== 'playwright'
+      ? { ...rawConfig, mcpServers: (appConfig.mcpServers || []).filter(id => id !== 'playwright') }
+      : rawConfig;
+    const savedConfig = getConfig().updateRuntime(nextPatch);
     await getMCP().manager.saveProjectEnvironment({
       systemDataPrompt: savedConfig.systemDataPrompt,
       enabledTools: savedConfig.enabledTools,
+      mcpServers: savedConfig.mcpServers,
       browser: savedConfig.browser
     });
+    if (getState().get('mcp').status === 'connected') {
+      getMCP().manager.reconcileProjectServers(savedConfig)
+        .catch(err => console.warn('[Settings] Could not reconcile project MCP servers:', err));
+    }
     setSettingsFormDirty(elements, false);
     callbacks.loadCachedModels();
     callbacks.onConfigSaved(savedConfig);

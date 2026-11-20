@@ -219,8 +219,9 @@ for (const outcome of ['later', 'reload', 'none', 'offline']) {
         const source = fs.readFileSync(path.resolve(__dirname, '../../js/app.js'), 'utf8');
         await route.fulfill({ contentType: 'application/javascript', body: `
           window.ChatMCP.manager.connectProxy = async () => {
+            window.ChatConfig.updateRuntime({ mcpServers: ['memory'] });
             window.ChatState.set('mcp', { status: 'connected', externalServers: [
-              { id: 'memory', enabled: true, status: 'stopped' }
+              { id: 'memory', status: 'stopped' }
             ] });
             return { success: true };
           };
