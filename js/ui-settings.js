@@ -222,12 +222,16 @@
   }
 
   async function saveCurrentSettings(elements, appConfig, callbacks) {
-    if (!await saveDirectoryRulesFromSettings(elements)) return false;
     const connection = getUIConnection().read();
     if (!connection) {
       openSettingsSection(elements, appConfig, 'connection');
       return false;
     }
+    if (!getUIBrowser().validate()) {
+      openSettingsSection(elements, appConfig, 'browser');
+      return false;
+    }
+    if (!await saveDirectoryRulesFromSettings(elements)) return false;
     await saveAllowAllFromSettings(elements);
     if (!await getUIBrowser().save()) {
       openSettingsSection(elements, appConfig, 'browser');

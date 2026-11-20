@@ -276,18 +276,22 @@
     render();
   }
 
+  function validate() {
+    const plan = getSavePlan(section, isConnected() ? playwrightStatus() : null);
+    if (!plan.tokenInvalid) return true;
+    render();
+    container.querySelector('#browser-extension-token')?.focus();
+    return false;
+  }
+
   /**
    * Guarda la configuración del navegador al guardar los ajustes; la herramienta la guarda la
    * configuración del cliente. Devuelve false si el token no es válido o el servidor rechaza la configuración.
    */
   async function save() {
+    if (!validate()) return false;
     const manager = getMCP().manager;
     const plan = getSavePlan(section, isConnected() ? playwrightStatus() : null);
-    if (plan.tokenInvalid) {
-      render();
-      container.querySelector('#browser-extension-token')?.focus();
-      return false;
-    }
     if (plan.setConfig) {
       try {
         section.savedConfig = await request('zerochat/browser/config/set', { config: section.config });
@@ -335,6 +339,6 @@
 
   return {
     getSavePlan, normalizeExtensionToken,
-    load, ensureLoaded, getTool, save, mountBrowserUI
+    load, ensureLoaded, getTool, validate, save, mountBrowserUI
   };
 });

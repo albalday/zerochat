@@ -64,16 +64,20 @@
     return String(localized(server.displayName, language) || server.id || '');
   }
 
-  function updateToolEnabledState(toolId, enabled) {
+  async function updateToolEnabledState(checkbox) {
+    const toolId = checkbox.getAttribute('data-tool-id');
+    const enabled = Boolean(checkbox.checked);
     const Config = getConfig();
+    const previous = { ...Config.getActive().enabledTools };
+    const enabledTools = { ...previous, [toolId]: enabled };
     try {
-      const enabledTools = { ...Config.getActive().enabledTools, [toolId]: enabled };
       Config.updateRuntime({ enabledTools });
-      getMCP()?.manager?.saveProjectEnvironment?.({ enabledTools })
-        ?.catch?.(error => console.warn('[MCP UI] Could not save project enabled tools:', error));
+      await getMCP()?.manager?.saveProjectEnvironment?.({ enabledTools });
       return true;
     } catch (error) {
-      console.error('[MCP UI] Error updating enabled tool state:', error);
+      console.warn('[MCP UI] Error updating enabled tool state:', error);
+      Config.updateRuntime({ enabledTools: previous });
+      checkbox.checked = !enabled;
       return false;
     }
   }
@@ -184,7 +188,7 @@
       return;
     }
     if (!target.matches('.mcp-tool-checkbox')) return;
-    updateToolEnabledState(target.getAttribute('data-tool-id'), target.checked);
+    await updateToolEnabledState(target);
   }
 
   function renderServerOptions(server, language) {

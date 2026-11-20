@@ -185,4 +185,17 @@ test('ChatConfig - applyProjectEnvironment aplica valores del proyecto, preserva
   const offlineA = ChatConfig.applyProjectEnvironment('/repo/alpha');
   assert.equal(offlineA.browser, 'playwright');
   assert.deepEqual(offlineA.mcpServers, ['memory']);
+
+  // Arranque offline sin servidor: usa general (o defaults) y no hereda lo guardado en runtimeConfigV2 del último proyecto.
+  ChatConfig.saveProjectEnvironmentBackup('general', {
+    systemDataPrompt: 'Solo general',
+    enabledTools: { search_web: true },
+    mcpServers: ['brave'],
+    browser: 'none',
+    updatedAt: 900
+  });
+  const offlineInit = ChatConfig.initialize();
+  assert.equal(offlineInit.systemDataPrompt, 'Solo general');
+  assert.deepEqual(offlineInit.mcpServers, ['brave']);
+  assert.equal(offlineInit.browser, 'none');
 });

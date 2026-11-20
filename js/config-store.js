@@ -58,6 +58,22 @@
     return normalized;
   }
 
+  function projectEnvironmentPatch(source) {
+    return source
+      ? {
+          systemDataPrompt: source.systemDataPrompt === null ? DEFAULTS.systemDataPrompt : source.systemDataPrompt,
+          enabledTools: clone(source.enabledTools),
+          mcpServers: clone(source.mcpServers),
+          browser: source.browser
+        }
+      : {
+          systemDataPrompt: DEFAULTS.systemDataPrompt,
+          enabledTools: {},
+          mcpServers: [],
+          browser: DEFAULTS.browser
+        };
+  }
+
   /**
    * Aplica el entorno del proyecto activo a la configuración en ejecución. Si el servidor entrega
    * un entorno guardado, lo respalda; si no hay entorno guardado en el servidor o sin conexión, aplica
@@ -71,20 +87,7 @@
     } else {
       source = getProjectEnvironment(key);
     }
-    const patch = source
-      ? {
-          systemDataPrompt: source.systemDataPrompt === null ? DEFAULTS.systemDataPrompt : source.systemDataPrompt,
-          enabledTools: clone(source.enabledTools),
-          mcpServers: clone(source.mcpServers),
-          browser: source.browser
-        }
-      : {
-          systemDataPrompt: DEFAULTS.systemDataPrompt,
-          enabledTools: {},
-          mcpServers: [],
-          browser: DEFAULTS.browser
-        };
-    return updateRuntime(patch);
+    return updateRuntime(projectEnvironmentPatch(source));
   }
 
   const MAX_DECLINED_PROJECTS = 50;
@@ -174,8 +177,9 @@
     try {
       fallbackProfile = Profiles.get(Profiles.READONLY_PROFILE_ID) || Profiles.list()[0] || null;
     } catch (_) { /* perfiles no disponibles: sin perfil de respaldo */ }
+    const generalPatch = projectEnvironmentPatch(getProjectEnvironment('general'));
     if (stored) {
-      const config = { ...stored, modelContextLimit: null };
+      const config = { ...stored, ...generalPatch, modelContextLimit: null };
       try {
         if (!Profiles.get(config.activeProfile?.id) && fallbackProfile) {
           return commit(applyProfile(config, fallbackProfile));
@@ -185,9 +189,10 @@
     }
 
     try {
-      return fallbackProfile ? activateProfile(fallbackProfile.id) : commit(DEFAULTS);
+      const base = fallbackProfile ? applyProfile(DEFAULTS, fallbackProfile) : DEFAULTS;
+      return commit({ ...base, ...generalPatch });
     } catch (_) {
-      return commit(DEFAULTS);
+      return commit({ ...DEFAULTS, ...generalPatch });
     }
   }
 

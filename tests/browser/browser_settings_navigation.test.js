@@ -224,4 +224,52 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       });
     });
   });
+
+  test('Browser UI - un error al guardar navegador no persiste permisos parciales y un fallo en MCP revierte el interruptor', async () => {
+    await withTestApp({ viewport: { width: 1280, height: 800 } }, async page => {
+      page.setDefaultTimeout(5000);
+      await page.evaluate(() => {
+        window.__securityUpdateCalls = 0;
+        window.ChatMCP.manager.clients.set('mcp_proxy', {
+          async request(method) {
+            if (method === 'zerochat/security/update') {
+              window.__securityUpdateCalls += 1;
+              return { policies: { allowAll: false, tools: {}, servers: {}, directoryRules: ['RWX:/p/**'], commandPatterns: { global: [], project: [], session: [] } } };
+            }
+            if (method === 'zerochat/browser/engines/list') {
+              return { config: { mode: 'user', engine: 'chromium', userBrowser: 'chrome', headless: true, extensionToken: '' }, engines: [{ id: 'chromium', installed: true }], systemBrowsers: { chrome: true }, extensions: {} };
+            }
+            if (method === 'zerochat/project/environment/set') {
+              window.__envSetFailed = true;
+              throw new Error('backend save failed');
+            }
+            return {};
+          }
+        });
+        window.ChatToolSecurity.manager.setMcpClient(window.ChatMCP.manager.clients.get('mcp_proxy'));
+        window.ChatState.set('mcp', {
+          status: 'connected',
+          serverInfo: { name: 'ZeroChat', cwd: '/p' },
+          playwright: { installed: true, browserAction: { available: true } },
+          tools: [{ name: 'mcp_demo_read', description: 'Lee', defaultEnabled: true, inputSchema: { type: 'object', properties: {} }, metadata: { mcpServerName: 'demo', originalName: 'read' } }]
+        });
+        window.ChatToolSecurity.manager.applyPolicies({ allowAll: false, directoryRules: ['RWX:/p/**'] });
+      });
+
+      // Cambiar permiso + token de extensión inválido en Navegador: no debe enviar zerochat/security/update.
+      await openSettings(page, 'permissions');
+      await page.fill('#mcp-directory-rules', 'R:/p/**');
+      await openSettings(page, 'browser');
+      await page.locator('input[name="browser-tool"][value="playwright"]').check();
+      await page.fill('#browser-extension-token', 'token invalido!');
+      await page.click('#btn-save-settings');
+      assert.equal(await page.evaluate(() => document.getElementById('settings-dialog').open), true);
+      assert.equal(await page.evaluate(() => window.__securityUpdateCalls), 0, 'Permisos no se guardan si Navegador falla validación');
+
+      // Fallo al persistir interruptor en Ajustes › MCP revierte estado y checkbox.
+      await openSettings(page, 'mcp');
+      await page.locator('#mcp-tools-container .mcp-tool-card input[type="checkbox"]').first().evaluate(input => input.click());
+      await page.waitForFunction(() => window.__envSetFailed && document.querySelector('#mcp-tools-container .mcp-tool-card input[type="checkbox"]')?.checked === true && window.ChatConfig.getActive().enabledTools.mcp_demo_read === undefined);
+    });
+  });
 });
