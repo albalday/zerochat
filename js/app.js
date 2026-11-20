@@ -367,8 +367,11 @@
 
   const messageCallbacks = {
     onReuse: text => resetComposerInput(text),
-    onDelete: wrapper => UIConversation.removeMessage(wrapper, {
-      messagesList: elements.messagesList, welcomeBanner: elements.welcomeBanner, saveSession: saveCurrentSession
+    onDelete: () => UIConversation.removeLastTurn({
+      messagesList: elements.messagesList,
+      welcomeBanner: elements.welcomeBanner,
+      saveSession: saveCurrentSession,
+      onReuse: text => resetComposerInput(text)
     }),
     onBranch: createConversationBranch,
     onToolAuthorization: handleHistoricalToolAuthorization

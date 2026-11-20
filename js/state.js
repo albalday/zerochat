@@ -364,25 +364,14 @@
     /**
      * Elimina un turno de conversación y sanea tool calls y respuestas huérfanas.
      */
-    function removeTurn(criteria = {}) {
-      if (isConversationBusy()) return { ok: false, reason: 'generation-active', removedCount: 0 };
+    function removeLastTurn() {
+      if (isConversationBusy()) return { ok: false, reason: 'generation-active', removedCount: 0, removedPrompt: '' };
       const currentMessages = state.messages;
-      const initialCount = currentMessages.length;
-
-      let filtered;
-      if (typeof criteria === 'function') {
-        filtered = currentMessages.filter((m, idx) => !criteria(m, idx));
-      } else {
-        const msgId = criteria.msgId || '';
-        const baseId = criteria.baseId || MessageTurns.extractBaseId(msgId);
-        filtered = MessageTurns.removeSelectedTurn(currentMessages, { ...criteria, msgId, baseId });
-      }
-
-      const removedCount = initialCount - filtered.length;
+      const { messages, removedPrompt, removedCount } = MessageTurns.removeLastTurn(currentMessages);
       if (removedCount > 0) {
-        setState({ messages: filtered });
+        setState({ messages });
       }
-      return { ok: true, removedCount, messages: getState().messages };
+      return { ok: true, removedCount, removedPrompt, messages: getState().messages };
     }
 
     /** Copia del listado con `sessionMeta` fusionada en su sesión o, si no está, al principio. */
@@ -594,7 +583,7 @@
       replaceConversation,
       appendMessage,
       replaceMessages,
-      removeTurn,
+      removeLastTurn,
       saveSessionMetadata,
       removeSession,
       importConversation,
@@ -624,7 +613,7 @@
     replaceConversation: defaultStore.replaceConversation,
     appendMessage: defaultStore.appendMessage,
     replaceMessages: defaultStore.replaceMessages,
-    removeTurn: defaultStore.removeTurn,
+    removeLastTurn: defaultStore.removeLastTurn,
     saveSessionMetadata: defaultStore.saveSessionMetadata,
     removeSession: defaultStore.removeSession,
     importConversation: defaultStore.importConversation,

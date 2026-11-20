@@ -300,8 +300,7 @@
       // Mensajes del chat y acciones
       btn_reuse_title: 'Colocar mensaje en la caja de texto',
       btn_delete: 'Borrar',
-      btn_delete_usr_title: 'Eliminar esta pregunta',
-      btn_delete_ast_title: 'Eliminar esta respuesta',
+      btn_undo_last_turn_title: 'Deshacer último turno',
       btn_copy_title: 'Copiar respuesta completa al portapapeles',
       btn_copy_user_title: 'Copiar mensaje al portapapeles',
       btn_branch_title: 'Crear una rama desde esta respuesta',
@@ -315,7 +314,7 @@
       chat_branch_summary_title: 'Contexto previo resumido',
       chat_branch_summary_failed: 'No se pudo generar el resumen del contexto. ¿Deseas bifurcar con el historial completo?',
       copied_text: '¡Copiado!',
-      msg_deleted_log: 'Mensaje [{id}] eliminado de la memoria y la interfaz ({count} turnos retirados).',
+      msg_deleted_log: 'Último turno eliminado de la memoria y la interfaz ({count} mensajes retirados).',
 
       // Estadísticas
       stat_ttft: '1º token: {sec}s',
@@ -1255,8 +1254,7 @@
       // Mensajes del chat y acciones
       btn_reuse_title: 'Put message into the input box',
       btn_delete: 'Delete',
-      btn_delete_usr_title: 'Delete this question',
-      btn_delete_ast_title: 'Delete this response',
+      btn_undo_last_turn_title: 'Undo last turn',
       btn_copy_title: 'Copy full response to clipboard',
       btn_copy_user_title: 'Copy message to clipboard',
       btn_branch_title: 'Create a branch from this response',
@@ -1270,7 +1268,7 @@
       chat_branch_summary_title: 'Summarized previous context',
       chat_branch_summary_failed: 'Could not generate context summary. Do you want to branch with full history?',
       copied_text: 'Copied!',
-      msg_deleted_log: 'Message [{id}] removed from memory and UI ({count} turns cleared).',
+      msg_deleted_log: 'Last turn removed from memory and UI ({count} messages cleared).',
 
       // Estadísticas
       stat_ttft: '1st token: {sec}s',

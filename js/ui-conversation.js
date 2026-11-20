@@ -323,7 +323,7 @@
 
   /**
    * Mensajes del historial que representa un wrapper: su id, el id base de su turno y, en un grupo
-   * del asistente, los ids de todos sus mensajes. Es la referencia que reciben State.removeTurn y
+   * del asistente, los ids de todos sus mensajes. Es la referencia que recibe
    * ChatConversationService.createConversationBranch.
    */
   function getMessageRef(wrapper) {
@@ -343,20 +343,34 @@
   }
 
   /** Borra el turno del mensaje y, si queda la conversación vacía, vuelve a mostrar la bienvenida. */
-  function removeMessage(wrapper, { messagesList, welcomeBanner, saveSession }) {
+  function syncLastTurnDeleteButtons(container) {
+    const wrappers = [...container.querySelectorAll('.message-wrapper:not(.server-run-live-wrapper)')];
+    const lastUserIdx = wrappers.findLastIndex(el => el.classList.contains('user'));
+    wrappers.forEach((el, idx) => {
+      const btn = el.querySelector('.btn-delete');
+      if (btn) btn.hidden = lastUserIdx < 0 || idx < lastUserIdx;
+    });
+  }
+
+  function removeLastTurn({ messagesList, welcomeBanner, saveSession, onReuse }) {
     const State = getState();
     if (State.isConversationBusy()) return;
 
-    const { msgId, baseId, explicitIds } = getMessageRef(wrapper);
-    const result = State.removeTurn({ msgId, baseId, explicitIds });
+    const result = State.removeLastTurn();
     if (!result.ok || result.removedCount === 0) return;
 
-    wrapper.remove();
-    getDebug().addLog('system', t('msg_deleted_log', { id: msgId || baseId, count: result.removedCount }));
+    const wrappers = [...messagesList.querySelectorAll('.message-wrapper:not(.server-run-live-wrapper)')];
+    const lastUserIdx = wrappers.findLastIndex(el => el.classList.contains('user'));
+    if (lastUserIdx >= 0) {
+      for (let i = lastUserIdx; i < wrappers.length; i++) wrappers[i].remove();
+    }
+    syncLastTurnDeleteButtons(messagesList);
+    getDebug().addLog('system', t('msg_deleted_log', { count: result.removedCount }));
     if (!messagesList.querySelector('.message-wrapper')) {
       messagesList.appendChild(welcomeBanner);
       welcomeBanner.hidden = false;
     }
+    if (result.removedPrompt) onReuse?.(result.removedPrompt);
     saveSession();
   }
 
@@ -439,10 +453,11 @@
     actions.append(
       createActionButton(doc, { icon: 'edit', titleKey: 'btn_reuse_title', onClick: () => onReuse(originalPrompt || text) }),
       btnCopy,
-      createActionButton(doc, { className: 'btn-delete', icon: 'trash', titleKey: 'btn_delete_usr_title', onClick: () => onDelete(wrapper) })
+      createActionButton(doc, { className: 'btn-delete', icon: 'trash', titleKey: 'btn_undo_last_turn_title', onClick: () => onDelete() })
     );
 
     insertMessage(container, wrapper, !existingMsgId, { force: true });
+    syncLastTurnDeleteButtons(container);
     return msgId;
   }
 
@@ -464,10 +479,11 @@
     actions.append(
       btnBranch,
       btnCopy,
-      createActionButton(doc, { className: 'btn-delete', icon: 'trash', titleKey: 'btn_delete_ast_title', onClick: () => onDelete(wrapper) })
+      createActionButton(doc, { className: 'btn-delete', icon: 'trash', titleKey: 'btn_undo_last_turn_title', onClick: () => onDelete() })
     );
 
     insertMessage(container, wrapper, !existingMsgId);
+    syncLastTurnDeleteButtons(container);
     return { wrapper, content, footerRow, actions, btnCopy, statsContainer, msgId: wrapper.getAttribute('data-msg-id') };
   }
 
@@ -640,7 +656,7 @@
     mountScrollToBottomButton,
     showTypingIndicator,
     removeTypingIndicator,
-    removeMessage,
+    removeLastTurn,
     appendUserMessage,
     createAssistantMessagePlaceholder,
     renderLiveServerRun,

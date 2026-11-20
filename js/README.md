@@ -39,7 +39,7 @@ Este documento contiene las especificaciones técnicas y normas de desarrollo pa
   * `ui`: estado transitorio de la interfaz.
   * `mcp`: herramientas locales y servicios MCP activos.
   * `project`: contexto y normas del proyecto local.
-* **Mutadores atómicos:** Prohibido usar variables globales mutables de módulo que provoquen fugas entre conversaciones. Cualquier cambio de estado debe realizarse exclusivamente a través de los mutadores de dominio específicos (`appendMessage`, `replaceMessages`, `removeTurn`, `saveSessionMetadata`, `removeSession`, `replaceConversation`, `importConversation`, `setAttachments`, etc.).
+* **Mutadores atómicos:** Prohibido usar variables globales mutables de módulo que provoquen fugas entre conversaciones. Cualquier cambio de estado debe realizarse exclusivamente a través de los mutadores de dominio específicos (`appendMessage`, `replaceMessages`, `removeLastTurn`, `saveSessionMetadata`, `removeSession`, `replaceConversation`, `importConversation`, `setAttachments`, etc.).
 
 ---
 

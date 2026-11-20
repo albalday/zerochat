@@ -107,22 +107,24 @@ test('ChatState - replaceConversation e importConversation activan una conversac
   assert.equal(store.get('sessions').activeId, 'imported_sess');
 });
 
-test('ChatState - removeTurn y removeSession respetan estado ocupado, tool calls e IDs fuera de lista', () => {
+test('ChatState - removeLastTurn y removeSession respetan estado ocupado y retiran el último turno entero', () => {
   const store = ChatState.createStore();
   store.replaceMessages([
     { id: 'u1', role: 'user', content: 'Consulta' },
-    { id: 'a1', role: 'assistant', content: null, tool_calls: [{ id: 'call_1', function: { name: 'search_web' } }] },
-    { id: 't1', role: 'tool', tool_call_id: 'call_1', name: 'search_web', content: 'Resultados' },
-    { id: 'a1_final', role: 'assistant', content: 'Respuesta basada en búsqueda' },
-    { id: 'u2', role: 'user', content: 'Siguiente pregunta' }
+    { id: 'a1', role: 'assistant', content: 'Primera respuesta' },
+    { id: 'u2', role: 'user', content: 'Siguiente pregunta' },
+    { id: 'a2', role: 'assistant', content: null, tool_calls: [{ id: 'call_1', function: { name: 'search_web' } }] },
+    { id: 't2', role: 'tool', tool_call_id: 'call_1', name: 'search_web', content: 'Resultados' },
+    { id: 'a2_final', role: 'assistant', content: 'Respuesta basada en búsqueda' }
   ]);
-  const res = store.removeTurn({ baseId: 'a1' });
+  const res = store.removeLastTurn();
   assert.equal(res.ok, true);
-  assert.equal(res.removedCount, 3);
-  assert.deepEqual(store.get('messages').map(m => m.id), ['u1', 'u2']);
+  assert.equal(res.removedCount, 4);
+  assert.equal(res.removedPrompt, 'Siguiente pregunta');
+  assert.deepEqual(store.get('messages').map(m => m.id), ['u1', 'a1']);
 
   store.set('streaming', { isGenerating: true });
-  assert.deepEqual(store.removeTurn({ baseId: 'u2' }), { ok: false, reason: 'generation-active', removedCount: 0 });
+  assert.deepEqual(store.removeLastTurn(), { ok: false, reason: 'generation-active', removedCount: 0, removedPrompt: '' });
   assert.equal(store.get('messages').length, 2);
   store.set('streaming', { isGenerating: false });
 
