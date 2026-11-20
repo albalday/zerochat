@@ -426,6 +426,8 @@
       tool_no_output: 'Sin salida',
 
       // Modal de Configuración
+      settings_group_global: 'Global',
+      settings_group_project: 'Proyecto: {name}',
       settings_agent: 'Agente',
       settings_model: 'Modelo',
       settings_inspector: 'Inspector',
@@ -1381,6 +1383,8 @@
       tool_no_output: 'No output',
 
       // Modal de Configuración
+      settings_group_global: 'Global',
+      settings_group_project: 'Project: {name}',
       settings_agent: 'Agent',
       settings_model: 'Model',
       settings_inspector: 'Inspector',

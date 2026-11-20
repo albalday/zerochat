@@ -90,8 +90,31 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       await openSettings(page, 'permissions');
       assert.equal(await page.locator('#mcp-directory-rules-project').isVisible(), true);
       assert.equal(await page.textContent('#mcp-directory-rules-project'), 'Proyecto: workspace');
+      assert.equal(await page.textContent('#sidebar-settings-project-label'), 'Proyecto: workspace');
+      assert.equal(await page.textContent('#settings-project-badge'), 'Proyecto: workspace');
       assert.equal(await page.getAttribute('#mcp-directory-rules-project', 'title'), '/workspace');
       assert.equal(await page.inputValue('#mcp-directory-rules'), 'R:/workspace/**\nW:/tmp', 'El campo muestra las reglas guardadas editables');
+
+      assert.deepEqual(
+        await page.$$eval('.sidebar-settings-project-group .sidebar-settings-item', els => els.map(el => el.dataset.section)),
+        ['model', 'agent', 'mcp', 'browser', 'permissions'],
+        'El bloque de proyecto agrupa exactamente las cinco secciones de proyecto'
+      );
+      assert.equal(await page.locator('.sidebar-settings-project-group [data-section="encryption"]').count(), 0);
+      assert.equal(await page.locator('.sidebar-settings-project-group [data-section="rag"]').count(), 0);
+
+      // En una sección global como Conexión, el distintivo de proyecto en cabecera se oculta.
+      await page.click('#btn-close-settings');
+      await page.waitForFunction(() => !document.getElementById('settings-dialog').open);
+      await page.click('#btn-sidebar-back-to-chats');
+      await page.click('#btn-open-connection');
+      await page.waitForFunction(() => {
+        const dlg = document.getElementById('settings-dialog');
+        return dlg && dlg.open && document.getElementById('settings-connection')?.classList.contains('active');
+      });
+      assert.equal(await page.locator('#settings-project-badge').isVisible(), false);
+      await page.click('#btn-close-settings');
+      await page.waitForFunction(() => !document.getElementById('settings-dialog').open);
 
       // Simular cambio de directorio del proyecto
       await page.evaluate(() => {
@@ -100,6 +123,8 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       });
       await openSettings(page, 'permissions');
       assert.equal(await page.textContent('#mcp-directory-rules-project'), 'Proyecto: workspace-nuevo');
+      assert.equal(await page.textContent('#sidebar-settings-project-label'), 'Proyecto: workspace-nuevo');
+      assert.equal(await page.textContent('#settings-project-badge'), 'Proyecto: workspace-nuevo');
       assert.equal(await page.getAttribute('#mcp-directory-rules-project', 'title'), '/workspace-nuevo');
       assert.equal(await page.inputValue('#mcp-directory-rules'), 'RWX:/workspace-nuevo/**', 'La regla del proyecto cambia tras cambio de directorio');
 

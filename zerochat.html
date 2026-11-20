@@ -161,6 +161,7 @@
       </div>
 
       <nav id="sidebar-settings-nav" class="sidebar-settings-nav" aria-label="Secciones de Configuración">
+        <div class="sidebar-settings-group-label" data-i18n="settings_group_global">Global</div>
         <!-- Elección 1: Idioma -->
         <div class="sidebar-settings-choice" id="sidebar-choice-language">
           <span class="settings-item-icon">
@@ -189,21 +190,11 @@
           </div>
         </div>
 
-        <!-- Secciones de panel -->
-        <button type="button" class="sidebar-settings-item" data-section="model">
+        <button type="button" class="sidebar-settings-item" data-section="encryption">
           <span class="settings-item-icon">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg>
+            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-shield"></use></svg>
           </span>
-          <span class="settings-item-label" data-i18n="settings_model">Modelo</span>
-          <span class="settings-item-chevron">
-            <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
-          </span>
-        </button>
-        <button type="button" class="sidebar-settings-item" data-section="agent">
-          <span class="settings-item-icon">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-bot"></use></svg>
-          </span>
-          <span class="settings-item-label" data-i18n="settings_agent">Agente</span>
+          <span class="settings-item-label" data-i18n="settings_encryption">Cifrado</span>
           <span class="settings-item-chevron">
             <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
           </span>
@@ -217,42 +208,57 @@
             <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
           </span>
         </button>
-        <button type="button" class="sidebar-settings-item" data-section="mcp">
-          <span class="settings-item-icon">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-server"></use></svg>
-          </span>
-          <span class="settings-item-label" data-i18n="settings_mcp">MCP</span>
-          <span class="settings-item-chevron">
-            <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
-          </span>
-        </button>
-        <button type="button" class="sidebar-settings-item" data-section="browser">
-          <span class="settings-item-icon">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-globe"></use></svg>
-          </span>
-          <span class="settings-item-label" data-i18n="settings_browser">Navegador</span>
-          <span class="settings-item-chevron">
-            <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
-          </span>
-        </button>
-        <button type="button" class="sidebar-settings-item" data-section="permissions">
-          <span class="settings-item-icon">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-shield"></use></svg>
-          </span>
-          <span class="settings-item-label" data-i18n="settings_permissions">Permisos</span>
-          <span class="settings-item-chevron">
-            <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
-          </span>
-        </button>
-        <button type="button" class="sidebar-settings-item" data-section="encryption">
-          <span class="settings-item-icon">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-shield"></use></svg>
-          </span>
-          <span class="settings-item-label" data-i18n="settings_encryption">Cifrado</span>
-          <span class="settings-item-chevron">
-            <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
-          </span>
-        </button>
+
+        <!-- Bloque de entorno del proyecto activo -->
+        <div class="sidebar-settings-project-group">
+          <div class="sidebar-settings-group-label sidebar-settings-project-label" id="sidebar-settings-project-label">Proyecto: general</div>
+          <button type="button" class="sidebar-settings-item" data-section="model">
+            <span class="settings-item-icon">
+              <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg>
+            </span>
+            <span class="settings-item-label" data-i18n="settings_model">Modelo</span>
+            <span class="settings-item-chevron">
+              <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
+            </span>
+          </button>
+          <button type="button" class="sidebar-settings-item" data-section="agent">
+            <span class="settings-item-icon">
+              <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-bot"></use></svg>
+            </span>
+            <span class="settings-item-label" data-i18n="settings_agent">Agente</span>
+            <span class="settings-item-chevron">
+              <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
+            </span>
+          </button>
+          <button type="button" class="sidebar-settings-item" data-section="mcp">
+            <span class="settings-item-icon">
+              <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-server"></use></svg>
+            </span>
+            <span class="settings-item-label" data-i18n="settings_mcp">MCP</span>
+            <span class="settings-item-chevron">
+              <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
+            </span>
+          </button>
+          <button type="button" class="sidebar-settings-item" data-section="browser">
+            <span class="settings-item-icon">
+              <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-globe"></use></svg>
+            </span>
+            <span class="settings-item-label" data-i18n="settings_browser">Navegador</span>
+            <span class="settings-item-chevron">
+              <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
+            </span>
+          </button>
+          <button type="button" class="sidebar-settings-item" data-section="permissions">
+            <span class="settings-item-icon">
+              <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-shield"></use></svg>
+            </span>
+            <span class="settings-item-label" data-i18n="settings_permissions">Permisos</span>
+            <span class="settings-item-chevron">
+              <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
+            </span>
+          </button>
+        </div>
+
         <a id="sidebar-settings-help" class="sidebar-settings-item" href="help/index.html" target="_blank" rel="noopener noreferrer" data-i18n-href="sidebar_help_href">
           <span class="settings-item-icon">
             <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg>

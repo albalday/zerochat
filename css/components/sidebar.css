@@ -85,6 +85,34 @@
   min-height: 0;
 }
 
+.sidebar-settings-group-label {
+  padding: 0.35rem 0.85rem 0.15rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-settings-project-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0.35rem 0;
+  padding: 0.35rem 0.25rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-subtle);
+}
+
+.sidebar-settings-project-label {
+  color: var(--primary);
+  padding-top: 0.2rem;
+}
+
 
 .sidebar-settings-item {
   display: flex;

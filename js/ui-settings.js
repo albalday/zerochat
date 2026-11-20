@@ -10,7 +10,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
-  const { resolveDep, escapeHtml, projectName } = Utils;
+  const { resolveDep, escapeHtml, projectName, NO_PROJECT_NAME } = Utils;
   const { t } = I18n;
 
   const getState = () => resolveDep('ChatState', './state.js');
@@ -27,6 +27,7 @@
   const getUIConnection = () => resolveDep('ChatUIConnection', './ui-connection.js');
 
   const SECTION_TITLES = { model: 'settings_model', agent: 'settings_agent', connection: 'settings_connection', mcp: 'settings_mcp', browser: 'settings_browser', permissions: 'settings_permissions' };
+  const PROJECT_SECTIONS = new Set(['model', 'agent', 'mcp', 'browser', 'permissions']);
 
   const markActive = (buttons, attribute, value) => buttons.forEach(button => button.classList.toggle('active', button.getAttribute(attribute) === value));
 
@@ -42,7 +43,7 @@
   function applyLanguage(elements, lang) {
     const target = I18n.setLanguage(lang === 'en' ? 'en' : 'es');
     markActive(elements.langButtons, 'data-lang', target);
-    syncDirectoryRulesProject(elements);
+    syncProjectScopeLabels(elements);
     return target;
   }
 
@@ -95,14 +96,39 @@
     };
   }
 
+  function activeProjectScope() {
+    const mcp = getState().get('mcp');
+    const cwd = mcp.status === 'connected' ? String(mcp.serverInfo?.cwd || '').trim() : '';
+    const noProjectDir = mcp.status === 'connected' ? String(mcp.serverInfo?.noProjectDir || '').trim() : '';
+    const name = !cwd || cwd === noProjectDir ? NO_PROJECT_NAME : projectName(cwd);
+    return { cwd, name };
+  }
+
   /** Muestra el proyecto al que pertenecen las reglas de directorio mostradas en Ajustes. */
   function syncDirectoryRulesProject(elements) {
     const badge = elements.mcpDirectoryRulesProject;
+    if (!badge) return;
     const mcp = getState().get('mcp');
     const cwd = mcp.status === 'connected' ? String(mcp.serverInfo?.cwd || '').trim() : '';
     badge.textContent = cwd ? t('mcp_directory_rules_project', { name: projectName(cwd) }) : '';
     badge.title = cwd;
     badge.hidden = !cwd;
+  }
+
+  /** Identifica el proyecto activo tanto en el menú de Ajustes como en el título del diálogo de sección. */
+  function syncProjectScopeLabels(elements) {
+    const { cwd, name } = activeProjectScope();
+    if (elements.sidebarSettingsProjectLabel) {
+      elements.sidebarSettingsProjectLabel.textContent = t('settings_group_project', { name });
+      elements.sidebarSettingsProjectLabel.title = cwd;
+    }
+    if (elements.settingsProjectBadge) {
+      const inProjectSection = PROJECT_SECTIONS.has(elements.settingsDialog?.dataset?.section || '');
+      elements.settingsProjectBadge.textContent = t('mcp_directory_rules_project', { name });
+      elements.settingsProjectBadge.title = cwd;
+      elements.settingsProjectBadge.hidden = !inProjectSection;
+    }
+    syncDirectoryRulesProject(elements);
   }
 
   /** Pinta el interruptor permitir todo del proyecto y las reglas de directorios guardadas en ChatToolSecurity. */
@@ -136,15 +162,14 @@
     } else if (targetId === 'browser') {
       getUIBrowser().ensureLoaded();
     }
-    syncDirectoryRulesProject(elements);
     getUIMcp().syncSecurityControls();
-
     elements.settingsDialog.querySelectorAll('.settings-section-pane').forEach(section => {
       section.classList.toggle('active', section.id === `settings-${targetId}`);
     });
     elements.settingsDialog.dataset.section = targetId;
     elements.settingsSectionTitle.setAttribute('data-i18n', SECTION_TITLES[targetId]);
     elements.settingsSectionTitle.textContent = t(SECTION_TITLES[targetId]);
+    syncProjectScopeLabels(elements);
     getSidebar().setActiveSettingsSection(elements, targetId);
 
     if (!elements.settingsDialog.open) elements.settingsDialog.showModal();
@@ -261,6 +286,7 @@
     return `<div class="modal-header settings-section-header">
       <div class="modal-title">
         <h3 id="settings-section-title" data-i18n="settings_model">Modelo</h3>
+        <span id="settings-project-badge" class="settings-project-badge" hidden></span>
       </div>
       <div class="settings-header-actions">
         <button type="submit" form="settings-form" id="btn-save-settings" class="btn-primary btn-save-header" data-i18n-title="btn_save" title="Guardar configuración" aria-label="Guardar">
@@ -493,6 +519,7 @@ zerochat</code></pre>
   return {
     applyTheme,
     applyLanguage,
+    syncProjectScopeLabels,
     openSettingsSection,
     closeSettingsModal,
     ensureDialogMarkup,

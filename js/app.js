@@ -51,6 +51,7 @@
     btnSidebarBackToChats: 'btn-sidebar-back-to-chats',
     btnCloseSidebarSettings: 'btn-close-sidebar-settings',
     sidebarSettingsNav: 'sidebar-settings-nav',
+    sidebarSettingsProjectLabel: 'sidebar-settings-project-label',
     sidebarEncryptionNav: 'sidebar-encryption-nav',
     sidebarRagNav: 'sidebar-rag-nav',
     sidebarSettingsFooter: 'sidebar-settings-footer',
@@ -154,6 +155,7 @@
     settingsDialog: 'settings-dialog',
     settingsForm: 'settings-form',
     settingsSectionTitle: 'settings-section-title',
+    settingsProjectBadge: 'settings-project-badge',
     btnCloseSettings: 'btn-close-settings',
     btnSaveSettings: 'btn-save-settings',
     btnClearAllData: 'btn-clear-all-data',
@@ -582,7 +584,8 @@
     elements.sidebarEncryptionNav.hidden = nav !== 'encryption';
     elements.sidebarRagNav.hidden = nav !== 'rag';
     elements.sidebarSettingsFooter.hidden = nav !== 'settings';
-    if (nav !== 'settings') UISidebar.setActiveSettingsSection(elements, '');
+    if (nav === 'settings') UISettings.syncProjectScopeLabels(elements);
+    else UISidebar.setActiveSettingsSection(elements, '');
   }
 
   function openSettingsSection(sectionId = 'model') {
@@ -834,6 +837,7 @@
     State.subscribe(state => ({ status: state.mcp.status, cwd: state.mcp.status === 'connected' ? state.mcp.serverInfo?.cwd || '' : '' }), () => {
       renderSidebarChats();
       updateNewTabLink();
+      UISettings.syncProjectScopeLabels(elements);
     });
     const syncSidebarSyncButton = status => { elements.btnSyncChats.hidden = status !== 'connected'; };
     State.subscribe(state => state.mcp.status, syncSidebarSyncButton);
